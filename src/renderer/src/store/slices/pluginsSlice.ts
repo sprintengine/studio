@@ -4,7 +4,7 @@ import type {
 } from '../../types/workspace'
 
 // `resumeCapabilitiesForCli` moved to the shared resume-capability module
-// (sprint-runtime-ownership Phase 2: main-process consumers resolve caps from
+// (MC-2160: main-process consumers resolve caps from
 // the same catalog shape); this re-export keeps every existing import site
 // working unchanged.
 export { resumeCapabilitiesForCli } from '../../../../shared/agent-cli-resume'

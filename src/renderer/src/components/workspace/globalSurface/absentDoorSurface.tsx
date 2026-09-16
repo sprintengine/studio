@@ -17,7 +17,7 @@ import { EXTENSIONS_DRAWER_VIEWS, type ExtensionsDrawerView } from './extensions
 
 /**
  * The open door's human name: the label the surface registered, or — for a door
- * that names itself through its own nav-entry row instead (Sprints), and for an
+ * that names itself through its own nav-entry row instead, and for an
  * id whose surface never registered at all — the capitalised id. A registered
  * label is preferred because the two genuinely differ: the `extensions` surface
  * is called Plugins everywhere a person can read it.

@@ -21,7 +21,7 @@ export const backlogRendererModule: RendererModule = {
   registerRenderer(host) {
     // The workspace pane's Backlog tab renders this panel; it is the one
     // Backlog surface. The instance-level Backlog door that used to sit beside
-    // it (T9, the top-nav row after Sprints) retired on 2026-09-05: with the
+    // it (T9, a top-nav row of its own) retired on 2026-09-05: with the
     // Backlog a pane tab beside the chat, a second full-page copy of the same
     // list was a second home for one idea.
     host.registerPanel('backlog', BacklogPanel)

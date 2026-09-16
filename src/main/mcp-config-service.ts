@@ -25,7 +25,6 @@ import {
   normalizeMcpClients,
   normalizeMcpServerConfig,
   normalizeServer,
-  normalizeStringRecord,
 } from '../shared/mcp/normalize-server'
 import { pluginIdForCli } from './agent-launch-render'
 import { commandOnPath } from './command-on-path'
@@ -36,54 +35,41 @@ export { normalizeMcpClients, normalizeMcpServerConfig }
 
 const MANAGED_START = '# >>> multicode mcp managed'
 const MANAGED_END = '# <<< multicode mcp managed'
-export const MANAGED_SPRINTENGINE_MCP_SERVER_ID = 'multicode-sprintengine'
-const MANAGED_MISSING_COMMAND_PREFIX = '__missing_multicode_sprintengine_mcp__:'
 
 export type PluginLookup = (id: string) => { manifest: PluginManifest } | undefined
 
 export type McpConfigService = {
   previewSync(input: McpSyncInput): McpSyncPreview
   sync(input: McpSyncInput): McpSyncResult
-  removeManagedSprintEngine(input: McpManagedSprintEngineRemoveInput): McpSyncResult
 }
 
 export type McpConfigServiceOptions = {
   lookupPlugin?: PluginLookup
   homeDir?: () => string
   userDataDir?: () => string
-  runtimeRoot?: () => string | null
 }
 
 export function createMcpConfigService(options: McpConfigServiceOptions = {}): McpConfigService {
   const lookupPlugin: PluginLookup = options.lookupPlugin ?? ((id) => getPluginById(id))
   const homeDir = options.homeDir ?? (() => homedir())
   const userDataDir = options.userDataDir ?? (() => defaultUserDataDir(homeDir))
-  const runtimeRoot = options.runtimeRoot ?? findSprintEngineRuntimeRoot
   return {
-    previewSync: (input) => syncMcpConfig({ ...input, write: false }, { lookupPlugin, homeDir, userDataDir, runtimeRoot }),
-    sync: (input) => syncMcpConfig({ ...input, write: true }, { lookupPlugin, homeDir, userDataDir, runtimeRoot }),
-    removeManagedSprintEngine: (input) => removeManagedSprintEngineConfig(input, { lookupPlugin, homeDir, userDataDir, runtimeRoot }),
+    previewSync: (input) => syncMcpConfig({ ...input, write: false }, { lookupPlugin, homeDir, userDataDir }),
+    sync: (input) => syncMcpConfig({ ...input, write: true }, { lookupPlugin, homeDir, userDataDir }),
   }
-}
-
-type McpManagedSprintEngineRemoveInput = {
-  workspaceRoot: string
-  clients?: McpClientTarget[]
 }
 
 type SyncContext = {
   lookupPlugin: PluginLookup
   homeDir: () => string
   userDataDir: () => string
-  runtimeRoot: () => string | null
 }
 
 function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult {
-  const managedServer = buildManagedSprintEngineServer(input)
-  const settings = normalizeSettings(input.settings, managedServer)
+  const settings = normalizeSettings(input.settings)
   const clients = normalizeMcpClients(input.clients)
   const issues: McpValidationIssue[] = []
-  if (!settings.syncEnabled && !managedServer) {
+  if (!settings.syncEnabled) {
     return { ok: true, targets: [], issues }
   }
   if (!input.workspaceRoot || !existsSync(input.workspaceRoot)) {
@@ -168,109 +154,6 @@ function syncMcpConfig(input: McpSyncInput, context: SyncContext): McpSyncResult
   return { ok: true, targets, issues }
 }
 
-function removeManagedSprintEngineConfig(input: McpManagedSprintEngineRemoveInput, context: SyncContext): McpSyncResult {
-  const clients = normalizeMcpClients(input.clients)
-  const issues: McpValidationIssue[] = []
-  if (!input.workspaceRoot || !existsSync(input.workspaceRoot)) {
-    return { ok: false, message: 'Workspace root does not exist.', issues }
-  }
-
-  const targets: McpSyncTarget[] = []
-  for (const client of clients) {
-    const pluginId = pluginIdForCli(client)
-    const plugin = context.lookupPlugin(pluginId)
-    if (!plugin?.manifest.mcpConfig || plugin.manifest.capabilities.mcpServers !== true) continue
-    const formatTargets = syncForFormat({
-      client,
-      plugin: plugin.manifest,
-      workspaceRoot: input.workspaceRoot,
-      servers: [],
-      knownServerIds: [MANAGED_SPRINTENGINE_MCP_SERVER_ID],
-      pruneUnlisted: false,
-      write: true,
-      context,
-    })
-    targets.push(...formatTargets.targets)
-    issues.push(...formatTargets.issues)
-  }
-
-  const blocking = issues.find((issue) => issue.level === 'error')
-  if (blocking) return { ok: false, message: blocking.message, issues }
-  return { ok: true, targets, issues }
-}
-
-function buildManagedSprintEngineServer(input: McpSyncInput): McpServerConfig | null {
-  const managed = input.managedSprintEngine
-  if (!managed?.statePath?.trim()) return null
-  const clients = normalizeMcpClients(input.clients)
-  if (managed.http?.url?.trim()) {
-    return {
-      id: MANAGED_SPRINTENGINE_MCP_SERVER_ID,
-      name: 'Multicode Sprint Engine',
-      description: 'Managed local Sprint Engine MCP server for autonomous Sprint Engine agent sessions.',
-      transport: 'http',
-      url: managed.http.url.trim(),
-      envVarNames: managed.http.authTokenEnvVar?.trim() ? [managed.http.authTokenEnvVar.trim()] : [],
-      headers: normalizeStringRecord(managed.http.headers),
-      enabled: true,
-      required: true,
-      clients,
-      scope: 'workspace',
-      source: 'bundled',
-      riskLevel: 'local-command',
-      capabilities: ['sprintengine'],
-    }
-  }
-  return missingManagedSprintEngineServer(
-    'Managed Sprint Engine HTTP MCP connection was not supplied; autonomous Sprint Engine agents require an app-owned HTTP MCP run.',
-    clients
-  )
-}
-
-function missingManagedSprintEngineServer(message: string, clients: McpClientTarget[]): McpServerConfig {
-  return {
-    id: MANAGED_SPRINTENGINE_MCP_SERVER_ID,
-    name: 'Multicode Sprint Engine',
-    transport: 'stdio',
-    command: `${MANAGED_MISSING_COMMAND_PREFIX}${message}`,
-    args: [],
-    enabled: true,
-    required: true,
-    clients,
-    scope: 'workspace',
-    source: 'bundled',
-    riskLevel: 'local-command',
-  }
-}
-
-export function findSprintEngineRuntimeRoot(): string | null {
-  const candidates = [
-    process.cwd(),
-    maybeResourcesPath(),
-    maybeAppPath(),
-    join(__dirname, '..', '..'),
-    join(__dirname, '..', '..', '..'),
-  ].filter((candidate): candidate is string => Boolean(candidate))
-  return candidates.find((candidate) =>
-    existsSync(join(candidate, 'sprintengine_mcp', 'server.py'))
-    && existsSync(join(candidate, 'sprintengine_core'))
-  ) ?? null
-}
-
-function maybeResourcesPath(): string | null {
-  const resourcesPath = (process as NodeJS.Process & { resourcesPath?: string }).resourcesPath
-  return resourcesPath || null
-}
-
-function maybeAppPath(): string | null {
-  try {
-    const electron = loadElectron()
-    return electron.app?.getAppPath?.() ?? null
-  } catch {
-    return null
-  }
-}
-
 function defaultUserDataDir(homeDir: () => string): string {
   try {
     const electron = loadElectron()
@@ -282,12 +165,9 @@ function defaultUserDataDir(homeDir: () => string): string {
   return join(homeDir(), '.multicode')
 }
 
-function normalizeSettings(settings: McpSettings | undefined, managedServer?: McpServerConfig | null): McpSettings {
+function normalizeSettings(settings: McpSettings | undefined): McpSettings {
   if (!settings || typeof settings !== 'object') {
-    return {
-      syncEnabled: Boolean(managedServer),
-      servers: managedServer ? { [managedServer.id]: managedServer } : {},
-    }
+    return { syncEnabled: false, servers: {} }
   }
   const servers: Record<string, McpServerConfig> = {}
   for (const value of Object.values(settings.servers ?? {})) {
@@ -295,11 +175,8 @@ function normalizeSettings(settings: McpSettings | undefined, managedServer?: Mc
     const normalized = normalizeServer(value)
     if (normalized) servers[normalized.id] = normalized
   }
-  if (managedServer) {
-    servers[managedServer.id] = managedServer
-  }
   return {
-    syncEnabled: settings.syncEnabled === true || Boolean(managedServer),
+    syncEnabled: settings.syncEnabled === true,
     servers,
   }
 }
@@ -310,12 +187,6 @@ function validateServer(server: McpServerConfig): McpValidationIssue[] {
     const command = server.command?.trim()
     if (!command) {
       issues.push({ level: 'error', serverId: server.id, message: `${server.name} is missing a command.` })
-    } else if (command.startsWith(MANAGED_MISSING_COMMAND_PREFIX)) {
-      issues.push({
-        level: 'error',
-        serverId: server.id,
-        message: command.slice(MANAGED_MISSING_COMMAND_PREFIX.length),
-      })
     } else if (!commandOnPath(command)) {
       issues.push({ level: server.required ? 'error' : 'warning', serverId: server.id, message: `${server.name} command was not found: ${command}` })
     }
@@ -323,17 +194,7 @@ function validateServer(server: McpServerConfig): McpValidationIssue[] {
   if ((server.transport === 'http' || server.transport === 'sse') && !server.url?.trim()) {
     issues.push({ level: 'error', serverId: server.id, message: `${server.name} is missing a URL.` })
   }
-  if (server.id === MANAGED_SPRINTENGINE_MCP_SERVER_ID && server.transport === 'http' && !server.envVarNames?.[0]) {
-    issues.push({
-      level: 'error',
-      serverId: server.id,
-      message: `${server.name} requires an env-backed bearer token for managed Sprint Engine HTTP MCP launches.`,
-    })
-  }
   for (const envVar of server.envVarNames ?? []) {
-    if (server.id === MANAGED_SPRINTENGINE_MCP_SERVER_ID && server.transport === 'http') {
-      continue
-    }
     if (!process.env[envVar]) {
       issues.push({ level: server.required ? 'error' : 'warning', serverId: server.id, message: `${server.name} expects environment variable ${envVar}.` })
     }
@@ -575,7 +436,7 @@ function enableStudioMcpForClaudeWorkspace(
   const strings = (value: unknown): string[] =>
     Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
   const withoutManagedIds = (values: string[]): string[] =>
-    values.filter((id) => id !== STUDIO_MCP_SERVER_ID && id !== MANAGED_SPRINTENGINE_MCP_SERVER_ID)
+    values.filter((id) => id !== STUDIO_MCP_SERVER_ID)
   const enabled = [...withoutManagedIds(strings(existing.enabledMcpjsonServers)), STUDIO_MCP_SERVER_ID]
   const disabled = withoutManagedIds(strings(existing.disabledMcpjsonServers))
   const next: Record<string, unknown> = {
@@ -837,7 +698,7 @@ function renderCodexServer(server: McpServerConfig): string[] {
     if (headers && Object.keys(headers).length) lines.push(`http_headers = { ${Object.entries(headers).map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`).join(', ')} }`)
   }
   lines.push(`enabled = ${server.enabled ? 'true' : 'false'}`)
-  if (server.required && server.id !== MANAGED_SPRINTENGINE_MCP_SERVER_ID) lines.push('required = true')
+  if (server.required) lines.push('required = true')
   return ['', ...lines]
 }
 

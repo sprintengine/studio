@@ -40,7 +40,7 @@ import { registerModuleRegistryIpc } from './ipc/module-registry-ipc'
 import { registerPluginIpc } from './ipc/plugins-ipc'
 import { registerSkillsIpc } from './ipc/skills-ipc'
 import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
-import { registerSoulsIpc } from './ipc/souls-ipc'
+import { registerLaunchSettingsIpc } from './ipc/launch-settings-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVersionControlIpc } from './ipc/version-control-ipc'
@@ -55,7 +55,6 @@ import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers
 import { createFilesystemReadHandlers } from './filesystem-read'
 import { createFilesystemWatchSearchHandlers } from './filesystem-watch-search-handlers'
 import { openDiagnosticsLogsFolder, writeDiagnosticLog } from './diagnostics-service'
-import { readSpecialistSoul } from './souls-service'
 
 export type CoreIpcOptions = {
   includeDevModules?: boolean
@@ -110,7 +109,7 @@ export function registerCoreIpc(
   // rest of the app already uses, so it is handed the very same handler.
   registerFolderOpenIpc(ipcMain, createFolderOpenIpcDependencies(filesystemReadHandlers.showItemInFolder))
   // Memory/knowledge-graph backend is foundational: agent context injection
-  // (TerminalView, Sprint Engine auto-run) and the Knowledge Graph settings tab
+  // (TerminalView) and the Knowledge Graph settings tab
   // depend on it, so it is always registered. The memory-graph capability
   // module gates only the visualization panel (renderer side).
   registerMemoryIpc(ipcMain)
@@ -124,9 +123,7 @@ export function registerCoreIpc(
     listConversationRoots: () => services.conversationRuntime.listLiveConversationRoots(),
   })
   registerUpdateIpc(ipcMain, { updateService: services.updateService })
-  registerSoulsIpc(ipcMain, {
-    readSpecialistSoul,
-  })
+  registerLaunchSettingsIpc(ipcMain, { launchSettings: services.agentLaunchSettings })
   registerFilesystemMutationIpc(ipcMain, createFilesystemMutationHandlers())
   registerBacklogIpc(ipcMain)
   registerGitIpc(

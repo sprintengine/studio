@@ -2,7 +2,7 @@
  * Pushes `appSettings.telemetryEnabled` to main.
  *
  * Main is the only process that sends product telemetry, and it records events
- * that happen with no window open — a scheduled sprint finishing, the boot
+ * that happen with no window open — a scheduled automation finishing, the boot
  * event itself — so the user's choice cannot live only in this window's
  * localStorage. Same one-way contract as the background-mode and appearance
  * mirrors: the renderer owns the value, main keeps a persisted copy, and there

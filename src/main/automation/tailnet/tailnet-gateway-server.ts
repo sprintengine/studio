@@ -588,8 +588,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       // This endpoint is stateless: every POST builds a fresh context, so a
       // connection-scoped declaration has nothing to attach to. Accepting it
       // and discarding it would be the silent fallback the norms forbid — the
-      // caller would believe it had declared a sprint run and then get
-      // `no_active_sprint` from every run tool with no way to know why. Say so
+      // caller would believe it had declared an identity it did not. Say so
       // instead, and name the channel that does hold state. Answered here
       // rather than in dispatch because the declaration is a NOTIFICATION: over
       // HTTP there is always a response to put the refusal in, over JSON-RPC

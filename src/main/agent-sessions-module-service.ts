@@ -83,7 +83,7 @@ export type AgentSessionsModuleDeps = {
    * Deliver a prompt to a live session through the agent control plane: paste
    * plus a separately-dispatched submit, as one serialized turn. Nothing here
    * writes to a pty of its own, so a module prompt landing on the same session
-   * as a Sprint Engine dispatch queues behind it instead of interleaving bytes.
+   * so concurrent writers queue instead of interleaving bytes.
    */
   sendPrompt: (sessionId: string, text: string) => Promise<{ ok: boolean; message?: string }>
   /** Does this workspace id name a real workspace? */

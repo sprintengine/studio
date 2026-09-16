@@ -29,13 +29,6 @@ function workspace(id: string, folderPath: string | null, mode: Workspace['mode'
     worktreeState: { containerPath: null, entries: {}, updatedAt: null },
     memory: { relativeRoot: null },
     editorState: { openFiles: [], activeFilePath: null },
-    sprintEngineAutoState: {
-      desiredMode: 'manual',
-      runtimeState: 'idle',
-      cliPermissionPreset: 'manual',
-      maxConcurrentAgents: 0,
-      deliveredAgentNotificationEventKeys: [],
-    },
     createdAt: 1,
   } as Workspace
 }

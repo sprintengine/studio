@@ -30,19 +30,11 @@ pin a port, or `SPRINTENGINE_USER_DATA_DIR` to pin a profile. Every variable the
 app owns was spelled `MULTICODE_*` before the 2026-09-08 rename and is still
 read under that name, so an old export in your shell profile keeps working.
 
-Some of the app's services are Python, and the full verification chain spawns
-them for real. If you intend to run `npm run verify:app` or the Python tests,
-set up a virtualenv as well — CI uses Python 3.12, matching the CPython the app
-bundles:
-
-```
-python3 -m venv .venv
-.venv/bin/pip install -r requirements.txt
-.venv/bin/pip install -r requirements-dev.txt   # only for the Python tests
-```
-
-Without it, the tests that spawn `sprintengine_core` fail on a missing PyYAML.
-Plain `npm run dev` does not need the virtualenv.
+The toolchain is Node and nothing else. The app ships a self-contained CPython
+under `resources/runtime/python` for capability modules that run a Python
+sidecar, but no gate in this repository needs a Python on your machine, and
+there is no virtualenv to set up. `SPRINTENGINE_PYTHON` overrides the
+interpreter the app resolves if you ever need to point it at your own.
 
 To produce a build:
 
@@ -68,14 +60,8 @@ npm run verify:app                          # everything CI runs, in one command
 lints, the test suite, the SDK drift and pack checks, and the feed seed
 checks. Run it before you open a pull request. It is the same command CI runs.
 
-The Python suite is separate and scoped to `tests/`:
-
-```
-.venv/bin/python -m pytest tests/
-```
-
-Run it from the repository root and keep the `tests/` argument — a bare
-`pytest` walks the bundled payloads under `resources/` and collapses.
+There is one suite. Everything under `src/`, `scripts/` and `packages/` is
+tested by `npm run test`; `tests/` holds only the fixtures those tests read.
 
 While you are iterating, `node scripts/testing/run-tests.mjs <file>` is much
 faster than the whole suite — pass a path or just part of a test file's name.
@@ -103,7 +89,7 @@ before you touch anything visual. In short:
 
 This is enforced, not advisory. `npm run lint` runs
 `scripts/lint-design-tokens.mjs`, `scripts/lint-panel-composition.mjs`,
-`scripts/lint-palette-contract.mjs`, `scripts/lint-primitive-duplication.mjs`,
+`scripts/lint-primitive-duplication.mjs`,
 `scripts/lint-door-surfaces.mjs` and
 `scripts/lint-design-system-conformance.mjs`. If you change the design system
 itself, `node design-system/scripts/lint.mjs` must also exit 0, and the

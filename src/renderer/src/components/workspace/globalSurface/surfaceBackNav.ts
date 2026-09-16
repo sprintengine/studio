@@ -8,7 +8,7 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 // before rather than out of the page they are on. The sidebar chrome's back and
 // forward pair is the history control; this is the hierarchy control, and they
 // disagree often enough to be worth keeping apart (opening Backlog from
-// Sprints: history-back returns to Sprints, this returns to the workspace).
+// a module door: history-back returns to the door, this returns to the workspace).
 //
 // `canGoBack` is unconditionally true because there is always somewhere to land:
 // the workspace the door was opened over, or — with no workspace open — the

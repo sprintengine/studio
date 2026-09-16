@@ -4,8 +4,6 @@ import type { AgentState, LayoutTemplate, Workspace } from '../types/workspace'
 import type { WorkspaceBackupPayload } from '../../../shared/electron-api'
 import { defaultAuthState } from './slices/authSlice'
 import { defaultAgent } from './slices/agentsSlice'
-import { normalizeWorkspaceForPartialize } from './slices/normalizers'
-import { sprintEngineRunState } from './slices/workspaceModuleState'
 import { normalizeWorkspaceForRegistry } from '../../../shared/workspace-registry'
 import { workspaceProjectRoot } from '../utils/workspaceWorktree'
 
@@ -134,12 +132,17 @@ Object.defineProperty(globalThis, 'localStorage', {
   configurable: true,
 })
 
+// Both loaded AFTER the window/localStorage doubles above. Neither may be a
+// static import: an ESM static import is hoisted above everything here, so the
+// store would be created against a window that does not exist yet and would
+// hydrate from nothing.
 const {
   WORKSPACE_STORE_VERSION,
   useWorkspaceStore,
   __workspaceStoreBackupRecoveryPromise,
   __workspaceStoreRunBackupRecoveryForTests,
 } = await import('./workspaceStore')
+const { normalizeWorkspaceForPartialize } = await import('./slices/normalizers')
 
 await __workspaceStoreBackupRecoveryPromise
 
@@ -612,9 +615,7 @@ const legacyBackupAppSettings = {
     'claude-code': { command: 'claude' },
   },
   lastSelectedCli: 'claude-code',
-  lastSelectedSpecialist: 'architect',
   lastAgentSpawnPermissionPreset: 'default',
-  specialistCliDefaults: {},
   projectKnowledgeRoots: {
     '/Users/dev/workspace/multicode': 'knowledge',
     '/Users/dev/workspace/multicode-mobile': '../multicode/knowledge',
@@ -965,40 +966,24 @@ assert.equal(
 }
 
 // ── MC-1573: per-module state bag in a CURRENT-version envelope ─────────────
-// The v71 rung reconciles bag and mirror on upgrade, but a dev-HMR module swap
-// stamps the current version onto un-migrated state — so merge() must enforce
-// the lockstep invariant (moduleState.sprintengine === sprintEngineState) on
-// EVERY hydration. Existing persisted rows (null run state, no bag) must load
-// unchanged, and a third-party module's bag entry must survive verbatim.
+// A dev-HMR module swap stamps the current version onto un-migrated state, so
+// merge() has to hold the bag's shape on EVERY hydration rather than only on
+// the upgrade rung. Existing persisted rows with no bag must load unchanged,
+// and a module's bag entry must survive verbatim.
 {
   const { WORKSPACE_STORE_VERSION } = await import('./slices/persistenceSlice')
-  const { createInitialSprintEngineState } = await import('../utils/sprintengine')
-  const sprintState = createInitialSprintEngineState({
-    goal: 'Validate bag merge',
-    name: 'Bag Merge Team',
-    roleCounts: { frontend: 1 },
-  })
   const currentEnvelope = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
   stored['multicode-workspaces'] = JSON.stringify({
     state: {
       ...currentEnvelope.state,
       workspaces: [
-        // The normal persisted shape: null run state, no bag.
-        { ...persistedWorkspace, id: 'ws-plain', sprintEngineState: null },
-        // Ancient pre-strip shape: populated legacy field, no bag.
-        {
-          ...persistedWorkspace,
-          id: 'ws-mirror-only',
-          mode: 'sprintengine',
-          sprintEngineState: sprintState,
-        },
-        // Bag-only shape plus a third-party entry that must ride untouched.
+        // The normal persisted shape: no bag at all.
+        { ...persistedWorkspace, id: 'ws-plain' },
+        // A module's durable entry, which must ride hydration untouched.
         {
           ...persistedWorkspace,
           id: 'ws-bag-only',
-          mode: 'sprintengine',
-          sprintEngineState: null,
-          moduleState: { sprintengine: sprintState, 'weather-deck': { lastCity: 'Dublin' } },
+          moduleState: { 'weather-deck': { lastCity: 'Dublin' } },
         },
       ],
       activeWorkspaceId: 'ws-plain',
@@ -1009,49 +994,22 @@ assert.equal(
   const hydrated = useWorkspaceStore.getState().workspaces
   const plain = hydrated.find((ws) => ws.id === 'ws-plain')
   assert.ok(plain, 'the normal-shape row hydrates')
-  assert.equal(sprintEngineRunState(plain!), null, 'a null run state stays absent through merge')
-  assert.equal(
-    Boolean(plain!.moduleState && 'sprintengine' in plain!.moduleState),
-    false,
-    'merge never mints a sprintengine bag entry for a null run state',
-  )
-  const mirrorOnly = hydrated.find((ws) => ws.id === 'ws-mirror-only')
-  assert.ok(sprintEngineRunState(mirrorOnly!), 'a populated legacy field is adopted into the bag')
-  assert.equal(
-    (mirrorOnly!.moduleState?.sprintengine as { state?: unknown } | undefined)?.state,
-    sprintEngineRunState(mirrorOnly!),
-    'merge adopts the legacy field into the bag as the only home',
-  )
+  assert.equal(plain!.moduleState, undefined, 'merge never mints a bag for a row that had none')
   const bagOnly = hydrated.find((ws) => ws.id === 'ws-bag-only')
-  assert.ok(sprintEngineRunState(bagOnly!), 'merge unwraps a bag-only entry as the canonical projection')
-  assert.equal(
-    (bagOnly!.moduleState?.sprintengine as { state?: unknown } | undefined)?.state,
-    sprintEngineRunState(bagOnly!),
-    'the bag entry is the canonical projection',
-  )
+  assert.ok(bagOnly, 'the bag-carrying row hydrates')
   assert.deepEqual(
     bagOnly!.moduleState?.['weather-deck'],
     { lastCity: 'Dublin' },
-    'a third-party module bag entry hydrates verbatim',
+    'a module bag entry hydrates verbatim',
   )
 
-  // Partialize: the live projection is stripped from the bag; durable
-  // identity stays; other modules' entries persist verbatim.
+  // Partialize: durable entries persist verbatim; a workspace with no bag
+  // persists with none, so the registry does not grow a `{}` per row.
   const partialized = normalizeWorkspaceForPartialize(bagOnly!)
-  assert.equal(
-    'sprintEngineState' in partialized,
-    false,
-    'partialize omits the deleted top-level field',
-  )
-  assert.equal(
-    Boolean(partialized.moduleState && 'sprintengine' in partialized.moduleState),
-    false,
-    'partialize strips the live projection from the sprintengine bag when nothing durable remains',
-  )
   assert.deepEqual(
     partialized.moduleState,
     { 'weather-deck': { lastCity: 'Dublin' } },
-    'partialize keeps other modules\' durable entries',
+    'partialize keeps a module\'s durable entry',
   )
   const plainPartialized = normalizeWorkspaceForPartialize(plain!)
   assert.equal(
@@ -1091,17 +1049,11 @@ assert.equal(
     bagOnly!.moduleState,
     'workspace-sync round-trips the module-state bag intact',
   )
-  assert.equal(
-    sprintEngineRunState(syncedWorkspace!),
-    sprintEngineRunState(bagOnly!),
-    'workspace-sync round-trips the bag projection',
-  )
 }
 
 // ── MC-1573: the store's generic module-state writer ────────────────────────
 // setWorkspaceModuleState is the SDK setter's backing action: entries write
-// into the bag, null removes, unknown workspaces and the reserved sprintengine
-// key report false (that entry's single writer is the Sprint Engine run store).
+// into the bag, null removes, and an unknown workspace reports false.
 {
   const targetId = useWorkspaceStore.getState().addWorkspace(
     { ...raceTemplate, id: 'bag-writer' },
@@ -1132,11 +1084,6 @@ assert.equal(
     store.setWorkspaceModuleState('ws-does-not-exist', 'weather-deck', {}),
     false,
     'an unknown workspace reports not-stored',
-  )
-  assert.equal(
-    store.setWorkspaceModuleState(targetId, 'sprintengine', {}),
-    false,
-    'the reserved sprintengine key is refused — its single writer is the Sprint Engine run store',
   )
 }
 

@@ -53,16 +53,9 @@ type RegisterAppLifecycleOptions = {
     flush(): Promise<void>
     dispose(): void
   }
-  // The main-process sprint scheduler (sprint-runtime-ownership Phase 2):
-  // stopped before the terminal runtime tears down so no tick spawns into a
-  // dying process table; its shutdown also releases the power-save blocker.
-  sprintRuntime?: {
-    shutdown(): void
-  }
   // Product telemetry. Given a shutdown leg of its own because everything above
-  // it can emit a final event — a sprint parked by the scheduler's teardown,
-  // for one — and the buffer is in memory, so a quit that does not drain it
-  // loses the whole session's tail.
+  // it can emit a final event, and the buffer is in memory, so a quit that does
+  // not drain it loses the whole session's tail.
   analytics?: {
     shutdown(): Promise<void>
   }
@@ -70,8 +63,7 @@ type RegisterAppLifecycleOptions = {
   // hooks on quit. Module-owned lifecycle runs here — the early begin phase
   // (runShutdownBegin, registration order) stops self-scheduled loops before
   // shared infrastructure tears down, and the late phase (runShutdown, reverse
-  // registration order) drains in-flight work and stops kernel-owned sidecars
-  // (e.g. the Sprint Engine MCP hub via its module's sidecar registration).
+  // registration order) drains in-flight work and stops kernel-owned sidecars.
   moduleKernel?: {
     runStartup(): Promise<void>
     runShutdownBegin(): Promise<void>
@@ -98,7 +90,6 @@ export function registerAppLifecycle({
   agentStateService,
   workspaceSyncService,
   pullRequestRecord,
-  sprintRuntime,
   analytics,
   moduleKernel,
   updateService,
@@ -327,7 +318,6 @@ export function registerAppLifecycle({
       // dispatched while shared infrastructure tears down.
       await moduleKernel?.runShutdownBegin()
       hostedFeedPoller?.stop()
-      sprintRuntime?.shutdown()
       await automationService?.shutdown()
       await agentStateService?.shutdown()
       await terminalRuntime.shutdown()
@@ -343,8 +333,8 @@ export function registerAppLifecycle({
       // that still has state to persist.
       await analytics?.shutdown()
       // Module-owned shutdown runs here via each module's onShutdown hook —
-      // draining in-flight work and stopping kernel-owned sidecars (e.g. the
-      // Sprint Engine MCP hub) in reverse registration order.
+      // draining in-flight work and stopping kernel-owned sidecars in reverse
+      // registration order.
       await moduleKernel?.runShutdown()
     }
 

@@ -116,7 +116,7 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
 
     // A window-composed create is a PROPOSAL, not a write: the record is
     // normalized to what the registry owns and stamped here before it is
-    // committed. This is how a Sprint Engine roster — the one mode whose
+    // committed. This is how a record composed in a window — the one shape whose
     // creation logic still lives in the renderer — stays compatible with
     // single-writer authority: the window proposed the payload, main wrote it.
     const command = validation.command.type === 'workspace.created'
@@ -183,7 +183,7 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
   }
 
   /**
-   * Adopt a record a window composed itself — a Sprint Engine roster, the one
+   * Adopt a record a window composed itself — the one
    * mode whose creation logic still lives in the renderer.
    * The record is normalized and committed here, so main remains the only
    * writer and the only persister; the window proposed the payload, it did not
@@ -622,7 +622,7 @@ function validateUpdateLayout(payload: Record<string, unknown>): ValidationResul
 }
 
 // The fields a window may edit. Anything outside this list is main's own
-// (session assignment, launch flags, scheduler-owned roster records) and is
+// (session assignment, launch flags) and is
 // refused rather than silently dropped, so a caller learns its patch did
 // nothing instead of believing it landed.
 const EDITABLE_FIELDS = [

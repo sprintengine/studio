@@ -10,14 +10,12 @@ without opting out of anything.
 
 ## What is sent
 
-Four events, listed in `src/shared/telemetry.ts`:
+Two events, listed in `src/shared/telemetry.ts`:
 
 | Event | When | Carries |
 | --- | --- | --- |
 | `app.boot` | Once per process start | `firstRun` — true only on the launch that minted this install's id |
-| `agent.launched` | An agent CLI starts, from any door | Resolved CLI id, permission preset, and flags for specialist / worktree / connector / whether a startup prompt was given |
-| `sprint.run.created` | A sprint run is created | Staffed role count, source count, intake mode, and the worktree / task-isolation / start-runner flags |
-| `sprint.run.finished` | A run reaches a terminal state | `outcome`: `complete` or `canceled` |
+| `agent.launched` | An agent CLI starts, from any door | Resolved CLI id, permission preset, and flags for worktree / connector / whether a startup prompt was given |
 
 Every event also carries the platform, architecture, app version, and whether
 this is a packaged build.
@@ -90,6 +88,6 @@ in a morning is four boots and one install id. For "how many people are using
 this", count distinct `distinct_id`; for "are they actually working in it", use
 `agent.launched`, which only fires when an agent really started.
 
-`sprint.run.created` and `sprint.run.finished` need not balance. A run that is
-still going, one abandoned without being canceled, or one created before this
-version shipped will never produce a finish.
+Two events is the whole list on purpose. A third has to answer the same two
+questions: what decision changes with the number, and can the number be
+collected without any of the things "What is never sent" names.

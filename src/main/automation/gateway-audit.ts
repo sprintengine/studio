@@ -8,7 +8,7 @@ export const STUDIO_GATEWAY_AUDIT_FILENAME = 'sprintengine-studio-mcp-audit.json
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 const DEFAULT_BACKUPS = 3
 const SAFE_IDENTIFIER_KEYS = new Set([
-  'workspaceId', 'agentId', 'automationId', 'runId', 'sprintId', 'taskId', 'artifactId',
+  'workspaceId', 'agentId', 'automationId', 'runId', 'taskId',
   'path', 'relativePath', 'sourceRelativePath', 'epicId', 'id', 'status', 'type', 'slug', 'repo',
   'issue', 'numericId', 'previousNumericId', 'replacements',
 ])
@@ -120,7 +120,6 @@ function normalizeConnection(connection: McpConnectionMetadata): McpConnectionMe
     agentId: trim(connection.agentId),
     agentName: trim(connection.agentName),
     cliId: trim(connection.cliId),
-    sprintRunId: trim(connection.sprintRunId),
     deviceId: trim(connection.deviceId),
     deviceName: trim(connection.deviceName),
     peerNode: trim(connection.peerNode),

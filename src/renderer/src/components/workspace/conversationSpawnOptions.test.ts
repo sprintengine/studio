@@ -251,8 +251,6 @@ assert.deepEqual(
   { providerId: 'openai-compatible', modelId: 'gpt-4o' },
   'patch carries the exact provider/model pair',
 )
-assert.equal(patch.kind, 'general', 'conversation agents spawn as general agents')
-assert.equal(patch.specialistId, undefined, 'no specialist binding on a conversation agent')
 assert.equal(patch.cliStartRequested, false, 'no terminal start is requested')
 assert.equal('cliSessionId' in patch && patch.cliSessionId, undefined, 'no terminal session id is assigned')
 assert.equal(patch.cli, undefined, 'no CLI is selected for a conversation agent')

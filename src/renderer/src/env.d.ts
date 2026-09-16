@@ -90,9 +90,7 @@ import type {
   SessionOrganization as SharedSessionOrganization,
   SessionSnapshot as SharedSessionSnapshot,
   SessionUser as SharedSessionUser,
-  SoulPromptResult as SharedSoulPromptResult,
-  SpecialistActionId as SharedSpecialistActionId,
-  SprintEngineCliPermissionPreset as SharedSprintEngineCliPermissionPreset,
+  CliPermissionPreset as SharedCliPermissionPreset,
   SessionActivity as SharedSessionActivity,
   AgentPhase as SharedAgentPhase,
   AgentState as SharedAgentState,
@@ -145,7 +143,7 @@ declare global {
   type AppUpdateProgress = SharedAppUpdateProgress
   type AppUpdateState = SharedAppUpdateState
   type AppUpdateCheckResult = SharedAppUpdateCheckResult
-  type SprintEngineCliPermissionPreset = SharedSprintEngineCliPermissionPreset
+  type CliPermissionPreset = SharedCliPermissionPreset
   type CliRuntimeSettings = SharedCliRuntimeSettings
   type SessionActivity = SharedSessionActivity
   type AgentPhase = SharedAgentPhase
@@ -156,8 +154,6 @@ declare global {
   type TerminalSpawnMetadata = SharedTerminalSpawnMetadata
   type TerminalSessionSnapshot = SharedTerminalSessionSnapshot
   type TerminalSpawnResult = SharedTerminalSpawnResult
-  type SpecialistActionId = SharedSpecialistActionId
-  type SoulPromptResult = SharedSoulPromptResult
   type GitFileStatus = SharedGitFileStatus
   type GitRepoOperation = SharedGitRepoOperation
   type GitResetMode = SharedGitResetMode

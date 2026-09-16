@@ -1,7 +1,7 @@
 import React from 'react'
 import type {
   AgentCli,
-  SprintEngineCliPermissionPreset,
+  CliPermissionPreset,
   WorkspaceSkill,
 } from '../../../../../shared/electron-api'
 import type {
@@ -117,7 +117,7 @@ export type NewAgentPanelProps = {
   initialSelection: AgentComposerSelection
   /** The app-wide default a model row nobody has set still resolves to; the
    *  picker's footer writes per-row, so this is a fallback, never what it edits. */
-  permissionPreset: SprintEngineCliPermissionPreset
+  permissionPreset: CliPermissionPreset
   debugMode: boolean
   onChangeDebugMode: (next: boolean) => void
   /** Host performs the spawn and retypes this tab into the agent's terminal. */
@@ -169,7 +169,7 @@ export type RemoteNewChatLaunch = {
   prompt: string
   cli?: AgentCli
   cliModel?: string | null
-  permissionPreset: SprintEngineCliPermissionPreset
+  permissionPreset: CliPermissionPreset
   /**
    * Where the chat runs there (checkout-and-branch-on-remote-create): the
    * workspace's current checkout, or a fresh worktree branched from `baseRef`.
@@ -331,9 +331,9 @@ export function sortMachines(machines: FleetConnection[]): FleetConnection[] {
  * becomes that terminal in place.
  *
  * The control row shows only what a launch usually changes — engine and access —
- * plus the two attachments people reach for. Everything rarer (role, worktree,
- * reasoning, debug) lives behind `⋯` and rises onto the row as a chip once set,
- * so the row is a picture of this launch rather than a panel of every knob.
+ * plus the two attachments people reach for. Everything rarer (worktree, debug)
+ * lives behind `⋯` and rises onto the row as a chip once set, so the row is a
+ * picture of this launch rather than a panel of every knob.
  *
  * Nothing here creates anything: `onLaunch` hands the host a confirm plus the
  * prompt, and the host retypes this tab into the agent's terminal.
@@ -918,11 +918,10 @@ export default function NewAgentPanel({
     if (remoteTarget) {
       if (!remoteTarget.picked || !onLaunchRemote || remoteLaunching) return
       const confirm = composer.buildConfirm(selection)
-      if (confirm.kind !== 'general' && confirm.kind !== 'specialist') return
+      if (confirm.kind !== 'general') return
       // What cannot travel must not be silently dropped while its chip is on
       // screen: skills install locally, MCP servers were synced into the LOCAL
-      // workspace config, debug drives the local state machine, and a
-      // specialist's soul brief is composed locally.
+      // workspace config, and debug drives the local state machine.
       // Images too: a local path means nothing on another machine, and there
       // is no upload path to the remote today (uploading them into the remote
       // environment is the future path; until it exists the refusal names them
@@ -932,7 +931,6 @@ export default function NewAgentPanel({
       // remote mints it, on the branch name the ⋯ row carries, through the same
       // `agent.launch` mutation that already owned remote worktree creation.
       const stranded = [
-        confirm.kind === 'specialist' ? 'the specialist role' : null,
         confirm.skills?.length ? 'the skills' : null,
         confirm.mcpServers?.length ? 'the MCP servers' : null,
         debugMode ? 'debug mode' : null,
@@ -1849,10 +1847,9 @@ function RemoteProjectPicker({
 }
 
 /**
- * The ⋯ surface: what a launch rarely changes. Two rows now — the role picker
- * left with the specialists (a role is a way of working, which is what a skill
- * is), and reasoning effort went into the model's own picker, where it is a
- * property of the model rather than a second control the row must carry.
+ * The ⋯ surface: what a launch rarely changes. Reasoning effort went into the
+ * model's own picker, where it is a property of the model rather than a second
+ * control the row must carry.
  */
 function MoreMenu({
   selection,

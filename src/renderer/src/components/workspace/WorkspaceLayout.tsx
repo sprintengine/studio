@@ -21,13 +21,10 @@ import {
 // tokens on every non-dark theme — the dark horizontal bars in light mode.
 import 'flexlayout-react/style/combined.css'
 import { FLEX_LAYOUT_ICONS } from './flexLayoutIcons'
-import { getSpecialistAction } from '../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 import { openExternalFileWindow } from '../auxWindows/openFileWindow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
-import { SPRINT_ENGINE_WORKSPACE_TYPE_ID } from '../../../../shared/sprintengine/workspace-record'
 import { samePath } from '../../utils/paths'
 import { EXTENSIONS_BROWSE_DEEPLINK, MODULES_SETTINGS_TAB } from '../settings/extensionsRoute'
 import {
@@ -45,36 +42,29 @@ import {
 } from '../../hooks/useTerminalSessions'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
-import type { FuturePlanWorkspaceSource, HighlightColor, SprintEngineRuntimeAgentStatus, SprintEngineState, Workspace } from '../../types/workspace'
+import type { HighlightColor, Workspace } from '../../types/workspace'
 import { NEW_AGENT_TAB_COMPONENT, captureRailWidthFractions, consumePendingAgentFlash, deleteTabPreservingRails, registerModel, restoreRailWidthFractions, unregisterModel } from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { applySprintEngineAutomationStopReason } from '../../utils/sprintengineSupervisorNotifications'
-import {
-  isSprintEngineManagedAgent,
-} from '../../../../shared/sprintengine/agent-identity'
 import { getHighlightSwatch } from '../../utils/highlight'
 import { resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
-import { RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon } from '../AppIcons'
+import { RemoteMachineGlyph } from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { AgentTabIdentityPopover, type AgentTabIdentity } from './AgentTabIdentityPopover'
 import { agentCheckoutOf, type AgentTabCheckout } from './agentCheckout'
 import { useRemoteAttachedSessions } from './topbar/useTailnetPresence'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
-import { panelTabAccentClass } from './panelTabAccent'
 import { TabPromptPeek } from './TabPromptPeek'
 import { GitBranchGlyph } from './WorkspaceActions'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
-import { ContextMenu, IconButton, LifecycleGlyph, type LifecycleState, LoadingOverlay, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone, Tooltip } from '../ui'
+import { ContextMenu, IconButton, LoadingOverlay, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone, Tooltip } from '../ui'
 
 interface Props {
   workspaceId: string
-  onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
   // The tab strip's "+" (MC-2147): opens the tab an agent will run in, holding
   // the launch surface until something spawns. The strip's own tabset id is
   // passed so the tab lands in that panel rather than tiling a new one.
-  // Absent → no plus, which is how a Sprint Engine workspace stays free of a
-  // hand-spawn affordance its run would not know about.
+  // Absent → no plus, for a host whose workspace type spawns its own agents.
   onNewAgentTab?: (hostTabsetId?: string) => void
   // Renders the launch surface inside that tab. `tabId` is the node the spawn
   // retypes in place, so the terminal appears where the surface was.
@@ -111,15 +101,6 @@ const EditorPanel = React.lazy(() => import('../panels/EditorPanel'))
 const GitConflictResolverPanel = React.lazy(() => import('../panels/GitConflictResolverPanel'))
 const PlainTerminalPanel = React.lazy(() => import('../panels/PlainTerminalPanel'))
 const FleetTerminalPanel = React.lazy(() => import('../panels/FleetTerminalPanel'))
-// Local lazy const for the defensive fixed-view fallbacks below; the canonical
-// sprint board tab is served through the renderer host (gated) under the
-// module's registered workspace type id. Both resolve to the same chunk, so a
-// disabled Sprint Engine module ships neither.
-const SprintEngineBoardPanel = React.lazy(() => import('../panels/SprintEngineBoardPanel'))
-// Lazy so the run-summary / plan-reader bundles only load with their tabs — and
-// never when Sprint Engine is disabled. They stay local (not host-registered)
-// because they take an onClose callback the generic host panel contract omits.
-const SprintEnginePlanReaderPanel = React.lazy(() => import('../panels/SprintEnginePlanReaderPanel'))
 // Files, Git and the Skills aside are no longer FlexLayout components: Files
 // and Git are workspace-pane tabs (pane/WorkspacePaneBody.tsx) and the Skills
 // aside was retired (browser-pane epic). Store v73 strips their tabs from
@@ -153,11 +134,10 @@ type TabMenuState = {
 
 const AGENT_TAB_NEEDS_INPUT_CLASS = 'agent-tab-needs-input'
 /**
- * A tab's leading identity chip: a 16px plate carrying a 14px glyph. Five tab
- * roles wear it — remote machine, sprint panel,
- * specialist, sprint role, CLI brand — and they have to stay the same object,
- * because they sit next to each other in one strip and any difference reads as
- * a difference in kind.
+ * A tab's leading identity chip: a 16px plate carrying a 14px glyph. Several
+ * tab kinds wear it — remote machine, a module panel, the CLI brand — and they
+ * have to stay the same object, because they sit next to each other in one
+ * strip and any difference reads as a difference in kind.
  *
  * Spelled once rather than six times because the geometry is OFF the icon ramp:
  * 14px falls between `icon-xs` (13px) and `icon-sm` (16px), so it cannot be
@@ -172,12 +152,6 @@ const TAB_CHIP_CLASS = 'flex h-4 w-4 shrink-0 items-center justify-center rounde
 const TAB_CHIP_GLYPH_CLASS = 'h-3.5 w-3.5'
 const loadedPanelComponents = new Set<string>()
 const EMPTY_WORKSPACE_AGENTS: Workspace['agents'] = {}
-const EMPTY_SPRINTENGINE_AGENTS: SprintEngineState['sprintEngineAgents'] = {}
-// Sprint agent tab role comes from the projection's worker record
-// (`sprintEngineAgents[agentId].role`), never inferred from the id's string
-// shape (MC-1593a). A manually-minted agent has no record until it claims a
-// task, at which point the projection carries its role — the pooling model's
-// "canonical on claim" contract.
 const EMPTY_OPEN_FILES: Workspace['editorState']['openFiles'] = []
 
 type AgentTabActivityDot = {
@@ -187,20 +161,10 @@ type AgentTabActivityDot = {
 }
 
 // The tab status dot follows actual work rather than mere process residency.
-// Priority: needs-input > working > failed. Idle sessions fall back to elapsed
-// idle time, while Sprint and automation surfaces keep their lifecycle spinners.
+// Priority: working > failed. Idle sessions fall back to elapsed idle time.
 function agentTabStatusDot(
   session: TerminalSessionSnapshot | undefined,
-  runtimeStatus: SprintEngineRuntimeAgentStatus | undefined,
-  currentTaskId: string | null | undefined
 ): AgentTabActivityDot | null {
-  if (runtimeStatus === 'needs_input') {
-    return {
-      tone: 'warn',
-      pulse: true,
-      label: currentTaskId ? `Needs input on ${currentTaskId}` : 'Needs input',
-    }
-  }
   // A paused agent keeps a retained (frozen) snapshot with the process gone, so
   // it is stopped, not resting — distinguish it from a live idle tab (which has
   // no dot). "Paused" mirrors the AgentPanel footer's user-facing wording.
@@ -214,29 +178,6 @@ function agentTabStatusDot(
     return { tone: 'error', pulse: false, label: 'Failed' }
   }
   return null
-}
-
-// sprint agents are supervised by a run, so their tab shows persistent
-// run status (blocked / complete / idle) — NOT terminal recency, which is
-// meaningless for a managed agent. The genuinely-working (`running`) state is
-// handled separately as a pulsing green dot (see the working-dot branch below);
-// the spinner is reserved for workspace runs and backlog items, never a live
-// agent. This maps the remaining statuses to a LifecycleGlyph state.
-function sprintEngineTabLifecycle(
-  status: SprintEngineRuntimeAgentStatus | undefined
-): { state: LifecycleState; live: boolean; label: string } | null {
-  switch (status) {
-    case 'needs_input':
-      return { state: 'needs_input', live: false, label: 'Blocked — needs input' }
-    case 'done':
-      return { state: 'done', live: false, label: 'Complete' }
-    case 'retired':
-      return { state: 'done', live: false, label: 'Finished' }
-    case 'idle':
-      return { state: 'in_progress', live: false, label: 'Idle — waiting for work' }
-    default:
-      return null
-  }
 }
 
 
@@ -337,7 +278,7 @@ function agentIdOfTab(
   return null
 }
 
-function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, renderNewAgentPanel }: Props) {
+function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Props) {
   const layoutModel = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.layoutModel)
   const workspaceMode = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.mode ?? 'standard')
   // A file the peek card lists opens in the workspace pane's Diff tab, the same
@@ -347,24 +288,21 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
   const workspaceAgents = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.agents ?? EMPTY_WORKSPACE_AGENTS
   )
-  const sprintEngineAgents = useWorkspaceStore((s) =>
-    sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents ?? EMPTY_SPRINTENGINE_AGENTS
-  )
   const editorOpenFiles = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.editorState?.openFiles ?? EMPTY_OPEN_FILES
   )
   const lastTerminalActivityAt = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
   )
-  // Worktree-backed workspace (a sprint run worktree, or a worktree opened as a
-  // workspace). The branch glyph is workspace-level on the tabs below: every
+  // Worktree-backed workspace (a worktree opened as a workspace). The branch
+  // glyph is workspace-level on the tabs below: every
   // terminal/agent tab earns it when the workspace is worktree-backed, because
   // after the cwd-redirect slices every terminal actually runs in the worktree
   // (see the resolution in `renderTab`). Selected as primitives so the panel
   // doesn't re-render on unrelated workspace churn.
   //   - `worktreeGitRoot`: absolute git root of the workspace's worktree (null
   //      when not worktree-backed). The tab glyph condition + tooltip cwd. Covers
-  //      both worktree-opened workspaces (where it equals `folderPath`) and sprint
+  //      both worktree-opened workspaces (where it equals `folderPath`) and any
   //      run worktrees (where it is redirected onto the run worktree).
   const worktreeGitRoot = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
@@ -557,14 +495,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       const agent = workspaceAgents[agentId]
       const currentClassName = node.getClassName() ?? ''
       const classNames = currentClassName.split(/\s+/).filter(Boolean)
-      const needsInput = sprintEngineAgents[agentId]?.status === 'needs_input'
       const nextClassNames = classNames.filter((className) => className !== AGENT_TAB_NEEDS_INPUT_CLASS)
       if (agent?.name && node.getName() !== agent.name) {
         model.doAction(Actions.renameTab(node.getId(), agent.name))
-      }
-
-      if (needsInput) {
-        nextClassNames.push(AGENT_TAB_NEEDS_INPUT_CLASS)
       }
 
       const nextClassName = Array.from(new Set(nextClassNames)).join(' ')
@@ -574,16 +507,14 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         }))
       }
     })
-  }, [workspaceAgents, sprintEngineAgents])
+  }, [workspaceAgents])
 
-  // Capability-module gate. Host-registered panels (editor, git, sprintengine,
-  // memory-graph, …) are gated generically in the
-  // factory's default case by their owning module's enablement, so a disabled
-  // module's panel falls back to the explicit DISABLED_SURFACE and PanelRail
-  // hides its button. Only the panels with bespoke props (file-editor, explorer, the
-  // sprintengine fixed-view/summary fallbacks, git-conflict) need
-  // an explicit gated arm below; those read enablement from this single
-  // overrides object.
+  // Capability-module gate. Host-registered panels (editor, git, memory-graph,
+  // …) are gated generically in the factory's default case by their owning
+  // module's enablement, so a disabled module's panel falls back to the explicit
+  // DISABLED_SURFACE and PanelRail hides its button. Only the panels with
+  // bespoke props (file-editor, explorer, git-conflict) need an explicit gated
+  // arm below; those read enablement from this single overrides object.
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
 
   const factory = useCallback(
@@ -591,7 +522,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       const component = node.getComponent()
       const devToolsEnabled = selectModuleEnabled(moduleOverrides, 'dev-tools')
       const gitEnabled = selectModuleEnabled(moduleOverrides, 'git')
-      const sprintEngineEnabled = selectModuleEnabled(moduleOverrides, 'sprint-engine')
       const config = node.getConfig() as {
         agentId?: string
         terminalId?: string
@@ -625,10 +555,10 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
 
       // Arms below are only for components the host can't serve generically:
       // the shell's own chrome (agent, terminal) and panels that take bespoke props
-      // (file-editor's filePath, explorer's onStartFuturePlan, git-conflict's
-      // paths, the sprintengine fixed-view/summary fallbacks).
+      // (file-editor's filePath, git-conflict's
+      // paths).
       // Every plain `{ workspaceId }` host panel — editor, git,
-      // sprintengine, memory-graph — falls
+      // memory-graph — falls
       // through to `default`, which renders it gated by its owning module.
       switch (component) {
         case 'agent':
@@ -671,22 +601,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           return renderNewAgentPanel
             ? renderNewAgentPanel(node.getId(), (config as { agentName?: string } | undefined)?.agentName)
             : null
-        // Defensive fallbacks for stale layouts that escaped migration — the
-        // canonical layout now uses a single sprint board tab (the module's
-        // registered type id) whose internal segmented chrome covers all three
-        // views.
-        case 'sprintengine-inbox':
-          return sprintEngineEnabled
-            ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="inbox" />)
-            : DISABLED_SURFACE
-        case 'sprintengine-roster':
-          return sprintEngineEnabled
-            ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="roster" />)
-            : DISABLED_SURFACE
-        case 'sprintengine-tasks':
-          return sprintEngineEnabled
-            ? timedPanel('SprintEngineBoardPanel', <SprintEngineBoardPanel workspaceId={workspaceId} fixedView="tasks" />)
-            : DISABLED_SURFACE
         // A remote terminal is core chrome, not a module: tailnet remote control
         // is a built-in opt-in feature, and a pane that vanished with a module
         // toggle would strand a person mid-session on another machine. (The
@@ -716,18 +630,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
               />
             ))
             : DISABLED_SURFACE
-        case 'sprintengine-plan-reader':
-          return sprintEngineEnabled
-            ? timedPanel('SprintEnginePlanReaderPanel', (
-              <SprintEnginePlanReaderPanel
-                workspaceId={workspaceId}
-                onClose={() => {
-                  const model = modelRef.current
-                  if (model) deleteTabPreservingRails(model, node.getId())
-                }}
-              />
-            ))
-            : DISABLED_SURFACE
         default: {
           // Host-registered panels: render the registered component gated by its
           // owning module's enablement. A disabled module (or an unknown/stale
@@ -751,11 +653,11 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           }
           const moduleId = host.getPanelModule(component!)
           if (moduleId && !selectModuleEnabled(moduleOverrides, moduleId)) return DISABLED_SURFACE
-          return timedPanel(component!, <Panel workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />)
+          return timedPanel(component!, <Panel workspaceId={workspaceId} />)
         }
       }
     },
-    [moduleOverrides, onStartFuturePlan, openSettingsOverlay, shouldKillTerminalOnUnmount, workspaceId]
+    [moduleOverrides, openSettingsOverlay, shouldKillTerminalOnUnmount, workspaceId]
   )
 
   const cleanupNode = useCallback(
@@ -784,12 +686,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
           void window.api.terminalKill(sessionId).catch(() => {})
         })
         if (agent) {
-          if (isSprintEngineManagedAgent(agent, {
-            agentId,
-            rosterIds: Object.keys(sprintEngineAgents),
-          })) {
-            applySprintEngineAutomationStopReason(workspaceId, 'agent_terminal_closed', { agentId })
-          }
           updateAgent(workspaceId, agentId, {
             cliStartRequested: false,
             cliHasLaunched: false,
@@ -1026,7 +922,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
   const renderTab = useCallback(
     (node: TabNode, renderValues: ITabRenderValues) => {
       // Prepend a worktree branch glyph to a tab's leading slot (preserving any
-      // role/specialist/highlight icon) when this tab's workspace is worktree-
+      // identity/highlight icon) when this tab's workspace is worktree-
       // backed. `wt` is the resolved worktree (null → no glyph); its `cwd` is
       // surfaced in the hover tooltip so the worktree's location is discoverable.
       // When `missing`, the worktree directory is gone: the glyph switches to the
@@ -1249,20 +1145,6 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
               <RemoteMachineGlyph className={TAB_CHIP_GLYPH_CLASS} />
             </span>
           )
-        } else if (componentId?.startsWith(SPRINT_ENGINE_WORKSPACE_TYPE_ID)) {
-          renderValues.leading = (
-            <span
-              className={`${TAB_CHIP_CLASS} ${panelTabAccentClass(SPRINT_ENGINE_WORKSPACE_TYPE_ID, moduleOverrides)}`}
-              title='Sprint panel'
-              aria-label='Sprint panel'
-            >
-              <WorkspaceTypeIcon
-                mode={SPRINT_ENGINE_WORKSPACE_TYPE_ID}
-                moduleOverrides={moduleOverrides}
-                className={TAB_CHIP_GLYPH_CLASS}
-              />
-            </span>
-          )
         }
         renderValues.content = tabContent
         return
@@ -1272,61 +1154,14 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       const agentId = config?.agentId ?? node.getId()
       const agent = workspaceAgents[agentId]
       const agentSessionId = config?.sessionId ?? agent?.cliSessionId
-      const runtimeAgent = sprintEngineAgents[agentId]
       const agentSession = agentSessionId
         ? terminalSessions.find((s) => s.sessionId === agentSessionId)
         : undefined
-      const currentTaskId = runtimeAgent?.currentTaskId
       const isWorking = isSessionWorking(agentSession)
-      // sprint agents show their run lifecycle (in progress / blocked /
-      // complete), never a live dot or recency. Everyone else uses the
-      // working dot with recency while idle.
-      const isSprintEngineRun = isSprintEngineManagedAgent(agent, {
-        agentId,
-        rosterIds: Object.keys(sprintEngineAgents),
-      })
-      const sprintEngineLifecycle = isSprintEngineRun
-        ? sprintEngineTabLifecycle(runtimeAgent?.status)
-        : null
-      // A sprint agent that is genuinely running is "doing work" → pulsing green
-      // dot, the same idiom every other working agent uses. Non-working sprint
-      // statuses (blocked / complete / idle) fall through to their lifecycle
-      // glyph above; everyone else uses the standard activity dot.
-      const activityDot: AgentTabActivityDot | null = isSprintEngineRun
-        ? (runtimeAgent?.status === 'running'
-            ? { tone: 'good', pulse: true, label: 'Working' }
-            : null)
-        : agentTabStatusDot(agentSession, runtimeAgent?.status, currentTaskId)
-      const specialist = agent?.kind === 'specialist' && agent.specialistId
-        ? getSpecialistAction(agent.specialistId)
-        : null
-      const sprintEngineRole = isSprintEngineRun
-        ? runtimeAgent?.role ?? null
-        : null
+      const activityDot: AgentTabActivityDot | null = agentTabStatusDot(agentSession)
 
-      if (specialist) {
-        renderValues.leading = (
-          <span
-            className={`${TAB_CHIP_CLASS} text-[color:var(--text-muted)]`}
-            title={`${specialist.shortLabel} specialist`}
-            aria-label={`${specialist.shortLabel} specialist`}
-          >
-            <SpecialistActionIcon icon={specialist.icon} className={TAB_CHIP_GLYPH_CLASS} />
-          </span>
-        )
-      } else if (sprintEngineRole) {
-        renderValues.leading = (
-          <span
-            className={TAB_CHIP_CLASS}
-            title={`${sprintEngineRole} sprint agent`}
-            aria-label={`${sprintEngineRole} sprint agent`}
-          >
-            <SprintEngineRoleIcon role={sprintEngineRole} className={TAB_CHIP_GLYPH_CLASS} />
-          </span>
-        )
-      } else if (agent?.cli) {
-        // A plain agent has no role glyph, so its otherwise-empty leading slot
-        // carries the runtime brand mark (Claude Code / Codex / OpenCode) — the
+      if (agent?.cli) {
+        // The tab's otherwise-empty leading slot carries the runtime brand mark (Claude Code / Codex / OpenCode) — the
         // at-a-glance "which harness" signal. The exact model lives in the hover
         // popout, since models carry no icon.
         const runtimeLabel = `${labelForCliRuntime(agent.cli)} runtime`
@@ -1375,9 +1210,9 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         agentCheckout?.kind === 'missing' ? `Directory removed — ${agentCheckout.cwd}` : undefined,
       )
 
-      // Recency only when NOT working and NOT a Sprint Engine run. Active agents
-      // show the pulsing green dot; sprint agents show run lifecycle.
-      const agentRecency = isWorking || isSprintEngineRun
+      // Recency only when NOT working: an active agent shows the pulsing green
+      // dot instead.
+      const agentRecency = isWorking
         ? null
         : pickAgentTabRecency(
             agentSession,
@@ -1400,16 +1235,15 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         : null
 
       // Trailing status treatment, shared across the three content branches:
-      // sprint agents show a run-lifecycle glyph, everyone else the activity dot
-      // (+ recency while idle).
+      // the activity dot, plus recency while idle.
       // A phone is looking at this agent's terminal right now (owner,
       // 2026-09-05: "if there is a mobile device actively looking at a
       // terminal, show the little remote connection icon … beside the name …
       // green and pulsing while the terminal is open on the mobile").
       //
       // It leads the trailing cluster rather than the leading slot, which
-      // already carries the identity the tab is named for — the runtime or the
-      // role. This is a state, and states live with the dot.
+      // already carries the identity the tab is named for — the runtime. This is
+      // a state, and states live with the dot.
       const remoteViewing = agentSessionId ? remoteAttachedSessions.has(agentSessionId) : false
       const remoteMark = remoteViewing ? (
         <span
@@ -1422,14 +1256,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         </span>
       ) : null
 
-      const trailing = sprintEngineLifecycle ? (
-        <LifecycleGlyph
-          state={sprintEngineLifecycle.state}
-          live={sprintEngineLifecycle.live}
-          label={sprintEngineLifecycle.label}
-          className="translate-y-px"
-        />
-      ) : activityDot ? (
+      const trailing = activityDot ? (
         <>
           <StatusDot tone={activityDot.tone} pulse={activityDot.pulse} label={activityDot.label} />
           {recencyIndicator}
@@ -1449,8 +1276,8 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
       // no checkout line, which repeated the branch on the topbar.
       // Paused wins its own self-contained label (with elapsed time) so the
       // popout reads "Paused · 13m" without leaning on the tab's recency chip.
-      // Otherwise mirror the tab dot, then sprint lifecycle, then the honest
-      // recency source (Idle / Last activity / Exited) — never a blanket "Idle".
+      // Otherwise mirror the tab dot, then the honest recency source
+      // (Idle / Last activity / Exited) — never a blanket "Idle".
       // The corner's state, in the card's own three kinds. `working` is the
       // pulsing green dot the tab wears; `attention` is Waiting, Failed and
       // Paused, which are worth the same weight without claiming motion; every
@@ -1471,17 +1298,12 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
                   : 'attention',
               label: activityDot.label,
             }
-          : sprintEngineLifecycle
+          : agentRecency !== null && agentRecencyText
             ? {
-                kind: sprintEngineLifecycle.state === 'needs_input' ? 'attention' : 'idle',
-                label: sprintEngineLifecycle.label,
+                kind: 'idle',
+                label: `${tabRecencyLabel(agentRecency.source)} · ${agentRecencyText}`,
               }
-            : agentRecency !== null && agentRecencyText
-              ? {
-                  kind: 'idle',
-                  label: `${tabRecencyLabel(agentRecency.source)} · ${agentRecencyText}`,
-                }
-              : { kind: 'idle', label: 'Idle' }
+            : { kind: 'idle', label: 'Idle' }
       // The tab's card is about the tab's OWN agent, so the session snapshot it
       // reads is that agent's — the ledger, the subagent count and the context
       // reading all belong to one session and none of them merge.
@@ -1490,7 +1312,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         : undefined
       const agentIdentity: AgentTabIdentity = {
         name: agent?.name ?? node.getName(),
-        taskId: currentTaskId ?? null,
+        taskId: null,
         status: identityStatus,
         agent: {
           // A tab whose agent main has no SESSION for still gets a card: the id
@@ -1548,7 +1370,7 @@ function WorkspaceLayout({ workspaceId, onStartFuturePlan, onNewAgentTab, render
         </AgentTabIdentityPopover>
       )
     },
-    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, sprintEngineAgents, startRename, remoteAttachedSessions, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
+    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, startRename, remoteAttachedSessions, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
   )
 
   const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {

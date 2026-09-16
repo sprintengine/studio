@@ -80,10 +80,6 @@ export function agentIntegrationRoot(userDataDir: string, version: string): stri
  * put the same skill id in front of one session twice — once from here and once
  * from the workspace. It joins this list when those skills stop being written
  * into the repository.
- *
- * `workflow-roles` is not passed either. It is a catalogue plugin a person
- * installs, not a launch plugin, and a workspace that has never installed it
- * stays without the sixteen role skills (owner ruling 2026-09-07).
  */
 export function launchPluginDirs(root: string): string[] {
   return [join(root, STUDIO_PLUGIN_ID)]

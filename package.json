@@ -1,7 +1,7 @@
 {
   "name": "sprintengine-studio",
   "version": "0.4.0",
-  "description": "Agent-first desktop IDE and sprint command centre that runs coding agent CLIs across parallel workspaces.",
+  "description": "Agent-first desktop IDE that runs coding agent CLIs across parallel workspaces.",
   "author": "Conal Smith",
   "license": "MIT",
   "private": true,
@@ -33,7 +33,6 @@
     "test:all": "node scripts/testing/run-tests.mjs --all",
     "test:sdk:drift": "tsc -p packages/module-sdk/tsconfig.json && tsc -p packages/module-sdk/tsconfig.drift.json && esbuild packages/module-sdk/drift/sdk-drift-guard.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/sdk-drift-guard.cjs && node node_modules/.cache/multicode/sdk-drift-guard.cjs",
     "test:sdk:pack": "node scripts/verify-module-sdk-pack.mjs",
-    "test:sdk:launch-contributions": "node scripts/testing/run-tests.mjs src/main/module-host/launch-contributions.test.ts src/main/modules/sprint-engine-launch-contribution.test.ts",
     "test:mobile-protocol:pack": "node scripts/verify-mobile-protocol-pack.mjs",
     "test:model-feed": "node scripts/check-model-feed-seed.mjs",
     "test:card-feed": "node scripts/check-card-feed-seed.mjs",
@@ -45,13 +44,11 @@
     "typecheck:all": "npm run typecheck:app && npm run typecheck:tests",
     "verify:app": "npm run typecheck && npm run lint && npm run test && npm run test:sdk:drift && npm run test:sdk:pack && npm run test:mobile-protocol:pack && npm run test:model-feed && npm run test:card-feed && npm run test:sources && npm run test:release",
     "verify:marketplace-registry": "esbuild resources/marketplace/verify-marketplace.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/marketplace-registry-verify.cjs && node node_modules/.cache/multicode/marketplace-registry-verify.cjs",
-    "lint": "node scripts/lint-design-tokens.mjs && node scripts/lint-panel-composition.mjs && node scripts/lint-palette-contract.mjs && node scripts/lint-primitive-duplication.mjs && node scripts/lint-door-surfaces.mjs && node scripts/lint-design-system-conformance.mjs && node scripts/testing/design-system-guard-probes.mjs",
+    "lint": "node scripts/lint-design-tokens.mjs && node scripts/lint-panel-composition.mjs && node scripts/lint-primitive-duplication.mjs && node scripts/lint-door-surfaces.mjs && node scripts/lint-design-system-conformance.mjs && node scripts/testing/design-system-guard-probes.mjs",
     "lint:design-tokens": "node scripts/lint-design-tokens.mjs",
     "lint:design-tokens:report": "node scripts/lint-design-tokens.mjs --report",
     "lint:panel-composition": "node scripts/lint-panel-composition.mjs",
     "lint:panel-composition:report": "node scripts/lint-panel-composition.mjs --report",
-    "lint:palette-contract": "node scripts/lint-palette-contract.mjs",
-    "lint:palette-contract:report": "node scripts/lint-palette-contract.mjs --report",
     "lint:primitive-duplication": "node scripts/lint-primitive-duplication.mjs",
     "lint:primitive-duplication:report": "node scripts/lint-primitive-duplication.mjs --report",
     "lint:door-surfaces": "node scripts/lint-door-surfaces.mjs",
@@ -59,7 +56,6 @@
     "lint:guard-probes": "node scripts/testing/design-system-guard-probes.mjs",
     "catalogue:cli-entries": "esbuild resources/marketplace/generate-cli-entries.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/marketplace-cli-entries-generate.cjs && node node_modules/.cache/multicode/marketplace-cli-entries-generate.cjs",
     "sync:model-feed": "node scripts/sync-model-feed.mjs",
-    "sync:catalogue": "node scripts/sync-catalogue.mjs",
     "measure:startup": "node scripts/measure-startup.mjs",
     "report:source-size": "node scripts/report-source-size.mjs",
     "postinstall": "node scripts/fix-node-pty-permissions.js"
@@ -73,14 +69,6 @@
     "artifactName": "SprintEngine-Studio-${version}-${os}-${arch}.${ext}",
     "files": [
       "out/**/*",
-      "souls/**/*.py",
-      "scripts/souls",
-      "scripts/souls.cmd",
-      "scripts/sprintengine",
-      "scripts/sprintengine.cmd",
-      "scripts/sprintengine_tool.py",
-      "sprintengine_core/**/*.py",
-      "sprintengine_mcp/**/*.py",
       "!out/**/*.map"
     ],
     "extraResources": [
@@ -101,47 +89,6 @@
       {
         "from": "resources/studio-plugin",
         "to": "studio-plugin",
-        "filter": [
-          "**/*"
-        ]
-      },
-      {
-        "from": "scripts/sprintengine_tool.py",
-        "to": "scripts/sprintengine_tool.py"
-      },
-      {
-        "from": "scripts/souls",
-        "to": "scripts/souls"
-      },
-      {
-        "from": "scripts/souls.cmd",
-        "to": "scripts/souls.cmd"
-      },
-      {
-        "from": "scripts/sprintengine",
-        "to": "scripts/sprintengine"
-      },
-      {
-        "from": "scripts/sprintengine.cmd",
-        "to": "scripts/sprintengine.cmd"
-      },
-      {
-        "from": "sprintengine_core",
-        "to": "sprintengine_core",
-        "filter": [
-          "**/*.py"
-        ]
-      },
-      {
-        "from": "sprintengine_mcp",
-        "to": "sprintengine_mcp",
-        "filter": [
-          "**/*.py"
-        ]
-      },
-      {
-        "from": "souls",
-        "to": "souls",
         "filter": [
           "**/*"
         ]
@@ -188,13 +135,6 @@
         "to": "design-system",
         "filter": [
           "templates/**"
-        ]
-      },
-      {
-        "from": "resources/sprintengine",
-        "to": "resources/sprintengine",
-        "filter": [
-          "**/*"
         ]
       }
     ],

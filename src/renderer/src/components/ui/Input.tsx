@@ -150,7 +150,7 @@ const BOXED = [
  *
  * A string, not a component, because the only thing these sites share is the
  * chrome: the automation editor's name is `text-title font-semibold`, the New
- * sprint dialog's run name is `font-mono text-heading font-medium`, and the type
+ * automation's name is `font-mono text-heading font-medium`, and the type
  * step IS the surface's decision. It deliberately spells no `text-*` of its own
  * so the caller's is the only one — Tailwind resolves two font-size utilities by
  * stylesheet order, not by the order they appear in a class string.

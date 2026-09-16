@@ -1,11 +1,8 @@
 import React from 'react'
-import { SpecialistActionIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
 import { ChipButton, CliModelPickerButton, CloseIconButton, EmptyState, FOCUS_RING_WITHIN_INPUT_CLASS, IconButton, Input, MENU_LIST_CLASS, MenuDivider, MenuItem, MenuOption, PanelHeader, Popover, PrimaryButton, roveMenuFocus, RowButton, StarGlyph, TruncatedText } from '../../ui'
-import { NoWorkflowRolesNotice } from '../../NoWorkflowRolesNotice'
-import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../types/workspace'
+import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'
 import { selectAgentCliCatalog } from '../newWorkspace/cliRuntimeOptions'
 import { ExtensionIcon } from '../../ui/ExtensionIcon'
 import { mcpIconSlug } from '../../ui/mcpIconSlug'
@@ -36,15 +33,15 @@ type AgentComposerProps = {
   projectOptions: ComposerProjectOption[]
   onSelectProject: (path: string) => void
   onBrowseProject: () => void
-  // The remembered agent, preselected on open. Absent → the roleless row.
+  // The remembered agent, preselected on open. Absent → the General row.
   initialSelection: AgentComposerSelection
   // Opens with these MCP servers already picked (the connector surface's "New
   // chat"). The user can still remove any before launch.
   initialMcpServers?: AgentComposerConnector[] | null
   // Shared permission preset (owned by the host so spawn handlers read it at
   // spawn time). Debug mode is transient and defaulted off per spawn.
-  permissionPreset: SprintEngineCliPermissionPreset
-  onChangePermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  permissionPreset: CliPermissionPreset
+  onChangePermissionPreset: (preset: CliPermissionPreset) => void
   debugMode: boolean
   onChangeDebugMode: (next: boolean) => void
   // Confirm creates the chat (host maps to its spawn handlers); close discards.
@@ -59,10 +56,10 @@ type AgentComposerProps = {
 
 /**
  * The pre-creation agent composer (panel density). Two columns: the roster is
- * the primary decision (search + Terminal / General quick rows + the specialist
- * roster), the config column describes the selected agent and binds the engine
- * (CLI + model) to it. Nothing is created until the user confirms; the host's
- * onConfirm performs the actual spawn.
+ * the primary decision (search + the Terminal / General rows), the config
+ * column describes the selected agent and binds the engine (CLI + model) to it.
+ * Nothing is created until the user confirms; the host's onConfirm performs the
+ * actual spawn.
  *
  * The engine controls always reflect the selected agent's remembered CLI/model
  * and persist edits back as that agent's default, so browsing the roster never
@@ -98,8 +95,6 @@ export default function AgentComposer({
     (s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId)?.folderPath ?? null,
   )
   const skillWorkspaceRoot = folderPath ?? activeWorkspaceRoot
-  const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
-  const rolesLoaded = sprintEngineRoleRegistry !== null
 
   React.useEffect(() => {
     const id = requestAnimationFrame(() => searchRef.current?.focus())
@@ -109,7 +104,7 @@ export default function AgentComposer({
   // The one choke point every spawn goes through: a row click, Enter in the
   // search field, or the CTA. A selection with no row on this machine must not
   // spawn — with no agent CLI installed the roster withholds the rows that
-  // launch one, and a remembered specialist would otherwise still ride Enter.
+  // launch one, and a remembered pick would otherwise still ride Enter.
   const commit = (target: AgentComposerSelection) => {
     if (!composer.visibleRows.some((row) => rowMatchesSelection(row, target))) return
     onConfirm(composer.buildConfirm(target))
@@ -133,24 +128,12 @@ export default function AgentComposer({
 
   const optionId = (row: ComposerRow) => `agent-composer-option-${row.key}`
   const selectedRow = visibleRows.find((row) => rowMatchesSelection(row, selection))
-  // Prefer the registry-sourced action carried on the selected row (manifest
-  // label/icon); fall back to synthesizing from the id when the selected
-  // specialist is no longer in the roster (e.g. its pack was uninstalled).
-  const activeSpecialist =
-    selection.kind === 'specialist'
-      ? selectedRow?.kind === 'specialist'
-        ? selectedRow.action
-        : getSpecialistAction(selection.specialistId)
-      : null
   const quickRows = visibleRows.filter((row) => row.kind === 'terminal' || row.kind === 'general')
-  // The roleless row has no role to name it, so it wears its own bound engine:
-  // the model it launches, or the CLI when no model is picked. Resolved from
-  // that row's engine, never the highlighted row's — browsing must not repaint it.
+  // The General row wears its own bound engine: the model it launches, or the
+  // CLI when no model is picked. Resolved from that row's engine, never the
+  // highlighted row's — browsing must not repaint it.
   const generalEngine = composer.engineNamesFor({ kind: 'general' })
   const generalLabel = generalEngine.modelLabel ?? generalEngine.cliLabel
-  const specialistRows = visibleRows.filter(
-    (row): row is Extract<ComposerRow, { kind: 'specialist' }> => row.kind === 'specialist',
-  )
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col bg-[color:var(--bg-surface)]">
@@ -276,29 +259,6 @@ export default function AgentComposer({
                   </div>
                 ) : null}
 
-                {specialistRows.length > 0 ? (
-                  <div className="border-t border-[color:var(--border-subtle)] pt-1">
-                    <div className="px-2 pb-1 pt-1 text-micro text-[color:var(--text-subtle)]">Specialists</div>
-                    {specialistRows.map((row) => (
-                      <ComposerRosterRow
-                        key={row.key}
-                        id={optionId(row)}
-                        selected={rowMatchesSelection(row, selection)}
-                        icon={<SpecialistActionIcon icon={row.action.icon} className="h-4 w-4" />}
-                        label={row.action.shortLabel}
-                        onSelect={() => composer.setSelection(selectionForRow(row))}
-                        onConfirm={() => commit(selectionForRow(row))}
-                      />
-                    ))}
-                  </div>
-                ) : composer.query.trim() || composer.noAgentCliInstalled ? null : rolesLoaded ? (
-                  <div className="border-t border-[color:var(--border-subtle)] pt-1">
-                    <div className="px-2 pb-1 pt-1 text-micro text-[color:var(--text-subtle)]">Specialists</div>
-                    <div className="px-2 py-1" aria-disabled="true">
-                      <NoWorkflowRolesNotice />
-                    </div>
-                  </div>
-                ) : null}
               </>
             )}
           </div>
@@ -314,11 +274,9 @@ export default function AgentComposer({
           <div className="min-h-0 flex-1 overflow-y-auto">
           <ComposerConfig
             selection={selection}
-            activeSpecialist={activeSpecialist}
             generalLabel={generalLabel}
             selectionCli={composer.selectionCli}
             agentCliOptions={composer.agentCliOptions}
-            generalCliOptions={composer.generalCliOptions}
             modelFor={(cli) => composer.modelForSelection(selection, cli)}
             reasoningFor={(cli) => composer.reasoningForSelection(selection, cli)}
             onSelectCli={(cli) => composer.setEngineCli(selection, cli)}
@@ -578,11 +536,9 @@ function ComposerRosterRow({
 
 function ComposerConfig({
   selection,
-  activeSpecialist,
   generalLabel,
   selectionCli,
   agentCliOptions,
-  generalCliOptions,
   modelFor,
   reasoningFor,
   onSelectCli,
@@ -594,19 +550,17 @@ function ComposerConfig({
   onChangeDebugMode,
 }: {
   selection: AgentComposerSelection
-  activeSpecialist: SpecialistAction | null
-  // The roleless agent's name: its bound engine, resolved by the caller.
+  // The General agent's name: its bound engine, resolved by the caller.
   generalLabel: string
   selectionCli: AgentCli
   agentCliOptions: ReturnType<typeof selectAgentCliCatalog>
-  generalCliOptions: ReturnType<typeof selectAgentCliCatalog>
   modelFor: (cli: AgentCli) => string | undefined
   reasoningFor: (cli: AgentCli) => string | undefined
   onSelectCli: (cli: AgentCli) => void
   onSelectModel: (cli: AgentCli, model: string | null) => void
   onSelectReasoning: (cli: AgentCli, reasoning: string | null) => void
-  permissionPreset: SprintEngineCliPermissionPreset
-  onChangePermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
+  permissionPreset: CliPermissionPreset
+  onChangePermissionPreset: (preset: CliPermissionPreset) => void
   debugMode: boolean
   onChangeDebugMode: (next: boolean) => void
 }) {
@@ -624,16 +578,9 @@ function ComposerConfig({
     )
   }
 
-  const isSpecialist = selection.kind === 'specialist' && activeSpecialist !== null
-  const name = isSpecialist ? activeSpecialist!.shortLabel : generalLabel
-  const description = isSpecialist
-    ? activeSpecialist!.description
-    : 'Runs your instructions as written.'
-  const icon = isSpecialist ? (
-    <SpecialistActionIcon icon={activeSpecialist!.icon} className="size-icon-md text-[color:var(--text-strong)]" />
-  ) : (
-    <CliIcon cli={selectionCli} className="size-icon-md text-[color:var(--text-strong)]" />
-  )
+  const name = generalLabel
+  const description = 'Runs your instructions as written.'
+  const icon = <CliIcon cli={selectionCli} className="size-icon-md text-[color:var(--text-strong)]" />
 
   return (
     <div>
@@ -649,7 +596,7 @@ function ComposerConfig({
       <div className="mt-5 flex flex-wrap items-center gap-1">
         <CliModelPickerButton
           ariaLabel={`Agent runtime for ${name}`}
-          options={isSpecialist ? agentCliOptions : generalCliOptions}
+          options={agentCliOptions}
           cli={selectionCli}
           effectiveModelFor={modelFor}
           effectiveReasoningFor={reasoningFor}

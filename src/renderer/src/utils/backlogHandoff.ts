@@ -1,7 +1,6 @@
 import { BACKLOG_SKILL_ID, backlogLifecycleHandoffPrompt } from '../../../shared/backlog/handoff-prompt'
 import { renderSkillInvocationTemplate } from '../../../shared/skill-invocation'
 import { hasAgentLink } from './agentBacklogLinks'
-import { hasSprintEngineRunLink } from './sprintengineBacklogLinks'
 import type { SkillIntegrationLike } from './skillInvocation'
 import type { BacklogItem } from './backlog'
 
@@ -15,17 +14,15 @@ export { BACKLOG_SKILL_ID }
 
 /**
  * Whether an item can be handed to a fresh agent. A finished record must not be
- * re-handed (the same gate `backlog.work` applies), and an item that already
- * has an owner — an agent working it, or a Sprint delivering it — is withheld
- * so a second launch cannot fork the effort behind the first one's back. Those
- * items show "Open agent" / "Open Sprint" instead.
+ * re-handed (the same gate `backlog.work` applies), and an item that already has
+ * an agent working it is withheld so a second launch cannot fork the effort
+ * behind the first one's back. Those items show "Open agent" instead.
  */
 export function canHandBacklogItemToAgent(item: BacklogItem): boolean {
   return (
     item.status !== 'archived'
     && item.status !== 'completed'
     && !hasAgentLink(item)
-    && !hasSprintEngineRunLink(item)
   )
 }
 

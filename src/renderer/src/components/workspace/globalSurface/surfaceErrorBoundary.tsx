@@ -20,7 +20,7 @@ const SurfaceCanvasState = React.lazy(() =>
 )
 
 interface GlobalSurfaceErrorBoundaryProps {
-  /** The door id ("sprints", "automations", …) — names the surface in the log line. */
+  /** The door id ("design", "automations", …) — names the surface in the log line. */
   surfaceId: string
   /** Human name for the fallback title ("Reviews hit a problem and stopped"). */
   surfaceLabel: string

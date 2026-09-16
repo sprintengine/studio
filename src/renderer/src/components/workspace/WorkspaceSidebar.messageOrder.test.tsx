@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
-import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // Every list in the sidebar orders by when the person last sent a message into
 // each chat, newest first, and by nothing else (owner ruling 2026-09-09:
@@ -69,8 +68,6 @@ domWindow.api = {
     },
   ],
   onTerminalSessionsChanged: () => () => {},
-  onSprintRunsChanged: () => () => {},
-  listSprintRuns: async () => [],
   getWorkspaceChangeSummary: async () => null,
 }
 
@@ -79,7 +76,6 @@ async function main(): Promise<void> {
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
-  bindSprintEngineIpc(domWindow.api as never)
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   type Workspace = SidebarProps['workspaces'][number]
 

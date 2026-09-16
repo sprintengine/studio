@@ -114,7 +114,7 @@ export function SettingToggle({
   onChange: (next: boolean) => void
   disabled?: boolean
   // A muted suffix on the label line naming an unmet prerequisite, e.g. "Needs
-  // Sprint Engine". When present the row is typically also `disabled`.
+  // Git". When present the row is typically also `disabled`.
   requirement?: string
 }) {
   const labelId = React.useId()

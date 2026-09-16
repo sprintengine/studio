@@ -451,14 +451,13 @@ run('a worktree row groups under the project it was cut from, not under its own 
   } as unknown as Workspace
   assert.equal(groupKeyOf(legacyWorktree), parentKey, 'derived from the container path when nothing was recorded')
 
-  // A sprint run's folderPath is ALREADY the parent project (the run keeps its
-  // worktree on sprintEngineState.vcs), so nothing about it moves.
-  const sprint = {
+  // A row whose folderPath is ALREADY the parent project, with no worktree
+  // marker, files under that project unchanged.
+  const atProjectRoot = {
     folderPath: '/home/dev/projects/multicode',
-    sprintEngineState: { vcs: { mode: 'worktree', repos: [{ repoId: 'app', worktreePath: '.multicode-worktrees/multicode/run', branch: 'run/x' }] } },
     layoutModel: { layout: { type: 'row', children: [] } },
   } as unknown as Workspace
-  assert.equal(groupKeyOf(sprint), parentKey, 'a sprint run was always filed under its project')
+  assert.equal(groupKeyOf(atProjectRoot), parentKey, 'a row at the project root stays filed under it')
 
   // And the rows that were never worktrees keep exactly the keys they had.
   const plain = { folderPath: '/Users/me/App/', layoutModel: { layout: { type: 'row', children: [] } } } as unknown as Workspace

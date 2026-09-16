@@ -1,4 +1,4 @@
-// The shared substrate for the door surfaces (Sprints / Automations / Reviews)
+// The shared substrate for the door surfaces (Design / Automations / Reviews)
 // — the "Door substrate" view of mockups/2026-07-20-post-merge-ui-polish
 // (#view-doors). They landed as copy-paste triplets that drifted:
 // loading, empty, and error each grew three dialects, only one rail had keyboard
@@ -57,8 +57,8 @@ export type SurfaceCanvasStateProps =
       /** The one call-to-action (never a dead end for a first-time surface). */
       action?: React.ReactNode
       /**
-       * The door has never held anything — "No reviews yet", "Run your first
-       * sprint". Only that canvas keeps the richer treatment (the accent-soft
+       * The door has never held anything — "No reviews yet", "Nothing here
+       * yet". Only that canvas keeps the richer treatment (the accent-soft
        * disc and a title-sized heading), per the empty-state ruling (MC-2117).
        * Everything else — a list narrowed to nothing, a scan that failed, no
        * project open — is the quiet kit `EmptyState`, the same one a pane one
@@ -163,7 +163,7 @@ export interface SurfaceRailRow {
    *  a row with no mark renders title + state line only. */
   icon?: React.ReactNode
   /** A whole-row tooltip (the product `Tooltip`, on the row button), for a door
-   *  whose row carries more than it shows — Sprints adds the lifecycle word its
+   *  whose row carries more than it shows — a door may add the lifecycle word its
    *  glyph draws. Without it the title and the state line each surface their
    *  own full text only when actually clipped (`TruncatedText`), so a row that
    *  fits says nothing twice. Never a native `title=`: an OS tooltip is a
@@ -191,7 +191,7 @@ export interface SurfaceRailRow {
   // A row in the app sidebar's own shape (door-rails-premium): a line above the
   // title saying where the thing lives with a clock at its trailing edge, the
   // title, and a line under it of marks and chips. The run doors wear it so a
-  // sprint reads exactly like a chat in the column next to it — same clock in
+  // run reads exactly like a chat in the column next to it — same clock in
   // the same corner, same branch chip, same gold-when-it-wants-you wash. A row
   // that sets neither `context` nor `detail` is the plain two-line row it
   // always was, so the other doors are untouched.
@@ -482,12 +482,12 @@ export function SurfaceRail({
   afterRows,
   afterRowsScope = 'rows',
 }: {
-  /** The rail's section label ("Sprints", "Automations", "Reviews"). */
+  /** The rail's section label ("Design", "Automations", "Reviews"). */
   label: string
   /** One line under the door's name — see `SurfaceRailHeader`'s `intro`. */
   intro?: React.ReactNode
   rows: ReadonlyArray<SurfaceRailRow>
-  /** Optional grouping (the Sprints door): rows render under quiet group
+  /** Optional grouping: rows render under quiet group
    *  headers instead of one flat list. `rows` must equal the groups' rows
    *  flattened — keyboard navigation walks that flat order. */
   groups?: ReadonlyArray<SurfaceRailGroup>
@@ -502,7 +502,7 @@ export function SurfaceRail({
   search?: SurfaceRailSearch
   /** Filter glyph beside the search field. Ignored without `search`. */
   filter?: SurfaceRailFilter
-  /** Why a narrowed rail is empty ("No sprints match."). Rendered only when the
+  /** Why a narrowed rail is empty ("No runs match."). Rendered only when the
    *  rail has no rows; the door decides whether an empty rail means "nothing
    *  matched" (say so) or "nothing exists yet" (leave it to the canvas's empty
    *  state), because only the door can see the unfiltered set.
@@ -585,7 +585,7 @@ export function SurfaceRail({
   // Doors fill the slot; they never size it. Before this, `renderRow` laid out
   // whatever glyph the door handed it, so the title's x-offset was
   // `10 (scrollport) + 8 (row pad) + iconWidth + 8 (gap)` — and iconWidth was the
-  // only free variable: 16px on Sprints/Roadmap/Automations, 13px on Extensions'
+  // only free variable: 16px on Design/Automations, 13px on Extensions'
   // bare `icon-xs` svgs, 12px on Design's identity chip. Opening a different door
   // in the same physical column therefore slid every row title 38↔42px, a visible
   // re-flow of a column that is supposed to read as one continuous rail.

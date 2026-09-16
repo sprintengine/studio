@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
-import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): the sidebar
 // row's terminal lines — mark · name · branch · ±lines — exist only while
@@ -72,9 +71,7 @@ domWindow.api = {
   onTerminalSessionsChanged: () => () => {},
   // This suite settles more microtask rounds than its siblings (the terminal
   // list, then the membership effect, then the sweep), which is long enough
-  // for the lazily mounted Sprints entry to open its own subscription.
-  onSprintRunsChanged: () => () => {},
-  listSprintRuns: async () => [],
+  // for a lazily mounted nav entry to open its own subscription.
   getWorkspaceChangeSummary: async (checkoutPath: string) => {
     summaryRequests.push(checkoutPath)
     return {
@@ -93,7 +90,6 @@ async function main(): Promise<void> {
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { default: WorkspaceSidebar, rowHasOpenTerminals, rowOpenTerminals } = await import('./WorkspaceSidebar')
-  bindSprintEngineIpc(domWindow.api as never)
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   type Workspace = SidebarProps['workspaces'][number]
 

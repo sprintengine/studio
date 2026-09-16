@@ -12,7 +12,7 @@ import {
 } from './designRailState'
 
 // The Design door's rail (item 2002, mockup backlog/mockups/2026-07-30-design-door-shell.html).
-// A thin adapter over the shared SurfaceRail, exactly like Sprints and
+// A thin adapter over the shared SurfaceRail, exactly like
 // Automations: list semantics, ↑/↓ + j/k navigation, the house New affordance,
 // and the search + filter head are all the substrate's. Nothing here invents a
 // mechanism, and nothing here mounts a second rail — the door's ONE rail is

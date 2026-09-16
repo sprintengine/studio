@@ -9,7 +9,7 @@
 // and CANONICAL_TOP_BAR_GROUPS (the TopBar inventory) in lockstep.
 
 import React from 'react'
-import { CheckIcon, RemoteMachineGlyph, SpecialistActionIcon, SprintEngineRoleIcon, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
+import { CheckIcon, RemoteMachineGlyph, WorkspaceTypeIcon, resolveEnabledWorkspaceType } from '../AppIcons'
 import {
   Badge,
   ChangePulse,
@@ -36,17 +36,13 @@ import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import CliIcon from '../CliIcon'
 import { TerminalSessionIcon } from './agentComposer/agentSpawnShared'
-import { getSpecialistAction } from '../../specialists/specialistActions'
 import type {
   AgentCli,
   AppNotification,
-  SpecialistActionId,
-  SprintEngineState,
   Workspace,
 } from '../../types/workspace'
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
-import { getSprintEngineRoleAccent } from '../../utils/sprintengine'
 import type { NotificationRowAction } from './topbar/NotificationsPopover'
 import { remoteGlyphState, remoteGlyphToneClass, remoteGlyphTooltip, useOpenRemoteSettings } from './topbar/remoteGlyph'
 import { useTailnetPresence } from './topbar/useTailnetPresence'
@@ -57,7 +53,7 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 // neither is rendered until that glyph is pressed — the Remote list of machines
 // and pair-request cards, and the notification reports with their per-report
 // actions — so they are fetched at open time rather than carried through boot
-// (bundle-budget ratchet; same shape as the Settings / New sprint surfaces in
+// (bundle-budget ratchet; same shape as the Settings surfaces in
 // WorkspaceManager). The glyphs themselves, and the state they wear, stay eager:
 // `remoteGlyph.ts` holds that half.
 const RemotePopover = React.lazy(() =>
@@ -98,25 +94,10 @@ export type SessionItem = {
   lastActivityAt: number | null
   // Exit code when `status === 'failed'`, else null.
   exitCode: number | null
-  role: NonNullable<SprintEngineState['sprintEngineAgents'][string]>['role'] | null
-  specialistId: SpecialistActionId | null
-  taskId: string | null
   sessionId: string
 }
 
-function sessionAgentTypeLabel(item: SessionItem): string | null {
-  if (item.specialistId) return getSpecialistAction(item.specialistId).shortLabel
-  return null
-}
-
 function SessionAgentIcon({ item, className }: { item: SessionItem; className?: string }) {
-  if (item.specialistId) {
-    const action = getSpecialistAction(item.specialistId)
-    return <SpecialistActionIcon icon={action.icon} className={className} />
-  }
-  if (item.role) {
-    return <SprintEngineRoleIcon role={item.role} className={className} />
-  }
   if (item.kind === 'terminal') {
     return <TerminalSessionIcon className={className} />
   }
@@ -272,16 +253,9 @@ function SessionsPopover({
                 </div>
                 <div className="space-y-1">
                   {group.items.map((item) => {
-                    // The role hue is identity ink on the glyph only — no tinted
-                    // fill behind it (the fill was a hex-alpha written into
-                    // `style`, invisible to the token guard).
-                    const chipStyle = item.role
-                      ? { color: getSprintEngineRoleAccent(item.role) }
-                      : undefined
-                    const typeLabel = sessionAgentTypeLabel(item)
                     const identityParts = item.kind === 'terminal'
                       ? [item.label.toLowerCase()]
-                      : [typeLabel, item.taskId, item.cli].filter((value): value is string => Boolean(value))
+                      : [item.cli].filter((value): value is string => Boolean(value))
                     // Lead the subline with honest status + recency, then identity.
                     const subline = [sessionStatusMeta(item, now), ...identityParts]
                       .filter(Boolean)
@@ -295,7 +269,6 @@ function SessionsPopover({
                         <div className="flex min-w-0 items-center gap-2">
                           <span
                             className="flex size-control-xs shrink-0 items-center justify-center rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]"
-                            style={chipStyle}
                           >
                             <SessionAgentIcon item={item} className="size-icon-md" />
                           </span>
@@ -489,7 +462,7 @@ export function WorkspaceActions({
         {/*
          * WorkspaceActions at-rest control inventory — capped at five groups.
          * The Git change-count badge migrated to the PanelRail Git icon
-         * (`workspace-context` retired) and the specialist split-button was
+         * (`workspace-context` retired) and the agent split-button was
          * deleted with MC-2222 (`agent-spawn` retired: spawning is New chat's
          * and the tab strip's job), so the row carries two canonical groups;
          * adding a sixth top-bar-group marker fails

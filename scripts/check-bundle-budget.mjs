@@ -6,7 +6,8 @@
 //      pull in heavy, on-demand-only dependencies — see FORBIDDEN below. If that
 //      half fails, a panel or dep that belongs behind React.lazy has been
 //      statically imported into the boot graph; load it lazily (see
-//      SettingsOverlay / WorkspaceManager NewSprintDialog for the pattern).
+//      WorkspaceManager's React.lazy of SettingsModalSurface / CommandPalette
+//      for the pattern).
 //   2. A size ceiling, which stands in for boot cost and is a much weaker proxy
 //      for it than its precision suggests. See CEILING_KB for the numbers.
 //

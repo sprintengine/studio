@@ -12,7 +12,7 @@ type TerminalMobileCommandServiceOptions = {
 
 // The phone's command service. It used to carry a session orchestrator as well —
 // the adapters behind `task.start`, `agent.followUp` and a run's automation mode
-// — and that left with the Sprint Engine (MC-2575). What remains reaches the
+// — and that left with the engine (MC-2575). What remains reaches the
 // desktop's own stores, never a run's.
 export function createTerminalMobileCommandService({
   resolveAutomationsFrontDoor,

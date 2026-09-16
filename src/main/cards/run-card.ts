@@ -209,11 +209,6 @@ const SURFACE_VIEWS: readonly CardSurfaceView[] = [
   'plugins',
   'skills',
   'agent-clis',
-  // The two run doors (item 2470). They are global surfaces rather than views of
-  // the Extensions door, which is why the renderer opens them without a latch —
-  // see `CardSurfaceView` for the rule that now covers both kinds.
-  'workflows',
-  'sprints',
 ]
 
 export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<CardRunResult> {
@@ -348,7 +343,7 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     // backlog/2026-09-06-the-seams-that-lead-nowhere.md §3). MC-2093's rule is
     // that every "there is no agent CLI here" state ends in one place, and
     // `cliInstallRoute.tsx` is that place — the empty launcher, the agent
-    // pickers, and `CliInstallRosterRow` in the card's own Go picker all open
+    // pickers, and the CLI install row in the card's own Go picker all open
     // Settings → Agents. This message is the backstop behind that same picker,
     // so naming a second door would mean the row a person just clicked and the
     // sentence they get if they press on anyway disagree about where CLIs come

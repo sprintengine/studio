@@ -32,7 +32,7 @@ import { modulesApi } from './api/modules'
 import { pluginsApi } from './api/plugins'
 import { skillsApi } from './api/skills'
 import { mobileBridgeApi } from './api/mobile-bridge'
-import { soulsApi } from './api/souls'
+import { launchSettingsApi } from './api/launch-settings'
 import { splashApi } from './api/splash'
 import { startupApi } from './api/startup'
 import { terminalApi } from './api/terminal'
@@ -73,7 +73,7 @@ const api = {
   ...cliVersionApi,
   ...mobileBridgeApi,
   ...filesystemApi,
-  ...soulsApi,
+  ...launchSettingsApi,
   ...gitApi,
   ...marketplaceApi,
   ...memoryActivityApi,

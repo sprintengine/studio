@@ -784,14 +784,11 @@ function deriveFileChanges(event, toolName, payload) {
 // an agent opens a pull request is a moment it is TOLD about — no polling, no
 // `gh` of its own. One more read on the same PostToolUse the file ledger uses.
 //
-// Two gates, and nothing else counts:
-//   * a shell command containing `gh pr create` — Claude's `Bash`, Kimi's
-//     `Bash`, Grok's `bash`, Codex's `shell` (whose `command` is an argv ARRAY,
-//     not a string). `gh pr view` / `gh pr list` do not match the literal, and a
-//     plain shell that never runs the creation never produces one.
-//   * a tool NAME ending in `vcs_pr` — the sprint MCP tool
-//     (`mcp__sprintengine-studio__sprintengine_vcs_pr` through Claude's hook),
-//     whose result is an MCP content array rather than a command's stdout.
+// One gate, and nothing else counts: a shell command containing `gh pr create`
+// — Claude's `Bash`, Kimi's `Bash`, Grok's `bash`, Codex's `shell` (whose
+// `command` is an argv ARRAY, not a string). `gh pr view` / `gh pr list` do not
+// match the literal, and a plain shell that never runs the creation never
+// produces one.
 //
 // The URL is read from the tool RESULT only, never from `tool_input`: the input
 // is the agent's own text, and an agent that merely TYPED a pull request URL has
@@ -836,15 +833,14 @@ function readToolCommand(input) {
 // Whether this tool call is one that can have opened a pull request. Cheap, and
 // checked BEFORE the result is scanned so an ordinary `cat` of a file that
 // happens to hold a pull request URL captures nothing.
-function isPullRequestCreation(toolName, input) {
-  if (typeof toolName === 'string' && toolName.trim().toLowerCase().endsWith('vcs_pr')) return true
+function isPullRequestCreation(input) {
   const command = readToolCommand(input)
   return typeof command === 'string' && GH_PR_CREATE_RE.test(command)
 }
 
 // One string's first pull request URL. `gh pr create` prints exactly one (the
-// last line of its output); the sprint MCP tool answers with the primary's URL
-// first. FIRST match, so the answer is deterministic when a run spans repos.
+// last line of its output). FIRST match, so the answer is deterministic when a
+// command prints more than one.
 //
 // Past the scan cap the string is read at BOTH ends, because `gh` prints the URL
 // last and a noisy push can put a megabyte in front of it. The two ends are
@@ -875,8 +871,8 @@ function firstPullRequestUrl(text, mustEndInside) {
 // answer again under `structuredContent`). `stdout` / `stderr` / `output` /
 // `result` cover the CLIs that wrap a command result in an object of their own —
 // `stderr` included because `gh` prints the "a pull request already exists"
-// line, URL and all, on the error stream. `pullRequestUrl` is the sprint tool's
-// own field name, for a server that answers with a value rather than text.
+// line, URL and all, on the error stream. `pullRequestUrl` covers a server that
+// answers with a value rather than text.
 const TOOL_RESPONSE_TEXT_FIELDS = [
   'stdout',
   'stderr',
@@ -1131,14 +1127,14 @@ async function main() {
   // The pull request the agent just opened, forwarded on the same PostToolUse
   // (epic `pull-request-marks`, decision 8b): the app files it against this
   // conversation the moment it exists, instead of waiting for the branch lookup
-  // to notice. See the capture section above for the two gates and the one
+  // to notice. See the capture section above for the gate and the one
   // regex. Only the URL rides the frame — never the command, never the output.
   // A capture is filed by the URL's OWN repository in main, so
   // `cd ../website && gh pr create` is captured correctly even though this
   // session never left its checkout.
   if (FILE_EDIT_EVENT_NAMES.has(event)) {
     const toolInput = payload?.tool_input ?? payload?.toolInput
-    if (isPullRequestCreation(toolName, toolInput)) {
+    if (isPullRequestCreation(toolInput)) {
       const url = extractPullRequestUrl(
         payload?.tool_response ?? payload?.toolResponse ?? payload?.tool_output ?? payload?.toolOutput
       )

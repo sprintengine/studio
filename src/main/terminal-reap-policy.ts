@@ -16,8 +16,7 @@ import type { AgentPhase } from '../shared/electron-api'
 //     a genuinely-finished agent there, and treating it as protected parked
 //     sessions forever (2026-07-07 incident). The residual risk — a silent
 //     hung-but-recoverable tool call reclaimed after threshold+90s of total
-//     silence — is accepted; suspend is non-destructive for plain agents and
-//     sprint agents respawn via the dispatch revival path.
+//     silence — is accepted; suspend is non-destructive.
 //     'starting'/'thinking'/'tool_use' (working) are NEVER reaped: killing
 //     them would abort a real command. (A 'starting' session that goes quiet
 //     converts to 'stalled' via the runtime stall watch, so a resumed-but-
@@ -33,7 +32,6 @@ import type { AgentPhase } from '../shared/electron-api'
 //   * `idleSince` — when the agent entered its current 'idle' phase. Stops a
 //     freshly-idle agent (which may have worked for a long time with zero
 //     keystrokes) from being reaped the instant it finishes its turn.
-//   * `inActiveRun` — caller-supplied; protects managed runs (e.g. SprintEngine).
 //   * `processAlive` — the pty lifecycle.
 //
 // Note: there is deliberately NO `visible` gate. "On screen" is not "in use" — a
@@ -114,9 +112,6 @@ export type ReapCandidate = {
   // a stalled session gets the full threshold from the stall flag, not from its
   // last keystroke.
   idleSince: number | null
-  // Caller-supplied: the terminal belongs to an active managed run (e.g. a
-  // SprintEngine agent). Defaults to the SAFE value (true) when unsure.
-  inActiveRun: boolean
   // Caller-supplied: an orchestrator-managed terminal (a module tagged the
   // session via `session.managed` on its launch contribution). Excluded from
   // the recency floor entirely — the floor is a promise about the USER'S
@@ -164,7 +159,6 @@ type ReapHold =
   | 'not_agent'
   | 'no_workspace'
   | 'user_locked'
-  | 'in_active_run'
   | 'pending_wakeup'
   | 'phase_awaiting_input'
   | 'phase_working'
@@ -192,7 +186,6 @@ export function explainSessionReapDecision(
   if (candidate.kind !== 'agent') return { verdict: 'held', hold: 'not_agent', restingForMs }
   if (candidate.workspaceId === null) return { verdict: 'held', hold: 'no_workspace', restingForMs }
   if (candidate.reapExempt) return { verdict: 'held', hold: 'user_locked', restingForMs }
-  if (candidate.inActiveRun) return { verdict: 'held', hold: 'in_active_run', restingForMs }
   if (candidate.pendingWakeupAt !== null && candidate.pendingWakeupAt > options.now) {
     return { verdict: 'held', hold: 'pending_wakeup', restingForMs }
   }
@@ -242,11 +235,10 @@ export function selectReapableSessions(
 
   // Recency floor: cap how many of the reapable set are acted on so at least
   // `keepRecentAliveCount` live agent terminals remain after the sweep. The
-  // floor is a USER-terminal promise, so SprintEngine-managed sessions are out
-  // of scope on both sides: they neither occupy keep-alive slots (a finished
-  // run's engine agents must not evict the user's own terminals from their
-  // budget) nor gain protection (inactive-run agents are disposed to close the
-  // parked-until-teardown memory gap; the dispatch respawns them on demand).
+  // floor is a USER-terminal promise, so module-managed sessions are out of
+  // scope on both sides: they neither occupy keep-alive slots (a module's agents
+  // must not evict the user's own terminals from their budget) nor gain
+  // protection from it.
   // Held (working / awaiting-input / recently-rested) live user agents already
   // count toward the floor — the cap only bites when reaping the full set would
   // drop the live user-agent population below N. Oldest-rested reap first, so

@@ -181,7 +181,7 @@ export function deriveWorkspaceIdleSince(
 // True when any agent terminal in the workspace reports an authoritative
 // `awaiting_input` phase from its lifecycle hooks — the agent is blocked on a
 // prompt/permission and needs the user. This is the hook-based, CLI-agnostic
-// companion to the SprintEngine `needs_input` runtime signal: additive to it, and
+// companion to a module's own `needs_input` runtime signal: additive to it, and
 // the reason an awaiting agent surfaces as `needs-input` rather than `idle` (its
 // bridged `activity` is idle while it waits).
 //

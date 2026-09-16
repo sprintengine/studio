@@ -26,9 +26,8 @@
 
 // Scope marks where a field is surfaced:
 // - 'app'   — app-wide preferences shown in SettingsPanel.
-// - 'panel' — per-panel popover (Sprint Engine, Backlog).
-// - 'role'  — per-agent-role defaults (specialist, sprint engine).
-type SettingScope = 'app' | 'panel' | 'role'
+// - 'panel' — per-panel popover (the Backlog).
+type SettingScope = 'app' | 'panel'
 
 type SelectOption<V extends string = string> = {
   value: V
@@ -97,7 +96,7 @@ const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
   {
     id: 'keep-running-in-background',
     label: 'Keep running when the last window closes',
-    help: 'Sprints and automations keep working with no window open.',
+    help: 'Agents and automations keep working with no window open.',
     scope: 'app',
     group: 'background',
     field: { type: 'switch' },

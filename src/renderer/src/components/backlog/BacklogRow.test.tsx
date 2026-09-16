@@ -94,7 +94,7 @@ function orderingEpicItem(frontmatter: string[], status = 'ready'): BacklogItem 
 run('an epic that never declared its ordering done carries the small unordered mark', () => {
   const markup = renderToStaticMarkup(<BacklogRowContent item={orderingEpicItem([])} now={NOW} />)
   assert.match(markup, /Order not planned/, 'the words carry the meaning, never colour alone')
-  assert.match(markup, /a sprint from this epic plans first/, 'the mark says what it changes')
+  assert.match(markup, /work started from this epic has to plan first/, 'the mark says what it changes')
   assert.match(markup, /--text-muted/, 'muted metadata, deliberately not a status tone')
 })
 
@@ -167,21 +167,13 @@ run('a blocked row presents as Blocked, never Ready: glyph, tooltip word, and ba
   assert.ok(!card.includes('Ready'), 'the hover card never claims Ready')
 })
 
-run('a live run glyph outranks blocked — the runner state wins, waiting badge degrades in', () => {
+run('a waiting dependency keeps the item\u2019s own status and adds the softer badge', () => {
   const ready = itemWith(undefined, 'backlog/gated.md')
   const markup = renderToStaticMarkup(
-    <BacklogRowContent
-      item={ready}
-      now={NOW}
-      dependencyState="blocked"
-      runGlyph={{ state: 'in_progress', live: true, label: 'Running' }}
-    />,
+    <BacklogRowContent item={ready} now={NOW} dependencyState="waiting" />,
   )
-  // The runner's spinner glyph renders (its label lives in the lazy tooltip);
-  // the blocked presentation must not fight the observed run state.
-  assert.match(markup, /lifecycle-spin/, 'the live runner glyph renders, not the blocked ring')
-  assert.ok(!markup.includes('Blocked by prerequisites'), 'no blocked badge against a live run')
-  assert.match(markup, /aria-label="Waiting on prerequisites"/, 'the softer waiting badge remains')
+  assert.ok(!markup.includes('Blocked by prerequisites'), 'waiting is not blocked')
+  assert.match(markup, /aria-label="Waiting on prerequisites"/, 'the softer waiting badge renders')
 })
 
 run('an epic with a partial blocked rollup shows the granular count, not a blocked status', () => {
@@ -265,18 +257,10 @@ run('an epic row leads with its status glyph (static without a live run) and kee
   assert.match(markup, /font-semibold/, 'the epic title sits heavier than a leaf row')
 })
 
-run('a row with a LIVE run glyph spins; without one, in_progress stays static', () => {
+run('an in_progress row never spins — the item file is a record, not a live signal', () => {
   const base = { ...itemWith(), status: 'in_progress' as const }
-  const liveMarkup = renderToStaticMarkup(
-    <BacklogRowContent
-      item={base}
-      now={NOW}
-      runGlyph={{ state: 'in_progress', label: 'Running', live: true }}
-    />,
-  )
-  assert.match(liveMarkup, /lifecycle-spin/, 'a live runner earns the spinner')
-  const idleMarkup = renderToStaticMarkup(<BacklogRowContent item={base} now={NOW} />)
-  assert.ok(!idleMarkup.includes('lifecycle-spin'), 'no agent attached → no spin')
+  const markup = renderToStaticMarkup(<BacklogRowContent item={base} now={NOW} />)
+  assert.ok(!markup.includes('lifecycle-spin'), 'the quarter arc renders static')
 })
 
 run('an epic row shows its true completion as a meter: fraction + accessible name, no triage tokens', () => {
@@ -482,12 +466,6 @@ const backlogPanelSource = readFileSync(
 )
 // The Backlog door retired 2026-09-05 (the workspace pane's Backlog tab is the
 // one Backlog surface now), so the panel is the only list these contracts read.
-// The wizard's backlog source picker died with the sprint flow (MC-2062); the
-// New sprint dialog is the creation surface that composes the shared row now.
-const sourcePickerSource = readFileSync(
-  join(process.cwd(), 'src/renderer/src/components/workspace/newSprint/NewSprintDialog.tsx'),
-  'utf8',
-)
 const contextMenuSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/backlog/BacklogItemContextMenu.tsx'),
   'utf8',
@@ -949,14 +927,6 @@ run('row context menu lists module-contributed actions through the shared groupi
   assert.match(backlogPanelSource, /externalActionsForItem\(menuItem, menuSelectionItems \?\? undefined\)/, 'the exact row is resolved through the shared module action registry')
   assert.match(contextMenuSource, /<BacklogModuleActionMenuItems/, 'visible module actions render in the row menu')
   assert.match(contextMenuSource, /itemAction\.run\(\)/, 'activation uses the existing action run path')
-})
-
-run('the New sprint dialog source picker renders the same shared row interior', () => {
-  assert.match(
-    sourcePickerSource,
-    /<BacklogRowContent item=\{item\} now=\{Date\.now\(\)\} selected=\{picked\} plainTitle \/>/,
-    'the picker composes BacklogRowContent — with its own selection flag, so the picked row lifts its ink like every other Tier 1 row',
-  )
 })
 
 // MC-1697: a mockup an item names but that resolves to no file on disk is shown

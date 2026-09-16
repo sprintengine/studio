@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 
 import { ChipButton, Field, GhostButton, InlineNotice, Input, Select, type SelectItem, Switch } from '../../ui'
 import type { AutomationDefinition, AutomationsProviders, TriggerKind } from '../../../../../shared/automations/contracts'
@@ -6,7 +6,6 @@ import { foreignScheduleTimeZone } from '../../../../../shared/automations/caden
 import {
   REPO_EVENT_TRIGGER_KIND,
   SCHEDULE_TRIGGER_KIND,
-  SPRINT_LANDED_TRIGGER_KIND,
   TRIGGER_FAMILY_LABEL,
   WEBHOOK_ROUTE_PREFIX,
   WEBHOOK_SIGNATURE_HEADER,
@@ -25,10 +24,8 @@ import {
   type RepoEventType,
   type ScheduleCadenceForm,
   type ScheduleCadenceType,
-  type SprintLandedForm,
   type WebhookForm,
 } from './automationsFormat'
-import { knownSidecarDirName } from '../../../../../shared/workspace-sidecar'
 
 // The trigger families the picker always offers, in priority order. Each is shown
 // even when unavailable (disabled + reason) so a control boundary is never hidden.
@@ -66,13 +63,12 @@ export type TriggerFieldsValue = ScheduleCadenceForm & {
   triggerKind: TriggerKind
   repoEvent: RepoEventForm
   webhook: WebhookForm
-  sprintLanded: SprintLandedForm
 }
 
 // Reason a trigger family cannot be authored. schedule/webhook are always
-// registered; repo-event and sprint-landed depend on a module or a connected
-// integration, so their absence from providers.triggers is surfaced explicitly
-// rather than hiding the family.
+// registered; repo-event and every module-contributed family depend on a module
+// or a connected integration, so their absence from providers.triggers is
+// surfaced explicitly rather than hiding the family.
 function familyUnavailableReason(kind: TriggerKind, providers: AutomationsProviders | null): string | null {
   if (!providers) return null
   const provider = providers.triggers.find((t) => t.kind === kind)
@@ -92,12 +88,10 @@ export function selectedFamilyUnavailableReason(
 }
 
 export function TriggerFields({
-  editor, providers, workspaceRoot, value, onChange,
+  editor, providers, value, onChange,
 }: {
   editor: EditorState
   providers: AutomationsProviders | null
-  /** Project root used to enumerate sprint team dirs for the sprint-landed family. */
-  workspaceRoot: string
   value: TriggerFieldsValue
   onChange: (patch: Partial<TriggerFieldsValue>) => void
 }) {
@@ -163,70 +157,8 @@ export function TriggerFields({
         <RepoEventFields value={value.repoEvent} onChange={(repoEvent) => onChange({ repoEvent })} />
       ) : value.triggerKind === WEBHOOK_TRIGGER_KIND ? (
         <WebhookFields value={value.webhook} onChange={(webhook) => onChange({ webhook })} />
-      ) : value.triggerKind === SPRINT_LANDED_TRIGGER_KIND ? (
-        <SprintLandedFields
-          workspaceRoot={workspaceRoot}
-          value={value.sprintLanded}
-          onChange={(sprintLanded) => onChange({ sprintLanded })}
-        />
       ) : null}
     </fieldset>
-  )
-}
-
-// Watched-team picker for the sprint-landed family: the sprint runs that exist
-// in this project, enumerated from the project's own `<sidecar>/sprintengine/*`.
-// A stored team
-// whose directory no longer exists stays visible (marked missing) rather than
-// being silently dropped.
-function SprintLandedFields({
-  workspaceRoot, value, onChange,
-}: {
-  workspaceRoot: string
-  value: SprintLandedForm
-  onChange: (next: SprintLandedForm) => void
-}) {
-  const [teams, setTeams] = useState<string[] | null>(null)
-  useEffect(() => {
-    let cancelled = false
-    const separator = workspaceRoot.includes('\\') ? '\\' : '/'
-    const teamsDir = [workspaceRoot.replace(/[\\/]+$/, ''), knownSidecarDirName(workspaceRoot), 'sprintengine'].join(separator)
-    void window.api.readdir(teamsDir)
-      .then((entries) => {
-        if (cancelled) return
-        setTeams(entries.filter((entry) => entry.isDir).map((entry) => entry.name).sort())
-      })
-      .catch(() => {
-        if (!cancelled) setTeams([])
-      })
-    return () => { cancelled = true }
-  }, [workspaceRoot])
-
-  const items: SelectItem[] = (teams ?? []).map((team) => ({ value: team, label: team }))
-  if (value.team && !items.some((item) => item.value === value.team)) {
-    items.push({
-      value: value.team,
-      label: teams === null ? value.team : `${value.team} — missing`,
-      tone: teams === null ? undefined : 'warn',
-    })
-  }
-
-  return (
-    <>
-      <Field
-        label="Sprint team"
-        htmlFor="automation-sprint-landed-team"
-        help="Fires when this sprint’s work lands: its pull requests merge, or it completes when it has no branch."
-      >
-        <Select
-          ariaLabel="Watched sprint team"
-          value={value.team || null}
-          onChange={(team) => onChange({ team })}
-          items={items}
-          placeholder={teams === null ? 'Loading sprints…' : items.length === 0 ? 'No sprints in this project yet' : 'Pick a sprint…'}
-        />
-      </Field>
-    </>
   )
 }
 

@@ -64,7 +64,7 @@
   },
   "completion": {
     "mode": "output-sentinel",
-    "sentinel": "[sprint-engine:done]",
+    "sentinel": "[studio:turn-done]",
     "fallback": {
       "mode": "idle-at-prompt",
       "idleMs": 30000,

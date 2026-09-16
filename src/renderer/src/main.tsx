@@ -5,7 +5,6 @@ import { ConfirmDialogProvider } from './components/ui'
 import AuxWindowApp from './components/auxWindows/AuxWindowApp'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
 import { loadThirdPartyRendererModules } from './modules'
-import { runBundledSpecialistPackMigration } from './utils/bundledSpecialistPackMigration'
 import { reportBuildStamp } from './utils/buildStamp'
 import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
@@ -155,10 +154,5 @@ if (isDiagnosticsWindow) {
     // boot — a boot-complete from one of them would be answering for a window
     // the splash was never covering.
     signalBootComplete()
-    // One-time MC-1587 migration: install the un-shipped specialist pack for
-    // profiles that had it enabled before it stopped being bundled. Guarded by a
-    // persisted flag and scoped to the main workspace window (never the
-    // diagnostics/aux windows above), so it evaluates once per profile.
-    void runBundledSpecialistPackMigration()
   })
 }

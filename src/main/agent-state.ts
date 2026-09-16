@@ -252,8 +252,7 @@ export function registeredAgentStateEvents(
 // 'idle' (authoritative turn end) and 'stalled' (inferred quiet ≥90s). Stalled
 // counts as rest deliberately — a lost Stop frame lands a genuinely-finished
 // agent there, and treating stalled as protected parked sessions forever
-// (2026-07-07 incident). Shared by the reap candidate mapping and the
-// sprint-agent inactive-run guard so the two can't drift.
+// (2026-07-07 incident). Read by the reap candidate mapping.
 export function isAtRestAgentPhase(phase: AgentPhase | null | undefined): boolean {
   return phase === 'idle' || phase === 'stalled'
 }
@@ -468,7 +467,7 @@ export type AgentStateFrame = {
   // named. Untrusted like the rest: a bad value drops the FIELD.
   statusLine?: AgentStateFrameStatusLine
   // The pull request the agent just opened, forwarded on the PostToolUse of a
-  // `gh pr create` (or of the sprint MCP tool that runs one). Folded in before
+  // `gh pr create`. Folded in before
   // the phase drop, exactly like a status line: a `PostToolUse` resolves to
   // `thinking` and could roll a phase backward, but the pull request it carries
   // is true whatever the frame's fate. Untrusted like the rest: a URL that is
@@ -1791,7 +1790,7 @@ export async function installAgentStateReporter(
     // workspace copy; a user-scoped one (a user-global config like Kimi's)
     // gets a home-scoped copy (~/.multicode/hooks/) — pointing a user-global
     // config into a workspace would dangle machine-wide the moment that
-    // workspace (or a sprint's finalize-deleted worktree) goes away, firing
+    // workspace (or a deleted worktree) goes away, firing
     // MODULE_NOT_FOUND for every session of that CLI until reinstalled.
     const destScript =
       registration.scope === 'user'

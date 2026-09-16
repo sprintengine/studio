@@ -202,7 +202,7 @@ run('an empty feed is an empty grid, and says nothing about why', () => {
 // ── The stamp ────────────────────────────────────────────────────────────────
 
 run('every kind the schema knows has a word on its stamp', () => {
-  const kinds: HostedCardKind[] = ['mcp', 'skill', 'plugin', 'workflow', 'sprint', 'automation', 'showcase']
+  const kinds: HostedCardKind[] = ['mcp', 'skill', 'plugin', 'workflow', 'automation', 'showcase']
   for (const kind of kinds) {
     const label = cardStampLabel(kind)
     assert.ok(label && label.length > 0, `${kind} has a stamp`)
@@ -287,7 +287,7 @@ console.log('homeCards.test.ts: ok')
 
   // Every kind has a word, and the table is keyed on the union so a kind added
   // to the schema is a typecheck failure rather than a button with nothing in it.
-  for (const kind of ['mcp', 'skill', 'plugin', 'workflow', 'sprint', 'automation', 'showcase'] as const) {
+  for (const kind of ['mcp', 'skill', 'plugin', 'workflow', 'automation', 'showcase'] as const) {
     const label = cardActionLabel(card(kind, [CHAT]))
     assert.ok(label.length > 0, `${kind}: has a word`)
     assert.notEqual(label, 'Go', `${kind}: and it is not "Go"`)
@@ -298,8 +298,8 @@ console.log('homeCards.test.ts: ok')
   // The ACTIONS outrank the kind. The shipped hero is why: its kind is
   // `workflow`, so the kind alone would say "Start" — and it starts nothing.
   assert.equal(
-    cardActionLabel(card('workflow', [{ verb: 'open.surface', view: 'workflows' }])),
-    'Open Workflows',
+    cardActionLabel(card('workflow', [{ verb: 'open.surface', view: 'skills' }])),
+    'Open Skills',
     'a card that only navigates names the door, whatever its stamp claims',
   )
   // `require.cli` is a check, not a change, so it does not make a card an installer.

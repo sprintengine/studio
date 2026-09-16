@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
-import { access, mkdir, mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'fs/promises'
-import { platform, tmpdir } from 'os'
+import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'fs/promises'
+import { tmpdir } from 'os'
 import { join } from 'path'
 import {
   mobileControlProtocolVersion,
@@ -39,7 +39,7 @@ async function main(): Promise<void> {
   await assertBacklogCreateWritesFileAndRecord()
   await assertBacklogCreateRejectsEmptyTitle()
   await assertBacklogCreateKeepsGeneratedPathUnderBacklog()
-  await assertFilesystemMutationHandlersProtectSprintEngineStateAliases()
+  await assertFilesystemMutationHandlersRoundTripOrdinaryPaths()
   await assertAutomationsControlPausesAndEnablesThroughTheEngineFrontDoor()
   await assertAutomationsControlRunsAScheduleAutomationNow()
   await assertAutomationsControlSurfacesUnsupportedTriggerFromTheEngine()
@@ -789,68 +789,13 @@ async function assertBacklogCreateKeepsGeneratedPathUnderBacklog(): Promise<void
   await readFile(join(workspaceRoot, data!.relativePath), 'utf8')
 }
 
-async function assertFilesystemMutationHandlersProtectSprintEngineStateAliases(): Promise<void> {
+// The filesystem mutation IPC is what the file tree and the phone both write
+// through, so its write/rename/copy/delete round trip is asserted end to end on
+// real paths rather than mocked: a handler that silently resolved a path
+// somewhere else would still return a plausible-looking string.
+async function assertFilesystemMutationHandlersRoundTripOrdinaryPaths(): Promise<void> {
   const handlers = await importMainProcessIpcHandlers()
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-fs-guard-'))
-  const sprintEngineDirectory = join(workspaceRoot, '.sprintengine', 'sprintengine')
-  const teamDirectory = join(sprintEngineDirectory, 'team')
-  await mkdir(teamDirectory, { recursive: true })
-  const statePath = join(teamDirectory, 'run.yaml')
-  await writeFile(statePath, 'canonical Sprint Engine run\n', 'utf8')
-
-  const stateSymlinkPath = join(workspaceRoot, 'state-link.yaml')
-  const teamSymlinkPath = join(workspaceRoot, 'team-link')
-  const hasStateSymlink = await tryCreateSymlink(statePath, stateSymlinkPath, 'file')
-  const hasTeamSymlink = await tryCreateSymlink(
-    teamDirectory,
-    teamSymlinkPath,
-    platform() === 'win32' ? 'junction' : 'dir'
-  )
-
-  await assertRejectsSprintEngineStateMutation(() => handlers.writeFile(statePath, 'blocked'))
-  await assertRejectsSprintEngineStateMutation(() => handlers.writeFile(join(teamDirectory, '..', 'team', 'run.yaml'), 'blocked'))
-  if (hasStateSymlink) {
-    await assertRejectsSprintEngineStateMutation(() => handlers.writeFile(stateSymlinkPath, 'blocked'))
-  }
-  if (hasTeamSymlink) {
-    await assertRejectsSprintEngineStateMutation(() => handlers.writeFile(join(teamSymlinkPath, 'run.yaml'), 'blocked'))
-  }
-
-  if (hasStateSymlink) {
-    await assertRejectsSprintEngineStateMutation(() => handlers.rename(stateSymlinkPath, 'renamed-link.yaml'))
-  }
-  if (hasTeamSymlink) {
-    const renameSourceThroughAlias = join(teamSymlinkPath, 'rename-source.txt')
-    await writeFile(renameSourceThroughAlias, 'safe source\n', 'utf8')
-    await assertRejectsSprintEngineStateMutation(() => handlers.rename(renameSourceThroughAlias, 'run.yaml'))
-  }
-
-  const copyDestination = join(workspaceRoot, 'copy-destination')
-  await mkdir(copyDestination)
-  if (hasStateSymlink) {
-    await assertRejectsSprintEngineStateMutation(() => handlers.copy(stateSymlinkPath, copyDestination))
-  }
-  await assertRejectsSprintEngineStateMutation(() => handlers.rename(teamDirectory, 'team-renamed'))
-  await assertRejectsSprintEngineStateMutation(() => handlers.copy(teamDirectory, copyDestination))
-  await assertRejectsSprintEngineStateMutation(() => handlers.rename(sprintEngineDirectory, 'sprintengine-renamed'))
-  await assertRejectsSprintEngineStateMutation(() => handlers.copy(sprintEngineDirectory, copyDestination))
-  if (hasTeamSymlink) {
-    await assertRejectsSprintEngineStateMutation(() => handlers.rename(teamSymlinkPath, 'team-link-renamed'))
-    await assertRejectsSprintEngineStateMutation(() => handlers.copy(teamSymlinkPath, copyDestination))
-  }
-
-  assert.equal(await readFile(statePath, 'utf8'), 'canonical Sprint Engine run\n')
-
-  if (hasStateSymlink) {
-    await handlers.delete(stateSymlinkPath)
-    await assert.rejects(() => access(stateSymlinkPath))
-  }
-  if (hasTeamSymlink) {
-    await handlers.delete(teamSymlinkPath)
-    await assert.rejects(() => access(teamSymlinkPath))
-  }
-  await handlers.delete(sprintEngineDirectory)
-  await assert.rejects(() => access(sprintEngineDirectory))
 
   const safeDirectory = join(workspaceRoot, 'safe')
   const safeCopyDestination = join(workspaceRoot, 'safe-copy')
@@ -885,22 +830,6 @@ async function assertFilesystemMutationHandlersProtectSprintEngineStateAliases()
   await assert.rejects(() => access(copiedSafeDirectoryPath))
   await handlers.delete(renamedSafeDirectoryPath)
   await assert.rejects(() => access(renamedSafeDirectoryPath))
-}
-
-async function tryCreateSymlink(targetPath: string, linkPath: string, type: 'file' | 'dir' | 'junction'): Promise<boolean> {
-  try {
-    await symlink(targetPath, linkPath, type)
-    return true
-  } catch (error) {
-    if (
-      error instanceof Error
-      && 'code' in error
-      && (error.code === 'EPERM' || error.code === 'EACCES')
-    ) {
-      return false
-    }
-    throw error
-  }
 }
 
 type FilesystemMutationHandlers = {
@@ -1021,13 +950,6 @@ async function importMainProcessIpcHandlers(): Promise<FilesystemMutationHandler
       await getHandler('fs:delete')(targetPath)
     },
   }
-}
-
-async function assertRejectsSprintEngineStateMutation(action: () => Promise<unknown>): Promise<void> {
-  await assert.rejects(
-    action,
-    (error) => error instanceof Error && error.message === 'Sprint run-store files must be updated through the Sprint Engine tool.'
-  )
 }
 
 function command(

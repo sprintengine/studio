@@ -2,20 +2,17 @@ import assert from 'node:assert/strict'
 import { COMMAND_REGISTRY, getCommandDefinition } from './commandRegistry'
 import { findKeybindingConflicts, hasBlockingKeybindingConflict } from './conflicts'
 import type { KeybindingConflictCandidate } from './conflicts'
-import { createRendererHost } from '../modules/renderer-host'
-import { registerSprintEngineCommands } from '../modules/sprint-engine-commands'
 
-const sprintKernel = createRendererHost()
-registerSprintEngineCommands(sprintKernel.hostFor('sprint-engine'))
-const sprintSettingsCommand = sprintKernel.getModuleCommand('sprint-engine.open.settings')
-assert.ok(sprintSettingsCommand)
-const sprintSettings: KeybindingConflictCandidate = {
-  commandId: sprintSettingsCommand.id,
-  commandTitle: sprintSettingsCommand.title,
-  keybindings: sprintSettingsCommand.defaultKeybindings ?? [],
-  scopes: sprintSettingsCommand.scopes,
+// A capability module's panel command, which rides a module contribution
+// rather than the shell registry, claiming the same keys as the global
+// settings command.
+const notebookSettings: KeybindingConflictCandidate = {
+  commandId: 'notebook.open.settings',
+  commandTitle: 'Notebook: Settings',
+  keybindings: ['Primary+,'],
+  scopes: ['panel:notebook'],
 }
-const registryWithSprint = [...COMMAND_REGISTRY, sprintSettings]
+const registryWithModuleCommand = [...COMMAND_REGISTRY, notebookSettings]
 
 const globalCandidate: KeybindingConflictCandidate = {
   commandId: 'custom.global',
@@ -32,16 +29,16 @@ assert.equal(hasBlockingKeybindingConflict(globalConflict), true)
 
 // A same-keybinding command in a mutually exclusive panel scope is a warning,
 // not a blocking conflict — the two panels can never be active together.
-const notebookSettingsLike: KeybindingConflictCandidate = {
-  commandId: 'custom.notebook.settings',
-  commandTitle: 'Notebook: Settings',
+const calendarSettingsLike: KeybindingConflictCandidate = {
+  commandId: 'custom.calendar.settings',
+  commandTitle: 'Calendar: Settings',
   keybindings: ['Primary+,'],
-  scopes: ['panel:notebook'],
+  scopes: ['panel:calendar'],
 }
-const panelConflict = findKeybindingConflicts(sprintSettings, [notebookSettingsLike])
+const panelConflict = findKeybindingConflicts(notebookSettings, [calendarSettingsLike])
 assert.equal(panelConflict.length, 1)
 assert.equal(panelConflict[0].severity, 'warning')
-assert.equal(panelConflict[0].conflictingCommandTitle, 'Notebook: Settings')
+assert.equal(panelConflict[0].conflictingCommandTitle, 'Calendar: Settings')
 assert.equal(hasBlockingKeybindingConflict(panelConflict), false)
 
 // Any two panel:* scopes are one open exclusivity family, so the same keys in
@@ -54,7 +51,7 @@ const moduleScopeConflict = findKeybindingConflicts(
     keybindings: ['Primary+,'],
     scopes: ['panel:calendar'],
   },
-  [sprintSettings]
+  [notebookSettings]
 )
 assert.equal(moduleScopeConflict.length, 1)
 assert.equal(moduleScopeConflict[0].severity, 'warning')
@@ -80,20 +77,20 @@ assert.equal(sharedPanelScopeConflict[0].severity, 'blocking')
 
 const sameScopePanelConflict = findKeybindingConflicts(
   {
-    commandId: 'custom.sprintengine',
-    commandTitle: 'Custom Sprint Engine',
+    commandId: 'custom.notebook',
+    commandTitle: 'Custom Notebook',
     keybindings: ['Primary+,'],
-    scopes: ['panel:sprint-engine'],
+    scopes: ['panel:notebook'],
   },
-  registryWithSprint
+  registryWithModuleCommand
 )
 assert.equal(sameScopePanelConflict.some((conflict) => (
-  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'sprint-engine.open.settings'
+  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'notebook.open.settings'
 )), true)
 
-const globalPanelConflict = findKeybindingConflicts(getCommandDefinition('app.settings.open')!, registryWithSprint)
+const globalPanelConflict = findKeybindingConflicts(getCommandDefinition('app.settings.open')!, registryWithModuleCommand)
 assert.equal(globalPanelConflict.some((conflict) => (
-  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'sprint-engine.open.settings'
+  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'notebook.open.settings'
 )), true)
 
 const workspaceGlobalConflict = findKeybindingConflicts(

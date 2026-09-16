@@ -15,7 +15,7 @@ export interface CommandSearchFields {
   label: string
   /**
    * The row's own name, when the visible label wraps it in one of the palette's
-   * own verbs — "Switch to: <workspace>", "Spawn: <specialist>", "Toggle <panel>".
+   * own verbs — "Switch to: <workspace>", "Toggle <panel>".
    *
    * Scored at the LABEL bands alongside `label`, best tier wins. Without it
    * those rows can never reach exact or prefix: the verb sits in front of the
@@ -314,7 +314,7 @@ export function workspaceKeywordsFromDefinition(
 
 /** The keyword match string for a workspace's mode, resolved against the live
  *  workspace-type registry — mirrors the matching the deleted workspaceSearch
- *  util provided so typing a mode name ("sprint engine", "roster", "cron")
+ *  util provided so typing a mode name ("automations", "cron")
  *  still surfaces its workspaces in the palette. */
 export function workspaceSearchKeywords(mode: Workspace['mode']): string {
   return workspaceKeywordsFromDefinition(getRendererHost().getWorkspaceType(mode), mode)

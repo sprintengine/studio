@@ -70,7 +70,6 @@ import {
   type PullRequestState,
 } from '../shared/git/pull-request'
 import { isRecord } from '../shared/records'
-import { isPullRequestWatchable } from '../shared/sprintengine/vcs'
 import {
   listBranchPullRequests as listBranchPullRequestsDefault,
   readPullRequestState as readPullRequestStateDefault,
@@ -506,9 +505,9 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   }
 
   function isEntryWatchable(entry: BranchPullRequest): boolean {
-    // The one rule, shared with the sprint run watch: merged and closed are
-    // terminal and stop for good; open is the live case.
-    if (!isPullRequestWatchable({ hasVcs: true, prState: entry.state, hasPrUrl: true })) return false
+    // Merged and closed are terminal and stop for good; open is the live case,
+    // and a state GitHub has not answered yet is still worth asking about.
+    if (entry.state === 'merged' || entry.state === 'closed') return false
     // And bounded: a pull request opened months ago is still watched by a hover
     // and by a focus, but it does not get a timer of its own for the life of
     // the process. An entry whose opening date GitHub never gave (openedAt 0)

@@ -4,10 +4,9 @@ import { registerPullRequestIpc } from './ipc/pull-request-ipc'
 import { registerTerminalIpc } from './ipc/terminal-ipc'
 import type { AppServices } from './app-services'
 
-// Sprint Engine and the mobile relay IPC
-// all moved to their capability modules (src/main/modules/), registered through
-// the host kernel. What remains here is the always-on terminal runtime
-// (agent-runtime), not yet migrated.
+// The mobile relay IPC moved to its capability module (src/main/modules/),
+// registered through the host kernel. What remains here is the always-on
+// terminal runtime (agent-runtime), not yet migrated.
 export function registerWorkflowIpc(ipcMain: IpcMain, services: AppServices): void {
   registerTerminalIpc(ipcMain, {
     ...services.terminalRuntime.ipcHandlers,

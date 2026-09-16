@@ -29,7 +29,7 @@ import { useExtensionsRowBadges } from './useExtensionsRowBadges'
 // navigation rather than a menu (Stage 2 of the ruling). Its rows open DOORS
 // now, not modals, and a door that is a drawer row declares `railPlacement:
 // 'inline'` so it renders its own rail beside its canvas instead of taking this
-// column. Only Sprints, whose rail is its own list of runs, still replaces this
+// column. A door whose rail is a list of its own still replaces this
 // column for the length of its visit, and the host's back chevron or a rail
 // glyph brings the drawer back.
 //

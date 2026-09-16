@@ -161,10 +161,11 @@ function navTabsets(model: Model): TabsetJson[] {
   unregisterModel(WS)
 }
 
-// Sprint Engines is NOT a nav-rail component: the survey is the instance-global
-// Sprints door surface, outside any workspace layout.
+// The nav rail holds exactly one component: a door surface is instance-global
+// and lives outside any workspace layout, so it is never one.
 {
-  assert.equal(NAV_RAIL_COMPONENTS.has('sprint-engines'), false)
+  assert.deepEqual([...NAV_RAIL_COMPONENTS], ['memory-graph'])
+  assert.equal(NAV_RAIL_COMPONENTS.has('automations'), false)
 }
 
 // Agent reveal activates the target workspace and focuses the concrete agent
@@ -369,7 +370,7 @@ function navTabsets(model: Model): TabsetJson[] {
           weight: 100,
           enableTabStrip: false,
           children: [
-            { type: 'tab', name: 'Sprint', component: 'sprintengine', enableClose: false },
+            { type: 'tab', name: 'Board', component: 'notebook', enableClose: false },
           ],
         },
       ],

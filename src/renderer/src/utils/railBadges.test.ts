@@ -42,7 +42,7 @@ const list = [
   note({ id: 'a', source: 'automations', level: 'error' }),
   note({ id: 'b', source: 'automations', read: true }),
   note({ id: 'c', source: 'marketplace' }),
-  note({ id: 'd', source: 'sprintengine', level: 'warning' }),
+  note({ id: 'd', source: 'models', level: 'warning' }),
   note({ id: 'e', source: 'terminal', level: 'error' }),
   note({ id: 'f', source: 'cli' }),
 ]
@@ -77,35 +77,36 @@ assert.equal(extensionsRowOfNotification(note({ source: 'cli' })), 'agent-clis')
 assert.equal(extensionsRowOfNotification(note({ source: 'models' })), 'agent-clis')
 assert.equal(extensionsRowOfNotification(note({ source: 'marketplace' })), 'plugins', 'the drift notice says "Open Plugins"')
 assert.equal(
-  extensionsRowOfNotification(note({ source: 'sprintengine' })),
+  extensionsRowOfNotification(note({ source: 'agents' })),
   null,
-  'core does not know the Sprints row — a door-badge contribution supplies the source map',
+  'core knows no module source — a door-badge contribution supplies the source map',
 )
 assert.equal(
-  extensionsRowOfNotification(note({ source: 'sprintengine' }), { sprintengine: 'sprints' }),
-  'sprints',
-  'an unnamed run notice falls to Sprints via the contributed source map',
+  extensionsRowOfNotification(note({ source: 'agents' }), { agents: 'skills' }),
+  'skills',
+  'an unnamed notice falls to the module’s own row via the contributed source map',
 )
-assert.equal(extensionsRowOfNotification(note({ source: 'sprintengine', extensionsRow: 'workflows' })), 'workflows', 'an emitter that knows wins')
+assert.equal(extensionsRowOfNotification(note({ source: 'agents', extensionsRow: 'design' })), 'design', 'an emitter that knows wins')
 assert.equal(extensionsRowOfNotification(note({ source: 'marketplace', extensionsRow: 'skills' })), 'skills')
 assert.equal(extensionsRowOfNotification(note({ source: 'marketplace', extensionsRow: 'nonsense' })), 'plugins', 'an unknown row name falls back to the source rule')
 assert.equal(extensionsRowOfNotification(note({ source: 'terminal' })), null, 'a terminal crash badges no row')
 assert.equal(extensionsRowOfNotification(note({ source: 'terminal', extensionsRow: 'design' })), 'design', 'any source may name a row')
-assert.equal(CORE_NOTIFICATION_SOURCE_ROWS.sprintengine, undefined, 'the core map has no run-door rows')
+assert.equal(CORE_NOTIFICATION_SOURCE_ROWS.agents, undefined, 'the core map has no module rows')
 
-const SPRINT_SOURCE_ROWS = { sprintengine: 'sprints' as const }
+const MODULE_SOURCE_ROWS = { agents: 'skills' as const }
 
 const byRow = unreadByExtensionsRow(
   [
     ...list,
     note({ id: 'g', source: 'cli', read: true }),
-    note({ id: 'h', source: 'sprintengine', extensionsRow: 'workflows' }),
+    note({ id: 'h', source: 'agents', extensionsRow: 'design' }),
+    note({ id: 'i', source: 'agents' }),
   ],
-  SPRINT_SOURCE_ROWS,
+  MODULE_SOURCE_ROWS,
 )
 assert.deepEqual(
   Object.fromEntries(Object.entries(byRow).map(([row, rows]) => [row, rows.map((n) => n.id)])),
-  { workflows: ['h'], sprints: ['d'], design: [], plugins: ['c'], skills: [], 'agent-clis': ['f'] },
+  { design: ['h'], plugins: ['c'], skills: ['i'], 'agent-clis': ['d', 'f'] },
   'every row is present; read rows and rows from other sources do not count',
 )
 
@@ -116,9 +117,9 @@ assert.deepEqual(
   { count: 1, tone: 'accent', label: 'Plugins: 1 new', detail: '1 new' },
 )
 assert.deepEqual(
-  extensionsRowBadge({ label: 'Sprints', unread: [note({ id: 'd', source: 'sprintengine' })], waiting: 2 }),
-  { count: 3, tone: 'warn', label: 'Sprints: 2 waiting on you, 1 new', detail: '2 waiting on you, 1 new' },
-  'a run waiting on you is gold and the label keeps the two apart',
+  extensionsRowBadge({ label: 'Skills', unread: [note({ id: 'd', source: 'marketplace' })], waiting: 2 }),
+  { count: 3, tone: 'warn', label: 'Skills: 2 waiting on you, 1 new', detail: '2 waiting on you, 1 new' },
+  'something waiting on you is gold and the label keeps the two apart',
 )
 assert.deepEqual(
   extensionsRowBadge({ label: 'Design', unread: [], arrived: 4 }),
@@ -143,14 +144,14 @@ assert.deepEqual(
   'the square counts what its rows count, plus the cards the home will mark',
 )
 assert.equal(
-  extensionsRailBadge({ rows: { sprints: { count: 1, tone: 'warn', label: 'Sprints: 1 waiting on you' } }, unseenCards: 0 })?.tone,
+  extensionsRailBadge({ rows: { skills: { count: 1, tone: 'warn', label: 'Skills: 1 waiting on you' } }, unseenCards: 0 })?.tone,
   'warn',
-  'a sprint waiting on you is gold',
+  'a row waiting on you is gold',
 )
 assert.equal(
   extensionsRailBadge({
     rows: {
-      sprints: { count: 1, tone: 'warn', label: 'Sprints: 1 waiting on you' },
+      skills: { count: 1, tone: 'warn', label: 'Skills: 1 waiting on you' },
       'agent-clis': { count: 1, tone: 'error', label: 'Agent CLIs: 1 new' },
     },
     unseenCards: 0,

@@ -132,41 +132,41 @@ function testDisabledDoorNeverOffersInstall(): void {
 }
 
 // MC-2577. A persisted workspace whose type IS registered but whose module is
-// switched off is the sprint workspace's absence case: the module is on the
-// machine, so the copy must say turned off rather than not installed, and the
-// action must lead to the toggle rather than a storefront.
+// switched off: the module is on the machine, so the copy must say turned off
+// rather than not installed, and the action must lead to the toggle rather than
+// a storefront.
 function testTurnedOffWorkspaceSurfaceSaysSoAndLeadsToTheToggle(): void {
   const html = renderToStaticMarkup(
     <ModuleNotInstalledSurface
-      label="Sprint Engine"
+      label="Automations"
       installed
       actionLabel="Open module settings"
       onOpenMarketplace={() => {}}
     />
   )
-  assert.match(html, /Sprint Engine is turned off/)
+  assert.match(html, /Automations is turned off/)
   assert.match(html, /turn the module back on/, 'the body names the remedy')
   assert.match(html, /Open module settings/, 'the enable affordance replaces the storefront signpost')
   assert.doesNotMatch(html, /Find it in Plugins/)
 }
 
-// The workspace type id and its owning module id need not match — Sprint
-// Engine registers `sprintengine` from module `sprint-engine` — so the
-// turned-off surface reads the label off the module id, not the mode.
+// A workspace type id and its owning module id need not match — a module may
+// register a type under a name of its own — so the turned-off surface reads the
+// label off the MODULE id, not the mode.
 function testModuleIdLabelNamesTheBundledModule(): void {
-  assert.equal(moduleLabelForModuleId('sprint-engine'), 'Sprint Engine')
-  assert.equal(moduleLabelForModuleId('sprintengine'), 'sprintengine', 'an id no manifest knows is returned as-is')
+  assert.equal(moduleLabelForModuleId('automations'), 'Automations')
+  assert.equal(moduleLabelForModuleId('tide-tables'), 'tide-tables', 'an id no manifest knows is returned as-is')
 }
 
-// MC-2577. The rule behind the surface above. `sprintengine` is a registered
-// workspace type owned by `sprint-engine`, so turning that module off must
-// produce the turned-off answer rather than letting the layout mount — and
-// turning it back on must produce no answer at all.
+// MC-2577. The rule behind the surface above. A registered workspace type owned
+// by a module that is switched off must produce the turned-off answer rather
+// than letting the layout mount — and turning it back on must produce no answer
+// at all.
 function testWorkspaceAbsenceAnswersInstalledAbsentAndDisabled(): void {
   const deps = (enabled: boolean, registered = true) => ({
     isBundledHiddenMode: (mode: string) => mode === 'automations-host',
     workspaceTypeModuleId: (mode: string) =>
-      registered && mode === 'sprintengine' ? 'sprint-engine' : undefined,
+      registered && mode === 'tide-tables' ? 'tide-tables' : undefined,
     isModuleEnabled: () => enabled,
   })
 
@@ -177,18 +177,18 @@ function testWorkspaceAbsenceAnswersInstalledAbsentAndDisabled(): void {
     'a bundled hidden host is a background container, not a surface that can be absent'
   )
   assert.equal(
-    workspaceModuleAbsence('sprintengine', deps(true)),
+    workspaceModuleAbsence('tide-tables', deps(true)),
     null,
-    'with the module on, the sprint workspace renders its own layout'
+    'with the module on, the workspace renders its own layout'
   )
   assert.deepEqual(
-    workspaceModuleAbsence('sprintengine', deps(false)),
-    { kind: 'disabled', label: 'Sprint Engine', moduleId: 'sprint-engine' },
-    'a persisted sprint workspace with the module switched off opens on the turned-off surface'
+    workspaceModuleAbsence('tide-tables', deps(false)),
+    { kind: 'disabled', label: 'tide-tables', moduleId: 'tide-tables' },
+    'a persisted workspace whose module is switched off opens on the turned-off surface'
   )
   assert.deepEqual(
-    workspaceModuleAbsence('sprintengine', deps(true, false)),
-    { kind: 'not-installed', label: 'Sprintengine' },
+    workspaceModuleAbsence('tide-tables', deps(true, false)),
+    { kind: 'not-installed', label: 'Tide-tables' },
     'with nothing registering the type, the same workspace offers an install'
   )
 }

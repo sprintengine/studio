@@ -223,10 +223,9 @@ async function main(): Promise<void> {
         ...useWorkspaceStore.getState().appSettings,
         mcp: { syncEnabled: true, servers: { linear: { ...LINEAR } } },
         // Engine picks persist on the store; a check that opens the picker
-        // would otherwise leave General's remembered CLI for the next one.
+        // would otherwise leave its remembered engine for the next one.
         lastSelectedCli: 'claude-code',
-        specialistCliDefaults: {},
-        specialistModelDefaults: {},
+        lastSelectedAgentModel: null,
       },
     } as never)
   }
@@ -400,8 +399,9 @@ async function main(): Promise<void> {
   })
 
   // 1b. The ⋯ menu holds exactly what the row does not — which is now two
-  //     things. Role left with the specialist picker; reasoning effort moved
-  //     into the model's own picker, where it is a property of the model.
+  //     things. The Role control left with the identity picker it belonged to;
+  //     reasoning effort moved into the model's own picker, where it is a
+  //     property of the model.
   await check('the ⋯ menu holds worktree and debug, and nothing else', async () => {
     seedStore()
     const view = await render()
@@ -421,7 +421,7 @@ async function main(): Promise<void> {
     // starts a plain shell or a conversation agent.
     assert.ok(menuText.includes('Agent'), 'an agent is the default kind')
     assert.ok(menuText.includes('Terminal'), 'a plain shell is reachable')
-    assert.ok(!menuText.includes('Role'), 'the specialist picker is gone from this surface entirely')
+    assert.ok(!menuText.includes('Role'), 'the Role control is gone from this surface entirely')
     assert.ok(!menuText.includes('Reasoning'), 'and reasoning lives in the model picker now')
     // Debug is about the user's software, not the agent.
     assert.ok(
@@ -2049,9 +2049,9 @@ async function main(): Promise<void> {
     assert.equal(view.launches[0]?.model, 'a-parked-model', 'and launches on it')
     assert.equal(view.launches[0]?.reasoning, 'high', 'at the effort that was chosen with it')
     assert.equal(
-      useWorkspaceStore.getState().appSettings.specialistCliDefaults?.__general__,
-      undefined,
-      'and standing on a parked row writes no default of its own',
+      useWorkspaceStore.getState().appSettings.lastSelectedAgentModel,
+      null,
+      'and standing on a parked row writes no remembered engine of its own',
     )
     view.unmount()
     resetNewChatDraftsForTests()

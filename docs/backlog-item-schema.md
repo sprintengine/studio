@@ -8,7 +8,7 @@ writing the file; existing items are preferably mutated through the validated
 `backlog.update` tool, which stamps precise timestamps.
 
 Durable app-written facts live in that same frontmatter: the star (`starred`,
-`highlight`) and the links an item declares (`sprints`, `pr`). What is left is
+`highlight`) and the links an item declares (`pr`). What is left is
 volatile — resolved link status, the agent terminal holding an item — and lives
 in `backlog/cache/links.json` inside the app-owned workspace directory
 (`.sprintengine/`, or `.multi-code/` in a workspace made before the 2026-09-08
@@ -65,7 +65,8 @@ updated: 2026-06-26T10:00:00.000Z   # precise UTC instant; drives the "recently 
   read and left untouched.
 - **status**: lifecycle state. Files under `backlog/archived/` are always treated
   as `archived` regardless of the field.
-- **difficulty**: t-shirt effort estimate. Normally architect-owned.
+- **difficulty**: t-shirt effort estimate. Normally set by whoever plans the
+  work rather than by whoever captured it.
 - **criticality**: product impact. Follows user/product intent.
 - **risk**: likelihood the change breaks something — a separate axis from
   `difficulty`. Combined with `difficulty` it derives a row color at render time
@@ -123,17 +124,19 @@ updated: 2026-06-26T10:00:00.000Z   # precise UTC instant; drives the "recently 
 
 ### App-written durable fields
 
-These four are frontmatter the app writes and reads back; agents should leave
+These three are frontmatter the app writes and reads back; agents should leave
 them to the app rather than hand-authoring them.
 
 - **starred** / **highlight** (`HIGHLIGHT_FIELDS`): the star and its colour, one
   of the 7 highlight colours. Read by `backlogHighlightFromFrontmatter`, with
   the object store as the un-migrated fallback.
-- **sprints**: the runs launched from this item, as `<slug>#<taskId>` entries.
-- **pr**: the pull requests opened for it, as `<repoId>=<url>` entries.
+- **pr**: the pull requests opened for it, as `<url>` for the item's own project
+  and `<repoId>=<url>` for a sibling one.
 
-Both link lists are declared in `durable-links.ts`; the resolved *status* of a
-link is volatile and is never written here.
+`pr` is declared in `durable-links.ts` and is the only durable link field left.
+A `sprints:` line written by an older build is not read, and — like every other
+unrecognised key — is preserved untouched rather than stripped. The resolved
+*status* of a link is volatile and is never written here.
 
 ### Other read fields
 
@@ -147,8 +150,8 @@ link is volatile and is never written here.
 
 Set an axis only when the current context supports a grounded estimate; leave it
 unset rather than guessing. Omitting a field is a calm neutral state, not a
-defect — a rough capture can stay untyped and unestimated until an architect
-sizes and prioritizes it.
+defect — a rough capture can stay untyped and unestimated until someone
+planning the work sizes and prioritizes it.
 
 ### Backward compatibility
 
@@ -206,21 +209,19 @@ dependenciesPlanned: true  # optional; the ordering pass over the children is fi
   and **no edges at all counts**: it means deliberately parallel. It exists to
   disambiguate the two meanings of "no `dependsOn` edges":
 
-  | State | Meaning | A sprint started from it |
+  | State | Meaning | What a consumer of the epic should do |
   | --- | --- | --- |
-  | mark set, children carry edges | ordered; the import honors them | imports the epic as its task graph |
-  | mark set, no edges | deliberately parallel | imports it; every task ready at once |
-  | mark absent | ordering never finished | plans first (a planning agent orders the work) |
+  | mark set, children carry edges | ordered | honour the edges as the work order |
+  | mark set, no edges | deliberately parallel | take every child as ready at once |
+  | mark absent | ordering never finished | plan the order before working it |
 
   Absent means false, and only the literal `true` sets it. It is an **assertion
   of intent, not a computed property**: nothing derives or unsets it, so editing
   an epic's membership is the author's cue to re-check it. Nothing polices how it
   got set — a hand edit, a planning agent finishing its pass, or `backlog.update`
-  with `{ dependenciesPlanned: true }` are the same assertion. The gate never
-  blocks: an explicit request to run unplanned still starts, and says so (the New
-  sprint dialog states the consequence on the epic's source row; `sprint.create`
-  returns a warning; the run records an `intake_epic_unplanned` event). The
-  Backlog panel marks an unset epic row "Order not planned".
+  with `{ dependenciesPlanned: true }` are the same assertion. Nothing in the app
+  blocks on it: it is a signal to whoever picks the epic up, never a gate, and an
+  unset mark means "check the order first", not "you may not start".
 
 Grouping is **derived down, stored up**. The only stored relationship is each
 child's `epic:` field. An epic's children are the live query

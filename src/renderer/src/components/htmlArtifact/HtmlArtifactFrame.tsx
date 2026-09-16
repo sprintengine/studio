@@ -24,9 +24,9 @@ import { basename } from '../../utils/paths'
 
 // The generated-HTML artifact viewer: one file on disk, live-rendered in a
 // scripts-off sandbox, with device widths, zoom, an optional source view, and
-// the annotate mode sprint reviewers mark screens up with. It lives here, on
-// its own, rather than beside any one consumer: the Backlog mockup surfaces and
-// the Sprint Engine board/inspector all render the same frame.
+// the annotate mode a reviewer marks screens up with. It lives here, on
+// its own, rather than beside any one consumer: every mockup surface renders
+// the same frame.
 //
 // The scripts-off sandbox policy is `annotate/annotateModel.ts`'s
 // `annotateFrameSandbox`, which never adds `allow-same-origin`; the shared
@@ -194,7 +194,7 @@ export function HtmlArtifactFrame({
    * never be enabled without a real batch destination. The frame collects
    * element-anchored notes and submits them as ONE batch through this seam; it
    * contains no feedback-routing logic — where a batch goes is entirely the
-   * host's decision (sprint request-changes, wizard chat, …).
+   * host's decision.
    */
   onSubmitAnnotations?: (annotations: MockupAnnotation[]) => Promise<void>
   /** Host-named tray send action ("Send to designer" in the wizard); the
@@ -507,7 +507,7 @@ export function HtmlArtifactFrame({
       onKeyDown={onFrameKeyDown}
       className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
     >
-      {/* flex-wrap: narrow hosts (e.g. the sprint inspector pane) fit fewer
+      {/* flex-wrap: narrow hosts (e.g. a narrow detail pane) fit fewer
           controls than the full cluster — wrapping to a second row keeps every
           control reachable instead of clipping under overflow-hidden. */}
       <div className="flex shrink-0 flex-wrap items-center gap-3 gap-y-1 border-b border-[color:var(--border-subtle)] px-3 py-2">

@@ -2,7 +2,6 @@ import type { AppServices } from '../app-services'
 import type { AutomationsEngine } from '../automations/engine'
 import type { ModuleAutomationsRegistry } from '../automations/module-service'
 import type { AutomationProviderRegistryService } from '../automations/provider-registry'
-import type { SprintEngineAutomationFrontDoors } from '../automations/actions/sprint-engine'
 import type { RepoTaskSourceFrontDoors } from '../automations/repo-task-source'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../modules/module-workspace-service'
@@ -25,7 +24,7 @@ export const AgentControlPlaneToken = createServiceToken<AppServices['agentContr
   'core.agent-control-plane'
 )
 // The single main-process path that COMPOSES an agent launch (MC-2159): CLI and
-// permission defaults, connector resolution, naming, specialist prompt, spawn.
+// permission defaults, connector resolution, naming, spawn.
 // Consumers resolve this instead of asking a renderer to launch for them, which
 // is what made every headless agent launch fail for want of an open window.
 export const AgentLaunchServiceToken = createServiceToken<AppServices['agentLaunchService']>(
@@ -34,15 +33,11 @@ export const AgentLaunchServiceToken = createServiceToken<AppServices['agentLaun
 export const GitHubTokenStoreToken = createServiceToken<AppServices['githubTokenStore']>(
   'core.github-token-store'
 )
-export {
-  SprintEngineArtifactsToken,
-  SprintEngineAutomationServiceToken,
-  SprintEngineLaunchSettingsToken,
-  SprintRuntimeToken,
-  SprintPullRequestMergePollerToken,
-  SprintEngineMcpHubToken,
-  SprintCreateServiceToken,
-} from '../modules/sprint-engine-tokens'
+// Renderer-pushed agent-launch defaults (CLI runtimes, permission preset, MCP
+// servers, knowledge root, model catalog) that main-side spawns read.
+export const AgentLaunchSettingsToken = createServiceToken<AppServices['agentLaunchSettings']>(
+  'core.agent-launch-settings'
+)
 export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth']>(
   'core.multicode-auth'
 )
@@ -84,9 +79,6 @@ export const AutomationsAppFrontDoorToken = createServiceToken<AutomationsAppFro
 // provides it today; a capability module that imports repo issues supplies one.
 export const RepoTaskSourceFrontDoorsToken = createServiceToken<RepoTaskSourceFrontDoors>(
   'automations.repo-task-source'
-)
-export const SprintEngineAutomationFrontDoorsToken = createServiceToken<SprintEngineAutomationFrontDoors>(
-  'sprint-engine.automation-front-doors'
 )
 // Programmatic workspace creation for capability modules. The key MUST equal the
 // SDK's WorkspaceServiceToken ('core.workspace') so a module that imports the

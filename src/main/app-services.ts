@@ -1,7 +1,6 @@
-import { app, BrowserWindow, Notification, powerMonitor, powerSaveBlocker, shell } from 'electron'
+import { app, BrowserWindow, Notification, powerMonitor } from 'electron'
 import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
-import { access, readdir, readFile, stat } from 'fs/promises'
 import { hostname } from 'os'
 import { execFile } from 'child_process'
 import { promisify } from 'util'
@@ -44,7 +43,6 @@ import {
   updateBacklogType,
 } from './backlog-service'
 import { createBuiltinSkillManager, ensureSkillInstalled, setDefaultSkillManager } from './builtin-skills'
-import { installMulticodeCliTools } from './cli-install'
 import { MulticodeAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { createTailnetShareService, readTailnetWebTargets } from './automation/tailnet/tailnet-share-service'
@@ -70,34 +68,16 @@ import {
   createFsSkillDirectoryReader,
   createWorkspaceSkillsService,
 } from './workspace-skills-service'
-import { createSprintEngineArtifactHandlers, readSprintEngineRegistryRoles } from './sprintengine-artifacts'
-import { isRecord } from '../shared/records'
-import { createSprintEngineAutomationService } from './sprintengine-automation-service'
-import { createSprintEngineLaunchSettingsMirror } from './sprintengine-launch-settings-mirror'
+import { createAgentLaunchSettingsMirror } from './launch-settings-mirror'
 import { createBackgroundModeStore } from './background-mode-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
 import { readInstallId } from './telemetry/install-id'
 import type { BackgroundStatus } from '../shared/background-mode'
-import { createSprintPowerManager } from './sprint-power-manager'
-import { createSprintRuntime, type SprintRuntime } from './sprint-runtime'
-import { setSprintEngineAutoRunPerfLogger } from '../shared/sprintengine/auto-run'
-import { createSprintEngineRunnerLog } from './sprintengine-runner-log'
 import { resolveMemoryRoot } from './memory-graph'
 import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-instance'
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
-import { deliverSprintEngineAutomationChanged } from './ipc/sprintengine-automation-ipc'
-import { deliverSprintRuntimeOp, deliverSprintRunsChanged } from './ipc/sprint-runtime-ipc'
-import { type SprintRunsChangedEvent } from '../shared/sprintengine/runSummary'
-import {
-  invalidateSprintRunSummary,
-  listSprintRuns,
-  readSprintRunVcs,
-  watchSprintRunProjections,
-} from './sprintengine-run-index'
-import { createSprintPullRequestMergePoller } from './sprintengine-pr-merge-poller'
-import { createGatedSprintEngineMcpHub, createSprintEngineMcpHubService } from './sprintengine-mcp-hub'
-import { syncManagedSprintEngineMcpConfig } from './sprintengine-managed-mcp-sync'
+import { syncStudioMcpConfig } from './studio-mcp-sync'
 import { createGitWorktree, excludeMcpConfigFromWorktree, getGitRepoRoot } from './git'
 import { readBranchName, resolveTrunk } from './git-branch-span'
 import { getGitBranches } from './git-read-models'
@@ -134,8 +114,6 @@ import { createWorkspaceRegistryService } from './workspace-registry-service'
 import { createWorkspaceSyncService } from './workspace-sync-service'
 import { writeDiagnosticLog } from './diagnostics-service'
 import { getPluginRegistry } from './plugin-registry-instance'
-import { pathExists } from './filesystem-workspace'
-import { createSprintCreateService } from './sprint-create-service'
 import { createStudioPluginService } from './studio-plugin-service'
 import { resolveInstalledSkillHarnesses } from './marketplace/skill-harness-targets'
 
@@ -145,27 +123,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
     enabled: diagnosticsEnabled,
   })
-  const cliInstallResult = installMulticodeCliTools()
-  if (!cliInstallResult.ok) {
-    void writeDiagnosticLog({
-      level: 'warning',
-      source: 'workspace',
-      title: 'Multicode CLI install failed',
-      message: `Unable to install all Multicode CLI tools into ${cliInstallResult.binDir}.`,
-      details: cliInstallResult.errors.join('; '),
-    })
-  }
-
   const multicodeAuth = new MulticodeAuthBridge()
   const mcpConfigService = createMcpConfigService()
   const resolveStudioMcpBridgeScriptPath = () =>
     app.isPackaged
       ? join(process.resourcesPath, 'automation', 'mcp-stdio-bridge.mjs')
       : join(app.getAppPath(), 'resources', 'automation', 'mcp-stdio-bridge.mjs')
-  // Spawn ownership of the hub belongs to the sprint-engine capability module
-  // (it claims the gate when it registers its sidecar); a disabled module
-  // means the hub process cannot start, by explicit error rather than silence.
-  const sprintEngineMcpHub = createGatedSprintEngineMcpHub(createSprintEngineMcpHubService({ logMainPerfEvent }))
   const workspaceSkillsService = createWorkspaceSkillsService()
   // The watcher is built first because the capability answer has to state
   // whether it can be kept true: a workspace whose paths could not be watched
@@ -189,18 +152,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     listPlugins: () => listPluginRegistryEntries(),
     invalidate: (workspaceRoot, harnessId) => capabilityWatcher.invalidate(workspaceRoot, harnessId),
   })
-
-  function getAuthenticatedMulticodeUserId(): string | null {
-    const state = multicodeAuth.getState()
-    if (!state.authenticated) return null
-    return state.user?.id?.trim() || state.entitlements?.userId?.trim() || null
-  }
-
-  function requireAuthenticatedMulticodeUser(message: string): void {
-    if (!getAuthenticatedMulticodeUserId()) {
-      throw new Error(message)
-    }
-  }
 
   // Declared before terminalRuntime so the runtime can ensure-install skills
   // (Debug Mode) at spawn. Reads loaded CLI plugins to compute native targets.
@@ -317,7 +268,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const conversationRuntime = new ConversationRuntime({
     secretStore: getSharedCredentialStore(),
     prepareStudioMcp: async ({ workspaceRoot }) => {
-      const result = await syncManagedSprintEngineMcpConfig(
+      const result = await syncStudioMcpConfig(
         {
           workspaceRoot,
           settings: { syncEnabled: false, servers: {} },
@@ -325,7 +276,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         },
         {
           mcpConfigService,
-          sprintEngineMcpHub,
           studioGateway: () => ({
             command: process.execPath,
             bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
@@ -337,44 +287,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
   })
   conversationRuntime.startIdleSweep()
-
-  // Created before terminalRuntime: the automation service needs the runner
-  // CLI seam and the terminal runtime's mobile command service needs the
-  // automation write path (MC-1497 setAutomationMode, headless-capable).
-  const sprintEngineArtifacts = createSprintEngineArtifactHandlers({
-    getAuthenticatedUserId: getAuthenticatedMulticodeUserId,
-    openExternal: (url) => shell.openExternal(url),
-  })
-
-  // Main-owned Sprint Engine automation mode intent (MC-1567). The one write
-  // path for every mode writer: desktop UI (IPC), phone (mobile command), and
-  // any future scheduler/CLI. Persists `automation.json` beside run.yaml,
-  // audits manual transitions, bridges cliWatchPolling, and broadcasts.
-  // The sprint scheduler is created below (it needs the terminal runtime);
-  // the automation broadcast wakes it through this late-bound reference.
-  let sprintRuntimeRef: SprintRuntime | null = null
-
-  const sprintEngineAutomation = createSprintEngineAutomationService({
-    setRunnerCliWatchPolling: async ({ statePath, cliWatchPolling }) => {
-      const result = await sprintEngineArtifacts.setRunnerMode({ statePath, cliWatchPolling })
-      return result.ok ? { ok: true } : { ok: false, message: result.message }
-    },
-    logDiagnostic: (diagnostic) => {
-      void writeDiagnosticLog(diagnostic)
-    },
-    broadcast: (event) => {
-      // The scheduler adopts the new mode before any window does, so an
-      // enabling write starts progressing even if every window is busy.
-      sprintRuntimeRef?.notifyAutomationChanged(event.statePath, event.record)
-      deliverSprintEngineAutomationChanged(event)
-    },
-    // Hydration seeds the sidecar for fresh/legacy runs without a window
-    // broadcast; the scheduler still adopts the mode (lifecycle-preserving)
-    // or the run would never leave 'manual' in main.
-    notifyHydrated: (statePath, record) => {
-      sprintRuntimeRef?.adoptAutomationRecord(statePath, record)
-    },
-  })
 
   // Renderer-pushed "keep running in the background" setting (MC-2156). Read
   // synchronously inside `window-all-closed`, which is precisely when no
@@ -388,8 +300,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
   // Renderer-pushed "Share anonymous usage data" setting, and the one service
   // that acts on it. Built here, beside the other userData mirrors and before
-  // anything that records, because `app.boot` is emitted below and the sprint
-  // and launch paths further down take `analytics` as a dependency.
+  // anything that records, because `app.boot` is emitted below and the launch
+  // paths further down take `analytics` as a dependency.
   //
   // Silent unless a PostHog project key is configured — see
   // `src/shared/telemetry.ts`, which is also where the collection boundary is
@@ -426,11 +338,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   }
 
   // Renderer-pushed agent-launch settings (cliRuntimes/mcp/knowledge/model
-  // catalog) for main-side sprint agent spawns; persisted under userData.
-  const sprintEngineLaunchSettings = createSprintEngineLaunchSettingsMirror({
+  // catalog) for main-side agent spawns; persisted under userData.
+  const agentLaunchSettings = createAgentLaunchSettingsMirror({
     resolveUserDataDir: () => app.getPath('userData'),
     logDiagnostic: (diagnostic) => {
-      void writeDiagnosticLog({ ...diagnostic, source: 'sprintengine' })
+      void writeDiagnosticLog({ ...diagnostic, source: 'agents' })
     },
   })
 
@@ -484,7 +396,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
   const terminalRuntime = createTerminalRuntime({
     diagnosticsEnabled,
-    requireAuthenticatedUser: requireAuthenticatedMulticodeUser,
     logMainPerfEvent,
     // The three agent-changelist seams. Fire-and-forget by contract: the feed
     // swallows its own failures, so none of them can cost a session anything.
@@ -512,16 +423,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
     },
-    syncMcpConfig: (input) => syncManagedSprintEngineMcpConfig(input, {
+    syncMcpConfig: (input) => syncStudioMcpConfig(input, {
       mcpConfigService,
-      sprintEngineMcpHub,
       studioGateway: () => ({
         command: process.execPath,
         bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
         userDataDir: app.getPath('userData'),
       }),
     }),
-    callManagedSprintEngineTool: (input) => sprintEngineMcpHub.callRunTool(input),
     // Debug Mode: make the `debug` skill present in the session CLI's native
     // skill dir before launch. Check-first so already-installed workspaces skip
     // the rewrite; install only fills missing or stale native targets.
@@ -547,15 +456,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // Connector launch: keep the generated managed MCP config out of the
     // connector chat's worktree git (`.mcp.json` / `.codex/config.toml`).
     excludeWorktreeMcpConfig: (worktreePath) => excludeMcpConfigFromWorktree(worktreePath),
-    releaseManagedSprintEngineRun: async (input) => {
-      await sprintEngineMcpHub.unregisterRun(input.runId)
-      if (input.cleanupMcpConfig) {
-        mcpConfigService.removeManagedSprintEngine({
-          workspaceRoot: input.workspaceRoot,
-          clients: input.clients,
-        })
-      }
-    },
     prepareAgentStateHook: (workspaceRoot, cli) => agentStateService.installForWorkspace(workspaceRoot, cli),
   })
   // The conversation pull request record (epic `pull-request-marks`, decision
@@ -603,8 +503,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   app.on('browser-window-focus', () => pullRequestRecord.refreshOnFocus())
 
   // The one interaction path to a live agent session (MC-102). Every caller
-  // that drives an agent — Sprint Engine dispatch, the review guide, later the
-  // composer and MCP — goes through this instead of writing to a pty itself, so
+  // that drives an agent — the review guide, later the composer and MCP —
+  // goes through this instead of writing to a pty itself, so
   // concurrent prompts serialize per session and submit determinism lives in
   // one place. It holds no window reference, so it works headless.
   const agentControlPlane = createAgentControlPlane({
@@ -631,128 +531,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       },
     },
   })
-  // The main-process sprint scheduler (sprint-runtime-ownership Phase 2):
-  // drives the shared auto-run cycle against the terminal runtime in-process,
-  // immune to renderer occlusion throttling. Spawns still need a window as the
-  // terminal event sink (Phase 3 removes that).
-  const sprintPowerManager = createSprintPowerManager({
-    powerSaveBlocker,
-    logDiagnostic: (diagnostic) => {
-      void writeDiagnosticLog({ ...diagnostic, source: 'sprintengine' })
-    },
-  })
-  // Tracker write-back (MC-1640): opt-in comments/transitions posted to the
-  // linked issue as a run progresses. Default off per connection, so with no
-  // Invalidate a run's cached summary and tell every open Sprints door to
-  // refetch. Fired for every runtime op with a statePath, directly for state
-  // writes that happen with no registered runtime (non-resident cancel), and —
-  // via the run index's per-run directory watch below — for projection writes
-  // by the engine that no runtime op accompanies (MC-1801).
-  // MC-2155: the main-owned PR merge poller. Constructed here (it needs the
-  // artifact front door and the runs-changed funnel below), STARTED by the Sprint
-  // Engine capability module at app ready — so a disabled module never probes,
-  // and until then `noteRunChanged` is inert.
-  const sprintPullRequestMergePoller = createSprintPullRequestMergePoller({
-    listRuns: (roots) => listSprintRuns([...roots]),
-    readRunVcs: (statePath) => readSprintRunVcs(statePath),
-    probe: async (statePath) => sprintEngineArtifacts.refreshPullRequestStatus({ statePath }),
-    logDiagnostic: (diagnostic) => {
-      void writeDiagnosticLog({ ...diagnostic, source: 'sprintengine' })
-    },
-  })
-  const notifySprintRunsChanged = (statePath: string): void => {
-    invalidateSprintRunSummary(statePath)
-    // The run moved on disk: it may have just opened a pull request (arm) or had
-    // its last one merge (disarm). Runs already under watch keep their schedule.
-    sprintPullRequestMergePoller.noteRunChanged(statePath)
-    const changed: SprintRunsChangedEvent = { statePath }
-    deliverSprintRunsChanged(changed)
-  }
-  watchSprintRunProjections(notifySprintRunsChanged)
-  const sprintRuntime = createSprintRuntime({
-    recordRunFinished: ({ outcome }) => analytics.record('sprint.run.finished', { outcome }),
-    terminal: {
-      list: () => terminalRuntime.ipcHandlers.listTerminals(),
-      write: (sessionId, data) => terminalRuntime.ipcHandlers.writeTerminal(sessionId, data),
-      // Dispatch prompts go through the control plane, not a bare write pair:
-      // the paste and its submit are one queue entry, so nothing interleaves.
-      sendPrompt: async (sessionId, text) => {
-        const result = await agentControlPlane.send({ sessionId }, text, { submit: true })
-        return result.ok ? { ok: true } : { ok: false, message: result.message }
-      },
-      kill: (sessionId) => terminalRuntime.ipcHandlers.killTerminal(sessionId),
-      status: async (sessionId) => {
-        const status = await terminalRuntime.ipcHandlers.getTerminalStatus(sessionId)
-        return { processAlive: status.processAlive }
-      },
-      spawn: async ({ metadata, ...args }) => {
-        // Prefer a live window as the event sink so output streams to the UI
-        // immediately; with every window closed (Phase 3 headless auto-run)
-        // spawn against the headless sender — the PTY runs and buffers, and a
-        // reopened window's TerminalView reattaches with scrollback.
-        const sender = resolveSpawnEventSink()
-        // The spawn payload is flat; `metadata` is the renderer-side bag that
-        // preload spreads into it (`...metadata`). An in-process spawn must
-        // flatten it the same way or every field in it — permission preset,
-        // model, agent binding, MCP settings, reveal policy — is dropped.
-        return terminalRuntime.ipcHandlers.spawnTerminal(sender, { ...args, ...metadata })
-      },
-      adoptWorkspaceId: (input) => {
-        terminalRuntime.adoptSprintRunWorkspaceId(input)
-      },
-    },
-    artifacts: {
-      readProjection: (input) => sprintEngineArtifacts.readProjection(input),
-      autoApproveArtifact: ({ statePath, artifactId }) =>
-        sprintEngineArtifacts.reviewArtifact({ statePath, artifactId }, 'approve', 'auto-run'),
-      ensureTaskWorktree: (input) => sprintEngineArtifacts.ensureTaskWorktree(input),
-    },
-    pathExists: async (path) => {
-      try {
-        await access(path)
-        return true
-      } catch {
-        return false
-      }
-    },
-    resolveMemoryRoot: (workspaceRoot, relativeRoot) => resolveMemoryRoot(workspaceRoot, relativeRoot),
-    getPluginCatalogEntries: () => listPluginRegistryEntries(),
-    getLaunchSettings: () => sprintEngineLaunchSettings.get(),
-    readAutomationMode: async (statePath) => {
-      const result = await sprintEngineAutomation.readAutomationMode({ statePath })
-      return result.ok ? result.record : null
-    },
-    persistRuntimeResidue: (statePath, runtime) => {
-      void sprintEngineAutomation.updateRuntimeResidue({ statePath, runtime })
-    },
-    powerManager: sprintPowerManager,
-    broadcastOp: (op) => {
-      deliverSprintRuntimeOp(op)
-      // Every runtime op means a run's state may have moved; wake write-back to
-      // …and its cross-project run-index summary may be stale: drop the memo and
-      // notify any open Sprints door so it refetches without polling (MC-1761).
-      if (op.statePath) notifySprintRunsChanged(op.statePath)
-    },
-    notifyRunsChanged: notifySprintRunsChanged,
-    logDiagnostic: (diagnostic) => writeDiagnosticLog(diagnostic),
-  })
-  sprintRuntimeRef = sprintRuntime
-  // The shared auto-run corpus logs through an injected perf seam. The
-  // renderer used to inject its own logger; with scheduling in main, wire the
-  // seam to main perf diagnostics so supervise/spawn/retire events — the
-  // primary debugging surface for this subsystem — stay observable.
-  // Phase 3 (MC-1754): the same events also land in the owning run's on-disk
-  // `runner/runner-log.jsonl`, so a runner incident is reconstructable from
-  // files alone — console perf logging is diagnostics-flag-gated and gone
-  // with the process.
-  const sprintRunnerLog = createSprintEngineRunnerLog(
-    (workspaceId) => sprintRuntimeRef?.resolveRunnerLogTarget(workspaceId) ?? null
-  )
-  setSprintEngineAutoRunPerfLogger((scope, event, payload) => {
-    logMainPerfEvent(scope, event, payload ?? {})
-    sprintRunnerLog.write(scope, event, payload ?? {})
-  })
-
   const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
   const agentConfigImportService = createAgentConfigImportService({
     mcpConfigService,
@@ -760,9 +538,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   })
   const githubTokenStore = new GitHubTokenStore()
 
-  // The mobile relay bridge (construction + IPC + shutdown) and the Sprint Engine
-  // session spawner/stopper/inventory/exit-recording wiring moved to their
-  // capability modules (src/main/modules/), registered through the host kernel.
+  // The mobile relay bridge (construction + IPC + shutdown) moved to its
+  // capability module (src/main/modules/), registered through the host kernel.
   // The terminal runtime now exposes only generic agent-session seams
   // (spawn/kill/inventory + a session-exit listener); modules layer their own
   // system-specific behavior on top. multicodeAuth and terminalRuntime are
@@ -805,7 +582,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // real CLI, permission preset, and MCP servers.
   const composedAgentLaunchService = createAgentLaunchService({
     listWorkspaces: () => workspaceSyncService.getSnapshot().state.workspaces,
-    getLaunchSettings: () => sprintEngineLaunchSettings.get(),
+    getLaunchSettings: () => agentLaunchSettings.get(),
     // Hooks-only selectability (decision of record 2026-08-31): a KNOWN plugin
     // whose manifest declares no agentStateSpec is refused as an agent. An id
     // the registry does not hold falls through — the launch render's own
@@ -819,14 +596,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // headless launch carries the project's Knowledge Graph exactly like an
     // interactively-spawned agent does.
     resolveKnowledgeRoot: (input) => resolveMemoryRoot(input.workspaceRoot, input.relativeRoot),
-    listInstalledRoleIds: async (workspaceRoot) => {
-      const result = await readSprintEngineRegistryRoles({ workspaceRoot })
-      if (!result.ok || !isRecord(result.data) || !Array.isArray(result.data.roles)) return []
-      return result.data.roles.flatMap((entry) => {
-        if (!isRecord(entry) || typeof entry.id !== 'string' || !entry.id.trim()) return []
-        return [entry.id]
-      })
-    },
     terminal: {
       list: () => terminalRuntime.ipcHandlers.listTerminals(),
       // A headless launch has no window to be the event sink; the runtime
@@ -843,8 +612,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // door anyway, so wrapping here covers them all without touching that module.
   //
   // Only the resolved CLI and a handful of shape flags go out. The request's
-  // prompt, name, specialist id, worktree path and cwd do not: they are the
-  // user's words and the user's disk (see the boundary in shared/telemetry.ts).
+  // prompt, name, worktree path and cwd do not: they are the user's words and
+  // the user's disk (see the boundary in shared/telemetry.ts).
   const agentLaunchService: typeof composedAgentLaunchService = {
     ...composedAgentLaunchService,
     async launch(request) {
@@ -852,92 +621,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       if (result.ok) {
         analytics.record('agent.launched', {
           cli: result.cli,
-          specialist: request.specialistId !== undefined,
           worktree: request.worktreePath !== undefined,
           connector: request.connectorId !== undefined,
           withPrompt: Boolean(request.prompt),
           ...(request.permissionPreset ? { permissionPreset: request.permissionPreset } : {}),
-        })
-      }
-      return result
-    },
-  }
-
-  // Creating a sprint run is main's job (MC-2160). Built after workspace sync and
-  // the scheduler because it uses both: the composed run's workspace is adopted
-  // into the registry, and the run is then handed to `sprintRuntime`, whose
-  // run-start bootstrap spawns the coordinator seat. That is what replaces the
-  // old board-mount handshake, and it is why creation works with zero windows.
-  const composedSprintCreateService = createSprintCreateService({
-    getLaunchSettings: () => sprintEngineLaunchSettings.get(),
-    // Only hook-capable CLIs (manifest agentStateSpec) may staff a sprint —
-    // hooks are the only supported status mechanism, and a sprint on a CLI
-    // that cannot report state would run blind (decision of record 2026-08-31).
-    // This is the subset `cli.runtime.list` flags `agentSelectable: true`.
-    listLaunchableClis: () =>
-      getPluginRegistry()
-        .loaded()
-        .filter((plugin) => Boolean(plugin.manifest.agentStateSpec))
-        .map((plugin) => plugin.manifest.id),
-    initializeSprintEngineState: (input) => sprintEngineArtifacts.initializeSprintEngineState(input),
-    fs: {
-      pathExists: (path) => pathExists(path),
-      readdir: async (path) => (await readdir(path, { withFileTypes: true }))
-        .map((entry) => ({ name: entry.name, isDir: entry.isDirectory() })),
-      readfile: (path) => readFile(path, 'utf8'),
-      readFile: (path) => readFile(path, 'utf8'),
-      statPath: async (path) => {
-        const stats = await stat(path)
-        return {
-          isFile: stats.isFile(),
-          isDirectory: stats.isDirectory(),
-          sizeBytes: stats.size,
-          modifiedAt: stats.mtime.toISOString(),
-          modifiedAtMs: stats.mtimeMs,
-        }
-      },
-    },
-    newWorkspaceId: () => workspaceRegistry.newWorkspaceId(),
-    adoptWorkspace: (workspace, windowId, folderPath) => {
-      const adopted = workspaceSyncService.adoptWorkspace(workspace, windowId, folderPath, 'automation')
-      return adopted.ok ? { ok: true } : { ok: false, message: adopted.message }
-    },
-    primaryWorkspaceWindowId: () => workspaceSyncService.getSnapshot().state.primaryWorkspaceWindowId,
-    updateWorkspaceAgent: (workspaceId, agentId, patch) => {
-      workspaceSyncService.updateWorkspaceAgent(workspaceId, agentId, patch, 'automation')
-    },
-    hydrateAutomationMode: (input) => sprintEngineAutomation.hydrateAutomationMode(input),
-    setCliPermissionPreset: (input) =>
-      sprintEngineAutomation.setCliPermissionPreset({ ...input, actor: 'automation' }),
-    registerSprintRun: (registration) => sprintRuntime.registerRun(registration),
-    addBacklogLink: (input) => addOrUpdateBacklogLink(input),
-    logDiagnostic: (input) => {
-      void writeDiagnosticLog({ ...input, source: 'sprintengine' })
-    },
-  })
-
-  // Same outside-the-composer wrapping as the agent-launch door above, and the
-  // same reason: both app-level creation (the wizard) and automation-driven
-  // creation reach `createSprint`, so one wrapper counts every run once.
-  //
-  // The SHAPE of the run goes out, never its subject: goal text, run name,
-  // folder path and the backlog refs it was sourced from all stay here. `roles`
-  // is the staffed count, not which ones — role ids are registry-driven and a
-  // project can define its own.
-  const sprintCreateService: typeof composedSprintCreateService = {
-    ...composedSprintCreateService,
-    async createSprint(request) {
-      const result = await composedSprintCreateService.createSprint(request)
-      if (result.ok) {
-        const sourceRefs =
-          request.sourceRelativePaths ?? (request.sourceRelativePath ? [request.sourceRelativePath] : [])
-        analytics.record('sprint.run.created', {
-          startRunner: request.startRunner === true,
-          worktrees: request.useWorktrees === true,
-          taskIsolation: request.taskIsolation === true,
-          sources: sourceRefs.length,
-          roles: Object.values(request.roster ?? {}).filter((count) => count > 0).length,
-          ...(request.intake ? { intake: request.intake } : {}),
         })
       }
       return result
@@ -1040,10 +727,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const browserControl = createBrowserControl(browserManager)
   browserManager.onUnregister((tabId) => browserControl.forget(tabId))
 
-  // Instance-global SprintEngine Studio MCP surface: reads come from the workspace-sync snapshot
-  // and terminal runtime, and mutations go straight to the main services that
-  // own them — one lane, no window required (MC-2161). The gateway starts with
-  // the app; Python Sprint Engine remains module-owned and lazy.
+  // Instance-global SprintEngine Studio MCP surface: reads come from the
+  // workspace-sync snapshot and terminal runtime, and mutations go straight to
+  // the main services that own them — one lane, no window required (MC-2161).
+  // The gateway starts with the app.
   const automationService = createAutomationService({
     resolveUserDataDir: () => app.getPath('userData'),
     appVersion: app.getVersion(),
@@ -1076,7 +763,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // module-contributed tools (MC-1855) read from the host kernel per request
     // and gated on their owner's live enablement.
     resolveGatewayTools: createStudioGatewayTools({
-      sprintEngineMcpHub,
       resolveModuleTools: () => resolveModuleMcpTools(),
       isModuleEnabled: (moduleId) => resolveModuleEnabled(moduleId),
       warn: (details) => {
@@ -1102,7 +788,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         // Read live, never captured: the same store the launch service reads, so
         // a preset changed in Settings reaches the next terminal.create without
         // a restart.
-        getAgentSpawnPermissionDefault: () => sprintEngineLaunchSettings.get().lastAgentSpawnPermissionPreset,
+        getAgentSpawnPermissionDefault: () => agentLaunchSettings.get().lastAgentSpawnPermissionPreset,
         createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
         listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
         readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
@@ -1338,16 +1024,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   })
 
   // Background mode (MC-2156): what the tray reports with no window open. Read
-  // straight from the live main-process owners — the scheduler's own run map,
-  // the terminal runtime's session list, the gateway's own status — because a
-  // presence that reported a renderer projection would go stale the moment the
-  // last window it came from closed.
+  // straight from the live main-process owners — the terminal runtime's session
+  // list and the gateway's own status — because a presence that reported a
+  // renderer projection would go stale the moment the last window it came from
+  // closed.
   function readBackgroundStatus(): BackgroundStatus {
     const sessions = terminalRuntime.ipcHandlers
       .listTerminals()
       .filter((session) => session.kind === 'agent' && session.processAlive && !session.suspended)
     return {
-      runs: sprintRuntime.listRuns().map((run) => ({ name: run.name, autoRunning: run.autoRunning })),
       agentSessions: sessions.length,
       gateway: { running: automationService.getStatus().running },
     }
@@ -1357,7 +1042,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     agentConfigImportService,
     agentStateService,
     browserManager,
-    sprintCreateService,
     automationService,
     backgroundModeStore,
     telemetryConsentStore,
@@ -1390,13 +1074,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // `multicodeAuth` is the account-service adapter sitting behind it.
     entitlements: multicodeAuth.entitlements,
     skillsService,
-    sprintEngineArtifacts,
-    sprintEngineAutomation,
-    sprintEngineLaunchSettings,
-    sprintEngineMcpHub,
-    sprintPowerManager,
-    sprintPullRequestMergePoller,
-    sprintRuntime,
+    agentLaunchSettings,
     conversationPeek,
     terminalRuntime,
     agentChangelistFeed,

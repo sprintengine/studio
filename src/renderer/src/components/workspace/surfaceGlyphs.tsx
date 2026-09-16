@@ -9,46 +9,9 @@
 // Deliberately a LEAF file: modules register these EAGERLY (the glyph renders in
 // the rail at boot), so anything imported here lands in the eager
 // module-registry graph — which must stay free of the workspace store, AppIcons
-// (which reaches the module registry), and every door bundle. The one import
-// below is the brand mark, which is itself a leaf for the same reason (see its
-// header). One concept per glyph, currentColor strokes, the icon family's
-// 16-box round-stroke idiom (design-system glyph grammar).
-
-import { SprintEngineFrond } from '../brand/SprintEngineFrond'
-
-// Sprints: the SprintEngine frond, the same mark its drawer row wears
-// (SprintsNavEntry, through AppIcons' SprintEngineWorkspaceTypeIcon — the same
-// component, reached the long way round because AppIcons may not be imported
-// here). The sprint-engine module hands this to the shell so the Extensions
-// home's Sprints tile can be drawn from the registry like the other four,
-// rather than the shell hard-coding a glyph for one module's row
-// (Extensions drawer ruling, 2026-09-05, Stage 3).
-export function SprintsGlyph({ className }: { className?: string }) {
-  return <SprintEngineFrond className={className} tone="current" />
-}
-
-// Workflows: one goal fanning out into the work it turns into (item 2470). Its
-// concept is the split itself — a single thing on the left becoming several on
-// the right — which is what separates this door from Sprints, where the several
-// were written down before the run began. Drawn on the same 16 box in the icon
-// family's round-stroke idiom, so the two rows read as siblings in the drawer.
-export function WorkflowsGlyph({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <circle cx="3.6" cy="8" r="1.7" stroke="currentColor" strokeWidth="1.3" />
-      <path
-        d="M5.3 8h1.5M6.8 8c1.8 0 1.8-4 3.6-4M6.8 8h3.6M6.8 8c1.8 0 1.8 4 3.6 4"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <circle cx="11.9" cy="4" r="1.5" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="11.9" cy="8" r="1.5" stroke="currentColor" strokeWidth="1.3" />
-      <circle cx="11.9" cy="12" r="1.5" stroke="currentColor" strokeWidth="1.3" />
-    </svg>
-  )
-}
+// (which reaches the module registry), and every door bundle. One concept per
+// glyph, currentColor strokes, the icon family's 16-box round-stroke idiom
+// (design-system glyph grammar).
 
 // Plugins: a link to an external capability. Moved verbatim from the retired
 // ExtensionsNavEntry (where it was the Extensions door's row icon).

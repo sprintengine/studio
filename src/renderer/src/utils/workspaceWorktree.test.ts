@@ -32,30 +32,7 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
   }
 }
 
-// 1. Sprint run in worktree mode: git root redirects to the worktree (folderPath
-//    + project-relative worktreePath), branch comes from vcs.branchName.
-{
-  const ws = make({
-    moduleState: { sprintengine: { state: {
-      vcs: {
-        mode: 'run_worktree',
-        worktreePath: '.sprintengine/sprintengine/auth/worktree',
-        branchName: 'sprintengine/auth',
-      },
-    } } },
-  })
-  const resolved = resolveWorkspaceWorktree(ws)
-  assert.deepEqual(resolved, {
-    gitRoot: '/Users/example/project/.sprintengine/sprintengine/auth/worktree',
-    branch: 'sprintengine/auth',
-    // A store with no `repos` list describes its one repo with the flat fields:
-    // that repo is the primary, and its root is the workspace itself.
-    repoId: 'primary',
-    repoRoot: '/Users/example/project',
-  })
-}
-
-// 2. Normal worktree workspace (Open as workspace): folderPath already IS the
+// 1. A worktree workspace (Open as workspace): folderPath already IS the
 //    worktree, so git root stays folderPath; branch from the explicit marker.
 {
   const ws = make({
@@ -63,14 +40,14 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
     worktree: { branch: 'spike/parser' },
   })
   const resolved = resolveWorkspaceWorktree(ws)
-  assert.equal(resolved?.repoId, undefined, 'a non-sprint worktree workspace declares no repo set')
+  assert.equal(resolved?.repoId, undefined, 'a worktree workspace declares no repo set')
   assert.deepEqual(resolved, {
     gitRoot: '/Users/example/wt/parser-spike',
     branch: 'spike/parser',
   })
 }
 
-// 2b. The marker's own `repoRoot` (the project the worktree was cut from) is a
+// 1b. The marker's own `repoRoot` (the project the worktree was cut from) is a
 //     grouping fact and stays OUT of the resolved entry: the Git panel reads
 //     `repoRoot` as the checkout to operate on, and naming the parent there
 //     would diff, stage, commit and spawn terminals in the parent while a
@@ -91,127 +68,40 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
   )
 }
 
-// 3. Sprint vcs takes precedence over an explicit marker (a worktree-mode sprint
-//    is always rooted at its run worktree).
-{
-  const ws = make({
-    worktree: { branch: 'ignored' },
-    moduleState: { sprintengine: { state: {
-      vcs: { mode: 'run_worktree', worktreePath: '.sprintengine/sprintengine/x/worktree', branchName: 'sprintengine/x' },
-    } } },
-  })
-  assert.equal(resolveWorkspaceWorktree(ws)?.branch, 'sprintengine/x')
-}
-
-// 4. Regular workspace (no worktree, no run vcs) → null (unchanged behavior).
+// 2. Regular workspace (no worktree marker) → null.
 {
   assert.equal(resolveWorkspaceWorktree(make({})), null)
+  assert.equal(
+    resolveWorkspaceWorktree(make({ moduleState: { 'weather-deck': { lastCity: 'Dublin' } } })),
+    null,
+    'a module-state bag alone never makes a workspace worktree-backed',
+  )
 }
 
-// 5. No folderPath → null even with a marker (can't resolve a git root).
+// 3. No folderPath → null even with a marker (can't resolve a git root).
 {
   assert.equal(resolveWorkspaceWorktree(make({ folderPath: null, worktree: { branch: 'b' } })), null)
 }
 
-// 6. A sprint NOT in worktree mode (no vcs) → null.
+// --- resolveWorkspaceWorktrees / resolveWorktreeFallbackRoot ---
+
+// 4. The list is the primary worktree or nothing at all.
 {
-  const ws = make({ moduleState: { sprintengine: { state: { vcs: null } } } })
-  assert.equal(resolveWorkspaceWorktree(ws), null)
-}
-
-// 7. Defensive: an (out-of-contract) absolute worktreePath is used as-is, not
-//    nested under folderPath.
-{
-  const ws = make({
-    moduleState: { sprintengine: { state: {
-      vcs: { mode: 'run_worktree', worktreePath: '/abs/worktree', branchName: 'sprintengine/x' },
-    } } },
-  })
-  assert.equal(resolveWorkspaceWorktree(ws)?.gitRoot, '/abs/worktree')
-}
-
-// --- resolveWorkspaceWorktrees: one scope per declared repo (MC-1610) ---
-
-/** A run declaring two projects: the primary, plus a `mobile` sibling. */
-function twoRepoWorkspace(): WorktreeInput {
-  return make({
-    moduleState: { sprintengine: { state: {
-      vcs: {
-        mode: 'run_worktree',
-        worktreePath: '.sprintengine/sprintengine/x/worktree',
-        branchName: 'sprintengine/x',
-        repos: [
-          { id: 'primary', root: '.', worktreePath: '.sprintengine/sprintengine/x/worktree', branchName: 'sprintengine/x' },
-          { id: 'mobile', root: '../multicode-mobile', worktreePath: '.sprintengine/sprintengine/x/worktree-mobile', branchName: 'sprintengine/x' },
-        ],
-      },
-    } } },
-  })
-}
-
-// 8. Every declared repo gets a scope, primary first; each carries its own
-//    worktree, branch, and the root of the checkout it was created from.
-{
-  const resolved = resolveWorkspaceWorktrees(twoRepoWorkspace())
-  assert.deepEqual(resolved, [
-    {
-      gitRoot: '/Users/example/project/.sprintengine/sprintengine/x/worktree',
-      branch: 'sprintengine/x',
-      repoId: 'primary',
-      repoRoot: '/Users/example/project',
-    },
-    {
-      gitRoot: '/Users/example/project/.sprintengine/sprintengine/x/worktree-mobile',
-      branch: 'sprintengine/x',
-      repoId: 'mobile',
-      repoRoot: '/Users/example/multicode-mobile',
-    },
-  ])
-  // "The" worktree stays the PRIMARY one for every single-scope surface.
-  assert.equal(resolveWorkspaceWorktree(twoRepoWorkspace())?.repoId, 'primary')
-}
-
-// 9. Single-repo control: a one-entry list resolves to exactly the one scope a
-//    single-repo run always had.
-{
-  const ws = make({
-    moduleState: { sprintengine: { state: {
-      vcs: {
-        mode: 'run_worktree',
-        worktreePath: '.sprintengine/sprintengine/x/worktree',
-        branchName: 'sprintengine/x',
-        repos: [{ id: 'primary', root: '.', worktreePath: '.sprintengine/sprintengine/x/worktree', branchName: 'sprintengine/x' }],
-      },
-    } } },
-  })
-  assert.deepEqual(resolveWorkspaceWorktrees(ws), [{
-    gitRoot: '/Users/example/project/.sprintengine/sprintengine/x/worktree',
-    branch: 'sprintengine/x',
-    repoId: 'primary',
-    repoRoot: '/Users/example/project',
-  }])
+  assert.deepEqual(
+    resolveWorkspaceWorktrees(make({
+      folderPath: '/Users/example/wt/parser-spike',
+      worktree: { branch: 'spike/parser' },
+    })),
+    [{ gitRoot: '/Users/example/wt/parser-spike', branch: 'spike/parser' }],
+  )
   assert.deepEqual(resolveWorkspaceWorktrees(make({})), [], 'a regular workspace is backed by no worktree')
 }
 
-// --- resolveWorktreeFallbackRoot: fall back per repo, not to the workspace ---
-
-// 10. A pruned SIBLING worktree falls back to that sibling's own repo root; the
-//     primary's falls back to the workspace, which is its root.
+// 5. A cwd belonging to no declared worktree, and a workspace with none at all,
+//    both fall back to the workspace folder.
 {
-  const ws = twoRepoWorkspace()
-  assert.equal(
-    resolveWorktreeFallbackRoot(ws, '/Users/example/project/.sprintengine/sprintengine/x/worktree-mobile'),
-    '/Users/example/multicode-mobile',
-    'a pruned mobile worktree redirects into the mobile checkout, not the multicode root',
-  )
-  assert.equal(
-    resolveWorktreeFallbackRoot(ws, '/Users/example/project/.sprintengine/sprintengine/x/worktree'),
-    '/Users/example/project',
-  )
-  // A cwd belonging to no declared worktree, and a workspace with none at all,
-  // both fall back to the workspace folder — today's behavior.
-  assert.equal(resolveWorktreeFallbackRoot(ws, '/somewhere/else'), '/Users/example/project')
-  assert.equal(resolveWorktreeFallbackRoot(ws, undefined), '/Users/example/project')
+  assert.equal(resolveWorktreeFallbackRoot(make({}), '/somewhere/else'), '/Users/example/project')
+  assert.equal(resolveWorktreeFallbackRoot(make({}), undefined), '/Users/example/project')
   assert.equal(resolveWorktreeFallbackRoot(make({}), '/x'), '/Users/example/project')
 }
 
@@ -231,17 +121,17 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 
 // 8. Matches the worktree by path.
 {
-  const wt = scope({ id: 'worktree:/wt', path: '/Users/example/project/.sprintengine/sprintengine/a/worktree', branch: 'sprintengine/a' })
-  const found = findHealthyWorktreeScope([mainScope, wt], wt.path, 'sprintengine/a')
+  const wt = scope({ id: 'worktree:/wt', path: '/Users/example/project/.multicode-worktrees/project/a', branch: 'agent/a' })
+  const found = findHealthyWorktreeScope([mainScope, wt], wt.path, 'agent/a')
   assert.equal(found?.id, wt.id)
 }
 
 // 9. Branch recovers the match when the path diverges (symlinked root): the
 //    joined gitRoot points at /tmp/... but git lists /private/tmp/...
 {
-  const wt = scope({ id: 'worktree:/private', path: '/private/tmp/proj/.sprintengine/sprintengine/a/worktree', branch: 'sprintengine/a' })
-  const joinedButSymlinked = '/tmp/proj/.sprintengine/sprintengine/a/worktree'
-  const found = findHealthyWorktreeScope([mainScope, wt], joinedButSymlinked, 'sprintengine/a')
+  const wt = scope({ id: 'worktree:/private', path: '/private/tmp/proj/.multicode-worktrees/project/a', branch: 'agent/a' })
+  const joinedButSymlinked = '/tmp/proj/.multicode-worktrees/project/a'
+  const found = findHealthyWorktreeScope([mainScope, wt], joinedButSymlinked, 'agent/a')
   assert.equal(found?.id, wt.id, 'branch match recovers a symlinked path divergence')
 }
 
@@ -249,9 +139,9 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 //     and does not loop with the validity-reset effect).
 {
   for (const bad of [{ prunable: true }, { missing: true }, { locked: true }]) {
-    const wt = scope({ id: 'worktree:/wt', path: '/wt', branch: 'sprintengine/a', ...bad })
+    const wt = scope({ id: 'worktree:/wt', path: '/wt', branch: 'agent/a', ...bad })
     assert.equal(
-      findHealthyWorktreeScope([mainScope, wt], '/wt', 'sprintengine/a'),
+      findHealthyWorktreeScope([mainScope, wt], '/wt', 'agent/a'),
       null,
       `excludes ${JSON.stringify(bad)} worktree`,
     )
@@ -265,7 +155,7 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 
 // 12. No matching scope present → null (worktree not yet listed).
 {
-  assert.equal(findHealthyWorktreeScope([mainScope], '/wt', 'sprintengine/a'), null)
+  assert.equal(findHealthyWorktreeScope([mainScope], '/wt', 'agent/a'), null)
 }
 
 // --- connector chats ---
@@ -441,8 +331,7 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
   )
 }
 
-// 35. Everything else is its own folder, unchanged: a plain workspace, and a
-//     sprint run (no worktree marker, and its folderPath is already the parent).
+// 35. Everything else is its own folder, unchanged.
 {
   assert.equal(workspaceProjectRoot({ folderPath: '/Users/example/project', worktree: null }), '/Users/example/project')
   assert.equal(
@@ -463,18 +352,18 @@ void (async () => {
   {
     const result = await resolveWorktreeSpawnFallback(
       'worktree',
-      '/proj/.sprintengine/sprintengine/a/worktree',
+      '/proj/.multicode-worktrees/project/a',
       '/proj',
       existsAlways,
     )
-    assert.deepEqual(result, { fellBack: false, cwd: '/proj/.sprintengine/sprintengine/a/worktree' })
+    assert.deepEqual(result, { fellBack: false, cwd: '/proj/.multicode-worktrees/project/a' })
   }
 
   // 14. Worktree cwd removed → fall back to the workspace folder and flag it.
   {
     const result = await resolveWorktreeSpawnFallback(
       'worktree',
-      '/proj/.sprintengine/sprintengine/a/worktree',
+      '/proj/.multicode-worktrees/project/a',
       '/proj',
       existsNever,
     )
@@ -538,17 +427,17 @@ void (async () => {
   // 26. Distinct gitRoot present on disk → spawn into the worktree.
   {
     const result = await resolveWorkspaceTerminalCwd(
-      '/proj/.sprintengine/sprintengine/a/worktree',
+      '/proj/.multicode-worktrees/project/a',
       '/proj',
       existsAlways,
     )
-    assert.deepEqual(result, { cwd: '/proj/.sprintengine/sprintengine/a/worktree', missing: false })
+    assert.deepEqual(result, { cwd: '/proj/.multicode-worktrees/project/a', missing: false })
   }
 
   // 27. Distinct gitRoot gone from disk → missing, no cwd override.
   {
     const result = await resolveWorkspaceTerminalCwd(
-      '/proj/.sprintengine/sprintengine/a/worktree',
+      '/proj/.multicode-worktrees/project/a',
       '/proj',
       existsNever,
     )

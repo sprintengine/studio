@@ -7,7 +7,7 @@ import type { BacklogCriticality, BacklogDifficulty } from '../../utils/backlog'
 // The structured capture dialog for a new backlog item. A backlog item is
 // lightweight intent — a title plus the what/why — and its triage (size,
 // priority) is set here rather than authored as markdown frontmatter. The
-// implementation is deliberately left to the architect's plan at sprint-start,
+// implementation is deliberately left to whoever picks the item up,
 // so the description hint steers away from implementation components.
 export type BacklogDraft = {
   title: string

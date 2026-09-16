@@ -2,11 +2,11 @@ import { isAbsolute } from 'path'
 import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import type {
-  SprintEngineCliPermissionPreset,
+  CliPermissionPreset,
   TerminalSessionSnapshot,
 } from '../../shared/electron-api'
 import { projectColorKey, projectHue } from '../../shared/project-hue'
-import { normalizeCliPermissionPreset } from '../../shared/sprintengine/automation-lifecycle'
+import { normalizeCliPermissionPreset } from '../../shared/cli-permission-preset'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../shared/automations/contracts'
@@ -108,7 +108,7 @@ export type AutomationBackends = {
    * accessor: the launch service resolves it from the same store and says so
    * when there is none.
    */
-  getAgentSpawnPermissionDefault(): SprintEngineCliPermissionPreset | null
+  getAgentSpawnPermissionDefault(): CliPermissionPreset | null
   /**
    * Mint a workspace in main's registry (MC-2158). Synchronous and
    * window-independent: `workspace.create` no longer asks a renderer to build
@@ -136,8 +136,8 @@ export type AutomationBackends = {
    */
   getAutomationsFrontDoor(): AutomationsAppFrontDoor | null
   /**
-   * Create a git worktree for a widened agent.launch (model/preset/specialist
-   * launches that request isolation, and every connector launch). Worktree
+   * Create a git worktree for a widened agent.launch (model/preset launches
+   * that request isolation, and every connector launch). Worktree
    * creation is renderer-adjacent but git-bound, so it happens in main before
    * delegating — the automations executor precedent. Returns the created
    * absolute path + branch, or `{ error }` (non-git folder, name collision,
@@ -400,7 +400,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // named preset, `undefined` when the caller named none, or the failure.
   function validatePermissionPreset(
     args: Record<string, unknown>
-  ): SprintEngineCliPermissionPreset | undefined | McpToolResult {
+  ): CliPermissionPreset | undefined | McpToolResult {
     if (args.permissionPreset === undefined) return undefined
     if (typeof args.permissionPreset !== 'string') {
       return failure('invalid_arguments', '"permissionPreset" must be a string when provided.')
@@ -409,7 +409,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     // external caller written before MC-2210 still sends `bypass_all`, and a
     // refusal that only matched the new name would let the old one straight
     // through the ceiling this surface exists to enforce.
-    const requested = normalizeCliPermissionPreset(args.permissionPreset as SprintEngineCliPermissionPreset)
+    const requested = normalizeCliPermissionPreset(args.permissionPreset as CliPermissionPreset)
     if (requested === 'bypass') {
       return failure(
         'permission_preset_not_allowed',
@@ -420,7 +420,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (!LAUNCH_PERMISSION_PRESETS.includes(args.permissionPreset as (typeof LAUNCH_PERMISSION_PRESETS)[number])) {
       return failure('invalid_arguments', `"permissionPreset" must be one of: ${LAUNCH_PERMISSION_PRESETS.join(', ')}.`)
     }
-    return args.permissionPreset as SprintEngineCliPermissionPreset
+    return args.permissionPreset as CliPermissionPreset
   }
 
   // The launch-config fields agent.launch and backlog.work both accept:
@@ -429,7 +429,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // the resolved options or a failure McpToolResult.
   function resolveLaunchOptions(
     args: Record<string, unknown>
-  ): { permissionPreset?: SprintEngineCliPermissionPreset; worktreeRequested: boolean; worktreeName?: string; worktreeBaseRef?: string } | McpToolResult {
+  ): { permissionPreset?: CliPermissionPreset; worktreeRequested: boolean; worktreeName?: string; worktreeBaseRef?: string } | McpToolResult {
     const preset = validatePermissionPreset(args)
     if (preset !== undefined && typeof preset !== 'string') return preset
     let worktreeRequested = false
@@ -457,7 +457,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // `bypass` — so omitting the key reached the preset this surface
       // refuses. An external caller that names none gets the most restrictive
       // allowed value.
-      permissionPreset: (optionalString(args.permissionPreset) as SprintEngineCliPermissionPreset | undefined)
+      permissionPreset: (optionalString(args.permissionPreset) as CliPermissionPreset | undefined)
         ?? LAUNCH_PERMISSION_PRESETS[0],
       worktreeRequested,
       worktreeName,
@@ -477,8 +477,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     name?: string
     prompt?: string
     cliModel?: string
-    permissionPreset?: SprintEngineCliPermissionPreset
-    specialistId?: string
+    permissionPreset?: CliPermissionPreset
     connectorId?: string
     worktreeRequested: boolean
     worktreeName?: string
@@ -523,7 +522,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       prompt: plan.prompt,
       cliModel: plan.cliModel,
       permissionPreset: plan.permissionPreset,
-      specialistId: plan.specialistId,
       connectorId: plan.connectorId,
       worktreePath,
     })
@@ -595,8 +593,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // and command lane without the relay. v1 deliberately serves the epic's
   // acceptance set and nothing more; widening the command allowlist is a
   // decision, not a default.
-  // `sprintengine.create` left this list with the engine (MC-2575); it is the
-  // one served type the desktop can no longer execute.
   const MOBILE_GATEWAY_COMMAND_TYPES = ['backlog.update'] as const
 
   const workspaceSnapshot: McpToolRegistration = {
@@ -748,7 +744,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     name: 'agent.launch',
     description:
       'Add a fully-configured agent to a workspace and start its CLI through the same renderer flow the UI uses. '
-      + 'Optionally selects the model, permission preset, specialist, and connector, and isolates the agent in a '
+      + 'Optionally selects the model, permission preset and connector, and isolates the agent in a '
       + 'git worktree. Success is confirmed by the agent terminal session registering with the main process.',
     inputSchema: {
       type: 'object',
@@ -777,7 +773,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             + 'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings '
             + '("default", "auto_workspace") are not accepted here at all.',
         },
-        specialistId: { type: 'string', description: 'Launch as this specialist rather than a general agent; the renderer resolves it and fails if unknown.' },
         connectorId: {
           type: 'string',
           description:
@@ -805,7 +800,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     handler: async (args) => {
       const workspaceId = requireString(args, 'workspaceId')
       if (typeof workspaceId !== 'string') return workspaceId
-      const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt', 'cliModel', 'specialistId', 'connectorId'])
+      const invalid = firstInvalidOptionalString(args, ['cli', 'name', 'prompt', 'cliModel', 'connectorId'])
       if (invalid) return invalid
 
       const options = resolveLaunchOptions(args)
@@ -822,7 +817,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         prompt: optionalString(args.prompt),
         cliModel: optionalString(args.cliModel),
         permissionPreset: options.permissionPreset,
-        specialistId: optionalString(args.specialistId),
         connectorId: optionalString(args.connectorId),
         worktreeRequested: options.worktreeRequested,
         worktreeName: options.worktreeName,
@@ -865,9 +859,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   }
 
   // The answer to "what may I pass as a cli / model / effort?" (MC-2120).
-  // Before this, `agent.launch.cliModel` and the sprint runtime fields were
-  // blind strings an agent could only guess at from a tool description's
-  // example. Reports the CLI plugin registry as the app itself resolves it —
+  // Before this, `agent.launch.cliModel` was a blind string an agent could only
+  // guess at from a tool description's example. Reports the CLI plugin registry as the app itself resolves it —
   // declared, not probed: it says what the registry HOLDS, never whether the
   // binary is installed on this machine (that probe spawns a login shell per
   // CLI and belongs to the app's own availability refresh).
@@ -876,7 +869,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     description:
       'List the agent CLIs this app can launch, with the model ids and reasoning-effort levels each one '
       + 'declares. Read it before passing `cli`/`cliModel` to agent.launch — those are otherwise blind strings. Only rows with `agentSelectable: '
-      + 'true` may be launched as agents or staff sprints (the CLI reports agent state via lifecycle hooks); '
+      + 'true` may be launched as agents (the CLI reports agent state via lifecycle hooks); '
       + 'a false row is registry-held for install/detect only and every launch door refuses it. A CLI whose '
       + '`allowCustomModelId` is true accepts model ids outside its listed options (the list is a seed, not a '
       + 'closed set); a level outside `reasoningLevels` is refused by the CLI itself. This reports what the '
@@ -1078,10 +1071,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // me a terminal I can type into" is that tier's own verb — a device holding
   // `terminal:control` already has arbitrary shell on this host through the
   // attach socket, so letting it create the session it will type into adds no
-  // authority. It deliberately does NOT carry `agent.launch`'s connector,
-  // specialist, or worktree options: those create git worktrees and write
-  // connector config into the checkout, which are workspace mutations and stay
-  // behind `workspace:operate`.
+  // authority. It deliberately does NOT carry `agent.launch`'s connector or
+  // worktree options: those create git worktrees and write connector config
+  // into the checkout, which are workspace mutations and stay behind
+  // `workspace:operate`.
   //
   // The session id comes back so the caller can attach immediately — that
   // round trip (create → attach → type) is the whole point, and searching
@@ -1391,7 +1384,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       + 'packaged build rather than appearing disabled.',
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string', description: 'Module id from module.list, e.g. "sprint-engine".' } },
+      properties: { id: { type: 'string', description: 'Module id from module.list, e.g. "automations".' } },
       required: ['id'],
       additionalProperties: false,
     },
@@ -1519,7 +1512,6 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           description:
             "On an EPIC: the ordering pass over its children is finished — their dependsOn edges are authored, "
             + 'and no edges at all means deliberately parallel. Set it as the LAST act of planning an epic. '
-            + 'A sprint started from an unmarked epic plans first instead of importing the epic as its graph. '
             + 'Nothing recomputes it: editing the epic\'s membership is your cue to re-check it. '
             + 'false removes the mark.',
         },
@@ -1693,7 +1685,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       + 'lifecycle block for CLIs without skill integration), then records the working-agent link. Never changes '
       + 'item status — the Backlog skill contract owns lifecycle, exactly like dragging the item onto a terminal. '
       + 'Refuses completed or archived items. Same launch fields as agent.launch (bypass refused), minus '
-      + 'specialist/connector.',
+      + 'the connector.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1847,7 +1839,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // (backlog/2026-09-06-automation-create-misses-the-legacy-bypass-spelling.md).
       // A value outside the vocabulary normalizes to `manual`, which the create
       // pipeline then rejects on its own terms.
-      if (preset !== null && normalizeCliPermissionPreset(preset as SprintEngineCliPermissionPreset) === 'bypass') {
+      if (preset !== null && normalizeCliPermissionPreset(preset as CliPermissionPreset) === 'bypass') {
         return failure(
           'permission_preset_not_allowed',
           'Automations created over the automation surface may not run on permissionPreset "bypass", which is '

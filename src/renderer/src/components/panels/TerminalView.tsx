@@ -1,15 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
-import type { AgentExecution, AgentExecutionMode, AgentState } from '../../types/workspace'
-import type { AgentSessionSystem, TerminalSpawnMetadata, TerminalSpawnResult } from '../../../../shared/electron-api'
+import type { AgentExecution, AgentExecutionMode } from '../../types/workspace'
+import type { AgentSessionIdentity, AgentSessionSystem, TerminalSpawnMetadata, TerminalSpawnResult } from '../../../../shared/electron-api'
 import { useSession } from '../../hooks/useTerminalSessions'
-import {
-  buildSpecialistSoulStartupPrompt,
-  getSpecialistAction,
-} from '../../specialists/specialistActions'
-import { buildSprintEngineAgentRosterForState, buildSprintEngineRosterCommandArgs, getSprintEngineRoleLabel } from '../../utils/sprintengine'
-import { buildSprintEngineStartupPrompt, getSprintEngineStartupCommandMode, prependAgentIdentifier } from '../../utils/agentPrompt'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
@@ -40,7 +34,6 @@ import { knowledgeLaunchContext, type KnowledgeLaunchContext } from '../../../..
 import { resolveAgentCliPermissionPreset } from '../../utils/agentCliPermissions'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { resumeCapabilitiesForCli } from '../../store/slices/pluginsSlice'
-import { deriveSprintEngineAutomationDesiredMode } from '../../utils/sprintengineAutomationLifecycle'
 import {
   resolveWorkspaceTerminalCwd,
   resolveWorkspaceWorktree,
@@ -63,12 +56,6 @@ import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
-import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices/workspaceModuleState'
-import {
-  isSprintEngineManagedAgent,
-} from '../../../../shared/sprintengine/agent-identity'
-import { SPRINT_ENGINE_WORKSPACE_MODULE_ID } from '../../../../shared/sprintengine/workspace-record'
-import { isSprintEngineWorkspace } from '../../utils/sprintEngineWorkspace'
 
 
 interface Props {
@@ -143,14 +130,6 @@ async function resolveMemoryLaunchContext(
   return knowledgeLaunchContext(status)
 }
 
-function agentSessionSystem(
-  agent: AgentState | undefined,
-  rosterIds?: Iterable<string>,
-): AgentSessionSystem {
-  if (isSprintEngineManagedAgent(agent, { agentId: agent?.id, rosterIds })) return SPRINT_ENGINE_WORKSPACE_MODULE_ID
-  return 'manual'
-}
-
 export default function TerminalView({ workspaceId, agentId, sessionId: attachedSessionId, shouldKillOnUnmount }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   // The padding-free box xterm is opened into; see TerminalMount.
@@ -216,20 +195,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     checkingFolder,
     message: folderStatusMessage,
   } = useWorkspaceFolderStatus(workspaceId)
-  const sprintEngineContext = useWorkspaceStore((s) =>
-    sprintEngineRunContext(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })
-  )
-  const sprintEngineRuntimeRole = useWorkspaceStore((s) =>
-    sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.role ?? null
-  )
-  const sprintEngineRuntimeCurrentTaskId = useWorkspaceStore((s) =>
-    sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.currentTaskId ?? null
-  )
-  const sprintEngineRosterRole = useWorkspaceStore((s) => {
-    const run = sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })
-    if (!run) return null
-    return buildSprintEngineAgentRosterForState(run).find((candidate) => candidate.id === agentId)?.role ?? null
-  })
   const workspaceFolderPath = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.folderPath
   )
@@ -254,9 +219,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const worktreeId = workspace?.agents[agentId]?.execution.worktreeId
     return worktreeId ? workspace?.worktreeState.entries[worktreeId]?.path : undefined
   })
-  // Derived string, not the workspace object: sprintEngineState re-projects
-  // ~every 4s and churns object identity, but the worktree gitRoot string is
-  // stable, so the launch effect below re-runs at most once (null -> path).
+  // Derived string, not the workspace object: a workspace record churns object
+  // identity on every store write, but the worktree gitRoot string is stable,
+  // so the launch effect below re-runs at most once (null -> path).
   const workspaceWorktreeGitRoot = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? resolveWorkspaceWorktree(ws)?.gitRoot ?? null : null
@@ -266,45 +231,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const cli = agent?.cli
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const openFile = useWorkspaceStore((s) => s.openFile)
-  const startupPrompt = useWorkspaceStore((s) => {
-    const workspace = s.workspaces.find((w) => w.id === workspaceId)
-    const currentAgent = workspace?.agents[agentId]
-    if (currentAgent?.cliStartupPrompt) return currentAgent.cliStartupPrompt
-
-    const run = workspace ? sprintEngineRunState(workspace) : null
-    if (!workspace || !isSprintEngineWorkspace(workspace) || !run) return null
-
-    const rosterAgent = buildSprintEngineAgentRosterForState(run).find(
-      (candidate) => candidate.id === agentId
-    )
-
-    if (!rosterAgent) return null
-
-    const basePrompt = buildSprintEngineStartupPrompt(
-      rosterAgent.role,
-      agentId,
-      run.goal,
-      {
-        executionCwd: resolveAgentExecutionRoot(currentAgent?.execution, storedExecutionWorktreePath, folderReadyPath, null).cwd,
-        workspaceRoot: folderReadyPath ?? undefined,
-        sprintEngineStatePath: sprintEngineRunContext(workspace)?.statePath,
-        rosterArgs: buildSprintEngineRosterCommandArgs(run),
-        configuredRoles: run.configuredRoles,
-        commandMode: getSprintEngineStartupCommandMode(rosterAgent.role, agentId, run),
-        autonomousPlanningOverride:
-          rosterAgent.role === 'architect'
-          && deriveSprintEngineAutomationDesiredMode(workspace.sprintEngineAutoState) === 'run_agents_and_approve_artifacts',
-      }
-    )
-    const customName = currentAgent?.name && currentAgent.name !== rosterAgent.label
-      ? currentAgent.name
-      : ''
-    // A renamed agent is introduced by its name, then its role — when it has
-    // one. An agent with no role is introduced by its name alone; appending
-    // "Unknown role" would tell it something false about itself (MC-2055).
-    const roleLabel = rosterAgent.role ? getSprintEngineRoleLabel(rosterAgent.role) : undefined
-    return customName ? prependAgentIdentifier(basePrompt, customName, roleLabel) : basePrompt
-  })
+  const startupPrompt = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]?.cliStartupPrompt ?? null,
+  )
   const startupPromptRef = useRef<string | null>(startupPrompt)
 
   useEffect(() => {
@@ -320,10 +249,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     memoryConfig,
     openFile,
     savedFolderPath,
-    sprintEngineContext,
-    sprintEngineRosterRole,
-    sprintEngineRuntimeCurrentTaskId,
-    sprintEngineRuntimeRole,
     storedExecutionWorktreePath,
     updateAgent,
     workspaceName,
@@ -339,11 +264,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       memoryConfig,
       openFile,
       savedFolderPath,
-      sprintEngineContext,
-      sprintEngineRosterRole,
-      sprintEngineRuntimeCurrentTaskId,
-      sprintEngineRuntimeRole,
-      storedExecutionWorktreePath,
+              storedExecutionWorktreePath,
       updateAgent,
       workspaceName,
     }
@@ -356,10 +277,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     memoryConfig,
     openFile,
     savedFolderPath,
-    sprintEngineContext,
-    sprintEngineRosterRole,
-    sprintEngineRuntimeCurrentTaskId,
-    sprintEngineRuntimeRole,
     storedExecutionWorktreePath,
     updateAgent,
     workspaceName,
@@ -427,23 +344,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
     const sessionId = attachedSessionId ?? initialContext.agent?.cliSessionId
     if (!sessionId) return
-    const isSprintEngineAgent = isSprintEngineManagedAgent(initialContext.agent, {
-      agentId,
-      rosterIds: initialContext.sprintEngineRuntimeRole ? [agentId] : [],
-    })
-    // Sprint agents are normally spawned fresh (auto-run re-dispatches roles),
-    // but an explicit board re-open of a completed run's recorded session sets
-    // `cliResumeRequested` so we resume that conversation instead.
-    const sprintResumeRequested = isSprintEngineAgent && (initialContext.agent?.cliResumeRequested ?? false)
-    const shouldResume = attachedSessionId
-      ? true
-      : isSprintEngineAgent
-        ? sprintResumeRequested
-        : initialContext.agent?.cliHasLaunched ?? false
+    const shouldResume = attachedSessionId ? true : initialContext.agent?.cliHasLaunched ?? false
     const shouldResumeCodexConversation =
-      initialContext.cli === 'codex'
-      && Boolean(initialContext.agent?.cliResumeAvailable)
-      && (!isSprintEngineAgent || sprintResumeRequested)
+      initialContext.cli === 'codex' && Boolean(initialContext.agent?.cliResumeAvailable)
     // The roots a relative path in this pane resolves against. Both are null
     // exactly when the workspace has no configured folder — the launch effect
     // deliberately runs for that case (see the `savedFolderPath` guard above) —
@@ -907,22 +810,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       },
     })
 
-    const ensureSpecialistStartupPrompt = async (promptAlreadySentForActiveSession: boolean) => {
-      const latestContext = currentContext()
-      if (startupPromptRef.current || promptAlreadySentForActiveSession) return
-      if (!latestContext.agent) return
-      if (latestContext.agent.kind !== 'specialist' || !latestContext.agent.specialistId) return
-
-      const specialist = getSpecialistAction(latestContext.agent.specialistId)
-      const prompt = buildSpecialistSoulStartupPrompt(specialist)
-      if (disposed) return
-      if (!prompt.trim()) return
-
-      const identifiedPrompt = prependAgentIdentifier(prompt, latestContext.agent.name, specialist.shortLabel)
-      startupPromptRef.current = identifiedPrompt
-      latestContext.updateAgent(workspaceId, agentId, { cliStartupPrompt: identifiedPrompt })
-    }
-
     const launchTerminal = async () => {
       const latestContext = currentContext()
       const latestAgent = latestContext.agent
@@ -961,7 +848,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // 'inert' — a cold-loaded persisted agent with no pty, no painted screen,
       // and no live launch intent. It has nothing to show and nobody asked for it,
       // so it must sit idle. This is the branch whose absence turned every cold
-      // load of an automations-host / sprintengine agent into a fresh CLI launch.
+      // load of an automations-host agent into a fresh CLI launch.
       const coldLoadDecision = resolveAgentColdLoadDecision({
         attachedSessionId,
         processAlive: terminalStatus.processAlive,
@@ -1013,22 +900,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           willSpawnFresh: true,
         })
       }
-      const promptAlreadySentForActiveSession = Boolean(shouldResumeCli && postStatusAgent.cliOnboardingPromptSent)
-      await ensureSpecialistStartupPrompt(promptAlreadySentForActiveSession)
-      if (disposed) return
-
       const launchContext = currentContext()
       const launchAgent = launchContext.agent
       const launchCli = launchContext.cli
       if (!launchAgent || !launchCli) return
-      // The run file this launch belongs to, when the workspace has one. It is
-      // the module's value, not a mode test: core forwards it so the Sprint
-      // Engine launch contribution can read it back off the request (env, the
-      // managed MCP entry, the managed-session tag) and so main can reconcile
-      // the session against its run. Core itself derives no behaviour from it
-      // any more — `session.managed` comes from the contribution alone
-      // (MC-2577).
-      const sprintEngineStatePath = folderReadyPath ? launchContext.sprintEngineContext?.statePath : undefined
       // Redirect a non-worktree agent's spawn into the workspace's worktree.
       // Resolve the worktree cwd once here (one `pathExists`); a persisted
       // mode:'worktree' agent skips this — resolveAgentExecutionRoot ignores the
@@ -1066,8 +941,8 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           `\r\n\x1b[31m[worktree missing — opened in main checkout: ${executionRoot.cwd ?? folderReadyPath ?? 'the workspace folder'}]\x1b[0m\r\n`,
         )
       }
-      // The run worktree can be removed out from under a persisted agent (sprint
-      // merge cleanup, the Worktree manager, or `git worktree prune`). Spawning
+      // A worktree can be removed out from under a persisted agent (merge
+      // cleanup, the Worktree manager, or `git worktree prune`). Spawning
       // into the vanished directory exits the terminal with code 1 on reopen.
       // Detect the missing worktree and fall back to the workspace folder for
       // THIS spawn. Deliberately a stateless, per-launch redirect: we do NOT
@@ -1082,7 +957,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // paths would resolve against the wrong tree. The primary repo's root is
       // the workspace folder, so single-repo runs redirect exactly as before.
       // Read imperatively (not via a selector) so the launch effect does not
-      // re-run on every `sprintEngineState` re-projection.
+      // re-run on every unrelated workspace write.
       const fallbackWorkspace = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)
       const worktreeFallback = await resolveWorktreeSpawnFallback(
         executionRoot.mode,
@@ -1119,7 +994,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         launchContext.cliPermissionPreset ? `CLI permissions: ${launchContext.cliPermissionPreset}` : null,
         `Workspace path: ${folderReadyPath ?? launchContext.savedFolderPath ?? 'default app path'}`,
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
-        sprintEngineStatePath ? `Sprint state: ${sprintEngineStatePath}` : null,
       ].filter(Boolean).join('\n')
       const memoryContext = await resolveMemoryLaunchContext(
         launchContext.memoryConfig?.projectRoot ?? folderReadyPath ?? null,
@@ -1138,27 +1012,15 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const finalCli = finalContext.cli
       if (!finalAgent || !finalCli) return
       const finalResumeCaps = resumeCapabilitiesForCli(finalCli, useWorkspaceStore.getState().pluginCatalogEntries)
-      const sessionSystem = agentSessionSystem(
-        finalAgent,
-        finalContext.sprintEngineRuntimeRole ? [agentId] : [],
-      )
-      const sessionRole = sessionSystem === SPRINT_ENGINE_WORKSPACE_MODULE_ID
-        ? finalContext.sprintEngineRuntimeRole ?? finalContext.sprintEngineRosterRole
-        : finalAgent.kind ?? 'manual'
-      const sessionWorkId = sessionSystem === SPRINT_ENGINE_WORKSPACE_MODULE_ID
-        ? finalContext.sprintEngineRuntimeCurrentTaskId ?? agentId
-        : agentId
-      const agentSession = attachedSessionId
+      const agentSession: Omit<AgentSessionIdentity, 'sessionId'> | undefined = attachedSessionId
         ? undefined
-        : sessionSystem === SPRINT_ENGINE_WORKSPACE_MODULE_ID && !sessionRole
-          ? undefined
         : {
             executionId: sessionId,
-            system: sessionSystem,
+            system: 'manual' satisfies AgentSessionSystem,
             workspaceId,
             workspaceRoot: folderReadyPath ?? finalContext.savedFolderPath ?? '',
-            workId: sessionWorkId,
-            role: sessionRole,
+            workId: agentId,
+            role: 'manual',
             displayName: finalAgent.name ?? agentId,
           }
 
@@ -1172,7 +1034,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         term.rows,
         executionRoot.cwd,
         true,
-        sprintEngineStatePath,
         finalCli,
         undefined,
         finalContext.cliRuntimes,
@@ -1205,9 +1066,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
           connectorLaunch: finalAgent.connectorMcpSettings != null,
           spawnSkillId: finalAgent.spawnSkillId,
-          ...(finalAgent.kind === 'specialist' && finalAgent.specialistId
-            ? { specialistId: finalAgent.specialistId }
-            : {}),
           visible: true,
           ...(agentSession ? { agentSession } : {}),
         } as TerminalSpawnMetadata & {
@@ -1244,7 +1102,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         term.rows,
         executionRoot.cwd,
         shouldResumeCli,
-        sprintEngineStatePath,
         finalCli,
         launchInitialPrompt,
         finalContext.cliRuntimes,
@@ -1277,9 +1134,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
           connectorLaunch: finalAgent.connectorMcpSettings != null,
           spawnSkillId: finalAgent.spawnSkillId,
-          ...(finalAgent.kind === 'specialist' && finalAgent.specialistId
-            ? { specialistId: finalAgent.specialistId }
-            : {}),
           visible: true,
           ...(agentSession ? { agentSession } : {}),
         } as TerminalSpawnMetadata & {
@@ -1448,7 +1302,6 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     agent?.cliSessionId,
     attachedSessionId,
     agent?.cliRestartNonce,
-    agent?.kind,
     agent?.execution.mode,
     agent?.execution.worktreeId,
     agent?.execution.cwd,

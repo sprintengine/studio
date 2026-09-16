@@ -34,7 +34,7 @@ type ModalProps = {
   /**
    * What Escape means, when it does not mean close. Defaults to `onClose` —
    * which is the whole story for a one-screen dialog. A dialog with a second
-   * SCREEN inside it (the New sprint dialog's roster editor) wants Escape to
+   * SCREEN inside it (a nested editor) wants Escape to
    * step back before it closes, and it cannot express that by intercepting the
    * key first: this listener is registered by a child effect and therefore runs
    * before the host's own.
@@ -63,7 +63,7 @@ type ModalProps = {
   contained?: boolean
 }
 
-// The one workbench height. Was 720px fixed (New sprint), 90vh (Diagnostics)
+// The one workbench height. Was 720px fixed, 90vh (Diagnostics)
 // and content-fit under 80vh (Rosters) — three answers to one question.
 /**
  * The one selector that finds a live modal surface in the document. Exported

@@ -7,9 +7,6 @@
 //   <Drawer open onClose title ariaLabel>
 //     <Drawer.Body>...</Drawer.Body>
 //   </Drawer>
-//
-// Consumer migration (Sprint
-// Engine inspector) is T11, not this task.
 
 import React, { useEffect, useId, useRef, useState } from 'react'
 import { CloseIconButton } from './Buttons'

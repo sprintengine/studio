@@ -2,12 +2,11 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 
 import { applyDebugDirective, debugDirectiveFor } from '../shared/debug-directive'
-import { buildHostContextDocument } from '../shared/host-context/document'
 
 // The directive names the workspace's own sidecar directory, so the expected
 // text is derived the same way the launch derives it rather than pinned.
 const DEBUG_DIRECTIVE = debugDirectiveFor()
-import type { SprintEngineCliPermissionPreset } from '../shared/electron-api'
+import type { CliPermissionPreset } from '../shared/electron-api'
 import {
   argvToPosixShellCommand,
   buildAgentShellCommand,
@@ -84,7 +83,6 @@ async function main(): Promise<void> {
     testPromptFallbackCliRendersNoContextFlag()
     testCursorTakesTheContextAsAPluginDirOnLaunchAndResume()
     testAModuleHostContextSectionRidesTheDeclaredChannel()
-    testResumedSpecialistReceivesTheRoleSectionAgain()
     testLaunchPreviewNeverShowsHostContext()
     testLaunchPluginDirsReachLaunchAndResume()
     testLaunchSettingsReachLaunchAndResume()
@@ -880,7 +878,7 @@ function testResolveDebugSkillInvocation(): void {
 // always the trailing argv element, so comparing argv.slice(0, -1) isolates the
 // permission surface.
 function testDebugModeOrthogonality(): void {
-  const presets: SprintEngineCliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
+  const presets: CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
   const prompt = 'investigate the crash'
   for (const cli of ['claude-code', 'codex'] as const) {
     for (const preset of presets) {
@@ -907,12 +905,12 @@ function testDebugModeOrthogonality(): void {
   }
 }
 
-// Criterion: the directive reaches the rendered prompt/argv for all three spawn
-// paths. Interactive, automations, and sprintengine startup all compose an
-// initial prompt and converge on renderAgentLaunchArgv (the launch boundary), so
-// rendering each path's real prompt shape with debugMode proves the directive
-// lands regardless of prompt content. buildAgentShellCommand covers the posix/
-// wsl shell-string output the same boundary feeds.
+// Criterion: the directive reaches the rendered prompt/argv for both spawn
+// paths. Interactive and automations launches both compose an initial prompt and
+// converge on renderAgentLaunchArgv (the launch boundary), so rendering each
+// path's real prompt shape with debugMode proves the directive lands regardless
+// of prompt content. buildAgentShellCommand covers the posix/wsl shell-string
+// output the same boundary feeds.
 function testDebugDirectiveReachesRenderedArgvAllPaths(): void {
   const interactivePrompt = 'investigate the failing login test'
   const automationsPrompt = composeSpawnAgentPrompt({
@@ -920,11 +918,7 @@ function testDebugDirectiveReachesRenderedArgvAllPaths(): void {
     automationId: 'auto-1',
     runId: 'run-1',
   })
-  // Representative sprintengine startup shape: leading "Name: Role -" identifier
-  // line plus a multiline body (see buildSprintEngineStartupPrompt).
-  const sprintenginePrompt = 'Cian Rea: Developer - Your first action is to run the MCP calls.\n\n## First MCP Calls\nCall help.'
-
-  for (const path of [interactivePrompt, automationsPrompt, sprintenginePrompt]) {
+  for (const path of [interactivePrompt, automationsPrompt]) {
     for (const cli of ['claude-code', 'codex'] as const) {
       const out = renderAgentLaunchArgv({ cli, sessionId: 'sid_path', initialPrompt: path, debugMode: true })
       const promptToken = out.argv.at(-1) ?? ''
@@ -1017,7 +1011,7 @@ function testCodexLegacyWindowsReasoning(): void {
 // when debugMode is on, and (b) keep launch/permission args byte-identical with
 // debug on vs off — the same orthogonality invariant the shared paths hold.
 function testCodexLegacyWindowsDebugInjection(): void {
-  const presets: SprintEngineCliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
+  const presets: CliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
   const cwd = 'C:/work/repo'
   const runtime = { command: '', useWsl: false }
   const prompt = 'investigate the crash'
@@ -1098,7 +1092,7 @@ function testCodexLegacyWindowsDebugInjection(): void {
 // renderAgentLaunchArgv — these two tests are the proof, and they fail the day
 // someone reimplements the preview by hand.
 function testLaunchPreviewMatchesTheLaunchItPreviews(): void {
-  const cases: Array<{ cli: 'claude-code' | 'codex' | 'opencode'; model?: string; preset?: SprintEngineCliPermissionPreset }> = [
+  const cases: Array<{ cli: 'claude-code' | 'codex' | 'opencode'; model?: string; preset?: CliPermissionPreset }> = [
     { cli: 'claude-code' },
     { cli: 'claude-code', preset: 'bypass', model: 'claude-opus-5' },
     { cli: 'codex', preset: 'auto' },
@@ -1289,9 +1283,9 @@ function testAModuleHostContextSectionRidesTheDeclaredChannel(): void {
   const text = [
     HOST_CONTEXT_TEXT,
     '',
-    '## Sprint Engine',
+    '## Weather Deck',
     '',
-    'Use the sprintengine CLI for run tools.',
+    'Use the weather CLI for forecast tools.',
   ].join('\n')
   const grok = renderAgentLaunchArgv({
     cli: 'grok',
@@ -1302,7 +1296,7 @@ function testAModuleHostContextSectionRidesTheDeclaredChannel(): void {
   const grokFlag = grok.argv.indexOf('--append-system-prompt')
   assert.ok(grokFlag >= 0)
   assert.equal(grok.argv[grokFlag + 1], text)
-  assert.ok(String(grok.argv[grokFlag + 1]).includes('## Sprint Engine'))
+  assert.ok(String(grok.argv[grokFlag + 1]).includes('## Weather Deck'))
 
   const claude = renderAgentLaunchArgv({
     cli: 'claude-code',
@@ -1388,47 +1382,6 @@ function testCursorTakesTheContextAsAPluginDirOnLaunchAndResume(): void {
     '--resume',
     'sid_ctx',
   ])
-}
-
-function testResumedSpecialistReceivesTheRoleSectionAgain(): void {
-  const text = buildHostContextDocument({
-    role: { id: 'architect', skillPath: '.claude/skills/architect/SKILL.md' },
-  }) as string
-  assert.match(text, /## Role/)
-  assert.match(text, /`architect` role/)
-
-  const claude = renderAgentLaunchArgv({
-    cli: 'claude-code',
-    sessionId: 'sid_role',
-    resume: true,
-    contextFile: HOST_CONTEXT_FILE,
-    contextText: text,
-  })
-  assert.ok(claude.argv.includes('--append-system-prompt-file'))
-  assert.equal(claude.argv[claude.argv.indexOf('--append-system-prompt-file') + 1], HOST_CONTEXT_FILE)
-
-  const grok = renderAgentLaunchArgv({
-    cli: 'grok',
-    sessionId: 'sid_role',
-    resume: true,
-    contextFile: HOST_CONTEXT_FILE,
-    contextText: text,
-  })
-  const grokFlag = grok.argv.indexOf('--append-system-prompt')
-  assert.ok(grokFlag >= 0)
-  assert.equal(grok.argv[grokFlag + 1], text)
-  assert.ok(String(grok.argv[grokFlag + 1]).includes('## Role'))
-
-  const cursor = renderAgentLaunchArgv({
-    cli: 'cursor',
-    sessionId: 'sid_role',
-    resume: true,
-    contextFile: '/ctx/sid-plugin',
-    contextText: text,
-  })
-  assert.ok(cursor.argv.includes('--plugin-dir'))
-  assert.equal(cursor.argv[cursor.argv.indexOf('--plugin-dir') + 1], '/ctx/sid-plugin')
-  assert.ok(!cursor.argv.includes(text), 'Cursor packs the document in the plugin dir, not argv')
 }
 
 // The receipt line previews the flags a launch would carry. Host context is not

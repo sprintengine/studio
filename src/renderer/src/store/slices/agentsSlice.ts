@@ -11,15 +11,10 @@ import { pickRandomAgentName } from '../../utils/agentNames'
 import { isPathOrChild } from '../../utils/paths'
 
 export { isPathOrChild }
-// Record construction moved to shared with MC-2160 (main composes sprint
+// Record construction moved to shared with MC-2160 (main composes agent
 // workspaces headlessly and mints the same agent records). Re-exported so
 // existing renderer import sites are unchanged.
 import { defaultAgent, defaultAgentExecution } from '../../../../shared/agent-state'
-import {
-  isSprintEngineManagedAgent,
-  sprintEngineRosterAgentIds,
-} from '../../../../shared/sprintengine/agent-identity'
-import { sprintEngineRunState } from './workspaceModuleState'
 
 export { defaultAgent }
 import {
@@ -113,7 +108,6 @@ export function normalizeAgentState(agent: AgentState, fallbackCli?: AgentCli): 
   const runtime = normalizeAgentRuntime(agent)
   return {
     ...agent,
-    kind: agent.kind === 'specialist' ? 'specialist' : 'general',
     cli: normalizeAgentCli(agent, fallbackCli),
     cliModel: normalizeAgentCliModel(agent.cliModel),
     execution: normalizeAgentExecution(agent.execution),
@@ -121,13 +115,6 @@ export function normalizeAgentState(agent: AgentState, fallbackCli?: AgentCli): 
     runtimeKind: runtime.runtimeKind,
     conversation: runtime.conversation,
   }
-}
-
-function isWorkspaceSprintEngineManagedAgent(ws: Workspace, agentId: string, agent: AgentState): boolean {
-  return isSprintEngineManagedAgent(agent, {
-    agentId,
-    rosterIds: sprintEngineRosterAgentIds(sprintEngineRunState(ws)?.sprintEngineAgents),
-  })
 }
 
 export function pickWorkspaceAgentName(agents: Workspace['agents']): string {
@@ -177,17 +164,6 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
         if (!ws) return
         if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
         Object.assign(ws.agents[agentId], update)
-        // Stamp user edits to the scheduler-honoured config fields so the
-        // sprint-runtime config merge is last-write-wins across windows. An
-        // update that already carries a stamp is a mirrored main-process
-        // mutation (e.g. startup-prompt consumption at spawn) — keep it.
-        if (
-          ('cliRuntimeOverride' in update || 'name' in update || 'cliStartupPrompt' in update)
-          && update.configEditedAt === undefined
-          && isWorkspaceSprintEngineManagedAgent(ws, agentId, ws.agents[agentId])
-        ) {
-          ws.agents[agentId].configEditedAt = Date.now()
-        }
         ws.agents[agentId].execution = normalizeAgentExecution(ws.agents[agentId].execution)
       }),
 
@@ -346,32 +322,7 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
             // back down the mint-a-fresh-uuid → spawn path. Nothing auto-resumes
             // off the id alone — `shouldResume` (TerminalView) reads the flags
             // cleared below. This is the same contract as
-            // `clearSprintEngineAgentLaunchState`/`clearAutomationsHostAgentLaunchState`.
-            if (isWorkspaceSprintEngineManagedAgent(ws, agentId, agent)) {
-              // MC-1444 window-disposal retention: the auto-run executor
-              // deliberately parks a resume token (cliSessionId +
-              // cliResumeAvailable with launch flags cleared) on a worker
-              // whose task is still open, so a later review-phase respawn can
-              // resume the conversation. That shape has no live
-              // session BY DESIGN — wiping it here (mount-time reconcile,
-              // second sync window) silently forfeits the rework context.
-              // Leave it: the supervisor clears it once the task completes
-              // (clearStaleRetainedResumeState). (Cold app starts no longer
-              // reset it via the persist partialize — that clear now keeps the
-              // id and drops only cliResumeAvailable, so a cold-loaded worker
-              // lands on the branch below and keeps its identity anyway.)
-              if (
-                agent.cliResumeAvailable
-                && agent.cliSessionId
-                && !agent.cliStartRequested
-                && !agent.cliHasLaunched
-              ) continue
-              agent.cliStartRequested = false
-              agent.cliHasLaunched = false
-              agent.cliOnboardingPromptSent = false
-              agent.cliResumeAvailable = false
-              continue
-            }
+            // `clearAutomationsHostAgentLaunchState`.
             // Post-launch: rely on the resume flag already stamped from the
             // manifest capability at session assign, not a re-derivation from cli.
             if (agent.cliHasLaunched && agent.cliResumeAvailable) {

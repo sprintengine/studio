@@ -44,17 +44,17 @@ const surface = (id: string, label: string): RegisteredGlobalSurface => ({
 })
 
 // ── The pure picks ────────────────────────────────────────────────────────────
-// Plugins left the rail (Extensions drawer ruling): it is one of the five rows
+// Plugins left the rail (Extensions drawer ruling): it is one of the rows
 // UNDER Extensions, not a thing standing beside it.
 assert.deepEqual([...RAIL_SURFACE_IDS], ['automations'], 'Automations is the rail’s one promoted surface')
 {
-  const picked = railSurfacesOf([surface('sprints', 'Sprints'), surface('extensions', 'Plugins'), surface('automations', 'Automations')])
+  const picked = railSurfacesOf([surface('design', 'Design'), surface('extensions', 'Plugins'), surface('automations', 'Automations')])
   assert.deepEqual(picked.map((s) => s.id), ['automations'], 'only the promoted surface is taken, whatever else is registered')
   // A disabled automations module leaves the host's list without it, and the
   // rail simply has no glyph for it — never a dead square.
   assert.deepEqual(railSurfacesOf([surface('extensions', 'Plugins')]), [])
-  // A door may register without a name or a glyph — Sprints names itself
-  // through its own nav-entry row — and a nameless square is not a square the
+  // A door may register without a name or a glyph — a module that draws its own
+  // nav-entry row names itself there — and a nameless square is not a square the
   // rail can draw, so such a door is skipped rather than rendered blank.
   assert.deepEqual(
     railSurfacesOf([{ id: 'automations', moduleId: 'automations', Component: () => null }]),

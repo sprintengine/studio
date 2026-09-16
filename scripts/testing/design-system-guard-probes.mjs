@@ -6,10 +6,10 @@
 // the guard a tree it MUST reject, one defect at a time, and fails if the guard
 // stays quiet.
 //
-// It exists because the gap it closes already cost this sprint once. T14 filed
-// four findings against the guard and wrote that they "must be re-checked after
+// It exists because the gap it closes already cost a round trip once. Four
+// findings were filed against the guard, written up as "must be re-checked after
 // the rewrite lands". Nothing re-checked them; all four were still live at
-// sign-off, and T27 had to close them a second time. Every probe below is one of
+// sign-off and had to be closed a second time. Every probe below is one of
 // those findings, expressed as a defect the guard has to catch — so the next
 // person to widen a rule re-runs this instead of re-deriving it.
 //
@@ -71,7 +71,7 @@ const RAW_PRIMITIVE_BASELINE = 'scripts/design-system-conformance/raw-primitives
 const APP_CSS = 'src/renderer/src/assets/index.css'
 const TOKENS_JSON = 'design-system/foundations/tokens.tokens.json'
 const BUNDLE_CSS = 'design-system/foundations/tokens.css'
-// Optional: absent means zero tolerance, which is where the sprint left it.
+// Optional: absent means zero tolerance, which is where the rewrite left it.
 const BASELINE = 'scripts/design-system-conformance/disabled-contrast.json'
 
 const results = []

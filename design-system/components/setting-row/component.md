@@ -144,8 +144,8 @@ off the page is an overlay that forgot it was content.
   action pair), point the control at the text instead:
   `aria-labelledby` on the label and `aria-describedby` on the help. Never both
   a `<label for>` and an `aria-labelledby` — that is two names for one control.
-- The requirement suffix is inside the labelled element, so "Needs Sprint
-  Engine" is read as part of the control's name rather than being lost.
+- The requirement suffix is inside the labelled element, so "Needs the mobile
+  relay" is read as part of the control's name rather than being lost.
 - A disabled control uses the `disabled` attribute, or `aria-disabled="true"`
   when it must stay focusable to explain why.
 - The card is a plain container with no role. When the rows are genuinely a

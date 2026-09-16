@@ -239,7 +239,6 @@ async function spawnAgent(
     cli?: string
     cliModel?: string
     permissionPreset?: AutomationCliPermissionPreset
-    specialistId?: string
     worktreePath?: string
     name?: string
     prompt: string
@@ -263,7 +262,6 @@ async function spawnAgent(
     cli: input.cli,
     cliModel: input.cliModel,
     permissionPreset: input.permissionPreset,
-    specialistId: input.specialistId,
     worktreePath: input.worktreePath,
     connectorId: input.connectorId,
     spawnSkillId: input.spawnSkillId,

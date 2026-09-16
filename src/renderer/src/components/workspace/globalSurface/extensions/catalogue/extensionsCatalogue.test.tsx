@@ -210,29 +210,6 @@ const STUDIO_SCAN: ScanResult = {
         missingSkills: [],
       },
     },
-    {
-      id: 'workflow-roles',
-      name: 'workflow-roles',
-      description: 'The sixteen Sprint Engine workflow roles.',
-      version: '1.0.0',
-      category: '',
-      author: 'SprintEngine Studio',
-      homepage: '',
-      strict: true,
-      tags: [],
-      keywords: [],
-      origin: { kind: 'in-tree', path: 'workflow-roles' },
-      componentsKnown: true,
-      components: {
-        skills: [],
-        commands: [],
-        agents: [],
-        hooks: [],
-        mcpServers: [],
-        lspServers: [],
-        missingSkills: [],
-      },
-    },
   ],
 }
 
@@ -567,15 +544,13 @@ async function main(): Promise<void> {
     const body = text()
     assert.ok(body.includes('Built in'), 'the built-in row leads the tab')
     assert.ok(body.includes('Studio skills'), 'the marketplace’s other plugin is an ordinary row')
-    assert.ok(body.includes('workflow-roles'), 'the role pack is an ordinary row, not a built-in')
     // Once, not twice: a second row for it would carry an Open/Install, and
     // what we publish is a template whose `.mcp.json` still holds
     // `__SPRINTENGINE_*`. The built-in row has no such control at all, so its
     // absence is exactly what says the marketplace's copy is not drawn.
-    assert.ok(container.querySelector('[aria-label="Details for Studio skills"]'), 'the other plugin does open')
     assert.ok(
-      container.querySelector('[aria-label="Details for workflow-roles"]'),
-      'workflow-roles opens, which is how Install and Remove are reached',
+      container.querySelector('[aria-label="Details for Studio skills"]'),
+      'the other plugin does open, which is how Install and Remove are reached',
     )
     assert.equal(
       container.querySelector('[aria-label="Details for SprintEngine Studio"]'),

@@ -1669,7 +1669,7 @@ const XAI = providerEntry({ id: 'xai', displayName: 'xAI', supportsDynamicModels
   const offFocused = registerMountedChatView(entry('ws-background', true))
   dispatchPanelCommandEvent(MODEL_PICKER_TOGGLE_COMMAND)
   assert.deepEqual(toggled, ['ws-background'], 'a focused view wins over the active workspace')
-  dispatchPanelCommandEvent('sprintengine.something-else')
+  dispatchPanelCommandEvent('notebook.something-else')
   assert.deepEqual(toggled, ['ws-background'], 'other panel commands are ignored')
   offFocused()
   offActiveNewer()

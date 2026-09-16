@@ -13,7 +13,6 @@ import {
   fileExplorerSelectionRange,
 } from '../../utils/fileExplorerSelection'
 import { findHealthyWorktreeScope, resolveWorkspaceWorktrees, workspaceProjectRoot } from '../../utils/workspaceWorktree'
-import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import { EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, PrimaryButton, RefreshIcon, Select, Skeleton, StashGlyph, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type TabItem } from '../ui'
@@ -295,19 +294,19 @@ function gitRepoCacheKey(repoRoot: string): string {
 export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const workspace = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId) ?? null)
   const folderPath = workspace?.folderPath ?? null
-  // For a worktree-backed workspace (a sprint run worktree, or a worktree opened
-  // as a workspace) the Git view should resolve to the worktree's branch, not the
-  // parent project. The worktree is a real `git worktree`, so it already shows up
-  // as a scope below; this drives the *default* scope selection toward it.
+  // For a worktree-backed workspace the Git view should resolve to the
+  // worktree's branch, not the parent project. The worktree is a real
+  // `git worktree`, so it already shows up as a scope below; this drives the
+  // *default* scope selection toward it.
   //
-  // A sprint spanning projects (MC-1610) is backed by one worktree per project, so
-  // this is a list: the project picker chooses which entry the panel is looking at,
-  // and everything below — scopes, status, staging, commit — resolves through that
-  // one project exactly as it always did. A run in one project yields one entry and
+  // A list rather than a single entry (MC-1610): a workspace backed by one
+  // worktree per project lets the project picker choose which entry the panel is
+  // looking at, and everything below — scopes, status, staging, commit —
+  // resolves through that one project exactly as it always did. One entry means
   // the picker never appears.
   const workspaceWorktrees = useMemo(
     () => (workspace ? resolveWorkspaceWorktrees(workspace) : []),
-    [workspace?.folderPath, workspace?.worktree, workspace ? sprintEngineRunState(workspace)?.vcs : undefined],
+    [workspace?.folderPath, workspace?.worktree],
   )
   const [activeRepoId, setActiveRepoId] = useState<string | null>(null)
   // Entry zero is the primary project: the default view, and the answer whenever a
@@ -448,8 +447,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   useEffect(() => {
     if (scopeOptions.length === 0) return
-    // Prefer this workspace's own (healthy) worktree scope by default (a sprint
-    // run worktree, or a worktree opened as a workspace), falling back to main.
+    // Prefer this workspace's own (healthy) worktree scope by default, falling
+    // back to main.
     // Excluding missing/locked/prunable here is what prevents an update loop with
     // the validity-reset effect below: a stale/prunable worktree resolves to null
     // and stays on main instead of being re-selected every tick.
@@ -460,7 +459,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     const mainScope = scopeOptions.find((scope) => scope.kind === 'main') ?? scopeOptions[0]
     if (scopeOptions.some((scope) => scope.id === activeScopeId)) {
       // Auto-upgrade the initial main default to the worktree once it appears
-      // (the sprint's vcs can populate a tick after mount), but never override an
+      // (a worktree can be declared a tick after mount), but never override an
       // explicit user/persisted choice — main stays selectable.
       if (
         !userSelectedScopeRef.current
@@ -2035,7 +2034,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       30,
       repoRoot,
       false,
-      workspace ? sprintEngineRunContext(workspace)?.statePath : undefined,
       undefined,
       undefined,
       undefined,
@@ -2326,10 +2324,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       ) : null}
       <div className="space-y-1 border-b border-[color:var(--border-subtle)] px-3 pb-2 pt-2">
           {/*
-           * A sprint spanning projects works one project at a time, in that
+           * A workspace spanning projects works one project at a time, in that
            * project's own checkout — so the project comes first: it decides which
            * branches, worktrees, changes, and commits the rest of the panel is
-           * even about. A sprint in a single project has nothing to choose
+           * even about. A workspace in a single project has nothing to choose
            * between, so the row never appears and the panel is unchanged.
            */}
           {workspaceWorktrees.length > 1 ? (

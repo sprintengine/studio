@@ -5,7 +5,7 @@ Use this checklist for every preview or stable desktop release.
 ## Before Tagging
 
 - Confirm `npm run verify:app` passes. `release.yml`'s quality gate runs the
-  whole of `ci.yml` (verify:app, the marketplace registry, pytest) against the
+  whole of `ci.yml` (verify:app and the marketplace registry) against the
   release commit and the release will not publish without it, but it runs
   beside the packaging legs -- finding out locally is faster. `npm run
   typecheck:all` is worth running too; plain `typecheck` skips the test
@@ -23,12 +23,6 @@ Use this checklist for every preview or stable desktop release.
   the shipped build differ from the tag it claims to be. A stale seed is not
   fatal (the live feed wins by `updatedAt` within the hour) but a fresh install
   shows an old list until its first fetch.
-- Run `npm run sync:catalogue`, and commit the result if it moved. This pulls
-  the published `workflow-roles` plugin from `studio-releases` into
-  `resources/studio-plugin/workflow-roles/`, the offline seed the SprintEngine
-  Studio tab lists when the network is away. It leaves `sprintengine-studio/`
-  untouched — that plugin is authored here and published there, never pulled
-  back. Same tagging rule as the model feed.
 - Confirm `RELEASES_TOKEN` exists under Settings -> Secrets and variables ->
   Actions. Releases go to the PUBLIC `sprintengine/studio-releases`, and the
   workflow's own `GITHUB_TOKEN` cannot write to another repo. Without it the
@@ -73,19 +67,33 @@ of the first release that ships it, then delete the line.
   unbound, so only a user who bound it by hand is affected: that shortcut stopped
   firing when the popover was removed, and opening Settings -> Shortcuts now
   drops the saved binding. There is no replacement shortcut.
-- Sprint Engines panel shortcut (item 1813): the Sprint Engines panel became the
-  Sprints door, and the `panel.sprint-engines.toggle` command went with it. A
-  custom shortcut saved for that command stopped firing when the panel was
-  removed; opening Settings -> Shortcuts now drops the saved binding. There is no
-  replacement shortcut - the Sprints door opens from the sidebar.
-- Design Wizard (the guided brief), 2026-09-08: the workspace that put you in an
-  interview with product, architect and frontend specialists and minted a
-  `guided-brief` workspace is removed outright. There is no replacement flow.
+- The Sprint Engine, 2026-09-16: the agent-looping run engine is removed from
+  the application. The Sprints door, the run board and its inspector, the New
+  sprint dialog, the run-backed workspace mode, the `sprint.*` MCP tools and the
+  `panel.sprint-engines.toggle` shortcut all go with it, and a custom shortcut
+  saved for that command is dropped from Settings -> Shortcuts on first launch.
+  A workspace saved in the run-backed mode is DROPPED from the Projects list -
+  everything a run wrote is on disk and untouched under the workspace's
+  `.sprintengine/` sidecar, so open the project as a normal chat to keep working
+  on those files. A Backlog item's `sprints:` frontmatter field is no longer read
+  or written; `pr:` is unchanged, and its links now resolve through the Backlog
+  itself rather than through the engine. The engine returns as an installable
+  capability module under the reserved id `sprint-engine`, published separately -
+  the id stays claimed in this build so nothing else can take the name.
+- Workflow roles, 2026-09-16: the app no longer has a concept of a role. The
+  role registry, the role picker, the role brief and specialist spawn are gone,
+  and the `workflow-roles` plugin is no longer offered in the bundled
+  marketplace seed. The sixteen role skills are unaffected as SKILLS - they ship
+  from `sprintengine/studio-releases` and install like any other plugin. Invoke
+  one from a terminal (`/architect`) instead of picking a role in the app.
+- Design Wizard (the guided brief), 2026-09-08: the workspace that interviewed
+  you about product, architecture and frontend and minted a `guided-brief`
+  workspace is removed outright. There is no replacement flow.
   A workspace saved in that mode is DROPPED from the Projects list on first load
   - everything it wrote is on disk and untouched (`product/`, `architecture/`,
   `mockups/`, `design-system/`, `.guided-brief/`), so open the project as a normal
-  chat to keep working on those files. The Settings -> Agents toggle "Design
-  specialists as chat sessions" is gone and its saved value is dropped. The
+  chat to keep working on those files. The Settings -> Agents toggle that ran the
+  design interview as chat sessions is gone and its saved value is dropped. The
   Design door, design-system bundles, the library, attach and the bundle lint are
   unaffected - they were never part of the wizard. Three Learn Center cards under
   a "Design Wizard" category are gone with it.
@@ -96,8 +104,8 @@ of the first release that ships it, then delete the line.
   path, not only in the migration rung) — everything either wrote is on disk and
   untouched, so open the project as a normal chat to keep working on those
   files. Horizon's functional leftovers go with it: two tailnet scopes no tool
-  could require, a roster chip variant only its step rows used, and the backlog
-  header action only its Start sprint supplied.
+  could require, a chip variant only its step rows used, and the backlog header
+  action only its own start entry supplied.
 
 - Third-party skills and MCP servers, 2026-09-08 (MC-2519): the studio no longer
   ships anybody else's software. The bundled MCP catalogue
@@ -201,12 +209,13 @@ done that day.
 - Launch the installed app.
 - Confirm Help -> Check For Updates opens Settings and performs a visible update check.
 - Confirm Settings shows version, channel, packaged state, and update status.
-- Confirm bundled Python tools work:
-  - `scripts/souls`
-  - `scripts/sprintengine_tool.py`
+- Confirm the packaged build resolves its own CPython: the log line
+  `[managed-runtime] python source=bundled` on first launch. Anything else means
+  `runtimes:fetch` did not run for this platform and a module's Python sidecar
+  will lean on whatever `python3` the machine happens to have.
 - Confirm terminal sessions launch.
 - Confirm Git panel reads status in a real repository.
-- Confirm Sprint Engine boards can load existing state.
+- Confirm the Backlog door lists items in a project that has a `backlog/`.
 - Confirm protocol registration for `sprintengine://` auth callbacks still works,
   and that `multicode://` — still registered for links minted before the rename —
   reaches the same handler.

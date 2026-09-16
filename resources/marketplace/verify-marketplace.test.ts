@@ -565,17 +565,16 @@ function testStarterPayloadsInstallAndArm(): void {
     assert.equal(draft.value.action.kind, 'spawn-agent')
     const action = parseSpawnAgentConfig(draft.value.action.config)
     assert.ok(action.prompt.length > 0)
-    // Plain agent, unattended preset by default, and the live CLI fallback.
-    assert.equal(action.specialistId, undefined, `${starter.id} must run a plain agent`)
+    // Unattended preset by default, and the live CLI fallback.
     assert.equal(action.cli, undefined)
     assert.equal(action.permissionPreset, AUTOMATION_DEFAULT_PERMISSION_PRESET)
   }
 }
 
 function testStarterPromptsNameTheirDeliverable(): void {
-  // The engine composes the pull request title and body itself, so anything a
-  // starter wants a human to read has to be a file in the run's diff. A prompt
-  // that only says "open a pull request" produces an empty branch and a failed
+  // The agent composes the pull request title and body itself, so anything a
+  // starter wants a human to read has to be a file in its diff. A prompt that
+  // only says "open a pull request" produces an empty branch and a failed
   // `gh pr create`.
   for (const starter of STARTER_CADENCES) {
     const { prompt } = parseSpawnAgentConfig(

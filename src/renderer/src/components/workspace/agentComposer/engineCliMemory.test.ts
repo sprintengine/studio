@@ -2,18 +2,17 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { globalCliFromEnginePick } from './useAgentComposer'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 
-// `appSettings.lastSelectedCli` is the app-wide default CLI: what the Sprint
-// Engine board's role terminals, an automation with no runtime set, the review
-// guide, a module asking for the default, and an `agent_launch` over MCP that
-// names no CLI all fall back to. It shipped with a setter that only tests ever
-// called, so it stood on its factory value forever — on a machine without that
-// CLI installed, every one of those fallbacks named a binary that is not there.
+// `appSettings.lastSelectedCli` is the app-wide default CLI: what an automation
+// with no runtime set, the review guide, a module asking for the default, and
+// an `agent_launch` over MCP that names no CLI all fall back to. It shipped
+// with a setter that only tests ever called, so it stood on its factory value
+// forever — on a machine without that CLI installed, every one of those
+// fallbacks named a binary that is not there.
 //
-// These checks hold the two halves of the fix: which picks move it, and that
-// the composer and the manager actually write it.
+// These checks hold the two halves of the fix: the setter really persists, and
+// the composer and the manager actually call it.
 
 let failures = 0
 function run(name: string, fn: () => void): void {
@@ -26,18 +25,6 @@ function run(name: string, fn: () => void): void {
     console.error(error)
   }
 }
-
-run('a General pick is the app-wide default CLI', () => {
-  assert.equal(globalCliFromEnginePick({ kind: 'general' }, 'codex'), 'codex')
-})
-
-run('a specialist pick moves that specialist alone', () => {
-  assert.equal(
-    globalCliFromEnginePick({ kind: 'specialist', specialistId: 'architect' }, 'codex'),
-    null,
-    'one role’s engine must never become every other surface’s default',
-  )
-})
 
 run('the store setter really persists the pick', () => {
   const store = useWorkspaceStore.getState()
@@ -68,20 +55,22 @@ const managerSource = readFileSync(
   'utf8',
 )
 
-run('the composer writes the app-wide default on an engine pick', () => {
+run('every composer engine pick writes the app-wide default', () => {
+  // Three pickers move the engine — the CLI row, the model row (picking a model
+  // picks its CLI) and the effort ramp — and each one must write the default,
+  // or the surfaces that fall back to it keep naming the CLI nobody picked.
   assert.equal(
-    (hookSource.match(/globalCliFromEnginePick\(target, cli\)/g) ?? []).length,
-    2,
-    'both the CLI picker and the model picker (which picks a CLI too) go through the seam',
+    (hookSource.match(/setLastSelectedCli\(cli\)/g) ?? []).length,
+    3,
+    'the CLI picker, the model picker and the effort ramp all write the app-wide default',
   )
-  assert.match(hookSource, /if \(globalCli\) setLastSelectedCli\(globalCli\)/)
 })
 
 run('a New chat started on an explicit CLI remembers it as the default', () => {
   assert.match(
     managerSource,
-    /if \(chosenCli\) \{\s*\n\s*setSpecialistCliDefault\(GENERAL_AGENT_ENGINE_KEY, chosenCli\)\s*\n\s*setLastSelectedCli\(chosenCli\)/,
-    'the manager writes General’s own key AND the app-wide default',
+    /if \(chosenCli\) setLastSelectedCli\(chosenCli\)/,
+    'the manager writes the app-wide default from the chat’s own pick',
   )
 })
 

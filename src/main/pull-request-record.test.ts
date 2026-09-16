@@ -832,10 +832,9 @@ async function main(): Promise<void> {
   }
 
   // -------------------------------------------------------------------------
-  // REVIEW FIX (finding 9). The watch is bounded by the same 30-day window the
-  // sprint run watch bounds its boot scan by. Without it every open pull
-  // request the app ever saw holds a <=32-minute timer for the life of the
-  // process — including ones in repositories nobody has open.
+  // REVIEW FIX (finding 9). The watch is bounded by a 30-day window. Without it
+  // every open pull request the app ever saw holds a <=32-minute timer for the
+  // life of the process — including ones in repositories nobody has open.
   // -------------------------------------------------------------------------
   {
     userDataDir = await freshUserDataDir()

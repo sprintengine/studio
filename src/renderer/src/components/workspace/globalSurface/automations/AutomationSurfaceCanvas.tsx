@@ -78,7 +78,7 @@ export function AutomationSurfaceCanvas({
             variable-height run list would. What happened comes after. */}
         <div>
           {/* The kit's label / value rows — the same term column and type step
-              the Sprints run frame uses, not a hand `<dl>` with its own gaps. */}
+              every door frame uses, not a hand `<dl>` with its own gaps. */}
           <DefinitionList
             className="py-1"
             items={[

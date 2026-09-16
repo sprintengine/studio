@@ -23,7 +23,6 @@ const CLI_ONLY_FIELDS = [
   'completion',
   'mcpConfig',
   'capabilities',
-  'souls',
   'modelSelection',
   'skillIntegration',
 ] as const

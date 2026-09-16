@@ -1,6 +1,6 @@
 ---
 name: handoff
-description: Create a concise continuation handoff for another agent or future session. Use when pausing work, transferring context, summarizing an unfinished investigation, preparing a Sprint Engine continuation, or preserving next steps without duplicating existing artifacts.
+description: Create a concise continuation handoff for another agent or future session. Use when pausing work, transferring context, summarizing an unfinished investigation, or preserving next steps without duplicating existing artifacts.
 ---
 
 # Handoff
@@ -11,7 +11,7 @@ Write a handoff that lets a fresh agent continue without replaying the whole con
 
 Reference existing artifacts instead of duplicating them:
 
-- Sprint Engine state, task ids, plan artifacts, evidence, and review files.
+- Plan artifacts, evidence, and review files.
 - Knowledge Graph notes.
 - Future plans, PRDs, docs, diffs, tests, or command output.
 

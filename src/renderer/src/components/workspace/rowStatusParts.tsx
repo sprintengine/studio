@@ -10,7 +10,7 @@ import { TruncatedText } from '../ui/TruncatedText'
 // (door-rails-premium): the working clock beside the dots, the one-shot flash a
 // row plays when its state changes, the branch chip, the ±lines chip, and the
 // clock a resting row wears. The app sidebar's workspace rows say all of these,
-// and the Sprints and Workflows door rails now say them too — so a run row and
+// and a module door's rail says them too — so a run row and
 // a chat row read as one list, not two dialects of one idea.
 //
 // The sidebar (`WorkspaceSidebar.tsx`) still carries its own copies of the

@@ -22,7 +22,6 @@ function record(overrides: Partial<AgentLaunchRecord> = {}): AgentLaunchRecord {
     name: 'Scout',
     cli: 'claude-code',
     cliPermissionPreset: 'auto',
-    kind: 'general',
     ...overrides,
   }
 }
@@ -98,15 +97,11 @@ run('the connector environment survives the projection', () => {
     record({
       connectorMcpSettings: { syncEnabled: true, servers: {} },
       spawnSkillId: 'backlog',
-      specialistId: 'security',
-      kind: 'specialist',
     }),
     session(),
   )
   assert.deepEqual(agent.connectorMcpSettings, { syncEnabled: true, servers: {} })
   assert.equal(agent.spawnSkillId, 'backlog')
-  assert.equal(agent.kind, 'specialist')
-  assert.equal(agent.specialistId, 'security')
 })
 
 run('an agent the store already holds is never overwritten', () => {

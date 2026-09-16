@@ -83,6 +83,9 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'git',
   'memory-graph',
   'switchboard',
+  // RESERVED, never bundled: the Sprint Engine ships as an out-of-tree module
+  // that installs under this id, so the name is claimed here and nothing else
+  // can take it.
   'sprint-engine',
   'review',
   'automations',
@@ -316,7 +319,6 @@ export type McpConnectionMetadata = {
   agentId?: string
   agentName?: string
   cliId?: string
-  sprintRunId?: string
   deviceId?: string
   deviceName?: string
   peerNode?: string
@@ -400,9 +402,9 @@ export type LaunchContributionPathStyle = 'posix' | 'windows' | 'wsl'
 /**
  * What the host knows about this spawn when it asks modules to contribute.
  *
- * `statePath` and `knowledgeRoot` are values the caller already resolved (a
- * run file, a Knowledge Graph root). Core does not interpret the keys; the
- * module that owns them reads them and writes env / session tags itself.
+ * `knowledgeRoot` is a value the caller already resolved. Core does not
+ * interpret it; the module that owns it reads it and writes env / session tags
+ * itself.
  */
 export type LaunchContributionRequest = {
   cli: string
@@ -411,8 +413,6 @@ export type LaunchContributionRequest = {
   agentId?: string
   agentKind?: string
   resume?: boolean
-  /** Absolute run-state path when the caller already resolved one. */
-  statePath?: string
   /** Absolute Knowledge Graph root when the launch resolved one. */
   knowledgeRoot?: string
   /**
@@ -615,10 +615,11 @@ export type ModuleWorkspaceView = {
   name: string
   /**
    * Absolute folder the workspace opened (its primary checkout); null for
-   * folderless workspaces. Note for Sprint-run worktree-backed workspaces:
-   * the run's agents work in a git worktree under this folder — this
-   * snapshot deliberately reports the durable project root (the right base
-   * for persistence and scoped services), not the transient worktree.
+   * folderless workspaces. Note for worktree-backed workspaces (an automation
+   * run with `runInWorktree`, and whatever else a module opens): the agents work
+   * in a git worktree under this folder — this snapshot deliberately reports the
+   * durable project root (the right base for persistence and scoped services),
+   * not the transient worktree.
    */
   folderPath: string | null
   /** Workspace type id ('standard' or a module-registered type). */
@@ -815,7 +816,6 @@ export type ActionContext = {
     cli?: string
     cliModel?: string
     permissionPreset?: AutomationCliPermissionPreset
-    specialistId?: string
     worktreePath?: string
     name?: string
     prompt: string
@@ -1094,7 +1094,7 @@ export type CompanionAgentSpec = {
   engine?: { cli?: string; model?: string }
   /** Advisory context roots; the provider resolves knowledge from workspaceRoot. */
   contextRoots?: { knowledge?: boolean }
-  /** Role instructions, delivered as a preamble on the first turn. */
+  /** Standing instructions, delivered as a preamble on the first turn. */
   systemPrompt: string
 }
 
@@ -1863,26 +1863,20 @@ export type CommandScope =
   // Open scope family: `panel:<moduleId>` is active while a workspace whose
   // mode belongs to that module is active — the shell derives it from the
   // workspace-type registry, so your module's commands can gate on "my
-  // workspace is active" without a shell enum change. Sprint Engine commands
-  // use `panel:sprint-engine`.
+  // workspace is active" without a shell enum change. A module that registers
+  // the workspace type `weather-deck` gates its commands on
+  // `panel:weather-deck`.
   | (string & {})
 
 export type CommandAvailability =
   | 'always'
   | 'activeWorkspace'
   | 'activeFile'
-  | 'sprintengineWorkspace'
-  | 'sprintengineHasArchitect'
-  | 'sprintengineFocusAgentVisible'
   | 'memoryGraphEnabled'
-  | 'sprintEngineEnabled'
   | 'gitPanelActive'
   | 'terminalActive'
   | 'diagnosticsEnabled'
   | 'automationsEnabled'
-  // The active workspace has at least one installed workflow-role skill, so a
-  // specialist spawn or "add a role" command has something to resolve.
-  | 'workflowRolesInstalled'
   // Open at the type level so new shell conditions never break a compiled
   // module; an unknown condition reads as unsatisfied (fail closed). Prefer
   // an availability predicate for module-specific gating.
@@ -1962,7 +1956,7 @@ export type SidebarNavEntryComponent =
 
 /**
  * A top-nav door your module contributes to the workspace sidebar's
- * instance-level nav cluster (the band holding New chat, Automations, Sprints,
+ * instance-level nav cluster (the band holding New chat, Automations,
  * Connectors). The entry is a self-contained row component that owns its full
  * behavior — a status dot, an open action against the local window's store,
  * active state. The sidebar shows it only while your module is enabled and
@@ -2551,8 +2545,9 @@ export type RendererHost = {
   /**
    * The workspace's *effective working root*: where its live work happens.
    * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary
-   * checkout; a worktree-backed workspace (sprint runs) does live work under
-   * a worktree, and this resolves that root. The live-runtime methods below
+   * checkout; a worktree-backed workspace (an automation run with
+   * `runInWorktree`, for one) does live work under a worktree, and this
+   * resolves that root. The live-runtime methods below
    * resolve workspace-relative paths against it. Null means "not currently
    * resolvable" — never a throw. Declare `ipc:workspace-read`.
    */
@@ -2829,7 +2824,6 @@ export {
   type CliSkillIntegration,
   type CliSkillInvocation,
   type CliSkillSupport,
-  type CliSoulsSpec,
   type CliVariableDecl,
   type CliVariableType,
 } from './cli-manifest.js'

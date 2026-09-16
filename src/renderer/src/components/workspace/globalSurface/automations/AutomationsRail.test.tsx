@@ -48,7 +48,7 @@ const entries: AutomationsInstanceEntry[] = [
   }),
   entry('b', 'Backlog triage', { isRunningNow: true }),
   entry('c', 'Release notes draft', {
-    definition: definition('c', 'Release notes draft', { status: 'paused', action: { kind: 'sprint-engine-run', config: {} } }),
+    definition: definition('c', 'Release notes draft', { status: 'paused', action: { kind: 'atlas-chart', config: {} } }),
   }),
 ]
 
@@ -110,9 +110,9 @@ run('rows carry an action-type glyph, not a status dot', () => {
         missingIntegrations: [],
       },
       {
-        kind: 'sprint-engine-run',
-        moduleId: 'sprint-engine',
-        label: 'Run a sprint',
+        kind: 'atlas-chart',
+        moduleId: 'atlas',
+        label: 'Chart a project',
         glyph: 'board',
         configSchema: {},
         requiredIntegrations: [],
@@ -122,7 +122,7 @@ run('rows carry an action-type glyph, not a status dot', () => {
   }
   const html = render({ providers })
   assert.ok(html.includes('aria-label="Spawn an agent"'), 'the agent automations carry the agent mark')
-  assert.ok(html.includes('aria-label="Run a sprint"'), 'the sprint automation carries the sprint mark')
+  assert.ok(html.includes('aria-label="Chart a project"'), 'the module automation carries its own mark')
 })
 
 // The search + filter row (the Backlog toolbar idiom) sits above the list.

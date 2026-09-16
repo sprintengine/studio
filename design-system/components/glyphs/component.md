@@ -18,7 +18,7 @@ and color a glyph without reading the React source.
 
 A glyph is not decoration and not a status pill. It answers exactly one
 question — *which thing is this* (identity), *where is it in its pipeline*
-(lifecycle), *who is working on it* (role), *what kind of capability*
+(lifecycle), *which machine is it on* (device), *what kind of capability*
 (capability), *which runtime* (CLI), or *what will this control do* (action) —
 and each question has its own family below. A surface that reaches for two
 families to answer one question has the wrong hierarchy, not the wrong icon.
@@ -33,7 +33,8 @@ Two drawing grids, each with its own stroke discipline:
 | 16 × 16 | `1.2 – 1.5` | the `ui/` primitives — `LifecycleGlyph` (1.4–1.5), `PullRequestGlyph` (1.4), `CapabilityGlyphs` (1.3), `RefreshIcon` (1.35), `StarGlyph` (1.4), `FileTypeGlyph` (1.2 frame, 1.3–1.4 line work, 1.45 letterform) — and the assets in `glyphs/` |
 
 The 24-grid stroke flexes deliberately and narrowly: secondary strokes step
-*down* by 0.1–0.3 (`iconStroke - 0.3` on the `RoleGenericIcon` inner ring), and a
+*down* by 0.1–0.3 (`iconStroke - 0.2` on the `AutomationsWorkspaceTypeIcon`
+bolt), and a
 check or emphasis stroke steps *up* to 1.8–1.9 (the shield tick, the tile
 letterforms). Anything outside that band is drift, not a variant.
 
@@ -41,8 +42,7 @@ letterforms). Anything outside that band is drift, not a variant.
   and never carries its own palette. The whole list of self-coloring
   exceptions: `PriorityIcon` urgent/high (`--tone-error` / `--tone-warn`),
   `StatusIcon` done and the in-progress wedge family (`--tone-good` /
-  `--tone-accent`), the role tone applied by `RoleGlyph` / `RoleAvatar`
-  (see Variants), and the two **identity-colour** families ruled 2026-09-06
+  `--tone-accent`), and the two **identity-colour** families ruled 2026-09-06
   (principles.md → "Identity colour"): vendor marks in their vendors' colours
   (`CliIcon`, `brand/EditorMarks`), and `FileTypeGlyph` under `tone="kind"`,
   which inks by language from the `--sem-color-mark-*` ramp.
@@ -103,7 +103,6 @@ the registry to point at:
 | Mark | Drawing |
 |---|---|
 | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher |
-| `SprintEngineWorkspaceTypeIcon` | Three-node crew triangle |
 | `SprintEngineMarkIcon` | The SprintEngine brand comet — pair with `--tool-sprintengine-ink` |
 | `AutomationsWorkspaceTypeIcon` | Schedule dial around a lightning bolt — "on a schedule, do work" |
 | `FolderTypeIcon` | The project folder, optionally wearing a workspace's own logo |
@@ -166,8 +165,8 @@ One status idiom per surface: a surface shows the 6 px `StatusDot` *or* a
 
 ### Lifecycle (16-grid — `ui/LifecycleGlyph.tsx`)
 
-The shape-coded lifecycle vocabulary shared by Backlog readiness and Sprint
-Engine task state. Eighteen states, read by shape first — every state
+The shape-coded lifecycle vocabulary shared by Backlog readiness and
+Automations run state. Eighteen states, read by shape first — every state
 survives grayscale — with ink only reinforcing:
 
 | Shape | States |
@@ -220,31 +219,8 @@ The primitive takes `state` and an optional `label`; the caller owns the size
 **Every pull request in the product is drawn from here.** `LifecycleGlyph`'s
 `done_unmerged` / `done_merged` pair takes the open and merged drawings (keeping
 its own lifecycle tones, which are not pull request tones), the branch step
-strip's merge commits take the merged one, and the sprint and automation pull
-request chips lead with the mark for their state. Nothing draws its own.
-
-### Role (24-grid drawings, 16-grid wrappers)
-
-`SprintEngineRoleIcon(role, registry)` dispatches to module-private drawings
-(architect, product, developer, frontend and ui/ux reviewer, tester, security,
-performance, production-readiness, cross-platform) and falls back to a neutral
-disc for an absent or unrecognised role. `SpecialistActionIcon(icon)` keys the
-same drawings by specialist-action id (adding writing, spaghetti, nuclear,
-infra, shield and the two design ids).
-The drawings are private on purpose: going through the dispatcher is what
-makes unknown ids degrade instead of crash.
-
-Two wrappers apply role *tone* — the documented exception to the one-accent
-rule, and the only one:
-
-- `RoleGlyph` — the bare toned glyph, for a single inline slot (kanban-card
-  trailing slot, task-graph node label). Sizes sm/md/lg (12/14/16 px).
-- `RoleAvatar` — the toned identity disc with the glyph centered, for roster
-  rows, running-agents lists, chips, spawn-dialog headers. Sizes xs/sm/md
-  (16/24/28 px disc).
-
-Role tone never bleeds into panel chrome, list rows, headers, or inspector
-sections; status and selection stay on `--accent-primary` and `--tone-*`.
+strip's merge commits take the merged one, and the backlog item and automation
+pull request chips lead with the mark for their state. Nothing draws its own.
 
 ### Capability (16-grid — `ui/CapabilityGlyphs.tsx`)
 
@@ -400,7 +376,7 @@ working tree), `FileTypeGlyph` `lock` (the padlock), `glyphs/commit.svg`,
 `GeneralSettingsIcon` (sliders), `ProfileSettingsIcon` (person),
 `AppearanceSettingsIcon` (half-filled disc), `ShortcutsSettingsIcon`
 (keyboard), `AgentsSettingsIcon` (robot), `ProvidersSettingsIcon` (plug),
-`SpecialistPacksSettingsIcon` (package cube), `GithubSettingsIcon` (branch),
+`GithubSettingsIcon` (branch),
 `TrackersSettingsIcon` (tagged file), `KnowledgeGraphSettingsIcon` (node
 triangle), `DesignSystemSettingsIcon` (disc, square and triangle),
 `ModulesSettingsIcon` (2 × 2 grid), `MobileSettingsIcon` (phone),
@@ -452,8 +428,8 @@ All at `iconStroke` so the rail reads as one set.
   icon ships that way.
 - **Meaning-bearing glyphs label themselves.** `PriorityIcon`, `StatusIcon`,
   a labelled `LifecycleGlyph`, `StarGlyph` with `label`, and
-  `RoleGlyph`/`RoleAvatar` carry `role="img"` + `aria-label` (and a `<title>`
-  where hover should confirm). Omit the label only when the row's text
+  `PullRequestGlyph` with `label` carry `role="img"` + `aria-label` (and a
+  `<title>` where hover should confirm). Omit the label only when the row's text
   already announces the state.
 - **Icon-only buttons carry `aria-label`** on the button; the glyph inside
   stays hidden. Pair with a tooltip that says the consequence, not the name.
@@ -488,8 +464,8 @@ Cite these rather than matching the code you happen to be nearest.
    renderer is `IconButton` / `CloseIconButton` at `--sem-size-control-xs`
    (backlog `icon-buttons-off-the-control-ramp`); the conformance guard's
    `focus-ring-missing` rule keeps a bare button from returning.
-2. **Per-door rail glyph sizes 16 / 13 / 12 px** — Sprints and
-   Automations lead rows with 16 px glyphs (titles at x = 42 px), Extensions
+2. **Per-door rail glyph sizes 16 / 13 / 12 px** — Automations leads
+   rows with 16 px glyphs (titles at x = 42 px), Extensions
    with bare 13 px `icon-xs` glyphs and no fixed-width wrapper (39 px), the
    Design door with a 12 px chip (38 px) — so sibling doors' titles start at
    three different offsets in the same column. `AutomationTypeGlyph`

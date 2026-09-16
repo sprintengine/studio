@@ -122,7 +122,7 @@ export type ConversationPeekAgent = {
 export type ConversationPeekIdentity = {
   /** The chat's name — the tab's or the row's title. */
   name: string
-  /** Sprint task the agent is claimed on, when applicable. */
+  /** A task the agent is claimed on, when its host reports one. */
   taskId: string | null
   /** The corner's state; null to omit it entirely. */
   status: ConversationPeekStatus | null

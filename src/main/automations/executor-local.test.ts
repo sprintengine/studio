@@ -10,7 +10,6 @@ import type { Workspace } from '../../renderer/src/types/workspace'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../shared/workspace-mode'
 import type { WorkspaceCreateRequest } from '../workspace-registry-service'
 import type { WorkspaceMutationActor } from '../workspace-sync-service'
-import { SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID, SPRINT_ENGINE_RUN_ACTION_KIND, createSprintEngineRunActionProvider } from './actions/sprint-engine'
 import {
   RunWorktreeUnavailableError,
   createBuiltInAutomationActionProviders,
@@ -43,13 +42,6 @@ function workspace(id: string, folderPath: string | null, overrides: Partial<Wor
     worktreeState: { containerPath: null, entries: {}, updatedAt: null },
     memory: { relativeRoot: null },
     editorState: { openFiles: [], activeFilePath: null },
-    sprintEngineAutoState: {
-      desiredMode: 'manual',
-      runtimeState: 'idle',
-      cliPermissionPreset: 'manual',
-      maxConcurrentAgents: 0,
-      deliveredAgentNotificationEventKeys: [],
-    },
     createdAt: 1,
     ...overrides,
   }
@@ -230,21 +222,6 @@ function executorHarness(
       ...(options.executionIdTimeoutMs ? { executionIdTimeoutMs: options.executionIdTimeoutMs } : {}),
     }),
   }
-}
-
-function firstPartyActionProviders(calls: string[] = []): AutomationActionProvider[] {
-  return [
-    ...createBuiltInAutomationActionProviders(),
-    createSprintEngineRunActionProvider({
-      setRunnerMode: async (input) => {
-        calls.push(`sprint-mode:${input.statePath}:${input.cliWatchPolling}`)
-        return { ok: true, data: {} }
-      },
-      readProjection: async () => ({ ok: false, message: 'not used' }),
-      refreshPullRequestStatus: async () => ({ ok: true, data: {} }),
-      mergePullRequest: async () => ({ ok: true, data: {} }),
-    }),
-  ]
 }
 
 async function assertDefaultRunCreatesHostWorkspaceAndLaunchesOnBus(): Promise<void> {
@@ -810,67 +787,6 @@ async function assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered(): Promise
   )
 }
 
-async function assertFirstPartyActionsInvokeFrontDoors(): Promise<void> {
-  const calls: string[] = []
-  const providers = firstPartyActionProviders(calls)
-  assert.deepEqual(
-    providers.map((provider) => provider.kind).sort(),
-    [
-      'run-skill-loop',
-      'spawn-agent',
-      SPRINT_ENGINE_RUN_ACTION_KIND,
-    ].sort()
-  )
-  const harness = executorHarness([workspace('ws-front-door', '/repo/a')], {
-    actionProviders: providers,
-    isIntegrationAvailable: () => true,
-  })
-
-  const sprintEngine = await harness.executor({
-    workspaceRoot: '/repo/a',
-    definition: definition({
-      action: { kind: SPRINT_ENGINE_RUN_ACTION_KIND, config: { team: 'ship-squad', role: 'developer' } },
-    }),
-    run: run(),
-    triggerPayload: { kind: 'schedule' },
-  })
-  assert.equal(sprintEngine.status, 'completed')
-  assert.match(sprintEngine.summary ?? '', /ship-squad/)
-
-  assert.deepEqual(calls, [
-    'sprint-mode:/repo/a/.sprintengine/sprintengine/ship-squad/run.yaml:enabled',
-  ])
-}
-
-async function assertFirstPartyMissingIntegrationBlocksBeforeFrontDoor(): Promise<void> {
-  const cases = [
-    {
-      kind: SPRINT_ENGINE_RUN_ACTION_KIND,
-      config: { team: 'ship-squad' },
-      integration: SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID,
-    },
-  ]
-
-  for (const blockedCase of cases) {
-    const calls: string[] = []
-    const harness = executorHarness([workspace('ws-front-door', '/repo/a')], {
-      actionProviders: firstPartyActionProviders(calls),
-      isIntegrationAvailable: (id) => id !== blockedCase.integration,
-    })
-
-    const result = await harness.executor({
-      workspaceRoot: '/repo/a',
-      definition: definition({ action: { kind: blockedCase.kind, config: blockedCase.config } }),
-      run: run(),
-      triggerPayload: { kind: 'schedule' },
-    })
-
-    assert.equal(result.status, 'blocked')
-    assert.match(result.blockedReason ?? '', new RegExp(blockedCase.integration))
-    assert.deepEqual(calls, [])
-  }
-}
-
 function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): void {
   const builtIns = createBuiltInAutomationProviderRegistry({
     repoTasks: {
@@ -895,7 +811,6 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
     'spawn-agent',
     'run-skill-loop',
   ])
-  assert.equal(SPRINT_ENGINE_AUTOMATION_INTEGRATION_ID, 'module:sprint-engine')
 
   const duplicateRegistry = createAutomationProviderRegistry()
   const duplicateProvider: AutomationActionProvider = {
@@ -1003,7 +918,5 @@ async function main(): Promise<void> {
   await assertDeniedBuiltInSpawnAgentUsesBlockedWrapperDispatch()
   await assertUnknownWorkspaceIdDoesNotCreateFallbackWorkspace()
   await assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered()
-  await assertFirstPartyActionsInvokeFrontDoors()
-  await assertFirstPartyMissingIntegrationBlocksBeforeFrontDoor()
   await assertMcpConfigExcludedInRealWorktree()
 }

@@ -27,9 +27,9 @@ function moduleEnabledFromOverrides(
 
 // True for a workspace whose registered type set `hiddenFromRail` and whose
 // owning module is enabled. When the module is disabled (or the type is not
-// registered) this is false, so a persisted sprint workspace can appear on
-// the rail as an absence surface rather than vanishing with its door.
-export function isSprintRunWorkspace(
+// registered) this is false, so a persisted workspace of that type can appear
+// on the rail as an absence surface rather than vanishing with its door.
+export function isRailHiddenModuleWorkspace(
   workspace: WorkspaceModeInput,
   moduleOverrides?: ModuleEnablementOverrides,
 ): boolean {
@@ -44,11 +44,11 @@ export function isSprintRunWorkspace(
 // - The Automations host (epic 1704) is a background runtime container for
 //   agent-backed automation runs. It stays a bundled mode, so the shared
 //   `isModeHiddenFromRail` covers it even when the automations module is off.
-// - Sprint-run workspaces are the execution residency for a run's agent
-//   terminals. The Sprints door lists every run from disk, so the row is no
-//   longer how a run is found; "Open agents" on the door canvas is. That flag
-//   lives on the registered type, so disabling the module un-hides a persisted
-//   sprint workspace and the absence surface can name the module.
+// - A module-registered type that declares `hiddenFromRail` is a background
+//   residency for that module's agent terminals; its own door is how the work
+//   is found. The flag lives on the registered type, so disabling the module
+//   un-hides a persisted workspace of that type and the absence surface can
+//   name the module.
 //
 // Hidden means hidden from DISCOVERY, not disabled: both stay in the store, in
 // window assignments, and mounted/activatable, and an active hidden workspace
@@ -60,5 +60,5 @@ export function isHiddenFromRail(
   moduleOverrides?: ModuleEnablementOverrides,
 ): boolean {
   if (isModeHiddenFromRail(workspace.mode)) return true
-  return isSprintRunWorkspace(workspace, moduleOverrides)
+  return isRailHiddenModuleWorkspace(workspace, moduleOverrides)
 }

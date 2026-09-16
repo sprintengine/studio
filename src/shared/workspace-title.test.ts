@@ -29,7 +29,7 @@ run('never mistakes a chosen name for a minted one', () => {
   assert.equal(isDefaultWorkspaceName('Chat63'), false)
   assert.equal(isDefaultWorkspaceName('Chat 6 3'), false)
   assert.equal(isDefaultWorkspaceName(''), false)
-  assert.equal(isDefaultWorkspaceName('Sprint Roster', 'Solo'), false)
+  assert.equal(isDefaultWorkspaceName('Payments Rewrite', 'Solo'), false)
 })
 
 run('derives a title from an ordinary typed request', () => {

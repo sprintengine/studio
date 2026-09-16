@@ -11,7 +11,7 @@
 // whether the panel was already open or just spawned.
 //
 // The target payload is opaque to the shell — the owning module interprets
-// `kind`/`ref` (e.g. Sprint Engine maps `{ kind: 'task', ref }` to board
+// `kind`/`ref` (e.g. a module maps `{ kind: 'task', ref }` to its own
 // selection).
 
 import type { NotificationNavigationTarget } from '../types/workspace'

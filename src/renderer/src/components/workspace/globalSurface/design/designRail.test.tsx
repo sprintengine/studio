@@ -198,7 +198,7 @@ run('the New affordance is the house dashed row, never an accent-filled button',
   assert.match(newRow, /border-dashed/, 'the shared dashed treatment')
   assert.ok(
     !/bg-\[color:var\(--accent-primary\)\]/.test(newRow),
-    'an accent fill would make this door a stranger beside Sprints and Automations',
+    'an accent fill would make this door a stranger beside Automations',
   )
 })
 

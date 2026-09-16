@@ -40,8 +40,8 @@ export type ExtensionsDrawerRowView = {
   viewId?: string
   /**
    * The row's name and glyph, as the owning module declares them. Absent when
-   * a door names itself through its own nav-entry component instead (Sprints
-   * did until Stage 3); a caller that can only draw a generic row skips those.
+   * a door names itself through its own nav-entry component instead; a caller
+   * that can only draw a generic row skips those.
    */
   label?: string
   Icon?: SurfaceIconComponent
@@ -53,9 +53,9 @@ export type ExtensionsDrawerRowView = {
   navComponent?: SidebarNavEntryComponent
   /**
    * The card region is showing exactly this row's destination. For a nav row
-   * the module's own component owns the richer reading (Sprints also reads
-   * selected while the operator is inside a run's terminals), so this stays the
-   * plain one and the drawer does not use it there.
+   * the module's own component owns the richer reading — a door may read as
+   * selected in more places than this — so this stays the plain one and the
+   * drawer does not use it there.
    */
   active: boolean
   /** Open this row's destination — the one routing both the drawer and the home use. */

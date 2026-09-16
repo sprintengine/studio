@@ -44,9 +44,9 @@ function testWorkableItemsAreTheOnesOfferedToAnAgent(): void {
   assert.equal(canHandBacklogItemToAgent({ ...baseItem, status: 'completed' }), false)
   assert.equal(canHandBacklogItemToAgent({ ...baseItem, status: 'archived' }), false)
 
-  // An item that already has an owner is withheld, so a second launch cannot
-  // fork the effort behind the first one's back. Those items show "Open agent"
-  // (or "Open Sprint") instead.
+  // An item that already has an agent on it is withheld, so a second launch
+  // cannot fork the effort behind the first one's back. Those items show
+  // "Open agent" instead.
   assert.equal(
     canHandBacklogItemToAgent({
       ...baseItem,
@@ -54,20 +54,22 @@ function testWorkableItemsAreTheOnesOfferedToAnAgent(): void {
     }),
     false,
   )
+  // A link from some other module is not an agent on the item, so the handoff
+  // stays offered.
   assert.equal(
     canHandBacklogItemToAgent({
       ...baseItem,
       links: [
         {
-          id: 'run',
-          moduleId: 'sprint-engine',
-          type: 'execution',
-          label: 'Sprint',
-          target: { kind: 'sprintengine.run', id: 'run-1' },
+          id: 'chart',
+          moduleId: 'atlas',
+          type: 'external',
+          label: 'Atlas chart',
+          target: { kind: 'atlas.chart', id: 'chart-1' },
         },
       ],
     }),
-    false,
+    true,
   )
 }
 

@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
-import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // A worktree chat files under the project it was cut from. New chat on a
 // worktree lands the checkout at `<parent>/.multicode-worktrees/<repo>/<slug>`
@@ -54,11 +53,9 @@ dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.R
 const detected: string[] = []
 domWindow.api = {
   platform: 'darwin',
-  // The Sprints nav entry subscribes to the run index on mount; a silent
+  // A module's nav entry may subscribe to its own index on mount; a silent
   // subscription keeps the sidebar's later renders from throwing inside a
   // passive effect.
-  onSprintRunsChanged: () => () => {},
-  listSprintRuns: async () => [],
   detectProjectLogo: async (folderPath: string) => {
     detected.push(folderPath)
     return null
@@ -92,7 +89,7 @@ async function main(): Promise<void> {
   const { getRendererHost } = await import('../../modules')
   const { deriveWorkspaceRunGlyph } = await import('../../utils/workspaceRunGlyph')
   getRendererHost()
-    .hostFor('sprint-engine')
+    .hostFor('automations')
     .registerWorkspaceType({
       id: 'worktree-glyph-probe',
       label: 'Glyph probe',
@@ -102,7 +99,6 @@ async function main(): Promise<void> {
       createTemplate: () => ({ id: 'worktree-glyph-probe', name: 'Glyph probe', model: { global: {}, layout: { type: 'row', children: [] } } }),
       deriveRunGlyph: () => ({ state: 'running', live: true, label: 'Run in progress' }),
     } as never)
-  bindSprintEngineIpc(domWindow.api as never)
 
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   const workspace = (id: string, name: string, folderPath: string | null, extra?: Record<string, unknown>) =>

@@ -328,7 +328,7 @@ test('a field patch honours absent-means-no-opinion and null-means-cleared', () 
     assert.equal(h.registry.getRecord(workspaceId)!.lastTurnEndedAt, 9_000, 'but an older clock reading does not roll main back')
 
     const notEditable = h.dispatch(
-      { type: 'workspace.update_fields', payload: { workspaceId, patch: { mode: 'sprintengine' } as never, editedAt: 6_002 } },
+      { type: 'workspace.update_fields', payload: { workspaceId, patch: { mode: 'weather-deck' } as never, editedAt: 6_002 } },
       WINDOW_A,
     )
     assert.equal(notEditable.ok, false, 'a field outside the editable set is refused, never silently dropped')

@@ -158,10 +158,7 @@ export function hasHighlightOverride(
   return getHighlightColor(highlight) !== null
 }
 
-const WORKSPACE_MODE_ACCENT_HEX: Record<WorkspaceMode, string | null> = {
-  sprintengine: '#ffbf2f',
-  standard: null,
-}
+const WORKSPACE_MODE_ACCENT_HEX: Partial<Record<WorkspaceMode, string | null>> = {}
 
 // Effective accent for a workspace anywhere outside the sidebar. Highlight
 // color wins; otherwise fall back to the workspace mode identity. Standard
@@ -171,5 +168,5 @@ export function getWorkspaceAccentHex(
   workspace: Pick<Workspace, 'highlight' | 'mode'>
 ): string | null {
   if (workspace.highlight?.color) return swatches[workspace.highlight.color].hex
-  return WORKSPACE_MODE_ACCENT_HEX[workspace.mode]
+  return WORKSPACE_MODE_ACCENT_HEX[workspace.mode] ?? null
 }

@@ -10,7 +10,7 @@ import type { SurfaceRailRow } from './surfaceSubstrate'
 // door's. Every door rail shares the same scrollport inset and the same row
 // padding/gap, so a row title's x-offset reduces to
 // `10 (scrollport) + 8 (row pad) + iconWidth + 8 (gap)`. Before this, iconWidth
-// was whatever the door handed over — 16px on Sprints/Roadmap/Automations, 13px
+// was whatever the door handed over — 16px on Automations, 13px
 // on Extensions' bare `icon-xs` svgs, 12px on Design's identity chip — so
 // opening a different door in the SAME physical column slid every row title
 // between 38px and 42px. One column, three left edges.
@@ -104,23 +104,23 @@ async function main(): Promise<void> {
     container.querySelector('[data-rail-icon-slot="true"]')
 
   // ── 1. two doors, two glyph sizes, one slot ────────────────────────────────
-  // The Design door's 12px identity chip and the Sprints door's 16px lifecycle
+  // The Design door's 12px identity chip and a 16px lifecycle
   // glyph are both legitimate — MC-2098 explicitly lets a door keep its own mark
   // size. What must not differ is the box they sit in.
 
   {
     // Design's chip: a 12px rounded square.
     const design = mount(railWith(<span className="size-3 shrink-0 rounded-[3px]" />))
-    // Sprints' lifecycle glyph: a 16px svg.
-    const sprints = mount(railWith(<svg viewBox="0 0 16 16" className="icon-sm shrink-0" />))
+    // A door's lifecycle glyph: a 16px svg.
+    const lifecycle = mount(railWith(<svg viewBox="0 0 16 16" className="icon-sm shrink-0" />))
 
     const designSlot = slotOf(design.container)
-    const sprintsSlot = slotOf(sprints.container)
+    const lifecycleSlot = slotOf(lifecycle.container)
     assert.ok(designSlot, 'a rail row with a 12px chip still renders the reserved slot')
-    assert.ok(sprintsSlot, 'a rail row with a 16px glyph renders the reserved slot')
+    assert.ok(lifecycleSlot, 'a rail row with a 16px glyph renders the reserved slot')
     assert.equal(
       designSlot!.getAttribute('class'),
-      sprintsSlot!.getAttribute('class'),
+      lifecycleSlot!.getAttribute('class'),
       'the slot is byte-identical across doors — the title x-offset cannot vary by which glyph a door passes',
     )
     // And the glyph really is INSIDE the slot; a sibling would reintroduce the
@@ -150,7 +150,7 @@ async function main(): Promise<void> {
     console.log('ok - the slot is sized from the icon ramp token')
 
     design.unmount()
-    sprints.unmount()
+    lifecycle.unmount()
   }
 
   // ── 3. a rail with nothing to mark reserves nothing ───────────────────────

@@ -34,7 +34,6 @@ function session(overrides: Partial<TerminalSessionSnapshot> & { sessionId: stri
     terminalId: overrides.terminalId,
     cli: overrides.cli,
     cwd: overrides.cwd,
-    sprintEngineStatePath: overrides.sprintEngineStatePath,
     executionMode: overrides.executionMode,
     worktreeId: overrides.worktreeId,
     worktreePath: overrides.worktreePath,

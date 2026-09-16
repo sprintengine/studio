@@ -6,7 +6,7 @@ import { BUNDLED_MODULE_IDS } from '../modules/manifest'
 export type JsonSchema = Record<string, unknown>
 
 // CLI permission preset for a spawned automation agent. Mirrors
-// SprintEngineCliPermissionPreset (src/shared/electron-api.ts) so the automations
+// CliPermissionPreset (src/shared/electron-api.ts) so the automations
 // contract stays self-contained; kept in sync as a closed union.
 export type AutomationCliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
 
@@ -222,7 +222,6 @@ export type ActionContext = {
     cli?: string
     cliModel?: string
     permissionPreset?: AutomationCliPermissionPreset
-    specialistId?: string
     worktreePath?: string
     name?: string
     prompt: string
@@ -469,7 +468,7 @@ export type AutomationsProviderView = {
 /**
  * Module id a persisted kind belongs to when its provider is not registered.
  * Dotted kinds (`weather-deck.forecast-ready`) use the prefix; bundled
- * hyphenated kinds (`sprint-engine-start`) match a reserved module id.
+ * hyphenated kinds (`weather-deck-start`) match a reserved module id.
  */
 export function contributorModuleIdFromKind(kind: string): string | null {
   const trimmed = kind.trim()
@@ -482,7 +481,7 @@ export function contributorModuleIdFromKind(kind: string): string | null {
   return null
 }
 
-/** Sentence-case display name from a module id (`sprint-engine` → `Sprint Engine`). */
+/** Sentence-case display name from a module id (`weather-deck` → `Weather Deck`). */
 export function displayNameFromModuleId(moduleId: string): string {
   return moduleId
     .split(/[-_]+/)

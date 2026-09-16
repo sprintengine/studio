@@ -5,6 +5,7 @@ import type { CapabilityManifest } from '../../shared/modules/manifest'
 import {
   AgentControlPlaneToken,
   AgentLaunchServiceToken,
+  AgentLaunchSettingsToken,
   AgentSessionsModuleServiceToken,
   CompanionAgentServiceToken,
   CompanionAgentsModuleServiceToken,
@@ -73,6 +74,7 @@ export function createAgentRuntimeModule(
       host.provideService(TerminalRuntimeToken, () => services.terminalRuntime)
       host.provideService(AgentControlPlaneToken, () => services.agentControlPlane)
       host.provideService(AgentLaunchServiceToken, () => services.agentLaunchService)
+      host.provideService(AgentLaunchSettingsToken, () => services.agentLaunchSettings)
       host.provideService(GitHubTokenStoreToken, () => services.githubTokenStore)
       host.provideService(MulticodeAuthToken, () => services.multicodeAuth)
       host.provideService(EntitlementServiceToken, () => services.entitlements)

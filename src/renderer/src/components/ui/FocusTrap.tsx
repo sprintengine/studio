@@ -12,7 +12,7 @@
 // would have left, which is the exact moment we want.
 //
 // The trapped region is the siblings BETWEEN the two sentinels, not the parent
-// element. That distinction is load-bearing: the New sprint dialog stacks its
+// element. That distinction is load-bearing: a multi-screen dialog stacks its
 // New-item capture (`BacklogCreateDialog`) as a SIBLING of its dialog, and that
 // capture is a `Modal` with a trap of its own. Reading the parent would fold the
 // two dialogs into one cycle; reading the sibling span keeps them separate and
@@ -32,7 +32,7 @@ type VisibilityCheckable = {
 }
 
 // A control the browser would skip is a control the cycle must skip too — the
-// New sprint dialog keeps screen 1 mounted under `hidden` while screen 2 shows,
+// such a dialog keeps screen 1 mounted under `hidden` while screen 2 shows,
 // and tabbing into a display:none form is the bug this filter exists for.
 // Chromium answers `checkVisibility` exactly; jsdom has no layout engine and no
 // such method, so under test the selector alone decides.

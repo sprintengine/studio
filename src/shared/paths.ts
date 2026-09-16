@@ -3,8 +3,8 @@
  * Node `path` dependency — all functions work on user-visible workspace and
  * file paths that mix `/` and `\` separators.
  *
- * Relocated verbatim from `src/renderer/src/utils/paths.ts`
- * (sprint-runtime-ownership Phase 2); the renderer file remains as a
+ * Relocated verbatim from `src/renderer/src/utils/paths.ts` when the main
+ * process began needing the same normalisation; the renderer file remains as a
  * re-export shim, so every existing import site and test keeps working
  * unchanged.
  */

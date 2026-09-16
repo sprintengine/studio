@@ -520,7 +520,6 @@ async function testMcpSkillBundleIsVisibleAndLaunchesTerminalWithInstalledMcp():
       const syncInputs: Array<{ settings: McpSettings; clients: string[] }> = []
       const runtime = runtimeModule.createTerminalRuntime({
         diagnosticsEnabled: false,
-        requireAuthenticatedUser: () => undefined,
         logMainPerfEvent: () => undefined,
         syncMcpConfig: async (syncInput) => {
           syncInputs.push({ settings: syncInput.settings, clients: syncInput.clients })
@@ -700,7 +699,6 @@ async function testAutomationAndSkillBundleInstallsBoth(): Promise<void> {
     assert.equal(automation.nextRunAt !== null, true, 'scheduled at install, not at the next app start')
     assert.equal(automation.sourceCatalogueId, 'bundle-plugin', 'provenance is the catalogue entry, not the store id')
     assert.notEqual(automation.id, 'bundle-plugin', 'the store issues its own id')
-    assert.equal((automation.action.config as { specialistId?: string }).specialistId, undefined)
     assert.equal(
       result.installed.find((component) => component.kind === 'automation')?.id,
       automation.id,

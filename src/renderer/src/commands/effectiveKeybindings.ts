@@ -1,4 +1,4 @@
-import { getCommandDefinition, type CommandId } from './commandRegistry'
+import { getCommandDefinition } from './commandRegistry'
 import { getRendererHost } from '../modules'
 import { LEGACY_COMMAND_ID_ALIASES, parseKeybinding, renderKeybinding, type KeybindingPlatform } from './keybindings'
 import type { CommandContribution } from './types'
@@ -8,20 +8,10 @@ export type KeybindingSettingsLike = {
   disabled?: Readonly<Record<string, boolean>>
 }
 
-const SPECIALIST_COMMAND_BY_ID: Readonly<Record<string, CommandId>> = {
-  architect: 'specialist.spawn.architect',
-  performance: 'specialist.spawn.performance',
-  'frontend-design-review': 'specialist.spawn.frontend-design-review',
-}
-
 export function platformKeybindingsFromApiPlatform(platform: string): KeybindingPlatform {
   if (platform === 'darwin') return 'darwin'
   if (platform === 'win32') return 'windows'
   return 'linux'
-}
-
-export function getSpecialistCommandId(specialistId: string): CommandId | null {
-  return SPECIALIST_COMMAND_BY_ID[specialistId] ?? null
 }
 
 // `command` carries the registry defaults for commands that live outside the

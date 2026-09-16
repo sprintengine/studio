@@ -12,12 +12,7 @@ import type {
   LayoutTemplate,
   AgentState,
   AgentId,
-  SprintEngineAutoState,
-  SprintEngineCliPermissionPreset,
-  SprintEngineRoleId,
-  SprintEngineRoleCliDefaults,
-  SprintEngineRoleCounts,
-  SprintEngineRoleModelOverrides,
+  CliPermissionPreset,
   AgentCli,
   AgentCliModelSelection,
   AgentConfigAdoptionResult,
@@ -25,8 +20,6 @@ import type {
   AppSettings,
   VoiceDictationSettings,
   CliRuntimeSettings,
-  SpecialistActionId,
-  SprintEngineRoleRegistry,
   NewChatAgentChoice,
   AgentExecution,
   WorkspaceWorktreeState,
@@ -67,8 +60,6 @@ import {
   healRetiredRailLayout,
   stripRetiredRailTabsFromLayout,
   hideNavRailTabStrip,
-  migrateSprintEngineLayout,
-  sprintEngineTabsLayoutModel,
 } from './slices/layoutSlice'
 import {
   createAgentsSlice,
@@ -78,11 +69,6 @@ import {
   normalizeAgentState,
   pickWorkspaceAgentName,
 } from './slices/agentsSlice'
-import {
-  normalizeSprintEngineAutoState,
-  normalizeSprintEngineRoleCliDefaults,
-  normalizeSprintEngineWorkspaceContext,
-} from '../modules/sprint-engine-run-state'
 import {
   createWorktreesSlice,
   defaultWorkspaceWorktreeState,
@@ -120,7 +106,6 @@ import {
 } from './slices/normalizers'
 import { keepLaterWorkspaceClocks } from '../utils/workspaceRecency'
 import { applyWorkspaceFieldsPatch } from '../../../shared/workspace-sync'
-import { reconcileWorkspaceModuleState, sprintEngineRunContext } from './slices/workspaceModuleState'
 import {
   configureWorkspaceSyncClient,
   workspaceSyncClient,
@@ -143,7 +128,6 @@ import {
   type WorkspaceMigrationState,
   classifyPersistedWorkspaceState,
   isDangerousEmptyClassification,
-  hydrateSprintEngineLocalRunSettings,
   migrateLegacyWorkspaceStorageKey,
   migratePersistedWorkspaceState,
   normalizeWorkspaceWindows,
@@ -158,7 +142,6 @@ import type {
   WorkspaceRegistryEmptyState,
   WorkspaceWorktree,
 } from '../types/workspace'
-import { sprintEngineAutomationShouldRun } from '../utils/sprintengineAutomationLifecycle'
 
 migrateLegacyWorkspaceStorageKey()
 
@@ -179,12 +162,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setChatListView: (view: ChatListView) => void
   sidebarWidth: number
   setSidebarWidth: (width: number) => void
-  sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
-  setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
   // Bumped after a skill/plugin install or uninstall so pickers re-read the
   // workspace registry without a restart (MC-2507).
-  sprintEngineRoleRegistryEpoch: number
-  bumpSprintEngineRoleRegistryEpoch: () => void
   // The workspace pane column's width (browser-pane epic), persisted in the
   // settings envelope beside sidebarWidth. Open/closed is per workspace
   // (`workspace.paneState.open`); maximised is session-only.
@@ -301,19 +280,11 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
    * that reveals them is the visit that clears them.
    */
   markDesignSystemSeen: (bundleId: string, at?: string) => void
-  setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
-  setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
-  setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
+  setLastAgentSpawnPermissionPreset: (preset: CliPermissionPreset) => void
+  setLastSelectedAgentModel: (selection: AgentCliModelSelection | null) => void
   /** Drop retired model ids from every remembered launch default for `cli`. */
   forgetCliModels: (cli: AgentCli, modelIds: readonly string[]) => void
-  setSpecialistReasoningDefault: (
-    specialistId: SpecialistActionId,
-    cli: AgentCli,
-    reasoning: string | null,
-  ) => void
-  setSpecialistOrder: (order: SpecialistActionId[]) => void
-  setSpecialistPackEnabled: (packId: string, enabled: boolean) => void
-  markBundledSpecialistPackMigrated: () => void
+  setLastSelectedAgentReasoning: (cli: AgentCli, reasoning: string | null) => void
   setCommandKeybindings: (commandId: CommandId, keybindings: string[]) => void
   setCommandKeybindingDisabled: (commandId: CommandId, disabled: boolean) => void
   resetCommandKeybindings: (commandId: CommandId) => void
@@ -321,21 +292,10 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
-  /** Keep the app (and its sprint runs) alive after the last window closes. */
+  /** Keep the app (and its running agents) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setTelemetryEnabled: (enabled: boolean) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
-  setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
-  saveSprintEngineRoster: (input: {
-    id?: string
-    name: string
-    roleCounts: SprintEngineRoleCounts
-    roleCliDefaults: SprintEngineRoleCliDefaults
-    roleModelOverrides?: SprintEngineRoleModelOverrides
-  }) => string
-  renameSprintEngineRoster: (id: string, name: string) => void
-  deleteSprintEngineRoster: (id: string) => void
-  setSprintEngineLastSelectedRoster: (id: string | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /** Write one value in a module's `module:<id>` settings namespace; `undefined` deletes the key. */
   setModuleSettingValue: (moduleId: string, key: string, value: unknown) => void
@@ -355,13 +315,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
       // Set for a chat created on a paired machine; see Workspace.remoteOrigin.
       remoteOrigin?: import('../types/workspace').WorkspaceRemoteOrigin | null
       worktree?: WorkspaceWorktree | null
-      sprintEngineModule?: import('../../../shared/sprintengine/workspace-record').SprintEngineModuleState
-      sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
-      sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
-      sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
       templateAgentCli?: AgentCli | null
       seedAgent?: SoloChatSeed | null
-      sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       mode?: Workspace['mode']
       // Executor-triggered creation: skip the door-surface clear (MC-1833).
       background?: boolean
@@ -388,8 +343,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
   /**
    * Write one module's entry in a workspace's per-module state bag (MC-1573);
-   * null/undefined removes it. False for an unknown workspace or the reserved
-   * `sprintengine` key (single writer: the Sprint Engine run store).
+   * null/undefined removes it. False for an unknown workspace.
    */
   setWorkspaceModuleState: (workspaceId: WorkspaceId, moduleId: string, state: unknown) => boolean
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
@@ -447,12 +401,7 @@ const workspacesSliceDeps: WorkspacesSliceDependencies = {
   defaultWorkspaceWorktreeState,
   normalizeAgentState,
   normalizeWorkspaceWorktreeState,
-  normalizeSprintEngineWorkspaceContext,
-  normalizeSprintEngineAutoState,
-  normalizeSprintEngineRoleCliDefaults,
-  sprintEngineTabsLayoutModel,
   hideNavRailTabStrip,
-  migrateSprintEngineLayout,
   pickWorkspaceAgentName,
   isPathOrChild,
 }
@@ -540,11 +489,6 @@ type RegistryEnvelopeState = {
   workspaceRegistryEmptyState: unknown
 }
 
-// The retired Sprint Engines aside's persisted keys (sprintEnginesAsideOpen /
-// sprintsAsideWidth / sprintsAsideView, MC-1766). They are absent from this
-// envelope, so they stop being written; an old profile's copies survive in the
-// stored blob but no state field reads them, and the column they described is
-// unclaimed. Nothing to migrate — there is no reachable way to reopen it.
 type SettingsEnvelopeState = {
   appSettings: unknown
   sidebarCollapsed: unknown
@@ -1097,10 +1041,7 @@ async function attemptBackupRecovery(): Promise<void> {
     envelope.state.workspaces = dedupeAutomationsHostWorkspaces(
       envelope.state.workspaces as Workspace[],
     )
-    // Same migrate-ladder bypass for the MC-2573 module-state bag: hoist
-    // top-level engine fields into moduleState.sprintengine before re-persisting.
     envelope.state.workspaces = (envelope.state.workspaces as Workspace[])
-      .map(reconcileWorkspaceModuleState)
       .map(healRetiredRailLayout)
     if (envelope.state.workspaces.length === 0) {
       emitHydrationDiagnostic()
@@ -1145,12 +1086,8 @@ async function attemptBackupRecovery(): Promise<void> {
               recoveredWorkspaces as Workspace[],
             )
             : normalizeAppSettings(current.appSettings, recoveredWorkspaces as Workspace[])
-      const hydrated = hydrateSprintEngineLocalRunSettings(
-        recoveredWorkspaces as Workspace[],
-        recoveredAppSettings,
-      )
       const normalizedWindows = normalizeWorkspaceWindows(
-        hydrated.workspaces,
+        recoveredWorkspaces as Workspace[],
         envelope!.state!.workspaceWindows,
         envelope!.state!.primaryWorkspaceWindowId,
         envelope!.state!.activeWorkspaceId ?? current.activeWorkspaceId,
@@ -1159,17 +1096,17 @@ async function attemptBackupRecovery(): Promise<void> {
       // workspace; fall back to the first surviving (filtered) workspace.
       const recoveredActiveId =
         envelope!.state!.activeWorkspaceId
-        && hydrated.workspaces.some((workspace) => workspace.id === envelope!.state!.activeWorkspaceId)
+        && recoveredWorkspaces.some((workspace) => workspace.id === envelope!.state!.activeWorkspaceId)
           ? envelope!.state!.activeWorkspaceId
-          : hydrated.workspaces[0]?.id ?? current.activeWorkspaceId
+          : recoveredWorkspaces[0]?.id ?? current.activeWorkspaceId
       const next: WorkspaceStore = {
         ...current,
-        workspaces: hydrated.workspaces,
+        workspaces: recoveredWorkspaces,
         activeWorkspaceId: recoveredActiveId,
         workspaceWindows: normalizedWindows.windows,
         primaryWorkspaceWindowId: normalizedWindows.primaryWorkspaceWindowId,
         workspaceRegistryEmptyState: null,
-        appSettings: hydrated.appSettings,
+        appSettings: recoveredAppSettings,
       }
       if (typeof legacySidebarCollapsed === 'boolean') {
         next.sidebarCollapsed = legacySidebarCollapsed
@@ -1269,22 +1206,10 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           dropRetiredModeWorkspaces(
             dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
           ),
-        // The MC-2573 bag hoist (moduleState.sprintengine holds state/context/
-        // roleCliDefaults; top-level fields mirror until readers migrate) is
-        // enforced here, not only in the v76 migration rung, for the same
-        // reason as the heals above: merge() runs on every hydration regardless
-        // of envelope version. Persisted rows carry durable bag fields and a
-        // null run projection (partialize strips `state`), so this is a
-        // reference-preserving no-op on the normal load path.
-        ).map(reconcileWorkspaceModuleState)
         // Files/Git rail tabs → pane tabs (browser-pane epic, store v73): the
         // enforcement half, for the same reason as the heals above.
-        .map(healRetiredRailLayout)
-        const hydrated = hydrateSprintEngineLocalRunSettings(
-          rawWorkspaces,
-          normalizeAppSettings(state?.appSettings, rawWorkspaces),
-        )
-        const workspaces = hydrated.workspaces
+        ).map(healRetiredRailLayout)
+        const workspaces = rawWorkspaces
         const normalizedWindows = normalizeWorkspaceWindows(
           workspaces,
           state?.workspaceWindows ?? current.workspaceWindows,
@@ -1331,7 +1256,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             state?.workspaceRegistryEmptyState !== undefined
               ? state.workspaceRegistryEmptyState
               : current.workspaceRegistryEmptyState,
-          appSettings: hydrated.appSettings,
+          appSettings: normalizeAppSettings(state?.appSettings, workspaces),
         }
       },
       partialize: partializeWorkspaceStoreState,
@@ -1433,34 +1358,6 @@ function syncTerminalKeepRecentAliveToMain(): void {
 }
 syncTerminalKeepRecentAliveToMain()
 
-// Mirror which SprintEngine runs are ACTIVELY dispatching to main, so the idle
-// reaper protects those runs' agents (owned by the claim-aware 5-min retirement)
-// and only disposes agents of inactive/completed runs. Renderer owns run-active
-// state; pushed on startup and on every workspace change (deduped). A run is
-// active when its automation should run (mode !== manual && runtimeState running);
-// completion flips runtimeState off 'running', so it drops out automatically.
-function syncActiveSprintRunsToMain(): void {
-  if (typeof window === 'undefined') return
-  const api = window.api as { setActiveSprintRunStatePaths?: (paths: string[]) => Promise<unknown> } | undefined
-  if (!api?.setActiveSprintRunStatePaths) return
-
-  let lastSerialized = ''
-  const push = (workspaces: Workspace[]): void => {
-    const paths = workspaces
-      .filter((ws) => sprintEngineRunContext(ws)?.statePath && sprintEngineAutomationShouldRun(ws.sprintEngineAutoState))
-      .map((ws) => sprintEngineRunContext(ws)!.statePath)
-      .sort()
-    const serialized = JSON.stringify(paths)
-    if (serialized === lastSerialized) return
-    lastSerialized = serialized
-    void api.setActiveSprintRunStatePaths!(paths)
-  }
-
-  push(useWorkspaceStore.getState().workspaces)
-  useWorkspaceStore.subscribe((state) => push(state.workspaces))
-}
-syncActiveSprintRunsToMain()
-
 // One-time hydration handshake (MC-2158). On the first boot after the registry
 // inverted, main has no registry file and this window is the only place the
 // user's workspaces exist. It offers its POST-migrate-ladder state — the value
@@ -1548,9 +1445,9 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
         paneState: existing.paneState
           ? adoptLegacyBacklogTab(raw.layoutModel, existing.paneState)
           : incoming.paneState,
-        // Live-only fields main never persists: the projection cache the
-        // supervisor re-reads from disk lives in the sprintengine bag, and
-        // in-flight terminal metadata is for agents this window owns.
+        // Live-only fields main never persists: a module's own cache in the
+        // state bag, and in-flight terminal metadata for agents this window
+        // owns.
         moduleState: existing.moduleState,
         agents: preserveAgentTerminalMetadata(incoming, existing).agents,
       })

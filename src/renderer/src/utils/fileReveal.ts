@@ -10,7 +10,7 @@
 // panel is usually cold when the menu item is clicked — the same click reveals it
 // via the panel rail, so it mounts a tick later and can miss a live event. The
 // latch covers that race. It is intentionally separate from `revealTarget.ts`
-// because that latch has a greedy consumer (the Sprint Engine board drains it on
+// because that latch has a greedy consumer (a module surface can drain it on
 // any live event) that would swallow a file target first. Same shape, and for the
 // same reason, as `backlogReveal.ts`.
 

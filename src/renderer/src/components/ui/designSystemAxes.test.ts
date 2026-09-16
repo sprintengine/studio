@@ -135,14 +135,12 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   // (MC-2114). Every hand-rolled field in the settings tabs, the connectors
   // form, the creation wizard's knowledge step, the Learn centre's search and
   // the voice-dictation section gave up its own `rounded-md` for `ui/Input`,
-  // which spells the control radius once; the New sprint dialog's run-name
-  // field gave up a bare `rounded` (Tailwind's 4px default, off the ramp
-  // entirely) for the kit's in-place title edit.
+  // which spells the control radius once.
   // The 2026-08-05 menu/header drop — radius workspace 183 → 174, panels
   // 146 → 145, backlog 20 → 19, ui 12 → 9; type panels 18 → 17; icon ui
   // 22 → 21 — is the long tail outside the guards' directory scope (MC-2138).
-  // Every menu row that had hand-rolled its own `rounded` fill (the roster
-  // popover, both menubar fallbacks, the account menu, the reasoning selector,
+  // Every menu row that had hand-rolled its own `rounded` fill (both
+  // menubar fallbacks, the account menu, the reasoning selector,
   // the skills and connector pickers) takes `MENU_ITEM_CLASS`, which spells no
   // radius at all; and four header bands that drew themselves at their own
   // height — the kit's `WorkspacePanel` and `FilePreviewPane`, the
@@ -170,13 +168,13 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // the HTML artifact frame's, which survived it and moved to
     // `components/htmlArtifact` below — the same off-ramps at a new address,
     // not a win — and the wizard's own panes took the rest with them.
-    'components/workspace': 14, // 2026-09-08: the second swap
+    'components/workspace': 10, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
     // 35 → 34, 2026-09-06: the retired plan door's plan column was deleted
     // with its door (a70ba0931).
     // 34 → 26, 2026-09-08: SwitchboardBoardPanel, SwitchboardWorkspacePanel and
     // the eight WatchtowerPanel files left the tree with their feature. Banked
     // rather than left as headroom — that is where the next regression hides.
-    'components/panels': 16, // 2026-09-08: the second swap moved the panels' controls onto the kit
+    'components/panels': 15, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
     // 30 → 29 with ui 9 → 10: the extension icon chip MOVED into the kit as
     // `ui/ExtensionIcon` (it was `McpBrandIcon` here) so the Skills and MCPs
     // aside could draw the same mark as the Extensions door. Its one
@@ -209,12 +207,12 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // 3 → 2 when the agent composer's nested engine flyout gave up its
     // hardcoded `0 18px 50px rgba(0,0,0,0.55)` for the shared floating chrome
     // (MC-2110). The two that remained were inset hairlines, not elevation;
-    // 2 → 1 when the title bar's specialist split-button was deleted with its
+    // 2 → 1 when the title bar's spawn split-button was deleted with its
     // frame (MC-2222). Locked in rather than left as headroom.
   },
   // 18 → 16 and backlog 1 → 0 when the overlay shells took their layer from the
-  // `--z-*` tokens (MC-2109): the New sprint dialog and the roster manager gave
-  // up `z-50`, and the agent composer's nested engine flyout named the popover
+  // `--z-*` tokens (MC-2109): the overlay dialogs gave up `z-50`, and the
+  // agent composer's nested engine flyout named the popover
   // tier it was already sitting on. What remains on this axis is in-flow depth
   // inside a pane, not overlay layering.
   z: {
@@ -226,7 +224,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // app's one toast region (remote-sessions-ux / toast-host-region).
     // 9 → 8, 2026-09-06: the retired plan door's backlog source was deleted
     // with its door (a70ba0931).
-    'components/panels': 8,
+    'components/panels': 6, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
     'components/ui': 1,
     // New directory, 2026-09-08 — a MOVE out of `components/workspace`, not a
     // regression: the annotate overlay left the deleted Design Wizard's folder
@@ -238,7 +236,7 @@ const BASELINE: Record<Axis, Record<string, number>> = {
   type: {
     // 10 → 9: the session composer's raw `text-sm` became the `text-body`
     // token step (remote-sessions-ux / composer-surface-premium).
-    'components/panels': 8, // 2026-09-08: the second swap
+    'components/panels': 0, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
     utils: 6,
     'components/diagnostics': 2,
   },
@@ -281,8 +279,8 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // workspace 11 → 10, 2026-09-16: the empty-pack notice uses the kit
     // InlineNotice rather than a hand-spelled icon box. Banked, not left as
     // headroom for the next off-ramp.
-    'components/workspace': 10,
-    'components/panels': 10, // 2026-09-08: the second swap
+    'components/workspace': 9, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
+    'components/panels': 4, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
     // ui 14 → 13, 2026-09-09: the "Project colour" swatch row landed beside the
     // highlight one in `ContextMenu`, and rather than adding a fifth copy of the
     // 20px disc the file now spells it once (`SWATCH_DOT_SIZE_CLASS`) for all
@@ -290,11 +288,11 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // still off the ramp (20px sits between icon-md 18 and icon-lg 22) and still
     // owed; it is owed in one place instead of four. Banked, not left as
     // headroom for the next off-ramp.
-    'components/ui': 13,
+    'components/ui': 8, // 2026-09-16: the in-tree Sprint Engine surfaces left the tree with their off-ramps
     // New directory, 2026-09-08 — a MOVE, not a regression. The Design Wizard
     // was deleted; the generated-HTML artifact frame and its annotate mode
-    // survived it (the Backlog mockup surfaces and the Sprint Engine
-    // board/inspector are its real consumers) and moved out of the wizard's
+    // survived it (the Backlog mockup surfaces are its real consumers) and
+    // moved out of the wizard's
     // folder to `components/htmlArtifact`. Its off-ramps changed address out of
     // `components/workspace`, which drops by the same amount below.
     'components/htmlArtifact': 3, // 2026-09-08: the second swap

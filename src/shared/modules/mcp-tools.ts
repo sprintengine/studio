@@ -45,7 +45,6 @@ export type McpConnectionMetadata = {
   agentId?: string
   agentName?: string
   cliId?: string
-  sprintRunId?: string
   /** Paired tailnet device id; set by the transport, never by the client. */
   deviceId?: string
   /** Human name that device was paired under. */

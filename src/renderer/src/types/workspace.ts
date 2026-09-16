@@ -1,95 +1,32 @@
 import type { IJsonModel } from 'flexlayout-react'
 import type { BrowserViewport } from '../../../shared/browser-devices'
-import type {
-  SprintEngineAutoState,
-  SprintEngineCliPermissionPreset,
-} from '../../../shared/sprintengine/automation-types'
-import { SPRINT_ENGINE_WORKSPACE_MODULE_ID } from '../../../shared/sprintengine/workspace-record'
-// The Sprint Engine run-domain type family (state/task/artifact/roster/…) and
-// the AgentState record are shared with the main process (sprint-runtime-
-// ownership Phase 2: main runs the auto-run planner). Canonical definitions —
-// including all field documentation — live in
-// `src/shared/sprintengine/run-types.ts` and
-// `src/shared/agent-state.ts`; the imports pull in the names this
-// module still references and the re-export blocks below keep every existing
-// renderer import site working unchanged, mirroring the automation-types
-// re-export at the bottom of the Sprint Engine section.
+import type { CliPermissionPreset } from '../../../shared/cli-permission-preset'
+// The `AgentState` record is shared with the main process, which composes agent
+// launches with no window open. Canonical definitions — including all field
+// documentation — live in `src/shared/agent-state.ts`; the imports pull in the
+// names this module still references and the re-export block below keeps every
+// existing renderer import site working unchanged.
 import type {
   AgentCli,
   AgentId,
-  SprintEngineRoleSettings,
-  SprintEngineRosterSessions,
-  SprintEngineRunSettings,
-  SprintEngineSourceBundleItem,
-  SprintEngineSourcePlanKind,
-} from '../../../shared/sprintengine/run-types'
-import type {
   AgentConversationRuntime,
   AgentState,
   McpServerConfig,
   McpSettings,
-  SpecialistActionId,
 } from '../../../shared/agent-state'
 
 export type {
   AgentCli,
-  AgentId,
-  SprintEngineAgentMetrics,
-  SprintEngineArchitectDifficulty,
-  SprintEngineArtifact,
-  SprintEngineEvent,
-  SprintEngineFeedbackAnalysisData,
-  SprintEngineMockConfig,
-  SprintEngineProjectionSource,
-  SprintEngineRole,
-  SprintEngineRoleCliDefaults,
-  SprintEngineRoleCounts,
-  SprintEngineRoleId,
-  SprintEngineRoleModelOverrides,
-  SprintEngineRoleReasoningOverrides,
-  SprintEngineRoleRegistry,
-  SprintEngineRoleRegistryMetadata,
-  SprintEngineRoleSettings,
-  SprintEngineRosterSession,
-  SprintEngineRoster,
-  SprintEngineRunnerPolicy,
-  SprintEngineRunSettings,
-  SprintEngineRuntimeAgent,
-  SprintEngineRuntimeAgentStatus,
-  SprintEngineSavedRoster,
-  SprintEngineSource,
-  SprintEngineSourceBundleItem,
-  SprintEngineSourceBundleStateItem,
-  SprintEngineSourcePlanKind,
-  SprintEngineState,
-  SprintEngineTask,
-  SprintEngineTaskActivityEntry,
-  SprintEngineTaskActivityType,
-  SprintEngineTaskBoardColumn,
-  SprintEngineTaskDiff,
-  SprintEngineTaskDiffLine,
-  SprintEngineTaskEvidence,
-  SprintEngineTaskFeedback,
-  SprintEngineTaskFeedbackFinding,
-  SprintEngineTaskFeedbackFindingSeverity,
-  SprintEngineTaskFeedbackIssue,
-  SprintEngineTaskFeedbackScores,
-  SprintEngineTaskStatus,
-  SprintEngineVcs,
-  SprintEngineWorkspaceContext,
-} from '../../../shared/sprintengine/run-types'
-
-export type {
   AgentConversationRuntime,
   AgentExecution,
   AgentExecutionMode,
-  AgentKind,
+  AgentId,
   AgentRuntimeKind,
   AgentState,
   McpServerConfig,
   McpSettings,
-  SpecialistActionId,
 } from '../../../shared/agent-state'
+export type { CliPermissionPreset } from '../../../shared/cli-permission-preset'
 export type WorkspaceId = string
 export type WorkspaceWindowId = string
 export const STANDARD_WORKSPACE_MODE = 'standard'
@@ -154,31 +91,6 @@ export type LayoutTemplate = {
   description: string
   previewSlots: PreviewSlot[]
   layout: IJsonModel
-}
-
-// The Sprint Engine automation vocabulary is shared with the main process
-// (MC-1567: the mode intent is main-owned). Canonical definitions — including
-// `SprintEngineAutoState` and its field documentation — live in
-// `src/shared/sprintengine/automation-types.ts`; these re-exports keep every
-// existing renderer import site working unchanged.
-export type {
-  SprintEngineAutoState,
-  SprintEngineAutomationDesiredMode,
-  SprintEngineAutomationEvent,
-  SprintEngineAutomationMode,
-  SprintEngineAutomationRuntimeState,
-  SprintEngineCliPermissionPreset,
-} from '../../../shared/sprintengine/automation-types'
-
-export type FuturePlanWorkspaceSource = {
-  folderPath: string
-  sourcePath: string
-  sourceRelativePath: string
-  sourceContent: string
-  sourcePlanKind: SprintEngineSourcePlanKind
-  sourceBundle?: SprintEngineSourceBundleItem[]
-  teamName: string
-  goal: string
 }
 
 type WorktreeEntryStatus = 'available' | 'assigned' | 'missing' | 'removing' | 'error'
@@ -364,14 +276,13 @@ export type AgentCliModelSelection = {
 }
 
 // The agent the sidebar's "New chat in project" item spawns on a plain click,
-// remembered from the last pick in the agent picker. Only the kind (and which
-// specialist) is stored — the CLI/model still resolves from lastSelectedCli and
-// the per-specialist defaults at spawn time, so a later CLI switch is honored.
+// remembered from the last pick in the agent picker. Only the kind is stored —
+// the CLI/model still resolves from `lastSelectedCli` and
+// `lastSelectedAgentModel` at spawn time, so a later CLI switch is honored.
 export type NewChatAgentChoice =
   | { kind: 'general' }
   | { kind: 'terminal' }
   | { kind: 'conversation' }
-  | { kind: 'specialist'; specialistId: SpecialistActionId }
 
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
@@ -388,11 +299,9 @@ export type AppSettings = {
   keybindings: KeybindingSettings
   mcp: McpSettings
   /**
-   * The user's global default CLI — the fallback shown for any specialist,
-   * Sprint Engine role, or automation with no per-agent default,
-   * and settable directly in Settings. The General agent, like every specialist,
-   * carries its own entry in `specialistCliDefaults` / `specialistModelDefaults`
-   * (keyed by `GENERAL_AGENT_ENGINE_KEY`), so its engine is isolated from this.
+   * The CLI an agent spawn runs on unless the caller names one: what the
+   * composer's engine picker writes, the fallback for an automation with no
+   * runtime of its own, and settable directly in Settings.
    */
   lastSelectedCli: AgentCli
   /**
@@ -426,37 +335,14 @@ export type AppSettings = {
    * as installed falls back the same way rather than offering a dead editor.
    */
   lastFolderOpenTarget: FolderOpenTargetId | null
-  lastAgentSpawnPermissionPreset: SprintEngineCliPermissionPreset
-  specialistCliDefaults: Partial<Record<SpecialistActionId, AgentCli>>
+  lastAgentSpawnPermissionPreset: CliPermissionPreset
   /**
-   * Per-specialist model override, stored with the CLI it was picked for so a
-   * later CLI switch cannot leak a stale model across CLIs. Honored only when
-   * the row's effective CLI matches; otherwise no model flag is passed.
+   * The model (and reasoning-effort level) an agent spawn last ran on, stored
+   * with the CLI it was picked for so a later CLI switch cannot leak a stale
+   * model across CLIs. Honored only when the spawn's effective CLI matches;
+   * otherwise no model flag is passed. `null` until the user picks one.
    */
-  specialistModelDefaults: Partial<Record<SpecialistActionId, AgentCliModelSelection>>
-  /**
-   * User-defined display order for the spawn-agent specialist menu. Holds the
-   * specialist ids in the sequence the user dragged them into; ids absent here
-   * fall back to the canonical roster order. Empty means "use canonical order".
-   */
-  specialistOrder: SpecialistActionId[]
-  /**
-   * Specialist-pack enablement. `disabled` holds the ids of packs the user has
-   * switched off; a pack absent there is enabled. `migratedBundledPack` guards
-   * the one-time MC-1587 update-migration that installs the (now un-shipped)
-   * specialist pack for users who had it enabled before it stopped being
-   * bundled: false → the migration still needs to run this profile; true →
-   * already evaluated (a fresh profile defaults to true so it installs nothing).
-   */
-  specialistPacks: { disabled: string[]; migratedBundledPack: boolean }
-  sprintEngineRoleSettings: SprintEngineRoleSettings
-  /**
-   * Local operator preferences for an existing Sprint Engine run, keyed by the
-   * normalized absolute `run.yaml` path. These intentionally stay in app-local
-   * settings instead of the portable run store because permission bypass is a
-   * machine/user trust decision.
-   */
-  sprintEngineRunSettings: Record<string, SprintEngineRunSettings>
+  lastSelectedAgentModel: AgentCliModelSelection | null
   projectKnowledgeRoots: Record<string, string | null>
   /**
    * The colours a person chose for projects' folder glyphs, keyed by
@@ -557,7 +443,7 @@ export type AppSettings = {
    * Keep the app running when its last window closes, on every platform
    * (MC-2156). Off by default, which is byte-for-byte the pre-MC-2156 rule:
    * quit on Windows/Linux, survive on macOS. On, the process stays up with a
-   * tray presence, so sprint runs, the scheduler and the Studio gateway keep
+   * tray presence, so running agents, the scheduler and the Studio gateway keep
    * working with no window open. Mirrored to main (`setBackgroundMode`), which
    * reads it at last-window-close when no renderer is left to ask.
    */
@@ -587,13 +473,13 @@ export type AgentConfigAdoptionResult =
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
 export type DiagnosticSource =
+  | 'agents'
   | 'auth'
   | 'automations'
   | 'cli'
   | 'filesystem'
   | 'marketplace'
   | 'models'
-  | typeof SPRINT_ENGINE_WORKSPACE_MODULE_ID
   | 'terminal'
   | 'update'
   | 'voice'
@@ -601,10 +487,9 @@ export type DiagnosticSource =
 
 // A typed, serializable deep-focus target for a notification's Open action. The
 // shell treats it as opaque (it only knows how to reveal the workspace); the
-// owning module interprets `kind`/`ref` (e.g. Sprint Engine resolves
-// `{ kind: 'task', ref: <taskId> }` to its board selection). Must stay plain
-// data — notifications persist to localStorage, so this never carries a
-// callback.
+// owning module interprets `kind`/`ref` and resolves it to a selection of its
+// own. Must stay plain data — notifications persist to localStorage, so this
+// never carries a callback.
 export type NotificationNavigationTarget = {
   kind: string
   ref: string
@@ -624,7 +509,7 @@ export type DiagnosticLogInput = {
   navigationTarget?: NotificationNavigationTarget
   /**
    * The Extensions drawer row this news belongs to (`ExtensionsDrawerRowId`:
-   * workflows, sprints, design, plugins, skills, agent-clis), when the emitter
+   * design, plugins, skills, agent-clis), when the emitter
    * knows. Absent, the row is read off `source` (`extensionsRowOfNotification`).
    * A string rather than the row type because this shape is shared with the
    * main process and persists to localStorage; unknown values fall back to the
@@ -803,9 +688,8 @@ export type WorkspacePaneState = {
  * Marks a standard workspace as living in a git worktree — set when a worktree
  * is opened as a workspace from the Worktree manager. The workspace's
  * `folderPath` already points at the worktree in this case, so this only carries
- * display info (branch/base) and flags the workspace as worktree-backed. Sprint
- * runs instead carry their worktree on the sprintengine bag's `vcs`; both are
- * normalized by `resolveWorkspaceWorktree` (utils/workspaceWorktree.ts).
+ * display info (branch/base) and flags the workspace as worktree-backed.
+ * Normalized by `resolveWorkspaceWorktree` (utils/workspaceWorktree.ts).
  */
 export type WorkspaceWorktree = {
   branch?: string
@@ -827,13 +711,6 @@ export type WorkspaceWorktree = {
  * registry and ride workspace-sync exactly like sibling fields, and modules
  * reach their own entry through the SDK accessors
  * (`RendererHost.getWorkspaceModuleState` / `setWorkspaceModuleState`).
- *
- * The `sprintengine` entry is a wrapped `SprintEngineModuleState`: durable
- * identity (`context`, `roleCliDefaults`) persists in the bag; the live run
- * projection (`state`) is a cache of on-disk projection.json and is stripped
- * at partialize. Readers use `getWorkspaceModuleState` / the sprintengine
- * accessors; a one-time persist hoist (store v76) is marked for deletion
- * with the in-tree engine.
  */
 export type WorkspaceModuleStateBag = Record<string, unknown>
 
@@ -898,20 +775,8 @@ export type Workspace = {
   gitPanelState?: WorkspaceGitPanelState
   // The workspace pane's tabs (browser-pane epic); absent until first opened.
   paneState?: WorkspacePaneState
-  // Per-module state bag (MC-1573) — see WorkspaceModuleStateBag. The
-  // `sprintengine` entry is the canonical SprintEngineModuleState.
+  // Per-module state bag (MC-1573) — see WorkspaceModuleStateBag.
   moduleState?: WorkspaceModuleStateBag
-  // Durable per-agent CLI session records, keyed by roster agent id. Populated
-  // when a sprint agent gets a live session and just before completion teardown
-  // removes its panel, so a role can be re-opened later and resumed. Survives
-  // panel removal and app restart (persisted alongside role CLI defaults).
-  sprintEngineRosterSessions?: SprintEngineRosterSessions
-  // Roster agents the user explicitly asked to start when the workspace
-  // opens (new-workspace "Start now" intent). Session-only launch intent:
-  // consumed by the Sprint Engine board on first ready render and stripped
-  // at persist so an app restart never replays the spawns.
-  sprintEngineInitialSpawnAgentIds?: AgentId[]
-  sprintEngineAutoState: SprintEngineAutoState
   highlight?: WorkspaceHighlight
   createdAt: number
   lastTerminalActivityAt?: number | null
@@ -970,7 +835,7 @@ export type Workspace = {
   // True once this workspace's name is settled and auto-titling must never touch
   // it again. Set by the auto-title itself (a name derived from the first real
   // prompt), by a manual rename, and at creation for any workspace given an
-  // explicit name (the wizard, a sprint roster, a chained run).
+  // explicit name (the wizard, a chained run).
   //
   // This is what makes the name stop moving: a second prompt, a second terminal,
   // or a resumed session all find the lock set and leave the name alone. Absent

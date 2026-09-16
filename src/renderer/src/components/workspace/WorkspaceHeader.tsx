@@ -7,7 +7,7 @@
 //
 // The strip is an `app-drag` region; interactive controls opt out. Non-mac window
 // controls are NOT here — they pin to the window's absolute top-right corner
-// (WorkspaceManager), since the Sprint Engines aside can own that corner.
+// (WorkspaceManager), since a door's own aside can own that corner.
 //
 // Its ground is --bg-chrome-bar, the token the whole 36px band shares (rail
 // reserve, sidebar chrome, this header, the pane's tab strip). On a solid
@@ -53,7 +53,7 @@ type WorkspaceHeaderProps<MenuItem extends string> = {
   // slots so this header never threads the ~50 workspace/agent props they need.
   identitySlot: React.ReactNode
   actionsSlot: React.ReactNode
-  // True when a global "door" surface (Sprints, Reviews, Automations) covers the
+  // True when a global "door" surface (Design, Reviews, Automations) covers the
   // workspace card. The workspace-scoped left cluster (panel switches + identity)
   // is chrome for the active workspace — with the card hidden behind a full-page
   // door it has nothing to act on, so it's replaced by the surface's own bar,

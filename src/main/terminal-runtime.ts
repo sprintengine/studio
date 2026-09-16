@@ -32,23 +32,18 @@ import {
   getShellLaunchConfig,
   getTerminalEnv,
 } from './terminal-launch'
-import { existsSync } from 'node:fs'
-import { basename, dirname } from 'node:path'
-import { samePath } from '../shared/paths'
 import { getSharedCredentialStore } from './secret-store'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
 import { MobileControlCommandService } from './mobile/control/command'
-import { getPluginById, getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
+import { getPluginById } from './plugin-registry-instance'
 import { cliCredentialLaunchBlock, pluginIdForCli } from './agent-launch-render'
 import {
   agentCliLaunchFailureResult,
   preflightAgentCliLaunch,
   type DetectAgentCliAvailabilityDeps,
 } from './cli-availability'
-import { defaultUserRoleRegistryRoot } from './sprintengine-role-registry'
-import { sprintEngineDeclaredSiblingRepoRoots, sprintEngineSessionBindingForLaunchCwd } from './sprintengine-artifacts'
 import {
   appendTerminalOutput,
   clearAgentStallTimer,
@@ -88,11 +83,6 @@ import {
   type TerminalAttachTransport,
   type TerminalRemoteHost,
 } from './terminal-remote-attach'
-import {
-  isClaudeHarnessCli,
-  recordSprintSessionForTokenLedger,
-  sampleSprintSessionTokenUsage,
-} from './sprintengine-token-sampling'
 import { killCliSessionSurvivors, probeSubtreesForLiveWork, type SubtreeProbeDeps } from './terminal-subtree-probe'
 import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
@@ -110,11 +100,9 @@ import {
 import { recordReapEvent } from './terminal-reap-log'
 import type { TerminalRootInfo } from './workspace-memory'
 import type { ChangelistEdit } from '../shared/git/changelists'
-import { isSidecarDirName } from '../shared/workspace-sidecar'
 
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
-  requireAuthenticatedUser(message: string): void
   logMainPerfEvent(scope: string, event: string, payload: Record<string, unknown>): void
   // Turns a hook-reported cwd into the checkout containing it (MC-2440).
   // Defaults to the git-backed resolver; tests inject a stub so no git runs.
@@ -124,40 +112,7 @@ type TerminalRuntimeOptions = {
     settings: McpSettings
     clients: AgentCli[]
     pruneUnlistedServers?: boolean
-    managedSprintEngine?: {
-      statePath: string
-      workspaceRoot?: string
-      allowedRoots?: string[]
-      registryRoots?: string[]
-      userRoot?: string
-      actorId?: string
-      workspaceId?: string
-      agentId?: string
-      role?: string
-      repo?: string
-      /** The one task this session may work, when its cwd is that task's own
-       *  worktree (MC-2136). Absent on shared-worktree runs. */
-      taskId?: string
-      cli?: AgentCli
-      knowledgeRoot?: string
-      http?: {
-        url: string
-        authTokenEnvVar?: string
-        headers?: Record<string, string>
-      }
-    }
-  }): Promise<{ ok: true; managedSprintEngineRunId?: string; runTokenEnv?: Record<string, string> } | { ok: false; message: string }>
-  releaseManagedSprintEngineRun?(input: {
-    runId: string
-    workspaceRoot: string
-    clients: AgentCli[]
-    cleanupMcpConfig: boolean
-  }): Promise<void> | void
-  callManagedSprintEngineTool?(input: {
-    runId: string
-    toolName: string
-    arguments?: Record<string, unknown>
-  }): Promise<unknown>
+  }): Promise<{ ok: true } | { ok: false; message: string }>
   // Ensures a built-in skill is installed into the workspace before an agent
   // launches. Debug Mode uses this to guarantee the `debug` skill is present in
   // the session CLI's native skill dir so the injected invocation resolves to a
@@ -253,7 +208,6 @@ type TerminalIpcHandlers = {
   setIdleSuspendThresholdMs(value: unknown): void
   setKeepRecentTerminalsAlive(value: unknown): void
   setTerminalReapExempt(sessionId: string, exempt: boolean): void
-  setActiveSprintRunStatePaths(value: unknown): void
 }
 
 type TerminalRuntime = {
@@ -267,8 +221,6 @@ type TerminalRuntime = {
   shutdown(): Promise<void>
   getLiveAgentExecutionIds(): LiveAgentExecution[]
   resolveAgentExecutionId(input: { workspaceId: string; agentId: string }): string | undefined
-  /** Move a sprint run's sessions onto the workspace id that owns them; returns how many moved. */
-  adoptSprintRunWorkspaceId(input: { statePath: string; workspaceId: string }): number
   registerAgentSessionExitListener(listener: AgentSessionExitListener): () => void
   // Fires on every accepted agent-state phase transition (see ingestAgentStateFrame):
   // frames for a dead pty and stale frames never reach a listener.
@@ -306,7 +258,6 @@ type TerminalRuntime = {
   flushSessionsBroadcast(): void
 }
 
-let requireAuthenticatedUser = (_message: string): void => {}
 let terminalDiagnostics = createTerminalDiagnostics({
   enabled: false,
   logMainPerfEvent: () => {},
@@ -315,8 +266,6 @@ let logMainPerfEvent: TerminalRuntimeOptions['logMainPerfEvent'] = () => {}
 const agentSessionExitListeners = new Set<AgentSessionExitListener>()
 const agentPhaseListeners = new Set<AgentPhaseListener>()
 let syncMcpConfig: TerminalRuntimeOptions['syncMcpConfig']
-let releaseManagedSprintEngineRun: TerminalRuntimeOptions['releaseManagedSprintEngineRun']
-let callManagedSprintEngineTool: TerminalRuntimeOptions['callManagedSprintEngineTool']
 let ensureBuiltinSkillInstalled: TerminalRuntimeOptions['ensureBuiltinSkillInstalled']
 let excludeWorktreeMcpConfig: TerminalRuntimeOptions['excludeWorktreeMcpConfig']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
@@ -336,6 +285,19 @@ let onAgentSessionExit: TerminalRuntimeOptions['onAgentSessionExit']
 function agentStateSupportsCli(cli: string | undefined): cli is string {
   if (!cli) return false
   return Boolean(getPluginById(pluginIdForCli(cli))?.manifest.agentStateSpec)
+}
+
+// Whether this runtime keeps a Claude-family transcript under `~/.claude`, read
+// from the resolving plugin's declared `skillIntegration.harnessId`. The
+// conversation peek asks before it derives a transcript path for a session, so
+// it never invents a Claude-shaped path for a CLI that writes none.
+function isClaudeHarnessCli(cli: string | undefined): boolean {
+  if (!cli) return false
+  try {
+    return getPluginById(pluginIdForCli(cli))?.manifest.skillIntegration?.harnessId === 'claude'
+  } catch {
+    return false
+  }
 }
 
 // The resolving plugin's agentStateSpec for a live session, consulted per
@@ -370,135 +332,11 @@ export function cliResumeCapabilities(
 function cliResumesWithCallerSessionId(cli: string | undefined): boolean {
   return cliResumeCapabilities(cli).sessionIdFromCaller
 }
-const sprintEngineMcpRunRefCounts = new Map<string, number>()
-const sprintEngineMcpWorkspaceRefCounts = new Map<string, number>()
-const pendingSprintEngineMcpRunReleases = new Set<Promise<void>>()
-const sprintEngineAgentHeartbeatTimers = new Map<string, ReturnType<typeof setInterval>>()
-const pendingSprintEngineLifecycleCalls = new Set<Promise<void>>()
-const pendingSprintEngineTerminalTeardowns = new Map<string, { session: TerminalSession; promise: Promise<void> }>()
-
-export const MANAGED_AGENT_HEARTBEAT_INTERVAL_MS = 60 * 1000
-
-/**
- * A sprint agent's worktree gets the managed Sprint Engine server plus every
- * connector the user enabled (the sprint wizard's Tools step and the
- * Connectors surface both write `enabled` + `syncEnabled`). Enabled servers
- * are extended to the launching CLI even when their client list doesn't name
- * it: the per-server client list scopes plain workspace syncs, but a sprint
- * provisions whichever CLIs the roster actually runs. Disabled servers stay in
- * the map as known-but-inactive so stale managed entries are pruned from the
- * worktree config.
- */
-export function mcpSettingsForManagedSprintEngineLaunch(
-  settings: McpSettings | undefined,
-  cli: AgentCli
-): McpSettings {
-  const syncEnabled = settings?.syncEnabled === true
-  const servers: McpSettings['servers'] = {}
-  for (const [key, server] of Object.entries(settings?.servers ?? {})) {
-    if (!syncEnabled || !server.enabled) {
-      servers[key] = { ...server, enabled: false }
-    } else if (server.clients.includes(cli)) {
-      servers[key] = server
-    } else {
-      servers[key] = { ...server, clients: [...server.clients, cli] }
-    }
-  }
-  return { syncEnabled, servers }
-}
-
-/**
- * Run registration must authorize the run store, not just the terminal cwd:
- * worktree-mode agents launch in
- * `<root>/.sprintengine/sprintengine/<run>/worktree` while `run.yaml` lives in
- * that directory's parent, so registering the launch cwd as the workspace
- * root rejects the statePath (HTTP 400 invalid_run_registration: statePath
- * is outside allowedRoots). Mirror the MCP server's own
- * `_default_workspace_root` derivation: the project root is the parent of
- * the sidecar segment the state path lives under, falling back to the
- * launch cwd for non-standard layouts.
- */
-export function deriveSprintEngineRegistrationRoot(statePath: string, launchCwd: string): string {
-  let current = dirname(statePath)
-  while (true) {
-    if (isSidecarDirName(basename(current))) return dirname(current)
-    const parent = dirname(current)
-    if (parent === current) return launchCwd
-    current = parent
-  }
-}
-
-export function buildManagedSprintEngineSyncInputForLaunch(
-  statePath: string,
-  launchCwd: string,
-  launch?: {
-    workspaceId?: string
-    agentId?: string
-    role?: string
-    cli?: AgentCli
-    knowledgeRoot?: string
-  }
-): NonNullable<Parameters<NonNullable<TerminalRuntimeOptions['syncMcpConfig']>>[0]['managedSprintEngine']> {
-  const registrationRoot = deriveSprintEngineRegistrationRoot(statePath, launchCwd)
-  const sessionBinding = sprintEngineSessionBindingForLaunchCwd(statePath, launchCwd)
-  return {
-    statePath,
-    workspaceRoot: registrationRoot,
-    // The run's own project plus the other projects it declared, and nothing else:
-    // an agent working a task in a sibling project must be able to reach that
-    // project's files, and a project the run never declared stays refused. A
-    // single-project run declares no siblings, so its surface is the root alone.
-    allowedRoots: Array.from(new Set([registrationRoot, ...sprintEngineDeclaredSiblingRepoRoots(statePath)])),
-    registryRoots: sprintEngineRegistryRootsForLaunch(),
-    userRoot: getPluginRegistryUserRoot(),
-    actorId: 'multicode-app',
-    workspaceId: launch?.workspaceId,
-    agentId: launch?.agentId,
-    role: launch?.role,
-    // What this session is bound to, from the worktree it launches into: the
-    // repo (MC-1610) and, under per-task isolation, the one task whose own tree
-    // this is (MC-2136) — a session in a task's tree may only work that task,
-    // because that is the tree the engine commits it from. Null for a launch
-    // outside any declared worktree, which leaves the session unbound as before.
-    repo: sessionBinding.repo ?? undefined,
-    taskId: sessionBinding.taskId ?? undefined,
-    cli: launch?.cli,
-    knowledgeRoot: launch?.knowledgeRoot ?? '',
-  }
-}
-
-export function sprintEngineRegistryRootsForLaunch(): string[] {
-  try {
-    const roots = getPluginSprintEngineRegistryRoots().map((root) => root.root)
-    // Mirror sprintEngineRegistryRootsForRead (src/main/sprintengine-artifacts.ts):
-    // user-authored roles live under defaultUserRoleRegistryRoot() with the same
-    // { roles/, skills/ } shape, so adding the root lets managed agent.join resolve
-    // them at spawn. Only when the directory exists, so absent-dir launches are
-    // unaffected.
-    const userRoot = defaultUserRoleRegistryRoot()
-    if (existsSync(userRoot)) roots.push(userRoot)
-    return roots
-  } catch {
-    return []
-  }
-}
-
-function sprintEngineRoleForLaunch(role: string | undefined, agentId: string | undefined): string | undefined {
-  if (role?.trim()) return role.trim()
-  const normalizedAgentId = agentId?.trim()
-  if (!normalizedAgentId) return undefined
-  const indexedRoleMatch = normalizedAgentId.match(/^(.+)-\d+$/)
-  return indexedRoleMatch?.[1]
-}
-
 export function createTerminalRuntime(options: TerminalRuntimeOptions): TerminalRuntime {
-  requireAuthenticatedUser = options.requireAuthenticatedUser
   resolveObservedCheckout = options.resolveObservedCheckout ?? resolveCheckoutForCwd
   agentSessionExitListeners.clear()
   agentPhaseListeners.clear()
   syncMcpConfig = options.syncMcpConfig
-  releaseManagedSprintEngineRun = options.releaseManagedSprintEngineRun
-  callManagedSprintEngineTool = options.callManagedSprintEngineTool
   ensureBuiltinSkillInstalled = options.ensureBuiltinSkillInstalled
   excludeWorktreeMcpConfig = options.excludeWorktreeMcpConfig
   prepareAgentStateHook = options.prepareAgentStateHook
@@ -511,11 +349,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   onAgentSessionExit = options.onAgentSessionExit
   reapSkipLogState.clear()
   remoteTerminalViewers.clear()
-  sprintEngineMcpRunRefCounts.clear()
-  sprintEngineMcpWorkspaceRefCounts.clear()
-  pendingSprintEngineMcpRunReleases.clear()
-  pendingSprintEngineLifecycleCalls.clear()
-  pendingSprintEngineTerminalTeardowns.clear()
   logMainPerfEvent = options.logMainPerfEvent
   terminalDiagnostics = createTerminalDiagnostics({
     enabled: options.diagnosticsEnabled,
@@ -529,7 +362,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     shutdown: shutdownTerminalRuntime,
     getLiveAgentExecutionIds,
     resolveAgentExecutionId,
-    adoptSprintRunWorkspaceId: adoptSprintRunSessionWorkspaceId,
     registerAgentSessionExitListener,
     registerAgentPhaseListener,
     killAgentSession: killAgentSessionByExecutionId,
@@ -567,7 +399,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
       setIdleSuspendThresholdMs: setIdleSuspendThresholdMs,
       setKeepRecentTerminalsAlive: setKeepRecentTerminalsAlive,
       setTerminalReapExempt: setTerminalReapExempt,
-      setActiveSprintRunStatePaths: setActiveSprintRunStatePaths,
     },
   }
 }
@@ -872,7 +703,7 @@ const terminalOutput = createTerminalOutputBuffer({
  * and a window opened later reattaches through `spawnTerminalFromIpc`'s
  * existing-session branch, adopting the real WebContents and replaying
  * scrollback. The one definition for every main-process spawn: the descriptor
- * and the sprint scheduler's spawn port in `src/main/app-services.ts`.
+ * and the launch service's spawn port in `src/main/app-services.ts`.
  */
 export function resolveSpawnEventSink(): WebContents {
   return BrowserWindow.getAllWindows()
@@ -1074,9 +905,9 @@ function flushPendingTerminalResize(sessionId: string, session: TerminalSession)
 
 // Freeze-the-view: kill the agent process to reclaim its RAM but KEEP the
 // session (painted scrollback + --resume launch flags) so it can be resumed on
-// the next keystroke. Unlike disposeTerminal this does not remove the session,
-// does not fire `terminal:exit` (the view stays painted), and does not tear down
-// the agent's SprintEngine run. The pty `onExit` handler finalizes the suspend
+// the next keystroke. Unlike disposeTerminal this does not remove the session
+// and does not fire `terminal:exit` (the view stays painted). The pty `onExit`
+// handler finalizes the suspend
 // (sets `suspended`, broadcasts) by branching on the `suspending` flag set here.
 export function suspendTerminal(sessionId: string): void {
   const session = terminals.get(sessionId)
@@ -1334,13 +1165,6 @@ function disposeTerminal(sessionId: string): void {
   // App-quit teardown deliberately does NOT run through here (disposeAllTerminals
   // inlines its own loop), so quit never erases the sidecars it just wrote.
   snapshotSidecars?.remove(sessionId)
-  // Token accounting: dispose is the single choke point every sprint terminal
-  // passes through (single-owner teardown, run completion, reap, resume) — the
-  // last chance to snapshot this session's cumulative usage into the run's
-  // durable ledger. Fire-and-forget; a mid-session dispose (resume relaunch)
-  // just writes an interim sample that a later one supersedes.
-  void sampleSprintSessionTokenUsage(session, 'teardown')
-  void queueSprintEngineTerminalTeardown(session, 'terminal disposed')
   cleanupTerminalStartupScript(session.startupScriptPath)
   cleanupHostContextFile(session.hostContextPath)
   terminalOutput.flush(sessionId, 'dispose')
@@ -1454,23 +1278,6 @@ export function setTerminalReapExempt(sessionId: string, exempt: boolean): void 
     reapExempt: next,
   })
   broadcastTerminalSessionsChanged()
-}
-
-// SprintEngine run.yaml statePaths whose dispatch loop is currently ACTIVELY
-// running (pushed from the renderer, which owns run-active state). The idle
-// reaper protects sprint agents belonging to these — an active run's idle agents
-// are owned by the claim-aware 5-min AutoRun retirement, and disposing them from
-// here would race the dispatch (flapping / lost in-flight claims). A sprint agent
-// whose run is NOT in this set (completed, stopped, or manual) is reclaimable —
-// that is the parked-until-teardown gap this sweep exists to close. Empty until
-// the renderer first syncs (so before sync, all sprint agents look inactive and
-// only an authoritatively-idle one is reaped, which is the safe default).
-let activeSprintRunStatePaths = new Set<string>()
-
-export function setActiveSprintRunStatePaths(value: unknown): void {
-  activeSprintRunStatePaths = new Set(
-    Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === 'string') : []
-  )
 }
 
 let staleTerminalSweepTimer: ReturnType<typeof setInterval> | undefined
@@ -1656,27 +1463,6 @@ function buildReapCandidates(): ReapCandidate[] {
     // When the agent went to rest — keeps a just-finished (or just-stalled)
     // agent alive until it has actually rested past the threshold.
     idleSince: isAtRestAgentPhase(session.agentState?.phase) ? (session.agentState?.since ?? null) : null,
-    // A SprintEngine agent is protected from this sweep when EITHER its run's
-    // dispatch loop is actively running (the claim-aware 5-min AutoRun retirement
-    // owns those — disposing from here would race the dispatch: flapping, or
-    // dropping an in-flight claim + `--resume` conversation) OR its rest is not
-    // AUTHORITATIVELY known. `agentState.phase` is lifecycle-stamped from birth
-    // (spawn `starting`, hook frames thereafter — output-timing inference is
-    // gone), so a sprint agent always carries one; a long autonomous turn has
-    // no keystrokes, which is exactly why the phase, never the keystroke
-    // floor, decides. So we only reap a sprint agent that is BOTH in an
-    // inactive run AND authoritatively at rest: 'idle', or 'stalled' — a worker
-    // whose Stop frame was lost lands in 'stalled', and it must expire like idle
-    // or it parks until app quit (the 2026-07-07 incident). Those we DISPOSE
-    // (branch below) → `agent.leave` (→ `left`) → the dispatch revival path
-    // respawns them when work returns. This closes the parked-until-teardown gap
-    // for completed/stopped/manual runs without touching active ones. (Empty set
-    // before the renderer first syncs ⇒ runs look inactive ⇒ only
-    // authoritatively-at-rest agents reap, the safe default.)
-    inActiveRun:
-      Boolean(session.sprintEngineStatePath)
-      && (activeSprintRunStatePaths.has(session.sprintEngineStatePath ?? '')
-        || !isAtRestAgentPhase(session.agentState?.phase)),
     // Managed-ness is a module's claim on the session's lifetime, recorded at
     // spawn from the launch contribution (MC-2577). Core no longer infers it
     // from a run-state path: with the owning module absent or disabled nothing
@@ -1782,14 +1568,6 @@ export function runIdleAgentReapSweep(
     const session = terminals.get(sessionId)
     if (!session || session.isDisposed) continue
     const idleMs = now - terminalLastInteractionAt(session)
-    // SprintEngine agents are orchestrator-driven (no user keystroke to resume on),
-    // so freeze-the-view suspend is the wrong reclaim action for them: it would
-    // keep the dead session around without marking the agent `left`, breaking the
-    // dispatch (a duplicate fresh terminal, no revival). Disposing instead fires
-    // `agent.leave` (→ `left`), which the dispatch's revival path turns back into a
-    // respawn when the role next has claimable work. Plain (non-sprint) agent
-    // terminals keep the user-facing freeze-the-view suspend.
-    const reclaimByDispose = Boolean(session.sprintEngineStatePath)
     logMainPerfEvent('TerminalRuntime', 'terminal-idle-reaped', {
       sessionId,
       kind: session.kind,
@@ -1799,11 +1577,11 @@ export function runIdleAgentReapSweep(
       lastInteractionAt: terminalLastInteractionAt(session),
       agentPhase: session.agentState?.phase ?? null,
       idleMs,
-      action: reclaimByDispose ? 'dispose' : 'suspend',
+      action: 'suspend',
     })
     recordReapEvent({
       reapedAt: now,
-      reason: reclaimByDispose ? 'idle-dispose' : 'idle-suspend',
+      reason: 'idle-suspend',
       sessionId,
       workspaceId: session.workspaceId ?? null,
       agentId: session.agentId ?? null,
@@ -1815,7 +1593,7 @@ export function runIdleAgentReapSweep(
     logReapDiagnostic?.({
       level: 'info',
       title: 'Terminal reaper',
-      message: reclaimByDispose ? 'Idle sweep disposed a sprint agent' : 'Idle sweep suspended an agent',
+      message: 'Idle sweep suspended an agent',
       details: [
         `Idle for ${Math.round(idleMs / 60_000)}m (threshold ${Math.round(configuredSuspendIdleAfterMs / 60_000)}m)`,
         `Phase: ${session.agentState?.phase ?? 'none (not an agent)'}`,
@@ -1825,8 +1603,7 @@ export function runIdleAgentReapSweep(
       ...(session.agentId ? { agentId: session.agentId } : {}),
       sessionId,
     })
-    if (reclaimByDispose) disposeTerminal(sessionId)
-    else suspendTerminal(sessionId)
+    suspendTerminal(sessionId)
   }
   return actionableSessionIds
 }
@@ -1926,21 +1703,11 @@ async function shutdownTerminalRuntime(): Promise<void> {
   // the teardown below would ever drop them.
   clearConversationPeekCaches()
   await disposeAllTerminals()
-  await Promise.allSettled([...pendingSprintEngineTerminalTeardowns.values()].map((entry) => entry.promise))
-  await Promise.allSettled([...pendingSprintEngineLifecycleCalls])
-  await Promise.allSettled([...pendingSprintEngineMcpRunReleases])
 }
 
 async function disposeAllTerminals(): Promise<void> {
   const sessions = [...terminals.values()].filter((session) => !session.isDisposed)
-  const teardownPromises: Promise<void>[] = []
   for (const session of sessions) {
-    teardownPromises.push(queueSprintEngineTerminalTeardown(session, 'terminal runtime shutdown'))
-    // Token accounting: app quit bypasses disposeTerminal (deliberately, so
-    // sidecars survive), so snapshot each sprint session's cumulative usage
-    // here — awaited below, the last durable write before transcripts can be
-    // pruned and the only one an OpenCode-style server-backed source gets.
-    teardownPromises.push(sampleSprintSessionTokenUsage(session, 'teardown'))
     cleanupTerminalStartupScript(session.startupScriptPath)
     cleanupHostContextFile(session.hostContextPath)
     terminalOutput.flush(session.sessionId, 'dispose')
@@ -1981,9 +1748,6 @@ async function disposeAllTerminals(): Promise<void> {
   })
   await Promise.all(sessions.map((session) => waitForTerminalExit(session, 500)))
   await Promise.allSettled([...pendingAgentListenerRecords])
-  await Promise.allSettled(teardownPromises)
-  await Promise.allSettled([...pendingSprintEngineTerminalTeardowns.values()].map((entry) => entry.promise))
-  await Promise.allSettled([...pendingSprintEngineMcpRunReleases])
 
   for (const session of sessions) {
     if (terminals.get(session.sessionId) === session) {
@@ -1993,7 +1757,6 @@ async function disposeAllTerminals(): Promise<void> {
     }
   }
   broadcastTerminalSessionsChanged()
-  sprintEngineMcpRunRefCounts.clear()
 }
 
 function getLiveAgentExecutionIds(): LiveAgentExecution[] {
@@ -2021,34 +1784,6 @@ function resolveAgentExecutionId(input: { workspaceId: string; agentId: string }
     }
   }
   return undefined
-}
-
-/**
- * Re-home a sprint run's sessions onto the workspace id that finally owns them,
- * and report how many moved.
- *
- * A run discovered at boot (`sprintengine-boot-discovery.ts`) is registered with
- * a PLACEHOLDER workspace id and can spawn agents before any window exists. When
- * a window registers the run, the scheduler adopts the real workspace id — and
- * every session that placeholder minted has to move with it, or the
- * workspace-keyed lookups miss the live agent and start a second one: the board's
- * roster ("is this agent's terminal live?"), `disposeOtherAgentSessions`, and
- * `resolveAgentExecutionId`.
- *
- * Sessions are matched on the run, never on the old id — statePath is the run's
- * identity. Suspended sessions move too (an idle-reaped agent is still the run's).
- */
-function adoptSprintRunSessionWorkspaceId(input: { statePath: string; workspaceId: string }): number {
-  let moved = 0
-  for (const session of terminals.values()) {
-    if (session.isDisposed) continue
-    if (!samePath(session.sprintEngineStatePath ?? null, input.statePath)) continue
-    if (session.workspaceId === input.workspaceId) continue
-    session.workspaceId = input.workspaceId
-    if (session.agentSession) session.agentSession.workspaceId = input.workspaceId
-    moved += 1
-  }
-  return moved
 }
 
 function registerAgentSessionExitListener(listener: AgentSessionExitListener): () => void {
@@ -2082,8 +1817,7 @@ function killAgentSessionByExecutionId(input: { workspaceRoot: string; execution
 function disposeOtherAgentSessions(
   sessionId: string,
   workspaceId: string | undefined,
-  agentId: string | undefined,
-  sprintEngineStatePath: string | undefined
+  agentId: string | undefined
 ): void {
   if (!workspaceId || !agentId) return
 
@@ -2094,7 +1828,6 @@ function disposeOtherAgentSessions(
       && session.kind === 'agent'
       && session.workspaceId === workspaceId
       && session.agentId === agentId
-      && (!sprintEngineStatePath || !session.sprintEngineStatePath || session.sprintEngineStatePath === sprintEngineStatePath)
     ))
     .map((session) => session.sessionId)
 
@@ -2403,15 +2136,6 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // the manifest already normalizes that into the phase vocabulary.
   const resolved = resolveAgentStateEvent(agentStateSpecForSession(session), frame)
 
-  // Token accounting flush: a session-end frame (phase `exited`) fires while
-  // the CLI shuts down and can race the pty exit (and the stale-frame guard
-  // below), so snapshot the session's cumulative usage BEFORE the
-  // liveness/ordering guards — this is the warm-source moment and must never
-  // be dropped. Fire-and-forget.
-  if (session.sprintEngineStatePath && resolved.action === 'apply' && resolved.phase === 'exited') {
-    void sampleSprintSessionTokenUsage(session, 'session-end')
-  }
-
   if (!isTerminalProcessAlive(session)) return
 
   // What the agent just edited, folded into the session's ledger ahead of BOTH
@@ -2616,20 +2340,6 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
     !!frame.sessionId && frame.sessionId !== session.cliSessionId
   if (cliSessionIdChanged) session.cliSessionId = frame.sessionId ?? session.cliSessionId
 
-  // Token accounting (sprint-managed agents only): every captured session id
-  // is appended to the run's durable token ledger — a resume mints a new id
-  // whose cumulative counter restarts at zero, so all ids must be kept. The
-  // session-start trigger (phase `starting`) covers resume-seeded sessions
-  // whose id was already known at spawn (cliSessionIdChanged never fires for
-  // those); the reader folds repeated records. Fire-and-forget, never affects
-  // the transition.
-  if (
-    session.sprintEngineStatePath
-    && (cliSessionIdChanged || resolution.phase === 'starting')
-  ) {
-    recordSprintSessionForTokenLedger(session)
-  }
-
   // Bridge to the legacy activity field so existing consumers (sidebar bolding,
   // reaping, diagnostics) reflect the authoritative phase. Suppress its own
   // broadcast; we decide below whether a broadcast is warranted.
@@ -2739,8 +2449,6 @@ function retainFailedTerminalSession(input: {
   terminalId?: string
   cli?: TerminalSession['cli']
   cwd?: string
-  sprintEngineStatePath?: string
-  sprintEngineMcpRunId?: string
   executionMode?: TerminalSession['executionMode']
   worktreeId?: string
   worktreePath?: string
@@ -2764,188 +2472,6 @@ function retainFailedTerminalSession(input: {
   )
   broadcastTerminalSessionsChanged()
   return session
-}
-
-function releaseSprintEngineMcpRun(session: TerminalSession): void {
-  const runId = session.sprintEngineMcpRunId
-  if (!runId) return
-  const workspaceRoot = session.cwd
-  const clients = session.cli ? [session.cli] : []
-  session.sprintEngineMcpRunId = undefined
-  releaseSprintEngineMcpRunRef(runId, {
-    workspaceRoot,
-    clients,
-  })
-}
-
-function retainSprintEngineMcpRunRef(runId: string | undefined, workspaceRoot?: string): void {
-  if (!runId) return
-  sprintEngineMcpRunRefCounts.set(runId, (sprintEngineMcpRunRefCounts.get(runId) ?? 0) + 1)
-  retainSprintEngineMcpWorkspaceRef(workspaceRoot)
-}
-
-function retainSprintEngineMcpWorkspaceRef(workspaceRoot: string | undefined): void {
-  const key = workspaceRoot?.trim()
-  if (!key) return
-  sprintEngineMcpWorkspaceRefCounts.set(key, (sprintEngineMcpWorkspaceRefCounts.get(key) ?? 0) + 1)
-}
-
-function releaseSprintEngineMcpWorkspaceRef(workspaceRoot: string | undefined): boolean {
-  const key = workspaceRoot?.trim()
-  if (!key) return false
-  const nextCount = (sprintEngineMcpWorkspaceRefCounts.get(key) ?? 0) - 1
-  if (nextCount > 0) {
-    sprintEngineMcpWorkspaceRefCounts.set(key, nextCount)
-    return false
-  }
-  sprintEngineMcpWorkspaceRefCounts.delete(key)
-  return true
-}
-
-function releaseSprintEngineMcpRunRef(runId: string, context?: {
-  workspaceRoot?: string
-  clients?: AgentCli[]
-  cleanupMcpConfig?: boolean
-}): void {
-  const nextCount = (sprintEngineMcpRunRefCounts.get(runId) ?? 0) - 1
-  const cleanupMcpConfig = releaseSprintEngineMcpWorkspaceRef(context?.workspaceRoot)
-  if (nextCount > 0) {
-    sprintEngineMcpRunRefCounts.set(runId, nextCount)
-    return
-  }
-  sprintEngineMcpRunRefCounts.delete(runId)
-  queueSprintEngineMcpRunRelease(runId, { ...context, cleanupMcpConfig })
-}
-
-function releaseUnusedSprintEngineMcpRun(runId: string | undefined, context?: {
-  workspaceRoot?: string
-  clients?: AgentCli[]
-  cleanupMcpConfig?: boolean
-}): void {
-  if (!runId || (sprintEngineMcpRunRefCounts.get(runId) ?? 0) > 0) return
-  const workspaceRoot = context?.workspaceRoot?.trim()
-  const cleanupMcpConfig = workspaceRoot ? (sprintEngineMcpWorkspaceRefCounts.get(workspaceRoot) ?? 0) === 0 : false
-  queueSprintEngineMcpRunRelease(runId, { ...context, cleanupMcpConfig })
-}
-
-function queueSprintEngineMcpRunRelease(runId: string, context?: {
-  workspaceRoot?: string
-  clients?: AgentCli[]
-  cleanupMcpConfig?: boolean
-}): void {
-  const workspaceRoot = context?.workspaceRoot?.trim()
-  const cleanupMcpConfig = Boolean(workspaceRoot && context?.cleanupMcpConfig === true)
-  const clients = cleanupMcpConfig
-    ? ['codex', 'claude-code'] as AgentCli[]
-    : context?.clients?.length ? context.clients : ['codex', 'claude-code'] as AgentCli[]
-  const release = Promise.resolve(releaseManagedSprintEngineRun?.({
-    runId,
-    workspaceRoot: workspaceRoot ?? '',
-    clients,
-    cleanupMcpConfig,
-  })).catch(() => {})
-  pendingSprintEngineMcpRunReleases.add(release)
-  release.finally(() => {
-    pendingSprintEngineMcpRunReleases.delete(release)
-  })
-}
-
-function sprintEngineLifecycleCallInput(
-  session: TerminalSession,
-  toolName: string,
-  reason?: string
-): { runId: string; toolName: string; arguments: Record<string, unknown> } | null {
-  if (!session.sprintEngineMcpRunId || !session.sprintEngineStatePath || !session.agentId) return null
-  return {
-    runId: session.sprintEngineMcpRunId,
-    toolName,
-    arguments: {
-      agentId: session.agentId,
-      ...(session.sprintEngineRole ? { role: session.sprintEngineRole } : {}),
-      ...(reason ? { reason } : {}),
-    },
-  }
-}
-
-function queueSprintEngineLifecycleCall(
-  session: TerminalSession,
-  toolName: string,
-  reason?: string
-): Promise<void> | null {
-  const input = sprintEngineLifecycleCallInput(session, toolName, reason)
-  if (!input || !callManagedSprintEngineTool) return null
-  const call = Promise.resolve(callManagedSprintEngineTool(input))
-    .then(() => undefined)
-    .catch((error) => {
-      logMainPerfEvent('TerminalRuntime', 'sprintengine-lifecycle-call-failed', {
-        sessionId: session.sessionId,
-        agentId: session.agentId,
-        toolName,
-        message: getErrorMessage(error),
-      })
-    })
-  pendingSprintEngineLifecycleCalls.add(call)
-  void call.finally(() => {
-    pendingSprintEngineLifecycleCalls.delete(call)
-  })
-  return call
-}
-
-function startSprintEngineAgentHeartbeat(session: TerminalSession): void {
-  if (sprintEngineAgentHeartbeatTimers.has(session.sessionId)) return
-  if (!sprintEngineLifecycleCallInput(session, 'sprintengine.agent.heartbeat')) return
-  const timer = setInterval(() => {
-    if (!isTerminalProcessAlive(session)) {
-      stopSprintEngineAgentHeartbeat(session.sessionId)
-      return
-    }
-    void queueSprintEngineLifecycleCall(session, 'sprintengine.agent.heartbeat')
-  }, MANAGED_AGENT_HEARTBEAT_INTERVAL_MS)
-  timer.unref?.()
-  sprintEngineAgentHeartbeatTimers.set(session.sessionId, timer)
-}
-
-function stopSprintEngineAgentHeartbeat(sessionId: string): void {
-  const timer = sprintEngineAgentHeartbeatTimers.get(sessionId)
-  if (!timer) return
-  clearInterval(timer)
-  sprintEngineAgentHeartbeatTimers.delete(sessionId)
-}
-
-export async function sendSprintEngineAgentHeartbeats(): Promise<string[]> {
-  const sent: string[] = []
-  for (const session of terminals.values()) {
-    if (!isTerminalProcessAlive(session)) continue
-    if (!sprintEngineLifecycleCallInput(session, 'sprintengine.agent.heartbeat')) continue
-    await queueSprintEngineLifecycleCall(session, 'sprintengine.agent.heartbeat')
-    if (session.agentId) sent.push(session.agentId)
-  }
-  return sent
-}
-
-function recordSprintEngineAgentLeave(session: TerminalSession, reason: string): Promise<void> | null {
-  stopSprintEngineAgentHeartbeat(session.sessionId)
-  return queueSprintEngineLifecycleCall(session, 'sprintengine.agent.leave', reason)
-}
-
-function queueSprintEngineTerminalTeardown(session: TerminalSession, reason: string): Promise<void> {
-  const existing = pendingSprintEngineTerminalTeardowns.get(session.sessionId)
-  if (existing?.session === session) return existing.promise
-  const leave = recordSprintEngineAgentLeave(session, reason)
-  if (!leave) {
-    releaseSprintEngineMcpRun(session)
-    return Promise.resolve()
-  }
-  const teardown = leave.finally(() => {
-    releaseSprintEngineMcpRun(session)
-  })
-  pendingSprintEngineTerminalTeardowns.set(session.sessionId, { session, promise: teardown })
-  void teardown.finally(() => {
-    if (pendingSprintEngineTerminalTeardowns.get(session.sessionId)?.promise === teardown) {
-      pendingSprintEngineTerminalTeardowns.delete(session.sessionId)
-    }
-  })
-  return teardown
 }
 
 function materializeAgentSessionIdentity(
@@ -2985,7 +2511,6 @@ function attachTerminalSession(
       console.warn('[terminal-runtime] agent changelist launch feed failed', error)
     }
   }
-  startSprintEngineAgentHeartbeat(terminalSession)
   scheduleTerminalIdleTransition(terminalSession)
   // Arms for the spawn-stamped `starting` phase, so an agent whose hooks never
   // report converts to `stalled` (and becomes reclaimable) instead of parking.
@@ -3026,9 +2551,9 @@ function attachTerminalSession(
 
   terminalSession.process.onExit((event) => {
     // Freeze-the-view: a suspend-kill is NOT a real exit. Finalize the suspended
-    // state and keep the session + painted scrollback; do not tear down the
-    // SprintEngine run, mark the session exited, or fire `terminal:exit` (which
-    // would unmount the view). Resume relaunches under the same session id.
+    // state and keep the session + painted scrollback; do not mark the session
+    // exited or fire `terminal:exit` (which would unmount the view). Resume
+    // relaunches under the same session id.
     if (terminalSession.suspending || terminalSession.suspended) {
       terminalSession.suspending = false
       // Order matters: the rest stamp below goes through the ordinary activity
@@ -3045,7 +2570,6 @@ function attachTerminalSession(
       }
       return
     }
-    void queueSprintEngineTerminalTeardown(terminalSession, `terminal exited with code ${event.exitCode}`)
     cleanupTerminalStartupScript(terminalSession.startupScriptPath)
     cleanupHostContextFile(terminalSession.hostContextPath)
     terminalOutput.flush(sessionId, 'exit')
@@ -3063,7 +2587,7 @@ function attachTerminalSession(
     // Guarded on dispose: `disposeTerminal` deletes the sidecar and THEN kills the
     // pty, so this handler runs afterwards — writing unconditionally would
     // resurrect the very sidecar dispose just removed, and a deliberate dispose
-    // (resume, fresh spawn, agent deletion, sprint idle-dispose) means gone, never
+    // (resume, fresh spawn, agent deletion) means gone, never
     // repainted. Only a pty that died on its own gets a snapshot: still in the map,
     // not disposed.
     if (terminals.get(sessionId) === terminalSession && !terminalSession.isDisposed) {
@@ -3336,7 +2860,6 @@ async function spawnTerminalFromIpc(
     rows,
     cwd,
     resume,
-    sprintEngineStatePath,
     cli,
     initialPrompt,
     cliRuntimes,
@@ -3362,7 +2885,6 @@ async function spawnTerminalFromIpc(
     connectorLaunch,
     spawnSkillId,
     agentRecord,
-    specialistId,
   }: TerminalSpawnPayload
 ): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
@@ -3458,44 +2980,8 @@ async function spawnTerminalFromIpc(
       visible,
     })
 
-    let sprintEngineMcpRunId: string | undefined
-    let sprintEngineMcpEnv: Record<string, string> | undefined
-    let sprintEngineMcpRunRetained = false
     const workingDirectory = cwd || process.cwd()
     try {
-      if (sprintEngineStatePath && (kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
-        try {
-          requireAuthenticatedUser('Sign in to launch sprint workflows from the app.')
-        } catch (error) {
-          const message = getErrorMessage(error)
-          retainFailedTerminalSession({
-            sessionId,
-            sender,
-            message,
-            kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
-            workspaceId,
-            agentId,
-            agentName,
-            terminalId,
-            cli: shellOnly ? undefined : cli,
-            cwd: workingDirectory,
-            sprintEngineStatePath,
-            executionMode,
-            worktreeId,
-            worktreePath,
-            agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
-            visible,
-          })
-          sendTerminalEvent(sender, `terminal:error:${sessionId}`, message)
-          sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
-          return {
-            ok: false,
-            sessionId,
-            message,
-            exitCode: 1,
-          } satisfies TerminalSpawnResult
-        }
-      }
       // Resolve the agent's binary before this launch touches anything, and
       // refuse the spawn when the CLI is definitively absent. Both halves
       // matter: the launch shell does not source the interactive config the
@@ -3524,45 +3010,13 @@ async function spawnTerminalFromIpc(
       }
 
       if ((kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
-        disposeOtherAgentSessions(sessionId, workspaceId, agentId, sprintEngineStatePath)
-      }
-
-      if (!shellOnly && sprintEngineStatePath && !syncMcpConfig) {
-        const message = 'Managed Sprint Engine MCP config sync is unavailable; cannot launch a Sprint Engine agent.'
-        retainFailedTerminalSession({
-          sessionId,
-          sender,
-          message,
-          kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
-          workspaceId,
-          agentId,
-          agentName,
-          terminalId,
-          cli: shellOnly ? undefined : cli,
-          cwd: workingDirectory,
-          sprintEngineStatePath,
-          executionMode,
-          worktreeId,
-          worktreePath,
-          agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
-          visible,
-        })
-        sendTerminalEvent(sender, `terminal:error:${sessionId}`, message)
-        sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
-        return {
-          ok: false,
-          sessionId,
-          message,
-          exitCode: 1,
-        } satisfies TerminalSpawnResult
+        disposeOtherAgentSessions(sessionId, workspaceId, agentId)
       }
 
       if (!shellOnly && syncMcpConfig) {
         const syncResult = await syncMcpConfig({
           workspaceRoot: workingDirectory,
-          settings: sprintEngineStatePath
-            ? mcpSettingsForManagedSprintEngineLaunch(mcpSettings, agentCli)
-            : mcpSettings ?? { syncEnabled: false, servers: {} },
+          settings: mcpSettings ?? { syncEnabled: false, servers: {} },
           clients: [agentCli],
           // A connector launch (connectorLaunch set, paired with the
           // single-server connectorMcpSettings) writes an isolated worktree
@@ -3573,15 +3027,6 @@ async function spawnTerminalFromIpc(
           // (a skill-only spawn would otherwise wipe the workspace's MCP
           // config).
           pruneUnlistedServers: connectorLaunch === true,
-          managedSprintEngine: sprintEngineStatePath
-            ? buildManagedSprintEngineSyncInputForLaunch(sprintEngineStatePath, workingDirectory, {
-                workspaceId,
-                agentId: agentId || sessionId,
-                role: sprintEngineRoleForLaunch(agentSession?.role, agentId),
-                cli,
-                knowledgeRoot: memoryRootPath ?? '',
-              })
-            : undefined,
         })
         if (!syncResult.ok) {
           retainFailedTerminalSession({
@@ -3595,7 +3040,6 @@ async function spawnTerminalFromIpc(
             terminalId,
             cli: shellOnly ? undefined : cli,
             cwd: workingDirectory,
-            sprintEngineStatePath,
             executionMode,
             worktreeId,
             worktreePath,
@@ -3611,10 +3055,6 @@ async function spawnTerminalFromIpc(
             exitCode: 1,
           } satisfies TerminalSpawnResult
         }
-        sprintEngineMcpRunId = syncResult.managedSprintEngineRunId
-        sprintEngineMcpEnv = syncResult.runTokenEnv
-        retainSprintEngineMcpRunRef(sprintEngineMcpRunId, workingDirectory)
-        sprintEngineMcpRunRetained = Boolean(sprintEngineMcpRunId)
       }
 
       // Debug Mode delivers the `debug` skill's full state-machine contract by
@@ -3699,12 +3139,11 @@ async function spawnTerminalFromIpc(
         if (block) return { ok: false, sessionId, message: block.message, exitCode: 1 }
       }
       const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath, hostContextPath, managed, reapExempt } = shellOnly
-        ? getPlainShellLaunchConfig(workingDirectory, sprintEngineStatePath, sessionId)
+        ? getPlainShellLaunchConfig(workingDirectory, sessionId)
         : getShellLaunchConfig(
           workingDirectory,
           launchSessionId,
           resume,
-          sprintEngineStatePath,
           agentCli,
           initialPrompt,
           cliRuntimes,
@@ -3712,12 +3151,11 @@ async function spawnTerminalFromIpc(
           cliModel,
           memoryRootPath,
           memoryRelativeRoot,
-          sprintEngineMcpEnv,
+          undefined,
           debugMode,
           cliAuthToken,
           cliReasoning,
-          resolvedBinaryPath,
-          agentRecord?.specialistId ?? specialistId
+          resolvedBinaryPath
         )
       // Install the authoritative-agent-state reporter into the workspace before
       // launching a supported agent, so its lifecycle hooks report phase the
@@ -3769,9 +3207,6 @@ async function spawnTerminalFromIpc(
         cliSessionId: cliSessionId ?? undefined,
         cli: shellOnly ? undefined : cli,
         cwd: launchCwd ?? workingDirectory,
-        sprintEngineStatePath,
-        sprintEngineMcpRunId,
-        sprintEngineRole: sprintEngineRoleForLaunch(agentSession?.role, agentId),
         managed: managed === true,
         ...(reapExempt ? { reapExempt: true } : {}),
         executionMode,
@@ -3792,15 +3227,6 @@ async function spawnTerminalFromIpc(
 
       return { ok: true, sessionId } satisfies TerminalSpawnResult
     } catch (error) {
-      const releaseContext = {
-        workspaceRoot: workingDirectory,
-        clients: cli ? [cli] : [],
-      }
-      if (sprintEngineMcpRunRetained && sprintEngineMcpRunId) {
-        releaseSprintEngineMcpRunRef(sprintEngineMcpRunId, releaseContext)
-      } else {
-        releaseUnusedSprintEngineMcpRun(sprintEngineMcpRunId, releaseContext)
-      }
       const message = getTerminalErrorMessage(error)
       retainFailedTerminalSession({
         sessionId,
@@ -3813,7 +3239,6 @@ async function spawnTerminalFromIpc(
         terminalId,
         cli: shellOnly ? undefined : cli,
         cwd: cwd || process.cwd(),
-        sprintEngineStatePath,
         executionMode,
         worktreeId,
         worktreePath,

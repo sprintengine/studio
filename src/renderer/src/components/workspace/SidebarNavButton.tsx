@@ -5,7 +5,7 @@ import { RowButton, type RowButtonVariant } from '../ui/RowButton'
 import type { Tone } from '../ui/tokens'
 import { Tooltip } from '../ui/Tooltip'
 
-// Top-nav row (New chat, Automations, Sprints, Connectors, and any door a
+// Top-nav row (New chat, Automations, Connectors, and any door a
 // capability module contributes). One quiet muted row that lights to the canonical selected
 // fill when active; the collapsed rail shows the icon with a hover tooltip
 // carrying the label. An optional `indicator` (a status dot) rides the trailing

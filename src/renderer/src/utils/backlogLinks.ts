@@ -88,7 +88,7 @@ type StatusDrivingLink = Pick<BacklogItemLink, 'type' | 'status'>
 //  - Leaf items (and a childless epic used as a plain item): status follows the
 //    execution links — any active link → in_progress, all completed → completed.
 //  - Epics WITH children: the status is derived UP from the children, never from
-//    the epic's own run link. An epic launched as a sprint carries that run's
+//    the epic's own run link. An epic handed to a run carries that run's
 //    execution link itself, so the type-blind link rule below auto-completed the
 //    whole epic the moment its run finished, even with children still open (live
 //    incident 2026-07-15, backlog/2026-07-15-backlog-epic-status-derives-from-
@@ -97,7 +97,7 @@ type StatusDrivingLink = Pick<BacklogItemLink, 'type' | 'status'>
 //    counting as one extra `in_progress` vote; it auto-completes only when every
 //    child — and the own run — is terminal (completed/archived). This is the
 //    symmetric partner of the run START, which fans in_progress DOWN to the
-//    children (recordSprintEngineExecutionLink).
+//    children.
 //
 // `archived` is never demoted, and neither an unknown nor a `pending` link status
 // ever drives a change — a `pending` execution link is work that is recorded but
@@ -180,7 +180,7 @@ function toStoredBacklogLink(resolved: BacklogResolvedLink): BacklogItemLink {
     status: resolved.status,
     // Carried, not dropped: `addOrUpdateBacklogLink` replaces the stored link
     // wholesale, so omitting this would silently strip an epic child's restore
-    // target the first time someone opened the Backlog surface mid-sprint, and a
+    // target the first time someone opened the Backlog surface mid-run, and a
     // later cancel would have nothing to put the child back to (MC-2017).
     ...(resolved.priorStatus ? { priorStatus: resolved.priorStatus } : {}),
     updatedAt: resolved.updatedAt,

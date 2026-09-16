@@ -472,7 +472,6 @@ function assertFailedLaunchSnapshotIsVisible(): void {
     kind: 'agent',
     workspaceId: 'workspace_1',
     agentId: 'developer-1',
-    sprintEngineStatePath: '.sprintengine/sprintengine/status-dots/state.yaml',
     visible: true,
   })
   const snapshot = getTerminalSnapshot(failed)

@@ -64,21 +64,15 @@ run('checkoutPathFor resolves the checkout the agents actually work in', () => {
     } as never),
     '/repo/.worktrees/feat'
   )
-  // A sprint run is the case where they genuinely differ: the run's worktree is
-  // declared relative to the workspace folder.
+  // A workspace with no worktree marker reads its own folder, whatever else its
+  // module-state bag carries.
   assert.equal(
     checkoutPathFor({
       id: 'w3',
       folderPath: '/repo',
-      moduleState: {
-        sprintengine: {
-          state: {
-            vcs: { mode: 'run_worktree', worktreePath: '.worktrees/run-7', branchName: 'run-7' },
-          },
-        },
-      },
+      moduleState: { 'weather-deck': { lastCity: 'Dublin' } },
     } as never),
-    '/repo/.worktrees/run-7'
+    '/repo'
   )
   assert.equal(checkoutPathFor({ id: 'w4', folderPath: null } as never), null)
 })

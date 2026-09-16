@@ -33,7 +33,6 @@ function reapable(overrides: Partial<ReapCandidate> = {}): ReapCandidate {
     agentPhase: 'idle',
     lastInteractionAt: STALE,
     idleSince: STALE,
-    inActiveRun: false,
     managed: false,
     reapExempt: false,
     pendingWakeupAt: null,
@@ -57,7 +56,6 @@ run('each safety gate independently keeps the terminal alive', () => {
   const cases: Array<[string, Partial<ReapCandidate>]> = [
     ['dead process', { processAlive: false }],
     ['plain shell (not agent)', { kind: 'terminal' }],
-    ['in active managed run', { inActiveRun: true }],
     ['user locked (keep running)', { reapExempt: true }],
     ['null workspace', { workspaceId: null }],
     ['interacted within the idle threshold', { lastInteractionAt: NOW - 1000, idleSince: NOW - 1000 }],
@@ -140,15 +138,6 @@ run('a stalled agent expires: reapable only after resting past the threshold', (
   )
 })
 
-run('a stalled agent in an active managed run stays protected (inActiveRun gate)', () => {
-  // The runtime maps a sprint agent of an ACTIVE run to inActiveRun=true no
-  // matter the phase; stalled-expiry only reclaims inactive-run agents.
-  assert.equal(
-    isSessionReapable(reapable({ agentPhase: 'stalled', idleSince: STALE, inActiveRun: true }), POLICY),
-    false,
-  )
-})
-
 run('a visible (on-screen) idle agent IS reapable — visibility is not a reap signal', () => {
   // There is no `visible` field anymore; an on-screen dormant agent reaps like
   // any other. Freeze-the-view keeps its painted text readable.
@@ -191,7 +180,7 @@ run('a hookless agent (no phase) falls back to the keystroke-idle floor', () => 
   )
 })
 
-run('selectReapableSessions reaps only the dormant agents, keeping working/awaiting/run-active', () => {
+run('selectReapableSessions reaps only the dormant agents, keeping working/awaiting/fresh', () => {
   const candidates: ReapCandidate[] = [
     // Dormant idle agent, on screen and off — both reaped.
     reapable({ sessionId: 'idle-a', workspaceId: 'ws-a' }),
@@ -200,8 +189,6 @@ run('selectReapableSessions reaps only the dormant agents, keeping working/await
     reapable({ sessionId: 'working', workspaceId: 'ws-c', agentPhase: 'thinking', idleSince: null }),
     // Awaiting input — kept.
     reapable({ sessionId: 'awaiting', workspaceId: 'ws-d', agentPhase: 'awaiting_input', idleSince: null }),
-    // Managed run — kept.
-    reapable({ sessionId: 'run', workspaceId: 'ws-e', inActiveRun: true }),
     // Recently typed — kept.
     reapable({ sessionId: 'fresh', workspaceId: 'ws-f', lastInteractionAt: NOW - 1000, idleSince: NOW - 1000 }),
   ]
@@ -215,7 +202,6 @@ run('explainSessionReapDecision names the holding gate (skip-audit contract)', (
     [{ kind: 'terminal' }, 'not_agent'],
     [{ workspaceId: null }, 'no_workspace'],
     [{ reapExempt: true }, 'user_locked'],
-    [{ inActiveRun: true }, 'in_active_run'],
     [{ agentPhase: 'awaiting_input', idleSince: null }, 'phase_awaiting_input'],
     [{ agentPhase: 'starting', idleSince: null }, 'phase_working'],
     [{ agentPhase: 'thinking', idleSince: null }, 'phase_working'],
@@ -268,20 +254,19 @@ run('recency floor counts protected live agents toward the floor', () => {
   assert.deepEqual(decision.heldByRecencyFloorSessionIds, ['idle-new'])
 })
 
-run('recency floor neither protects nor is occupied by sprint-managed agents', () => {
-  // Two reapable inactive-run sprint agents (freshly rested, so they would
-  // out-rank the user's terminals on recency) + one older reapable user agent,
-  // floor 2. The sprint agents must still be reaped (dispose path — parked
-  // engine terminals are the memory gap this sweep closes) and must NOT count
-  // toward the user's keep-alive budget: with only one live user agent (≤ 2),
-  // the user agent is spared.
+run('recency floor neither protects nor is occupied by module-managed agents', () => {
+  // Two reapable module-managed agents (freshly rested, so they would out-rank
+  // the user's terminals on recency) + one older reapable user agent, floor 2.
+  // The managed agents must still be reaped and must NOT count toward the
+  // user's keep-alive budget: with only one live user agent (≤ 2), the user
+  // agent is spared.
   const candidates: ReapCandidate[] = [
-    reapable({ sessionId: 'sprint-a', workspaceId: 'ws-a', managed: true }),
-    reapable({ sessionId: 'sprint-b', workspaceId: 'ws-b', managed: true }),
+    reapable({ sessionId: 'managed-a', workspaceId: 'ws-a', managed: true }),
+    reapable({ sessionId: 'managed-b', workspaceId: 'ws-b', managed: true }),
     reapable({ sessionId: 'user-idle', workspaceId: 'ws-c', lastInteractionAt: STALE - 60_000, idleSince: STALE - 60_000 }),
   ]
   const decision = selectReapableSessions(candidates, { now: NOW, keepRecentAliveCount: 2 })
-  assert.deepEqual(decision.reapableSessionIds.sort(), ['sprint-a', 'sprint-b'])
+  assert.deepEqual(decision.reapableSessionIds.sort(), ['managed-a', 'managed-b'])
   assert.deepEqual(decision.heldByRecencyFloorSessionIds, ['user-idle'])
 })
 

@@ -45,7 +45,7 @@ function check(name: string, run: () => Promise<void>): void {
 function testTools(): McpToolRegistration[] {
   return [
     {
-      name: 'sprint.status',
+      name: 'backlog.list',
       description: 'Test tool',
       inputSchema: { type: 'object', properties: {} },
       handler: async () => toolSuccess({ ok: true }),
@@ -194,7 +194,7 @@ check('a device pairs from the square and can then drive the gateway', async () 
       capabilities: string[]
     }
     assert.ok(device.deviceToken, 'pairing returns a device token')
-    assert.ok(device.scopes.includes('sprint:read'), 'the default grant is the structured set')
+    assert.ok(device.scopes.includes('backlog:read'), 'the default grant is the structured set')
     // A scanned client has made exactly one call at this point. It should not
     // have to make a second one to learn which wire it just joined.
     assert.equal(device.transportVersion, 2)
@@ -207,7 +207,7 @@ check('a device pairs from the square and can then drive the gateway', async () 
         jsonrpc: '2.0',
         id: 1,
         method: 'tools/call',
-        params: { name: 'sprint.status', arguments: {} },
+        params: { name: 'backlog.list', arguments: {} },
       },
     })
     assert.equal(called.status, 200)

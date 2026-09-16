@@ -23,7 +23,7 @@ const PS_OUTPUT = `
   103   102  260000  12.4 claude           claude --permission-mode bypassPermissions long prompt text
   104   103   42000   1.2 npm              npm exec @playwright/mcp@latest
   105   104   31000   0.8 node             node /tmp/node_modules/.bin/playwright-mcp
-  106   100   28000   0.3 /Python          /opt/homebrew/bin/python -m sprintengine_mcp --http --port 0
+  106   100   28000   0.3 /Python          /opt/homebrew/bin/python -m weather_deck_mcp --http --port 0
   107   100   90000   3.3 codex            codex --dangerously-bypass-approvals-and-sandbox resume
 `
 

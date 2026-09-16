@@ -1322,7 +1322,7 @@ async function run(): Promise<void> {
   assert.ok(kimiConfig.includes('event = "Stop"'))
   // The reporter copy lives under HOME for a user-scoped registration: a
   // user-global config pointing into a workspace would dangle machine-wide
-  // the moment that workspace (or a finalize-deleted sprint worktree) is
+  // the moment that workspace (or a worktree it was launched into) is
   // removed, firing MODULE_NOT_FOUND on every event of every kimi session.
   const kimiHomeScript = join(kimiHome, '.multicode', 'hooks', 'agent-state.mjs')
   assert.ok(existsSync(kimiHomeScript), 'user-scoped registration must copy the reporter under homeDir')

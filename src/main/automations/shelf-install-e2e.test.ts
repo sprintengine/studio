@@ -139,11 +139,6 @@ async function assertGetWritesTheDefinitionTheInstallDefaultsPromise(): Promise<
   assert.notEqual(definition.id, manifest.id, 'the store id is not the catalogue id')
   assert.notEqual(definition.id, payload.id, 'the store id is not the payload id')
   assert.equal('autonomyDefault' in definition, false, 'the retired field is never written')
-  assert.equal(
-    'specialistId' in ((definition.action as Record<string, Record<string, unknown>>).config ?? {}),
-    false,
-    'no specialistId is stamped'
-  )
   // `absent ⇒ run in a worktree` is the single place that answer lives, so the
   // field being absent — not `false` — is what makes the run isolated.
   assert.notEqual(definition.runInWorktree, false, 'a starter must never land opted out of worktree isolation')

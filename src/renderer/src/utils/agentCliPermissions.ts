@@ -1,23 +1,8 @@
-import type { AgentId, SprintEngineCliPermissionPreset, Workspace } from '../types/workspace'
-import {
-  isSprintEngineManagedAgent,
-  sprintEngineRosterAgentIds,
-} from '../../../shared/sprintengine/agent-identity'
-import { sprintEngineRunState } from '../store/slices/workspaceModuleState'
+import type { AgentId, CliPermissionPreset, Workspace } from '../types/workspace'
 
 export function resolveAgentCliPermissionPreset(
   workspace: Workspace | null | undefined,
   agentId: AgentId
-): SprintEngineCliPermissionPreset | undefined {
-  const agent = workspace?.agents[agentId]
-  if (!workspace || !agent) return undefined
-
-  if (isSprintEngineManagedAgent(agent, {
-    agentId,
-    rosterIds: sprintEngineRosterAgentIds(sprintEngineRunState(workspace)?.sprintEngineAgents),
-  })) {
-    return workspace.sprintEngineAutoState.cliPermissionPreset
-  }
-
-  return agent.cliPermissionPreset
+): CliPermissionPreset | undefined {
+  return workspace?.agents[agentId]?.cliPermissionPreset
 }

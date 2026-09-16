@@ -6,9 +6,9 @@ import type { RegisteredDoorBadge } from '../../modules/renderer-host'
 import { isExtensionsDrawerRowId, type ExtensionsDrawerRowId } from './extensionsDrawer'
 
 // Door / nav-entry waiting counts as the host registry, not a module import
-// (MC-2577). `useExtensionsRowBadges` used to subscribe to the sprint run
-// index and partition it; the Sprint Engine module now contributes those
-// numbers, and this hook is the only reader.
+// (MC-2577). A module contributes its own numbers through `registerDoorBadge`
+// and this hook is the only reader, so the shell never has to know what a
+// module counts.
 
 function snapshotWaiting(badges: readonly RegisteredDoorBadge[]): Readonly<Record<string, number>> {
   const counts: Record<string, number> = {}

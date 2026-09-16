@@ -426,13 +426,13 @@ async function main(): Promise<void> {
     const metadataUpdated = await updateBacklogModuleMetadata({
       workspaceRoot: tempRoot,
       relativePath: 'backlog/checkout.md',
-      moduleId: 'sprint-engine',
-      value: { lastRunId: 'checkout' },
+      moduleId: 'weather-deck',
+      value: { lastForecastId: 'checkout' },
     })
     assert.equal(metadataUpdated.ok, true)
     assert.deepEqual(
-      metadataUpdated.ok ? metadataUpdated.store.items[0]?.metadata?.['sprint-engine'] : null,
-      { lastRunId: 'checkout' },
+      metadataUpdated.ok ? metadataUpdated.store.items[0]?.metadata?.['weather-deck'] : null,
+      { lastForecastId: 'checkout' },
     )
 
     const beforeHighlightUpdatedAt = metadataUpdated.ok ? metadataUpdated.store.items[0]?.updatedAt : undefined
@@ -514,16 +514,16 @@ async function main(): Promise<void> {
       relativePath: 'backlog/checkout.md',
       status: 'in_progress',
       link: {
-        id: 'sprint-engine:checkout',
-        moduleId: 'sprint-engine',
+        id: 'weather-deck:checkout',
+        moduleId: 'weather-deck',
         type: 'execution',
-        label: 'Sprint Engine run',
-        target: { kind: 'sprintengine.run', id: 'checkout', path: '.sprintengine/sprintengine/checkout/run.yaml' },
+        label: 'Weather Deck forecast',
+        target: { kind: 'weather-deck.forecast', id: 'checkout', path: '.sprintengine/weather-deck/checkout/forecast.yaml' },
         status: 'active',
       },
     })
     assert.equal(linked.ok, true)
-    assert.equal(linked.ok ? linked.store.items[0]?.links?.[0]?.target.path : null, '.sprintengine/sprintengine/checkout/run.yaml')
+    assert.equal(linked.ok ? linked.store.items[0]?.links?.[0]?.target.path : null, '.sprintengine/weather-deck/checkout/forecast.yaml')
     assert.equal(linked.ok ? linked.store.items[0]?.status : null, undefined, 'link lifecycle must not leak into the link cache')
     assert.equal((await readItem()).fields.status, 'in_progress', 'link lifecycle writes the frontmatter source of truth')
 
@@ -547,7 +547,7 @@ async function main(): Promise<void> {
     const unlinked = await removeBacklogLink({
       workspaceRoot: tempRoot,
       relativePath: 'backlog/checkout.md',
-      linkId: 'sprint-engine:checkout',
+      linkId: 'weather-deck:checkout',
     })
     assert.equal(unlinked.ok, true)
     assert.deepEqual(unlinked.ok ? unlinked.store.items[0]?.links : null, [], 'unlink removes only the selected association')
@@ -1051,11 +1051,11 @@ async function testConfirmingRewritesLeaveTheSidecarAlone(): Promise<void> {
     const relativePath = created.ok ? created.relativePath : ''
 
     const link = {
-      id: 'sprint-engine:pull-request',
-      moduleId: 'sprint-engine',
+      id: 'backlog:pull-request',
+      moduleId: 'backlog',
       type: 'external' as const,
       label: 'Pull request',
-      target: { kind: 'sprintengine.pullRequest', id: 'https://example.test/pull/1' },
+      target: { kind: 'backlog.pullRequest', id: 'https://example.test/pull/1' },
       status: 'active' as const,
       updatedAt: '2026-09-01T00:00:00.000Z',
     }
@@ -1123,19 +1123,11 @@ async function testLegacySidecarMigration(): Promise<void> {
           links: [
             // Durable: belongs in the file.
             {
-              id: 'sprint-engine:2026-08-04-a-run',
-              moduleId: 'sprint-engine',
-              type: 'execution',
-              label: 'Sprint',
-              target: { kind: 'sprintengine.run', id: '2026-08-04-a-run', path: '.sprintengine/sprintengine/2026-08-04-a-run/run.yaml' },
-              status: 'completed',
-            },
-            {
-              id: 'sprint-engine:pull-request',
-              moduleId: 'sprint-engine',
+              id: 'backlog:pull-request',
+              moduleId: 'backlog',
               type: 'external',
               label: 'Pull request',
-              target: { kind: 'sprintengine.pullRequest', id: 'https://x.test/pull/9', url: 'https://x.test/pull/9' },
+              target: { kind: 'backlog.pullRequest', id: 'https://x.test/pull/9', url: 'https://x.test/pull/9' },
               status: 'active',
             },
             // Volatile: a terminal id, meaningless after a restart.
@@ -1158,13 +1150,12 @@ async function testLegacySidecarMigration(): Promise<void> {
 
     // 1. Durable facts landed in the item's own frontmatter, body untouched.
     const migrated = parseBacklogFrontmatter(await readFile(join(root, 'backlog', 'worked.md'), 'utf-8'))
-    assert.equal(migrated.fields.sprints, '2026-08-04-a-run')
     assert.equal(migrated.fields.pr, 'https://x.test/pull/9')
     assert.equal(migrated.fields.starred, 'true')
     assert.equal(migrated.fields.highlight, 'amber')
     assert.equal(migrated.fields.status, 'completed', 'existing frontmatter is preserved')
     assert.equal(migrated.body, body, 'the body is byte-preserved')
-    assert.doesNotMatch(migrated.fields.sprints ?? '', /completed/, 'no resolved status reaches the file')
+    assert.doesNotMatch(migrated.fields.pr ?? '', /active/, 'no resolved status reaches the file')
 
     // 2. The sidecar is gone, so the migration cannot run twice.
     await assert.rejects(() => stat(legacyPath), /ENOENT/, 'the legacy sidecar is removed')
@@ -1269,7 +1260,7 @@ async function testListingWalksNestedEpicFolders(): Promise<void> {
 
 // A workspace can point its backlog at a folder outside the checkout. The items
 // land there, and their identity — the `backlog/<...>` relative path every id,
-// durable link and sprint link keys on — is exactly what it would have been
+// durable link and module link keys on — is exactly what it would have been
 // inside the checkout. That equivalence is the whole reason a backlog can move
 // without rewriting anything that points at it.
 async function testABacklogCanLiveOutsideTheCheckout(): Promise<void> {

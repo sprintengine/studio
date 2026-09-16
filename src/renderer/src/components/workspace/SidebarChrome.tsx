@@ -7,7 +7,7 @@
 // bands — the two-row version read as the mark sitting *below* the top bar
 // instead of in it:
 //
-//   [traffic-light reserve | app-menu] sprintengine ··· back forward search collapse
+//   [traffic-light reserve | app-menu] wordmark ··· back forward search collapse
 //
 // The row is an `app-drag` region; every interactive control opts back out with
 // `app-no-drag`. On macOS its leftmost slice is reserved for the native traffic
@@ -61,7 +61,7 @@ type SidebarChromeProps<MenuItem extends string> = {
   onShowMenu: (event: React.MouseEvent<HTMLButtonElement>, label: MenuItem) => void
 }
 
-// Sidebar toggle. Mirrors the Sprints aside toggle: white (text-strong) while its
+// Sidebar toggle: white (text-strong) while its
 // panel — the sidebar — is open. This button only renders in the expanded chrome
 // row, so it's always the open state here; the collapsed-state open button lives
 // in WorkspaceHeader's launcher and stays muted. That is why it is the one glyph

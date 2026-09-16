@@ -82,7 +82,7 @@ async function testWorkspaceFileWatch(): Promise<void> {
 
 async function testAgentSessionWatch(): Promise<void> {
   let sessions: Array<Record<string, unknown>> = [
-    { sessionId: 's-1', workspaceId: 'ws-1', agentId: 'a-1', agentName: 'Poet', kind: 'agent', processAlive: true, agentSession: { system: 'sprintengine', executionId: 'run-1' } },
+    { sessionId: 's-1', workspaceId: 'ws-1', agentId: 'a-1', agentName: 'Poet', kind: 'agent', processAlive: true, agentSession: { system: 'atlas', executionId: 'run-1' } },
     { sessionId: 's-2', workspaceId: 'ws-2', kind: 'terminal', processAlive: true },
   ]
   const listeners = new Set<() => void>()
@@ -101,7 +101,7 @@ async function testAgentSessionWatch(): Promise<void> {
     agentId: 'a-1',
     name: 'Poet',
     kind: 'agent',
-    system: 'sprintengine',
+    system: 'atlas',
     executionId: 'run-1',
     isLive: true,
   }]], 'fires once with the workspace-filtered snapshot')
@@ -231,26 +231,16 @@ async function testAgentSpawn(): Promise<void> {
 type WorkingRootInput = Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
 
 const worktreeBackedWorkspace: WorkingRootInput = {
-  folderPath: '/Users/example/project',
-  worktree: null,
-  moduleState: {
-    sprintengine: {
-      state: {
-        vcs: {
-          mode: 'run_worktree',
-          worktreePath: '.sprintengine/sprintengine/auth/worktree',
-          branchName: 'sprintengine/auth',
-        },
-      } as never,
-    },
-  },
+  folderPath: '/Users/example/.multicode-worktrees/project/auth',
+  worktree: { branch: 'agent/auth' },
+  moduleState: undefined,
 }
 
 async function testEffectiveWorkingRoot(): Promise<void> {
-  // Worktree-backed sprint workspace: live work happens under the worktree.
+  // Worktree-backed workspace: live work happens under the worktree.
   assert.equal(
     workspaceWorkingRoot(worktreeBackedWorkspace),
-    '/Users/example/project/.sprintengine/sprintengine/auth/worktree'
+    '/Users/example/.multicode-worktrees/project/auth'
   )
   // Plain workspace: the primary checkout IS the working root.
   assert.equal(
@@ -275,7 +265,7 @@ async function testEffectiveWorkingRoot(): Promise<void> {
   const stop = await watcher('ws-1', 'state/loop.json', () => {})
   assert.equal(
     watchedPaths[0],
-    '/Users/example/project/.sprintengine/sprintengine/auth/worktree/state',
+    '/Users/example/.multicode-worktrees/project/auth/state',
     'the watch attaches under the worktree, not the primary checkout'
   )
   stop()

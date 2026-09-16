@@ -15,7 +15,6 @@ export const terminalApi = {
     rows: number,
     cwd?: string,
     resume?: boolean,
-    sprintEngineStatePath?: string,
     cli?: AgentCli,
     initialPrompt?: string,
     cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
@@ -27,7 +26,6 @@ export const terminalApi = {
     rows,
     cwd,
     resume,
-    sprintEngineStatePath,
     cli,
     initialPrompt,
     cliRuntimes,
@@ -47,7 +45,6 @@ export const terminalApi = {
     rows: number,
     cwd?: string,
     resume?: boolean,
-    sprintEngineStatePath?: string,
     cli?: AgentCli,
     initialPrompt?: string,
     cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
@@ -59,7 +56,6 @@ export const terminalApi = {
     rows,
     cwd,
     resume,
-    sprintEngineStatePath,
     cli,
     initialPrompt,
     cliRuntimes,
@@ -73,8 +69,6 @@ export const terminalApi = {
     ipcRenderer.invoke('terminal:set-keep-recent-alive-count', count),
   setTerminalReapExempt: (sessionId: string, exempt: boolean): Promise<void> =>
     ipcRenderer.invoke('terminal:set-reap-exempt', { sessionId, exempt }),
-  setActiveSprintRunStatePaths: (statePaths: string[]): Promise<void> =>
-    ipcRenderer.invoke('terminal:set-active-sprint-runs', statePaths),
   onTerminalReplay: (sessionId: string, cb: (data: string) => void): (() => void) => {
     const ch = `terminal:replay:${sessionId}`
     const handler = (_: IpcRendererEvent, data: string) => cb(data)
@@ -120,7 +114,6 @@ export const terminalApi = {
   | 'setTerminalIdleSuspendMs'
   | 'setTerminalKeepRecentAliveCount'
   | 'setTerminalReapExempt'
-  | 'setActiveSprintRunStatePaths'
   | 'onTerminalReplay'
   | 'onTerminalData'
   | 'onTerminalExit'

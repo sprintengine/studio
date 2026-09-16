@@ -13,9 +13,9 @@ import { FOCUS_RING_CLASS, type Tone } from './tokens'
  *   truncates to one line; no glyph slot. Used by backlog rows.
  * - `variant="card"` — identifier sits above the title; title clamps to two
  *   lines by default (pass `clampTitle={false}` to wrap fully); optional
- *   trailing glyph slot. Used by Sprint Engine kanban cards where role
+ *   trailing glyph slot. Used by kanban cards where identity
  *   information is load-bearing and architect-generated titles are often
- *   descriptive sentences. The Sprint Engine board opts out of the clamp so
+ *   descriptive sentences. A board opts out of the clamp so
  *   titles wrap in its thin equal-width lanes instead of truncating.
  *
  * The variance is deliberate: detail-pane vs scan-without-selecting workflows
@@ -51,7 +51,7 @@ export type TaskCardProps = {
   variant?: TaskCardVariant
   /** `card` variant only: clamp the title to two lines. Defaults to `true`.
    *  Pass `false` to let the title wrap to as many lines as it needs — used by
-   *  the Sprint Engine board, whose thin equal-width lanes would otherwise
+   *  a board whose thin equal-width lanes would otherwise
    *  truncate descriptive titles. */
   clampTitle?: boolean
   onSelect?: () => void
@@ -63,7 +63,7 @@ export type TaskCardProps = {
   /** FLIP reorder key for `useFlipReorder`. */
   flipKey?: string
   /** Apply the just-moved highlight keyframe. Pass the desired class:
-   *  A list board uses `card-just-moved`; Sprint Engine uses
+   *  A list board uses `card-just-moved`; a gate-driven board uses
    *  `card-just-moved-gold`. */
   justMovedClassName?: string
   ariaLabel?: string

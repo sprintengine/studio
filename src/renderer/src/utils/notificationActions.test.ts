@@ -86,7 +86,7 @@ function provider(
 // --- Only providers matching the notification source are consulted. -----------
 {
   const providers = [
-    provider('sprintengine', () => [{ id: 'se.open', label: 'Open task', run: () => {} }]),
+    provider('agents', () => [{ id: 'agents.open', label: 'Open task', run: () => {} }]),
     provider('automations', () => [{ id: 'automations.open-run', label: 'Open', run: () => {} }]),
   ]
   const actions = resolveNotificationActions({

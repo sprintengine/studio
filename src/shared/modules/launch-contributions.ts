@@ -11,9 +11,9 @@ export type LaunchContributionPathStyle = 'posix' | 'windows' | 'wsl'
 /**
  * What the host knows about this spawn when it asks modules to contribute.
  *
- * `statePath` and `knowledgeRoot` are values the caller already resolved (a
- * run file, a Knowledge Graph root). Core does not interpret the keys; the
- * module that owns them reads them and writes env / session tags itself.
+ * `knowledgeRoot` is a value the caller already resolved. Core does not
+ * interpret it; the module that owns it reads it and writes env / session tags
+ * itself.
  */
 export type LaunchContributionRequest = {
   cli: string
@@ -22,8 +22,6 @@ export type LaunchContributionRequest = {
   agentId?: string
   agentKind?: string
   resume?: boolean
-  /** Absolute run-state path when the caller already resolved one. */
-  statePath?: string
   /** Absolute Knowledge Graph root when the launch resolved one. */
   knowledgeRoot?: string
   /**

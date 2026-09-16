@@ -7,13 +7,6 @@ import type {
   WorkspaceId,
 } from '../../types/workspace'
 
-export { sprintEngineTabsLayoutModel } from '../../../../shared/sprintengine/workspace-record'
-export {
-  hideSprintEngineBoardTabStrip,
-  isLegacySprintEngineLayout,
-  migrateSprintEngineLayout,
-} from '../../modules/sprint-engine-layout'
-
 export function modelContainsComponent(value: unknown, component: string): boolean {
   if (!value) return false
   if (Array.isArray(value)) {
@@ -83,13 +76,6 @@ export function stripSettingsTabsFromLayout(layoutModel: unknown): unknown {
   return stripComponentTabsFromLayout(layoutModel, 'settings')
 }
 
-// The Sprint Engines survey left the per-workspace nav rail (it is the Sprints
-// door surface now); a persisted 'sprint-engines' tab would render an empty
-// surface, so drop it from existing layouts.
-export function stripSprintEnginesNavFromLayout(layoutModel: unknown): unknown {
-  return stripComponentTabsFromLayout(layoutModel, 'sprint-engines')
-}
-
 // Files and Git moved from the left rail into the workspace pane, and the
 // Skills aside was deleted (browser-pane epic, store v73); the workspace
 // Backlog followed them (store v74). A persisted layout still carrying their
@@ -115,6 +101,15 @@ const RETIRED_MODULE_TAB_COMPONENTS = [
   // is dropped by dropRetiredModeWorkspaces; this covers a profile where the
   // tab was dragged into some other workspace's layout.
   'guided-brief',
+  // The in-tree sprint engine was deleted 2026-09-16. Its workspace rows are
+  // dropped by dropRetiredModeWorkspaces; these cover a board or one of its
+  // pre-v48 segment tabs dragged into some other workspace's layout, plus the
+  // survey tab that used to sit on the per-workspace nav rail.
+  'sprintengine',
+  'sprintengine-inbox',
+  'sprintengine-roster',
+  'sprintengine-tasks',
+  'sprint-engines',
 ]
 
 export function stripRetiredModuleTabsFromLayout(layoutModel: unknown): unknown {

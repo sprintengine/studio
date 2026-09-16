@@ -431,8 +431,7 @@ export function PluginsCatalogue({
         if (result.mcpServers.length > 0) onAddMcpServers(result.mcpServers)
         setReport({ sourceId: source.id, outcome: summarizePluginInstall(result), error: null })
         sources.refreshInstalled()
-        useWorkspaceStore.getState().bumpSprintEngineRoleRegistryEpoch()
-        return true
+            return true
       } catch (error) {
         setReport({ sourceId: source.id, outcome: null, error: describe(error) })
         return false
@@ -493,8 +492,7 @@ export function PluginsCatalogue({
         })
         if (result.ok) {
           sources.refreshInstalled()
-          useWorkspaceStore.getState().bumpSprintEngineRoleRegistryEpoch()
-        }
+              }
       } catch (error) {
         setReport({ sourceId: source.id, outcome: null, error: describe(error) })
       } finally {
@@ -580,8 +578,9 @@ export function PluginsCatalogue({
       const lower = needle.trim().toLowerCase()
       const plugins = derivePluginRows({ source, scan: sourceScan, installed: sources.installedPlugins, query: needle })
         // Only the app's own plugin is hidden: what we publish is a template,
-        // and the built-in row already represents it. `workflow-roles` is an
-        // ordinary row with Install and Remove (owner ruling 2026-09-07).
+        // and the built-in row already represents it. Every other pack we
+        // publish is an ordinary row with Install and Remove (owner ruling
+        // 2026-09-07).
         .filter((item) => !(mine && item.pluginId === STUDIO_PLUGIN_ID))
         .map((item) => ({ kind: 'plugin' as const, sourceId: source.id, item }))
       const servers = scanMcpServers(sourceScan)

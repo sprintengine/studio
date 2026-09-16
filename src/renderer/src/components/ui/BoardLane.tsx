@@ -2,7 +2,7 @@ import React, { useRef } from 'react'
 import { useFlipReorder } from '../../utils/flipReorder'
 import { TruncatedText } from './TruncatedText'
 
-// BoardLane — canonical lane chrome for Sprint Engine and any
+// BoardLane — canonical lane chrome for any
 // future board panel that needs a flexible-width column (260 px floor by
 // default) with a header, a FLIP-animated scrollable list, and optional
 // drag-and-drop.
@@ -26,7 +26,7 @@ import { TruncatedText } from './TruncatedText'
 //   - Empty-state copy (caller renders the empty placeholder as one of the
 //     children when the records list is empty)
 //
-// Sprint Engine passes no `dnd` prop (gate-driven transitions). A lane that
+// A gate-driven board passes no `dnd` prop. A lane that
 // participates in drag-and-drop passes the three handlers and renders
 // DropIndicator children at the computed index. The visual state prop maps to:
 //   default            — no special chrome
@@ -62,14 +62,14 @@ type BoardLaneProps = {
   /** Render the lane as a filled, hairline-bordered panel (fill = --bg-surface,
    *  7 px radius) and lift the cards inside it one elevation step to
    *  --bg-surface-raised with an inset hairline. Off by default, which keeps
-   *  transparent lanes on a board canvas; Sprint Engine opts in so
+   *  transparent lanes on a board canvas; a board opts in so
    *  the columns read as discrete panels. The inset card hairline is what keeps
    *  cards legible in the light theme, where --bg-surface and
    *  --bg-surface-raised collapse to the same white. */
   surface?: boolean
   /** Minimum lane width in px before the board scrolls. Lanes are `flex-1`, so
    *  they grow to fill the row and shrink to this floor. Defaults to 260
-   *  (a comfortable card width). Sprint Engine passes a thinner
+   *  (a comfortable card width). A dense board passes a thinner
    *  floor so every lane fits the panel and the row only scrolls past it. */
   minWidth?: number
   /** DnD plumbing. Pass only when the lane participates in drag-and-drop. */

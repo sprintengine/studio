@@ -441,7 +441,7 @@ check('a device says where it came from: a code, an approval, an agent, or the r
   const agentDevice = store.redeemPairing({ token: byAgent.token, deviceName: 'claude-diagnostic' })
   assert.deepEqual(agentDevice.ok ? agentDevice.device.origin : null, { kind: 'agent', by: 'Niamh Mann' })
 
-  const reverse = store.mintDevice({ name: 'Mac mini', scopes: ['sprint:read'], origin: { kind: 'reverse', by: 'Mac mini' } })
+  const reverse = store.mintDevice({ name: 'Mac mini', scopes: ['backlog:read'], origin: { kind: 'reverse', by: 'Mac mini' } })
   assert.deepEqual(reverse.device.origin, { kind: 'reverse', by: 'Mac mini' })
   assert.ok(store.authenticate(reverse.deviceToken), 'a reverse device authenticates like any other')
 

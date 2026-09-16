@@ -19,17 +19,9 @@ function createIpcMain(): { handle(channel: string, handler: Handler): void; han
 
 async function main(): Promise<void> {
   const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-fs-mutation-'))
-  const guardedStatePath = join(tempRoot, '.sprintengine', 'sprintengine', 'team', 'state.yaml')
-  const guardCalls: string[] = []
   const ipcMain = createIpcMain()
 
   registerFilesystemMutationIpc(ipcMain as unknown as Parameters<typeof registerFilesystemMutationIpc>[0], {
-    async assertNotDirectSprintEngineStateMutation(targetPath) {
-      guardCalls.push(targetPath)
-      if (targetPath === guardedStatePath) {
-        throw new Error('Sprint Engine state files must be updated through the Sprint Engine tool.')
-      }
-    },
     async getUniqueCopyPath() {
       throw new Error('copy is not used in this test')
     },
@@ -50,9 +42,6 @@ async function main(): Promise<void> {
     assert.ok(deletePath, 'delete handler should be registered')
 
     const pngBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff, 0x00])
-    const guardCountBeforeDelete = guardCalls.length
-    await deletePath(null, guardedStatePath)
-    assert.equal(guardCalls.length, guardCountBeforeDelete, 'delete does not block manual Sprint Engine state cleanup')
 
     const saveDroppedImage = ipcMain.handlers.get('fs:save-dropped-image')
     assert.ok(saveDroppedImage, 'dropped-image handler should be registered')
@@ -86,23 +75,23 @@ async function main(): Promise<void> {
     )
 
     const sourceRoot = join(tempRoot, 'registry')
-    const sourceRolesDir = join(sourceRoot, 'roles')
+    const sourceManifestsDir = join(sourceRoot, 'manifests')
     const sourceSkillsDir = join(sourceRoot, 'skills')
     const sourceSkillDir = join(sourceSkillsDir, 'growth-copywriter')
     const destinationRoot = join(tempRoot, 'workspace', '.sprintengine')
-    const destinationRolesDir = join(destinationRoot, 'roles')
+    const destinationManifestsDir = join(destinationRoot, 'manifests')
     const destinationSkillsDir = join(destinationRoot, 'skills')
-    await mkdir(sourceRolesDir, { recursive: true })
+    await mkdir(sourceManifestsDir, { recursive: true })
     await mkdir(sourceSkillDir, { recursive: true })
-    await mkdir(destinationRolesDir, { recursive: true })
+    await mkdir(destinationManifestsDir, { recursive: true })
     await mkdir(destinationSkillsDir, { recursive: true })
-    await writeFile(join(sourceRolesDir, 'marketer.json'), '{"id":"marketer","skills":["growth-copywriter"]}', 'utf-8')
+    await writeFile(join(sourceManifestsDir, 'marketer.json'), '{"id":"marketer","skills":["growth-copywriter"]}', 'utf-8')
     await writeFile(join(sourceSkillDir, 'SKILL.md'), '# Growth Copywriter\n', 'utf-8')
 
-    const copiedRolePath = await copyInto(null, join(sourceRolesDir, 'marketer.json'), destinationRolesDir, { overwrite: true })
+    const copiedManifestPath = await copyInto(null, join(sourceManifestsDir, 'marketer.json'), destinationManifestsDir, { overwrite: true })
     const copiedSkillPath = await copyInto(null, sourceSkillDir, destinationSkillsDir, { overwrite: true })
 
-    assert.equal(copiedRolePath, join(destinationRolesDir, 'marketer.json'), 'role manifests copy under their original file name')
+    assert.equal(copiedManifestPath, join(destinationManifestsDir, 'marketer.json'), 'manifests copy under their original file name')
     assert.equal(copiedSkillPath, join(destinationSkillsDir, 'growth-copywriter'), 'skill folders copy under their original directory name')
     assert.equal(
       await readFile(join(destinationSkillsDir, 'growth-copywriter', 'SKILL.md'), 'utf-8'),
@@ -120,7 +109,6 @@ async function main(): Promise<void> {
 
     const renameSource = join(tempRoot, 'plan.md')
     await writeFile(renameSource, '# Plan\n', 'utf-8')
-    const guardCountBeforeInvalidRename = guardCalls.length
     await assert.rejects(
       () => renamePath(null, renameSource, 'CON.md'),
       /reserved by Windows/,
@@ -135,11 +123,6 @@ async function main(): Promise<void> {
       () => renamePath(null, renameSource, 'trailing-space.md '),
       /cannot end with a period or space/,
       'rename rejects trailing spaces before filesystem mutation',
-    )
-    assert.equal(
-      guardCalls.length,
-      guardCountBeforeInvalidRename,
-      'invalid rename names are rejected before guard or filesystem mutation',
     )
     assert.equal(await readFile(renameSource, 'utf-8'), '# Plan\n', 'invalid rename attempts leave source file in place')
 

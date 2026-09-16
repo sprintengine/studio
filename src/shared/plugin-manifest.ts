@@ -174,10 +174,6 @@ export type PluginCapabilities = {
   chatHistoryFile?: string
 }
 
-type PluginSoulsSpec = {
-  directory: string
-}
-
 export type PluginModelOption = {
   id: string
   label?: string
@@ -396,7 +392,6 @@ export type PluginManifest = {
   completion: PluginCompletionSpec
   mcpConfig?: PluginMcpConfigSpec
   capabilities: PluginCapabilities
-  souls?: PluginSoulsSpec
   modelSelection?: PluginModelSelectionSpec
   reasoningSelection?: PluginReasoningSelectionSpec
   themeSelection?: PluginThemeSelectionSpec

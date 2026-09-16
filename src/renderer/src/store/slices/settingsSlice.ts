@@ -1,8 +1,3 @@
-import { nanoid } from 'nanoid'
-import {
-  NO_ROLES_ROSTER_ID,
-  isNoRolesRosterRef,
-} from '../../../../shared/sprintengine/run-types'
 import { isFolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import type { TextGenerationSettings } from '../../../../shared/text-generation/contract'
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
@@ -26,23 +21,12 @@ import type {
   McpServerConfig,
   McpSettings,
   NewChatAgentChoice,
-  SprintEngineRoleId,
   AgentConversationRuntime,
-  SprintEngineRoleCliDefaults,
-  SprintEngineRoleModelOverrides,
-  SprintEngineRoleCounts,
-  SprintEngineRunSettings,
-  SprintEngineRoleSettings,
-  SprintEngineRoster,
-  SprintEngineSavedRoster,
-  SpecialistActionId,
-  SprintEngineCliPermissionPreset,
-  SprintEngineRoleRegistry,
+  CliPermissionPreset,
   VoiceDictationModel,
   VoiceDictationSettings,
   Workspace,
 } from '../../types/workspace'
-import { sprintEngineRunContext, sprintEngineRunState } from './workspaceModuleState'
 import type {
   DiscoveredCliModel,
   DiscoveredCliModelCatalog,
@@ -365,7 +349,7 @@ export function normalizeProjectColors(value: unknown): Record<string, ProjectCo
 }
 
 // Relocated to shared with MC-2160 (main normalizes the preset when it composes
-// a sprint run); re-exported so every existing renderer import site is unchanged.
+// a launch); re-exported so every existing renderer import site is unchanged.
 import { normalizeCliPermissionPreset } from '../../../../shared/cli-permission-preset'
 
 export { normalizeCliPermissionPreset }
@@ -380,7 +364,7 @@ export { normalizeCliPermissionPreset }
 // a run. Here, ABSENT means "this user has never chosen", which is the only case
 // that may adopt the app default. Kept separate so flipping the app default can
 // never rewrite someone's deliberate choice.
-export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: SprintEngineCliPermissionPreset = 'bypass'
+export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: CliPermissionPreset = 'bypass'
 
 // ONLY an absent value adopts the app default. A present-but-unrecognised value
 // is corruption, and corruption must never ESCALATE permissions — it falls to
@@ -394,63 +378,28 @@ export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: SprintEngineCliPermissionPre
 // normalizeCliPermissionPreset for why `default` lands on `manual` rather than
 // on the argv-identical `none`.
 export function normalizeAgentSpawnPermissionPreset(
-  input: SprintEngineCliPermissionPreset | null | undefined
-): SprintEngineCliPermissionPreset {
+  input: CliPermissionPreset | null | undefined
+): CliPermissionPreset {
   if (input === undefined || input === null) return DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
   return normalizeCliPermissionPreset(input)
 }
 
-export function normalizeCliDefaults<K extends string>(
-  input: Partial<Record<K, AgentCli>> | null | undefined
-): Partial<Record<K, AgentCli>> {
-  if (!input || typeof input !== 'object') return {}
-  const result: Partial<Record<K, AgentCli>> = {}
-  for (const [key, value] of Object.entries(input)) {
-    if (typeof value === 'string' && value.trim()) {
-      result[key as K] = value.trim()
-    }
-  }
-  return result
-}
-
-// Per-role saved launch-model overrides for a Sprint Engine roster/team. Keeps
-// only explicit non-empty model ids; a null/empty/"CLI default" value drops to
-// absent (no model flag), matching the save-time prune so load and save agree.
-export function normalizeSprintEngineRoleModelOverrides(
-  input: SprintEngineRoleModelOverrides | null | undefined,
-): SprintEngineRoleModelOverrides {
-  if (!input || typeof input !== 'object') return {}
-  const result: SprintEngineRoleModelOverrides = {}
-  for (const [key, value] of Object.entries(input)) {
-    const role = key.trim()
-    if (role && typeof value === 'string' && value.trim()) {
-      result[role as SprintEngineRoleId] = value.trim()
-    }
-  }
-  return result
-}
-
-// Per-surface (specialist) model + reasoning-effort overrides. Keeps only
-// entries naming a CLI and carrying at least one choice for it; a partial blob
-// drops back to "no override" so resolution falls through to the CLI's own
-// default (no model and no effort flag). A level with no model is kept on
-// purpose — "the CLI's default model at high effort" is a real selection — so
-// `model` may normalize to an empty string while `reasoning` survives.
-export function normalizeCliModelSelections<K extends string>(
-  input: Partial<Record<K, AgentCliModelSelection>> | null | undefined
-): Partial<Record<K, AgentCliModelSelection>> {
-  if (!input || typeof input !== 'object') return {}
-  const result: Partial<Record<K, AgentCliModelSelection>> = {}
-  for (const [key, value] of Object.entries(input)) {
-    if (!value || typeof value !== 'object') continue
-    const selection = value as Partial<AgentCliModelSelection>
-    const cli = typeof selection.cli === 'string' ? selection.cli.trim() : ''
-    const model = typeof selection.model === 'string' ? selection.model.trim() : ''
-    const reasoning = typeof selection.reasoning === 'string' ? selection.reasoning.trim() : ''
-    if (!cli || (!model && !reasoning)) continue
-    result[key as K] = { cli, model, ...(reasoning ? { reasoning } : {}) }
-  }
-  return result
+// A remembered model + reasoning-effort pick. Kept only when it names a CLI and
+// carries at least one choice for it; a partial blob drops back to "no
+// override" so resolution falls through to the CLI's own default (no model and
+// no effort flag). A level with no model is kept on purpose — "the CLI's
+// default model at high effort" is a real selection — so `model` may normalize
+// to an empty string while `reasoning` survives.
+export function normalizeCliModelSelection(
+  input: AgentCliModelSelection | null | undefined
+): AgentCliModelSelection | null {
+  if (!input || typeof input !== 'object') return null
+  const selection = input as Partial<AgentCliModelSelection>
+  const cli = typeof selection.cli === 'string' ? selection.cli.trim() : ''
+  const model = typeof selection.model === 'string' ? selection.model.trim() : ''
+  const reasoning = typeof selection.reasoning === 'string' ? selection.reasoning.trim() : ''
+  if (!cli || (!model && !reasoning)) return null
+  return { cli, model, ...(reasoning ? { reasoning } : {}) }
 }
 
 export function normalizeSelectedCli(input: AgentCli | null | undefined, fallback: AgentCli = 'claude-code'): AgentCli {
@@ -615,77 +564,14 @@ export function normalizeConversationModel(
   return { providerId, modelId }
 }
 
-// Persisted specialist menu order. Keeps only known ids and drops duplicates;
-// missing ids are resolved against the canonical roster at render time, so an
-// incomplete or stale list is safe to store.
-export function normalizeSpecialistOrder(input: unknown): SpecialistActionId[] {
-  if (!Array.isArray(input)) return []
-  // Keep any non-empty id (bundled or registry-discovered role id), de-duped.
-  // The roster resolves order against the live specialist list at render time,
-  // so an id whose pack is absent is simply skipped there.
-  const seen = new Set<string>()
-  const result: SpecialistActionId[] = []
-  for (const entry of input) {
-    if (typeof entry !== 'string') continue
-    const id = entry.trim()
-    if (id && !seen.has(id)) {
-      seen.add(id)
-      result.push(id)
-    }
-  }
-  return result
-}
-
-// Persisted specialist-pack enablement: the set of pack ids the user switched
-// off. Keeps only non-empty strings and drops duplicates; an unknown id is
-// harmless (it just has no pack to hide).
-// `migratedFallback` is the value for `migratedBundledPack` when the persisted
-// config omits it — false for a returning profile (so the one-time MC-1587
-// migration still evaluates it), true for a fresh profile (so it installs
-// nothing). The caller decides which via the fresh-vs-returning signal;
-// hydration always runs this path, so the default cannot live in
-// defaultAppSettings alone.
-export function normalizeSpecialistPacks(
-  input: unknown,
-  migratedFallback = false,
-): { disabled: string[]; migratedBundledPack: boolean } {
-  const source = input as { disabled?: unknown; migratedBundledPack?: unknown } | undefined
-  const persisted = source?.migratedBundledPack
-  const migratedBundledPack = typeof persisted === 'boolean' ? persisted : migratedFallback
-  // After the one-time pack migration has run, a stored off-switch is dropped
-  // so the next settings write does not persist it. Before that, keep the ids
-  // so the migration can still tell "had the pack off" from "had it on".
-  if (migratedBundledPack) return { disabled: [], migratedBundledPack }
-  const raw = source?.disabled
-  if (!Array.isArray(raw)) return { disabled: [], migratedBundledPack }
-  const seen = new Set<string>()
-  const disabled: string[] = []
-  for (const entry of raw) {
-    if (typeof entry !== 'string') continue
-    const id = entry.trim()
-    if (id && !seen.has(id)) {
-      seen.add(id)
-      disabled.push(id)
-    }
-  }
-  return { disabled, migratedBundledPack }
-}
-
-// Persisted "New chat in project" agent choice. A specialist choice is kept as
-// long as it carries a non-empty id — bundled or registry-discovered (a
-// plugged-in specialist pack) — so a pluggable specialist can be the default.
-// The live roster is validated where the choice is shown and spawned, so a
-// removed pack degrades gracefully there; only malformed shapes (missing id,
-// wrong type) fall back to the General agent here.
+// Persisted "New chat in project" agent choice. Anything that is not one of the
+// three spawn kinds — a malformed blob, a shape from an older build — falls
+// back to the General agent here.
 export function normalizeNewChatAgentChoice(input: unknown): NewChatAgentChoice {
   if (!input || typeof input !== 'object') return { kind: 'general' }
   const choice = input as Partial<NewChatAgentChoice>
   if (choice.kind === 'terminal') return { kind: 'terminal' }
   if (choice.kind === 'conversation') return { kind: 'conversation' }
-  if (choice.kind === 'specialist') {
-    const id = typeof choice.specialistId === 'string' ? (choice.specialistId.trim() as SpecialistActionId) : null
-    if (id) return { kind: 'specialist', specialistId: id }
-  }
   return { kind: 'general' }
 }
 
@@ -742,213 +628,6 @@ function liftRetiredModuleSettings(
   return lifted
 }
 
-// Architect is the only role Sprint Engine planning truly requires. It is
-// excluded from user disablement so a stray persisted `architect: false`
-// cannot strand future workspaces without a planner. Settings normalization
-// and the setter both honor this contract.
-const PROTECTED_SPRINT_ENGINE_ROLE_ID = 'architect'
-
-export function defaultSprintEngineRoleSettings(): SprintEngineRoleSettings {
-  return { enabled: {}, savedRosters: [], lastSelectedRosterId: null }
-}
-
-function normalizeRoleEnabledRecord(value: unknown): Record<SprintEngineRoleId, boolean> {
-  if (!value || typeof value !== 'object') return {}
-  const result: Record<SprintEngineRoleId, boolean> = {}
-  for (const [key, enabled] of Object.entries(value as Record<string, unknown>)) {
-    const id = key.trim()
-    if (!id || typeof enabled !== 'boolean') continue
-    if (id === PROTECTED_SPRINT_ENGINE_ROLE_ID && enabled === false) continue
-    result[id] = enabled
-  }
-  return result
-}
-
-// Pre-MC-1874 spellings of the roster keys. Declared only so the one-time
-// migration below can read them type-safely; nothing else may reference these.
-type LegacyRosterKeys = {
-  savedTeams?: unknown
-  lastSelectedTeamId?: unknown
-}
-
-export function normalizeSprintEngineRoleSettings(value: unknown): SprintEngineRoleSettings {
-  if (!value || typeof value !== 'object') return defaultSprintEngineRoleSettings()
-  const candidate = value as Partial<SprintEngineRoleSettings> & LegacyRosterKeys
-  const savedRoster = normalizeSprintEngineSavedRoster(candidate.savedRoster)
-
-  // ONE-TIME KEY MIGRATION (MC-1874): `savedTeams`/`lastSelectedTeamId` were
-  // renamed to `savedRosters`/`lastSelectedRosterId` when "team" was reserved
-  // for the run slug. Read the legacy keys ONLY when the new key is absent —
-  // key absence, not emptiness, so a user who deletes their last roster does
-  // not see the pre-rename list resurrected. The normalizer's output is what
-  // gets persisted, so this runs once and the legacy keys are never read again.
-  const hasNewKey = Array.isArray(candidate.savedRosters)
-  const rosterSource = hasNewKey ? candidate.savedRosters : candidate.savedTeams
-  const legacyKeyMigrated = !hasNewKey && Array.isArray(candidate.savedTeams)
-  // A stored roster named "No roles" predates the reserved-name guard and is a
-  // walking contradiction — the owner met one carrying an architect and a
-  // developer (2026-08-06). The guard blocks new ones; this heals old ones by
-  // renaming (never dropping — the staffing is the user's work), so the
-  // built-in's name means exactly one thing everywhere. The rename dodges any
-  // existing name, since resolution is by name.
-  const rosters = normalizeSprintEngineRosters(rosterSource)
-  for (const roster of rosters) {
-    if (!isNoRolesRosterRef(roster.name)) continue
-    const taken = new Set(rosters.filter((other) => other !== roster).map((other) => other.name.toLowerCase()))
-    let healed = 'Recovered roster'
-    for (let n = 2; taken.has(healed.toLowerCase()); n += 1) healed = `Recovered roster ${n}`
-    roster.name = healed
-  }
-
-  // Migrate a legacy single saved roster into a named roster so existing users
-  // keep their saved config as a selectable roster the first time they load.
-  // Gate on the absence of BOTH roster-list keys (the legacy signal) rather than
-  // an empty list, so a user who deletes their last roster doesn't see it
-  // resurrected on the next normalize/reload.
-  let migratedRosterId: string | null = null
-  if (!hasNewKey && !legacyKeyMigrated && rosters.length === 0 && savedRoster) {
-    migratedRosterId = nanoid()
-    rosters.push({
-      id: migratedRosterId,
-      name: 'Saved roster',
-      roleCounts: savedRoster.roleCounts,
-      roleCliDefaults: savedRoster.roleCliDefaults,
-      // Carry a model-bearing legacy roster's overrides into the migrated roster
-      // so the migration is lossless (older rosters simply have none).
-      ...(savedRoster.roleModelOverrides && Object.keys(savedRoster.roleModelOverrides).length > 0
-        ? { roleModelOverrides: savedRoster.roleModelOverrides }
-        : {}),
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    })
-  }
-
-  // Same key-absence rule for the selection pointer: only fall back to the
-  // legacy `lastSelectedTeamId` on the pass that migrates the legacy list.
-  const selectedCandidate =
-    typeof candidate.lastSelectedRosterId === 'string'
-      ? candidate.lastSelectedRosterId
-      : legacyKeyMigrated && typeof candidate.lastSelectedTeamId === 'string'
-        ? candidate.lastSelectedTeamId
-        : null
-  const lastSelectedRosterId =
-    // MC-1876: the built-in is a valid selection but is deliberately NOT in the
-    // list, so it has to be admitted explicitly or normalization would clear it
-    // on every load.
-    isNoRolesRosterRef(selectedCandidate)
-      ? NO_ROLES_ROSTER_ID
-      : selectedCandidate !== null && rosters.some((roster) => roster.id === selectedCandidate)
-        ? selectedCandidate
-        // Pre-select the just-migrated roster so legacy users open on their
-        // roster rather than a "Custom" entry.
-        : migratedRosterId
-  return {
-    enabled: normalizeRoleEnabledRecord(candidate.enabled),
-    savedRoster,
-    savedRosters: rosters,
-    lastSelectedRosterId,
-  }
-}
-
-function normalizeSprintEngineRosters(value: unknown): SprintEngineRoster[] {
-  if (!Array.isArray(value)) return []
-  const result: SprintEngineRoster[] = []
-  const seenIds = new Set<string>()
-  for (const rawEntry of value) {
-    if (!rawEntry || typeof rawEntry !== 'object') continue
-    const candidate = rawEntry as Partial<SprintEngineRoster>
-    const name = typeof candidate.name === 'string' ? candidate.name.trim() : ''
-    if (!name) continue
-    // MC-1876: drop any persisted roster wearing the built-in's reserved id or
-    // name. Nothing in the app writes one, but a hand-edited settings file (or
-    // a blob from a build where the name was not yet reserved) otherwise gets a
-    // user roster that shadows the default everywhere it is referenced by name.
-    if (isNoRolesRosterRef(name) || isNoRolesRosterRef(candidate.id as string | undefined)) continue
-    let id = typeof candidate.id === 'string' ? candidate.id.trim() : ''
-    if (!id || seenIds.has(id)) id = nanoid()
-    seenIds.add(id)
-    const now = Date.now()
-    const createdAt = typeof candidate.createdAt === 'number' && Number.isFinite(candidate.createdAt) ? candidate.createdAt : now
-    const updatedAt = typeof candidate.updatedAt === 'number' && Number.isFinite(candidate.updatedAt) ? candidate.updatedAt : createdAt
-    const roleModelOverrides = normalizeSprintEngineRoleModelOverrides(candidate.roleModelOverrides)
-    // MC-2064 deleted the roster `mode` formation axis outright (no migration:
-    // owner ruling, no users and no saved pools). A stored `mode` key from an
-    // older profile is simply not carried forward — a roster is a set of roles.
-    result.push({
-      id,
-      name,
-      roleCounts: normalizeSavedSprintEngineRoleCounts(candidate.roleCounts),
-      roleCliDefaults: normalizeCliDefaults(candidate.roleCliDefaults) as SprintEngineRoleCliDefaults,
-      // Omit the key entirely when empty so pre-model-persistence teams keep a
-      // clean shape and comparisons don't churn on `{}` vs absent.
-      ...(Object.keys(roleModelOverrides).length > 0 ? { roleModelOverrides } : {}),
-      createdAt,
-      updatedAt,
-    })
-  }
-  return result
-}
-
-export function sprintEngineRunSettingsKey(statePath: string | null | undefined): string {
-  return typeof statePath === 'string'
-    ? statePath.trim().replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-    : ''
-}
-
-function normalizeSprintEngineMaxConcurrentAgents(value: unknown): number | undefined {
-  if (typeof value !== 'number' || !Number.isFinite(value)) return undefined
-  return Math.max(1, Math.min(10, Math.floor(value)))
-}
-
-export function normalizeSprintEngineRunSettings(value: unknown): Record<string, SprintEngineRunSettings> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
-  const result: Record<string, SprintEngineRunSettings> = {}
-  for (const [rawKey, rawEntry] of Object.entries(value as Record<string, unknown>)) {
-    const key = sprintEngineRunSettingsKey(rawKey)
-    if (!key || !rawEntry || typeof rawEntry !== 'object' || Array.isArray(rawEntry)) continue
-    const candidate = rawEntry as Partial<SprintEngineRunSettings>
-    const next: SprintEngineRunSettings = {}
-    if ('cliPermissionPreset' in candidate) {
-      next.cliPermissionPreset = normalizeCliPermissionPreset(candidate.cliPermissionPreset)
-    }
-    const maxConcurrentAgents = normalizeSprintEngineMaxConcurrentAgents(candidate.maxConcurrentAgents)
-    if (maxConcurrentAgents !== undefined) {
-      next.maxConcurrentAgents = maxConcurrentAgents
-    }
-    if (Object.keys(next).length > 0) result[key] = next
-  }
-  return result
-}
-
-function normalizeSprintEngineSavedRoster(value: unknown): SprintEngineSavedRoster | null {
-  if (!value || typeof value !== 'object') return null
-  const candidate = value as Partial<SprintEngineSavedRoster>
-  const roleModelOverrides = normalizeSprintEngineRoleModelOverrides(candidate.roleModelOverrides)
-  return {
-    roleCounts: normalizeSavedSprintEngineRoleCounts(candidate.roleCounts),
-    roleCliDefaults: normalizeCliDefaults(candidate.roleCliDefaults) as SprintEngineRoleCliDefaults,
-    ...(Object.keys(roleModelOverrides).length > 0 ? { roleModelOverrides } : {}),
-  }
-}
-
-// Saved-roster counts are an enabled-set encoding (MC-1450): a legacy preset
-// count > 0 loads as "enabled" (1). The count shape is kept on disk so old and
-// new builds read each other's presets.
-function normalizeSavedSprintEngineRoleCounts(value: unknown): SprintEngineRoleCounts {
-  const result: SprintEngineRoleCounts = { architect: 1 }
-  if (value && typeof value === 'object') {
-    for (const [role, rawCount] of Object.entries(value as Record<string, unknown>)) {
-      const id = role.trim()
-      if (!id) continue
-      const count = Math.floor(Number(rawCount))
-      if (!Number.isFinite(count)) continue
-      result[id] = Math.max(id === PROTECTED_SPRINT_ENGINE_ROLE_ID ? 1 : 0, Math.min(1, count))
-    }
-  }
-  result[PROTECTED_SPRINT_ENGINE_ROLE_ID] = Math.max(1, result[PROTECTED_SPRINT_ENGINE_ROLE_ID] ?? 1)
-  return result
-}
-
 // Idle-terminal pause threshold, in minutes. Default 15. Bounds mirror the main
 // reap policy's clamp ([1 min, 24 h]) so the UI and the runtime agree.
 export const DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES = 15
@@ -1000,15 +679,7 @@ export const defaultAppSettings = (): AppSettings => ({
   // actually has. Naming one here would claim an install we have not probed.
   lastFolderOpenTarget: null,
   lastAgentSpawnPermissionPreset: DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
-  specialistCliDefaults: {},
-  specialistModelDefaults: {},
-  specialistOrder: [],
-  // Pre-hydration base only. The effective flag is resolved in
-  // normalizeAppSettings, which defaults it from the fresh-vs-returning signal
-  // (fresh → true/skip, returning → false/run the one-time MC-1587 migration).
-  specialistPacks: { disabled: [], migratedBundledPack: true },
-  sprintEngineRoleSettings: defaultSprintEngineRoleSettings(),
-  sprintEngineRunSettings: {},
+  lastSelectedAgentModel: null,
   projectKnowledgeRoots: {},
   // Nothing seen yet. Every project in the map got there by being shown once,
   // so a fresh profile allocates as its first sidebar renders rather than
@@ -1068,23 +739,10 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
       ? settings.lastFolderOpenTarget
       : null,
     lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
-    specialistCliDefaults: normalizeCliDefaults(settings?.specialistCliDefaults),
-    specialistModelDefaults: normalizeCliModelSelections(settings?.specialistModelDefaults),
-    specialistOrder: normalizeSpecialistOrder(settings?.specialistOrder),
-    // A returning profile (has workspaces, or a persisted modulesChosen — the
-    // same signal `modulesChosen` below uses) that never recorded the migration
-    // defaults to not-yet-migrated so it runs once; a fresh profile defaults to
-    // migrated so it installs nothing.
-    specialistPacks: normalizeSpecialistPacks(
-      settings?.specialistPacks,
-      !(settings?.modulesChosen ?? workspaces.length > 0),
-    ),
-    sprintEngineRoleSettings: normalizeSprintEngineRoleSettings(settings?.sprintEngineRoleSettings),
-    // No `sprintEngineModelCatalog` line: the model catalog retired (MC-1890,
-    // store v68). Every field here is built explicitly and `settings` is never
-    // spread, so an upgraded profile's persisted array drops on every hydration
-    // — the same merge-not-only-migrate enforcement as the opt-in reset below.
-    sprintEngineRunSettings: normalizeSprintEngineRunSettings(settings?.sprintEngineRunSettings),
+    // Every field here is built explicitly and `settings` is never spread, so a
+    // key an older build persisted drops on every hydration — the same
+    // merge-not-only-migrate enforcement as the opt-in reset below.
+    lastSelectedAgentModel: normalizeCliModelSelection(settings?.lastSelectedAgentModel),
     projectKnowledgeRoots: normalizeProjectKnowledgeRoots(settings?.projectKnowledgeRoots, workspaces),
     // Not pruned against the open workspaces, unlike the knowledge roots above:
     // a project's colour has to survive closing every chat in it and opening
@@ -1160,7 +818,7 @@ export interface SettingsSliceState {
   appSettings: AppSettings
   settingsOverlay: SettingsOverlayState
   // The active door-routed full-page surface for this window (global-surfaces
-  // epic 1704): a registered surface id (e.g. 'sprints') or null when a
+  // epic 1704): a registered surface id (e.g. 'design') or null when a
   // workspace — not a door — owns the card region. Per-window and transient
   // (omitted from extractSettingsFields / partializeWorkspaceStoreState, so
   // never persisted and never replicated across windows). Unlike the Settings
@@ -1189,7 +847,7 @@ export interface SettingsSliceState {
   activeModalSurfaceWorkspaceId: string | null
   // Which of the app rail's sections the sidebar column is showing (the
   // app shell, 2026-09-05): `home` is the workspaces tree, `extensions`
-  // the Extensions drawer — Sprints, Design, Plugins, Skills, Agent CLIs
+  // the Extensions drawer — Design, Plugins, Skills, Agent CLIs
   // (2026-09-05 ruling); Automations is what the product does rather than
   // something added to it, so it stands on the rail and is not in the drawer.
   // Beside it the rail's Extensions glyph opens the Extensions home. Per window
@@ -1237,14 +895,6 @@ export interface SettingsSliceState {
   // Ask each CLI's package registry for its newest version (the Settings
   // switch "Check for CLI updates"). Mirrored into main, which runs the check.
   checkCliVersions: boolean
-  // Discovered Sprint Engine role registry for the active workspace (bundled +
-  // workspace/user/plugin layers). In-memory only (re-fetched per workspace,
-  // never persisted); powers the registry-discovered specialist packs in the
-  // spawn dropdown and the Modules settings tab. Null until loaded.
-  sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
-  // Bumped after a skill or plugin install/uninstall so every picker re-reads
-  // the workspace registry without a restart (MC-2507). In-memory only.
-  sprintEngineRoleRegistryEpoch: number
   // Live outcome of the deferred first-run agent-config adoption, shown on the
   // first-run overlay. Transient (not persisted via extractSettingsFields) — it
   // describes an action that ran this session, never a resumed one.
@@ -1261,8 +911,6 @@ export interface SettingsSliceActions {
   setChatListView: (view: ChatListView) => void
   setSidebarCollapsed: (collapsed: boolean) => void
   setSidebarWidth: (width: number) => void
-  setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
-  bumpSprintEngineRoleRegistryEpoch: () => void
   setWorkspacePaneWidth: (width: number) => void
   setWorkspacePaneMaximised: (maximised: boolean) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
@@ -1318,7 +966,7 @@ export interface SettingsSliceActions {
   /**
    * Choose the CLI/model/effort that writes chat titles, or `null` for "the
    * first supported installed CLI at its default". Same effort rule as
-   * setSpecialistModelDefault: a level outlives a model change within the CLI
+   * setLastSelectedAgentModel: a level outlives a model change within the CLI
    * and is dropped when the CLI changes.
    */
   setTextGenerationEngine: (selection: AgentCliModelSelection | null) => void
@@ -1344,20 +992,19 @@ export interface SettingsSliceActions {
    * next open is quiet.
    */
   markDesignSystemSeen: (bundleId: string, at?: string) => void
-  setLastAgentSpawnPermissionPreset: (preset: SprintEngineCliPermissionPreset) => void
-  setSpecialistCliDefault: (specialistId: SpecialistActionId, cli: AgentCli | null) => void
+  setLastAgentSpawnPermissionPreset: (preset: CliPermissionPreset) => void
   /**
-   * Write (or clear with `null`) a surface's model choice. A stored
-   * reasoning-effort level survives a model change within the same CLI and is
-   * dropped when the CLI changes, per the per-CLI effort ruling; pass
+   * Write (or clear with `null`) the model an agent spawn is remembered on. A
+   * stored reasoning-effort level survives a model change within the same CLI
+   * and is dropped when the CLI changes, per the per-CLI effort ruling; pass
    * `model: ''` for "the CLI's own default model" so the level survives that
    * choice too. `null` clears the whole selection, level included.
    */
-  setSpecialistModelDefault: (specialistId: SpecialistActionId, selection: AgentCliModelSelection | null) => void
+  setLastSelectedAgentModel: (selection: AgentCliModelSelection | null) => void
   /**
-   * Drop `modelIds` from every remembered launch default for `cli`, so a
-   * surface whose default named one of them falls back to the CLI's own default
-   * model (no `--model` flag) rather than launching an id nothing offers.
+   * Drop `modelIds` from the remembered launch default for `cli`, so a spawn
+   * whose default named one of them falls back to the CLI's own default model
+   * (no `--model` flag) rather than launching an id nothing offers.
    *
    * Called when the user RETIRES an id from `cliRuntimes[cli].models` and no
    * other catalog layer still supplies it. Deliberately not driven by the
@@ -1371,20 +1018,12 @@ export interface SettingsSliceActions {
    */
   forgetCliModels: (cli: AgentCli, modelIds: readonly string[]) => void
   /**
-   * Write (or clear with `null`) a surface's reasoning-effort level for `cli`,
-   * keeping the model already chosen for that CLI. A level set while a
+   * Write (or clear with `null`) the remembered reasoning-effort level for
+   * `cli`, keeping the model already chosen for that CLI. A level set while a
    * different CLI is stored replaces the selection, since levels do not
    * transfer between CLIs.
    */
-  setSpecialistReasoningDefault: (
-    specialistId: SpecialistActionId,
-    cli: AgentCli,
-    reasoning: string | null,
-  ) => void
-  setSpecialistOrder: (order: SpecialistActionId[]) => void
-  setSpecialistPackEnabled: (packId: string, enabled: boolean) => void
-  /** Mark the one-time MC-1587 bundled-pack migration as evaluated for this profile. */
-  markBundledSpecialistPackMigrated: () => void
+  setLastSelectedAgentReasoning: (cli: AgentCli, reasoning: string | null) => void
   // Command ids are open strings: shell registry ids plus namespaced module
   // command ids (`<moduleId>.<commandId>`). The Shortcuts tab only offers rows
   // the merged registry currently exposes.
@@ -1392,24 +1031,6 @@ export interface SettingsSliceActions {
   setCommandKeybindingDisabled: (commandId: string, disabled: boolean) => void
   resetCommandKeybindings: (commandId: string) => void
   resetAllKeybindings: () => void
-  setSprintEngineRoleEnabled: (role: SprintEngineRoleId, enabled: boolean) => void
-  /**
-   * Create or update a named roster team. When `id` is supplied and matches an
-   * existing team, that team is updated in place; otherwise a new team is added.
-   * Returns the team id (empty string if the name was blank).
-   */
-  saveSprintEngineRoster: (input: {
-    id?: string
-    name: string
-    roleCounts: SprintEngineRoleCounts
-    roleCliDefaults: SprintEngineRoleCliDefaults
-    roleModelOverrides?: SprintEngineRoleModelOverrides
-  }) => string
-  /** Rename a saved team in place. Leaves its roster (counts + CLI defaults)
-   *  untouched so renaming is orthogonal to saving roster edits. */
-  renameSprintEngineRoster: (id: string, name: string) => void
-  deleteSprintEngineRoster: (id: string) => void
-  setSprintEngineLastSelectedRoster: (id: string | null) => void
   setModuleEnabled: (moduleId: string, enabled: boolean) => void
   /**
    * Write one value in a module's settings namespace (`module:<moduleId>`).
@@ -1428,7 +1049,7 @@ export interface SettingsSliceActions {
   /** Set how long an idle agent terminal waits before it is paused (minutes). */
   setTerminalIdleSuspendMinutes: (minutes: number) => void
   setTerminalKeepRecentAlive: (count: number) => void
-  /** Keep the app (and its sprint runs) alive after the last window closes. */
+  /** Keep the app (and its running agents) alive after the last window closes. */
   setKeepRunningInBackground: (enabled: boolean) => void
   setTelemetryEnabled: (enabled: boolean) => void
   setVoiceDictationSettings: (update: Partial<VoiceDictationSettings>) => void
@@ -1488,19 +1109,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     diffOpensInWindow: DEFAULT_DIFF_OPENS_IN_WINDOW,
     diffView: DEFAULT_DIFF_VIEW,
     checkCliVersions: DEFAULT_CHECK_CLI_VERSIONS,
-    sprintEngineRoleRegistry: null,
-    sprintEngineRoleRegistryEpoch: 0,
     agentConfigAdoptionResult: null,
-
-    setSprintEngineRoleRegistry: (registry) =>
-      set((state) => {
-        state.sprintEngineRoleRegistry = registry
-      }),
-
-    bumpSprintEngineRoleRegistryEpoch: () =>
-      set((state) => {
-        state.sprintEngineRoleRegistryEpoch += 1
-      }),
 
     setSidebarSection: (section) =>
       set((state) => {
@@ -1797,42 +1406,17 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         // An explicit user pick, so the plain normalizer: choosing 'default'
         // must stay 'default' and not snap back to the app-wide bypass default.
-        const nextPreset = normalizeCliPermissionPreset(preset)
-        state.appSettings.lastAgentSpawnPermissionPreset = nextPreset
-        const runSettings = normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)
-        state.appSettings.sprintEngineRunSettings = runSettings
-        const changedAt = Date.now()
-        for (const workspace of state.workspaces) {
-          if (!sprintEngineRunState(workspace) || !workspace.sprintEngineAutoState) continue
-          const key = sprintEngineRunSettingsKey(sprintEngineRunContext(workspace)?.statePath)
-          if (!key || runSettings[key]) continue
-          workspace.sprintEngineAutoState = {
-            ...workspace.sprintEngineAutoState,
-            cliPermissionPreset: nextPreset,
-            changedAt,
-          }
-        }
+        state.appSettings.lastAgentSpawnPermissionPreset = normalizeCliPermissionPreset(preset)
       }),
 
-    setSpecialistCliDefault: (specialistId, cli) =>
+    setLastSelectedAgentModel: (selection) =>
       set((state) => {
-        state.appSettings.specialistCliDefaults ??= {}
-        if (cli === null) {
-          delete state.appSettings.specialistCliDefaults[specialistId]
-        } else {
-          state.appSettings.specialistCliDefaults[specialistId] = cli
-        }
-      }),
-
-    setSpecialistModelDefault: (specialistId, selection) =>
-      set((state) => {
-        state.appSettings.specialistModelDefaults ??= {}
         if (!selection) {
-          delete state.appSettings.specialistModelDefaults[specialistId]
+          state.appSettings.lastSelectedAgentModel = null
           return
         }
         const model = selection.model.trim()
-        const stored = state.appSettings.specialistModelDefaults[specialistId]
+        const stored = state.appSettings.lastSelectedAgentModel
         // Effort is per-CLI: a level chosen for this CLI outlives a model
         // change (including a switch to the CLI's default model), and a level
         // chosen for a different CLI is dropped rather than carried onto a CLI
@@ -1842,10 +1426,10 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
           selection.reasoning ?? (stored?.cli === selection.cli ? stored.reasoning : undefined)
         )?.trim()
         if (!model && !reasoning) {
-          delete state.appSettings.specialistModelDefaults[specialistId]
+          state.appSettings.lastSelectedAgentModel = null
           return
         }
-        state.appSettings.specialistModelDefaults[specialistId] = {
+        state.appSettings.lastSelectedAgentModel = {
           cli: selection.cli,
           model,
           ...(reasoning ? { reasoning } : {}),
@@ -1856,63 +1440,31 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       set((state) => {
         const retired = new Set(modelIds.map((id) => id.trim()).filter(Boolean))
         if (retired.size === 0) return
-        const defaults = state.appSettings.specialistModelDefaults
-        if (!defaults) return
-        for (const [specialistId, stored] of Object.entries(defaults)) {
-          if (!stored || stored.cli !== cli || !retired.has(stored.model.trim())) continue
-          // Same shape the model setter writes for "the CLI's own default
-          // model": an entry with no model and no level is nothing at all.
-          const reasoning = stored.reasoning?.trim()
-          if (reasoning) defaults[specialistId as SpecialistActionId] = { cli, model: '', reasoning }
-          else delete defaults[specialistId as SpecialistActionId]
-        }
+        const stored = state.appSettings.lastSelectedAgentModel
+        if (!stored || stored.cli !== cli || !retired.has(stored.model.trim())) return
+        // Same shape the model setter writes for "the CLI's own default
+        // model": an entry with no model and no level is nothing at all.
+        const reasoning = stored.reasoning?.trim()
+        state.appSettings.lastSelectedAgentModel = reasoning ? { cli, model: '', reasoning } : null
       }),
 
-    setSpecialistReasoningDefault: (specialistId, cli, reasoning) =>
+    setLastSelectedAgentReasoning: (cli, reasoning) =>
       set((state) => {
-        state.appSettings.specialistModelDefaults ??= {}
         const level = reasoning?.trim()
-        const stored = state.appSettings.specialistModelDefaults[specialistId]
+        const stored = state.appSettings.lastSelectedAgentModel
         // The model only survives when it belongs to the CLI the level was
         // picked for; a level for another CLI starts that CLI's selection on
         // its own default model.
         const model = stored?.cli === cli ? stored.model : ''
         if (!level && !model) {
-          delete state.appSettings.specialistModelDefaults[specialistId]
+          state.appSettings.lastSelectedAgentModel = null
           return
         }
-        state.appSettings.specialistModelDefaults[specialistId] = {
+        state.appSettings.lastSelectedAgentModel = {
           cli,
           model,
           ...(level ? { reasoning: level } : {}),
         }
-      }),
-
-    setSpecialistOrder: (order) =>
-      set((state) => {
-        state.appSettings.specialistOrder = normalizeSpecialistOrder(order)
-      }),
-
-    setSpecialistPackEnabled: (packId, enabled) =>
-      set((state) => {
-        const id = packId.trim()
-        if (!id) return
-        const current = normalizeSpecialistPacks(state.appSettings.specialistPacks)
-        const disabled = new Set(current.disabled)
-        if (enabled) {
-          disabled.delete(id)
-        } else {
-          disabled.add(id)
-        }
-        // Preserve migratedBundledPack: a pack toggle must never reset the
-        // one-time migration guard, or a later uninstall would be undone.
-        state.appSettings.specialistPacks = { disabled: [...disabled], migratedBundledPack: current.migratedBundledPack }
-      }),
-
-    markBundledSpecialistPackMigrated: () =>
-      set((state) => {
-        const current = normalizeSpecialistPacks(state.appSettings.specialistPacks)
-        state.appSettings.specialistPacks = { disabled: current.disabled, migratedBundledPack: true }
       }),
 
     // The setters accept any non-empty command id: the Shortcuts tab only
@@ -1973,139 +1525,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     resetAllKeybindings: () =>
       set((state) => {
         state.appSettings.keybindings = defaultKeybindingSettings()
-      }),
-
-    setSprintEngineRoleEnabled: (role, enabled) =>
-      set((state) => {
-        const id = role.trim()
-        if (!id) return
-        if (id === PROTECTED_SPRINT_ENGINE_ROLE_ID && enabled === false) return
-        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
-        state.appSettings.sprintEngineRoleSettings = {
-          ...current,
-          enabled: {
-            ...current.enabled,
-            [id]: enabled,
-          },
-        }
-      }),
-
-    saveSprintEngineRoster: (input) => {
-      const name = input.name.trim()
-      if (!name) return ''
-      // MC-1876: the built-in "No roles" is synthetic and reserved. Refusing
-      // both its id and its name here — not just in the UI's validation — is
-      // what makes "it cannot be renamed, edited, or deleted" true rather than
-      // merely unreachable through the happy path.
-      if (isNoRolesRosterRef(name) || isNoRolesRosterRef(input.id)) return ''
-      const roster = normalizeSprintEngineSavedRoster({
-        roleCounts: input.roleCounts,
-        roleCliDefaults: input.roleCliDefaults,
-        roleModelOverrides: input.roleModelOverrides,
-      }) ?? { roleCounts: { architect: 1 } as SprintEngineRoleCounts, roleCliDefaults: {} }
-      const id = input.id?.trim() || nanoid()
-      const now = Date.now()
-      set((state) => {
-        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
-        const teams = [...(current.savedRosters ?? [])]
-        const existingIndex = teams.findIndex((team) => team.id === id)
-        if (existingIndex >= 0) {
-          teams[existingIndex] = {
-            ...teams[existingIndex],
-            name,
-            roleCounts: roster.roleCounts,
-            roleCliDefaults: roster.roleCliDefaults,
-            // Explicitly overwrite (not spread-merge) so clearing every model
-            // override on an edited team drops the stale map instead of keeping it.
-            roleModelOverrides: roster.roleModelOverrides,
-            updatedAt: now,
-          }
-        } else {
-          teams.push({
-            id,
-            name,
-            roleCounts: roster.roleCounts,
-            roleCliDefaults: roster.roleCliDefaults,
-            roleModelOverrides: roster.roleModelOverrides,
-            createdAt: now,
-            updatedAt: now,
-          })
-        }
-        state.appSettings.sprintEngineRoleSettings = {
-          ...current,
-          savedRosters: teams,
-          lastSelectedRosterId: id,
-          // Keep the legacy default in sync so run-mount CLI defaults stay meaningful.
-          savedRoster: roster,
-        }
-      })
-      return id
-    },
-
-    renameSprintEngineRoster: (id, name) => {
-      const teamId = id.trim()
-      const nextName = name.trim()
-      if (!teamId || !nextName) return
-      set((state) => {
-        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
-        const teams = current.savedRosters ?? []
-        const index = teams.findIndex((team) => team.id === teamId)
-        if (index < 0) return
-        const updated = [...teams]
-        updated[index] = { ...updated[index], name: nextName, updatedAt: Date.now() }
-        state.appSettings.sprintEngineRoleSettings = {
-          ...current,
-          savedRosters: updated,
-        }
-      })
-    },
-
-    deleteSprintEngineRoster: (id) =>
-      set((state) => {
-        const teamId = id.trim()
-        if (!teamId) return
-        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
-        const teams = (current.savedRosters ?? []).filter((team) => team.id !== teamId)
-        state.appSettings.sprintEngineRoleSettings = {
-          ...current,
-          savedRosters: teams,
-          lastSelectedRosterId: current.lastSelectedRosterId === teamId ? null : current.lastSelectedRosterId,
-        }
-      }),
-
-    setSprintEngineLastSelectedRoster: (id) =>
-      set((state) => {
-        const current = normalizeSprintEngineRoleSettings(state.appSettings.sprintEngineRoleSettings)
-        const teamId = id?.trim() || null
-        // MC-1876: picking the built-in must STICK. It is not in savedRosters
-        // (by design), so without this branch the lookup below would fail, the
-        // pointer would clear, and the next resolve would fall through to the
-        // legacy savedRoster mirror — silently re-staffing "No roles" with the
-        // last specialist roster the user touched.
-        if (isNoRolesRosterRef(teamId)) {
-          state.appSettings.sprintEngineRoleSettings = {
-            ...current,
-            lastSelectedRosterId: NO_ROLES_ROSTER_ID,
-            // The legacy mirror is deliberately left alone: it is the run-mount
-            // CLI-default fallback, not a staffing source for the built-in.
-          }
-          return
-        }
-        const team = teamId ? (current.savedRosters ?? []).find((entry) => entry.id === teamId) ?? null : null
-        state.appSettings.sprintEngineRoleSettings = {
-          ...current,
-          lastSelectedRosterId: team ? team.id : null,
-          // Mirror the picked team into the legacy default for run-mount fallback,
-          // including its model overrides so savedRoster stays a faithful mirror
-          // (matches what saveSprintEngineRoster writes).
-          savedRoster: team
-            ? {
-                roleCounts: team.roleCounts,
-                roleCliDefaults: team.roleCliDefaults,
-                ...(team.roleModelOverrides ? { roleModelOverrides: team.roleModelOverrides } : {}),
-              }
-            : current.savedRoster,
-        }
       }),
 
     setModuleEnabled: (moduleId, enabled) =>

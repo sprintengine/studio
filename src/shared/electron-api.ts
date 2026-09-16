@@ -4,6 +4,8 @@ import type { BranchPullRequest } from './git/pull-request'
 import type { ConversationPeek } from './conversation-peek'
 import type { ChatTitleRequest, TextGenerationResult } from './text-generation/contract'
 import type { MobileControlProtocolVersion } from '../../packages/mobile-control-protocol/src/index'
+import type { AgentLaunchSettings, AgentLaunchSettingsWriteAck } from './launch-settings'
+import type { CliPermissionPreset } from './cli-permission-preset'
 export type {
   ConversationPeek,
   ConversationPeekAttachment,
@@ -460,7 +462,7 @@ export type AgentLaunchPreviewInput = {
   cli: AgentCli
   cliModel?: string
   cliReasoning?: string
-  cliPermissionPreset?: SprintEngineCliPermissionPreset
+  cliPermissionPreset?: CliPermissionPreset
   cliRuntime?: CliRuntimeSettings
 }
 
@@ -822,7 +824,7 @@ export type CardRunInput = {
    */
   model?: string | null
   reasoning?: string | null
-  permissionPreset?: SprintEngineCliPermissionPreset
+  permissionPreset?: CliPermissionPreset
 }
 
 /** `already` is a no-op that succeeded; `skipped` is an action a failure before it stopped. */
@@ -869,7 +871,7 @@ export type CardChatHandoff = {
    */
   model: string | null
   reasoning: string | null
-  permissionPreset: SprintEngineCliPermissionPreset | null
+  permissionPreset: CliPermissionPreset | null
 }
 
 export type CardSurfaceHandoff = { view: CardSurfaceView; installed: boolean }
@@ -1017,7 +1019,7 @@ export type CredentialSecretClearResult = ConversationSecretClearResult
 // `claude-code`.
 export type AgentCli = string
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
-export type SprintEngineCliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
+export type { CliPermissionPreset } from './cli-permission-preset'
 
 export type CliRuntimeSettings = {
   command: string
@@ -1192,36 +1194,6 @@ export type McpSyncInput = {
    * (backlog/2026-09-06-a-github-marketplace-plugin-installs-nothing-for-claude-code.md).
    */
   forgetServerIds?: string[]
-  managedSprintEngine?: {
-    statePath: string
-    workspaceRoot?: string
-    allowedRoots?: string[]
-    registryRoots?: string[]
-    userRoot?: string
-    actorId?: string
-    workspaceId?: string
-    agentId?: string
-    role?: string
-    // Declared repo the session works in (MC-1610), derived from its launch
-    // cwd. Binds the session's claim queue to that repo's tree; absent for
-    // single-repo runs and launches outside a declared worktree.
-    repo?: string
-    // The one task this session may work (MC-2136), set when its launch cwd IS
-    // that task's own worktree under per-task isolation. Binds the claim queue
-    // to that task alone: the engine commits the task's work from this tree, so
-    // a session here working anything else would have its changes committed by
-    // nobody. Absent on every run that shares one worktree.
-    taskId?: string
-    cli?: McpClientTarget
-    // Workspace Knowledge Graph root ('' when unset); lets the MCP server gate
-    // the workspace_knowledge prompt layer at compose time.
-    knowledgeRoot?: string
-    http?: {
-      url: string
-      authTokenEnvVar?: string
-      headers?: Record<string, string>
-    }
-  }
   requiredOnly?: boolean
   write?: boolean
   // Connector-scoped writes are exclusive: the worktree config must end with
@@ -1677,7 +1649,11 @@ export type SkillSourceUpdateCheck = {
 
 export type TerminalKind = 'agent' | 'terminal'
 export type TerminalPathStyle = 'posix' | 'windows' | 'wsl'
-export type AgentSessionSystem = 'sprintengine' | 'manual'
+/**
+ * Which runtime owns an agent session. `manual` is a session the app itself
+ * launched; a capability module that runs its own agents names itself here.
+ */
+export type AgentSessionSystem = 'manual' | (string & {})
 
 export type AgentSessionIdentity = {
   sessionId: string
@@ -1709,7 +1685,7 @@ export type TerminalSpawnMetadata = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
-  cliPermissionPreset?: SprintEngineCliPermissionPreset
+  cliPermissionPreset?: CliPermissionPreset
   // Orthogonal Debug Mode toggle (the agent picker). Layers on top of the chosen
   // permission preset without changing its flags; the launch boundary prepends
   // the debug directive to the initial prompt when set. Transient per-spawn —
@@ -1739,10 +1715,6 @@ export type TerminalSpawnMetadata = {
   // carries none of the connector MCP coupling (no prune, no worktree .mcp.json
   // exclude). The invocation itself is prefilled renderer-side, never auto-sent.
   spawnSkillId?: string
-  // Specialist role id for this spawn. Host-context delivery reads the matching
-  // workspace skill and, when it resolves, adds the Role section. Unset for
-  // general agents. Preload spreads the metadata bag onto TerminalSpawnPayload.
-  specialistId?: string
 }
 
 export type SessionActivity =
@@ -1851,7 +1823,6 @@ export type TerminalSessionSnapshot = {
   cliSessionId?: string
   cli?: AgentCli
   cwd?: string
-  sprintEngineStatePath?: string
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
@@ -1865,7 +1836,7 @@ export type TerminalSessionSnapshot = {
   agentSession?: AgentSessionIdentity
   // Present only on sessions the main-process AgentLaunchService composed
   // (MC-2159): the launch decisions main made — name, CLI, model, permission
-  // preset, specialist, connector environment. The renderer projects these into
+  // preset, connector environment. The renderer projects these into
   // an AgentState so a headless-launched agent gets a tab it never created, and
   // so a window opened after the launch sees the same agent the launch made.
   // Absent for renderer-launched agents (which already own their record) and
@@ -2028,10 +1999,10 @@ export type WorkspaceMemorySample = {
 // One terminal the main-process reaper acted on, kept in a bounded ring buffer
 // so the diagnostics panel can show an audit trail of what was reaped and from
 // which workspace. `idle-suspend` is the memory-bounded sweep
-// (`runIdleAgentReapSweep`) suspending an idle (non-sprint) agent outside the hot
-// set; `idle-dispose` is the same sweep DISPOSING an idle SprintEngine agent
-// (orchestrator-driven, so it leaves → revives via dispatch rather than freezing
-// the view); `stale-dispose` is the 24h backstop (`reapStaleTerminals`). The
+// (`runIdleAgentReapSweep`) suspending an idle agent outside the hot set;
+// `idle-dispose` is the same sweep DISPOSING an idle module-driven agent (it
+// leaves → revives via dispatch rather than freezing the view);
+// `stale-dispose` is the 24h backstop (`reapStaleTerminals`). The
 // suspend reasons preserve the agent's resume flags so it relaunches with
 // `--resume` on reopen.
 export type TerminalReapReason = 'idle-suspend' | 'idle-dispose' | 'stale-dispose'
@@ -2084,16 +2055,6 @@ export type IpcStatsSnapshot = {
 export type TerminalSpawnResult =
   | { ok: true; sessionId: string }
   | { ok: false; sessionId: string; message: string; exitCode: number }
-
-// A specialist id is a registry role id (MC-1587: specialists ship as an
-// installable pack, so there is no fixed union of ids). Kept as a named alias
-// so the many IPC-boundary import sites need no churn; mirrors
-// `SpecialistActionId` in `src/shared/sprintengine/agent-state.ts`.
-export type SpecialistActionId = string
-
-export type SoulPromptResult =
-  | { ok: true; prompt: string; path: string }
-  | { ok: false; message: string; path: string | null }
 
 export type GitFileStatus = 'new' | 'modified' | 'deleted' | 'renamed' | 'conflicted'
 
@@ -2470,7 +2431,7 @@ export type GitConflictFileContent = {
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
-export type DiagnosticSource = 'auth' | 'automations' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'sprintengine' | 'terminal' | 'update' | 'voice' | 'workspace'
+export type DiagnosticSource = 'agents' | 'auth' | 'automations' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'terminal' | 'update' | 'voice' | 'workspace'
 
 // Serializable deep-focus target for a notification's Open action. Mirrors the
 // renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);
@@ -2495,7 +2456,7 @@ export type DiagnosticLogInput = {
   navigationTarget?: NotificationNavigationTarget
   /**
    * The Extensions drawer row this news belongs to (`ExtensionsDrawerRowId`:
-   * workflows, sprints, design, plugins, skills, agent-clis), when the emitter
+   * design, plugins, skills, agent-clis), when the emitter
    * knows. Absent, the row is read off `source` (`extensionsRowOfNotification`).
    * A string rather than the row type because this shape is shared with the
    * main process and persists to localStorage; unknown values fall back to the
@@ -2671,40 +2632,6 @@ export type AppUpdateCheckResult =
   | { ok: true; state: AppUpdateState; message: string }
   | { ok: false; state: AppUpdateState; message: string }
 
-export type {
-  SprintEngineMutationEventMetadata,
-  SprintEngineMutationRefreshData,
-  SprintEngineArtifactCommandResult,
-  SprintEngineProjectionReadResult,
-  SprintEngineRegistryRolesReadInput,
-  SprintEngineRegistryRoleReadInput,
-  SprintEngineMcpReadResult,
-  SprintEngineTaskMutationRole,
-  SprintEngineTaskUpdateInput,
-  SprintEngineTaskCreateInput,
-  SprintEngineTaskCommentInput,
-  SprintEngineTaskResolveInput,
-  SprintEngineTaskStatusSetInput,
-  SprintEngineStateInitializeSource,
-  SprintEngineStateInitializeSourceBundleItem,
-  SprintEngineStateInitializeInput,
-  SprintEngineTaskWorktreeInput,
-  SprintEngineTaskWorktreeResult,
-  SprintEngineCliWatchPolling,
-  SprintEngineRunnerSetInput,
-  SprintEngineAutomationReadInput,
-  SprintEngineAutomationSetModeInput,
-  SprintEngineAutomationHydrateInput,
-  SprintEngineCliPermissionPresetSetInput,
-  SprintEngineAutomationReadResult,
-  SprintEngineAutomationWriteResult,
-  SprintEngineLaunchSettingsWriteAck,
-  SprintEngineAutomationChangedEvent,
-  SprintEngineRosterRuntimeInput,
-  SprintEngineRosterEnableInput,
-} from './sprintengine/ipc-types'
-export type { RoleInstallResult } from './sprintengine/role-manifest'
-export type { SprintEngineTokenUsageReport } from './sprintengine-token-usage'
 
 export type SessionUser = {
   id: string
@@ -2789,6 +2716,11 @@ export type SessionSnapshot =
       selectedOrganization: null
     }
 
+// The phone's wire vocabulary, the twin of the one in
+// `src/main/mobile/bridge/index.ts`. It still names the commands the Sprint
+// Engine took with it: a phone paired before that cut keeps sending them, and
+// the desktop has to be able to name one in order to refuse it honestly. The
+// two lists change together, and only together with the phone.
 export type MobileControlCommandType =
   | 'snapshot.request'
   | 'artifact.read'
@@ -2818,6 +2750,10 @@ export type MobileControlCapability =
   | 'backlog.create'
   | 'sprintengines.pr'
   | 'sprintengines.automation'
+  // Controls the desktop's automations (src/main/automations). NOT the same thing
+  // as `sprintengines.automation`, which is a retired run's automation mode — a
+  // different subsystem, and reusing its scope would have silently granted every
+  // already-paired device the power to fire agent runs here.
   | 'automations.control'
 
 export type MobileControlDevice = {
@@ -2981,7 +2917,7 @@ export type BacklogItemLinkPayload = {
     taskId?: string
   }
   // `pending` is recorded-but-not-started: the link exists so the item shows its
-  // sprint, but it does not drive the item to `in_progress` yet.
+  // work, but it does not drive the item to `in_progress` yet.
   status?: 'pending' | 'active' | 'completed' | 'canceled' | 'failed' | 'unknown'
   // The item status to restore if this link's work is abandoned. Written when an
   // epic-child link is created and consumed when the run or its task is canceled.
@@ -3156,8 +3092,8 @@ export type BacklogDependenciesInput = {
 }
 
 // The epic-side ordering mark (MC-2137): the author asserting that this epic's
-// children are ordered — deliberately parallel counts — so a sprint may start
-// from it with no planning agent. `true` writes `dependenciesPlanned: true`;
+// children are ordered — deliberately parallel counts — so work may start from
+// it with no planning agent. `true` writes `dependenciesPlanned: true`;
 // `false` removes the line, since absent is the same assertion as false.
 export type BacklogDependenciesPlannedInput = {
   workspaceRoot: string
@@ -3590,7 +3526,10 @@ export type ElectronApi = {
   updateQuitAndInstall: () => Promise<AppUpdateCheckResult>
   updateOpenReleaseNotes: () => Promise<{ opened: true; url: string }>
   onUpdateStateChanged: (cb: (state: AppUpdateState) => void) => () => void
-  readSpecialistSoul: (specialistId: SpecialistActionId) => Promise<SoulPromptResult>
+  /** Push the renderer-authored launch settings main composes a spawn from. */
+  syncAgentLaunchSettings: (input: AgentLaunchSettings) => Promise<AgentLaunchSettingsWriteAck>
+  /** Seed main's launch-settings store on first boot; a no-op once it holds one. */
+  hydrateAgentLaunchSettings: (input: AgentLaunchSettings) => Promise<AgentLaunchSettingsWriteAck>
   writefile: (path: string, content: string) => Promise<void>
   /**
    * Save one pasted/dropped image that exists only as bytes (a clipboard
@@ -3854,7 +3793,6 @@ export type ElectronApi = {
     rows: number,
     cwd?: string,
     resume?: boolean,
-    sprintEngineStatePath?: string,
     cli?: AgentCli,
     initialPrompt?: string,
     cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
@@ -3877,7 +3815,6 @@ export type ElectronApi = {
     rows: number,
     cwd?: string,
     resume?: boolean,
-    sprintEngineStatePath?: string,
     cli?: AgentCli,
     initialPrompt?: string,
     cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
@@ -3895,9 +3832,6 @@ export type ElectronApi = {
   // disposes this session. Broadcasts a sessions-changed snapshot so the lock
   // state stays in sync across views.
   setTerminalReapExempt: (sessionId: string, exempt: boolean) => Promise<void>
-  // Push the SprintEngine run statePaths whose dispatch loop is actively running,
-  // so the idle reaper protects those runs' agents and only reclaims inactive ones.
-  setActiveSprintRunStatePaths: (statePaths: string[]) => Promise<void>
   onTerminalReplay: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalData: (sessionId: string, cb: (data: string) => void) => () => void
   onTerminalExit: (sessionId: string, cb: (code: number) => void) => () => void

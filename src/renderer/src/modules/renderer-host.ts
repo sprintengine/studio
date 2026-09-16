@@ -8,11 +8,7 @@ import { resolveModuleEnablement } from '../../../shared/modules/resolve'
 import { COMMAND_REGISTRY } from '../commands/commandRegistry'
 import { collapseDuplicateKeybindings } from '../commands/keybindings'
 import type { CommandAvailability, CommandContribution, CommandScope, ModuleCommandContext } from '../commands/types'
-import type {
-  AppNotification,
-  FuturePlanWorkspaceSource,
-  LayoutTemplate,
-} from '../types/workspace'
+import type { AppNotification, LayoutTemplate } from '../types/workspace'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../utils/backlog'
 import type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
 import { AGENT_RUNTIME_MODULE_ID } from '../../../shared/backlog/agent-links'
@@ -42,7 +38,6 @@ import type {
 
 export type WorkspacePanelProps = {
   workspaceId: string
-  onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
 }
 
 // A panel may be an eager component or a React.lazy() wrapper; both render the
@@ -79,15 +74,14 @@ export type WorkspaceTypeRowActionConfirm = {
 
 /**
  * The workspace fields a type's sidebar status hooks may read. The shell
- * passes a richer row (session auto-state, agents) — this is the published
- * identity plus the module bag.
+ * passes a richer row (agents, clocks) — this is the published identity plus
+ * the module bag.
  */
 export type WorkspaceTypeSidebarWorkspace = {
   id: string
   name: string
   mode: WorkspaceRunGlyphProviderInput['mode']
   moduleState?: WorkspaceRunGlyphProviderInput['moduleState']
-  sprintEngineAutoState?: WorkspaceRunGlyphProviderInput['sprintEngineAutoState']
 }
 
 /**
@@ -255,7 +249,6 @@ export type BacklogItemActionContext = {
   updateStatus(status: BacklogItemStatus): Promise<void>
   addLink(link: BacklogItemLink): Promise<void>
   updateModuleMetadata(moduleId: string, value: unknown): Promise<void>
-  startSourcePlan?(source: FuturePlanWorkspaceSource): void
   /**
    * Present when the context menu was opened on a multi-selection (MC-2060):
    * every selected item in list order — `item` is the anchor row and is always
@@ -295,8 +288,7 @@ export type RegisteredBacklogItemAction = BacklogItemAction & {
 
 // Files-tree context-menu actions. Sibling of BacklogItemAction: the explorer
 // renders enabled-module contributions under a heading named for the module,
-// gone with it, never a disabled core row. `startSourcePlan` is the same
-// shell-internal hook Backlog actions receive and the SDK omits.
+// gone with it, never a disabled core row.
 export type FileActionEntry = {
   name: string
   path: string
@@ -308,7 +300,6 @@ export type FileActionContext = {
   workspaceId: string
   workspaceRoot: string
   entries: readonly FileActionEntry[]
-  startSourcePlan?: (source: FuturePlanWorkspaceSource) => void
 }
 
 export type FileActionState = 'enabled' | 'disabled'
@@ -448,7 +439,7 @@ export type RegisteredSettingsSection = SettingsSectionDefinition & {
 export type { ModuleWorkspaceView } from '../../../shared/modules/workspace-view'
 
 // A top-nav door a module contributes to the workspace sidebar's instance-level
-// nav cluster (the band that holds New chat, Automations, Sprints, Connectors).
+// nav cluster (the band that holds New chat, Automations, Connectors).
 // The entry is a self-contained row component so it owns its full behavior —
 // a status dot, an open action against the LOCAL window's store, active-state —
 // exactly like the shell's own doors; the host only owns placement + gating.
@@ -475,7 +466,7 @@ export type SidebarNavEntryDefinition = {
   id: string
   /**
    * Sort key within the top-nav cluster; lower renders first. The shell's
-   * built-in doors reserve Create=0, Automations=10, Sprints=20, Connectors=30,
+   * built-in doors reserve Create=0, Automations=10, Connectors=30,
    * so a module door slots deterministically around them (40 and up lands after
    * Connectors). Ties break on id.
    */
@@ -587,7 +578,7 @@ export type GlobalSurfaceComponent =
 // ruling, 2026-09-05).
 //
 //   sidebar — the context-rail swap (item 1993): the door's rail REPLACES the
-//             app sidebar's column for the length of the visit. Sprints and
+//             app sidebar's column for the length of the visit. Automations and
 //             Automations, whose rail is a list the person walks (runs;
 //             automations), and which is the navigation while they are open.
 //   inline  — the rail renders inside the card region beside the canvas, and
@@ -604,7 +595,7 @@ export type GlobalSurfaceDefinition = {
    * User-facing name for the surface — the drawer/rail row's label, the door
    * bar's fallback title, and the absent-door explainer's heading. Decoupled
    * from the id ("Plugins" over id `extensions`). Optional: a door whose row is
-   * its own `registerSidebarNavEntry` component (Sprints) names itself there,
+   * its own `registerSidebarNavEntry` component names itself there,
    * and the shell falls back to the capitalised id. Non-empty when given.
    */
   label?: string
@@ -1020,7 +1011,7 @@ export type RendererHost = {
   /**
    * The workspace's *effective working root*: where its live work happens.
    * `ModuleWorkspaceView.folderPath` deliberately reports the durable primary
-   * checkout; a worktree-backed workspace (sprint runs) does live work under a
+   * checkout; a worktree-backed workspace does live work under a
    * worktree, and this resolves that root. The live-runtime methods below
    * (`watchWorkspaceFile`, `spawnAgent`, `focusTab`) resolve workspace-relative
    * paths against it. Null means "not currently resolvable" — never a throw.
@@ -1122,7 +1113,7 @@ export type RendererKernel = {
   /**
    * Contributed sidebar nav doors for enabled modules, sorted by `order` then
    * id so the top-nav cluster reads the same across reloads. The sidebar merges
-   * these with its own built-in doors (Create/Automations/Sprints/Connectors),
+   * these with its own built-in doors (Create/Automations/Connectors),
    * which carry their own `order`, into one deterministic band.
    */
   getSidebarNavEntries(moduleEnabled?: (moduleId: string) => boolean): RegisteredSidebarNavEntry[]
@@ -1195,6 +1186,14 @@ export type RendererKernel = {
    * (early boot, tests) the reader's owning module is treated as enabled.
    */
   setModuleEnablementResolver(resolver: (moduleId: string) => boolean): void
+  /**
+   * Read that same resolver, for the few shell helpers that need "is this
+   * module on?" but must not import the workspace store — importing it from a
+   * module the store's own slices reach would close a cycle. Absent a resolver
+   * (early boot, tests) every module reads as enabled, matching the
+   * `!moduleEnabled ||` rule every registry lookup already applies.
+   */
+  isModuleEnabled(moduleId: string): boolean
   /**
    * Workspace-view source for `RendererHost.getWorkspace`. Wired once at boot
    * by modules/index.ts from the workspace store; absent (early boot, tests)
@@ -1994,6 +1993,9 @@ export function createRendererHost(): RendererKernel {
     },
     setModuleEnablementResolver(resolver) {
       moduleEnabledResolver = resolver
+    },
+    isModuleEnabled(moduleId) {
+      return moduleEnabledResolver ? moduleEnabledResolver(moduleId) : true
     },
     setWorkspaceModuleStateStore(store) {
       workspaceModuleStateStore = store

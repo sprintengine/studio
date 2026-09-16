@@ -243,7 +243,7 @@ export function CliModelPopoverSurface({
   /**
    * An opt-in row pinned above the models, for hosts where "no runtime at all" is
    * a real choice rather than an empty one (MC-2129's Planning agent: with None,
-   * the epic is the plan and nothing plans the sprint). Absent everywhere else, so
+   * the epic is the plan and nothing plans it again). Absent everywhere else, so
    * a picker that must always resolve to a runtime cannot offer an escape from it.
    *
    * Hidden while searching: a query is asking for a model by name, and a pinned
@@ -1181,9 +1181,8 @@ export function CliModelPickerButton({
   onSelectReasoning?: (cli: AgentCli, reasoning: string | null) => void
   disabled?: boolean
   /**
-   * Opt-in low-emphasis trigger for in-place property editing (the Sprint
-   * Engine roster's role bands): renders as plain muted text until hover or
-   * focus reveal the control chrome.
+   * Opt-in low-emphasis trigger for in-place property editing: renders as
+   * plain muted text until hover or focus reveal the control chrome.
    */
   quiet?: boolean
   /** Trigger width clamp override for hosts where the model name must never truncate. */

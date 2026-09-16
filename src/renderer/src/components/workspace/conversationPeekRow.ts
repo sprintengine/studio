@@ -132,7 +132,7 @@ export function rowConversationPeekIdentities(input: {
         // has to be recognisable as that row's card (mockup frame 3, where the
         // card opened from an agent line still names the chat).
         name: input.workspace.name,
-        // No task chip on a row, unlike the tab: a sprint task is claimed by an
+        // No task chip on a row, unlike the tab: a task is claimed by an
         // agent, and the row's own title is the chat's.
         taskId: null,
         status: agentStatusOf(session, input.now),

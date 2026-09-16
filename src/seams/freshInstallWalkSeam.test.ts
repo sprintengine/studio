@@ -250,7 +250,6 @@ async function spawnAgentOn(input: {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-fresh-install-seam-'))
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
-    requireAuthenticatedUser: () => undefined,
     logMainPerfEvent: () => undefined,
   })
   runtimeModule.__setAgentCliPreflightForTest({
@@ -333,7 +332,7 @@ async function testFreshMacOffersNothingHoldsTheHubAndRefusesTheSpawn(): Promise
     assert.ok(pending.catalog.length > 0, `an unresolved probe must not empty the picker on ${status}`)
   }
 
-  // A spawn attempted anyway — a remembered CLI, a template, a Sprint Engine
+  // A spawn attempted anyway — a remembered CLI, a template, an automation
   // launch — is refused with a message, not reported as a started agent.
   const spawn = await spawnAgentOn({
     machine: FRESH_MAC,

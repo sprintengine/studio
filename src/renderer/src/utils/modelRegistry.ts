@@ -1,6 +1,5 @@
 import { Actions, DockLocation, Model, RowNode, TabNode, TabSetNode, type IJsonModel } from 'flexlayout-react'
 import { basename, isPathOrChild, pathSeparatorFor } from './paths'
-import { SPRINT_ENGINE_WORKSPACE_TYPE_ID } from '../../../shared/sprintengine/workspace-record'
 
 const AGENT_TAB_SPAWN_FLASH_CLASS = 'agent-tab-spawn-flash'
 const AGENT_TAB_SPAWN_FLASH_PANEL_CLASS = 'agent-tab-spawn-flash-panel'
@@ -297,15 +296,15 @@ export function addAgentTabTiled(
   name: string,
   config?: Record<string, unknown>,
   // The fifth arg to Actions.addNode is `select`: true foregrounds the new tab,
-  // false docks it in place without stealing focus. Sprint Engine auto-launches
-  // pass false so a supervised agent never yanks you off the board.
+  // false docks it in place without stealing focus. An automatic launch passes
+  // false so a background agent never yanks you off what you were reading.
   select = true
 ): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
 
-  // Single-surface control layouts (Sprint Engine board, Automations control
-  // center): agent terminals must never stack into the control panel's tabset.
+  // Single-surface control layouts (the Automations control center): agent
+  // terminals must never stack into the control panel's tabset.
   // Share a right-hand "terminals" tabset with plain terminals when one exists;
   // otherwise dock a fresh tabset on the right edge of the root so the control
   // panel keeps its real estate and "Open agent" reveals the agent on the right.
@@ -555,9 +554,9 @@ function firstTerminalTabset(model: Model): TabSetNode | null {
 }
 
 // Returns the first tabset hosting an agent or terminal tab that does NOT also
-// host the Sprint Engine board. Lets agent terminals and plain terminals share
-// a right-hand "terminals" panel in SE layouts without ever stacking into the
-// board's tabset.
+// host a control panel. Lets agent terminals and plain terminals share a
+// right-hand "terminals" panel in a control layout without ever stacking into
+// the control panel's tabset.
 function firstTerminalLikeTabset(model: Model): TabSetNode | null {
   let found: TabSetNode | null = null
   model.visitNodes((node) => {
@@ -567,10 +566,10 @@ function firstTerminalLikeTabset(model: Model): TabSetNode | null {
     if (component !== 'agent' && component !== 'terminal') return
     const parent = node.getParent()
     if (!(parent instanceof TabSetNode)) return
-    const hostsBoard = parent.getChildren().some(
-      (child) => child instanceof TabNode && child.getComponent() === SPRINT_ENGINE_WORKSPACE_TYPE_ID
+    const hostsControlPanel = parent.getChildren().some(
+      (child) => child instanceof TabNode && AGENT_DOCK_RIGHT_COMPONENTS.has(child.getComponent() ?? '')
     )
-    if (hostsBoard) return
+    if (hostsControlPanel) return
     found = parent
   })
   return found
@@ -626,24 +625,11 @@ function addEditorSurfaceNode(
   return true
 }
 
-function modelHasSprintEngineBoard(model: Model): boolean {
-  let found = false
-  model.visitNodes((node) => {
-    if (found) return
-    if (node instanceof TabNode && node.getComponent() === SPRINT_ENGINE_WORKSPACE_TYPE_ID) found = true
-  })
-  return found
-}
-
 // Single-surface control layouts whose control panel owns a non-closeable tab in
 // a tab-strip-hidden tabset: agent run terminals must dock into a right-hand
 // terminals tabset instead of stacking (invisibly) into the control tabset. The
-// Sprint Engine board (its registered workspace type id) and the Automations
-// control center ('automations-control-center') both follow this pattern.
-const AGENT_DOCK_RIGHT_COMPONENTS = new Set<string>([
-  SPRINT_ENGINE_WORKSPACE_TYPE_ID,
-  'automations-control-center',
-])
+// Automations control center follows this pattern.
+const AGENT_DOCK_RIGHT_COMPONENTS = new Set<string>(['automations-control-center'])
 
 function modelDocksAgentsRight(model: Model): boolean {
   let found = false
@@ -704,8 +690,8 @@ export function addNewAgentTab(
     config: { agentName },
   }
 
-  // Sprint Engine and Automations layouts dock agents into their right-hand
-  // terminal column; the "+" is not offered there today, but the helper follows
+  // The Automations layout docks agents into its right-hand terminal column;
+  // the "+" is not offered there today, but the helper follows
   // the same policy so it cannot strand a tab inside a control panel's tabset.
   if (modelDocksAgentsRight(model)) {
     const terminalHost = firstTerminalLikeTabset(model)
@@ -774,7 +760,7 @@ export function convertNewAgentTabToAgent(
 }
 
 /**
- * The same conversion for the roster's Terminal row, which opens a shell rather
+ * The same conversion for the composer's Terminal row, which opens a shell rather
  * than an agent. Same node, same reason: the pane the person is looking at
  * becomes the thing they asked for.
  */
@@ -807,11 +793,11 @@ export function removeNewAgentTab(workspaceId: string, tabId: string): boolean {
 }
 
 // Places a new terminal tab in the layout. Stacks into an existing terminal
-// tabset when one exists so multiple terminals share a tab strip. In Sprint
-// Engine layouts the right-hand "terminals" tabset is shared with agent
-// terminals — plain terminals stack into it (or dock a fresh tabset on the
-// right edge of the root) so the board stays visible; outside SE mode the
-// active tabset is used.
+// tabset when one exists so multiple terminals share a tab strip. In a control
+// layout the right-hand "terminals" tabset is shared with agent terminals —
+// plain terminals stack into it (or dock a fresh tabset on the right edge of
+// the root) so the control panel stays visible; everywhere else the active
+// tabset is used.
 export function addTerminalTab(
   workspaceId: string,
   terminalId: string,
@@ -822,7 +808,7 @@ export function addTerminalTab(
 
   const tabJson = terminalTabJson(terminalId, name)
 
-  if (modelHasSprintEngineBoard(model)) {
+  if (modelDocksAgentsRight(model)) {
     const terminalHost = firstTerminalLikeTabset(model)
     if (terminalHost) {
       model.doAction(
@@ -1266,8 +1252,7 @@ export type RailSide = 'left'
 // View menu. Files, Git and Backlog are NOT here any more — they are
 // workspace-pane tabs (browser-pane epic; store v73 strips the Files/Git rail
 // tabs, v74 the Backlog one) and the header's Backlog switch toggles the pane
-// tab. Sprint Engines is the instance-global Sprints door surface, outside any
-// per-workspace layout model. The Editor is deliberately excluded: it owns a
+// tab. The Editor is deliberately excluded: it owns a
 // document tab strip so multiple open files stay switchable (see
 // toggleEditorRailComponent). The side-keyed machinery below stays generic so
 // a second nav component can come back without a rewrite.

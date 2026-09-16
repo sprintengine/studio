@@ -18,7 +18,6 @@ import {
   type FleetCreateTerminalResult,
   type FleetGap,
   type FleetPairResult,
-  type FleetRun,
   type FleetTerminal,
   type FleetTerminalEvent,
   type FleetWorkspace,
@@ -173,10 +172,6 @@ export type TailnetFleetService = {
    */
   forgetMachine(input: { deviceId?: unknown; connectionId?: unknown }): FleetForgetMachineResult
   browse(connectionId: unknown): Promise<FleetBrowse>
-  listRuns(
-    connectionId: unknown,
-    workspaceId: unknown
-  ): Promise<{ ok: true; runs: FleetRun[] } | { ok: false; code: string; message: string }>
   createTerminal(input: {
     connectionId: unknown
     workspaceId?: unknown
@@ -1080,33 +1075,6 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     })
   }
 
-  async function listRuns(
-    connectionId: unknown,
-    workspaceId: unknown
-  ): Promise<{ ok: true; runs: FleetRun[] } | { ok: false; code: string; message: string }> {
-    const connection = connectionFor(connectionId)
-    if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
-    if (typeof workspaceId !== 'string' || !workspaceId) {
-      return { ok: false, code: 'invalid_arguments', message: 'Name the workspace whose runs to list.' }
-    }
-    const answer = await callRemoteTool({
-      endpoint: endpointOf(connection),
-      token: connection.deviceToken,
-      tool: 'sprint.list',
-      args: { workspaceId },
-    })
-    if (!answer.ok) return { ok: false, code: answer.code, message: answer.message }
-    const entries = Array.isArray(answer.value.runs) ? answer.value.runs : []
-    return {
-      ok: true,
-      runs: entries.flatMap((entry) => {
-        const record = asRecord(entry)
-        if (!record || typeof record.slug !== 'string') return []
-        return [{ slug: record.slug, statePath: typeof record.statePath === 'string' ? record.statePath : '' }]
-      }),
-    }
-  }
-
   async function workspaceCheckout(connectionId: unknown, workspaceId: unknown): Promise<FleetWorkspaceCheckoutResult> {
     const connection = connectionFor(connectionId)
     if (!connection) return { ok: false, code: 'unknown_connection', message: 'That machine is not paired here.' }
@@ -1594,7 +1562,6 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       return store.list()
     },
     browse,
-    listRuns,
     createTerminal,
     workspaceCheckout,
     attachTerminal,

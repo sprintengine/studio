@@ -165,9 +165,9 @@ const ROOT_DESCRIPTOR_SEP = '\u0000'
 //
 // The one exclusion is the background Automations host, which stands for no
 // project of its own. Deliberately NOT the broader `isHiddenFromRail`: since item
-// 1767 that also covers sprint-run workspaces, and a sprint runs IN a project the
+// 1767 that also covers a module's own background workspaces, which run IN a project the
 // operator works in — dropping its root would make a project's backlog vanish
-// from this page whenever its only open workspace happened to be a sprint.
+// from this page whenever its only open workspace happened to be one of those.
 export function collectBacklogProjectRootDescriptors(
   workspaces: ReadonlyArray<Pick<Workspace, 'folderPath' | 'mode'>>,
 ): string[] {

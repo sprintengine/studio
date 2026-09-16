@@ -36,7 +36,6 @@ export type SpawnAgentConfig = {
   cliModel?: string
   // Always resolved — an omitted preset becomes AUTOMATION_DEFAULT_PERMISSION_PRESET.
   permissionPreset: AutomationCliPermissionPreset
-  specialistId?: string
   name?: string
   prompt: string
   requiredIntegrations?: string[]
@@ -62,7 +61,6 @@ export type SpawnAgentRuntime = {
     cli?: string
     cliModel?: string
     permissionPreset?: AutomationCliPermissionPreset
-    specialistId?: string
     name?: string
     prompt: string
     connectorId?: string
@@ -92,7 +90,6 @@ export function createSpawnAgentActionProvider(): AutomationActionProvider {
         cli: { type: 'string', minLength: 1 },
         cliModel: { type: 'string', minLength: 1 },
         permissionPreset: { type: 'string', enum: [...PERMISSION_PRESETS, ...Object.keys(LEGACY_PERMISSION_PRESETS)] },
-        specialistId: { type: 'string', minLength: 1 },
         name: { type: 'string', minLength: 1 },
         prompt: { type: 'string', minLength: 1 },
         connectorId: { type: 'string', minLength: 1 },
@@ -138,7 +135,6 @@ export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRu
     cli: parsed.cli,
     cliModel: parsed.cliModel,
     permissionPreset: parsed.permissionPreset,
-    specialistId: parsed.specialistId,
     name: parsed.name ?? runtime.definition.name,
     prompt,
     connectorId: parsed.connectorId,
@@ -200,7 +196,6 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
     cli: optionalString(config.cli),
     cliModel: optionalString(config.cliModel),
     permissionPreset: (permissionPreset as AutomationCliPermissionPreset | undefined) ?? AUTOMATION_DEFAULT_PERMISSION_PRESET,
-    specialistId: optionalString(config.specialistId),
     name: optionalString(config.name),
     prompt,
     connectorId: optionalString(config.connectorId),

@@ -15,9 +15,10 @@ import {
   mergeBacklogLinks,
 } from './durable-links'
 import { parseBacklogMockups } from './mockups'
-import type { HighlightColor, SprintEngineSourcePlanKind } from '../../renderer/src/types/workspace'
+import type { HighlightColor } from '../../renderer/src/types/workspace'
 import {
   inferSourcePlanKind,
+  type SourcePlanKind,
   joinPath,
   markdownTitle,
   planBasename,
@@ -27,7 +28,7 @@ import {
 } from '../source-paths'
 import { knownSidecarDirName, sidecarRelativePath } from '../workspace-sidecar'
 
-export type BacklogItemKind = SprintEngineSourcePlanKind | 'html_mockup'
+export type BacklogItemKind = SourcePlanKind | 'html_mockup'
 export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
 
 // Lightweight triage metadata, owned by the backlog object store (items.json),
@@ -263,8 +264,8 @@ export function backlogRootPath(workspaceRoot: string): string {
  * checkout — a directory on this machine, or a clone of a backlog repo.
  *
  * `root` moves; identity does not. Every item is still addressed by the LOGICAL
- * path `backlog/<...>` that the object store, the durable links, the sprint
- * links and the mobile snapshot all key on, so redirecting a backlog rewrites
+ * path `backlog/<...>` that the object store, the durable links and the mobile
+ * snapshot all key on, so redirecting a backlog rewrites
  * no ids and migrates no links. `backlogLogicalPath` and `backlogAbsolutePath`
  * are the only two places that know the difference.
  */
@@ -497,7 +498,7 @@ export function createBacklogItem(input: {
     // volatile cache: it overlays resolved status onto those, and contributes the
     // agent-terminal link, which has no durable half.
     links: mergeBacklogLinks(
-      durableBacklogLinksFromFrontmatter(fields, input.workspaceRoot),
+      durableBacklogLinksFromFrontmatter(fields),
       input.object?.links ?? [],
     ),
     objectUpdatedAt: input.object?.updatedAt,
@@ -646,7 +647,7 @@ export function backlogConfigRelativePath(folderPath: string): string {
 // or carries no valid key. Read-only and pure (the raw JSON is supplied by the
 // caller): unlike the main-process resolver behind `ensureBacklogItemIds`, it
 // never persists a derived default — the aggregate read model only reads. Mirrors
-// the mobile snapshot resolver (src/main/mobile/sprintengine/backlog.ts) so a
+// the mobile snapshot resolver (src/main/mobile/control/) so a
 // project's key reads identically wherever it is surfaced.
 export function resolveBacklogDisplayKey(configJson: string | null | undefined, projectName: string): string {
   if (configJson) {
@@ -747,9 +748,9 @@ function parseBacklogDependsOn(value: string | undefined, selfSlug: string): str
 }
 
 // Rough captures default to a calm "idea", regardless of whether a plan kind
-// could be inferred. Unknown structure is not a defect — the architect / Sprint
-// Engine start flow turns rough input into a structured plan later, so the
-// backlog never flags an unestimated note as "needs structure" on its own.
+// could be inferred. Unknown structure is not a defect — a rough note becomes a
+// structured plan later, so the backlog never flags an unestimated note as
+// "needs structure" on its own.
 function defaultBacklogStatus(): BacklogItemStatus {
   return 'idea'
 }

@@ -428,37 +428,6 @@ export const COMMAND_REGISTRY = [
     availability: ['diagnosticsEnabled'],
     handlerPath: { kind: 'workspace-manager', handler: 'setDiagnosticsOpen(true)' },
   }),
-  command({
-    id: 'specialist.spawn.architect',
-    title: 'Spawn Architect Specialist',
-    category: 'specialist',
-    scopes: ['workspace'],
-    defaultKeybindings: ['Primary+Alt+P'],
-    availability: ['activeWorkspace', 'workflowRolesInstalled'],
-    handlerPath: { kind: 'workspace-manager', handler: "addNewSpecialist('architect')" },
-  }),
-  command({
-    id: 'specialist.spawn.performance',
-    title: 'Spawn Performance Specialist',
-    category: 'specialist',
-    scopes: ['workspace'],
-    defaultKeybindings: ['Primary+Alt+M'],
-    availability: ['activeWorkspace', 'workflowRolesInstalled'],
-    handlerPath: { kind: 'workspace-manager', handler: "addNewSpecialist('performance')" },
-  }),
-  command({
-    id: 'specialist.spawn.frontend-design-review',
-    title: 'Spawn Frontend Designer Specialist',
-    category: 'specialist',
-    scopes: ['workspace'],
-    defaultKeybindings: ['Primary+Alt+F'],
-    availability: ['activeWorkspace', 'workflowRolesInstalled'],
-    handlerPath: { kind: 'workspace-manager', handler: "addNewSpecialist('frontend-design-review')" },
-  }),
-  // Sprint Engine palette/shortcut commands live on the sprint-engine
-  // module (`registerSprintEngineCommands`). Automations' built-in commands
-  // are registered the same way — the in-tree proof that module-defined
-  // command scopes/availability carry a real feature.
 ] as const satisfies readonly CommandDefinition[]
 
 export type CommandId = (typeof COMMAND_REGISTRY)[number]['id']

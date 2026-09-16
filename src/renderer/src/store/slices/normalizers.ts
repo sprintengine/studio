@@ -1,13 +1,7 @@
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, type Workspace } from '../../types/workspace'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
-import {
-  isSprintEngineManagedAgent,
-  sprintEngineRosterAgentIds,
-} from '../../../../shared/sprintengine/agent-identity'
 import { normalizeAgentState, pickWorkspaceAgentName } from './agentsSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
-import { normalizeSprintEngineAutoState } from '../../modules/sprint-engine-run-state'
-import { isSprintEngineWorkspace } from '../../utils/sprintEngineWorkspace'
 import {
   normalizeWorkspaceBacklogState,
   normalizeWorkspaceFileExplorerState,
@@ -16,12 +10,7 @@ import {
   workspaceFolderKey,
 } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
-import {
-  legacySprintEngineRunState,
-  partializeWorkspaceModuleState,
-  reconcileWorkspaceModuleState,
-  type LegacySprintEnginePersistWorkspace,
-} from './workspaceModuleState'
+import { partializeWorkspaceModuleState } from './workspaceModuleState'
 import { partializeWorkspacePaneState } from './workspacePaneSlice'
 
 // Workspace-mode strings whose features were retired. Kept as local literals
@@ -44,59 +33,28 @@ import { partializeWorkspacePaneState } from './workspacePaneSlice'
 //                 from, so the per-project background host has no producer left.
 //                 The row and the guide-terminal agent records nested in it go;
 //                 the review data on disk (`.sprintengine/review/`) is untouched.
-const RETIRED_WORKSPACE_MODES: readonly string[] = ['roadmap', 'multiloop', 'guided-brief', 'reviews-host']
+//   `sprintengine` — 2026-09-16: the in-tree sprint engine was deleted outright.
+//                 Nothing registers the workspace type any more, so the row has
+//                 no surface to render; the run's own files under the project's
+//                 `.sprintengine/` sidecar are untouched.
+const RETIRED_WORKSPACE_MODES: readonly string[] = [
+  'roadmap',
+  'multiloop',
+  'guided-brief',
+  'reviews-host',
+  'sprintengine',
+]
 
-export function mapMigrationWorkspaces<T extends { workspaces: LegacySprintEnginePersistWorkspace[] }>(
+export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
   state: T,
-  migrate: (workspace: LegacySprintEnginePersistWorkspace) => LegacySprintEnginePersistWorkspace,
+  migrate: (workspace: Workspace) => Workspace,
 ): void {
   state.workspaces = state.workspaces.map(migrate)
 }
 
-// Sprint Engine roster membership is durable, app-owned PTYs are not: clear the
-// launch/resume gate so reopening a run never spawns or resumes an agent on its
-// own. Keeps `cliSessionId`/`harnessSessionId` for the same reason the
-// automations-host clear does (see the comment there) — identity resolves the
-// painted screen; the gate flags are what auto-resume actually reads. The two
-// functions stay in step.
-export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspace {
-  const run = legacySprintEngineRunState(workspace)
-  if (!isSprintEngineWorkspace(workspace) && !run) return workspace
-
-  const sprintEngineAgentIds = sprintEngineRosterAgentIds(run?.sprintEngineAgents)
-  const hasSprintEngineAgents = Object.entries(workspace.agents).some(
-    ([id, agent]) => isSprintEngineManagedAgent(agent, { agentId: id, rosterIds: sprintEngineAgentIds })
-  )
-  if (!hasSprintEngineAgents) return workspace
-
-  return {
-    ...workspace,
-    agents: Object.fromEntries(
-      Object.entries(workspace.agents).map(([id, agent]) => {
-        if (!isSprintEngineManagedAgent(agent, { agentId: id, rosterIds: sprintEngineAgentIds })) return [id, agent]
-        return [
-          id,
-          normalizeAgentState({
-            ...agent,
-            status: 'idle',
-            streamBuffer: '',
-            cliStartRequested: false,
-            cliRestartNonce: 0,
-            cliHasLaunched: false,
-            cliOnboardingPromptSent: false,
-            cliResumeAvailable: false,
-            cliResumeRequested: false,
-            cliStartupPrompt: undefined,
-          }),
-        ]
-      }),
-    ),
-  }
-}
-
 // The automations-host shell persists and is reused, but its agents are
-// finalized automation runs — a full restart must not auto-resume them. Mirror
-// `clearSprintEngineAgentLaunchState`: clear the launch/resume GATE
+// finalized automation runs — a full restart must not auto-resume them. Clear
+// the launch/resume GATE
 // (`cliHasLaunched`/`cliResumeAvailable`/`cliResumeRequested`/`cliStartRequested`
 // + the startup prompt), which is what `shouldResume` reads at mount, so cold
 // load never resumes or re-sends the automation directive.
@@ -205,9 +163,9 @@ export function dropRetiredModeWorkspaces(workspaces: Workspace[]): Workspace[] 
   return workspaces.filter((workspace) => !isRetired(workspace))
 }
 
-// Every agent carries a real name like the specialists do, but workspaces
-// created before that rule (and layout-template seeds that adopted the tab's
-// generic label) persisted agents literally named "Agent" / "Agent 2" / "A1".
+// Every agent carries a real name, but workspaces created before that rule
+// (and layout-template seeds that adopted the tab's generic label) persisted
+// agents literally named "Agent" / "Agent 2" / "A1".
 // Heal them at hydration (merge() runs on every load regardless of the store
 // version, like the Automations dedupe above): each placeholder-named agent
 // gets a picked name, unique within its workspace, and the layout tab renames
@@ -229,63 +187,19 @@ export function nameGenericWorkspaceAgents(workspaces: Workspace[]): Workspace[]
   return changed ? next : workspaces
 }
 
-export function preserveNewerSprintEngineAutomationState(
-  incomingWorkspace: Workspace,
-  currentWorkspace: Workspace | undefined,
-): Workspace {
-  if (!currentWorkspace?.sprintEngineAutoState) return incomingWorkspace
-
-  const incomingAutoState = normalizeSprintEngineAutoState(incomingWorkspace.sprintEngineAutoState)
-  const currentAutoState = normalizeSprintEngineAutoState(currentWorkspace.sprintEngineAutoState)
-  const incomingChangedAt = incomingAutoState.changedAt
-  const currentChangedAt = currentAutoState.changedAt
-  const currentIsNewer =
-    typeof currentChangedAt === 'number'
-    && (
-      typeof incomingChangedAt !== 'number'
-      || currentChangedAt > incomingChangedAt
-    )
-
-  if (!currentIsNewer) return incomingWorkspace
-  return {
-    ...incomingWorkspace,
-    sprintEngineAutoState: currentAutoState,
-  }
-}
-
 export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace {
-  const sprintEngineAutoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
-  const launchSafeWorkspace = reconcileWorkspaceModuleState(
-    clearAutomationsHostAgentLaunchState(
-      clearSprintEngineAgentLaunchState(workspace),
-    ),
-  )
+  const launchSafeWorkspace = clearAutomationsHostAgentLaunchState(workspace)
   return {
     ...launchSafeWorkspace,
-    mode: normalizeWorkspaceMode(launchSafeWorkspace.mode, legacySprintEngineRunState(launchSafeWorkspace)),
-    // The live run projection is a cache of on-disk projection.json. Persisting
-    // it serialized the full tasks+artifacts blob into localStorage on every
-    // 4s poll. Durable identity (context, role CLI defaults) now lives in
-    // moduleState.sprintengine and is what survives a restart. The live
-    // projection rehydrates from disk within one supervisor tick.
+    mode: normalizeWorkspaceMode(launchSafeWorkspace.mode),
     moduleState: partializeWorkspaceModuleState(launchSafeWorkspace.moduleState),
     memory: normalizeWorkspaceMemoryConfig(launchSafeWorkspace.memory),
     fileExplorerState: normalizeWorkspaceFileExplorerState(launchSafeWorkspace.fileExplorerState),
     backlogState: normalizeWorkspaceBacklogState(launchSafeWorkspace.backlogState),
     gitPanelState: normalizeWorkspaceGitPanelState(launchSafeWorkspace.gitPanelState),
     paneState: partializeWorkspacePaneState(launchSafeWorkspace.paneState),
-    sprintEngineAutoState,
-    // Session-only creation launch intent; never persist it, or a restart
-    // would replay the initial spawns.
-    sprintEngineInitialSpawnAgentIds: undefined,
     agents: Object.fromEntries(
       Object.entries(launchSafeWorkspace.agents).map(([id, a]) => {
-        const shouldKeepStartupPrompt =
-          !a.cliOnboardingPromptSent
-          && a.kind === 'specialist'
-          && Boolean(a.specialistId)
-        const cliStartupPrompt = shouldKeepStartupPrompt ? a.cliStartupPrompt : undefined
-
         // Keep durable resume identity in the registry. These fields are not
         // just process noise: Claude uses cliSessionId for `claude --resume`,
         // and Codex uses cliResumeAvailable/cliHasLaunched to restart with
@@ -297,7 +211,9 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
             ...a,
             streamBuffer: '',
             status: 'idle' as const,
-            cliStartupPrompt,
+            // A prompt that has not reached the CLI yet is launch intent, not
+            // durable state: a restart starts the agent at its own prompt.
+            cliStartupPrompt: undefined,
             cliRestartNonce: 0,
           }),
         ]

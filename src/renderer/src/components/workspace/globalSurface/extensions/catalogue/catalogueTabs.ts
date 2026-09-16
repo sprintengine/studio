@@ -103,7 +103,7 @@ export function catalogueTabLabel(source: SkillSource): string {
 
 /**
  * The badge letters for a source, taken from the name it is CALLED here. The
- * record's own monogram would read "MC" beside a heading saying SprintEngine
+ * record's own monogram would read "MC" beside a heading naming SprintEngine
  * Studio, which is the app's old name in the one place a person compares the
  * two.
  */

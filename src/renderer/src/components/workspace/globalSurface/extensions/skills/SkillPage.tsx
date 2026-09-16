@@ -16,7 +16,7 @@
 import React, { useState } from 'react'
 
 import { skillDirName, skillNameWarning, type ScannedSkill, type SkillSource } from '../../../../../../../shared/skills'
-import { INSTALL_SKILL_LABEL } from '../../../../../../../shared/workflow-roles'
+import { INSTALL_SKILL_LABEL } from '../../../../../../../shared/skills'
 import {
   Badge,
   DefinitionList,

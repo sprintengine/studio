@@ -5,7 +5,7 @@
  * renderer owns the preference (`appSettings.telemetryEnabled`) and pushes it
  * on change; main persists a copy because it has to answer the question at
  * moments when there is no renderer to ask — the `app.boot` event, a headless
- * sprint run, a flush on quit after the last window is gone.
+ * long-running agent, a flush on quit after the last window is gone.
  *
  * ABSENT READS AS ON, which is the one place this store differs from the
  * background-mode mirror, and it is a deliberate inversion rather than a
@@ -14,7 +14,7 @@
  * seeds, and the mirror exists only to stand in for the renderer before it has
  * spoken. Reading absent as off would mean the very first boot of every fresh
  * profile — the only boot that can ever report a new install — is the one
- * SprintEngine throws away.
+ * SprintEngine Studio throws away.
  *
  * This store is one of three gates, and the weakest of them. Above it sit the
  * `SPRINTENGINE_TELEMETRY_ENABLED=false` environment kill switch and the

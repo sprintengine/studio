@@ -3,7 +3,10 @@
 // with no user-installed Python or Node:
 //
 //   resources/runtime/python  — CPython from astral-sh/python-build-standalone,
-//                               with our requirements.txt installed into it.
+//                               the interpreter a capability module's Python
+//                               sidecar runs on. Shipped bare: the app itself
+//                               imports nothing third-party from it, and a
+//                               module that needs packages vendors its own.
 //   resources/runtime/npm      — npm's pure-JS CLI, run via Electron's embedded
 //                               Node (ELECTRON_RUN_AS_NODE) for `npm install -g`
 //                               of agent CLIs such as Codex.
@@ -110,32 +113,17 @@ async function fetchPython(opts, tmp) {
   return python
 }
 
-function installPythonDeps(pythonExe, opts) {
-  // Install our runtime requirements into the bundled interpreter so features
-  // like sprintengine_core (which hard-requires PyYAML) work out of the box.
-  // Cross-platform note: pip cannot install a foreign platform's wheels, so dep
-  // installation only runs when building for the host platform. CI must run
-  // this script natively on each target OS/arch.
-  const isHost = opts.platform === process.platform && opts.arch === process.arch
-  if (!isHost) {
-    log(`skipping pip install: target ${opts.platform}-${opts.arch} != host ${process.platform}-${process.arch}`)
-    log('  -> run fetch-runtimes natively on the target platform so wheels match')
-    return
-  }
-  log('installing requirements.txt into bundled CPython')
-  const result = spawnSync(
-    pythonExe,
-    ['-m', 'pip', 'install', '--no-warn-script-location', '-r', join(REPO_ROOT, 'requirements.txt')],
-    { stdio: 'inherit' },
-  )
-  if (result.status !== 0) {
-    throw new Error(`pip install failed (exit ${result.status ?? 'signal'})`)
-  }
-}
+// Nothing is pip-installed into the bundled interpreter. The app used to carry
+// a requirements.txt for its own Python services; those are gone, so the only
+// Python that runs on this interpreter belongs to a capability module, which
+// vendors whatever it imports. That also removes the cross-build hazard the
+// install step carried: pip cannot fetch a foreign platform's wheels, so the
+// step only ever ran when building for the host, and a cross-build silently
+// shipped a different interpreter than a native one.
 
-// Stdlib subtrees we never import from the headless Python sidecars (verified:
-// nothing under souls/sprintengine_* imports them). Dropping them trims the
-// shipped runtime with no runtime behavior change.
+// Stdlib subtrees the app itself never needs. Dropping them trims the shipped
+// runtime; a module sidecar that wants one of them is out of luck by design,
+// which is why the list is short and boring.
 // `test` is the CPython stdlib test suite (the largest single win); the rest are
 // GUI/legacy tooling. Pruned by directory basename within the stdlib dir only, so
 // third-party packages under site-packages are untouched. `ensurepip`/`pip` are
@@ -166,8 +154,7 @@ function removeDir(dir) {
   return freed
 }
 
-// Trims the extracted CPython to what our features actually use. Runs AFTER
-// installPythonDeps so pip (under ensurepip) is still available for that step.
+// Trims the extracted CPython to what the shipped app actually needs.
 function prunePython(opts) {
   const [major, minor] = PYTHON_VERSION.split('.')
   // POSIX install_only layout: python/lib/python3.12; Windows: python/Lib.
@@ -222,8 +209,7 @@ async function main() {
   mkdirSync(RUNTIME_DIR, { recursive: true })
   const tmp = await mkdtemp(join(tmpdir(), 'multicode-runtimes-'))
   try {
-    const pythonExe = await fetchPython(opts, tmp)
-    installPythonDeps(pythonExe, opts)
+    await fetchPython(opts, tmp)
     prunePython(opts)
     await fetchNpm(tmp)
     log('done')

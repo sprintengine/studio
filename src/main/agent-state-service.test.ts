@@ -1220,10 +1220,9 @@ async function run(): Promise<void> {
 
     // --- reporter pull request capture (epic `pull-request-marks`, 8b) ------
     // The reporter already sees every tool call's command and result, so the
-    // moment an agent opens a pull request is a moment it is told about. Two
-    // gates and one regex: a shell command containing `gh pr create`, or a tool
-    // NAME ending in `vcs_pr` (the sprint MCP tool through Claude's hook). The
-    // URL comes out of the RESULT — never out of `tool_input`, which is the
+    // moment an agent opens a pull request is a moment it is told about. One
+    // gate and one regex: a shell command containing `gh pr create`. The URL
+    // comes out of the RESULT — never out of `tool_input`, which is the
     // agent's own text — and the result itself never rides the socket.
     const prSockPath = join(sockDir, 'pr-instance.sock')
     const prFrames: string[] = []
@@ -1308,27 +1307,6 @@ async function run(): Promise<void> {
       'the snake_case event spelling and the camelCase field names both capture'
     )
 
-    // The sprint MCP tool through Claude`s hook: the tool NAME is the gate (no
-    // shell command exists), and an MCP result is a CONTENT ARRAY of text parts.
-    await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
-      hook_event_name: 'PostToolUse',
-      session_id: 'pr-session',
-      cwd: vocabDir,
-      tool_name: 'mcp__sprintengine-studio__sprintengine_vcs_pr',
-      tool_input: { runId: 'pr-link-team' },
-      tool_response: {
-        content: [
-          { type: 'text', text: JSON.stringify({ ok: true, action: 'vcs_pr', branch: 'se/pr-link-team', pullRequestUrl: 'https://github.com/acme/repo/pull/9' }) },
-        ],
-        isError: false,
-      },
-    })
-    assert.deepEqual(
-      (await nextPrFrame(4)).pullRequest,
-      { url: 'https://github.com/acme/repo/pull/9' },
-      'an MCP content array is searched, and the tool name alone is gate enough for it'
-    )
-
     // An enormous result — a push`s progress output with the URL at the very
     // END, which is where `gh` puts it. The capture must survive it, and NOTHING
     // but the URL may ride the socket (the reader`s frame line cap is 64KB).
@@ -1342,14 +1320,14 @@ async function run(): Promise<void> {
       tool_input: { command: 'git push -u origin feature && gh pr create --fill' },
       tool_response: { stdout: noisyOutput, stderr: '' },
     })
-    const noisyFrame = await nextPrFrame(5)
+    const noisyFrame = await nextPrFrame(4)
     assert.deepEqual(
       noisyFrame.pullRequest,
       { url: 'https://github.com/acme/app/pull/4242' },
       'a result far past the scan cap is read at BOTH ends, because `gh` prints the URL last'
     )
-    assert.ok(prFrames[5].length < 2000, `only the URL rides the frame (${prFrames[5].length} bytes)`)
-    assert.equal(prFrames[5].includes('Resolving deltas'), false, 'the raw output is never forwarded')
+    assert.ok(prFrames[4].length < 2000, `only the URL rides the frame (${prFrames[4].length} bytes)`)
+    assert.equal(prFrames[4].includes('Resolving deltas'), false, 'the raw output is never forwarded')
 
     // === Everything that must NOT capture ==================================
     // `gh pr view` and `gh pr list` print pull request URLs all day long.
@@ -1361,7 +1339,7 @@ async function run(): Promise<void> {
       tool_input: { command: 'gh pr view 12 --json url' },
       tool_response: '{"url":"https://github.com/acme/app/pull/12"}',
     })
-    assert.equal((await nextPrFrame(6)).pullRequest, undefined, 'reading a pull request is not opening one')
+    assert.equal((await nextPrFrame(5)).pullRequest, undefined, 'reading a pull request is not opening one')
 
     await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
       hook_event_name: 'PostToolUse',
@@ -1371,7 +1349,7 @@ async function run(): Promise<void> {
       tool_input: { command: 'gh pr list --head feature' },
       tool_response: '12\tShip it\tfeature\thttps://github.com/acme/app/pull/12\n',
     })
-    assert.equal((await nextPrFrame(7)).pullRequest, undefined, 'listing pull requests is not opening one')
+    assert.equal((await nextPrFrame(6)).pullRequest, undefined, 'listing pull requests is not opening one')
 
     // The URL in the agent`s own text, with none in the result: the input is
     // what the agent SAID, and saying it opens nothing.
@@ -1383,7 +1361,7 @@ async function run(): Promise<void> {
       tool_input: { command: "gh pr create --body 'supersedes https://github.com/acme/app/pull/3'" },
       tool_response: 'pull request create failed: GraphQL: No commits between main and feature',
     })
-    assert.equal((await nextPrFrame(8)).pullRequest, undefined, 'a URL is only ever read out of the RESULT')
+    assert.equal((await nextPrFrame(7)).pullRequest, undefined, 'a URL is only ever read out of the RESULT')
 
     // Neither an issue, nor a commit, nor the "create one by visiting" link a
     // push prints is a pull request.
@@ -1400,7 +1378,7 @@ async function run(): Promise<void> {
         'https://github.com/acme/app/commit/9f2c1ab and https://github.com/acme/app/pull/12ab',
       ].join('\n'),
     })
-    assert.equal((await nextPrFrame(9)).pullRequest, undefined, 'an issue, a commit, `/pull/new/…` and `/pull/12ab` are none of them a pull request')
+    assert.equal((await nextPrFrame(8)).pullRequest, undefined, 'an issue, a commit, `/pull/new/…` and `/pull/12ab` are none of them a pull request')
 
     // A plain shell that never ran the creation, and a file-editing tool: two
     // tool calls whose results are full of pull request URLs.
@@ -1412,7 +1390,7 @@ async function run(): Promise<void> {
       tool_input: { command: 'cat CHANGELOG.md' },
       tool_response: 'landed in https://github.com/acme/app/pull/8\n',
     })
-    assert.equal((await nextPrFrame(10)).pullRequest, undefined, 'a shell command that never opened one captures nothing')
+    assert.equal((await nextPrFrame(9)).pullRequest, undefined, 'a shell command that never opened one captures nothing')
 
     await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
       hook_event_name: 'PostToolUse',
@@ -1422,7 +1400,7 @@ async function run(): Promise<void> {
       tool_input: { file_path: join(vocabDir, 'notes.md'), old_string: 'a', new_string: 'https://github.com/acme/app/pull/5' },
       tool_response: { filePath: join(vocabDir, 'notes.md'), structuredPatch: [] },
     })
-    assert.equal((await nextPrFrame(11)).pullRequest, undefined, 'an editing tool captures no pull request, whatever it wrote')
+    assert.equal((await nextPrFrame(10)).pullRequest, undefined, 'an editing tool captures no pull request, whatever it wrote')
 
     // Cursor stays on the branch lookup: its `postToolUse` carries no tool
     // detail, so accepting the spelling would imply a support it cannot deliver.
@@ -1434,7 +1412,7 @@ async function run(): Promise<void> {
       tool_input: { command: 'gh pr create --fill' },
       tool_response: 'https://github.com/acme/app/pull/12\n',
     })
-    assert.equal((await nextPrFrame(12)).pullRequest, undefined, 'Cursor`s postToolUse never captures a pull request')
+    assert.equal((await nextPrFrame(11)).pullRequest, undefined, 'Cursor`s postToolUse never captures a pull request')
 
     // A pull request opened before the turn ended still rides its own frame:
     // the capture is on PostToolUse, and a Stop carries no tool at all.
@@ -1444,7 +1422,7 @@ async function run(): Promise<void> {
       cwd: vocabDir,
       tool_response: 'https://github.com/acme/app/pull/12\n',
     })
-    assert.equal((await nextPrFrame(13)).pullRequest, undefined, 'only a PostToolUse can carry a capture')
+    assert.equal((await nextPrFrame(12)).pullRequest, undefined, 'only a PostToolUse can carry a capture')
 
     // A URL that STRADDLES the scan cut is never captured as its own prefix.
     // The reporter reads an over-long result at both ends; the head slice here
@@ -1464,7 +1442,7 @@ async function run(): Promise<void> {
       tool_response: straddledOutput,
     })
     assert.equal(
-      (await nextPrFrame(14)).pullRequest,
+      (await nextPrFrame(13)).pullRequest,
       undefined,
       'half a pull request number is a different pull request, so it is no capture at all'
     )

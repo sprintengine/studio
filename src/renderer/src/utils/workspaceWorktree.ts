@@ -11,7 +11,6 @@ import type { AgentExecutionMode, Workspace } from '../types/workspace'
 
 /** Generic default repo id when a workspace did not declare one. */
 export const DEFAULT_WORKSPACE_TASK_REPO = 'primary'
-import { sprintEngineRunState } from '../store/slices/workspaceModuleState'
 
 // Pure worktree path/branch derivation now lives in the node-free shared module
 // so the main process can reuse it (agent-at-launch worktrees over the App
@@ -34,8 +33,7 @@ export {
  * slug instead of filing it under the project it belongs to.
  *
  * Single source for grouping, "New chat in project", ordering and forgetting a
- * project. Everything not worktree-backed (including sprint runs, whose
- * folderPath is already the parent) is its own folder unchanged.
+ * project. Everything not worktree-backed is its own folder unchanged.
  *
  * The rule itself lives in the shared module because main's registry ordering
  * has to answer the same question about the same records; this is the renderer's
@@ -56,7 +54,8 @@ export type ResolvedWorkspaceWorktree = {
    * Declared repo this worktree belongs to (MC-1610), and the absolute root of
    * that repo's own checkout — the tree the worktree was created FROM, which is
    * where a spawn falls back to when the worktree is gone. Absent for a
-   * non-sprint worktree workspace, which has no declared repo set.
+   * worktree workspace with no declared repo set, which is every one of them
+   * today.
    */
   repoId?: string
   repoRoot?: string
@@ -101,14 +100,7 @@ export function resolveDeclaredPath(folderPath: string, value: string): string {
 /**
  * Every worktree this workspace is backed by, primary first (MC-1610).
  *
- * - Sprint runs in worktree mode: one entry per repo the run declared, derived
- *   from the already-persisted sprintengine bag `vcs` block. `folderPath` is
- *   the parent project root, so each git root is that repo's project-relative
- *   `worktreePath` joined onto it. A run declaring one repo yields exactly one
- *   entry — the same root and branch the singular resolver always returned. A
- *   pre-`repos` store still normalizes to a one-entry list, so this never falls
- *   back to reading the flat fields itself.
- * - Normal worktree workspaces (opened via the Worktree manager): flagged by the
+ * - Worktree workspaces (opened via the Worktree manager): flagged by the
  *   explicit `workspace.worktree` marker. Their `folderPath` already *is* the
  *   worktree, so the git root stays `folderPath`; the marker only carries the
  *   branch and signals worktree-backed. Always a single entry.
@@ -123,31 +115,6 @@ export function resolveWorkspaceWorktrees(
 ): ResolvedWorkspaceWorktree[] {
   const folderPath = workspace.folderPath
   if (!folderPath) return []
-
-  const vcs = sprintEngineRunState(workspace)?.vcs
-  if (vcs?.mode === 'run_worktree') {
-    const resolved = (vcs.repos ?? [])
-      .filter((repo) => Boolean(repo.worktreePath))
-      .map((repo) => ({
-        gitRoot: resolveDeclaredPath(folderPath, repo.worktreePath),
-        branch: repo.branchName || vcs.branchName,
-        repoId: repo.id,
-        repoRoot: resolveDeclaredPath(folderPath, repo.root || '.'),
-      }))
-    if (resolved.length > 0) return resolved
-    // A store whose `repos` list is empty or worktree-less still describes its
-    // one worktree with the flat fields; the primary repo of such a run is the
-    // workspace itself.
-    if (vcs.worktreePath) {
-      return [{
-        gitRoot: resolveDeclaredPath(folderPath, vcs.worktreePath),
-        branch: vcs.branchName,
-        repoId: DEFAULT_WORKSPACE_TASK_REPO,
-        repoRoot: folderPath,
-      }]
-    }
-    return []
-  }
 
   if (workspace.worktree) {
     // Deliberately no `repoRoot`: the Git panel reads it as "the checkout to
@@ -218,8 +185,8 @@ export type WorkspaceTerminalCwd =
  * `resolveWorkspaceWorktree(ws)?.gitRoot ?? null`).
  *
  * Taking the string, not the `Workspace`, is deliberate: it forces callers into
- * the churn-safe selector pattern so the value stays referentially stable across
- * the ~4s sprintengine bag re-projections that recreate the workspace object.
+ * the churn-safe selector pattern so the value stays referentially stable
+ * across the re-projections that recreate the workspace object.
  *
  * - `null` gitRoot → not worktree-backed; no override (`{cwd:null, missing:false}`).
  * - gitRoot === folderPath → the workspace folder already IS the worktree
@@ -249,8 +216,8 @@ export type WorktreeSpawnFallback = {
 /**
  * Guard a worktree-backed agent spawn against a removed run worktree.
  *
- * Sprint agents persist an absolute `execution.cwd` pointing into their repo's
- * run worktree. That worktree can be removed out from under the persisted agent
+ * A worktree agent persists an absolute `execution.cwd` pointing into its
+ * worktree. That worktree can be removed out from under the persisted agent
  * (merge cleanup, the Worktree manager, or `git worktree prune`); spawning a
  * terminal into the vanished directory exits with code 1. When the worktree cwd
  * no longer exists, fall back to `fallbackRoot` so the spawn succeeds and

@@ -19,20 +19,6 @@
       ]
     },
     {
-      "slug": "big-task-no-problem",
-      "kind": "workflow",
-      "title": "Big task? No problem.",
-      "dek": "Too big for one sitting? An architect works out what the work is, and a roster of agents runs it in parallel.",
-      "art": "board",
-      "publishedAt": "2026-09-06",
-      "go": [
-        {
-          "verb": "open.surface",
-          "view": "workflows"
-        }
-      ]
-    },
-    {
       "slug": "design-system-your-app-follows",
       "kind": "skill",
       "title": "Give your app a design system it actually follows",

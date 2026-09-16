@@ -3,11 +3,9 @@
  * tray presence that stands in for it.
  *
  * Closing a window becomes a pure presentation event — main services (Studio
- * gateway, `SprintRuntime`, the automations engine, the mobile bridge) are
- * never consulted here and never touched, which is what makes "close the
- * window at night, sprints keep running" true. The power-save blocker is
- * likewise untouched: it is refcounted off active runs in
- * `sprint-power-manager.ts`, and a window closing is not a run going idle.
+ * gateway, the automations engine, the mobile bridge) are never consulted here
+ * and never touched, which is what makes "close the window at night, agents
+ * keep running" true.
  *
  * Electron is injected rather than imported so the last-window-close decision —
  * the one behavior an unattended machine depends on — is testable with no
@@ -77,7 +75,7 @@ export function createBackgroundPresence(deps: BackgroundPresenceDeps) {
   function render(): void {
     if (!tray) return
     // This runs on a timer in a windowless process: an exception escaping here
-    // would be an unhandled throw in main, killing the very sprint runs the
+    // would be an unhandled throw in main, killing the very agents the
     // background mode exists to keep alive. The menu is left at its last good
     // content and the failure is reported — never papered over with invented
     // counters.
@@ -105,7 +103,7 @@ export function createBackgroundPresence(deps: BackgroundPresenceDeps) {
     const created = deps.createTray()
     if (!created) {
       // Staying alive without the affordance is still the lesser evil: the user
-      // asked for background mode, and quitting would kill live sprint runs.
+      // asked for background mode, and quitting would kill live agents.
       // The diagnostic is the only honest record that the presence is missing.
       deps.logDiagnostic?.({
         level: 'warning',
@@ -150,7 +148,7 @@ export function createBackgroundPresence(deps: BackgroundPresenceDeps) {
       deps.logDiagnostic?.({
         level: 'info',
         title: 'Running in the background',
-        message: 'The last window closed; sprint runs, the scheduler and the Studio gateway keep running.',
+        message: 'The last window closed; agents, the automations engine and the Studio gateway keep running.',
       })
       return 'stay'
     },

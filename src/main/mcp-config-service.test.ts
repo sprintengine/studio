@@ -6,11 +6,8 @@ import { join } from 'node:path'
 import type { McpSettings } from '../shared/electron-api'
 import type { PluginManifest, PluginMcpConfigFormat } from '../shared/plugin-manifest'
 import { STUDIO_MCP_SERVER_ID } from '../shared/product-identity'
-import { MANAGED_SPRINTENGINE_MCP_SERVER_ID, createMcpConfigService, type PluginLookup } from './mcp-config-service'
-import { MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR } from './sprintengine-managed-mcp-sync'
+import { createMcpConfigService, type PluginLookup } from './mcp-config-service'
 import { createPluginRegistry } from './plugin-registry'
-import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from './plugin-registry-instance'
-import { buildManagedSprintEngineSyncInputForLaunch } from './terminal-runtime'
 
 const BUNDLED_ROOT = join(process.cwd(), 'resources', 'plugins')
 
@@ -153,7 +150,7 @@ async function main(): Promise<void> {
     join(workspaceRoot, '.claude', 'settings.local.json'),
     JSON.stringify({
       theme: 'dark',
-      enabledMcpjsonServers: ['user-server', MANAGED_SPRINTENGINE_MCP_SERVER_ID],
+      enabledMcpjsonServers: ['user-server', STUDIO_MCP_SERVER_ID],
       disabledMcpjsonServers: ['disabled-user-server', STUDIO_MCP_SERVER_ID],
     }, null, 2),
     'utf-8'
@@ -190,9 +187,7 @@ async function main(): Promise<void> {
 
   // --- OpenCode writer (format 'opencode'): real bundled manifest ---
   const opencodeRoot = join(temp, 'opencode-workspace')
-  await mkdir(join(opencodeRoot, '.sprintengine', 'sprintengine', 'managed'), { recursive: true })
-  const opencodeStatePath = join(opencodeRoot, '.sprintengine', 'sprintengine', 'managed', 'run.yaml')
-  await writeFile(opencodeStatePath, 'sprintengine:\n  name: managed\n  status: active\n', 'utf-8')
+  await mkdir(opencodeRoot, { recursive: true })
   const opencodeConfigPath = join(opencodeRoot, 'opencode.json')
   // Pre-existing user config: a top-level key and a user-authored server that must survive sync.
   await writeFile(
@@ -208,22 +203,22 @@ async function main(): Promise<void> {
     lookupPlugin,
     homeDir: () => homeRoot,
     userDataDir: () => join(temp, 'opencode-user-data'),
-    runtimeRoot: () => process.cwd(),
   })
-  // The sync path consumes only statePath + http; build inline so this block
-  // does not depend on the plugin-registry override set up later in this test.
-  const opencodeManagedInput = {
-    statePath: opencodeStatePath,
-    workspaceRoot: opencodeRoot,
-    actorId: 'workspace-user',
-    http: {
-      url: 'http://127.0.0.1:49160/mcp',
-      authTokenEnvVar: MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR,
-    },
-  }
   const opencodeSettings: McpSettings = {
     syncEnabled: true,
     servers: {
+      'env-remote': {
+        id: 'env-remote',
+        name: 'Env Remote',
+        transport: 'http',
+        url: 'http://127.0.0.1:49160/mcp',
+        envVarNames: ['ENV_REMOTE_TOKEN'],
+        enabled: true,
+        clients: ['opencode'],
+        scope: 'workspace',
+        source: 'custom',
+        riskLevel: 'network',
+      },
       'local-helper': {
         id: 'local-helper',
         name: 'Local Helper',
@@ -243,7 +238,6 @@ async function main(): Promise<void> {
     workspaceRoot: opencodeRoot,
     settings: opencodeSettings,
     clients: ['opencode'],
-    managedSprintEngine: opencodeManagedInput,
   })
   assert.equal(opencodeResult.ok, true)
   const opencodeConfig = JSON.parse(await readFile(opencodeConfigPath, 'utf-8')) as {
@@ -256,11 +250,11 @@ async function main(): Promise<void> {
   assert.equal(opencodeConfig.model, 'anthropic/claude-opus-4')
   // User-authored server preserved.
   assert.deepEqual(opencodeConfig.mcp['user-remote'], { type: 'remote', url: 'https://user.example.com/mcp' })
-  // Managed remote server: env-backed bearer via {env:VAR} interpolation, no literal token.
-  assert.deepEqual(opencodeConfig.mcp[MANAGED_SPRINTENGINE_MCP_SERVER_ID], {
+  // Env-backed remote server: bearer via {env:VAR} interpolation, no literal token.
+  assert.deepEqual(opencodeConfig.mcp['env-remote'], {
     type: 'remote',
     url: 'http://127.0.0.1:49160/mcp',
-    headers: { Authorization: `Bearer {env:${MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR}}` },
+    headers: { Authorization: 'Bearer {env:ENV_REMOTE_TOKEN}' },
   })
   // Local/stdio server: command string array + environment record.
   assert.deepEqual(opencodeConfig.mcp['local-helper'], {
@@ -271,12 +265,11 @@ async function main(): Promise<void> {
   const opencodeRaw = await readFile(opencodeConfigPath, 'utf-8')
   assert.doesNotMatch(opencodeRaw, /\$\{/, 'opencode uses {env:VAR}, never shell-style ${VAR} interpolation')
 
-  // Idempotent re-sync: no duplicated managed entry, same three servers.
+  // Idempotent re-sync: no duplicated entry, same three servers.
   const opencodeRerun = opencodeService.sync({
     workspaceRoot: opencodeRoot,
     settings: opencodeSettings,
     clients: ['opencode'],
-    managedSprintEngine: opencodeManagedInput,
   })
   assert.equal(opencodeRerun.ok, true)
   const opencodeConfigRerun = JSON.parse(await readFile(opencodeConfigPath, 'utf-8')) as {
@@ -284,44 +277,43 @@ async function main(): Promise<void> {
   }
   assert.deepEqual(
     Object.keys(opencodeConfigRerun.mcp).sort(),
-    ['local-helper', 'user-remote', MANAGED_SPRINTENGINE_MCP_SERVER_ID].sort()
+    ['local-helper', 'user-remote', 'env-remote'].sort()
   )
 
-  // Removing the managed server preserves user-authored + other managed servers.
-  const opencodeCleanup = opencodeService.removeManagedSprintEngine({
+  // Forgetting a server takes its entry out and leaves the user's own alone.
+  const opencodeForget = opencodeService.sync({
     workspaceRoot: opencodeRoot,
+    settings: { syncEnabled: true, servers: {} },
     clients: ['opencode'],
+    forgetServerIds: ['env-remote'],
   })
-  assert.equal(opencodeCleanup.ok, true)
+  assert.equal(opencodeForget.ok, true)
   const opencodeCleaned = JSON.parse(await readFile(opencodeConfigPath, 'utf-8')) as {
     mcp: Record<string, unknown>
   }
-  assert.equal(Boolean(opencodeCleaned.mcp[MANAGED_SPRINTENGINE_MCP_SERVER_ID]), false)
+  assert.equal('env-remote' in opencodeCleaned.mcp, false)
   assert.deepEqual(opencodeCleaned.mcp['user-remote'], { type: 'remote', url: 'https://user.example.com/mcp' })
-  assert.deepEqual(opencodeCleaned.mcp['local-helper'], {
-    type: 'local',
-    command: ['node', '/srv/helper.js', '--flag'],
-    environment: { HELPER_TOKEN: 'abc' },
-  })
 
-  // Removing the only managed server strips the mcp block entirely, keeping other config.
+  // Forgetting the only server strips the mcp block entirely, keeping other config.
   const opencodeSoloRoot = join(temp, 'opencode-solo-workspace')
   await mkdir(opencodeSoloRoot, { recursive: true })
   await writeFile(
     join(opencodeSoloRoot, 'opencode.json'),
     JSON.stringify({
       $schema: 'https://opencode.ai/config.json',
-      mcp: { [MANAGED_SPRINTENGINE_MCP_SERVER_ID]: { type: 'remote', url: 'http://127.0.0.1:1/mcp' } },
+      mcp: { 'env-remote': { type: 'remote', url: 'http://127.0.0.1:1/mcp' } },
     }, null, 2),
     'utf-8'
   )
-  const opencodeSoloCleanup = opencodeService.removeManagedSprintEngine({
+  const opencodeSoloCleanup = opencodeService.sync({
     workspaceRoot: opencodeSoloRoot,
+    settings: { syncEnabled: true, servers: {} },
     clients: ['opencode'],
+    forgetServerIds: ['env-remote'],
   })
   assert.equal(opencodeSoloCleanup.ok, true)
   const opencodeSolo = JSON.parse(await readFile(join(opencodeSoloRoot, 'opencode.json'), 'utf-8')) as Record<string, unknown>
-  assert.equal('mcp' in opencodeSolo, false, 'empty managed block should be stripped, not left as {}')
+  assert.equal('mcp' in opencodeSolo, false, 'an emptied block is stripped, not left as {}')
   assert.equal(opencodeSolo.$schema, 'https://opencode.ai/config.json')
 
   // Honest failure for a shape OpenCode cannot express (SSE): error issue, no fake write.
@@ -469,10 +461,7 @@ async function main(): Promise<void> {
   )
 
   const siblingRoot = join(temp, 'sibling-workspace')
-  await mkdir(join(siblingRoot, '.sprintengine', 'sprintengine', 'managed'), { recursive: true })
   await mkdir(join(siblingRoot, '.codex'), { recursive: true })
-  const managedStatePath = join(siblingRoot, '.sprintengine', 'sprintengine', 'managed', 'run.yaml')
-  await writeFile(managedStatePath, 'sprintengine:\n  name: managed\n  status: active\n', 'utf-8')
   await writeFile(
     join(siblingRoot, '.codex', 'config.toml'),
     [
@@ -492,39 +481,26 @@ async function main(): Promise<void> {
     }, null, 2),
     'utf-8'
   )
-  const userPluginRoot = join(temp, 'user-plugins')
-  const pluginRoot = join(userPluginRoot, 'writer-plugin')
-  const soulsRoot = join(pluginRoot, 'sprintengine-souls')
-  await mkdir(join(soulsRoot, 'roles'), { recursive: true })
-  await mkdir(join(soulsRoot, 'skills', 'plugin_writer'), { recursive: true })
-  await writeFile(
-    join(pluginRoot, 'plugin.json'),
-    JSON.stringify({
-      id: 'writer-plugin',
-      displayName: 'Writer Plugin',
-      version: 1,
-      binary: 'writer',
-      permissionPresets: { default: { label: 'Default', args: [] } },
-      launch: { argv: ['writer'] },
-      promptInjection: { mode: 'stdin-pipe' },
-      completion: { mode: 'process-exit' },
-      capabilities: { resumeSession: false, sessionIdFromCaller: false, toolUse: false, mcpServers: false },
-      souls: { directory: 'sprintengine-souls' },
-    }),
-    'utf-8'
-  )
-  const launchRegistry = createPluginRegistry({ bundledRoot: join(temp, 'empty-bundled-plugins'), userRoot: userPluginRoot })
-  const launchRegistryReport = launchRegistry.loadSync()
-  __setPluginRegistryForTest(launchRegistry, launchRegistryReport, userPluginRoot)
   const managedService = createMcpConfigService({
     lookupPlugin,
     homeDir: () => homeRoot,
     userDataDir: () => join(temp, 'managed-user-data'),
-    runtimeRoot: () => process.cwd(),
   })
   const managedSettings: McpSettings = {
     syncEnabled: true,
     servers: {
+      'env-bearer': {
+        id: 'env-bearer',
+        name: 'Env Bearer',
+        transport: 'http',
+        url: 'http://127.0.0.1:49152/mcp',
+        envVarNames: ['ENV_BEARER_TOKEN'],
+        enabled: true,
+        clients: ['codex', 'claude-code'],
+        scope: 'workspace',
+        source: 'custom',
+        riskLevel: 'network',
+      },
       'managed-helper': {
         id: 'managed-helper',
         name: 'Managed Helper',
@@ -542,38 +518,27 @@ async function main(): Promise<void> {
     workspaceRoot: siblingRoot,
     settings: managedSettings,
     clients: ['codex', 'claude-code'],
-    managedSprintEngine: {
-      ...buildManagedSprintEngineSyncInputForLaunch(managedStatePath, siblingRoot),
-      actorId: 'workspace-user',
-      http: {
-        url: 'http://127.0.0.1:49152/mcp',
-        authTokenEnvVar: MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR,
-      },
-    },
   })
   assert.equal(managedHttpResult.ok, true)
   const managedHttpCodexConfig = await readFile(join(siblingRoot, '.codex', 'config.toml'), 'utf-8')
   assert.match(managedHttpCodexConfig, /\[mcp_servers\.unmanaged\]/)
   assert.match(managedHttpCodexConfig, /\[mcp_servers\.managed-helper\]/)
-  assert.match(managedHttpCodexConfig, new RegExp(`\\[mcp_servers\\.${MANAGED_SPRINTENGINE_MCP_SERVER_ID}\\]`))
+  assert.match(managedHttpCodexConfig, /\[mcp_servers\.env-bearer\]/)
   assert.match(managedHttpCodexConfig, /url = "http:\/\/127\.0\.0\.1:49152\/mcp"/)
-  assert.match(managedHttpCodexConfig, new RegExp(`bearer_token_env_var = "${MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR}"`))
+  // Codex names the env var it reads the bearer from; the token itself is never written.
+  assert.match(managedHttpCodexConfig, /bearer_token_env_var = "ENV_BEARER_TOKEN"/)
   assert.doesNotMatch(managedHttpCodexConfig, /required = true/)
   assert.doesNotMatch(managedHttpCodexConfig, /Authorization/)
-  assert.doesNotMatch(managedHttpCodexConfig, /X-Multicode-Session-Id/)
   assert.doesNotMatch(managedHttpCodexConfig, /env_http_headers/)
-  assert.doesNotMatch(managedHttpCodexConfig, /session-a/)
-  assert.doesNotMatch(managedHttpCodexConfig, /multicode-sprintengine-mcp/)
-  assert.doesNotMatch(managedHttpCodexConfig, /--state-path/)
-  assert.doesNotMatch(managedHttpCodexConfig, /SPRINTENGINE_STATE_PATH/)
   const managedHttpClaudeConfig = JSON.parse(await readFile(join(siblingRoot, '.mcp.json'), 'utf-8')) as {
     mcpServers: Record<string, { type: string, url: string, headers?: Record<string, string> }>
   }
-  assert.deepEqual(managedHttpClaudeConfig.mcpServers[MANAGED_SPRINTENGINE_MCP_SERVER_ID], {
+  // Claude Code interpolates ${VAR}; again the value stays in the environment.
+  assert.deepEqual(managedHttpClaudeConfig.mcpServers['env-bearer'], {
     type: 'http',
     url: 'http://127.0.0.1:49152/mcp',
     headers: {
-      Authorization: `Bearer \${${MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR}}`,
+      Authorization: 'Bearer ${ENV_BEARER_TOKEN}',
     },
   })
   assert.deepEqual(managedHttpClaudeConfig.mcpServers.unmanaged, {
@@ -584,89 +549,38 @@ async function main(): Promise<void> {
     type: 'http',
     url: 'https://helper.example.com/mcp',
   })
-  const managedHttpClaudeRaw = await readFile(join(siblingRoot, '.mcp.json'), 'utf-8')
-  assert.doesNotMatch(managedHttpClaudeRaw, /multicode-sprintengine-mcp/)
-  assert.doesNotMatch(managedHttpClaudeRaw, /--state-path/)
-  assert.doesNotMatch(managedHttpClaudeRaw, /SPRINTENGINE_STATE_PATH/)
-  assert.doesNotMatch(managedHttpClaudeRaw, /session-a/)
 
-  const cleanupResult = managedService.removeManagedSprintEngine({
-    workspaceRoot: siblingRoot,
-    clients: ['codex', 'claude-code'],
-  })
-  assert.equal(cleanupResult.ok, true)
-  const cleanedCodexConfig = await readFile(join(siblingRoot, '.codex', 'config.toml'), 'utf-8')
-  assert.match(cleanedCodexConfig, /\[mcp_servers\.unmanaged\]/)
-  assert.match(cleanedCodexConfig, /\[mcp_servers\.managed-helper\]/)
-  assert.doesNotMatch(cleanedCodexConfig, new RegExp(MANAGED_SPRINTENGINE_MCP_SERVER_ID))
-  const cleanedClaudeConfig = JSON.parse(await readFile(join(siblingRoot, '.mcp.json'), 'utf-8')) as {
-    mcpServers: Record<string, unknown>
-  }
-  assert.deepEqual(cleanedClaudeConfig.mcpServers, {
-    unmanaged: { type: 'http', url: 'https://example.com/mcp' },
-    'managed-helper': { type: 'http', url: 'https://helper.example.com/mcp' },
-  })
-
-  const managedResult = managedService.sync({
-    workspaceRoot: siblingRoot,
-    settings: managedSettings,
-    clients: ['codex', 'claude-code'],
-    managedSprintEngine: {
-      ...buildManagedSprintEngineSyncInputForLaunch(managedStatePath, siblingRoot),
-      actorId: 'workspace-user',
-    },
-  })
-  __resetPluginRegistryForTest()
-  assert.equal(managedResult.ok, false)
-  assert.equal(
-    managedResult.ok === false && managedResult.message?.includes('Managed Sprint Engine HTTP MCP connection was not supplied'),
-    true,
-    `missing HTTP metadata should block managed launch, got: ${managedResult.ok === false ? managedResult.message : 'ok'}`
-  )
-
-  __setPluginRegistryForTest(launchRegistry, launchRegistryReport, userPluginRoot)
-  const managedInputForFailures = buildManagedSprintEngineSyncInputForLaunch(managedStatePath, siblingRoot)
-  const managedHttpInputForFailures = {
-    ...managedInputForFailures,
-    http: {
-      url: 'http://127.0.0.1:49152/mcp',
-      authTokenEnvVar: MANAGED_SPRINTENGINE_MCP_RUN_TOKEN_ENV_VAR,
-    },
-  }
-  const missingRunTokenEnvResult = managedService.sync({
-    workspaceRoot: siblingRoot,
-    settings: { syncEnabled: false, servers: {} },
-    clients: ['codex'],
-    managedSprintEngine: {
-      ...managedInputForFailures,
-      http: {
+  // A REQUIRED server is what makes a missing writer an error rather than a
+  // skipped CLI: the app promised that server to the agent it is about to
+  // launch, so a silent skip would launch it without one.
+  const requiredCodexSettings: McpSettings = {
+    syncEnabled: true,
+    servers: {
+      'required-gateway': {
+        id: 'required-gateway',
+        name: 'Required Gateway',
+        transport: 'http',
         url: 'http://127.0.0.1:49152/mcp',
+        enabled: true,
+        required: true,
+        clients: ['codex'],
+        scope: 'workspace',
+        source: 'bundled',
+        riskLevel: 'network',
       },
     },
-  })
-  assert.equal(missingRunTokenEnvResult.ok, false)
-  assert.equal(
-    (missingRunTokenEnvResult.issues ?? []).some((issue) =>
-      issue.level === 'error'
-      && issue.message.includes('env-backed bearer token')
-    ),
-    true,
-    `missing run-token env var should fail required managed HTTP sync, got: ${JSON.stringify(missingRunTokenEnvResult.issues ?? [])}`
-  )
-  __resetPluginRegistryForTest()
+  }
 
   const noMcpPluginLookup: PluginLookup = () => undefined
   const noMcpService = createMcpConfigService({
     lookupPlugin: noMcpPluginLookup,
     homeDir: () => homeRoot,
     userDataDir: () => join(temp, 'no-mcp-plugin-user-data'),
-    runtimeRoot: () => process.cwd(),
   })
   const noMcpResult = noMcpService.sync({
     workspaceRoot: siblingRoot,
-    settings: { syncEnabled: false, servers: {} },
+    settings: requiredCodexSettings,
     clients: ['codex'],
-    managedSprintEngine: managedHttpInputForFailures,
   })
   assert.equal(noMcpResult.ok, false)
   const noMcpIssues = noMcpResult.issues ?? []
@@ -703,13 +617,11 @@ async function main(): Promise<void> {
     lookupPlugin: noMcpCapabilityLookup,
     homeDir: () => homeRoot,
     userDataDir: () => join(temp, 'no-mcp-capability-user-data'),
-    runtimeRoot: () => process.cwd(),
   })
   const noMcpCapabilityResult = noMcpCapabilityService.sync({
     workspaceRoot: siblingRoot,
-    settings: { syncEnabled: false, servers: {} },
+    settings: requiredCodexSettings,
     clients: ['codex'],
-    managedSprintEngine: managedHttpInputForFailures,
   })
   assert.equal(noMcpCapabilityResult.ok, false)
   const noMcpCapabilityIssues = noMcpCapabilityResult.issues ?? []
@@ -746,13 +658,11 @@ async function main(): Promise<void> {
     lookupPlugin: unsupportedFormatLookup,
     homeDir: () => homeRoot,
     userDataDir: () => join(temp, 'unsupported-format-user-data'),
-    runtimeRoot: () => process.cwd(),
   })
   const unsupportedFormatResult = unsupportedFormatService.sync({
     workspaceRoot: siblingRoot,
-    settings: { syncEnabled: false, servers: {} },
+    settings: requiredCodexSettings,
     clients: ['codex'],
-    managedSprintEngine: managedHttpInputForFailures,
   })
   assert.equal(unsupportedFormatResult.ok, false)
   const unsupportedFormatIssues = unsupportedFormatResult.issues ?? []

@@ -42,7 +42,7 @@ run('registers the Automations DOOR (Extensions drawer ruling, 2026-09-05)', () 
   assert.equal(door?.moduleId, 'automations', 'the surface is owned by the automations module')
   // No railPlacement: the default swap. The automations this window can see ARE
   // the navigation while the surface is open (the ruling’s frame 4), so its
-  // rail takes the sidebar column exactly as Sprints’ list of runs does.
+  // rail takes the sidebar column, as a door with its own list does.
   assert.equal(door?.railPlacement, undefined, 'Automations keeps the context-rail swap')
 })
 

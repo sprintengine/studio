@@ -21,23 +21,27 @@ async function main(): Promise<void> {
     workspaceRoot: '/repo',
     relativePath: 'backlog/plan.md',
     link: {
-      id: 'sprint-engine:plan',
-      moduleId: 'sprint-engine',
-      type: 'execution',
-      label: 'Sprint Engine run',
-      target: { kind: 'sprintengine.run', id: 'plan', path: '.sprintengine/sprintengine/plan/run.yaml' },
+      id: 'backlog:pull-request',
+      moduleId: 'backlog',
+      type: 'external',
+      label: 'Pull request',
+      target: {
+        kind: 'backlog.pullRequest',
+        id: 'https://github.com/sprintengine/studio/pull/91',
+        url: 'https://github.com/sprintengine/studio/pull/91',
+      },
     },
   })
   await api.removeBacklogLink({
     workspaceRoot: '/repo',
     relativePath: 'backlog/plan.md',
-    linkId: 'sprint-engine:plan',
+    linkId: 'backlog:pull-request',
   })
   await api.updateBacklogModuleMetadata({
     workspaceRoot: '/repo',
     relativePath: 'backlog/plan.md',
-    moduleId: 'sprint-engine',
-    value: { runId: 'plan' },
+    moduleId: 'weather-deck',
+    value: { deck: 'compact' },
   })
   await api.updateBacklogEpic({ workspaceRoot: '/repo', relativePath: 'backlog/plan.md', epic: 'auth-revamp' })
   await api.updateBacklogMockups({

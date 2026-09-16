@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
-import { bindSprintEngineIpc } from '../../../modules/sprint-engine-ipc'
 
 // Type-only: erased at runtime, so it cannot load a renderer module before the
 // DOM below exists.
@@ -12,22 +11,18 @@ import type { ExtensionsSurfaceTarget } from './extensions/extensionsSurfaceTarg
 // their own contract; this one covers the seams between them, which is where an
 // epic assembled by six agents actually breaks:
 //
-//  1. The doors coexist on the REAL renderer kernel — each sits at the order
-//     the mockup's sidebar shows, with a surface behind it, and each vanishes
-//     with its module.
-//  2. The Sprints door survives an unreadable run index and RECOVERS from it —
-//     the degraded state is a way back, not a dead end (the leg the composition
-//     suite could not reach: its index IPC always resolves).
-//  3. A run whose workspace is still resident opens from the door with its
-//     workspace-only actions LIVE, next to the same door showing a
-//     workspace-deleted run degraded. Both mounts, one surface, one assertion.
+//  1. The doors coexist on the REAL renderer kernel — each with a surface
+//     behind it, and each vanishing with its module.
+//  2. The Design door's empty first run and its populated rail, a contained
+//     door failure, the Extensions catalogues, and the absent / workspace-less
+//     door contract.
 //
 // (The Backlog door and its section here retired on 2026-09-05: the workspace
 // pane's Backlog tab is the one Backlog surface.)
 //
-// The Electron app is not drivable headlessly (SprintEngine E2E headless
-// blocker), so this stands up a real DOM, stubs only the preload boundary, and
-// mounts the actual surfaces against one real store.
+// The Electron app is not drivable headlessly, so this stands up a real DOM,
+// stubs only the preload boundary, and mounts the actual surfaces against one
+// real store.
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', {
   url: 'http://localhost',
@@ -73,65 +68,6 @@ dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.R
 const multicode = '/work/multicode'
 const multiauth = '/work/multiauth'
 const mobile = '/work/multicode-mobile'
-
-const residentStatePath = `${multicode}/.sprintengine/sprintengine/live-run/run.yaml`
-const orphanStatePath = `${mobile}/.sprintengine/sprintengine/old-run/run.yaml`
-
-function summary(over: Record<string, unknown>): Record<string, unknown> {
-  return {
-    statePath: '',
-    teamSlug: '',
-    teamName: '',
-    projectRoot: multicode,
-    projectName: 'multicode',
-    runtimeState: 'idle',
-    taskCounts: { total: 0, done: 0, inProgress: 0, waiting: 0 },
-    repoRollup: { declared: 0, merged: 0, open: 0 },
-    needsInputCount: 0,
-    branchName: null,
-    worktreePath: null,
-    startedAt: null,
-    updatedAt: null,
-    finishedAt: null,
-    sourceLabel: null,
-    ...over,
-  }
-}
-
-// Two runs in the index: one whose sprint workspace is still open in this
-// studio, one whose workspace is long gone.
-const runs = [
-  summary({
-    statePath: residentStatePath,
-    teamSlug: 'live-run',
-    teamName: 'live-run',
-    runtimeState: 'running',
-    taskCounts: { total: 4, done: 1, inProgress: 1, waiting: 2 },
-    updatedAt: '2026-07-23T10:00:00Z',
-  }),
-  summary({
-    statePath: orphanStatePath,
-    teamSlug: 'old-run',
-    teamName: 'old-run',
-    projectRoot: mobile,
-    projectName: 'multicode-mobile',
-    runtimeState: 'completed',
-    taskCounts: { total: 3, done: 3, inProgress: 0, waiting: 0 },
-    updatedAt: '2026-07-20T10:00:00Z',
-  }),
-]
-
-function projectionFor(name: string): Record<string, unknown> {
-  return {
-    run: { name, goal: 'A goal', vcs: null },
-    tasks: [{ id: 'T1', title: 'Task T1', role: 'developer', status: 'done', dependsOn: [] }],
-  }
-}
-
-// The run-index IPC is switchable so the surface can be driven through failure
-// and back — the recovery leg is the point.
-let indexFails = false
-let indexCalls = 0
 
 // The Design door's world (item 2002): an empty library first, then one real
 // bundle, so the door can be driven through both its first-run empty state and
@@ -205,20 +141,9 @@ const designBundles: Record<string, unknown> = {
 
 const api: Record<string, unknown> = {
   platform: 'darwin',
-  listSprintRuns: async () => {
-    indexCalls += 1
-    if (indexFails) throw new Error('EACCES: permission denied, scandir /work/multicode/.sprintengine')
-    return runs
-  },
-  onSprintRunsChanged: () => () => {},
   // The shared backlog scan watches each project's `backlog/`; the preload
   // contract hands back the watcher's disposer, so the stub must too.
   watchPath: async () => async () => {},
-  readSprintEngineProjection: async (target: string) =>
-    target === orphanStatePath
-      ? { ok: true, data: projectionFor('old-run'), token: 'token-1' }
-      : { ok: false, message: 'This run’s projection could not be read.' },
-  // Each project's Backlog display key, as the door reads it from disk.
   // The Design door's library index and per-bundle reader. `designLibrary` is
   // switchable so the door can be driven through "nothing pointed at yet".
   listDesignSystemLibrary: async () => ({ entries: designLibrary, rejected: [] }),
@@ -242,7 +167,6 @@ domWindow.api = new Proxy(api, {
         ? () => () => {}
         : async () => ({ ok: false, message: 'not stubbed' }),
 })
-bindSprintEngineIpc(domWindow.api as never)
 
 async function main(): Promise<void> {
   const React = await import('react')
@@ -250,10 +174,7 @@ async function main(): Promise<void> {
   const { createRoot } = await import('react-dom/client')
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
   const { getRendererHost } = await import('../../../modules')
-  bindSprintEngineIpc(domWindow.api as never)
-  const { default: SprintsGlobalSurface } = await import('./sprints/SprintsGlobalSurface')
   const { ConfirmDialogProvider } = await import('../../ui/ConfirmDialog')
-  const { normalizeSprintEngineProjection } = await import('../../../../../shared/sprintengine/state')
   const { __resetBacklogScanSubscriptionsForTests: resetScans } = await import('../../../hooks/useSharedBacklogScan')
 
   async function settle(times = 8): Promise<void> {
@@ -281,31 +202,18 @@ async function main(): Promise<void> {
   // its OWN bundled `design` module.
   {
     const host = getRendererHost()
-    const entries = host.getSidebarNavEntries()
-    const doorOrder = entries.map((entry) => [entry.id, entry.order] as const)
+    const doorOrder = host.getSidebarNavEntries().map((entry) => [entry.id, entry.order] as const)
     assert.deepEqual(
       doorOrder,
-      [
-        ['workflows', 19],
-        ['sprints', 20],
-      ],
-      'the nav-entry registry holds only the doors that draw their own rows',
+      [],
+      'no bundled module draws its own sidebar row in a stock build',
     )
-    assert.equal(
-      new Set(doorOrder.map(([id]) => id)).size,
-      doorOrder.length,
-      'no duplicate door id — a second Sprints entry would double-render the row',
-    )
-    for (const [id] of doorOrder) {
-      assert.ok(host.getGlobalSurface(id), `the ${id} door has a surface behind it`)
-    }
     // The door registry, with the user-facing labels the drawer and the rail
     // read: the `extensions` id keeps its name (it is a persisted surface id
     // and a deep-link target) while every string a person sees says Plugins.
-    // Sprints names itself here too (Stage 3) even though its drawer ROW is its
-    // own component: the Extensions home builds its five tiles from this
-    // registry, and a shell that hard-coded a name and a glyph for one module's
-    // surface would be naming it on the module's behalf.
+    // Each door names itself here: the Extensions home builds its tiles from
+    // this registry, and a shell that hard-coded a name and a glyph for one
+    // module's surface would be naming it on the module's behalf.
     const doorSurfaces = host.getGlobalSurfaces().map(
       (surface) => [surface.id, surface.label ?? null, surface.railPlacement ?? 'sidebar'] as const,
     )
@@ -315,8 +223,6 @@ async function main(): Promise<void> {
         ['automations', 'Automations', 'sidebar'],
         ['design', 'Design', 'inline'],
         ['extensions', 'Plugins', 'sidebar'],
-        ['sprints', 'Sprints', 'sidebar'],
-        ['workflows', 'Workflows', 'sidebar'],
       ],
       // Extensions reads `sidebar` — the default — and still leaves the drawer
       // alone: it declares NO rail since the source-tabs ruling (2026-09-05),
@@ -343,13 +249,12 @@ async function main(): Promise<void> {
     for (const id of ['design', 'extensions']) {
       assert.ok(host.getGlobalSurface(id)?.Icon, `the ${id} door offers a glyph for its drawer row`)
     }
-    // The New-sprint dialog is a module modal (MC-2577). It declares no
-    // pane launcher — opening it is the type's createWorkspace / command —
-    // so the contributed launcher list stays empty in a stock build.
+    // A stock build registers no modal surface at all, and no bundled module
+    // contributes a pane-strip launcher row.
     assert.deepEqual(
       host.getModalSurfaces().map((surface) => [surface.id, surface.label] as const),
-      [['sprint-engine-new', 'New sprint']],
-      'New sprint is the bundled module modal; Settings is core and never registered',
+      [],
+      'the modal registry is empty in a stock build; Settings is core and never registered',
     )
     assert.deepEqual(
       host.getModalSurfaceLaunchers(),
@@ -358,30 +263,7 @@ async function main(): Promise<void> {
     )
     // A door is only as present as its module: turning the module off must take
     // BOTH the row and the page, or the row routes to a page that cannot mount.
-    const withoutSprintEngine = (moduleId: string): boolean => moduleId !== 'sprint-engine'
-    assert.ok(
-      !host.getSidebarNavEntries(withoutSprintEngine).some((entry) => entry.id === 'sprints'),
-      'the Sprints row leaves with its module',
-    )
-    assert.ok(
-      !host.getGlobalSurfaces(withoutSprintEngine).some((surface) => surface.id === 'sprints'),
-      'and so does the Sprints surface',
-    )
-    // And its sibling, which the same module owns (item 2470): two doors, one
-    // module, so one toggle takes both rows and both pages.
-    assert.ok(
-      !host.getSidebarNavEntries(withoutSprintEngine).some((entry) => entry.id === 'workflows'),
-      'the Workflows row leaves with the same module',
-    )
-    assert.ok(
-      !host.getGlobalSurfaces(withoutSprintEngine).some((surface) => surface.id === 'workflows'),
-      'and so does the Workflows surface',
-    )
-    assert.ok(
-      !host.getDoorBadges(withoutSprintEngine).some((badge) => badge.rowId === 'sprints' || badge.rowId === 'workflows'),
-      'waiting counts for both run doors leave with the module',
-    )
-    // The same gating for a drawer door, from its own module id: the Design row
+    // The Design row
     // and its page leave with the design module (registering a surface from a
     // module that does not own it throws, so this also pins WHICH module owns
     // Design).
@@ -390,155 +272,20 @@ async function main(): Promise<void> {
       !host.getGlobalSurfaces(withoutDesign).some((surface) => surface.id === 'design'),
       'the Design row leaves with the design module',
     )
-    console.log('ok - the doors and the one modal surface, each backed and gated by its module')
+    console.log('ok - the doors, each backed by and gated on its module')
   }
 
-  // ═══ 2. The Sprints door survives an unreadable index — and recovers ══════
+  // The project world the sections below read: three projects open, the first
+  // of them active.
   useWorkspaceStore.setState({
     workspaces: [
       { id: 'w-mc', name: 'multicode', mode: 'standard', folderPath: multicode, agents: {}, openFiles: [], createdAt: 1 },
       { id: 'w-ma', name: 'multiauth', mode: 'standard', folderPath: multiauth, agents: {}, openFiles: [], createdAt: 2 },
       { id: 'w-mm', name: 'mobile', mode: 'standard', folderPath: mobile, agents: {}, openFiles: [], createdAt: 3 },
-      // The live run's own workspace: hidden from the Projects list since item
-      // 1767, but still the execution residency the door reaches through.
-      {
-        id: 'w-run',
-        name: 'live-run',
-        mode: 'sprintengine',
-        folderPath: multicode,
-        agents: {},
-        openFiles: [],
-        createdAt: 4,
-        // The resident workspace holds the run's state exactly as its own
-        // projection supervisor left it — normalized through the same reader the
-        // door uses for a run it opens from disk.
-        moduleState: {
-          sprintengine: {
-            context: {
-              statePath: residentStatePath,
-              teamDir: `${multicode}/.sprintengine/sprintengine/live-run`,
-              teamSlug: 'live-run',
-              rootPath: multicode,
-            },
-            state: normalizeSprintEngineProjection(projectionFor('live-run'), 'live-run'),
-          },
-        },
-      },
     ],
     activeWorkspaceId: 'w-mc',
-    activeGlobalSurface: 'sprints',
+    activeGlobalSurface: null,
   } as never)
-
-  indexFails = true
-  const sprintsRoot = createRoot(container)
-  const sprints = (): React.ReactElement =>
-    React.createElement(ConfirmDialogProvider, null, React.createElement(SprintsGlobalSurface))
-  await act(async () => {
-    sprintsRoot.render(sprints())
-  })
-  await settle()
-
-  assert.ok(
-    container.textContent?.includes('Couldn’t load your sprints.'),
-    'an unreadable index says so in plain words',
-  )
-  const indexRetry = [...container.querySelectorAll('button')].find((b) => b.textContent === 'Try again')
-  assert.ok(indexRetry, 'and offers a way back, never a dead end')
-  const indexDetail = container.querySelector('details')
-  assert.equal(indexDetail?.open, false, 'the raw failure stays behind a collapsed disclosure')
-  assert.ok(
-    indexDetail?.textContent?.includes('EACCES'),
-    'and it is the real cause, not a swallowed one',
-  )
-  assert.ok(
-    !container.textContent?.includes('Run your first sprint'),
-    'a failed read never masquerades as "you have no sprints"',
-  )
-  console.log('ok - an unreadable run index degrades with the reason and a retry')
-
-  // The retry is real: with the index readable again the surface recovers in
-  // place, without the door being closed and reopened.
-  indexFails = false
-  const callsBeforeRetry = indexCalls
-  await act(async () => {
-    ;(indexRetry as HTMLElement).click()
-  })
-  await settle()
-  assert.ok(indexCalls > callsBeforeRetry, 'the retry re-reads the index')
-  assert.ok(
-    !container.textContent?.includes('Couldn’t load your sprints.'),
-    'and the error clears rather than sticking',
-  )
-  // Rail rows group under Needs you / Active / Recent (MC-1838).
-  const railRows = [...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li')]
-  assert.equal(railRows.length, 2, 'both runs list once the index reads')
-  console.log('ok - retrying an unreadable index recovers the surface in place')
-
-  // ═══ 3. Resident vs workspace-deleted, on the same door ═══════════════════
-  // The live run's workspace is open, so its workspace-only actions are live and
-  // the canvas reads the workspace's own state rather than re-reading disk.
-  const liveRow = [
-    ...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li button'),
-  ].find((b) => b.textContent?.includes('live-run'))
-  assert.ok(liveRow, 'the live run is in the rail')
-  await act(async () => {
-    ;(liveRow as HTMLElement).click()
-  })
-  await settle()
-
-  const openAgentsLive = [...container.querySelectorAll('button')].find(
-    (b) => b.textContent?.trim() === 'Open agents',
-  ) as HTMLButtonElement | undefined
-  assert.ok(openAgentsLive, 'a resident run offers Open agents')
-  assert.equal(openAgentsLive?.disabled, false, 'and it is live, because the workspace is still open')
-  // Asserted only once the board is actually up — otherwise "the notice is
-  // absent" would pass on a canvas that never rendered the board at all.
-  assert.ok(container.querySelector('[role="tablist"]'), 'its board mounts from the door')
-  assert.ok(
-    !container.textContent?.includes('This sprint’s workspace was removed'),
-    'a resident run never claims its workspace is gone',
-  )
-  console.log('ok - a run with a resident workspace opens from the door with its actions live')
-
-  // The same door, the run whose workspace was deleted: it still opens — the
-  // board mounts by run identity (item 1762) — and only the workspace-bound
-  // action degrades, naming why.
-  const orphanRow = [
-    ...container.querySelectorAll('ul[role="list"][aria-label^="Sprints:"] > li button'),
-  ].find((b) => b.textContent?.includes('old-run'))
-  assert.ok(orphanRow, 'the historical run is in the rail')
-  await act(async () => {
-    ;(orphanRow as HTMLElement).click()
-  })
-  await settle()
-
-  assert.ok(
-    container.querySelector('[role="tablist"]'),
-    'a workspace-deleted run still mounts its board',
-  )
-  const openAgentsOrphan = [...container.querySelectorAll('button')].find(
-    (b) => b.textContent?.trim() === 'Open agents',
-  ) as HTMLButtonElement | undefined
-  assert.equal(openAgentsOrphan?.disabled, true, 'but cannot open terminals it does not have')
-  // The reason rides the accessible name, so it is not hover-only.
-  assert.match(
-    openAgentsOrphan?.getAttribute('aria-label') ?? '',
-    /workspace is closed, so its agent terminals aren’t running/,
-    'and names why in plain words rather than failing silently',
-  )
-  assert.ok(
-    container.textContent?.includes('This sprint’s workspace was removed'),
-    'the board itself degrades its workspace-only reads too',
-  )
-  assert.ok(
-    !container.textContent?.includes('Couldn’t open this sprint.'),
-    'a missing workspace is not an error — the run opens read-only-clean',
-  )
-  console.log('ok - a workspace-deleted run opens read-only-clean beside a resident one')
-
-  await act(async () => {
-    sprintsRoot.unmount()
-  })
 
   // ═══ 5b. The Design door: empty first-run, then two real groups ══════════
   // Two things only a real mount can prove. First, the MC-2014 trap: the door
@@ -563,7 +310,7 @@ async function main(): Promise<void> {
   {
     const text = container.textContent ?? ''
     assert.match(text, /No design systems yet/, 'the empty library says so')
-    assert.match(text, /Point at a folder/, 'and offers the create path, the way Sprints does')
+    assert.match(text, /Point at a folder/, 'and offers the create path')
     // The rail is DECLARED, so it is present even with nothing in it — and it
     // is present exactly once.
     const newRows = [...container.querySelectorAll('button')].filter((button) =>
@@ -633,8 +380,8 @@ async function main(): Promise<void> {
       // `children` is a declared prop of the boundary, so it goes in the props
       // object: createElement's variadic children never satisfy a required one.
       React.createElement(GlobalSurfaceErrorBoundary, {
-        surfaceId: 'sprints',
-        surfaceLabel: 'Sprints',
+        surfaceId: 'design',
+        surfaceLabel: 'Design',
         onClose: () => {
           closed += 1
         },
@@ -643,7 +390,7 @@ async function main(): Promise<void> {
     )
   })
   assert.ok(
-    container.textContent?.includes('Sprints hit a problem and stopped.'),
+    container.textContent?.includes('Design hit a problem and stopped.'),
     'the fallback names the failed surface',
   )
   const fallbackButtons = Array.from(container.querySelectorAll('button'))
@@ -709,7 +456,7 @@ async function main(): Promise<void> {
             id: 'roadmap-module',
             name: 'Roadmap',
             publisher: { name: 'Multicode', verified: true },
-            summary: 'Plan multi-sprint arcs.',
+            summary: 'Plan quarterly arcs.',
             category: 'Planning',
             icon: 'roadmap.svg',
             latest: 1,
@@ -907,92 +654,6 @@ async function main(): Promise<void> {
     })
 
     console.log('ok - the Extensions door: source tabs, the plus, groups and a pager, deep-links, degradation')
-  }
-
-  // ═══ 8. Every door replaces the projects rail — in EVERY load state ═══════
-  // Item 1993's first rule is absolute: no app state shows two navigation
-  // columns left of content. The host can only honour it for a door that hands
-  // over a rail, so this walks all six and asserts each one declares its rail
-  // both on its very first paint (still loading, nothing resolved) and once it
-  // has resolved to nothing (no project open, no runs, unstubbed IPC).
-  //
-  // This is the leg that regressed silently: three doors gated the prop on
-  // having data (`runs.length > 0`, `entries.length > 0`, and the retired
-  // Roadmap door's `hasRoadmaps`) and one
-  // withheld it while loading, so "drilling in replaces the sidebar" held only
-  // once a door had something in it — and an empty or slow door sat beside the
-  // projects rail as a second column of things to choose. Reading the presence
-  // the surface REPORTS is what makes that provable: it is the exact signal the
-  // host derives `contextRailActive` from, so a false here is two columns on
-  // screen. Asserted per door, never rolled up, because the failure is per door.
-  //
-  // Doors→modals (2026-09-01): Automations, Plugins and Design left this walk
-  // with the door band — the modal host provides no rail slot, so the
-  // two-columns rule has nothing to say about them; GlobalSurfaceShell's
-  // inline fallback is their modal-interior anatomy.
-  {
-    const { ContextRailSlotContext } = await import('./contextRail')
-
-    // The emptiest world there is: no project open, so every door resolves to
-    // nothing rather than to content. Every IPC these doors reach that is not
-    // stubbed above answers `{ ok: false }` through the proxy, which puts them in
-    // their degraded/empty states — the states that used to lose the rail.
-    useWorkspaceStore.setState({
-      workspaces: [],
-      activeWorkspaceId: null,
-      activeGlobalSurface: null,
-    } as never)
-    indexFails = false
-    api.listSprintRuns = async () => []
-
-    const doors: Array<[string, React.ComponentType]> = [
-      ['sprints', SprintsGlobalSurface],
-    ]
-    for (const [id, Surface] of doors) {
-      const slot = dom.window.document.createElement('div')
-      dom.window.document.body.appendChild(slot)
-      const presence: boolean[] = []
-      const host = dom.window.document.createElement('div')
-      dom.window.document.body.appendChild(host)
-      const doorRoot = createRoot(host)
-      // Sync act: effects flush, pending promises do NOT — so the first reported
-      // value is the door's answer while it is still loading.
-      act(() => {
-        doorRoot.render(
-          React.createElement(
-            ContextRailSlotContext.Provider,
-            { value: { el: slot as unknown as HTMLElement, onRailPresence: (p: boolean) => presence.push(p) } },
-            React.createElement(ConfirmDialogProvider, null, React.createElement(Surface)),
-          ),
-        )
-      })
-      assert.equal(
-        presence[0],
-        true,
-        `the ${id} door declares its rail on first paint — a loading door must not leave the projects rail up`,
-      )
-      await settle(12)
-      assert.equal(
-        presence[presence.length - 1],
-        true,
-        `the ${id} door still declares its rail with nothing in it — an empty door must not leave the projects rail up`,
-      )
-      // And the rail really is in the host's column, not a second aside of the
-      // door's own: reporting presence without portaling would read identical to
-      // the host and still paint two columns.
-      assert.ok(slot.childElementCount > 0, `the ${id} door's rail rendered into the host's column`)
-      assert.equal(
-        host.querySelector('aside'),
-        null,
-        `and the ${id} door mounts no inline aside beside it`,
-      )
-      await act(async () => {
-        doorRoot.unmount()
-      })
-      host.remove()
-      slot.remove()
-    }
-    console.log('ok - every door declares a rail while loading and while empty')
   }
 
   // ═══ 9. The absent door and the workspace-less door (MC-1854) ═════════════

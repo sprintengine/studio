@@ -2,16 +2,18 @@
  * The renderer's `AgentState` record and its data-only field types, shared
  * with the main process.
  *
- * These are core agent records (MC-2573): `AgentKind` is `'general' |
- * 'specialist'`, `AgentExecution` and `defaultAgent` are generic, and Sprint
- * Engine managed agents are identified by `registerAgentIdNamespace` plus the
- * launch contribution's `session.managed` tag — not by an enum member.
- * `src/shared/sprintengine/agent-state.ts` re-exports this module so existing
- * engine import sites keep working. Pure data shapes only — no DOM, React, or
+ * These are core agent records: `AgentExecution` and `defaultAgent` are
+ * generic, and a module's managed agents are identified by
+ * `registerAgentIdNamespace` plus the launch contribution's `session.managed`
+ * tag — not by an enum member. Pure data shapes only — no DOM, React, or
  * flexlayout imports may be added here.
  */
-import type { AgentCli, AgentId } from './sprintengine/run-types'
 import type { CliPermissionPreset } from './cli-permission-preset'
+
+/** An agent CLI runtime id (`claude`, `codex`, …). Open: plugins add their own. */
+export type AgentCli = string
+/** A renderer agent record's id, unique within its workspace. */
+export type AgentId = string
 
 type AgentMessage = {
   role: 'user' | 'assistant' | 'system'
@@ -21,16 +23,7 @@ type AgentMessage = {
 
 type AgentStatus = 'idle' | 'running' | 'streaming' | 'error' | 'complete'
 
-export type AgentKind = 'general' | 'specialist'
 export type AgentExecutionMode = 'current_workspace' | 'worktree'
-
-// A specialist id is a registry role id. Specialists ship as an installable
-// pack (not bundled), so there is no fixed union of ids: every specialist —
-// whether from the first-party pack or a workspace/user/plugin registry layer —
-// is keyed by its registry role id, which round-trips through prefs and spawns
-// and whose brief is the matching workspace skill. Kept as a named alias so
-// the many downstream import sites need no churn.
-export type SpecialistActionId = string
 
 export type McpClientTarget = AgentCli
 type McpTransport = 'stdio' | 'http' | 'sse'
@@ -101,7 +94,7 @@ export type AgentExecution = {
 }
 
 // Standard workspace agents run through one of two runtimes. `terminal` is the
-// default CLI/PTY path (and the only runtime for Sprint Engine agents).
+// default CLI/PTY path.
 // `conversation` is the plugin-driven conversation runtime backed by a
 // provider/model selection. Older persisted agents have no `runtimeKind` and
 // must be treated as `terminal`.
@@ -143,18 +136,15 @@ export type AgentState = {
   // (`sessionIdFromCaller`) at session assign, the sibling of cliResumeAvailable;
   // consumers use it to decide the resume token. See agent-cli-resume.ts.
   cliUsesStableSessionId?: boolean
-  // Explicit "resume this conversation on next launch" intent. Sprint agents are
-  // otherwise always spawned fresh (auto-run re-dispatches roles); this flag is
-  // set only by an explicit board re-open of a completed run's recorded session
-  // (see sprintEngineRosterSessions) so TerminalView resumes rather than starting
-  // a new conversation.
+  // Explicit "resume this conversation on next launch" intent, so TerminalView
+  // resumes rather than starting a new conversation.
   cliResumeRequested?: boolean
   cliLastExitCode?: number | null
   cliLastExitedAt?: number | null
   cli?: AgentCli
   // Model id passed at CLI launch when the plugin declares modelSelection.
-  // Undefined means the CLI's own default; persisted so relaunch/resume and
-  // Sprint Engine auto-run keep the model the agent was created with.
+  // Undefined means the CLI's own default; persisted so relaunch and resume
+  // keep the model the agent was created with.
   cliModel?: string
   // Reasoning-effort level passed at CLI launch when the plugin declares
   // reasoningSelection. Undefined means the CLI's own default effort (no flag);
@@ -173,12 +163,11 @@ export type AgentState = {
   // from a stale snapshot and would revert the pick on the next projection.
   cliRuntimeOverride?: { cli?: AgentCli; model?: string | null; reasoning?: string | null }
   // The runtime the live terminal was actually launched with, stamped at spawn
-  // success (TerminalView). The record's `cli`/`cliModel` are re-stamped from
-  // the run's `roleRuntimes` on every reconcile, so after a mid-run role edit
-  // they reflect the NEW config while the running session still uses the old
-  // one; this stamp preserves what the session is really on, powering the
-  // roster's "on <old model>" divergence label and restart offer. Never
-  // cleared on exit — consumers must gate on terminal liveness.
+  // success (TerminalView). The record's `cli`/`cliModel` can be re-stamped by
+  // a later config edit, so they reflect the NEW config while the running
+  // session still uses the old one; this stamp preserves what the session is
+  // really on, powering the "on <old model>" divergence label and restart
+  // offer. Never cleared on exit — consumers must gate on terminal liveness.
   cliLaunchedRuntime?: { cli?: AgentCli; model?: string | null }
   // Orthogonal Debug Mode toggle (the agent picker). Set per-spawn from the
   // transient spawn-UI state; the launch boundary prepends the debug directive
@@ -209,8 +198,6 @@ export type AgentState = {
   // Conversation-transport counterpart: seeds AgentChatView's draft on first
   // mount (transcript empty). Prefill only — the user always submits.
   chatComposerPrefill?: string
-  kind?: AgentKind
-  specialistId?: SpecialistActionId
   // The Backlog item this agent was last handed (drag-drop or send-to-agent).
   // Powers the top-right glyph on the agent terminal that navigates back to the
   // item. Latest-wins: one ref per agent, mirroring the most-recent-wins
@@ -230,8 +217,8 @@ type AgentBacklogItemRef = {
 // ---------------------------------------------------------------------------
 //
 // The blank agent record every creation path starts from. It lived in the
-// renderer's agents slice until main began composing sprint workspaces itself;
-// a second copy in main would drift the moment a field is added, so both
+// renderer's agents slice until main began composing workspaces itself; a
+// second copy in main would drift the moment a field is added, so both
 // processes mint records here. `agentsSlice.ts` re-exports these so existing
 // renderer import sites are unchanged.
 
@@ -239,7 +226,7 @@ export function defaultAgentExecution(): AgentExecution {
   return { mode: 'current_workspace', worktreeId: null, cwd: null }
 }
 
-export function defaultAgent(id: AgentId, name = id, kind: AgentKind = 'general'): AgentState {
+export function defaultAgent(id: AgentId, name = id): AgentState {
   return {
     id,
     name,
@@ -260,8 +247,6 @@ export function defaultAgent(id: AgentId, name = id, kind: AgentKind = 'general'
     cliModel: undefined,
     cliPermissionPreset: 'manual',
     cliStartupPrompt: undefined,
-    kind,
-    specialistId: undefined,
     backlogItemRef: undefined,
   }
 }

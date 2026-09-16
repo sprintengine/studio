@@ -9,7 +9,7 @@ import {
   PermissionPresetMenuRows,
   PRESET_CHIP_LABEL,
 } from './agentSpawnShared'
-import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../types/workspace'
+import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'
 
 // The model picker's footer controls — the row of trailing settings a spawn
 // surface hands `CliModelPopoverSurface` through its `footer` slot.
@@ -147,14 +147,14 @@ export function MenuTick({ shown }: { shown: boolean }): JSX.Element {
 // no explanatory copy (owner, 2026-08-04). It reads the exhaustive chip labels
 // the preset rows use, so a preset it cannot tell apart from its neighbour is a
 // preset the person cannot see they are on.
-function permissionLabel(preset: SprintEngineCliPermissionPreset): string {
+function permissionLabel(preset: CliPermissionPreset): string {
   return PRESET_CHIP_LABEL[preset]
 }
 
 // The accessible name carries the full option label, not the chip's short one:
 // "Permissions: Bypass permissions" says which safeguard is off, where the chip
 // only has room for a word.
-function permissionAccessibleName(preset: SprintEngineCliPermissionPreset): string {
+function permissionAccessibleName(preset: CliPermissionPreset): string {
   const option = AGENT_SPAWN_PERMISSION_OPTIONS.find((entry) => entry.value === preset)
   return `Permissions: ${option?.label ?? preset}`
 }
@@ -188,11 +188,11 @@ export function SpawnPermissionFooter({
   cli: AgentCli
   /** The row's model id; null is the CLI's own default row. */
   model: string | null
-  fallback: SprintEngineCliPermissionPreset
+  fallback: CliPermissionPreset
   /** Presets this target cannot take, each with the one line it dims with. */
-  disabledReasons?: Partial<Record<SprintEngineCliPermissionPreset, string>>
+  disabledReasons?: Partial<Record<CliPermissionPreset, string>>
   /** Notified after the row's preset is written (the remote note clears on it). */
-  onSelect?: (preset: SprintEngineCliPermissionPreset) => void
+  onSelect?: (preset: CliPermissionPreset) => void
 }): JSX.Element {
   const preset = useModelPermissionPreset(cli, model, fallback)
   return (

@@ -25,10 +25,10 @@ import { TITLE_BAR_HEIGHT } from './AppTitleBar'
 //   Home        — the sidebar shows New chat and the workspaces tree.
 //   Automations — the Automations surface takes the card region, with its own
 //                 list of automations in the sidebar column beside it.
-//   Extensions  — the sidebar becomes the Extensions drawer (Sprints, Design,
-//                 Plugins, Skills, Agent CLIs) and the Extensions home takes
-//                 the card region.
-// Plugins left the rail: it is one of the five things UNDER Extensions, and a
+//   Extensions  — the sidebar becomes the Extensions drawer (Design, Plugins,
+//                 Skills, Agent CLIs) and the Extensions home takes the card
+//                 region.
+// Plugins left the rail: it is one of the things UNDER Extensions, and a
 // glyph of its own said it stood beside them. Automations stays because it is
 // what the product does rather than something added to it — and it is still
 // the automations module's own registered surface, glyph and label taken from
@@ -67,7 +67,7 @@ export const TRAFFIC_LIGHT_RESERVE = 78
 export const RAIL_SURFACE_IDS = ['automations'] as const
 
 // A rail square needs a name and a glyph, and a door declares both optionally
-// (Sprints names itself through its own nav-entry row instead). Narrowing here
+// (a door may name itself through its own nav-entry row instead). Narrowing here
 // rather than at the call site keeps the rail from ever having to render a
 // nameless square.
 export type RailSurface = RegisteredGlobalSurface & { label: string; Icon: SurfaceIconComponent }

@@ -11,9 +11,8 @@ import {
   readPersistedWorkspaceState,
 } from './persistenceSlice'
 import { normalizeWorkspaceForPartialize } from './normalizers'
-import { normalizeAppSettings, sprintEngineRunSettingsKey } from './settingsSlice'
-import { getSprintEngineModuleState, reconcileWorkspaceModuleState } from './workspaceModuleState'
-import { createInitialSprintEngineState } from '../../utils/sprintengine'
+import { normalizeAppSettings } from './settingsSlice'
+import { getWorkspaceModuleState } from './workspaceModuleState'
 import type { Workspace } from '../../types/workspace'
 
 // classifyPersistedWorkspaceState ----------------------------------------------
@@ -160,180 +159,6 @@ assert.deepEqual(
   'migration normalizes persisted File Explorer expansion paths',
 )
 
-const v60SprintEnginePermissionState = {
-  appSettings: {
-    lastAgentSpawnPermissionPreset: 'bypass',
-  },
-  workspaces: [
-    {
-      id: 'ws-run-permission',
-      name: 'Run Permission',
-      mode: 'sprintengine',
-      folderPath: '/repo',
-      agents: {},
-      sprintEngineContext: {
-        teamName: 'run-permission',
-        teamSlug: 'run-permission',
-        teamDirectoryPath: '/repo/.sprintengine/sprintengine/run-permission',
-        statePath: '/repo/.sprintengine/sprintengine/run-permission/run.yaml',
-      },
-      sprintEngineState: {
-        name: 'run-permission',
-        goal: 'Persist local run permission defaults.',
-        roleCounts: { architect: 1 },
-        sprintEngineAgents: {
-          architect: { role: 'architect', status: 'idle', currentTaskId: null },
-        },
-      },
-      sprintEngineAutoState: {
-        desiredMode: 'manual',
-        runtimeState: 'idle',
-        cliPermissionPreset: 'manual',
-        maxConcurrentAgents: 3,
-        deliveredAgentNotificationEventKeys: [],
-      },
-    },
-  ],
-}
-const migratedSprintEnginePermission = migratePersistedWorkspaceState(v60SprintEnginePermissionState, 60) as {
-  appSettings: {
-    sprintEngineRunSettings: Record<string, { cliPermissionPreset?: string }>
-  }
-  workspaces: Array<{
-    sprintEngineAutoState: { cliPermissionPreset: string }
-  }>
-}
-const migratedSprintEnginePermissionKey = sprintEngineRunSettingsKey(
-  getSprintEngineModuleState(migratedSprintEnginePermission.workspaces[0] as Workspace)?.context?.statePath,
-)
-assert.equal(
-  migratedSprintEnginePermission.appSettings.sprintEngineRunSettings[migratedSprintEnginePermissionKey]
-    ?.cliPermissionPreset,
-  'bypass',
-  'v61 migration seeds per-run Sprint Engine permission from the app default when the run was still factory-default',
-)
-assert.equal(
-  migratedSprintEnginePermission.workspaces[0].sprintEngineAutoState.cliPermissionPreset,
-  'bypass',
-  'v61 migration hydrates existing Sprint Engine workspaces from the local per-run setting',
-)
-
-const v52AutoRunState = {
-  workspaces: [
-    {
-      id: 'ws-auto',
-      name: 'Auto Run',
-      mode: 'sprintengine',
-      folderPath: '/repo',
-      agents: {},
-      sprintEngineAutoState: {
-        supervisorEnabled: true,
-        enabled: true,
-        autoApproveArtifacts: true,
-        cliPermissionPreset: 'bypass',
-        maxConcurrentAgents: 4,
-        pendingSpawns: [{ taskId: 'T1', agentId: 'developer-1', startedAt: 1 }],
-        deliveredAgentNotificationEventKeys: ['EVT-1'],
-      },
-    },
-  ],
-}
-const migratedAutoRun = migratePersistedWorkspaceState(v52AutoRunState, 52) as {
-  workspaces: Array<{
-    sprintEngineAutoState: {
-      desiredMode: string
-      runtimeState: string
-      cliPermissionPreset: string
-      maxConcurrentAgents: number
-      deliveredAgentNotificationEventKeys: string[]
-    }
-  }>
-}
-assert.equal(
-  'supervisorEnabled' in migratedAutoRun.workspaces[0].sprintEngineAutoState,
-  false,
-)
-assert.equal('enabled' in migratedAutoRun.workspaces[0].sprintEngineAutoState, false)
-assert.equal(
-  'autoApproveArtifacts' in migratedAutoRun.workspaces[0].sprintEngineAutoState,
-  false,
-)
-assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.desiredMode, 'run_agents_and_approve_artifacts')
-assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.runtimeState, 'running')
-assert.equal(
-  'pendingSpawns' in migratedAutoRun.workspaces[0].sprintEngineAutoState,
-  false,
-  'legacy pending-spawn residue is dropped by normalization (MC-1592: no persisted spawn ledger)',
-)
-assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.cliPermissionPreset, 'bypass')
-assert.equal(migratedAutoRun.workspaces[0].sprintEngineAutoState.maxConcurrentAgents, 4)
-assert.deepEqual(migratedAutoRun.workspaces[0].sprintEngineAutoState.deliveredAgentNotificationEventKeys, ['EVT-1'])
-
-const v56SprintEngineLaunchState = {
-  workspaces: [
-    {
-      id: 'ws-sprintengine-launch',
-      name: 'Sprint Engine Launch',
-      mode: 'sprintengine',
-      folderPath: '/repo',
-      agents: {
-        architect: {
-          id: 'architect',
-          name: 'Architect',
-          kind: 'sprintengine',
-          cli: 'claude-code',
-          cliStartRequested: true,
-          cliHasLaunched: true,
-          cliSessionId: 'stale-architect-session',
-          cliOnboardingPromptSent: true,
-          cliResumeAvailable: true,
-          cliStartupPrompt: 'stale prompt',
-          cliRestartNonce: 3,
-          status: 'streaming',
-          streamBuffer: 'stale output',
-        },
-      },
-      sprintEngineState: {
-        sprintEngineAgents: {
-          architect: { role: 'architect', status: 'idle', currentTaskId: null },
-        },
-      },
-    },
-  ],
-}
-const migratedSprintEngineLaunch = migratePersistedWorkspaceState(v56SprintEngineLaunchState, 56) as {
-  workspaces: Array<{
-    agents: Record<string, {
-      kind: string
-      cliStartRequested: boolean
-      cliHasLaunched: boolean
-      cliSessionId?: string
-      cliOnboardingPromptSent: boolean
-      cliResumeAvailable: boolean
-      cliStartupPrompt?: string
-      cliRestartNonce: number
-      status: string
-      streamBuffer: string
-    }>
-  }>
-}
-const migratedArchitect = migratedSprintEngineLaunch.workspaces[0].agents.architect
-assert.ok(getSprintEngineModuleState(migratedSprintEngineLaunch.workspaces[0] as Workspace)?.state?.sprintEngineAgents.architect)
-assert.equal(migratedArchitect.kind, 'general')
-assert.equal(migratedArchitect.cliStartRequested, false)
-assert.equal(migratedArchitect.cliHasLaunched, false)
-// The v57 migration clears the launch/resume gate so a restart never auto-resumes
-// a sprint agent — but it keeps the session identity, which resolves the agent's
-// painted screen on disk. Erasing it made cold load mint a fresh uuid and spawn a
-// fresh CLI instead of painting paused.
-assert.equal(migratedArchitect.cliSessionId, 'stale-architect-session')
-assert.equal(migratedArchitect.cliOnboardingPromptSent, false)
-assert.equal(migratedArchitect.cliResumeAvailable, false)
-assert.equal(migratedArchitect.cliStartupPrompt, undefined)
-assert.equal(migratedArchitect.cliRestartNonce, 0)
-assert.equal(migratedArchitect.status, 'idle')
-assert.equal(migratedArchitect.streamBuffer, '')
-
 // v62: Automations became a global screen, not a workspace type. The migration
 // drops persisted automations workspaces (their definitions/run history live on
 // disk, untouched) while leaving every other workspace in place.
@@ -341,7 +166,7 @@ const v61AutomationsState = {
   workspaces: [
     { id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} },
     { id: 'ws-automations', mode: 'automations', folderPath: '/repo/app', agents: {} },
-    { id: 'ws-sprint', mode: 'sprintengine', folderPath: '/repo/app', agents: {} },
+    { id: 'ws-other', mode: 'standard', folderPath: '/repo/lib', agents: {} },
   ],
   activeWorkspaceId: 'ws-automations',
 }
@@ -351,7 +176,7 @@ const migratedAutomationsDrop = migratePersistedWorkspaceState(v61AutomationsSta
 }
 assert.deepEqual(
   migratedAutomationsDrop.workspaces.map((ws) => ws.id),
-  ['ws-standard', 'ws-sprint'],
+  ['ws-standard', 'ws-other'],
   'v62 drops automations workspaces and keeps the rest',
 )
 assert.equal(
@@ -453,7 +278,7 @@ const v64RoadmapState = {
   workspaces: [
     { id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} },
     { id: 'ws-roadmap', mode: 'roadmap', folderPath: '/repo/app', agents: {} },
-    { id: 'ws-sprint', mode: 'sprintengine', folderPath: '/repo/app', agents: {} },
+    { id: 'ws-other', mode: 'standard', folderPath: '/repo/lib', agents: {} },
   ],
   activeWorkspaceId: 'ws-roadmap',
 }
@@ -463,7 +288,7 @@ const migratedRoadmapDrop = migratePersistedWorkspaceState(v64RoadmapState, 64) 
 }
 assert.deepEqual(
   migratedRoadmapDrop.workspaces.map((ws) => ws.id),
-  ['ws-standard', 'ws-sprint'],
+  ['ws-standard', 'ws-other'],
   'v65 drops the retired roadmap-mode workspace and keeps the rest',
 )
 assert.equal(
@@ -516,10 +341,7 @@ assert.equal(
   'v67 leaves other persisted settings alone',
 )
 
-// v68: the Sprint Engine model catalog retired (MC-1890). An upgraded profile
-// still carries the persisted `sprintEngineModelCatalog` array of hand-set
-// scores; the ladder drops it and leaves every other setting alone.
-assert.equal(WORKSPACE_STORE_VERSION, 76, 'the module-bag hoist of sprintEngineContext and roleCliDefaults is the newest step, at store v76')
+assert.equal(WORKSPACE_STORE_VERSION, 76, 'the Reviews extraction is the newest step, at store v76')
 
 // v74: the workspace Backlog left the FlexLayout rail for the pane. A v73
 // envelope — which already carries a pane record — still docking `backlog`
@@ -560,76 +382,6 @@ assert.equal(WORKSPACE_STORE_VERSION, 76, 'the module-bag hoist of sprintEngineC
   const migratedTwice = migratePersistedWorkspaceState(v73WithBacklogRail, 72) as typeof migratedBacklog
   assert.deepEqual(migratedTwice.workspaces[0].paneState?.tabs.map((tab) => tab.kind), ['git', 'backlog'], 'a v72 profile passing both rungs adopts it once')
 }
-
-const v67WithModelCatalog = {
-  workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
-  activeWorkspaceId: 'ws-standard',
-  appSettings: {
-    sprintEngineModelCatalog: [
-      { cli: 'claude-code', model: 'opus', offeredByDefault: true, intelligence: 9, frontendDesign: 8, mobile: 5, speed: 4, cost: 10 },
-    ],
-    lastSelectedCli: 'codex',
-  },
-}
-const migratedModelCatalogDrop = migratePersistedWorkspaceState(v67WithModelCatalog, 67) as {
-  appSettings: AppSettings & { sprintEngineModelCatalog?: unknown }
-}
-assert.equal(
-  'sprintEngineModelCatalog' in migratedModelCatalogDrop.appSettings,
-  false,
-  'v68 drops the retired model catalog slice, key and all',
-)
-assert.equal(
-  migratedModelCatalogDrop.appSettings.lastSelectedCli,
-  'codex',
-  'v68 leaves other persisted settings alone',
-)
-
-// v72: the title bar's specialist split-button retired (MC-2222), and with it
-// the remembered-specialist default whose factory value ('architect') was what
-// preselected a role nobody picked in New chat. An upgraded profile still
-// carries both keys; the ladder drops them and leaves every other setting alone.
-const v71WithRememberedSpecialist = {
-  workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
-  activeWorkspaceId: 'ws-standard',
-  appSettings: {
-    lastSelectedSpecialist: 'architect',
-    lastSpawnWasGeneral: false,
-    lastSelectedCli: 'codex',
-  },
-}
-const migratedRememberedSpecialistDrop = migratePersistedWorkspaceState(v71WithRememberedSpecialist, 71) as {
-  appSettings: AppSettings & { lastSelectedSpecialist?: unknown; lastSpawnWasGeneral?: unknown }
-}
-assert.equal(
-  'lastSelectedSpecialist' in migratedRememberedSpecialistDrop.appSettings,
-  false,
-  'v72 drops the remembered top-bar specialist, key and all',
-)
-assert.equal(
-  'lastSpawnWasGeneral' in migratedRememberedSpecialistDrop.appSettings,
-  false,
-  'v72 drops the paired General-was-last flag too',
-)
-assert.equal(
-  migratedRememberedSpecialistDrop.appSettings.lastSelectedCli,
-  'codex',
-  'v72 leaves other persisted settings alone',
-)
-
-// The version-gated step cannot be the only enforcement: a dev-HMR module swap
-// (or any write path that stamps the current version onto un-migrated state)
-// leaves the slice inside a current-version envelope the ladder never revisits.
-// normalizeAppSettings — which persist merge() runs on every hydration — is the
-// self-healing chokepoint, so the key cannot survive even at v68.
-assert.equal(
-  'sprintEngineModelCatalog' in normalizeAppSettings(
-    v67WithModelCatalog.appSettings as Partial<AppSettings>,
-    [],
-  ),
-  false,
-  'normalizeAppSettings drops the retired catalog regardless of store version',
-)
 
 // v69: `cliModelCatalog` arrives — what each CLI reported about its own models,
 // stored apart from the user's own ids so a re-probe cannot clobber them. The
@@ -685,21 +437,14 @@ const v69WithEffort = {
     cliModelCatalog: {
       codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
     },
-    specialistModelDefaults: {
-      architect: { cli: 'codex', model: 'gpt-5.6-sol', reasoning: 'high' },
-      developer: { cli: 'codex', model: '', reasoning: 'xhigh' },
-      tester: { cli: 'codex', model: '', reasoning: '' },
-    },
+    lastSelectedAgentModel: { cli: 'codex', model: '', reasoning: 'xhigh' },
   },
 }
 const migratedEffort = migratePersistedWorkspaceState(v69WithEffort, 69) as { appSettings: AppSettings }
 assert.deepEqual(
-  migratedEffort.appSettings.specialistModelDefaults,
-  {
-    architect: { cli: 'codex', model: 'gpt-5.6-sol', reasoning: 'high' },
-    developer: { cli: 'codex', model: '', reasoning: 'xhigh' },
-  },
-  'v70 keeps a level with or without a model and drops a selection carrying neither',
+  migratedEffort.appSettings.lastSelectedAgentModel,
+  { cli: 'codex', model: '', reasoning: 'xhigh' },
+  'v70 keeps a level chosen without a model — the CLI\'s own default model at that effort',
 )
 assert.deepEqual(
   migratedEffort.appSettings.cliModelCatalog,
@@ -711,201 +456,58 @@ assert.deepEqual(
 // ride into a launch inside a current-version envelope the ladder never revisits.
 assert.deepEqual(
   normalizeAppSettings(
-    {
-      specialistModelDefaults: {
-        architect: { cli: 'codex', model: 'gpt-5.5', reasoning: '   ' },
-        developer: { cli: '', model: '', reasoning: 'high' },
-      },
-    } as never,
+    { lastSelectedAgentModel: { cli: 'codex', model: 'gpt-5.5', reasoning: '   ' } } as never,
     [],
-  ).specialistModelDefaults,
-  { architect: { cli: 'codex', model: 'gpt-5.5' } },
-  'normalizeAppSettings drops a blank level and a selection naming no CLI, regardless of store version',
+  ).lastSelectedAgentModel,
+  { cli: 'codex', model: 'gpt-5.5' },
+  'normalizeAppSettings drops a blank level regardless of store version',
+)
+assert.equal(
+  normalizeAppSettings(
+    { lastSelectedAgentModel: { cli: '', model: '', reasoning: 'high' } } as never,
+    [],
+  ).lastSelectedAgentModel,
+  null,
+  'and drops a selection naming no CLI entirely',
 )
 
-// v71: the per-module workspace-state bag arrives (MC-1573). Later rungs
-// (v76) hoist any remaining top-level engine fields into that bag and drop
-// them, so a v70 persist that carried a populated top-level projection lands
-// with the value in moduleState.sprintengine and no top-level field. A
-// third-party module's durable entry rides the ladder untouched.
-const v70SprintState = createInitialSprintEngineState({
-  goal: 'Validate module-state rung',
-  name: 'Bag Team',
-  roleCounts: { frontend: 1 },
-})
-const v70WithLegacyField = {
+// The per-module workspace-state bag (MC-1573): a module's durable entry rides
+// the ladder untouched, whatever version the envelope was written at.
+const v70WithModuleBag = {
   workspaces: [
     {
-      id: 'ws-legacy-field',
-      mode: 'sprintengine',
-      folderPath: '/repo/app',
-      agents: {},
-      sprintEngineState: v70SprintState,
-    },
-    {
-      id: 'ws-null-state',
+      id: 'ws-module-bag',
       mode: 'standard',
       folderPath: '/repo/app',
       agents: {},
-      sprintEngineState: null,
-      // A third-party module's durable entry must ride the ladder untouched.
       moduleState: { 'weather-deck': { lastCity: 'Dublin' } },
     },
   ],
-  activeWorkspaceId: 'ws-legacy-field',
+  activeWorkspaceId: 'ws-module-bag',
 }
-const migratedBag = migratePersistedWorkspaceState(v70WithLegacyField, 70) as {
-  workspaces: Workspace[]
-}
-const legacyFieldRow = migratedBag.workspaces[0]
-assert.equal(
-  getSprintEngineModuleState(legacyFieldRow)?.state?.goal,
-  'Validate module-state rung',
-  'a populated legacy field is adopted into the bag by the time the ladder finishes',
-)
-assert.equal(
-  getSprintEngineModuleState(legacyFieldRow)?.state?.name,
-  'Bag Team',
-)
-assert.equal(
-  'sprintEngineState' in legacyFieldRow,
-  false,
-  'the hoist drops the top-level field once the bag holds the projection',
-)
-const nullStateRow = migratedBag.workspaces[1]
-assert.equal(
-  'sprintEngineState' in nullStateRow,
-  false,
-  'a null top-level run state is omitted rather than kept as a live field',
-)
-assert.equal(
-  nullStateRow.moduleState && 'sprintengine' in nullStateRow.moduleState,
-  false,
-  'a null run state never mints a sprintengine bag entry',
-)
+const migratedBag = migratePersistedWorkspaceState(v70WithModuleBag, 70) as { workspaces: Workspace[] }
 assert.deepEqual(
-  nullStateRow.moduleState,
-  { 'weather-deck': { lastCity: 'Dublin' } },
+  getWorkspaceModuleState(migratedBag.workspaces[0], 'weather-deck'),
+  { lastCity: 'Dublin' },
   'another module\'s bag entry rides the ladder untouched',
 )
-// Enforcement half: reconcileWorkspaceModuleState runs in persist merge() on
-// every hydration, so a bag/top-level disagreement cannot survive inside a
-// current-version envelope the ladder never revisits. The bag is canonical.
-const bagOnlyRow = reconcileWorkspaceModuleState({
-  id: 'ws-bag-only',
-  mode: 'sprintengine',
-  folderPath: '/repo/app',
-  agents: {},
-  moduleState: { sprintengine: v70SprintState },
-} as never)
-assert.equal(
-  'sprintEngineState' in bagOnlyRow,
-  false,
-  'reconcile never re-mirrors the bag onto a top-level field',
-)
-assert.equal(
-  getSprintEngineModuleState(bagOnlyRow)?.state?.goal,
-  'Validate module-state rung',
-  'reconcile unwraps a bag-only entry as the canonical projection',
-)
-const normalRow = {
-  id: 'ws-normal',
-  mode: 'standard',
-  folderPath: '/repo/app',
-  agents: {},
-} as never as Workspace
-assert.equal(
-  reconcileWorkspaceModuleState(normalRow),
-  normalRow,
-  'a row already in the normal persisted shape loads unchanged, reference and all',
-)
-
-// v76: sprintEngineContext and sprintEngineRoleCliDefaults join the bag
-// (MC-2573). A HEAD-shaped persist carries all three top-level fields and a
-// stripped sprintengine bag; after the ladder the values live in
-// moduleState.sprintengine, and the next write omits the top-level fields.
-const headContext = {
-  teamName: 'Head Team',
-  teamSlug: 'head-team',
-  teamDirectoryPath: '/Users/dev/app/.sprintengine/sprintengine/head-team',
-  statePath: '/Users/dev/app/.sprintengine/sprintengine/head-team/run.yaml',
-}
-const headRoleCliDefaults = { architect: 'codex' as const, developer: 'claude-code' as const }
-const headSprintState = createInitialSprintEngineState({
-  goal: 'Hoist top-level engine fields into the bag',
-  name: 'Head Team',
-  roleCounts: { architect: 1 },
-})
-const headShapedPersist = {
-  workspaces: [
-    {
-      id: 'ws-head-shaped',
-      name: 'Head Team',
-      mode: 'sprintengine',
-      folderPath: '/Users/dev/app',
-      agents: {},
-      sprintEngineState: headSprintState,
-      sprintEngineContext: headContext,
-      sprintEngineRoleCliDefaults: headRoleCliDefaults,
-      moduleState: { 'weather-deck': { lastCity: 'Cork' } },
-    },
-  ],
-  activeWorkspaceId: 'ws-head-shaped',
-}
-const migratedHead = migratePersistedWorkspaceState(headShapedPersist, 75) as {
-  workspaces: Workspace[]
-}
-const headRow = migratedHead.workspaces[0]
-const headBag = getSprintEngineModuleState(headRow)
-assert.equal(headBag?.state?.goal, headSprintState.goal, 'v76 hoists the run projection into the bag')
-assert.deepEqual(headBag?.context, headContext, 'v76 hoists sprintEngineContext into the bag')
+// And the next write keeps it: the bag persists verbatim.
 assert.deepEqual(
-  headBag?.roleCliDefaults,
-  headRoleCliDefaults,
-  'v76 hoists sprintEngineRoleCliDefaults into the bag',
+  normalizeWorkspaceForPartialize(migratedBag.workspaces[0]).moduleState,
+  { 'weather-deck': { lastCity: 'Dublin' } },
+  'the bag persists verbatim through partialize',
 )
-assert.equal('sprintEngineState' in headRow, false, 'v76 drops the top-level run projection field')
-assert.equal('sprintEngineContext' in headRow, false, 'v76 drops the top-level context field')
+// An empty bag persists as absent rather than as `{}` on every workspace.
 assert.equal(
-  'sprintEngineRoleCliDefaults' in headRow,
-  false,
-  'v76 drops the top-level role CLI defaults field',
-)
-assert.deepEqual(
-  headRow.moduleState?.['weather-deck'],
-  { lastCity: 'Cork' },
-  'v76 leaves another module\'s bag entry untouched',
-)
-const headWritten = normalizeWorkspaceForPartialize(headRow)
-assert.equal(
-  'sprintEngineState' in headWritten,
-  false,
-  'the next write omits the top-level run projection field',
-)
-assert.equal(
-  'sprintEngineContext' in headWritten,
-  false,
-  'the next write drops the top-level context field',
-)
-assert.equal(
-  'sprintEngineRoleCliDefaults' in headWritten,
-  false,
-  'the next write drops the top-level role CLI defaults field',
-)
-assert.deepEqual(
-  getSprintEngineModuleState(headWritten)?.context,
-  headContext,
-  'the next write keeps context in moduleState.sprintengine',
-)
-assert.deepEqual(
-  getSprintEngineModuleState(headWritten)?.roleCliDefaults,
-  headRoleCliDefaults,
-  'the next write keeps role CLI defaults in moduleState.sprintengine',
-)
-assert.equal(
-  getSprintEngineModuleState(headWritten)?.state,
+  normalizeWorkspaceForPartialize({
+    id: 'ws-empty-bag',
+    mode: 'standard',
+    folderPath: '/repo/app',
+    agents: {},
+    moduleState: {},
+  } as never as Workspace).moduleState,
   undefined,
-  'the next write still strips the live projection from the bag',
+  'an empty bag is omitted from the persisted registry',
 )
 
 console.log('persistenceSlice.test.ts: ok')

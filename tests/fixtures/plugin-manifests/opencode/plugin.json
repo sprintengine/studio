@@ -64,10 +64,10 @@
   },
   "completion": {
     "mode": "mcp-signal",
-    "signalTool": "sprintengine.turn.done",
+    "signalTool": "studio.turn.done",
     "fallback": {
       "mode": "output-sentinel",
-      "sentinel": "[sprint-engine:done]"
+      "sentinel": "[studio:turn-done]"
     }
   },
   "mcpConfig": {

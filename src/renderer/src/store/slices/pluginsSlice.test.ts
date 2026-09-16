@@ -77,7 +77,7 @@ async function main(): Promise<void> {
   assert.equal('pluginCatalogStatus' in persisted, false)
   assert.equal('pluginCatalogError' in persisted, false)
 
-  // MC-1766 upgrade path: a profile written before the Sprint Engines aside was
+  // MC-1766 upgrade path: a profile written before the right-hand aside was
   // retired still carries its keys, and hydration spreads them onto live state.
   // Nothing reads them, and the next write must drop them rather than round-trip
   // a flag that would reopen a column no module claims. The aside column's own

@@ -287,7 +287,7 @@ run('opening an html report is wired only through the confirm action, never the 
 run('the report renders as a closable SidePane body, not a full-window overlay', () => {
   assert.ok(
     !viewerSource.includes('<Drawer'),
-    'no Drawer overlay — the report opens beside the list, like the Sprint Engine / Backlog detail panes',
+    'no Drawer overlay — the report opens beside the list, like the Backlog detail pane',
   )
   assert.match(
     viewerSource,

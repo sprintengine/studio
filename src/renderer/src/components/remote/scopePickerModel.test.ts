@@ -58,13 +58,12 @@ check('the terminal rows say what they are about', () => {
 check('read only is every :read plus terminal:observe', () => {
   assert.deepEqual([...READ_ONLY_SCOPES], [
     'workspace:read',
-    'sprint:read',
     'backlog:read',
     'terminal:observe',
   ])
 })
 
-check('standard is all eight, terminal:control included', () => {
+check('standard is every scope, terminal:control included', () => {
   // Owner ruling 2026-09-10. The whole point of the rebuild: a default that
   // quietly withheld the terminal tier is what hid remote chats.
   assert.deepEqual([...STANDARD_SCOPES], [...TAILNET_SCOPES])
@@ -74,7 +73,7 @@ check('standard is all eight, terminal:control included', () => {
 check('presetFor names a set, whatever order it arrived in', () => {
   assert.equal(presetFor(scopesForPreset('standard')), 'standard')
   assert.equal(presetFor(scopesForPreset('read-only')), 'read-only')
-  const shuffled: TailnetScope[] = ['terminal:observe', 'backlog:read', 'sprint:read', 'workspace:read']
+  const shuffled: TailnetScope[] = ['terminal:observe', 'backlog:read', 'workspace:read']
   assert.equal(presetFor(shuffled), 'read-only')
 })
 
@@ -82,7 +81,7 @@ check('a hand-picked set is neither preset', () => {
   assert.equal(presetFor(['workspace:read']), null)
   // Read only plus one operate scope: a superset of one preset and a subset of
   // the other, which is exactly the case a length comparison gets wrong.
-  assert.equal(presetFor([...READ_ONLY_SCOPES, 'sprint:operate']), null)
+  assert.equal(presetFor([...READ_ONLY_SCOPES, 'workspace:operate']), null)
   assert.equal(presetFor([]), null)
 })
 
@@ -99,7 +98,6 @@ check('toggling keeps vocabulary order and is idempotent', () => {
 check('missingScopes is the complement, in vocabulary order', () => {
   assert.deepEqual(missingScopes(READ_ONLY_SCOPES), [
     'workspace:operate',
-    'sprint:operate',
     'backlog:operate',
     'terminal:control',
   ])

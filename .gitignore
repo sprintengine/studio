@@ -48,14 +48,7 @@ electron.vite.config.*.mjs
 .cursor/
 .grok/
 .opencode/
-# `.agents/` is the one exception: `.agents/skills/sprintengine/` is authored
-# here (its prompts exist nowhere else in the tree), so it stays tracked and
-# everything around it is ignored. Directories are re-included one level at a
-# time because git cannot re-include a path whose parent is excluded.
-.agents/*
-!.agents/skills/
-.agents/skills/*
-!.agents/skills/sprintengine/
+.agents/
 .mcp.json
 # ...except the one the app SHIPS. `.mcp.json` above is unanchored, so it matches
 # at every depth, and the SprintEngine Studio plugin's own server declaration is
@@ -82,12 +75,9 @@ electron.vite.config.*.mjs
 # rewrites it as it runs and a clone gets its own on first run — tracking it
 # published one machine's live state, which is the same mistake
 # `backlog/items.json` made before it.
-# No exceptions under either name. There used to be re-includes here for a
-# README and for `fixtures/` and `evidence/` beneath the Sprint Engine subtree,
-# on the grounds that the tests read them. Nothing has ever been tracked at
-# those paths except one README, long gone, and no test resolves them — so all
-# they did was hold a door open for a workspace's live run state to be committed
-# by someone who added a file and saw git offer it.
+# No exceptions under either name: a re-include here only holds a door open for
+# a workspace's live runtime state to be committed by someone who added a file
+# and saw git offer it.
 .sprintengine/
 .multi-code/
 

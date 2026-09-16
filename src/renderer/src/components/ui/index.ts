@@ -1,5 +1,5 @@
-// Shared UI primitives. Consumed by the Sprint Engine, Automations
-// and Review panel rebuilds. Tokens live in
+// Shared UI primitives. Consumed by the Automations and Review panels, and by
+// every module surface the SDK hands them to. Tokens live in
 // src/renderer/src/assets/index.css; tone vocabulary lives in ./tokens.
 
 export { PanelHeader } from './PanelHeader'
@@ -203,9 +203,7 @@ export { LoadingOverlay } from './LoadingOverlay'
 export { HtmlPreviewCard } from './HtmlPreviewCard'
 export { FilePreviewPane } from './FilePreviewPane'
 export { KbdChord } from './KbdChord'
-export { RoleGlyph } from './RoleGlyph'
 export { StarGlyph } from './StarGlyph'
-export { RoleAvatar } from './RoleAvatar'
 export { Tooltip } from './Tooltip'
 export { TruncatedText } from './TruncatedText'
 export type { Tone, StatusTone } from './tokens'

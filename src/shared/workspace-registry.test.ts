@@ -37,13 +37,6 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
     worktreeState: { containerPath: null, entries: {}, updatedAt: null },
     memory: { relativeRoot: null },
     editorState: { openFiles: [], activeFilePath: null },
-    sprintEngineAutoState: {
-      desiredMode: 'manual',
-      runtimeState: 'idle',
-      cliPermissionPreset: 'manual',
-      maxConcurrentAgents: 0,
-      deliveredAgentNotificationEventKeys: [],
-    },
     createdAt: 1_000,
     ...overrides,
   } as Workspace
@@ -145,9 +138,7 @@ test('durability normalization strips renderer-owned view state and live agent n
   const normalized = normalizeWorkspaceForRegistry(workspace({
     editorState: { openFiles: [{ path: '/a.ts', content: 'x', isDirty: true }], activeFilePath: '/a.ts' },
     fileExplorerState: { expandedPaths: ['/repo/src'] },
-    sprintEngineState: { runId: 'r' },
-    sprintEngineInitialSpawnAgentIds: ['agent-1'],
-    moduleState: { sprintengine: { cached: true }, backlog: { lens: 'all' } },
+    moduleState: { weather: { deck: 'compact' }, backlog: { lens: 'all' } },
     agents: {
       'agent-1': {
         id: 'agent-1',
@@ -165,10 +156,11 @@ test('durability normalization strips renderer-owned view state and live agent n
 
   assert.deepEqual(normalized.editorState, { openFiles: [], activeFilePath: null })
   assert.equal(normalized.fileExplorerState, undefined)
-  assert.equal('sprintEngineState' in normalized, false, 'the projection cache is engine-owned, never registry state')
-  assert.equal(normalized.sprintEngineInitialSpawnAgentIds, undefined, 'session-only spawn intent never persists')
-  assert.equal('sprintEngineContext' in normalized, false, 'top-level context is dropped; the bag is the store')
-  assert.deepEqual(normalized.moduleState, { backlog: { lens: 'all' } }, 'a projection-shaped sprintengine bag entry is stripped; other modules stay')
+  assert.deepEqual(
+    normalized.moduleState,
+    { weather: { deck: 'compact' }, backlog: { lens: 'all' } },
+    'a module bag travels as-is — only the module that wrote it can say what part is durable',
+  )
 
   const agent = normalized.agents['agent-1']!
   assert.equal(agent.streamBuffer, '')
@@ -177,48 +169,6 @@ test('durability normalization strips renderer-owned view state and live agent n
   assert.equal(agent.cliStartupPrompt, undefined, 'a sent onboarding prompt is not re-armed')
   assert.equal(agent.cliSessionId, 'session-1', 'durable resume identity survives — claude --resume reads it')
   assert.equal(agent.cliResumeAvailable, true)
-})
-
-test('durability normalization keeps durable sprintengine bag fields and drops the live projection', () => {
-  const normalized = normalizeWorkspaceForRegistry(workspace({
-    sprintEngineContext: {
-      teamName: 'Head Team',
-      teamSlug: 'head-team',
-      teamDirectoryPath: '/Users/dev/app/.sprintengine/sprintengine/head-team',
-      statePath: '/Users/dev/app/.sprintengine/sprintengine/head-team/run.yaml',
-    },
-    sprintEngineRoleCliDefaults: { architect: 'codex' },
-    sprintEngineState: { name: 'Head Team', goal: 'x', roleCounts: {}, sprintEngineAgents: {}, events: [], tasks: [], artifacts: [] },
-    moduleState: {
-      sprintengine: {
-        state: { name: 'Head Team', goal: 'x' },
-        context: {
-          teamName: 'Head Team',
-          teamSlug: 'head-team',
-          teamDirectoryPath: '/Users/dev/app/.sprintengine/sprintengine/head-team',
-          statePath: '/Users/dev/app/.sprintengine/sprintengine/head-team/run.yaml',
-        },
-        roleCliDefaults: { architect: 'codex' },
-      },
-      backlog: { lens: 'all' },
-    },
-  } as unknown as Partial<Workspace>))
-
-  assert.equal('sprintEngineState' in normalized, false)
-  assert.equal('sprintEngineContext' in normalized, false)
-  assert.equal('sprintEngineRoleCliDefaults' in normalized, false)
-  assert.deepEqual(normalized.moduleState, {
-    sprintengine: {
-      context: {
-        teamName: 'Head Team',
-        teamSlug: 'head-team',
-        teamDirectoryPath: '/Users/dev/app/.sprintengine/sprintengine/head-team',
-        statePath: '/Users/dev/app/.sprintengine/sprintengine/head-team/run.yaml',
-      },
-      roleCliDefaults: { architect: 'codex' },
-    },
-    backlog: { lens: 'all' },
-  })
 })
 
 test('per-field last-write-wins accepts equal and newer stamps, drops older ones', () => {
@@ -300,7 +250,7 @@ test('reuse resolves the folder’s host for the one-per-project modes only', ()
   ]
   assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/Repo/')?.id, 'auto')
   assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/repo')?.id, 'auto')
-  assert.equal(resolveWorkspaceReuseTarget(records, 'sprintengine', '/repo'), null, 'non-reuse modes never reuse')
+  assert.equal(resolveWorkspaceReuseTarget(records, 'weather-deck', '/repo'), null, 'non-reuse modes never reuse')
   assert.equal(resolveWorkspaceReuseTarget(records, 'standard', '/repo'), null, 'standard workspaces never reuse')
   assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', null), null, 'a folderless host cannot collide')
   assert.equal(resolveWorkspaceReuseTarget(records, 'automations-host', '/other'), null)

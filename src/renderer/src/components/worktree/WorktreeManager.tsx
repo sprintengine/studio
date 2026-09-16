@@ -1,7 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { EMPTY_CHAT_TEMPLATE } from '../../layouts/templates'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { sprintEngineRunContext } from '../../store/slices/workspaceModuleState'
 import type { WorktreeEntry as StoredWorktreeEntry } from '../../types/workspace'
 import { focusOrAddTerminalTab } from '../../utils/modelRegistry'
 import { pathJoin, samePath, trimPath } from '../../utils/paths'
@@ -334,7 +333,6 @@ export default function WorktreeManager({
         terminalRows,
         row.path,
         false,
-        workspace ? sprintEngineRunContext(workspace)?.statePath : undefined,
         undefined,
         undefined,
         undefined,

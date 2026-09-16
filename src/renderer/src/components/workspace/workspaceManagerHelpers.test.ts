@@ -24,7 +24,7 @@ function main(): void {
   assertHookPhaseDrivesStatus()
   assertOutputRecencyFallback()
   assertFailedRetentionAndPrecedence()
-  assertSprintEngineNeedsInput()
+  assertRuntimeReportedNeedsInput()
   assertLastActivityIsMaxOfOutputAndInput()
   assertAttentionFirstOrdering()
   assertAttentionToneNeverLies()
@@ -334,7 +334,7 @@ function assertHookPhaseDrivesStatus(): void {
     false,
   )
   assert.notEqual(deadAwaiting.status, 'needs-input', 'dead awaiting_input does not surface as needs-input')
-  // But the Sprint Engine self-report stays ungated even when the pty is dead.
+  // But a runtime's own self-report stays ungated even when the pty is dead.
   const deadButRuntime = deriveSessionStatus(
     snap({
       processAlive: false,
@@ -392,8 +392,8 @@ function assertFailedRetentionAndPrecedence(): void {
   assert.equal(failed.activitySince, 1234, 'failed since comes from the exit timestamp')
 }
 
-// Needs-input also works for non-hook agents via the Sprint Engine MCP report.
-function assertSprintEngineNeedsInput(): void {
+// Needs-input also works for non-hook agents via a runtime's MCP self-report.
+function assertRuntimeReportedNeedsInput(): void {
   const info = deriveSessionStatus(snap({ activity: { kind: 'idle', since: 3 } }), true)
   assert.equal(info.status, 'needs-input')
   assert.equal(info.source, 'lifecycle')

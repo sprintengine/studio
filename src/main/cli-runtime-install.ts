@@ -15,7 +15,6 @@ import type {
 } from '../shared/plugin-manifest'
 import { getPluginManifest } from './plugin-registry-instance'
 import { chooseCliUpdateCommand } from './cli-version-advisory'
-import { withMulticodeCliPath } from './cli-install'
 import {
   currentRuntimeEnv,
   ensureManagedRuntimeShims,
@@ -337,11 +336,10 @@ async function runVersionProbe(input: {
   return { parsed, inconclusive }
 }
 
-// PATH augmentation matching what terminal launches get (managed runtime shims
-// + the studio's CLI bin dir), so a managed install is never invisible to a
-// probe.
+// PATH augmentation matching what terminal launches get (the managed runtime
+// shims), so a managed install is never invisible to a probe.
 export function defaultProbeEnv(): NodeJS.ProcessEnv {
-  return withMulticodeCliPath(managedInstallEnv() ?? stringProcessEnv())
+  return managedInstallEnv() ?? stringProcessEnv()
 }
 
 // Outcome of probing a binary the app does not manage as an Agent CLI (`git`,

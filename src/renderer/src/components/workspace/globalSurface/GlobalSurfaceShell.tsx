@@ -10,7 +10,7 @@ import { useGlobalSurfaceBarSlot } from './surfaceBarSlot'
 // 1704, mockup §1/§2 anatomy): a surface bar (title · status chip · context sub
 // · actions), an optional attention strip, and a body of an optional internal
 // list rail beside a full-width canvas. It owns only layout, the token surface,
-// and the region landmark — every surface (Sprints, Automations, Reviews)
+// and the region landmark — every surface (Design, Automations, Reviews)
 // supplies its own bar content, rail, and canvas. The rail belongs to the
 // surface, never the app sidebar.
 //
@@ -60,7 +60,7 @@ export const ModalSurfaceChromeContext = React.createContext<{
   onBarPresence: (present: boolean) => void
 } | null>(null)
 
-// A modal body that chromes itself (New sprint's PanelHeader) claims the
+// A modal body that chromes itself (its own PanelHeader) claims the
 // host bar so ModalSurfaceFrame's fallback title+X does not double it.
 export function ClaimModalSurfaceBar(): null {
   const chrome = useContext(ModalSurfaceChromeContext)
@@ -132,7 +132,7 @@ export function ModalSurfaceFrame({
 }
 
 export type GlobalSurfaceShellProps = {
-  /** Accessible name for the surface region landmark, e.g. "Sprints". */
+  /** Accessible name for the surface region landmark, e.g. "Design". */
   ariaLabel: string
   /** The surface bar. Omit for a canvas-only surface that self-chromes. */
   bar?: GlobalSurfaceBar

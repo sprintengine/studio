@@ -396,7 +396,7 @@ run('the count ignores the search box', () => {
   )
 })
 
-run('a version bump of an installed workflow-roles pack is an available update, never applied silently', () => {
+run('a version bump of an installed skill pack is an available update, never applied silently', () => {
   const studio: SkillSource = {
     ...SOURCE,
     id: 'github:sprintengine/studio-releases',
@@ -405,20 +405,20 @@ run('a version bump of an installed workflow-roles pack is an available update, 
   }
   const installed = record({
     sourceId: studio.id,
-    pluginId: 'workflow-roles',
-    pluginName: 'workflow-roles',
+    pluginId: 'studio-skills',
+    pluginName: 'studio-skills',
     marketplaceName: 'sprintengine-studio',
-    claudePluginKey: 'workflow-roles@sprintengine-studio',
+    claudePluginKey: 'studio-skills@sprintengine-studio',
     skillDirNames: ['architect'],
     commitSha: 'oldcommit',
   })
   assert.equal(
-    derivePluginInstallState([installed], studio.id, plugin('workflow-roles'), 'sprintengine-studio', studio.commitSha)
+    derivePluginInstallState([installed], studio.id, plugin('studio-skills'), 'sprintengine-studio', studio.commitSha)
       .kind,
     'update-available',
   )
   assert.equal(
-    derivePluginInstallState([installed], studio.id, plugin('workflow-roles'), 'sprintengine-studio', 'oldcommit').kind,
+    derivePluginInstallState([installed], studio.id, plugin('studio-skills'), 'sprintengine-studio', 'oldcommit').kind,
     'installed',
     'the same commit is not an update, and no file is rewritten until the person accepts',
   )

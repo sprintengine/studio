@@ -38,8 +38,6 @@ const WEEK = 7 * DAY
 const STRUCTURED: TailnetScope[] = [
   'workspace:read',
   'workspace:operate',
-  'sprint:read',
-  'sprint:operate',
   'backlog:read',
   'backlog:operate',
 ]
