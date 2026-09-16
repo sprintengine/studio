@@ -64,7 +64,8 @@ interface Props {
   // The tab strip's "+" (MC-2147): opens the tab an agent will run in, holding
   // the launch surface until something spawns. The strip's own tabset id is
   // passed so the tab lands in that panel rather than tiling a new one.
-  // Absent → no plus, for a host whose workspace type spawns its own agents.
+  // Absent → no plus: background layers and hosts that are not agent
+  // workspaces (the Automations host) do not open one.
   onNewAgentTab?: (hostTabsetId?: string) => void
   // Renders the launch surface inside that tab. `tabId` is the node the spawn
   // retypes in place, so the terminal appears where the surface was.
@@ -84,11 +85,10 @@ function countOpenTabs(model: Model | null): number {
 }
 
 // Dev Tools panels. The canonical `editor` panel is
-// served through the renderer host (gated on the dev-tools module). These local
-// lazy consts back the panels that take extra props the host contract omits:
-// `file-editor` (a per-file editor with a `filePath`) and `explorer`
-// (`onStartFuturePlan`). They share the editor/explorer chunks with the
-// host-served panels, so a disabled dev-tools module ships none of them.
+// served through the renderer host (gated on the dev-tools module). The local
+// `EditorPanel` below backs `file-editor`, a per-file editor that takes the
+// `filePath` prop the host contract omits. It shares the editor chunk with the
+// host-served panel, so a disabled dev-tools module ships none of it.
 // The agent tab's panel — the chat composer, its transcript and the terminal
 // under them. Lazy like every other panel in this factory (bundle-budget
 // ratchet): it is the largest thing the boot graph used to carry that no first
@@ -178,7 +178,6 @@ function agentTabStatusDot(
   }
   return null
 }
-
 
 // The kit's loading state at panel scale (spinner/component.md): the UI face,
 // a sentence with a real ellipsis, and the pulsed dot. The brand mark it used
@@ -300,9 +299,8 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   // (see the resolution in `renderTab`). Selected as primitives so the panel
   // doesn't re-render on unrelated workspace churn.
   //   - `worktreeGitRoot`: absolute git root of the workspace's worktree (null
-  //      when not worktree-backed). The tab glyph condition + tooltip cwd. Covers
-  //      both worktree-opened workspaces (where it equals `folderPath`) and any
-  //      run worktrees (where it is redirected onto the run worktree).
+  //      when not worktree-backed; otherwise it equals `folderPath`). The tab
+  //      glyph condition + tooltip cwd.
   const worktreeGitRoot = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? resolveWorkspaceWorktree(ws)?.gitRoot ?? null : null
@@ -502,7 +500,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   // …) are gated generically in the factory's default case by their owning
   // module's enablement, so a disabled module's panel falls back to the explicit
   // DISABLED_SURFACE and PanelRail hides its button. Only the panels with
-  // bespoke props (file-editor, explorer, git-conflict) need an explicit gated
+  // bespoke props (file-editor, git-conflict) need an explicit gated
   // arm below; those read enablement from this single overrides object.
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
 
@@ -1222,8 +1220,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           )
         : null
 
-      // Trailing status treatment, shared across the three content branches:
-      // the activity dot, plus recency while idle.
+      // Trailing status treatment: the activity dot, plus recency while idle.
       // A phone is looking at this agent's terminal right now (owner,
       // 2026-09-05: "if there is a mobile device actively looking at a
       // terminal, show the little remote connection icon … beside the name …
@@ -1262,9 +1259,9 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       // Otherwise mirror the tab dot, then the honest recency source
       // (Idle / Last activity / Exited) — never a blanket "Idle".
       // The corner's state, in the card's own three kinds. `working` is the
-      // pulsing green dot the tab wears; `attention` is Waiting, Failed and
-      // Paused, which are worth the same weight without claiming motion; every
-      // other answer is a chat at rest. The card draws the sidebar's working
+      // pulsing green dot the tab wears; `attention` is Failed and Paused, which
+      // are worth the same weight without claiming motion; every other answer
+      // is a chat at rest. The card draws the sidebar's working
       // dots for `working` and never a status dot — the row and the card have
       // to say "working" the same way (mockup frame 2).
       const identityStatus: AgentTabIdentity['status'] = agentSession?.suspended
@@ -1274,11 +1271,9 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           }
         : activityDot
           ? {
-              kind: activityDot.tone === 'good' && activityDot.pulse
-                ? 'working'
-                : activityDot.tone === 'neutral'
-                  ? 'idle'
-                  : 'attention',
+              // Paused (the only neutral dot) is answered above, so any other
+              // dot is either working or a failure.
+              kind: activityDot.tone === 'good' && activityDot.pulse ? 'working' : 'attention',
               label: activityDot.label,
             }
           : agentRecency !== null && agentRecencyText
