@@ -61,7 +61,13 @@ async function openingAWorkspaceInstallsThePlugin(): Promise<void> {
 
   const record = service.installed(workspace)
   assert.notEqual(record, null, `the open recorded an install; warnings=${JSON.stringify(warnings)}`)
-  assert.equal(record?.version, '1.0.0')
+  // The version the bundled manifest declares, read rather than restated: a
+  // bump (1.1.0 pruned the retired studio-sprints skill) must not fail here.
+  const manifest = JSON.parse(
+    await readFile(join(TEMPLATE_ROOT, 'sprintengine-studio', '.claude-plugin', 'plugin.json'), 'utf8')
+  ) as { version: string }
+  assert.equal(record?.version, manifest.version)
+  assert.equal(record?.version, '1.1.0')
   assert.equal(record?.claudePluginKey, 'sprintengine-studio@sprintengine-studio')
   assert.equal(record?.skillDirNames.length, 4)
     assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-backlog', 'SKILL.md')), true)
