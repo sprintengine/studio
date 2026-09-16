@@ -12,8 +12,7 @@
 //   ink reads there on light and dark alike.
 //
 //   `current` is the same frond in `currentColor`, for app chrome that colors
-//   its own glyphs — the sidebar's mark takes `--tool-sprintengine-ink`, and a
-//   baked ink would go invisible against half the themes.
+//   its own glyphs — a baked ink would go invisible against half the themes.
 //
 // No store, no module registry: this file is imported by pure render surfaces
 // (the Skills and MCPs aside among them) whose tests mount them without either.

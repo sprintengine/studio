@@ -4966,18 +4966,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   min-width: 0;
 }
 
-/* 6px identity dot — which tool owns the panel, never a status. The color
- * comes through a consumer channel because tool identity deliberately has no
- * sem.* token; the fallback is the neutral status ink so an unwired demo
- * still renders honestly. Sized by the space.xs step, the 6px dot idiom. */
-.ds-panel-header-identity {
-  flex: none;
-  width: var(--sem-space-xs);
-  height: var(--sem-space-xs);
-  border-radius: 999px;
-  background: var(--ds-panel-header-identity, var(--sem-color-status-neutral));
-}
-
 /* The panel's name: body size at the emphasis weight, the strongest ink.
  * An <h2> in the markup, restated here so heading UA styles cannot leak. */
 .ds-panel-header-title {
@@ -19183,7 +19171,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>There is no standalone <code>CloseIcon</code>. The dismiss mark lives inside <code>ui/CloseIconButton</code>, on its own 14-grid at stroke 1.4, because a close glyph is only ever a button — an unpadded one is below the hit-target floor. <code>glyphs/close.svg</code> is the framework-neutral sample of the same mark.</p>
 <h5>Workspace-type identity (24-grid, registry-resolved)</h5>
 <p><code>WorkspaceTypeIcon</code> is the dispatcher: it resolves a workspace mode through the renderer host registry, gated on module enablement when <code>moduleOverrides</code> is passed, and degrades to the standard glyph for anything disabled or unknown. Consumers go through it; the concrete marks exist for the registry to point at:</p>
-<p>| Mark | Drawing | |---|---| | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>FolderTypeIcon</code> | The project folder, optionally wearing a workspace's own logo |</p>
+<p>| Mark | Drawing | |---|---| | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>FolderTypeIcon</code> | The project folder, optionally wearing a workspace's own logo |</p>
 <h5>Device identity (16-grid — <code>AppIcons.tsx</code>)</h5>
 <p>The identity family for <strong>a machine on the tailnet</strong>: what kind of thing it is, one shape each, at 16px so it leads a settings row without out-weighing the name beside it. Added 2026-09-10 for the rebuilt Settings › Remote, where a list merges this machine, paired devices, outbound connections and the peer scan into one set of rows — and a list that is one row per *machine* has to say which machine at a glance.</p>
 <p>They are drawn to <code>remote-machine.svg</code>'s discipline, deliberately, because that mark is the family's fallback and the five have to read as one set: the 16-grid, stroke <strong>1.4</strong>, <code>fill=&quot;none&quot;</code> line work in <code>currentColor</code>, rounded rects at <code>rx</code> 1.3–1.8, and a filled 0.75r dot where a unit needs a light. The Mac's dot sits at the same <code>cx</code> as the server mark's two, so the two boxes are visibly the same drawing at different counts.</p>
@@ -25679,12 +25667,11 @@ document.addEventListener('keydown', (event) =&gt; {
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-panel-header">
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — the full band: identity dot, title, count, scope, one action, one overflow.</p>
+  <p class="demo-label">Light — the full band: title, count, scope, one action, one overflow.</p>
 
   <div class="demo-panel">
     <header class="ds-panel-header">
       <div class="ds-panel-header-lead">
-        <span class="ds-panel-header-identity" aria-hidden="true"></span>
         <h2 class="ds-panel-header-title">Backlog</h2>
         <span class="ds-panel-header-count">47</span>
         <span class="ds-panel-header-scope">This project</span>
@@ -25747,7 +25734,6 @@ document.addEventListener('keydown', (event) =&gt; {
   <div class="demo-panel demo-panel--narrow">
     <header class="ds-panel-header">
       <div class="ds-panel-header-lead">
-        <span class="ds-panel-header-identity" aria-hidden="true"></span>
         <h2 class="ds-panel-header-title">Automation runs and schedules</h2>
         <span class="ds-panel-header-count">128</span>
         <span class="ds-panel-header-scope">All workspaces</span>
@@ -25768,7 +25754,6 @@ document.addEventListener('keydown', (event) =&gt; {
   <div class="demo-panel">
     <header class="ds-panel-header">
       <div class="ds-panel-header-lead">
-        <span class="ds-panel-header-identity" aria-hidden="true"></span>
         <h2 class="ds-panel-header-title">Backlog</h2>
         <span class="ds-panel-header-count">47</span>
         <span class="ds-panel-header-scope">This project</span>
@@ -25814,7 +25799,7 @@ document.addEventListener('keydown', (event) =&gt; {
 <p>The one header contract for every panel: a single 34px band carrying the panel's name, its canonical count, an optional scope word, and at most two controls. Extracted from the shipped <code>PanelHeader</code> primitive (<code>src/renderer/src/components/ui/PanelHeader.tsx</code>); MC-2112 rolls this anatomy out to every panel that still draws its own header.</p>
 <p>A panel gets exactly one of these. A header stacked on a toolbar is the two-bands-of-chrome defect the principles reject on sight — the controls belong in this band, and a status belongs to the thing that has it.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Header | <code>.ds-panel-header</code> | yes — a <code>&lt;header&gt;</code> band, <code>bg.surface</code>, one bottom hairline | | Identity dot | <code>.ds-panel-header-identity</code> | no — 6px, colored by the consumer's identity channel | | Title | <code>.ds-panel-header-title</code> | yes — an <code>&lt;h2&gt;</code>, <code>font.size.body</code> at <code>font.weight.emphasis</code>, <code>text.primary</code>, truncates | | Count | <code>.ds-panel-header-count</code> | no — the canonical count, mono-free, tabular, <code>text.muted</code> | | Scope | <code>.ds-panel-header-scope</code> | no — one word of context after a <code>·</code> separator | | Actions | <code>.ds-panel-header-actions</code> | no — the primary action and an overflow trigger, nothing else | | Progress | <code>.ds-panel-header-progress</code> | no — a 2px completion hairline overlaying the bottom border |</p>
+<p>| Part | Class | Required | |---|---|---| | Header | <code>.ds-panel-header</code> | yes — a <code>&lt;header&gt;</code> band, <code>bg.surface</code>, one bottom hairline | | Title | <code>.ds-panel-header-title</code> | yes — an <code>&lt;h2&gt;</code>, <code>font.size.body</code> at <code>font.weight.emphasis</code>, <code>text.primary</code>, truncates | | Count | <code>.ds-panel-header-count</code> | no — the canonical count, mono-free, tabular, <code>text.muted</code> | | Scope | <code>.ds-panel-header-scope</code> | no — one word of context after a <code>·</code> separator | | Actions | <code>.ds-panel-header-actions</code> | no — the primary action and an overflow trigger, nothing else | | Progress | <code>.ds-panel-header-progress</code> | no — a 2px completion hairline overlaying the bottom border |</p>
 <p><strong>The band is 34px</strong> (<code>size.control.md</code>): <code>space.sm</code> block insets around a body-size title line. Inline insets are <code>space.lg</code>. Everything in the band centers on one baseline; nothing wraps.</p>
 <p><strong>The title truncates, the scope evaporates.</strong> The scope word gives up its space first and disappears entirely before the title loses a character — a panel that clips its own name to &quot;Bac…&quot; while a scope word sits whole beside it has the priority backwards. Pair the title with <code>truncated-text</code> so the full name is recoverable when it is actually cut off.</p>
 <h4>Variants</h4>
@@ -25825,11 +25810,11 @@ document.addEventListener('keydown', (event) =&gt; {
 <h4>Usage</h4>
 <p><strong>One primary action, then overflow.</strong> The actions slot holds at most one labeled action and one overflow trigger. A second visible control means the first two are competing; move it into the overflow menu.</p>
 <p><strong>The count is the canonical count.</strong> Render it here or in the content, never both — two counts that could disagree are the defect the principles name.</p>
-<p><strong>The identity dot is identity, not status.</strong> It marks which tool owns the panel, using the consumer's identity color channel (<code>--ds-panel-header-identity</code> — the app supplies its per-tool value; there is no <code>sem.*</code> token for tool identity, deliberately). It never pulses, never changes tone, and the rest of the panel stays accent-neutral around it. Status belongs to rows and status dots, not to the header.</p>
+<p><strong>Status belongs to rows and status dots, not to the header.</strong> The band stays accent-neutral.</p>
 <p><strong>The progress hairline is earned.</strong> Attach it only when the panel has a canonical completion metric (accepted of total). It is not decoration, not a loading bar, and not a second accent — it is the accent-as-hairline marking real progress, which the accent budget permits.</p>
 <p><strong>No status chips, no counts line, no subtitle sentence.</strong> The panel under the band already shows its own state. A scope word (&quot;This project&quot;) is the ceiling; a sentence is a redesign signal.</p>
 <h4>Accessibility</h4>
-<ul><li>The band renders as <code>&lt;header&gt;</code>; the title is a real <code>&lt;h2&gt;</code> so the panel lands in the document outline. Give it an <code>id</code> when a region's <code>aria-labelledby</code> points at it.</li><li>The identity dot is <code>aria-hidden=&quot;true&quot;</code> — the title already names the panel; the dot only colors it.</li><li>The progress hairline carries <code>role=&quot;progressbar&quot;</code> with <code>aria-valuemin</code>, <code>aria-valuemax</code>, <code>aria-valuenow</code>, and an <code>aria-label</code> that states the metric (&quot;3 of 7 milestones accepted&quot;). A 2px line is invisible to a screen reader without it.</li><li>Overflowed controls stay reachable: anything demoted to the overflow menu is still in the tab order once the menu opens.</li></ul>
+<ul><li>The band renders as <code>&lt;header&gt;</code>; the title is a real <code>&lt;h2&gt;</code> so the panel lands in the document outline. Give it an <code>id</code> when a region's <code>aria-labelledby</code> points at it.</li><li>The progress hairline carries <code>role=&quot;progressbar&quot;</code> with <code>aria-valuemin</code>, <code>aria-valuemax</code>, <code>aria-valuenow</code>, and an <code>aria-label</code> that states the metric (&quot;3 of 7 milestones accepted&quot;). A 2px line is invisible to a screen reader without it.</li><li>Overflowed controls stay reachable: anything demoted to the overflow menu is still in the tab order once the menu opens.</li></ul>
 <h4>Known drift</h4>
 <ul><li><code>PanelHeader.tsx</code> animates the progress fill over <code>200ms</code>; the motion ramp has no such step. Canon is <code>motion.duration.normal</code> (180ms). Fold into the MC-2112 rollout.</li></ul>
 </div>
@@ -25873,18 +25858,6 @@ document.addEventListener('keydown', (event) =&gt; {
   align-items: center;
   gap: var(--sem-space-sm);
   min-width: 0;
-}
-
-/* 6px identity dot — which tool owns the panel, never a status. The color
- * comes through a consumer channel because tool identity deliberately has no
- * sem.* token; the fallback is the neutral status ink so an unwired demo
- * still renders honestly. Sized by the space.xs step, the 6px dot idiom. */
-.ds-panel-header-identity {
-  flex: none;
-  width: var(--sem-space-xs);
-  height: var(--sem-space-xs);
-  border-radius: 999px;
-  background: var(--ds-panel-header-identity, var(--sem-color-status-neutral));
 }
 
 /* The panel's name: body size at the emphasis weight, the strongest ink.
@@ -26101,12 +26074,11 @@ document.addEventListener('keydown', (event) =&gt; {
 &lt;/head&gt;
 &lt;body&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Light — the full band: identity dot, title, count, scope, one action, one overflow.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — the full band: title, count, scope, one action, one overflow.&lt;/p&gt;
 
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;header class=&quot;ds-panel-header&quot;&gt;
       &lt;div class=&quot;ds-panel-header-lead&quot;&gt;
-        &lt;span class=&quot;ds-panel-header-identity&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
         &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Backlog&lt;/h2&gt;
         &lt;span class=&quot;ds-panel-header-count&quot;&gt;47&lt;/span&gt;
         &lt;span class=&quot;ds-panel-header-scope&quot;&gt;This project&lt;/span&gt;
@@ -26169,7 +26141,6 @@ document.addEventListener('keydown', (event) =&gt; {
   &lt;div class=&quot;demo-panel demo-panel--narrow&quot;&gt;
     &lt;header class=&quot;ds-panel-header&quot;&gt;
       &lt;div class=&quot;ds-panel-header-lead&quot;&gt;
-        &lt;span class=&quot;ds-panel-header-identity&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
         &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Automation runs and schedules&lt;/h2&gt;
         &lt;span class=&quot;ds-panel-header-count&quot;&gt;128&lt;/span&gt;
         &lt;span class=&quot;ds-panel-header-scope&quot;&gt;All workspaces&lt;/span&gt;
@@ -26190,7 +26161,6 @@ document.addEventListener('keydown', (event) =&gt; {
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;header class=&quot;ds-panel-header&quot;&gt;
       &lt;div class=&quot;ds-panel-header-lead&quot;&gt;
-        &lt;span class=&quot;ds-panel-header-identity&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
         &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Backlog&lt;/h2&gt;
         &lt;span class=&quot;ds-panel-header-count&quot;&gt;47&lt;/span&gt;
         &lt;span class=&quot;ds-panel-header-scope&quot;&gt;This project&lt;/span&gt;
