@@ -7,7 +7,7 @@ import type { Workspace } from '../types/workspace'
 //
 // CAUTION: agent ids are NOT globally unique. Template agents are keyed
 // positionally (`agent-1`, `agent-2`) and a module's own agents by its own key
-// (`architect`, `developer-1`), so the same id recurs in every workspace built
+// (`forecaster`, `worker-1`), so the same id recurs in every workspace built
 // from the same template. A bare id scan therefore returns an arbitrary match
 // when several workspaces share it. When you hold the workspace the agent was
 // recorded in (e.g. a persisted Backlog link target), use

@@ -22,7 +22,7 @@ const ELSEWHERE = '/Users/dev/backlogs/studio'
 // The whole safety argument for making the root configurable is this: with a
 // default location, the logical path is what the old
 // `workspaceRelativePath(workspaceRoot, file)` produced, byte for byte. If that
-// holds, no stored id, durable link, sprint link or mobile snapshot entry has to
+// holds, no stored id, durable link or mobile snapshot entry has to
 // be migrated when the feature lands. These are the tests that hold it.
 run('a default location derives the path the workspace-relative call used to', () => {
   const location = defaultBacklogLocation(WORKSPACE)

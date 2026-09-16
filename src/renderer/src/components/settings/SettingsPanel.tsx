@@ -205,16 +205,14 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
 }
 
 // The 'updates' tab folded into 'general' (its content now renders as a section
-// on the General page), and the retired specialist-packs tab folded into
-// 'modules'. Map any legacy deep-link that named the old tabs onto their new
-// homes so bookmarked/menu routes still land correctly.
+// on the General page). Map any legacy deep-link that named the old tab onto
+// its new home so bookmarked/menu routes still land correctly.
 //
 // 'telemetry' was listed here too until MC-2519 (2026-09-08). It named a tab
 // this app never shipped a route to — no menu item, no deep-link, no caller
 // anywhere in the tree — so it aliased nothing to nothing.
 function resolveInitialSettingsTab(initialTab: string | null | undefined): string | null {
   if (initialTab === 'updates') return 'general'
-  if (initialTab === 'specialist-packs') return 'modules'
   // Voice dictation moved onto the module-contributed section path (MC-1861);
   // legacy deep-links (persisted routes) land on its section tab.
   if (initialTab === 'voice-dictation') return moduleSectionTabId('voice-dictation')

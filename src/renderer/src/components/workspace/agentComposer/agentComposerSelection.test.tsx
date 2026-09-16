@@ -111,9 +111,6 @@ run('New chat opens on the plain agent row: the manager seeds { kind: general }'
     /<NewAgentPanel[\s\S]{0,400}initialSelection=\{composerInitialSelection\}/,
     'the New chat panel is seeded from that constant',
   )
-  for (const retired of ['lastSelectedSpecialist', 'lastSpawnWasGeneral', 'specialistMenuOpen']) {
-    assert.equal(managerSource.includes(retired), false, `${retired} has no surviving reader in the manager`)
-  }
 })
 
 // ---------------------------------------------------------------------------

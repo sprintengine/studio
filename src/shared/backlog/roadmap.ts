@@ -4,8 +4,7 @@
 // The retired door planned an ordered run of backlog items in these files, and
 // every repo that ever used it still carries them. They are not backlog items — a
 // plan is not work — so the main-process listing tags them (`isRoadmap`) and
-// every backlog list (the workspace panel, the New sprint dialog's picker) drops
-// them, exactly as before. The parser, the policy model, the eligibility
+// every backlog list drops them, exactly as before. The parser, the policy model, the eligibility
 // function and the authoring helpers went with the orchestrator; a file that
 // wants them back has the deletion commit to revert.
 //
