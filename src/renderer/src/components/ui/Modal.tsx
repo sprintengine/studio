@@ -31,15 +31,6 @@ import { FOCUS_RING_INSET_CLASS, OVERLAY_SHELL_CLASS, overlayWidthStyle, type Ov
 type ModalProps = {
   open: boolean
   onClose: () => void
-  /**
-   * What Escape means, when it does not mean close. Defaults to `onClose` —
-   * which is the whole story for a one-screen dialog. A dialog with a second
-   * SCREEN inside it (a nested editor) wants Escape to
-   * step back before it closes, and it cannot express that by intercepting the
-   * key first: this listener is registered by a child effect and therefore runs
-   * before the host's own.
-   */
-  onEscape?: () => void
   labelledBy?: string
   /** Accessible name, for a dialog whose title is not a labelable element. */
   label?: string
@@ -82,7 +73,6 @@ const SCROLL_LAYOUT_CLASS = 'max-h-[92vh] overflow-y-auto'
 export function Modal({
   open,
   onClose,
-  onEscape,
   labelledBy,
   label,
   size = 'standard',
@@ -136,11 +126,11 @@ export function Modal({
       // check the dialog closes out from under it, taking the surface the
       // person was actually dismissing with it. The roster manager carried
       // this guard privately before it became a Modal consumer (MC-2110).
-      if (event.key === 'Escape' && !event.defaultPrevented) (onEscape ?? onClose)()
+      if (event.key === 'Escape' && !event.defaultPrevented) onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose, onEscape])
+  }, [open, onClose])
 
   if (!open) return null
 

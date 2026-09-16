@@ -6309,7 +6309,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * own) so the hairline is the only separator at rest. */
 
 .ds-side-pane {
-  position: relative;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -6346,14 +6345,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-side-pane--lg {
   width: 44%;
   max-width: 560px;
-}
-
-/* A persisted drag width (inline style) keeps the floor above and this
- * ceiling — max-width beats the inline width when they conflict, so a wide
- * remembered pane cannot starve the board on a narrow window. */
-.ds-side-pane--resized {
-  flex-shrink: 0;
-  max-width: 65%;
 }
 
 /* The quiet secondary aside: one tone step of distance from the lane, and
@@ -6404,69 +6395,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   color: var(--sem-color-text-muted);
   font-size: var(--sem-font-size-micro);
   font-variant-numeric: tabular-nums;
-}
-
-/* Opt-in resize. A role="separator" straddling the hairline: a 6px hit strip
- * (the guideline inside it is the visual), keyboard-operable, pointer
- * captured on the handle so an iframe in the pane cannot swallow the drag. */
-.ds-side-pane-resize {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  width: 6px;
-  z-index: var(--sem-z-sticky);
-  cursor: col-resize;
-  background: transparent;
-  border: 0;
-  padding: 0;
-}
-
-.ds-side-pane--right .ds-side-pane-resize {
-  left: 0;
-  transform: translateX(-50%);
-}
-
-.ds-side-pane--left .ds-side-pane-resize {
-  right: 0;
-  transform: translateX(50%);
-}
-
-/* The guideline: accent as a 1px hairline marking a genuinely live process —
- * within the accent budget. Reduced strength on hover as the reach-for
- * affordance, full strength while the drag is live. */
-.ds-side-pane-resize::after {
-  content: "";
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-50%);
-  background: var(--sem-color-accent-primary);
-  opacity: 0;
-  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
-}
-
-.ds-side-pane-resize:hover::after {
-  opacity: 0.6;
-}
-
-.ds-side-pane-resize[data-resizing="true"]::after {
-  opacity: 1;
-}
-
-.ds-side-pane-resize:focus-visible {
-  outline: var(--sem-focus-ring);
-  /* Negative offset: the handle straddles two surfaces, so an outset ring
-   * would draw over both panes' content. Clip-own-overflow controls take the
-   * negative offset rather than a second treatment. */
-  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ds-side-pane-resize::after {
-    transition: none;
-  }
 }
 
 /* components/skeleton/component.css */
@@ -30920,12 +30848,11 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-side-pane">
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — a right pane (md preset) sharing a panel with its board. Drag the divider, or focus it and use arrow keys; Home or double-click resets. No shadow, no scrim — one hairline does the separating.</p>
+  <p class="demo-label">Light — a right pane (md preset) sharing a panel with its board. No shadow, no scrim — one hairline does the separating.</p>
 
   <div class="demo-panel">
     <div class="demo-board">Board</div>
-    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md" aria-labelledby="pane-light-title" data-resizable>
-      <button type="button" class="ds-side-pane-resize" role="separator" aria-orientation="vertical" aria-label="Resize running agents pane"></button>
+    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md" aria-labelledby="pane-light-title">
       <header class="ds-side-pane-header">
         <h3 class="ds-side-pane-title" id="pane-light-title">Running agents</h3>
         <div style="display: flex; align-items: center; gap: var(--sem-space-sm);">
@@ -30936,9 +30863,9 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         </div>
       </header>
       <div class="demo-body">
-        <div class="demo-row"><span class="demo-key">builder-2 — MC-2114</span><span class="demo-value">04:12</span></div>
-        <div class="demo-row"><span class="demo-key">reviewer-1 — MC-2110</span><span class="demo-value">01:38</span></div>
-        <div class="demo-row"><span class="demo-key">planner — MC-2098</span><span class="demo-value">00:22</span></div>
+        <div class="demo-row"><span class="demo-key">Fix the login redirect — MC-2114</span><span class="demo-value">04:12</span></div>
+        <div class="demo-row"><span class="demo-key">Tidy the diff viewer — MC-2110</span><span class="demo-value">01:38</span></div>
+        <div class="demo-row"><span class="demo-key">Draft release notes — MC-2098</span><span class="demo-value">00:22</span></div>
       </div>
     </aside>
   </div>
@@ -30949,8 +30876,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 
   <div class="demo-panel">
     <div class="demo-board">Board</div>
-    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken" aria-labelledby="pane-dark-title" data-resizable>
-      <button type="button" class="ds-side-pane-resize" role="separator" aria-orientation="vertical" aria-label="Resize active review pane"></button>
+    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken" aria-labelledby="pane-dark-title">
       <header class="ds-side-pane-header">
         <h3 class="ds-side-pane-title" id="pane-dark-title">Active review</h3>
         <div style="display: flex; align-items: center; gap: var(--sem-space-sm);">
@@ -30974,20 +30900,18 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <p>It is deliberately <strong>not</strong> a drawer variant. The overlay family's defining question is &quot;does this surface cover the page?&quot; — a drawer answers yes (scrim, shadow, focus trap, <code>z.drawer</code>) and a side pane answers no. It is not a raised surface either: it shares the panel's own background, so the hairline does all the separating, exactly as the principles order — borders carry the structure, shadows belong to overlays.</p>
 <p>Use a drawer when the surface is summoned and dismissed; use a side pane when it is part of the page's standing anatomy. A multi-pane surface built from side panes has exactly one focused selection — every other pane's selection rests (<code>patterns/selection</code>).</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Pane | <code>.ds-side-pane</code> | yes — <code>&lt;aside&gt;</code> for secondary content, <code>&lt;section&gt;</code> for a primary column; flex column, hairline on its inner edge | | Header | <code>.ds-side-pane-header</code> | no — title, optional count, close; simpler asides only | | Title | <code>.ds-side-pane-title</code> | with the header — <code>font.size.body</code> at <code>emphasis</code>, matching the panel-header rhythm so board and aside read as one family | | Count | <code>.ds-side-pane-count</code> | no — display-only, <code>tabular-nums</code>; never hosts a control | | Body | — | caller-owned scroll container: keyboard handlers and list semantics vary per surface, so the system does not pre-empt them | | Resize handle | <code>.ds-side-pane-resize</code> | no — <code>role=&quot;separator&quot;</code>, keyboard-operable, opt-in |</p>
+<p>| Part | Class | Required | |---|---|---| | Pane | <code>.ds-side-pane</code> | yes — <code>&lt;aside&gt;</code> for secondary content, <code>&lt;section&gt;</code> for a primary column; flex column, hairline on its inner edge | | Header | <code>.ds-side-pane-header</code> | no — title, optional count, close; simpler asides only | | Title | <code>.ds-side-pane-title</code> | with the header — <code>font.size.body</code> at <code>emphasis</code>, matching the panel-header rhythm so board and aside read as one family | | Count | <code>.ds-side-pane-count</code> | no — display-only, <code>tabular-nums</code>; never hosts a control | | Body | — | caller-owned scroll container: keyboard handlers and list semantics vary per surface, so the system does not pre-empt them |</p>
 <h4>Variants</h4>
 <ul><li><strong>Side</strong> — <code>.ds-side-pane--left</code> / <code>.ds-side-pane--right</code>: which inner edge carries the hairline (<code>border.default</code>). A pane's outer edge is the panel's edge and draws nothing — no doubled borders where surfaces meet.</li><li><strong>Width presets</strong> — <code>.ds-side-pane--sm</code> (38%, 320–520px), <code>--md</code> (42%, 320–560px, the default detail aside), <code>--lg</code> (44%, 320–560px, a primary content column). Percent of the panel with pixel rails, so the pane breathes with the window but can neither starve nor swallow its neighbour. The values are layout measures, not tokens.</li><li><code>.ds-side-pane--sunken</code> — <code>bg.app</code> instead of the inherited panel surface, for the quiet secondary asides (running agents, active review) that want a shade of distance from the lane. In light mode this is the one tone step the pane is allowed; it never adds a shadow to go with it.</li><li><code>.ds-side-pane--expanded</code> — the pane takes the whole row (the caller hides the neighbour). The hairline is dropped: there is nothing left to separate from.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Hairline, inherited surface; nothing else | | Resizing | The handle's 1px <code>accent.primary</code> guideline at full strength while the drag is live — accent as a hairline marking a genuinely live process, within budget | | Handle hovered | The same guideline at reduced strength, as the reach-for affordance | | Handle focused | The standard <code>focus.ring</code> at <code>focus.ring-offset</code> | | Expanded | Full row, no hairline |</p>
-<p>A persisted drag width overrides the preset but keeps the 320px floor and a 65% ceiling — CSS <code>max-width</code> beats the inline width when they conflict, so a wide remembered pane cannot starve the board on a narrow window.</p>
+<p>| State | Treatment | |---|---| | Rest | Hairline, inherited surface; nothing else | | Expanded | Full row, no hairline |</p>
 <h4>Usage</h4>
 <p><strong>One hairline, on the inner edge.</strong> The pane never draws its own box. If a pane seems to need a full border, it is trying to be a card inside a panel — reconsider the surface.</p>
 <p><strong>The header is one chrome band.</strong> Title left, count and close right, <code>space.sm</code>/<code>space.lg</code> inset, one <code>border.default</code> rule beneath — a working edge over the scrolling body, matching the drawer's header. A toolbar stacked under it is the second band the composition rules exist to prevent.</p>
-<p><strong>Resize is opt-in and fully keyboard-operable.</strong> The handle is a <code>role=&quot;separator&quot;</code> with <code>aria-orientation=&quot;vertical&quot;</code>: arrow keys step the width 16px toward or away from the divider, Home (and double-click) resets to the preset. The drag captures the pointer on the handle itself, because panes routinely host iframes that would otherwise swallow <code>pointermove</code> mid-drag and leave the resize stuck.</p>
 <p><strong>Element choice is a semantic claim.</strong> <code>&lt;aside&gt;</code> for the pane that supports the main flow; <code>&lt;section&gt;</code> (with an accessible name) when the column *is* the main flow — an inbox column is not an aside to its own detail.</p>
-<p><strong>Rebuilding it in a framework:</strong> what must survive is the flow-not-overlay nature (no portal, no trap — Tab passes through), the inner-edge hairline, the clamped width contract, and the separator keyboard behaviour.</p>
+<p><strong>Rebuilding it in a framework:</strong> what must survive is the flow-not-overlay nature (no portal, no trap — Tab passes through), the inner-edge hairline, and the clamped width presets.</p>
 <h4>Accessibility</h4>
-<ul><li>The pane carries <code>aria-label</code> or <code>aria-labelledby</code> — a <code>&lt;section&gt;</code> requires one to be exposed as a landmark, and an <code>&lt;aside&gt;</code> with several siblings needs the disambiguation.</li><li>No focus trap and no scroll lock: the pane is page content. Tab order runs through it in document order.</li><li>The resize handle is focusable, visibly focused via <code>focus.ring</code>, and operable by keyboard with the same result as the drag. Its <code>aria-label</code> names the pane it resizes (&quot;Resize review pane&quot;).</li><li>The close button's label names what it closes — &quot;Close running agents&quot;, not &quot;Close&quot; — because several side panes can be open in one view.</li><li>The count is display-only. A count that should be clickable is a filter, and belongs in the body, not the header.</li></ul>
+<ul><li>The pane carries <code>aria-label</code> or <code>aria-labelledby</code> — a <code>&lt;section&gt;</code> requires one to be exposed as a landmark, and an <code>&lt;aside&gt;</code> with several siblings needs the disambiguation.</li><li>No focus trap and no scroll lock: the pane is page content. Tab order runs through it in document order.</li><li>The close button's label names what it closes — &quot;Close running agents&quot;, not &quot;Close&quot; — because several side panes can be open in one view.</li><li>The count is display-only. A count that should be clickable is a filter, and belongs in the body, not the header.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/side-pane/component.css</summary><pre><code>/* Side pane — the column that shares the page. Extracted from the source
@@ -31001,7 +30925,6 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
  * own) so the hairline is the only separator at rest. */
 
 .ds-side-pane {
-  position: relative;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -31038,14 +30961,6 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 .ds-side-pane--lg {
   width: 44%;
   max-width: 560px;
-}
-
-/* A persisted drag width (inline style) keeps the floor above and this
- * ceiling — max-width beats the inline width when they conflict, so a wide
- * remembered pane cannot starve the board on a narrow window. */
-.ds-side-pane--resized {
-  flex-shrink: 0;
-  max-width: 65%;
 }
 
 /* The quiet secondary aside: one tone step of distance from the lane, and
@@ -31096,69 +31011,6 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   color: var(--sem-color-text-muted);
   font-size: var(--sem-font-size-micro);
   font-variant-numeric: tabular-nums;
-}
-
-/* Opt-in resize. A role=&quot;separator&quot; straddling the hairline: a 6px hit strip
- * (the guideline inside it is the visual), keyboard-operable, pointer
- * captured on the handle so an iframe in the pane cannot swallow the drag. */
-.ds-side-pane-resize {
-  position: absolute;
-  top: 0;
-  height: 100%;
-  width: 6px;
-  z-index: var(--sem-z-sticky);
-  cursor: col-resize;
-  background: transparent;
-  border: 0;
-  padding: 0;
-}
-
-.ds-side-pane--right .ds-side-pane-resize {
-  left: 0;
-  transform: translateX(-50%);
-}
-
-.ds-side-pane--left .ds-side-pane-resize {
-  right: 0;
-  transform: translateX(50%);
-}
-
-/* The guideline: accent as a 1px hairline marking a genuinely live process —
- * within the accent budget. Reduced strength on hover as the reach-for
- * affordance, full strength while the drag is live. */
-.ds-side-pane-resize::after {
-  content: &quot;&quot;;
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 1px;
-  transform: translateX(-50%);
-  background: var(--sem-color-accent-primary);
-  opacity: 0;
-  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
-}
-
-.ds-side-pane-resize:hover::after {
-  opacity: 0.6;
-}
-
-.ds-side-pane-resize[data-resizing=&quot;true&quot;]::after {
-  opacity: 1;
-}
-
-.ds-side-pane-resize:focus-visible {
-  outline: var(--sem-focus-ring);
-  /* Negative offset: the handle straddles two surfaces, so an outset ring
-   * would draw over both panes' content. Clip-own-overflow controls take the
-   * negative offset rather than a second treatment. */
-  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .ds-side-pane-resize::after {
-    transition: none;
-  }
 }
 </code></pre></details>
 <details class="catalog-source"><summary>components/side-pane/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
@@ -31233,12 +31085,11 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 &lt;/head&gt;
 &lt;body&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Light — a right pane (md preset) sharing a panel with its board. Drag the divider, or focus it and use arrow keys; Home or double-click resets. No shadow, no scrim — one hairline does the separating.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a right pane (md preset) sharing a panel with its board. No shadow, no scrim — one hairline does the separating.&lt;/p&gt;
 
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;div class=&quot;demo-board&quot;&gt;Board&lt;/div&gt;
-    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md&quot; aria-labelledby=&quot;pane-light-title&quot; data-resizable&gt;
-      &lt;button type=&quot;button&quot; class=&quot;ds-side-pane-resize&quot; role=&quot;separator&quot; aria-orientation=&quot;vertical&quot; aria-label=&quot;Resize running agents pane&quot;&gt;&lt;/button&gt;
+    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md&quot; aria-labelledby=&quot;pane-light-title&quot;&gt;
       &lt;header class=&quot;ds-side-pane-header&quot;&gt;
         &lt;h3 class=&quot;ds-side-pane-title&quot; id=&quot;pane-light-title&quot;&gt;Running agents&lt;/h3&gt;
         &lt;div style=&quot;display: flex; align-items: center; gap: var(--sem-space-sm);&quot;&gt;
@@ -31249,9 +31100,9 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         &lt;/div&gt;
       &lt;/header&gt;
       &lt;div class=&quot;demo-body&quot;&gt;
-        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;builder-2 — MC-2114&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;04:12&lt;/span&gt;&lt;/div&gt;
-        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;reviewer-1 — MC-2110&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;01:38&lt;/span&gt;&lt;/div&gt;
-        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;planner — MC-2098&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;00:22&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;Fix the login redirect — MC-2114&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;04:12&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;Tidy the diff viewer — MC-2110&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;01:38&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;Draft release notes — MC-2098&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;00:22&lt;/span&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/aside&gt;
   &lt;/div&gt;
@@ -31262,8 +31113,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;div class=&quot;demo-board&quot;&gt;Board&lt;/div&gt;
-    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken&quot; aria-labelledby=&quot;pane-dark-title&quot; data-resizable&gt;
-      &lt;button type=&quot;button&quot; class=&quot;ds-side-pane-resize&quot; role=&quot;separator&quot; aria-orientation=&quot;vertical&quot; aria-label=&quot;Resize active review pane&quot;&gt;&lt;/button&gt;
+    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken&quot; aria-labelledby=&quot;pane-dark-title&quot;&gt;
       &lt;header class=&quot;ds-side-pane-header&quot;&gt;
         &lt;h3 class=&quot;ds-side-pane-title&quot; id=&quot;pane-dark-title&quot;&gt;Active review&lt;/h3&gt;
         &lt;div style=&quot;display: flex; align-items: center; gap: var(--sem-space-sm);&quot;&gt;
@@ -31282,76 +31132,6 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   &lt;/div&gt;
 &lt;/div&gt;
 
-&lt;script&gt;
-/* Reference behaviour for the resize contract in component.md. What must
-   survive a framework rewrite: pointer capture on the handle (an iframe in
-   the pane would otherwise swallow the drag), the 16px keyboard step toward
-   or away from the divider, Home/double-click reset, and the floor/ceiling
-   clamp done by CSS min-/max-width, not by script. */
-
-const KEY_STEP = 16
-
-for (const pane of document.querySelectorAll('[data-resizable]')) {
-  const handle = pane.querySelector('.ds-side-pane-resize')
-  const isRight = pane.classList.contains('ds-side-pane--right')
-
-  function setWidth(px) {
-    pane.classList.add('ds-side-pane--resized')
-    pane.style.width = Math.round(px) + 'px'
-  }
-
-  function reset() {
-    pane.classList.remove('ds-side-pane--resized')
-    pane.style.removeProperty('width')
-  }
-
-  /* The pane grows away from its divider edge: a right pane measures from
-     its right edge back to the pointer. */
-  function widthFromPointer(clientX) {
-    const rect = pane.getBoundingClientRect()
-    return isRight ? rect.right - clientX : clientX - rect.left
-  }
-
-  handle.addEventListener('pointerdown', (event) =&gt; {
-    if (event.button !== 0) return
-    event.preventDefault()
-    handle.setPointerCapture(event.pointerId)
-    handle.dataset.resizing = 'true'
-    document.body.style.cursor = 'col-resize'
-    document.body.style.userSelect = 'none'
-    const onMove = (e) =&gt; setWidth(widthFromPointer(e.clientX))
-    const end = () =&gt; {
-      handle.removeEventListener('pointermove', onMove)
-      handle.removeEventListener('pointerup', end)
-      handle.removeEventListener('pointercancel', end)
-      delete handle.dataset.resizing
-      document.body.style.cursor = ''
-      document.body.style.userSelect = ''
-    }
-    handle.addEventListener('pointermove', onMove)
-    handle.addEventListener('pointerup', end)
-    handle.addEventListener('pointercancel', end)
-  })
-
-  handle.addEventListener('keydown', (event) =&gt; {
-    const current = pane.getBoundingClientRect().width
-    const grow = isRight ? 'ArrowLeft' : 'ArrowRight'
-    const shrink = isRight ? 'ArrowRight' : 'ArrowLeft'
-    if (event.key === grow) {
-      event.preventDefault()
-      setWidth(current + KEY_STEP)
-    } else if (event.key === shrink) {
-      event.preventDefault()
-      setWidth(current - KEY_STEP)
-    } else if (event.key === 'Home') {
-      event.preventDefault()
-      reset()
-    }
-  })
-
-  handle.addEventListener('dblclick', reset)
-}
-&lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>

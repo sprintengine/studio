@@ -19,23 +19,18 @@ export type BacklogDraft = {
 export function BacklogCreateDialog({
   difficultyItems,
   criticalityItems,
-  initialTitle,
   onClose,
   onCreate,
 }: {
   difficultyItems: SelectItem<BacklogDifficulty | 'unset'>[]
   criticalityItems: SelectItem<BacklogCriticality | 'unset'>[]
-  /** A title the opener already has — the goal typed into the Workflows door's
-   *  inline new-row (item 2470). The capture opens on it rather than making
-   *  somebody retype what they just said; it is a starting draft, freely edited. */
-  initialTitle?: string
   onClose: () => void
   // Resolves once the item is created (the parent closes the dialog); rejects
   // with the failure so it can be shown in-context without losing the draft.
   onCreate: (draft: BacklogDraft) => Promise<void>
 }): JSX.Element {
   const [draft, setDraft] = useState<BacklogDraft>({
-    title: initialTitle?.trim() ?? '',
+    title: '',
     description: '',
     difficulty: 'unset',
     criticality: 'unset',

@@ -2350,7 +2350,6 @@ export function BacklogDetail({
   onOpenMockup,
   onCloseMockupPreview,
   onPopOutMockup,
-  headerExtra,
   backlogLocation = null,
 }: {
   scan: BacklogScanResult | null
@@ -2403,8 +2402,6 @@ export function BacklogDetail({
   // Pop the previewed mockup out into a source editor tab (the FilePreviewPane
   // "Open in editor" jump-out), wired to the workspace openFile bridge.
   onPopOutMockup: () => void
-  /** Host-supplied band rendered directly under the title (MC-1923). */
-  headerExtra?: React.ReactNode
   /**
    * Where this workspace's backlog lives, for the missing-folder state. Null
    * while it is still being resolved, which reads as the default — the right
@@ -2554,9 +2551,8 @@ export function BacklogDetail({
       {/* `px-3 py-2` — `ui/PanelHeader`'s inset, so this pane starts where every
           other header does; it sat at `px-4 py-3` (2112).
 
-          NOT the primitive itself: this header wraps its title to two lines and
-          hosts a host band (`headerExtra`) under it, neither of which the
-          one-line primitive does. The inset is what makes the heights agree, and
+          NOT the primitive itself: this header wraps its title to two lines,
+          which the one-line primitive does not. The inset is what makes the heights agree, and
           that is what converges here.
 
           ONE identity row (MC-2067). MC-1923 gave the crumb a band of its own so
@@ -2834,13 +2830,6 @@ export function BacklogDetail({
             <TruncatedText as="span" text={parentEpic.title} className="min-w-0" />
           </GhostButton>
         ) : null}
-
-        {/* A host's own band, directly under the title — the loudest thing in
-            the pane when it is present. A host that knows who is delivering this
-            item puts that here (MC-1923): the one fact about a backlog item that
-            Backlog itself cannot know. Absent everywhere else, so the panel and
-            the Backlog door render byte-identically without it. */}
-        {headerExtra}
 
         {/* Earned, not standing (MC-2067): a host with no shell action to offer
             gets no action band at all, because the overflow menu that used to be

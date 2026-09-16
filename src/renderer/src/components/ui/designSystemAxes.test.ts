@@ -336,8 +336,7 @@ const KIT_HARD_RULES: Axis[] = ['shadow', 'z', 'type']
  * The rule is about OVERLAY LAYERS — surfaces that stack against each other
  * across the app. In-flow depth WITHIN a pane has its own token steps since
  * 2026-09-02 — `--z-sticky` 10, `--z-pane` 20, `--z-float` 30 — which is what
- * `SidePane`'s resize handle and `SkillPickerPopover`'s composer surface now
- * consume; their exemptions were spent when that became true. The one left
+ * `SkillPickerPopover`'s composer surface now consumes; their exemptions were spent when that became true. The one left
  * spells a bare `z-10` and drains when it next moves.
  */
 const Z_HARD_RULE_EXEMPT: Record<string, string> = {
