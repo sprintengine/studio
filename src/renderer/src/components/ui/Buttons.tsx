@@ -645,8 +645,8 @@ export const CaptionButton = React.forwardRef<
 // Canonical close affordance. Use everywhere a panel, aside, drawer, or
 // inspector needs a top-right X. Borderless on purpose — bordered/raised
 // variants compete with the surface they sit on and add a second radius
-// to the view, breaking the ≤ 2 radii rule. The bordered
-// A brand-coloured button variant was retired here; do not reintroduce it.
+// to the view, breaking the ≤ 2 radii rule. A bordered, brand-coloured
+// variant was retired here; do not reintroduce it.
 export function CloseIconButton({
   size = 'sm',
   ...rest

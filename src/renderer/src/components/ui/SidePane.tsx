@@ -90,9 +90,8 @@ export function SidePane({
 
 // SidePaneHeader — the simple title+count+close header used by the
 // closable secondary asides (running agents, an active review).
-// Detail panes with bespoke headers (the
-// a detail inspector) compose their own headers inside SidePane
-// directly and do not use this component.
+// Detail panes with bespoke headers (a detail inspector) compose their
+// own headers inside SidePane directly and do not use this component.
 //
 // Anatomy matches PanelHeader's title rhythm (13 px semibold) so a board
 // and its detail aside read as one family. No status dot here; the close

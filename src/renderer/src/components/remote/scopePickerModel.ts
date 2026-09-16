@@ -84,11 +84,11 @@ export const READ_ONLY_SCOPES: readonly TailnetScope[] = TAILNET_SCOPES.filter(
 )
 
 /**
- * Standard: all eight, `terminal:control` INCLUDED.
+ * Standard: all six, `terminal:control` INCLUDED.
  *
  * Owner ruling 2026-09-10, overriding the earlier "arbitrary shell is never
  * pre-ticked" rule. The rule was written for a surface that granted scopes
- * without showing them; this one shows all eight rows with the words "Arbitrary
+ * without showing them; this one shows all six rows with the words "Arbitrary
  * shell on this machine" against the last of them, and the person un-ticks what
  * they do not want. A default that silently excluded the terminal tier is what
  * left every paired machine unable to see the other's chats.
