@@ -106,6 +106,7 @@ import {
 } from './slices/normalizers'
 import { keepLaterWorkspaceClocks } from '../utils/workspaceRecency'
 import { applyWorkspaceFieldsPatch } from '../../../shared/workspace-sync'
+import { isRetiredWorkspaceMode } from '../../../shared/workspace-mode'
 import {
   configureWorkspaceSyncClient,
   workspaceSyncClient,
@@ -1395,12 +1396,41 @@ async function offerRegistryHydration(): Promise<void> {
   }
 }
 
+function withoutRetiredModeWorkspaces(
+  snapshot: import('../../../shared/workspace-sync').WorkspaceSyncSnapshot,
+): import('../../../shared/workspace-sync').WorkspaceSyncSnapshot {
+  const retiredIds = new Set(
+    snapshot.state.workspaces.filter((workspace) => isRetiredWorkspaceMode(workspace.mode)).map((workspace) => workspace.id),
+  )
+  if (retiredIds.size === 0) return snapshot
+  const keep = (workspaceId: WorkspaceId | null): WorkspaceId | null =>
+    workspaceId && retiredIds.has(workspaceId) ? null : workspaceId
+  return {
+    ...snapshot,
+    state: {
+      ...snapshot.state,
+      workspaces: snapshot.state.workspaces.filter((workspace) => !retiredIds.has(workspace.id)),
+      activeWorkspaceId: keep(snapshot.state.activeWorkspaceId),
+      workspaceWindows: snapshot.state.workspaceWindows.map((windowState) => ({
+        ...windowState,
+        workspaceIds: windowState.workspaceIds.filter((workspaceId) => !retiredIds.has(workspaceId)),
+        activeWorkspaceId: keep(windowState.activeWorkspaceId),
+      })),
+    },
+  }
+}
+
 // Adopt main's registry wholesale. This is the mirror's seed at start and its
 // recovery after a sequence gap. Presentation state the renderer still owns
 // (open editor files, the file-explorer/backlog/git panel view) is preserved
 // per workspace: main strips those fields on write, so taking the snapshot
 // verbatim would blank the panels of every workspace on every resync.
-function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync').WorkspaceSyncSnapshot): void {
+function adoptRegistrySnapshot(rawSnapshot: import('../../../shared/workspace-sync').WorkspaceSyncSnapshot): void {
+  // Retired-mode rows (`RETIRED_WORKSPACE_MODES`) never enter the window, the
+  // same filter `dropRetiredModeWorkspaces` applies to the localStorage path.
+  // Main drops them when it loads its registry; this covers a snapshot from a
+  // main that still carries one.
+  const snapshot = withoutRetiredModeWorkspaces(rawSnapshot)
   // An empty registry never replaces a non-empty window. This is the same wipe
   // guard the localStorage path has carried since an empty snapshot overwrote a
   // real profile once, moved to the seam where the hazard now lives: on the

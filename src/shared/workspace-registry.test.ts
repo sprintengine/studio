@@ -24,6 +24,7 @@ import {
   type WorkspaceRegistryTombstone,
 } from './workspace-registry'
 import type { Workspace } from '../renderer/src/types/workspace'
+import { isRetiredWorkspaceMode, RETIRED_WORKSPACE_MODES } from './workspace-mode'
 
 function workspace(overrides: Partial<Workspace> = {}): Workspace {
   return {
@@ -56,6 +57,31 @@ test('a registry file round-trips through serialize and parse', () => {
   assert.equal(parsed.file.workspaces[0]?.id, 'ws-1')
   assert.equal(parsed.file.activeWorkspaceId, 'ws-1')
   assert.deepEqual(parsed.droppedRecords, [])
+})
+
+test('every retired-mode record is filtered on parse, with its window references', () => {
+  const file: WorkspaceRegistryFile = {
+    ...emptyWorkspaceRegistryFile(5_000),
+    revision: 4,
+    workspaces: [
+      toWorkspaceRegistryRecord(workspace({ id: 'ws-keep' }), 4),
+      ...RETIRED_WORKSPACE_MODES.map((mode) => toWorkspaceRegistryRecord(workspace({ id: `ws-${mode}`, mode }), 4)),
+    ],
+    activeWorkspaceId: 'ws-sprintengine',
+  }
+  file.workspaceWindows[0]!.workspaceIds = ['ws-sprintengine', 'ws-keep', 'ws-roadmap']
+  file.workspaceWindows[0]!.activeWorkspaceId = 'ws-roadmap'
+  const parsed = parseWorkspaceRegistryFile(JSON.parse(serializeWorkspaceRegistryFile(file)))
+  assert.ok(parsed)
+  assert.deepEqual(parsed.file.workspaces.map((record) => record.id), ['ws-keep'])
+  assert.deepEqual(parsed.retiredRecordIds, RETIRED_WORKSPACE_MODES.map((mode) => `ws-${mode}`))
+  assert.deepEqual(parsed.droppedRecords, [], 'a retired row is not reported as malformed')
+  assert.equal(parsed.file.activeWorkspaceId, null)
+  assert.deepEqual(parsed.file.workspaceWindows[0]?.workspaceIds, ['ws-keep'])
+  assert.equal(parsed.file.workspaceWindows[0]?.activeWorkspaceId, null)
+  assert.ok(RETIRED_WORKSPACE_MODES.includes('sprintengine'))
+  assert.equal(isRetiredWorkspaceMode('standard'), false)
+  assert.equal(isRetiredWorkspaceMode('automations-host'), false)
 })
 
 test('a default-named record locked at birth is healed on read', () => {

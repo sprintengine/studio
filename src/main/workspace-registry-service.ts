@@ -43,6 +43,7 @@ import {
 } from '../shared/workspace-registry'
 import { resolveHeadlessLayoutTemplate } from '../shared/layouts/templates'
 import { isDefaultWorkspaceName } from '../shared/workspace-title'
+import { isRetiredWorkspaceMode } from '../shared/workspace-mode'
 import { applyWorkspaceSyncEvent, type WorkspaceSyncCommand, type WorkspaceSyncEvent, type WorkspaceSyncState } from '../shared/workspace-sync'
 import type { Workspace, WorkspaceId, WorkspaceMode, WorkspaceWindowId } from '../renderer/src/types/workspace'
 import type { WorkspaceRegistryStore } from './workspace-registry-store'
@@ -268,8 +269,12 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
    *   dropped; the caller learns the rejection and reverts its optimistic apply
    *   to main's value, and the current value is still on the bus for every
    *   other window.
+   *
+   * A third, for creation: a record whose mode is retired is refused, so a
+   * window still holding a row main dropped on load cannot propose it back.
    */
   function precheckCommand(command: WorkspaceSyncCommand): WorkspaceRegistryPrecheck {
+    if (command.type === 'workspace.created') return precheckWorkspaceMode(command.payload.workspace.mode)
     const workspaceId = registryCommandWorkspaceId(command)
     if (!workspaceId) return { ok: true }
     if (isWorkspaceTombstoned(file.tombstones, workspaceId)) {
@@ -321,6 +326,16 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
   // -------------------------------------------------------------------------
   // Creation
   // -------------------------------------------------------------------------
+
+  /** Refuse a mode no build can render any more (`RETIRED_WORKSPACE_MODES`). */
+  function precheckWorkspaceMode(mode: unknown): WorkspaceRegistryPrecheck {
+    if (!isRetiredWorkspaceMode(mode)) return { ok: true }
+    return {
+      ok: false,
+      reason: 'retired_workspace_mode',
+      message: `Workspace mode "${String(mode)}" was retired; the workspace was not added to the registry.`,
+    }
+  }
 
   /**
    * Mint the record a `workspace.created` event will carry, or resolve the
@@ -478,6 +493,9 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
     const records: WorkspaceRegistryRecord[] = []
     const droppedRecordIds: string[] = []
     for (const [index, candidate] of rawWorkspaces.entries()) {
+      // The renderer's ladder already filtered retired modes; this is the same
+      // filter on main's side, silent because such a row is not a fault.
+      if (isRecordValue(candidate) && isRetiredWorkspaceMode(candidate.mode)) continue
       const parsed = parseWorkspaceRegistryRecord(candidate)
       if ('reason' in parsed) {
         const id = isRecordValue(candidate) && typeof candidate.id === 'string' ? candidate.id : `#${index}`
@@ -578,6 +596,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
     getTombstones,
     applyEvent,
     precheckCommand,
+    precheckWorkspaceMode,
     prepareCreate,
     adoptRecord,
     hydrate,

@@ -364,4 +364,82 @@ test('a corrupt registry file is refused rather than presented as an empty list'
   }
 })
 
+test('a retired-mode row is dropped on load and cannot be proposed back', async () => {
+  const h = harness()
+  try {
+    const kept = create(h, { name: 'Kept', folderPath: '/repo' })
+    const retired = create(h, { name: 'Old sprint', folderPath: '/repo' })
+    await h.registry.flush()
+
+    // An older build wrote the second row as a sprint-engine workspace, and
+    // left it the active one.
+    const path = join(h.dir, WORKSPACE_REGISTRY_FILE_NAME)
+    const raw = JSON.parse(readFileSync(path, 'utf8')) as {
+      workspaces: { id: string; mode: string }[]
+      activeWorkspaceId: string | null
+      workspaceWindows: { workspaceIds: string[]; activeWorkspaceId: string | null }[]
+    }
+    raw.workspaces.find((record) => record.id === retired.workspace.id)!.mode = 'sprintengine'
+    raw.activeWorkspaceId = retired.workspace.id
+    raw.workspaceWindows[0]!.activeWorkspaceId = retired.workspace.id
+    assert.equal(raw.workspaceWindows[0]!.workspaceIds.includes(retired.workspace.id), true)
+    writeFileSync(path, JSON.stringify(raw), 'utf8')
+
+    const diagnostics: WorkspaceRegistryDiagnostic[] = []
+    const store = createWorkspaceRegistryStore({
+      resolveUserDataDir: () => h.dir,
+      persistDebounceMs: 0,
+      logDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    })
+    const registry = createWorkspaceRegistryService({ store, logDiagnostic: (diagnostic) => diagnostics.push(diagnostic) })
+    const sync = createWorkspaceSyncService({ registry })
+
+    // Main's own consumers read these: the gateway's workspace_list and the
+    // phone snapshot never see the retired row.
+    assert.deepEqual(registry.getRecords().map((record) => record.id), [kept.workspace.id])
+    const snapshot = sync.getSnapshot().state
+    assert.deepEqual(snapshot.workspaces.map((record) => record.id), [kept.workspace.id])
+    assert.equal(snapshot.workspaceWindows[0]!.workspaceIds.includes(retired.workspace.id), false)
+    assert.equal(snapshot.workspaceWindows[0]!.activeWorkspaceId, null)
+    assert.equal(snapshot.activeWorkspaceId, null)
+    assert.equal(diagnostics.length, 0, 'a retired row is filtered quietly, not reported as a malformed record')
+
+    // A window that still holds the row cannot propose it back…
+    const reproposed = sync.dispatch({
+      sourceWindowId: 'primary',
+      command: {
+        type: 'workspace.created',
+        payload: {
+          workspace: { ...retired.workspace, mode: 'sprintengine' },
+          windowId: 'primary',
+          insert: { kind: 'folder_head', folderPath: '/repo' },
+        },
+      },
+    })
+    assert.equal(reproposed.ok, false)
+    assert.equal(reproposed.ok ? '' : reproposed.reason, 'retired_workspace_mode')
+    // …nor adopt it, nor mint a fresh one…
+    const adopted = sync.adoptWorkspace({ ...retired.workspace, mode: 'sprintengine' }, 'primary', '/repo', 'module')
+    assert.equal(adopted.ok ? '' : adopted.reason, 'retired_workspace_mode')
+    const minted = sync.createWorkspace({ folderPath: '/repo', mode: 'sprintengine' }, 'gateway')
+    assert.equal(minted.ok ? '' : minted.reason, 'retired_workspace_mode')
+    // …and an edit naming it is refused as unknown.
+    const renamed = sync.dispatch({
+      sourceWindowId: 'primary',
+      command: { type: 'workspace.rename', payload: { workspaceId: retired.workspace.id, name: 'Back', editedAt: 9_999_999 } },
+    })
+    assert.equal(renamed.ok ? '' : renamed.reason, 'unknown_workspace')
+    assert.deepEqual(registry.getRecords().map((record) => record.id), [kept.workspace.id])
+
+    // The next accepted write persists the registry without the row.
+    const ok = sync.createWorkspace({ name: 'Fresh', folderPath: '/repo' }, 'gateway')
+    assert.ok(ok.ok)
+    await registry.flush()
+    const persisted = JSON.parse(readFileSync(path, 'utf8')) as { workspaces: { id: string }[] }
+    assert.equal(persisted.workspaces.some((record) => record.id === retired.workspace.id), false)
+  } finally {
+    h.cleanup()
+  }
+})
+
 console.log('workspace-registry-service.test.ts: ok')

@@ -10,6 +10,7 @@ import {
 } from '../../utils/workspaceSettle'
 import { hasSnooze, snoozeWorkspacePatch, wakeSnoozedWorkspacePatch } from '../../utils/workspaceSnooze'
 import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
+import { isRetiredWorkspaceMode } from '../../../../shared/workspace-mode'
 import { workspaceProjectRoot, workspaceProjectRootOf } from '../../utils/workspaceWorktree'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import { normalizeRecentWorkspaceFolders } from './settingsSlice'
@@ -861,9 +862,12 @@ export function createWorkspacesSlice(
     // has the workspace (the source applying its own accepted event, or a
     // duplicate broadcast) keeps its local object and only re-confirms the
     // assignment, so application is idempotent. Only the renderer that owns the
-    // target window claims the single global active id.
+    // target window claims the single global active id. A retired-mode record
+    // (`RETIRED_WORKSPACE_MODES`) is ignored: main refuses to mint one, and an
+    // older main's broadcast must not bring a dropped row back.
     applyWorkspaceCreatedEvent: ({ workspace, windowId, createdAt, isCurrentWindowTarget }) =>
       set((state) => {
+        if (isRetiredWorkspaceMode(workspace.mode)) return
         if (!state.workspaces.some((candidate) => candidate.id === workspace.id)) {
           // The event's `folderPath` is the workspace's own folder, which for a
           // worktree chat is the worktree; the block it belongs in is the

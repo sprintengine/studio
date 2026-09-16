@@ -149,6 +149,8 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     input: WorkspaceCreateRequest,
     actor: WorkspaceMutationActor,
   ): { ok: true; result: WorkspaceCreateResult } | { ok: false; reason: string; message: string } {
+    const modeCheck = registry.precheckWorkspaceMode(input.mode)
+    if (!modeCheck.ok) return modeCheck
     const prepared = registry.prepareCreate(input)
     // A reuse is not a creation. Emitting `workspace.created` for a record that
     // already exists would announce a workspace every window already has and
@@ -195,6 +197,8 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     folderPath: string | null,
     actor: WorkspaceMutationActor,
   ): WorkspaceSyncCommandResult {
+    const modeCheck = registry.precheckWorkspaceMode(workspace.mode)
+    if (!modeCheck.ok) return failure(modeCheck.reason, modeCheck.message)
     return emit(
       {
         type: 'workspace.created',
