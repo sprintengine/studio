@@ -12,7 +12,7 @@ import {
   fileExplorerSelectionFromVerticalRange,
   fileExplorerSelectionRange,
 } from '../../utils/fileExplorerSelection'
-import { findHealthyWorktreeScope, resolveWorkspaceWorktrees, workspaceProjectRoot } from '../../utils/workspaceWorktree'
+import { findHealthyWorktreeScope, resolveWorkspaceWorktree, workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
 import { EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, PrimaryButton, RefreshIcon, Select, Skeleton, StashGlyph, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type TabItem } from '../ui'
@@ -188,22 +188,6 @@ function scopeId(kind: GitScopeKind, pathValue: string): string {
   return `${kind}:${trimPath(pathValue).toLowerCase()}`
 }
 
-/**
- * Scope id for a project's own checkout. The workspace's OWN project keeps the bare
- * `main` it has always had — that id is the panel's default and is persisted in
- * every existing workspace's Git view state, so it must not be re-keyed — while
- * another project a run declared gets a path-keyed id of its own. Without that, two
- * projects' checkouts would share one id, and with it the per-scope commit draft: a
- * message typed against one project's checkout would reappear in the other's.
- *
- * Keyed on which project it is, NOT on whether the root matches the workspace
- * folder: a workspace opened at a subdirectory of its repo has a git root above
- * that folder, and is still its own project.
- */
-function mainScopeIdFor(repoRoot: string, isPrimaryProject: boolean): string {
-  return isPrimaryProject ? 'main' : scopeId('main', repoRoot)
-}
-
 function terminalIdPart(value: string): string {
   return value.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'repo'
 }
@@ -298,32 +282,13 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // worktree's branch, not the parent project. The worktree is a real
   // `git worktree`, so it already shows up as a scope below; this drives the
   // *default* scope selection toward it.
-  //
-  // A list rather than a single entry (MC-1610): a workspace backed by one
-  // worktree per project lets the project picker choose which entry the panel is
-  // looking at, and everything below — scopes, status, staging, commit —
-  // resolves through that one project exactly as it always did. One entry means
-  // the picker never appears.
-  const workspaceWorktrees = useMemo(
-    () => (workspace ? resolveWorkspaceWorktrees(workspace) : []),
+  const workspaceWorktree = useMemo(
+    () => (workspace ? resolveWorkspaceWorktree(workspace) : null),
     [workspace?.folderPath, workspace?.worktree],
   )
-  const [activeRepoId, setActiveRepoId] = useState<string | null>(null)
-  // Entry zero is the primary project: the default view, and the answer whenever a
-  // selected project drops out of the run's declared list.
-  const activeRepoEntry =
-    workspaceWorktrees.find((entry) => entry.repoId === activeRepoId) ?? workspaceWorktrees[0] ?? null
-  // Whether the panel is looking at the workspace's own project — true for every
-  // workspace that is not a run spanning projects, which is what keeps their scope
-  // ids (and the commit drafts keyed by them) exactly as they were.
-  const activeRepoIsPrimary = !activeRepoEntry || activeRepoEntry === workspaceWorktrees[0]
-  const worktreeGitRoot = activeRepoEntry?.gitRoot ?? null
-  const worktreeBranch = activeRepoEntry?.branch ?? null
-  // The checkout whose worktrees are enumerated below: the selected project's own
-  // root. For the workspace's own project — and for every single-project run — that
-  // IS the workspace folder, so this resolves exactly what it always did.
-  const activeRepoRoot = activeRepoEntry?.repoRoot ?? folderPath
-  const mainGit = useGitStatus(activeRepoRoot)
+  const worktreeGitRoot = workspaceWorktree?.gitRoot ?? null
+  const worktreeBranch = workspaceWorktree?.branch ?? null
+  const mainGit = useGitStatus(folderPath)
   const mainRepoRoot = mainGit.repoRoot
   const setGitPanelState = useWorkspaceStore((s) => s.setGitPanelState)
   const setGitCommitDraft = useWorkspaceStore((s) => s.setGitCommitDraft)
@@ -380,7 +345,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
 
     const fallbackMainScope: GitScopeOption = {
-      id: mainScopeIdFor(mainRepoRoot, activeRepoIsPrimary),
+      id: 'main',
       kind: 'main',
       label: `Main checkout - ${basename(mainRepoRoot)}`,
       path: mainRepoRoot,
@@ -433,7 +398,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     } catch {
       setScopeOptions([fallbackMainScope])
     }
-  }, [mainRepoRoot, activeRepoIsPrimary])
+  }, [mainRepoRoot])
 
   useEffect(() => {
     // Seed worktree scopes from the per-repo cache for an instant render when
@@ -2323,30 +2288,6 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         </div>
       ) : null}
       <div className="space-y-1 border-b border-[color:var(--border-subtle)] px-3 pb-2 pt-2">
-          {/*
-           * A workspace spanning projects works one project at a time, in that
-           * project's own checkout — so the project comes first: it decides which
-           * branches, worktrees, changes, and commits the rest of the panel is
-           * even about. A workspace in a single project has nothing to choose
-           * between, so the row never appears and the panel is unchanged.
-           */}
-          {workspaceWorktrees.length > 1 ? (
-            <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2">
-              <span className="text-micro text-[color:var(--text-subtle)]">Project</span>
-              <Select<string>
-                ariaLabel="Active project"
-                items={workspaceWorktrees.map((entry) => ({
-                  value: entry.repoId ?? entry.gitRoot,
-                  label: basename(entry.repoRoot ?? entry.gitRoot),
-                }))}
-                value={activeRepoEntry?.repoId ?? activeRepoEntry?.gitRoot ?? ''}
-                onChange={(next) => setActiveRepoId(next)}
-                disabled={Boolean(busy)}
-                className="w-full"
-                triggerMinWidthClassName="min-w-0"
-              />
-            </div>
-          ) : null}
           <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2">
             <span className="text-micro text-[color:var(--text-subtle)]">Branch</span>
             <Select<string>
@@ -2586,12 +2527,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             // The project a worktree opened from here files under, in the app's
             // own spelling — `mainRepoRoot` is git's realpath and under a
             // symlinked root would not match the parent workspace's folderPath.
-            // It follows the picked project for a run spanning several, and for
-            // a worktree-backed workspace resolves to ITS parent, which is where
-            // a worktree cut from here belongs too.
+            // For a worktree-backed workspace it resolves to ITS parent, which
+            // is where a worktree cut from here belongs too.
             projectRoot={
-              activeRepoEntry?.repoRoot
-              ?? (workspace ? workspaceProjectRoot(workspace) : null)
+              (workspace ? workspaceProjectRoot(workspace) : null)
               ?? mainRepoRoot
               ?? repoRoot
             }

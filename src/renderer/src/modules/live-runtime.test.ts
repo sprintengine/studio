@@ -244,11 +244,11 @@ async function testEffectiveWorkingRoot(): Promise<void> {
   )
   // Plain workspace: the primary checkout IS the working root.
   assert.equal(
-    workspaceWorkingRoot({ folderPath: '/Users/example/project', worktree: null, moduleState: undefined }),
+    workspaceWorkingRoot({ folderPath: '/Users/example/project', worktree: null }),
     '/Users/example/project'
   )
   // Folderless: null, never a fallback.
-  assert.equal(workspaceWorkingRoot({ folderPath: null, worktree: null, moduleState: undefined }), null)
+  assert.equal(workspaceWorkingRoot({ folderPath: null, worktree: null }), null)
 
   // File watch resolves workspace-relative paths against the working root, so
   // a worktree-backed workspace's watch attaches under the worktree — the same

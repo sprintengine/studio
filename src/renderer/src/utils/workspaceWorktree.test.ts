@@ -8,9 +8,7 @@ import {
   findHealthyWorktreeScope,
   resolveWorkspaceTerminalCwd,
   resolveWorkspaceWorktree,
-  resolveWorkspaceWorktrees,
   repoRootFromWorktreePath,
-  resolveWorktreeFallbackRoot,
   resolveWorktreeSpawnFallback,
   slugifyWorktreeName,
   workspaceProjectRoot,
@@ -22,7 +20,7 @@ import { resolveSkillInvocation } from '../../../shared/skill-invocation'
 import type { McpServerConfig, Workspace } from '../types/workspace'
 import type { PluginSkillCatalog } from '../../../shared/plugin-manifest'
 
-type WorktreeInput = Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
+type WorktreeInput = Pick<Workspace, 'folderPath' | 'worktree'>
 
 function make(overrides: Partial<WorktreeInput>): WorktreeInput {
   return {
@@ -40,7 +38,6 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
     worktree: { branch: 'spike/parser' },
   })
   const resolved = resolveWorkspaceWorktree(ws)
-  assert.equal(resolved?.repoId, undefined, 'a worktree workspace declares no repo set')
   assert.deepEqual(resolved, {
     gitRoot: '/Users/example/wt/parser-spike',
     branch: 'spike/parser',
@@ -48,10 +45,10 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
 }
 
 // 1b. The marker's own `repoRoot` (the project the worktree was cut from) is a
-//     grouping fact and stays OUT of the resolved entry: the Git panel reads
-//     `repoRoot` as the checkout to operate on, and naming the parent there
-//     would diff, stage, commit and spawn terminals in the parent while a
-//     perfectly healthy worktree sits in front of the user.
+//     grouping fact and stays OUT of the resolved entry: the Git panel
+//     operates on the resolved checkout, and naming the parent there would
+//     diff, stage, commit and spawn terminals in the parent while a perfectly
+//     healthy worktree sits in front of the user.
 {
   const ws = make({
     folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
@@ -61,48 +58,16 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
     gitRoot: '/Users/example/.multicode-worktrees/project/chat-a1b2',
     branch: 'agent/chat-a1b2',
   })
-  assert.equal(
-    resolveWorktreeFallbackRoot(ws, '/Users/example/.multicode-worktrees/project/chat-a1b2'),
-    '/Users/example/.multicode-worktrees/project/chat-a1b2',
-    'the fallback root is unchanged for a worktree workspace',
-  )
 }
 
 // 2. Regular workspace (no worktree marker) → null.
 {
   assert.equal(resolveWorkspaceWorktree(make({})), null)
-  assert.equal(
-    resolveWorkspaceWorktree(make({ moduleState: { 'weather-deck': { lastCity: 'Dublin' } } })),
-    null,
-    'a module-state bag alone never makes a workspace worktree-backed',
-  )
 }
 
 // 3. No folderPath → null even with a marker (can't resolve a git root).
 {
   assert.equal(resolveWorkspaceWorktree(make({ folderPath: null, worktree: { branch: 'b' } })), null)
-}
-
-// --- resolveWorkspaceWorktrees / resolveWorktreeFallbackRoot ---
-
-// 4. The list is the primary worktree or nothing at all.
-{
-  assert.deepEqual(
-    resolveWorkspaceWorktrees(make({
-      folderPath: '/Users/example/wt/parser-spike',
-      worktree: { branch: 'spike/parser' },
-    })),
-    [{ gitRoot: '/Users/example/wt/parser-spike', branch: 'spike/parser' }],
-  )
-  assert.deepEqual(resolveWorkspaceWorktrees(make({})), [], 'a regular workspace is backed by no worktree')
-}
-
-// 5. A cwd belonging to no declared worktree, and a workspace with none at all,
-//    both fall back to the workspace folder.
-{
-  assert.equal(resolveWorktreeFallbackRoot(make({}), '/somewhere/else'), '/Users/example/project')
-  assert.equal(resolveWorktreeFallbackRoot(make({}), undefined), '/Users/example/project')
-  assert.equal(resolveWorktreeFallbackRoot(make({}), '/x'), '/Users/example/project')
 }
 
 // --- findHealthyWorktreeScope ---
