@@ -32,7 +32,7 @@
 //   conversation provider sessions.
 // - `ipc:settings` — reading and changing studio settings and integrations:
 //   module enablement, third-party module install/trust, MCP catalog/sync,
-//   skill packs, plugin and role/template registries, GitHub token, app
+//   skill packs, the plugin registry, GitHub token, app
 //   updates, mobile bridge settings, voice transcription settings.
 //
 // Surfaces outside every tier (window controls, dialogs, clipboard, auth/

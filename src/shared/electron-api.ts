@@ -2996,7 +2996,7 @@ export type BacklogDependenciesInput = {
 
 // The epic-side ordering mark (MC-2137): the author asserting that this epic's
 // children are ordered — deliberately parallel counts — so work may start from
-// it with no planning agent. `true` writes `dependenciesPlanned: true`;
+// it with no further ordering pass. `true` writes `dependenciesPlanned: true`;
 // `false` removes the line, since absent is the same assertion as false.
 export type BacklogDependenciesPlannedInput = {
   workspaceRoot: string

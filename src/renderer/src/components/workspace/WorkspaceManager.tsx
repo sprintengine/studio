@@ -1701,7 +1701,7 @@ export default function WorkspaceManager() {
   //
   // Once per workspace per app session, not on every switch: coming back to a
   // workspace you were already using should leave the keyboard wherever you left
-  // it (a file editor, the board), and layers are never unmounted on switch
+  // it (a file editor, a panel), and layers are never unmounted on switch
   // (they go `invisible`, not away), so "opened before" is exactly this latch.
   //
   // A terminal cannot be asked to focus until it is mounted, and AgentPanel
@@ -1724,7 +1724,7 @@ export default function WorkspaceManager() {
         return
       }
       const target = visibleTerminalTabInLayout(getModel(workspaceId)?.toJson())
-      // No terminal on screen (a Files-only or board-only layout, or a layout
+      // No terminal on screen (a Files-only or panel-only layout, or a layout
       // that has not registered yet) — nothing to focus, and never a reason to
       // change which tab is selected.
       if (!target) return
@@ -2107,8 +2107,8 @@ export default function WorkspaceManager() {
     }
   }, [])
 
-  // Outside-click and Escape for the top-bar menus (spawn, sessions,
-  // view, notifications, account) are owned by the Popover primitive: its surface
+  // Outside-click and Escape for the top-bar menus (sessions, view,
+  // notifications, account) are owned by the Popover primitive: its surface
   // is portaled to <body>, so a manual `menuRef.contains(target)` guard here would
   // read every click inside the portaled surface as "outside" and close the menu
   // before the row's click lands — which silently broke agent spawning. Each
@@ -2959,7 +2959,7 @@ export default function WorkspaceManager() {
     // wins over the panel's own, so a person who had picked a row
     // before pressing Go would have come back to New chat standing on it and
     // launched its engine rather than the row they had just chosen. The draft
-    // says both: a roleless agent, on this engine. It carries what only the
+    // says both: a general agent, on this engine. It carries what only the
     // CARD knows besides — the prompt and the skills.
     openNewChatPanel(chatRoot ?? undefined)
     writeNewChatDraft(workspaceWindowId, {
@@ -3471,9 +3471,9 @@ export default function WorkspaceManager() {
           // own underlying workspace is valid.
           if (!activeGlobalSurface && !newChatPanelOpen && entry.id === windowActiveWorkspaceId) return false
           // Assignment, not rail membership: history holds places the operator
-          // actually visited, and a rail-hidden workspace is reached by explicit
-          // activation (a door's "Open agents"). Gating on the rail
-          // would let Back reach a run's terminals but never Forward.
+          // actually visited, and a rail-hidden workspace (the automations
+          // host) is reached by explicit activation. Gating on the rail would
+          // let Back reach its terminals but never Forward.
           return visibleWorkspaceIdSet.has(entry.id)
         },
       )
@@ -3820,9 +3820,9 @@ export default function WorkspaceManager() {
   }
 
   // ── The tab strip's "+" (MC-2147) ──────────────────────────────────────────
-  // Opens the tab the agent will run in. Standard workspaces only: a workspace
-  // type that staffs its own agents would read a hand-spawned terminal in that
-  // strip as one of its own.
+  // Opens the tab the agent will run in. Standard workspaces only: a module's
+  // workspace type (the automations host) runs its own agents and would read a
+  // hand-spawned terminal in that strip as one of its own.
   const canOpenNewAgentTab =
     Boolean(windowActiveWorkspaceId)
     && activeWorkspace?.mode === 'standard'
