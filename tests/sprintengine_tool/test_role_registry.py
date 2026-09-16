@@ -154,6 +154,7 @@ def test_empty_workspace_resolves_no_roles(empty_role_pack: None) -> None:
     assert "no workflow roles are installed in this workspace" in message
     assert "workflow-roles" in message
     assert "Add from folder…" in message
+    assert "Install skill" in message
     assert "Known roles" not in message
 
 

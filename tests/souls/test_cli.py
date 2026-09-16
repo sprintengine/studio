@@ -214,6 +214,7 @@ def test_souls_get_from_an_empty_workspace_is_nonzero(tmp_path: Path, empty_role
     assert payload["ok"] is False
     assert "no workflow roles are installed in this workspace" in payload["message"]
     assert "Add from folder…" in payload["message"]
+    assert "Install skill" in payload["message"]
     assert "Known roles:" not in payload["message"]
 
 

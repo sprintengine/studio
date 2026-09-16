@@ -50,6 +50,7 @@ def test_roles_list_from_an_empty_workspace_is_empty_and_names_the_remedies(tmp_
     assert payload["roles"] == []
     assert NO_WORKFLOW_ROLES_INSTALLED in completed.stderr
     assert "Add from folder…" in completed.stderr
+    assert "Install skill" in completed.stderr
 
 
 def test_roles_brief_from_an_empty_workspace_is_nonzero_and_names_the_role(tmp_path: Path) -> None:
@@ -60,6 +61,7 @@ def test_roles_brief_from_an_empty_workspace_is_nonzero_and_names_the_role(tmp_p
     assert "Unknown role 'architect'" in completed.stderr
     assert "no workflow roles are installed in this workspace" in completed.stderr
     assert "Add from folder…" in completed.stderr
+    assert "Install skill" in completed.stderr
     assert "Known roles" not in completed.stderr
 
 
@@ -85,6 +87,7 @@ def test_mcp_roles_brief_from_an_empty_workspace_is_unknown_role(tmp_path: Path)
         assert result["error"]["code"] == "unknown_role"
         assert "no workflow roles are installed in this workspace" in result["error"]["message"]
         assert "Add from folder…" in result["error"]["message"]
+        assert "Install skill" in result["error"]["message"]
         assert "Known roles" not in result["error"]["message"]
 
 

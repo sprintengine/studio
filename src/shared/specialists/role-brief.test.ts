@@ -33,7 +33,8 @@ run('missing-role copy names the spelling and both remedies', () => {
     "Unknown role 'qa-test': no skill declaring it is installed in this workspace. "
       + 'Install the workflow-roles pack from the SprintEngine Studio skill source, '
       + 'or put your own role skills in your skills folder (~/.multicode/skills) — '
-      + 'add or change it under Extensions → Skills → "Add from folder…". '
+      + 'add or change it under Extensions → Skills → "Add from folder…", '
+      + 'then "Install skill" into this workspace. '
       + 'Known roles: architect, tester.',
   )
   const empty = missingRoleMessage('architect', [])
@@ -42,7 +43,8 @@ run('missing-role copy names the spelling and both remedies', () => {
     "Unknown role 'architect': no workflow roles are installed in this workspace. "
       + 'Install the workflow-roles pack from the SprintEngine Studio skill source, '
       + 'or put your own role skills in your skills folder (~/.multicode/skills) — '
-      + 'add or change it under Extensions → Skills → "Add from folder…".',
+      + 'add or change it under Extensions → Skills → "Add from folder…", '
+      + 'then "Install skill" into this workspace.',
   )
 })
 
