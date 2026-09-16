@@ -455,103 +455,10 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace', 'workflowRolesInstalled'],
     handlerPath: { kind: 'workspace-manager', handler: "addNewSpecialist('frontend-design-review')" },
   }),
-  command({
-    id: 'sprintengine.verify.progress',
-    title: 'Sprint: Verify Progress',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    availability: ['sprintengineWorkspace', 'sprintengineHasArchitect'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.verify.progress' },
-  }),
-  command({
-    id: 'sprintengine.add.role',
-    title: 'Sprint: More Roles',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    availability: ['sprintengineWorkspace', 'workflowRolesInstalled'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.add.role' },
-  }),
-  command({
-    id: 'sprintengine.read.plan',
-    title: 'Sprint: Read Plan',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    availability: ['sprintengineWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.read.plan' },
-  }),
-  command({
-    id: 'sprintengine.focus.agent',
-    title: 'Sprint: Focus Active Agent',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    availability: ['sprintengineWorkspace', 'sprintengineFocusAgentVisible'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.focus.agent' },
-  }),
-  command({
-    id: 'sprintengine.refresh.board',
-    title: 'Sprint: Refresh Board',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    availability: ['sprintengineWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.refresh.board' },
-  }),
-  command({
-    id: 'sprintengine.goto.inbox',
-    title: 'Sprint: Inbox',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    defaultKeybindings: ['G then I'],
-    availability: ['sprintengineWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.goto.inbox' },
-  }),
-  command({
-    id: 'sprintengine.goto.roster',
-    title: 'Sprint: Agents',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    defaultKeybindings: ['G then R'],
-    availability: ['sprintengineWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.goto.roster' },
-  }),
-  command({
-    id: 'sprintengine.goto.tasks',
-    title: 'Sprint: Tasks',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    defaultKeybindings: ['G then T'],
-    availability: ['sprintengineWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.goto.tasks' },
-  }),
-  command({
-    id: 'sprintengine.goto.graph',
-    title: 'Sprint: Tasks Graph Layout',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    defaultKeybindings: ['G then G'],
-    availability: ['sprintengineWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.goto.graph' },
-  }),
-  command({
-    id: 'sprintengine.goto.kanban',
-    title: 'Sprint: Tasks Kanban Layout',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    defaultKeybindings: ['G then K'],
-    availability: ['sprintengineWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.goto.kanban' },
-  }),
-  command({
-    id: 'sprintengine.open.settings',
-    title: 'Sprint: Run Configuration',
-    category: 'sprintengine',
-    scopes: ['panel:sprintengine'],
-    defaultKeybindings: ['Primary+,'],
-    availability: ['sprintengineWorkspace'],
-    handlerPath: { kind: 'panel-event', eventId: 'sprintengine.open.settings' },
-  }),
-  // The Automations module's built-in commands are registered through
-  // the module path (automations-module.ts) — the in-tree proof that
-  // module-defined command scopes/availability carry a real feature.
+  // Sprint Engine palette/shortcut commands live on the sprint-engine
+  // module (`registerSprintEngineCommands`). Automations' built-in commands
+  // are registered the same way — the in-tree proof that module-defined
+  // command scopes/availability carry a real feature.
 ] as const satisfies readonly CommandDefinition[]
 
 export type CommandId = (typeof COMMAND_REGISTRY)[number]['id']

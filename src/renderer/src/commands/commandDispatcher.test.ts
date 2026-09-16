@@ -2,6 +2,12 @@ import assert from 'node:assert/strict'
 import { RendererCommandDispatcher, type CommandDispatcherKeyEvent } from './commandDispatcher'
 import { COMMAND_REGISTRY } from './commandRegistry'
 import type { KeybindingSettings } from '../types/workspace'
+import { createRendererHost } from '../modules/renderer-host'
+import { registerSprintEngineCommands } from '../modules/sprint-engine-commands'
+
+const sprintKernel = createRendererHost()
+registerSprintEngineCommands(sprintKernel.hostFor('sprint-engine'))
+const withSprintEngine = [...COMMAND_REGISTRY, ...sprintKernel.getModuleCommands()]
 
 function key(event: Partial<CommandDispatcherKeyEvent>): CommandDispatcherKeyEvent {
   return {
@@ -60,14 +66,15 @@ assert.equal(result.kind === 'matched' ? result.commandId : null, 'workspace.swi
 result = dispatcher.resolve(
   key({ key: ',', code: 'Comma', ctrlKey: true }),
   {
-    activeScopes: ['global', 'workspace', 'panel:sprintengine'],
+    activeScopes: ['global', 'workspace', 'panel:sprint-engine'],
     platform: 'linux',
     availability: { activeWorkspace: true, sprintengineWorkspace: true },
+    commands: withSprintEngine,
     now: 30,
   },
 )
 assert.equal(result.kind, 'matched')
-assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprintengine.open.settings')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprint-engine.open.settings')
 
 result = dispatcher.resolve(
   key({ key: ',', code: 'Comma', ctrlKey: true }),
@@ -143,38 +150,38 @@ const sprintEngineChord = { activeWorkspace: true, sprintengineWorkspace: true }
 const chordDispatcher = new RendererCommandDispatcher(500)
 result = chordDispatcher.resolve(
   key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 100 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 100 },
 )
 assert.equal(result.kind, 'pending')
 result = chordDispatcher.resolve(
   key({ key: 'i', code: 'KeyI' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 300 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 300 },
 )
 assert.equal(result.kind, 'matched')
-assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprintengine.goto.inbox')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprint-engine.goto.inbox')
 
 // G then R now resolves to the roster navigation chord in the Sprint Engine panel.
 result = chordDispatcher.resolve(
   key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 320 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 320 },
 )
 assert.equal(result.kind, 'pending')
 result = chordDispatcher.resolve(
   key({ key: 'r', code: 'KeyR' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 360 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 360 },
 )
 assert.equal(result.kind, 'matched')
-assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprintengine.goto.roster')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprint-engine.goto.roster')
 
 const timedOutDispatcher = new RendererCommandDispatcher(100)
 result = timedOutDispatcher.resolve(
   key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 1000 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 1000 },
 )
 assert.equal(result.kind, 'pending')
 result = timedOutDispatcher.resolve(
   key({ key: 'i', code: 'KeyI' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 1201 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 1201 },
 )
 assert.equal(result.kind, 'unmatched')
 
@@ -182,7 +189,7 @@ assert.equal(result.kind, 'unmatched')
 // availability flags set.
 result = chordDispatcher.resolve(
   key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace'], platform: 'linux', availability: sprintEngineChord, now: 1300 },
+  { activeScopes: ['global', 'workspace'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 1300 },
 )
 assert.equal(result.kind, 'unmatched')
 
@@ -193,7 +200,7 @@ assert.equal(result.kind, 'unmatched')
 const scopeLostMidChord = new RendererCommandDispatcher(500)
 result = scopeLostMidChord.resolve(
   key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 2000 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 2000 },
 )
 assert.equal(result.kind, 'pending')
 result = scopeLostMidChord.resolve(
@@ -206,16 +213,17 @@ assert.equal(result.kind, 'unmatched')
 const disabledMidChord = new RendererCommandDispatcher(500)
 result = disabledMidChord.resolve(
   key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 2200 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 2200 },
 )
 assert.equal(result.kind, 'pending')
 result = disabledMidChord.resolve(
   key({ key: 'r', code: 'KeyR' }),
   {
-    activeScopes: ['global', 'workspace', 'panel:sprintengine'],
+    activeScopes: ['global', 'workspace', 'panel:sprint-engine'],
     platform: 'linux',
     availability: sprintEngineChord,
-    disabledCommandIds: new Set(['sprintengine.goto.roster']),
+    commands: withSprintEngine,
+    disabledCommandIds: new Set(['sprint-engine.goto.roster']),
     now: 2300,
   },
 )
@@ -225,12 +233,12 @@ assert.equal(result.kind, 'unmatched')
 const availabilityLostMidChord = new RendererCommandDispatcher(500)
 result = availabilityLostMidChord.resolve(
   key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 2400 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 2400 },
 )
 assert.equal(result.kind, 'pending')
 result = availabilityLostMidChord.resolve(
   key({ key: 'r', code: 'KeyR' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: {}, now: 2500 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: {}, commands: withSprintEngine, now: 2500 },
 )
 assert.equal(result.kind, 'unmatched')
 
@@ -269,15 +277,15 @@ assert.equal(result.kind, 'unmatched')
 const stillValidChord = new RendererCommandDispatcher(500)
 result = stillValidChord.resolve(
   key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 2600 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 2600 },
 )
 assert.equal(result.kind, 'pending')
 result = stillValidChord.resolve(
   key({ key: 'k', code: 'KeyK' }),
-  { activeScopes: ['global', 'workspace', 'panel:sprintengine'], platform: 'linux', availability: sprintEngineChord, now: 2650 },
+  { activeScopes: ['global', 'workspace', 'panel:sprint-engine'], platform: 'linux', availability: sprintEngineChord, commands: withSprintEngine, now: 2650 },
 )
 assert.equal(result.kind, 'matched')
-assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprintengine.goto.kanban')
+assert.equal(result.kind === 'matched' ? result.commandId : null, 'sprint-engine.goto.kanban')
 
 // --- Module-contributed commands (merged via context.commands) --------------
 // The dispatcher matches against the merge-point output (shell registry +

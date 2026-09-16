@@ -147,6 +147,11 @@ import {
   subscribeCloseSprintWorkspaceRequests,
   subscribeNewSprintRequests,
 } from './globalSurface/sprints/sprintDoorRequests'
+import {
+  clearNewSprintRequest,
+  openSprintEngineNewSprint,
+} from '../../modules/sprint-engine-new-sprint'
+import { SPRINT_ENGINE_NEW_MODAL_ID } from '../../modules/sprint-engine-commands'
 import { noteSprintRunDeleted } from './globalSurface/sprints/sprintRunTombstones'
 import { WindowControls, windowCaptionReserve } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
@@ -222,9 +227,6 @@ import { sprintEngineRunContext, sprintEngineRunState, sprintEngineRoleDefaults 
 // The panel that used to serve the second — NewChatPanel — is gone rather than
 // left beside this one, because two launch surfaces drift.
 const NewAgentPanel = React.lazy(() => import('./agentComposer/NewAgentPanel'))
-// The New sprint dialog (MC-2062): one light dialog, shaped like New chat —
-// sprint creation left the wizard, and every entry point converges here.
-const NewSprintDialog = React.lazy(() => import('./newSprint/NewSprintDialog'))
 
 // On-demand overlays kept off the eager boot chunk: each mounts only when the
 // user reaches for it (Cmd-K palette, the diagnostics overlay), so its subtree —
@@ -770,19 +772,6 @@ export default function WorkspaceManager() {
     connector: AgentComposerConnector | null
   } | null>(null)
   const newChatPanelOpen = newChatPanelState !== null
-  // The New sprint dialog's scope (MC-2062). Present while the dialog is open;
-  // `initialSource` carries a preloaded plan (the `initialFuturePlan` seam) so
-  // a backlog "Run a Sprint" arrives with the selection already made.
-  const [newSprintDialogState, setNewSprintDialogState] = useState<{
-    folderPath: string | null
-    initialSource: FuturePlanWorkspaceSource | null
-  } | null>(null)
-  // Closing also releases the Sprints door's claim on the next sprint creation
-  // (item 1811), exactly as dismissing the old wizard did.
-  const closeNewSprintDialog = useCallback(() => {
-    setNewSprintDialogState(null)
-    releaseSprintCreationDoorClaim()
-  }, [])
   // Guards the async adoption against a second workspace creation landing before
   // the persisted `hasAdoptedAgentConfig` flag has been written.
   const adoptionInFlightRef = useRef(false)
@@ -880,23 +869,31 @@ export default function WorkspaceManager() {
     if (!workspaceActionsEnabled) return scopes
     scopes.push('workspace', 'workspace-navigation')
     if (activeWorkspace.mode === 'sprintengine' || sprintEngineRunContext(activeWorkspace)) {
-      scopes.push('panel:sprintengine')
+      const sprintEngineEnabled = selectModuleEnabled(moduleEnablement, 'sprint-engine')
+      const sprintTypeRegistered = getRendererHost().getWorkspaceTypeModule('sprintengine') === 'sprint-engine'
+      // The named `panel:sprintengine` literal stays until the mode leaves
+      // core (step 5). Module commands use `panel:sprint-engine`, derived
+      // below from the workspace-type registry. Both are pushed only when
+      // the type is registered and the module is on — absent module, neither
+      // scope, and the palette rows are gone rather than disabled.
+      if (sprintEngineEnabled && sprintTypeRegistered) {
+        scopes.push('panel:sprintengine')
+      }
     }
     // Generic module panel scope: the active mode's owning module (via the
     // workspace-type registry) gets `panel:<moduleId>` — this is how module
     // commands gate on "my workspace is active" without a shell enum arm per
-    // module. Sprint Engine is excluded: its commands ride the legacy 'panel:sprintengine' literal
-    // pushed by the dedicated arm above, and its module id ('sprint-engine')
-    // differs from the mode id — deriving here would activate a second,
-    // phantom scope name for the same surface.
+    // module.
     const owningModule = getRendererHost().getWorkspaceTypeModule(activeWorkspace.mode)
-    if (owningModule && owningModule !== 'sprint-engine') {
+    if (owningModule && selectModuleEnabled(moduleEnablement, owningModule)) {
       scopes.push(`panel:${owningModule}`)
     }
     return scopes
     // moduleRegistryGeneration: a late third-party load re-derives the
     // registry-backed panel scope for the already-active workspace.
-  }, [activeWorkspace?.mode, (activeWorkspace ? sprintEngineRunContext(activeWorkspace) : null), workspaceActionsEnabled, moduleRegistryGeneration])
+    // moduleEnablement: a live module toggle must drop `panel:sprint-engine`
+    // (and the leftover `panel:sprintengine` literal) without a reload.
+  }, [activeWorkspace?.mode, (activeWorkspace ? sprintEngineRunContext(activeWorkspace) : null), workspaceActionsEnabled, moduleRegistryGeneration, moduleEnablement])
   // The published context view module availability predicates evaluate
   // against — shared by the dispatcher and the palette so both agree.
   const moduleCommandContext = useMemo((): ModuleCommandContext => ({
@@ -928,7 +925,10 @@ export default function WorkspaceManager() {
     // The global Automations screen needs the automations module (its store/IPC).
     if (selectModuleEnabled(moduleEnablement, 'automations')) context.automationsEnabled = true
     if (workflowRolesInstalled(sprintEngineRoleRegistry)) context.workflowRolesInstalled = true
-    if (activeCommandScopes.includes('panel:sprintengine')) {
+    if (
+      activeCommandScopes.includes('panel:sprintengine')
+      || activeCommandScopes.includes('panel:sprint-engine')
+    ) {
       context.sprintengineWorkspace = true
       const sprintEngineState = (commandWorkspace ? sprintEngineRunState(commandWorkspace) : null) ?? null
       const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
@@ -1616,77 +1616,47 @@ export default function WorkspaceManager() {
   // the workspace's CLI config on pick and the agent starts in the workspace.
 
   // The one way the New sprint dialog opens (MC-2062) — the sidebar's New
-  // sprint, the Sprints door's New sprint, and every plan-sourced entry
-  // (`initialFuturePlan`) all land here. The dialog overlays the workspace card
-  // region, so whatever owns that region steps aside, and the Sprints-door claim
-  // resets to whoever opened this one.
-  const openNewSprintDialog = useCallback(
-    (initial?: { folderPath?: string | null; source?: FuturePlanWorkspaceSource | null }) => {
-      setNewSprintDialogState({
-        folderPath:
-          initial?.source?.folderPath
-          ?? initial?.folderPath
-          ?? activeWorkspace?.folderPath
-          ?? null,
-        initialSource: initial?.source ?? null,
-      })
-      // Opening releases whatever claim came before (item 1811): the dialog now
-      // on screen is the one this caller opened, and the door re-claims
-      // immediately after asking for its own.
-      releaseSprintCreationDoorClaim()
-      setNewChatPanelState(null)
-      closeGlobalSurface()
-      // The New sprint dialog is a Modal of its own: an open modal surface
-      // closes first, or two focus-trapping dialogs stack and one Escape
-      // dismisses both (closeModalSurface also clears the settings request).
-      closeModalSurface()
-      setNotificationsOpen(false)
-    },
-    [activeWorkspace?.folderPath, closeGlobalSurface, closeModalSurface],
-  )
-
-  // "New sprint" on the Sprints door (item 1763). A door-routed surface is
-  // zero-prop by contract, so it signals instead of calling — and because the
-  // door paints over the card region the wizard lives in, the door closes first,
-  // otherwise the wizard would open behind it. Item 1765 gives that wizard its
-  // primary-project picker, and the return leg below: a run started at the door
-  // belongs to the door, so creating one comes back here rather than dropping
-  // the operator into the workspace it resides in. The claim lives with the door
-  // seam; it is taken after the wizard opens (opening releases whatever claim came
-  // before) and released again by every route back out of it (item 1811).
-  const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
-    openSettingsOverlay({ initialTab: targetTab, checkForUpdates })
-    // Primary+, is a global shortcut, so it fires through the New sprint
-    // dialog's focus trap: that dialog closes (claim released, item 1811)
-    // rather than stacking a second Modal under the Settings one — one Escape
-    // would dismiss both.
-    closeNewSprintDialog()
-    setSessionsOpen(false)
-    setViewMenuOpen(false)
-    setNotificationsOpen(false)
-    setAccountOpen(false)
-  }, [closeNewSprintDialog, openSettingsOverlay])
-
+  // sprint, the Sprints door's New sprint, the global shortcut, and every
+  // plan-sourced entry (`initialFuturePlan`) all land on the module's modal
+  // surface. WorkspaceManager no longer mounts the dialog.
   const openFuturePlanWorkspace = useCallback((source: FuturePlanWorkspaceSource) => {
-    openNewSprintDialog({ source })
-  }, [openNewSprintDialog])
+    openSprintEngineNewSprint({ source })
+  }, [])
+
+  useEffect(() => {
+    if (activeModalSurface !== SPRINT_ENGINE_NEW_MODAL_ID) return undefined
+    setNewChatPanelState(null)
+    setNotificationsOpen(false)
+    return () => {
+      clearNewSprintRequest()
+      releaseSprintCreationDoorClaim()
+    }
+  }, [activeModalSurface])
 
   useEffect(
     () =>
       subscribeNewSprintRequests((source, door) => {
-        closeGlobalSurface()
         // A request carrying a plan (a "Run a Sprint" from a Backlog door row,
         // or the Sprints door's own inline work picker) opens the New sprint
         // dialog with that selection already made, exactly as the per-project
         // panel's own action does; a bare "New" opens it with nothing chosen.
-        if (source) openFuturePlanWorkspace(source)
-        else openNewSprintDialog()
-        // Claimed for the door that ASKED (item 2470). There are two of them, and
-        // a run created from one belongs back in it.
+        // Open first: opening releases whatever claim came before, then the
+        // door that asked re-claims so the claim always belongs to the dialog
+        // the operator is looking at.
+        if (source) openSprintEngineNewSprint({ source })
+        else openSprintEngineNewSprint()
         claimSprintCreationForDoor(door)
       }),
-    [closeGlobalSurface, openFuturePlanWorkspace, openNewSprintDialog],
+    [],
   )
+
+  const openSettings = useCallback((checkForUpdates = false, targetTab: string | null = null) => {
+    openSettingsOverlay({ initialTab: targetTab, checkForUpdates })
+    setSessionsOpen(false)
+    setViewMenuOpen(false)
+    setNotificationsOpen(false)
+    setAccountOpen(false)
+  }, [openSettingsOverlay])
 
   useEffect(() => {
     registerWorkspaceWindow(
@@ -4940,19 +4910,6 @@ export default function WorkspaceManager() {
             </SurfaceExitContext.Provider>
             </ModalSurfaceFrame>
           </Modal>
-        ) : null}
-        {/* The New sprint dialog (MC-2062): a fixed overlay, so it works whether
-            a workspace, a door, or the empty state owns the region beneath. */}
-        {newSprintDialogState ? (
-          <React.Suspense fallback={<SuspenseFallback label="Loading new sprint" />}>
-            <NewSprintDialog
-              initialFolderPath={newSprintDialogState.folderPath}
-              initialSource={newSprintDialogState.initialSource}
-              projectOptions={newChatProjectOptions}
-              workspaceWindowId={workspaceWindowId}
-              onClose={closeNewSprintDialog}
-            />
-          </React.Suspense>
         ) : null}
       </div>
       </div>

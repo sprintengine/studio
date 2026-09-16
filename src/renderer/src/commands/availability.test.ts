@@ -8,6 +8,8 @@ import {
   type CommandAvailabilityContext,
 } from './availability'
 import type { CommandScope } from './types'
+import { createRendererHost } from '../modules/renderer-host'
+import { registerSprintEngineCommands } from '../modules/sprint-engine-commands'
 
 function def(id: string) {
   const command = getCommandDefinition(id)
@@ -15,18 +17,26 @@ function def(id: string) {
   return command
 }
 
+const sprintKernel = createRendererHost()
+registerSprintEngineCommands(sprintKernel.hostFor('sprint-engine'))
+function sprintDef(id: string) {
+  const command = sprintKernel.getModuleCommand(id)
+  assert.ok(command, `expected sprint-engine module command ${id}`)
+  return command
+}
+
 // Commands with no preconditions are always available regardless of context.
-assert.equal(isCommandAvailable(def('sprintengine.goto.inbox'), { sprintengineWorkspace: true }), true)
+assert.equal(isCommandAvailable(sprintDef('sprint-engine.goto.inbox'), { sprintengineWorkspace: true }), true)
 assert.equal(isCommandAvailable({ availability: undefined }, {}), true)
 assert.equal(isCommandAvailable({ availability: [] }, {}), true)
 
 // ANDed preconditions: every declared condition must hold.
 assert.equal(
-  isCommandAvailable(def('sprintengine.verify.progress'), { sprintengineWorkspace: true }),
+  isCommandAvailable(sprintDef('sprint-engine.verify.progress'), { sprintengineWorkspace: true }),
   false,
 )
 assert.equal(
-  isCommandAvailable(def('sprintengine.verify.progress'), {
+  isCommandAvailable(sprintDef('sprint-engine.verify.progress'), {
     sprintengineWorkspace: true,
     sprintengineHasArchitect: true,
   }),
@@ -40,26 +50,35 @@ assert.equal(isCommandInScope({ scopes: ['panel:notebook'] }, ['panel:calendar']
 assert.equal(isCommandInScope({ scopes: ['panel:calendar'] }, ['panel:calendar']), true)
 
 // Sprint Engine: verify-progress needs an architect; navigation needs only the
-// workspace. The scope gate refuses the command outside a Sprint Engine panel
-// even when preconditions are otherwise met.
-const sprintEngineScopes: CommandScope[] = ['global', 'workspace', 'workspace-navigation', 'panel:sprintengine']
+// module panel scope. The scope gate refuses the command outside a Sprint Engine
+// panel even when preconditions are otherwise met.
+const sprintEngineScopes: CommandScope[] = ['global', 'workspace', 'workspace-navigation', 'panel:sprint-engine']
 const sprintEngineContext: CommandAvailabilityContext = { activeWorkspace: true, sprintengineWorkspace: true }
-assert.equal(isCommandIdEnabled('sprintengine.verify.progress', sprintEngineScopes, sprintEngineContext), false)
 assert.equal(
-  isCommandIdEnabled('sprintengine.verify.progress', sprintEngineScopes, {
+  isCommandEnabled(sprintDef('sprint-engine.verify.progress'), sprintEngineScopes, sprintEngineContext),
+  false,
+)
+assert.equal(
+  isCommandEnabled(sprintDef('sprint-engine.verify.progress'), sprintEngineScopes, {
     ...sprintEngineContext,
     sprintengineHasArchitect: true,
   }),
   true,
 )
-assert.equal(isCommandIdEnabled('sprintengine.goto.roster', sprintEngineScopes, sprintEngineContext), true)
-assert.equal(isCommandIdEnabled('sprintengine.goto.roster', ['global', 'workspace'], sprintEngineContext), false)
 assert.equal(
-  isCommandIdEnabled('sprintengine.focus.agent', sprintEngineScopes, sprintEngineContext),
+  isCommandEnabled(sprintDef('sprint-engine.goto.roster'), sprintEngineScopes, sprintEngineContext),
+  true,
+)
+assert.equal(
+  isCommandEnabled(sprintDef('sprint-engine.goto.roster'), ['global', 'workspace'], sprintEngineContext),
   false,
 )
 assert.equal(
-  isCommandIdEnabled('sprintengine.focus.agent', sprintEngineScopes, {
+  isCommandEnabled(sprintDef('sprint-engine.focus.agent'), sprintEngineScopes, sprintEngineContext),
+  false,
+)
+assert.equal(
+  isCommandEnabled(sprintDef('sprint-engine.focus.agent'), sprintEngineScopes, {
     ...sprintEngineContext,
     sprintengineFocusAgentVisible: true,
   }),
@@ -141,11 +160,11 @@ assert.equal(
   true,
 )
 assert.equal(
-  isCommandIdEnabled('sprintengine.add.role', sprintEngineScopes, sprintEngineContext),
+  isCommandEnabled(sprintDef('sprint-engine.add.role'), sprintEngineScopes, sprintEngineContext),
   false,
 )
 assert.equal(
-  isCommandIdEnabled('sprintengine.add.role', sprintEngineScopes, {
+  isCommandEnabled(sprintDef('sprint-engine.add.role'), sprintEngineScopes, {
     ...sprintEngineContext,
     workflowRolesInstalled: true,
   }),

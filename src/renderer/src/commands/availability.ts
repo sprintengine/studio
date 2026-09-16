@@ -13,7 +13,7 @@ export type CommandAvailabilityContext = Partial<Record<CommandAvailability, boo
 /**
  * True when every availability precondition a command declares is satisfied.
  * Commands with no preconditions (or the `always` sentinel) are always
- * available. Conditions are ANDed — `sprintengine.verify.progress` needs both a
+ * available. Conditions are ANDed — `sprint-engine.verify.progress` needs both a
  * Sprint Engine workspace and an architect on the roster.
  */
 export function isCommandAvailable(

@@ -268,4 +268,18 @@ export const LEGACY_COMMAND_ID_ALIASES: Record<string, string> = {
   // module (MC-1861), so a user-reassigned or user-disabled `voice.toggle`
   // binding keeps winning over the module's default.
   'voice-dictation.toggle': 'voice.toggle',
+  // Sprint board commands moved from the shell registry onto the
+  // sprint-engine module (MC-2577). A user-reassigned or user-disabled
+  // `sprintengine.*` binding keeps winning over the module default.
+  'sprint-engine.verify.progress': 'sprintengine.verify.progress',
+  'sprint-engine.add.role': 'sprintengine.add.role',
+  'sprint-engine.read.plan': 'sprintengine.read.plan',
+  'sprint-engine.focus.agent': 'sprintengine.focus.agent',
+  'sprint-engine.refresh.board': 'sprintengine.refresh.board',
+  'sprint-engine.goto.inbox': 'sprintengine.goto.inbox',
+  'sprint-engine.goto.roster': 'sprintengine.goto.roster',
+  'sprint-engine.goto.tasks': 'sprintengine.goto.tasks',
+  'sprint-engine.goto.graph': 'sprintengine.goto.graph',
+  'sprint-engine.goto.kanban': 'sprintengine.goto.kanban',
+  'sprint-engine.open.settings': 'sprintengine.open.settings',
 }
