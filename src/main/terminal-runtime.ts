@@ -14,10 +14,8 @@ import type {
   AgentPhaseEvent,
   AgentPhaseListener,
   AgentSessionExitListener,
-  AgentSpawnDescriptor,
   LiveAgentExecution,
 } from '../shared/agent-runtime'
-import { createAgentStreamWatcher } from './agent-stream-watcher'
 import { clearConversationPeekCaches } from './conversation-peek/caches'
 import { appendLivePeekPrompt, type ConversationPeekSessionState } from './conversation-peek/service'
 import { agentStateSpecReportsPrompts, applyBackgroundWork, deriveActivityFromPhase, evaluateAgentStall, holdTurnEndForBackgroundWork, isAtRestAgentPhase, resolveAgentStateEvent, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
@@ -166,8 +164,8 @@ type TerminalRuntimeOptions = {
   //
   // `onAgentLaunched` fires where a session goes live (`attachTerminalSession`),
   // which is the ONE seam every launch path passes through — the launch service,
-  // an agent descriptor spawn, and a resume alike — so an agent launched by any
-  // of them gets its list. `onAgentFileEdit` fires per reported edit, and
+  // a renderer spawn, and a resume alike — so an agent launched by any of them
+  // gets its list. `onAgentFileEdit` fires per reported edit, and
   // `onAgentSessionExit` once per pty that dies on its own.
   onAgentLaunched?(session: TerminalSession): void
   onAgentFileEdit?(input: {
@@ -225,16 +223,6 @@ type TerminalRuntime = {
   // Fires on every accepted agent-state phase transition (see ingestAgentStateFrame):
   // frames for a dead pty and stale frames never reach a listener.
   registerAgentPhaseListener(listener: AgentPhaseListener): () => void
-  killAgentSession(input: {
-    workspaceRoot: string
-    executionId: string
-  }): void
-  spawnAgentSession(input: {
-    workspaceId?: string
-    workspaceRoot: string
-    descriptor: AgentSpawnDescriptor
-    mcpSettings?: McpSettings
-  }): Promise<TerminalSpawnResult>
   // Applies an authoritative agent-state frame (from the lifecycle-hook reporter
   // socket) to the matching live session. Validated upstream by the service.
   ingestAgentStateFrame(frame: AgentStateFrame): void
@@ -364,8 +352,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
     resolveAgentExecutionId,
     registerAgentSessionExitListener,
     registerAgentPhaseListener,
-    killAgentSession: killAgentSessionByExecutionId,
-    spawnAgentSession: spawnAgentSessionFromDescriptor,
     ingestAgentStateFrame,
     readTerminalOutput,
     remoteHost: terminalRemoteHost,
@@ -438,87 +424,6 @@ function trackAgentListenerRecord(record: Promise<void>): void {
   })
 }
 
-function descriptorPromptInput(prompt: string | undefined): string | undefined {
-  if (!prompt) return undefined
-  return process.platform === 'win32' ? `${prompt}\r\n\x1a\r\n` : `${prompt}\n\x04`
-}
-
-function descriptorPromptKeystrokes(prompt: string | undefined): string | undefined {
-  if (!prompt) return undefined
-  // Without an EOF, the agent reads the prompt as user input and waits for
-  // more (interactive subscription-billed mode). The trailing newline acts
-  // as the Enter key the agent's REPL expects.
-  return process.platform === 'win32' ? `${prompt}\r\n` : `${prompt}\n`
-}
-
-function installAgentLifecycleWatcher(
-  terminalSession: TerminalSession,
-  descriptor: AgentSpawnDescriptor,
-  injectionMode: 'positional-arg' | 'stdin-pipe' | 'send-after-ready'
-): void {
-  const completionMode = descriptor.completion?.mode ?? 'process-exit'
-  const needsReadinessWatch = injectionMode === 'send-after-ready'
-  const needsCompletionWatch = completionMode === 'output-sentinel'
-  if (!needsReadinessWatch && !needsCompletionWatch) return
-
-  let readinessPattern: RegExp | undefined
-  if (needsReadinessWatch && descriptor.injection?.readiness) {
-    try {
-      readinessPattern = new RegExp(descriptor.injection.readiness.pattern, 'm')
-    } catch (err) {
-      console.error(
-        `Invalid readiness regex from agent descriptor ${descriptor.executionId}: ${String(err)}`
-      )
-    }
-  }
-
-  const watcher = createAgentStreamWatcher({
-    readinessPattern,
-    completionSentinel:
-      completionMode === 'output-sentinel' ? descriptor.completion?.sentinel : undefined,
-  })
-
-  let readinessTimer: NodeJS.Timeout | null = null
-  if (needsReadinessWatch && descriptor.injection?.readiness?.timeoutMs) {
-    readinessTimer = setTimeout(() => {
-      // If readiness never fires, fall back to writing the prompt anyway so
-      // the autonomous runner does not stall forever on a quiet pty. The
-      // worst case is the prompt arrives before the agent's REPL is ready
-      // and the agent ignores it — which still beats a stuck session.
-      if (!terminalSession.isDisposed) {
-        const fallback = descriptorPromptKeystrokes(descriptor.prompt)
-        if (fallback) terminalSession.process.write(fallback)
-      }
-    }, descriptor.injection.readiness.timeoutMs)
-  }
-
-  terminalSession.process.onData((data: string) => {
-    const result = watcher.ingest(data)
-    if (result.readyMatched && needsReadinessWatch) {
-      if (readinessTimer) {
-        clearTimeout(readinessTimer)
-        readinessTimer = null
-      }
-      const keystrokes = descriptorPromptKeystrokes(descriptor.prompt)
-      if (keystrokes && !terminalSession.isDisposed) {
-        terminalSession.process.write(keystrokes)
-      }
-    }
-    if (result.completionMatched && needsCompletionWatch) {
-      // The agent has signalled it is done. Killing the pty triggers the
-      // existing onExit pathway, which records the agent session exit and
-      // tears the session down. We do not write an interactive /exit because
-      // the agent should already be quiescent at this point.
-      if (!terminalSession.isDisposed) {
-        try {
-          terminalSession.process.kill()
-        } catch {
-          // Best-effort: node-pty can race with the underlying process.
-        }
-      }
-    }
-  })
-}
 function sendTerminalEvent(
   sender: Electron.WebContents,
   channel: string,
@@ -702,8 +607,8 @@ const terminalOutput = createTerminalOutputBuffer({
  * sender is an event sink, not a capability, so the pty still runs and buffers,
  * and a window opened later reattaches through `spawnTerminalFromIpc`'s
  * existing-session branch, adopting the real WebContents and replaying
- * scrollback. The one definition for every main-process spawn: the descriptor
- * and the launch service's spawn port in `src/main/app-services.ts`.
+ * scrollback. The one definition for every main-process spawn: the launch
+ * service's spawn port in `src/main/app-services.ts`.
  */
 export function resolveSpawnEventSink(): WebContents {
   return BrowserWindow.getAllWindows()
@@ -1800,20 +1705,6 @@ function registerAgentPhaseListener(listener: AgentPhaseListener): () => void {
   }
 }
 
-function killAgentSessionByExecutionId(input: { workspaceRoot: string; executionId: string }): void {
-  const workspaceRoot = input.workspaceRoot
-  const executionId = input.executionId
-  const matchingSessionIds = [...terminals.values()]
-    .filter((session) => (
-      isTerminalProcessAlive(session)
-      && session.agentSession?.workspaceRoot === workspaceRoot
-      && session.agentSession.executionId === executionId
-    ))
-    .map((session) => session.sessionId)
-
-  matchingSessionIds.forEach(disposeTerminal)
-}
-
 function disposeOtherAgentSessions(
   sessionId: string,
   workspaceId: string | undefined,
@@ -2653,194 +2544,6 @@ function attachTerminalSession(
   if (initialInput) {
     recordTerminalInput(terminalSession)
     terminalSession.process.write(initialInput)
-  }
-}
-
-async function spawnAgentSessionFromDescriptor(input: {
-  workspaceId?: string
-  workspaceRoot: string
-  descriptor: AgentSpawnDescriptor
-  mcpSettings?: McpSettings
-}): Promise<TerminalSpawnResult> {
-  const sender = resolveSpawnEventSink()
-
-  const [command, ...args] = input.descriptor.command
-  if (!command) {
-    retainFailedTerminalSession({
-      sessionId: input.descriptor.executionId,
-      sender,
-      message: 'Agent descriptor did not include a command.',
-      kind: 'agent',
-      workspaceId: input.workspaceId,
-      agentId: input.descriptor.executionId,
-      cli: input.descriptor.cli,
-      cwd: input.descriptor.cwd,
-      agentSession: {
-        sessionId: input.descriptor.executionId,
-        executionId: input.descriptor.executionId,
-        system: input.descriptor.system,
-        workspaceId: input.workspaceId ?? '',
-        workspaceRoot: input.workspaceRoot,
-        workId: input.descriptor.workId,
-        role: input.descriptor.role,
-        displayName: input.descriptor.displayName,
-      },
-    })
-    return {
-      ok: false,
-      sessionId: input.descriptor.executionId,
-      message: 'Agent descriptor did not include a command.',
-      exitCode: 1,
-    }
-  }
-
-  disposeTerminal(input.descriptor.executionId)
-
-  try {
-    if (syncMcpConfig && input.descriptor.cli) {
-      const syncResult = await syncMcpConfig({
-        workspaceRoot: input.descriptor.cwd || input.workspaceRoot,
-        settings: input.mcpSettings ?? { syncEnabled: false, servers: {} },
-        clients: [input.descriptor.cli],
-      })
-      if (!syncResult.ok) {
-        retainFailedTerminalSession({
-          sessionId: input.descriptor.executionId,
-          sender,
-          message: syncResult.message,
-          kind: 'agent',
-          workspaceId: input.workspaceId,
-          agentId: input.descriptor.executionId,
-          cli: input.descriptor.cli,
-          cwd: input.descriptor.cwd,
-          agentSession: {
-            sessionId: input.descriptor.executionId,
-            executionId: input.descriptor.executionId,
-            system: input.descriptor.system,
-            workspaceId: input.workspaceId ?? '',
-            workspaceRoot: input.workspaceRoot,
-            workId: input.descriptor.workId,
-            role: input.descriptor.role,
-            displayName: input.descriptor.displayName,
-          },
-        })
-        return {
-          ok: false,
-          sessionId: input.descriptor.executionId,
-          message: syncResult.message,
-          exitCode: 1,
-        }
-      }
-    }
-
-    const initialSize = getTerminalSize(120, 30)
-    // Inject the agent's durable identity so the agent-state reporter's hook
-    // frames map back to this session (identity env === executionId ===
-    // session.agentId below), and strip any stale id the app process inherited.
-    // Descriptor env wins over the base, identity wins over both.
-    const descriptorEnv = applyAgentIdentityEnv(
-      { ...getTerminalEnv(), ...(input.descriptor.env ?? {}) },
-      {
-        workspaceId: input.workspaceId,
-        agentId: input.descriptor.executionId,
-        agentName: input.descriptor.displayName,
-      }
-    )
-    // Install the reporter before launching a supported agent so its hooks
-    // report phase from the first event. Best-effort; never blocks/fails launch.
-    if (agentStateSupportsCli(input.descriptor.cli)) {
-      await prepareAgentStateHook?.(input.descriptor.cwd || input.workspaceRoot, input.descriptor.cli)
-    }
-    const termProcess = pty.spawn(command, args, {
-      name: 'xterm-256color',
-      cols: initialSize.cols,
-      rows: initialSize.rows,
-      cwd: input.descriptor.cwd,
-      env: descriptorEnv,
-    })
-    const startedAt = Date.now()
-    const terminalSession: TerminalSession = {
-      sessionId: input.descriptor.executionId,
-      process: termProcess,
-      sender,
-      isReady: process.platform !== 'win32',
-      hasExited: false,
-      exitedAt: null,
-      isDisposed: false,
-      activity: createInitialTerminalActivity(startedAt),
-      agentState: createInitialAgentState('agent', startedAt),
-      outputChunks: [],
-      outputChunkBytes: [],
-      outputChunkStart: 0,
-      outputBytes: 0,
-      outputLength: 0,
-      kind: 'agent',
-      pathStyle: process.platform === 'win32' ? 'windows' : 'posix',
-      workspaceId: input.workspaceId,
-      agentId: input.descriptor.executionId,
-      cli: input.descriptor.cli,
-      cwd: input.descriptor.cwd,
-      agentSession: {
-        sessionId: input.descriptor.executionId,
-        executionId: input.descriptor.executionId,
-        system: input.descriptor.system,
-        workspaceId: input.workspaceId ?? '',
-        workspaceRoot: input.workspaceRoot,
-        workId: input.descriptor.workId,
-        role: input.descriptor.role,
-        displayName: input.descriptor.displayName,
-      },
-      visible: false,
-      startedAt,
-      lastOutputAt: startedAt,
-      lastInputAt: null,
-      lastVisibleAt: null,
-    }
-
-    const injectionMode = input.descriptor.injection?.mode ?? 'stdin-pipe'
-    let initialInput: string | undefined
-    if (injectionMode === 'stdin-pipe') {
-      initialInput = descriptorPromptInput(input.descriptor.prompt)
-    } else if (injectionMode === 'positional-arg') {
-      // The prompt is already part of the spawned argv; nothing to inject.
-      initialInput = undefined
-    } else {
-      // send-after-ready: we attach first, then inject once the readiness
-      // pattern fires (see installAgentLifecycleWatcher below).
-      initialInput = undefined
-    }
-
-    attachTerminalSession(input.descriptor.executionId, terminalSession, initialInput)
-    installAgentLifecycleWatcher(terminalSession, input.descriptor, injectionMode)
-    return { ok: true, sessionId: input.descriptor.executionId }
-  } catch (error) {
-    const message = getTerminalErrorMessage(error)
-    retainFailedTerminalSession({
-      sessionId: input.descriptor.executionId,
-      sender,
-      message,
-      kind: 'agent',
-      workspaceId: input.workspaceId,
-      agentId: input.descriptor.executionId,
-      cli: input.descriptor.cli,
-      cwd: input.descriptor.cwd,
-      agentSession: {
-        sessionId: input.descriptor.executionId,
-        executionId: input.descriptor.executionId,
-        system: input.descriptor.system,
-        workspaceId: input.workspaceId ?? '',
-        workspaceRoot: input.workspaceRoot,
-        workId: input.descriptor.workId,
-        role: input.descriptor.role,
-        displayName: input.descriptor.displayName,
-      },
-    })
-    return {
-      ok: false,
-      sessionId: input.descriptor.executionId,
-      message,
-      exitCode: 1,
-    }
   }
 }
 

@@ -14,49 +14,6 @@ export { defaultAgent, defaultAgentExecution } from './agent-state'
 // `registerAgentIdNamespace` and the launch contribution's `session.managed`
 // tag, never by an enum member on the agent record.
 
-type AgentInjectionMode =
-  | 'positional-arg'
-  | 'stdin-pipe'
-  | 'send-after-ready'
-
-type AgentReadinessSignal = {
-  type: 'output-match'
-  pattern: string
-  timeoutMs: number
-}
-
-type AgentInjectionSpec = {
-  mode: AgentInjectionMode
-  readiness?: AgentReadinessSignal
-}
-
-type AgentCompletionMode = 'process-exit' | 'output-sentinel'
-
-type AgentCompletionSpec = {
-  mode: AgentCompletionMode
-  sentinel?: string
-}
-
-export type AgentSpawnDescriptor = {
-  executionId: string
-  system: AgentSessionSystem
-  workId: string
-  role: string
-  displayName: string
-  command: string[]
-  cwd: string
-  env?: Record<string, string>
-  prompt?: string
-  cli?: 'codex' | 'claude-code'
-  // When present, the runtime injects the prompt via the named mode instead of
-  // always using stdin-pipe with EOF.
-  injection?: AgentInjectionSpec
-  // When `completion.mode === 'output-sentinel'`, the runtime watches the pty
-  // output for the sentinel literal and disposes the session as soon as it sees
-  // one, instead of waiting for the process to exit.
-  completion?: AgentCompletionSpec
-}
-
 // A live agent execution surfaced by the runtime inventory, tagged with the
 // owning system so a module can filter the inventory down to its own sessions.
 export type LiveAgentExecution = {
