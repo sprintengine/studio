@@ -117,6 +117,24 @@ export const RETIRED_COMMAND_IDS: readonly string[] = [
   'specialist.spawn.architect',
   'specialist.spawn.performance',
   'specialist.spawn.frontend-design-review',
+  // The sprint-engine module's board and New sprint commands (MC-2577
+  // registered them as `sprint-engine.<id>`), and the shell-registry
+  // `sprintengine.*` spellings their stored bindings were keyed by before that
+  // move.
+  ...[
+    'verify.progress',
+    'add.role',
+    'read.plan',
+    'focus.agent',
+    'refresh.board',
+    'goto.inbox',
+    'goto.roster',
+    'goto.tasks',
+    'goto.graph',
+    'goto.kanban',
+    'open.settings',
+  ].flatMap((id) => [`sprint-engine.${id}`, `sprintengine.${id}`]),
+  'sprint-engine.new',
   // The title-bar Attention Queue was removed: the sidebar rows and the Home
   // glyph's notifications already carry "which agents are waiting on you", so
   // the popover and its toggle command went with it.

@@ -236,6 +236,43 @@ assert.ok(
 // delta — the tab prunes what it lists as retired.
 const RETIRED_ID = 'panel.sprint-engines.toggle'
 assert.ok(RETIRED_COMMAND_IDS.includes(RETIRED_ID), 'the removed Sprint Engines toggle is listed as retired')
+// The sprint-engine module's commands, in their module spelling and the
+// `sprintengine.*` spelling stored before MC-2577 moved them, plus New sprint.
+for (const id of [
+  'sprint-engine.verify.progress',
+  'sprintengine.verify.progress',
+  'sprint-engine.add.role',
+  'sprintengine.add.role',
+  'sprint-engine.read.plan',
+  'sprintengine.read.plan',
+  'sprint-engine.focus.agent',
+  'sprintengine.focus.agent',
+  'sprint-engine.refresh.board',
+  'sprintengine.refresh.board',
+  'sprint-engine.goto.inbox',
+  'sprintengine.goto.inbox',
+  'sprint-engine.goto.roster',
+  'sprintengine.goto.roster',
+  'sprint-engine.goto.tasks',
+  'sprintengine.goto.tasks',
+  'sprint-engine.goto.graph',
+  'sprintengine.goto.graph',
+  'sprint-engine.goto.kanban',
+  'sprintengine.goto.kanban',
+  'sprint-engine.open.settings',
+  'sprintengine.open.settings',
+  'sprint-engine.new',
+]) {
+  assert.ok(RETIRED_COMMAND_IDS.includes(id), `${id} is listed as retired`)
+}
+assert.deepEqual(
+  retiredKeybindingIds({
+    overrides: { 'sprint-engine.goto.kanban': ['g k'] },
+    disabled: { 'sprintengine.open.settings': true },
+  }),
+  ['sprint-engine.goto.kanban', 'sprintengine.open.settings'],
+  'a stored sprint-engine override or disable flag is pruneable in either spelling',
+)
 for (const id of RETIRED_COMMAND_IDS) {
   assert.equal(
     COMMAND_REGISTRY.some((command) => command.id === id),

@@ -93,7 +93,7 @@ export function stripRetiredRailTabsFromLayout(layoutModel: unknown): unknown {
 // still names them in its persisted layout, and the model registry no longer
 // resolves them, so a surviving tab would render an empty surface — drop them
 // on hydration the same way the rail-to-pane move drops its tabs.
-const RETIRED_MODULE_TAB_COMPONENTS = [
+export const RETIRED_MODULE_TAB_COMPONENTS: readonly string[] = [
   'switchboard-workspace',
   'switchboard-board',
   // The Design Wizard (`design-wizard` module) was deleted 2026-09-08. Its
@@ -104,8 +104,10 @@ const RETIRED_MODULE_TAB_COMPONENTS = [
   // The in-tree sprint engine was deleted 2026-09-16. Its workspace rows are
   // dropped by dropRetiredModeWorkspaces; these cover a board or one of its
   // pre-v48 segment tabs dragged into some other workspace's layout, plus the
-  // survey tab that used to sit on the per-workspace nav rail.
+  // survey tab that used to sit on the per-workspace nav rail, and the
+  // Architect Plan reader the board opened beside itself.
   'sprintengine',
+  'sprintengine-plan-reader',
   'sprintengine-inbox',
   'sprintengine-roster',
   'sprintengine-tasks',
