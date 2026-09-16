@@ -1,7 +1,8 @@
 import React from 'react'
-import { SpecialistActionIcon, SpecialistPacksSettingsIcon } from '../../AppIcons'
+import { SpecialistActionIcon } from '../../AppIcons'
 import CliIcon from '../../CliIcon'
 import { ChipButton, CliModelPickerButton, CloseIconButton, EmptyState, FOCUS_RING_WITHIN_INPUT_CLASS, IconButton, Input, MENU_LIST_CLASS, MenuDivider, MenuItem, MenuOption, PanelHeader, Popover, PrimaryButton, roveMenuFocus, RowButton, StarGlyph, TruncatedText } from '../../ui'
+import { NoWorkflowRolesNotice } from '../../NoWorkflowRolesNotice'
 import { getSpecialistAction, type SpecialistAction } from '../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { AgentCli, SprintEngineCliPermissionPreset } from '../../../types/workspace'
@@ -97,15 +98,8 @@ export default function AgentComposer({
     (s) => s.workspaces.find((w) => w.id === s.activeWorkspaceId)?.folderPath ?? null,
   )
   const skillWorkspaceRoot = folderPath ?? activeWorkspaceRoot
-  // Fresh-install discovery: with no specialists installed, the roster's
-  // Specialists section opens the module manager (Settings › Modules), where
-  // installed packs are managed and the marketplace is one step away. Leaves the
-  // composer mounted so a live install repaints the roster on return.
-  const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
-  const openSpecialistMarketplace = React.useCallback(
-    () => openSettingsOverlay({ initialTab: 'modules' }),
-    [openSettingsOverlay],
-  )
+  const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
+  const rolesLoaded = sprintEngineRoleRegistry !== null
 
   React.useEffect(() => {
     const id = requestAnimationFrame(() => searchRef.current?.focus())
@@ -297,15 +291,14 @@ export default function AgentComposer({
                       />
                     ))}
                   </div>
-                ) : composer.query.trim() || composer.noAgentCliInstalled ? null : (
-                  // No specialists installed (only shown for the whole roster, not
-                  // a search that filtered them out, and not when the machine has
-                  // no CLI to run one on): offer the marketplace path.
+                ) : composer.query.trim() || composer.noAgentCliInstalled ? null : rolesLoaded ? (
                   <div className="border-t border-[color:var(--border-subtle)] pt-1">
                     <div className="px-2 pb-1 pt-1 text-micro text-[color:var(--text-subtle)]">Specialists</div>
-                    <GetSpecialistsRow onOpenMarketplace={openSpecialistMarketplace} />
+                    <div className="px-2 py-1" aria-disabled="true">
+                      <NoWorkflowRolesNotice />
+                    </div>
                   </div>
-                )}
+                ) : null}
               </>
             )}
           </div>
@@ -579,29 +572,6 @@ function ComposerRosterRow({
         {icon}
       </span>
       <TruncatedText as="span" text={label} className="min-w-0 flex-1 text-body" />
-    </RowButton>
-  )
-}
-
-// Empty-state discovery entry rendered under the Specialists header when no
-// specialist pack is installed. It is an action (opens the module manager),
-// not a spawnable roster option, so it is a plain focusable button outside the
-// listbox's roving selection — reachable by Tab with its own focus-visible ring.
-// The accessible name mirrors the visible label so it does not over-promise a
-// destination (the module manager, not the marketplace directly).
-function GetSpecialistsRow({ onOpenMarketplace }: { onOpenMarketplace: () => void }) {
-  return (
-    // The roster row's shape, so the discovery entry sits in the same list
-    // rhythm as the options above it — same density, same inset, same glyph
-    // column — while staying outside the listbox's roving selection.
-    <RowButton density="bleed" onClick={onOpenMarketplace} aria-label="Get specialist roles" className="pl-2.5">
-      <span className="flex w-5 shrink-0 justify-center">
-        <SpecialistPacksSettingsIcon className="h-4 w-4 text-[color:var(--text-muted)]" />
-      </span>
-      <TruncatedText as="span" text="Get specialist roles" className="min-w-0 flex-1 text-body" />
-      <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-        <path d="M6 3.5L10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
     </RowButton>
   )
 }

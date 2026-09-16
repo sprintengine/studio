@@ -94,7 +94,8 @@ export const filesystemApi = {
       await ipcRenderer.invoke('fs:watch-stop', watchId)
     }
   },
-  openDir: () => ipcRenderer.invoke('fs:dialog:opendir'),
+  openDir: (options?: { defaultPath?: string }) => ipcRenderer.invoke('fs:dialog:opendir', options),
+  ensureDefaultUserSkillsDir: () => ipcRenderer.invoke('skills:ensure-default-user-dir'),
   defaultWorkspaceParentDir: () => ipcRenderer.invoke('app:default-workspace-parent'),
   openFile: (options?: OpenDialogOptions) => ipcRenderer.invoke('fs:dialog:openfile', options),
   showContextMenu: (items: ContextMenuItem[]) => ipcRenderer.invoke('app:show-context-menu', items),
@@ -138,6 +139,7 @@ export const filesystemApi = {
   | 'openFolderInTarget'
   | 'watchPath'
   | 'openDir'
+  | 'ensureDefaultUserSkillsDir'
   | 'defaultWorkspaceParentDir'
   | 'openFile'
   | 'showContextMenu'

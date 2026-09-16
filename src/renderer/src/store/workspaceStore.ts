@@ -187,6 +187,10 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   setSidebarWidth: (width: number) => void
   sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
   setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
+  // Bumped after a skill/plugin install or uninstall so pickers re-read the
+  // workspace registry without a restart (MC-2507).
+  sprintEngineRoleRegistryEpoch: number
+  bumpSprintEngineRoleRegistryEpoch: () => void
   // The workspace pane column's width (browser-pane epic), persisted in the
   // settings envelope beside sidebarWidth. Open/closed is per workspace
   // (`workspace.paneState.open`); maximised is session-only.

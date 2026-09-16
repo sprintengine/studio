@@ -42,6 +42,7 @@ import type {
 import { readMobileAutomationSnapshots } from './automations'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { readWorkspaceRoleCatalog, type RoleCatalogReader } from './role-catalog'
+import { NO_WORKFLOW_ROLES_INSTALLED_ON_DESKTOP_MESSAGE } from '../../../shared/workflow-roles'
 import { deriveWorkspaceId } from './workspace-id'
 import { containsLocalPath, deepRedactLocalPaths } from './relay-path-safety'
 
@@ -411,7 +412,10 @@ async function readBacklogWorkspaceSnapshots(
       if (!workspace) return null
       if (!includeRoleCatalogs) return workspace
       const roles = await readRoleCatalog(workspaceRoot).catch(() => undefined)
-      return roles ? { ...workspace, roles } : workspace
+      if (!roles) return workspace
+      return roles.length === 0
+        ? { ...workspace, roles, rolesUnavailable: NO_WORKFLOW_ROLES_INSTALLED_ON_DESKTOP_MESSAGE }
+        : { ...workspace, roles }
     })
   )
   return settled

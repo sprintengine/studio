@@ -34,6 +34,7 @@ import {
 import { ConnectorSectionHeading } from '../../../../panels/ConnectorsPanel/ConnectorRow'
 import { GlobalSurfaceShell } from '../../GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../../surfaceBackNav'
+import { ADD_LOCAL_SKILL_SOURCE_LABEL } from '../../../../../../../shared/workflow-roles'
 import {
   CATALOGUE_PAGE_SIZE,
   deriveCataloguePage,
@@ -327,7 +328,7 @@ function AddSourceMenu({ add }: { add: CatalogueAddMenu }): JSX.Element {
       ariaLabel="Add source"
       align="end"
       items={[
-        { id: 'file', label: 'Add from file…', onSelect: add.onAddFromFile },
+        { id: 'file', label: ADD_LOCAL_SKILL_SOURCE_LABEL, onSelect: add.onAddFromFile },
         { id: 'github', label: 'Add from GitHub…', onSelect: add.onAddFromGitHub },
       ]}
       trigger={(open, opened) => (

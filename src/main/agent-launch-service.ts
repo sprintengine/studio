@@ -73,6 +73,7 @@ import {
   getSpecialistAction,
 } from '../shared/specialists/specialist-actions'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../shared/workspace-mode'
+import { missingRoleMessage } from '../shared/workflow-roles'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 
 /**
@@ -140,6 +141,12 @@ export type AgentLaunchServiceDeps = {
   newSessionId?: () => string
   /** Agent id suffix. Injected for the same reason. */
   newAgentSuffix?: () => string
+  /**
+   * Installed workflow-role ids in this workspace. A specialist launch must
+   * resolve against this set; a missing pack or unknown id is refused rather
+   * than launched as a general agent (owner ruling 2026-09-08).
+   */
+  listInstalledRoleIds?: (workspaceRoot: string) => Promise<readonly string[]>
 }
 
 export type AgentLaunchService = {
@@ -232,9 +239,24 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
 
     const agentId = request.agentId?.trim() || `agent-${cli}-${newAgentSuffix()}`
     const name = request.name?.trim() || pickRandomAgentName(takenAgentNames(workspace, deps.terminal.list()))
-    // The picker constrains specialistId to the catalog; trust it at this
-    // boundary, exactly as the renderer path did.
+    // An already-saved automation may name a specialistId nothing currently
+    // backs. Refuse rather than launching a general agent (owner ruling
+    // 2026-09-08).
     const specialistId = request.specialistId?.trim() || undefined
+    if (specialistId) {
+      const known = deps.listInstalledRoleIds
+        ? await deps.listInstalledRoleIds(workspace.folderPath?.trim() || cwd)
+        : []
+      const normalized = specialistId.toLowerCase().replace(/-/g, '_')
+      const knownNormalized = known.map((id) => id.toLowerCase().replace(/-/g, '_'))
+      if (!knownNormalized.includes(normalized)) {
+        return {
+          ok: false,
+          code: 'unknown_role',
+          message: missingRoleMessage(specialistId, known),
+        }
+      }
+    }
     // A specialist run must take its role before acting, just like an
     // interactively-spawned specialist. Composed here rather than by the caller,
     // so a directive sent by the gateway, an automation, or a plan step is

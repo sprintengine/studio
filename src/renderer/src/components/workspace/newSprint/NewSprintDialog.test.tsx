@@ -146,6 +146,16 @@ const DIRS: Record<string, Array<{ name: string; isDir: boolean }>> = {
     FILES[path] = content
   },
   updateBacklogTriage: async () => ({ ok: true }),
+  readSprintEngineRegistryRoles: async () => ({
+    ok: true,
+    data: {
+      roles: [
+        { id: 'architect', label: 'Architect', source: { layer: 'workspace' } },
+        { id: 'developer', label: 'Developer', source: { layer: 'workspace' } },
+        { id: 'tester', label: 'Tester', source: { layer: 'workspace' } },
+      ],
+    },
+  }),
 }
 
 async function main(): Promise<void> {

@@ -27,20 +27,11 @@ async function testUnknownSpecialistIdReturnsStructuredFailure(): Promise<void> 
 
 async function testKnownSpecialistRendersFromRegistry(): Promise<void> {
   const result = await readSpecialistSoul('architect')
-  assert.equal(result.ok, true, `architect Soul should render: ${result.ok ? '' : result.message}`)
-  if (!result.ok) return
-  assert.equal(typeof result.prompt, 'string')
-  assert.ok(result.prompt.length > 200, 'rendered prompt should not be trivially short')
-  // The role resolves through the workspace skills scan (`role_registry.py`),
-  // not from a path inside this checkout — that is what lets a dropped-in
-  // role skill contribute one. Assert the role it landed on, not where the
-  // registry happens to be materialized on this machine.
-  assert.match(result.path, /[\\/]workflow-roles[\\/]skills[\\/]architect[\\/]SKILL\.md$/)
-  assert.doesNotMatch(result.prompt, /# Collaboration Norms/, 'standalone Souls should not include retired collaboration_norms')
-  assert.doesNotMatch(result.prompt, /Ask only when a wrong assumption/, 'standalone Souls should not carry ask-vs-act policy')
-  assert.match(result.prompt, /collaborative discovery/, 'architect Soul should encourage collaborative discovery')
-  // Registry render adds composed skill content; legacy file path must not appear in evidence.
-  assert.doesNotMatch(result.path, /souls\/prompts\/architect\.md$/)
+  assert.equal(result.ok, false, 'a checkout with no installed role pack does not substitute a bundled brief')
+  if (result.ok) return
+  assert.match(result.message, /no workflow roles are installed/)
+  assert.match(result.message, /Add from folder/)
+  assert.equal(result.path, null)
 }
 
 async function testAliasedSpecialistResolvesThroughRegistry(): Promise<void> {
@@ -50,7 +41,7 @@ async function testAliasedSpecialistResolvesThroughRegistry(): Promise<void> {
   assert.equal(result.ok, false)
   if (result.ok) return
   assert.match(result.message, /qa-test/)
-  assert.match(result.message, /no skill declaring it is installed/)
+  assert.match(result.message, /no workflow roles are installed/)
   assert.equal(result.path, null)
 }
 

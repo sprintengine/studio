@@ -1241,6 +1241,9 @@ export interface SettingsSliceState {
   // never persisted); powers the registry-discovered specialist packs in the
   // spawn dropdown and the Modules settings tab. Null until loaded.
   sprintEngineRoleRegistry: SprintEngineRoleRegistry | null
+  // Bumped after a skill or plugin install/uninstall so every picker re-reads
+  // the workspace registry without a restart (MC-2507). In-memory only.
+  sprintEngineRoleRegistryEpoch: number
   // Live outcome of the deferred first-run agent-config adoption, shown on the
   // first-run overlay. Transient (not persisted via extractSettingsFields) — it
   // describes an action that ran this session, never a resumed one.
@@ -1258,6 +1261,7 @@ export interface SettingsSliceActions {
   setSidebarCollapsed: (collapsed: boolean) => void
   setSidebarWidth: (width: number) => void
   setSprintEngineRoleRegistry: (registry: SprintEngineRoleRegistry | null) => void
+  bumpSprintEngineRoleRegistryEpoch: () => void
   setWorkspacePaneWidth: (width: number) => void
   setWorkspacePaneMaximised: (maximised: boolean) => void
   setOpenFilesInExternalWindow: (enabled: boolean) => void
@@ -1484,11 +1488,17 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     diffView: DEFAULT_DIFF_VIEW,
     checkCliVersions: DEFAULT_CHECK_CLI_VERSIONS,
     sprintEngineRoleRegistry: null,
+    sprintEngineRoleRegistryEpoch: 0,
     agentConfigAdoptionResult: null,
 
     setSprintEngineRoleRegistry: (registry) =>
       set((state) => {
         state.sprintEngineRoleRegistry = registry
+      }),
+
+    bumpSprintEngineRoleRegistryEpoch: () =>
+      set((state) => {
+        state.sprintEngineRoleRegistryEpoch += 1
       }),
 
     setSidebarSection: (section) =>

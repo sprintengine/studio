@@ -27,13 +27,22 @@ run('hyphen and underscore normalize to one id', () => {
 })
 
 run('missing-role copy names the spelling and both remedies', () => {
-  const message = missingRoleMessage('qa-test', ['architect', 'tester'])
+  const known = missingRoleMessage('qa-test', ['architect', 'tester'])
   assert.equal(
-    message,
+    known,
     "Unknown role 'qa-test': no skill declaring it is installed in this workspace. "
       + 'Install the workflow-roles pack from the SprintEngine Studio skill source, '
-      + 'or add a role skill to your skills folder (~/.multicode/skills). '
+      + 'or put your own role skills in your skills folder (~/.multicode/skills) — '
+      + 'add or change it under Extensions → Skills → "Add from folder…". '
       + 'Known roles: architect, tester.',
+  )
+  const empty = missingRoleMessage('architect', [])
+  assert.equal(
+    empty,
+    "Unknown role 'architect': no workflow roles are installed in this workspace. "
+      + 'Install the workflow-roles pack from the SprintEngine Studio skill source, '
+      + 'or put your own role skills in your skills folder (~/.multicode/skills) — '
+      + 'add or change it under Extensions → Skills → "Add from folder…".',
   )
 })
 

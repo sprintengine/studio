@@ -278,7 +278,10 @@ const BASELINE: Record<Axis, Record<string, number>> = {
     // tree in the orphan sweep — the MC-2122 picker-as-spawner that nothing has
     // mounted since NewAgentPanel became the live surface, so its one
     // hand-spelled icon box goes with it. Banked, not left as headroom.
-    'components/workspace': 11,
+    // workspace 11 → 10, 2026-09-16: the empty-pack notice uses the kit
+    // InlineNotice rather than a hand-spelled icon box. Banked, not left as
+    // headroom for the next off-ramp.
+    'components/workspace': 10,
     'components/panels': 10, // 2026-09-08: the second swap
     // ui 14 → 13, 2026-09-09: the "Project colour" swatch row landed beside the
     // highlight one in `ContextMenu`, and rather than adding a fifth copy of the

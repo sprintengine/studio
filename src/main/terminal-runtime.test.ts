@@ -974,6 +974,7 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
       spawn: (payload) => runtime.ipcHandlers.spawnTerminal(runtimeModule.resolveSpawnEventSink(), payload),
       kill: (sessionId) => runtime.ipcHandlers.killTerminal(sessionId),
     },
+    listInstalledRoleIds: async () => ['security'],
   })
 
   try {

@@ -3,9 +3,9 @@
  *
  * Replaces the Python CLI hop the renderer used to take over IPC.
  * Discovery matches the engine: harness skill directories in
- * {@link ROLE_HARNESS_DIRECTORIES} order, then the bundled workflow-roles pack
- * as a last layer. First hit on `metadata.sprintengine-role` wins. A dropped
- * alias is a named missing-role error, never a substitute.
+ * {@link ROLE_HARNESS_DIRECTORIES} order. First hit on
+ * `metadata.sprintengine-role` wins. A missing pack is a named missing-role
+ * error, never a bundled substitute (owner ruling 2026-09-08).
  *
  * This module does not spawn a process. The souls CLI stays on PATH for one
  * more phase so an agent launched before this ships can still run the old
@@ -30,9 +30,8 @@ export type RoleBriefOk = {
   skillPath: string
   /**
    * Workspace-relative POSIX path when the skill lives under the workspace
-   * (what a host-context pointer names). Null when the hit was the bundled
-   * last layer — that file is not in the workspace, so a section must not
-   * name it.
+   * (what a host-context pointer names). Null if the absolute path is outside
+   * the workspace — which must not happen for an installed role skill.
    */
   workspaceRel: string | null
   knownRoles: string[]
@@ -85,8 +84,9 @@ export function readRoleBrief(workspaceRoot: string, roleId: string): RoleBrief 
 }
 
 /**
- * Scan the workspace (and bundled last layer) for role skills. Keyed by
- * normalized role id; first hit wins.
+ * Scan the workspace harness skill directories for role skills. Keyed by
+ * normalized role id; first hit wins. The packaged workflow-roles tree is an
+ * install source, never a discovery layer.
  */
 export function discoverWorkspaceRoleSkills(workspaceRoot: string): Map<string, DiscoveredRole> {
   const roles = new Map<string, DiscoveredRole>()
@@ -94,8 +94,6 @@ export function discoverWorkspaceRoleSkills(workspaceRoot: string): Map<string, 
   for (const harness of ROLE_HARNESS_DIRECTORIES) {
     ingestSkillDir(join(root, harness, 'skills'), roles)
   }
-  const bundled = bundledWorkflowRolesSkillsDir()
-  if (bundled) ingestSkillDir(bundled, roles)
   return roles
 }
 
@@ -144,14 +142,4 @@ function workspaceRelativeSkillPath(workspaceRoot: string, skillPath: string): s
   const rel = relative(root, absolute)
   if (!rel || rel.startsWith('..') || rel === absolute) return null
   return rel.split(sep).join('/')
-}
-
-function bundledWorkflowRolesSkillsDir(): string | null {
-  const candidates = [
-    ...(typeof process.resourcesPath === 'string' && process.resourcesPath
-      ? [join(process.resourcesPath, 'studio-plugin', 'workflow-roles', 'skills')]
-      : []),
-    join(process.cwd(), 'resources', 'studio-plugin', 'workflow-roles', 'skills'),
-  ]
-  return candidates.find((candidate) => existsSync(candidate)) ?? null
 }

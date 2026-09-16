@@ -129,6 +129,29 @@ for (const id of ['terminal.focus', 'terminal.stop']) {
 // Unknown ids never enable.
 assert.equal(isCommandIdEnabled('does.not.exist', sprintEngineScopes, sprintEngineContext), false)
 
+assert.equal(
+  isCommandIdEnabled('specialist.spawn.architect', workspaceScopes, { activeWorkspace: true }),
+  false,
+)
+assert.equal(
+  isCommandIdEnabled('specialist.spawn.architect', workspaceScopes, {
+    activeWorkspace: true,
+    workflowRolesInstalled: true,
+  }),
+  true,
+)
+assert.equal(
+  isCommandIdEnabled('sprintengine.add.role', sprintEngineScopes, sprintEngineContext),
+  false,
+)
+assert.equal(
+  isCommandIdEnabled('sprintengine.add.role', sprintEngineScopes, {
+    ...sprintEngineContext,
+    workflowRolesInstalled: true,
+  }),
+  true,
+)
+
 // isCommandEnabled mirrors isCommandIdEnabled for a resolved definition.
 assert.equal(
   isCommandEnabled(def('terminal.new'), workspaceScopes, { activeWorkspace: true }),

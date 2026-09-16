@@ -62,6 +62,7 @@ function harness(options: {
   spawnResult?: TerminalSpawnResult
   resolveKnowledgeRoot?: AgentLaunchServiceDeps['resolveKnowledgeRoot']
   isAgentSelectableCli?: AgentLaunchServiceDeps['isAgentSelectableCli']
+  listInstalledRoleIds?: AgentLaunchServiceDeps['listInstalledRoleIds']
 } = {}) {
   const spawns: TerminalSpawnPayload[] = []
   const kills: string[] = []
@@ -71,6 +72,7 @@ function harness(options: {
     getLaunchSettings: () => options.settings ?? settings(),
     ...(options.isAgentSelectableCli ? { isAgentSelectableCli: options.isAgentSelectableCli } : {}),
     ...(options.resolveKnowledgeRoot ? { resolveKnowledgeRoot: options.resolveKnowledgeRoot } : {}),
+    ...(options.listInstalledRoleIds ? { listInstalledRoleIds: options.listInstalledRoleIds } : {}),
     terminal: {
       list: () => sessions,
       spawn: async (payload) => {
@@ -203,7 +205,10 @@ run('a folderless workspace refuses rather than spawning into the app directory'
 })
 
 run('an automation-launched specialist gets the same role directive as a person', async () => {
-  const app = harness({ settings: settings({ lastSelectedCli: 'claude-code' }) })
+  const app = harness({
+    settings: settings({ lastSelectedCli: 'claude-code' }),
+    listInstalledRoleIds: async () => ['security'],
+  })
   const launched = await app.service.launch({
     workspaceId: 'ws-1',
     specialistId: 'security',
@@ -219,6 +224,35 @@ run('an automation-launched specialist gets the same role directive as a person'
   assert.equal(app.spawns[0]!.specialistId, 'security', 'so host-context can attach the same Role section a person gets')
   assert.equal(app.spawns[0]!.agentRecord?.kind, 'specialist')
   assert.equal(app.spawns[0]!.agentRecord?.specialistId, 'security')
+})
+
+run('a specialist launch with no installed roles refuses rather than spawning a general agent', async () => {
+  const app = harness({
+    settings: settings({ lastSelectedCli: 'claude-code' }),
+    listInstalledRoleIds: async () => [],
+  })
+  const launched = await app.service.launch({
+    workspaceId: 'ws-1',
+    specialistId: 'security',
+    prompt: 'Audit the auth flow.',
+  })
+  assert.equal(!launched.ok && launched.code, 'unknown_role')
+  assert.match(!launched.ok ? launched.message : '', /no workflow roles are installed/)
+  assert.equal(app.spawns.length, 0)
+})
+
+run('a specialist launch for an unknown id names the known set and does not spawn', async () => {
+  const app = harness({
+    settings: settings({ lastSelectedCli: 'claude-code' }),
+    listInstalledRoleIds: async () => ['architect', 'developer'],
+  })
+  const launched = await app.service.launch({
+    workspaceId: 'ws-1',
+    specialistId: 'security',
+  })
+  assert.equal(!launched.ok && launched.code, 'unknown_role')
+  assert.match(!launched.ok ? launched.message : '', /Known roles: architect, developer/)
+  assert.equal(app.spawns.length, 0)
 })
 
 // The connector is resolved from the installed MCP settings alone since the

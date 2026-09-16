@@ -56,6 +56,9 @@ export type CommandAvailability =
   // The automations capability module is enabled, so the global Automations
   // screen has a backing store/IPC and can be opened.
   | 'automationsEnabled'
+  // The active workspace has at least one installed workflow-role skill, so a
+  // specialist spawn or "add a role" command has something to resolve.
+  | 'workflowRolesInstalled'
   // Open at the type level (MC-1533) so a compiled module built against a
   // newer SDK enum never breaks on an older shell: an unknown condition is
   // simply absent from the runtime context, so the command stays unavailable

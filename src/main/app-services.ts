@@ -72,7 +72,8 @@ import {
   createFsSkillDirectoryReader,
   createWorkspaceSkillsService,
 } from './workspace-skills-service'
-import { createSprintEngineArtifactHandlers } from './sprintengine-artifacts'
+import { createSprintEngineArtifactHandlers, readSprintEngineRegistryRoles } from './sprintengine-artifacts'
+import { isRecord } from '../shared/records'
 import { createSprintEngineAutomationService } from './sprintengine-automation-service'
 import { createSprintEngineLaunchSettingsMirror } from './sprintengine-launch-settings-mirror'
 import { createBackgroundModeStore } from './background-mode-store'
@@ -832,6 +833,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // headless launch carries the project's Knowledge Graph exactly like an
     // interactively-spawned agent does.
     resolveKnowledgeRoot: (input) => resolveMemoryRoot(input.workspaceRoot, input.relativeRoot),
+    listInstalledRoleIds: async (workspaceRoot) => {
+      const result = await readSprintEngineRegistryRoles({ workspaceRoot })
+      if (!result.ok || !isRecord(result.data) || !Array.isArray(result.data.roles)) return []
+      return result.data.roles.flatMap((entry) => {
+        if (!isRecord(entry) || typeof entry.id !== 'string' || !entry.id.trim()) return []
+        return [entry.id]
+      })
+    },
     terminal: {
       list: () => terminalRuntime.ipcHandlers.listTerminals(),
       // A headless launch has no window to be the event sink; the runtime

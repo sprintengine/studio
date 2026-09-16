@@ -89,6 +89,8 @@ import {
 } from '../../ui'
 import { Modal } from '../../ui/Modal'
 import { CheckIcon } from '../../AppIcons'
+import { NoWorkflowRolesNotice } from '../../NoWorkflowRolesNotice'
+import { workflowRolesInstalled } from '../../../../../shared/workflow-roles'
 import {
   compareBacklogItems,
   matchesBacklogView,
@@ -352,6 +354,8 @@ export default function NewSprintDialog({
     [editor.selectedRosterId, editor.rosters],
   )
   const noRoles = selectedRoster === null
+  const rolesLoaded = editor.registryStatus === 'ready' || editor.registryStatus === 'unavailable'
+  const packInstalled = workflowRolesInstalled(editor.registry)
   const staffedRoles = useMemo(
     () =>
       listSprintEngineWizardRoles(editor.registry, editor.disabledRoleIds).filter(
@@ -740,10 +744,13 @@ export default function NewSprintDialog({
   }, [onClose])
 
   // --- start --------------------------------------------------------------
-  const canStart = Boolean(source && folderPath && runName && !creating)
+  const canStart = Boolean(
+    source && folderPath && runName && !creating && (noRoles || (rolesLoaded && packInstalled)),
+  )
 
   const start = useCallback(async () => {
     if (!source || !folderPath || !runName || creating) return
+    if (!noRoles && !(rolesLoaded && packInstalled)) return
     setCreating(true)
     setCreateError(null)
     try {
@@ -901,6 +908,9 @@ export default function NewSprintDialog({
     folderPath,
     runName,
     creating,
+    noRoles,
+    rolesLoaded,
+    packInstalled,
     editor.selectedRosterId,
     editor.roleCounts,
     editor.poolAgentCount,
@@ -1290,6 +1300,7 @@ export default function NewSprintDialog({
                     ariaLabel="Team for this sprint"
                   />
                 </div>
+                {rolesLoaded && !packInstalled ? <NoWorkflowRolesNotice /> : null}
 
                 {noRoles ? (
                   <PlainAgentsPanel
