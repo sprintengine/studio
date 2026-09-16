@@ -3599,6 +3599,7 @@ async function spawnTerminalFromIpc(
     connectorLaunch,
     spawnSkillId,
     agentRecord,
+    specialistId,
   }: TerminalSpawnPayload
 ): Promise<TerminalSpawnResult> {
     const existingSession = terminals.get(sessionId)
@@ -3952,7 +3953,8 @@ async function spawnTerminalFromIpc(
           debugMode,
           cliAuthToken,
           cliReasoning,
-          resolvedBinaryPath
+          resolvedBinaryPath,
+          agentRecord?.specialistId ?? specialistId
         )
       // Install the authoritative-agent-state reporter into the workspace before
       // launching a supported agent, so its lifecycle hooks report phase the

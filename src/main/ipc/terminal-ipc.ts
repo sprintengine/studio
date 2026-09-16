@@ -57,6 +57,14 @@ export type TerminalSpawnPayload = {
   // hardcodes 'debug'); best-effort, non-blocking, and carries none of the
   // connector MCP coupling. Unset for ordinary spawns.
   spawnSkillId?: string
+  /**
+   * Specialist role id for this spawn. Host-context delivery reads the matching
+   * workspace skill and, when it resolves, adds the Role section. Unset for
+   * general agents. Same field as TerminalSpawnMetadata.specialistId: in-process
+   * callers set it on the payload, renderer callers spread it via the metadata
+   * bag.
+   */
+  specialistId?: string
   // Set only by the main-process AgentLaunchService (MC-2159): the launch
   // decisions it made, retained on the session and surfaced on its snapshot so
   // the renderer can project an AgentState for an agent it never composed. Never

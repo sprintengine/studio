@@ -27,8 +27,8 @@ export type AgentExecutionMode = 'current_workspace' | 'worktree'
 // pack (not bundled), so there is no fixed union of ids: every specialist —
 // whether from the first-party pack or a workspace/user/plugin registry layer —
 // is keyed by its registry role id, which round-trips through prefs and spawns
-// and renders its soul via `souls get <id>`. Kept as a named alias so the many
-// downstream import sites need no churn.
+// and whose brief is the matching workspace skill. Kept as a named alias so
+// the many downstream import sites need no churn.
 export type SpecialistActionId = string
 
 export type McpClientTarget = AgentCli

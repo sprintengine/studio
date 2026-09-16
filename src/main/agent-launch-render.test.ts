@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 
 import { applyDebugDirective, debugDirectiveFor } from '../shared/debug-directive'
+import { buildHostContextDocument } from '../shared/host-context/document'
 
 // The directive names the workspace's own sidecar directory, so the expected
 // text is derived the same way the launch derives it rather than pinned.
@@ -83,6 +84,7 @@ async function main(): Promise<void> {
     testPromptFallbackCliRendersNoContextFlag()
     testCursorTakesTheContextAsAPluginDirOnLaunchAndResume()
     testAModuleHostContextSectionRidesTheDeclaredChannel()
+    testResumedSpecialistReceivesTheRoleSectionAgain()
     testLaunchPreviewNeverShowsHostContext()
     testLaunchPluginDirsReachLaunchAndResume()
     testLaunchSettingsReachLaunchAndResume()
@@ -1386,6 +1388,47 @@ function testCursorTakesTheContextAsAPluginDirOnLaunchAndResume(): void {
     '--resume',
     'sid_ctx',
   ])
+}
+
+function testResumedSpecialistReceivesTheRoleSectionAgain(): void {
+  const text = buildHostContextDocument({
+    role: { id: 'architect', skillPath: '.claude/skills/architect/SKILL.md' },
+  }) as string
+  assert.match(text, /## Role/)
+  assert.match(text, /`architect` role/)
+
+  const claude = renderAgentLaunchArgv({
+    cli: 'claude-code',
+    sessionId: 'sid_role',
+    resume: true,
+    contextFile: HOST_CONTEXT_FILE,
+    contextText: text,
+  })
+  assert.ok(claude.argv.includes('--append-system-prompt-file'))
+  assert.equal(claude.argv[claude.argv.indexOf('--append-system-prompt-file') + 1], HOST_CONTEXT_FILE)
+
+  const grok = renderAgentLaunchArgv({
+    cli: 'grok',
+    sessionId: 'sid_role',
+    resume: true,
+    contextFile: HOST_CONTEXT_FILE,
+    contextText: text,
+  })
+  const grokFlag = grok.argv.indexOf('--append-system-prompt')
+  assert.ok(grokFlag >= 0)
+  assert.equal(grok.argv[grokFlag + 1], text)
+  assert.ok(String(grok.argv[grokFlag + 1]).includes('## Role'))
+
+  const cursor = renderAgentLaunchArgv({
+    cli: 'cursor',
+    sessionId: 'sid_role',
+    resume: true,
+    contextFile: '/ctx/sid-plugin',
+    contextText: text,
+  })
+  assert.ok(cursor.argv.includes('--plugin-dir'))
+  assert.equal(cursor.argv[cursor.argv.indexOf('--plugin-dir') + 1], '/ctx/sid-plugin')
+  assert.ok(!cursor.argv.includes(text), 'Cursor packs the document in the plugin dir, not argv')
 }
 
 // The receipt line previews the flags a launch would carry. Host context is not

@@ -29,10 +29,8 @@ import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
 import { compatStudioEnvEntry, studioEnvNames, withoutStudioEnv } from '../shared/studio-env'
 import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
-import {
-  collectLaunchContributions,
-  type MergedLaunchContribution,
-} from './module-host/launch-contributions'
+import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
+import { readRoleBrief } from './role-brief'
 
 export type ShellLaunchConfig = {
   command: string
@@ -1089,18 +1087,20 @@ export type HostContextDelivery = {
  * knowledge graph still gets told. A failed write degrades to no context rather
  * than to an empty flag: `--append-system-prompt-file ""` is worse than silence.
  */
-function resolveHostContextDelivery(input: {
+export function resolveHostContextDelivery(input: {
   cwd: string
   sessionId: string
   cli: AgentCli
   memoryRootPath?: string
   memoryRelativeRoot?: string
   moduleSections?: Array<{ heading: string; body: string }>
+  specialistId?: string
 }): HostContextDelivery {
   const injection = getPluginManifest(input.cli)?.contextInjection
   const mode = injection?.mode ?? 'prompt'
   const bundlePath = join(input.cwd, DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME)
   const attached = designSystemAttached(bundlePath)
+  const role = resolveRoleHostContext(input.cwd, input.specialistId)
   const document = buildHostContextDocument({
     ...(attached ? { designSystem: { bundlePath } } : {}),
     // `memoryRootPath` is set only when the configured root actually resolved,
@@ -1115,6 +1115,7 @@ function resolveHostContextDelivery(input: {
           },
         }
       : {}),
+    ...(role ? { role } : {}),
     ...(input.moduleSections && input.moduleSections.length > 0
       ? { moduleSections: input.moduleSections }
       : {}),
@@ -1124,6 +1125,23 @@ function resolveHostContextDelivery(input: {
     ? writeHostContextCursorPlugin(input.sessionId, input.cwd, document)
     : writeHostContextFile(input.sessionId, input.cwd, document)
   return { mode, document, filePath }
+}
+
+/**
+ * Resolve a specialist id to a host-context Role section. Only a skill that
+ * lives in this workspace produces a section — never a pointer at a bundled
+ * file the CLI cannot load, and never a section for a role that did not
+ * resolve.
+ */
+function resolveRoleHostContext(
+  workspaceRoot: string,
+  specialistId: string | undefined,
+): { id: string; skillPath: string } | undefined {
+  const requested = specialistId?.trim()
+  if (!requested) return undefined
+  const brief = readRoleBrief(workspaceRoot, requested)
+  if (!brief.ok || !brief.workspaceRel) return undefined
+  return { id: brief.roleId, skillPath: brief.workspaceRel }
 }
 
 /**
@@ -1303,7 +1321,8 @@ export function getShellLaunchConfig(
   // Absolute binary path resolved by the spawn pre-flight; see
   // AgentLaunchRenderInput.resolvedBinaryPath. Undefined leaves the launch on
   // the manifest binary name (Windows/WSL, or an undecided probe).
-  resolvedBinaryPath?: string
+  resolvedBinaryPath?: string,
+  specialistId?: string
 ): ShellLaunchConfig {
   assertExistingDirectory(cwd)
 
@@ -1337,6 +1356,7 @@ export function getShellLaunchConfig(
     ...(memoryRootPath ? { memoryRootPath } : {}),
     ...(memoryRelativeRoot ? { memoryRelativeRoot } : {}),
     ...(merged.hostContext.length > 0 ? { moduleSections: merged.hostContext } : {}),
+    ...(specialistId ? { specialistId } : {}),
   })
   const launchPrompt = applyHostContextToPrompt(hostContext, initialPrompt)
   const hostContextPath = hostContext.filePath ?? undefined

@@ -2608,7 +2608,9 @@ export default function WorkspaceManager() {
     )
     const newId = `specialist-${specialist.id}-${nanoid(6)}`
     if (!(model.getActiveTabset() ?? firstTabset(model))) return
-    const prompt = buildSpecialistSoulStartupPrompt(specialist)
+    const rolePrompt = buildSpecialistSoulStartupPrompt(specialist)
+    const taskPrompt = placement?.prompt?.trim() || ''
+    const prompt = [rolePrompt, taskPrompt].filter(Boolean).join('\n\n')
     const cliForSpawn = launchableSpawnCli(
       normalizeSelectedCli(selectedCli ?? specialistCliDefaults[specialist.id], lastSelectedCli)
     )
@@ -2643,14 +2645,9 @@ export default function WorkspaceManager() {
       debugMode: agentSpawnDebugMode,
       kind: 'specialist',
       specialistId: specialist.id,
-      cliStartupPrompt: prependAgentIdentifier(
-        // The soul brief first, then what the user actually asked for — a
-        // specialist that forgets its role because a task arrived is not the
-        // specialist they picked.
-        placement?.prompt ? `${prompt}\n\n${placement.prompt}` : prompt,
-        tabName,
-        specialist.shortLabel,
-      ),
+      cliStartupPrompt: prompt
+        ? prependAgentIdentifier(prompt, tabName, specialist.shortLabel)
+        : undefined,
       cliOnboardingPromptSent: false,
       cliHasLaunched: false,
       cliResumeAvailable: false,
@@ -2861,7 +2858,8 @@ export default function WorkspaceManager() {
   ) => {
     const specialist = getSpecialistAction(specialistId)
     const tabName = pickRandomAgentName([])
-    const prompt = buildSpecialistSoulStartupPrompt(specialist)
+    const rolePrompt = buildSpecialistSoulStartupPrompt(specialist)
+    const prompt = [rolePrompt, startupPrompt?.trim() || ''].filter(Boolean).join('\n\n')
     const cliForSpawn = launchableSpawnCli(
       normalizeSelectedCli(selectedCli ?? specialistCliDefaults[specialist.id], lastSelectedCli)
     )
@@ -2891,12 +2889,9 @@ export default function WorkspaceManager() {
           debugMode: agentSpawnDebugMode,
           kind: 'specialist',
           specialistId: specialist.id,
-          cliStartupPrompt: prependAgentIdentifier(
-            // The soul brief first, then the task, as the in-workspace spawn does.
-            startupPrompt ? `${prompt}\n\n${startupPrompt}` : prompt,
-            tabName,
-            specialist.shortLabel,
-          ),
+          cliStartupPrompt: prompt
+            ? prependAgentIdentifier(prompt, tabName, specialist.shortLabel)
+            : undefined,
           cliOnboardingPromptSent: false,
           cliHasLaunched: false,
           cliResumeAvailable: false,

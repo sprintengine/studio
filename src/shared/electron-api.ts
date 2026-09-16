@@ -1739,6 +1739,10 @@ export type TerminalSpawnMetadata = {
   // carries none of the connector MCP coupling (no prune, no worktree .mcp.json
   // exclude). The invocation itself is prefilled renderer-side, never auto-sent.
   spawnSkillId?: string
+  // Specialist role id for this spawn. Host-context delivery reads the matching
+  // workspace skill and, when it resolves, adds the Role section. Unset for
+  // general agents. Preload spreads the metadata bag onto TerminalSpawnPayload.
+  specialistId?: string
 }
 
 export type SessionActivity =
