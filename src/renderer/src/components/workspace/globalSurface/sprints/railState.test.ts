@@ -10,9 +10,8 @@ import {
   sprintRunStateLine,
   sprintRunStatusLabel,
   sprintRunTone,
-  RUN_INDEX_ERROR_HINT,
-  RUN_INDEX_ERROR_TITLE,
 } from './railState'
+import { SPRINTS_DOOR, WORKFLOWS_DOOR } from './runDoorCopy'
 
 function run(name: string, body: () => void): void {
   try {
@@ -378,8 +377,11 @@ run('short dates read off the ISO date fields, so they never shift a day', () =>
 
 // ── Degraded copy ───────────────────────────────────────────────────────────
 run('the index-error copy is plain language and never reads as "no sprints"', () => {
-  assert.ok(!/\bnull\b|undefined|Error:|ENOENT/u.test(RUN_INDEX_ERROR_TITLE + RUN_INDEX_ERROR_HINT))
-  assert.ok(RUN_INDEX_ERROR_HINT.includes('still on disk'), 'reassures the runs are not lost')
+  const sprints = SPRINTS_DOOR.indexError.title + SPRINTS_DOOR.indexError.hint
+  const workflows = WORKFLOWS_DOOR.indexError.title + WORKFLOWS_DOOR.indexError.hint
+  assert.ok(!/\bnull\b|undefined|Error:|ENOENT/u.test(sprints + workflows))
+  assert.ok(SPRINTS_DOOR.indexError.hint.includes('still on disk'), 'reassures the runs are not lost')
+  assert.ok(WORKFLOWS_DOOR.indexError.title.includes('workflows'), 'Workflows names itself, not sprints')
 })
 
 console.log('all sprints rail-state tests passed')

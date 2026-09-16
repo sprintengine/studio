@@ -15,6 +15,7 @@ import {
 import type { RailBadges } from './AppRail'
 import { openExtensionsDrawerRow } from './extensionsDrawer'
 import { useSurfaceView } from './surfaceView'
+import { doorBadgeSourceRows, useDoorBadgeContributions } from './useDoorBadges'
 import { useExtensionsRowBadges } from './useExtensionsRowBadges'
 import type { WorkspaceActivity } from './workspaceManagerHelpers'
 
@@ -77,6 +78,8 @@ export function useRailBadges(input: {
   const cards = useWorkspaceStore((s) => s.cards)
   const cardFeedStatus = useWorkspaceStore((s) => s.cardFeedStatus)
   const rowBadges = useExtensionsRowBadges()
+  const doorBadges = useDoorBadgeContributions()
+  const sourceRows = useMemo(() => doorBadgeSourceRows(doorBadges), [doorBadges])
 
   const automationsOpen = activeGlobalSurface === 'automations'
   // The drawer row whose page is on screen — for the three rows that are views
@@ -94,8 +97,10 @@ export function useRailBadges(input: {
   const openRowHasUnread = useMemo(
     () =>
       openRow !== null &&
-      notifications.some((notification) => !notification.read && extensionsRowOfNotification(notification) === openRow),
-    [notifications, openRow],
+      notifications.some(
+        (notification) => !notification.read && extensionsRowOfNotification(notification, sourceRows) === openRow,
+      ),
+    [notifications, openRow, sourceRows],
   )
 
   // Reading. The Automations door reads its rows; an open drawer row reads its
@@ -106,8 +111,8 @@ export function useRailBadges(input: {
   }, [automationsOpen, unreadAutomations, markReadBySources])
   useEffect(() => {
     if (openRow === null || !openRowHasUnread) return
-    markReadWhere((notification) => extensionsRowOfNotification(notification) === openRow)
-  }, [openRow, openRowHasUnread, markReadWhere])
+    markReadWhere((notification) => extensionsRowOfNotification(notification, sourceRows) === openRow)
+  }, [openRow, openRowHasUnread, markReadWhere, sourceRows])
   // A fresh install: the first feed that lands is the baseline, not news. Only
   // cards published after this moment will ever count.
   useEffect(() => {

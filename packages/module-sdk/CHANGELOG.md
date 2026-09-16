@@ -2,6 +2,22 @@
 
 ## Unreleased
 
+- **A module can contribute Open actions for its bell rows**
+  (`host.registerNotificationActionProvider`). One provider per `source`; a
+  duplicate is a registration error. `resolveActions` receives
+  `{ notification: { workspaceId?, navigationTarget? }, revealWorkspace }`
+  and returns `{ id, label, run }` actions. Returning none leaves the shell's
+  generic workspace-reveal fallback. New types: `NotificationActionProvider`,
+  `NotificationActionContext`, `NotificationAction`, `NotificationActionView`.
+
+- **A module can contribute a door / nav-entry waiting count**
+  (`host.registerDoorBadge`). `{ rowId, getWaitingCount, subscribe,
+  notificationSource? }` — the shell merges the count with that row's unread
+  bell news, and `notificationSource` is how unnamed notices of that source
+  fall to the row. Duplicate `rowId` is a registration error. Gone with the
+  module, so a count with no row never appears. New type:
+  `DoorBadgeContribution`.
+
 - **A workspace type can own its sidebar row and its create control.**
   `WorkspaceTypeDefinition` gains `createLabel` (the picker/hub create
   control; defaults to `label`), `RowMark` (glyph beside the row title),

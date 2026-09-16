@@ -18,6 +18,8 @@ import {
   type AutomationTriggerProvider,
   type BacklogItemAction,
   type FileAction,
+  type NotificationActionProvider,
+  type DoorBadgeContribution,
   type CapabilityManifest,
   type GlobalSurfaceDefinition,
   type McpToolRegistration,
@@ -659,6 +661,15 @@ export const registerRenderer: RegisterRenderer = (host) => {
   host.registerWorkspaceType(forecastWorkspaceType)
   host.registerBacklogItemAction(markChecked)
   host.registerFileAction(openForecastNotes)
+  host.registerNotificationActionProvider({
+    source: 'weather-deck',
+    resolveActions: () => [],
+  } satisfies NotificationActionProvider)
+  host.registerDoorBadge({
+    rowId: 'weather-deck-outlook',
+    getWaitingCount: () => 0,
+    subscribe: () => () => undefined,
+  } satisfies DoorBadgeContribution)
   host.registerCommand(quickCheck(host))
   // Agent spawn through the app's SHARED session runtime; structured result,
   // runtime picked from the published availability-filtered catalog.

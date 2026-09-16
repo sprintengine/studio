@@ -1,10 +1,13 @@
 import type { SprintEngineRoleCounts } from '../../../../types/workspace'
-import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
 import type { SprintEngineState } from '../../../../../../shared/sprintengine/run-types'
 import {
   sprintEngineCoordinatorSeat,
   sprintEngineCoordinatorSeatForRoleCounts,
 } from '../../../../../../shared/sprintengine/state'
+import { isWorkflowRun, type RunDoorClassifiable } from '../workflows/runPartition'
+import { isSprintRun } from '../../../../modules/sprint-engine-sprints-partition'
+
+export type { RunDoorClassifiable }
 
 // Which door a run belongs to (item 2470).
 //
@@ -78,19 +81,18 @@ export type RunDoorId = 'workflows' | 'sprints'
 /** Every door, in the order they sit beside each other in the rail. */
 export const RUN_DOOR_IDS: readonly RunDoorId[] = ['workflows', 'sprints']
 
-/** What a summary has to carry for the partition to answer — nothing else. */
-export type RunDoorClassifiable = Pick<SprintRunSummary, 'coordinatorSeat'>
-
 /**
  * The door this run lists under. Total: every input yields exactly one id, and
  * the fallback is Sprints (see the header — an unclassifiable run must not
  * vanish, and must not be claimed by the door that promises planning).
+ *
+ * The two halves live apart (MC-2577): Workflows claims a named coordinator
+ * seat (`isWorkflowRun`); Sprints is every other run (`isSprintRun`).
  */
 export function runDoorFor(run: RunDoorClassifiable): RunDoorId {
-  const role = run.coordinatorSeat?.role
-  // A seat is named only by a genuinely non-empty role. `''` and whitespace are
-  // an absent role written badly, not a specialist.
-  return typeof role === 'string' && role.trim() !== '' ? 'workflows' : 'sprints'
+  if (isWorkflowRun(run)) return 'workflows'
+  if (isSprintRun(run)) return 'sprints'
+  return 'sprints'
 }
 
 /** Does this run belong to `door`? The predicate the two surfaces filter with. */

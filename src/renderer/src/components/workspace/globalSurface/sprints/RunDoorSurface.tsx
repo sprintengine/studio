@@ -8,8 +8,6 @@ import { useSurfaceBackNav } from '../surfaceBackNav'
 import {
   buildSprintRailRows,
   sprintRunMatchesSearch,
-  RUN_INDEX_ERROR_HINT,
-  RUN_INDEX_ERROR_TITLE,
   type SprintSort,
 } from './railState'
 import { consumeSprintDoorSelection, requestNewSprint } from './sprintDoorRequests'
@@ -258,8 +256,8 @@ function SurfaceBody({
     return (
       <SurfaceCanvasState
         kind="error"
-        title={RUN_INDEX_ERROR_TITLE}
-        hint={RUN_INDEX_ERROR_HINT}
+        title={door.indexError.title}
+        hint={door.indexError.hint}
         detail={error ?? undefined}
         onRetry={onRetry}
       />
@@ -277,7 +275,7 @@ function SurfaceBody({
       />
     )
   }
-  if (canvas) return <SprintsCanvas model={canvas} />
+  if (canvas) return <SprintsCanvas model={{ ...canvas, noun: door.noun }} />
   // Runs exist but none is showing. Name which of the two reasons it is, so the
   // canvas never asks for a selection the rail cannot offer — in the quiet kit
   // state, never a bare line of copy in a dialect of its own.

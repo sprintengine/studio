@@ -22,6 +22,7 @@ import type { SprintEngineBacklogLinkOpenPorts } from '../utils/sprintengineBack
 import { bindSprintEngineIpc, createHostBackedSprintEngineIpc, sprintEngineIpc } from './sprint-engine-ipc'
 import { registerSprintEngineFileActions } from './sprint-engine-file-actions'
 import { registerSprintEngineCommands, SPRINT_ENGINE_NEW_MODAL_ID } from './sprint-engine-commands'
+import { registerSprintEngineDoorBadges } from './sprint-engine-door-badges'
 import { SPRINT_ENGINE_AGENT_ID_PREFIX } from '../../../shared/sprintengine/agent-identity'
 
 // Lazy so the Sprint Engine board bundle only loads when the panel is actually
@@ -138,6 +139,7 @@ export const sprintEngineRendererModule: RendererModule = {
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
     registerSprintEngineFileActions(host)
     registerSprintEngineCommands(host)
+    registerSprintEngineDoorBadges(host)
     host.registerModalSurface({
       id: SPRINT_ENGINE_NEW_MODAL_ID,
       label: 'New sprint',

@@ -1964,6 +1964,24 @@ export type SidebarNavEntryDefinition = {
   Component: SidebarNavEntryComponent
 }
 
+/**
+ * A waiting-count your module contributes for a drawer / nav-entry row. The
+ * shell merges this with that row's unread bell news; the contribution is
+ * gone with the module, so a count with no row never appears.
+ */
+export type DoorBadgeContribution = {
+  /** Matches your sidebar nav entry id / the shell's drawer row id. */
+  rowId: string
+  /** Live items on this door waiting on the operator. Not a React hook. */
+  getWaitingCount(): number
+  subscribe(onChange: () => void): () => void
+  /**
+   * Notification source whose unnamed rows fall to this door. An emitter that
+   * knows the row still sets `extensionsRow` on the notification itself.
+   */
+  notificationSource?: string
+}
+
 // ── Top bar items ────────────────────────────────────────────────────────────
 
 export type TopBarItemComponent =
@@ -2283,6 +2301,36 @@ export type ModuleFocusTabInput = {
   id: string
 }
 
+// ── Notification Open actions (renderer) ─────────────────────────────────────
+
+/**
+ * The subset of a bell row a notification-action provider may read. The shell
+ * passes a richer in-app notification; extra fields stay unpublished.
+ */
+export type NotificationActionView = {
+  workspaceId?: string
+  navigationTarget?: { kind: string; ref: string }
+}
+
+export type NotificationActionContext = {
+  notification: NotificationActionView
+  /** Shell capability: switch the active workspace in the current window. */
+  revealWorkspace(workspaceId: string): void
+}
+
+export type NotificationAction = {
+  id: string
+  label: string
+  isVisible?(context: NotificationActionContext): boolean
+  run(context: NotificationActionContext): void | Promise<void>
+}
+
+export type NotificationActionProvider = {
+  /** The notification source this provider owns (e.g. `'sprintengine'`). */
+  source: string
+  resolveActions(context: NotificationActionContext): NotificationAction[]
+}
+
 // ── Renderer host registration contract ──────────────────────────────────────
 
 export type RendererHost = {
@@ -2312,6 +2360,12 @@ export type RendererHost = {
    * absent — not disabled — when this module is off.
    */
   registerFileAction(action: FileAction): void
+  /**
+   * Contribute Open actions for bell rows of `provider.source`. One provider
+   * per source; a duplicate is a registration error. A provider that returns
+   * no actions leaves the shell's generic workspace-reveal fallback in place.
+   */
+  registerNotificationActionProvider(provider: NotificationActionProvider): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
   /**
@@ -2320,6 +2374,12 @@ export type RendererHost = {
    * `order`, so toggling your module shows/hides the door without a reload.
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
+  /**
+   * Contribute the waiting-count a drawer / nav-entry row wears. The shell
+   * merges this with that row's unread bell news; the contribution is gone
+   * with the module. Duplicate `rowId` is a registration error.
+   */
+  registerDoorBadge(contribution: DoorBadgeContribution): void
   /**
    * Contribute a control to the app's top bar. Registered once at boot; the
    * bar filters by your module's enablement and orders by `order`, so

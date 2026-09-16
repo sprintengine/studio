@@ -124,6 +124,10 @@ import type {
   FileActionContext as AppFileActionContext,
   FileActionEntry as AppFileActionEntry,
   FileActionState as AppFileActionState,
+  DoorBadgeContribution as AppDoorBadgeContribution,
+  NotificationAction as AppNotificationAction,
+  NotificationActionContext as AppNotificationActionContext,
+  NotificationActionProvider as AppNotificationActionProvider,
   GlobalSurfaceDefinition as AppGlobalSurfaceDefinition,
   ModalSurfaceComponentProps as AppModalSurfaceComponentProps,
   ModalSurfaceDefinition as AppModalSurfaceDefinition,
@@ -174,6 +178,11 @@ import type {
   FileActionContext as SdkFileActionContext,
   FileActionEntry as SdkFileActionEntry,
   FileActionState as SdkFileActionState,
+  DoorBadgeContribution as SdkDoorBadgeContribution,
+  NotificationAction as SdkNotificationAction,
+  NotificationActionContext as SdkNotificationActionContext,
+  NotificationActionProvider as SdkNotificationActionProvider,
+  NotificationActionView as SdkNotificationActionView,
   BacklogItemLink as SdkBacklogItemLink,
   BacklogItemStatus as SdkBacklogItemStatus,
   BacklogLinkProvider as SdkBacklogLinkProvider,
@@ -478,6 +487,15 @@ expectType<Extends<SdkBacklogItemAction, AppBacklogItemAction>>()
 expectType<Extends<SdkFileAction, AppFileAction>>()
 expectType<IsExact<AppFileActionEntry, SdkFileActionEntry>>()
 expectType<IsExact<AppFileActionState, SdkFileActionState>>()
+expectType<IsExact<AppDoorBadgeContribution, SdkDoorBadgeContribution>>()
+expectType<IsExact<AppRendererHost['registerDoorBadge'], SdkRendererHost['registerDoorBadge']>>()
+expectType<Extends<SdkNotificationActionProvider, AppNotificationActionProvider>>()
+expectType<Extends<SdkNotificationAction, AppNotificationAction>>()
+expectType<Extends<AppNotificationActionContext, SdkNotificationActionContext>>()
+expectType<Extends<AppRendererHost['registerNotificationActionProvider'], SdkRendererHost['registerNotificationActionProvider']>>()
+// The published notification view is what a module may read; the shell passes
+// a richer in-app notification (same narrowing as FileActionContext).
+expectType<Extends<Parameters<AppNotificationActionProvider['resolveActions']>[0]['notification'], SdkNotificationActionView>>()
 expectType<Extends<SdkBacklogLinkProvider, AppBacklogLinkProvider>>()
 expectType<Extends<SdkSettingsSectionDefinition, AppSettingsSectionDefinition>>()
 expectType<Extends<SdkSidebarNavEntryDefinition, AppSidebarNavEntryDefinition>>()

@@ -398,6 +398,57 @@ assert.deepEqual(
 
 console.log('renderer host sidebar nav entry tests passed')
 
+// --- Door / nav-entry badge contributions (MC-2577) --------------------------
+
+const doorBadgeHost = createRendererHost()
+doorBadgeHost.hostFor('sprint-engine').registerDoorBadge({
+  rowId: 'sprints',
+  notificationSource: 'sprintengine',
+  getWaitingCount: () => 2,
+  subscribe: () => () => undefined,
+})
+doorBadgeHost.hostFor('sprint-engine').registerDoorBadge({
+  rowId: 'workflows',
+  getWaitingCount: () => 1,
+  subscribe: () => () => undefined,
+})
+assert.deepEqual(
+  doorBadgeHost.getDoorBadges().map((badge) => [badge.rowId, badge.moduleId, badge.getWaitingCount()]),
+  [['sprints', 'sprint-engine', 2], ['workflows', 'sprint-engine', 1]],
+  'both doors contribute waiting counts under the owning module',
+)
+assert.equal(
+  doorBadgeHost.getDoorBadges().find((badge) => badge.rowId === 'sprints')?.notificationSource,
+  'sprintengine',
+  'an unnamed sprintengine notice falls to the Sprints row via the contribution, not a core mapping',
+)
+assert.throws(
+  () =>
+    doorBadgeHost.hostFor('other').registerDoorBadge({
+      rowId: 'sprints',
+      getWaitingCount: () => 0,
+      subscribe: () => () => undefined,
+    }),
+  /already registered by module "sprint-engine"/,
+  'one badge per row — a duplicate rowId fails with the holder named',
+)
+assert.throws(
+  () =>
+    createRendererHost().hostFor('sprint-engine').registerDoorBadge({
+      rowId: '  ',
+      getWaitingCount: () => 0,
+      subscribe: () => () => undefined,
+    }),
+  /row id must be a non-empty string/,
+)
+assert.deepEqual(
+  doorBadgeHost.getDoorBadges((moduleId) => moduleId !== 'sprint-engine').map((badge) => badge.rowId),
+  [],
+  'a disabled module\'s door badges are filtered out reactively',
+)
+
+console.log('renderer host door badge tests passed')
+
 // --- Top bar items (the title-strip host contribution point, MC-1861) ---------
 
 const topBarHost = createRendererHost()

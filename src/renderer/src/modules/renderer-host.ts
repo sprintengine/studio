@@ -10,7 +10,6 @@ import { collapseDuplicateKeybindings } from '../commands/keybindings'
 import type { CommandAvailability, CommandContribution, CommandScope, ModuleCommandContext } from '../commands/types'
 import type {
   AppNotification,
-  DiagnosticSource,
   FuturePlanWorkspaceSource,
   LayoutTemplate,
 } from '../types/workspace'
@@ -354,7 +353,7 @@ export type NotificationAction = {
 
 export type NotificationActionProvider = {
   /** The notification source this provider owns (e.g. 'sprintengine'). */
-  source: DiagnosticSource
+  source: string
   resolveActions(context: NotificationActionContext): NotificationAction[]
 }
 
@@ -475,6 +474,28 @@ export type SidebarNavEntryDefinition = {
 }
 
 export type RegisteredSidebarNavEntry = SidebarNavEntryDefinition & {
+  moduleId: string
+}
+
+/**
+ * A waiting-count a module contributes for a drawer / nav-entry row (MC-2577).
+ * The shell's badge hook reads this instead of importing a module's run index;
+ * the row is absent with the module, so a count with no row never appears.
+ */
+export type DoorBadgeContribution = {
+  /** Matches a sidebar nav entry id / Extensions drawer row id. */
+  rowId: string
+  /** Live items on this door waiting on the operator. Not a React hook. */
+  getWaitingCount(): number
+  subscribe(onChange: () => void): () => void
+  /**
+   * Notification source whose unnamed rows fall to this door. An emitter that
+   * knows the row still sets `extensionsRow` on the notification itself.
+   */
+  notificationSource?: string
+}
+
+export type RegisteredDoorBadge = DoorBadgeContribution & {
   moduleId: string
 }
 
@@ -823,6 +844,13 @@ export type RendererHost = {
    */
   registerSidebarNavEntry(definition: SidebarNavEntryDefinition): void
   /**
+   * Contribute the waiting-count a drawer / nav-entry row wears. The shell
+   * merges this with that row's unread bell news; the contribution is gone
+   * with the module, so a count with no row never appears. Duplicate `rowId`
+   * is a registration error.
+   */
+  registerDoorBadge(contribution: DoorBadgeContribution): void
+  /**
    * Contribute a control to the app's top bar (the title-strip control
    * cluster). Registered unconditionally at boot; the bar filters by this
    * module's enablement and orders by `order`, so a module toggle shows/hides
@@ -1088,6 +1116,12 @@ export type RendererKernel = {
    */
   getSidebarNavEntries(moduleEnabled?: (moduleId: string) => boolean): RegisteredSidebarNavEntry[]
   /**
+   * Door / nav-entry waiting-count contributions for enabled modules, in
+   * registration order. The badge hook reads these instead of a module's run
+   * index.
+   */
+  getDoorBadges(moduleEnabled?: (moduleId: string) => boolean): RegisteredDoorBadge[]
+  /**
    * Contributed top-bar controls for enabled modules, sorted by `order` then
    * id so the bar reads the same across reloads. WorkspaceActions renders
    * these in the bar's module slot, so a module toggle adds/removes a control
@@ -1261,10 +1295,11 @@ export function createRendererHost(): RendererKernel {
   const backlogItemActions = new Map<string, RegisteredBacklogItemAction>()
   const fileActions = new Map<string, RegisteredFileAction>()
   const backlogLinkProviders = new Map<string, BacklogLinkProvider>()
-  const notificationActionProviders = new Map<DiagnosticSource, RegisteredNotificationActionProvider>()
+  const notificationActionProviders = new Map<string, RegisteredNotificationActionProvider>()
   const moduleCommands = new Map<string, RegisteredModuleCommand>()
   const settingsSections = new Map<string, RegisteredSettingsSection>()
   const sidebarNavEntries = new Map<string, RegisteredSidebarNavEntry>()
+  const doorBadges = new Map<string, RegisteredDoorBadge>()
   const topBarItems = new Map<string, RegisteredTopBarItem>()
   const globalSurfaces = new Map<string, RegisteredGlobalSurface>()
   const modalSurfaces = new Map<string, RegisteredModalSurface>()
@@ -1495,6 +1530,19 @@ export function createRendererHost(): RendererKernel {
             )
           }
           sidebarNavEntries.set(definition.id, { ...definition, moduleId })
+        },
+        registerDoorBadge(contribution) {
+          const rowId = contribution.rowId.trim()
+          if (rowId.length === 0) {
+            throw new Error('Door badge row id must be a non-empty string.')
+          }
+          const existing = doorBadges.get(rowId)
+          if (existing) {
+            throw new Error(
+              `Door badge for row "${rowId}" is already registered by module "${existing.moduleId}".`
+            )
+          }
+          doorBadges.set(rowId, { ...contribution, rowId, moduleId })
         },
         registerTopBarItem(definition) {
           if (definition.id.trim().length === 0) {
@@ -1881,6 +1929,9 @@ export function createRendererHost(): RendererKernel {
           const order = (a.order ?? 0) - (b.order ?? 0)
           return order === 0 ? a.id.localeCompare(b.id) : order
         })
+    },
+    getDoorBadges(moduleEnabled) {
+      return [...doorBadges.values()].filter((badge) => !moduleEnabled || moduleEnabled(badge.moduleId))
     },
     getTopBarItems(moduleEnabled) {
       return [...topBarItems.values()]
