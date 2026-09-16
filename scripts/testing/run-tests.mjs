@@ -126,9 +126,10 @@ async function bundle(esbuild, testPath, profile, outFile) {
 
 // Per-file wall clock. A hung file used to stall the whole suite until a
 // lander's outer cap (20 minutes); this fails that file and lets the rest
-// finish. Generous vs the slowest honest file (~a few seconds), tight vs a
-// leaked timer or open server holding the event loop open.
-const FILE_TIMEOUT_MS = 60_000
+// finish. The slowest honest file is terminal-runtime.test.ts (~41s isolated,
+// serial, lots of short scheduler delays); 120s is 3x that and still
+// fail-fast against a leaked timer holding the event loop open.
+const FILE_TIMEOUT_MS = 120_000
 
 function runNode(outFile, nodeFlags) {
   return new Promise((resolve) => {
