@@ -4,8 +4,8 @@ import type {
   BacklogMutationResult,
   BacklogObjectRecordPayload,
   BacklogReadResult,
-  SprintEngineProjectionReadResult,
 } from '../../../shared/electron-api'
+import type { SprintEngineProjectionReadResult } from '../../../shared/sprintengine/ipc-types'
 import { DEFAULT_SPRINTENGINE_TASK_REPO } from '../../../shared/sprintengine/run-types'
 import type { BacklogItemStatus } from './backlog'
 import type { DiagnosticLogInput } from '../types/workspace'
@@ -28,6 +28,7 @@ import {
   sprintEngineStatePathForBacklogLink,
 } from './sprintengineBacklogLinks'
 import { tearDownCompletedSprintRunAgents } from './sprintengineRunTeardown'
+import { sprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 export type SprintEngineProjectionRefreshCause = 'supervisor' | 'auto-run' | 'manual' | 'mutation'
 
@@ -75,7 +76,7 @@ export type SprintEngineProjectionRefreshPorts = {
 function defaultSprintEngineProjectionRefreshPorts(): SprintEngineProjectionRefreshPorts {
   return {
     readSprintEngineProjection: (statePath, knownToken) =>
-      window.api.readSprintEngineProjection(statePath, knownToken),
+      sprintEngineIpc.readSprintEngineProjection(statePath, knownToken),
     setSprintEngineState: (workspaceId, state) =>
       useWorkspaceStore.getState().setSprintEngineState(workspaceId, state),
     applySprintEngineAutomationEvent: (workspaceId, event) =>

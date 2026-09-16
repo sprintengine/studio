@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // The flat stream (all-chats-view, 2026-09-07). "All chats" drops the folder
 // headers and lists every chat in one list, most recently active first with an
@@ -62,6 +63,7 @@ async function main(): Promise<void> {
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
+  bindSprintEngineIpc(domWindow.api as never)
   const { useWorkspaceStore } = await import('../../store/workspaceStore')
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   type Workspace = SidebarProps['workspaces'][number]

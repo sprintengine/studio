@@ -13,6 +13,7 @@
  */
 import type { SprintEngineLaunchSettings } from '../../../shared/sprintengine/launch-settings'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { isSprintEngineIpcBound, sprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 /** The `appSettings` slices a launch reads, for the reference short-circuit below. */
 function launchSettingSources(): unknown[] {
@@ -40,8 +41,7 @@ function currentLaunchSettings(): SprintEngineLaunchSettings {
 }
 
 export function initSprintEngineLaunchSettingsSync(): () => void {
-  const api = typeof window !== 'undefined' ? window.api : undefined
-  if (!api?.syncSprintEngineLaunchSettings) return () => undefined
+  if (!isSprintEngineIpcBound()) return () => undefined
 
   let lastSignature = ''
   let lastSources: unknown[] | null = null
@@ -58,7 +58,7 @@ export function initSprintEngineLaunchSettingsSync(): () => void {
     const signature = JSON.stringify(settings)
     if (signature === lastSignature) return
     lastSignature = signature
-    void api.syncSprintEngineLaunchSettings(settings).catch(() => {
+    void sprintEngineIpc.syncSprintEngineLaunchSettings(settings).catch(() => {
       // Retry on the next settings change; main also persists the last good
       // push, so a transient IPC failure only delays convergence.
       lastSignature = ''
@@ -72,7 +72,7 @@ export function initSprintEngineLaunchSettingsSync(): () => void {
   // idempotent no-op — main drops a hydrate onto an existing record and drops a
   // push whose content already matches. Awaiting it instead would let one stuck
   // call cost this window every later settings change.
-  void api.hydrateSprintEngineLaunchSettings?.(currentLaunchSettings()).catch(() => undefined)
+  void sprintEngineIpc.hydrateSprintEngineLaunchSettings(currentLaunchSettings()).catch(() => undefined)
 
   push()
   return useWorkspaceStore.subscribe(push)

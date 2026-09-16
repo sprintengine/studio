@@ -70,6 +70,7 @@ import {
   type ProjectColorSetting,
 } from '../../utils/projectColor'
 import { useProjectColors } from '../../hooks/useProjectColors'
+import { sprintEngineIpc } from '../../modules/sprint-engine-ipc'
 import {
   addTabAsNewColumn,
   appendTabAsNewColumnInJson,
@@ -2428,7 +2429,7 @@ export default function WorkspaceSidebar({
       if (!workspace || !statePath || cancelSprintBusy) return
       setCancelSprintBusy(true)
       try {
-        const result = await window.api.cancelSprintEngineRun({ statePath })
+        const result = await sprintEngineIpc.cancelSprintEngineRun({ statePath })
         if (!result.ok) throw new Error(result.message ?? 'Canceling the sprint failed.')
         await refreshSprintEngineWorkspaceProjection({
           workspace,

@@ -22,6 +22,7 @@
 import type { SprintEngineAutomationIntentRecord } from '../../../shared/sprintengine/automation-intent'
 import type { SprintEngineAutomationMode, SprintEngineCliPermissionPreset } from '../types/workspace'
 import { publishDiagnosticSync } from './diagnostics'
+import { isSprintEngineIpcBound, sprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 /** Identifies this window's pushes in broadcast echoes. */
 export const SPRINT_ENGINE_AUTOMATION_CLIENT_TOKEN = (() => {
@@ -113,8 +114,7 @@ function beginPush(statePath: string): (record: SprintEngineAutomationIntentReco
 export function pushSprintEngineAutomationModeIntent(
   input: PushSprintEngineAutomationModeInput,
 ): Promise<boolean> {
-  const api = typeof window !== 'undefined' ? window.api : undefined
-  if (!api?.setSprintEngineAutomationMode) return Promise.resolve(false)
+  if (!isSprintEngineIpcBound()) return Promise.resolve(false)
   const settle = beginPush(input.statePath)
   const reportFailure = (details: string): void => {
     publishDiagnosticSync({
@@ -130,7 +130,7 @@ export function pushSprintEngineAutomationModeIntent(
       ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
     })
   }
-  return api.setSprintEngineAutomationMode({
+  return sprintEngineIpc.setSprintEngineAutomationMode({
     statePath: input.statePath,
     mode: input.mode,
     clientToken: SPRINT_ENGINE_AUTOMATION_CLIENT_TOKEN,
@@ -173,8 +173,7 @@ export type PushSprintEngineCliPermissionPresetInput = {
 export function pushSprintEngineCliPermissionPresetIntent(
   input: PushSprintEngineCliPermissionPresetInput,
 ): Promise<boolean> {
-  const api = typeof window !== 'undefined' ? window.api : undefined
-  if (!api?.setSprintEngineCliPermissionPreset) return Promise.resolve(false)
+  if (!isSprintEngineIpcBound()) return Promise.resolve(false)
   const settle = beginPush(input.statePath)
   const reportFailure = (details: string): void => {
     publishDiagnosticSync({
@@ -187,7 +186,7 @@ export function pushSprintEngineCliPermissionPresetIntent(
       ...(input.workspaceName ? { workspaceName: input.workspaceName } : {}),
     })
   }
-  return api.setSprintEngineCliPermissionPreset({
+  return sprintEngineIpc.setSprintEngineCliPermissionPreset({
     statePath: input.statePath,
     preset: input.preset,
     clientToken: SPRINT_ENGINE_AUTOMATION_CLIENT_TOKEN,

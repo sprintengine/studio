@@ -1,9 +1,9 @@
-// Renderer→module-main IPC bridge contract. A third-party module's renderer
-// code invokes channels its own `entry.main` registered via
-// `MainHost.registerIpc`, through the single host-owned dispatcher channel
-// below. This is a contract, not a security boundary: all renderer code shares
-// one world and can already reach `window.api`; trust gating (only `trusted`
-// modules execute) remains the actual boundary.
+// Renderer→module-main IPC bridge contract. A module's renderer code invokes
+// channels its own `entry.main` registered via `MainHost.registerIpc`, through
+// the single host-owned dispatcher channel below. This is a contract, not a
+// security boundary: all renderer code shares one world and can already reach
+// `window.api`; trust gating (only `trusted` modules execute) remains the
+// actual boundary.
 
 export const MODULE_BRIDGE_INVOKE_CHANNEL = 'modules:bridge:invoke'
 

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict'
 import { useWorkspaceStore } from '../store/workspaceStore'
 import type { RoleInstallResult } from '../../../shared/sprintengine/role-manifest'
 import { runBundledSpecialistPackMigration } from './bundledSpecialistPackMigration'
+import { bindSprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 const OK: RoleInstallResult = { ok: true, installedRoles: ['tester'], installedSkills: ['tester'], rejected: [] }
 const FAIL: RoleInstallResult = { ok: false, installedRoles: [], installedSkills: [], rejected: [], message: 'boom' }
@@ -20,13 +21,14 @@ const memoryStore = new Map<string, string>()
     setItem: (key: string, value: string): void => void memoryStore.set(key, value),
     removeItem: (key: string): void => void memoryStore.delete(key),
   },
-  api: {
-    installBundledSpecialistPack: async (): Promise<RoleInstallResult> => {
-      installCalls += 1
-      return installResult
-    },
-  },
+  api: {},
 }
+bindSprintEngineIpc({
+  installBundledSpecialistPack: async (): Promise<RoleInstallResult> => {
+    installCalls += 1
+    return installResult
+  },
+} as never)
 
 function seedPacks(disabled: string[], migratedBundledPack: boolean): void {
   const state = useWorkspaceStore.getState()

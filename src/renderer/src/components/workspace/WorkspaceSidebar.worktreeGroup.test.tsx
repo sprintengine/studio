@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // A worktree chat files under the project it was cut from. New chat on a
 // worktree lands the checkout at `<parent>/.multicode-worktrees/<repo>/<slug>`
@@ -90,11 +91,6 @@ async function main(): Promise<void> {
   const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
   const { getRendererHost } = await import('../../modules')
   const { deriveWorkspaceRunGlyph } = await import('../../utils/workspaceRunGlyph')
-
-  // A mode whose module hands the row a run glyph. Standard worktree chats
-  // never have one, so without this the double-glyph case below could only be
-  // reasoned about, not run. Registered under a module that is really enabled,
-  // because the glyph lookup filters by enablement.
   getRendererHost()
     .hostFor('sprint-engine')
     .registerWorkspaceType({
@@ -106,6 +102,7 @@ async function main(): Promise<void> {
       createTemplate: () => ({ id: 'worktree-glyph-probe', name: 'Glyph probe', model: { global: {}, layout: { type: 'row', children: [] } } }),
       deriveRunGlyph: () => ({ state: 'running', live: true, label: 'Run in progress' }),
     } as never)
+  bindSprintEngineIpc(domWindow.api as never)
 
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   const workspace = (id: string, name: string, folderPath: string | null, extra?: Record<string, unknown>) =>

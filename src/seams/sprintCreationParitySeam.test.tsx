@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../renderer/src/modules/sprint-engine-ipc'
 
 import type { SprintCreateRequest } from '../shared/sprint-create'
 import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
@@ -162,6 +163,15 @@ async function main(): Promise<void> {
     '../renderer/src/components/backlog/backlogSelectionSourcePlan'
   )
   const { scanBacklog } = await import('../renderer/src/utils/backlog')
+  const windowApi = (dom.window as unknown as { api: Record<string, unknown> }).api
+  bindSprintEngineIpc(new Proxy(windowApi, {
+    get: (target, prop: string) =>
+      prop in target
+        ? target[prop]
+        : prop.startsWith('on')
+          ? () => () => undefined
+          : async () => ({ ok: false, message: 'not stubbed' }),
+  }) as never)
 
   let failures = 0
   const check = async (name: string, fn: () => Promise<void>): Promise<void> => {

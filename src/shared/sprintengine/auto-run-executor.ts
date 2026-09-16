@@ -32,13 +32,15 @@ import type {
   DiagnosticLogEntry,
   DiagnosticLogInput,
   MemoryRootStatus,
-  SprintEngineArtifactCommandResult,
-  SprintEngineProjectionReadResult,
-  SprintEngineTaskWorktreeResult,
   TerminalSessionSnapshot,
   TerminalSpawnMetadata,
   TerminalSpawnResult,
 } from '../electron-api'
+import type {
+  SprintEngineArtifactCommandResult,
+  SprintEngineProjectionReadResult,
+  SprintEngineTaskWorktreeResult,
+} from './ipc-types'
 import type { AgentExecution, AgentState } from './agent-state'
 import type { AgentId, SprintEngineState, SprintEngineWorkspaceView } from './run-types'
 import type { SprintEngineAutomationMode } from './automation-types'

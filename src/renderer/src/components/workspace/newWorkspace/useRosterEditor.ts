@@ -44,6 +44,7 @@ import {
   resolveInitialSprintEngineRoster,
   sprintEngineRosterMatches,
 } from './savedRosters'
+import { sprintEngineIpc } from '../../../modules/sprint-engine-ipc'
 
 export type RosterEditorOptions = {
   /** Seed the editor on a specific roster (id or the built-in). */
@@ -232,13 +233,13 @@ export function useRosterEditor(options: RosterEditorOptions): RosterEditorResul
   // duplicate mounts at the bottom of this file.
   useEffect(() => {
     let cancelled = false
-    if (!workspaceRoot || typeof window.api.readSprintEngineRegistryRoles !== 'function') {
+    if (!workspaceRoot) {
       setRegistry(null)
       setRegistryStatus(workspaceRoot ? 'unavailable' : 'idle')
       return undefined
     }
     setRegistryStatus('loading')
-    void window.api.readSprintEngineRegistryRoles({ workspaceRoot, includeShadowed: true })
+    void sprintEngineIpc.readSprintEngineRegistryRoles({ workspaceRoot, includeShadowed: true })
       .then((result) => {
         if (cancelled) return
         if (result.ok) {

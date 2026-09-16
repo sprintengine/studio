@@ -16,7 +16,10 @@ import type {
   WorkspaceWindowId,
   WorkspaceMode,
 } from '../../../../types/workspace'
-import type { SprintEngineArtifactCommandResult, SprintEngineStateInitializeInput } from '../../../../../../shared/electron-api'
+import type {
+  SprintEngineArtifactCommandResult,
+  SprintEngineStateInitializeInput,
+} from '../../../../../../shared/sprintengine/ipc-types'
 import type { SprintEngineIntake } from '../../../../../../shared/sprintengine/run-types'
 
 export type OnCreateArgs = {

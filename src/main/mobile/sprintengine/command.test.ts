@@ -2160,6 +2160,9 @@ async function importMainProcessIpcHandlers(): Promise<FilesystemMutationHandler
           buildFromTemplate: () => ({}),
           setApplicationMenu: () => undefined,
         },
+        protocol: {
+          registerSchemesAsPrivileged: () => undefined,
+        },
         safeStorage: {
           decryptString: () => '',
           encryptString: (value: string) => Buffer.from(value),

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../../../modules/sprint-engine-ipc'
 
 // NewSprintDialog (MC-2062) — the two contracts this suite pins are the ones
 // the acceptance names:
@@ -157,6 +158,15 @@ async function main(): Promise<void> {
     '../../backlog/backlogSelectionSourcePlan'
   )
   const { scanBacklog } = await import('../../../utils/backlog')
+  const windowApi = (dom.window as unknown as { api: Record<string, unknown> }).api
+  bindSprintEngineIpc(new Proxy(windowApi, {
+    get: (target, prop: string) =>
+      prop in target
+        ? target[prop]
+        : prop.startsWith('on')
+          ? () => () => undefined
+          : async () => ({ ok: false, message: 'not stubbed' }),
+  }) as never)
   const api = (dom.window as unknown as {
     api: {
       pathExists(path: string): Promise<boolean>

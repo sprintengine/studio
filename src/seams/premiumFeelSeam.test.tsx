@@ -1,3 +1,4 @@
+import { bindSprintEngineIpc } from '../renderer/src/modules/sprint-engine-ipc'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
@@ -1205,6 +1206,7 @@ async function main(): Promise<void> {
     const { default: WorkspaceSidebar } = await import(
       '../renderer/src/components/workspace/WorkspaceSidebar'
     )
+    bindSprintEngineIpc(domWindow.api as never)
     const { ContextRailColumn, ContextRailSlotContext } = await import(
       '../renderer/src/components/workspace/globalSurface/contextRail'
     )

@@ -21,18 +21,15 @@
 // - `ipc:workspace-read` — observing workspace and project state: workspace-sync
 //   snapshots/events (`workspaceSyncGetSnapshot`, `onWorkspaceSyncEvent`),
 //   window state, git read models (`getGitStatus`, branches/history/graph/
-//   worktree lists), backlog reads, Sprint Engine reads
-//   and projections, knowledge/memory reads, terminal session lists
-//   (`terminalList`, `terminalStatus`), workspace backup reads.
+//   worktree lists), backlog reads, knowledge/memory reads, terminal session
+//   lists (`terminalList`, `terminalStatus`), workspace backup reads.
 // - `ipc:workspace-write` — changing workspace and project state through the
 //   studio: `workspaceSyncDispatch`, filesystem mutation routes (`writefile`,
 //   create/rename/copy/delete), git mutations (stage/commit/push/branch/
-//   worktrees), backlog mutations, Sprint Engine task
-//   mutations, workspace backup writes.
+//   worktrees), backlog mutations, workspace backup writes.
 // - `ipc:agents` — launching and controlling agents and terminals:
 //   `terminalSpawn`/`terminalWrite`/`terminalKill` and terminal event streams,
-//   conversation provider sessions, Sprint Engine runner/roster controls,
-//   soul prompts.
+//   conversation provider sessions.
 // - `ipc:settings` — reading and changing studio settings and integrations:
 //   module enablement, third-party module install/trust, MCP catalog/sync,
 //   skill packs, plugin and role/template registries, GitHub token, app

@@ -256,8 +256,8 @@ const result = await host.invoke('my-module:save-events', { events })
 
 The channel must start with `<moduleId>:` — your own module id. The host
 routes an invoke only when the channel is registered via `registerIpc`, is
-prefixed with its owning module's id, the owner is a third-party module, and
-the owner's manifest declares the `ipc:invoke` permission. A refused invoke
+prefixed with its owning module's id, and the owner's manifest declares the
+`ipc:invoke` permission. A refused invoke
 rejects with an Error whose `code` property is a `ModuleBridgeRefusalCode`
 (`unknown_channel` | `not_bridgeable` | `permission_missing`), so your code
 can branch on the refusal kind instead of parsing the message.

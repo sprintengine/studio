@@ -96,6 +96,15 @@ const activeMainModules = activeForChannel(
     automations: {
       checkProviderPermission: checkAutomationProviderPermission,
     },
+    sprintEngine: {
+      sprintEngineArtifacts: services.sprintEngineArtifacts,
+      sprintEngineAutomation: services.sprintEngineAutomation,
+      sprintEngineLaunchSettings: services.sprintEngineLaunchSettings,
+      sprintEngineMcpHub: services.sprintEngineMcpHub,
+      sprintCreateService: services.sprintCreateService,
+      sprintPullRequestMergePoller: services.sprintPullRequestMergePoller,
+      sprintRuntime: services.sprintRuntime,
+    },
   }),
   (module) => module.manifest.id,
   includeDevModules

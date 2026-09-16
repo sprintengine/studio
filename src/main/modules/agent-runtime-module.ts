@@ -6,19 +6,12 @@ import {
   AgentControlPlaneToken,
   AgentLaunchServiceToken,
   AgentSessionsModuleServiceToken,
-  SprintCreateServiceToken,
   CompanionAgentServiceToken,
   CompanionAgentsModuleServiceToken,
   GitHubTokenStoreToken,
   ModuleStorageToken,
   EntitlementServiceToken,
   MulticodeAuthToken,
-  SprintEngineArtifactsToken,
-  SprintEngineAutomationServiceToken,
-  SprintEngineLaunchSettingsToken,
-  SprintEngineMcpHubToken,
-  SprintPullRequestMergePollerToken,
-  SprintRuntimeToken,
   TerminalRuntimeToken,
   WorkspaceContextToken,
   WorkspaceRegistryToken,
@@ -81,15 +74,8 @@ export function createAgentRuntimeModule(
       host.provideService(AgentControlPlaneToken, () => services.agentControlPlane)
       host.provideService(AgentLaunchServiceToken, () => services.agentLaunchService)
       host.provideService(GitHubTokenStoreToken, () => services.githubTokenStore)
-      host.provideService(SprintEngineArtifactsToken, () => services.sprintEngineArtifacts)
-      host.provideService(SprintEngineAutomationServiceToken, () => services.sprintEngineAutomation)
-      host.provideService(SprintEngineLaunchSettingsToken, () => services.sprintEngineLaunchSettings)
-      host.provideService(SprintRuntimeToken, () => services.sprintRuntime)
-      host.provideService(SprintPullRequestMergePollerToken, () => services.sprintPullRequestMergePoller)
       host.provideService(MulticodeAuthToken, () => services.multicodeAuth)
       host.provideService(EntitlementServiceToken, () => services.entitlements)
-      host.provideService(SprintEngineMcpHubToken, () => services.sprintEngineMcpHub)
-      host.provideService(SprintCreateServiceToken, () => services.sprintCreateService)
       host.provideService(WorkspaceSyncServiceToken, () => services.workspaceSyncService)
       host.provideService(WorkspaceRegistryToken, () => services.workspaceRegistry)
       // Programmatic workspace creation, minted in main's registry (MC-2158).

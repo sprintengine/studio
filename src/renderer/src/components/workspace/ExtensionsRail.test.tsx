@@ -20,6 +20,7 @@ import assert from 'node:assert/strict'
 // GlobalSurfaceShell's contract for a surface that brings none is that the host
 // keeps its own column).
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true })
 const anyGlobal = globalThis as unknown as Record<string, unknown>
@@ -63,6 +64,8 @@ import {
   consumePendingExtensionsSurfaceTarget,
   dispatchExtensionsSurfaceTarget,
 } from './globalSurface/extensions/extensionsSurfaceTarget'
+
+bindSprintEngineIpc(domWindow.api as never)
 
 // Every root, so the end of the file can unmount them all: the drawer's rows
 // now subscribe to the run index and the design arrivals store, whose hourly

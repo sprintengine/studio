@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // What the sidebar shows of another machine once THIS one is off the tailnet
 // (owner, 2026-09-13: "when studio has disconnected from the tailnet, it
@@ -129,6 +130,7 @@ async function main(): Promise<void> {
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
+  bindSprintEngineIpc(domWindow.api as never)
 
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   const workspaces = [

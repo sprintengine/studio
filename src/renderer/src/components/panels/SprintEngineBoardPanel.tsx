@@ -75,6 +75,7 @@ import type { PluginModelCatalog } from '../../../../shared/plugin-manifest'
 import { DEFAULT_SPRINTENGINE_TASK_REPO, type SprintEngineVcsRepo } from '../../../../shared/sprintengine/run-types'
 import { sprintEngineRepoDisplayName } from '../../../../shared/backlog/sprintengine-links'
 import { useSprintEngineTokenUsage } from '../../hooks/useSprintEngineTokenUsage'
+import { sprintEngineIpc } from '../../modules/sprint-engine-ipc'
 import {
  bracketedTerminalPaste,
  buildSprintEngineRoleRegistry,
@@ -858,7 +859,7 @@ export function SprintRunBoard({
     const statePath = sprintEngineContext?.statePath
     if (hasResidentWorkspace || !statePath) return undefined
     let cancelled = false
-    void window.api.readSprintEngineAutomationMode({ statePath })
+    void sprintEngineIpc.readSprintEngineAutomationMode({ statePath })
       .then((result) => {
         if (cancelled || !result.ok || !result.record) return
         const record = result.record
@@ -902,11 +903,11 @@ export function SprintRunBoard({
  const [roleRegistry, setRoleRegistry] = useState<SprintEngineRoleRegistry | null>(null)
  useEffect(() => {
    let cancelled = false
-   if (!roleRegistryRoot || typeof window.api.readSprintEngineRegistryRoles !== 'function') {
+   if (!roleRegistryRoot) {
      setRoleRegistry(null)
      return undefined
    }
-   void window.api.readSprintEngineRegistryRoles({ workspaceRoot: roleRegistryRoot, includeShadowed: true })
+   void sprintEngineIpc.readSprintEngineRegistryRoles({ workspaceRoot: roleRegistryRoot, includeShadowed: true })
      .then((result) => {
        if (cancelled) return
        if (result.ok) {
@@ -1349,7 +1350,7 @@ export function SprintRunBoard({
  setCancelSprintBusy(true)
  setSyncState({ status: 'syncing', message: 'Canceling sprint...' })
  try {
- const result = await window.api.cancelSprintEngineRun({ statePath })
+ const result = await sprintEngineIpc.cancelSprintEngineRun({ statePath })
  if (!result.ok) throw new Error(result.message ?? 'Canceling the sprint failed.')
  await refreshSprintEngineState()
  } catch (error) {
@@ -1389,7 +1390,11 @@ export function SprintRunBoard({
  setSprintEngineState: applyProjectionToRun,
  openFile,
  refreshSprintEngineState,
- api: window.api,
+ api: {
+   ...sprintEngineIpc,
+   pathExists: window.api.pathExists,
+   readfile: window.api.readfile,
+ },
  })
 
  // Artifact-preview annotate sink (MC-1468 T11, Sink A): a pin batch submitted
@@ -1734,7 +1739,7 @@ export function SprintRunBoard({
   // stop-reason push carries it. Without this the scheduler stays
   // paused/blocked forever while the UI shows "running".
   if (sprintEngineContext?.statePath) {
-  void window.api.resumeSprintRuntimeRun?.({ statePath: sprintEngineContext.statePath })
+  void sprintEngineIpc.resumeSprintRuntimeRun({ statePath: sprintEngineContext.statePath })
   }
   }
   : null
@@ -1928,7 +1933,7 @@ export function SprintRunBoard({
  return
  }
  if (role !== undefined && roleNeedsEnable) {
- const enabled = await window.api.enableSprintEngineRole({
+ const enabled = await sprintEngineIpc.enableSprintEngineRole({
  statePath: sprintEngineContext.statePath,
  role,
  cli: memberCli,
@@ -2144,7 +2149,7 @@ export function SprintRunBoard({
  // state path keep the per-agent picker only.
  const applyRoleRuntimeEdit = async (role: SprintEngineRoleId, cli: AgentCli, model: string | null) => {
    if (!sprintEngineContext) return
-   const result = await window.api.setSprintEngineRoleRuntime({
+   const result = await sprintEngineIpc.setSprintEngineRoleRuntime({
      statePath: sprintEngineContext.statePath,
      role,
      cli,

@@ -11,6 +11,7 @@ import assert from 'node:assert/strict'
 // a hand-written expectation would keep passing on the day a view's deep-link
 // latch changed under it and only the drawer was updated.
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true })
 const anyGlobal = globalThis as unknown as Record<string, unknown>
@@ -80,6 +81,8 @@ import {
   __resetModelPermissionPresetsForTest,
   setModelPermissionPreset,
 } from '../ui/modelPermissionPresets'
+
+bindSprintEngineIpc(domWindow.api as never)
 
 /** A model id this machine "has", added the way Settings adds one. */
 const MODEL = 'claude-opus-5'

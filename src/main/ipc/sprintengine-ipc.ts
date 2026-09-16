@@ -1,4 +1,4 @@
-import type { IpcMain } from 'electron'
+import type { IpcInvokeHandler } from '../module-host/main-host'
 import type {
   SprintEngineArtifactCommandResult,
   SprintEngineMcpReadResult,
@@ -13,7 +13,8 @@ import type {
   SprintEngineTaskStatusSetInput,
   SprintEngineTaskWorktreeInput,
   SprintEngineTaskWorktreeResult,
-} from '../../shared/electron-api'
+} from '../../shared/sprintengine/ipc-types'
+import { SPRINT_ENGINE_CHANNELS } from '../../shared/sprintengine/ipc-channels'
 import type { SprintEngineTokenUsageReport } from '../../shared/sprintengine-token-usage'
 import type { SprintRunSummary } from '../../shared/sprintengine/runSummary'
 
@@ -57,6 +58,10 @@ export type SprintEngineProjectionReadPayload = {
 export type SprintEngineArtifactReviewAction = 'approve' | 'request-changes'
 export type SprintEngineArtifactReviewMode = 'user' | 'auto-run'
 
+export type SprintEngineIpcHost = {
+  registerIpc(channel: string, handler: IpcInvokeHandler): void
+}
+
 type SprintEngineIpcDependencies = {
   reviewArtifact(
     payload: SprintEngineArtifactReviewPayload,
@@ -82,39 +87,39 @@ type SprintEngineIpcDependencies = {
   listRuns(payload: SprintEngineRunsListPayload): Promise<SprintRunSummary[]>
 }
 
-export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcDependencies): void {
-  ipcMain.handle('sprintengine:artifact:approve', async (_, payload: SprintEngineArtifactReviewPayload): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.reviewArtifact(payload, 'approve', 'user')
+export function registerSprintEngineIpc(host: SprintEngineIpcHost, deps: SprintEngineIpcDependencies): void {
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.artifactApprove, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.reviewArtifact(payload as SprintEngineArtifactReviewPayload, 'approve', 'user')
   })
 
-  ipcMain.handle('sprintengine:artifact:auto-approve', async (_, payload: SprintEngineArtifactReviewPayload): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.reviewArtifact(payload, 'approve', 'auto-run')
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.artifactAutoApprove, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.reviewArtifact(payload as SprintEngineArtifactReviewPayload, 'approve', 'auto-run')
   })
 
-  ipcMain.handle('sprintengine:artifact:request-changes', async (_, payload: SprintEngineArtifactReviewPayload): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.reviewArtifact(payload, 'request-changes', 'user')
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.artifactRequestChanges, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.reviewArtifact(payload as SprintEngineArtifactReviewPayload, 'request-changes', 'user')
   })
 
-  ipcMain.handle('sprintengine:state:initialize', async (_, payload: SprintEngineStateInitializeInput): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.initializeSprintEngineState(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.stateInitialize, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.initializeSprintEngineState(payload as SprintEngineStateInitializeInput)
   })
 
-  ipcMain.handle('sprintengine:task:comment', async (_, payload: SprintEngineTaskCommentInput): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.commentTask(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.taskComment, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.commentTask(payload as SprintEngineTaskCommentInput)
   })
 
-  ipcMain.handle('sprintengine:task:resolve-input', async (_, payload: SprintEngineTaskResolveInput): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.resolveTaskInput(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.taskResolveInput, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.resolveTaskInput(payload as SprintEngineTaskResolveInput)
   })
 
-  ipcMain.handle('sprintengine:task:set-status', async (_, payload: SprintEngineTaskStatusSetInput): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.setTaskStatus(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.taskSetStatus, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.setTaskStatus(payload as SprintEngineTaskStatusSetInput)
   })
 
   // User-initiated sprint cancellation (MC-1604b): runs the engine `cancel` op
   // and parks the automation runtime (the dep composes both in the module).
-  ipcMain.handle('sprintengine:run:cancel', async (_, payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.cancelRun(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.runCancel, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.cancelRun(payload as SprintEngineVcsPayload)
   })
 
   // `sprintengine:runner:set-mode` was removed (MC-1567): the renderer no
@@ -122,54 +127,54 @@ export function registerSprintEngineIpc(ipcMain: IpcMain, deps: SprintEngineIpcD
   // set-mode path bridges it in-process (`deps.setRunnerMode` is still the
   // in-process seam it and the automations front door use).
 
-  ipcMain.handle('sprintengine:vcs:pr', async (_, payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.createPullRequest(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.vcsPr, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.createPullRequest(payload as SprintEngineVcsPayload)
   })
 
-  ipcMain.handle('sprintengine:vcs:pr-status', async (_, payload: SprintEngineVcsPayload): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.refreshPullRequestStatus(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.vcsPrStatus, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.refreshPullRequestStatus(payload as SprintEngineVcsPayload)
   })
 
   // Merging is user-initiated and per project (MC-1612); the engine refuses an
   // out-of-order merge. Nothing here decides WHEN to merge.
-  ipcMain.handle('sprintengine:vcs:pr-merge', async (_, payload: SprintEngineVcsMergePayload): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.mergePullRequest(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.vcsPrMerge, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.mergePullRequest(payload as SprintEngineVcsMergePayload)
   })
 
   // Per-task isolation (MC-2136): provision one task's worktree BEFORE its agent
   // spawns, because a terminal cannot be moved into it afterwards. A no-op with
   // `isolated: false` on every run that shares one worktree.
-  ipcMain.handle('sprintengine:vcs:task-worktree', async (_, payload: SprintEngineTaskWorktreeInput): Promise<SprintEngineTaskWorktreeResult> => {
-    return deps.ensureTaskWorktree(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.vcsTaskWorktree, async (_event, payload: unknown): Promise<SprintEngineTaskWorktreeResult> => {
+    return deps.ensureTaskWorktree(payload as SprintEngineTaskWorktreeInput)
   })
 
-  ipcMain.handle('sprintengine:roster:runtime', async (_, payload: SprintEngineRosterRuntimeInput): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.setRoleRuntime(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.rosterRuntime, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.setRoleRuntime(payload as SprintEngineRosterRuntimeInput)
   })
 
-  ipcMain.handle('sprintengine:roster:enable', async (_, payload: SprintEngineRosterEnableInput): Promise<SprintEngineArtifactCommandResult> => {
-    return deps.enableRole(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.rosterEnable, async (_event, payload: unknown): Promise<SprintEngineArtifactCommandResult> => {
+    return deps.enableRole(payload as SprintEngineRosterEnableInput)
   })
 
-  ipcMain.handle('sprintengine:projection:read', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineProjectionReadResult> => {
-    return deps.readProjection(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.projectionRead, async (_event, payload: unknown): Promise<SprintEngineProjectionReadResult> => {
+    return deps.readProjection(payload as SprintEngineProjectionReadPayload)
   })
 
-  ipcMain.handle('sprintengine:registry:roles:read', async (_, payload: SprintEngineRegistryRolesReadInput): Promise<SprintEngineMcpReadResult> => {
-    return deps.readRegistryRoles(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.registryRolesRead, async (_event, payload: unknown): Promise<SprintEngineMcpReadResult> => {
+    return deps.readRegistryRoles(payload as SprintEngineRegistryRolesReadInput)
   })
 
-  ipcMain.handle('sprintengine:feedback:summarize', async (_, payload: SprintEngineProjectionReadPayload): Promise<SprintEngineMcpReadResult> => {
-    return deps.summarizeFeedback(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.feedbackSummarize, async (_event, payload: unknown): Promise<SprintEngineMcpReadResult> => {
+    return deps.summarizeFeedback(payload as SprintEngineProjectionReadPayload)
   })
 
-  ipcMain.handle('sprintengine:token-usage:read', async (_, payload: SprintEngineVcsPayload): Promise<SprintEngineTokenUsageReport> => {
-    return deps.readTokenUsage(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.tokenUsageRead, async (_event, payload: unknown): Promise<SprintEngineTokenUsageReport> => {
+    return deps.readTokenUsage(payload as SprintEngineVcsPayload)
   })
 
   // Cross-project run index (MC-1761): every sprint run under the given project
   // roots as a compact summary, live and historical, with no resident workspace.
-  ipcMain.handle('sprintengine:runs:list', async (_, payload: SprintEngineRunsListPayload): Promise<SprintRunSummary[]> => {
-    return deps.listRuns(payload)
+  host.registerIpc(SPRINT_ENGINE_CHANNELS.runsList, async (_event, payload: unknown): Promise<SprintRunSummary[]> => {
+    return deps.listRuns(payload as SprintEngineRunsListPayload)
   })
 }

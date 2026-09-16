@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../../../../modules/sprint-engine-ipc'
 
 // The Sprints door's composition contract (items 1763 + 1764), asserted on the
 // rendered surface rather than on its parts: the Electron app cannot be driven
@@ -273,6 +274,7 @@ domWindow.api = new Proxy(api, {
         ? () => () => {}
         : async () => ({ ok: false, message: 'not stubbed' }),
 })
+bindSprintEngineIpc(domWindow.api as never)
 
 async function main(): Promise<void> {
   const React = await import('react')
@@ -290,6 +292,7 @@ async function main(): Promise<void> {
   )
   const { ConfirmDialogProvider } = await import('../../../ui/ConfirmDialog')
   const { getTimerRegistrations } = await import('../../../../utils/diagnostics/timerRegistry')
+  bindSprintEngineIpc(domWindow.api as never)
 
   // Let React.lazy resolve the board chunk and any follow-up effects settle.
   async function settle(times = 6): Promise<void> {

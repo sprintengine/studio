@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // Row contrast (contrast-for-quiet-chats, 2026-09-07; residency replacing the
 // clock, 2026-09-09). A sidebar where every chat is drawn at full ink has no
@@ -60,6 +61,7 @@ async function main(): Promise<void> {
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
+  bindSprintEngineIpc(domWindow.api as never)
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   type Workspace = SidebarProps['workspaces'][number]
 

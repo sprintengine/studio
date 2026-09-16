@@ -26,7 +26,7 @@ import type {
 import type {
   SprintEngineArtifactCommandResult,
   SprintEngineStateInitializeInput,
-} from '../electron-api'
+} from './ipc-types'
 import type { SprintEngineAutomationMode, SprintEngineCliPermissionPreset } from './automation-types'
 import {
   sprintEngineAutomationInitialStateForMode,

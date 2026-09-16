@@ -129,7 +129,7 @@ export type SprintEngineBoardArtifactActions = {
  * inline panel implementation — the hook only changes where the code lives.
  *
  * The renderer still reads Sprint Engine data from the normalized projection
- * (via the existing `window.api.approveSprintEngineArtifact` /
+ * (via the module's `approveSprintEngineArtifact` /
  * `requestSprintEngineArtifactChanges` IPC contracts) and never parses
  * artifact folders directly.
  */

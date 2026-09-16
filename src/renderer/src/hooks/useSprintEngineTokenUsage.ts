@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { SprintEngineTokenUsageReport } from '../../../shared/sprintengine-token-usage'
+import { sprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 // Shared fetch of the run's token-usage report (computed main-side from the
 // durable token ledger + projection; the main process caches, so refetching on
@@ -28,7 +29,7 @@ export function useSprintEngineTokenUsage(
   useEffect(() => {
     if (!statePath || !enabled) return
     let cancelled = false
-    window.api
+    sprintEngineIpc
       .readSprintEngineTokenUsage(statePath)
       .then((usage) => {
         if (cancelled) return

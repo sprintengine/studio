@@ -41,7 +41,6 @@ import { registerPluginIpc } from './ipc/plugins-ipc'
 import { registerSkillsIpc } from './ipc/skills-ipc'
 import { registerWorkspaceSkillsIpc } from './ipc/workspace-skills-ipc'
 import { registerSoulsIpc } from './ipc/souls-ipc'
-import { registerSprintEngineRoleRegistryIpc } from './ipc/sprintengine-role-registry-ipc'
 import { registerThirdPartyModuleIpc } from './ipc/third-party-module-ipc'
 import { registerUpdateIpc } from './ipc/update-ipc'
 import { registerVersionControlIpc } from './ipc/version-control-ipc'
@@ -173,7 +172,6 @@ export function registerCoreIpc(
   registerPluginIpc(ipcMain)
   registerConversationIpc(ipcMain, createConversationIpcHandlers(services.conversationRuntime))
   registerCredentialIpc(ipcMain)
-  registerSprintEngineRoleRegistryIpc(ipcMain)
   registerDesignSystemIpc(ipcMain)
   registerThirdPartyModuleIpc(ipcMain)
 }

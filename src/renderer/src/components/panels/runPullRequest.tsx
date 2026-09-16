@@ -6,6 +6,7 @@ import { sprintEngineRepoDisplayName } from '../../../../shared/backlog/sprinten
 import type { SprintEngineVcs } from '../../types/workspace'
 import { FOCUS_RING_CLASS, PrimaryButton, PullRequestGlyph, Tooltip } from '../ui'
 import { PULL_REQUEST_TONE_VAR, pullRequestTone } from '../../../../shared/git/pull-request'
+import { sprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // Pull the freshly-written projection into the store after a vcs mutation so the
 // header chip, the summary row, and the run glyph all reflect the new state.
@@ -62,7 +63,7 @@ export function useRunPullRequestMergePoll(input: {
     let cancelled = false
     void (async () => {
       try {
-        const result = await window.api.refreshSprintEnginePullRequestStatus(statePath)
+        const result = await sprintEngineIpc.refreshSprintEnginePullRequestStatus(statePath)
         if (cancelled || !result.ok) return
         await refreshRef.current()
       } catch {
@@ -93,7 +94,7 @@ function useRunPullRequestAction(input: { workspaceId: string; statePath: string
     setBusy(true)
     setActionError(null)
     try {
-      const result = await window.api.createSprintEnginePullRequest(statePath)
+      const result = await sprintEngineIpc.createSprintEnginePullRequest(statePath)
       // Refresh first so the projection carries the new pullRequestUrl/status.
       await refresh()
       if (!result.ok) {

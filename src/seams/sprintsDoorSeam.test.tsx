@@ -5,7 +5,7 @@ import { join } from 'node:path'
 
 import { installJsdomEnvironment, withInertPreloadFallback } from './jsdomEnvironment'
 import type { SprintEngineLaunchSettingsWriteResult } from '../main/sprintengine-launch-settings-mirror'
-import type { SprintEngineRosterEnableInput } from '../shared/electron-api'
+import type { SprintEngineRosterEnableInput } from '../shared/sprintengine/ipc-types'
 import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
 
 // ── Seam: the Sprints door's run configuration (T1 → T2 → T3, items 1799/1800) ─
@@ -23,12 +23,12 @@ import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-s
 //
 // So this suite wires the real halves together and asserts on the FILE:
 //
-//   the mounted board  →  the real preload passthrough (src/preload/api)
+//   the mounted board  →  the module invoke client (src/renderer/src/modules)
 //                      →  the real main IPC handlers (src/main/ipc)
 //                      →  the real automation service (src/main)
 //                      →  automation.json beside run.yaml, on disk
 //
-// Only the Python engine is out of reach (`sprintengine:roster:enable` shells
+// Only the Python engine is out of reach (`sprint-engine:roster:enable` shells
 // out to it), so that one handler records what it was asked to do; everything
 // between the click and the engine's front door is the product's own code.
 
@@ -63,15 +63,18 @@ async function main(): Promise<void> {
 }
 
 async function run(projectRoot: string): Promise<void> {
-  const { ipcMain } = await import('electron')
+  const { ipcMain, ipcRenderer } = await import('electron')
   const { createSprintEngineAutomationService } = await import('../main/sprintengine-automation-service')
   const { registerSprintEngineAutomationIpc } = await import('../main/ipc/sprintengine-automation-ipc')
   const { registerSprintEngineIpc } = await import('../main/ipc/sprintengine-ipc')
   const {
+    bindSprintEngineIpc,
+    createHostBackedSprintEngineIpc,
+  } = await import('../renderer/src/modules/sprint-engine-ipc')
+  const {
     SPRINT_ENGINE_AUTOMATION_INTENT_FILE,
     parseSprintEngineAutomationIntentRecord,
   } = await import('../shared/sprintengine/automation-intent')
-  const { sprintEngineApi } = await import('../preload/api/sprintengine')
 
   const teamSlug = 'seam-run'
   const teamDirectory = join(projectRoot, '.sprintengine', 'sprintengine', teamSlug)
@@ -98,7 +101,12 @@ async function run(projectRoot: string): Promise<void> {
   // assertion below reads these rather than the renderer's own intent.
   const modeWrites: Array<Record<string, unknown>> = []
   const presetWrites: Array<Record<string, unknown>> = []
-  registerSprintEngineAutomationIpc(ipcMain, {
+  const host = {
+    registerIpc(channel: string, handler: (event: unknown, payload: unknown) => unknown) {
+      ipcMain.handle(channel, handler)
+    },
+  }
+  registerSprintEngineAutomationIpc(host as never, {
     automation: {
       readAutomationMode: (input) => automationService.readAutomationMode(input),
       hydrateAutomationMode: (input) => automationService.hydrateAutomationMode(input),
@@ -175,7 +183,7 @@ async function run(projectRoot: string): Promise<void> {
     ok: false,
     message: 'This channel is not part of the run-configuration seam.',
   })
-  registerSprintEngineIpc(ipcMain, {
+  registerSprintEngineIpc(host as never, {
     listRuns: async () => summaries as never,
     readProjection: async () => ({ ok: true, data: projection(), token: `token-${configuredRoles.length}` } as never),
     readRegistryRoles: async () => ({
@@ -210,12 +218,28 @@ async function run(projectRoot: string): Promise<void> {
     readTokenUsage: refuse,
   } as unknown as Parameters<typeof registerSprintEngineIpc>[1])
 
-  // ── Renderer: the real preload bridge for every sprintengine channel ───────
+  // ── Renderer: remaining preload surface (path/fs/diagnostics) ─────────────
+  // `moduleBridgeInvoke` is the production RendererHost.invoke path. Importing
+  // the surface pulls in the module registry, which re-binds the sprint IPC
+  // client onto that host; this stub is what makes those invokes hit the
+  // handlers registered above instead of the inert fallback.
   const notifications: Array<Record<string, unknown>> = []
   domWindow.api = withInertPreloadFallback({
     platform: 'darwin',
-    ...sprintEngineApi,
     pathExists: async () => true,
+    moduleBridgeInvoke: async (channel: string, payload?: unknown) => {
+      try {
+        const result = await ipcRenderer.invoke(channel, payload)
+        return { ok: true as const, result }
+      } catch (error) {
+        return {
+          ok: false as const,
+          code: 'unknown_channel' as const,
+          message: error instanceof Error ? error.message : String(error),
+        }
+      }
+    },
+    onModuleEvent: () => () => undefined,
     logDiagnostic: async (input: Record<string, unknown>) => {
       const entry = { ...input, id: `diag-${notifications.length + 1}`, timestamp: '2026-07-26T12:00:00.000Z' }
       notifications.push(entry)
@@ -231,6 +255,14 @@ async function run(projectRoot: string): Promise<void> {
     '../renderer/src/components/workspace/globalSurface/sprints/SprintsGlobalSurface'
   )
   const { ConfirmDialogProvider } = await import('../renderer/src/components/ui/ConfirmDialog')
+  bindSprintEngineIpc(createHostBackedSprintEngineIpc({
+    invoke: (channel, payload) => ipcRenderer.invoke(channel, payload),
+    subscribe: (topic, cb) => {
+      const listener = (_event: unknown, payload: unknown) => cb(payload)
+      ipcRenderer.on(topic, listener)
+      return () => ipcRenderer.removeListener(topic, listener)
+    },
+  }))
 
   // Every write in this suite crosses a real disk I/O boundary, so settling on
   // microtasks alone would read the file before the service has written it. Each

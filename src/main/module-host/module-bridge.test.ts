@@ -26,6 +26,11 @@ const MANIFESTS: Record<string, CapabilityManifest> = {
     permissions: ['network'],
   }),
   automations: manifest({ id: 'automations', source: 'bundled' }),
+  'sprint-engine': manifest({
+    id: 'sprint-engine',
+    source: 'bundled',
+    permissions: ['ipc:invoke'],
+  }),
 }
 
 function createBridgeFixture(): FakeIpcMain {
@@ -40,6 +45,7 @@ function createBridgeFixture(): FakeIpcMain {
   kernel.hostFor('weather-deck').registerIpc('forecast:global', () => 'unprefixed')
   kernel.hostFor('quiet-deck').registerIpc('quiet-deck:ping', () => 'pong')
   kernel.hostFor('automations').registerIpc('automations:list', () => [])
+  kernel.hostFor('sprint-engine').registerIpc('sprint-engine:projection:read', () => ({ ok: true, data: null }))
   return fake
 }
 
@@ -76,11 +82,17 @@ async function testDispatcherRefusesChannelWithoutOwnerPrefix(): Promise<void> {
   assert.equal(!outcome.ok && outcome.code, 'not_bridgeable')
 }
 
-async function testDispatcherRefusesBundledModuleChannel(): Promise<void> {
+async function testDispatcherRoutesOwnedBundledModuleChannel(): Promise<void> {
+  const fake = createBridgeFixture()
+  const outcome = await bridgeInvoke(fake, { channel: 'sprint-engine:projection:read' })
+  assert.deepEqual(outcome, { ok: true, result: { ok: true, data: null } })
+}
+
+async function testDispatcherRefusesBundledModuleWithoutInvokePermission(): Promise<void> {
   const fake = createBridgeFixture()
   const outcome = await bridgeInvoke(fake, { channel: 'automations:list' })
   assert.equal(outcome.ok, false)
-  assert.equal(!outcome.ok && outcome.code, 'not_bridgeable')
+  assert.equal(!outcome.ok && outcome.code, 'permission_missing')
 }
 
 async function testDispatcherRefusesWithoutInvokePermission(): Promise<void> {
@@ -120,11 +132,24 @@ async function testUnregisterModuleRemovesBridgedHandler(): Promise<void> {
   const kernel = createMainKernel(fake.ipcMain, {
     resolveModuleManifest: (moduleId) => MANIFESTS[moduleId],
   })
-  kernel.hostFor('weather-deck').registerIpc('weather-deck:forecast', () => 'clear')
-  await kernel.unregisterModule('weather-deck')
-  const outcome = await bridgeInvoke(fake, { channel: 'weather-deck:forecast' })
+  kernel.hostFor('sprint-engine').registerIpc('sprint-engine:projection:read', () => ({ ok: true }))
+  assert.equal(kernel.ownedChannels().get('sprint-engine:projection:read'), 'sprint-engine')
+  await kernel.unregisterModule('sprint-engine')
+  const outcome = await bridgeInvoke(fake, { channel: 'sprint-engine:projection:read' })
   assert.equal(outcome.ok, false)
   assert.equal(!outcome.ok && outcome.code, 'unknown_channel')
+}
+
+function testSecondModuleCannotClaimOwnedSprintChannel(): void {
+  const fake = createFakeIpcMain()
+  const kernel = createMainKernel(fake.ipcMain, {
+    resolveModuleManifest: (moduleId) => MANIFESTS[moduleId],
+  })
+  kernel.hostFor('sprint-engine').registerIpc('sprint-engine:projection:read', () => ({ ok: true }))
+  assert.throws(
+    () => kernel.hostFor('weather-deck').registerIpc('sprint-engine:projection:read', () => ({ stolen: true })),
+    /already registered by module "sprint-engine"/,
+  )
 }
 
 function testBridgeChannelIsReservedToHost(): void {
@@ -140,14 +165,16 @@ function testBridgeChannelIsReservedToHost(): void {
 
 async function main(): Promise<void> {
   await testDispatcherRoutesOwnedThirdPartyChannel()
+  await testDispatcherRoutesOwnedBundledModuleChannel()
   await testDispatcherRefusesUnknownChannel()
   await testDispatcherRefusesMalformedRequest()
   await testDispatcherRefusesChannelWithoutOwnerPrefix()
-  await testDispatcherRefusesBundledModuleChannel()
+  await testDispatcherRefusesBundledModuleWithoutInvokePermission()
   await testDispatcherRefusesWithoutInvokePermission()
   await testDispatcherRefusesWithoutManifestResolver()
   await testHandlerErrorsPropagateAsRejections()
   await testUnregisterModuleRemovesBridgedHandler()
+  testSecondModuleCannotClaimOwnedSprintChannel()
   testBridgeChannelIsReservedToHost()
 
   console.log('module-bridge tests passed')
