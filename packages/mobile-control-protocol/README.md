@@ -60,8 +60,8 @@ packed tarball.
 
 ## Versioning
 
-**The npm major is the wire version.** `mobileControlProtocolVersion` is `2`, so
-this package is `2.x.y`. That is not decoration: a wire bump changes which peers
+**The npm major is the wire version.** `mobileControlProtocolVersion` is `4`, so
+this package is `4.x.y`. That is not decoration: a wire bump changes which peers
 are refused at the handshake, which is a breaking change for everything that
 depends on this package, and semver already has a number for that.
 

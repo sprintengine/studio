@@ -326,7 +326,7 @@ export default function MobileSettingsTab() {
       <SettingCard>
         <SettingToggle
           label="Mobile companion"
-          description="Paired phones can see your workspaces, update the backlog and control automations."
+          description="Paired phones can read your backlog and automations, update the backlog and control automations."
           enabled={enabled}
           onChange={(next) => void toggleEnabled(next)}
           disabled={busy}

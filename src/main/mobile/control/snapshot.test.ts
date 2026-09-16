@@ -58,7 +58,7 @@ async function main(): Promise<void> {
   await assertShedDropsRecentRunsWhenTheSnapshotIsOversized()
   await assertSnapshotSurfacesCreatedSpikeBacklogItem()
   await assertSnapshotOmitsBacklogWhenWorkspaceHasNone()
-  await assertSnapshotOmitsUnavailableWorkspaceKinds()
+  await assertSnapshotCarriesNoWorkspacesCollection()
   await assertUnscopedDefaultSnapshotIsValidForOldClients()
   await assertWorkspacePathScopingReturnsOnlyThatRoot()
   await assertScopedRequestSkipsSheddingLadder()
@@ -83,11 +83,15 @@ async function main(): Promise<void> {
 // set to the hash below in the same change, which is the procedure in
 // docs/compatibility.md step 5.
 //
+// Protocol v4 (2026-09-16) changed it again, the same way: the `workspaces`
+// collection, `desktopWorkspaces`, the `roadmaps` rider and `python_tool_failed`
+// are gone, and the wire version moved 3 -> 4.
+//
 // Retire this once the phone ships against the package: at that point there is
 // no second copy to compare and the phone's own pin becomes an assertion about
 // which package version it resolved. docs/mobile-protocol-package.md has the
 // order of operations.
-const mobileProtocolSourceSha256 = '1b0382458dae8a62aa2a145c2ae0fc751f900097f6eb9d4e7e767ccda4e5fd33'
+const mobileProtocolSourceSha256 = '6bd7c460ad7f26b6a353b8ea99ba4dca049a832f92ef377938e3c780bd2237a3'
 
 function assertMobileProtocolCopyHasNotDrifted(): void {
   const source = readFileSync(join(process.cwd(), 'packages/mobile-control-protocol/src/index.ts'))
@@ -124,7 +128,8 @@ async function assertSnapshotCarriesNoSprintEngineCollection(): Promise<void> {
   assert.equal(Object.hasOwn(snapshot, 'sprintEngines'), false, 'the collection is gone, not emptied')
   assert.equal(Object.hasOwn(snapshot, 'snapshotLimits'), false, 'its shedding report went with it')
   assert.equal(snapshot.protocolVersion, mobileControlProtocolVersion)
-  assert.equal(mobileControlProtocolVersion, 3, 'a removed required member is a wire bump')
+  // v3 removed `sprintEngines`; v4 removed `workspaces` and `roadmaps`.
+  assert.equal(mobileControlProtocolVersion, 4, 'a removed member is a wire bump')
   // The rest of the snapshot is untouched by the cut.
   assert.equal(snapshot.backlog?.length, 1)
   assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
@@ -556,27 +561,30 @@ async function assertSnapshotOmitsBacklogWhenWorkspaceHasNone(): Promise<void> {
   service.shutdown()
 }
 
-// A companion on an older build still asks for collections this desktop no
-// longer produces. It gets the section absent — never a malformed snapshot, and
-// never an invented workspace of a kind nothing serves.
-async function assertSnapshotOmitsUnavailableWorkspaceKinds(): Promise<void> {
-  const workspaceRoot = await makeWorkspaceRoot('retired-kinds')
+// Protocol v4. Until then this desktop emitted `workspaces: []` on every
+// snapshot — no producer had projected into it since the Switchboard and
+// Watchtower modules were retired — and declared a `desktopWorkspaces`
+// collection that claimed to serve those monitors and served nothing. The key is
+// now absent, not emptied, and the collection is no longer nameable.
+async function assertSnapshotCarriesNoWorkspacesCollection(): Promise<void> {
+  const workspaceRoot = await makeWorkspaceRoot('no-workspaces')
+  await writeBacklogFixture(workspaceRoot, 'backlog_no_workspaces', 'Still here')
   const service = new MobileControlSnapshotService()
 
   const snapshot = await service.readSnapshot({
     desktopSessionId: 'desktop_1',
     workspaceRoots: [workspaceRoot],
     generatedAt,
-    // `sprintEngines` and `roleCatalogs` were nameable here at v2 and are not
-    // members of `MobileSnapshotCollection` any more; `desktopWorkspaces` is the
-    // one that survived, and it still has no projection to serve.
-    include: ['desktopWorkspaces'],
   })
 
-  assert.deepEqual(snapshot.workspaces, [])
-  assert.equal(Object.hasOwn(snapshot, 'sprintEngines'), false)
-  assert.equal(snapshot.backlog, undefined)
-  assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
+  for (const retired of ['workspaces', 'roadmaps', 'sprintEngines']) {
+    assert.equal(Object.hasOwn(snapshot, retired), false, `${retired} is gone, not emptied`)
+  }
+  assert.deepEqual([...mobileSnapshotCollections].sort(), ['automations', 'backlog'])
+  assert.equal(snapshot.backlog?.length, 1)
+  const relaySafe = sanitizeMobileSnapshotForRelay(snapshot)
+  assert.equal(Object.hasOwn(relaySafe, 'workspaces'), false)
+  assert.equal(validateMobileControlSnapshot(relaySafe).ok, true)
   service.shutdown()
 }
 
@@ -608,7 +616,6 @@ async function assertScopedRequestSkipsSheddingLadder(): Promise<void> {
     desktopSessionId: 'desktop_1',
     snapshotVersion: 'snap_scoped',
     commands: [],
-    workspaces: [],
     automations: ['ws_alpha', 'ws_beta', 'ws_gamma', 'ws_delta'].flatMap(automationsAtFullCap),
   }
   assert.equal(relaySummaryByteLength(oversized) > relayResultSummaryMaxBytes, true, 'fixture must exceed the budget')

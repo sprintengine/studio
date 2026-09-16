@@ -9,14 +9,13 @@ import type {
   MobileControlBacklogWorkspaceSnapshot,
   MobileControlCommandType,
   MobileControlSnapshot,
-  MobileControlWorkspaceSnapshot as MobileWorkspaceSnapshot,
   MobileControlWebTargetSnapshot,
   MobileSnapshotCollection,
 } from '../../../../packages/mobile-control-protocol/src/index'
 import { readMobileAutomationSnapshots } from './automations'
 import { readMobileBacklogWorkspaceSnapshot } from './backlog'
 import { deriveWorkspaceId } from './workspace-id'
-import { containsLocalPath, deepRedactLocalPaths } from './relay-path-safety'
+import { deepRedactLocalPaths } from './relay-path-safety'
 
 export type { MobileControlSnapshot }
 
@@ -58,26 +57,13 @@ export type MobileControlSnapshotRequest = {
   include?: MobileSnapshotCollection[]
 }
 
-// The unscoped default: the two collections that still have a producer.
-// `desktopWorkspaces` is the third and only other one the wire declares, and it
-// is off by default — a phone that wants the switchboard/watchtower monitors
-// names it. `sprintEngines` and `roleCatalogs` were here until protocol v3 took
-// the Sprint Engine off the wire; there is nothing left to retain them for.
+// The unscoped default: every collection the wire declares.
 const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set([
   'backlog',
   'automations',
 ])
 
 type MobileControlSnapshotListener = (snapshot: MobileControlSnapshot) => void
-
-// Replace embedded workspace roots in a kind-scoped workspaceId (e.g.
-// `backlog:/Users/...`) with the relay-safe token while preserving the kind
-// prefix. Ids that carry no local path are already safe and left untouched.
-function relaySafeWorkspaceId(workspaceId: string, token: string): string {
-  if (!containsLocalPath(workspaceId)) return workspaceId
-  const separator = workspaceId.indexOf(':')
-  return separator === -1 ? token : `${workspaceId.slice(0, separator)}:${token}`
-}
 
 // Make an outbound snapshot relay-safe: the relay rejects any summary containing
 // an absolute local path (multiauth src/relay/result-summary.ts). Round-trip
@@ -87,22 +73,9 @@ function relaySafeWorkspaceId(workspaceId: string, token: string): string {
 // Applied only to the copy emitted to the phone — readSnapshot() keeps the real
 // paths for server-side resolution.
 export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot): MobileControlSnapshot {
-  // The phone's join key across collections (MC-1583). Each collection encodes
-  // `workspacePath` differently below — dropped, basename, token — because each
-  // has a different round-trip need, so none of them can be the join key. This
-  // is the same token for the same repo root in every collection.
-  const workspaces = snapshot.workspaces?.map((workspace) => {
-    const token = workspace.workspacePath ? deriveWorkspaceId(workspace.workspacePath) : undefined
-    return {
-      ...workspace,
-      workspaceId: token ? relaySafeWorkspaceId(workspace.workspaceId, token) : workspace.workspaceId,
-      projectKey: token,
-      // Optional on the wire and display-only (the card already shows `name`).
-      workspacePath: undefined,
-      statePath: undefined,
-    }
-  })
-
+  // `projectKey` is the phone's join key across collections (MC-1583): the same
+  // token for the same repo root in every collection, which automations are
+  // stamped with by their producer.
   const backlog = snapshot.backlog?.map((workspace) => {
     const token = deriveWorkspaceId(workspace.workspacePath)
     return {
@@ -118,7 +91,6 @@ export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot):
 
   return deepRedactLocalPaths({
     ...snapshot,
-    ...(workspaces ? { workspaces } : {}),
     ...(backlog ? { backlog } : {}),
   })
 }
@@ -161,10 +133,6 @@ export class MobileControlSnapshotService {
     const generatedAt = request.generatedAt ?? new Date().toISOString()
     const collections = request.include ? new Set(request.include) : defaultSnapshotCollections
     const workspaceRoots = uniqueResolved(request.workspaceRoots ?? [])
-    // No producer projects into `workspaces` since the sprint surface left
-    // (MC-2575); the key stays so a phone that reads it unconditionally still
-    // finds an array.
-    const workspaces: MobileWorkspaceSnapshot[] = []
     const backlog = collections.has('backlog')
       ? await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt)
       : []
@@ -184,18 +152,16 @@ export class MobileControlSnapshotService {
       desktopSessionId: request.desktopSessionId,
       // Content-derived so the phone's If-None-Match (item 1599) matches on an
       // idle read. It folds NO per-read wall-clock: the top level dropped
-      // `generatedAt`, and each workspace/backlog `updatedAt` — which falls back
-      // to `generatedAt` for an empty workspace — is stripped before hashing.
+      // `generatedAt`, and each backlog `updatedAt` — which falls back to
+      // `generatedAt` for an empty workspace — is stripped before hashing.
       // Backlog and automations are folded so a backlog-only or automations-only
       // change still bumps the version.
       snapshotVersion: buildSnapshotVersion({
-        workspaces: workspaces.map(withoutReadTimeStamp),
         backlog: backlog.map(withoutReadTimeStamp),
         automations,
         webTargets,
       }),
       commands: normalizeMobileControlCommands(request.commands ?? this.supportedCommands),
-      workspaces,
       ...(backlog.length > 0 ? { backlog } : {}),
       ...(automations.length > 0 ? { automations } : {}),
       ...(webTargets.length > 0 ? { webTargets } : {}),
@@ -287,7 +253,7 @@ function buildSnapshotVersion(value: unknown): string {
   return `snap_${digest}`
 }
 
-// Strips the read-time `updatedAt` before a workspace or backlog snapshot feeds
+// Strips the read-time `updatedAt` before a backlog snapshot feeds
 // the top-level snapshotVersion. That field falls back to `generatedAt` when the
 // snapshot has no content timestamp of its own, so folding it verbatim would put
 // per-read wall-clock back into the hash and stop the item-1599 fast path from

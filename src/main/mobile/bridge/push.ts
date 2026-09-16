@@ -9,8 +9,7 @@ import {
   isMobilePushProvider,
   redactPushRegistration,
 } from './validation'
-
-const mobileControlProtocolVersion = 2 as const
+import { mobileControlProtocolVersion } from '../../../../packages/mobile-control-protocol/src/index'
 
 /**
  * A device+registration pair a notification can be delivered to.

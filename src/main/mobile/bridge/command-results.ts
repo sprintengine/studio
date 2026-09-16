@@ -11,8 +11,8 @@ import type {
 } from './index'
 import { relayCommandTypeToMobile } from './relay-command'
 import { deepRedactLocalPaths } from '../control/relay-path-safety'
+import { mobileControlProtocolVersion } from '../../../../packages/mobile-control-protocol/src/index'
 
-const mobileControlProtocolVersion = 2 as const
 export const relayResultSummaryMaxBytes = 256 * 1024
 
 export function relaySummaryByteLength(value: unknown): number {

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
 import { manualPairingValueFromRelayChallenge } from './pairing'
+import { mobileControlProtocolVersion } from '../../../../packages/mobile-control-protocol/src/index'
 
 const payload = {
-  mobileControlProtocolVersion: 2 as const,
+  mobileControlProtocolVersion,
   pairingChallengeId: 'pcha_1',
   relayUrl: 'https://relay.example.com',
   pairingSecret: 'psec_1',
@@ -74,7 +75,7 @@ const payload = {
   const complete = [
     'sprintengine://mobile/pair?',
     new URLSearchParams({
-      mobileControlProtocolVersion: '2',
+      mobileControlProtocolVersion: String(mobileControlProtocolVersion),
       pairingChallengeId: 'pcha_1',
       relayUrl: 'https://relay.example.com',
       pairingSecret: 'psec_1',

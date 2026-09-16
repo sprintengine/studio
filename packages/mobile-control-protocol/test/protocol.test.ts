@@ -3,7 +3,6 @@ import {
   mobileControlMinSupportedProtocolVersion,
   mobileControlProtocolVersion,
   mobileControlSupportedProtocolVersions,
-  mobileControlWorkspaceSnapshotVersion,
   validateMobileControlCapabilities,
   validateMobileControlCommand,
   validateMobileControlDevice,
@@ -43,127 +42,33 @@ const validSnapshot: MobileControlSnapshot = {
     "backlog.create",
     "automations.control",
   ],
-  workspaces: [
+  backlog: [
     {
-      workspaceId: "switchboard-main",
-      kind: "switchboard",
-      name: "Switchboard",
+      workspaceId: "backlog:ws_multicode",
+      workspacePath: "ws_multicode",
+      projectKey: "ws_multicode",
+      workspaceName: "multicode",
       updatedAt: now,
-      capabilities: ["summary.read", "detail.read"],
-      detailVersion: mobileControlWorkspaceSnapshotVersion,
-      summary: {
-        status: "idle",
-        counts: {
-          inbox: 3,
-          activeExecutions: 0,
+      items: [
+        {
+          itemId: "MC-1",
+          relativePath: "backlog/2026-04-28-example.md",
+          title: "Example",
+          status: "ready",
         },
-      },
-      detail: {
-        kind: "switchboard",
-        data: {
-          inboxCount: 3,
-          laneCounts: {
-            todo: 2,
-            doing: 1,
-          },
-          activeExecutionCount: 0,
-          tasks: [
-            {
-              taskId: "task_1",
-              identifier: "TASK-1",
-              title: "Ready task",
-              status: "ready",
-              lane: "ready",
-              updatedAt: now,
-              source: { type: "manual", externalKey: null },
-              priority: null,
-              claimedBy: null,
-            },
-          ],
-          inboxItems: [
-            {
-              taskId: "task_inbox",
-              identifier: "TASK-INBOX",
-              title: "Inbox task",
-              status: "todo",
-              lane: "inbox",
-              updatedAt: now,
-              source: { type: "watchtower", externalKey: "WT-1" },
-            },
-          ],
-          comments: [
-            {
-              taskId: "task_1",
-              commentId: "comment_1",
-              kind: "comment",
-              body: "Looks good.",
-              createdAt: now,
-              authorName: "Reviewer",
-              confidencePct: 90,
-            },
-          ],
-          evidence: [
-            {
-              taskId: "task_1",
-              summary: "Verified.",
-              artifactCount: 1,
-              commandCount: 2,
-              touchedFileCount: 3,
-              updatedAt: now,
-            },
-          ],
-          logs: [
-            {
-              taskId: "task_1",
-              executionId: "exec_1",
-              status: "completed",
-              agentId: "developer-1",
-              startedAt: now,
-              completedAt: now,
-              summary: "Done.",
-            },
-          ],
-        },
-      },
+      ],
     },
+  ],
+  automations: [
     {
-      workspaceId: "watchtower-main",
-      kind: "watchtower",
-      name: "Watchtower",
-      updatedAt: now,
-      capabilities: ["summary.read", "detail.read", "logs.read"],
-      detailVersion: mobileControlWorkspaceSnapshotVersion,
-      summary: {
-        status: "complete",
-      },
-      detail: {
-        kind: "watchtower",
-        data: {
-          activeRunCount: 0,
-          latestRunStatus: "passed",
-          generatedInboxCount: 1,
-          runs: [
-            {
-              runId: "run_1",
-              status: "completed",
-              preset: "standard",
-              createdAt: now,
-              completedAt: now,
-              validCount: 1,
-              invalidCount: 0,
-              generatedInboxCount: 1,
-              agentCount: 2,
-            },
-          ],
-          generatedInboxItems: [
-            {
-              runId: "run_1",
-              taskId: "task_watchtower_1",
-              source: "watchtower",
-            },
-          ],
-        },
-      },
+      automationId: "auto_1",
+      projectKey: "ws_multicode",
+      name: "nightly",
+      status: "enabled",
+      triggerKind: "schedule",
+      cadence: "Daily 06:00",
+      lastRunStatus: "completed",
+      recentRuns: [{ runId: "run_1", status: "completed", startedAt: now, completedAt: now }],
     },
   ],
 };
@@ -244,17 +149,68 @@ for (const retired of [
   );
 }
 
+// ── The members nothing produced are off the wire (protocol v4) ──────────────
+//
+// The `workspaces` collection (always `[]` from the desktop), its
+// switchboard/watchtower kinds and capabilities, the `roadmaps` rider and the
+// `python_tool_failed` error code had no producer once the Sprint Engine left.
+
+// Asking for the retired collection is refused, not silently ignored: a v3 phone
+// that named it must learn that it is talking to a v4 desktop.
+for (const retired of ["desktopWorkspaces", "sprintEngines", "roleCatalogs"]) {
+  assertInvalid(
+    `retired snapshot collection ${retired}`,
+    validateMobileControlCommand({
+      ...validCommand,
+      type: "snapshot.request",
+      payload: { include: ["backlog", retired] },
+    }),
+  );
+}
+assert.equal(
+  validateMobileControlCommand({
+    ...validCommand,
+    type: "snapshot.request",
+    payload: { include: ["backlog", "automations"] },
+  }).ok,
+  true,
+);
+
+for (const retired of ["summary.read", "detail.read", "tasks.move", "runner.pause", "execution.cancel"]) {
+  assertInvalid(
+    `retired workspace capability ${retired}`,
+    validateMobileControlCapabilities({
+      protocolVersion: mobileControlProtocolVersion,
+      deviceId: "device_1",
+      commands: ["snapshot.request"],
+      capabilities: [retired],
+      snapshotTtlMs: 15000,
+    }),
+  );
+}
+
 assertInvalid(
-  "retired sprintengine workspace kind",
-  validateMobileControlSnapshot({
-    ...validSnapshot,
-    workspaces: [{ ...validSnapshot.workspaces![0], kind: "sprintengine" }],
+  "retired python_tool_failed error code",
+  validateMobileControlError({
+    protocolVersion: mobileControlProtocolVersion,
+    code: "python_tool_failed",
+    message: "Nope.",
+    retryable: false,
   }),
 );
 
-// The version stamp, not a field check, is what keeps a v2 payload out. A phone
-// built against v2 is refused at the door rather than part-way through a shape
-// this build no longer has a reader for.
+// A snapshot with neither retired key is the ordinary snapshot.
+assert.equal("workspaces" in validSnapshot, false);
+assert.equal("roadmaps" in validSnapshot, false);
+
+// The version stamp, not a field check, is what keeps an older snapshot out. A
+// v3 snapshot is inside the command window but outside what a reader of the
+// desktop's own payloads accepts, so it is refused at the door rather than read
+// part-way through a shape this build no longer has a type for.
+assertInvalid(
+  "a v3 snapshot",
+  validateMobileControlSnapshot({ ...validSnapshot, protocolVersion: 3 as never }),
+);
 assertInvalid(
   "a v2 snapshot",
   validateMobileControlSnapshot({ ...validSnapshot, protocolVersion: 2 as never }),
@@ -332,77 +288,6 @@ assertInvalid(
     },
   }),
 );
-assertInvalid(
-  "invalid workspace summary count",
-  validateMobileControlSnapshot({
-    ...validSnapshot,
-    workspaces: [
-      {
-        ...validSnapshot.workspaces![0],
-        summary: {
-          ...validSnapshot.workspaces![0].summary,
-          counts: { inbox: -1 },
-        },
-      },
-    ],
-  }),
-);
-assertInvalid(
-  "invalid workspace detail version",
-  validateMobileControlSnapshot({
-    ...validSnapshot,
-    workspaces: [
-      {
-        ...validSnapshot.workspaces![0],
-        detailVersion: 1,
-      },
-    ],
-  }),
-);
-assertInvalid(
-  "invalid workspace detail kind",
-  validateMobileControlSnapshot({
-    ...validSnapshot,
-    workspaces: [
-      {
-        // A switchboard workspace carrying a watchtower detail. `sprintengine`
-        // was the mismatching kind here until v3 removed it from the union.
-        ...validSnapshot.workspaces![0],
-        detail: {
-          kind: "watchtower",
-          data: {},
-        },
-      },
-    ],
-  }),
-);
-assertInvalid(
-  "invalid workspace detail collection",
-  validateMobileControlSnapshot({
-    ...validSnapshot,
-    workspaces: [
-      {
-        ...validSnapshot.workspaces![0],
-        detail: {
-          kind: "switchboard",
-          data: {
-            tasks: [
-              {
-                taskId: "task_1",
-                identifier: "TASK-1",
-                title: "Ready task",
-                status: "ready",
-                lane: "ready",
-                updatedAt: "not-a-date",
-                source: { type: "manual" },
-              },
-            ],
-          },
-        },
-      },
-    ],
-  }),
-);
 // The advertised command list is part of a device's capabilities, not of a
 // snapshot — a snapshot carrying a stray `commands` key is simply a snapshot
 // with an unknown field, which the validator ignores. What must fail closed is
@@ -418,28 +303,22 @@ assertInvalid(
   }),
 );
 assertInvalid(
-  "invalid switchboard evidence count",
+  "invalid automation run status",
   validateMobileControlSnapshot({
     ...validSnapshot,
-    workspaces: [
+    automations: [
       {
-        ...validSnapshot.workspaces![0],
-        detail: {
-          kind: "switchboard",
-          data: {
-            evidence: [
-              {
-                taskId: "task_1",
-                artifactCount: -1,
-                commandCount: 2,
-                touchedFileCount: 3,
-                updatedAt: now,
-              },
-            ],
-          },
-        },
+        ...validSnapshot.automations![0],
+        recentRuns: [{ runId: "run_1", status: "not_a_status" as never }],
       },
     ],
+  }),
+);
+assertInvalid(
+  "invalid automation status",
+  validateMobileControlSnapshot({
+    ...validSnapshot,
+    automations: [{ ...validSnapshot.automations![0], status: "off" as never }],
   }),
 );
 assertInvalid(

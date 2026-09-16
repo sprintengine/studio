@@ -47,7 +47,7 @@ start before the version exists on npm. See "Publishing" below.
 
 ```json
 "dependencies": {
-  "@sprintengine/mobile-control-protocol": "^3.0.0"
+  "@sprintengine/mobile-control-protocol": "^4.0.0"
 }
 ```
 
@@ -97,7 +97,7 @@ const manifest = require("@sprintengine/mobile-control-protocol/package.json");
 
 test("the installed protocol package speaks the wire version this build expects", () => {
   assert.equal(Number(manifest.version.split(".")[0]), protocol.mobileControlProtocolVersion);
-  assert.equal(protocol.mobileControlProtocolVersion, 3);
+  assert.equal(protocol.mobileControlProtocolVersion, 4);
 });
 ```
 
@@ -107,7 +107,7 @@ is the one the phone was written against, which is the fact the hash was standin
 in for. Drift is now impossible rather than merely detectable, so the guard's job
 shrinks to catching a botched install or an unintended major bump.
 
-Keep the literal `3` spelled out. A test that only compares the package to
+Keep the literal `4` spelled out. A test that only compares the package to
 itself passes no matter which version got installed.
 
 **4. Ship, and only then retire the desktop guard.** Until a released phone

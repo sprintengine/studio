@@ -1,5 +1,39 @@
 # Changelog
 
+## 4.0.0
+
+**Breaking: the members nothing produces leave the wire.** `mobileControlProtocolVersion`
+moves 3 -> 4 and the support window moves with it, to `[3, 4]`.
+
+The Sprint Engine removal (3.0.0) left several members that no desktop could
+produce any more. They are deleted, with no deprecated alias and no compatibility
+shim:
+
+- `MobileControlSnapshot.workspaces` — the desktop emitted it as `[]` on every
+  snapshot. With it went everything that existed only to describe it:
+  `MobileControlWorkspaceSnapshot` (and its always-`undefined` `statePath`),
+  `MobileControlWorkspaceKind` (`switchboard`, `watchtower`),
+  `MobileControlWorkspaceCapability` (`summary.read`, `detail.read`, `logs.read`,
+  `comments.create`, `inbox.promote`, `tasks.move`, `runner.pause`,
+  `runner.resume`, `execution.cancel`), `MobileControlWorkspaceSummary`,
+  `MobileControlWorkspaceDetail`, every `MobileControlSwitchboard*` and
+  `MobileControlWatchtower*` shape, their validators,
+  `mobileControlWorkspaceSnapshotVersion` and its type.
+- The `desktopWorkspaces` member of `mobileSnapshotCollections`. A
+  `snapshot.request` whose `include` names it is now `invalid_payload`. It was
+  documented as returning the Switchboard and Watchtower monitors; no desktop
+  since those modules were retired ever did.
+- `MobileControlSnapshot.roadmaps`, `MobileControlRoadmapRider` and
+  `MobileControlRoadmapLaneRider`. No desktop produced them.
+- The `python_tool_failed` error code. No desktop produced it.
+
+Snapshot-body keys a validator does not know are still ignored rather than
+refused, so a stray `workspaces` or `roadmaps` key does not fail a v4 snapshot;
+it just has no type.
+
+Pre-release, with no paired devices and no published consumer, so there is no
+migration and nothing reads the v3 shape. See `docs/compatibility.md`.
+
 ## 3.0.0
 
 **Breaking: the Sprint Engine leaves the wire.** `mobileControlProtocolVersion`

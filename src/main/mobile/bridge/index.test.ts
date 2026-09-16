@@ -286,7 +286,6 @@ async function assertOversizedSnapshotRequestFailsRatherThanTruncating(): Promis
     desktopSessionId: 'desktop_1',
     snapshotVersion: 'snap_oversized',
     commands: [],
-    workspaces: [],
     backlog: [{
       workspaceId: 'backlog:ws_token',
       workspacePath: 'ws_token',
@@ -431,7 +430,7 @@ async function assertSnapshotRequestSkipsUnchangedWhenKnownVersionMatches(): Pro
 
 function snapshotRequestCommand(payload: Record<string, unknown>): MobileControlCommand {
   return {
-    protocolVersion: 2,
+    protocolVersion: mobileControlProtocolVersion,
     commandId: 'cmd_conditional_snapshot',
     type: 'snapshot.request',
     issuedAt: now.toISOString(),
@@ -760,7 +759,7 @@ class PairingChallengeRelayTransport extends FakeRelayTransport {
         }).toString(),
       ].join(''),
       pairingPayload: {
-        mobileControlProtocolVersion: 2 as const,
+        mobileControlProtocolVersion,
         pairingChallengeId: 'pcha_current',
         relayUrl: 'https://relay.test',
         pairingSecret: 'psec_current',
@@ -847,7 +846,7 @@ async function writeBridgeFixture(
       relayUrl: null,
       desktopInstanceId: 'mdi_fixture',
       pairedDevices: [{
-        protocolVersion: 2,
+        protocolVersion: mobileControlProtocolVersion,
         deviceId: 'pdv_seed',
         displayName: 'Seeded phone',
         platform: 'ios',

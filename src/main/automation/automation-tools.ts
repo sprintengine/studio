@@ -11,6 +11,7 @@ import { normalizeCliPermissionPreset } from '../../shared/cli-permission-preset
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../shared/automations/contracts'
+import { mobileSnapshotCollections } from '../../../packages/mobile-control-protocol/src/index'
 import type { Workspace } from '../../renderer/src/types/workspace'
 import type {
   BacklogAddOrUpdateLinkInput,
@@ -604,8 +605,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceSnapshot: McpToolRegistration = {
     name: 'workspace.snapshot',
     description:
-      'The mobile companion snapshot: backlog, automations and workspaces as one versioned '
-      + 'document, in the same path-token form the relay serves (ws_ tokens round-trip; local paths never leave '
+      'The mobile companion snapshot: backlog, automations and the dev servers published on the tailnet as one '
+      + 'versioned document, in the same path-token form the relay serves (ws_ tokens round-trip; local paths never leave '
       + 'the desktop). Pass knownSnapshotVersion from the previous read to get an {unchanged: true} marker '
       + 'instead of the full document when nothing moved.',
     inputSchema: {
@@ -613,9 +614,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       properties: {
         include: {
           type: 'array',
-          items: { type: 'string' },
+          items: { type: 'string', enum: [...mobileSnapshotCollections] },
           description:
-            'Collections to include (backlog, automations). Defaults to the standard mobile set.',
+            `Collections to include (${mobileSnapshotCollections.join(', ')}). Defaults to all of them.`,
         },
         knownSnapshotVersion: { type: 'string', description: 'The snapshotVersion returned by the previous read.' },
       },
@@ -624,6 +625,18 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     handler: async (args) => {
       const invalidArray = firstInvalidStringArray(args, ['include'])
       if (invalidArray) return invalidArray
+      // Checked here rather than left to the bridge, which drops unknown names and
+      // falls back to the default set: a caller that misspells a collection would
+      // otherwise get a full snapshot and no hint that its scope was ignored.
+      const collections: readonly string[] = mobileSnapshotCollections
+      const unknownCollection = optionalStringArray(args.include)?.find((entry) => !collections.includes(entry))
+      if (unknownCollection !== undefined) {
+        return failure(
+          'invalid_arguments',
+          `"include" names "${unknownCollection}", which is not a snapshot collection. `
+            + `Collections: ${mobileSnapshotCollections.join(', ')}.`
+        )
+      }
       const invalidString = firstInvalidOptionalString(args, ['knownSnapshotVersion'])
       if (invalidString) return invalidString
       const result = await backends.mobileControl.readSnapshot({

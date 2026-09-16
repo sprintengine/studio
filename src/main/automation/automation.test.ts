@@ -3081,7 +3081,7 @@ async function testMobileSnapshotToolServesTheCompanionReadModel(): Promise<void
           }
           return {
             unchanged: false as const,
-            snapshot: { protocolVersion: 2, snapshotVersion: 'snap_current', sprintEngines: [] },
+            snapshot: { protocolVersion: 4, snapshotVersion: 'snap_current', backlog: [], automations: [] },
           }
         },
         dispatchCommand: async () => {
@@ -3091,18 +3091,28 @@ async function testMobileSnapshotToolServesTheCompanionReadModel(): Promise<void
     })
   )
 
-  const full = await tool(tools, 'workspace.snapshot').handler({ include: ['sprintEngines', 'backlog'] })
+  const full = await tool(tools, 'workspace.snapshot').handler({ include: ['automations', 'backlog'] })
   assert.equal(full.isError, undefined)
   const fullBody = full.structuredContent as { unchanged: boolean; snapshot: { snapshotVersion: string } }
   assert.equal(fullBody.unchanged, false)
   assert.equal(fullBody.snapshot.snapshotVersion, 'snap_current')
-  assert.deepEqual(reads[0]?.include, ['sprintEngines', 'backlog'])
+  assert.deepEqual(reads[0]?.include, ['automations', 'backlog'])
 
   const short = await tool(tools, 'workspace.snapshot').handler({ knownSnapshotVersion: 'snap_current' })
   assert.deepEqual(short.structuredContent, { unchanged: true, snapshotVersion: 'snap_current' })
 
   const badInclude = await tool(tools, 'workspace.snapshot').handler({ include: [''] })
   assert.equal(badInclude.isError, true)
+
+  // A name the wire does not declare is refused rather than forwarded: the bridge
+  // would drop it and serve the default set, hiding the caller's mistake. Both
+  // retired names are pinned — `sprintEngines` (v3) and `desktopWorkspaces` (v4).
+  for (const retired of ['sprintEngines', 'desktopWorkspaces']) {
+    const refused = await tool(tools, 'workspace.snapshot').handler({ include: ['backlog', retired] })
+    assert.equal(refused.isError, true, `${retired} is not a snapshot collection`)
+    assert.match(JSON.stringify(refused.content), new RegExp(retired))
+  }
+  assert.equal(reads.length, 2, 'a refused include never reaches the snapshot backend')
 }
 
 async function testMobileCommandToolDispatchesOnlyTheServedEnvelopes(): Promise<void> {

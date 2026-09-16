@@ -35,7 +35,6 @@ function buildSnapshotFixture(root: string): MobileControlSnapshot {
     protocolVersion: mobileControlProtocolVersion,
     generatedAt: '2026-06-27T00:00:00.000Z',
     desktopSessionId: 'sess',
-    workspaces: [],
     backlog: [
       {
         workspaceId: `backlog:${root}`,
@@ -71,7 +70,7 @@ function assertSanitizerStripsLocalPaths(): void {
   assert.equal(localPathProbe.test(JSON.stringify(safe)), false, 'sanitized snapshot must contain no local path')
 
   // The sanitized snapshot must still pass the same validator the phone runs on
-  // receipt (e.g. workspacePath/statePath must be non-empty). This is the guard
+  // receipt (e.g. a backlog workspacePath must be non-empty). This is the guard
   // that catches over-aggressive blanking.
   const validation = validateMobileControlSnapshot(safe)
   assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : undefined)

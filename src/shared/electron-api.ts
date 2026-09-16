@@ -2652,7 +2652,7 @@ export type SessionSnapshot =
     }
 
 // The phone's wire vocabulary, the twin of the one in
-// `src/main/mobile/bridge/index.ts` (protocol v3). The two lists change
+// `src/main/mobile/bridge/index.ts` (protocol v4, unchanged since v3). The two lists change
 // together, and only together with the phone.
 export type MobileControlCommandType =
   | 'snapshot.request'
