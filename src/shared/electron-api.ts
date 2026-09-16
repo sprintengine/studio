@@ -2698,7 +2698,7 @@ export type {
   SprintEngineCliPermissionPresetSetInput,
   SprintEngineAutomationReadResult,
   SprintEngineAutomationWriteResult,
-  SprintEngineLaunchSettingsWriteAck,
+  AgentLaunchSettingsWriteAck,
   SprintEngineAutomationChangedEvent,
   SprintEngineRosterRuntimeInput,
   SprintEngineRosterEnableInput,
@@ -3588,7 +3588,10 @@ export type ElectronApi = {
   updateQuitAndInstall: () => Promise<AppUpdateCheckResult>
   updateOpenReleaseNotes: () => Promise<{ opened: true; url: string }>
   onUpdateStateChanged: (cb: (state: AppUpdateState) => void) => () => void
-  readSpecialistSoul: (specialistId: SpecialistActionId) => Promise<SoulPromptResult>
+  /** Push the renderer-authored launch settings main composes a spawn from. */
+  syncAgentLaunchSettings: (input: AgentLaunchSettings) => Promise<AgentLaunchSettingsWriteAck>
+  /** Seed main's launch-settings store on first boot; a no-op once it holds one. */
+  hydrateAgentLaunchSettings: (input: AgentLaunchSettings) => Promise<AgentLaunchSettingsWriteAck>
   writefile: (path: string, content: string) => Promise<void>
   /**
    * Save one pasted/dropped image that exists only as bytes (a clipboard

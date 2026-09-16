@@ -5,9 +5,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { installJsdomEnvironment, withInertPreloadFallback } from './jsdomEnvironment'
-import type { SprintEngineLaunchSettingsWriteResult } from '../main/sprintengine-launch-settings-mirror'
+import type { AgentLaunchSettingsWriteResult } from '../main/sprintengine-launch-settings-mirror'
 import type { SprintEngineRosterEnableInput } from '../shared/sprintengine/ipc-types'
-import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import { emptyAgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 
 // ── Seam: the Sprints door's run configuration (T1 → T2 → T3, items 1799/1800) ─
 //
@@ -40,12 +40,12 @@ type RunSummary = Record<string, unknown>
 
 // The launch-settings store's write acknowledgement, stubbed: this seam proves
 // the Sprints door, which never reads or writes launch settings.
-function stubLaunchSettingsWrite(): SprintEngineLaunchSettingsWriteResult {
+function stubLaunchSettingsWrite(): AgentLaunchSettingsWriteResult {
   return {
     record: {
       schemaVersion: 1,
       revision: 1,
-      settings: emptySprintEngineLaunchSettings(),
+      settings: emptyAgentLaunchSettings(),
       changedAt: 0,
       lastWrite: { actor: 'system', at: '' },
     },

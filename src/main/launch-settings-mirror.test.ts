@@ -7,13 +7,13 @@ import assert from 'node:assert/strict'
 import { mkdtemp, readFile, readdir, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
-import { parseSprintEngineLaunchSettingsRecord } from '../shared/sprintengine/launch-settings'
-import { createSprintEngineLaunchSettingsMirror } from './sprintengine-launch-settings-mirror'
+import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
+import { parseAgentLaunchSettingsRecord } from '../shared/sprintengine/launch-settings'
+import { createAgentLaunchSettingsMirror } from './launch-settings-mirror'
 
-const FILE_NAME = 'sprintengine-launch-settings.json'
+const FILE_NAME = 'agent-launch-settings.json'
 
-function settings(overrides: Partial<SprintEngineLaunchSettings> = {}): SprintEngineLaunchSettings {
+function settings(overrides: Partial<AgentLaunchSettings> = {}): AgentLaunchSettings {
   return {
     cliRuntimes: { claude: { command: 'claude', useWsl: false } },
     mcp: { syncEnabled: true, servers: {} },
@@ -35,14 +35,14 @@ function settings(overrides: Partial<SprintEngineLaunchSettings> = {}): SprintEn
       lastSelectedRosterId: 'roster-1',
     },
     ...overrides,
-  } as SprintEngineLaunchSettings
+  } as AgentLaunchSettings
 }
 
 type Harness = {
   userDataDir: string
   filePath: string
   diagnostics: Array<{ title: string; details?: string }>
-  create: () => ReturnType<typeof createSprintEngineLaunchSettingsMirror>
+  create: () => ReturnType<typeof createAgentLaunchSettingsMirror>
 }
 
 async function withHarness(body: (harness: Harness) => Promise<void>): Promise<void> {
@@ -55,7 +55,7 @@ async function withHarness(body: (harness: Harness) => Promise<void>): Promise<v
       diagnostics,
       // A fresh instance with the same userData dir is an app restart: no
       // in-memory state survives, only the file.
-      create: () => createSprintEngineLaunchSettingsMirror({
+      create: () => createAgentLaunchSettingsMirror({
         resolveUserDataDir: () => userDataDir,
         logDiagnostic: (input) => diagnostics.push({ title: input.title, details: input.details }),
       }),
@@ -136,7 +136,7 @@ async function assertAtomicWriteLeavesNoTempFile(): Promise<void> {
   await withHarness(async (harness) => {
     await harness.create().set(settings()).persisted
     const raw: unknown = JSON.parse(await readFile(harness.filePath, 'utf8'))
-    const record = parseSprintEngineLaunchSettingsRecord(raw)
+    const record = parseAgentLaunchSettingsRecord(raw)
     assert.ok(record, 'the persisted file parses as a current-schema record')
     assert.equal(record.settings.lastSelectedCli, 'claude-code')
     assert.deepEqual(await readdir(harness.userDataDir), [FILE_NAME], 'no temp file survives the write')
@@ -209,7 +209,7 @@ async function assertLegacyBareSettingsFileStillReads(): Promise<void> {
 // the failure is reported rather than swallowed.
 async function assertUnwritableStoreKeepsInMemoryValues(): Promise<void> {
   await withHarness(async (harness) => {
-    const store = createSprintEngineLaunchSettingsMirror({
+    const store = createAgentLaunchSettingsMirror({
       // A path whose parent is a FILE, so mkdir/write cannot succeed.
       resolveUserDataDir: () => join(harness.filePath, 'nested'),
       logDiagnostic: (input) => harness.diagnostics.push({ title: input.title, details: input.details }),

@@ -60,7 +60,7 @@ import type {
   AgentLaunchRequest,
   AgentLaunchResult,
 } from '../shared/agent-launch'
-import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
 import { pickRandomAgentName } from '../shared/agent-names'
 import {
@@ -112,7 +112,7 @@ export type AgentLaunchServiceDeps = {
    * time, never cached, so a setting changed in the UI reaches the next launch
    * without a restart.
    */
-  getLaunchSettings: () => SprintEngineLaunchSettings
+  getLaunchSettings: () => AgentLaunchSettings
   /**
    * Whether this CLI may launch as an agent: true exactly when its plugin
    * manifest declares an `agentStateSpec` (hooks are the only supported status
@@ -401,7 +401,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
    */
   async function resolveKnowledgeLaunch(
     workspace: AgentLaunchWorkspace,
-    projectKnowledgeRoots: SprintEngineLaunchSettings['projectKnowledgeRoots'],
+    projectKnowledgeRoots: AgentLaunchSettings['projectKnowledgeRoots'],
   ): Promise<KnowledgeLaunchContext> {
     const empty: KnowledgeLaunchContext = { promptSuffix: null }
     if (!deps.resolveKnowledgeRoot) return empty

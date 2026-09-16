@@ -5,8 +5,8 @@ import type {
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
-import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
-import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
+import { emptyAgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   createAgentLaunchService,
@@ -23,8 +23,8 @@ function workspace(overrides: Partial<AgentLaunchWorkspace> = {}): AgentLaunchWo
   return { id: 'ws-1', mode: 'standard', folderPath: '/repo/a', agents: {}, ...overrides }
 }
 
-function settings(overrides: Partial<SprintEngineLaunchSettings> = {}): SprintEngineLaunchSettings {
-  return { ...emptySprintEngineLaunchSettings(), ...overrides }
+function settings(overrides: Partial<AgentLaunchSettings> = {}): AgentLaunchSettings {
+  return { ...emptyAgentLaunchSettings(), ...overrides }
 }
 
 function liveSession(overrides: Partial<TerminalSessionSnapshot> = {}): TerminalSessionSnapshot {
@@ -57,7 +57,7 @@ function liveSession(overrides: Partial<TerminalSessionSnapshot> = {}): Terminal
  */
 function harness(options: {
   workspaces?: AgentLaunchWorkspace[]
-  settings?: SprintEngineLaunchSettings
+  settings?: AgentLaunchSettings
   sessions?: TerminalSessionSnapshot[]
   spawnResult?: TerminalSpawnResult
   resolveKnowledgeRoot?: AgentLaunchServiceDeps['resolveKnowledgeRoot']

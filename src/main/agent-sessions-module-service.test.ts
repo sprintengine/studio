@@ -10,8 +10,8 @@ import assert from 'node:assert/strict'
 
 import type { TerminalSessionSnapshot, TerminalSpawnResult } from '../shared/electron-api'
 import type { AgentSessionExitEvent } from '../shared/agent-runtime'
-import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
-import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import { emptyAgentLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
@@ -78,7 +78,7 @@ function makeHarness(
   options: {
     sessions?: TerminalSessionSnapshot[]
     workspaces?: Array<{ id: string; folderPath?: string | null; mode?: string }>
-    settings?: SprintEngineLaunchSettings
+    settings?: AgentLaunchSettings
     permissions?: Record<string, readonly string[]>
     knownSkills?: string[]
     skillInvocation?: (cli: string, skillId: string) => string | undefined
@@ -97,7 +97,7 @@ function makeHarness(
   ]
   const settings =
     options.settings
-    ?? ({ ...emptySprintEngineLaunchSettings(), lastSelectedCli: 'claude-code' } as SprintEngineLaunchSettings)
+    ?? ({ ...emptyAgentLaunchSettings(), lastSelectedCli: 'claude-code' } as AgentLaunchSettings)
   const knownSkills = options.knownSkills ?? ['review-guide']
   let nextSpawn: TerminalSpawnResult | null = null
   let minted = 0
@@ -241,10 +241,10 @@ run('a fresh spawn is an ordinary agent terminal with the module\'s own identity
 run('a spawn with no preset takes the user\'s default, never an escalation', async () => {
   const harness = makeHarness({
     settings: {
-      ...emptySprintEngineLaunchSettings(),
+      ...emptyAgentLaunchSettings(),
       lastSelectedCli: 'claude-code',
       lastAgentSpawnPermissionPreset: 'auto',
-    } as SprintEngineLaunchSettings,
+    } as AgentLaunchSettings,
   })
   const input = spawnInput()
   delete input.permissionPreset
@@ -363,7 +363,7 @@ run('a failed spawn reports the failure rather than a started agent', async () =
 })
 
 run('no CLI anywhere refuses instead of guessing one', async () => {
-  const harness = makeHarness({ settings: emptySprintEngineLaunchSettings() })
+  const harness = makeHarness({ settings: emptyAgentLaunchSettings() })
   const result = await harness.registry.spawn(MODULE_ID, spawnInput())
   assert.equal(!result.ok && result.code, 'no_cli_selected')
 })

@@ -14,7 +14,7 @@ import { createAgentLaunchService } from './agent-launch-service'
 import { createPullRequestRecord } from './pull-request-record'
 import { readPullRequestState } from './github/branch-pull-request'
 import type { GhResult, GhRunner } from './github/gh'
-import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import { emptyAgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 
 type RuntimeModule = typeof import('./terminal-runtime')
 type SyncMcpConfig = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['syncMcpConfig']>
@@ -963,7 +963,7 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
   const service = createAgentLaunchService({
     listWorkspaces: () => [{ id: 'ws-headless-launch', mode: 'standard', folderPath: workspaceRoot, agents: {} }],
     getLaunchSettings: () => ({
-      ...emptySprintEngineLaunchSettings(),
+      ...emptyAgentLaunchSettings(),
       lastSelectedCli: 'claude-code',
       lastAgentSpawnPermissionPreset: 'auto',
       mcp: { syncEnabled: true, servers: {} },

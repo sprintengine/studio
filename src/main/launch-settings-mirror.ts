@@ -1,13 +1,13 @@
 /**
  * Main-owned store for the app's agent-launch settings (MC-2154; shapes and
- * record math in `src/shared/sprintengine/launch-settings.ts`).
+ * record math in `src/shared/launch-settings.ts`).
  *
  * The settings are authored in the renderer (`appSettings`, localStorage) and
- * pushed here on change (`sprintengine:launch-settings:sync`); main persists
+ * pushed here on change (`launch-settings:sync`); main persists
  * them under userData and reads them **synchronously** at spawn time, so the
  * headless paths — the main scheduler, boot-time run discovery, a mobile
  * launch — compose a launch with the user's real CLI, permission preset, MCP
- * servers, and rosters with zero windows open, across an app restart.
+ * servers with zero windows open, across an app restart.
  *
  * Writes are atomic (tmp + rename) and carry a monotonic revision plus write
  * provenance; a content-identical push is an idempotent no-op (no bump, no
@@ -25,44 +25,44 @@ import { readFileSync } from 'fs'
 import { mkdir, rename, unlink, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
 import {
-  emptySprintEngineLaunchSettings,
-  nextSprintEngineLaunchSettingsRecord,
-  normalizeSprintEngineLaunchSettings,
-  parseSprintEngineLaunchSettingsRecord,
-  serializeSprintEngineLaunchSettingsRecord,
-  sprintEngineLaunchSettingsEqual,
-  type SprintEngineLaunchSettings,
-  type SprintEngineLaunchSettingsRecord,
-} from '../shared/sprintengine/launch-settings'
+  emptyAgentLaunchSettings,
+  nextAgentLaunchSettingsRecord,
+  normalizeAgentLaunchSettings,
+  parseAgentLaunchSettingsRecord,
+  serializeAgentLaunchSettingsRecord,
+  agentLaunchSettingsEqual,
+  type AgentLaunchSettings,
+  type AgentLaunchSettingsRecord,
+} from '../shared/launch-settings'
 
-const FILE_NAME = 'sprintengine-launch-settings.json'
+const FILE_NAME = 'agent-launch-settings.json'
 
-export type SprintEngineLaunchSettingsMirrorDeps = {
+export type AgentLaunchSettingsMirrorDeps = {
   resolveUserDataDir: () => string
   logDiagnostic?: (input: { level: 'warning'; title: string; message: string; details?: string }) => void
   now?: () => number
 }
 
-export type SprintEngineLaunchSettingsWriteResult = {
-  record: SprintEngineLaunchSettingsRecord
+export type AgentLaunchSettingsWriteResult = {
+  record: AgentLaunchSettingsRecord
   /** False for an idempotent no-op: same content, or a hydrate onto an existing record. */
   changed: boolean
   /** Resolves when the atomic write has settled (or failed soft). */
   persisted: Promise<void>
 }
 
-export type SprintEngineLaunchSettingsMirror = ReturnType<typeof createSprintEngineLaunchSettingsMirror>
+export type AgentLaunchSettingsMirror = ReturnType<typeof createAgentLaunchSettingsMirror>
 
-export function createSprintEngineLaunchSettingsMirror(deps: SprintEngineLaunchSettingsMirrorDeps) {
+export function createAgentLaunchSettingsMirror(deps: AgentLaunchSettingsMirrorDeps) {
   const now = deps.now ?? (() => Date.now())
-  let current: SprintEngineLaunchSettingsRecord | null = null
+  let current: AgentLaunchSettingsRecord | null = null
   // The pre-MC-2154 file held bare settings with no revision. It is readable
   // but not authoritative: reads use it so the first boot after upgrade still
   // spawns with the user's runtimes, while hydration/first push replaces it
   // with a real record.
-  let legacySettings: SprintEngineLaunchSettings | null = null
+  let legacySettings: AgentLaunchSettings | null = null
   let loadedFromDisk = false
-  const listeners = new Set<(settings: SprintEngineLaunchSettings) => void>()
+  const listeners = new Set<(settings: AgentLaunchSettings) => void>()
 
   function filePath(): string {
     return join(deps.resolveUserDataDir(), FILE_NAME)
@@ -73,14 +73,14 @@ export function createSprintEngineLaunchSettingsMirror(deps: SprintEngineLaunchS
    * authoritative record exists yet (absent, corrupt, or the legacy bare
    * settings file) — hydration seeds one.
    */
-  function loadOnce(): SprintEngineLaunchSettingsRecord | null {
+  function loadOnce(): AgentLaunchSettingsRecord | null {
     if (loadedFromDisk) return current
     loadedFromDisk = true
     try {
       const raw: unknown = JSON.parse(readFileSync(filePath(), 'utf8'))
-      current = parseSprintEngineLaunchSettingsRecord(raw)
+      current = parseAgentLaunchSettingsRecord(raw)
       if (!current && raw && typeof raw === 'object' && !Array.isArray(raw)) {
-        legacySettings = normalizeSprintEngineLaunchSettings(raw)
+        legacySettings = normalizeAgentLaunchSettings(raw)
       }
     } catch {
       current = null
@@ -94,14 +94,14 @@ export function createSprintEngineLaunchSettingsMirror(deps: SprintEngineLaunchS
   let writeQueue: Promise<void> = Promise.resolve()
   let writeSequence = 0
 
-  function persist(record: SprintEngineLaunchSettingsRecord): Promise<void> {
+  function persist(record: AgentLaunchSettingsRecord): Promise<void> {
     const attempt = ++writeSequence
     const settled = writeQueue.then(async () => {
       const target = filePath()
       const tmp = `${target}.tmp-${process.pid}-${attempt}`
       try {
         await mkdir(dirname(target), { recursive: true })
-        await writeFile(tmp, serializeSprintEngineLaunchSettingsRecord(record), 'utf8')
+        await writeFile(tmp, serializeAgentLaunchSettingsRecord(record), 'utf8')
         await rename(tmp, target)
       } catch (error) {
         await unlink(tmp).catch(() => undefined)
@@ -118,10 +118,10 @@ export function createSprintEngineLaunchSettingsMirror(deps: SprintEngineLaunchS
   }
 
   function commit(
-    settings: SprintEngineLaunchSettings,
+    settings: AgentLaunchSettings,
     actor: 'ui' | 'system',
-  ): SprintEngineLaunchSettingsWriteResult {
-    const record = nextSprintEngineLaunchSettingsRecord({
+  ): AgentLaunchSettingsWriteResult {
+    const record = nextAgentLaunchSettingsRecord({
       current: loadOnce(),
       settings,
       actor,
@@ -136,12 +136,12 @@ export function createSprintEngineLaunchSettingsMirror(deps: SprintEngineLaunchS
 
   return {
     /** The settings main spawns with. Never throws: an absent store reads as defaults. */
-    get(): SprintEngineLaunchSettings {
-      return loadOnce()?.settings ?? legacySettings ?? emptySprintEngineLaunchSettings()
+    get(): AgentLaunchSettings {
+      return loadOnce()?.settings ?? legacySettings ?? emptyAgentLaunchSettings()
     },
 
     /** The authoritative record, or null when nothing has been written yet. */
-    getRecord(): SprintEngineLaunchSettingsRecord | null {
+    getRecord(): AgentLaunchSettingsRecord | null {
       return loadOnce()
     },
 
@@ -150,10 +150,10 @@ export function createSprintEngineLaunchSettingsMirror(deps: SprintEngineLaunchS
      * bump, no write, no subscriber wake — the renderer pushes on every store
      * change, and an unchanged blob is not a new revision.
      */
-    set(raw: unknown): SprintEngineLaunchSettingsWriteResult {
-      const settings = normalizeSprintEngineLaunchSettings(raw)
+    set(raw: unknown): AgentLaunchSettingsWriteResult {
+      const settings = normalizeAgentLaunchSettings(raw)
       const existing = loadOnce()
-      if (existing && sprintEngineLaunchSettingsEqual(existing.settings, settings)) {
+      if (existing && agentLaunchSettingsEqual(existing.settings, settings)) {
         return { record: existing, changed: false, persisted: Promise.resolve() }
       }
       return commit(settings, 'ui')
@@ -165,13 +165,13 @@ export function createSprintEngineLaunchSettingsMirror(deps: SprintEngineLaunchS
      * exists: main's record is authoritative from then on, and the renderer
      * reconciles against it rather than re-asserting.
      */
-    hydrate(raw: unknown): SprintEngineLaunchSettingsWriteResult {
+    hydrate(raw: unknown): AgentLaunchSettingsWriteResult {
       const existing = loadOnce()
       if (existing) return { record: existing, changed: false, persisted: Promise.resolve() }
-      return commit(normalizeSprintEngineLaunchSettings(raw), 'system')
+      return commit(normalizeAgentLaunchSettings(raw), 'system')
     },
 
-    subscribe(listener: (settings: SprintEngineLaunchSettings) => void): () => void {
+    subscribe(listener: (settings: AgentLaunchSettings) => void): () => void {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },

@@ -1,6 +1,6 @@
 import type { AgentPhase, TerminalSessionSnapshot } from '../shared/electron-api'
 import type { ConversationSessionSummary } from '../shared/conversation-runtime'
-import { bracketedTerminalPaste } from '../shared/sprintengine/auto-run-executor'
+import { bracketedTerminalPaste } from '../shared/terminal-paste'
 
 /**
  * The one main-process path that drives an agent session (MC-102).

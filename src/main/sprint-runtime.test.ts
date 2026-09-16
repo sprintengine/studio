@@ -13,7 +13,7 @@ import type {
 } from '../shared/sprintengine/automation-intent'
 import type { SprintEngineAutomationMode } from '../shared/sprintengine/automation-types'
 import type { TerminalSpawnArgs } from '../shared/sprintengine/auto-run-executor'
-import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 import type {
   SprintRuntimeOp,
   SprintRuntimeRunRegistration,
@@ -177,7 +177,7 @@ function registration(overrides: Partial<SprintRuntimeRunRegistration> = {}): Sp
   }
 }
 
-const LAUNCH_SETTINGS: SprintEngineLaunchSettings = {
+const LAUNCH_SETTINGS: AgentLaunchSettings = {
   cliRuntimes: { claude: { command: 'claude', useWsl: false } },
   mcp: {
     syncEnabled: true,

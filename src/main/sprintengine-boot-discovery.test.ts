@@ -11,7 +11,7 @@ import type {
 import { parseSprintEngineAutomationIntentRecord } from '../shared/sprintengine/automation-intent'
 import { SPRINT_ENGINE_RUN_SCHEMA_VERSION } from '../shared/sprintengine/store-schema'
 import type { TerminalSpawnArgs } from '../shared/sprintengine/auto-run-executor'
-import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 import type { SprintRuntimeRunRegistration } from '../shared/sprintengine/runtime-bridge'
 import { createSprintRuntime, type SprintRuntimeDeps } from './sprint-runtime'
 import { discoverSprintRunsAtBoot, sprintAutoRunDisabledByEnv } from './sprintengine-boot-discovery'
@@ -24,7 +24,7 @@ import { listKnownWorkspaceRoots, uniqueResolvedRoots } from './workspace-roots'
 
 void main()
 
-const LAUNCH_SETTINGS: SprintEngineLaunchSettings = {
+const LAUNCH_SETTINGS: AgentLaunchSettings = {
   cliRuntimes: { claude: { command: 'claude', useWsl: false } },
   mcp: { syncEnabled: false, servers: {} },
   projectKnowledgeRoots: {},

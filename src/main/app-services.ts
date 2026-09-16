@@ -73,7 +73,7 @@ import {
 import { createSprintEngineArtifactHandlers, readSprintEngineRegistryRoles } from './sprintengine-artifacts'
 import { isRecord } from '../shared/records'
 import { createSprintEngineAutomationService } from './sprintengine-automation-service'
-import { createSprintEngineLaunchSettingsMirror } from './sprintengine-launch-settings-mirror'
+import { createAgentLaunchSettingsMirror } from './launch-settings-mirror'
 import { createBackgroundModeStore } from './background-mode-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
@@ -426,11 +426,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   }
 
   // Renderer-pushed agent-launch settings (cliRuntimes/mcp/knowledge/model
-  // catalog) for main-side sprint agent spawns; persisted under userData.
-  const sprintEngineLaunchSettings = createSprintEngineLaunchSettingsMirror({
+  // catalog) for main-side agent spawns; persisted under userData.
+  const agentLaunchSettings = createAgentLaunchSettingsMirror({
     resolveUserDataDir: () => app.getPath('userData'),
     logDiagnostic: (diagnostic) => {
-      void writeDiagnosticLog({ ...diagnostic, source: 'sprintengine' })
+      void writeDiagnosticLog({ ...diagnostic, source: 'agent-launch-settings' })
     },
   })
 
@@ -638,7 +638,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const sprintPowerManager = createSprintPowerManager({
     powerSaveBlocker,
     logDiagnostic: (diagnostic) => {
-      void writeDiagnosticLog({ ...diagnostic, source: 'sprintengine' })
+      void writeDiagnosticLog({ ...diagnostic, source: 'agent-launch-settings' })
     },
   })
   // Tracker write-back (MC-1640): opt-in comments/transitions posted to the
@@ -657,7 +657,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     readRunVcs: (statePath) => readSprintRunVcs(statePath),
     probe: async (statePath) => sprintEngineArtifacts.refreshPullRequestStatus({ statePath }),
     logDiagnostic: (diagnostic) => {
-      void writeDiagnosticLog({ ...diagnostic, source: 'sprintengine' })
+      void writeDiagnosticLog({ ...diagnostic, source: 'agent-launch-settings' })
     },
   })
   const notifySprintRunsChanged = (statePath: string): void => {
@@ -717,7 +717,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
     resolveMemoryRoot: (workspaceRoot, relativeRoot) => resolveMemoryRoot(workspaceRoot, relativeRoot),
     getPluginCatalogEntries: () => listPluginRegistryEntries(),
-    getLaunchSettings: () => sprintEngineLaunchSettings.get(),
+    getLaunchSettings: () => agentLaunchSettings.get(),
     readAutomationMode: async (statePath) => {
       const result = await sprintEngineAutomation.readAutomationMode({ statePath })
       return result.ok ? result.record : null
@@ -805,7 +805,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // real CLI, permission preset, and MCP servers.
   const composedAgentLaunchService = createAgentLaunchService({
     listWorkspaces: () => workspaceSyncService.getSnapshot().state.workspaces,
-    getLaunchSettings: () => sprintEngineLaunchSettings.get(),
+    getLaunchSettings: () => agentLaunchSettings.get(),
     // Hooks-only selectability (decision of record 2026-08-31): a KNOWN plugin
     // whose manifest declares no agentStateSpec is refused as an agent. An id
     // the registry does not hold falls through — the launch render's own
@@ -869,7 +869,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // run-start bootstrap spawns the coordinator seat. That is what replaces the
   // old board-mount handshake, and it is why creation works with zero windows.
   const composedSprintCreateService = createSprintCreateService({
-    getLaunchSettings: () => sprintEngineLaunchSettings.get(),
+    getLaunchSettings: () => agentLaunchSettings.get(),
     // Only hook-capable CLIs (manifest agentStateSpec) may staff a sprint —
     // hooks are the only supported status mechanism, and a sprint on a CLI
     // that cannot report state would run blind (decision of record 2026-08-31).
@@ -1102,7 +1102,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         // Read live, never captured: the same store the launch service reads, so
         // a preset changed in Settings reaches the next terminal.create without
         // a restart.
-        getAgentSpawnPermissionDefault: () => sprintEngineLaunchSettings.get().lastAgentSpawnPermissionPreset,
+        getAgentSpawnPermissionDefault: () => agentLaunchSettings.get().lastAgentSpawnPermissionPreset,
         createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
         listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
         readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),
@@ -1392,7 +1392,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     skillsService,
     sprintEngineArtifacts,
     sprintEngineAutomation,
-    sprintEngineLaunchSettings,
+    agentLaunchSettings,
     sprintEngineMcpHub,
     sprintPowerManager,
     sprintPullRequestMergePoller,

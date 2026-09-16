@@ -35,7 +35,7 @@ export const WORKSPACE_REGISTRY_SCHEMA_VERSION = 1
 
 /**
  * Names the process boundary a write came through, never the human — the same
- * rule `SprintEngineLaunchSettingsActor` follows.
+ * rule `AgentLaunchSettingsActor` follows.
  */
 export type WorkspaceRegistryActor =
   | 'ui'

@@ -1,6 +1,6 @@
 import type { RendererHost } from './renderer-host'
 import type { RoleInstallResult } from '../../../shared/sprintengine/role-manifest'
-import type { SprintEngineLaunchSettings } from '../../../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../../../shared/sprintengine/launch-settings'
 import type { SprintEngineTokenUsageReport } from '../../../shared/sprintengine-token-usage'
 import type { SprintRunSummary, SprintRunsChangedEvent } from '../../../shared/sprintengine/runSummary'
 import type {
@@ -23,7 +23,7 @@ import {
   type SprintEngineAutomationSetModeInput,
   type SprintEngineAutomationWriteResult,
   type SprintEngineCliPermissionPresetSetInput,
-  type SprintEngineLaunchSettingsWriteAck,
+  type AgentLaunchSettingsWriteAck,
   type SprintEngineMcpReadResult,
   type SprintEngineProjectionReadResult,
   type SprintEngineRegistryRolesReadInput,
@@ -108,12 +108,12 @@ export type SprintEngineIpc = {
   onSprintEngineAutomationChanged: (
     cb: (event: SprintEngineAutomationChangedEvent) => void
   ) => () => void
-  syncSprintEngineLaunchSettings: (
-    input: SprintEngineLaunchSettings
-  ) => Promise<SprintEngineLaunchSettingsWriteAck>
-  hydrateSprintEngineLaunchSettings: (
-    input: SprintEngineLaunchSettings
-  ) => Promise<SprintEngineLaunchSettingsWriteAck>
+  syncAgentLaunchSettings: (
+    input: AgentLaunchSettings
+  ) => Promise<AgentLaunchSettingsWriteAck>
+  hydrateAgentLaunchSettings: (
+    input: AgentLaunchSettings
+  ) => Promise<AgentLaunchSettingsWriteAck>
   registerSprintRuntimeRun: (input: SprintRuntimeRunRegistration) => Promise<{ ok: boolean }>
   unregisterSprintRuntimeRun: (input: { statePath: string }) => Promise<{ ok: boolean }>
   pushSprintRuntimeStopReason: (input: SprintRuntimeStopReasonPush) => Promise<{ ok: boolean }>
@@ -186,8 +186,8 @@ export function createHostBackedSprintEngineIpc(host: Pick<RendererHost, 'invoke
       host.subscribe(SPRINT_ENGINE_EVENTS.automationChanged, (payload) => {
         cb(payload as SprintEngineAutomationChangedEvent)
       }),
-    syncSprintEngineLaunchSettings: (input) => invoke(SPRINT_ENGINE_CHANNELS.launchSettingsSync, input),
-    hydrateSprintEngineLaunchSettings: (input) =>
+    syncAgentLaunchSettings: (input) => invoke(SPRINT_ENGINE_CHANNELS.launchSettingsSync, input),
+    hydrateAgentLaunchSettings: (input) =>
       invoke(SPRINT_ENGINE_CHANNELS.launchSettingsHydrate, input),
     registerSprintRuntimeRun: (input) => invoke(SPRINT_ENGINE_CHANNELS.runtimeRegisterRun, input),
     unregisterSprintRuntimeRun: (input) => invoke(SPRINT_ENGINE_CHANNELS.runtimeUnregisterRun, input),
@@ -258,9 +258,9 @@ export const sprintEngineIpc: SprintEngineIpc = {
     requireBound().setSprintEngineCliPermissionPreset(...args),
   onSprintEngineAutomationChanged: (...args) =>
     boundSlot().current?.onSprintEngineAutomationChanged(...args) ?? (() => undefined),
-  syncSprintEngineLaunchSettings: (...args) => requireBound().syncSprintEngineLaunchSettings(...args),
-  hydrateSprintEngineLaunchSettings: (...args) =>
-    requireBound().hydrateSprintEngineLaunchSettings(...args),
+  syncAgentLaunchSettings: (...args) => requireBound().syncAgentLaunchSettings(...args),
+  hydrateAgentLaunchSettings: (...args) =>
+    requireBound().hydrateAgentLaunchSettings(...args),
   registerSprintRuntimeRun: (...args) => requireBound().registerSprintRuntimeRun(...args),
   unregisterSprintRuntimeRun: (...args) => requireBound().unregisterSprintRuntimeRun(...args),
   pushSprintRuntimeStopReason: (...args) => requireBound().pushSprintRuntimeStopReason(...args),

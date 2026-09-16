@@ -37,7 +37,7 @@ export const GitHubTokenStoreToken = createServiceToken<AppServices['githubToken
 export {
   SprintEngineArtifactsToken,
   SprintEngineAutomationServiceToken,
-  SprintEngineLaunchSettingsToken,
+  AgentLaunchSettingsToken,
   SprintRuntimeToken,
   SprintPullRequestMergePollerToken,
   SprintEngineMcpHubToken,

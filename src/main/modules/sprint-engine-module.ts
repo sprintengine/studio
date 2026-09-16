@@ -21,7 +21,7 @@ import {
   SprintEngineArtifactsToken,
   SprintEngineAutomationFrontDoorsToken,
   SprintEngineAutomationServiceToken,
-  SprintEngineLaunchSettingsToken,
+  AgentLaunchSettingsToken,
   SprintEngineMcpHubToken,
   SprintPullRequestMergePollerToken,
   SprintRuntimeToken,
@@ -84,7 +84,7 @@ export function createSprintEngineModule(services: SprintEngineModuleServices): 
     registerMain(host) {
       host.provideService(SprintEngineArtifactsToken, () => services.sprintEngineArtifacts)
       host.provideService(SprintEngineAutomationServiceToken, () => services.sprintEngineAutomation)
-      host.provideService(SprintEngineLaunchSettingsToken, () => services.sprintEngineLaunchSettings)
+      host.provideService(AgentLaunchSettingsToken, () => services.sprintEngineLaunchSettings)
       host.provideService(SprintRuntimeToken, () => services.sprintRuntime)
       host.provideService(SprintPullRequestMergePollerToken, () => services.sprintPullRequestMergePoller)
       host.provideService(SprintEngineMcpHubToken, () => services.sprintEngineMcpHub)
@@ -243,7 +243,7 @@ export function createSprintEngineModule(services: SprintEngineModuleServices): 
 
       registerSprintEngineAutomationIpc(host, {
         automation,
-        launchSettings: host.requireService(SprintEngineLaunchSettingsToken),
+        launchSettings: host.requireService(AgentLaunchSettingsToken),
       })
 
       registerSprintRuntimeIpc(host, {

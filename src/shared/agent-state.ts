@@ -2,16 +2,18 @@
  * The renderer's `AgentState` record and its data-only field types, shared
  * with the main process.
  *
- * These are core agent records (MC-2573): `AgentKind` is `'general' |
- * 'specialist'`, `AgentExecution` and `defaultAgent` are generic, and Sprint
- * Engine managed agents are identified by `registerAgentIdNamespace` plus the
- * launch contribution's `session.managed` tag — not by an enum member.
- * `src/shared/sprintengine/agent-state.ts` re-exports this module so existing
- * engine import sites keep working. Pure data shapes only — no DOM, React, or
+ * These are core agent records: `AgentExecution` and `defaultAgent` are
+ * generic, and a module's managed agents are identified by
+ * `registerAgentIdNamespace` plus the launch contribution's `session.managed`
+ * tag — not by an enum member. Pure data shapes only — no DOM, React, or
  * flexlayout imports may be added here.
  */
-import type { AgentCli, AgentId } from './sprintengine/run-types'
 import type { CliPermissionPreset } from './cli-permission-preset'
+
+/** An agent CLI runtime id (`claude`, `codex`, …). Open: plugins add their own. */
+export type AgentCli = string
+/** A renderer agent record's id, unique within its workspace. */
+export type AgentId = string
 
 type AgentMessage = {
   role: 'user' | 'assistant' | 'system'

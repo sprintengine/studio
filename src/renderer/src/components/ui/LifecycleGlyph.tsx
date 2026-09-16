@@ -1,6 +1,6 @@
 import type { TooltipChildProps } from './Tooltip'
 import { PULL_REQUEST_SHAPES } from './PullRequestGlyph'
-import type { LifecycleState } from '../../../../shared/sprintengine/run-types'
+import type { LifecycleState } from '../../../../shared/lifecycle-state'
 
 // One shape-coded lifecycle vocabulary shared by Backlog readiness and Sprint
 // Engine task state. State reads by shape (ring / dashed / spinner / inner-dot /
@@ -13,10 +13,10 @@ import type { LifecycleState } from '../../../../shared/sprintengine/run-types'
 // the richer lifecycle that a worklist needs, replacing per-row status dots
 // there.
 // Domain-agnostic: callers map their own status enum to a LifecycleState. The
-// union's declaration moved to `src/shared/sprintengine/run-types.ts` (the
-// shared Sprint Engine state module maps board columns to it); this re-export
-// keeps every existing import site working unchanged.
-export type { LifecycleState } from '../../../../shared/sprintengine/run-types'
+// union is declared on a core shared path (`src/shared/lifecycle-state.ts`) so
+// main-process and shared code can name a state without importing the
+// renderer; this re-export keeps every existing import site working unchanged.
+export type { LifecycleState } from '../../../../shared/lifecycle-state'
 
 export const LIFECYCLE_LABEL: Record<LifecycleState, string> = {
   todo: 'To do',

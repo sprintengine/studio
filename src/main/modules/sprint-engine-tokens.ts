@@ -12,7 +12,7 @@ export const SprintEngineArtifactsToken = createServiceToken<AppServices['sprint
 export const SprintEngineAutomationServiceToken = createServiceToken<AppServices['sprintEngineAutomation']>(
   'core.sprintengine-automation'
 )
-export const SprintEngineLaunchSettingsToken = createServiceToken<AppServices['sprintEngineLaunchSettings']>(
+export const AgentLaunchSettingsToken = createServiceToken<AppServices['sprintEngineLaunchSettings']>(
   'core.sprintengine-launch-settings'
 )
 export const SprintRuntimeToken = createServiceToken<AppServices['sprintRuntime']>(

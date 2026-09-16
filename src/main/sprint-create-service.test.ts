@@ -10,10 +10,10 @@ import type {
 import type { SprintCreateRequest } from '../shared/sprint-create'
 import type { SprintEngineAutomationIntentRecord } from '../shared/sprintengine/automation-intent'
 import type { SprintEngineAutomationMode } from '../shared/sprintengine/automation-types'
-import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 import type { SprintRuntimeRunRegistration } from '../shared/sprintengine/runtime-bridge'
 import type { Workspace } from '../renderer/src/types/workspace'
-import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import { emptyAgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 import { buildSprintEngineRunLink, teamSlugFromStatePath } from '../shared/backlog/sprintengine-links'
 import { workspaceRelativePath } from '../shared/source-paths'
 import { createSprintCreateService, type SprintCreateServiceDeps } from './sprint-create-service'
@@ -135,7 +135,7 @@ function harness(overrides: Partial<SprintCreateServiceDeps> = {}) {
   let workspaceSeq = 0
 
   const deps: SprintCreateServiceDeps = {
-    getLaunchSettings: () => emptySprintEngineLaunchSettings(),
+    getLaunchSettings: () => emptyAgentLaunchSettings(),
     listLaunchableClis: () => ['claude-code', 'codex'],
     initializeSprintEngineState: async (input) => {
       initCalls.push(input as InitCall)
@@ -548,7 +548,7 @@ async function main(): Promise<void> {
     // under the hooks-only rule — must fail at create, with the roster named.
     const h = harness({
       getLaunchSettings: () => ({
-        ...emptySprintEngineLaunchSettings(),
+        ...emptyAgentLaunchSettings(),
         sprintEngineRoleSettings: {
           enabled: {},
           savedRosters: [
@@ -863,8 +863,8 @@ async function main(): Promise<void> {
       const modes = new Map<string, SprintEngineAutomationIntentRecord | null>()
       const clock = { now: 0 }
       const diagnostics: DiagnosticLogInput[] = []
-      const launchSettings: SprintEngineLaunchSettings = {
-        ...emptySprintEngineLaunchSettings(),
+      const launchSettings: AgentLaunchSettings = {
+        ...emptyAgentLaunchSettings(),
         cliRuntimes: { 'claude-code': { command: 'claude', useWsl: false } },
       }
 

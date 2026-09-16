@@ -11,7 +11,7 @@ import type {
   SprintEngineAutomationMode,
   SprintEngineCliPermissionPreset,
 } from './automation-types'
-import type { SprintEngineLaunchSettingsRecord } from './launch-settings'
+import type { AgentLaunchSettingsRecord } from './launch-settings'
 
 export type SprintEngineMutationEventMetadata = {
   id?: string
@@ -278,9 +278,9 @@ export type SprintEngineAutomationWriteResult =
  * holds (the pusher reconciles its revision floor against it) and whether the
  * push actually changed anything — an unchanged blob is not a new revision.
  */
-export type SprintEngineLaunchSettingsWriteAck = {
+export type AgentLaunchSettingsWriteAck = {
   ok: true
-  record: SprintEngineLaunchSettingsRecord
+  record: AgentLaunchSettingsRecord
   changed: boolean
 }
 

@@ -4,17 +4,17 @@
  * change must reach main without a restart.
  */
 import assert from 'node:assert/strict'
-import type { SprintEngineLaunchSettings } from '../../../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../../../shared/sprintengine/launch-settings'
 
 type FakeApi = {
-  hydrateCalls: SprintEngineLaunchSettings[]
-  pushCalls: SprintEngineLaunchSettings[]
+  hydrateCalls: AgentLaunchSettings[]
+  pushCalls: AgentLaunchSettings[]
 }
 
 function installFakeApi(): FakeApi {
   const fake: FakeApi = { hydrateCalls: [], pushCalls: [] }
   let revision = 0
-  const ack = (settings: SprintEngineLaunchSettings): Promise<unknown> => Promise.resolve({
+  const ack = (settings: AgentLaunchSettings): Promise<unknown> => Promise.resolve({
     ok: true as const,
     record: {
       schemaVersion: 1 as const,
@@ -26,11 +26,11 @@ function installFakeApi(): FakeApi {
     changed: true,
   })
   const api = {
-    hydrateSprintEngineLaunchSettings: (settings: SprintEngineLaunchSettings) => {
+    hydrateAgentLaunchSettings: (settings: AgentLaunchSettings) => {
       fake.hydrateCalls.push(settings)
       return ack(settings)
     },
-    syncSprintEngineLaunchSettings: (settings: SprintEngineLaunchSettings) => {
+    syncAgentLaunchSettings: (settings: AgentLaunchSettings) => {
       fake.pushCalls.push(settings)
       return ack(settings)
     },
@@ -44,11 +44,11 @@ const fakeApi = installFakeApi()
 
 // Imported AFTER the fake window is installed.
 import { useWorkspaceStore } from '../store/workspaceStore'
-import { initSprintEngineLaunchSettingsSync } from './sprintengineLaunchSettingsSync'
+import { initAgentLaunchSettingsSync } from './sprintengineLaunchSettingsSync'
 import { bindSprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 function main(): void {
-  const dispose = initSprintEngineLaunchSettingsSync()
+  const dispose = initAgentLaunchSettingsSync()
   try {
     assertMountSeedsAndPushesEveryLaunchInput()
     assertSettingsChangesReachMainWithoutRestart()

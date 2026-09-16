@@ -4,9 +4,9 @@ import { JSDOM } from 'jsdom'
 import { bindSprintEngineIpc } from '../renderer/src/modules/sprint-engine-ipc'
 
 import type { SprintCreateRequest } from '../shared/sprint-create'
-import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 import type { Workspace } from '../renderer/src/types/workspace'
-import { emptySprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import { emptyAgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 import { createSprintCreateService } from '../main/sprint-create-service'
 
 // Sprint creation parity — the MCP gateway vs the New Sprint dialog.
@@ -282,8 +282,8 @@ async function main(): Promise<void> {
   const gatewayWorkspaces = new Map<string, Workspace>()
   let gatewayWorkspaceSeq = 0
   const sprintCreateService = createSprintCreateService({
-    getLaunchSettings: (): SprintEngineLaunchSettings => ({
-      ...emptySprintEngineLaunchSettings(),
+    getLaunchSettings: (): AgentLaunchSettings => ({
+      ...emptyAgentLaunchSettings(),
       sprintEngineRoleSettings: useWorkspaceStore.getState().appSettings.sprintEngineRoleSettings ?? { enabled: {} },
     }),
     listLaunchableClis: () => ['claude-code', 'codex'],

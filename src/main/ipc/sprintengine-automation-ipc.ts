@@ -7,7 +7,7 @@ import type {
 } from '../../shared/sprintengine/ipc-types'
 import { SPRINT_ENGINE_CHANNELS, SPRINT_ENGINE_EVENTS } from '../../shared/sprintengine/ipc-channels'
 import type { SprintEngineAutomationService } from '../sprintengine-automation-service'
-import type { SprintEngineLaunchSettingsMirror } from '../sprintengine-launch-settings-mirror'
+import type { AgentLaunchSettingsMirror } from '../sprintengine-launch-settings-mirror'
 import type { SprintEngineAutomationChangedEvent } from '../../shared/sprintengine/ipc-types'
 
 export const SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL = 'sprintengine:automation-changed'
@@ -21,7 +21,7 @@ type SprintEngineAutomationIpcDependencies = {
     SprintEngineAutomationService,
     'readAutomationMode' | 'setAutomationMode' | 'hydrateAutomationMode' | 'setCliPermissionPreset'
   >
-  launchSettings: Pick<SprintEngineLaunchSettingsMirror, 'set' | 'hydrate'>
+  launchSettings: Pick<AgentLaunchSettingsMirror, 'set' | 'hydrate'>
 }
 
 type AutomationChangedEmit = (event: SprintEngineAutomationChangedEvent) => void

@@ -80,7 +80,7 @@ import {
   agentCliUsesStableSessionIdForResume,
   resumeCapabilitiesForCli,
 } from '../shared/agent-cli-resume'
-import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 import type {
   SprintRuntimeAgentConfig,
   SprintRuntimeOp,
@@ -160,7 +160,7 @@ export type SprintRuntimeDeps = {
   pathExists(path: string): Promise<boolean>
   resolveMemoryRoot(workspaceRoot: string | null, relativeRoot: string | null): Promise<MemoryRootStatus>
   getPluginCatalogEntries(): readonly PluginRegistryListEntry[]
-  getLaunchSettings(): SprintEngineLaunchSettings
+  getLaunchSettings(): AgentLaunchSettings
   readAutomationMode(statePath: string): Promise<SprintEngineAutomationIntentRecord | null>
   /**
    * Durable scheduler bookkeeping (Phase 3): persists delivered notification

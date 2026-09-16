@@ -6,7 +6,7 @@ import type {
   TerminalSessionSnapshot,
 } from '../../shared/electron-api'
 import { projectColorKey, projectHue } from '../../shared/project-hue'
-import { normalizeCliPermissionPreset } from '../../shared/sprintengine/automation-lifecycle'
+import { normalizeCliPermissionPreset } from '../../shared/cli-permission-preset'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
 import type { AutomationDefinition, AutomationRun } from '../../shared/automations/contracts'
 import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../shared/automations/contracts'

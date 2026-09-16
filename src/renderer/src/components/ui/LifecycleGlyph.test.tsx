@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from 'react-dom/server'
 
 import { LifecycleGlyph, LIFECYCLE_LABEL } from './LifecycleGlyph'
 import { PullRequestGlyph } from './PullRequestGlyph'
-import type { LifecycleState } from '../../../../shared/sprintengine/run-types'
+import type { LifecycleState } from '../../../../shared/lifecycle-state'
 
 // The lifecycle vocabulary's one rule: STATE READS BY SHAPE, and colour only
 // reinforces. It held for sixteen of the eighteen states and not for the last

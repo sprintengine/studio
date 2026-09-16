@@ -77,7 +77,7 @@ import {
   sprintEngineRosterAgentIds,
 } from '../../../../shared/sprintengine/agent-identity'
 import { initSprintEngineAutomationModeSync } from '../../utils/sprintengineAutomationModeSync'
-import { initSprintEngineLaunchSettingsSync } from '../../utils/sprintengineLaunchSettingsSync'
+import { initLaunchSettingsSync } from '../../utils/launchSettingsSync'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
@@ -548,7 +548,7 @@ export default function WorkspaceManager() {
   // Main-owned sprint scheduling (sprint-runtime-ownership Phase 2): mirror
   // the agent-launch settings to main, register sprint runs with the
   // scheduler, and apply its runtime-op broadcasts into this window's store.
-  useEffect(() => initSprintEngineLaunchSettingsSync(), [])
+  useEffect(() => initLaunchSettingsSync(), [])
   // Background mode is read by main at last-window-close, so it is mirrored the
   // same way the launch settings are (MC-2156).
   useEffect(() => initBackgroundModeSync(), [])

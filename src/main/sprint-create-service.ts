@@ -46,7 +46,7 @@ import type {
   SprintEngineStateInitializeInput,
 } from '../shared/electron-api'
 import type { SprintCreateRequest, SprintCreateResult } from '../shared/sprint-create'
-import type { SprintEngineLaunchSettings } from '../shared/sprintengine/launch-settings'
+import type { AgentLaunchSettings } from '../shared/sprintengine/launch-settings'
 import type {
   SprintEngineAutomationIntentRecord,
 } from '../shared/sprintengine/automation-intent'
@@ -102,7 +102,7 @@ import { normalizeSprintEngineRoleCliDefaults } from '../shared/sprintengine/rol
 
 export type SprintCreateServiceDeps = {
   /** The launch settings main spawns with (MC-2154); saved rosters live here. */
-  getLaunchSettings: () => SprintEngineLaunchSettings
+  getLaunchSettings: () => AgentLaunchSettings
   /**
    * CLI plugin ids a sprint may staff: the hook-capable subset of the registry
    * (`cli.runtime.list` flags these `agentSelectable: true`; rows it flags
@@ -254,7 +254,7 @@ export function createSprintCreateService(deps: SprintCreateServiceDeps) {
   }
 
   function builtInRoster(
-    savedRosters: NonNullable<SprintEngineLaunchSettings['sprintEngineRoleSettings']['savedRosters']>,
+    savedRosters: NonNullable<AgentLaunchSettings['sprintEngineRoleSettings']['savedRosters']>,
     explicitRosterRef: string,
   ): ReturnType<typeof resolveInitialSprintEngineRoster> {
     return resolveInitialSprintEngineRoster({
