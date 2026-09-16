@@ -4,7 +4,6 @@ A block-level button whose content is a **composition** rather than a label: a
 preview frame over two caption lines, a swatch over a name, a summary tile with
 a glyph and a live count, a graph node the canvas positions itself.
 
-Use [task-card](../task-card/component.md) when the thing is a card on a board.
 Use [row-button](../row-button/component.md) when the thing is a row in a list.
 Use this when the thing is a **tile in a grid**.
 

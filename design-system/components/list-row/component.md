@@ -4,8 +4,7 @@ The pick-an-item worklist row: rails, source lists, inboxes, categories,
 search results. The most repeated surface in the product, and the default
 answer for any list of things a person chooses between.
 
-Use `task-card` instead when the item is a card on a board. Use this when the
-item is a row in a list.
+Use this when the item is a row in a list.
 
 ## Anatomy
 

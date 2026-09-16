@@ -53,7 +53,6 @@ const drawer = read('src/renderer/src/components/ui/Drawer.tsx')
 const focusTrap = read('src/renderer/src/components/ui/FocusTrap.tsx')
 const toast = read('src/renderer/src/components/ui/Toast.tsx')
 const tooltip = read('src/renderer/src/components/ui/Tooltip.tsx')
-const taskCard = read('src/renderer/src/components/ui/TaskCard.tsx')
 const panelHeader = read('src/renderer/src/components/ui/PanelHeader.tsx')
 const kbdChord = read('src/renderer/src/components/ui/KbdChord.tsx')
 const rendererCss = read('src/renderer/src/assets/index.css')
@@ -382,28 +381,6 @@ expectIncludes(tooltip, 'onFocus', 'Tooltip opens on keyboard focus')
 expectIncludes(tooltip, 'onBlur', 'Tooltip closes on blur')
 expectIncludes(tooltip, 'React.cloneElement', 'Tooltip injects ARIA + handlers onto its single child trigger')
 assert.ok(!/\btitle=/.test(tooltip), 'Tooltip does not fall back to the native title attribute')
-
-// TaskCard — shared anatomy across row and card variants. The card is the
-// interactive surface only when `onSelect` is provided; otherwise it must not
-// steal keyboard focus or expose a button role.
-expectIncludes(taskCard, 'data-task-card={variant}', 'TaskCard tags the variant on its root element')
-expectIncludes(taskCard, "role={onSelect ? 'button' : undefined}", 'TaskCard exposes role="button" only when interactive')
-expectIncludes(taskCard, 'tabIndex={onSelect ? 0 : undefined}', 'TaskCard joins the tab order only when interactive')
-expectIncludes(taskCard, 'aria-pressed={onSelect ? selected : undefined}', 'TaskCard reports selection via aria-pressed when interactive')
-expectIncludes(taskCard, 'aria-label={ariaLabel}', 'TaskCard accepts an accessible name')
-expectIncludes(taskCard, 'onKeyDown={onSelect ? handleKeyDown : undefined}', 'TaskCard only attaches keyboard handler when interactive')
-expectMatches(
-  taskCard,
-  /event\.key === 'Enter' \|\| event\.key === ' '[\s\S]*event\.preventDefault\(\)[\s\S]*onSelect\?\.\(\)/,
-  'TaskCard activates on Enter and Space and prevents default scroll',
-)
-expectIncludes(taskCard, 'FOCUS_RING_CLASS', 'TaskCard applies the shared focus ring class for visible focus')
-// Card variant: identifier above title, title clamps to 2 lines.
-expectIncludes(taskCard, 'line-clamp-2', 'TaskCard card variant clamps title to two lines for scanability')
-// Row variant: identifier inline with title, single-line truncate.
-expectIncludes(taskCard, 'truncate', 'TaskCard row variant truncates the title to a single line')
-// Identifier semantics — mono + tabular-nums so IDs align in a column.
-expectIncludes(taskCard, 'font-mono tabular-nums', 'TaskCard identifier uses mono + tabular-nums for ID columns')
 
 // PanelHeader.progress — 2px hairline overlay. It is a presentational ARIA
 // progressbar; it must not steal pointer or keyboard focus, and it is only

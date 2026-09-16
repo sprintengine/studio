@@ -42,8 +42,7 @@
 /* 6px identity dot — which tool owns the panel, never a status. The color
  * comes through a consumer channel because tool identity deliberately has no
  * sem.* token; the fallback is the neutral status ink so an unwired demo
- * still renders honestly. Sized by the same space.xs step the task-card dot
- * uses for the 6px idiom. */
+ * still renders honestly. Sized by the space.xs step, the 6px dot idiom. */
 .ds-panel-header-identity {
   flex: none;
   width: var(--sem-space-xs);

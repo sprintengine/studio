@@ -9,8 +9,7 @@ This component is the enforcement of the tooltip's restate-only-when-cut-off
 rule (see `components/tooltip`): a tooltip repeating a title the person can
 already read is noise, so the tooltip attaches only while the text
 overflows. It is the default treatment for every title, label, and path in a
-width-constrained slot — `panel-header` titles, `board-lane` labels, row
-titles.
+width-constrained slot — `panel-header` titles, row titles.
 
 ## Anatomy
 

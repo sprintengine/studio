@@ -161,7 +161,7 @@ All in `src/renderer/src/components/ui/Tabs.tsx`:
 - ~~Tab icons render at 14px (`h-3.5`); the icon ramp has no 14px step. Canon
   is `icon.size.xs` (13px).~~ **Resolved 2026-09-02:** `size-icon-xs`.
 - ~~Disabled tabs ship `opacity-45`; the system-wide disabled treatment
-  (list-row, task-card) is 0.5.~~ **Resolved 2026-09-02:** `disabled:opacity-50`,
+  (list-row) is 0.5.~~ **Resolved 2026-09-02:** `disabled:opacity-50`,
   the row-family value — a tab is a row in a strip, not a button.
 
 ## Shipped implementation

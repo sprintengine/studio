@@ -25,13 +25,6 @@
 //       from `ui/StatusDot` instead. Matches T12's design-token rule of the
 //       same name; duplicated here so this guard is self-contained.
 //
-//   (e) no-hand-rolled-task-card — `<li>` or `<article>` elements that wear
-//       the canonical TaskCard signature (the `data-task-card` data
-//       attribute, or the `border-l-2 + rounded-sm` class combo on a card
-//       tag) outside `src/renderer/src/components/ui/TaskCard.tsx`. Use the
-//       `ui/TaskCard` primitive instead; the variants `row` and `card`
-//       already cover both layouts the four panels need.
-//
 //   (f) no-bespoke-popover-shell — `popover-enter` anchored shell classes
 //       outside the canonical Popover/Tooltip primitives are forbidden. Use
 //       `ui/Popover` for interactive anchored menus, listboxes, and dialog
@@ -95,13 +88,6 @@ const ALLOWED_EXT = new Set(['.tsx', '.ts'])
 const EXCLUDED_DIRS = new Set(['__preview__', 'node_modules', 'dist', 'out'])
 
 // Canonical primitive paths. Detection rules below honour them.
-const TASKCARD_PATH = 'src/renderer/src/components/ui/TaskCard.tsx'
-// BoardLane is the canonical consumer of the TaskCard `data-task-card`
-// attribute — it queries the rendered DOM at drag-over time to compute the
-// drop index. The lint exempts BoardLane for the same reason it exempts
-// TaskCard itself: this is a primitive-to-primitive contract, not a
-// hand-rolled card.
-const BOARDLANE_PATH = 'src/renderer/src/components/ui/BoardLane.tsx'
 const STATUSDOT_PATH = 'src/renderer/src/components/ui/StatusDot.tsx'
 const POPOVER_PATH = 'src/renderer/src/components/ui/Popover.tsx'
 const TOOLTIP_PATH = 'src/renderer/src/components/ui/Tooltip.tsx'
@@ -215,16 +201,6 @@ const RADIAL_GRADIENT = /radial-gradient\s*\(/g
 const STATUSDOT_FROM_APP_ICONS =
   /import\s*(?:type\s+)?(?:\{[^}]*\bStatusDot\b[^}]*\}|StatusDot)\s*from\s*['"][^'"]*AppIcons[^'"]*['"]/g
 
-// (e) hand-rolled task-card shapes. Two complementary detectors:
-//   - data-task-card attribute outside TaskCard.tsx — the explicit marker.
-//   - <li or <article opening tag whose className (single or template
-//     string, possibly multi-line) contains both `border-l-2` and
-//     `rounded-sm` — the canonical visual signature. Tags whose body
-//     also contains `border-transparent` are excluded: a transparent left
-//     border is by definition not a tone-indicating identifier strip, so
-//     the shape is a layout-reservation skeleton, not a real task card.
-const TASKCARD_DATA_ATTR = /\bdata-task-card\b/g
-const TASKCARD_TAG_OPEN = /<(li|article)\b/g
 const POPOVER_ENTER = /\bpopover-enter\b/g
 
 // (g) Bespoke absolute-shell + ARIA popover role pattern. The `[^>]*?`
@@ -351,52 +327,6 @@ for (const path of FILES) {
       match: importMatch[0].split('\n')[0],
       canonical: "import { StatusDot } from '.../components/ui/StatusDot'",
     })
-  }
-
-  // (e) Hand-rolled task-card shapes outside TaskCard.tsx and BoardLane.tsx
-  // (BoardLane queries the canonical data-attribute by design — see header).
-  if (path !== TASKCARD_PATH && path !== BOARDLANE_PATH) {
-    TASKCARD_DATA_ATTR.lastIndex = 0
-    let attrMatch
-    while ((attrMatch = TASKCARD_DATA_ATTR.exec(source))) {
-      const { line, column } = locationOf(source, attrMatch.index)
-      recordFinding({
-        rule: 'no-hand-rolled-task-card',
-        path,
-        line,
-        column,
-        match: attrMatch[0],
-        canonical: 'use ui/TaskCard (variant="row" | "card")',
-      })
-    }
-    // Class-signature backup: a card-shape tag whose className contains both
-    // the canonical border rail and radius. We inspect a small window after
-    // the opening tag so we catch multi-line className attributes.
-    TASKCARD_TAG_OPEN.lastIndex = 0
-    let tagMatch
-    while ((tagMatch = TASKCARD_TAG_OPEN.exec(source))) {
-      const start = tagMatch.index
-      // Look ahead up to 400 characters or until the tag closes, whichever
-      // comes first. Multi-line className strings rarely span more than that.
-      const lookahead = source.slice(start, start + 400)
-      const tagEnd = lookahead.indexOf('>')
-      const tagBody = tagEnd > 0 ? lookahead.slice(0, tagEnd) : lookahead
-      if (
-        tagBody.includes('border-l-2') &&
-        tagBody.includes('rounded-sm') &&
-        !tagBody.includes('border-transparent')
-      ) {
-        const { line, column } = locationOf(source, start)
-        recordFinding({
-          rule: 'no-hand-rolled-task-card',
-          path,
-          line,
-          column,
-          match: `<${tagMatch[1]} ... border-l-2 rounded-sm>`,
-          canonical: 'use ui/TaskCard (variant="row" | "card")',
-        })
-      }
-    }
   }
 
   // (f) Bespoke popover shells outside the canonical primitives.
@@ -678,7 +608,6 @@ const ruleOrder = [
   'no-native-select',
   'no-radial-gradient',
   'no-statusdot-from-app-icons',
-  'no-hand-rolled-task-card',
   'no-bespoke-popover-shell',
   'no-bespoke-absolute-popover-role',
   'no-raw-primitive',
@@ -694,7 +623,6 @@ if (findings.length > 0) {
     '\nFix by importing the canonical primitive instead of re-implementing it:\n' +
       '  - ui/StatusDot for tone-coloured status indicators\n' +
       '  - ui/Select for tone-correct picker controls\n' +
-      '  - ui/TaskCard (variant="row" | "card") for task list/board items\n' +
       '  - ui/Popover for anchored menus, listboxes, and dialog popovers\n' +
       '  - ui/Buttons, ui/Input, ui/Textarea, ui/Checkbox, ui/Switch instead of a\n' +
       '    raw <button>, <input> or <textarea>\n' +

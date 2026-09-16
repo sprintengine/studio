@@ -21,7 +21,6 @@
     "components": [
       "badge",
       "banner",
-      "board-lane",
       "button",
       "card-button",
       "check-row",
@@ -66,7 +65,6 @@
       "switch",
       "table",
       "tabs",
-      "task-card",
       "toast",
       "toolbar",
       "tooltip",

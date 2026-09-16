@@ -515,8 +515,7 @@ type IconButtonProps = ButtonBase & {
    * a screen reader. A `= false` default collapsed those two cases and made
    * every toggle in the app announce as a plain button while off — the footer
    * modal triggers regressed exactly that way on 2026-09-02. It matches the
-   * house idiom already used by TaskCard (`onSelect ? selected : undefined`)
-   * and SpawnDebugToggle.
+   * house idiom already used by SpawnDebugToggle.
    */
   pressed?: boolean
 }
