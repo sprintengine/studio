@@ -367,7 +367,6 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       mode: input.mode ?? 'standard',
       folderPath,
       folderMissing: false,
-      sprintEngineContext: null,
       templateId: template.id,
       layoutModel: template.layout,
       agents: {},

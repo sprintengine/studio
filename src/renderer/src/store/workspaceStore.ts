@@ -1140,8 +1140,8 @@ async function attemptBackupRecovery(): Promise<void> {
     envelope.state.workspaces = dedupeAutomationsHostWorkspaces(
       envelope.state.workspaces as Workspace[],
     )
-    // Same migrate-ladder bypass for the MC-1573 module-state bag: reconcile
-    // the bag with the legacy sprintEngineState mirror before re-persisting.
+    // Same migrate-ladder bypass for the MC-2573 module-state bag: hoist
+    // top-level engine fields into moduleState.sprintengine before re-persisting.
     envelope.state.workspaces = (envelope.state.workspaces as Workspace[])
       .map(reconcileWorkspaceModuleState)
       .map(healRetiredRailLayout)
@@ -1313,12 +1313,13 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           dropRetiredModeWorkspaces(
             dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
           ),
-        // The MC-1573 lockstep invariant (moduleState.sprintengine === the
-        // legacy sprintEngineState mirror) is enforced here, not only in the
-        // v71 migration rung, for the same reason as the heals above: merge()
-        // runs on every hydration regardless of envelope version. Persisted
-        // rows carry a null run state (partialize strips both homes), so this
-        // is a reference-preserving no-op on the normal load path.
+        // The MC-2573 bag hoist (moduleState.sprintengine holds state/context/
+        // roleCliDefaults; top-level fields mirror until readers migrate) is
+        // enforced here, not only in the v76 migration rung, for the same
+        // reason as the heals above: merge() runs on every hydration regardless
+        // of envelope version. Persisted rows carry durable bag fields and a
+        // null run projection (partialize strips `state`), so this is a
+        // reference-preserving no-op on the normal load path.
         ).map(reconcileWorkspaceModuleState)
         // Files/Git rail tabs → pane tabs (browser-pane epic, store v73): the
         // enforcement half, for the same reason as the heals above.

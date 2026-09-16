@@ -44,11 +44,11 @@ import {
   dropRetiredModeWorkspaces,
   mapMigrationWorkspaces,
 } from './normalizers'
-import { reconcileWorkspaceModuleState } from './workspaceModuleState'
+import { migrateSprintEngineFieldsIntoModuleBag, reconcileWorkspaceModuleState } from './workspaceModuleState'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
-export const WORKSPACE_STORE_VERSION = 75
+export const WORKSPACE_STORE_VERSION = 76
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
@@ -1059,6 +1059,17 @@ export function migratePersistedWorkspaceState(
     ) {
       migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
     }
+  }
+  if (version < 76) {
+    // sprintEngineContext and sprintEngineRoleCliDefaults join
+    // moduleState.sprintengine (MC-2573). A HEAD-shaped row carries the three
+    // top-level fields and a stripped bag; this rung hoists them into the bag
+    // entry. Marked for deletion with the in-tree engine
+    // (extensions-installable-modules 2026-08-03; dated 2026-09-16). The
+    // enforcement half is reconcileWorkspaceModuleState in persist merge(),
+    // which runs on every hydration so a current-version envelope this ladder
+    // never revisits still heals.
+    mapMigrationWorkspaces(migrationState, migrateSprintEngineFieldsIntoModuleBag)
   }
 
   return state as never

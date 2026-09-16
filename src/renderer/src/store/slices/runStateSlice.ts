@@ -24,7 +24,7 @@ import {
   pickWorkspaceAgentName,
 } from './agentsSlice'
 import { sprintEngineTabsLayoutModel } from './layoutSlice'
-import { SPRINT_ENGINE_MODULE_ID, withWorkspaceModuleState } from './workspaceModuleState'
+import { patchSprintEngineModuleState } from './workspaceModuleState'
 import {
   normalizeCliPermissionPreset,
   normalizeSprintEngineRunSettings,
@@ -246,15 +246,14 @@ export function migrateSprintEngineAgentNames(ws: Workspace): Workspace {
   const agents = reconcileSprintEngineAgents(ws.agents ?? {}, sprintEngineState)
   // The freshly normalized state is canonical here; write it to the bag AND
   // the mirror so the MC-1573 lockstep invariant survives this migration.
-  return withWorkspaceModuleState(
+  return patchSprintEngineModuleState(
     {
       ...ws,
       sprintEngineState,
       agents,
       layoutModel: sprintEngineTabsLayoutModel(sprintEngineState, agents),
     },
-    SPRINT_ENGINE_MODULE_ID,
-    sprintEngineState,
+    { state: sprintEngineState },
   )
 }
 
@@ -403,7 +402,13 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
     setSprintEngineContext: (id, sprintEngineContext) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
-        if (ws) ws.sprintEngineContext = sprintEngineContext
+        if (!ws) return
+        ws.sprintEngineContext = sprintEngineContext
+        const next = patchSprintEngineModuleState(ws, { context: sprintEngineContext })
+        if (!isDeepEqual(ws.moduleState, next.moduleState)) {
+          if (next.moduleState) ws.moduleState = next.moduleState
+          else delete ws.moduleState
+        }
       }),
 
     setSprintEngineState: (workspaceId, sprintEngineState) =>
@@ -442,16 +447,13 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         // per-field `useShallow` selectors also stay stable when only some
         // fields move.
         if (!isDeepEqual(ws.sprintEngineState, normalized)) ws.sprintEngineState = normalized
-        // Mirror the write into the canonical bag entry (MC-1573) under the
-        // same no-op guard, so quiet projection ticks leave the draft alone.
-        const bagEntry = ws.moduleState?.[SPRINT_ENGINE_MODULE_ID] ?? null
-        if (normalized === null) {
-          if (ws.moduleState && SPRINT_ENGINE_MODULE_ID in ws.moduleState) {
-            delete ws.moduleState[SPRINT_ENGINE_MODULE_ID]
-            if (Object.keys(ws.moduleState).length === 0) delete ws.moduleState
-          }
-        } else if (!isDeepEqual(bagEntry, normalized)) {
-          ;(ws.moduleState ??= {})[SPRINT_ENGINE_MODULE_ID] = normalized
+        const patched = patchSprintEngineModuleState(ws, {
+          state: normalized,
+          context: nextContext,
+        })
+        if (!isDeepEqual(ws.moduleState, patched.moduleState)) {
+          if (patched.moduleState) ws.moduleState = patched.moduleState
+          else delete ws.moduleState
         }
         if (ws.mode !== nextMode) ws.mode = nextMode
         if (!isDeepEqual(ws.sprintEngineContext, nextContext)) ws.sprintEngineContext = nextContext

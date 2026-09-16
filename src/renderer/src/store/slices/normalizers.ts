@@ -11,7 +11,7 @@ import {
   workspaceFolderKey,
 } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
-import { partializeWorkspaceModuleState } from './workspaceModuleState'
+import { partializeWorkspaceModuleState, reconcileWorkspaceModuleState } from './workspaceModuleState'
 import { partializeWorkspacePaneState } from './workspacePaneSlice'
 
 // Workspace-mode strings whose features were retired. Kept as local literals
@@ -245,24 +245,26 @@ export function preserveNewerSprintEngineAutomationState(
 
 export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace {
   const sprintEngineAutoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
-  const launchSafeWorkspace = clearAutomationsHostAgentLaunchState(
-    clearSprintEngineAgentLaunchState(workspace),
+  const launchSafeWorkspace = reconcileWorkspaceModuleState(
+    clearAutomationsHostAgentLaunchState(
+      clearSprintEngineAgentLaunchState(workspace),
+    ),
   )
+  const {
+    sprintEngineContext: _sprintEngineContext,
+    sprintEngineRoleCliDefaults: _sprintEngineRoleCliDefaults,
+    ...durableWorkspace
+  } = launchSafeWorkspace
   return {
-    ...launchSafeWorkspace,
+    ...durableWorkspace,
     mode: normalizeWorkspaceMode(launchSafeWorkspace.mode, launchSafeWorkspace.sprintEngineState),
-    // The Sprint Engine projection is a cache of the on-disk projection.json
-    // (the source of truth), re-read by SprintEngineProjectionSupervisor on its
-    // first tick after mount for every Sprint Engine workspace. Persisting it
-    // made the 4s projection poll serialize the full tasks+artifacts blob into
-    // localStorage on every run-progress update — the persist write-storm behind
-    // the renderer heap spikes. Drop it from the persisted registry so only
-    // durable identity (sprintEngineContext/mode) survives a restart; the live
-    // projection rehydrates from disk within one supervisor tick.
+    // The live run projection is a cache of on-disk projection.json. Persisting
+    // it serialized the full tasks+artifacts blob into localStorage on every
+    // 4s poll. Durable identity (context, role CLI defaults) now lives in
+    // moduleState.sprintengine and is what survives a restart; the top-level
+    // fields are omitted so a write after the MC-2573 hoist does not put them
+    // back. The live projection rehydrates from disk within one supervisor tick.
     sprintEngineState: null,
-    // Same rationale for the canonical bag entry (MC-1573): the `sprintengine`
-    // key mirrors the field above and is stripped; every OTHER module's entry
-    // is durable state and persists verbatim.
     moduleState: partializeWorkspaceModuleState(launchSafeWorkspace.moduleState),
     memory: normalizeWorkspaceMemoryConfig(launchSafeWorkspace.memory),
     fileExplorerState: normalizeWorkspaceFileExplorerState(launchSafeWorkspace.fileExplorerState),

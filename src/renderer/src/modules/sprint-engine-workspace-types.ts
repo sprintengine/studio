@@ -1,6 +1,8 @@
 import type { RendererHost } from './renderer-host'
 import type { LayoutTemplate, SprintEngineMockConfig } from '../types/workspace'
 import { createSprintEngineLayoutTemplate } from '../../../shared/sprintengine/workspace-record'
+
+export type { SprintEngineModuleState } from '../../../shared/sprintengine/workspace-record'
 import { SprintEngineWorkspaceTypeIcon } from '../components/AppIcons'
 import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
 import { isSprintEngineWorkspace } from '../utils/sprintEngineWorkspace'

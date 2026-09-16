@@ -12,6 +12,7 @@ import {
   reconcileSprintEngineAgents,
 } from './runStateSlice'
 import { sprintEngineRunSettingsKey } from './settingsSlice'
+import { getSprintEngineModuleState } from './workspaceModuleState'
 
 const standardTemplate: LayoutTemplate = {
   id: 'run-state-standard',
@@ -114,7 +115,7 @@ assert.equal(directWorkspace.sprintEngineState?.goal, 'Validate run-state slice'
 // runs on its own carrier below so this shared fixture's roster/agents state
 // stays untouched for the assertions that follow.
 assert.equal(
-  directWorkspace.moduleState?.sprintengine,
+  getSprintEngineModuleState(directWorkspace)?.state,
   directWorkspace.sprintEngineState,
   'setSprintEngineState writes the bag entry and the mirror in lockstep',
 )

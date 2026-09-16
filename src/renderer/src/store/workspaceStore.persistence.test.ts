@@ -1017,14 +1017,14 @@ assert.equal(
   const mirrorOnly = hydrated.find((ws) => ws.id === 'ws-mirror-only')
   assert.ok(mirrorOnly?.sprintEngineState, 'a populated legacy field survives merge')
   assert.equal(
-    mirrorOnly!.moduleState?.sprintengine,
+    (mirrorOnly!.moduleState?.sprintengine as { state?: unknown } | undefined)?.state,
     mirrorOnly!.sprintEngineState,
     'merge adopts the legacy field into the bag — both homes hold the same state',
   )
   const bagOnly = hydrated.find((ws) => ws.id === 'ws-bag-only')
   assert.ok(bagOnly?.sprintEngineState, 'merge hoists a bag-only entry onto the mirror')
   assert.equal(
-    bagOnly!.moduleState?.sprintengine,
+    (bagOnly!.moduleState?.sprintengine as { state?: unknown } | undefined)?.state,
     bagOnly!.sprintEngineState,
     'the hoisted mirror and the bag entry are the same state',
   )
@@ -1034,14 +1034,14 @@ assert.equal(
     'a third-party module bag entry hydrates verbatim',
   )
 
-  // Partialize: the sprintengine entry is a projection cache and is stripped
-  // from BOTH homes at persist; other modules' entries persist verbatim.
+  // Partialize: the live projection is stripped from both homes; durable
+  // identity stays in the bag; other modules' entries persist verbatim.
   const partialized = normalizeWorkspaceForPartialize(bagOnly!)
   assert.equal(partialized.sprintEngineState, null, 'partialize nulls the legacy mirror')
   assert.equal(
     Boolean(partialized.moduleState && 'sprintengine' in partialized.moduleState),
     false,
-    'partialize strips the sprintengine bag entry',
+    'partialize strips the live projection from the sprintengine bag when nothing durable remains',
   )
   assert.deepEqual(
     partialized.moduleState,

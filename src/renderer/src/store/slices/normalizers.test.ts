@@ -99,7 +99,16 @@ const projectionCleaned = normalizeWorkspaceForPartialize(baseWorkspace({
 }))
 assert.equal(projectionCleaned.sprintEngineState, null)
 assert.equal(projectionCleaned.mode, 'sprintengine')
-assert.notEqual(projectionCleaned.sprintEngineContext, null)
+assert.equal(
+  'sprintEngineContext' in projectionCleaned,
+  false,
+  'top-level context leaves persist; durable identity lives in the bag',
+)
+assert.deepEqual(
+  (projectionCleaned.moduleState?.sprintengine as { context?: { teamSlug?: string } } | undefined)?.context?.teamSlug,
+  'core',
+  'partialize keeps sprintEngineContext in moduleState.sprintengine',
+)
 
 // normalizeWorkspaceForPartialize zeros the in-memory stream buffer + status on agents
 // that survive a save so they cold-load idle instead of streaming.

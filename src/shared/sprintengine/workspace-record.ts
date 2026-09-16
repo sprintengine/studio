@@ -3,9 +3,9 @@
  *
  * A sprint workspace is not a plain workspace: its agent map is seeded from the
  * run's lazy roster (one record per seat, each carrying the CLI/model/effort the
- * roster picked), its layout is the board tab rather than the template's, and it
- * carries the run state twice — once canonically in `moduleState`, once on the
- * legacy `sprintEngineState` mirror, in lockstep.
+ * roster picked), its layout is the board tab rather than the template's, and
+ * its engine identity lives in `moduleState.sprintengine` (with a legacy
+ * `sprintEngineState` mirror kept in lockstep for in-tree readers).
  *
  * That composition used to live inside the renderer store's `addWorkspace`.
  * Main mints sprint workspaces itself now (a headless `sprint.create`), so a
@@ -36,6 +36,19 @@ import {
 
 /** The module id the canonical `moduleState` entry is keyed by. */
 export const SPRINT_ENGINE_WORKSPACE_MODULE_ID = 'sprintengine'
+
+/**
+ * The `moduleState.sprintengine` bag entry (MC-2573). Durable identity
+ * (`context`, `roleCliDefaults`) lives here and persists; the live run
+ * projection (`state`) is a cache of on-disk `projection.json` and is
+ * stripped at persist. Re-exported from the renderer workspace-type module
+ * so MC-2577 can consume the same shape.
+ */
+export type SprintEngineModuleState = {
+  state?: SprintEngineState | null
+  context?: SprintEngineWorkspaceContext | null
+  roleCliDefaults?: SprintEngineRoleCliDefaults
+}
 
 /** The template id every sprint workspace records, and the picker entry's id. */
 const SPRINT_ENGINE_TEMPLATE_ID = 'sprintengine-mode'
@@ -256,8 +269,16 @@ export function composeSprintEngineWorkspaceRecord(
     memory: input.defaults.memory,
     editorState: input.defaults.editorState,
     fileExplorerState: input.defaults.fileExplorerState,
-    // Canonical bag entry + legacy mirror together (MC-1573 lockstep).
-    moduleState: { [SPRINT_ENGINE_WORKSPACE_MODULE_ID]: input.sprintEngineState },
+    // Canonical bag entry (projection + durable context/CLI defaults) with the
+    // legacy `sprintEngineState` mirror kept in lockstep for in-tree readers
+    // until they migrate to the bag (MC-2573).
+    moduleState: {
+      [SPRINT_ENGINE_WORKSPACE_MODULE_ID]: {
+        state: input.sprintEngineState,
+        context: input.sprintEngineContext,
+        roleCliDefaults: input.roleCliDefaults,
+      } satisfies SprintEngineModuleState,
+    },
     sprintEngineState: input.sprintEngineState,
     sprintEngineRoleCliDefaults: input.roleCliDefaults,
     ...(initialSpawnAgentIds.length > 0 ? { sprintEngineInitialSpawnAgentIds: initialSpawnAgentIds } : {}),
