@@ -45,7 +45,8 @@ for (const outside of [
   mobileControlMinSupportedProtocolVersion - 1,
   mobileControlProtocolVersion + 1,
   undefined,
-  '2',
+  // The right number spelled as a string is still not a version.
+  String(mobileControlProtocolVersion),
   null,
 ]) {
   const refused = validateMobileControlCommand(command({ protocolVersion: outside }))

@@ -1,5 +1,4 @@
-export const mobileControlProtocolVersion = 3 as const;
-export const mobileControlWorkspaceSnapshotVersion = 2 as const;
+export const mobileControlProtocolVersion = 4 as const;
 
 /**
  * Every protocol version this desktop still accepts from a phone, oldest first.
@@ -19,10 +18,9 @@ export const mobileControlWorkspaceSnapshotVersion = 2 as const;
  * Outbound traffic is unaffected: this desktop always STAMPS
  * `mobileControlProtocolVersion`. The window governs only what it will read.
  */
-export const mobileControlSupportedProtocolVersions = [2, 3] as const;
+export const mobileControlSupportedProtocolVersions = [3, 4] as const;
 
 export type MobileControlProtocolVersion = (typeof mobileControlSupportedProtocolVersions)[number];
-export type MobileControlWorkspaceSnapshotVersion = typeof mobileControlWorkspaceSnapshotVersion;
 
 /**
  * The window has to END at the version this build speaks, or the desktop would
@@ -86,11 +84,7 @@ export type MobileControlCapability =
   | "devices.revoke"
   | "backlog.update"
   | "backlog.create"
-  // Control the desktop's automations (src/main/automations). This is the
-  // desktop's own automations store, not a Sprint Engine run's automation mode:
-  // the run-scoped `sprintengines.automation` capability that used to sit beside
-  // it, and which was a standing invitation to confuse the two, left the wire
-  // with the rest of the Sprint Engine surface (v3).
+  // Enable, pause or run one of the desktop's automations (src/main/automations).
   | "automations.control";
 
 export type MobileControlErrorCode =
@@ -105,12 +99,11 @@ export type MobileControlErrorCode =
   | "command_expired"
   | "duplicate_idempotency_key"
   | "stale_snapshot"
-  // Kept although its name reads sprint-shaped: the automations controller
-  // answers a run already in flight with it (src/main/mobile/control/command.ts).
+  // The automations controller answers `runNow` on a run already in flight with
+  // it (src/main/mobile/control/command.ts).
   | "task_not_ready"
   | "path_not_allowed"
   | "snapshot_too_large"
-  | "python_tool_failed"
   | "internal_error";
 
 export type MobileNotificationCategory = "command.failed" | "desktop.offline";
@@ -118,19 +111,6 @@ export type MobileNotificationCategory = "command.failed" | "desktop.offline";
 export type MobileNotificationTarget =
   | { kind: "command"; commandId: string }
   | { kind: "desktop" };
-
-export type MobileControlWorkspaceKind = "switchboard" | "watchtower";
-
-export type MobileControlWorkspaceCapability =
-  | "summary.read"
-  | "detail.read"
-  | "logs.read"
-  | "comments.create"
-  | "inbox.promote"
-  | "tasks.move"
-  | "runner.pause"
-  | "runner.resume"
-  | "execution.cancel";
 
 export interface MobileControlError {
   protocolVersion: MobileControlProtocolVersion;
@@ -174,12 +154,9 @@ export interface MobileControlCommandBase<Type extends MobileControlCommandType,
   payload: Payload;
 }
 
-// Snapshot collections a `snapshot.request` may scope down to (item 1600).
-// `desktopWorkspaces` is the switchboard/watchtower projections; it is
-// the one collection absent from the default set, so a phone surface that wants
-// those monitors must name it explicitly. The rest ship by default.
+// Snapshot collections a `snapshot.request` may scope down to (item 1600). Both
+// ship by default.
 export const mobileSnapshotCollections = [
-  "desktopWorkspaces",
   "backlog",
   "automations",
 ] as const;
@@ -210,9 +187,7 @@ export type SnapshotRequestCommand = MobileControlCommandBase<
     workspacePath?: string;
     /**
      * Restrict the payload to these collections (item 1600) so a list screen can
-     * skip the ones it does not render. Absent means the default set — backlog
-     * and automations; `desktopWorkspaces` (switchboard/watchtower) is off by
-     * default and ships only when named here. Additive and old-client-safe.
+     * skip the ones it does not render. Absent means every collection.
      */
     include?: MobileSnapshotCollection[];
   }
@@ -263,9 +238,7 @@ export type BacklogCreateCommand = MobileControlCommandBase<
  *
  * There is no cancel for automation runs: no cancel primitive exists on that
  * surface, and the nearest thing (finalizing a run as failed) destroys the
- * worktree and disposes the agent — destruction, not cancellation. (Sprint runs
- * gained a cancel op with MC-1604, but cancel is a desktop decision by design;
- * the phone follows the snapshot.)
+ * worktree and disposes the agent — destruction, not cancellation.
  */
 export type MobileControlAutomationAction = "enable" | "pause" | "runNow";
 
@@ -295,116 +268,6 @@ export type MobileControlCommand =
   | BacklogUpdateCommand
   | BacklogCreateCommand
   | AutomationsControlCommand;
-
-export interface MobileControlWorkspaceSummary {
-  status: "idle" | "running" | "needs_input" | "blocked" | "complete" | "error" | "unknown";
-  headline?: string;
-  counts?: Record<string, number>;
-}
-
-export interface MobileControlSwitchboardSourceSummary {
-  type: string;
-  externalId?: string | null;
-  externalKey?: string | null;
-  externalUrl?: string | null;
-}
-
-export interface MobileControlSwitchboardTaskSummary {
-  taskId: string;
-  identifier: string;
-  title: string;
-  status: string;
-  lane: string;
-  updatedAt: string;
-  source: MobileControlSwitchboardSourceSummary;
-  priority?: number | null;
-  claimedBy?: string | null;
-}
-
-export interface MobileControlSwitchboardCommentSummary {
-  taskId: string;
-  commentId: string;
-  kind: string;
-  body: string;
-  createdAt: string;
-  authorName?: string | null;
-  confidencePct?: number | null;
-}
-
-export interface MobileControlSwitchboardEvidenceSummary {
-  taskId: string;
-  summary?: string;
-  artifactCount: number;
-  commandCount: number;
-  touchedFileCount: number;
-  updatedAt: string;
-}
-
-export interface MobileControlSwitchboardLogSummary {
-  taskId?: string;
-  executionId: string;
-  status?: string | null;
-  agentId?: string | null;
-  startedAt: string;
-  completedAt?: string | null;
-  summary?: string | null;
-}
-
-export interface MobileControlSwitchboardWorkspaceDetail {
-  inboxCount?: number;
-  laneCounts?: Record<string, number>;
-  activeExecutionCount?: number;
-  tasks?: MobileControlSwitchboardTaskSummary[];
-  inboxItems?: MobileControlSwitchboardTaskSummary[];
-  comments?: MobileControlSwitchboardCommentSummary[];
-  evidence?: MobileControlSwitchboardEvidenceSummary[];
-  logs?: MobileControlSwitchboardLogSummary[];
-}
-
-export interface MobileControlWatchtowerRunSummary {
-  runId: string;
-  status: string;
-  preset: string;
-  createdAt: string;
-  completedAt?: string | null;
-  validCount: number;
-  invalidCount: number;
-  generatedInboxCount: number;
-  agentCount: number;
-}
-
-export interface MobileControlWatchtowerGeneratedInboxSummary {
-  runId: string;
-  taskId: string;
-  source: "watchtower";
-}
-
-export interface MobileControlWatchtowerWorkspaceDetail {
-  activeRunCount?: number;
-  latestRunStatus?: string;
-  generatedInboxCount?: number;
-  runs?: MobileControlWatchtowerRunSummary[];
-  generatedInboxItems?: MobileControlWatchtowerGeneratedInboxSummary[];
-}
-
-export type MobileControlWorkspaceDetail =
-  | { kind: "switchboard"; data: MobileControlSwitchboardWorkspaceDetail }
-  | { kind: "watchtower"; data: MobileControlWatchtowerWorkspaceDetail };
-
-export interface MobileControlWorkspaceSnapshot {
-  workspaceId: string;
-  kind: MobileControlWorkspaceKind;
-  name: string;
-  workspacePath?: string;
-  /** The repo this workspace belongs to, as a relay-safe token (MC-1583). */
-  projectKey?: string;
-  statePath?: string;
-  updatedAt: string;
-  capabilities: MobileControlWorkspaceCapability[];
-  detailVersion: MobileControlWorkspaceSnapshotVersion;
-  summary: MobileControlWorkspaceSummary;
-  detail?: MobileControlWorkspaceDetail;
-}
 
 export type MobileControlBacklogItemStatus = "idea" | "ready" | "in_progress" | "needs_input" | "completed" | "archived";
 export type MobileControlBacklogItemType = "epic" | "feature" | "bug" | "mockup" | "spike";
@@ -538,42 +401,6 @@ export interface MobileControlAutomationSnapshot {
   recentRuns?: MobileControlAutomationRunSummary[];
 }
 
-// Read-only roadmap progress rider (MC-1620 / T7). ADDITIVE: an old phone that does
-// not read `roadmaps` renders sprints exactly as before, and it carries NO new
-// relay scope — the phone never acts on a roadmap (approvals from the phone are out
-// of scope for v1). Per-lane it reports only what a progress view needs: how far the
-// lane is, the running step's title, and whether it is paused. No paths, no run
-// state, nothing the phone could steer with.
-export interface MobileControlRoadmapLaneRider {
-  name: string;
-  /** Steps whose backlog item is delivered (terminal), of `total`. */
-  done: number;
-  total: number;
-  /** Human title of the step whose sprint is running now, when one is. */
-  runningItem?: string;
-  /** True while the lane is paused/parked and waiting on the human. */
-  parked?: boolean;
-}
-
-export interface MobileControlRoadmapRider {
-  /** The roadmap file's stable slug (its file-name stem). */
-  roadmapId: string;
-  name: string;
-  /**
-   * The repo this horizon belongs to, as the same relay-safe token every other
-   * collection is stamped with (MC-1583). Riders from every workspace root are
-   * flattened into one top-level list, so without this a phone cannot tell which
-   * project a horizon belongs to — and a phone that scopes its surfaces to a
-   * current project would have to choose between showing another project's plan
-   * and showing none at all.
-   *
-   * Additive and old-client-safe; absent from a desktop that predates it, and a
-   * reader should then treat the horizon as unscoped rather than dropping it.
-   */
-  projectKey?: string;
-  lanes: MobileControlRoadmapLaneRider[];
-}
-
 /**
  * A web page on this desktop that a phone can actually open.
  *
@@ -583,7 +410,7 @@ export interface MobileControlRoadmapRider {
  * HTTPS origin reachable from any device on the tailnet.
  *
  * Additive and optional, so a phone that predates it simply does not draw the
- * screen — the same contract `roadmaps` ships under.
+ * screen.
  */
 export interface MobileControlWebTargetSnapshot {
   /** Stable within a desktop session: the HTTPS port publishing it. */
@@ -609,15 +436,11 @@ export interface MobileControlSnapshot {
   // entries here would turn every desktop command addition into a client that
   // can no longer read snapshots at all.
   commands?: string[];
-  workspaces?: MobileControlWorkspaceSnapshot[];
   backlog?: MobileControlBacklogWorkspaceSnapshot[];
   // Flat across the desktop's automations store, grouped by each entry's
   // `projectKey` the way `backlog` groups by repo. Capped by construction —
   // see `automationsPerProjectMax`.
   automations?: MobileControlAutomationSnapshot[];
-  // Read-only roadmap progress riders (MC-1620), one per active roadmap. Additive
-  // and omitted when there are none, so a phone that predates roadmaps is untouched.
-  roadmaps?: MobileControlRoadmapRider[];
   // Dev servers this desktop publishes on the tailnet, so the phone has a door
   // to them (Track 1b). Additive and omitted when there are none.
   webTargets?: MobileControlWebTargetSnapshot[];
@@ -753,26 +576,12 @@ const errorCodes = [
   "task_not_ready",
   "path_not_allowed",
   "snapshot_too_large",
-  "python_tool_failed",
   "internal_error",
 ] as const satisfies readonly MobileControlErrorCode[];
 
 const devicePlatforms = ["ios", "android", "web"] as const satisfies readonly MobileControlDevicePlatform[];
 const presenceValues = ["online", "offline", "revoked"] as const;
 const severityValues = ["info", "warning", "error"] as const;
-const workspaceKinds = ["switchboard", "watchtower"] as const;
-const workspaceCapabilities = [
-  "summary.read",
-  "detail.read",
-  "logs.read",
-  "comments.create",
-  "inbox.promote",
-  "tasks.move",
-  "runner.pause",
-  "runner.resume",
-  "execution.cancel",
-] as const satisfies readonly MobileControlWorkspaceCapability[];
-const workspaceSummaryStatuses = ["idle", "running", "needs_input", "blocked", "complete", "error", "unknown"] as const;
 const notificationCategories = [
   "command.failed",
   "desktop.offline",
@@ -896,29 +705,6 @@ export function validateMobileControlSnapshot(input: unknown): ValidationResult<
     if (commandError) {
       return invalidPayload(commandError);
     }
-  }
-
-  if (snapshot.value.workspaces !== undefined) {
-    const workspacesError = requireArray(snapshot.value, "workspaces");
-    if (workspacesError) {
-      return invalidPayload(workspacesError);
-    }
-
-    for (const workspace of snapshot.value.workspaces as unknown[]) {
-      const error = validateWorkspaceSnapshot(workspace);
-      if (error) {
-        return invalidPayload(error);
-      }
-    }
-  }
-
-  const roadmapsError = validateOptionalArray(
-    snapshot.value.roadmaps,
-    "snapshot.roadmaps",
-    validateRoadmapRider,
-  );
-  if (roadmapsError) {
-    return invalidPayload(roadmapsError);
   }
 
   const automationsError = validateOptionalArray(
@@ -1049,10 +835,9 @@ export function validateMobileControlError(input: unknown): ValidationResult<Mob
  * `current` accepts only the version this build speaks, and is for the payloads
  * the desktop SENDS. A window buys nothing there — a phone receiving a snapshot
  * from a newer desktop is not helped by also accepting older ones — and it costs
- * something real: a v2 snapshot carries the Sprint Engine collections this wire
- * retired (`sprintEngines`, `roleCatalogs`, the `sprintengine` workspace kind),
- * so accepting the version would only get the reader further in before failing
- * on a shape it no longer has a type for.
+ * something real: an older snapshot can carry collections this wire has since
+ * retired, so accepting its version would only get the reader further in before
+ * failing on, or silently dropping, a shape it no longer has a type for.
  */
 type ProtocolVersionStrictness = "window" | "current";
 
@@ -1078,11 +863,12 @@ function validateProtocolVersion(
   return null;
 }
 
-// Bounds on the automations projection (item 47). The snapshot has no
-// size-shedding ladder left — the sprint runs and role catalogs it used to drop
-// left the wire in v3 — so every collection on it must now stay small by
-// construction or it eats the relay's result-summary budget outright.
-// The producer enforces these; the wire types cannot.
+// Bounds on the automations projection (item 47). The desktop's size-shedding
+// ladder has one rung — it drops every automation's `recentRuns` from an
+// unscoped snapshot that is over the relay's result-summary budget — so
+// everything else on the snapshot must stay small by construction, or the
+// snapshot is refused with `snapshot_too_large`. The producer enforces these;
+// the wire types cannot.
 export const automationsPerProjectMax = 24;
 export const automationRecentRunsMax = 5;
 export const automationRunTextMaxChars = 160;
@@ -1182,265 +968,6 @@ function validateNotificationTarget(input: unknown): string | null {
   }
 
   return "notification.target.kind must be a supported notification target";
-}
-
-function validateWorkspaceSnapshot(input: unknown): string | null {
-  const workspace = validateObject(input, "snapshot.workspace");
-  if (workspace.ok === false) {
-    return workspace.error;
-  }
-
-  const baseError =
-    requireString(workspace.value, "workspaceId") ??
-    requireLiteral(workspace.value, "kind", workspaceKinds) ??
-    requireString(workspace.value, "name") ??
-    optionalString(workspace.value, "workspacePath") ??
-    optionalString(workspace.value, "statePath") ??
-    requireString(workspace.value, "updatedAt") ??
-    requireIsoDate(workspace.value, "updatedAt") ??
-    requireArray(workspace.value, "capabilities") ??
-    requireLiteralNumber(workspace.value, "detailVersion", mobileControlWorkspaceSnapshotVersion);
-  if (baseError) {
-    return baseError;
-  }
-
-  const capabilitiesError = validateStringLiteralArray(
-    workspace.value.capabilities,
-    workspaceCapabilities,
-    "workspace.capabilities",
-  );
-  if (capabilitiesError) {
-    return capabilitiesError;
-  }
-
-  const summaryError = validateWorkspaceSummary(workspace.value.summary);
-  if (summaryError) {
-    return summaryError;
-  }
-
-  if (workspace.value.detail !== undefined) {
-    return validateWorkspaceDetail(workspace.value.kind as MobileControlWorkspaceKind, workspace.value.detail);
-  }
-
-  return null;
-}
-
-function validateWorkspaceSummary(input: unknown): string | null {
-  const summary = validateObject(input, "workspace.summary");
-  if (summary.ok === false) {
-    return summary.error;
-  }
-
-  const baseError =
-    requireLiteral(summary.value, "status", workspaceSummaryStatuses) ??
-    optionalString(summary.value, "headline");
-  if (baseError) {
-    return baseError;
-  }
-
-  if (summary.value.counts !== undefined) {
-    const counts = validateObject(summary.value.counts, "workspace.summary.counts");
-    if (counts.ok === false) {
-      return counts.error;
-    }
-    for (const [key, value] of Object.entries(counts.value)) {
-      if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-        return `workspace.summary.counts.${key} must be a non-negative integer`;
-      }
-    }
-  }
-
-  return null;
-}
-
-function validateWorkspaceDetail(kind: MobileControlWorkspaceKind, input: unknown): string | null {
-  const detail = validateObject(input, "workspace.detail");
-  if (detail.ok === false) {
-    return detail.error;
-  }
-
-  const kindError = requireLiteral(detail.value, "kind", workspaceKinds);
-  if (kindError) {
-    return kindError;
-  }
-  if (detail.value.kind !== kind) {
-    return "workspace.detail.kind must match workspace.kind";
-  }
-
-  const data = validateObject(detail.value.data, "workspace.detail.data");
-  if (data.ok === false) {
-    return data.error;
-  }
-
-  switch (kind) {
-    case "switchboard":
-      return (
-        optionalNonNegativeInteger(data.value, "inboxCount") ??
-        optionalNumberRecord(data.value, "laneCounts") ??
-        optionalNonNegativeInteger(data.value, "activeExecutionCount") ??
-        validateOptionalArray(data.value.tasks, "workspace.detail.data.tasks", validateSwitchboardTaskSummary) ??
-        validateOptionalArray(data.value.inboxItems, "workspace.detail.data.inboxItems", validateSwitchboardTaskSummary) ??
-        validateOptionalArray(data.value.comments, "workspace.detail.data.comments", validateSwitchboardCommentSummary) ??
-        validateOptionalArray(data.value.evidence, "workspace.detail.data.evidence", validateSwitchboardEvidenceSummary) ??
-        validateOptionalArray(data.value.logs, "workspace.detail.data.logs", validateSwitchboardLogSummary)
-      );
-    case "watchtower":
-      return (
-        optionalNonNegativeInteger(data.value, "activeRunCount") ??
-        optionalString(data.value, "latestRunStatus") ??
-        optionalNonNegativeInteger(data.value, "generatedInboxCount") ??
-        validateOptionalArray(data.value.runs, "workspace.detail.data.runs", validateWatchtowerRunSummary) ??
-        validateOptionalArray(
-          data.value.generatedInboxItems,
-          "workspace.detail.data.generatedInboxItems",
-          validateWatchtowerGeneratedInboxSummary,
-        )
-      );
-  }
-}
-
-function validateSwitchboardTaskSummary(input: unknown, fieldName: string): string | null {
-  const task = validateObject(input, fieldName);
-  if (task.ok === false) {
-    return task.error;
-  }
-  return (
-    requireString(task.value, "taskId") ??
-    requireString(task.value, "identifier") ??
-    requireString(task.value, "title") ??
-    requireString(task.value, "status") ??
-    requireString(task.value, "lane") ??
-    requireString(task.value, "updatedAt") ??
-    requireIsoDate(task.value, "updatedAt") ??
-    optionalNullableNumber(task.value, "priority") ??
-    optionalNullableString(task.value, "claimedBy") ??
-    validateSwitchboardSourceSummary(task.value.source, `${fieldName}.source`)
-  );
-}
-
-function validateSwitchboardSourceSummary(input: unknown, fieldName: string): string | null {
-  const source = validateObject(input, fieldName);
-  if (source.ok === false) {
-    return source.error;
-  }
-  return (
-    requireString(source.value, "type") ??
-    optionalNullableString(source.value, "externalId") ??
-    optionalNullableString(source.value, "externalKey") ??
-    optionalNullableString(source.value, "externalUrl")
-  );
-}
-
-function validateSwitchboardCommentSummary(input: unknown, fieldName: string): string | null {
-  const comment = validateObject(input, fieldName);
-  if (comment.ok === false) {
-    return comment.error;
-  }
-  return (
-    requireString(comment.value, "taskId") ??
-    requireString(comment.value, "commentId") ??
-    requireString(comment.value, "kind") ??
-    requireString(comment.value, "body") ??
-    requireString(comment.value, "createdAt") ??
-    requireIsoDate(comment.value, "createdAt") ??
-    optionalNullableString(comment.value, "authorName") ??
-    optionalNullablePercentage(comment.value, "confidencePct")
-  );
-}
-
-function validateSwitchboardEvidenceSummary(input: unknown, fieldName: string): string | null {
-  const evidence = validateObject(input, fieldName);
-  if (evidence.ok === false) {
-    return evidence.error;
-  }
-  return (
-    requireString(evidence.value, "taskId") ??
-    optionalString(evidence.value, "summary") ??
-    requireNonNegativeInteger(evidence.value, "artifactCount") ??
-    requireNonNegativeInteger(evidence.value, "commandCount") ??
-    requireNonNegativeInteger(evidence.value, "touchedFileCount") ??
-    requireString(evidence.value, "updatedAt") ??
-    requireIsoDate(evidence.value, "updatedAt")
-  );
-}
-
-function validateSwitchboardLogSummary(input: unknown, fieldName: string): string | null {
-  const log = validateObject(input, fieldName);
-  if (log.ok === false) {
-    return log.error;
-  }
-  return (
-    optionalString(log.value, "taskId") ??
-    requireString(log.value, "executionId") ??
-    optionalNullableString(log.value, "status") ??
-    optionalNullableString(log.value, "agentId") ??
-    requireString(log.value, "startedAt") ??
-    requireIsoDate(log.value, "startedAt") ??
-    optionalNullableIsoDate(log.value, "completedAt") ??
-    optionalNullableString(log.value, "summary")
-  );
-}
-
-function validateWatchtowerRunSummary(input: unknown, fieldName: string): string | null {
-  const run = validateObject(input, fieldName);
-  if (run.ok === false) {
-    return run.error;
-  }
-  return (
-    requireString(run.value, "runId") ??
-    requireString(run.value, "status") ??
-    requireString(run.value, "preset") ??
-    requireString(run.value, "createdAt") ??
-    requireIsoDate(run.value, "createdAt") ??
-    optionalNullableIsoDate(run.value, "completedAt") ??
-    requireNonNegativeInteger(run.value, "validCount") ??
-    requireNonNegativeInteger(run.value, "invalidCount") ??
-    requireNonNegativeInteger(run.value, "generatedInboxCount") ??
-    requireNonNegativeInteger(run.value, "agentCount")
-  );
-}
-
-function validateWatchtowerGeneratedInboxSummary(input: unknown, fieldName: string): string | null {
-  const item = validateObject(input, fieldName);
-  if (item.ok === false) {
-    return item.error;
-  }
-  return (
-    requireString(item.value, "runId") ??
-    requireString(item.value, "taskId") ??
-    requireLiteral(item.value, "source", ["watchtower"] as const)
-  );
-}
-
-function validateRoadmapRider(input: unknown, fieldName: string): string | null {
-  const rider = validateObject(input, fieldName);
-  if (rider.ok === false) {
-    return rider.error;
-  }
-  const baseError =
-    requireString(rider.value, "roadmapId") ??
-    requireString(rider.value, "name") ??
-    optionalString(rider.value, "projectKey") ??
-    requireArray(rider.value, "lanes");
-  if (baseError) {
-    return baseError;
-  }
-  for (const lane of rider.value.lanes as unknown[]) {
-    const laneObject = validateObject(lane, `${fieldName}.lanes[]`);
-    if (laneObject.ok === false) {
-      return laneObject.error;
-    }
-    const laneError =
-      requireString(laneObject.value, "name") ??
-      requireNonNegativeInteger(laneObject.value, "done") ??
-      requireNonNegativeInteger(laneObject.value, "total") ??
-      optionalString(laneObject.value, "runningItem") ??
-      optionalBoolean(laneObject.value, "parked");
-    if (laneError) {
-      return laneError;
-    }
-  }
-  return null;
 }
 
 function validateAutomationSnapshot(input: unknown, fieldName: string): string | null {
@@ -1581,38 +1108,9 @@ function requirePositiveInteger(record: Record<string, unknown>, field: string):
   return Number.isInteger(record[field]) && (record[field] as number) > 0 ? null : `${field} must be a positive integer`;
 }
 
-function requireNonNegativeInteger(record: Record<string, unknown>, field: string): string | null {
-  return Number.isInteger(record[field]) && (record[field] as number) >= 0 ? null : `${field} must be a non-negative integer`;
-}
 
-function optionalNonNegativeInteger(record: Record<string, unknown>, field: string): string | null {
-  return record[field] === undefined ? null : requireNonNegativeInteger(record, field);
-}
 
-function optionalNullableNumber(record: Record<string, unknown>, field: string): string | null {
-  return record[field] === undefined || record[field] === null || typeof record[field] === "number"
-    ? null
-    : `${field} must be a number or null when provided`;
-}
 
-function optionalNumberRecord(record: Record<string, unknown>, field: string): string | null {
-  if (record[field] === undefined) {
-    return null;
-  }
-
-  const object = validateObject(record[field], field);
-  if (object.ok === false) {
-    return object.error;
-  }
-
-  for (const [key, value] of Object.entries(object.value)) {
-    if (typeof value !== "number" || !Number.isInteger(value) || value < 0) {
-      return `${field}.${key} must be a non-negative integer`;
-    }
-  }
-
-  return null;
-}
 
 function requireIsoDate(record: Record<string, unknown>, field: string): string | null {
   const value = record[field];
@@ -1627,17 +1125,7 @@ function optionalIsoDate(record: Record<string, unknown>, field: string): string
   return record[field] === undefined ? null : requireIsoDate(record, field);
 }
 
-function optionalNullableIsoDate(record: Record<string, unknown>, field: string): string | null {
-  return record[field] === undefined || record[field] === null ? null : requireIsoDate(record, field);
-}
 
-function optionalNullablePercentage(record: Record<string, unknown>, field: string): string | null {
-  if (record[field] === undefined || record[field] === null) {
-    return null;
-  }
-  const value = record[field];
-  return typeof value === "number" && value >= 0 && value <= 100 ? null : `${field} must be a percentage number or null when provided`;
-}
 
 function requireLiteral<const Values extends readonly string[]>(
   record: Record<string, unknown>,
@@ -1675,18 +1163,7 @@ function optionalSnapshotCollections(record: Record<string, unknown>, field: str
   return null;
 }
 
-function optionalNullableString(record: Record<string, unknown>, field: string): string | null {
-  if (record[field] === undefined || record[field] === null) {
-    return null;
-  }
-  return typeof record[field] === "string" && record[field].length > 0
-    ? null
-    : `${field} must be a non-empty string or null when provided`;
-}
 
-function requireLiteralNumber(record: Record<string, unknown>, field: string, expected: number): string | null {
-  return record[field] === expected ? null : `${field} must be ${expected}`;
-}
 
 function isOneOf<const Values extends readonly string[]>(input: unknown, values: Values): input is Values[number] {
   return typeof input === "string" && values.includes(input);

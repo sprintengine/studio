@@ -16,10 +16,10 @@ a private data structure, and changing one is not a local edit.**
 | Mobile control — the phone driving a desktop | `mobileControlProtocolVersion` (integer) | `mobileControlSupportedProtocolVersions` | `packages/mobile-control-protocol/src/index.ts` |
 | MCP | dated strings, newest first | every entry in the list | `src/shared/mcp/protocol.ts` |
 
-Two more version numbers are near these and are **not** wire windows.
-`mobileControlWorkspaceSnapshotVersion` versions the snapshot body inside the
-mobile protocol, and the backlog item schema version is a file format. Neither is
-negotiated with a peer.
+One more version number is near these and is **not** a wire window: the
+backlog item schema version is a file format, and is not negotiated with a peer.
+(`mobileControlWorkspaceSnapshotVersion` was a second; it versioned the mobile
+snapshot's `workspaces` detail body and left the wire with it in v4.)
 
 Alongside the tailnet version is `TAILNET_CAPABILITIES` — a list of named,
 additive features. It is not a version and does not follow one; see
@@ -79,8 +79,8 @@ The mobile protocol is the one wire that ships as a package —
 one: `mobileControlProtocolVersion`, the integer on the wire, and the package's
 npm semver.
 
-**The npm major is the wire version.** `mobileControlProtocolVersion` is 3, so
-the package is `3.x.y`. Bumping the wire to 4 means publishing `4.0.0`.
+**The npm major is the wire version.** `mobileControlProtocolVersion` is 4, so
+the package is `4.x.y`. Bumping the wire to 5 means publishing `5.0.0`.
 
 This is not a naming convention dressed up as policy. A wire bump changes which
 peers are refused at the handshake — the one thing every consumer of this package
@@ -152,6 +152,31 @@ If your change alters anything that crosses either wire, do all of this:
    instance of it.
 
 ## Bumps that have happened
+
+### 4 — the members nothing produces leave the wire (2026-09-16)
+
+**Breaking, deliberately, and for the same reason as 3.** Taking the Sprint Engine
+off the wire left members no desktop could produce: the `workspaces` collection
+(always `[]`, with its `switchboard` / `watchtower` kinds, nine workspace
+capabilities, detail shapes and the `desktopWorkspaces` snapshot collection), the
+`roadmaps` rider, the always-`undefined` `statePath`, and the `python_tool_failed`
+error code. All of it is deleted. `mobileControlProtocolVersion` moved 3 -> 4 and
+the window moved with it, to `[3, 4]`. The package published `4.0.0`.
+
+Removing `desktopWorkspaces` from the collection list is what makes this a bump
+rather than a quiet tidy: a v3 phone that asked for it would now be refused with
+`invalid_payload`.
+
+As with 3, pre-release: no users and no paired devices. The phone's mirror moved
+in the same coordinated change, with both sha256 pins set to the same new hash.
+Step 2's one-release grace reader was skipped for the same reason as in 3; the
+window is still one version wide and still enforced, and nothing reads v3.
+
+The phone's project list and switcher were built from `workspaces` joined with
+`backlog`. With `workspaces` always empty they were already built from `backlog`
+alone, so the phone's projects are unchanged; only the dead join went.
+
+`packages/mobile-control-protocol/CHANGELOG.md` has the member-by-member list.
 
 ### 3 — the Sprint Engine leaves the wire (2026-09-16)
 

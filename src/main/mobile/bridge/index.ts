@@ -44,9 +44,9 @@ import {
 
 // The wire's version window is owned by packages/mobile-control-protocol/src/index.ts.
 // This module kept its own `const mobileControlProtocolVersion = 2` until
-// 2026-09-14, as did relay-transport.ts and command-validation.ts — three
-// private copies of one wire fact, which is three places for a bump to miss
-// and the drift a support window cannot afford.
+// 2026-09-14, as did relay-transport.ts and command-validation.ts — and
+// command-results.ts and push.ts until the v4 bump, which found them still
+// stamping 2. Private copies of one wire fact are places for a bump to miss.
 import {
   mobileControlProtocolVersion,
   type MobileControlProtocolVersion,
@@ -65,10 +65,7 @@ export type MobileControlCapability =
   | 'devices.revoke'
   | 'backlog.update'
   | 'backlog.create'
-  // Controls the desktop's automations (src/main/automations). The run-scoped
-  // `sprintengines.automation` capability that used to sit beside it — and that
-  // was a standing invitation to confuse the two subsystems — left the wire with
-  // the rest of the Sprint Engine surface (protocol v3).
+  // Enable, pause or run one of the desktop's automations (src/main/automations).
   | 'automations.control'
 
 export type MobileControlErrorCode =
@@ -83,12 +80,11 @@ export type MobileControlErrorCode =
   | 'command_expired'
   | 'duplicate_idempotency_key'
   | 'stale_snapshot'
-  // Kept although its name reads sprint-shaped: the automations controller
-  // answers a run already in flight with it (../control/command.ts).
+  // The automations controller answers `runNow` on a run already in flight with
+  // it (../control/command.ts).
   | 'task_not_ready'
   | 'path_not_allowed'
   | 'snapshot_too_large'
-  | 'python_tool_failed'
   | 'internal_error'
 
 export type MobileControlDevice = {
