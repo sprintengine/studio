@@ -44,6 +44,11 @@
   `ActionKind` keeps the bundled literals (`spawn-agent`, `run-command`,
   `run-skill-loop`) and stays open to module-namespaced kinds.
 
+- **`RendererHost.invoke` routes to any module that declares `ipc:invoke`.**
+  The main-side dispatcher used to refuse bundled owners. The Sprint Engine
+  module is the first in-tree consumer of the published bridge, so that
+  restriction is dropped: prefix + permission remain the gate. No type change.
+
 - **Backlog item actions render in menus, not as header buttons.**
   `BacklogItemAction.order` positions an action within the row's right-click
   menu and the detail header's More-actions menu. The header's own buttons

@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict'
-import type { SprintEngineAutomationChangedEvent } from '../../../shared/electron-api'
+import type { SprintEngineAutomationChangedEvent } from '../../../shared/sprintengine/ipc-types'
 import type { SprintEngineAutomationIntentRecord } from '../../../shared/sprintengine/automation-intent'
 import type { LayoutTemplate, SprintEngineAutomationMode } from '../types/workspace'
 import { createInitialSprintEngineState } from './sprintengine'
+import { bindSprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 // ── Fake preload API (installed before the modules under test are imported so
 // the client sees `window.api` at call time; node has no `window`).
@@ -113,6 +114,7 @@ function installFakeApi(): FakeApi {
     },
   }
   ;(globalThis as { window?: unknown }).window = { api }
+  bindSprintEngineIpc(api as never)
   return fake
 }
 

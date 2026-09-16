@@ -87,9 +87,9 @@ import { createSprintEngineRunnerLog } from './sprintengine-runner-log'
 import { resolveMemoryRoot } from './memory-graph'
 import { getPluginManifest, listPluginRegistryEntries } from './plugin-registry-instance'
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
-import { SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL } from './ipc/sprintengine-automation-ipc'
-import { SPRINT_RUNTIME_OP_CHANNEL } from '../shared/sprintengine/runtime-bridge'
-import { SPRINT_RUNS_CHANGED_CHANNEL, type SprintRunsChangedEvent } from '../shared/sprintengine/runSummary'
+import { deliverSprintEngineAutomationChanged } from './ipc/sprintengine-automation-ipc'
+import { deliverSprintRuntimeOp, deliverSprintRunsChanged } from './ipc/sprint-runtime-ipc'
+import { type SprintRunsChangedEvent } from '../shared/sprintengine/runSummary'
 import {
   invalidateSprintRunSummary,
   listSprintRuns,
@@ -367,10 +367,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       // The scheduler adopts the new mode before any window does, so an
       // enabling write starts progressing even if every window is busy.
       sprintRuntimeRef?.notifyAutomationChanged(event.statePath, event.record)
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-        window.webContents.send(SPRINT_ENGINE_AUTOMATION_CHANGED_CHANNEL, event)
-      }
+      deliverSprintEngineAutomationChanged(event)
     },
     // Hydration seeds the sidecar for fresh/legacy runs without a window
     // broadcast; the scheduler still adopts the mode (lifecycle-preserving)
@@ -682,10 +679,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // its last one merge (disarm). Runs already under watch keep their schedule.
     sprintPullRequestMergePoller.noteRunChanged(statePath)
     const changed: SprintRunsChangedEvent = { statePath }
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-      window.webContents.send(SPRINT_RUNS_CHANGED_CHANNEL, changed)
-    }
+    deliverSprintRunsChanged(changed)
   }
   watchSprintRunProjections(notifySprintRunsChanged)
   const sprintRuntime = createSprintRuntime({
@@ -746,10 +740,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
     powerManager: sprintPowerManager,
     broadcastOp: (op) => {
-      for (const window of BrowserWindow.getAllWindows()) {
-        if (window.isDestroyed() || window.webContents.isDestroyed()) continue
-        window.webContents.send(SPRINT_RUNTIME_OP_CHANNEL, op)
-      }
+      deliverSprintRuntimeOp(op)
       // Every runtime op means a run's state may have moved; wake write-back to
       // …and its cross-project run-index summary may be stale: drop the memo and
       // notify any open Sprints door so it refetches without polling (MC-1761).

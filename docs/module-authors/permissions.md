@@ -47,15 +47,14 @@ the `window.api` areas they call:
 - **`ipc:workspace-read`** — observing workspace and project state:
   workspace-sync snapshots and events, window state, git read models (status,
   branches, history, graph, worktree lists), Backlog reads,
-  Sprint Engine reads and projections, knowledge/memory reads, terminal
+  knowledge/memory reads, terminal
   session lists, workspace backup reads.
 - **`ipc:workspace-write`** — changing workspace and project state through
   the studio: workspace-sync command dispatch, filesystem mutation routes, git
   mutations (stage/commit/push/branch/worktrees), Backlog mutations,
-  Sprint Engine task mutations, workspace backup writes.
+  workspace backup writes.
 - **`ipc:agents`** — launching and controlling agents and terminals: terminal
-  spawn/write/kill and terminal event streams, conversation provider sessions,
-  Sprint Engine runner and roster controls, soul prompts.
+  spawn/write/kill and terminal event streams, conversation provider sessions.
 - **`ipc:settings`** — reading and changing the studio's settings and
   integrations: module enablement, third-party module install/trust, MCP
   catalog and sync, Skills, the plugin and role registries, GitHub

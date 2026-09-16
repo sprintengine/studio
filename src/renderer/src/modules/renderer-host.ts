@@ -775,8 +775,8 @@ export type RendererHost = {
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`. The channel must be `<moduleId>:`-prefixed —
    * validated here before any IPC, and again by the main-side dispatcher,
-   * which also requires the owning module to be third-party and to declare
-   * the `ipc:invoke` permission. A contract, not a security boundary.
+   * which requires the owning module to declare the `ipc:invoke` permission.
+   * A contract, not a security boundary.
    */
   invoke(channel: string, payload?: unknown): Promise<unknown>
   /**

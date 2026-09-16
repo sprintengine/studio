@@ -483,7 +483,7 @@ type SprintEngineFeedbackAnalysisSummary = {
   difficultyAnalytics?: { architect?: SprintEngineArchitectDifficulty }
 }
 
-/** Shape of `data` returned by `window.api.summarizeSprintEngineFeedback`. */
+/** Shape of `data` returned by `sprintEngineIpc.summarizeSprintEngineFeedback`. */
 export type SprintEngineFeedbackAnalysisData = {
   ok: boolean
   summary?: SprintEngineFeedbackAnalysisSummary

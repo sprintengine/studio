@@ -26,7 +26,7 @@
  *    stashed and applied by the sweep once the workspace exists, so the
  *    window can never be left showing a stale mode.
  */
-import type { SprintEngineAutomationChangedEvent } from '../../../shared/electron-api'
+import type { SprintEngineAutomationChangedEvent } from '../../../shared/sprintengine/ipc-types'
 import type { SprintEngineAutomationIntentRecord } from '../../../shared/sprintengine/automation-intent'
 import type { SprintEngineCliPermissionPreset } from '../types/workspace'
 import { useWorkspaceStore } from '../store/workspaceStore'
@@ -38,6 +38,7 @@ import {
   noteAppliedSprintEngineAutomationRevision,
   setSprintEngineAutomationPushSettledListener,
 } from './sprintengineAutomationIntentClient'
+import { isSprintEngineIpcBound, sprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 type SprintWorkspaceRef = {
   workspaceId: string
@@ -108,14 +109,13 @@ function adoptAuthoritativeCliPermissionPreset(
 
 /** Returns true when the statePath is fully hydrated (stop retrying). */
 async function hydrateStatePath(ref: SprintWorkspaceRef): Promise<boolean> {
-  const api = typeof window !== 'undefined' ? window.api : undefined
-  if (!api?.readSprintEngineAutomationMode) return true
+  if (!isSprintEngineIpcBound()) return true
   const store = useWorkspaceStore.getState()
   const workspace = store.workspaces.find((ws) => ws.id === ref.workspaceId)
   if (!workspace) return false
   const localMode = deriveSprintEngineAutomationMode(workspace.sprintEngineAutoState)
 
-  const read = await api.readSprintEngineAutomationMode({ statePath: ref.statePath }).catch(() => null)
+  const read = await sprintEngineIpc.readSprintEngineAutomationMode({ statePath: ref.statePath }).catch(() => null)
   if (!read?.ok) return false
 
   if (read.record) {
@@ -127,7 +127,7 @@ async function hydrateStatePath(ref: SprintWorkspaceRef): Promise<boolean> {
 
   // No sidecar yet: seed it from the legacy renderer-persisted value. Main
   // accepts the first hydration only, so concurrent windows cannot fork it.
-  const hydrated = await api.hydrateSprintEngineAutomationMode({
+  const hydrated = await sprintEngineIpc.hydrateSprintEngineAutomationMode({
     statePath: ref.statePath,
     mode: localMode,
   }).catch(() => null)
@@ -147,8 +147,7 @@ async function hydrateStatePath(ref: SprintWorkspaceRef): Promise<boolean> {
  * WorkspaceManager owns exactly one instance per window.
  */
 export function initSprintEngineAutomationModeSync(): () => void {
-  const api = typeof window !== 'undefined' ? window.api : undefined
-  if (!api?.onSprintEngineAutomationChanged) return () => undefined
+  if (!isSprintEngineIpcBound()) return () => undefined
 
   const hydratedStatePaths = new Set<string>()
   // Latest authoritative record that could not be applied on arrival (no
@@ -182,7 +181,7 @@ export function initSprintEngineAutomationModeSync(): () => void {
     adoptAuthoritativeRecord(workspaceId, event)
   }
 
-  const unsubscribeBroadcast = api.onSprintEngineAutomationChanged((event) => {
+  const unsubscribeBroadcast = sprintEngineIpc.onSprintEngineAutomationChanged((event) => {
     if (event.sourceClientToken === SPRINT_ENGINE_AUTOMATION_CLIENT_TOKEN) {
       // Our own echo: the local store already holds this state and the push
       // response records the revision; nothing to apply.

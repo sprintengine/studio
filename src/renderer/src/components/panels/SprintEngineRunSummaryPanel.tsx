@@ -45,6 +45,7 @@ import {
   type SprintEngineTypeStat,
 } from '../../utils/sprintengineRunSummary'
 import { AgentActivityTimeline, IssueBars, ProgressRing, RunBurnupChart } from './runSummaryCharts'
+import { sprintEngineIpc } from '../../modules/sprint-engine-ipc'
 import {
   describeTokenCoverage,
   formatTokenCount,
@@ -198,7 +199,7 @@ export default function SprintEngineRunSummaryPanel({
     }
     let cancelled = false
     setAnalysisState({ status: 'loading', analysis: null, architectDifficulty: null })
-    window.api
+    sprintEngineIpc
       .summarizeSprintEngineFeedback(statePath)
       .then((result) => {
         if (cancelled) return

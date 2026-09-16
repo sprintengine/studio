@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../../../modules/sprint-engine-ipc'
 
 // Type-only: erased at runtime, so it cannot load a renderer module before the
 // DOM below exists.
@@ -241,6 +242,7 @@ domWindow.api = new Proxy(api, {
         ? () => () => {}
         : async () => ({ ok: false, message: 'not stubbed' }),
 })
+bindSprintEngineIpc(domWindow.api as never)
 
 async function main(): Promise<void> {
   const React = await import('react')
@@ -248,6 +250,7 @@ async function main(): Promise<void> {
   const { createRoot } = await import('react-dom/client')
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
   const { getRendererHost } = await import('../../../modules')
+  bindSprintEngineIpc(domWindow.api as never)
   const { default: SprintsGlobalSurface } = await import('./sprints/SprintsGlobalSurface')
   const { ConfirmDialogProvider } = await import('../../ui/ConfirmDialog')
   const { normalizeSprintEngineProjection } = await import('../../../../../shared/sprintengine/state')

@@ -1,5 +1,6 @@
 import type { SprintRunSummary } from '../../../../../../shared/sprintengine/runSummary'
 import { dropDeletedSprintRunDebris } from './sprintRunTombstones'
+import { sprintEngineIpc } from '../../../../modules/sprint-engine-ipc'
 
 // The Sprints run index as ONE shared store, not one copy per mounted consumer.
 //
@@ -104,7 +105,7 @@ function openMainSubscription(): void {
   if (unsubscribeFromMain) return
   // Refetch when any run's projection changes — coalesced, so a burst across
   // several live runs costs one scan instead of one per write per consumer.
-  unsubscribeFromMain = window.api.onSprintRunsChanged(() => scheduleCoalescedRefresh())
+  unsubscribeFromMain = sprintEngineIpc.onSprintRunsChanged(() => scheduleCoalescedRefresh())
 }
 
 function closeMainSubscription(): void {
@@ -190,7 +191,7 @@ async function load(): Promise<void> {
   loadInFlight = true
   const requestedRootsKey = rootsKey
   try {
-    const listed = await window.api.listSprintRuns(roots)
+    const listed = await sprintEngineIpc.listSprintRuns(roots)
     // The root set moved while this scan was in flight: its rows describe a set
     // of projects nobody asked for any more. Drop them and re-run.
     if (requestedRootsKey !== rootsKey) {

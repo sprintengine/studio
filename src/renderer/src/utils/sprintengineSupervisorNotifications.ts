@@ -3,6 +3,7 @@ import type { WorkspaceId } from '../types/workspace'
 import { deriveSprintEngineAutomationMode } from './sprintengineAutomation'
 import { sprintEngineAgentHasLiveRunWork } from './sprintengineAutomationLifecycle'
 import { logPerfEvent } from './perfDiagnostics'
+import { isSprintEngineIpcBound, sprintEngineIpc } from '../modules/sprint-engine-ipc'
 // Canonical union lives with the shared executor ports (the main process
 // drives the same auto-run cycle); re-exported here so existing import sites
 // and the store-bound stop path below can never drift from the port type.
@@ -37,9 +38,8 @@ function pushStopReasonToSprintRuntime(
   context: { taskId?: string; agentId?: string; message?: string; details?: string },
 ): void {
   if (!statePath) return
-  const api = typeof window !== 'undefined' ? window.api : undefined
-  if (!api?.pushSprintRuntimeStopReason) return
-  void api.pushSprintRuntimeStopReason({ statePath, reason, context }).catch(() => undefined)
+  if (!isSprintEngineIpcBound()) return
+  void sprintEngineIpc.pushSprintRuntimeStopReason({ statePath, reason, context }).catch(() => undefined)
 }
 
 // Compatibility mapper for older call sites that still report an auto-run stop

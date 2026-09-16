@@ -35,7 +35,6 @@ import { mobileBridgeApi } from './api/mobile-bridge'
 import { soulsApi } from './api/souls'
 import { splashApi } from './api/splash'
 import { startupApi } from './api/startup'
-import { sprintEngineApi } from './api/sprintengine'
 import { terminalApi } from './api/terminal'
 import { updateApi } from './api/update'
 import { voiceApi } from './api/voice'
@@ -87,7 +86,6 @@ const api = {
   ...credentialApi,
   ...designSystemApi,
   ...skillsApi,
-  ...sprintEngineApi,
   ...terminalApi,
   ...updateApi,
   ...voiceApi,

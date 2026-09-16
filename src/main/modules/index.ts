@@ -1,10 +1,11 @@
 import type { CapabilityModule } from '../module-host/load-modules'
 import { automationsModule, createAutomationsModule, type AutomationsModuleOptions } from './automations-module'
 import { mobileRelayModule } from './mobile-relay-module'
-import { sprintEngineModule } from './sprint-engine-module'
+import { createSprintEngineModule, type SprintEngineModuleServices } from './sprint-engine-module'
 
 export type BundledMainModuleOptions = {
   automations?: AutomationsModuleOptions
+  sprintEngine: SprintEngineModuleServices
 }
 
 // Bundled main-process capability modules, in registration-priority order.
@@ -14,9 +15,9 @@ export type BundledMainModuleOptions = {
 // Note: memory-graph and dev-tools have no main module — their backends
 // (knowledge graph, filesystem) are foundational, always registered in
 // register-core-ipc; only their renderer panels are capability modules.
-export function createBundledMainModules(options: BundledMainModuleOptions = {}): CapabilityModule[] {
+export function createBundledMainModules(options: BundledMainModuleOptions): CapabilityModule[] {
   return [
-    sprintEngineModule,
+    createSprintEngineModule(options.sprintEngine),
     options.automations ? createAutomationsModule(options.automations) : automationsModule,
     mobileRelayModule,
   ]

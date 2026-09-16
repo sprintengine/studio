@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // One colour per project, on the folder glyph (owner ruling 2026-09-09, hashed
 // hues 2026-09-11; backlog/unfiled/2026-09-09-one-colour-per-project-on-the-folder-glyph.md).
@@ -123,6 +124,7 @@ async function main(): Promise<void> {
   const { act } = React
   const { createRoot } = await import('react-dom/client')
   const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
+  bindSprintEngineIpc(domWindow.api as never)
   const { useWorkspaceStore } = await import('../../store/workspaceStore')
   const { normalizeAppSettings } = await import('../../store/slices/settingsSlice')
   const { resetProjectLogos } = await import('../../utils/projectLogos')

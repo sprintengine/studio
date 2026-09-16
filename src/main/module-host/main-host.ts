@@ -426,10 +426,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
   channels.set(MODULE_EVENTS_CHANNEL, { owner: '@host' })
 
   // The renderer→module-main bridge dispatcher. Routes an invoke to a channel
-  // a third-party module registered via registerIpc, applying the four
-  // bridgeability rules; every refusal is structured data (see bridge.ts).
-  // This is defense in depth for a contract, not a security boundary — the
-  // renderer-side host already validates the module-id prefix before IPC.
+  // a module registered via registerIpc, applying the bridgeability rules
+  // (owner prefix + `ipc:invoke` permission); every refusal is structured
+  // data (see bridge.ts). This is defense in depth for a contract, not a
+  // security boundary — the renderer-side host already validates the
+  // module-id prefix before IPC.
   // Registered through the kernel's own registerIpc so the dispatcher channel
   // shares every other channel's ownership tracking and lifecycle.
   async function dispatchBridgeInvoke(
@@ -457,11 +458,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       }
     }
     const manifest = options.resolveModuleManifest?.(entry.owner)
-    if (manifest?.source !== 'third-party') {
+    if (!manifest) {
       return {
         ok: false,
         code: 'not_bridgeable',
-        message: `Channel "${channel}" is not bridgeable: the bridge routes only to channels owned by third-party modules.`,
+        message: `Channel "${channel}" is not bridgeable: the owning module's manifest could not be resolved.`,
       }
     }
     if (!manifest.permissions?.includes('ipc:invoke')) {

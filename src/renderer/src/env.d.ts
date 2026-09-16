@@ -92,8 +92,6 @@ import type {
   SessionUser as SharedSessionUser,
   SoulPromptResult as SharedSoulPromptResult,
   SpecialistActionId as SharedSpecialistActionId,
-  SprintEngineArtifactCommandResult as SharedSprintEngineArtifactCommandResult,
-  SprintEngineProjectionReadResult as SharedSprintEngineProjectionReadResult,
   SprintEngineCliPermissionPreset as SharedSprintEngineCliPermissionPreset,
   SessionActivity as SharedSessionActivity,
   AgentPhase as SharedAgentPhase,
@@ -193,8 +191,6 @@ declare global {
   type DiagnosticLogEntry = SharedDiagnosticLogEntry
   type WorkspaceFolderCheckResult = SharedWorkspaceFolderCheckResult
   type WindowState = SharedWindowState
-  type SprintEngineArtifactCommandResult = SharedSprintEngineArtifactCommandResult
-  type SprintEngineProjectionReadResult = SharedSprintEngineProjectionReadResult
   type SessionUser = SharedSessionUser
   type SessionOrganization = SharedSessionOrganization
   type FeatureValue = SharedFeatureValue

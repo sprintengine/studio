@@ -78,6 +78,7 @@ import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
 import { initSprintEngineRuntimeBridge } from '../../utils/sprintengineRuntimeBridge'
 import { addAgentTabTiled, addNewAgentTab, addTerminalTab, convertNewAgentTabToAgent, convertNewAgentTabToTerminal, focusOrAddAgentTab, focusOrAddFileTab, focusOrAddTerminalTab, getModel, removeAgentTab, removeNewAgentTab, togglePanelRailComponent, visibleTerminalTabInLayout } from '../../utils/modelRegistry'
+import { sprintEngineIpc } from '../../modules/sprint-engine-ipc'
 import { DISABLE_SPRINTENGINE_AUTORUN, DISABLE_SPRINTENGINE_SYNC } from '../../utils/runtimeFlags'
 import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../../utils/agentCliResume'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
@@ -735,12 +736,12 @@ export default function WorkspaceManager() {
     // The registry read requires an absolute, existing workspace root, so skip
     // the call (and clear any prior registry) when no folder-backed workspace is
     // active — the dropdown then falls back to the bundled pack.
-    if (!activeWorkspaceFolderPath || typeof window.api.readSprintEngineRegistryRoles !== 'function') {
+    if (!activeWorkspaceFolderPath) {
       setSprintEngineRoleRegistry(null)
       return
     }
     let cancelled = false
-    void window.api
+    void sprintEngineIpc
       .readSprintEngineRegistryRoles({ workspaceRoot: activeWorkspaceFolderPath, includeShadowed: false })
       .then((result) => {
         if (cancelled) return

@@ -8,6 +8,7 @@ import {
   setSprintRunIndexRoots,
   subscribeSprintRunIndex,
 } from './sprintRunIndexStore'
+import { bindSprintEngineIpc } from '../../../../modules/sprint-engine-ipc'
 
 // The Sprints run index is read by two components — the sidebar door entry
 // (mounted all session) and the door surface (while open). They used to fetch
@@ -112,6 +113,7 @@ function install(): Harness {
     },
   }
   ;(globalThis as unknown as { window: unknown }).window = { api }
+  bindSprintEngineIpc(api as never)
   return state
 }
 

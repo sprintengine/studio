@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { JSDOM } from 'jsdom'
+import { bindSprintEngineIpc } from '../../../../modules/sprint-engine-ipc'
 
 // Item 1767, end to end on the rendered surfaces: a sprint run is no longer a
 // Projects-list row, and everything the row carried still has a way in. The
@@ -138,6 +139,7 @@ async function main(): Promise<void> {
   const { SprintsNavEntry } = await import('./SprintsNavEntry')
   const { subscribeCloseSprintWorkspaceRequests } = await import('./sprintDoorRequests')
   const { ConfirmDialogProvider } = await import('../../../ui/ConfirmDialog')
+  bindSprintEngineIpc(domWindow.api as never)
 
   async function settle(times = 6): Promise<void> {
     for (let i = 0; i < times; i += 1) {

@@ -64,6 +64,7 @@ import {
 } from '../../backlog/BacklogRow'
 import { backlogRowPaintClass } from '../../backlog/backlogRowPaint'
 import { matchesBacklogQuery } from '../globalSurface/backlog/backlogSurfaceModel'
+import { sprintEngineIpc } from '../../../modules/sprint-engine-ipc'
 import {
   ChipButton,
   CloseIconButton,
@@ -831,7 +832,7 @@ export default function NewSprintDialog({
               settings: mcpSettings,
               mcpSync: window.api.mcpSync,
             }),
-          initializeSprintEngineState: window.api.initializeSprintEngineState,
+          initializeSprintEngineState: sprintEngineIpc.initializeSprintEngineState,
           recordBacklogExecutionLink: async ({
             workspaceRoot,
             sourceRelativePath,

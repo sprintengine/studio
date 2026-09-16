@@ -6,6 +6,7 @@ import {
   canStopPollingCompletedSprintEngineProjection,
   refreshSprintEngineWorkspaceProjection,
 } from '../../utils/sprintengineProjectionRefresh'
+import { sprintEngineIpc } from '../../modules/sprint-engine-ipc'
 
 // The window's display subscriber for run state main changed on its own (MC-2155).
 //
@@ -53,7 +54,7 @@ export default function SprintEngineRunChangeSubscriber({ workspaceIds }: Props)
     // the supervisor's; it only means the first refresh after mount pays a read.
     const tokens = new Map<string, string>()
 
-    const unsubscribe = window.api.onSprintRunsChanged(({ statePath }) => {
+    const unsubscribe = sprintEngineIpc.onSprintRunsChanged(({ statePath }) => {
       if (disposed || !statePath) return
       const targets = collectQuiescedSprintWorkspaces(
         useWorkspaceStore.getState().workspaces,

@@ -19,6 +19,7 @@ import {
   SPRINT_ENGINE_PR_TARGET_KIND,
 } from '../utils/sprintengineBacklogLinks'
 import type { SprintEngineBacklogLinkOpenPorts } from '../utils/sprintengineBacklogLinks'
+import { bindSprintEngineIpc, createHostBackedSprintEngineIpc, sprintEngineIpc } from './sprint-engine-ipc'
 
 // Lazy so the Sprint Engine board bundle only loads when the panel is actually
 // rendered — never, when the module is disabled.
@@ -87,7 +88,7 @@ async function sprintEngineBacklogOpenPorts(): Promise<SprintEngineBacklogLinkOp
       // which is Sprints.
       let state: ReturnType<typeof normalizeSprintEngineProjection> = null
       try {
-        const projection = await window.api.readSprintEngineProjection(statePath)
+        const projection = await sprintEngineIpc.readSprintEngineProjection(statePath)
         if (!projection.ok) return false
         state = normalizeSprintEngineProjection(projection.data)
       } catch {
@@ -130,6 +131,7 @@ export const sprintEngineRendererModule: RendererModule = {
     dependsOn: ['agent-runtime'],
   },
   registerRenderer(host) {
+    bindSprintEngineIpc(createHostBackedSprintEngineIpc(host))
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
     // The Sprints door at the order-20 slot the hardcoded WorkspaceSidebar row
     // used to hold (item 1763 / D4). That row toggled the Sprint Engines aside;
@@ -172,7 +174,7 @@ export const sprintEngineRendererModule: RendererModule = {
       targetKinds: [SPRINT_ENGINE_RUN_TARGET_KIND],
       resolveLinkStatus: (input) => resolveSprintEngineBacklogLink({
         ...input,
-        readSprintEngineProjection: window.api.readSprintEngineProjection,
+        readSprintEngineProjection: sprintEngineIpc.readSprintEngineProjection,
       }),
       openLink: async (input) => openSprintEngineBacklogLink({
         ...input,

@@ -34,21 +34,15 @@ export const AgentLaunchServiceToken = createServiceToken<AppServices['agentLaun
 export const GitHubTokenStoreToken = createServiceToken<AppServices['githubTokenStore']>(
   'core.github-token-store'
 )
-export const SprintEngineArtifactsToken = createServiceToken<AppServices['sprintEngineArtifacts']>(
-  'core.sprintengine-artifacts'
-)
-export const SprintEngineAutomationServiceToken = createServiceToken<AppServices['sprintEngineAutomation']>(
-  'core.sprintengine-automation'
-)
-export const SprintEngineLaunchSettingsToken = createServiceToken<AppServices['sprintEngineLaunchSettings']>(
-  'core.sprintengine-launch-settings'
-)
-export const SprintRuntimeToken = createServiceToken<AppServices['sprintRuntime']>(
-  'core.sprint-runtime'
-)
-export const SprintPullRequestMergePollerToken = createServiceToken<AppServices['sprintPullRequestMergePoller']>(
-  'core.sprint-pull-request-merge-poller'
-)
+export {
+  SprintEngineArtifactsToken,
+  SprintEngineAutomationServiceToken,
+  SprintEngineLaunchSettingsToken,
+  SprintRuntimeToken,
+  SprintPullRequestMergePollerToken,
+  SprintEngineMcpHubToken,
+  SprintCreateServiceToken,
+} from '../modules/sprint-engine-tokens'
 export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth']>(
   'core.multicode-auth'
 )
@@ -59,14 +53,6 @@ export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth'
 // provider is current.
 export const EntitlementServiceToken = createServiceToken<AppServices['entitlements']>(
   'core.entitlements'
-)
-export const SprintEngineMcpHubToken = createServiceToken<AppServices['sprintEngineMcpHub']>(
-  'core.sprintengine-mcp-hub'
-)
-// Sprint creation in main (MC-2160): the automations module's `sprint-engine-start`
-// action creates runs through it, so it needs no window.
-export const SprintCreateServiceToken = createServiceToken<AppServices['sprintCreateService']>(
-  'core.sprint-create-service'
 )
 export const WorkspaceSyncServiceToken = createServiceToken<AppServices['workspaceSyncService']>(
   'core.workspace-sync-service'

@@ -2446,12 +2446,12 @@ export type RendererHost = {
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`, e.g. `host.invoke('my-module:save', data)`.
    *
-   * The channel MUST start with `<moduleId>:` (your own module id); other
-   * channel names throw before IPC happens. The host additionally routes only
-   * to channels owned by third-party modules whose manifest declares the
-   * `ipc:invoke` permission. A refused invoke rejects with an Error whose
-   * `code` property carries the `ModuleBridgeRefusalCode`, so callers can
-   * branch on the refusal kind without parsing the message.
+ * The channel MUST start with `<moduleId>:` (your own module id); other
+ * channel names throw before IPC happens. The host additionally routes only
+ * to channels owned by a module whose manifest declares the `ipc:invoke`
+ * permission. A refused invoke rejects with an Error whose
+ * `code` property carries the `ModuleBridgeRefusalCode`, so callers can
+ * branch on the refusal kind without parsing the message.
    *
    * This bridge is a contract, not a security boundary: all renderer code
    * shares one world. Trust gating (only `trusted` modules execute) remains
@@ -2463,9 +2463,9 @@ export type RendererHost = {
 /**
  * Why the host refused a `RendererHost.invoke`, attached as `code` on the
  * rejection Error: the channel was never registered (`unknown_channel`), it is
- * not `<ownerModuleId>:`-prefixed or not owned by a third-party module
- * (`not_bridgeable`), or the owner does not declare `ipc:invoke`
- * (`permission_missing`).
+ * not `<ownerModuleId>:`-prefixed (`not_bridgeable`), the owner manifest
+ * could not be resolved (`not_bridgeable`), or the owner does not declare
+ * `ipc:invoke` (`permission_missing`).
  */
 export type ModuleBridgeRefusalCode = 'unknown_channel' | 'not_bridgeable' | 'permission_missing'
 

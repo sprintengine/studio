@@ -28,7 +28,7 @@ import type {
   SprintEngineStateInitializeInput,
   SprintEngineStateInitializeSource,
   SprintEngineStateInitializeSourceBundleItem,
-} from '../electron-api'
+} from './ipc-types'
 import { derivePlanSourcedGoal } from './tracker-seeding'
 import { resolveChainedSprintTeamName } from './chained-team-name'
 import {

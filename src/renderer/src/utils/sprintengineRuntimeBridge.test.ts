@@ -42,8 +42,10 @@ function installFakeApi(): FakeApi {
       fake.broadcastOp = cb
       return () => undefined
     },
+    setSprintEngineAutomationMode: async () => ({ ok: true as const, record: { schemaVersion: 1, revision: 1, desiredMode: 'manual', changedAt: 1, lastWrite: { actor: 'system', deviceId: null, at: '' } }, changed: false }),
   }
   ;(globalThis as { window?: unknown }).window = { api }
+  bindSprintEngineIpc(api as never)
   return fake
 }
 
@@ -53,6 +55,7 @@ const fakeApi = installFakeApi()
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { useNotificationStore } from '../store/notificationStore'
 import { initSprintEngineRuntimeBridge } from './sprintengineRuntimeBridge'
+import { bindSprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 const template: LayoutTemplate = {
   id: 'runtime-bridge-standard',

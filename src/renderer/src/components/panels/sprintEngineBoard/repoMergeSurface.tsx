@@ -22,6 +22,7 @@ import { sprintEngineRepoDisplayName } from '../../../../../shared/backlog/sprin
 import { pullRequestTone } from '../../../../../shared/git/pull-request'
 import { OutlineButton, useConfirmDialog } from '../../ui'
 import type { StatusTone } from '../../ui/tokens'
+import { sprintEngineIpc } from '../../../modules/sprint-engine-ipc'
 
 export type RepoPullRequestState = 'merged' | 'closed' | 'open' | 'none'
 
@@ -144,7 +145,7 @@ export function useRepoMergeAction({
       setMergingRepoId(repo.id)
       setError(null)
       try {
-        const result = await window.api.mergeSprintEnginePullRequest(statePath, repo.id)
+        const result = await sprintEngineIpc.mergeSprintEnginePullRequest(statePath, repo.id)
         if (!result.ok) {
           setError({ repoId: repo.id, message: result.message })
           return

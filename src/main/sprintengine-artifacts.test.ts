@@ -1037,12 +1037,12 @@ async function testReadBridgeSurfacesUnavailableMcpAndMalformedPayloads(): Promi
 async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
   const calls: string[] = []
   const handlers = new Map<string, IpcHandler>()
-  const ipcMain = {
-    handle(channel: string, handler: IpcHandler) {
+  const host = {
+    registerIpc(channel: string, handler: IpcHandler) {
       handlers.set(channel, handler)
     },
   }
-  registerSprintEngineIpc(ipcMain as never, {
+  registerSprintEngineIpc(host as never, {
     reviewArtifact: async () => ({ ok: true, data: {} }),
     ensureTaskWorktree: async () => ({ ok: true, isolated: false, worktreePath: null }),
     initializeSprintEngineState: async () => ({ ok: true, data: {} }),
@@ -1066,7 +1066,7 @@ async function testIpcRegistersReadOnlyBridgeChannels(): Promise<void> {
     listRuns: async () => [],
   })
 
-  await handlers.get('sprintengine:registry:roles:read')?.(null, { workspaceRoot: '/tmp/workspace' })
+  await handlers.get('sprint-engine:registry:roles:read')?.(null, { workspaceRoot: '/tmp/workspace' })
 
   assert.deepEqual(calls, ['roles'])
 }

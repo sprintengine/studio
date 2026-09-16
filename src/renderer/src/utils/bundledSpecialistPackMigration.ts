@@ -20,6 +20,7 @@
  */
 import { buildSprintEngineRoleRegistry } from '../../../shared/sprintengine/state'
 import { useWorkspaceStore } from '../store/workspaceStore'
+import { isSprintEngineIpcBound, sprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 // The pack id the MC-78 toggle persisted into `specialistPacks.disabled`. Kept
 // as a literal here (not imported) so the migration does not depend on the
@@ -30,23 +31,20 @@ const BUNDLED_SPECIALIST_PACK_ID = 'multicode-specialists'
 // user layer is workspace-independent) and push it into the store so the
 // registry-sourced pickers reflect the freshly installed pack immediately.
 async function refreshRoleRegistryAfterInstall(): Promise<void> {
-  const read = window.api?.readSprintEngineRegistryRoles
-  if (typeof read !== 'function') return
   const { workspaces, activeWorkspaceId, setSprintEngineRoleRegistry } = useWorkspaceStore.getState()
   const activeFolder = workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.folderPath
   const workspaceRoot =
     (activeFolder && activeFolder.trim() ? activeFolder : null) ??
     workspaces.find((workspace) => Boolean(workspace.folderPath?.trim()))?.folderPath
   if (!workspaceRoot) return
-  const result = await read({ workspaceRoot, includeShadowed: false })
+  const result = await sprintEngineIpc.readSprintEngineRegistryRoles({ workspaceRoot, includeShadowed: false })
   if (result.ok) setSprintEngineRoleRegistry(buildSprintEngineRoleRegistry(result.data))
 }
 
 export async function runBundledSpecialistPackMigration(): Promise<void> {
-  const install = window.api?.installBundledSpecialistPack
-  // Not an Electron renderer (or preload not ready): leave the guard untouched
-  // so a real launch still gets its one chance to migrate.
-  if (typeof install !== 'function') return
+  // The module's renderer entry binds the IPC client. If it never loaded,
+  // leave the guard untouched so a later enable still gets one chance.
+  if (!isSprintEngineIpcBound()) return
 
   const state = useWorkspaceStore.getState()
   const packs = state.appSettings.specialistPacks
@@ -61,7 +59,7 @@ export async function runBundledSpecialistPackMigration(): Promise<void> {
   }
 
   try {
-    const result = await install()
+    const result = await sprintEngineIpc.installBundledSpecialistPack()
     if (!result.ok) {
       // Surface the failure and leave the guard unset so a fixed build retries;
       // never claim a migration that did not land.

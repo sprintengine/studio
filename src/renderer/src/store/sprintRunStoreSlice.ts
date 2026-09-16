@@ -3,6 +3,7 @@ import { create } from 'zustand'
 
 import type { SprintEngineState, SprintEngineWorkspaceContext } from '../types/workspace'
 import { normalizeSprintEngineProjection } from '../utils/sprintengine'
+import { sprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 // A run-scoped data source the board and its satellites consume instead of a
 // `workspaceId`. It resolves the same four things from EITHER a resident
@@ -109,7 +110,7 @@ export const useSprintRunStore = create<SprintRunStore>()((set, get) => ({
         return { runsByStatePath: { ...state.runsByStatePath, [key]: { ...base, ...entry } } }
       })
 
-    const result = await window.api.readSprintEngineProjection(statePath, prev?.token)
+    const result = await sprintEngineIpc.readSprintEngineProjection(statePath, prev?.token)
     if (!result.ok) {
       // Missing/corrupt projection surfaces as an error entry WITH a reason,
       // never a thrown read or a silently dropped run (fallback discipline).

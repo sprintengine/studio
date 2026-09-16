@@ -8,8 +8,9 @@ import {
   useSprintRunStore,
   type SprintRunHandle,
 } from './sprintRunStoreSlice'
+import { bindSprintEngineIpc } from '../modules/sprint-engine-ipc'
 
-// The slice reads projections through `window.api.readSprintEngineProjection`.
+// The slice reads projections through `sprintEngineIpc.readSprintEngineProjection`.
 // Install a controllable stub so a test can drive the read result.
 type ProjectionResult =
   | { ok: true; data: unknown; token?: string; unchanged?: boolean }
@@ -26,6 +27,12 @@ const readCalls: Array<{ statePath: string; knownToken?: string }> = []
     },
   },
 }
+bindSprintEngineIpc({
+  readSprintEngineProjection: async (statePath: string, knownToken?: string) => {
+    readCalls.push({ statePath, knownToken })
+    return nextProjection
+  },
+} as never)
 
 const STATE_PATH = '/tmp/proj/.sprintengine/sprintengine/demo-run/run.yaml'
 

@@ -41,6 +41,7 @@ import { normalizeSprintEngineAutoState } from '../store/slices/runStateSlice'
 import { applyAgentTerminalRevealPolicy } from './modelRegistry'
 import type { Workspace } from '../types/workspace'
 import { applySprintEngineAutomationStopReason } from './sprintengineSupervisorNotifications'
+import { isSprintEngineIpcBound, sprintEngineIpc } from '../modules/sprint-engine-ipc'
 import {
   departedWorkerTeardownPortsWithoutRecord,
   tearDownDepartedTaskScopedWorker,
@@ -218,8 +219,7 @@ function applyRuntimeOp(op: SprintRuntimeOp, workspaceId: string): void {
  * function. WorkspaceManager owns exactly one instance per window.
  */
 export function initSprintEngineRuntimeBridge(): () => void {
-  const api = typeof window !== 'undefined' ? window.api : undefined
-  if (!api?.registerSprintRuntimeRun || !api.onSprintRuntimeOp) return () => undefined
+  if (!isSprintEngineIpcBound()) return () => undefined
 
   // statePath -> last pushed identity/config signature.
   const registeredSignatures = new Map<string, string>()
@@ -238,7 +238,7 @@ export function initSprintEngineRuntimeBridge(): () => void {
     applyRuntimeOp(op, workspace.id)
   }
 
-  const unsubscribeOps = api.onSprintRuntimeOp((op) => tryApplyOp(op))
+  const unsubscribeOps = sprintEngineIpc.onSprintRuntimeOp((op) => tryApplyOp(op))
 
   const sweep = (): void => {
     // Replay stashed ops whose workspace has since materialized.
@@ -258,7 +258,7 @@ export function initSprintEngineRuntimeBridge(): () => void {
       const signature = registrationSignature(registration)
       if (registeredSignatures.get(statePath) === signature) continue
       registeredSignatures.set(statePath, signature)
-      void api.registerSprintRuntimeRun(registration).catch(() => {
+      void sprintEngineIpc.registerSprintRuntimeRun(registration).catch(() => {
         // Retry on the next store change; registration is an idempotent upsert.
         registeredSignatures.delete(statePath)
       })
@@ -266,7 +266,7 @@ export function initSprintEngineRuntimeBridge(): () => void {
     for (const statePath of [...registeredSignatures.keys()]) {
       if (seenStatePaths.has(statePath)) continue
       registeredSignatures.delete(statePath)
-      void api.unregisterSprintRuntimeRun?.({ statePath }).catch(() => undefined)
+      void sprintEngineIpc.unregisterSprintRuntimeRun({ statePath }).catch(() => undefined)
     }
   }
 

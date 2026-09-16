@@ -36,6 +36,7 @@ function installFakeApi(): FakeApi {
     },
   }
   ;(globalThis as { window?: unknown }).window = { api }
+  bindSprintEngineIpc(api as never)
   return fake
 }
 
@@ -44,6 +45,7 @@ const fakeApi = installFakeApi()
 // Imported AFTER the fake window is installed.
 import { useWorkspaceStore } from '../store/workspaceStore'
 import { initSprintEngineLaunchSettingsSync } from './sprintengineLaunchSettingsSync'
+import { bindSprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 function main(): void {
   const dispose = initSprintEngineLaunchSettingsSync()
