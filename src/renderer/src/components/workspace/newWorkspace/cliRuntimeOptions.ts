@@ -541,31 +541,3 @@ export function filterCatalogByAvailability(
 
   return annotated.filter((option) => availabilityMap[option.value]?.installed !== false)
 }
-
-// A runtime option, as much of it as a crumb needs. Structural on purpose: both
-// catalog shapes in play — `AgentCliCatalogOption` here and a module's own CLI
-// option shape — satisfy it, so one helper serves every surface that spells a
-// runtime out for a reader.
-export type RuntimeCrumbCliOption = {
-  value: string
-  label: string
-  modelSelection?: { options: ReadonlyArray<{ id: string; label?: string }> }
-}
-
-// Human "CLI · model" crumb for a line that names a runtime — the composer's
-// spawn rows, and any host that names one (MC-2066). Lifted out of its first
-// host and its second: two copies of this would drift
-// on how a model with no catalog entry reads. Null when there is no CLI to name,
-// so a caller renders nothing rather than an empty crumb.
-export function runtimeLabelFor(
-  cli: string | undefined,
-  model: string | null | undefined,
-  cliOptions: ReadonlyArray<RuntimeCrumbCliOption>,
-): string | null {
-  if (!cli) return null
-  const option = cliOptions.find((candidate) => candidate.value === cli)
-  const cliLabel = option?.label ?? cli
-  if (!model) return cliLabel
-  const modelLabel = option?.modelSelection?.options.find((entry) => entry.id === model)?.label ?? model
-  return `${cliLabel} · ${modelLabel}`
-}

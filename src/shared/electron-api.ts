@@ -2261,13 +2261,6 @@ export type GitRef = {
   type: 'head' | 'remote' | 'tag' | 'other'
 }
 
-export type GitHistorySnapshot = {
-  commits: GitCommit[]
-  refs: GitRef[]
-  totalCount: number
-  updatedAt: number
-}
-
 export type GitGraphCommit = GitCommit & {
   parents: string[]
 }
@@ -2314,11 +2307,6 @@ export type GitWorktreeListSnapshot = {
   updatedAt: number
 }
 
-export type GitWorktreeCopyIncludedResult = {
-  copied: string[]
-  skipped: { path: string; reason: string }[]
-}
-
 export type GitWorktreeOperationResult<T> =
   | { ok: true; data: T; message: string | null; stdout?: string; stderr?: string }
   | { ok: false; message: string; stdout?: string; stderr?: string }
@@ -2336,22 +2324,6 @@ export type GitWorktreeRemoveInput = {
   repoRoot: string
   path: string
   force?: boolean
-}
-
-export type GitWorktreeRepairInput = {
-  repoRoot: string
-  path?: string
-}
-
-export type GitWorktreeCopyIncludedInput = {
-  repoRoot: string
-  worktreePath: string
-}
-
-export type GitHubRepoRef = {
-  owner: string
-  repo: string
-  webUrl: string
 }
 
 export type GitHubTokenStatus = {
@@ -2384,18 +2356,6 @@ export type GitHubCloneInput = {
 export type GitHubCloneResult =
   | { ok: true; path: string }
   | { ok: false; message: string }
-
-export type GitConflictFile = {
-  path: string
-  relativePath: string
-  status: string
-}
-
-export type GitConflictSnapshot = {
-  repoRoot: string
-  files: GitConflictFile[]
-  updatedAt: number
-}
 
 export type GitConflictFileContent = {
   path: string
@@ -2924,10 +2884,6 @@ export type BacklogEnsureIdsInput = {
 
 export type BacklogEnsureIdsResult =
   | { ok: true; key: string; assignments: Record<string, number> }
-  | { ok: false; message: string }
-
-export type BacklogWorkspaceKeyResult =
-  | { ok: true; key: string }
   | { ok: false; message: string }
 
 /**

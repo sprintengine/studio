@@ -42,8 +42,6 @@ export const TERMINAL_CELL_GEOMETRY_OPTIONS = {
   allowProposedApi: true,
 } as const
 
-export type TerminalCellGeometryOptions = typeof TERMINAL_CELL_GEOMETRY_OPTIONS
-
 /**
  * The Unicode version whose character-width table decides how wide a cell is.
  *

@@ -502,45 +502,7 @@ async function main(): Promise<void> {
     dom.window.localStorage.clear()
   })
 
-  // ── Spawn-host opt-ins (MC-2122) ────────────────────────────────────────
-  // A rail extra is a way in that is not a model, and a composition is a star
-  // that carries a role. Both are opt-in: a host that passes neither gets the
-  // surface it has always had, which every test above still drives.
-
-  await run('a rail extra replaces the model list and withholds the host footer', async () => {
-    dom.window.localStorage.clear()
-    const picked: string[] = []
-    const view = mountSurface({
-      footer: React.createElement('div', { 'data-footer': 'true' }, 'footer'),
-      railExtras: [
-        {
-          key: 'terminal',
-          label: 'Terminal',
-          glyph: React.createElement('span', null, '>_'),
-          rows: [{ key: 'shell:zsh', name: 'zsh', mono: true, onSelect: () => picked.push('zsh') }],
-        },
-      ],
-    })
-    assert.deepEqual(
-      view.tabs().map((tab) => tab.getAttribute('aria-label')),
-      ['Claude Code', 'Codex', 'Terminal'],
-      'the extra sits after the providers',
-    )
-    assert.ok(view.container.querySelector('[data-footer="true"]'), 'a model filter carries the footer')
-
-    await view.click(view.tabs()[2])
-    assert.equal(view.rows().length, 1, 'the extra owns the list while it is active')
-    assert.match(view.rows()[0]?.textContent ?? '', /zsh/, 'and the row is the one it supplied')
-    assert.equal(
-      view.container.querySelector('[data-footer="true"]'),
-      null,
-      'and the footer goes with it — nothing it configures applies here',
-    )
-    await view.click(view.rows()[0])
-    assert.deepEqual(picked, ['zsh'], 'the row acts for itself')
-    view.unmount()
-    dom.window.localStorage.clear()
-  })
+  // ── Legacy stars ────────────────────────────────────────────────────────
 
   await run('a model+role star saved by an older build is never shown', async () => {
     dom.window.localStorage.setItem(

@@ -11,7 +11,6 @@ import type {
   AgentId,
   AgentConversationRuntime,
   AgentState,
-  McpServerConfig,
   McpSettings,
 } from '../../../shared/agent-state'
 
@@ -114,10 +113,6 @@ type CliAvailability = {
 }
 
 export type AgentCliAvailabilityMap = Record<AgentCli, CliAvailability>
-
-export type McpServerListing = Omit<McpServerConfig, 'enabled' | 'scope' | 'source'> & {
-  icon?: string
-}
 
 export type WorktreeEntry = {
   id: string

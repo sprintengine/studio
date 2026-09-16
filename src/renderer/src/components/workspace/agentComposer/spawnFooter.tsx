@@ -120,27 +120,6 @@ export function FooterMenu({
   )
 }
 
-// The trailing check on a chosen menu row. Reserved (rather than conditionally
-// absent) so picking a row never reflows the menu under the pointer.
-export function MenuTick({ shown }: { shown: boolean }): JSX.Element {
-  return (
-    <svg
-      viewBox="0 0 10 10"
-      aria-hidden="true"
-      className={`size-icon-xs shrink-0 text-[color:var(--accent-primary)] ${shown ? '' : 'invisible'}`}
-    >
-      <path
-        d="M2 5.2l2 2 4-4"
-        stroke="currentColor"
-        strokeWidth="1.6"
-        fill="none"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  )
-}
-
 
 
 // The chip names the preset, not the sentence behind it — the surface carries

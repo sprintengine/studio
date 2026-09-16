@@ -90,39 +90,6 @@ function updateAgentTabConfig(
   }
 }
 
-/** Whether the agent's tab is the one currently shown in its tabset. */
-export function isAgentTabVisible(workspaceId: string, agentId: string): boolean {
-  const model = models.get(workspaceId)
-  if (!model) return false
-
-  let visible = false
-  model.visitNodes((node) => {
-    if (visible || !(node instanceof TabNode) || node.getComponent() !== 'agent') return
-    const config = node.getConfig() as { agentId?: string } | undefined
-    if (config?.agentId !== agentId) return
-    const parent = node.getParent()
-    if (parent instanceof TabSetNode) {
-      visible = parent.getSelectedNode()?.getId() === node.getId()
-    }
-  })
-  return visible
-}
-
-export function hasAgentTab(workspaceId: string, agentId: string): boolean {
-  const model = models.get(workspaceId)
-  if (!model) return false
-
-  let found = false
-  model.visitNodes((node) => {
-    if (found) return
-    if (!(node instanceof TabNode) || node.getComponent() !== 'agent') return
-
-    const config = node.getConfig() as { agentId?: string } | undefined
-    if (config?.agentId === agentId) found = true
-  })
-  return found
-}
-
 function renameAgentTab(model: Model, agentId: string, name: string): void {
   let targetTabId: string | null = null
   model.visitNodes((node) => {
@@ -441,23 +408,6 @@ export function applyAgentTerminalRevealPolicy(
   return addAgentTabTiled(workspaceId, agentId, name, config)
 }
 
-export async function focusOrAddAgentSessionTab(
-  workspaceId: string,
-  args: { executionId: string; fallbackName: string },
-): Promise<boolean> {
-  const sessions = await window.api.terminalList().catch(() => [])
-  const session = sessions.find((candidate) =>
-    candidate.kind === 'agent'
-    && candidate.workspaceId === workspaceId
-    && candidate.agentSession?.executionId === args.executionId
-  )
-  if (!session) return false
-
-  const agentId = session.agentId ?? session.agentSession?.executionId ?? args.executionId
-  const name = session.agentSession?.displayName ?? args.fallbackName
-  return focusOrAddAgentTab(workspaceId, agentId, name, { sessionId: session.sessionId })
-}
-
 function collectAgentTabIds(model: Model, agentId: string): string[] {
   const tabIds: string[] = []
   model.visitNodes((node) => {
@@ -476,16 +426,6 @@ export function removeAgentTab(workspaceId: string, agentId: string): boolean {
   const tabIds = collectAgentTabIds(model, agentId)
   tabIds.forEach((tabId) => model.doAction(Actions.deleteTab(tabId)))
   return tabIds.length > 0
-}
-
-export function removeAgentTabFromLayoutModel(
-  layoutModel: IJsonModel,
-  agentId: string
-): { layoutModel: IJsonModel; removed: boolean } {
-  const model = Model.fromJson(layoutModel)
-  const tabIds = collectAgentTabIds(model, agentId)
-  tabIds.forEach((tabId) => model.doAction(Actions.deleteTab(tabId)))
-  return { layoutModel: model.toJson(), removed: tabIds.length > 0 }
 }
 
 export function ensureAgentTabInLayoutModel(
@@ -1078,25 +1018,6 @@ type JsonLayoutNode = {
   config?: { agentId?: string; sessionId?: string; terminalId?: string }
 }
 
-// Walks a serialized IJsonModel and reports whether a tab with `component` is
-// present. Used by chrome that needs to derive panel-presence reactively from
-// the persisted workspace.layoutModel — the live Model has no listener API.
-export function jsonModelHasComponent(model: IJsonModel | undefined | null, component: string): boolean {
-  if (!model) return false
-  const visit = (node: JsonLayoutNode | undefined): boolean => {
-    if (!node) return false
-    if (node.type === 'tab' && node.component === component) return true
-    const children = node.children
-    if (!children) return false
-    for (const child of children) {
-      if (visit(child)) return true
-    }
-    return false
-  }
-  const layout = (model as unknown as { layout?: JsonLayoutNode }).layout
-  return visit(layout)
-}
-
 /** The agent whose terminal is on screen, and the live session behind it. */
 export type FocusedAgentTab = {
   agentId: string
@@ -1496,20 +1417,6 @@ function revealRailComponent(
   return true
 }
 
-// The non-toggling entry point shared by the command palette and menu reveals.
-// Kept under its original name — a dozen call sites name it — with the edge
-// derived from the component. A component that belongs to no rail is refused
-// rather than guessed into the left pane.
-export function revealNavRailComponent(
-  workspaceId: string,
-  component: string,
-  name: string
-): boolean {
-  const side = railSideOfComponent(component)
-  if (!side) return false
-  return revealRailComponent(workspaceId, component, name, side)
-}
-
 // Exclusive toggle into one edge's strip-less pane. Clicking the open switch
 // closes it (the pane collapses when it empties); clicking another switch on the
 // same edge swaps it in.
@@ -1523,19 +1430,6 @@ function toggleRailComponent(
     return removeComponentTab(workspaceId, component)
   }
   return revealRailComponent(workspaceId, component, name, side)
-}
-
-// The identity cluster's chip toggles (folder → Files, branch → Git) name this
-// directly, so it keeps its original name; like the reveal above, the edge is
-// derived from the component rather than assumed to be the left one.
-export function toggleNavRailComponent(
-  workspaceId: string,
-  component: string,
-  name: string
-): boolean {
-  const side = railSideOfComponent(component)
-  if (!side) return false
-  return toggleRailComponent(workspaceId, component, name, side)
 }
 
 // The Editor keeps its document tab strip. Toggling removes the standalone

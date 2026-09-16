@@ -115,5 +115,3 @@ export function TerminalFindBar({ find }: { find: TerminalFind }) {
     </div>
   )
 }
-
-export default TerminalFindBar

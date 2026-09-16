@@ -3,8 +3,7 @@ import type { ComponentType, LazyExoticComponent } from 'react'
 import type { RowBadge } from '../components/workspace/SidebarNavButton'
 
 import type { ModuleEventEnvelope } from '../../../shared/modules/events'
-import type { CapabilityManifest, ModuleEnablementOverrides } from '../../../shared/modules/manifest'
-import { resolveModuleEnablement } from '../../../shared/modules/resolve'
+import type { CapabilityManifest } from '../../../shared/modules/manifest'
 import { COMMAND_REGISTRY } from '../commands/commandRegistry'
 import { collapseDuplicateKeybindings } from '../commands/keybindings'
 import type { CommandAvailability, CommandContribution, CommandScope, ModuleCommandContext } from '../commands/types'
@@ -1996,14 +1995,4 @@ export function createRendererHost(): RendererKernel {
 export type RendererModule = {
   manifest: CapabilityManifest
   registerRenderer?: (host: RendererHost) => void
-}
-
-// Pure helper shared by the factory, the panel rail, and the Modules settings
-// tab so "is this feature on?" is computed identically everywhere.
-export function isModuleEnabled(
-  manifests: ReadonlyArray<CapabilityManifest>,
-  overrides: ModuleEnablementOverrides,
-  moduleId: string
-): boolean {
-  return resolveModuleEnablement([...manifests], overrides).order.includes(moduleId)
 }
