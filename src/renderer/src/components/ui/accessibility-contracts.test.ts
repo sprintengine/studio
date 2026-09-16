@@ -581,30 +581,6 @@ expectIncludes(settingsPanel, 'End: visibleSettingsTabs.length - 1', 'Settings c
   )
 }
 
-// No renderer surface opens a NATIVE context menu (MC-2104). Four did — the
-// editor, the file tree, Git's change rows, and the tab strip — and an OS-drawn
-// popup can carry none of the menu contract this file asserts: no role="menu",
-// no Escape-restores-focus, no roving focus, no shortcut hints, no destructive
-// ink, and metrics and casing owned by the platform rather than by the product.
-// The one native menu that survives is the application MENU BAR
-// (`src/main/app-menu.ts`), which is the OS's own surface and outside this tree.
-//
-// The check is on `window.api.showContextMenu`, the only route from the
-// renderer to `Menu.popup`. A host that genuinely needs one again has to state
-// its reason in design-system/components/menu/component.md and add itself here.
-{
-  const NATIVE_CONTEXT_MENU = /window\.api\.showContextMenu\s*\(/
-  const nativeMenuHosts = collectSources(join(root, 'src/renderer/src')).filter((path) => {
-    if (/\.test\.tsx?$/.test(path)) return false
-    return NATIVE_CONTEXT_MENU.test(readFileSync(path, 'utf8'))
-  })
-  assert.deepEqual(
-    nativeMenuHosts.map((path) => relative(root, path)),
-    [],
-    'no renderer surface opens a native context menu — every in-app menu is ContextMenu/MenuItem',
-  )
-}
-
 /** `aria-modal` as a JSX ATTRIBUTE — never the same characters inside an
  *  attribute-selector string, which is what the `[` lookbehind rules out. */
 const CLAIMS_MODALITY = /(?<!\[)aria-modal=(?:"true"|\{true\})/

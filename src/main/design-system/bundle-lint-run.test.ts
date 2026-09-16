@@ -4,7 +4,7 @@ import { cpSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type { BundleScriptFork } from './derived-file-runner'
+import type { BundleScriptFork } from './bundle-lint-run'
 import { runDesignSystemBundleLint } from './bundle-lint-run'
 
 // Same node fork stand-in as library-registry.test.ts: the bundle's real

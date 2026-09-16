@@ -47,8 +47,6 @@ export type TailnetRemoteService = {
   initialize(): Promise<TailnetRemoteStatus>
   getStatus(): TailnetRemoteStatus
   setEnabled(enabled: boolean): Promise<TailnetRemoteStatus>
-  /** Whether pairing and reachability events raise OS notifications (phase 3). */
-  setNotifications(enabled: boolean): TailnetRemoteStatus
   /**
    * Mint a one-time pairing code. The token is returned once and never
    * re-readable. `origin` is recorded on the device that redeems it: the
@@ -625,21 +623,6 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
     },
 
     getStatus,
-
-    setNotifications(enabled): TailnetRemoteStatus {
-      const current = loadSettings()
-      settings = { ...current, notifications: enabled === true }
-      try {
-        writeTailnetSettings(options.resolveUserDataDir(), settings)
-      } catch (error) {
-        lastError = `Could not persist the tailnet notification setting: ${message(error)}`
-        options.log?.(lastError)
-      }
-      // The switch is status every window shows; `devices-changed` is the
-      // "re-read status" event and carries a fresh one.
-      emit({ kind: 'devices-changed' })
-      return getStatus()
-    },
 
     async setEnabled(enabled): Promise<TailnetRemoteStatus> {
       const current = loadSettings()

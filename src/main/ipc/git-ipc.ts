@@ -38,7 +38,6 @@ import {
   revertGitCommit,
   createGitTagFromCommit,
   createGitWorktree,
-  discardUnstagedGitChanges,
   fetchGitRemotes,
   getGitBranches,
   getGitCommitGraph,
@@ -46,7 +45,6 @@ import {
   getGitFileAtStage,
   getGitFileBase,
   getGitRepoRoot,
-  getGitRowSummary,
   getGitStatus,
   listGitWorktrees,
   mergeGitRef,
@@ -94,12 +92,6 @@ export function registerGitIpc(
 ): void {
   ipcMain.handle('git:get-repo-root', async (_, folderPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () => getGitRepoRoot(folderPath))
-  })
-
-  ipcMain.handle('git:get-row-summary', async (_, repoRoot: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'get-row-summary', { repoRoot }, () =>
-      getGitRowSummary(repoRoot)
-    )
   })
 
   ipcMain.handle('git:get-workspace-change-summary', async (_, checkoutPath: string) => {
@@ -241,10 +233,6 @@ export function registerGitIpc(
 
   ipcMain.handle('git:revert', async (_, repoRoot: string, paths: string[]) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'revert', { repoRoot, pathCount: paths.length }, () => revertGitPaths(repoRoot, paths))
-  })
-
-  ipcMain.handle('git:discard-unstaged', async (_, repoRoot: string, paths: string[]) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'discard-unstaged', { repoRoot, pathCount: paths.length }, () => discardUnstagedGitChanges(repoRoot, paths))
   })
 
   ipcMain.handle('git:commit', async (_, repoRoot: string, message: string) => {

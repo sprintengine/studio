@@ -134,7 +134,6 @@ import type {
 // consumed by the T11 settings UI. Re-exported through the single electron-api
 // surface like the rest of the tracker seam.
 import type { DesignSystemBundleLintRunResult } from './design-system/bundle-lint-run'
-import type { DesignSystemRegenResult } from './design-system/derived-files'
 import type { DesignSystemScaffoldResult } from './design-system/bundle-scaffold'
 import type { DesignSystemBundleReadResult } from './design-system/bundle-view'
 import type {
@@ -194,27 +193,6 @@ export type {
   VersionControlProviderId,
   VersionControlProviderProbe,
 } from './version-control'
-
-export type SaveDialogOptions = {
-  title?: string
-  defaultPath?: string
-  filters?: { name: string; extensions: string[] }[]
-}
-
-export type OpenDialogOptions = {
-  title?: string
-  defaultPath?: string
-  filters?: { name: string; extensions: string[] }[]
-}
-
-export interface ContextMenuItem {
-  id?: string
-  label?: string
-  enabled?: boolean
-  type?: 'normal' | 'separator' | 'checkbox'
-  checked?: boolean
-  submenu?: ContextMenuItem[]
-}
 
 export interface FileWatchEvent {
   eventType: string
@@ -3222,8 +3200,6 @@ export type ElectronApi = {
    */
   tailnetApprovePairRequest: (id: string, scopes: TailnetScope[], code: string) => Promise<TailnetApprovePairRequestView>
   tailnetDenyPairRequest: (id: string) => Promise<TailnetRemoteStatus>
-  /** Whether pairing and reachability events raise OS notifications (phase 3). Persisted beside the listener setting. */
-  tailnetSetNotifications: (enabled: boolean) => Promise<TailnetRemoteStatus>
   /**
    * Main asks the chrome to open the Remote popover — the click on an OS
    * notification about a pair request or a machine's answer lands here.
@@ -3531,8 +3507,6 @@ export type ElectronApi = {
   /** Creates `~/.multicode/skills` if needed and returns its absolute path. */
   ensureDefaultUserSkillsDir: () => Promise<string>
   defaultWorkspaceParentDir: () => Promise<string | null>
-  openFile: (options?: OpenDialogOptions) => Promise<string | null>
-  showContextMenu: (items: ContextMenuItem[]) => Promise<string | null>
   showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>
   clipboardReadText: () => Promise<string>
   clipboardWriteText: (text: string) => Promise<void>
@@ -3555,7 +3529,6 @@ export type ElectronApi = {
    * have listed, never about speculative ones.
    */
   checkIgnored: (repoRoot: string, relativePaths: string[]) => Promise<string[]>
-  getGitRowSummary: (repoRoot: string) => Promise<GitRowSummary>
   /**
    * The branch reading for one checkout — the worktree the workspace's agents
    * run in when it has one, else its folder. Resolved by the caller, because
@@ -3606,7 +3579,6 @@ export type ElectronApi = {
   stageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
   unstageGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
   revertGitPaths: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
-  discardUnstagedGitChanges: (repoRoot: string, paths: string[]) => Promise<GitCommandResult>
   commitGitChanges: (repoRoot: string, message: string) => Promise<GitCommandResult>
   pushGitBranch: (repoRoot: string) => Promise<GitCommandResult>
   fetchGitRemotes: (repoRoot: string) => Promise<GitCommandResult>
@@ -3714,8 +3686,6 @@ export type ElectronApi = {
   // failure is a typed `{ ok: false }` the caller answers by keeping what it
   // had. See src/shared/text-generation/contract.ts.
   generateChatTitle: (request: ChatTitleRequest) => Promise<TextGenerationResult>
-  /** Regenerate design-system derived files (tokens.css, catalog) for every bundle under a root dir. */
-  regenerateDesignSystemDerivedFiles: (rootDir: string) => Promise<DesignSystemRegenResult>
   /** Create a new design-system bundle in a user-chosen folder — seeded from an existing bundle, or bare from the shipped templates. Never overwrites; rolls back on failure. */
   seedDesignSystemBundle: (sourceDir: string | null, targetDir: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
   /**

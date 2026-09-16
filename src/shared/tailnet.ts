@@ -268,7 +268,6 @@ export type TailnetReverseGrant = {
 
 export const TAILNET_APPROVE_PAIR_REQUEST_CHANNEL = 'tailnet:approve-pair-request'
 export const TAILNET_DENY_PAIR_REQUEST_CHANNEL = 'tailnet:deny-pair-request'
-export const TAILNET_SET_NOTIFICATIONS_CHANNEL = 'tailnet:set-notifications'
 /** Main → renderer: open the Remote popover (an OS notification was clicked). */
 export const REMOTE_OPEN_REQUESTED_CHANNEL = 'remote:open-requested'
 

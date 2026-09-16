@@ -21,7 +21,6 @@ import type {
   GitStashListSnapshot,
   GitPatchResult,
   GitPatchSaveResult,
-  GitRowSummary,
   BranchStepDiff,
   BranchStepSelection,
   BranchStepsSnapshot,
@@ -42,8 +41,6 @@ export const gitApi = {
     ipcRenderer.invoke('git:get-status', repoRoot),
   checkIgnored: (repoRoot: string, relativePaths: string[]): Promise<string[]> =>
     ipcRenderer.invoke('git:check-ignored', repoRoot, relativePaths),
-  getGitRowSummary: (repoRoot: string): Promise<GitRowSummary> =>
-    ipcRenderer.invoke('git:get-row-summary', repoRoot),
   getWorkspaceChangeSummary: (checkoutPath: string): Promise<WorkspaceChangeSummary> =>
     ipcRenderer.invoke('git:get-workspace-change-summary', checkoutPath),
   getBranchSteps: (checkoutPath: string): Promise<BranchStepsSnapshot> =>
@@ -81,8 +78,6 @@ export const gitApi = {
     ipcRenderer.invoke('git:unstage', repoRoot, paths),
   revertGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:revert', repoRoot, paths),
-  discardUnstagedGitChanges: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
-    ipcRenderer.invoke('git:discard-unstaged', repoRoot, paths),
   commitGitChanges: (repoRoot: string, message: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:commit', repoRoot, message),
   pushGitBranch: (repoRoot: string): Promise<GitCommandResult> =>
@@ -183,7 +178,6 @@ export const gitApi = {
   | 'getGitRepoRoot'
   | 'getGitStatus'
   | 'checkIgnored'
-  | 'getGitRowSummary'
   | 'getWorkspaceChangeSummary'
   | 'getBranchSteps'
   | 'getBranchStepDiff'
@@ -201,7 +195,6 @@ export const gitApi = {
   | 'stageGitPaths'
   | 'unstageGitPaths'
   | 'revertGitPaths'
-  | 'discardUnstagedGitChanges'
   | 'commitGitChanges'
   | 'pushGitBranch'
   | 'fetchGitRemotes'

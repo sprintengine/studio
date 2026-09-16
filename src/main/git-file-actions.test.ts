@@ -5,7 +5,6 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import {
-  discardUnstagedGitChanges,
   revertGitPaths,
   stageGitPaths,
   unstageGitPaths,
@@ -14,12 +13,11 @@ import {
 // Everything after `--` is a pathspec, so a file really named `src/[id].tsx` is
 // a character class that also matches `src/i.tsx`. Staging the wrong file is
 // annoying; DISCARDING or REVERTING the wrong file destroys work, so each of
-// the four actions is asserted against a repo that contains both names.
+// the three actions is asserted against a repo that contains both names.
 
 async function main(): Promise<void> {
   await assertStageTouchesOnlyTheNamedFile()
   await assertUnstageTouchesOnlyTheNamedFile()
-  await assertDiscardTouchesOnlyTheNamedFile()
   await assertRevertTouchesOnlyTheNamedFile()
   await assertRevertCleansOnlyTheNamedUntrackedFile()
   console.log('git-file-actions.test.ts: ok')
@@ -84,18 +82,6 @@ async function assertUnstageTouchesOnlyTheNamedFile(): Promise<void> {
   }
 }
 
-async function assertDiscardTouchesOnlyTheNamedFile(): Promise<void> {
-  const { root, repo } = makeRepo('discard')
-  try {
-    const result = await discardUnstagedGitChanges(repo, [join(repo, BRACKETED)])
-    assert.equal(result.ok, true, result.message ?? '')
-    assert.equal(read(repo, BRACKETED), 'bracketed original\n', 'the named file is rolled back')
-    assert.equal(read(repo, DECOY), 'decoy changed\n', 'and the decoy still has its edit')
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-}
-
 async function assertRevertTouchesOnlyTheNamedFile(): Promise<void> {
   const { root, repo } = makeRepo('revert')
   try {
@@ -112,7 +98,7 @@ async function assertRevertTouchesOnlyTheNamedFile(): Promise<void> {
 }
 
 /** Reverting a new file ends in `git clean`, which is the most destructive of
- *  the four commands a glob could aim at the wrong name. */
+ *  the commands a glob could aim at the wrong name. */
 async function assertRevertCleansOnlyTheNamedUntrackedFile(): Promise<void> {
   const { root, repo } = makeRepo('clean')
   try {

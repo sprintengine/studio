@@ -13,7 +13,6 @@ import {
   TAILNET_OFFER_PAIRING_CHANNEL,
   TAILNET_REVOKE_DEVICE_CHANNEL,
   TAILNET_SET_ENABLED_CHANNEL,
-  TAILNET_SET_NOTIFICATIONS_CHANNEL,
   TAILNET_UPDATE_DEVICE_SCOPES_CHANNEL,
   REMOTE_OPEN_REQUESTED_CHANNEL,
   type TailnetApprovePairRequestView,
@@ -66,8 +65,6 @@ export const automationApi = {
     ipcRenderer.invoke(TAILNET_APPROVE_PAIR_REQUEST_CHANNEL, id, scopes, code) as Promise<TailnetApprovePairRequestView>,
   tailnetDenyPairRequest: (id: string): Promise<TailnetRemoteStatus> =>
     ipcRenderer.invoke(TAILNET_DENY_PAIR_REQUEST_CHANNEL, id) as Promise<TailnetRemoteStatus>,
-  tailnetSetNotifications: (enabled: boolean): Promise<TailnetRemoteStatus> =>
-    ipcRenderer.invoke(TAILNET_SET_NOTIFICATIONS_CHANNEL, enabled) as Promise<TailnetRemoteStatus>,
   onRemoteOpenRequested: (cb: () => void): (() => void) => {
     const handler = () => cb()
     ipcRenderer.on(REMOTE_OPEN_REQUESTED_CHANNEL, handler)
@@ -103,7 +100,6 @@ export const automationApi = {
   | 'tailnetForgetMachine'
   | 'tailnetApprovePairRequest'
   | 'tailnetDenyPairRequest'
-  | 'tailnetSetNotifications'
   | 'onRemoteOpenRequested'
   | 'tailnetListPeers'
   | 'tailnetGetLiveState'

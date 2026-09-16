@@ -11,7 +11,6 @@ import {
   TAILNET_OFFER_PAIRING_CHANNEL,
   TAILNET_REVOKE_DEVICE_CHANNEL,
   TAILNET_SET_ENABLED_CHANNEL,
-  TAILNET_SET_NOTIFICATIONS_CHANNEL,
   TAILNET_UPDATE_DEVICE_SCOPES_CHANNEL,
 } from '../../shared/tailnet'
 import { TAILNET_FORGET_MACHINE_CHANNEL } from '../../shared/tailnet-fleet'
@@ -54,9 +53,6 @@ export function registerAutomationIpc(ipcMain: IpcMain, service: AutomationServi
   // compares, so a window cannot approve what its person did not read.
   ipcMain.handle(TAILNET_APPROVE_PAIR_REQUEST_CHANNEL, (_event, id: unknown, scopes: unknown, code: unknown) =>
     service.approveTailnetPairRequest({ id: typeof id === 'string' ? id : '', scopes, code })
-  )
-  ipcMain.handle(TAILNET_SET_NOTIFICATIONS_CHANNEL, (_event, enabled: unknown) =>
-    service.setTailnetNotifications(enabled === true)
   )
   ipcMain.handle(TAILNET_DENY_PAIR_REQUEST_CHANNEL, (_event, id: unknown) =>
     service.denyTailnetPairRequest(typeof id === 'string' ? id : '')

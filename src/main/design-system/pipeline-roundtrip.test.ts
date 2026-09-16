@@ -6,8 +6,7 @@ import { join } from 'node:path'
 
 import { parseDesignSystemManifest } from '../../shared/design-system/manifest'
 import { scaffoldDesignSystemBundle } from './bundle-scaffold'
-import { runDesignSystemBundleLint } from './bundle-lint-run'
-import { regenerateBundleDerivedFiles, type BundleScriptFork } from './derived-file-runner'
+import { runDesignSystemBundleLint, type BundleScriptFork } from './bundle-lint-run'
 import {
   listDesignSystemLibrary,
   readDesignSystemLibraryEntry,
@@ -124,10 +123,14 @@ run('round-trip: scaffold -> overlay -> lint -> derive -> register -> read back'
     const lint = await runDesignSystemBundleLint(bundleDir, nodeFork)
     assert.equal(lint.ok, true, JSON.stringify(lint))
 
-    // Derived-file regeneration runs the bundle's own generators (tokens before
-    // the catalog that inlines them) and must produce both files from scratch.
-    const regen = await regenerateBundleDerivedFiles(bundleDir, nodeFork)
-    assert.equal(regen.ok, true, JSON.stringify(regen.runs))
+    // Derived-file regeneration runs the bundle's own generators, once each in
+    // manifest order (tokens before the catalog that inlines them), and must
+    // produce both files from scratch.
+    const { derived } = parseDesignSystemManifest(readFileSync(join(bundleDir, 'design-system.json'), 'utf8'))
+    for (const script of new Set(Object.values(derived))) {
+      const exit = await nodeFork(join(bundleDir, script), [bundleDir], { cwd: bundleDir })
+      assert.equal(exit.exitCode, 0, `${script}: ${exit.stderr}`)
+    }
     for (const derived of DERIVED_FILES) {
       assert.ok(existsSync(join(bundleDir, derived)), `derived ${derived} produced by its generator`)
     }
