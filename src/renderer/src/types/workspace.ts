@@ -16,14 +16,11 @@ import type {
 import type {
   AgentCli,
   AgentId,
-  SprintEngineRoleCliDefaults,
   SprintEngineRoleSettings,
   SprintEngineRosterSessions,
   SprintEngineRunSettings,
   SprintEngineSourceBundleItem,
   SprintEngineSourcePlanKind,
-  SprintEngineState,
-  SprintEngineWorkspaceContext,
 } from '../../../shared/sprintengine/run-types'
 import type {
   AgentConversationRuntime,
@@ -806,7 +803,7 @@ export type WorkspacePaneState = {
  * is opened as a workspace from the Worktree manager. The workspace's
  * `folderPath` already points at the worktree in this case, so this only carries
  * display info (branch/base) and flags the workspace as worktree-backed. Sprint
- * runs instead carry their worktree on `sprintEngineState.vcs`; both are
+ * runs instead carry their worktree on the sprintengine bag's `vcs`; both are
  * normalized by `resolveWorkspaceWorktree` (utils/workspaceWorktree.ts).
  */
 export type WorkspaceWorktree = {
@@ -833,10 +830,9 @@ export type WorkspaceWorktree = {
  * The `sprintengine` entry is a wrapped `SprintEngineModuleState`: durable
  * identity (`context`, `roleCliDefaults`) persists in the bag; the live run
  * projection (`state`) is a cache of on-disk projection.json and is stripped
- * at partialize. The typed `Workspace.sprintEngineState` /
- * `sprintEngineContext` / `sprintEngineRoleCliDefaults` fields remain as
- * store-maintained mirrors until in-tree readers migrate to the bag
- * (MC-2573); persist merge() keeps them in lockstep.
+ * at partialize. Readers use `getWorkspaceModuleState` / the sprintengine
+ * accessors; a one-time persist hoist (store v76) is marked for deletion
+ * with the in-tree engine.
  */
 export type WorkspaceModuleStateBag = Record<string, unknown>
 
@@ -890,7 +886,6 @@ export type Workspace = {
   // Absent for every local workspace — local is the unmarked default.
   remoteOrigin?: WorkspaceRemoteOrigin | null
   worktree?: WorkspaceWorktree | null
-  sprintEngineContext?: SprintEngineWorkspaceContext | null
   templateId: string
   layoutModel: IJsonModel
   agents: Record<AgentId, AgentState>
@@ -903,19 +898,12 @@ export type Workspace = {
   // The workspace pane's tabs (browser-pane epic); absent until first opened.
   paneState?: WorkspacePaneState
   // Per-module state bag (MC-1573) — see WorkspaceModuleStateBag. The
-  // `sprintengine` entry is the canonical SprintEngineModuleState; the three
-  // typed fields below mirror it for in-tree readers that have not yet moved.
+  // `sprintengine` entry is the canonical SprintEngineModuleState.
   moduleState?: WorkspaceModuleStateBag
-  // Legacy mirrors of `moduleState.sprintengine.{state,context,roleCliDefaults}`
-  // (MC-1573 / MC-2573). Kept only for existing in-tree readers; new code
-  // reads the bag. The store's writers and persist merge() enforce lockstep
-  // — never assign these without going through them. Stripped at persist.
-  sprintEngineState: SprintEngineState | null
-  sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults
   // Durable per-agent CLI session records, keyed by roster agent id. Populated
   // when a sprint agent gets a live session and just before completion teardown
   // removes its panel, so a role can be re-opened later and resumed. Survives
-  // panel removal and app restart (persisted alongside sprintEngineRoleCliDefaults).
+  // panel removal and app restart (persisted alongside role CLI defaults).
   sprintEngineRosterSessions?: SprintEngineRosterSessions
   // Roster agents the user explicitly asked to start when the workspace
   // opens (new-workspace "Start now" intent). Session-only launch intent:

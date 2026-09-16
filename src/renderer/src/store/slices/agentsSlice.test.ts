@@ -123,7 +123,6 @@ const carrier: { workspaces: Workspace[] } = {
       worktreeState: defaultWorkspaceWorktreeState(),
       memory: defaultWorkspaceMemoryConfig(),
       editorState: defaultEditorState(),
-      sprintEngineState: null,
       sprintEngineAutoState: defaultSprintEngineAutoState(),
       createdAt: 1,
     },

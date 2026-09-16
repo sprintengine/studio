@@ -7,6 +7,7 @@ import { SprintEngineWorkspaceTypeIcon } from '../components/AppIcons'
 import { deriveSprintEngineRunGlyph } from '../utils/sprintengine'
 import { isSprintEngineWorkspace } from '../utils/sprintEngineWorkspace'
 import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
+import { sprintEngineRunState } from '../store/slices/workspaceModuleState'
 
 const defaultSprintEngineTemplateConfig: SprintEngineMockConfig = {
   name: 'Sprint Roster',
@@ -30,7 +31,7 @@ function deriveSprintEngineWorkspaceRunGlyph(
   workspace: WorkspaceRunGlyphProviderInput,
 ): WorkspaceRunGlyph | null {
   return deriveSprintEngineRunGlyph({
-    sprintEngineState: workspace.sprintEngineState,
+    sprintEngineState: sprintEngineRunState(workspace),
     autoState: workspace.sprintEngineAutoState,
   })
 }

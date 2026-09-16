@@ -1,3 +1,4 @@
+import { sprintEngineRunContext } from '../renderer/src/store/slices/workspaceModuleState'
 import assert from 'node:assert/strict'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -308,7 +309,7 @@ async function run(projectRoot: string): Promise<void> {
   await settle()
 
   assert.equal(
-    useWorkspaceStore.getState().workspaces.some((workspace) => workspace.sprintEngineContext?.statePath === statePath),
+    useWorkspaceStore.getState().workspaces.some((workspace) => sprintEngineRunContext(workspace)?.statePath === statePath),
     false,
     'the run has no resident workspace — this is the door mount',
   )

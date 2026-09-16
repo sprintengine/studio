@@ -58,9 +58,9 @@ export function getWorkspaceModuleState<T = unknown>(
  * fields of `moduleState.sprintengine`.
  */
 export function getSprintEngineModuleState(
-  workspace: Workspace,
+  workspace: { moduleState?: WorkspaceModuleStateBag },
 ): SprintEngineModuleState | undefined {
-  const raw = getWorkspaceModuleState(workspace, SPRINT_ENGINE_MODULE_ID)
+  const raw = getWorkspaceModuleState(workspace as Workspace, SPRINT_ENGINE_MODULE_ID)
   if (raw === undefined) return undefined
   return unwrapSprintEngineModuleState(raw)
 }
@@ -164,19 +164,87 @@ function sameRoleCliDefaults(
   return left === right
 }
 
+export function sprintEngineRunState(workspace: { moduleState?: WorkspaceModuleStateBag }): SprintEngineState | null {
+  return getSprintEngineModuleState(workspace)?.state ?? null
+}
+
+export function sprintEngineRunContext(workspace: { moduleState?: WorkspaceModuleStateBag }): SprintEngineWorkspaceContext | null {
+  return getSprintEngineModuleState(workspace)?.context ?? null
+}
+
+export function sprintEngineRoleDefaults(workspace: { moduleState?: WorkspaceModuleStateBag }): SprintEngineRoleCliDefaults | undefined {
+  return getSprintEngineModuleState(workspace)?.roleCliDefaults
+}
+
+/**
+ * Run projection as stored on a persist row that may still carry the pre-hoist
+ * top-level field. Callers that run on the migrate ladder before v76 use this
+ * so they see HEAD-shaped rows; post-hoist readers use {@link sprintEngineRunState}.
+ * Marked for deletion with the in-tree engine (extensions-installable-modules
+ * 2026-08-03; dated 2026-09-16).
+ */
+export function legacySprintEngineRunState(
+  workspace: LegacySprintEnginePersistWorkspace,
+): SprintEngineState | null {
+  return normalizeSprintEngineState(
+    sprintEngineRunState(workspace) ?? workspace.sprintEngineState ?? null,
+  )
+}
+
+export function legacySprintEngineRunContext(
+  workspace: LegacySprintEnginePersistWorkspace,
+): SprintEngineWorkspaceContext | null {
+  return sprintEngineRunContext(workspace) ?? workspace.sprintEngineContext ?? null
+}
+
+export function legacySprintEngineRoleDefaults(
+  workspace: LegacySprintEnginePersistWorkspace,
+): SprintEngineRoleCliDefaults | undefined {
+  return sprintEngineRoleDefaults(workspace) ?? workspace.sprintEngineRoleCliDefaults
+}
+
+/**
+ * Pre-MC-2573 persist rows still carry these top-level fields. The hoist
+ * below reads them once, writes `moduleState.sprintengine`, and omits them
+ * from the returned workspace. Marked for deletion with the in-tree engine
+ * (extensions-installable-modules 2026-08-03; dated 2026-09-16).
+ */
+export type LegacySprintEnginePersistWorkspace = Workspace & {
+  sprintEngineState?: SprintEngineState | null
+  sprintEngineContext?: SprintEngineWorkspaceContext | null
+  sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults
+}
+
+function omitLegacySprintEngineFields(workspace: LegacySprintEnginePersistWorkspace): Workspace {
+  if (
+    !('sprintEngineState' in workspace)
+    && !('sprintEngineContext' in workspace)
+    && !('sprintEngineRoleCliDefaults' in workspace)
+  ) {
+    return workspace
+  }
+  const {
+    sprintEngineState: _legacyState,
+    sprintEngineContext: _legacyContext,
+    sprintEngineRoleCliDefaults: _legacyRoleCliDefaults,
+    ...rest
+  } = workspace
+  return rest
+}
+
 /**
  * Hoist top-level `sprintEngineState` / `sprintEngineContext` /
- * `sprintEngineRoleCliDefaults` into `moduleState.sprintengine` and keep the
- * in-memory top-level fields in lockstep for readers that have not yet moved
- * to the bag.
- *
- * A bag-shaped (wrapped) entry wins over a top-level field when both are
- * present; a populated top-level field is adopted when the bag has no value
- * for that key (HEAD persist, hand-built fixtures). Empty / non-object bags
- * are dropped. Runs in persist merge() on every hydration.
+ * `sprintEngineRoleCliDefaults` into `moduleState.sprintengine` and drop the
+ * top-level fields. A bag-shaped (wrapped) entry wins over a top-level field
+ * when both are present; a populated top-level field is adopted when the bag
+ * has no value for that key (HEAD persist). Empty / non-object bags are
+ * dropped. Runs in persist merge() on every hydration. Marked for deletion
+ * with the in-tree engine (extensions-installable-modules 2026-08-03; dated
+ * 2026-09-16).
  */
 export function reconcileWorkspaceModuleState(workspace: Workspace): Workspace {
-  const bag = isPlainBag(workspace.moduleState) ? workspace.moduleState : undefined
+  const persisted = workspace as LegacySprintEnginePersistWorkspace
+  const bag = isPlainBag(persisted.moduleState) ? persisted.moduleState : undefined
   const bagHasEntry = bag !== undefined && SPRINT_ENGINE_MODULE_ID in bag
   const rawBagEntry = bagHasEntry ? bag[SPRINT_ENGINE_MODULE_ID] : undefined
   const unwrapped = bagHasEntry ? unwrapSprintEngineModuleState(rawBagEntry) : undefined
@@ -184,16 +252,16 @@ export function reconcileWorkspaceModuleState(workspace: Workspace): Workspace {
   const canonicalState = normalizeSprintEngineState(
     (unwrapped?.state !== undefined
       ? unwrapped.state
-      : workspace.sprintEngineState) as SprintEngineState | null | undefined,
+      : persisted.sprintEngineState) as SprintEngineState | null | undefined,
   )
   const canonicalContext: SprintEngineWorkspaceContext | null =
     unwrapped?.context !== undefined
       ? (unwrapped.context ?? null)
-      : (workspace.sprintEngineContext ?? null)
+      : (persisted.sprintEngineContext ?? null)
   const canonicalRoleCliDefaults: SprintEngineRoleCliDefaults | undefined =
     unwrapped?.roleCliDefaults !== undefined
       ? unwrapped.roleCliDefaults
-      : workspace.sprintEngineRoleCliDefaults
+      : persisted.sprintEngineRoleCliDefaults
 
   const nextEntry = compactSprintEngineModuleState({
     ...(canonicalState != null ? { state: canonicalState } : {}),
@@ -208,26 +276,17 @@ export function reconcileWorkspaceModuleState(workspace: Workspace): Workspace {
     : undefined
   const bagInSync = entriesEqual(currentEntry, nextEntry)
     && (!bagHasEntry || isPlainBag(rawBagEntry))
-    && bag === workspace.moduleState
-  const mirrorsInSync =
-    sameSprintEngineState(workspace.sprintEngineState, canonicalState)
-    && sameContext(workspace.sprintEngineContext, canonicalContext)
-    && sameRoleCliDefaults(workspace.sprintEngineRoleCliDefaults, canonicalRoleCliDefaults)
+    && bag === persisted.moduleState
+  const topLevelAbsent =
+    !('sprintEngineState' in persisted)
+    && !('sprintEngineContext' in persisted)
+    && !('sprintEngineRoleCliDefaults' in persisted)
 
-  if (bagInSync && mirrorsInSync) return workspace
+  if (bagInSync && topLevelAbsent) return workspace
 
-  let next = bag === workspace.moduleState ? workspace : { ...workspace, moduleState: bag }
+  let next = bag === persisted.moduleState ? persisted : { ...persisted, moduleState: bag }
   next = withSprintEngineModuleState(next, nextEntry)
-  if (!sameSprintEngineState(next.sprintEngineState, canonicalState)) {
-    next = { ...next, sprintEngineState: canonicalState }
-  }
-  if (!sameContext(next.sprintEngineContext, canonicalContext)) {
-    next = { ...next, sprintEngineContext: canonicalContext }
-  }
-  if (!sameRoleCliDefaults(next.sprintEngineRoleCliDefaults, canonicalRoleCliDefaults)) {
-    next = { ...next, sprintEngineRoleCliDefaults: canonicalRoleCliDefaults }
-  }
-  return next
+  return omitLegacySprintEngineFields(next)
 }
 
 function entriesEqual(

@@ -233,21 +233,28 @@ function durableSprintEngineModuleEntry(raw: unknown): Record<string, unknown> |
  * in localStorage keyed by workspace id — two disjoint field sets, not two
  * copies of one fact, so this is not dual authority.
  *
- * The live run projection (`sprintEngineState` / bag `state`) is excluded: it
- * caches `projection.json`, which the engine owns. Durable Sprint Engine
- * identity (`context`, `roleCliDefaults`) lives in `moduleState.sprintengine`
- * and is persisted there; the top-level fields are dropped.
+ * The live run projection (bag `state`) is excluded: it caches
+ * `projection.json`, which the engine owns. Durable Sprint Engine identity
+ * (`context`, `roleCliDefaults`) lives in `moduleState.sprintengine` and is
+ * persisted there.
  */
 export function normalizeWorkspaceForRegistry(workspace: Workspace): Workspace {
-  const {
-    sprintEngineContext: _sprintEngineContext,
-    sprintEngineRoleCliDefaults: _sprintEngineRoleCliDefaults,
-    ...durableWorkspace
-  } = workspace
   const moduleState = partializeSprintEngineModuleBag(workspace.moduleState)
+  // Pre-MC-2573 persist rows still carry these top-level fields. Drop them
+  // here so the registry never re-homes them. Marked for deletion with the
+  // in-tree engine (extensions-installable-modules 2026-08-03; dated 2026-09-16).
+  const {
+    sprintEngineState: _legacyState,
+    sprintEngineContext: _legacyContext,
+    sprintEngineRoleCliDefaults: _legacyRoleCliDefaults,
+    ...durable
+  } = workspace as Workspace & {
+    sprintEngineState?: unknown
+    sprintEngineContext?: unknown
+    sprintEngineRoleCliDefaults?: unknown
+  }
   const normalized: Workspace = {
-    ...durableWorkspace,
-    sprintEngineState: null,
+    ...durable,
     sprintEngineInitialSpawnAgentIds: undefined,
     agents: Object.fromEntries(
       Object.entries(workspace.agents ?? {}).map(([id, agent]) => [id, normalizeWorkspaceRegistryAgent(agent)]),

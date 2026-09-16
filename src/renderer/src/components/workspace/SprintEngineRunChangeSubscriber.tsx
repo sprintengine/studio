@@ -7,6 +7,8 @@ import {
   refreshSprintEngineWorkspaceProjection,
 } from '../../utils/sprintengineProjectionRefresh'
 import { sprintEngineIpc } from '../../modules/sprint-engine-ipc'
+import { sprintEngineRunContext } from '../../store/slices/workspaceModuleState'
+
 
 // The window's display subscriber for run state main changed on its own (MC-2155).
 //
@@ -32,8 +34,8 @@ export function collectQuiescedSprintWorkspaces(
   return workspaces.filter(
     (workspace) =>
       workspaceIds.has(workspace.id)
-      && (workspace.mode === 'sprintengine' || Boolean(workspace.sprintEngineContext))
-      && workspace.sprintEngineContext?.statePath === statePath
+      && (workspace.mode === 'sprintengine' || Boolean(sprintEngineRunContext(workspace)))
+      && sprintEngineRunContext(workspace)?.statePath === statePath
       && canStopPollingCompletedSprintEngineProjection(workspace),
   )
 }

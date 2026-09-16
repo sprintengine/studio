@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 import { refreshSprintEngineWorkspaceProjection } from '../../utils/sprintengineProjectionRefresh'
 import { sprintEngineRepoDisplayName } from '../../../../shared/backlog/sprintengine-links'
 import type { SprintEngineVcs } from '../../types/workspace'
@@ -106,9 +107,9 @@ function useRunPullRequestAction(input: { workspaceId: string; statePath: string
       // leaves it null and surfaces the reason through `vcs` instead. The header
       // "View pull request" chip remains a fallback if the browser open fails.
       const url =
-        useWorkspaceStore
-          .getState()
-          .workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.vcs?.pullRequestUrl ?? null
+        sprintEngineRunState(
+          useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined },
+        )?.vcs?.pullRequestUrl ?? null
       if (url) await window.api.openExternal(url)
     } catch (error) {
       setActionError(error instanceof Error ? error.message : String(error))

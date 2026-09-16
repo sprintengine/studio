@@ -428,7 +428,7 @@ assert.notEqual(secondFolderHostId, firstHostId)
 useWorkspaceStore.getState().removeWorkspace(firstHostId)
 useWorkspaceStore.getState().removeWorkspace(secondFolderHostId)
 
-const sprintEngineState = createInitialSprintEngineState({
+const runtimeChoiceState = createInitialSprintEngineState({
   name: 'Runtime Choice Team',
   goal: 'Preserve agent runtime choices.',
   // Legacy count > 1 collapses to the enabled set (MC-1450): one roster agent
@@ -438,10 +438,12 @@ const sprintEngineState = createInitialSprintEngineState({
 const sprintEngineId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Runtime Choice Team',
   folderPath: '/Users/example/runtime-choice',
-  sprintEngineState,
-  sprintEngineRoleCliDefaults: {
-    architect: 'claude-code',
-    developer: 'claude-code',
+  sprintEngineModule: {
+    state: runtimeChoiceState,
+    roleCliDefaults: {
+      architect: 'claude-code',
+      developer: 'claude-code',
+    },
   },
   sprintEngineAgentCliOverrides: {
     'developer-1': 'codex',
@@ -474,11 +476,13 @@ const launchIntentState = createInitialSprintEngineState({
 const launchIntentId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Launch Intent Team',
   folderPath: '/Users/example/launch-intent',
-  sprintEngineState: launchIntentState,
-  sprintEngineRoleCliDefaults: {
-    architect: 'claude-code',
-    developer: 'claude-code',
-    frontend: 'codex',
+  sprintEngineModule: {
+    state: launchIntentState,
+    roleCliDefaults: {
+      architect: 'claude-code',
+      developer: 'claude-code',
+      frontend: 'codex',
+    },
   },
   sprintEngineRoleModelOverrides: {
     developer: 'sonnet-test-model',
@@ -509,11 +513,13 @@ const architectLaunchState = createInitialSprintEngineState({
 const architectLaunchId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Architect Launch Team',
   folderPath: '/Users/example/architect-launch',
-  sprintEngineState: architectLaunchState,
-  sprintEngineRoleCliDefaults: {
-    architect: 'claude-code',
-    developer: 'claude-code',
-    tester: 'claude-code',
+  sprintEngineModule: {
+    state: architectLaunchState,
+    roleCliDefaults: {
+      architect: 'claude-code',
+      developer: 'claude-code',
+      tester: 'claude-code',
+    },
   },
   sprintEngineInitialSpawnRoles: ['architect', 'developer', 'tester'],
 })
@@ -885,10 +891,12 @@ assert.doesNotThrow(() => {
   openRoleId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
     name: 'Open Role Team',
     folderPath: '/Users/example/open-role',
-    sprintEngineState: openRoleState,
-    // Deliberately supply only the architect default; the custom growth_engineer
-    // and qa_lead roles are left to the fallback respectively.
-    sprintEngineRoleCliDefaults: { architect: 'codex' },
+    sprintEngineModule: {
+      state: openRoleState,
+      // Deliberately supply only the architect default; the custom growth_engineer
+      // and qa_lead roles are left to the fallback respectively.
+      roleCliDefaults: { architect: 'codex' },
+    },
   })
 }, 'a roster role missing from the CLI-defaults map never throws in addWorkspace')
 state = useWorkspaceStore.getState()

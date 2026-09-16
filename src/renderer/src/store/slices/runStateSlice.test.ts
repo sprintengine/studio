@@ -12,7 +12,7 @@ import {
   reconcileSprintEngineAgents,
 } from './runStateSlice'
 import { sprintEngineRunSettingsKey } from './settingsSlice'
-import { getSprintEngineModuleState } from './workspaceModuleState'
+import { getSprintEngineModuleState, sprintEngineRunContext, sprintEngineRunState } from './workspaceModuleState'
 
 const standardTemplate: LayoutTemplate = {
   id: 'run-state-standard',
@@ -98,7 +98,6 @@ const carrier: { workspaces: Workspace[] } = {
       },
       memory: { relativeRoot: null },
       editorState: defaultEditorState(),
-      sprintEngineState: null,
       sprintEngineAutoState: defaultSprintEngineAutoState(),
       createdAt: 1,
     },
@@ -109,15 +108,11 @@ const runStateSlice = createRunStateSlice((mutator) => mutator(carrier))
 runStateSlice.setSprintEngineState('ws-direct-run-state', sprintState)
 const directWorkspace = carrier.workspaces[0]
 assert.equal(directWorkspace.mode, 'sprintengine')
-assert.equal(directWorkspace.sprintEngineState?.goal, 'Validate run-state slice')
-// MC-1573 lockstep: the live writer maintains the canonical bag entry beside
-// the legacy mirror — same state object in both homes. The null-write half
-// runs on its own carrier below so this shared fixture's roster/agents state
-// stays untouched for the assertions that follow.
+assert.equal(sprintEngineRunState(directWorkspace)?.goal, 'Validate run-state slice')
 assert.equal(
   getSprintEngineModuleState(directWorkspace)?.state,
-  directWorkspace.sprintEngineState,
-  'setSprintEngineState writes the bag entry and the mirror in lockstep',
+  sprintEngineRunState(directWorkspace),
+  'setSprintEngineState writes the bag entry as the only home of the projection',
 )
 {
   const bagCarrier: { workspaces: Workspace[] } = {
@@ -132,14 +127,14 @@ assert.equal(
   }
   const bagSlice = createRunStateSlice((mutator) => mutator(bagCarrier))
   bagSlice.setSprintEngineState('ws-bag-lockstep', null)
-  assert.equal(bagCarrier.workspaces[0].sprintEngineState, null, 'a null write clears the mirror')
+  assert.equal(sprintEngineRunState(bagCarrier.workspaces[0]), null, 'a null write clears the bag projection')
   assert.equal(
     bagCarrier.workspaces[0].moduleState,
     undefined,
     'a null write removes the bag entry, and an emptied bag drops entirely',
   )
 }
-assert.equal(directWorkspace.sprintEngineContext?.teamSlug, 'run-state-team')
+assert.equal(sprintEngineRunContext(directWorkspace)?.teamSlug, 'run-state-team')
 assert.ok(directWorkspace.agents.specialist, 'specialist agents should survive Sprint Engine roster reconciliation')
 assert.ok(directWorkspace.agents.frontend, 'Sprint Engine roster agents should be reconciled into workspace agents')
 const stableAgents = reconcileSprintEngineAgents(directWorkspace.agents, sprintState)
@@ -317,8 +312,8 @@ assert.deepEqual(carrier.workspaces[0].sprintEngineAutoState?.deliveredAgentNoti
 
 const added = runStateSlice.addSprintEngineMember('ws-direct-run-state', 'tester')
 assert.ok(added)
-assert.ok(carrier.workspaces[0].sprintEngineState?.sprintEngineAgents[added.id])
-assert.equal(carrier.workspaces[0].sprintEngineState?.events.at(-1)?.type, 'member_added')
+assert.ok(sprintEngineRunState(carrier.workspaces[0])?.sprintEngineAgents[added.id])
+assert.equal(sprintEngineRunState(carrier.workspaces[0])?.events.at(-1)?.type, 'member_added')
 
 const storeWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Run State Store',
@@ -355,13 +350,13 @@ assert.equal(
 )
 const storeWorkspace = useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === storeWorkspaceId)
 assert.ok(storeWorkspace)
-assert.equal(storeWorkspace.sprintEngineState?.goal, 'Validate run-state slice')
+assert.equal(sprintEngineRunState(storeWorkspace)?.goal, 'Validate run-state slice')
 assert.equal(storeWorkspace.sprintEngineAutoState?.desiredMode, 'run_agents_and_approve_artifacts')
 assert.equal(storeWorkspace.sprintEngineAutoState?.cliPermissionPreset, 'bypass')
 assert.equal(storeWorkspace.sprintEngineAutoState?.changedAt, 1780801560320)
 assert.equal(
   useWorkspaceStore.getState().appSettings.sprintEngineRunSettings[
-    sprintEngineRunSettingsKey(storeWorkspace.sprintEngineContext?.statePath)
+    sprintEngineRunSettingsKey(sprintEngineRunContext(storeWorkspace)?.statePath)
   ]?.cliPermissionPreset,
   'bypass',
 )
@@ -370,7 +365,7 @@ useWorkspaceStore.getState().setLastAgentSpawnPermissionPreset('bypass')
 const inheritedPermissionWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
   name: 'Inherited Sprint Permission',
   folderPath: '/repo/inherited',
-  sprintEngineState: sprintState,
+  sprintEngineModule: { state: sprintState },
 })
 const inheritedPermissionWorkspace = useWorkspaceStore.getState().workspaces.find(
   (workspace) => workspace.id === inheritedPermissionWorkspaceId,
@@ -392,7 +387,7 @@ const noopWorkspaceId = useWorkspaceStore.getState().addWorkspace(standardTempla
 useWorkspaceStore.getState().setSprintEngineState(noopWorkspaceId, sprintState)
 const afterFirstSet = useWorkspaceStore.getState().workspaces
 const noopWorkspaceAfterFirstSet = afterFirstSet.find((workspace) => workspace.id === noopWorkspaceId)
-assert.ok(noopWorkspaceAfterFirstSet?.sprintEngineState, 'sprint engine state should be applied')
+assert.ok(sprintEngineRunState(noopWorkspaceAfterFirstSet!), 'sprint engine state should be applied')
 
 // Re-apply the identical state: array, workspace object, and nested projection
 // fields must all keep their identity so `useShallow`/array selectors skip.
@@ -410,9 +405,9 @@ assert.equal(
   'identical setSprintEngineState must preserve the workspace object reference',
 )
 assert.equal(
-  noopWorkspaceAfterIdenticalSet?.sprintEngineState,
-  noopWorkspaceAfterFirstSet?.sprintEngineState,
-  'identical setSprintEngineState must preserve sprintEngineState identity',
+  sprintEngineRunState(noopWorkspaceAfterIdenticalSet!),
+  sprintEngineRunState(noopWorkspaceAfterFirstSet!),
+  'identical setSprintEngineState must preserve the bag projection identity',
 )
 assert.equal(
   noopWorkspaceAfterIdenticalSet?.agents,
@@ -434,7 +429,7 @@ assert.notEqual(
   'a changed setSprintEngineState must produce a new workspaces array reference',
 )
 assert.equal(
-  afterChangedSet.find((workspace) => workspace.id === noopWorkspaceId)?.sprintEngineState?.goal,
+  sprintEngineRunState(afterChangedSet.find((workspace) => workspace.id === noopWorkspaceId)!)?.goal,
   'Changed projection goal',
   'a changed setSprintEngineState must apply the new projection',
 )
@@ -449,7 +444,7 @@ assert.notEqual(
   'clearing setSprintEngineState must produce a new workspaces array reference',
 )
 const noopWorkspaceAfterClear = afterClearSet.find((workspace) => workspace.id === noopWorkspaceId)
-assert.equal(noopWorkspaceAfterClear?.sprintEngineState, null, 'cleared projection should be null')
+assert.equal(sprintEngineRunState(noopWorkspaceAfterClear!), null, 'cleared projection should be null')
 assert.equal(noopWorkspaceAfterClear?.mode, 'standard', 'cleared projection should reset mode to standard')
 
 // Re-clearing an already-cleared projection is itself a no-op.

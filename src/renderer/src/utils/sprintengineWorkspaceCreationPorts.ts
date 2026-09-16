@@ -22,9 +22,11 @@ export const rendererSprintEngineWorkspaceCreationPort: SprintEngineWorkspaceCre
       {
         name: registration.sprintEngineContext.teamName,
         folderPath: registration.folderPath,
-        sprintEngineState: registration.sprintEngineState,
-        sprintEngineContext: registration.sprintEngineContext,
-        sprintEngineRoleCliDefaults: registration.roleCliDefaults,
+        sprintEngineModule: {
+          state: registration.sprintEngineState,
+          context: registration.sprintEngineContext,
+          roleCliDefaults: registration.roleCliDefaults ?? undefined,
+        },
         sprintEngineRoleModelOverrides: registration.roleModelOverrides,
         sprintEngineAgentCliOverrides: registration.agentCliOverrides,
         sprintEngineInitialSpawnRoles: registration.initialSpawnRoles,

@@ -44,7 +44,7 @@ import {
   dropRetiredModeWorkspaces,
   mapMigrationWorkspaces,
 } from './normalizers'
-import { migrateSprintEngineFieldsIntoModuleBag, reconcileWorkspaceModuleState } from './workspaceModuleState'
+import { migrateSprintEngineFieldsIntoModuleBag, reconcileWorkspaceModuleState, legacySprintEngineRunContext, legacySprintEngineRunState, type LegacySprintEnginePersistWorkspace } from './workspaceModuleState'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
@@ -53,7 +53,7 @@ export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
-  workspaces: Workspace[]
+  workspaces: LegacySprintEnginePersistWorkspace[]
   activeWorkspaceId?: WorkspaceId | null
   workspaceWindows?: WorkspaceWindowState[]
   primaryWorkspaceWindowId?: WorkspaceWindowId
@@ -156,8 +156,8 @@ export function hydrateSprintEngineLocalRunSettings(
   const fallbackPermissionPreset = appSettings.lastAgentSpawnPermissionPreset
 
   for (const workspace of workspaces) {
-    if (!workspace.sprintEngineState) continue
-    const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+    if (!legacySprintEngineRunState(workspace)) continue
+    const key = sprintEngineRunSettingsKey(legacySprintEngineRunContext(workspace)?.statePath)
     if (!key || runSettings[key]) continue
     const derivedRunSettings = sprintEngineRunSettingsFromWorkspace(workspace, fallbackPermissionPreset)
     if (hasPersistableSprintEngineRunSettings(derivedRunSettings)) {
@@ -167,7 +167,7 @@ export function hydrateSprintEngineLocalRunSettings(
 
   return {
     workspaces: workspaces.map((workspace) => {
-      const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+      const key = sprintEngineRunSettingsKey(legacySprintEngineRunContext(workspace)?.statePath)
       return applySprintEngineRunSettingsToWorkspace(workspace, key ? runSettings[key] : undefined)
     }),
     appSettings: {
@@ -392,7 +392,7 @@ export function migratePersistedWorkspaceState(
   if (version < 7) {
     mapMigrationWorkspaces(migrationState, (ws) =>
       ws.mode === 'sprintengine' || ws.sprintEngineState
-        ? { ...ws, layoutModel: sprintEngineTabsLayoutModel(ws.sprintEngineState, ws.agents) }
+        ? { ...ws, layoutModel: sprintEngineTabsLayoutModel(ws.sprintEngineState ?? null, ws.agents) }
         : ws,
     )
   }
@@ -621,7 +621,7 @@ export function migratePersistedWorkspaceState(
     mapMigrationWorkspaces(migrationState, (ws) => {
       const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
       const mode = sprintEngineState ? 'sprintengine' : ws.mode ?? 'standard'
-      const nextWorkspace: Workspace = {
+      const nextWorkspace: LegacySprintEnginePersistWorkspace = {
         ...ws,
         mode,
         sprintEngineState,

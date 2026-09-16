@@ -11,7 +11,7 @@ export type WorkspaceRunGlyph = { state: LifecycleState; live: boolean; label: s
 
 export type WorkspaceRunGlyphProviderInput = Pick<
   Workspace,
-  'mode' | 'sprintEngineState' | 'sprintEngineContext' | 'sprintEngineAutoState'
+  'mode' | 'moduleState' | 'sprintEngineAutoState'
 >
 
 function isModuleEnabledForRunGlyph(moduleId: string): boolean {

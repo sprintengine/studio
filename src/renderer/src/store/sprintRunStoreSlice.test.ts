@@ -150,12 +150,16 @@ test('from-workspace: sprintRunHandleFromWorkspace mirrors the resident workspac
   const state = { name: 'Demo Run', tasks: [] } as unknown as SprintEngineState
   const workspace = {
     id: 'ws-42',
-    sprintEngineState: state,
-    sprintEngineContext: {
-      teamName: 'Demo Run',
-      teamSlug: 'demo-run',
-      teamDirectoryPath: '/tmp/proj/.sprintengine/sprintengine/demo-run',
-      statePath: STATE_PATH,
+    moduleState: {
+      sprintengine: {
+        state,
+        context: {
+          teamName: 'Demo Run',
+          teamSlug: 'demo-run',
+          teamDirectoryPath: '/tmp/proj/.sprintengine/sprintengine/demo-run',
+          statePath: STATE_PATH,
+        },
+      },
     },
   }
 
@@ -172,7 +176,7 @@ test('from-workspace: sprintRunHandleFromWorkspace mirrors the resident workspac
 
 test('from-workspace: a workspace with no sprint state yields no handle', () => {
   const handle = sprintRunHandleFromWorkspace(
-    { id: 'ws-1', sprintEngineState: null },
+    { id: 'ws-1' },
     () => {},
   )
   assert.equal(handle, null)

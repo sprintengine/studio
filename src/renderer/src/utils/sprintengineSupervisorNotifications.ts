@@ -8,6 +8,8 @@ import { isSprintEngineIpcBound, sprintEngineIpc } from '../modules/sprint-engin
 // drives the same auto-run cycle); re-exported here so existing import sites
 // and the store-bound stop path below can never drift from the port type.
 import type { SprintEngineAutoRunDisableReason } from '../../../shared/sprintengine/auto-run-executor'
+import { sprintEngineRunContext, sprintEngineRunState } from '../store/slices/workspaceModuleState'
+
 
 export type { SprintEngineAutoRunDisableReason } from '../../../shared/sprintengine/auto-run-executor'
 
@@ -58,7 +60,7 @@ export function applySprintEngineAutomationStopReason(
   const origin = options.origin ?? 'renderer'
   const notifyMainScheduler = (): void => {
     if (origin !== 'renderer' || reason === 'user_manual_toggle') return
-    pushStopReasonToSprintRuntime(workspace?.sprintEngineContext?.statePath, reason, context)
+    pushStopReasonToSprintRuntime((workspace ? sprintEngineRunContext(workspace) : null)?.statePath, reason, context)
   }
 
   if (reason === 'user_manual_toggle') {
@@ -95,7 +97,7 @@ export function applySprintEngineAutomationStopReason(
     // `workspace_removed` is unconditional — removing the workspace IS intent.
     if (
       reason === 'agent_terminal_closed'
-      && !sprintEngineAgentHasLiveRunWork(workspace?.sprintEngineState, context.agentId)
+      && !sprintEngineAgentHasLiveRunWork((workspace ? sprintEngineRunState(workspace) : null), context.agentId)
     ) {
       logPerfEvent('SprintEngineAutoRun', 'terminal-close-ignored-no-live-work', {
         workspaceId,

@@ -24,7 +24,7 @@ import {
   pickWorkspaceAgentName,
 } from './agentsSlice'
 import { sprintEngineTabsLayoutModel } from './layoutSlice'
-import { patchSprintEngineModuleState } from './workspaceModuleState'
+import { patchSprintEngineModuleState, sprintEngineRunContext, sprintEngineRunState, sprintEngineRoleDefaults } from './workspaceModuleState'
 import {
   normalizeCliPermissionPreset,
   normalizeSprintEngineRunSettings,
@@ -99,15 +99,15 @@ function createSprintEngineWorkspaceContext(
 export function normalizeSprintEngineWorkspaceContext(
   input: Partial<SprintEngineWorkspaceContext> | null | undefined,
   folderPath: string | null | undefined,
-  sprintEngineState: SprintEngineState | null
+  runProjection: SprintEngineState | null
 ): SprintEngineWorkspaceContext | null {
-  if (!sprintEngineState) return null
+  if (!runProjection) return null
 
   if (input?.teamSlug && input.teamName) {
     return createSprintEngineWorkspaceContext(folderPath, input.teamName, input.teamSlug)
   }
 
-  return createSprintEngineWorkspaceContext(folderPath, sprintEngineState?.name)
+  return createSprintEngineWorkspaceContext(folderPath, runProjection?.name)
 }
 
 function isDefaultSprintEngineAgentName(name: string | undefined, fallbackLabel: string): boolean {
@@ -180,13 +180,13 @@ function reuseAgentsMapIfUnchanged(
 
 export function reconcileSprintEngineAgents(
   currentAgents: Workspace['agents'],
-  sprintEngineState: SprintEngineState | null
+  runProjection: SprintEngineState | null
 ): Workspace['agents'] {
-  if (!sprintEngineState) return {}
+  if (!runProjection) return {}
 
   const nextAgents: Workspace['agents'] = {}
   const rosterAgents = Object.fromEntries(
-    buildSprintEngineAgentRosterForState(sprintEngineState).map((agent) => {
+    buildSprintEngineAgentRosterForState(runProjection).map((agent) => {
       const current = currentAgents[agent.id]
       const nextName = isDefaultSprintEngineAgentName(current?.name, agent.label)
         ? pickWorkspaceAgentName({ ...currentAgents, ...nextAgents })
@@ -197,7 +197,7 @@ export function reconcileSprintEngineAgents(
       // with no model, so replenishment-minted agents launched on the CLI's
       // default model). An explicit per-agent `cliRuntimeOverride` outranks the
       // role config; a role absent from the map preserves the record's values.
-      const resolved = resolveSprintEngineAgentRuntime(sprintEngineState.roleRuntimes, agent.role, current)
+      const resolved = resolveSprintEngineAgentRuntime(runProjection.roleRuntimes, agent.role, current)
       const normalizedAgent = current
         ? normalizeAgentState({
           ...current,
@@ -240,28 +240,25 @@ export function reconcileSprintEngineAgents(
 }
 
 export function migrateSprintEngineAgentNames(ws: Workspace): Workspace {
-  const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-  if (ws.mode !== 'sprintengine' && !sprintEngineState) return ws
+  const runProjection = normalizeSprintEngineState(sprintEngineRunState(ws))
+  if (ws.mode !== 'sprintengine' && !runProjection) return ws
 
-  const agents = reconcileSprintEngineAgents(ws.agents ?? {}, sprintEngineState)
-  // The freshly normalized state is canonical here; write it to the bag AND
-  // the mirror so the MC-1573 lockstep invariant survives this migration.
+  const agents = reconcileSprintEngineAgents(ws.agents ?? {}, runProjection)
   return patchSprintEngineModuleState(
     {
       ...ws,
-      sprintEngineState,
       agents,
-      layoutModel: sprintEngineTabsLayoutModel(sprintEngineState, agents),
+      layoutModel: sprintEngineTabsLayoutModel(runProjection, agents),
     },
-    { state: sprintEngineState },
+    { state: runProjection },
   )
 }
 
 interface RunStateSliceState {}
 
 interface RunStateSliceActions {
-  setSprintEngineContext: (id: WorkspaceId, sprintEngineContext: SprintEngineWorkspaceContext | null) => void
-  setSprintEngineState: (workspaceId: WorkspaceId, sprintEngineState: SprintEngineState | null) => void
+  setSprintEngineContext: (id: WorkspaceId, runContext: SprintEngineWorkspaceContext | null) => void
+  setSprintEngineState: (workspaceId: WorkspaceId, runProjection: SprintEngineState | null) => void
   setSprintEngineAutomationMode: (
     workspaceId: WorkspaceId,
     mode: SprintEngineAutomationMode,
@@ -346,7 +343,7 @@ function sprintEngineRunSettingsForWorkspace(
   state: RunStateSliceCarrier,
   workspace: Workspace,
 ): SprintEngineRunSettings | undefined {
-  const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+  const key = sprintEngineRunSettingsKey(sprintEngineRunContext(workspace)?.statePath)
   if (!key || !state.appSettings) return undefined
   return normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)[key]
 }
@@ -363,7 +360,7 @@ function rememberSprintEngineRunSettings(
   workspace: Workspace,
   patch: SprintEngineRunSettings,
 ): void {
-  const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+  const key = sprintEngineRunSettingsKey(sprintEngineRunContext(workspace)?.statePath)
   if (!key || !state.appSettings) return
   const current = normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)
   state.appSettings.sprintEngineRunSettings = {
@@ -399,26 +396,25 @@ function shouldAuditSprintEngineLifecycleState(
 
 export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
   return {
-    setSprintEngineContext: (id, sprintEngineContext) =>
+    setSprintEngineContext: (id, runContext) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (!ws) return
-        ws.sprintEngineContext = sprintEngineContext
-        const next = patchSprintEngineModuleState(ws, { context: sprintEngineContext })
+        const next = patchSprintEngineModuleState(ws, { context: runContext })
         if (!isDeepEqual(ws.moduleState, next.moduleState)) {
           if (next.moduleState) ws.moduleState = next.moduleState
           else delete ws.moduleState
         }
       }),
 
-    setSprintEngineState: (workspaceId, sprintEngineState) =>
+    setSprintEngineState: (workspaceId, runProjection) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
-        const normalized = normalizeSprintEngineState(sprintEngineState)
+        const normalized = normalizeSprintEngineState(runProjection)
         const nextMode = normalized ? 'sprintengine' : 'standard'
         const nextContext = normalizeSprintEngineWorkspaceContext(
-          ws.sprintEngineContext,
+          sprintEngineRunContext(ws),
           ws.folderPath,
           normalized
         )
@@ -446,7 +442,6 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         // draft (and therefore the array) stays untouched on no-op ticks, and so
         // per-field `useShallow` selectors also stay stable when only some
         // fields move.
-        if (!isDeepEqual(ws.sprintEngineState, normalized)) ws.sprintEngineState = normalized
         const patched = patchSprintEngineModuleState(ws, {
           state: normalized,
           context: nextContext,
@@ -456,7 +451,6 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           else delete ws.moduleState
         }
         if (ws.mode !== nextMode) ws.mode = nextMode
-        if (!isDeepEqual(ws.sprintEngineContext, nextContext)) ws.sprintEngineContext = nextContext
         if (ws.agents !== nextAgents) ws.agents = nextAgents
         if (!isDeepEqual(ws.sprintEngineAutoState, nextAutoState)) ws.sprintEngineAutoState = nextAutoState
       }),
@@ -472,7 +466,7 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         if (!ws) return
         const current = normalizeSprintEngineAutoState(ws.sprintEngineAutoState)
         ws.sprintEngineAutoState = transitionSprintEngineAutomation(current, { type: 'user_set_mode', mode })
-        const statePath = ws.sprintEngineContext?.statePath
+        const statePath = sprintEngineRunContext(ws)?.statePath
         if (statePath && !options?.suppressMainSync) {
           push.current = { statePath, workspaceName: ws.name }
         }
@@ -540,7 +534,7 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           changedAt: Date.now(),
         }
         rememberSprintEngineRunSettings(state, ws, { cliPermissionPreset: nextPreset })
-        const statePath = ws.sprintEngineContext?.statePath
+        const statePath = sprintEngineRunContext(ws)?.statePath
         if (statePath) push.current = { statePath, preset: nextPreset, workspaceName: ws.name }
       })
       if (push.current) {
@@ -607,7 +601,9 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
 
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
-        if (!ws?.sprintEngineState) return
+        if (!ws) return
+        const run = sprintEngineRunState(ws)
+        if (!run) return
 
         // Mint the display id against the canonical workers view when present
         // (MC-1593a) so it never collides with a live worker; the bridge is the
@@ -615,9 +611,9 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         // row resolve their role from the worker record before it first claims.
         const agentId = getNextSprintEngineAgentId(
           role,
-          ws.sprintEngineState.workers ?? ws.sprintEngineState.sprintEngineAgents,
+          run.workers ?? run.sprintEngineAgents,
         )
-        ws.sprintEngineState.sprintEngineAgents[agentId] = {
+        run.sprintEngineAgents[agentId] = {
           role,
           status: 'idle',
           currentTaskId: null,
@@ -625,20 +621,20 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
         // No roleCounts bump (MC-1450): counts are an enabled-set encoding,
         // not a headcount — mark the role enabled and let the runtime roster
         // carry the actual membership.
-        ws.sprintEngineState.roleCounts[role] = 1
+        run.roleCounts[role] = 1
 
-        const rosterAgent = buildSprintEngineAgentRosterForState(ws.sprintEngineState).find(
+        const rosterAgent = buildSprintEngineAgentRosterForState(run).find(
           (agent) => agent.id === agentId
         )
         const agentRoleLabel = rosterAgent?.label ?? agentId
         const agentLabel = pickWorkspaceAgentName(ws.agents)
-        const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults)
+        const roleCliDefaults = normalizeSprintEngineRoleCliDefaults(sprintEngineRoleDefaults(ws))
         // Role config from run.yaml (via the projection) wins for CLI, model and
         // reasoning effort; the workspace-level CLI defaults are the
         // pre-projection fallback. No model in either place ⇒ no `--model` flag,
         // and no level ⇒ no effort flag. A brand-new member has no per-agent
         // override yet.
-        const runtime = resolveSprintEngineAgentRuntime(ws.sprintEngineState.roleRuntimes, role, undefined)
+        const runtime = resolveSprintEngineAgentRuntime(run.roleRuntimes, role, undefined)
         const memberCli = runtime.cli ?? resolveSprintEngineRoleCli(roleCliDefaults, role)
         ws.agents[agentId] = {
           ...defaultAgent(agentId, agentLabel, 'sprintengine'),
@@ -646,9 +642,9 @@ export function createRunStateSlice(set: RunStateSliceSet): RunStateSlice {
           ...(runtime.cliModel ? { cliModel: runtime.cliModel } : {}),
           ...(runtime.cliReasoning ? { cliReasoning: runtime.cliReasoning } : {}),
         }
-        ws.agents = reconcileSprintEngineAgents(ws.agents, ws.sprintEngineState)
-        ws.sprintEngineState.events.push({
-          id: `EVT-${String(ws.sprintEngineState.events.length + 1).padStart(3, '0')}`,
+        ws.agents = reconcileSprintEngineAgents(ws.agents, run)
+        run.events.push({
+          id: `EVT-${String(run.events.length + 1).padStart(3, '0')}`,
           timestamp: new Date().toISOString(),
           type: 'member_added',
           actor: 'user',

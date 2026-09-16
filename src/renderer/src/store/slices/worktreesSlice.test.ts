@@ -103,7 +103,6 @@ const carrier: { workspaces: Workspace[] } = {
       memory: defaultWorkspaceMemoryConfig(),
       editorState: { openFiles: [], activeFilePath: null },
       worktreeState: defaultWorkspaceWorktreeState(),
-      sprintEngineState: null,
       sprintEngineAutoState: defaultSprintEngineAutoState(),
       createdAt: 1,
     },

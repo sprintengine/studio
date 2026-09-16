@@ -63,6 +63,8 @@ import { FOCUS_RING_TERMINAL_CLASS } from '../ui/tokens'
 import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
+import { sprintEngineRunContext, sprintEngineRunState } from '../../store/slices/workspaceModuleState'
+
 
 interface Props {
   workspaceId: string
@@ -207,18 +209,18 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     message: folderStatusMessage,
   } = useWorkspaceFolderStatus(workspaceId)
   const sprintEngineContext = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext ?? null
+    sprintEngineRunContext(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })
   )
   const sprintEngineRuntimeRole = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.role ?? null
+    sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.role ?? null
   )
   const sprintEngineRuntimeCurrentTaskId = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.currentTaskId ?? null
+    sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.currentTaskId ?? null
   )
   const sprintEngineRosterRole = useWorkspaceStore((s) => {
-    const sprintEngineState = s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState
-    if (!sprintEngineState) return null
-    return buildSprintEngineAgentRosterForState(sprintEngineState).find((candidate) => candidate.id === agentId)?.role ?? null
+    const run = sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })
+    if (!run) return null
+    return buildSprintEngineAgentRosterForState(run).find((candidate) => candidate.id === agentId)?.role ?? null
   })
   const workspaceFolderPath = useWorkspaceStore((s) =>
     s.workspaces.find((w) => w.id === workspaceId)?.folderPath
@@ -261,9 +263,10 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const currentAgent = workspace?.agents[agentId]
     if (currentAgent?.cliStartupPrompt) return currentAgent.cliStartupPrompt
 
-    if (workspace?.mode !== 'sprintengine' || !workspace.sprintEngineState) return null
+    const run = workspace ? sprintEngineRunState(workspace) : null
+    if (workspace?.mode !== 'sprintengine' || !run) return null
 
-    const rosterAgent = buildSprintEngineAgentRosterForState(workspace.sprintEngineState).find(
+    const rosterAgent = buildSprintEngineAgentRosterForState(run).find(
       (candidate) => candidate.id === agentId
     )
 
@@ -272,14 +275,14 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     const basePrompt = buildSprintEngineStartupPrompt(
       rosterAgent.role,
       agentId,
-      workspace.sprintEngineState.goal,
+      run.goal,
       {
         executionCwd: resolveAgentExecutionRoot(currentAgent?.execution, storedExecutionWorktreePath, folderReadyPath, null).cwd,
         workspaceRoot: folderReadyPath ?? undefined,
-        sprintEngineStatePath: workspace.sprintEngineContext?.statePath,
-        rosterArgs: buildSprintEngineRosterCommandArgs(workspace.sprintEngineState),
-        configuredRoles: workspace.sprintEngineState.configuredRoles,
-        commandMode: getSprintEngineStartupCommandMode(rosterAgent.role, agentId, workspace.sprintEngineState),
+        sprintEngineStatePath: sprintEngineRunContext(workspace)?.statePath,
+        rosterArgs: buildSprintEngineRosterCommandArgs(run),
+        configuredRoles: run.configuredRoles,
+        commandMode: getSprintEngineStartupCommandMode(rosterAgent.role, agentId, run),
         autonomousPlanningOverride:
           rosterAgent.role === 'architect'
           && deriveSprintEngineAutomationDesiredMode(workspace.sprintEngineAutoState) === 'run_agents_and_approve_artifacts',

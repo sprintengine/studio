@@ -80,6 +80,8 @@ import { sprintRunOpenFailureCopy, sprintRunShortDate } from './railState'
 import { requestCloseSprintWorkspace } from './sprintDoorRequests'
 import { deleteSprintRun } from './sprintRunDeletion'
 import { SprintsRepoStrip } from './SprintsRepoStrip'
+import { sprintEngineRunContext } from '../../../../store/slices/workspaceModuleState'
+
 
 const SprintRunBoard = React.lazy(async () => ({
   default: (await import('../../../panels/SprintRunBoard')).SprintRunBoard,
@@ -135,8 +137,8 @@ export function useSprintRunCanvas(run: SprintRunSummary | null): SprintRunCanva
     (store) =>
       store.workspaces.find(
         (workspace) =>
-          workspace.sprintEngineContext?.statePath
-          && normalizeStatePathKey(workspace.sprintEngineContext.statePath) === statePathKey,
+          sprintEngineRunContext(workspace)?.statePath
+          && normalizeStatePathKey(sprintEngineRunContext(workspace)?.statePath ?? '') === statePathKey,
       )?.id ?? null,
   )
   const residentWorkspace = useWorkspaceStore((store) =>

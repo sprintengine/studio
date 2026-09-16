@@ -126,7 +126,7 @@ import {
 } from './slices/normalizers'
 import { keepLaterWorkspaceClocks } from '../utils/workspaceRecency'
 import { applyWorkspaceFieldsPatch } from '../../../shared/workspace-sync'
-import { reconcileWorkspaceModuleState } from './slices/workspaceModuleState'
+import { reconcileWorkspaceModuleState, sprintEngineRunContext } from './slices/workspaceModuleState'
 import {
   configureWorkspaceSyncClient,
   workspaceSyncClient,
@@ -361,9 +361,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
       // Set for a chat created on a paired machine; see Workspace.remoteOrigin.
       remoteOrigin?: import('../types/workspace').WorkspaceRemoteOrigin | null
       worktree?: WorkspaceWorktree | null
-      sprintEngineState?: SprintEngineState | null
-      sprintEngineContext?: SprintEngineWorkspaceContext | null
-      sprintEngineRoleCliDefaults?: SprintEngineRoleCliDefaults | null
+      sprintEngineModule?: import('../../../shared/sprintengine/workspace-record').SprintEngineModuleState
       sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
       sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
       sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
@@ -1491,8 +1489,8 @@ function syncActiveSprintRunsToMain(): void {
   let lastSerialized = ''
   const push = (workspaces: Workspace[]): void => {
     const paths = workspaces
-      .filter((ws) => ws.sprintEngineContext?.statePath && sprintEngineAutomationShouldRun(ws.sprintEngineAutoState))
-      .map((ws) => ws.sprintEngineContext!.statePath)
+      .filter((ws) => sprintEngineRunContext(ws)?.statePath && sprintEngineAutomationShouldRun(ws.sprintEngineAutoState))
+      .map((ws) => sprintEngineRunContext(ws)!.statePath)
       .sort()
     const serialized = JSON.stringify(paths)
     if (serialized === lastSerialized) return
@@ -1593,9 +1591,9 @@ function adoptRegistrySnapshot(snapshot: import('../../../shared/workspace-sync'
           ? adoptLegacyBacklogTab(raw.layoutModel, existing.paneState)
           : incoming.paneState,
         // Live-only fields main never persists: the projection cache the
-        // supervisor re-reads from disk, and in-flight terminal metadata for
-        // agents this window owns.
-        sprintEngineState: existing.sprintEngineState,
+        // supervisor re-reads from disk lives in the sprintengine bag, and
+        // in-flight terminal metadata is for agents this window owns.
+        moduleState: existing.moduleState,
         agents: preserveAgentTerminalMetadata(incoming, existing).agents,
       })
     })

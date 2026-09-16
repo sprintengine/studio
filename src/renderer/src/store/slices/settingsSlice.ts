@@ -42,6 +42,7 @@ import type {
   VoiceDictationSettings,
   Workspace,
 } from '../../types/workspace'
+import { sprintEngineRunContext, sprintEngineRunState } from './workspaceModuleState'
 import type {
   DiscoveredCliModel,
   DiscoveredCliModelCatalog,
@@ -1802,8 +1803,8 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.sprintEngineRunSettings = runSettings
         const changedAt = Date.now()
         for (const workspace of state.workspaces) {
-          if (!workspace.sprintEngineState || !workspace.sprintEngineAutoState) continue
-          const key = sprintEngineRunSettingsKey(workspace.sprintEngineContext?.statePath)
+          if (!sprintEngineRunState(workspace) || !workspace.sprintEngineAutoState) continue
+          const key = sprintEngineRunSettingsKey(sprintEngineRunContext(workspace)?.statePath)
           if (!key || runSettings[key]) continue
           workspace.sprintEngineAutoState = {
             ...workspace.sprintEngineAutoState,

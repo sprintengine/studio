@@ -6,6 +6,7 @@ import { isStarred } from './highlight'
 import { isSnoozeUnexpired, wakeSnoozedWorkspacePatch } from './workspaceSnooze'
 import { workspaceLastActiveAt } from './workspaceRecency'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../types/workspace'
+import { sprintEngineRunState } from '../store/slices/workspaceModuleState'
 import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 
 // A chat settles — moves from its folder's active list into the folder's
@@ -72,7 +73,7 @@ export function shouldAutoSettleWorkspace(workspace: Workspace, now: number): bo
   if (now - workspaceLastActiveAt(workspace) < WORKSPACE_AUTO_SETTLE_AFTER_MS) return false
   if (isSprintEngineWorkspace(workspace)) {
     const glyph = deriveSprintEngineRunGlyph({
-      sprintEngineState: workspace.sprintEngineState,
+      sprintEngineState: sprintEngineRunState(workspace),
       autoState: workspace.sprintEngineAutoState,
     })
     if (glyph && PINNED_RUN_STATES.has(glyph.state)) return false

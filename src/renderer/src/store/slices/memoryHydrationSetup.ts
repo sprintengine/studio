@@ -39,7 +39,6 @@ const seededWorkspace = {
     graphSettings: null,
   },
   editorState: { openFiles: [], activeFilePath: null },
-  sprintEngineState: null,
   sprintEngineAutoState: {
     desiredMode: 'manual',
     runtimeState: 'idle',

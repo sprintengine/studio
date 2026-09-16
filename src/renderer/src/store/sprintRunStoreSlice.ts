@@ -1,7 +1,8 @@
 import { useEffect, useMemo } from 'react'
 import { create } from 'zustand'
 
-import type { SprintEngineState, SprintEngineWorkspaceContext } from '../types/workspace'
+import type { SprintEngineState, SprintEngineWorkspaceContext, WorkspaceModuleStateBag } from '../types/workspace'
+import { sprintEngineRunContext, sprintEngineRunState } from './slices/workspaceModuleState'
 import { normalizeSprintEngineProjection } from '../utils/sprintengine'
 import { sprintEngineIpc } from '../modules/sprint-engine-ipc'
 
@@ -162,14 +163,13 @@ export const useSprintRunStore = create<SprintRunStore>()((set, get) => ({
 export function sprintRunHandleFromWorkspace(
   workspace: {
     id: string
-    sprintEngineContext?: SprintEngineWorkspaceContext | null
-    sprintEngineState?: SprintEngineState | null
+    moduleState?: WorkspaceModuleStateBag
   },
   applyState: (workspaceId: string, state: SprintEngineState | null) => void,
 ): SprintRunHandle | null {
-  const state = workspace.sprintEngineState
+  const state = sprintEngineRunState(workspace)
   if (!state) return null
-  const context = workspace.sprintEngineContext ?? null
+  const context = sprintEngineRunContext(workspace)
   return {
     statePath: context?.statePath ?? '',
     sprintEngineContext: context,

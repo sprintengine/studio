@@ -22,13 +22,12 @@ import { resolveSkillInvocation } from '../../../shared/skill-invocation'
 import type { McpServerConfig, Workspace } from '../types/workspace'
 import type { PluginSkillCatalog } from '../../../shared/plugin-manifest'
 
-type WorktreeInput = Pick<Workspace, 'folderPath' | 'worktree' | 'sprintEngineState'>
+type WorktreeInput = Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
 
 function make(overrides: Partial<WorktreeInput>): WorktreeInput {
   return {
     folderPath: '/Users/example/project',
     worktree: null,
-    sprintEngineState: null,
     ...overrides,
   }
 }
@@ -37,13 +36,13 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
 //    + project-relative worktreePath), branch comes from vcs.branchName.
 {
   const ws = make({
-    sprintEngineState: {
+    moduleState: { sprintengine: { state: {
       vcs: {
         mode: 'run_worktree',
         worktreePath: '.sprintengine/sprintengine/auth/worktree',
         branchName: 'sprintengine/auth',
       },
-    } as unknown as Workspace['sprintEngineState'],
+    } } },
   })
   const resolved = resolveWorkspaceWorktree(ws)
   assert.deepEqual(resolved, {
@@ -97,9 +96,9 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
 {
   const ws = make({
     worktree: { branch: 'ignored' },
-    sprintEngineState: {
+    moduleState: { sprintengine: { state: {
       vcs: { mode: 'run_worktree', worktreePath: '.sprintengine/sprintengine/x/worktree', branchName: 'sprintengine/x' },
-    } as unknown as Workspace['sprintEngineState'],
+    } } },
   })
   assert.equal(resolveWorkspaceWorktree(ws)?.branch, 'sprintengine/x')
 }
@@ -116,7 +115,7 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
 
 // 6. A sprint NOT in worktree mode (no vcs) → null.
 {
-  const ws = make({ sprintEngineState: { vcs: null } as unknown as Workspace['sprintEngineState'] })
+  const ws = make({ moduleState: { sprintengine: { state: { vcs: null } } } })
   assert.equal(resolveWorkspaceWorktree(ws), null)
 }
 
@@ -124,9 +123,9 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
 //    nested under folderPath.
 {
   const ws = make({
-    sprintEngineState: {
+    moduleState: { sprintengine: { state: {
       vcs: { mode: 'run_worktree', worktreePath: '/abs/worktree', branchName: 'sprintengine/x' },
-    } as unknown as Workspace['sprintEngineState'],
+    } } },
   })
   assert.equal(resolveWorkspaceWorktree(ws)?.gitRoot, '/abs/worktree')
 }
@@ -136,7 +135,7 @@ function make(overrides: Partial<WorktreeInput>): WorktreeInput {
 /** A run declaring two projects: the primary, plus a `mobile` sibling. */
 function twoRepoWorkspace(): WorktreeInput {
   return make({
-    sprintEngineState: {
+    moduleState: { sprintengine: { state: {
       vcs: {
         mode: 'run_worktree',
         worktreePath: '.sprintengine/sprintengine/x/worktree',
@@ -146,7 +145,7 @@ function twoRepoWorkspace(): WorktreeInput {
           { id: 'mobile', root: '../multicode-mobile', worktreePath: '.sprintengine/sprintengine/x/worktree-mobile', branchName: 'sprintengine/x' },
         ],
       },
-    } as unknown as Workspace['sprintEngineState'],
+    } } },
   })
 }
 
@@ -176,14 +175,14 @@ function twoRepoWorkspace(): WorktreeInput {
 //    single-repo run always had.
 {
   const ws = make({
-    sprintEngineState: {
+    moduleState: { sprintengine: { state: {
       vcs: {
         mode: 'run_worktree',
         worktreePath: '.sprintengine/sprintengine/x/worktree',
         branchName: 'sprintengine/x',
         repos: [{ id: 'primary', root: '.', worktreePath: '.sprintengine/sprintengine/x/worktree', branchName: 'sprintengine/x' }],
       },
-    } as unknown as Workspace['sprintEngineState'],
+    } } },
   })
   assert.deepEqual(resolveWorkspaceWorktrees(ws), [{
     gitRoot: '/Users/example/project/.sprintengine/sprintengine/x/worktree',

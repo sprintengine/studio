@@ -3,6 +3,7 @@ import type { SprintEngineAutomationChangedEvent } from '../../../shared/sprinte
 import type { SprintEngineAutomationIntentRecord } from '../../../shared/sprintengine/automation-intent'
 import type { LayoutTemplate, SprintEngineAutomationMode } from '../types/workspace'
 import { createInitialSprintEngineState } from './sprintengine'
+import { sprintEngineRunContext } from '../store/slices/workspaceModuleState'
 import { bindSprintEngineIpc } from '../modules/sprint-engine-ipc'
 
 // ── Fake preload API (installed before the modules under test are imported so
@@ -164,8 +165,8 @@ function addSprintWorkspace(name: string, folderPath: string): { workspaceId: st
       roleCounts: { architect: 1 },
     })
   )
-  const statePath = useWorkspaceStore.getState().workspaces
-    .find((ws) => ws.id === workspaceId)?.sprintEngineContext?.statePath
+  const found = useWorkspaceStore.getState().workspaces.find((ws) => ws.id === workspaceId)
+  const statePath = found ? sprintEngineRunContext(found)?.statePath : undefined
   assert.ok(statePath, 'sprint workspace fixture must expose a statePath')
   return { workspaceId, statePath }
 }

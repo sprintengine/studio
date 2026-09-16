@@ -373,7 +373,6 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       worktreeState: { containerPath: null, entries: {}, updatedAt: null },
       memory: { relativeRoot: null },
       editorState: { openFiles: [], activeFilePath: null },
-      sprintEngineState: null,
       sprintEngineAutoState: {
         desiredMode: 'manual',
         runtimeState: 'idle',

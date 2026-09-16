@@ -27,7 +27,6 @@ const session = (over: Partial<TerminalSessionSnapshot>): TerminalSessionSnapsho
 const workspace = (over: Partial<FollowedCheckoutWorkspace> = {}): FollowedCheckoutWorkspace => ({
   id: 'ws',
   folderPath: '/repo',
-  sprintEngineState: null,
   agents: {
     a1: { id: 'a1', name: 'Conor Kirby', cli: 'claude-code', execution: { mode: 'current_workspace', worktreeId: null, cwd: '/repo' } },
     a2: { id: 'a2', name: 'Aine Carey', cli: 'codex', execution: { mode: 'current_workspace', worktreeId: null, cwd: '/repo' } },

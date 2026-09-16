@@ -4,8 +4,7 @@
  * A sprint workspace is not a plain workspace: its agent map is seeded from the
  * run's lazy roster (one record per seat, each carrying the CLI/model/effort the
  * roster picked), its layout is the board tab rather than the template's, and
- * its engine identity lives in `moduleState.sprintengine` (with a legacy
- * `sprintEngineState` mirror kept in lockstep for in-tree readers).
+ * its engine identity lives in `moduleState.sprintengine`.
  *
  * That composition used to live inside the renderer store's `addWorkspace`.
  * Main mints sprint workspaces itself now (a headless `sprint.create`), so a
@@ -261,7 +260,6 @@ export function composeSprintEngineWorkspaceRecord(
     folderPath: input.folderPath,
     folderMissing: false,
     ...(input.worktree ? { worktree: input.worktree } : {}),
-    sprintEngineContext: input.sprintEngineContext,
     templateId: SPRINT_ENGINE_TEMPLATE_ID,
     layoutModel: sprintEngineTabsLayoutModel(input.sprintEngineState, agents, { includeAgentTabs: false }),
     agents,
@@ -269,9 +267,6 @@ export function composeSprintEngineWorkspaceRecord(
     memory: input.defaults.memory,
     editorState: input.defaults.editorState,
     fileExplorerState: input.defaults.fileExplorerState,
-    // Canonical bag entry (projection + durable context/CLI defaults) with the
-    // legacy `sprintEngineState` mirror kept in lockstep for in-tree readers
-    // until they migrate to the bag (MC-2573).
     moduleState: {
       [SPRINT_ENGINE_WORKSPACE_MODULE_ID]: {
         state: input.sprintEngineState,
@@ -279,11 +274,33 @@ export function composeSprintEngineWorkspaceRecord(
         roleCliDefaults: input.roleCliDefaults,
       } satisfies SprintEngineModuleState,
     },
-    sprintEngineState: input.sprintEngineState,
-    sprintEngineRoleCliDefaults: input.roleCliDefaults,
     ...(initialSpawnAgentIds.length > 0 ? { sprintEngineInitialSpawnAgentIds: initialSpawnAgentIds } : {}),
     sprintEngineAutoState: input.sprintEngineAutoState,
     createdAt: input.createdAt,
   }
   return { workspace, agents, initialSpawnAgentIds }
+}
+
+export type SprintEngineWorkspaceModuleComposeInput = Omit<
+  SprintEngineWorkspaceRecordInput,
+  'sprintEngineState' | 'sprintEngineContext' | 'roleCliDefaults'
+> & {
+  module: {
+    state: SprintEngineState
+    context: SprintEngineWorkspaceContext | null
+    roleCliDefaults: SprintEngineRoleCliDefaults
+  }
+}
+
+/** Compose a sprint workspace from the module bag shape (MC-2573). */
+export function composeSprintEngineWorkspaceFromModule(
+  input: SprintEngineWorkspaceModuleComposeInput,
+): SprintEngineWorkspaceRecord {
+  const { module, ...rest } = input
+  return composeSprintEngineWorkspaceRecord({
+    ...rest,
+    sprintEngineState: module.state,
+    sprintEngineContext: module.context,
+    roleCliDefaults: module.roleCliDefaults,
+  })
 }

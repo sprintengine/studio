@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { collectQuiescedSprintWorkspaces } from './SprintEngineRunChangeSubscriber'
-import type { Workspace } from '../../types/workspace'
+import type { SprintEngineState, Workspace } from '../../types/workspace'
 
 // The selection rule for main's runs-changed broadcast: refresh only the sprint
 // workspaces in THIS window whose projection poll has already quiesced on that
@@ -12,18 +12,22 @@ const STATE_PATH = '/projects/alpha/.sprintengine/sprintengine/alpha/run.yaml'
 
 // `canStopPollingCompletedSprintEngineProjection` quiesces on a run that is
 // lifecycle-`complete`, hydrated complete, and torn down.
-function quiescedState(): Workspace['sprintEngineState'] {
+function quiescedState(): SprintEngineState {
   return {
     tasks: [{ id: 'T1', status: 'done' }],
     artifacts: [],
-  } as unknown as Workspace['sprintEngineState']
+  } as unknown as SprintEngineState
 }
 
 function workspace(overrides: Partial<Workspace> & { id: string }): Workspace {
   return {
     mode: 'sprintengine',
-    sprintEngineContext: { statePath: STATE_PATH },
-    sprintEngineState: quiescedState(),
+    moduleState: {
+      sprintengine: {
+        context: { statePath: STATE_PATH },
+        state: quiescedState(),
+      },
+    },
     sprintEngineAutoState: { runtimeState: 'complete', completionTeardownAt: 1 },
     ...overrides,
   } as unknown as Workspace
@@ -41,11 +45,19 @@ const workspaces: Workspace[] = [
   // A different run entirely.
   workspace({
     id: 'other-run',
-    sprintEngineContext: { statePath: '/projects/beta/.sprintengine/sprintengine/beta/run.yaml' },
+    moduleState: {
+      sprintengine: {
+        context: { statePath: '/projects/beta/.sprintengine/sprintengine/beta/run.yaml' },
+        state: quiescedState(),
+      },
+    },
   } as unknown as Partial<Workspace> & { id: string }),
   // Not a sprint workspace.
   { id: 'plain', mode: 'terminal' } as unknown as Workspace,
-  workspace({ id: 'no-context', sprintEngineContext: undefined } as Partial<Workspace> & { id: string }),
+  workspace({
+    id: 'no-context',
+    moduleState: { sprintengine: { state: quiescedState() } },
+  } as Partial<Workspace> & { id: string }),
   // Right run, but this workspace belongs to another window.
   workspace({ id: 'not-in-window' }),
 ]

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { sprintEngineRunContext } from '../../store/slices/workspaceModuleState'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { resolveWorkspaceTerminalCwd, resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -82,7 +83,7 @@ export default function PlainTerminalPanel({
     message: folderStatusMessage,
   } = useWorkspaceFolderStatus(workspaceId)
   const sprintEngineContext = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineContext ?? null
+    sprintEngineRunContext(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })
   )
   // Derived string, not the workspace object: sprintEngineState re-projects
   // ~every 4s and churns object identity, but the gitRoot string is stable, so

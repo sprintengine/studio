@@ -37,7 +37,6 @@ function workspace(overrides: Partial<Workspace> = {}): Workspace {
     worktreeState: { containerPath: null, entries: {}, updatedAt: null },
     memory: { relativeRoot: null },
     editorState: { openFiles: [], activeFilePath: null },
-    sprintEngineState: null,
     sprintEngineAutoState: {
       desiredMode: 'manual',
       runtimeState: 'idle',
@@ -166,7 +165,7 @@ test('durability normalization strips renderer-owned view state and live agent n
 
   assert.deepEqual(normalized.editorState, { openFiles: [], activeFilePath: null })
   assert.equal(normalized.fileExplorerState, undefined)
-  assert.equal(normalized.sprintEngineState, null, 'the projection cache is engine-owned, never registry state')
+  assert.equal('sprintEngineState' in normalized, false, 'the projection cache is engine-owned, never registry state')
   assert.equal(normalized.sprintEngineInitialSpawnAgentIds, undefined, 'session-only spawn intent never persists')
   assert.equal('sprintEngineContext' in normalized, false, 'top-level context is dropped; the bag is the store')
   assert.deepEqual(normalized.moduleState, { backlog: { lens: 'all' } }, 'a projection-shaped sprintengine bag entry is stripped; other modules stay')
@@ -205,7 +204,7 @@ test('durability normalization keeps durable sprintengine bag fields and drops t
     },
   } as unknown as Partial<Workspace>))
 
-  assert.equal(normalized.sprintEngineState, null)
+  assert.equal('sprintEngineState' in normalized, false)
   assert.equal('sprintEngineContext' in normalized, false)
   assert.equal('sprintEngineRoleCliDefaults' in normalized, false)
   assert.deepEqual(normalized.moduleState, {

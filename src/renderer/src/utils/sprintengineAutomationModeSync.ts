@@ -39,6 +39,8 @@ import {
   setSprintEngineAutomationPushSettledListener,
 } from './sprintengineAutomationIntentClient'
 import { isSprintEngineIpcBound, sprintEngineIpc } from '../modules/sprint-engine-ipc'
+import { sprintEngineRunContext, sprintEngineRunState } from '../store/slices/workspaceModuleState'
+
 
 type SprintWorkspaceRef = {
   workspaceId: string
@@ -47,8 +49,8 @@ type SprintWorkspaceRef = {
 
 function listSprintWorkspaceRefs(): SprintWorkspaceRef[] {
   return useWorkspaceStore.getState().workspaces.flatMap((workspace) => {
-    const statePath = workspace.sprintEngineContext?.statePath
-    if (!statePath || !workspace.sprintEngineState) return []
+    const statePath = sprintEngineRunContext(workspace)?.statePath
+    if (!statePath || !sprintEngineRunState(workspace)) return []
     return [{ workspaceId: workspace.id, statePath }]
   })
 }

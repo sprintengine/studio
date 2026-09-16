@@ -46,16 +46,17 @@ import {
   departedWorkerTeardownPortsWithoutRecord,
   tearDownDepartedTaskScopedWorker,
 } from './sprintengineRunTeardown'
+import { sprintEngineRunContext, sprintEngineRunState } from '../store/slices/workspaceModuleState'
 
 function findWorkspaceByStatePath(statePath: string): Workspace | undefined {
   return useWorkspaceStore.getState().workspaces
-    .find((workspace) => workspace.sprintEngineContext?.statePath === statePath)
+    .find((workspace) => sprintEngineRunContext(workspace)?.statePath === statePath)
 }
 
 /** Sprint workspaces the scheduler should know about (same eligibility rule as the mode sync). */
 function listRegistrableSprintWorkspaces(): Workspace[] {
   return useWorkspaceStore.getState().workspaces.filter((workspace) =>
-    Boolean(workspace.sprintEngineContext?.statePath) && Boolean(workspace.sprintEngineState)
+    Boolean(sprintEngineRunContext(workspace)?.statePath) && Boolean(sprintEngineRunState(workspace))
   )
 }
 
@@ -252,7 +253,7 @@ export function initSprintEngineRuntimeBridge(): () => void {
     // Register new/changed runs; unregister removed ones.
     const seenStatePaths = new Set<string>()
     for (const workspace of listRegistrableSprintWorkspaces()) {
-      const statePath = workspace.sprintEngineContext!.statePath
+      const statePath = sprintEngineRunContext(workspace)!.statePath
       seenStatePaths.add(statePath)
       const registration = buildRegistration(workspace, statePath)
       const signature = registrationSignature(registration)

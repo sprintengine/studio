@@ -167,6 +167,8 @@ import {
   saveInspectorPaneWidth,
 } from './sprintEngineBoard/inspectorPaneWidth'
 import { SIDECAR_DIR_PATTERN_SOURCE } from '../../../../shared/workspace-sidecar'
+import { sprintEngineRoleDefaults } from '../../store/slices/workspaceModuleState'
+
 
 
 
@@ -811,7 +813,7 @@ export function SprintRunBoard({
  message: 'Waiting for a sprint workspace folder.',
  })
 
- // From the handle: identical to `workspace.sprintEngineContext` for a workspace
+ // From the handle: identical to the bag context for a workspace
  // mount, and the statePath-resolved context for a door mount.
  const sprintEngineContext = handle.sprintEngineContext
  // Applies a freshly-read projection to the board's displayed state via the
@@ -1827,7 +1829,7 @@ export function SprintRunBoard({
  }
 
  const addMemberRoleDefaultCli = (role: SprintEngineRole): AgentCli =>
- workspace?.sprintEngineRoleCliDefaults?.[role] ?? lastSelectedCli
+ (workspace ? sprintEngineRoleDefaults(workspace) : undefined)?.[role] ?? lastSelectedCli
 
  const selectAddMemberRole = (role: SprintEngineRole) => {
  setAddMemberRole(role)

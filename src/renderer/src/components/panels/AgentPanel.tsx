@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
+import { sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 import { useSession } from '../../hooks/useTerminalSessions'
 import type {
   AgentCli,
@@ -81,10 +82,10 @@ export default function AgentPanel({
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.name
   )
   const sprintEngineRuntimeRole = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.role
+    (s) => sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.role
   )
   const sprintEngineRuntimeStatus = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.sprintEngineState?.sprintEngineAgents[agentId]?.status
+    (s) => sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.status
   )
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)

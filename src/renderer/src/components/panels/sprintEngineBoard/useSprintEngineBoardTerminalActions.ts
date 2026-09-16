@@ -15,6 +15,8 @@ import { getSprintEngineRoleLabel, willResumeRecordedRosterSession, type SprintE
 import { prependAgentIdentifier } from '../../../utils/agentPrompt'
 import { publishDiagnostic } from '../../../utils/diagnostics'
 import { buildSprintEngineRecoveryAuditPrompt } from '../../../utils/sprintengineAgentPrompts'
+import { sprintEngineRoleDefaults } from '../../../store/slices/workspaceModuleState'
+
 
 type RecoveryDialogState = {
   cli: AgentCli
@@ -425,7 +427,7 @@ export function useSprintEngineBoardTerminalActions(
 
     const role = rosterById[agentId]?.role
     const roleDefaultCli = role
-      ? workspace?.sprintEngineRoleCliDefaults?.[role] ?? lastSelectedCli
+      ? (workspace ? sprintEngineRoleDefaults(workspace) : undefined)?.[role] ?? lastSelectedCli
       : lastSelectedCli
     const cli = agentState?.cli ?? roleDefaultCli
 

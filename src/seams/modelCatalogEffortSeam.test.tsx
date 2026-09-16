@@ -1,3 +1,4 @@
+import { sprintEngineRunState } from '../renderer/src/store/slices/workspaceModuleState'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -623,7 +624,7 @@ async function main(): Promise<void> {
     // And the seeded record must already agree with what the first projection
     // reconcile produces, so opening the board cannot change the seat's runtime
     // out from under a process that is already running.
-    const reconciled = reconcileSprintEngineAgents(workspace!.agents, workspace!.sprintEngineState as never)
+    const reconciled = reconcileSprintEngineAgents(workspace!.agents, sprintEngineRunState(workspace!) as never)
     assert.equal(
       reconciled.architect?.cliReasoning,
       architect.cliReasoning,

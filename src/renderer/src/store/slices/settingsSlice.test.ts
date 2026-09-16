@@ -633,17 +633,21 @@ const permissionCarrier = {
       worktreeState: { containerPath: null, entries: {}, updatedAt: null },
       memory: { relativeRoot: null },
       editorState: { openFiles: [], activeFilePath: null },
-      sprintEngineContext: {
-        teamName: 'run',
-        teamSlug: 'run',
-        teamDirectoryPath: '/Users/example/project/.sprintengine/sprintengine/run',
-        statePath: sprintEngineRunPath,
+      moduleState: {
+        sprintengine: {
+          context: {
+            teamName: 'run',
+            teamSlug: 'run',
+            teamDirectoryPath: '/Users/example/project/.sprintengine/sprintengine/run',
+            statePath: sprintEngineRunPath,
+          },
+          state: createInitialSprintEngineState({
+            name: 'run',
+            goal: 'Test permission propagation',
+            roleCounts: { architect: 1 },
+          }),
+        },
       },
-      sprintEngineState: createInitialSprintEngineState({
-        name: 'run',
-        goal: 'Test permission propagation',
-        roleCounts: { architect: 1 },
-      }),
       sprintEngineAutoState: {
         desiredMode: 'manual',
         runtimeState: 'idle',

@@ -202,6 +202,8 @@ import {
 } from '../palette/paletteOpenRequest'
 import { buildSprintEngineAgentRosterForState, buildSprintEngineRoleRegistry, computeSprintEngineFocusAgentAvailability } from '../../utils/sprintengine'
 import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
+import { sprintEngineRunContext, sprintEngineRunState, sprintEngineRoleDefaults } from '../../store/slices/workspaceModuleState'
+
 
 // The pre-creation New Chat panel — agent + engine chooser that creates nothing
 // until the user starts the chat. Code-split out of the eager boot chunk;
@@ -353,15 +355,15 @@ function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Workspace)
     && left.mode === right.mode
     && left.folderPath === right.folderPath
     && left.folderMissing === right.folderMissing
-    && left.sprintEngineContext === right.sprintEngineContext
+    && sprintEngineRunContext(left) === sprintEngineRunContext(right)
     && left.templateId === right.templateId
     && left.layoutModel === right.layoutModel
     && left.worktreeState === right.worktreeState
     && left.memory === right.memory
     && left.editorState === right.editorState
     && left.fileExplorerState === right.fileExplorerState
-    && left.sprintEngineState === right.sprintEngineState
-    && left.sprintEngineRoleCliDefaults === right.sprintEngineRoleCliDefaults
+    && sprintEngineRunState(left) === sprintEngineRunState(right)
+    && sprintEngineRoleDefaults(left) === sprintEngineRoleDefaults(right)
     && left.sprintEngineInitialSpawnAgentIds === right.sprintEngineInitialSpawnAgentIds
     && left.sprintEngineAutoState === right.sprintEngineAutoState
     && left.highlight === right.highlight
@@ -876,7 +878,7 @@ export default function WorkspaceManager() {
     const scopes: CommandScope[] = ['global']
     if (!workspaceActionsEnabled) return scopes
     scopes.push('workspace', 'workspace-navigation')
-    if (activeWorkspace.mode === 'sprintengine' || activeWorkspace.sprintEngineContext) {
+    if (activeWorkspace.mode === 'sprintengine' || sprintEngineRunContext(activeWorkspace)) {
       scopes.push('panel:sprintengine')
     }
     // Generic module panel scope: the active mode's owning module (via the
@@ -893,7 +895,7 @@ export default function WorkspaceManager() {
     return scopes
     // moduleRegistryGeneration: a late third-party load re-derives the
     // registry-backed panel scope for the already-active workspace.
-  }, [activeWorkspace?.mode, activeWorkspace?.sprintEngineContext, workspaceActionsEnabled, moduleRegistryGeneration])
+  }, [activeWorkspace?.mode, (activeWorkspace ? sprintEngineRunContext(activeWorkspace) : null), workspaceActionsEnabled, moduleRegistryGeneration])
   // The published context view module availability predicates evaluate
   // against — shared by the dispatcher and the palette so both agree.
   const moduleCommandContext = useMemo((): ModuleCommandContext => ({
@@ -927,7 +929,7 @@ export default function WorkspaceManager() {
     if (workflowRolesInstalled(sprintEngineRoleRegistry)) context.workflowRolesInstalled = true
     if (activeCommandScopes.includes('panel:sprintengine')) {
       context.sprintengineWorkspace = true
-      const sprintEngineState = commandWorkspace?.sprintEngineState ?? null
+      const sprintEngineState = (commandWorkspace ? sprintEngineRunState(commandWorkspace) : null) ?? null
       const roster = buildSprintEngineAgentRosterForState(sprintEngineState)
       if (roster.some((agent) => agent.role === 'architect')) context.sprintengineHasArchitect = true
       const focusAvailability = computeSprintEngineFocusAgentAvailability(sprintEngineState, commandWorkspace?.agents ?? {})
@@ -2356,7 +2358,7 @@ export default function WorkspaceManager() {
       await terminateWorkspaceTerminals(workspace)
       const dirPath =
         workspace.mode === 'sprintengine'
-          ? workspace.sprintEngineContext?.teamDirectoryPath ?? null
+          ? sprintEngineRunContext(workspace)?.teamDirectoryPath ?? null
           : null
       if (dirPath) {
         try {
@@ -2364,7 +2366,7 @@ export default function WorkspaceManager() {
           // Same run, same debris risk as the door's own delete: the Sprints door
           // lists from disk, so a folder a surviving writer puts back must not
           // read as a run there either (item 1812).
-          const statePath = workspace.sprintEngineContext?.statePath
+          const statePath = sprintEngineRunContext(workspace)?.statePath
           if (statePath) noteSprintRunDeleted(statePath)
         } catch (error) {
           publishDiagnosticSync({

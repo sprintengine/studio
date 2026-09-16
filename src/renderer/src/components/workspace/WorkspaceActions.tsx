@@ -41,6 +41,7 @@ import type {
   AgentCli,
   AppNotification,
   SpecialistActionId,
+  SprintEngineState,
   Workspace,
 } from '../../types/workspace'
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
@@ -97,7 +98,7 @@ export type SessionItem = {
   lastActivityAt: number | null
   // Exit code when `status === 'failed'`, else null.
   exitCode: number | null
-  role: NonNullable<Workspace['sprintEngineState']>['sprintEngineAgents'][string]['role'] | null
+  role: NonNullable<SprintEngineState['sprintEngineAgents'][string]>['role'] | null
   specialistId: SpecialistActionId | null
   taskId: string | null
   sessionId: string

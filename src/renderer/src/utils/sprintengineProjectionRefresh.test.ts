@@ -20,6 +20,7 @@ import {
   type SprintEngineDormancyPorts,
   type SprintEngineProjectionRefreshPorts,
 } from './sprintengineProjectionRefresh'
+import { sprintEngineRunContext, sprintEngineRunState } from '../store/slices/workspaceModuleState'
 
 function projection(taskStatus: string, updatedAt = '2026-06-07T15:00:00Z', runStatus = 'executing'): unknown {
   return {
@@ -59,31 +60,35 @@ function workspace(): Workspace {
     mode: 'sprintengine',
     agents: {},
     layoutModel: null,
-    sprintEngineContext: {
-      statePath: '/tmp/workspace/.sprintengine/sprintengine/unified-refresh/run.yaml',
-      teamSlug: 'unified-refresh',
-      teamName: 'Unified Refresh',
-    },
-    sprintEngineState: {
-      name: 'Unified Refresh',
-      goal: '',
-      rosterConfigured: true,
-      updatedAt: null,
-      roleCounts: {
-        architect: 0,
-        developer: 0,
-        frontend: 0,
-        product: 0,
-        tester: 0,
-        performance: 0,
-        security: 0,
-        cross_platform: 0,
+    moduleState: {
+      sprintengine: {
+        context: {
+          statePath: '/tmp/workspace/.sprintengine/sprintengine/unified-refresh/run.yaml',
+          teamSlug: 'unified-refresh',
+          teamName: 'Unified Refresh',
+        },
+        state: {
+          name: 'Unified Refresh',
+          goal: '',
+          rosterConfigured: true,
+          updatedAt: null,
+          roleCounts: {
+            architect: 0,
+            developer: 0,
+            frontend: 0,
+            product: 0,
+            tester: 0,
+            performance: 0,
+            security: 0,
+            cross_platform: 0,
+          },
+          sprintEngineAgents: {},
+          events: [],
+          tasks: [],
+          artifacts: [],
+        } satisfies SprintEngineState,
       },
-      sprintEngineAgents: {},
-      events: [],
-      tasks: [],
-      artifacts: [],
-    } satisfies SprintEngineState,
+    },
   } as unknown as Workspace
 }
 
@@ -177,13 +182,21 @@ function completedWorkspace(
   options?: { completionTeardownAt?: number },
 ): Workspace {
   const base = workspace()
+  const baseState = sprintEngineRunState(base)!
   return {
     ...base,
-    sprintEngineState: {
-      ...base.sprintEngineState!,
-      tasks: [
-        { id: 'T1', title: 'Done task', role: 'developer', status: 'done' },
-      ],
+    moduleState: {
+      sprintengine: {
+        ...(typeof base.moduleState?.sprintengine === 'object' && base.moduleState.sprintengine
+          ? base.moduleState.sprintengine
+          : {}),
+        state: {
+          ...baseState,
+          tasks: [
+            { id: 'T1', title: 'Done task', role: 'developer', status: 'done' },
+          ],
+        },
+      },
     },
     sprintEngineAutoState: {
       desiredMode: 'run_agents',
@@ -248,7 +261,15 @@ async function testChangedRefresh(): Promise<void> {
 
 async function testColdStateRefreshWithContext(): Promise<void> {
   const applied: SprintEngineState[] = []
-  const coldWorkspace = { ...workspace(), sprintEngineState: null } as Workspace
+  const base = workspace()
+  const coldWorkspace = {
+    ...base,
+    moduleState: {
+      sprintengine: {
+        context: sprintEngineRunContext(base),
+      },
+    },
+  } as Workspace
   const result = await refreshSprintEngineWorkspaceProjection({
     workspace: coldWorkspace,
     tokens: new Map(),
@@ -360,7 +381,7 @@ async function testPermanentReadErrorStillNotifiesManualRefresh(): Promise<void>
 
 async function testMissingContextSkip(): Promise<void> {
   const result = await refreshSprintEngineWorkspaceProjection({
-    workspace: { ...workspace(), sprintEngineContext: null } as Workspace,
+    workspace: { ...workspace(), moduleState: { sprintengine: { state: sprintEngineRunState(workspace()) } } } as Workspace,
     tokens: new Map(),
     cause: 'manual',
     ports: portsFor({ applied: [] }),
@@ -1074,7 +1095,7 @@ async function testReopenedRunClearsMarker(): Promise<void> {
   const ws = workspace()
   ;(ws as { sprintEngineAutoState?: SprintEngineAutoState }).sprintEngineAutoState =
     autoState('running', 500)
-  ;(ws.sprintEngineState as SprintEngineState).tasks = [
+  ;(sprintEngineRunState(ws) as SprintEngineState).tasks = [
     { id: 'T1', title: 'New task', role: 'developer', status: 'in_progress' },
   ] as SprintEngineState['tasks']
   const tokens = new Map([['workspace-1', 'tok-1']])
@@ -1727,10 +1748,15 @@ async function testFailedWriteIsRetriedOnTheNextTick(): Promise<void> {
 async function testUnwritableRunStoreIsReportedNotSwallowed(): Promise<void> {
   const stranded = {
     ...workspace(),
-    sprintEngineContext: {
-      statePath: '/elsewhere/.sprintengine/sprintengine/unified-refresh/run.yaml',
-      teamSlug: 'unified-refresh',
-      teamName: 'Unified Refresh',
+    moduleState: {
+      sprintengine: {
+        state: sprintEngineRunState(workspace()),
+        context: {
+          statePath: '/elsewhere/.sprintengine/sprintengine/unified-refresh/run.yaml',
+          teamSlug: 'unified-refresh',
+          teamName: 'Unified Refresh',
+        },
+      },
     },
   } as unknown as Workspace
   const backlogMutations: BacklogMutation[] = []
@@ -1782,12 +1808,12 @@ async function testSiblingProjectItemsAreLeftToTheirOwnWorkspace(): Promise<void
 }
 
 function testCanStopPollingCompletedProjection(): void {
-  const state = completedWorkspace('complete').sprintEngineState!
+  const state = sprintEngineRunState(completedWorkspace('complete'))!
   // Terminal + hydrated + completion teardown already ran → safe to stop polling.
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('complete', 500),
-      sprintEngineState: state,
+      moduleState: { sprintengine: { state } },
     }),
     true,
   )
@@ -1800,7 +1826,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('complete'),
-      sprintEngineState: state,
+      moduleState: { sprintengine: { state } },
     }),
     false,
   )
@@ -1809,7 +1835,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('complete', 500),
-      sprintEngineState: null,
+      moduleState: undefined,
     }),
     false,
   )
@@ -1827,7 +1853,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('complete', 500),
-      sprintEngineState: staleState,
+      moduleState: { sprintengine: { state: staleState } },
     }),
     false,
   )
@@ -1836,7 +1862,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('paused', 500),
-      sprintEngineState: state,
+      moduleState: { sprintengine: { state } },
     }),
     false,
   )
@@ -1844,7 +1870,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('running'),
-      sprintEngineState: state,
+      moduleState: { sprintengine: { state } },
     }),
     false,
   )
@@ -1852,7 +1878,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState(),
-      sprintEngineState: state,
+      moduleState: { sprintengine: { state } },
     }),
     false,
   )
@@ -1864,7 +1890,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('canceled', 500),
-      sprintEngineState: canceledState,
+      moduleState: { sprintengine: { state: canceledState } },
     }),
     true,
     'canceled + hydrated-canceled + torn down → stop polling',
@@ -1875,7 +1901,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('canceled', 500),
-      sprintEngineState: state,
+      moduleState: { sprintengine: { state } },
     }),
     false,
     'canceled runtime but state not yet hydrated canceled → keep polling',
@@ -1884,7 +1910,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('canceled'),
-      sprintEngineState: canceledState,
+      moduleState: { sprintengine: { state: canceledState } },
     }),
     false,
     'canceled but teardown not run → keep polling',
@@ -1893,7 +1919,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('canceled', 500),
-      sprintEngineState: null,
+      moduleState: undefined,
     }),
     false,
     'canceled cold run → keep polling for its one hydration read',
@@ -1907,7 +1933,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('complete', 500),
-      sprintEngineState: emptyState,
+      moduleState: { sprintengine: { state: emptyState } },
     }),
     true,
     'empty-graph complete + hydrated + torn down → stop polling',
@@ -1917,7 +1943,7 @@ function testCanStopPollingCompletedProjection(): void {
   assert.equal(
     canStopPollingCompletedSprintEngineProjection({
       sprintEngineAutoState: autoState('running'),
-      sprintEngineState: emptyState,
+      moduleState: { sprintengine: { state: emptyState } },
     }),
     false,
     'empty but still running → keep polling',

@@ -6,6 +6,8 @@ import {
   refreshSprintEngineWorkspaceProjection,
 } from '../../utils/sprintengineProjectionRefresh'
 import { registerTimer, type TimerHandle } from '../../utils/diagnostics/timerRegistry'
+import { sprintEngineRunContext } from '../../store/slices/workspaceModuleState'
+
 
 // Paired with the auto-run cadence. The reader now short-circuits via a cheap
 // mtime:size token, so an unchanged projection costs a single stat() with no
@@ -34,7 +36,7 @@ export function sprintEngineWorkspacesNeedProjectionPolling(
   return workspaces.some(
     (workspace) =>
       workspaceIds.has(workspace.id)
-      && (workspace.mode === 'sprintengine' || Boolean(workspace.sprintEngineContext))
+      && (workspace.mode === 'sprintengine' || Boolean(sprintEngineRunContext(workspace)))
       && !canStopPollingCompletedSprintEngineProjection(workspace),
   )
 }
@@ -124,7 +126,7 @@ export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, wo
         const { workspaces } = useWorkspaceStore.getState()
         const sprintEngineWorkspaces = workspaces.filter((workspace) =>
           refreshWorkspaceIds.has(workspace.id)
-          && (workspace.mode === 'sprintengine' || Boolean(workspace.sprintEngineContext))
+          && (workspace.mode === 'sprintengine' || Boolean(sprintEngineRunContext(workspace)))
         )
 
         for (const workspace of sprintEngineWorkspaces) {
@@ -141,7 +143,7 @@ export default function SprintEngineProjectionSupervisor({ activeWorkspaceId, wo
           // store) never recovers by re-polling: skip it while its statePath is
           // unchanged. Without this, every stale workspace re-fails on every
           // tick forever.
-          const statePath = workspace.sprintEngineContext?.statePath ?? null
+          const statePath = sprintEngineRunContext(workspace)?.statePath ?? null
           if (statePath && permanentFailureStatePaths.current.get(workspace.id) === statePath) continue
           if (workspace.id !== activeWorkspaceId) {
             const lastRefresh = lastInactiveRefreshByWorkspace.current.get(workspace.id) ?? 0

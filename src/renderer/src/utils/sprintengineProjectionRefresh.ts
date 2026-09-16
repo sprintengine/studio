@@ -29,6 +29,8 @@ import {
 } from './sprintengineBacklogLinks'
 import { tearDownCompletedSprintRunAgents } from './sprintengineRunTeardown'
 import { sprintEngineIpc } from '../modules/sprint-engine-ipc'
+import { sprintEngineRunContext, sprintEngineRunState } from '../store/slices/workspaceModuleState'
+
 
 export type SprintEngineProjectionRefreshCause = 'supervisor' | 'auto-run' | 'manual' | 'mutation'
 
@@ -102,7 +104,8 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
   const { workspace, tokens, cause, force = false } = input
   const ports = input.ports ?? defaultSprintEngineProjectionRefreshPorts()
 
-  if (!workspace.sprintEngineContext?.statePath) {
+  const context = sprintEngineRunContext(workspace)
+  if (!context?.statePath) {
     return { status: 'skipped', reason: 'missing-context' }
   }
 
@@ -122,7 +125,7 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
     // On a forced refresh, pass no token so the reader always returns full data.
     const knownToken = force ? undefined : tokens.get(workspace.id)
     const projectionResult = await ports.readSprintEngineProjection(
-      workspace.sprintEngineContext.statePath,
+      context.statePath,
       knownToken,
     )
     if (!projectionResult.ok) {
@@ -138,7 +141,7 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
       // already-parsed stored state on every tick instead. A dormant run is past
       // that: its display is already set and no lifecycle work remains.
       if (!dormant) {
-        reconcileCompletedRunLifecycle(workspace, workspace.sprintEngineState, ports)
+        reconcileCompletedRunLifecycle(workspace, sprintEngineRunState(workspace), ports)
       } else {
         healInterruptedDormancyTeardown(workspace, ports)
       }
@@ -149,12 +152,12 @@ export async function refreshSprintEngineWorkspaceProjection(input: {
         changed: false,
         elapsedMs: Math.round((ports.now?.() ?? performance.now()) - startedAt),
       })
-      return { status: 'unchanged', state: workspace.sprintEngineState }
+      return { status: 'unchanged', state: sprintEngineRunState(workspace) }
     }
 
     const parsedState = normalizeSprintEngineProjection(
       projectionResult.data,
-      workspace.sprintEngineContext.teamSlug,
+      context.teamSlug,
     )
     if (!parsedState) throw new Error('Sprint projection was malformed.')
 
@@ -404,9 +407,9 @@ function reconcileCompletedRunLifecycle(
 // already its final snapshot. `isCompletedSprintEngineRun` requires ≥1 task and
 // would otherwise poll such a run forever.
 export function canStopPollingCompletedSprintEngineProjection(
-  workspace: Pick<Workspace, 'sprintEngineAutoState' | 'sprintEngineState'>,
+  workspace: Pick<Workspace, 'sprintEngineAutoState' | 'moduleState'>,
 ): boolean {
-  const state = workspace.sprintEngineState
+  const state = sprintEngineRunState(workspace)
   if (!state) return false
   const runtimeState = workspace.sprintEngineAutoState?.runtimeState
   // The shared terminal teardown (completion AND cancellation both run it) sets
@@ -483,7 +486,7 @@ async function refreshBacklogSprintEngineRunLinks(input: {
   const hasBacklogWork = state.tasks.some((task) => task.backlogRef)
   if (!canceled && !completed && !hasBacklogWork) return
   const runLinkStatus = canceled ? 'canceled' : 'completed'
-  if (!workspace.folderPath || !workspace.sprintEngineContext?.statePath) return
+  if (!workspace.folderPath || !sprintEngineRunContext(workspace)?.statePath) return
   if (!ports.readBacklogObjectStore || !ports.addOrUpdateBacklogLink) return
 
   const storeResult = await ports.readBacklogObjectStore(workspace.folderPath)
@@ -499,7 +502,7 @@ async function refreshBacklogSprintEngineRunLinks(input: {
     return
   }
 
-  const targetStatePathKey = normalizedPathKey(workspace.sprintEngineContext.statePath)
+  const targetStatePathKey = normalizedPathKey(sprintEngineRunContext(workspace)?.statePath ?? '')
   const pullRequests = sprintEnginePullRequestsOf(state, workspace.folderPath)
   // Which items this run's STORED links already speak for. Everything else its
   // tasks name is swept by `propagateBacklogRefTaskItems` below (MC-2140), so an
@@ -653,7 +656,7 @@ async function propagateBacklogRefTaskItems(input: {
 }): Promise<void> {
   const { workspace, state, ports } = input
   const workspaceRoot = workspace.folderPath
-  const context = workspace.sprintEngineContext
+  const context = sprintEngineRunContext(workspace)
   const addOrUpdateBacklogLink = ports.addOrUpdateBacklogLink
   if (!workspaceRoot || !context || !addOrUpdateBacklogLink) return
 

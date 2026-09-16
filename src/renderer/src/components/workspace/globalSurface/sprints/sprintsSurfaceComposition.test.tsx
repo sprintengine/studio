@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict'
+import { sprintEngineRunContext } from '../../../../store/slices/workspaceModuleState'
 
 import { JSDOM } from 'jsdom'
 import { bindSprintEngineIpc } from '../../../../modules/sprint-engine-ipc'
@@ -868,7 +869,7 @@ async function main(): Promise<void> {
   }
   await selectRailRun('wake-filter-sprint')
   assert.equal(
-    useWorkspaceStore.getState().workspaces.some((ws) => ws.sprintEngineContext?.statePath === doorStatePath),
+    useWorkspaceStore.getState().workspaces.some((ws) => sprintEngineRunContext(ws)?.statePath === doorStatePath),
     false,
     'the run has no resident workspace — this is the door mount',
   )
@@ -1256,7 +1257,7 @@ async function main(): Promise<void> {
   await settle()
   await selectRailRun('roleless-run')
   assert.equal(
-    useWorkspaceStore.getState().workspaces.some((ws) => ws.sprintEngineContext?.statePath === rolelessStatePath),
+    useWorkspaceStore.getState().workspaces.some((ws) => sprintEngineRunContext(ws)?.statePath === rolelessStatePath),
     false,
     'the roleless run has no resident workspace either — this is the door mount',
   )

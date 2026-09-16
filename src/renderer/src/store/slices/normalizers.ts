@@ -11,7 +11,12 @@ import {
   workspaceFolderKey,
 } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
-import { partializeWorkspaceModuleState, reconcileWorkspaceModuleState } from './workspaceModuleState'
+import {
+  legacySprintEngineRunState,
+  partializeWorkspaceModuleState,
+  reconcileWorkspaceModuleState,
+  type LegacySprintEnginePersistWorkspace,
+} from './workspaceModuleState'
 import { partializeWorkspacePaneState } from './workspacePaneSlice'
 
 // Workspace-mode strings whose features were retired. Kept as local literals
@@ -36,9 +41,9 @@ import { partializeWorkspacePaneState } from './workspacePaneSlice'
 //                 the review data on disk (`.sprintengine/review/`) is untouched.
 const RETIRED_WORKSPACE_MODES: readonly string[] = ['roadmap', 'multiloop', 'guided-brief', 'reviews-host']
 
-export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
+export function mapMigrationWorkspaces<T extends { workspaces: LegacySprintEnginePersistWorkspace[] }>(
   state: T,
-  migrate: (workspace: Workspace) => Workspace,
+  migrate: (workspace: LegacySprintEnginePersistWorkspace) => LegacySprintEnginePersistWorkspace,
 ): void {
   state.workspaces = state.workspaces.map(migrate)
 }
@@ -50,9 +55,10 @@ export function mapMigrationWorkspaces<T extends { workspaces: Workspace[] }>(
 // painted screen; the gate flags are what auto-resume actually reads. The two
 // functions stay in step.
 export function clearSprintEngineAgentLaunchState(workspace: Workspace): Workspace {
-  if (workspace.mode !== 'sprintengine' && !workspace.sprintEngineState) return workspace
+  const run = legacySprintEngineRunState(workspace)
+  if (workspace.mode !== 'sprintengine' && !run) return workspace
 
-  const sprintEngineAgentIds = new Set(Object.keys(workspace.sprintEngineState?.sprintEngineAgents ?? {}))
+  const sprintEngineAgentIds = new Set(Object.keys(run?.sprintEngineAgents ?? {}))
   const hasSprintEngineAgents = Object.entries(workspace.agents).some(
     ([id, agent]) => agent.kind === 'sprintengine' || sprintEngineAgentIds.has(id)
   )
@@ -250,21 +256,14 @@ export function normalizeWorkspaceForPartialize(workspace: Workspace): Workspace
       clearSprintEngineAgentLaunchState(workspace),
     ),
   )
-  const {
-    sprintEngineContext: _sprintEngineContext,
-    sprintEngineRoleCliDefaults: _sprintEngineRoleCliDefaults,
-    ...durableWorkspace
-  } = launchSafeWorkspace
   return {
-    ...durableWorkspace,
-    mode: normalizeWorkspaceMode(launchSafeWorkspace.mode, launchSafeWorkspace.sprintEngineState),
+    ...launchSafeWorkspace,
+    mode: normalizeWorkspaceMode(launchSafeWorkspace.mode, legacySprintEngineRunState(launchSafeWorkspace)),
     // The live run projection is a cache of on-disk projection.json. Persisting
     // it serialized the full tasks+artifacts blob into localStorage on every
     // 4s poll. Durable identity (context, role CLI defaults) now lives in
-    // moduleState.sprintengine and is what survives a restart; the top-level
-    // fields are omitted so a write after the MC-2573 hoist does not put them
-    // back. The live projection rehydrates from disk within one supervisor tick.
-    sprintEngineState: null,
+    // moduleState.sprintengine and is what survives a restart. The live
+    // projection rehydrates from disk within one supervisor tick.
     moduleState: partializeWorkspaceModuleState(launchSafeWorkspace.moduleState),
     memory: normalizeWorkspaceMemoryConfig(launchSafeWorkspace.memory),
     fileExplorerState: normalizeWorkspaceFileExplorerState(launchSafeWorkspace.fileExplorerState),
