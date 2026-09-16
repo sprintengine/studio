@@ -1754,6 +1754,45 @@ export type BacklogLinkProvider = {
   openLink?(input: BacklogLinkProviderInput): Promise<void | boolean>
 }
 
+// ── File Explorer actions ────────────────────────────────────────────────────
+
+/**
+ * One selected Files-tree row as handed to `registerFileAction` callbacks.
+ * Directories, git-deleted rows and ordinary files all appear; visibility is
+ * the action's to decide.
+ */
+export type FileActionEntry = {
+  name: string
+  path: string
+  isDir: boolean
+  gitDeleted?: boolean
+}
+
+export type FileActionContext = {
+  workspaceId: string
+  workspaceRoot: string
+  entries: readonly FileActionEntry[]
+}
+
+export type FileActionState = 'enabled' | 'disabled'
+
+/**
+ * A Files-tree context-menu action. Sibling of `BacklogItemAction`: the
+ * explorer renders enabled-module contributions under a heading named for
+ * the module, gone entirely when the module is absent — never a disabled
+ * core row. Sorted by `order` then label within the group.
+ */
+export type FileAction = {
+  id: string
+  label: string
+  order?: number
+  /** Selection-aware display label; falls back to `label` when absent. */
+  getLabel?: (context: FileActionContext) => string
+  isVisible?: (context: FileActionContext) => boolean
+  getState?: (context: FileActionContext) => FileActionState
+  run: (context: FileActionContext) => void | Promise<void>
+}
+
 // ── Commands ─────────────────────────────────────────────────────────────────
 
 export type CommandScope =
@@ -2219,6 +2258,13 @@ export type RendererHost = {
   openWorkspace(typeId: string): Promise<string>
   registerBacklogItemAction(action: BacklogItemAction): void
   registerBacklogLinkProvider(provider: BacklogLinkProvider): void
+  /**
+   * Contribute a Files-tree context-menu action. The explorer renders
+   * enabled-module contributions under a heading named for this module, sorted
+   * by `order` then label. Duplicate ids are a registration error. The row is
+   * absent — not disabled — when this module is off.
+   */
+  registerFileAction(action: FileAction): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
   /**

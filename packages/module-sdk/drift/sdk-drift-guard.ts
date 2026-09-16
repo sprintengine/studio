@@ -120,6 +120,10 @@ import type {
   BacklogItemActionContext as AppBacklogItemActionContext,
   BacklogLinkProvider as AppBacklogLinkProvider,
   BacklogLinkProviderInput as AppBacklogLinkProviderInput,
+  FileAction as AppFileAction,
+  FileActionContext as AppFileActionContext,
+  FileActionEntry as AppFileActionEntry,
+  FileActionState as AppFileActionState,
   GlobalSurfaceDefinition as AppGlobalSurfaceDefinition,
   ModalSurfaceComponentProps as AppModalSurfaceComponentProps,
   ModalSurfaceDefinition as AppModalSurfaceDefinition,
@@ -166,6 +170,10 @@ import type {
   AgentIdNamespaceDefinition as SdkAgentIdNamespaceDefinition,
   BacklogItemAction as SdkBacklogItemAction,
   BacklogItemActionContext as SdkBacklogItemActionContext,
+  FileAction as SdkFileAction,
+  FileActionContext as SdkFileActionContext,
+  FileActionEntry as SdkFileActionEntry,
+  FileActionState as SdkFileActionState,
   BacklogItemLink as SdkBacklogItemLink,
   BacklogItemStatus as SdkBacklogItemStatus,
   BacklogLinkProvider as SdkBacklogLinkProvider,
@@ -467,6 +475,9 @@ expectType<IsExact<AppWorkspaceTypeCreationStep, SdkWorkspaceTypeCreationStep>>(
 expectType<Extends<SdkWorkspaceLayoutTemplate, AppLayoutTemplate>>()
 expectType<Extends<SdkModuleCommandDefinition, AppModuleCommandDefinition>>()
 expectType<Extends<SdkBacklogItemAction, AppBacklogItemAction>>()
+expectType<Extends<SdkFileAction, AppFileAction>>()
+expectType<IsExact<AppFileActionEntry, SdkFileActionEntry>>()
+expectType<IsExact<AppFileActionState, SdkFileActionState>>()
 expectType<Extends<SdkBacklogLinkProvider, AppBacklogLinkProvider>>()
 expectType<Extends<SdkSettingsSectionDefinition, AppSettingsSectionDefinition>>()
 expectType<Extends<SdkSidebarNavEntryDefinition, AppSidebarNavEntryDefinition>>()
@@ -535,6 +546,7 @@ expectType<IsExact<AppRendererHost['subscribe'], SdkRendererHost['subscribe']>>(
 // Callback-input soundness: what the app passes into module callbacks
 // satisfies the SDK's (intentionally widened) read views.
 expectType<Extends<AppBacklogItemActionContext, SdkBacklogItemActionContext>>()
+expectType<Extends<AppFileActionContext, SdkFileActionContext>>()
 expectType<Extends<AppBacklogLinkProviderInput, SdkBacklogLinkProviderInput>>()
 
 // Mirrored value exports must stay identical (run via test:sdk:drift).

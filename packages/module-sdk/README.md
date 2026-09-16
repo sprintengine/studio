@@ -85,6 +85,13 @@ contracts, so a published version always matches the app version it ships with.
   and `request.setStepValue` is where the failure goes — your step owns that
   page's body. Absent ⇒ the hub creates from `createTemplate` directly),
   `registerBacklogItemAction`, `registerBacklogLinkProvider`,
+  `registerFileAction` (a Files-tree context-menu action — sibling of
+  `registerBacklogItemAction` — `{ id, label, order?, getLabel?,
+  isVisible(context), getState(context), run(context) }` where `context` is
+  `{ workspaceId, workspaceRoot, entries }` and each entry is `{ name, path,
+  isDir, gitDeleted? }`; the explorer renders visible contributions from
+  enabled modules under a heading named for the module, gone with it, never
+  a disabled core row; duplicate ids are a registration error),
   `registerCommand` (registered id is namespaced `<moduleId>.<id>`; scope
   `panel:<moduleId>` activates while a workspace of your module's mode is
   active, and `availability` accepts a predicate over the published
@@ -225,6 +232,10 @@ valid for the app):
   shell-only fields.
 - `MainHost.ipcMain` is typed `unknown` to keep the SDK Electron-free.
 - `BacklogItemActionContext` omits the shell-internal `startSourcePlan` hook.
+- `FileActionContext` omits the same shell-internal `startSourcePlan` hook
+  (the explorer passes it in-app so an in-tree consumer can open the
+  new-sprint flow; an extracted module opens that flow through its own
+  `registerModalSurface` / `createWorkspace` instead).
 
 ## Building a module
 

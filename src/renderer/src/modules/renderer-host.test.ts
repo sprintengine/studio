@@ -93,6 +93,58 @@ assert.deepEqual(
 
 console.log('renderer host workspace type tests passed')
 
+// --- File Explorer action registry ------------------------------------------
+
+const fileActionHost = createRendererHost()
+fileActionHost.hostFor('weather-deck').registerFileAction({
+  id: 'weather-deck.open-notes',
+  label: 'Open forecast notes…',
+  order: 10,
+  isVisible: (context) => context.entries.some((entry) => entry.name.endsWith('.md')),
+  run() {},
+})
+fileActionHost.hostFor('weather-deck').registerFileAction({
+  id: 'weather-deck.open-html',
+  label: 'Open forecast page…',
+  order: 20,
+  run() {},
+})
+fileActionHost.hostFor('notes').registerFileAction({
+  id: 'notes.archive',
+  label: 'Archive note',
+  order: 5,
+  run() {},
+})
+
+const registeredFileActions = fileActionHost.getFileActions()
+assert.deepEqual(
+  registeredFileActions.map((action) => action.id),
+  ['notes.archive', 'weather-deck.open-notes', 'weather-deck.open-html'],
+  'file actions sort by order then label across modules',
+)
+assert.equal(registeredFileActions[1]?.moduleId, 'weather-deck', 'owning module is recorded for enablement gating')
+
+assert.throws(
+  () => fileActionHost.hostFor('weather-deck').registerFileAction({
+    id: 'weather-deck.open-notes',
+    label: 'Duplicate',
+    run() {},
+  }),
+  /File action "weather-deck\.open-notes" is already registered/,
+  'duplicate file-action ids fail clearly',
+)
+assert.throws(
+  () => fileActionHost.hostFor('weather-deck').registerFileAction({
+    id: '   ',
+    label: 'Blank',
+    run() {},
+  }),
+  /File action id must be a non-empty string/,
+  'blank file-action ids are rejected before registration',
+)
+
+console.log('renderer host file action tests passed')
+
 // --- Module command registry -------------------------------------------------
 
 const commandHost = createRendererHost()

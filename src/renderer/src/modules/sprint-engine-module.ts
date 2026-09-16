@@ -20,6 +20,7 @@ import {
 } from '../utils/sprintengineBacklogLinks'
 import type { SprintEngineBacklogLinkOpenPorts } from '../utils/sprintengineBacklogLinks'
 import { bindSprintEngineIpc, createHostBackedSprintEngineIpc, sprintEngineIpc } from './sprint-engine-ipc'
+import { registerSprintEngineFileActions } from './sprint-engine-file-actions'
 import { SPRINT_ENGINE_AGENT_ID_PREFIX } from '../../../shared/sprintengine/agent-identity'
 
 // Lazy so the Sprint Engine board bundle only loads when the panel is actually
@@ -134,6 +135,7 @@ export const sprintEngineRendererModule: RendererModule = {
   registerRenderer(host) {
     bindSprintEngineIpc(createHostBackedSprintEngineIpc(host))
     host.registerPanel('sprintengine', SprintEngineBoardPanel)
+    registerSprintEngineFileActions(host)
     // The Sprints door at the order-20 slot the hardcoded WorkspaceSidebar row
     // used to hold (item 1763 / D4). That row toggled the Sprint Engines aside;
     // this routes the full page to the instance-global Sprints surface, so runs

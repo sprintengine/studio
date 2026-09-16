@@ -234,6 +234,40 @@ export type RegisteredBacklogItemAction = BacklogItemAction & {
   moduleId: string
 }
 
+// Files-tree context-menu actions. Sibling of BacklogItemAction: the explorer
+// renders enabled-module contributions under a heading named for the module,
+// gone with it, never a disabled core row. `startSourcePlan` is the same
+// shell-internal hook Backlog actions receive and the SDK omits.
+export type FileActionEntry = {
+  name: string
+  path: string
+  isDir: boolean
+  gitDeleted?: boolean
+}
+
+export type FileActionContext = {
+  workspaceId: string
+  workspaceRoot: string
+  entries: readonly FileActionEntry[]
+  startSourcePlan?: (source: FuturePlanWorkspaceSource) => void
+}
+
+export type FileActionState = 'enabled' | 'disabled'
+
+export type FileAction = {
+  id: string
+  label: string
+  order?: number
+  getLabel?: (context: FileActionContext) => string
+  isVisible?: (context: FileActionContext) => boolean
+  getState?: (context: FileActionContext) => FileActionState
+  run: (context: FileActionContext) => void | Promise<void>
+}
+
+export type RegisteredFileAction = FileAction & {
+  moduleId: string
+}
+
 export type BacklogLinkProviderInput = {
   workspaceId: string
   workspaceRoot: string
@@ -723,6 +757,12 @@ export type RendererHost = {
   openWorkspace(typeId: string): Promise<string>
   registerBacklogItemAction(action: BacklogItemAction): void
   registerBacklogLinkProvider(provider: BacklogLinkProvider): void
+  /**
+   * Contribute a Files-tree context-menu action. The explorer renders
+   * enabled-module contributions under a heading named for this module.
+   * Duplicate ids throw. The row is absent when this module is off.
+   */
+  registerFileAction(action: FileAction): void
   registerNotificationActionProvider(provider: NotificationActionProvider): void
   registerCommand(definition: ModuleCommandDefinition): void
   registerSettingsSection(definition: SettingsSectionDefinition): void
@@ -969,6 +1009,7 @@ export type RendererKernel = {
   getWorkspaceTypes(moduleEnabled?: (moduleId: string) => boolean): RegisteredWorkspaceTypeDefinition[]
   getWorkspaceTypeModule(id: string): string | undefined
   getBacklogItemActions(): RegisteredBacklogItemAction[]
+  getFileActions(): RegisteredFileAction[]
   getBacklogLinkProviders(moduleEnabled?: (moduleId: string) => boolean): BacklogLinkProvider[]
   getNotificationActionProviders(
     moduleEnabled?: (moduleId: string) => boolean
@@ -1169,6 +1210,7 @@ export function createRendererHost(): RendererKernel {
   const panelModules = new Map<string, string>()
   const workspaceTypes = new Map<string, RegisteredWorkspaceTypeDefinition>()
   const backlogItemActions = new Map<string, RegisteredBacklogItemAction>()
+  const fileActions = new Map<string, RegisteredFileAction>()
   const backlogLinkProviders = new Map<string, BacklogLinkProvider>()
   const notificationActionProviders = new Map<DiagnosticSource, RegisteredNotificationActionProvider>()
   const moduleCommands = new Map<string, RegisteredModuleCommand>()
@@ -1297,6 +1339,15 @@ export function createRendererHost(): RendererKernel {
             throw new Error(`Backlog item action "${action.id}" is already registered.`)
           }
           backlogItemActions.set(action.id, { ...action, moduleId })
+        },
+        registerFileAction(action) {
+          if (action.id.trim().length === 0) {
+            throw new Error('File action id must be a non-empty string.')
+          }
+          if (fileActions.has(action.id)) {
+            throw new Error(`File action "${action.id}" is already registered.`)
+          }
+          fileActions.set(action.id, { ...action, moduleId })
         },
         registerBacklogLinkProvider(provider) {
           if (provider.moduleId !== moduleId) {
@@ -1729,6 +1780,12 @@ export function createRendererHost(): RendererKernel {
     },
     getBacklogItemActions() {
       return [...backlogItemActions.values()].sort((a, b) => {
+        const order = (a.order ?? 100) - (b.order ?? 100)
+        return order === 0 ? a.label.localeCompare(b.label) : order
+      })
+    },
+    getFileActions() {
+      return [...fileActions.values()].sort((a, b) => {
         const order = (a.order ?? 100) - (b.order ?? 100)
         return order === 0 ? a.label.localeCompare(b.label) : order
       })

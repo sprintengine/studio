@@ -17,6 +17,7 @@ import {
   type AutomationActionProvider,
   type AutomationTriggerProvider,
   type BacklogItemAction,
+  type FileAction,
   type CapabilityManifest,
   type GlobalSurfaceDefinition,
   type McpToolRegistration,
@@ -585,6 +586,16 @@ const markChecked: BacklogItemAction = {
   },
 }
 
+const openForecastNotes: FileAction = {
+  id: 'weather-deck.open-forecast-notes',
+  label: 'Open forecast notes…',
+  isVisible: (context) =>
+    context.entries.length === 1
+    && !context.entries[0]?.isDir
+    && /\.md$/i.test(context.entries[0]?.name ?? ''),
+  run: () => undefined,
+}
+
 // The command round-trips to entry.main through the bridge: registerIpc set
 // the channel up, host.invoke calls it from renderer code. The palette fires
 // command run() without awaiting it, so a refusal (channel never registered,
@@ -643,6 +654,7 @@ export const registerRenderer: RegisterRenderer = (host) => {
   host.registerPanel('weather-deck.forecast', createForecastPanel(host))
   host.registerWorkspaceType(forecastWorkspaceType)
   host.registerBacklogItemAction(markChecked)
+  host.registerFileAction(openForecastNotes)
   host.registerCommand(quickCheck(host))
   // Agent spawn through the app's SHARED session runtime; structured result,
   // runtime picked from the published availability-filtered catalog.

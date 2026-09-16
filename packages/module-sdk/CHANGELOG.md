@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- **A module can contribute Files-tree context-menu actions**
+  (`host.registerFileAction`). The function receives `{ id, label, order?,
+  getLabel?, isVisible(context), getState(context), run(context) }` where
+  `context` is `{ workspaceId, workspaceRoot, entries }` and each entry is
+  `{ name, path, isDir, gitDeleted? }`. The explorer renders visible
+  contributions from enabled modules under a heading named for the module;
+  the row is absent — not a disabled core item — when the module is off.
+  Duplicate ids are a registration error. New types: `FileAction`,
+  `FileActionContext`, `FileActionEntry`, `FileActionState`.
+
 - **`CommandAvailability` gains `workflowRolesInstalled`.** True when the
   active workspace has at least one installed workflow-role skill, so a
   specialist-spawn or add-role command has something to resolve. Unknown
