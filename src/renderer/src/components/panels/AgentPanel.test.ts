@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { isStoredAgentCliUnavailable, resolveAgentRuntimeKind } from './AgentPanel'
+import { agentPaneMountsTerminal, isStoredAgentCliUnavailable, resolveAgentRuntimeKind } from './AgentPanel'
 import { conversationAgentRuntimePatch } from '../workspace/conversationSpawnOptions'
 import type { AgentState, PluginCatalogEntry } from '../../types/workspace'
 
@@ -133,6 +133,20 @@ assert.equal(
   resolveAgentRuntimeKind(spawnedConversationAgent),
   'conversation',
   'a spawned conversation agent routes to AgentChatView',
+)
+
+// --- the pane mounts a terminal for a brand-new agent ------------------------
+// A New chat has no attached session id yet. The pane must still mount the
+// terminal (which spawns); only a missing CLI parks it on the inert Spawn pane.
+assert.equal(
+  agentPaneMountsTerminal({ agentCliUnavailable: false }),
+  true,
+  'a new agent with an installed CLI mounts its terminal and spawns, not a Spawn button',
+)
+assert.equal(
+  agentPaneMountsTerminal({ agentCliUnavailable: true }),
+  false,
+  'an agent whose CLI is not installed shows the inert pane',
 )
 
 console.log('AgentPanel.test.ts: ok')

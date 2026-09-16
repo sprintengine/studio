@@ -264,7 +264,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       memoryConfig,
       openFile,
       savedFolderPath,
-              storedExecutionWorktreePath,
+      storedExecutionWorktreePath,
       updateAgent,
       workspaceName,
     }

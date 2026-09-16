@@ -58,6 +58,16 @@ export function resolveAgentRuntimeKind(
   return normalizeAgentRuntime(agent).runtimeKind
 }
 
+// Whether the agent pane mounts its terminal or shows the inert "Spawn" pane.
+// A standard agent mounts immediately — TerminalView owns the spawn/attach
+// decision — so the inert pane is only for a CLI that is not installed. It does
+// NOT depend on an attached session id: a New chat has none yet, and gating on
+// one left every new agent parked on a Spawn button (regression, 2026-09-16,
+// from reducing the old Sprint Engine gate the wrong way round).
+export function agentPaneMountsTerminal(input: { agentCliUnavailable: boolean }): boolean {
+  return !input.agentCliUnavailable
+}
+
 export default function AgentPanel({
   workspaceId,
   agentId,
@@ -91,7 +101,7 @@ export default function AgentPanel({
       }),
     [isConversationRuntime, cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
-  const hasStarted = !agentCliUnavailable && Boolean(sessionId)
+  const hasStarted = agentPaneMountsTerminal({ agentCliUnavailable })
   // Freeze-the-view: when this agent's terminal has been suspended (process
   // killed to reclaim memory, scrollback kept painted), surface a glyph so the
   // user knows it is not live and will resume on the next keystroke. Tracked off
