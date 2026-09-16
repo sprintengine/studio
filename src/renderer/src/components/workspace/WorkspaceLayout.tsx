@@ -1312,7 +1312,6 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         : undefined
       const agentIdentity: AgentTabIdentity = {
         name: agent?.name ?? node.getName(),
-        taskId: null,
         status: identityStatus,
         agent: {
           // A tab whose agent main has no SESSION for still gets a card: the id

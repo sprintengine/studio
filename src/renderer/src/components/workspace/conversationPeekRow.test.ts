@@ -222,7 +222,6 @@ run('one agent takes the ROW’s status, which knows about waiting and about the
   const only = identities[0]
   assert.ok(only)
   assert.equal(only.name, 'Title tooltips from the first message', 'the card is that row’s card')
-  assert.equal(only.taskId, null, 'a row never picks one of its agents’ tasks to show')
   assert.deepEqual(
     only.status,
     { kind: 'attention', label: 'Waiting' },

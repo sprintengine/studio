@@ -630,7 +630,6 @@ async function main(): Promise<void> {
     refreshed.length = 0
     const identity = {
       name: 'planner-agent',
-      taskId: null,
       status: { kind: 'working' as const, label: 'Working' },
       agent: {
         sessionId: 'a21ac8e7-548f-6f89',

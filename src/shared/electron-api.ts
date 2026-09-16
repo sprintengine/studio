@@ -2451,7 +2451,6 @@ export type DiagnosticLogInput = {
   workspaceId?: string
   workspaceName?: string
   agentId?: string
-  taskId?: string
   sessionId?: string
   navigationTarget?: NotificationNavigationTarget
   /**
@@ -2890,16 +2889,10 @@ export type BacklogItemLinkPayload = {
     id: string
     path?: string
     url?: string
-    // The one task inside the target that owns this item, when the target is a
-    // run and the item is one of its epic children (MC-2017).
-    taskId?: string
   }
   // `pending` is recorded-but-not-started: the link exists so the item shows its
   // work, but it does not drive the item to `in_progress` yet.
   status?: 'pending' | 'active' | 'completed' | 'canceled' | 'failed' | 'unknown'
-  // The item status to restore if this link's work is abandoned. Written when an
-  // epic-child link is created and consumed when the run or its task is canceled.
-  priorStatus?: BacklogItemStatusPayload
   updatedAt?: string
 }
 

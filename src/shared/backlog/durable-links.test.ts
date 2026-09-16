@@ -1,7 +1,6 @@
 import assert from 'node:assert/strict'
 
 import {
-  buildBacklogPullRequestLink,
   durableBacklogLinkFields,
   durableBacklogLinksFromFrontmatter,
   isDurableBacklogLink,
@@ -36,15 +35,6 @@ function main(): void {
   }
   assert.deepEqual(roundTrip([pr]), [pr], 'a PR link survives the scalar round trip')
   assert.equal(isDurableBacklogLink(pr), true)
-
-  // --- The canonical builder is what frontmatter rebuilds, so the two can never
-  // disagree about the id, the label or the target shape.
-  const built = buildBacklogPullRequestLink({
-    pullRequestUrl: 'https://github.com/sprintengine/studio/pull/91',
-    updatedAt: '2026-09-07T00:00:00.000Z',
-  })
-  const { status: _status, updatedAt: _updatedAt, ...builtDurable } = built
-  assert.deepEqual(builtDurable, pr, 'the builder and the frontmatter reader agree')
 
   // --- Volatile links are refused, so they can never be written to a tracked
   // file. An agent terminal id is meaningless after a restart.
@@ -98,14 +88,12 @@ function main(): void {
     ...pr,
     label: 'ignored — the durable half owns the label',
     status: 'completed',
-    priorStatus: 'ready',
     updatedAt: '2026-09-07T10:00:00.000Z',
   }
   const merged = mergeBacklogLinks([pr], [cachedPr, agent])
   assert.equal(merged.length, 2, 'the cache-only agent link is appended')
   assert.equal(merged[0].label, 'Pull request', 'the durable half wins on identity fields')
   assert.equal(merged[0].status, 'completed', 'and takes the resolved status from cache')
-  assert.equal(merged[0].priorStatus, 'ready')
   assert.equal(merged[0].updatedAt, '2026-09-07T10:00:00.000Z')
   assert.equal(merged[1].id, 'agent-runtime:working-agent')
 

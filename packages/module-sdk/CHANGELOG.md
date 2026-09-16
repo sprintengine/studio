@@ -31,6 +31,15 @@
 - **`CliManifest` loses `souls` and `CliSoulsSpec`.** The app no longer reads a
   CLI plugin's role directory, because it has no concept of a role.
 
+- **`BacklogItemLink` loses `target.taskId` and `priorStatus`.** Both were
+  written only by the in-tree run engine for an epic child's run link, and
+  nothing reads them now: the host drops them when it normalises a stored
+  link. A module that set either stops compiling; delete the assignment.
+
+- **`CliModelPickerButtonProps` loses `noneOption`.** The pinned "no runtime"
+  row served the retired planning agent; the trigger always names a runtime
+  now.
+
 - **`McpConnectionMetadata` loses `sprintRunId`.** Nothing set it once the
   in-tree run engine left; an out-of-tree module identifies its own connections
   through `agentId`.

@@ -43,7 +43,6 @@ anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
 const identities = [
   {
     name: 'Retry budget for stalled sprints',
-    taskId: null,
     status: null,
     agent: {
       sessionId: 'session-1',

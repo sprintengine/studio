@@ -12,7 +12,7 @@ export { StatusDot } from './StatusDot'
 export { AgentWorkingDots } from './AgentWorkingDots'
 export { ContextRing, CONTEXT_RING_WARN_PERCENTAGE } from './ContextRing'
 export { Spinner } from './Spinner'
-export { LifecycleGlyph, LIFECYCLE_LABEL, type LifecycleState } from './LifecycleGlyph'
+export { LifecycleGlyph, type LifecycleState } from './LifecycleGlyph'
 // The barrel exports the PRIMITIVE only. `PULL_REQUEST_SHAPES` is the raw
 // drawing, and its one consumer (`LifecycleGlyph`, which draws two of these
 // marks under its own tones) imports it directly: putting bare SVG fragments in

@@ -38,7 +38,8 @@ import { useSharedBacklogScan } from '../../hooks/useSharedBacklogScan'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 import { renderMarkdown } from '../../utils/markdown'
-import { basename, parentPath } from '../../utils/paths'
+import { basename, parentPath, slugify } from '../../utils/paths'
+import { isEditableTarget } from '../../utils/keyboard'
 import { resolveFirstMockupCandidate } from '../../utils/backlogMockups'
 import { HtmlArtifactFrame } from '../htmlArtifact/HtmlArtifactFrame'
 import { focusOrAddFileTab, remapFileTabsForPath, removeFileTabsForPath } from '../../utils/modelRegistry'
@@ -956,7 +957,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
       const title = draft.title.trim()
       if (!folderPath || !title) return
       const fileName = uniquePlanFileName(
-        `${todayPrefix()}-${slugify(title)}`,
+        `${todayPrefix()}-${planSlug(title)}`,
         new Set((scan?.items ?? []).map((item) => item.relativePath.toLowerCase())),
       )
       // ensureDir is idempotent; it also covers a missing backlog/ folder.
@@ -3247,14 +3248,8 @@ function matchesQuery(item: BacklogItem, query: string): boolean {
   )
 }
 
-function slugify(value: string): string {
-  return (
-    value
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 60) || 'untitled'
-  )
+function planSlug(value: string): string {
+  return slugify(value).slice(0, 60) || 'untitled'
 }
 
 function todayPrefix(): string {
@@ -3277,12 +3272,6 @@ function uniquePlanFileName(baseName: string, existingRelativeLower: Set<string>
 
 function assertBacklogMutation(result: { ok: boolean; message?: string }): void {
   if (!result.ok) throw new Error(result.message || 'Unable to update Backlog metadata.')
-}
-
-function isEditableTarget(target: EventTarget | null): boolean {
-  if (!(target instanceof HTMLElement)) return false
-  const tag = target.tagName
-  return tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT' || target.isContentEditable
 }
 
 function listEmptyHint(

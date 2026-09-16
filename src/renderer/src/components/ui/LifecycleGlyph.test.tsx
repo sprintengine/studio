@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import { LifecycleGlyph, LIFECYCLE_LABEL } from './LifecycleGlyph'
+import { LifecycleGlyph } from './LifecycleGlyph'
 import { PullRequestGlyph } from './PullRequestGlyph'
 import type { LifecycleState } from '../../../../shared/lifecycle-state'
 
@@ -23,7 +23,30 @@ import type { LifecycleState } from '../../../../shared/lifecycle-state'
 
 const dom = new JSDOM('<!doctype html><html><body></body></html>')
 
-const STATES = Object.keys(LIFECYCLE_LABEL) as LifecycleState[]
+// Every state, kept exhaustive by the Record type: a new state fails to compile
+// here until it is listed, and then has to draw a distinct glyph.
+const EVERY_STATE: Record<LifecycleState, true> = {
+  todo: true,
+  idea: true,
+  ready: true,
+  blocked: true,
+  in_progress: true,
+  paused: true,
+  review: true,
+  testing: true,
+  product: true,
+  changes_requested: true,
+  needs_input: true,
+  recorded: true,
+  done: true,
+  approved_auto: true,
+  done_unmerged: true,
+  done_merged: true,
+  archived: true,
+  failed: true,
+}
+
+const STATES = Object.keys(EVERY_STATE) as LifecycleState[]
 
 function svgFor(node: React.ReactElement): Element {
   const host = dom.window.document.createElement('div')
@@ -102,7 +125,7 @@ run('the branch pair keeps its LIFECYCLE tones, which are not the pull request t
 })
 
 run('a labelled glyph speaks and a decorative one is hidden', () => {
-  const labelled = svgFor(<LifecycleGlyph state="done_merged" label={LIFECYCLE_LABEL.done_merged} />)
+  const labelled = svgFor(<LifecycleGlyph state="done_merged" label="Merged" />)
   assert.equal(labelled.getAttribute('role'), 'img')
   assert.equal(labelled.getAttribute('aria-label'), 'Merged')
   assert.equal(labelled.getAttribute('aria-hidden'), null)
