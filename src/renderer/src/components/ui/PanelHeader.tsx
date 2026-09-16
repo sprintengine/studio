@@ -46,7 +46,7 @@ type PanelHeaderBaseProps = {
 // subtitle would hide the mistake instead of naming it.
 //
 // `scope` earns a slot because the alternative is worse. The composer and the
-// New sprint dialog both open on "which project?", and the inspector's three
+// the create surfaces both open on "which project?", and the inspector's three
 // panes all lead with a lifecycle glyph, so all five hand-rolled the whole band
 // rather than lose the control (2112) — and the only slots left were
 // `primaryAction`, which is the row's one action, and `overflow`, which is the

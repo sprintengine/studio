@@ -61,7 +61,6 @@ const CATEGORY_LABELS: Record<CommandCategory, string> = {
   command_palette: 'Command palette',
   workspace: 'Workspace',
   panel: 'Panels',
-  specialist: 'Specialists',
   voice: 'Voice',
   git: 'Git',
   terminal: 'Terminal',
@@ -112,9 +111,12 @@ export function buildShortcutRows(
 // entry added here is a user-visible retirement and belongs in the release notes
 // (`docs/release-checklist.md`).
 export const RETIRED_COMMAND_IDS: readonly string[] = [
-  // The Sprint Engines panel became the Sprints door surface (item 1767); the
-  // toggle command that opened the panel went with it.
+  // The Sprint Engines panel and the specialist spawn commands went with the
+  // in-tree sprint engine (2026-09-16).
   'panel.sprint-engines.toggle',
+  'specialist.spawn.architect',
+  'specialist.spawn.performance',
+  'specialist.spawn.frontend-design-review',
   // The title-bar Attention Queue was removed: the sidebar rows and the Home
   // glyph's notifications already carry "which agents are waiting on you", so
   // the popover and its toggle command went with it.

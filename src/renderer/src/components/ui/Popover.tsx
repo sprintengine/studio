@@ -364,7 +364,7 @@ export function Popover({
                 bottom: position?.bottom,
                 left: position?.left,
                 right: position?.right,
-                // Exposed so width-coupled surfaces (Select, Sprint Engine listboxes)
+                // Exposed so width-coupled surfaces (Select, module listboxes)
                 // can match the trigger via min-w-[var(--popover-trigger-width)]
                 // without an inline width that would clobber their own min-w floor.
                 ['--popover-trigger-width' as string]: position ? `${position.triggerWidth}px` : undefined,

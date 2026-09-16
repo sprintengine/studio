@@ -17,7 +17,7 @@ import type { MulticodeAuthState } from '../../../../shared/electron-api'
 
 // The one key the paid plan gates. Decision of record (owner, 2026-09-01,
 // MC-1579): nothing is gated by the paid plan except the ability to use the
-// mobile app. Sprint Engine is free, and no other capability is paid — the
+// mobile app. No capability in the app is paid — the
 // `multicode.frontier_models` key that used to sit here was retired from the
 // Multiauth catalogue in the same change, because nothing in the product ever
 // consumed it. Enforcement lives on the server: every relay entry point in

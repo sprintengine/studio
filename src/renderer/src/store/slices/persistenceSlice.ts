@@ -1,50 +1,31 @@
 import type {
   AgentCli,
   AppSettings,
-  SprintEngineAutomationDesiredMode,
-  SprintEngineRunSettings,
-  SprintEngineWorkspaceContext,
   Workspace,
   WorkspaceId,
   WorkspaceWindowId,
   WorkspaceWindowState,
 } from '../../types/workspace'
-import { normalizeSprintEngineState } from '../../utils/sprintengine'
 import { defaultEditorState, normalizeAgentCli, normalizeAgentState } from './agentsSlice'
 import {
   hideNavRailTabStrip,
-  hideSprintEngineBoardTabStrip,
-  migrateSprintEngineLayout,
-  sprintEngineTabsLayoutModel,
   healRetiredRailLayout,
   stripSettingsTabsFromLayout,
-  stripSprintEnginesNavFromLayout,
 } from './layoutSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
-import {
-  migrateSprintEngineAgentNames,
-  normalizeSprintEngineAutoState,
-  normalizeSprintEngineRoleCliDefaults,
-  normalizeSprintEngineWorkspaceContext,
-  reconcileSprintEngineAgents,
-} from '../../modules/sprint-engine-run-state'
 import {
   defaultAppSettings,
   normalizeAppSettings,
   normalizeAgentSpawnPermissionPreset,
   normalizeRecentWorkspaceFolders,
-  normalizeSprintEngineRunSettings,
-  sprintEngineRunSettingsKey,
 } from './settingsSlice'
 import { normalizeWorkspaceFileExplorerState, normalizeWorkspaceMode } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 import {
-  clearSprintEngineAgentLaunchState,
   dedupeAutomationsHostWorkspaces,
   dropRetiredModeWorkspaces,
   mapMigrationWorkspaces,
 } from './normalizers'
-import { migrateSprintEngineFieldsIntoModuleBag, reconcileWorkspaceModuleState, legacySprintEngineRunContext, legacySprintEngineRunState, type LegacySprintEnginePersistWorkspace } from './workspaceModuleState'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
@@ -53,128 +34,17 @@ export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')
 
 export type WorkspaceMigrationState = {
-  workspaces: LegacySprintEnginePersistWorkspace[]
+  workspaces: Workspace[]
   activeWorkspaceId?: WorkspaceId | null
   workspaceWindows?: WorkspaceWindowState[]
   primaryWorkspaceWindowId?: WorkspaceWindowId
   // Retired keys stay declared here so the migrations that read or delete them
-  // are typed rather than cast: `cliCommands` (pre-v10 CLI commands),
-  // `sprintEngineModelCatalog` (the model catalog retired in MC-1890), and
-  // `lastSelectedSpecialist` / `lastSpawnWasGeneral` (the top-bar picker's
-  // remembered default, retired in MC-2222).
+  // are typed rather than cast: `cliCommands` holds the pre-v10 CLI commands.
   appSettings?: Partial<AppSettings> & {
     cliCommands?: Partial<Record<AgentCli, string>>
-    sprintEngineModelCatalog?: unknown
-    lastSelectedSpecialist?: unknown
-    lastSpawnWasGeneral?: unknown
   }
   sidebarCollapsed?: boolean
   workspaceRegistryEmptyState?: import('../../types/workspace').WorkspaceRegistryEmptyState | null
-}
-
-type LegacySprintEngineAutoState = Partial<Workspace['sprintEngineAutoState']> & {
-  supervisorEnabled?: unknown
-  enabled?: unknown
-  autoApproveArtifacts?: unknown
-}
-
-function sprintEngineDesiredModeFromLegacyBooleans(
-  input: LegacySprintEngineAutoState | null | undefined
-): SprintEngineAutomationDesiredMode {
-  const explicitMode = input?.desiredMode
-  if (
-    explicitMode === 'manual'
-    || explicitMode === 'run_agents'
-    || explicitMode === 'run_agents_and_approve_artifacts'
-  ) {
-    return explicitMode
-  }
-  const runnerEnabled = input?.supervisorEnabled === true || input?.enabled === true
-  if (runnerEnabled && input?.autoApproveArtifacts === true) return 'run_agents_and_approve_artifacts'
-  if (runnerEnabled) return 'run_agents'
-  return 'manual'
-}
-
-function repairSprintEngineAutomationLifecycleState(workspace: Workspace): Workspace {
-  const legacyAutoState = workspace.sprintEngineAutoState as LegacySprintEngineAutoState | null | undefined
-  const desiredMode = sprintEngineDesiredModeFromLegacyBooleans(legacyAutoState)
-  const sprintEngineAutoState = normalizeSprintEngineAutoState({
-    ...legacyAutoState,
-    desiredMode,
-    runtimeState: legacyAutoState?.runtimeState ?? (desiredMode === 'manual' ? 'idle' : 'running'),
-  })
-  return {
-    ...workspace,
-    sprintEngineAutoState,
-  }
-}
-
-function sprintEngineRunSettingsFromWorkspace(
-  workspace: Workspace,
-  fallbackPermissionPreset: SprintEngineRunSettings['cliPermissionPreset'],
-): SprintEngineRunSettings {
-  const autoState = normalizeSprintEngineAutoState(workspace.sprintEngineAutoState)
-  return {
-    // `manual` is the neutral value normalizeSprintEngineAutoState lands on when
-    // a workspace carries no explicit choice, so it is the "no local override"
-    // sentinel here — the role `default` played before MC-2210.
-    cliPermissionPreset: autoState.cliPermissionPreset === 'manual'
-      ? fallbackPermissionPreset
-      : autoState.cliPermissionPreset,
-    maxConcurrentAgents: autoState.maxConcurrentAgents,
-  }
-}
-
-function hasPersistableSprintEngineRunSettings(runSettings: SprintEngineRunSettings): boolean {
-  return runSettings.cliPermissionPreset !== undefined && runSettings.cliPermissionPreset !== 'manual'
-    || (
-      typeof runSettings.maxConcurrentAgents === 'number'
-      && Number.isFinite(runSettings.maxConcurrentAgents)
-      && runSettings.maxConcurrentAgents !== 3
-    )
-}
-
-function applySprintEngineRunSettingsToWorkspace(
-  workspace: Workspace,
-  runSettings: SprintEngineRunSettings | undefined,
-): Workspace {
-  if (!runSettings) return workspace
-  return {
-    ...workspace,
-    sprintEngineAutoState: normalizeSprintEngineAutoState({
-      ...workspace.sprintEngineAutoState,
-      ...runSettings,
-    }),
-  }
-}
-
-export function hydrateSprintEngineLocalRunSettings(
-  workspaces: Workspace[],
-  appSettings: AppSettings,
-): { workspaces: Workspace[]; appSettings: AppSettings } {
-  const runSettings = normalizeSprintEngineRunSettings(appSettings.sprintEngineRunSettings)
-  const fallbackPermissionPreset = appSettings.lastAgentSpawnPermissionPreset
-
-  for (const workspace of workspaces) {
-    if (!legacySprintEngineRunState(workspace)) continue
-    const key = sprintEngineRunSettingsKey(legacySprintEngineRunContext(workspace)?.statePath)
-    if (!key || runSettings[key]) continue
-    const derivedRunSettings = sprintEngineRunSettingsFromWorkspace(workspace, fallbackPermissionPreset)
-    if (hasPersistableSprintEngineRunSettings(derivedRunSettings)) {
-      runSettings[key] = derivedRunSettings
-    }
-  }
-
-  return {
-    workspaces: workspaces.map((workspace) => {
-      const key = sprintEngineRunSettingsKey(legacySprintEngineRunContext(workspace)?.statePath)
-      return applySprintEngineRunSettingsToWorkspace(workspace, key ? runSettings[key] : undefined)
-    }),
-    appSettings: {
-      ...appSettings,
-      sprintEngineRunSettings: runSettings,
-    },
-  }
 }
 
 export function normalizeWorkspaceWindows(
@@ -370,44 +240,13 @@ export function migratePersistedWorkspaceState(
   if (version < 2) {
     mapMigrationWorkspaces(migrationState, (ws) => ({
       ...ws,
-      mode: ws.mode ?? (ws.sprintEngineState ? 'sprintengine' : 'standard'),
-      sprintEngineState: normalizeSprintEngineState(ws.sprintEngineState),
+      mode: ws.mode ?? 'standard',
     }))
   }
-  if (version < 3) {
-    mapMigrationWorkspaces(migrationState, (ws) => ({
-      ...ws,
-      sprintEngineState: normalizeSprintEngineState(ws.sprintEngineState),
-    }))
-  }
-  if (version < 4) {
-    mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
-  }
-  if (version < 5) {
-    mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
-  }
-  if (version < 6) {
-    mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
-  }
-  if (version < 7) {
-    mapMigrationWorkspaces(migrationState, (ws) =>
-      ws.mode === 'sprintengine' || ws.sprintEngineState
-        ? { ...ws, layoutModel: sprintEngineTabsLayoutModel(ws.sprintEngineState ?? null, ws.agents) }
-        : ws,
-    )
-  }
-  if (version < 8) {
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-      if (ws.mode !== 'sprintengine' && !sprintEngineState) return ws
-
-      return {
-        ...ws,
-        sprintEngineState,
-        agents: reconcileSprintEngineAgents(ws.agents, sprintEngineState),
-      }
-    })
-  }
+  // v3-v8 forwarded the in-tree sprint engine's run state, roster agents and
+  // board layout. The engine was deleted outright (2026-09-16) and a persisted
+  // `sprintengine` row is dropped by dropRetiredModeWorkspaces, so the rungs
+  // are gone rather than kept as no-ops.
   if (version < 10) {
     const current = migrationState
     const defaults = defaultAppSettings()
@@ -464,9 +303,8 @@ export function migratePersistedWorkspaceState(
     }
   }
   if (version < 13) {
-    // This rung used to re-key the remembered top-bar specialist onto the
-    // registry role id. That field retired with the top-bar picker (MC-2222,
-    // dropped at v72), so the rung keeps only its shape-preserving half.
+    // This rung used to re-key a remembered agent identity that no longer
+    // exists, so it keeps only its shape-preserving half.
     const current = migrationState
     const defaults = defaultAppSettings()
     current.appSettings = {
@@ -479,45 +317,10 @@ export function migratePersistedWorkspaceState(
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
     }
   }
-  if (version < 14) {
-    mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
-  }
-  if (version < 15) {
-    mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
-  }
   if (version < 16) {
     mapMigrationWorkspaces(migrationState, (ws) => ({
       ...ws,
       folderMissing: false,
-    }))
-  }
-  if (version < 17) {
-    mapMigrationWorkspaces(migrationState, (ws) => ({
-      ...ws,
-      sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-    }))
-  }
-  if (version < 18) {
-    mapMigrationWorkspaces(migrationState, migrateSprintEngineAgentNames)
-  }
-  if (version < 19) {
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-      return {
-        ...ws,
-        sprintEngineState,
-        sprintEngineContext: normalizeSprintEngineWorkspaceContext(
-          (ws as Workspace & { sprintEngineContext?: SprintEngineWorkspaceContext | null }).sprintEngineContext,
-          ws.folderPath,
-          sprintEngineState,
-        ),
-      }
-    })
-  }
-  if (version < 20) {
-    mapMigrationWorkspaces(migrationState, (ws) => ({
-      ...ws,
-      sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
     }))
   }
   if (version < 21) {
@@ -530,26 +333,6 @@ export function migratePersistedWorkspaceState(
         ]),
       ),
       worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
-    }))
-  }
-  if (version < 22) {
-    mapMigrationWorkspaces(migrationState, (ws) => ({
-      ...ws,
-      sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-    }))
-  }
-  if (version < 23) {
-    mapMigrationWorkspaces(migrationState, (ws) => ({
-      ...ws,
-      sprintEngineRoleCliDefaults: ws.mode === 'sprintengine' || ws.sprintEngineState
-        ? normalizeSprintEngineRoleCliDefaults(ws.sprintEngineRoleCliDefaults)
-        : undefined,
-    }))
-  }
-  if (version < 24) {
-    mapMigrationWorkspaces(migrationState, (ws) => ({
-      ...ws,
-      sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
     }))
   }
   if (version < 25) {
@@ -611,31 +394,6 @@ export function migratePersistedWorkspaceState(
       ),
     }
   }
-  if (version < 29) {
-    mapMigrationWorkspaces(migrationState, (ws) => ({
-      ...ws,
-      sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-    }))
-  }
-  if (version < 30) {
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-      const mode = sprintEngineState ? 'sprintengine' : ws.mode ?? 'standard'
-      const nextWorkspace: LegacySprintEnginePersistWorkspace = {
-        ...ws,
-        mode,
-        sprintEngineState,
-        sprintEngineContext: normalizeSprintEngineWorkspaceContext(
-          ws.sprintEngineContext,
-          ws.folderPath,
-          sprintEngineState,
-        ),
-        sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-      }
-
-      return migrateSprintEngineLayout(nextWorkspace)
-    })
-  }
   if (version < 31) {
     const current = migrationState
     const defaults = defaultAppSettings()
@@ -684,15 +442,10 @@ export function migratePersistedWorkspaceState(
     current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
   }
   if (version < 40) {
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const sprintEngineState = normalizeSprintEngineState(ws.sprintEngineState)
-      return {
-        ...ws,
-        mode: normalizeWorkspaceMode(ws.mode, sprintEngineState),
-        sprintEngineState,
-        sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-      }
-    })
+    mapMigrationWorkspaces(migrationState, (ws) => ({
+      ...ws,
+      mode: normalizeWorkspaceMode(ws.mode),
+    }))
   }
   if (version < 41) {
     const current = migrationState
@@ -739,53 +492,17 @@ export function migratePersistedWorkspaceState(
   // v47 and v50 forwarded the layouts of a workspace mode that has since been
   // retired. `healRetiredRailLayout` now strips that mode's tabs on every
   // hydration, so the two rungs are dropped rather than kept as no-ops.
-  if (version < 48) {
-    // Sprint Engine: Inbox / Roster / Tasks are now internal segmented chrome
-    // inside SprintEngineBoardPanel rather than three closeable FlexLayout
-    // tabs. Existing workspaces still carry the retired component IDs in
-    // their persisted layout, which the renderer no longer handles — rerun
-    // the SE layout migration to forward them to the single board.
-    mapMigrationWorkspaces(migrationState, migrateSprintEngineLayout)
-  }
-  if (version < 49) {
-    // The SE board tabset's FlexLayout tab strip is redundant once the
-    // workspace top bar carries the icon segmented nav. Stamp
-    // enableTabStrip: false onto the tabset that wraps the sprint board tab
-    // in existing layouts without rewriting custom arrangements.
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const next = hideSprintEngineBoardTabStrip(ws.layoutModel)
-      return next ? { ...ws, layoutModel: next } : ws
-    })
-  }
-  if (version < 58) {
-    // One-time local repair for development snapshots that still carried the
-    // removed Sprint Engine automation boolean mirrors. Run before older
-    // automation normalization steps so pre-v53 snapshots do not lose intent.
-    mapMigrationWorkspaces(migrationState, repairSprintEngineAutomationLifecycleState)
-  }
+  // v48, v49 and v58 forwarded the in-tree sprint engine's board layout and
+  // automation state. Retired with the engine (2026-09-16).
   if (version < 59) {
     mapMigrationWorkspaces(migrationState, (ws) => ({
       ...ws,
       fileExplorerState: normalizeWorkspaceFileExplorerState(ws.fileExplorerState),
     }))
   }
-  if (version < 51) {
-    mapMigrationWorkspaces(migrationState, (ws) => ({
-      ...ws,
-      sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-    }))
-  }
   // v52 hid the FlexLayout tab strip around the 'guided-brief' tab. Retired
   // with the Design Wizard (2026-09-08); the tab component itself is stripped
   // from persisted layouts by stripRetiredModuleTabsFromLayout.
-  if (version < 53) {
-    // Normalize automation state (the normalizer also drops any legacy
-    // transient spawn bookkeeping).
-    mapMigrationWorkspaces(migrationState, (ws) => ({
-      ...ws,
-      sprintEngineAutoState: normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-    }))
-  }
   if (version < 54) {
     // Files / Git / Knowledge Graph are now exclusive strip-less switches that
     // share one left pane; the sidebar PanelRail carries their selection chrome,
@@ -813,35 +530,9 @@ export function migratePersistedWorkspaceState(
     const current = migrationState
     current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
   }
-  if (version < 57) {
-    // Sprint Engine roster membership is durable, but app-owned terminal
-    // processes are not. Clear stale launch intent so reopening the studio or
-    // restoring an agent tab does not spawn autonomous agents.
-    mapMigrationWorkspaces(migrationState, clearSprintEngineAgentLaunchState)
-  }
-  if (version < 60) {
-    // The Sprint Engines survey left the per-workspace nav rail (it is the
-    // Sprints door surface now); strip the retired 'sprint-engines' tab from
-    // persisted layouts so it cannot render as an empty surface.
-    mapMigrationWorkspaces(migrationState, (ws) => {
-      const next = stripSprintEnginesNavFromLayout(ws.layoutModel)
-      return next === ws.layoutModel ? ws : { ...ws, layoutModel: next as Workspace['layoutModel'] }
-    })
-  }
-  if (version < 61) {
-    // Sprint Engine run permissions are local operator preferences. Older
-    // workspaces kept them only on workspace auto-state, while mounted Backlog
-    // runs could keep the factory default even after the app-level default was
-    // changed. Seed a local per-run settings map by run.yaml path, then hydrate
-    // each saved Sprint Engine workspace from it.
-    const current = migrationState
-    const hydrated = hydrateSprintEngineLocalRunSettings(
-      current.workspaces,
-      normalizeAppSettings(current.appSettings, current.workspaces),
-    )
-    current.workspaces = hydrated.workspaces
-    current.appSettings = hydrated.appSettings
-  }
+  // v57, v60 and v61 cleared the in-tree sprint engine's launch intent, nav
+  // tab and per-run permission preferences. Retired with the engine
+  // (2026-09-16).
   if (version < 62) {
     // Automations is now a global app screen (a content-area destination), not
     // a workspace type. Drop any persisted automations workspaces: their only
@@ -954,21 +645,9 @@ export function migratePersistedWorkspaceState(
     const current = migrationState
     current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
   }
-  if (version < 68) {
-    // The Sprint Engine model catalog retired (MC-1890): the Settings section
-    // where each CLI+model carried hand-set intelligence / frontendDesign /
-    // mobile / speed / cost axes is gone, and its last two live readers went
-    // with the architect-decides-staffing formation (MC-1889). Drop the
-    // persisted array so an upgraded profile stops carrying scores nothing
-    // reads. Nothing the user chose is lost: per-role models live on the saved
-    // roster and per-CLI model ids in `cliRuntimes[cli].models`.
-    // Deleting the key here is the clean-upgrade half; normalizeAppSettings is
-    // the enforcement half — it builds every field explicitly and never spreads
-    // the persisted object, and persist merge() runs it on every hydration, so
-    // the slice also cannot survive inside a current-version envelope this
-    // ladder never revisits (a dev-HMR module swap stamps exactly that).
-    if (migrationState.appSettings) delete migrationState.appSettings.sprintEngineModelCatalog
-  }
+  // v68 dropped the in-tree sprint engine's model catalog from app settings.
+  // normalizeAppSettings is the enforcement half and builds every field
+  // explicitly, so an upgraded profile drops the key with or without the rung.
   if (version < 69) {
     // `cliModelCatalog` arrives with this version: what each agent CLI last
     // reported about its own models, separate from the user's own ids in
@@ -996,37 +675,11 @@ export function migratePersistedWorkspaceState(
     const current = migrationState
     current.appSettings = normalizeAppSettings(current.appSettings, state.workspaces)
   }
-  if (version < 71) {
-    // The per-module workspace-state bag arrives with this version (MC-1573):
-    // `Workspace.moduleState` keyed by module id, with `sprintengine` as the
-    // first migrated field (the legacy `sprintEngineState` field stays as a
-    // store-maintained mirror for its in-tree readers). Persisted rows carry a
-    // null run state and no bag — partialize strips both homes — so this rung
-    // is the clean-upgrade half only: it reconciles any row that does carry
-    // one representation (ancient pre-strip profiles, hand-edited state). The
-    // enforcement half is reconcileWorkspaceModuleState in persist merge(),
-    // which runs on every hydration and therefore also heals current-version
-    // envelopes this ladder never revisits (the dev-HMR trap, same split as
-    // the v67-v70 rungs above).
-    mapMigrationWorkspaces(migrationState, reconcileWorkspaceModuleState)
-  }
-  if (version < 72) {
-    // The title bar's specialist split-button is gone (MC-2222), and with it
-    // the remembered-specialist default it repeated: `lastSelectedSpecialist`
-    // (factory default 'architect') and `lastSpawnWasGeneral`. That default
-    // was also what preselected a specialist nobody picked in New chat, so a
-    // plain Enter fetched the architect soul. No spawn surface defaults to a
-    // role any more; a specialist launches only when its row or shortcut is
-    // chosen explicitly. Drop both keys so an upgraded profile stops carrying
-    // a role nothing reads. Same split as v68: this is the clean-upgrade
-    // half, and normalizeAppSettings — which builds every field explicitly
-    // and never spreads the persisted object — is the enforcement half for
-    // envelopes this ladder never revisits.
-    if (migrationState.appSettings) {
-      delete migrationState.appSettings.lastSelectedSpecialist
-      delete migrationState.appSettings.lastSpawnWasGeneral
-    }
-  }
+  // v71 and v72 hoisted the in-tree sprint engine's workspace fields into the
+  // per-module state bag and dropped its remembered spawn default from app
+  // settings. Both retired with the engine (2026-09-16); a `sprintengine` row
+  // is dropped outright by dropRetiredModeWorkspaces, and normalizeAppSettings
+  // builds every settings field explicitly.
   if (version < 73) {
     // Files and Git left the FlexLayout rail for the workspace pane, and the
     // Skills aside is gone (browser-pane epic). A layout that had Files or
@@ -1060,17 +713,8 @@ export function migratePersistedWorkspaceState(
       migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
     }
   }
-  if (version < 76) {
-    // sprintEngineContext and sprintEngineRoleCliDefaults join
-    // moduleState.sprintengine (MC-2573). A HEAD-shaped row carries the three
-    // top-level fields and a stripped bag; this rung hoists them into the bag
-    // entry. Marked for deletion with the in-tree engine
-    // (extensions-installable-modules 2026-08-03; dated 2026-09-16). The
-    // enforcement half is reconcileWorkspaceModuleState in persist merge(),
-    // which runs on every hydration so a current-version envelope this ladder
-    // never revisits still heals.
-    mapMigrationWorkspaces(migrationState, migrateSprintEngineFieldsIntoModuleBag)
-  }
+  // v76 hoisted the in-tree sprint engine's remaining workspace fields into
+  // the per-module state bag. Retired with the engine (2026-09-16).
 
   return state as never
 }

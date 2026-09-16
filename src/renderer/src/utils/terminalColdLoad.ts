@@ -31,7 +31,7 @@ export interface AgentLaunchIntentInput {
   cliRestartNonce?: number
   /** A board re-open asking to reattach a recorded conversation. */
   cliResumeRequested?: boolean
-  /** A specialist/onboarding directive still waiting to be delivered. */
+  /** An onboarding directive still waiting to be delivered. */
   cliStartupPrompt?: string
 }
 
@@ -50,8 +50,8 @@ export interface AgentLaunchIntentInput {
  * - `cliHasLaunched` — the persisted resume gate. Reading it here would put
  *   every cold-loaded agent that ever ran straight back into a spawn, which is
  *   the bug.
- * - A startup prompt DERIVED at render time (sprint roles rebuild theirs from
- *   the roster on every mount). Only the PERSISTED `cliStartupPrompt` — an
+ * - A startup prompt DERIVED at render time by a host. Only the PERSISTED
+ *   `cliStartupPrompt` — an
  *   onboarding directive that was never delivered — counts.
  */
 export function hasLiveAgentLaunchIntent(agent: AgentLaunchIntentInput | null | undefined): boolean {

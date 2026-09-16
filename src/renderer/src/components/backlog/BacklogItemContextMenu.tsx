@@ -159,8 +159,8 @@ export type BacklogActions = {
   // the Archived lens shows the epic as a single grouped unit.
   archiveEpic: (item: BacklogItem) => void
   remove: (item: BacklogItem) => void
-  // Remove only the association. The linked sprint/agent continues to exist,
-  // and lifecycle remains independently controlled by setStatus.
+  // Remove only the association. The linked agent continues to exist, and
+  // lifecycle remains independently controlled by setStatus.
   removeLink: (item: BacklogItem, link: BacklogItemLink) => void
   setStatus: (item: BacklogItem, status: BacklogItemStatus) => void
   setDifficulty: (item: BacklogItem, value: DifficultyChoice) => void

@@ -5,7 +5,6 @@ export type CommandCategory =
   | 'command_palette'
   | 'workspace'
   | 'panel'
-  | 'specialist'
   | 'voice'
   | 'git'
   | 'terminal'
@@ -22,7 +21,7 @@ export type CommandScope =
   // the workspace-type registry — the shell pushes one when the active
   // workspace's mode belongs to that module — so a capability module's
   // commands can gate on "my workspace is active" without growing this union
-  // per module. Sprint Engine commands use `panel:sprint-engine`.
+  // per module.
   // `(string & {})` keeps the named literals in completions while accepting
   // the derived family.
   | (string & {})
@@ -31,17 +30,10 @@ export type CommandAvailability =
   | 'always'
   | 'activeWorkspace'
   | 'activeFile'
-  | 'sprintengineWorkspace'
-  | 'sprintengineHasArchitect'
-  | 'sprintengineFocusAgentVisible'
   // The memory-graph capability module is enabled, so the Knowledge Graph
   // panel component is registered and a toggle can actually mount it. The
   // panel has no rail glyph; the palette/menu toggle is its only entry point.
   | 'memoryGraphEnabled'
-  // The sprint-engine capability module is enabled, so the app-level Sprint
-  // Engines aside (the global run survey docked right of the workspace card)
-  // can be toggled.
-  | 'sprintEngineEnabled'
   // The Git tab is showing in the active workspace's pane, so its
   // panel-command handlers (refresh/fetch/commit) can receive and act on a
   // dispatch.
@@ -54,9 +46,6 @@ export type CommandAvailability =
   // The automations capability module is enabled, so the global Automations
   // screen has a backing store/IPC and can be opened.
   | 'automationsEnabled'
-  // The active workspace has at least one installed workflow-role skill, so a
-  // specialist spawn or "add a role" command has something to resolve.
-  | 'workflowRolesInstalled'
   // Open at the type level (MC-1533) so a compiled module built against a
   // newer SDK enum never breaks on an older shell: an unknown condition is
   // simply absent from the runtime context, so the command stays unavailable

@@ -15,7 +15,7 @@ import {
 //
 // Until an answer lands, the registry reads as the current name. A project that
 // still uses the old one therefore has a window at cold start in which a
-// renderer-built path names a directory that is not there — a sprint board that
+// renderer-built path names a directory that is not there — a module surface that
 // mounts in that window shows its run as missing and is correct on the next
 // render. Nothing is WRITTEN through a renderer-built path without a main-process
 // resolve behind it, so the window costs a re-render, not a misplaced file.

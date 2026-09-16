@@ -68,7 +68,6 @@ export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]
       session.terminalId ?? '',
       session.cli ?? '',
       session.cwd ?? '',
-      session.sprintEngineStatePath ?? '',
       session.executionMode ?? '',
       session.worktreeId ?? '',
       session.worktreePath ?? '',

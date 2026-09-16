@@ -103,8 +103,8 @@
   }
 }
 
-/* Shared UI tokens — shared by the Sprint Engine and Automations
- * panel rebuilds. Existing tool-identity / theme variables are kept
+/* Shared UI tokens — shared by the Automations and Review panels, and by
+ * every module surface the SDK hands them to. Existing tool-identity / theme variables are kept
  * intact below; these tokens add a semantic layer that primitives consume.
  *
  * Themes attach as `data-theme="<id>"` on <html>. The bare :root block below
@@ -382,7 +382,7 @@
 
   /* Tool identity dots only — header chrome, never row chrome. */
   --tool-sprintengine: #fcc030;
-  /* Sprint mark ink: the brand yellow pulled toward the theme's strongest text
+  /* Brand mark ink: the brand yellow pulled toward the theme's strongest text
      color, so small glyphs stay legible everywhere — pure #fcc030 vanishes on
      light backgrounds. Derived, so every theme (and any future one) adapts
      without its own override. */
@@ -1001,7 +1001,7 @@
     radial-gradient(circle at 50% 45%, rgba(44, 124, 92, 0.06), transparent 52%);
 }
 
-/* Paper — the Sprint Engine signature light theme: warm cream canvas, sage
+/* Paper — the product's signature light theme: warm cream canvas, sage
    panel chrome, single green accent. Coordinated 1:1 with the marketing site
    (multicode-website globals.css: paper #f4f1e8, sage #d9dec9, accent #2f6a4a).
    A green-accented, warm-light sibling of Herbarium, but cream-dominant (vs
@@ -2604,8 +2604,8 @@ body:has([data-selection-pane]:focus-within)
 }
 
 /* Semantic "needs input" amber stays literal — it's a status idiom, not
-   surface chrome. Sprint Engine gold for an unrelated identity dot is in
-   the same hue family but distinct in scale and role.
+   surface chrome. The brand gold for an unrelated identity dot is in the same
+   hue family but distinct in scale and role.
    design-tokens-allow-block: semantic needs-input amber + spawn emerald */
 .flexlayout__layout .flexlayout__tab_button.agent-tab-needs-input {
   color: #ffe0a3;

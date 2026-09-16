@@ -9,7 +9,7 @@ import { CardButton, GhostButton } from '../../ui'
 import { pathJoin } from '../../../utils/paths'
 
 // Attach-a-design-system section of the wizard's Advanced setup, shared by
-// the standard and Sprint Engine flows. Follows the
+// every create flow. Follows the
 // KnowledgeStep pattern: a real state read up front (library list + existing
 // design-system/ pre-check), explicit unavailable/empty/conflict states, and
 // a selection the wizard applies at create time through the attach IPC — the

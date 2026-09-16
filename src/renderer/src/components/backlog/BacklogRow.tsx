@@ -12,7 +12,6 @@ import type {
 import type { BacklogEpicGroup, BacklogEpicMeta, BacklogEpicProgress } from '../../utils/backlogEpics'
 import type { BacklogDependencyState, BacklogEpicBlockedRollup } from '../../utils/backlogDependencies'
 import { getHighlightSwatch } from '../../utils/highlight'
-import type { SprintEngineRunGlyph } from '../../utils/sprintengine'
 import {
   CRITICALITY_LABEL,
   DIFFICULTY_LABEL,
@@ -57,19 +56,9 @@ export const BACKLOG_STATUS_LABEL: Record<BacklogItemStatus, string> = {
 // this instead of Ready (see backlogDependencies.isBlocked).
 export const BACKLOG_BLOCKED_LABEL = 'Blocked'
 
-// A live-run override for the readiness glyph: when a Backlog item is linked to
-// a Sprint Engine run we can observe, the row's glyph reflects the *runner*'s
-// real state (running / paused / blocked / failed / complete) instead of the
-// item's coarse `in_progress` status. The rollup itself is shared with the
-// workspace sidebar (`deriveSprintEngineRunGlyph`) so the two surfaces can't
-// drift. The panel owns resolving it (it has the workspace store); the row
-// just renders what it is handed.
-export type BacklogRunGlyph = SprintEngineRunGlyph
-
-// Canonical backlog row interior, shared by the Backlog panel list and the
-// new-workspace Sprint Engine source picker so the two surfaces can't drift.
-// The selectable wrapper (listbox option, drag, click target) stays with each
-// consumer; only the visual content lives here.
+// Canonical backlog row interior, shared by every surface that lists backlog
+// items so they cannot drift. The selectable wrapper (listbox option, drag,
+// click target) stays with each consumer; only the visual content lives here.
 //
 // Primary line: a leading readiness glyph is the row's status marker, then the
 // title — the row's one priority — claims the entire width. Supporting line: the
@@ -79,11 +68,10 @@ export type BacklogRunGlyph = SprintEngineRunGlyph
 // squeezed narrow; the type (feature/bug/…) lives in metadata and no longer
 // earns a glyph, and the excerpt is dropped — at this width it only ever showed
 // a few clipped words, so its space goes to the title instead.
-// React.memo so a panel re-render (e.g. a Sprint Engine projection tick) only
-// reconciles rows whose props actually changed. `item` is referentially stable
-// between scans, `now` ticks every 30s, and `runGlyph` is undefined for the
-// common no-run-link row — so the default shallow comparison lets unchanged
-// rows skip rendering entirely. See backlog item Task 2.
+// React.memo so a panel re-render only reconciles rows whose props actually
+// changed. `item` is referentially stable between scans and `now` ticks every
+// 30s, so the default shallow comparison lets unchanged rows skip rendering
+// entirely. See backlog item Task 2.
 // A small dot in an epic's identity colour (or a dashed neutral ring when the
 // epic has no `color:` set). Shared by the row's member chip, the detail crumb,
 // and the children roll-up so the epic always reads the same. The hex comes from
@@ -133,13 +121,11 @@ function titleInkClass(selected: boolean): string {
 // doesn't stack a second popover over this one.
 export function BacklogRowHoverCard({
   item,
-  runGlyph,
   epicProgress,
   dependencyState,
   projectName,
 }: {
   item: BacklogItem
-  runGlyph?: BacklogRunGlyph
   epicProgress?: BacklogEpicProgress
   /** Derived dependency marker (see backlogDependencies): 'blocked' replaces
    *  the status word so the card never claims Ready for a gated item. */
@@ -150,8 +136,7 @@ export function BacklogRowHoverCard({
   projectName?: string
 }): JSX.Element {
   const statusLabel =
-    runGlyph?.label
-    ?? (dependencyState === 'blocked' ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status])
+    dependencyState === 'blocked' ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status]
   return (
     <span className="flex max-w-[300px] flex-col gap-0.5 py-0.5">
       <span className="whitespace-normal text-meta font-medium leading-snug text-[color:var(--text-strong)]">
@@ -173,7 +158,6 @@ export function BacklogRowHoverCard({
 export const BacklogRowContent = memo(function BacklogRowContent({
   item,
   now,
-  runGlyph,
   dependencyState = null,
   epicBlocked,
   epicMeta,
@@ -185,9 +169,6 @@ export const BacklogRowContent = memo(function BacklogRowContent({
 }: {
   item: BacklogItem
   now: number
-  /** Live Sprint Engine run state, when this item is linked to an observable
-   *  run. Overrides the item-status glyph so the row reflects the runner. */
-  runGlyph?: BacklogRunGlyph
   /** Derived dependency marker (never persisted; see backlogDependencies).
    *  'blocked' replaces the Ready presentation — glyph, label, and a "Blocked"
    *  badge — because unresolved prerequisites falsify the readiness claim.
@@ -218,29 +199,24 @@ export const BacklogRowContent = memo(function BacklogRowContent({
    *  list whose selection lives elsewhere (a picker feeding another pane)
    *  leaves it unset and every row reads as unpicked. */
   selected?: boolean
-  /** The host renders the touched-time in its own trailing column (the sprint
-   *  epic list stacks it under the status cell so both share one right edge),
-   *  so the supporting line omits it — a row never shows the time twice. */
+  /** The host renders the touched-time in its own trailing column (the epic
+   *  list stacks it under the status cell so both share one right edge), so the
+   *  supporting line omits it — a row never shows the time twice. */
   hideTouchedTime?: boolean
   /** Makes the parent-epic pill a jump: clicking it opens the epic instead of
    *  selecting the member row. Hosts with cross-item navigation pass it; a
    *  host without (the source picker) leaves the pill inert. */
   onOpenEpic?: () => void
 }): JSX.Element {
-  // Blocked overrides the item's own status presentation — the stored `ready`
-  // must never read as Ready while prerequisites are unresolved — but a live
-  // run glyph still wins over both: the runner's observed state is the ground
-  // truth, and blocked-with-a-running-agent degrades to the softer Waiting
-  // badge below rather than contradicting it.
-  const blocked = !runGlyph && dependencyState === 'blocked'
-  const lifecycle = runGlyph?.state ?? (blocked ? 'blocked' : backlogStatusToLifecycle(item.status))
-  const statusLabel =
-    runGlyph?.label ?? (blocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status])
-  // The spinner means "an agent is actively working on this": only a live run
-  // glyph earns the animation. A bare in_progress status (no observable run)
-  // renders the same quarter arc, static — per the glyph-system rule that
-  // in_progress animates "only when genuinely live".
-  const live = runGlyph?.live ?? false
+  // Blocked overrides the item's own status presentation: the stored `ready`
+  // must never read as Ready while prerequisites are unresolved.
+  const blocked = dependencyState === 'blocked'
+  const lifecycle = blocked ? 'blocked' : backlogStatusToLifecycle(item.status)
+  const statusLabel = blocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status]
+  // A bare in_progress status renders the quarter arc static — per the
+  // glyph-system rule that in_progress animates "only when genuinely live",
+  // and the item file is a record, not a live signal.
+  const live = false
   const titleInk = titleInkClass(selected)
   // Every row leads with its status glyph (the glyph-system placement rule) —
   // an epic included, so in-progress/completed/archived epics read at a glance.
@@ -438,20 +414,19 @@ const EPIC_ORDER_TERMINAL_STATUSES: ReadonlySet<BacklogItemStatus> = new Set<Bac
   'archived',
 ])
 
-// The epic ordering mark (MC-2137), on the epic row so an epic whose ordering was
-// never declared finished is visible before any sprint dialog is opened. It reads
-// the ABSENCE of `dependenciesPlanned: true` because that is the state with
-// something left to do — a marked epic is simply ready and earns no token, the
-// same rule the star and the status dot follow.
+// The epic ordering mark (MC-2137), on the epic row so an epic whose ordering
+// was never declared finished is visible before anyone starts work from it. It
+// reads the ABSENCE of `dependenciesPlanned: true` because that is the state
+// with something left to do — a marked epic is simply ready and earns no token,
+// the same rule the star and the status dot follow.
 //
 // Small and muted, deliberately not a status: it changes nothing about what the
-// epic IS, only what a sprint started from it would do (plan first, rather than
-// import the epic as its graph).
+// epic IS, only that whoever picks it up has to work out the order first.
 const UNORDERED_EPIC_LABEL = 'Order not planned'
 
 function UnorderedEpicMark(): JSX.Element {
   const explanation =
-    'Ordering not marked done — a sprint from this epic plans first. '
+    'Ordering not marked done — work started from this epic has to plan first. '
     + 'Set `dependenciesPlanned: true` on the epic once its children’s order is authored '
     + '(no dependsOn edges at all is a valid answer: it means deliberately parallel).'
   return (

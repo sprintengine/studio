@@ -1,15 +1,6 @@
 import type { IJsonModel } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
-import {
-  createEmptySprintEngineRoleCounts,
-  createInitialSprintEngineState,
-  normalizeSprintEngineState,
-} from '../../utils/sprintengine'
 import { moveEditorBuffer } from '../../utils/editorBuffers'
-import {
-  composeSprintEngineWorkspaceFromModule,
-  SPRINT_ENGINE_WORKSPACE_TYPE_ID,
-} from '../../../../shared/sprintengine/workspace-record'
 import { isPlaceholderAgentName } from '../../utils/agentNames'
 import {
   decideWorkspaceSettlement,
@@ -21,11 +12,7 @@ import { hasSnooze, snoozeWorkspacePatch, wakeSnoozedWorkspacePatch } from '../.
 import type { WorkspaceFieldsPatch } from '../../../../shared/workspace-sync'
 import { workspaceProjectRoot, workspaceProjectRootOf } from '../../utils/workspaceWorktree'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
-import {
-  normalizeRecentWorkspaceFolders,
-  normalizeSprintEngineRunSettings,
-  sprintEngineRunSettingsKey,
-} from './settingsSlice'
+import { normalizeRecentWorkspaceFolders } from './settingsSlice'
 import {
   workspaceSyncClient,
   type WorkspaceActiveChangedApply,
@@ -37,17 +24,10 @@ import {
 import type {
   AgentCli,
   AgentId,
-  AgentKind,
   AgentState,
   AppSettings,
   EditorState,
   LayoutTemplate,
-  SprintEngineAutoState,
-  SprintEngineState,
-  SprintEngineRoleId,
-  SprintEngineRoleCliDefaults,
-  SprintEngineRoleModelOverrides,
-  SprintEngineWorkspaceContext,
   GitPanelView,
   Workspace,
   WorkspaceWorktree,
@@ -67,14 +47,6 @@ import {
   AUTOMATIONS_HOST_WORKSPACE_MODE,
 } from '../../types/workspace'
 import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../../../../shared/workspace-title'
-import {
-  SPRINT_ENGINE_MODULE_ID,
-  patchSprintEngineModuleState,
-  reconcileWorkspaceModuleState,
-  sprintEngineRunContext,
-  sprintEngineRunState,
-  sprintEngineRoleDefaults,
-} from './workspaceModuleState'
 
 // How far the person's last-input clock may run ahead of main's copy before
 // the next report is sent as a field patch (recordWorkspaceTerminalActivity).
@@ -114,15 +86,10 @@ export function workspaceFolderKey(value: string | null | undefined): string | n
   return normalized ? normalized.toLowerCase() : null
 }
 
-// `runProjection` is the LEGACY shape only: a persisted row that carried a run
-// projection but no mode string, from before the workspace type existed. The
-// type id comes from the module that registers it (MC-2577) rather than a mode
-// enum the shell compiles in, so core never mints the literal itself.
-export function normalizeWorkspaceMode(
-  input: unknown,
-  runProjection?: SprintEngineState | null
-): WorkspaceMode {
-  if (runProjection) return SPRINT_ENGINE_WORKSPACE_TYPE_ID
+// A workspace's mode is an open string: `'standard'`, a bundled rail-hidden
+// mode, or the id of a module-registered workspace type. Core never mints a
+// module's literal itself, so anything non-empty passes through.
+export function normalizeWorkspaceMode(input: unknown): WorkspaceMode {
   if (typeof input === 'string' && input.trim().length > 0) return input
   return 'standard'
 }
@@ -315,19 +282,9 @@ interface WorkspacesSliceActions {
       // Set for a chat created on a paired machine; see Workspace.remoteOrigin.
       remoteOrigin?: import('../../types/workspace').WorkspaceRemoteOrigin | null
       worktree?: WorkspaceWorktree | null
-      sprintEngineModule?: import('../../../../shared/sprintengine/workspace-record').SprintEngineModuleState
-      sprintEngineAgentCliOverrides?: Record<AgentId, AgentCli> | null
-      // Explicit per-role launch model from the new-workspace roster. String =
-      // explicit model id, null or absent = CLI default with no model flag.
-      sprintEngineRoleModelOverrides?: SprintEngineRoleModelOverrides | null
-      // Roles the user marked "start now" in the new-workspace roster. Every
-      // seeded roster agent of these roles is queued as session-only initial
-      // spawn intent for the Sprint Engine board to launch on first open.
-      sprintEngineInitialSpawnRoles?: SprintEngineRoleId[] | null
       // CLI for the general template agents (e.g. the solo "New chat" agent).
       // When set, overrides the remembered `lastSelectedCli` default below.
       templateAgentCli?: AgentCli | null
-      sprintEngineAutoState?: Partial<SprintEngineAutoState> | null
       mode?: Workspace['mode']
       // Externally-triggered creation (the automation executor's hidden host):
       // it must not dismiss whatever the operator is reading, so a background
@@ -336,8 +293,8 @@ interface WorkspacesSliceActions {
       background?: boolean
       windowId?: WorkspaceWindowId | null
       // Open-in-new-chat seed for the single-agent "solo chat" template. The UI
-      // builds a data-only descriptor so this slice never imports specialist or
-      // prompt helpers. `agentPatch` is merged onto the lone template agent
+      // builds a data-only descriptor so this slice never imports prompt
+      // helpers. `agentPatch` is merged onto the lone template agent
       // record, `tabName` renames the lone layout tab, and `terminal` swaps that
       // tab for a terminal tab (and seeds no agent record).
       seedAgent?: SoloChatSeed | null
@@ -380,10 +337,8 @@ interface WorkspacesSliceActions {
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
   /**
    * Write one module's entry in a workspace's per-module state bag (MC-1573);
-   * null/undefined removes it. False when the workspace is unknown, or for the
-   * reserved `sprintengine` key — that entry's single writer stays
-   * setSprintEngineState, which reconciles mode/agents/layout alongside it.
-   * Declared here AND on the WorkspaceStore interface (dual-declaration).
+   * null/undefined removes it. False when the workspace is unknown. Declared
+   * here AND on the WorkspaceStore interface (dual-declaration).
    */
   setWorkspaceModuleState: (workspaceId: WorkspaceId, moduleId: string, state: unknown) => boolean
   importWorkspace: (ws: Workspace) => void
@@ -410,7 +365,7 @@ export type WorkspacesSlice = WorkspacesSliceState & WorkspacesSliceActions
 // (agents/layout/run-state/worktrees/memory). When those slices land, the deps
 // shrink. This explicit DI keeps workspacesSlice import-cycle-free.
 export interface WorkspacesSliceDependencies {
-  defaultAgent: (id: AgentId, name?: string, kind?: AgentKind) => AgentState
+  defaultAgent: (id: AgentId, name?: string) => AgentState
   defaultEditorState: () => EditorState
   defaultWorkspaceMemoryConfig: () => WorkspaceMemoryConfig
   defaultWorkspaceWorktreeState: () => WorkspaceWorktreeState
@@ -418,29 +373,7 @@ export interface WorkspacesSliceDependencies {
   normalizeWorkspaceWorktreeState: (
     input: Partial<WorkspaceWorktreeState> | null | undefined
   ) => WorkspaceWorktreeState
-  normalizeSprintEngineWorkspaceContext: (
-    input: Partial<SprintEngineWorkspaceContext> | null | undefined,
-    folderPath: string | null | undefined,
-    runProjection: SprintEngineState | null
-  ) => SprintEngineWorkspaceContext | null
-  normalizeSprintEngineAutoState: (
-    input:
-      | (Partial<SprintEngineAutoState> & {
-        deliveredAgentNotificationEventIds?: string[]
-      })
-      | null
-      | undefined
-  ) => SprintEngineAutoState
-  normalizeSprintEngineRoleCliDefaults: (
-    input: SprintEngineRoleCliDefaults | null | undefined
-  ) => Required<SprintEngineRoleCliDefaults>
-  sprintEngineTabsLayoutModel: (
-    runProjection: SprintEngineState,
-    agents: Workspace['agents'],
-    options?: { includeAgentTabs?: boolean }
-  ) => IJsonModel
   hideNavRailTabStrip: (model: IJsonModel | null | undefined) => IJsonModel | null | undefined
-  migrateSprintEngineLayout: (ws: Workspace) => Workspace
   pickWorkspaceAgentName: (agents: Workspace['agents']) => string
   isPathOrChild: (path: string, parentPath: string) => boolean
 }
@@ -558,7 +491,7 @@ type LayoutAgentTabNode = {
 
 // Data-only descriptor for opening a specific agent in a fresh "solo chat"
 // workspace (see addWorkspace `seedAgent`). Built by the spawn-menu UI so this
-// slice stays free of specialist/prompt/runtime imports.
+// slice stays free of prompt/runtime imports.
 export type SoloChatSeed = {
   agentPatch?: Partial<AgentState>
   tabName?: string
@@ -1224,8 +1157,6 @@ export function createWorkspacesSlice(
         const folderPath = options?.folderPath ?? null
         const fallbackName = `${template.name} ${state.workspaces.length + 1}`
         const explicitMode = options?.mode
-        const createdModule = options?.sprintEngineModule
-        const isSprintEngine = template.id === 'sprintengine-mode' || Boolean(createdModule?.state)
         const isAutomationsHost = explicitMode === AUTOMATIONS_HOST_WORKSPACE_MODE
         const targetWindowId =
           options?.windowId
@@ -1274,41 +1205,17 @@ export function createWorkspacesSlice(
           // check can hold ACROSS windows.
           return
         }
-        const runProjection = isSprintEngine
-          ? normalizeSprintEngineState(createdModule?.state)
-            ?? createInitialSprintEngineState({
-              goal: createdModule?.state?.goal ?? 'Launch Sprint Engine mode',
-              name: createdModule?.state?.name ?? options?.name ?? 'Sprint Roster',
-              roleCounts: createdModule?.state?.roleCounts ?? createEmptySprintEngineRoleCounts(),
-            })
-          : null
-        const workspaceName = runProjection
-          ? runProjection.name
-          : options?.name?.trim() || fallbackName
+        const workspaceName = options?.name?.trim() || fallbackName
         // Only a workspace on an app-minted name ("Chat 44", "Solo 3") is a
-        // candidate for auto-titling. A sprint roster name, a wizard-typed name,
-        // or a chained run's name is already meaningful and is locked here so the
-        // first prompt never overwrites it. A SHAPE test, deliberately: the New
-        // chat button passes its own per-folder ordinal ("Chat 63") while
-        // `fallbackName` numbers globally, so comparing the two strings locked
-        // every new chat at birth and the first prompt never named anything.
+        // candidate for auto-titling. A wizard-typed name or a chained run's
+        // name is already meaningful and is locked here so the first prompt
+        // never overwrites it. A SHAPE test, deliberately: the New chat button
+        // passes its own per-folder ordinal ("Chat 63") while `fallbackName`
+        // numbers globally, so comparing the two strings locked every new chat
+        // at birth and the first prompt never named anything.
         const titleLocked = !isDefaultWorkspaceName(workspaceName, template.name)
         const agents: Workspace['agents'] = {}
-        const roleCliDefaults = runProjection
-          ? deps.normalizeSprintEngineRoleCliDefaults(createdModule?.roleCliDefaults)
-          : undefined
-        // A sprint's roster agents and board layout are composed by the shared
-        // builder below (MC-2160), which main runs too — a second copy here
-        // would drift the first time a seeded field changes. All this branch
-        // still owns is the fail-fast: the builder needs the CLI defaults, and
-        // creation runs AFTER initializeSprintEngineState has written run.yaml
-        // and (in worktree mode) created the git worktree, so failing later
-        // would orphan a real on-disk run.
-        if (runProjection) {
-          if (!roleCliDefaults) {
-            throw new Error('Missing Sprint Engine CLI defaults for workspace creation.')
-          }
-        } else if (options?.seedAgent?.terminal || options?.seedAgent?.fleet) {
+        if (options?.seedAgent?.terminal || options?.seedAgent?.fleet) {
           // Terminal and fleet seeds: the lone agent tab is swapped for a
           // terminal / remote-pane tab in the layout below, so no local agent
           // record is created for it — a remote chat's agent lives on the
@@ -1321,23 +1228,22 @@ export function createWorkspacesSlice(
           const agentPatch = options?.seedAgent?.agentPatch
           collectTemplateAgentTabs(template).forEach((agent, index) => {
             // A generic template tab label ("Agent", "Agent 2", "A1") is a slot
-            // placeholder, never an identity — general agents get a real picked
-            // name exactly like specialists (the layout tab renames itself to
-            // agent.name on render). A distinctive name from a user-saved
-            // template survives.
+            // placeholder, never an identity — every agent gets a real picked
+            // name (the layout tab renames itself to agent.name on render). A
+            // distinctive name from a user-saved template survives.
             const templateName =
               agent.name && !isPlaceholderAgentName(agent.name) ? agent.name : undefined
             const base = {
               ...deps.defaultAgent(
                 agent.id,
                 templateName ?? deps.pickWorkspaceAgentName(agents),
-                'general'
               ),
               cli: templateAgentCli,
             }
             // The solo-chat template has a single agent tab; merge the seed patch
-            // onto it so an Open-in-new-chat agent (specialist/conversation) is
-            // initialized at creation time, race-free before first render.
+            // onto it so an Open-in-new-chat agent (a conversation agent, an
+            // agent with a skill attached) is initialized at creation time,
+            // race-free before first render.
             agents[agent.id] = index === 0 && agentPatch ? { ...base, ...agentPatch } : base
           })
         }
@@ -1350,51 +1256,7 @@ export function createWorkspacesSlice(
           options?.seedAgent && (options.seedAgent.tabName || options.seedAgent.terminal || options.seedAgent.fleet)
             ? applySoloChatSeed(baseStandardLayout, options.seedAgent)
             : baseStandardLayout
-        const runContext = deps.normalizeSprintEngineWorkspaceContext(
-          createdModule?.context,
-          folderPath,
-          runProjection
-        )
-        const savedSprintEngineRunSettings = runContext
-          ? normalizeSprintEngineRunSettings(state.appSettings.sprintEngineRunSettings)[
-            sprintEngineRunSettingsKey(runContext.statePath)
-          ]
-          : undefined
-        const sprintEngineAutoState = runProjection
-          ? deps.normalizeSprintEngineAutoState({
-            cliPermissionPreset: state.appSettings.lastAgentSpawnPermissionPreset,
-            ...savedSprintEngineRunSettings,
-            ...(options?.sprintEngineAutoState ?? {}),
-          })
-          : deps.normalizeSprintEngineAutoState(options?.sprintEngineAutoState)
-        // A sprint workspace is composed by the shared builder (MC-2160): its
-        // roster-seeded agents, board layout, and module bag are the same
-        // record main mints for a headless `sprint.create`.
-        const sprintWorkspace = runProjection && roleCliDefaults
-          ? composeSprintEngineWorkspaceFromModule({
-            workspaceId: id,
-            module: {
-              state: runProjection,
-              context: runContext,
-              roleCliDefaults,
-            },
-            folderPath,
-            agentCliOverrides: options?.sprintEngineAgentCliOverrides ?? null,
-            roleModelOverrides: options?.sprintEngineRoleModelOverrides ?? null,
-            initialSpawnRoles: options?.sprintEngineInitialSpawnRoles ?? null,
-            sprintEngineAutoState,
-            createdAt: Date.now(),
-            pickAgentName: deps.pickWorkspaceAgentName,
-            defaults: {
-              worktreeState: deps.defaultWorkspaceWorktreeState(),
-              memory: deps.defaultWorkspaceMemoryConfig(),
-              editorState: deps.defaultEditorState(),
-              fileExplorerState: defaultWorkspaceFileExplorerState(),
-            },
-            ...(options?.worktree ? { worktree: options.worktree } : {}),
-          }).workspace
-          : null
-        const standardWorkspace: Workspace = {
+        const newWorkspace: Workspace = {
           id,
           name: workspaceName,
           ...(titleLocked ? { titleLocked: true } : {}),
@@ -1417,10 +1279,8 @@ export function createWorkspacesSlice(
           memory: deps.defaultWorkspaceMemoryConfig(),
           editorState: deps.defaultEditorState(),
           fileExplorerState: defaultWorkspaceFileExplorerState(),
-          sprintEngineAutoState,
           createdAt: Date.now(),
         }
-        const newWorkspace: Workspace = sprintWorkspace ?? standardWorkspace
         // New workspaces appear at the top of their folder's block (newest
         // first), matching the recency-ordered sidebar. A brand-new folder
         // lands at the head of the registry so its group renders first. Manual
@@ -1609,14 +1469,6 @@ export function createWorkspacesSlice(
               state.appSettings.recentWorkspaceFolders
             )
           }
-          const nextContext = deps.normalizeSprintEngineWorkspaceContext(
-            sprintEngineRunContext(ws),
-            folderPath,
-            sprintEngineRunState(ws)
-          )
-          const patched = patchSprintEngineModuleState(ws, { context: nextContext })
-          if (patched.moduleState) ws.moduleState = patched.moduleState
-          else delete ws.moduleState
         }
       }),
 
@@ -1715,10 +1567,6 @@ export function createWorkspacesSlice(
       }),
 
     setWorkspaceModuleState: (workspaceId, moduleId, moduleStateValue) => {
-      // The sprintengine entry has exactly one writer (setSprintEngineState),
-      // which keeps the legacy mirror, mode, agents, and layout in step with
-      // it; a bag-only write here would silently break that lockstep.
-      if (moduleId === SPRINT_ENGINE_MODULE_ID) return false
       let updated = false
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
@@ -1739,8 +1587,6 @@ export function createWorkspacesSlice(
     importWorkspace: (ws) =>
       set((state) => {
         const id = nanoid()
-        const runProjection = normalizeSprintEngineState(sprintEngineRunState(ws))
-        const mode = runProjection ? SPRINT_ENGINE_WORKSPACE_TYPE_ID : ws.mode ?? 'standard'
         const agents = Object.fromEntries(
           Object.entries(ws.agents).map(([k, v]) => [
             k,
@@ -1752,11 +1598,11 @@ export function createWorkspacesSlice(
             }),
           ])
         )
-        state.workspaces.push(reconcileWorkspaceModuleState(patchSprintEngineModuleState({
+        state.workspaces.push({
           ...ws,
           id,
           name: `${ws.name} (imported)`,
-          mode,
+          mode: normalizeWorkspaceMode(ws.mode),
           folderPath: ws.folderPath ?? null,
           folderMissing: false,
           agents,
@@ -1765,20 +1611,7 @@ export function createWorkspacesSlice(
           fileExplorerState: normalizeWorkspaceFileExplorerState(ws.fileExplorerState),
           backlogState: normalizeWorkspaceBacklogState(ws.backlogState),
           gitPanelState: normalizeWorkspaceGitPanelState(ws.gitPanelState),
-          sprintEngineAutoState: deps.normalizeSprintEngineAutoState(ws.sprintEngineAutoState),
-        }, {
-          state: runProjection,
-          context: deps.normalizeSprintEngineWorkspaceContext(
-            sprintEngineRunContext(ws),
-            ws.folderPath,
-            runProjection,
-          ),
-          roleCliDefaults: deps.normalizeSprintEngineRoleCliDefaults(sprintEngineRoleDefaults(ws)),
-        })))
-        const imported = state.workspaces.at(-1)
-        if (imported) {
-          Object.assign(imported, deps.migrateSprintEngineLayout(imported))
-        }
+        })
         state.activeWorkspaceId = id
         const targetWindow = ensureWorkspaceWindow(state, state.primaryWorkspaceWindowId)
         targetWindow.workspaceIds.push(id)

@@ -11,7 +11,7 @@ import { FOCUS_RING_CLASS } from './tokens'
 // keyboard handlers and list semantics vary per surface).
 //
 // Renders as <aside> by default (secondary content). Use `as="section"` for
-// primary content columns like Sprint Engine's inbox column,
+// primary content columns,
 // where the column carries the panel's main flow.
 //
 // Width presets match the documented sister-aside widths:
@@ -243,7 +243,7 @@ export function SidePane({
 // SidePaneHeader — the simple title+count+close header used by the
 // closable secondary asides (running agents, an active review).
 // Detail panes with bespoke headers (the
-// Sprint Engine inspector) compose their own headers inside SidePane
+// a detail inspector) compose their own headers inside SidePane
 // directly and do not use this component.
 //
 // Anatomy matches PanelHeader's title rhythm (13 px semibold) so a board

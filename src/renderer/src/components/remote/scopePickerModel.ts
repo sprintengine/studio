@@ -12,7 +12,7 @@ import { TAILNET_SCOPES, type TailnetScope } from '../../../../shared/tailnet'
 //
 // The rows are per-SCOPE and not per-family. The old four-row shape
 // ("Workspaces — read & operate") bundled `operate` with `read`, so a person
-// who wanted a machine to WATCH their sprints had to also let it cancel them,
+// who wanted a machine to WATCH their work had to also let it act on it,
 // and the one row that mattered — the terminal tier, which is what makes a
 // cross-machine conversation visible at all — was called "Terminals — control"
 // and read as being about shells rather than about chats.
@@ -32,8 +32,8 @@ export type ScopeRow = {
  *
  * Order is `TAILNET_SCOPES` and not a curated one: the same order the pairing
  * request, the audit line and the scope pills use, so a person comparing the
- * eight rows here with the pills on the code card is comparing two renderings
- * of one list rather than two lists.
+ * rows here with the pills on the code card is comparing two renderings of one
+ * list rather than two lists.
  */
 export const SCOPE_ROWS: readonly ScopeRow[] = [
   {
@@ -47,13 +47,6 @@ export const SCOPE_ROWS: readonly ScopeRow[] = [
     title: 'Operate workspaces',
     code: 'workspace:operate',
     description: 'Launch agents and open workspaces.',
-  },
-  { scope: 'sprint:read', title: 'View sprints', code: 'sprint:read', description: 'Runs, tasks and token usage.' },
-  {
-    scope: 'sprint:operate',
-    title: 'Operate sprints',
-    code: 'sprint:operate',
-    description: 'Create, resume, cancel and approve.',
   },
   { scope: 'backlog:read', title: 'View backlog', code: 'backlog:read', description: 'Items, epics and triage.' },
   {

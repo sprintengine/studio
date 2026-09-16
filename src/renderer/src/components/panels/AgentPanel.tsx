@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 import { useSession } from '../../hooks/useTerminalSessions'
 import type {
   AgentCli,
@@ -10,13 +9,9 @@ import type {
   CliRuntimeSettings,
   PluginCatalogEntry,
   PluginCatalogStatus,
-  WorkspaceMode,
 } from '../../types/workspace'
 import { normalizeAgentRuntime } from '../../store/slices/agentsSlice'
-import { isSprintEngineManagedAgent } from '../../../../shared/sprintengine/agent-identity'
-import { isSprintEngineWorkspace } from '../../utils/sprintEngineWorkspace'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
-import { DISABLE_SPRINTENGINE_TERMINALS, SAFE_MODE } from '../../utils/runtimeFlags'
 import {
   isAgentCliMissing,
   selectAgentCliCatalog,
@@ -52,19 +47,14 @@ export function isStoredAgentCliUnavailable(
   return isAgentCliMissing(cli, catalog)
 }
 
-// Decide which runtime drives the `agent` panel. Sprint Engine agents are
-// always terminal/MCP-owned regardless of any stored selection; only
-// standard workspace agents that opted into a valid conversation runtime route
-// to the conversation UI. Mirrors `normalizeAgentRuntime` for the standard case
-// so a partial/corrupt selection falls back to terminal.
+// Decide which runtime drives the `agent` panel: only an agent that opted into
+// a valid conversation runtime routes to the conversation UI. Mirrors
+// `normalizeAgentRuntime`, so a partial/corrupt selection falls back to
+// terminal.
 export function resolveAgentRuntimeKind(
-  agent: Pick<AgentState, 'runtimeKind' | 'conversation' | 'kind'> | null | undefined,
-  context: { isSprintEngineAgent: boolean; workspaceMode: WorkspaceMode | undefined },
+  agent: Pick<AgentState, 'runtimeKind' | 'conversation'> | null | undefined,
 ): AgentRuntimeKind {
   if (!agent) return 'terminal'
-  if (context.isSprintEngineAgent) return 'terminal'
-  if (context.workspaceMode && isSprintEngineWorkspace({ mode: context.workspaceMode })) return 'terminal'
-  if (isSprintEngineManagedAgent(agent)) return 'terminal'
   return normalizeAgentRuntime(agent).runtimeKind
 }
 
@@ -77,17 +67,8 @@ export default function AgentPanel({
   const agent = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
   )
-  const workspaceMode = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.mode
-  )
   const workspaceName = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === workspaceId)?.name
-  )
-  const sprintEngineRuntimeRole = useWorkspaceStore(
-    (s) => sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.role
-  )
-  const sprintEngineRuntimeStatus = useWorkspaceStore(
-    (s) => sprintEngineRunState(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })?.sprintEngineAgents[agentId]?.status
   )
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
@@ -96,14 +77,7 @@ export default function AgentPanel({
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
   const updateAgent = useWorkspaceStore((s) => s.updateAgent)
   const label = agent?.name ?? agentId
-  const isSprintEngineAgent =
-    Boolean(workspaceMode && isSprintEngineWorkspace({ mode: workspaceMode }))
-    && Boolean(sprintEngineRuntimeRole)
-  const sprintEngineTerminalBlocked = DISABLE_SPRINTENGINE_TERMINALS && isSprintEngineAgent
-  const runtimeKind = resolveAgentRuntimeKind(agent, {
-    isSprintEngineAgent,
-    workspaceMode,
-  })
+  const runtimeKind = resolveAgentRuntimeKind(agent)
   const isConversationRuntime = runtimeKind === 'conversation'
   const cli = agent?.cli
   const agentCliUnavailable = useMemo(
@@ -117,10 +91,7 @@ export default function AgentPanel({
       }),
     [isConversationRuntime, cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
-  const hasStarted =
-    !agentCliUnavailable
-    && (Boolean(sessionId) || (!sprintEngineTerminalBlocked && (!isSprintEngineAgent || Boolean(agent?.cliStartRequested))))
-  const needsInput = sprintEngineRuntimeStatus === 'needs_input'
+  const hasStarted = !agentCliUnavailable && Boolean(sessionId)
   // Freeze-the-view: when this agent's terminal has been suspended (process
   // killed to reclaim memory, scrollback kept painted), surface a glyph so the
   // user knows it is not live and will resume on the next keystroke. Tracked off
@@ -223,9 +194,7 @@ export default function AgentPanel({
       new CustomEvent('multicode:resume-terminal', { detail: { sessionId: effectiveSessionId } }),
     )
   }
-  const cliShellTone = needsInput
-    ? 'border border-[color:var(--tone-warn)] bg-[color:var(--bg-surface-raised)] ring-1 ring-[color:var(--tone-warn-soft)]'
-    : ''
+  const cliShellTone = ''
 
   const startAgent = (restart = false) => {
     if (agentCliUnavailable) {
@@ -271,7 +240,7 @@ export default function AgentPanel({
     })
   }
 
-  const startLabel = sprintEngineRuntimeRole === 'architect' ? 'Spawn Architect' : `Spawn ${label}`
+  const startLabel = `Spawn ${label}`
 
   if (isConversationRuntime) {
     return (
@@ -416,13 +385,6 @@ export default function AgentPanel({
             </React.Suspense>
           ) : (
             <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-5 text-center">
-              {sprintEngineTerminalBlocked ? (
-                <div className="max-w-sm text-meta leading-5 text-[color:var(--text-muted)]">
-                  {SAFE_MODE
-                    ? 'Safe mode is active. Sprint agent terminals are not auto-mounted.'
-                    : 'Sprint agent terminals are disabled for this diagnostic run.'}
-                </div>
-              ) : null}
               {agentCliUnavailable ? (
                 <div className="max-w-sm text-meta leading-5 text-[color:var(--text-muted)]">
                   Agent CLI "{cli}" is not installed. Install it in Settings → Agents before launching this
@@ -432,7 +394,7 @@ export default function AgentPanel({
               <PrimaryButton
                 size="md"
                 onClick={() => startAgent(false)}
-                disabled={sprintEngineTerminalBlocked || agentCliUnavailable}
+                disabled={agentCliUnavailable}
               >
                 {startLabel}
               </PrimaryButton>

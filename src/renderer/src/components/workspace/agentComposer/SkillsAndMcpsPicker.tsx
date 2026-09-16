@@ -37,7 +37,7 @@ import type { AgentComposerConnector } from './useAgentComposer'
 // it), Home/End only while the field is empty — but the surface is NOT a
 // combobox: rows toggle rather than commit, so the field is a search box
 // naming a multi-select listbox through aria-controls, the shape the ruling
-// gives NewSprintDialog. Rows commit on pointerdown-guarded click so the
+// gives its host. Rows commit on pointerdown-guarded click so the
 // field never loses focus to a row.
 
 type SkillRow = {
@@ -97,7 +97,7 @@ export function buildMcpRows(installed: Record<string, McpServerConfig>): McpRow
     group: 'mcp',
     id: STUDIO_MCP_SERVER_ID,
     name: STUDIO_MCP_SERVER_ID,
-    description: 'The app’s own tools: backlog, sprints, terminals, the pane’s browser.',
+    description: 'The app’s own tools: backlog, automations, terminals, the pane’s browser.',
     meta: 'socket · always on',
     state: 'included',
   })

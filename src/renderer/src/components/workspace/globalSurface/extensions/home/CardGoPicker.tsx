@@ -77,7 +77,6 @@ import {
   DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
   normalizeSelectedCli,
 } from '../../../../../store/slices/settingsSlice'
-import { GENERAL_AGENT_ENGINE_KEY } from '../../../../../specialists/specialistActions'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
 import type { AgentCli, CliPermissionPreset } from '../../../../../types/workspace'
 import type { HostedCard } from '../../../../../../../shared/hosted-card-feed'
@@ -164,12 +163,7 @@ export function cardRunsAModel(card: HostedCard): boolean {
  * and would re-render every card on the page for a setting none of them show.
  */
 export function useCardLaunchDefaults(): CardLaunchChoice {
-  const cli = useWorkspaceStore((state) =>
-    normalizeSelectedCli(
-      state.appSettings.specialistCliDefaults?.[GENERAL_AGENT_ENGINE_KEY] ??
-        state.appSettings.lastSelectedCli,
-    ),
-  )
+  const cli = useWorkspaceStore((state) => normalizeSelectedCli(state.appSettings.lastSelectedCli))
   const permissionFallback = useWorkspaceStore(
     (state) => state.appSettings.lastAgentSpawnPermissionPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
   )
@@ -215,7 +209,7 @@ export function CardGoPicker({
   // open and no longer.
   //
   // The other picker hosts hand the surface the composer's own setters, which
-  // write the level into `specialistReasoningDefaults` under the General key —
+  // write the level into the remembered agent model defaults —
   // the remembered engine of the person's next New chat. That is right where
   // the control IS the New chat engine control and wrong here: somebody
   // deciding how to run one card must not be silently redecorating a default

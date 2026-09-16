@@ -17,7 +17,7 @@ const DesignGlobalSurface = React.lazy(
 // The `design` renderer module (epic `design-door`, item 2002).
 //
 // The Design Wizard — a separate feature that AUTHORED design systems through a
-// specialist interview — was deleted 2026-09-08. This door was never part of it:
+// guided interview — was deleted 2026-09-08. This door was never part of it:
 // it RENDERS systems you already have, from wherever they came, and seeds new
 // bundles from the shipped templates.
 //

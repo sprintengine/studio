@@ -223,7 +223,6 @@ export function SkillsCatalogue({
             ? { sourceId: source.id, outcome: summarizeInstallRun(1, []), error: null }
             : { sourceId: source.id, outcome: null, error: summarizeInstallRun(0, [{ skillId, message: result.message }]) },
         )
-        if (result.ok) useWorkspaceStore.getState().bumpSprintEngineRoleRegistryEpoch()
         return result.ok
       } catch (error) {
         setReport({
@@ -253,8 +252,7 @@ export function SkillsCatalogue({
         if (result.ok) {
           setInventoryNonce((count) => count + 1)
           sources.refreshInstalled()
-          useWorkspaceStore.getState().bumpSprintEngineRoleRegistryEpoch()
-        }
+              }
       } catch (error) {
         setSkillMessage(describe(error))
       }

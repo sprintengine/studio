@@ -90,8 +90,6 @@ import type {
   SessionOrganization as SharedSessionOrganization,
   SessionSnapshot as SharedSessionSnapshot,
   SessionUser as SharedSessionUser,
-  SoulPromptResult as SharedSoulPromptResult,
-  SpecialistActionId as SharedSpecialistActionId,
   CliPermissionPreset as SharedCliPermissionPreset,
   SessionActivity as SharedSessionActivity,
   AgentPhase as SharedAgentPhase,
@@ -156,8 +154,6 @@ declare global {
   type TerminalSpawnMetadata = SharedTerminalSpawnMetadata
   type TerminalSessionSnapshot = SharedTerminalSessionSnapshot
   type TerminalSpawnResult = SharedTerminalSpawnResult
-  type SpecialistActionId = SharedSpecialistActionId
-  type SoulPromptResult = SharedSoulPromptResult
   type GitFileStatus = SharedGitFileStatus
   type GitRepoOperation = SharedGitRepoOperation
   type GitResetMode = SharedGitResetMode

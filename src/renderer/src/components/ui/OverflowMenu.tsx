@@ -69,7 +69,7 @@ const FOCUSABLE_SELECTOR =
   '[data-overflow-item="true"]:not([disabled]), [data-menu-item="true"]:not([disabled])'
 
 type OverflowMenuProps = {
-  /** Required accessible name (e.g. "Sprint board overflow"). */
+  /** Required accessible name (e.g. "Automation overflow"). */
   ariaLabel: string
   items: OverflowMenuItem[]
   /** Optional render for the trigger button; defaults to a kebab icon. */

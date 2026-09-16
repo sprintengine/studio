@@ -376,7 +376,7 @@ export function WorkspaceIdentity({
 }) {
   const moduleOverrides = useWorkspaceStore((state) => state.appSettings.modules)
   const setWorkspaceHighlight = useWorkspaceStore((state) => state.setWorkspaceHighlight)
-  // For a worktree-backed workspace (a Sprint Engine run in worktree mode, or a
+  // For a worktree-backed workspace (a
   // worktree opened as a workspace) the branch label AND the change count must
   // reflect the worktree the work runs on — matching the Git panel, which also
   // resolves the worktree. A run_worktree workspace's `folderPath` points at the

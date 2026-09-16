@@ -844,7 +844,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
             </Table>
           ) : (
             <p className="text-[color:var(--text-muted)]">
-              No perf events captured yet. They accrue as SprintEngine refresh/auto-run and other instrumented paths run.
+              No perf events captured yet. They accrue as instrumented paths run.
             </p>
           )}
         </section>

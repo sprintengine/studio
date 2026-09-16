@@ -101,7 +101,6 @@ export function BacklogLinksSection({
   workspaceRoot,
   providers,
   epicChildStatuses,
-  excludeLinkId,
   onRemoveLink,
 }: {
   item: BacklogItem
@@ -112,10 +111,6 @@ export function BacklogLinksSection({
   // derives the epic's status up from the children rather than from its own run
   // link (see nextBacklogItemStatusFromLinks). Omit for leaf items.
   epicChildStatuses?: ReadonlyArray<BacklogItemStatus>
-  // A link the caller has already promoted to a primary action (e.g. the
-  // primary Open Sprint Engine run), so it is not duplicated as a secondary
-  // control here. Null keeps every link visible.
-  excludeLinkId: string | null
   onRemoveLink: (link: BacklogItemLink) => void
 }): JSX.Element | null {
   const { resolvedLinks, linkError, openLink } = useResolvedBacklogItemLinks({
@@ -126,10 +121,9 @@ export function BacklogLinksSection({
     epicChildStatuses,
   })
 
-  const secondaryLinks = (
+  const secondaryLinks =
     resolvedLinks
     ?? item.links.map((link) => ({ ...link, status: link.status ?? 'unknown', canOpen: false }))
-  ).filter((link) => link.id !== excludeLinkId)
 
   if (secondaryLinks.length === 0 && !linkError) return null
 

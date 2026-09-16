@@ -4,7 +4,6 @@ import { browserTabLabel } from '../../../../../shared/browser'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../../modules'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type {
-  FuturePlanWorkspaceSource,
   WorkspacePaneTab,
   WorkspacePaneTabKind,
 } from '../../../types/workspace'
@@ -54,7 +53,6 @@ type TabMenuState = { x: number; y: number; tabId: string }
 type WorkspacePaneProps = {
   workspaceId: string
   active: boolean
-  onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
 }
 
 function paneTabLabel(tab: WorkspacePaneTab): string {
@@ -62,7 +60,7 @@ function paneTabLabel(tab: WorkspacePaneTab): string {
   return tab.title?.trim() || paneKindDefinition(tab.kind).label
 }
 
-export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }: WorkspacePaneProps) {
+export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProps) {
   const paneState = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.paneState)
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   const maximised = useWorkspaceStore((s) => s.workspacePaneMaximised)
@@ -271,7 +269,6 @@ export default function WorkspacePane({ workspaceId, active, onStartFuturePlan }
                 : null
             }
             selectedTabId={activeTabId}
-            onStartFuturePlan={onStartFuturePlan}
             onDiffCountChange={setDiffCount}
           />
         )}

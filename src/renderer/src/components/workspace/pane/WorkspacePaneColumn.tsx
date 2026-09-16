@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react'
 
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import type { FuturePlanWorkspaceSource, WorkspaceId } from '../../../types/workspace'
+import type { WorkspaceId } from '../../../types/workspace'
 import { WorkspaceAsideColumn } from '../workspaceAsideColumn'
 import WorkspacePane from './WorkspacePane'
 import { openUrlInPane } from './browser/openInPane'
@@ -19,13 +19,11 @@ type WorkspacePaneColumnProps = {
   // The workspaces whose layers are mounted right now (WorkspaceManager's
   // retention set); a pane mounts for each that has tabs, plus the active one.
   renderedWorkspaceIds: readonly WorkspaceId[]
-  onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
 }
 
 export function WorkspacePaneColumn({
   activeWorkspaceId,
   renderedWorkspaceIds,
-  onStartFuturePlan,
 }: WorkspacePaneColumnProps) {
   const width = useWorkspaceStore((s) => s.workspacePaneWidth)
   const setWidth = useWorkspaceStore((s) => s.setWorkspacePaneWidth)
@@ -101,7 +99,7 @@ export function WorkspacePaneColumn({
             aria-hidden={!active}
             {...(active ? {} : ({ inert: '' } as Record<string, string>))}
           >
-            <WorkspacePane workspaceId={workspaceId} active={active} onStartFuturePlan={onStartFuturePlan} />
+            <WorkspacePane workspaceId={workspaceId} active={active} />
           </div>
         )
       })}

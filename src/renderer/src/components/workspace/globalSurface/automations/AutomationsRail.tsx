@@ -16,7 +16,7 @@ import { builtinRowId, builtinStateLine } from './builtinAutomations'
 
 // The Automations surface rail (mockup §3; Extensions drawer ruling, 2026-09-05,
 // frame 4). Every automation with a type glyph (what kind of thing it runs — an
-// agent, a sprint, a code review) and one plain-language state line ("Ran 2h ago
+// agent, a code review) and one plain-language state line ("Ran 2h ago
 // · passed", "Running now", "Paused", "Last run failed"). "New automation" leads
 // the rail, then the search + filter row (project / state). This is a navigation
 // rail — selecting a row fills the canvas; the actions (run, edit, pause) live on

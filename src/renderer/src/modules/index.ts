@@ -12,7 +12,6 @@ import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
 import { memoryRendererModule } from './memory-module'
 import { mobileRelayRendererModule } from './mobile-relay-module'
-import { sprintEngineRendererModule } from './sprint-engine-module'
 import { voiceDictationRendererModule } from './voice-dictation-module'
 import { createRendererHost, type RendererModule } from './renderer-host'
 
@@ -26,7 +25,6 @@ const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   devToolsRendererModule,
   memoryRendererModule,
   gitRendererModule,
-  sprintEngineRendererModule,
   automationsRendererModule,
   mobileRelayRendererModule,
   voiceDictationRendererModule,
@@ -140,13 +138,6 @@ if (typeof window !== 'undefined') {
       rendererHost.setModuleEnablementResolver((moduleId) =>
         selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
       )
-      // Shell binds the live run store onto the workspace setter (MC-2577).
-      // The module file does not import the core store.
-      void import('./sprint-engine-run-store').then(({ bindSprintEngineRunStore }) => {
-        bindSprintEngineRunStore((recipe) => {
-          useWorkspaceStore.setState(recipe as never)
-        })
-      })
       const currentWindowId = new URL(window.location.href).searchParams.get('windowId')?.trim() || 'primary'
       const workspaceOpener = createWorkspaceOpener({
         ready: Promise.all([workspaceRegistryReady, __workspaceStoreBackupRecoveryPromise]).then(() => undefined),
@@ -355,7 +346,7 @@ if (typeof window !== 'undefined') {
             if (!workspace) return null
             return {
               // Spawn cwd and file-tab base both target the working root, so
-              // live ops land in the worktree a sprint workspace works under.
+              // live ops land in the worktree a workspace works under.
               folderPath: workspaceWorktree.workspaceWorkingRoot(workspace),
               agents: Object.entries(workspace.agents).map(([id, agent]) => ({ id, name: agent.name })),
             }
@@ -382,7 +373,6 @@ if (typeof window !== 'undefined') {
               30,
               input.cwd,
               false,
-              undefined,
               input.cli,
               input.prompt,
               state.appSettings.cliRuntimes,

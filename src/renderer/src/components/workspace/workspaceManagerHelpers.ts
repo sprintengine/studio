@@ -17,7 +17,6 @@ import type {
   ConversationSessionStatus,
   ConversationSessionSummary,
 } from '../../../../shared/conversation-runtime'
-import { sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 
 export type WorkspaceActivity = 'needs-input' | 'working' | 'failed' | 'idle'
 type SessionStatus = 'needs-input' | 'working' | 'idle' | 'failed'
@@ -96,10 +95,10 @@ export function deriveSessionStatus(
     }
   }
 
-  // Needs-input: authoritative hook phase, or a Sprint Engine MCP self-report.
+  // Needs-input: authoritative hook phase, or a module's MCP self-report.
   // This is the most expensive state to miss, so it outranks working/idle. The
   // hook disjunct is gated on `processAlive` — a dead agent's stale
-  // `awaiting_input` is not a live attention request — while the Sprint Engine
+  // `awaiting_input` is not a live attention request — while a module's
   // self-report (`runtimeNeedsInput`) is a separate signal, not tied to pty
   // liveness, so it stays ungated.
   if ((hook?.phase === 'awaiting_input' && session.processAlive) || runtimeNeedsInput) {
@@ -155,7 +154,7 @@ const CONVERSATION_SESSION_STATUS: Record<ConversationSessionStatus, SessionStat
 }
 
 // Readable names for sessions with no workspace.agents record (the Design
-// Wizard's specialist sessions use stable agent ids, not workspace agents).
+// a detached session uses a stable agent id, not a workspace agent).
 // Shared with the wizard's session adapters so both transports label from
 // one map.
 function conversationAgentFallbackLabel(agentId: string): string {
@@ -180,21 +179,11 @@ export function sessionsAttentionTone(items: SessionItem[]): 'good' | 'warn' | '
   return 'good'
 }
 
-function workspaceNeedsInput(workspace: Workspace): boolean {
-  return Object.values(sprintEngineRunState(workspace)?.sprintEngineAgents ?? {}).some(
-    (agent) => agent.status === 'needs_input',
-  )
-}
-
 export function getWorkspaceActivity(
   workspace: Workspace,
   terminalSessions: TerminalSessionSnapshot[],
 ): WorkspaceActivity {
-  return deriveWorkspaceDisplayActivity(
-    workspace.id,
-    terminalSessions,
-    workspaceNeedsInput(workspace),
-  )
+  return deriveWorkspaceDisplayActivity(workspace.id, terminalSessions, false)
 }
 
 export function uniqueAgentName(baseName: string, agents: Workspace['agents']): string {
@@ -280,15 +269,12 @@ export function getSessionItems(
         activitySince: summary.updatedAt,
         lastActivityAt: summary.updatedAt,
         exitCode: null,
-        role: null,
-        specialistId: null,
-        taskId: null,
         sessionId: summary.sessionId,
       },
     ]
   })
 
-  // A specialist can leave a stale PTY session behind and run again on the
+  // An agent can leave a stale PTY session behind and run again on the
   // conversation transport under the same agent id (both transports share one
   // agent id). The conversation summary is the current run — drop
   // the terminal twin instead of listing the agent twice. This is the one
@@ -331,14 +317,7 @@ export function getSessionItems(
       if (session.kind === 'agent') {
         if (session.agentId && conversationAgentKeys.has(`${group.id} ${session.agentId}`)) return []
         const agent = session.agentId ? workspace?.agents[session.agentId] : undefined
-        const runtime = session.agentId
-          ? (workspace ? sprintEngineRunState(workspace) : null)?.sprintEngineAgents[session.agentId]
-          : undefined
-        const statusInfo = deriveSessionStatus(session, runtime?.status === 'needs_input')
-        const specialistId =
-          agent?.kind === 'specialist'
-            ? agent.specialistId ?? null
-            : null
+        const statusInfo = deriveSessionStatus(session, false)
 
         return [
           {
@@ -347,10 +326,10 @@ export function getSessionItems(
             transport: 'terminal',
             agentId: session.agentId ?? null,
             terminalId: null,
-            // Wizard specialists (and any agent spawned with only snapshot
-            // metadata) have no workspace.agents record — label from the
-            // snapshot's agentName before falling back to the raw id, and to a
-            // plain noun when the snapshot carries neither.
+            // An agent spawned with only snapshot metadata has no
+            // workspace.agents record — label from the snapshot's agentName
+            // before falling back to the raw id, and to a plain noun when the
+            // snapshot carries neither.
             label: agent?.name || session.agentName || session.agentId || 'Agent',
             cli: session.cli ?? agent?.cli ?? '',
             status: statusInfo.status,
@@ -358,9 +337,6 @@ export function getSessionItems(
             activitySince: statusInfo.activitySince,
             lastActivityAt: statusInfo.lastActivityAt,
             exitCode: statusInfo.exitCode,
-            role: runtime?.role ?? null,
-            specialistId,
-            taskId: runtime?.currentTaskId ?? null,
             sessionId: session.sessionId,
           },
         ]
@@ -384,9 +360,6 @@ export function getSessionItems(
           activitySince: statusInfo.activitySince,
           lastActivityAt: statusInfo.lastActivityAt,
           exitCode: statusInfo.exitCode,
-          role: null,
-          specialistId: null,
-          taskId: null,
           sessionId: session.sessionId,
         },
       ]

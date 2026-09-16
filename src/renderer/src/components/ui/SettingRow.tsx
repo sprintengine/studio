@@ -104,7 +104,7 @@ export type SettingRowProps = {
   htmlFor?: string
   /**
    * A muted suffix on the label line naming an unmet prerequisite, e.g.
-   * "Needs Sprint Engine". It sits inside the labelled element, so a screen
+   * "Needs Git". It sits inside the labelled element, so a screen
    * reader reads it as part of the control's name rather than losing it.
    */
   requirement?: string

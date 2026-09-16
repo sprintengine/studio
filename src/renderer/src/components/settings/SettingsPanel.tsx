@@ -205,9 +205,9 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
 }
 
 // The 'updates' tab folded into 'general' (its content now renders as a section
-// on the General page), and 'specialist-packs' folded into 'modules'. Map any
-// legacy deep-link that named the old tabs onto their new homes so
-// bookmarked/menu routes still land correctly.
+// on the General page), and the retired specialist-packs tab folded into
+// 'modules'. Map any legacy deep-link that named the old tabs onto their new
+// homes so bookmarked/menu routes still land correctly.
 //
 // 'telemetry' was listed here too until MC-2519 (2026-09-08). It named a tab
 // this app never shipped a route to — no menu item, no deep-link, no caller
@@ -909,7 +909,7 @@ export default function SettingsPanel({
     activeWorkspace?.memory.relativeRoot
   )
   const activeProjectRoot = activeKnowledgeConfig?.projectRoot ?? activeWorkspace?.folderPath ?? null
-  const activeSprintEngineRoot = activeWorkspace?.folderPath ?? null
+  const activeDesignSystemRoot = activeWorkspace?.folderPath ?? null
   const isWindows = window.api.platform === 'win32'
   const [updateState, setUpdateState] = useState<AppUpdateState | null>(null)
   const [updateActionPending, setUpdateActionPending] = useState(false)
@@ -1505,7 +1505,7 @@ export default function SettingsPanel({
               <SprintEngineFrond tone="current" className="icon-md shrink-0" />
               <div className="min-w-0">
                 <div className="text-body font-medium text-[color:var(--text-strong)]">
-                  Sprint Engine Studio <span className="tabular-nums">{updateState?.version ?? '…'}</span>
+                  SprintEngine Studio <span className="tabular-nums">{updateState?.version ?? '…'}</span>
                 </div>
                 <div
                   className={`mt-0.5 text-body ${
@@ -2058,15 +2058,15 @@ export default function SettingsPanel({
           <SettingsPageHeader
             title="Design system"
             meta={
-              activeSprintEngineRoot ? (
-                <span className="inline-block max-w-[260px] truncate align-bottom font-mono" title={activeSprintEngineRoot}>
-                  {basename(activeSprintEngineRoot)}
+              activeDesignSystemRoot ? (
+                <span className="inline-block max-w-[260px] truncate align-bottom font-mono" title={activeDesignSystemRoot}>
+                  {basename(activeDesignSystemRoot)}
                 </span>
               ) : undefined
             }
           />
 
-          <DesignSystemSettings workspaceRoot={activeSprintEngineRoot} />
+          <DesignSystemSettings workspaceRoot={activeDesignSystemRoot} />
         </div>
       ) : null}
 

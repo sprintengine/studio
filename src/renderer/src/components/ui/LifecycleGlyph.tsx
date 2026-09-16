@@ -2,8 +2,8 @@ import type { TooltipChildProps } from './Tooltip'
 import { PULL_REQUEST_SHAPES } from './PullRequestGlyph'
 import type { LifecycleState } from '../../../../shared/lifecycle-state'
 
-// One shape-coded lifecycle vocabulary shared by Backlog readiness and Sprint
-// Engine task state. State reads by shape (ring / dashed / spinner / inner-dot /
+// One shape-coded lifecycle vocabulary shared by Backlog readiness and every
+// module's own task states. State reads by shape (ring / dashed / spinner / inner-dot /
 // "!" / check / slash / "×" / the pull request marks), never by color alone —
 // color only reinforces, with no exception left (2026-09-09: `done_unmerged`
 // and `done_merged` were the last pair told apart by tone, and they now draw

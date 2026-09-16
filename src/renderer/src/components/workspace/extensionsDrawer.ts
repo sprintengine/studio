@@ -2,22 +2,17 @@ import type { RegisteredGlobalSurface } from '../../modules/renderer-host'
 
 // What the Extensions drawer IS, as data (Extensions drawer ruling, 2026-09-05).
 //
-// SIX built-in rows, in a fixed order the owner ruled:
+// FOUR built-in rows, in a fixed order the owner ruled:
 //
-//   Workflows · Sprints · Design · Plugins · Skills · Agent CLIs
+//   Design · Plugins · Skills · Agent CLIs
 //
-// It was five until item 2470 split the run doors in two (owner ruling R7,
-// 2026-09-06): one noun, "sprint", named two jobs that have nothing to do with
-// each other, so Workflows and Sprints are separate rows leading to separate
-// lists. Workflows leads because it is where a goal starts.
-//
-// Installed module doors follow these six in stable registry order; the
+// Installed module doors follow these four in stable registry order; the
 // renderer-side resolver owns those because this file is deliberately a pure
 // leaf with no live registry. Registry `order` does not reorder the built-ins.
 // The earlier cut sorted doors and modal
 // surfaces together by their declared `order`, which meant the column a person
 // reads top to bottom was arranged by whichever numbers modules happened to
-// claim, and any module registered later could push Sprints down it. The order
+// claim, and any module registered later could push Design down it. The order
 // of the product's parts is a ruling; the list below is that ruling, and each
 // entry names only WHERE its row comes from — the owning module still supplies
 // the label, the glyph and what opening the row does.
@@ -37,8 +32,8 @@ export const EXTENSIONS_HOME_SURFACE_ID = 'extensions-home'
 // Where a row comes from. Three kinds, because the registry has three shapes of
 // contribution and the drawer must not flatten them into one hand-written list
 // of components:
-//   nav     — a module's `registerSidebarNavEntry` row (Sprints), which owns its
-//             own status dot and open behaviour.
+//   nav     — a module's `registerSidebarNavEntry` row, which owns its own
+//             status dot and open behaviour.
 //   surface — a module's door, one row for the whole surface (Design).
 //   view    — one of a door's registered `views` (renderer-host): the single
 //             `extensions` surface is Plugins, Skills and Agent CLIs to the
@@ -56,11 +51,9 @@ export type DrawerRow =
  * to. Neither is a surface id — Plugins, Skills and Agent CLIs are three rows of
  * ONE surface, and a count keyed on the surface would light all three.
  */
-export type ExtensionsDrawerRowId = 'workflows' | 'sprints' | 'design' | 'plugins' | 'skills' | 'agent-clis'
+export type ExtensionsDrawerRowId = 'design' | 'plugins' | 'skills' | 'agent-clis'
 
 export const DRAWER_ROWS: readonly DrawerRow[] = [
-  { kind: 'nav', rowId: 'workflows', entryId: 'workflows' },
-  { kind: 'nav', rowId: 'sprints', entryId: 'sprints' },
   { kind: 'surface', rowId: 'design', surfaceId: 'design' },
   { kind: 'view', rowId: 'plugins', surfaceId: 'extensions', viewId: 'plugins' },
   { kind: 'view', rowId: 'skills', surfaceId: 'extensions', viewId: 'skills' },
@@ -108,9 +101,9 @@ export const EXTENSIONS_DRAWER_SURFACE_IDS: readonly string[] = [
   ...new Set([
     EXTENSIONS_HOME_SURFACE_ID,
     // A nav row's entry id IS its surface id — that pairing is the door contract
-    // (`registerSidebarNavEntry` + `registerGlobalSurface` under one id), which
-    // is why Workflows and Sprints belong here without a second list naming
-    // them. Deduplicated because three of the six rows are three VIEWS of one
+    // (`registerSidebarNavEntry` + `registerGlobalSurface` under one id), so a
+    // module's nav row belongs here without a second list naming it.
+    // Deduplicated because three of the four rows are three VIEWS of one
     // surface.
     ...DRAWER_ROWS.map((row) => (row.kind === 'nav' ? row.entryId : row.surfaceId)),
   ]),
@@ -129,8 +122,8 @@ export function isExtensionsDrawerSurface(surfaceId: string): boolean {
  * door that is itself a row of the drawer declares `inline`: the drawer is the
  * navigation that reached it and must stay put while the card region swaps, so
  * taking the column would delete the column the person is navigating with.
- * Only Sprints — whose rail is its own list of runs — still swaps, and so does
- * Automations, which is not a drawer row at all.
+ * Automations, which is not a drawer row at all, is what still swaps; so does
+ * any module door whose rail is a list of its own.
  */
 export function surfaceTakesSidebarColumn(
   surface: Pick<RegisteredGlobalSurface, 'railPlacement'> | null | undefined,

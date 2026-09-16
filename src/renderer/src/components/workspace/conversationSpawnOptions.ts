@@ -98,8 +98,6 @@ export function conversationAgentRuntimePatch(
   modelId: string,
 ): Partial<AgentState> {
   return {
-    kind: 'general',
-    specialistId: undefined,
     runtimeKind: 'conversation',
     conversation: { providerId, modelId },
     cli: undefined,

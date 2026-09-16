@@ -4,10 +4,8 @@ import { createPortal } from 'react-dom'
 import { DefinitionList, Field, GhostButton, InlineNotice, Input, PrimaryButton, Select, type SelectItem, Switch, Textarea } from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { selectAgentCliCatalog } from '../../workspace/newWorkspace/cliRuntimeOptions'
-import { orderSpecialistActions } from '../../../specialists/specialistActions'
-import { listSpecialistPacks, resolveEnabledSpecialists } from '../../../specialists/specialistPacks'
 import { AutomationTypeGlyph } from './AutomationTypeGlyph'
-import type { AgentCli, SpecialistActionId, CliPermissionPreset } from '../../../types/workspace'
+import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'
 import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../../../../shared/automations/contracts'
 import type {
   AutomationDefinition,
@@ -19,10 +17,8 @@ import type {
 } from '../../../../../shared/automations/contracts'
 import {
   EMPTY_REPO_EVENT_FORM,
-  EMPTY_SPRINT_LANDED_FORM,
   EMPTY_WEBHOOK_FORM,
   REPO_EVENT_TRIGGER_KIND,
-  SPRINT_LANDED_TRIGGER_KIND,
   WEBHOOK_TRIGGER_KIND,
   actionLabel,
   automationCliFieldError,
@@ -33,21 +29,16 @@ import {
   repoEventFormFromConfig,
   resolveSubmitTrigger,
   shouldSendWebhookTrigger,
-  sprintLandedFormFromConfig,
   triggersEquivalent,
   webhookFormFromConfig,
   webhookTriggerError,
   type EditorState,
   type RepoEventForm,
   type ScheduleCadenceForm,
-  type SprintLandedForm,
   type WebhookForm,
 } from './automationsFormat'
-import { NoWorkflowRolesNotice } from '../../NoWorkflowRolesNotice'
-import { missingRoleMessage, workflowRolesInstalled } from '../../../../../shared/workflow-roles'
-import { AgentModelFields, PermissionField } from './AgentFields'
+import { ModelField, PermissionField } from './AgentFields'
 import { AttachmentFields } from './AttachmentFields'
-import { SprintStartFields } from './SprintStartFields'
 import { TriggerFields, selectedFamilyUnavailableReason } from './TriggerFields'
 
 // Composes ScheduleCadenceForm (the authoritative cadence sub-state shape in
@@ -67,7 +58,6 @@ type EditorFormState = ScheduleCadenceForm & {
   triggerKind: TriggerKind
   repoEvent: RepoEventForm
   webhook: WebhookForm
-  sprintLanded: SprintLandedForm
   config: Record<string, string>
 }
 
@@ -75,10 +65,10 @@ type EditorFormState = ScheduleCadenceForm & {
 // and never loaded into the editable form.
 const INTERNAL_CONFIG_KEYS = new Set(['workspaceId', 'folderPath', 'requiredIntegrations'])
 
-// Keys owned by a dedicated picker control (agent specialist / model / permission,
+// Keys owned by a dedicated picker control (the model, the permission preset,
 // and the connector target). They are loaded into the form and persisted, but
 // rendered by their picker rather than as generic free-text string fields.
-const PICKER_CONFIG_KEYS = new Set(['cliModel', 'permissionPreset', 'specialistId', 'connectorId', 'spawnSkillId'])
+const PICKER_CONFIG_KEYS = new Set(['cliModel', 'permissionPreset', 'connectorId', 'spawnSkillId'])
 
 const CONFIG_FIELD_LABEL: Record<string, string> = {
   prompt: 'Prompt',
@@ -86,8 +76,6 @@ const CONFIG_FIELD_LABEL: Record<string, string> = {
   name: 'Agent name',
   skill: 'Skill',
   backlogItem: 'Backlog item',
-  sprintName: 'Sprint name',
-  team: 'Team',
 }
 
 // The control box is `ui/Input`, not a constant here. This file used to declare
@@ -96,9 +84,8 @@ const CONFIG_FIELD_LABEL: Record<string, string> = {
 // which is the mechanism, not the exception (MC-2114). Its `h-7` was 28px, off
 // the 26/30/34 ramp entirely; the kit's `sm` step is 30px.
 // The name, edited in place as the page's own title (mockup §.head). The chrome
-// is `Input variant="inline"` — the promoted `INLINE_TITLE_EDIT_CLASS`, which the
-// New sprint dialog's run-name field used to spell as its own copy (MC-2114);
-// what stays here is the type step, which is this surface's own decision.
+// is `Input variant="inline"` — the promoted `INLINE_TITLE_EDIT_CLASS`; what
+// stays here is the type step, which is this surface's own decision.
 const NAME_INPUT = 'text-title font-semibold tracking-tight text-[color:var(--text-strong)]'
 // Auto-grows with its content (field-sizing: content) from the rows={4} floor up
 // to a cap, then scrolls internally — no native drag handle. The `rows` attribute
@@ -107,10 +94,6 @@ const NAME_INPUT = 'text-title font-semibold tracking-tight text-[color:var(--te
 // rows={9} floor to a cap, then scrolls internally — no native drag handle,
 // which is why it opts out of the kit's default `resize-y`.
 const PROMPT_TEXTAREA = 'max-h-[280px] overflow-y-auto field-sizing-content'
-
-// Stable empty fallbacks so the roster store selectors don't churn refs per render.
-const EMPTY_SPECIALIST_ORDER: SpecialistActionId[] = []
-const EMPTY_DISABLED_PACKS: string[] = []
 
 /**
  * The runtime an agent-backed run will ACTUALLY launch on, in the launch's own
@@ -158,8 +141,7 @@ function schemaHasStringProp(schema: AutomationsProviderView['configSchema'], ke
 const EMPTY_FORM: EditorFormState = {
   name: '', enabled: true, runInWorktree: true, disableAfterRun: false, actionKind: '', triggerKind: 'schedule',
   cadenceType: 'interval', everyMinutes: 30, timeLocal: '09:00', daysOfWeek: [1, 2, 3, 4, 5], atDatetime: '',
-  repoEvent: { ...EMPTY_REPO_EVENT_FORM }, webhook: { ...EMPTY_WEBHOOK_FORM },
-  sprintLanded: { ...EMPTY_SPRINT_LANDED_FORM }, config: {},
+  repoEvent: { ...EMPTY_REPO_EVENT_FORM }, webhook: { ...EMPTY_WEBHOOK_FORM }, config: {},
 }
 
 function initialFormState(editor: EditorState, providers: AutomationsProviders): EditorFormState {
@@ -199,9 +181,6 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
     webhook: def.trigger.kind === WEBHOOK_TRIGGER_KIND
       ? webhookFormFromConfig(def.trigger.config)
       : { ...EMPTY_WEBHOOK_FORM },
-    sprintLanded: def.trigger.kind === SPRINT_LANDED_TRIGGER_KIND
-      ? sprintLandedFormFromConfig(def.trigger.config)
-      : { ...EMPTY_SPRINT_LANDED_FORM },
     config,
   }
 }
@@ -233,7 +212,6 @@ export function AutomationEditor({
     providers ? initialFormState(editor, providers) : EMPTY_FORM)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [agentPickerOpen, setAgentPickerOpen] = useState(false)
   // This form's own id, so its Save button reaches it through the `form`
   // attribute even when the host paints that button outside the form's DOM (the
   // door bar). Per INSTANCE, not a constant: the door paints over the workspace,
@@ -261,29 +239,9 @@ export function AutomationEditor({
   const configKeys = actionProvider ? schemaStringKeys(actionProvider.configSchema) : []
   const requiredKeys = actionProvider ? schemaRequiredKeys(actionProvider.configSchema) : new Set<string>()
 
-  // What the agent group (AgentFields.tsx) renders from, resolved here because
+  // What the model group (AgentFields.tsx) renders from, resolved here because
   // the submit and the aside's Every-run facts read the same values: a group
   // holding its own copy could disagree with what actually gets saved.
-  // Resolve the specialist descriptor from the SAME enabled-pack roster the
-  // embedded picker offers, so a custom-pack specialist the picker can select
-  // also labels correctly on the trigger row (not just the built-in set).
-  const specialistOrder = useWorkspaceStore((s) => s.appSettings.specialistOrder ?? EMPTY_SPECIALIST_ORDER)
-  const disabledSpecialistPacks = useWorkspaceStore((s) => s.appSettings.specialistPacks?.disabled ?? EMPTY_DISABLED_PACKS)
-  const sprintEngineRoleRegistry = useWorkspaceStore((s) => s.sprintEngineRoleRegistry)
-  const specialistRoster = useMemo(
-    () => orderSpecialistActions(
-      specialistOrder,
-      resolveEnabledSpecialists(disabledSpecialistPacks, listSpecialistPacks(sprintEngineRoleRegistry)),
-    ),
-    [specialistOrder, disabledSpecialistPacks, sprintEngineRoleRegistry],
-  )
-  const selectedSpecialist = form.config.specialistId
-    ? specialistRoster.find((action) => action.id === form.config.specialistId) ?? null
-    : null
-  const unresolvedSpecialistId = form.config.specialistId?.trim() ?? ''
-  const rolesLoaded = sprintEngineRoleRegistry !== null
-  const packInstalled = workflowRolesInstalled(sprintEngineRoleRegistry)
-  const specialistMissing = Boolean(unresolvedSpecialistId) && rolesLoaded && !selectedSpecialist
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
   const selectedCli = resolveAutomationRuntimeCli(form.config.cli, lastSelectedCli, cliCatalog)
   const showAgentPicker = !actionUnavailableReason && configKeys.includes('cli')
@@ -293,11 +251,12 @@ export function AutomationEditor({
   const selectedPermissionPreset =
     (form.config.permissionPreset as CliPermissionPreset) || AUTOMATION_DEFAULT_PERMISSION_PRESET
 
-  // A run-landed → sprint-start chain defaults "Run once, then pause" ON: left
-  // firing forever, an A↔B pair of these ping-pongs unbounded (each landed run
-  // re-fires the other). The default follows the selected pair only until the user
-  // touches the toggle, so it stays a default, not a lock; edit mode seeds the
-  // toggle from the stored definition and never re-applies it here.
+  // A trigger paired with the action that feeds it defaults "Run once, then
+  // pause" ON: left firing forever, an A↔B pair of these ping-pongs unbounded
+  // (each landing re-fires the other). The default follows the selected pair
+  // only until the user touches the toggle, so it stays a default, not a lock;
+  // edit mode seeds the toggle from the stored definition and never re-applies
+  // it here.
   const disableAfterRunTouchedRef = useRef(false)
   useEffect(() => {
     if (editor.mode !== 'create' || disableAfterRunTouchedRef.current) return
@@ -313,10 +272,6 @@ export function AutomationEditor({
     !actionUnavailableReason && actionProvider != null && schemaHasStringProp(actionProvider.configSchema, 'spawnSkillId')
   const showConnectorPicker =
     !actionUnavailableReason && actionProvider != null && schemaHasStringProp(actionProvider.configSchema, 'connectorId')
-  // Sprint chaining action (sprint-engine-start): the backlog item and roster
-  // fields get dedicated pickers — the shared Backlog search picker and a plain
-  // Select over the saved teams — instead of the generic free-text inputs.
-  const isSprintStartAction = form.actionKind === 'sprint-engine-start'
   // Provenance, stamped once by the install and never editable here (MC-2030):
   // the shelf entry this automation came from and who published it. It is how a
   // person tells a starter they added from something they wrote themselves.
@@ -342,14 +297,6 @@ export function AutomationEditor({
         description: form.runInWorktree ? 'Own worktree and branch' : 'This project’s checkout',
       },
     ]
-    // Agent is a fact of an action that launches one; an action with no agent
-    // gets no row rather than a default that would not be true of it.
-    if (showAgentPicker) {
-      facts.push({
-        term: 'Agent',
-        description: selectedSpecialist ? `Role — ${selectedSpecialist.shortLabel}` : 'Plain — no role, no soul',
-      })
-    }
     // Provenance the install stamps (MC-2030). The header names the publisher, so
     // this row names only where it came from — one fact each, not both twice.
     facts.push({
@@ -357,7 +304,7 @@ export function AutomationEditor({
       description: sourceCatalogueId ? 'Plugins shelf' : 'Written in this project',
     })
     return facts
-  }, [form.runInWorktree, showAgentPicker, selectedSpecialist, sourceCatalogueId])
+  }, [form.runInWorktree, sourceCatalogueId])
 
   // A loaded cron schedule (or unknown third-party family) has no authoring
   // control — it is read-only and round-trips verbatim. Schedule/repo-event/
@@ -424,25 +371,16 @@ export function AutomationEditor({
       if (form.cadenceType === 'weekly' && form.daysOfWeek.length === 0) return 'Pick at least one day for a weekly schedule.'
       if (form.cadenceType === 'at' && !form.atDatetime.trim()) return 'Pick a date and time for a one-time schedule.'
     }
-    if (!triggerReadOnly && form.triggerKind === SPRINT_LANDED_TRIGGER_KIND && !form.sprintLanded.team.trim()) {
-      return 'Pick the sprint team to watch.'
-    }
     if (configKeys.includes('cli')) {
       const cliError = automationCliFieldError(form.config.cli, cliCatalog)
       if (cliError) return cliError
-    }
-    if (specialistMissing) {
-      return missingRoleMessage(
-        unresolvedSpecialistId,
-        specialistRoster.map((action) => action.id),
-      )
     }
     for (const key of requiredKeys) {
       if (INTERNAL_CONFIG_KEYS.has(key)) continue
       if (!form.config[key]?.trim()) return `${CONFIG_FIELD_LABEL[key] ?? key} is required.`
     }
     return null
-  }, [form, actionProvider, actionUnavailableReason, requiredKeys, configKeys, cliCatalog, triggerReadOnly, triggerUnavailableReason, shouldSendTrigger, specialistMissing, unresolvedSpecialistId, specialistRoster])
+  }, [form, actionProvider, actionUnavailableReason, requiredKeys, configKeys, cliCatalog, triggerReadOnly, triggerUnavailableReason, shouldSendTrigger])
 
   const handleSubmit = useCallback(async () => {
     if (validationError || !workspaceRoot) { setError(validationError); return }
@@ -456,7 +394,7 @@ export function AutomationEditor({
     // Picker-owned fields (not in configKeys: they are not free-text inputs) are
     // persisted into the action config so a scheduled run reproduces the choice.
     if (showAgentPicker) {
-      for (const key of ['specialistId', 'cliModel', 'permissionPreset'] as const) {
+      for (const key of ['cliModel', 'permissionPreset'] as const) {
         const value = form.config[key]?.trim()
         if (value) config[key] = value
       }
@@ -585,19 +523,13 @@ export function AutomationEditor({
             <InlineNotice tone="warn">{actionUnavailableReason}</InlineNotice>
           ) : (
             <>
-              <AgentModelFields
+              <ModelField
                 show={showAgentPicker}
                 config={form.config}
                 cliCatalog={cliCatalog}
                 selectedCli={selectedCli}
-                selectedSpecialist={selectedSpecialist}
-                pickerOpen={agentPickerOpen}
-                onPickerOpenChange={setAgentPickerOpen}
                 onPatchConfig={patchConfig}
               />
-              {showAgentPicker && rolesLoaded && !packInstalled ? (
-                <NoWorkflowRolesNotice />
-              ) : null}
 
               {/* Runs and Permission (§.duo): when it fires, and what it may do
                   while nobody is watching. */}
@@ -605,7 +537,6 @@ export function AutomationEditor({
                 <TriggerFields
                   editor={editor}
                   providers={providers}
-                  workspaceRoot={workspaceRoot}
                   value={form}
                   onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
                 />
@@ -616,20 +547,10 @@ export function AutomationEditor({
                 />
               </div>
 
-              {/* Sprint chaining fields — dedicated pickers for the backlog item
-                  and the saved-team roster; the generic loop below skips both keys. */}
-              <SprintStartFields
-                active={isSprintStartAction}
-                workspaceRoot={workspaceRoot}
-                backlogItem={form.config.backlogItem}
-                team={form.config.team}
-                onPatchConfig={patchConfig}
-              />
-
               {/* The action's own fields (§.field prompt). The prompt is where
                   reviewer-vs-fixer intent lives now that the autonomy control is
                   retired, so it gets the room to say so. */}
-              {configKeys.filter((key) => key !== 'cli' && !(isSprintStartAction && (key === 'backlogItem' || key === 'team'))).map((key) => {
+              {configKeys.filter((key) => key !== 'cli').map((key) => {
                 const required = requiredKeys.has(key)
                 const label = CONFIG_FIELD_LABEL[key] ?? key
                 const id = `automation-config-${key}`

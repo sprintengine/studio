@@ -648,7 +648,7 @@ export const CaptionButton = React.forwardRef<
 // inspector needs a top-right X. Borderless on purpose — bordered/raised
 // variants compete with the surface they sit on and add a second radius
 // to the view, breaking the soul brief's ≤ 2 radii rule. The bordered
-// SprintEngine variant was retired here; do not reintroduce it.
+// A brand-coloured button variant was retired here; do not reintroduce it.
 export function CloseIconButton({
   size = 'sm',
   ...rest

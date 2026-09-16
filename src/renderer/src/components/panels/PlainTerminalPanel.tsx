@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { sprintEngineRunContext } from '../../store/slices/workspaceModuleState'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import { resolveWorkspaceTerminalCwd, resolveWorkspaceWorktree } from '../../utils/workspaceWorktree'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
@@ -82,12 +81,9 @@ export default function PlainTerminalPanel({
     checkingFolder,
     message: folderStatusMessage,
   } = useWorkspaceFolderStatus(workspaceId)
-  const sprintEngineContext = useWorkspaceStore((s) =>
-    sprintEngineRunContext(s.workspaces.find((w) => w.id === workspaceId) ?? { moduleState: undefined })
-  )
-  // Derived string, not the workspace object: sprintEngineState re-projects
-  // ~every 4s and churns object identity, but the gitRoot string is stable, so
-  // the spawn effect below re-runs at most once (null -> path).
+  // Derived string, not the workspace object: a workspace record churns object
+  // identity on every store write, but the gitRoot string is stable, so the
+  // spawn effect below re-runs at most once (null -> path).
   const workspaceWorktreeGitRoot = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
     return ws ? resolveWorkspaceWorktree(ws)?.gitRoot ?? null : null
@@ -432,7 +428,6 @@ export default function PlainTerminalPanel({
         // for a pane with a `cwdOverride` or a worktree redirect, where it is
         // NOT the workspace root the surface carries.
         launchExecutionRoot = terminalCwd ?? null
-        const sprintEngineStatePath = cwdOverride ? undefined : folderReadyPath ? sprintEngineContext?.statePath : undefined
         if (resolved.missing) {
           term.write(
             `\r\n\x1b[31m[worktree missing — opened in main checkout: ${terminalCwd ?? savedFolderPath ?? 'the workspace folder'}]\x1b[0m\r\n`
@@ -456,7 +451,6 @@ export default function PlainTerminalPanel({
           term.rows,
           terminalCwd,
           false,
-          sprintEngineStatePath,
           undefined,
           undefined,
           undefined,
@@ -480,7 +474,6 @@ export default function PlainTerminalPanel({
               details: [
                 `Session: ${sessionId}`,
                 `Workspace path: ${terminalCwd ?? savedFolderPath ?? 'default app path'}`,
-                sprintEngineStatePath ? `Sprint state: ${sprintEngineStatePath}` : null,
               ].filter(Boolean).join('\n'),
               workspaceId,
               workspaceName,
@@ -549,7 +542,7 @@ export default function PlainTerminalPanel({
         void window.api.terminalSetVisible(sessionId, false).catch(() => {})
       }
     }
-  }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, shouldKillOnUnmount, sprintEngineContext?.statePath, terminalId, workspaceId, workspaceName, workspaceWorktreeGitRoot])
+  }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, shouldKillOnUnmount, terminalId, workspaceId, workspaceName, workspaceWorktreeGitRoot])
 
   const folderBlocked = Boolean(!cwdOverride && savedFolderPath && !folderReadyPath)
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {

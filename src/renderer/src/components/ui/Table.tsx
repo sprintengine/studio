@@ -1,10 +1,10 @@
 import React from 'react'
 
 // The kit's table (MC-2117). Three bespoke variants shipped with no shared
-// header/row/cell chrome: `SprintEngineRunSummaryPanel` (a `table-fixed` with a
+// header/row/cell chrome: a run-summary table (a `table-fixed` with a
 // shared `<colgroup>`), `DiagnosticsContent` (a `w-full` with its own local
 // `Th`/`Td`, the only one with a sticky header), and
-// `newWorkspace/SprintEngineRosterTable` (a div-grid that is not a table at all).
+// and a div-grid that is not a table at all).
 // They disagreed on cell padding, header ink, header weight, and whether a
 // numeric column was right-aligned or tabular.
 //

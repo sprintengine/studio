@@ -1,6 +1,6 @@
-// What the Extensions home's six tiles SAY (Extensions drawer ruling,
-// 2026-09-05, Stage 3; six since item 2470 split the run doors in two) — the
-// one-line summary under each name, and the rule each live count line follows.
+// What the Extensions home's tiles SAY (Extensions drawer ruling, 2026-09-05,
+// Stage 3) — the one-line summary under each name, and the rule each live count
+// line follows.
 //
 // A leaf: no React, no store, no IPC. The page reads the numbers (from the
 // stores and readers that already hold them) and these turn them into the line
@@ -16,11 +16,10 @@
 //   states, not the happy path": a failed dependency must never render
 //   identically to an empty list).
 //
-//   A real zero is WORDS. "No runs" and "None installed" read as answers;
-//   "0 running" reads as a counter that has not started. The app already says
-//   it this way ("None running" in the sprint roster, "No findings" in the
-//   review aside), and a fresh profile sees these lines before it sees any
-//   other.
+//   A real zero is WORDS. "None in the library" and "None installed" read as
+//   answers; "0 installed" reads as a counter that has not started. The app
+//   already says it this way ("No findings" in the review aside), and a fresh
+//   profile sees these lines before it sees any other.
 
 /**
  * The tile ids, which are the drawer rows' own ids — a view's id where the row
@@ -32,38 +31,16 @@
 /**
  * The one-line summary under each tile's name. Not in the registry: a module
  * declares what its surface is CALLED, and this is what it is FOR, which is
- * the home page's own copy about the product's six parts.
+ * the home page's own copy about the product's own parts.
  *
- * A row with no entry here still renders — name, glyph, chevron — so a seventh
- * row added to the drawer appears on the home rather than silently vanishing.
+ * A row with no entry here still renders — name, glyph, chevron — so a row a
+ * module adds to the drawer appears on the home rather than silently vanishing.
  */
 export const EXTENSIONS_HOME_TILE_SUMMARIES: Readonly<Record<string, string>> = {
-  // The two run doors say the two jobs the one noun used to hold (item 2470):
-  // one turns a goal into a plan, the other works a plan that already exists.
-  workflows: 'Say a goal; an architect plans it',
-  sprints: 'Run work that is already written down',
   design: 'Design systems, rendered from disk',
   plugins: 'MCP servers your agents can call',
   skills: 'Reusable instructions agents pick up',
   'agent-clis': 'Claude Code, Codex, OpenCode',
-}
-
-/**
- * Sprints: how many runs are moving right now, across every known project.
- *
- * Three states, not two. No runs at all is a different sentence from runs that
- * are all finished — "No runs" answers "have I ever" and "None running"
- * answers "is anything happening", and a fresh profile deserves the first.
- */
-export function sprintRunCountLine(input: {
-  ready: boolean
-  total: number
-  running: number
-}): string | null {
-  if (!input.ready) return null
-  if (input.total === 0) return 'No runs'
-  if (input.running === 0) return 'None running'
-  return `${input.running} running`
 }
 
 /**

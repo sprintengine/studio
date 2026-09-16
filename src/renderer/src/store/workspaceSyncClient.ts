@@ -116,7 +116,7 @@ type WorkspaceFieldsUpdatedApply = {
 type WorkspaceAgentUpdatedApply = {
   workspaceId: WorkspaceId
   agentId: AgentId
-  /** `null` removes the agent from the roster. */
+  /** `null` removes the agent from the workspace. */
   patch: Partial<AgentState> | null
   configEditedAt: number
 }

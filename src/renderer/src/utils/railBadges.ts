@@ -29,11 +29,10 @@ export const AUTOMATIONS_NOTIFICATION_SOURCES: ReadonlySet<DiagnosticSource> = n
   'automations',
 ])
 // Plugins and skills (marketplace), and the Agent CLIs row's two feeds
-// (cli updates, hosted models). Sprints / Workflows source→row mapping is a
-// door-badge contribution (`notificationSource`), not a run-door import.
+// (cli updates, hosted models). A module's own source→row mapping is a
+// door-badge contribution (`notificationSource`), not an import from here.
 export const EXTENSIONS_NOTIFICATION_SOURCES: ReadonlySet<DiagnosticSource> = new Set<DiagnosticSource>([
   'marketplace',
-  'sprintengine',
   'cli',
   'models',
 ])
@@ -50,8 +49,8 @@ export const CORE_NOTIFICATION_SOURCE_ROWS: Readonly<Partial<Record<DiagnosticSo
  * the row whose opening reads it (owner, 2026-09-08: "put the notification on
  * whatever row it came from"). An emitter that knows says so on the
  * notification; otherwise the source decides via `CORE_NOTIFICATION_SOURCE_ROWS`
- * plus any door-badge `notificationSource` map the caller passes (Sprint Engine
- * contributes `sprintengine` → `sprints`).
+ * plus any door-badge `notificationSource` map the caller passes — how a module
+ * files its own news under its own row.
  *
  * Null for everything else: a git failure or a terminal crash is a workspace
  * fact and badges no row.
@@ -148,7 +147,7 @@ export function automationsRailBadge(unread: readonly AppNotification[]): RailBa
  * red when a failure is, the accent for plain news.
  *
  * The label names the row because the badge is its own live region: a screen
- * reader hears "Sprints: 1 waiting on you, 2 new", not a bare "3".
+ * reader hears "Design: 1 waiting on you, 2 new", not a bare "3".
  */
 export function extensionsRowBadge(input: {
   /** The row's name, as its module declares it. */

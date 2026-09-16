@@ -1,15 +1,7 @@
 import { useState } from 'react'
-import { SprintEngineFrond } from './brand/SprintEngineFrond'
 import type { ModuleEnablementOverrides } from '../../../shared/modules/manifest'
 import { getRendererHost, selectModuleEnabled } from '../modules'
-import type { SpecialistIcon } from '../specialists/specialistActions'
-import type {
-  SprintEngineRoleId,
-  SprintEngineRoleRegistry,
-  SprintEngineRoleRegistryMetadata,
-  Workspace,
-} from '../types/workspace'
-import { getSprintEngineRoleGlyphKind } from '../utils/sprintengine'
+import type { Workspace } from '../types/workspace'
 import { PROJECT_MARK_CLASS, projectColorStyle, type ProjectColor } from '../utils/projectColor'
 
 type IconProps = {
@@ -305,26 +297,6 @@ export function FolderTypeIcon({
   return <ProjectFolderGlyph className={className} color={color} unfiled={unfiled} />
 }
 
-// SprintEngine wherever the app names it as a thing you can open — the Sprints
-// door's nav entry, the launcher row, the workspace-type registry. It was a
-// three-circle team glyph, which said "a team of agents" while the sidebar mark
-// beside it said SprintEngine; one product now has one mark (owner, 2026-08-06).
-export function SprintEngineWorkspaceTypeIcon({ className }: IconProps) {
-  return <SprintEngineFrond className={className} tone="current" />
-}
-
-// The SprintEngine brand mark: the frond the mobile app wears as its
-// application icon, so one product's mark is the other's (`brand/
-// SprintEngineFrond`, geometry copied from the mobile repo's generator). It
-// replaced a comet drawn only here, which meant the two products carried
-// different marks for the same name.
-//
-// Single-color via currentColor — pair it with --tool-sprintengine-ink so it
-// stays legible on light and dark themes.
-export function SprintEngineMarkIcon({ className }: IconProps) {
-  return <SprintEngineFrond className={className} tone="current" />
-}
-
 // Automations identity glyph: a schedule dial (the schedule trigger) wrapped
 // around a lightning bolt (the fired action) — "on a schedule, do work". Reads
 // at 16px in the sidebar.
@@ -358,104 +330,6 @@ function StandardWorkspaceTypeIcon({ className }: IconProps) {
     </svg>
   )
 }
-export function SpecialistActionIcon({ icon, className }: IconProps & { icon: SpecialistIcon }) {
-  switch (icon) {
-    case 'architecture':
-      return <ArchitectureIcon className={className} />
-    case 'code':
-      return <CodeIcon className={className} />
-    case 'design':
-    case 'design_review':
-      return <FrontendIcon className={className} />
-    case 'review':
-      return <ReviewIcon className={className} />
-    case 'spaghetti':
-      return <SpaghettiIcon className={className} />
-    case 'nuclear':
-      return <NuclearExplosionIcon className={className} />
-    case 'shield':
-      return <SecurityIcon className={className} />
-    case 'test':
-      return <TestIcon className={className} />
-    case 'infra':
-      return <InfraIcon className={className} />
-    case 'product':
-      return <ProductIcon className={className} />
-    case 'performance':
-      return <PerformanceIcon className={className} />
-    case 'production_readiness':
-      return <ProductionReadinessIcon className={className} />
-    case 'cross_platform':
-      return <ReviewIcon className={className} />
-    case 'writing':
-      return <WritingIcon className={className} />
-  }
-}
-
-export function SprintEngineRoleIcon({
-  role,
-  registry,
-  className,
-}: IconProps & {
-  // Absent for an agent or task with no role — falls through to the neutral disc.
-  role?: SprintEngineRoleId
-  // Optional registry metadata so unknown configured roles can opt into a
-  // bundled glyph (via the registry `icon` field) without indexing the
-  // static role-icon switch directly. When omitted, custom roles fall back
-  // to the neutral disc glyph.
-  registry?: SprintEngineRoleRegistry | SprintEngineRoleRegistryMetadata | null
-}) {
-  const glyph = getSprintEngineRoleGlyphKind(role, registry)
-  switch (glyph) {
-    case 'architect':
-      return <ArchitectureIcon className={className} />
-    case 'product':
-      return <ProductIcon className={className} />
-    case 'developer':
-      return <CodeIcon className={className} />
-    case 'frontend':
-    case 'ui_ux_reviewer':
-      return <FrontendIcon className={className} />
-    case 'tester':
-      return <TestIcon className={className} />
-    case 'security':
-      return <SecurityIcon className={className} />
-    case 'performance':
-      return <PerformanceIcon className={className} />
-    case 'production_readiness_reviewer':
-      return <ProductionReadinessIcon className={className} />
-    case 'cross_platform':
-      return <ReviewIcon className={className} />
-    case 'unknown':
-    default:
-      return <RoleGenericIcon className={className} />
-  }
-}
-
-// Neutral fallback glyph for registry roles that have no bundled icon.
-// A bare disc with a faint inner ring — same chrome budget as the bundled
-// role glyphs but with no role-specific iconography, signalling "agent
-// identity, role unrecognised" rather than guessing.
-function RoleGenericIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="6.4" stroke="currentColor" strokeWidth={iconStroke} />
-      <circle cx="12" cy="12" r="2.4" stroke="currentColor" strokeWidth={iconStroke - 0.3} opacity="0.55" />
-    </svg>
-  )
-}
-
-function WritingIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M5.25 4.75H14.5L18.75 9V19.25H5.25V4.75Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-      <path d="M14.25 5V9.25H18.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-      <path d="M8 13.25H15.75M8 16.25H13.25" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M7.75 9.5H10.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
 // Compose / "new chat" glyph — the pencil-in-square idiom shared by ChatGPT
 // and Claude. Used for the sidebar New chat segment and the empty-workspace
 // surface. We deliberately do not reuse the plus glyph here: New workspace
@@ -476,134 +350,6 @@ export function NewChatIcon({ className }: IconProps) {
         strokeWidth={iconStroke}
         strokeLinejoin="round"
       />
-    </svg>
-  )
-}
-
-function ArchitectureIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="5" y="4.75" width="5.5" height="5.5" rx="1.4" stroke="currentColor" strokeWidth={iconStroke} />
-      <rect x="13.5" y="13.75" width="5.5" height="5.5" rx="1.4" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M10.5 7.5H13.5C15.15 7.5 16.5 8.85 16.5 10.5V13.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M7.75 10.25V13.5C7.75 15.15 9.1 16.5 10.75 16.5H13.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function CodeIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M9.25 8L5.25 12L9.25 16" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M14.75 8L18.75 12L14.75 16" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M13 5.75L11 18.25" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function FrontendIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="4" y="5" width="16" height="11.5" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M8.5 20H15.5M12 16.5V20" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M8 9.25H16M8 12.25H12.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function ReviewIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M7 4.75H17V19.25H7V4.75Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-      <path d="M9.5 8.75H14.5M9.5 16H14.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M9.5 12.2L11 13.7L14.5 10.2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function SpaghettiIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M6 14.7C7.4 13.1 9.4 13.1 10.75 14.7C12.1 16.3 14.15 16.3 15.55 14.7C16.95 13.1 18.35 13.1 19.35 14.4" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M5.6 11.25C7.35 9.75 9.05 9.75 10.75 11.25C12.45 12.75 14.15 12.75 15.85 11.25C17.3 9.98 18.45 10.08 19.4 11.05" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M7.1 17.2C8.6 18.55 10.3 18.55 11.9 17.2C13.5 15.85 15.25 15.85 16.9 17.2" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <circle cx="8.2" cy="8.25" r="1.35" stroke="currentColor" strokeWidth={iconStroke} />
-      <circle cx="14.6" cy="7.45" r="1.2" stroke="currentColor" strokeWidth={iconStroke} />
-      <circle cx="17.8" cy="8.85" r="0.95" fill="currentColor" />
-    </svg>
-  )
-}
-
-function NuclearExplosionIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 4.25V2.95M8.4 5.45L7.55 4.45M15.6 5.45L16.45 4.45M6.8 8.2H5.45M17.2 8.2H18.55" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M7.1 11.25C5.95 10.75 5.35 9.85 5.55 8.85C5.78 7.65 6.95 6.95 8.25 7.25C8.9 5.75 10.25 4.95 12 4.95C13.75 4.95 15.1 5.75 15.75 7.25C17.05 6.95 18.22 7.65 18.45 8.85C18.65 9.85 18.05 10.75 16.9 11.25" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M8.15 11.55C9.45 12.45 10.05 13.35 10.05 14.65V18.95M15.85 11.55C14.55 12.45 13.95 13.35 13.95 14.65V18.95" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M10.05 14.4H13.95M9.25 18.95H14.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M6.25 20.25C8.2 19.25 15.8 19.25 17.75 20.25M4.25 17.45C6.1 16.6 8.3 16.5 10.05 17.05M19.75 17.45C17.9 16.6 15.7 16.5 13.95 17.05" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function SecurityIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 3.75L18.75 6.25V11.15C18.75 15.35 16.08 19.08 12 20.25C7.92 19.08 5.25 15.35 5.25 11.15V6.25L12 3.75Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-      <path d="M9 12.05L11.05 14.1L15.25 9.9" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-function TestIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M9.5 4.75H14.5M10.5 4.75V10.1L6.6 17.05C5.75 18.57 6.85 20.45 8.58 20.45H15.42C17.15 20.45 18.25 18.57 17.4 17.05L13.5 10.1V4.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M8.15 16.4H15.85" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function InfraIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <rect x="5" y="4.75" width="14" height="5" rx="1.5" stroke="currentColor" strokeWidth={iconStroke} />
-      <rect x="5" y="14.25" width="14" height="5" rx="1.5" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M8.25 7.25H8.35M8.25 16.75H8.35M12 9.75V14.25" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M15.5 7.25H16.25M15.5 16.75H16.25" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function ProductIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <circle cx="12" cy="12" r="7.5" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M14.75 9.25L13.1 13.1L9.25 14.75L10.9 10.9L14.75 9.25Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-      <circle cx="12" cy="12" r="0.8" fill="currentColor" />
-    </svg>
-  )
-}
-
-function PerformanceIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M5 15.5C5 11.35 8.15 8 12 8C15.85 8 19 11.35 19 15.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M8.25 15.5H5M19 15.5H15.75M7.35 10.85L9.25 12.75M16.65 10.85L14.75 12.75M12 8V10.75" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M12 15.25L15.2 12.05" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
-      <circle cx="12" cy="15.5" r="1.35" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M7 19.25H17" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
-function ProductionReadinessIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M11.25 3.85L17.35 6.1V10.6C17.35 14.1 15.18 17.28 11.25 18.75C7.32 17.28 5.15 14.1 5.15 10.6V6.1L11.25 3.85Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-      <path d="M8.35 11.55L10.3 13.5L14.25 9.55" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M16.1 17.6L18.75 14.95L21.4 17.6M18.75 15.2V20.15" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M15.7 20.15H21.8" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
     </svg>
   )
 }
@@ -742,15 +488,6 @@ export function ProvidersSettingsIcon({ className }: IconProps) {
       <path d="M8.5 3v3.5M15.5 3v3.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
       <path d="M6.5 6.5h11V10a5.5 5.5 0 0 1-11 0Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
       <path d="M12 15.5V21" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-    </svg>
-  )
-}
-
-export function SpecialistPacksSettingsIcon({ className }: IconProps) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M12 3.2l7.5 4.3v8.9L12 20.8 4.5 16.4V7.5z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-      <path d="M4.6 7.6L12 11.9l7.4-4.3M12 11.9V20.8" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
     </svg>
   )
 }

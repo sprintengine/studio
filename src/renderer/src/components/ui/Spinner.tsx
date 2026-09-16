@@ -8,7 +8,7 @@ type SpinnerProps = {
 
 // The one "working right now" spinner: a faint track ring plus a 90° accent arc
 // that rotates continuously. Shared by the LifecycleGlyph in-progress state, the
-// Sprint Engine task "working" indicator, and anywhere a live process shows.
+// a task's "working" indicator, and anywhere a live process shows.
 // Reduced-motion freezes it to the at-rest arc (handled by `.lifecycle-spin` in
 // index.css), so it never relies on motion alone to read as in-progress.
 export function Spinner({ size = 16, label, className }: SpinnerProps): JSX.Element {

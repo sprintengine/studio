@@ -40,7 +40,6 @@ import { Input } from '../ui/Input'
 import { Tooltip } from '../ui/Tooltip'
 import { showToast } from '../../store/toastStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
-import type { FuturePlanWorkspaceSource } from '../../types/workspace'
 
 const EMPTY_EXPANDED_PATHS: string[] = []
 const EMPTY_TREE_ROWS: TreeRow[] = []
@@ -627,7 +626,6 @@ interface ExplorerTreeProps {
   directoryStatus: Record<string, GitFileStatus>
   refreshGitStatus: () => Promise<void>
   onOpenFile: (path: string, name: string) => void
-  onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
 }
 
 function ExplorerTree({
@@ -642,7 +640,6 @@ function ExplorerTree({
   directoryStatus,
   refreshGitStatus,
   onOpenFile,
-  onStartFuturePlan,
 }: ExplorerTreeProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const renameInputRef = useRef<HTMLInputElement>(null)
@@ -1497,7 +1494,6 @@ function ExplorerTree({
         workspaceId,
         workspaceRoot: rootPath,
         entries: contextSelection,
-        startSourcePlan: onStartFuturePlan,
       },
     })
     const deleteLabel = contextSelection.length > 1
@@ -1576,8 +1572,7 @@ function ExplorerTree({
           workspaceId,
           workspaceRoot: rootPath,
           entries: contextSelection,
-          startSourcePlan: onStartFuturePlan,
-        })
+          })
       } catch (error) {
         showError(error)
       }
@@ -2366,10 +2361,9 @@ function FileExplorerSkeleton(): JSX.Element {
 
 interface Props {
   workspaceId: string
-  onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
 }
 
-export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) {
+export default function FileExplorer({ workspaceId }: Props) {
   const {
     folderPath,
     folderReadyPath,
@@ -2541,7 +2535,6 @@ export default function FileExplorer({ workspaceId, onStartFuturePlan }: Props) 
             directoryStatus={directoryStatus}
             refreshGitStatus={refreshGitStatus}
             onOpenFile={handleOpenFile}
-            onStartFuturePlan={onStartFuturePlan}
           />
         ) : checkingFolder ? (
           <FileExplorerSkeleton />

@@ -32,8 +32,7 @@ export function moduleLabelForMode(mode: string): string {
  * Used by the turned-off surface, which reaches it through the registered
  * workspace type (`RegisteredWorkspaceTypeDefinition.moduleId`) rather than the
  * mode string: a module's id and the workspace-type id it registers need not
- * match — Sprint Engine's do not — so capitalizing the mode would name the
- * wrong thing. Falls back to the id when no manifest knows it, which is the
+ * match, so capitalizing the mode would name the wrong thing. Falls back to the id when no manifest knows it, which is the
  * third-party case before its manifest is read.
  */
 export function moduleLabelForModuleId(moduleId: string): string {
@@ -55,9 +54,8 @@ export function moduleLabelForModuleId(moduleId: string): string {
  *    uninstalled module, or a marketplace module whose install has not landed.
  *    The mode string is all there is to name it by.
  *  - `disabled` — the type IS registered and its owning module is switched off
- *    in Settings → Modules. This is where a persisted sprint workspace lands
- *    once the sprint mode is a registered type rather than a compiled-in enum:
- *    without this answer the layout mounts and every module-owned tab paints
+ *    in Settings → Modules. This is where a persisted workspace of a
+ *    module-registered type lands: without this answer the layout mounts and every module-owned tab paints
  *    its own dead placeholder, which is the grid of blanks the rule exists to
  *    prevent. The module is on the machine, so the remedy is a toggle.
  *

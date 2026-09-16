@@ -3,7 +3,6 @@ import React from 'react'
 import { getRendererHost, selectModuleEnabled } from '../../../modules'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import type { WorkspacePaneTab } from '../../../types/workspace'
-import type { FuturePlanWorkspaceSource } from '../../../types/workspace'
 import { SuspenseFallback } from '../../ui/SuspenseFallback'
 import { resolveWorkspaceWorktree } from '../../../utils/workspaceWorktree'
 import { useChangelists } from '../../../hooks/useChangelists'
@@ -124,11 +123,10 @@ type PaneTabPanelProps = {
   workspaceId: string
   tab: WorkspacePaneTab
   active: boolean
-  onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
   onDiffCountChange?: (count: number | null) => void
 }
 
-function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCountChange }: PaneTabPanelProps) {
+function PaneTabPanel({ workspaceId, tab, active, onDiffCountChange }: PaneTabPanelProps) {
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   // The diff reads the worktree the workspace is mounted on, not the parent
   // checkout a run workspace's folderPath names (the WorkspaceIdentity rule).
@@ -140,7 +138,7 @@ function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCount
   switch (tab.kind) {
     case 'files':
       return selectModuleEnabled(moduleOverrides, 'dev-tools')
-        ? <FileExplorer workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />
+        ? <FileExplorer workspaceId={workspaceId} />
         : <PaneUnavailable />
     case 'git': {
       // Git is a host-registered panel (git-module.ts); the pane renders the
@@ -156,7 +154,7 @@ function PaneTabPanel({ workspaceId, tab, active, onStartFuturePlan, onDiffCount
       // included.
       const BacklogPanel = getRendererHost().getPanel('backlog')
       return BacklogPanel && selectModuleEnabled(moduleOverrides, 'backlog')
-        ? <BacklogPanel workspaceId={workspaceId} onStartFuturePlan={onStartFuturePlan} />
+        ? <BacklogPanel workspaceId={workspaceId} />
         : <PaneUnavailable />
     }
     case 'terminal':
@@ -195,7 +193,6 @@ type WorkspacePaneBodyProps = {
   activeTabId: string | null
   /** The tab the strip has selected, visible or not; decides which panel is the front one. */
   selectedTabId: string | null
-  onStartFuturePlan?: (source: FuturePlanWorkspaceSource) => void
   onDiffCountChange?: (count: number | null) => void
 }
 
@@ -204,7 +201,6 @@ export function WorkspacePaneBody({
   tabs,
   activeTabId,
   selectedTabId,
-  onStartFuturePlan,
   onDiffCountChange,
 }: WorkspacePaneBodyProps) {
   const floatingTab = tabs.find((tab) => tab.floating && tab.kind === 'browser') ?? null
@@ -268,7 +264,6 @@ export function WorkspacePaneBody({
                 workspaceId={workspaceId}
                 tab={tab}
                 active={active}
-                onStartFuturePlan={onStartFuturePlan}
                 onDiffCountChange={onDiffCountChange}
               />
             </React.Suspense>

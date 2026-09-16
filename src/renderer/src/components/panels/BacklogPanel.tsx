@@ -64,13 +64,7 @@ import {
   type BacklogRisk,
   type BacklogScanResult,
 } from '../../utils/backlog'
-import { nextBacklogItemStatusFromLinks, providerForBacklogLink } from '../../utils/backlogLinks'
-import {
-  matchWorkspaceForBacklogRunLink,
-  sprintEngineRunLinkForItem,
-} from '../../utils/sprintengineBacklogLinks'
-import { deriveSprintEngineRunGlyph } from '../../utils/sprintengine'
-import { isSprintEngineWorkspace } from '../../utils/sprintEngineWorkspace'
+import { nextBacklogItemStatusFromLinks } from '../../utils/backlogLinks'
 import { BacklogHandToAgentButton, BacklogOpenAgentButton } from '../backlog/BacklogHandToAgentButton'
 import { overflowItemsForBacklogModuleActions } from '../backlog/backlogModuleActions'
 import { BacklogLinksSection } from '../backlog/BacklogLinksSection'
@@ -144,19 +138,16 @@ import {
   DifficultyIndicator,
   EpicColorDot,
   EpicProgressMeter,
-  type BacklogRunGlyph,
 } from '../backlog/BacklogRow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { BacklogItemAction, BacklogItemActionContext, BacklogLinkProvider, WorkspacePanelProps } from '../../modules/renderer-host'
-import { sprintEngineRunState } from '../../store/slices/workspaceModuleState'
 
 
 // Backlog panel: capture / browse / triage / start surface for the lightweight
 // items (rough ideas, notes, feature sketches, imported markdown, mockups)
 // under the workspace `backlog/` folder. File mutations stay on existing
 // filesystem IPC; triage metadata (size / priority) is owned in the backlog
-// object store (items.json), never markdown frontmatter; Sprint Engine starts
-// route through the existing New Workspace plan-source flow with rough content.
+// object store (items.json), never markdown frontmatter.
 //
 // Follows design-system/foundations/principles.md:
 // stripless nav-pane sibling of Files/Git/KG, one accent, hairline structure.
@@ -234,25 +225,9 @@ function lensForItemStatus(status: BacklogItemStatus): BacklogView {
 const SPLIT_MIN_WIDTH = 600
 const MARKDOWN_PREVIEW_MAX_CHARS = 2 * 1024 * 1024
 
-export default function BacklogPanel({ workspaceId, onStartFuturePlan }: WorkspacePanelProps): JSX.Element {
+export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.Element {
   const folderPath = useWorkspaceStore(
     (state) => state.workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ?? null,
-  )
-  // Only the Sprint Engine workspaces (mode or mounted run context), not the
-  // whole workspace list, so a Backlog row linked to a Sprint Engine run can
-  // read that run's live AutoRun state. Narrowed + useShallow so a projection
-  // tick on an unrelated workspace — or any non-Sprint-Engine workspace change —
-  // does not re-render the entire panel (and its 48 rows) every 4s. useShallow
-  // compares the filtered array element-by-element against the live store
-  // workspace refs: an unchanged Sprint Engine set stays referentially equal and
-  // skips the render; a real run tick changes one ref and re-renders. See
-  // backlog/2026-06-14-backlog-workspace-render-performance.md (Task 1).
-  const sprintEngineWorkspaces = useWorkspaceStore(
-    useShallow((state) =>
-      state.workspaces.filter(
-        (workspace) => isSprintEngineWorkspace(workspace),
-      ),
-    ),
   )
   // Just this workspace's agents (the send-to-agent targets), not the whole
   // workspace array — a different narrow selector for a different consumer.
@@ -451,7 +426,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       // `mockups:` frontmatter, not work items — listing them here gave them
       // MC-id-looking rows. Full substrate fix (markdown-only objects, MC-1710)
       // will retire their item-hood; until then they are hidden, not gone, so
-      // the sprint source picker and handoff flows keep resolving them.
+      // the handoff flows keep resolving them.
       if (item.relativePath.startsWith('backlog/mockups/')) return false
       // The view lens owns archived visibility (its own option) and the
       // difficulty/criticality triage ranges; search narrows within it.
@@ -589,32 +564,6 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     })
   }, [])
 
-  // Live run glyph per item linked to an observable Sprint Engine run. Built over
-  // the full scan (not `filtered`) so an epic's detail can roll its members' real
-  // merge state into the epic's own glyph even when a lens hides some children.
-  // The rollup (`deriveSprintEngineRunGlyph`) is shared with the workspace
-  // sidebar: a human-routed needs_input wins over everything, then the AutoRun
-  // runtime. A null rollup (idle/manual runner, or workspace not observable here)
-  // keeps the item's own status rendering — an in-progress item spins by default.
-  // Derived with useMemo (not inside the Zustand selector) so it never returns a
-  // fresh map from the store snapshot.
-  const runGlyphById = useMemo(() => {
-    const map = new Map<string, BacklogRunGlyph>()
-    if (!folderPath) return map
-    for (const item of items) {
-      const link = sprintEngineRunLinkForItem(item)
-      if (!link) continue
-      const workspace = matchWorkspaceForBacklogRunLink(sprintEngineWorkspaces, folderPath, link)
-      if (!workspace) continue
-      const liveGlyph = deriveSprintEngineRunGlyph({
-        sprintEngineState: sprintEngineRunState(workspace),
-        autoState: workspace.sprintEngineAutoState,
-      })
-      if (liveGlyph) map.set(item.id, liveGlyph)
-    }
-    return map
-  }, [items, sprintEngineWorkspaces, folderPath])
-
   // Keep selection valid across rescans/filters/grouping. A real item cursor
   // survives as long as the item is still in `filtered` — a collapsed group hides
   // its row but must not drop the selection. A synthetic group-header cursor is
@@ -655,20 +604,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [multiSelection, selectedId],
   )
 
-  // The selected item's effective run glyph. A leaf item carries its own Sprint
-  // Engine run link, so it reads directly. An epic has no run link of its own —
-  // without this it would fall back to its coarse `completed` status and show the
-  // green tick even once every member's PR has merged. Roll the members' real run
-  // states up into the epic's glyph so a merged epic reads "Merged" (purple
-  // branch), matching what each member shows in the list.
-  const selectedRunGlyph = useMemo(() => {
-    if (!detailItem) return undefined
-    if (detailItem.isEpic) return deriveEpicRunGlyphFromChildren(detailItem, items, runGlyphById)
-    return runGlyphById.get(detailItem.id)
-  }, [detailItem, items, runGlyphById])
-
-  // Inline mockup preview (MC-1485 / T4), mirroring the Sprint board's
-  // previewed-artifact local state: when set, the detail pane renders the
+  // Inline mockup preview (MC-1485 / T4): when set, the detail pane renders the
   // rendered mockup in a FilePreviewPane in place of the item content. Cleared
   // whenever the selected item changes (below) and on back/close, so a preview
   // never bleeds across items.
@@ -927,9 +863,8 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
     [items, navigateToBacklogItem],
   )
 
-  // ---- file actions (all via existing window.api fs IPC; never mutate Sprint
-  // Engine state). Failures surface as a visible, actionable error and leave
-  // selection consistent. ----
+  // ---- file actions (all via existing window.api fs IPC). Failures surface as
+  // a visible, actionable error and leave selection consistent. ----
 
   const runAction = useCallback(async (fn: () => Promise<void>) => {
     setActionError(null)
@@ -954,7 +889,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
   // authored ref (not just the path the section optimistically passed while its
   // async existence check was still pending), so an open is always correct. A
   // missing/unreadable file leaves the preview closed rather than opening an
-  // empty frame, mirroring the Sprint openArtifact path.
+  // empty frame.
   const openMockupPreview = useCallback(
     (target: { path: string; relativePath: string; absolutePath: string }) =>
       void runAction(async () => {
@@ -1207,7 +1142,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       runAction(async () => {
         const confirmed = await dialog.confirm({
           title: 'Delete item?',
-          body: `“${item.title}” will be moved to the trash. This affects the file only — no sprint state changes.`,
+          body: `“${item.title}” will be moved to the trash. This affects the file only.`,
           confirmLabel: 'Delete',
           tone: 'danger',
         })
@@ -1282,7 +1217,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         if (needsUnlink) {
           const confirmed = await dialog.confirm({
             title: 'Override linked status?',
-            body: `Setting “${BACKLOG_STATUS_LABEL[status]}” will unlink ${executionLinks.length === 1 ? 'the linked sprint' : `${executionLinks.length} linked executions`}. The run itself will not be deleted.`,
+            body: `Setting “${BACKLOG_STATUS_LABEL[status]}” will unlink ${executionLinks.length === 1 ? 'the linked execution' : `${executionLinks.length} linked executions`}. The run itself will not be deleted.`,
             confirmLabel: `Unlink and set ${BACKLOG_STATUS_LABEL[status]}`,
           })
           if (!confirmed) return
@@ -1312,7 +1247,7 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
         if (!folderPath) return
         const confirmed = await dialog.confirm({
           title: `Unlink ${link.label}?`,
-          body: 'This removes only the Backlog association. The linked sprint, agent, or external target will not be deleted.',
+          body: 'This removes only the Backlog association. The linked agent or external target will not be deleted.',
           confirmLabel: 'Unlink',
         })
         if (!confirmed) return
@@ -1583,10 +1518,9 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
           assertBacklogMutation(updated)
           await runScan()
         },
-        startSourcePlan: onStartFuturePlan,
       }
     },
-    [folderPath, onStartFuturePlan, runScan, workspaceId],
+    [folderPath, runScan, workspaceId],
   )
 
   const externalActionsForItem = useCallback((
@@ -1781,7 +1715,6 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       skeleton={loading && !scan}
       emptyHint={listEmptyHint(scan, items.length, filtered.length, loading)}
       now={now}
-      runGlyphById={runGlyphById}
       epicMetaBySlug={epicMeta}
       epicProgressBySlug={epicProgress}
       dependencyStateById={dependencyStateById}
@@ -1797,8 +1730,6 @@ export default function BacklogPanel({ workspaceId, onStartFuturePlan }: Workspa
       loading={loading}
       folderPath={folderPath}
       selected={detailItem}
-      selectedRunGlyph={selectedRunGlyph}
-      runGlyphById={runGlyphById}
       now={now}
       hasItems={items.length > 0}
       externalActions={externalActions}
@@ -2048,7 +1979,6 @@ function BacklogList({
   skeleton,
   emptyHint,
   now,
-  runGlyphById,
   epicMetaBySlug,
   epicProgressBySlug,
   dependencyStateById,
@@ -2071,7 +2001,6 @@ function BacklogList({
   skeleton: boolean
   emptyHint: string | null
   now: number
-  runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
   // slug -> epic identity, for the row tint + the flat-view member chip.
   epicMetaBySlug: ReadonlyMap<string, BacklogEpicMeta>
   // slug -> true full-scan completion, for epic rows and group headers.
@@ -2147,7 +2076,6 @@ function BacklogList({
                 onItemDragStart={onItemDragStart}
                 onItemContextMenu={onItemContextMenu}
                 now={now}
-                runGlyph={runGlyphById?.get(row.item.id)}
                 epicMeta={row.item.epic ? epicMetaBySlug.get(row.item.epic) : undefined}
                 dependencyState={dependencyStateById?.get(row.item.id) ?? null}
               />
@@ -2163,7 +2091,6 @@ function BacklogList({
               onItemDragStart={onItemDragStart}
               onItemContextMenu={onItemContextMenu}
               now={now}
-              runGlyph={runGlyphById?.get(item.id)}
               // A member row resolves its PARENT epic's identity; an epic row
               // resolves its OWN, so the banner treatment (tinted glyph, meter
               // colour, full-row wash) rides the same prop.
@@ -2201,7 +2128,6 @@ function BacklogOptionRow({
   onItemDragStart,
   onItemContextMenu,
   now,
-  runGlyph,
   epicMeta,
   epicProgress,
   dependencyState,
@@ -2216,7 +2142,6 @@ function BacklogOptionRow({
   onItemDragStart?: (event: React.DragEvent<HTMLLIElement>, item: BacklogItem) => void
   onItemContextMenu?: (event: React.MouseEvent, item: BacklogItem) => void
   now: number
-  runGlyph?: BacklogRunGlyph
   // The row's epic identity: a member's parent epic, or an epic row's own.
   // Drives the option-C full-row tint and, in the flat (ungrouped) list, the
   // member's epic chip / the epic's banner treatment.
@@ -2266,7 +2191,6 @@ function BacklogOptionRow({
         content={
           <BacklogRowHoverCard
             item={item}
-            runGlyph={runGlyph}
             epicProgress={epicProgress}
             dependencyState={dependencyState}
           />
@@ -2280,7 +2204,6 @@ function BacklogOptionRow({
           <BacklogRowContent
             item={item}
             now={now}
-            runGlyph={runGlyph}
             dependencyState={dependencyState}
             epicBlocked={epicBlocked}
             epicMeta={indented ? undefined : epicMeta}
@@ -2401,8 +2324,6 @@ export function BacklogDetail({
   loading,
   folderPath,
   selected,
-  selectedRunGlyph,
-  runGlyphById,
   now,
   hasItems,
   externalActions,
@@ -2435,10 +2356,6 @@ export function BacklogDetail({
   loading: boolean
   folderPath: string | null
   selected: BacklogItem | null
-  selectedRunGlyph?: BacklogRunGlyph
-  /** Live run glyph by item id, so an epic's children roll-up can render each
-   *  member's real merge state instead of its coarse status tick. */
-  runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
   now: number
   hasItems: boolean
   externalActions: Array<{ action: BacklogItemAction; label: string; disabled: boolean; run: () => void }>
@@ -2567,8 +2484,7 @@ export function BacklogDetail({
   }
 
   // Inline mockup preview (MC-1485 / T4): while a mockup is open it replaces the
-  // item content, mirroring the Sprint inspector's artifact-preview arm — shared
-  // FilePreviewPane chrome (back / pop-out / close) with the sandboxed
+  // item content — shared FilePreviewPane chrome (back / pop-out / close) with the sandboxed
   // HtmlArtifactFrame as the body override for HTML, and the pane's own
   // extension-based markdown/plain-text rendering for anything else. Back and
   // close both return to the item; pop-out opens the source in an editor tab.
@@ -2596,29 +2512,14 @@ export function BacklogDetail({
     )
   }
 
-  // The first sprintengine.run execution link is the Open Sprint target (its
-  // action lives in the menus), so it is kept out of the secondary Links list —
-  // one existing run reads as one Open action, not a link collection. Only de-dup
-  // when that action is actually present: it and the provider share module
-  // enablement, and the action hides for archived items, so absent an enabled
-  // provider or on an archived item the run link stays visible as safe
-  // unavailable metadata instead of disappearing.
-  const primaryRunLink = sprintEngineRunLinkForItem(selected)
-  const primaryRunLinkId =
-    primaryRunLink
-    && selected.status !== 'archived'
-    && providerForBacklogLink(linkProviders, primaryRunLink)
-      ? primaryRunLink.id
-      : null
-
   // Epic ⇄ child traversal, both derived from the live scan (never stored):
   //  - parentEpic: a child's epic, resolved to its concept item so the crumb can
   //    navigate up (null for epics and for orphan/dangling-slug items);
   //  - epicChildren: an epic's members, for the roll-up that navigates down;
   //  - currentEpicColor: the epic's `color:` for the picker's selected swatch.
-  // The derived-blocked presentation: like the list row, a live run glyph wins,
-  // otherwise a blocked marker replaces the Ready glyph and word.
-  const selectedBlocked = !selectedRunGlyph && dependencyState === 'blocked'
+  // The derived-blocked presentation: like the list row, a blocked marker
+  // replaces the Ready glyph and word.
+  const selectedBlocked = dependencyState === 'blocked'
   const isEpic = selected.isEpic
   const parentEpic = !isEpic && selected.epic
     ? items.find((candidate) => candidate.isEpic && epicSlug(candidate) === selected.epic) ?? null
@@ -2678,30 +2579,21 @@ export function BacklogDetail({
             </IconButton>
           ) : null}
           <Tooltip
-            content={
-              selectedRunGlyph?.label
-              ?? (selectedBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[selected.status])
-            }
+            content={selectedBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[selected.status]}
             placement="top"
             // `mt-0.5` optically centres the 16px glyph on the FIRST line of a
             // title that may wrap to two — `items-start` alone hangs it high.
             wrapperClassName="mt-0.5 inline-flex shrink-0"
           >
             <LifecycleGlyph
-              state={
-                selectedRunGlyph?.state
-                ?? (selectedBlocked ? 'blocked' : backlogStatusToLifecycle(selected.status))
-              }
+              state={selectedBlocked ? 'blocked' : backlogStatusToLifecycle(selected.status)}
               // The glyph NAMES the state now that the word beside it is gone
               // (MC-1923). A tooltip only reaches a pointer — dropping the word
               // without this left the status readable by shape alone.
-              label={
-                selectedRunGlyph?.label
-                ?? (selectedBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[selected.status])
-              }
-              // Spin only for a genuinely live run — a bare in_progress status
-              // has no agent working it, so the arc stays static.
-              live={selectedRunGlyph?.live ?? false}
+              label={selectedBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[selected.status]}
+              // A bare in_progress status has no agent working it, so the arc
+              // stays static.
+              live={false}
             />
           </Tooltip>
           {/* The title is the header's one clear priority: it takes the whole of
@@ -2890,9 +2782,6 @@ export function BacklogDetail({
                 ...(selected.status !== 'archived' && selected.status !== 'completed'
                   ? [{ id: 'mark-completed', label: 'Mark completed', onSelect: () => actions.setStatus(selected, 'completed') }]
                   : []),
-                ...(primaryRunLink
-                  ? [{ id: 'unlink-sprint', label: 'Unlink sprint…', onSelect: () => actions.removeLink(selected, primaryRunLink) }]
-                  : []),
                 {
                   id: 'star',
                   label: selected.highlight?.starred ? 'Unstar' : 'Star',
@@ -2946,10 +2835,10 @@ export function BacklogDetail({
         ) : null}
 
         {/* A host's own band, directly under the title — the loudest thing in
-            the pane when it is present. The sprint Epic tab puts the task that is
-            delivering this item here (MC-1923): the one fact about a backlog
-            item that Backlog itself cannot know. Absent everywhere else, so the
-            panel and the Backlog door render byte-identically without it. */}
+            the pane when it is present. A host that knows who is delivering this
+            item puts that here (MC-1923): the one fact about a backlog item that
+            Backlog itself cannot know. Absent everywhere else, so the panel and
+            the Backlog door render byte-identically without it. */}
         {headerExtra}
 
         {/* Earned, not standing (MC-2067): a host with no shell action to offer
@@ -2987,7 +2876,6 @@ export function BacklogDetail({
           <BacklogEpicChildren
             members={epicChildren}
             color={currentEpicColor}
-            runGlyphById={runGlyphById}
             dependencyStateById={dependencyStateById}
             blockedRollup={epicBlockedRollup}
             onNavigate={onNavigate}
@@ -3012,7 +2900,6 @@ export function BacklogDetail({
           workspaceRoot={folderPath}
           providers={linkProviders}
           epicChildStatuses={isEpic ? epicChildren.map((child) => child.status) : undefined}
-          excludeLinkId={primaryRunLinkId}
           onRemoveLink={(link) => actions.removeLink(selected, link)}
         />
 
@@ -3070,40 +2957,6 @@ function DetailState({
   return <EmptyState title={heading ?? body} body={heading ? body : undefined} action={cta} />
 }
 
-// An epic has no Sprint Engine run link of its own, so its detail header would
-// otherwise fall back to its coarse `completed` status — the green tick — even
-// when every member's sprint run has merged. Roll the members' real run states
-// up into the epic's own glyph so a merged epic reads "Merged" (purple branch)
-// once its children's PRs land, matching what each member shows in the list.
-// Returns undefined when there is no run signal to project — no run-linked
-// member, or active work still in flight — so the epic's own status renders.
-function deriveEpicRunGlyphFromChildren(
-  epic: BacklogItem,
-  items: BacklogItem[],
-  runGlyphById: ReadonlyMap<string, BacklogRunGlyph>,
-): BacklogRunGlyph | undefined {
-  const children = childrenOfEpic(items, epicSlug(epic)).filter((child) => child.status !== 'archived')
-  if (children.length === 0) return undefined
-  let sawMerged = false
-  let sawUnmerged = false
-  for (const child of children) {
-    const state = runGlyphById.get(child.id)?.state ?? backlogStatusToLifecycle(child.status)
-    if (state === 'done_merged') {
-      sawMerged = true
-    } else if (state === 'done_unmerged') {
-      sawUnmerged = true
-    } else if (state !== 'done') {
-      // A member still in flight (or not yet started): the epic isn't complete,
-      // so don't project a merge glyph — defer to the epic's own status.
-      return undefined
-    }
-  }
-  if (sawUnmerged) return { state: 'done_unmerged', live: false, label: 'Ready for review' }
-  if (sawMerged) return { state: 'done_merged', live: false, label: 'Merged' }
-  // All members plain `done` (on-main, no sprint run): no merge signal to project.
-  return undefined
-}
-
 // Epic -> children roll-up (epic detail only): a flat done/total progress track
 // in the epic's identity colour, then each member as a navigable row (status
 // glyph + title + size + priority). Selecting a row drives onNavigate so the
@@ -3114,14 +2967,12 @@ function deriveEpicRunGlyphFromChildren(
 function BacklogEpicChildren({
   members,
   color,
-  runGlyphById,
   dependencyStateById,
   blockedRollup,
   onNavigate,
 }: {
   members: BacklogItem[]
   color: BacklogHighlightColor | null
-  runGlyphById?: ReadonlyMap<string, BacklogRunGlyph>
   // Derived dependency markers per item, so a blocked member reads Blocked here
   // exactly as it does in the list.
   dependencyStateById?: ReadonlyMap<string, BacklogDependencyState>
@@ -3166,13 +3017,9 @@ function BacklogEpicChildren({
         <div className="px-3">
           <ul className="flex flex-col">
             {members.map((child) => {
-              // A member linked to a Sprint Engine run shows the runner's real
-              // state here — the purple "Merged" branch once its PR lands — not
-              // the coarse completed tick, matching how the same item reads in
-              // the list and the epic header. Without a run, a derived-blocked
-              // member reads Blocked, again matching its list row.
-              const glyph = runGlyphById?.get(child.id)
-              const childBlocked = !glyph && dependencyStateById?.get(child.id) === 'blocked'
+              // A derived-blocked member reads Blocked here, matching its list
+              // row.
+              const childBlocked = dependencyStateById?.get(child.id) === 'blocked'
               return (
               <li key={child.id}>
                 {/* The member's path rides the product tooltip on the row button
@@ -3180,21 +3027,14 @@ function BacklogEpicChildren({
                 <Tooltip content={child.relativePath} placement="top" openDelayMs={600} wrapperClassName="block">
                 <RowButton onClick={() => onNavigate(child.id)}>
                   <Tooltip
-                    content={
-                      glyph?.label
-                      ?? (childBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[child.status])
-                    }
+                    content={childBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[child.status]}
                     placement="top"
                   >
                     <LifecycleGlyph
-                      state={
-                        glyph?.state
-                        ?? (childBlocked ? 'blocked' : backlogStatusToLifecycle(child.status))
-                      }
-                      // The spinner means "an agent is working on this right
-                      // now": only a live run glyph earns it; a bare
-                      // in_progress status renders the static quarter arc.
-                      live={glyph?.live ?? false}
+                      state={childBlocked ? 'blocked' : backlogStatusToLifecycle(child.status)}
+                      // A bare in_progress status renders the static quarter
+                      // arc: the item file is a record, not a live signal.
+                      live={false}
                     />
                   </Tooltip>
                   {child.displayId ? (
@@ -3373,7 +3213,7 @@ function BacklogPreviewBody({ item }: { item: BacklogItem }): JSX.Element {
   }
   if (isHtml) {
     // Mockups render through the shared sandboxed frame (scripts off by default,
-    // never same-origin — the same seam as the sprint inbox and Design preview),
+    // never same-origin — the same seam as the Design preview),
     // so arbitrary HTML still never touches the renderer document (design §5 /
     // renderer-safety rule). Source stays reachable via the frame's toggle.
     return (
@@ -3467,5 +3307,5 @@ function listEmptyHint(
 }
 
 // The backlog row interior and its type / size / criticality glyphs live in the
-// shared ../backlog/BacklogRow module so this panel list and the new-workspace
-// Sprint Engine source picker render the same row and can't drift.
+// shared ../backlog/BacklogRow module so every surface that lists items renders
+// the same row and they can't drift.

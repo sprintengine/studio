@@ -97,7 +97,7 @@ export function ContextRailColumn({
 }: {
   /** The open surface's id. A change re-runs the swap, so door → door slides too. */
   surfaceKey: string
-  /** Accessible name for the rail scrollport, e.g. "Sprints rail". */
+  /** Accessible name for the rail scrollport, e.g. "Automations rail". */
   ariaLabel: string
   /**
    * The surface put a rail here. False keeps the column mounted but out of the

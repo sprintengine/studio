@@ -65,7 +65,7 @@ export const automationsRendererModule: RendererModule = {
     // No `railPlacement`, so the default swap applies: the automations this
     // window can see ARE the navigation while the surface is open (the ruling's
     // frame 4), so the surface's rail takes the sidebar column, exactly as
-    // Sprints' list of runs does.
+    // a module door's own list of runs does.
     host.registerGlobalSurface({
       id: 'automations',
       label: 'Automations',
@@ -106,7 +106,7 @@ export const automationsRendererModule: RendererModule = {
               // mount), then open the door. Dynamic store import keeps the
               // eager module registry — and the bundled-ids drift test — free
               // of the workspace store / FlexLayout graph, matching the
-              // sprint-engine module pattern.
+              // module-contributed command pattern.
               dispatchAutomationSurfaceTarget(target)
               void import('../store/workspaceStore').then(({ useWorkspaceStore }) => {
                 useWorkspaceStore.getState().openGlobalSurface('automations')

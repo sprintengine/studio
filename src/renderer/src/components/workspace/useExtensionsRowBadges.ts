@@ -22,13 +22,14 @@ const NO_BADGES: ExtensionsRowBadges = Object.fromEntries(
 // for its rows and by the rail hook for the square's sum, so the square and
 // the rows beneath it are one derivation and cannot disagree.
 //
-//   Workflows, Sprints — waiting counts from the owning module's door-badge
-//                        contribution, plus unread bell rows.
-//   Design             — entries arrived in any registered bundle since that
-//                        bundle was last shown, by the door's own rule, read
-//                        from the arrivals the main process resolves.
-//   Plugins, Skills,
-//   Agent CLIs         — their unread bell rows.
+//   Design       — entries arrived in any registered bundle since that bundle
+//                  was last shown, by the door's own rule, read from the
+//                  arrivals the main process resolves.
+//   Plugins,
+//   Skills,
+//   Agent CLIs   — their unread bell rows.
+//   Module doors — waiting counts from the owning module's door-badge
+//                  contribution, plus unread bell rows.
 //
 // Reading happens elsewhere: `useRailBadges` marks a row's news read when the
 // row's page is on screen, and the Design door stamps the bundle it shows. This

@@ -169,8 +169,6 @@ export function agentStateFromLaunchRecord(
     cli: record.cli,
     ...(record.cliModel ? { cliModel: record.cliModel } : {}),
     cliPermissionPreset: record.cliPermissionPreset,
-    kind: record.kind,
-    ...(record.specialistId ? { specialistId: record.specialistId } : {}),
     ...(record.connectorMcpSettings ? { connectorMcpSettings: record.connectorMcpSettings } : {}),
     ...(record.spawnSkillId ? { spawnSkillId: record.spawnSkillId } : {}),
   }

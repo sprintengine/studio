@@ -1,13 +1,11 @@
 import type { Workspace } from '../types/workspace'
 import type { WorkspaceFieldsPatch } from '../../../shared/workspace-sync'
-import { deriveSprintEngineRunGlyph } from './sprintengine'
-import { isSprintEngineWorkspace } from './sprintEngineWorkspace'
+import { deriveWorkspaceRunGlyph } from './workspaceRunGlyph'
 import { isStarred } from './highlight'
 import { isSnoozeUnexpired, wakeSnoozedWorkspacePatch } from './workspaceSnooze'
 import { workspaceLastActiveAt } from './workspaceRecency'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../types/workspace'
-import { sprintEngineRunState } from '../store/slices/workspaceModuleState'
-import type { LifecycleState } from '../components/ui/LifecycleGlyph'
+import type { LifecycleState } from '../../../shared/lifecycle-state'
 
 // A chat settles — moves from its folder's active list into the folder's
 // Settled shelf — once it has gone this long without activity. One constant,
@@ -21,8 +19,8 @@ import type { LifecycleState } from '../components/ui/LifecycleGlyph'
 // still only DECIDES; the sidebar carries the decision out.
 export const WORKSPACE_AUTO_SETTLE_AFTER_MS = 3 * 24 * 60 * 60 * 1000 // 3 days
 
-// Sprint run states that must never settle on their own, no matter how old:
-// anything still in flight or waiting on the person, including a finished
+// Module-owned run states that must never settle on their own, no matter how
+// old: anything still in flight or waiting on the person, including a finished
 // branch that has not merged yet. Carried over from the archive sweep this
 // rule replaces.
 const PINNED_RUN_STATES: ReadonlySet<LifecycleState> = new Set([
@@ -55,8 +53,8 @@ export function isSettledWorkspace(workspace: Pick<Workspace, 'settledAt'>): boo
  * Exempt for good, whatever the clock says: a row already resting, a row with
  * a hand decision on it (`settledOverride`), a starred row (the star is the
  * person saying "keep this in front of me"), a row born on a paired machine
- * (the Remote band has its own model), the rail-hidden hosts, and a sprint
- * run still in flight.
+ * (the Remote band has its own model), the rail-hidden hosts, and a row whose
+ * module reports a run still in flight.
  */
 export function shouldAutoSettleWorkspace(workspace: Workspace, now: number): boolean {
   if (isSettledWorkspace(workspace)) return false
@@ -71,13 +69,8 @@ export function shouldAutoSettleWorkspace(workspace: Workspace, now: number): bo
   if (workspace.remoteOrigin) return false
   if (workspace.mode === AUTOMATIONS_HOST_WORKSPACE_MODE) return false
   if (now - workspaceLastActiveAt(workspace) < WORKSPACE_AUTO_SETTLE_AFTER_MS) return false
-  if (isSprintEngineWorkspace(workspace)) {
-    const glyph = deriveSprintEngineRunGlyph({
-      sprintEngineState: sprintEngineRunState(workspace),
-      autoState: workspace.sprintEngineAutoState,
-    })
-    if (glyph && PINNED_RUN_STATES.has(glyph.state)) return false
-  }
+  const glyph = deriveWorkspaceRunGlyph(workspace)
+  if (glyph && PINNED_RUN_STATES.has(glyph.state)) return false
   return true
 }
 

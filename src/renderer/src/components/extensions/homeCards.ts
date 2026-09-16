@@ -49,7 +49,6 @@ export const CARD_KIND_STAMPS: Readonly<Record<HostedCardKind, string>> = {
   skill: 'Skill',
   plugin: 'Plugin',
   workflow: 'Workflow',
-  sprint: 'Sprint',
   automation: 'Automation',
   showcase: 'Showcase',
 }
@@ -81,7 +80,6 @@ const CARD_KIND_ACTIONS: Readonly<Record<HostedCardKind, string>> = {
   skill: 'Install',
   plugin: 'Install',
   workflow: 'Start',
-  sprint: 'Start',
   automation: 'Create',
   showcase: 'See it',
 }
@@ -92,8 +90,6 @@ const CARD_SURFACE_NAMES: Readonly<Record<CardSurfaceView, string>> = {
   plugins: 'Plugins',
   skills: 'Skills',
   'agent-clis': 'Agent CLIs',
-  workflows: 'Workflows',
-  sprints: 'Sprints',
 }
 
 /**

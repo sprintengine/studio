@@ -9,7 +9,7 @@ import { renderMarkdown } from '../../utils/markdown'
 // jump-out, and a body that switches between markdown rendering and a
 // preformatted plain-text view based on the file extension.
 //
-// Used by the task-attached file preview and Sprint Engine's
+// Used by the task-attached file preview and
 // artifact preview. Both panels previously hand-rolled the same chrome
 // (header pixel-for-pixel identical; only the title typography differed
 // per caller).

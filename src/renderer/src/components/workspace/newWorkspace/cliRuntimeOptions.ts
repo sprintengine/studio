@@ -473,7 +473,7 @@ export function resolveCliReasoning(
   return overrideReasoning || undefined
 }
 
-// Effective model for a per-surface picker (specialist row): the
+// Effective model for a per-surface picker: the
 // surface's own (cli, model) override when it matches the bound CLI, else no
 // model — the CLI's own default, no flag.
 export function resolveSurfaceModel(
@@ -544,7 +544,7 @@ export function filterCatalogByAvailability(
 
 // A runtime option, as much of it as a crumb needs. Structural on purpose: both
 // catalog shapes in play — `AgentCliCatalogOption` here and the roster table's
-// `SprintEngineCliOption` — satisfy it, so one helper serves every surface that
+// a module's own CLI option shape — satisfy it, so one helper serves every surface that
 // spells a runtime out for a reader.
 export type RuntimeCrumbCliOption = {
   value: string
@@ -552,9 +552,9 @@ export type RuntimeCrumbCliOption = {
   modelSelection?: { options: ReadonlyArray<{ id: string; label?: string }> }
 }
 
-// Human "CLI · model" crumb for a line that names a runtime — the New sprint
+// Human "CLI · model" crumb for a line that names a runtime — the composer
 // dialog's roster rows, and any host's team band (MC-2066). Lifted out of
-// NewSprintDialog when the second host arrived: two copies of this would drift
+// and its second host: two copies of this would drift
 // on how a model with no catalog entry reads. Null when there is no CLI to name,
 // so a caller renders nothing rather than an empty crumb.
 export function runtimeLabelFor(

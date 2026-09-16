@@ -483,8 +483,8 @@ export default function CommandPalette({
       // Agents & workspaces — the switch targets that absorb the sidebar's
       // former "Search workspaces" box. Rail-hidden workspaces are never a switch
       // target: the palette mirrors the rail/hotkey navigation surfaces exactly,
-      // so the background Automations host and (since item 1767) sprint runs stay
-      // out. A sprint is found on the Sprints door, which lists every run across
+      // so the background Automations host and any module's own hidden
+      // workspaces stay out. Those are found on the owning door, which lists them across
       // every project — including the historical ones no workspace holds. The
       // folder path rides `description` so typing a path filters here too,
       // preserving the sidebar's path matching.
@@ -510,7 +510,7 @@ export default function CommandPalette({
       ...registryCommands,
       // Actions — the five verbs the launcher opens on (owner rulings
       // 2026-09-11): start a chat, find a file, search the project's text,
-      // open settings, open the remote connections. The specialist spawn rows
+      // open settings, open the remote connections. The agent spawn rows
       // went with the same ruling; the spawn menu and its chords still own
       // them. "New chat" opens the pre-creation panel — the one way to start —
       // never a workspace on the spot.

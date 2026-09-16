@@ -187,9 +187,7 @@ type WorkspaceSidebarProps = {
   onForgetFolder: (folderPath: string) => void
   // Open the pre-creation New Chat panel scoped to the active workspace's
   // folder — the create control. The one way in (owner, 2026-09-04): the split
-  // "New…" half and its create menu (Workspace / Sprint / the retired task
-  // board) are gone with the New workspace hub; sprints start from the
-  // Sprints door.
+  // "New…" half and its create menu are gone with the New workspace hub.
   onNewChat: () => void
   // Scope a new chat to a specific project folder (workspace-row context menu).
   // The panel owns the agent/engine choice — the sidebar only opens it.
@@ -585,7 +583,7 @@ function inactiveHighlightClass(workspace: Workspace): string {
 
 // Chat/session workspaces use the terminal activity idiom: active work earns a
 // pulsing green dot, while idle rows fall back to minute-based recency.
-// Sprint and automation workspaces bypass this through their run-glyph provider.
+// A workspace type that ships a run-glyph provider bypasses this.
 function activityTone(activity: Activity): { tone: Tone; pulse: boolean } | null {
   if (activity === 'needs-input') return { tone: 'warn', pulse: true }
   if (activity === 'working') return { tone: 'good', pulse: true }
@@ -664,14 +662,12 @@ function sidebarWorkspaceOf(workspace: Workspace): {
   name: string
   mode: Workspace['mode']
   moduleState: Workspace['moduleState']
-  sprintEngineAutoState: Workspace['sprintEngineAutoState']
 } {
   return {
     id: workspace.id,
     name: workspace.name,
     mode: workspace.mode,
     moduleState: workspace.moduleState,
-    sprintEngineAutoState: workspace.sprintEngineAutoState,
   }
 }
 
@@ -1885,8 +1881,8 @@ export default function WorkspaceSidebar({
     | null
   >(null)
 
-  // Rail-hidden workspaces — the background Automations host and, since item
-  // 1767, every sprint-run workspace — stay in the store and in window
+  // Rail-hidden workspaces — the background Automations host, and any
+  // module-registered type that declares itself hidden — stay in the store and in window
   // assignments but never render as rail rows. Every presentation path below —
   // folder groups, starred — derives from this list, while drag-reorder still
   // stitches against the full `workspaces` array so a hidden workspace keeps its
@@ -1967,8 +1963,8 @@ export default function WorkspaceSidebar({
   // the rail is the one surface that sees every open project — including the
   // ones restored from persistence and the ones another window created, which
   // no single store action sees. Everything downstream that builds a path into
-  // the sidecar (the sprint run store, the backlog config, the automations team
-  // picker) reads the answer out of the shared registry.
+  // the sidecar (the backlog config, the automations definitions) reads the
+  // answer out of the shared registry.
   useEffect(() => {
     for (const workspace of localRailWorkspaces) {
       ensureProjectSidecarDirName(workspace.folderPath, (path) => window.api.pathExists(path))
@@ -2753,10 +2749,11 @@ export default function WorkspaceSidebar({
     const activity = activityByWorkspaceId[workspace.id] ?? 'idle'
     const tone = activityTone(activity)
     const recency = terminalRecencyByWorkspaceId[workspace.id]
-    // Sprint Engine rows carry the run's lifecycle glyph in the status slot
-    // instead of the dot + recency idiom: the run state (spinner / needs input
-    // / paused / failed / done) is the signal a sprint workspace wants.
-    // Recency still drives ordering and survives in the glyph's tooltip.
+    // A row whose module ships a run-glyph provider carries that lifecycle
+    // glyph in the status slot instead of the dot + recency idiom: the run
+    // state (spinner / needs input / paused / failed / done) is the signal such
+    // a workspace wants. Recency still drives ordering and survives in the
+    // glyph's tooltip.
     const runGlyph = deriveWorkspaceRunGlyph(workspace)
     const runGlyphRecencyAgo =
       runGlyph && typeof recency?.lastInputAt === 'number'
@@ -3350,7 +3347,7 @@ export default function WorkspaceSidebar({
             So the row opens on its title again, as it did before MC-2135's
             ruling C, and the whole slot — logo and glyph — moved up to the
             header (`FolderIdentityIcon`). Mode identity still reads from the
-            row accent, the trailing run glyph, and the inline sprint mark. */}
+            row accent and the trailing run glyph. */}
         {renamingId === workspace.id ? (
           // The kit's field, spliced into a row that has already decided its
           // height: `size="none"` spends no ramp step, so the inset and the
@@ -3389,7 +3386,7 @@ export default function WorkspaceSidebar({
           </svg>
         ) : null}
 
-        {/* A sprint run's lifecycle is the ROW's state, not a terminal's, so
+        {/* A provider-derived run lifecycle is the ROW's state, not a terminal's, so
             when the LINES carry the seats it keeps line 1's trailing edge —
             a terminal's seat has no room for it. The parked worktree line
             below carries the row's own `statusSeat`, which already draws this
@@ -4071,12 +4068,12 @@ export default function WorkspaceSidebar({
        * blank rail. */}
       {contextRail}
       {/* The Extensions drawer (app shell, 2026-09-05): the ruled
-          product rows — Workflows, Sprints, Design, Plugins, Skills, Agent CLIs —
-          followed by installed module doors. The app rail's Extensions glyph
-          shows it in place of the tree, and it STAYS while the card region
-          swaps: a door that is one of its rows renders its own rail beside its
-          canvas rather than taking this column (`railPlacement: 'inline'`).
-          Only Sprints, whose rail is its own list of runs, still swaps in.
+          product rows — Design, Plugins, Skills, Agent CLIs — followed by
+          installed module doors. The app rail's Extensions glyph shows it in
+          place of the tree, and it STAYS while the card region swaps: a door
+          that is one of its rows renders its own rail beside its canvas rather
+          than taking this column (`railPlacement: 'inline'`). A door whose rail
+          is a list of its own still swaps in.
           Unmounted rather than hidden — unlike the tree it keeps no fold or
           scroll state worth preserving across a section switch. */}
       {extensionsSection && !contextRailActive ? (
@@ -4088,9 +4085,9 @@ export default function WorkspaceSidebar({
           as the account cluster at the rail's foot. */}
       <div className={`mx-2 mb-2 mt-1 flex flex-col gap-1.5 ${homeHidden ? 'hidden' : ''}`}>
         {/* Home's one control above the tree: New chat, the one way in (owner,
-            2026-09-04). The doors that used to share this band — Sprints,
-            Backlog, Reviews — live under the app rail's Extensions
-            glyph now, so the tree starts one row down. The row keeps the
+            2026-09-04). The doors that used to share this band — Backlog,
+            Reviews — live under the app rail's Extensions glyph now, so the
+            tree starts one row down. The row keeps the
             tab-extract drop target. */}
         <div className="flex items-stretch gap-px">
           <Tooltip content="New chat" placement="right" wrapperClassName="flex min-w-0 flex-1">
@@ -4119,9 +4116,10 @@ export default function WorkspaceSidebar({
 
       {/* Tree: Starred first, then folder groups directly — no "Projects"
           umbrella header; the folder headers are the top level.
-          Projects and human workspaces only: a sprint run is not a row here
-          (item 1767, mockup §1) — the Sprints door lists every run across every
-          project, and jumps into a run's terminals from its canvas.
+          Projects and human workspaces only: a module's own background
+          workspace is not a row here (item 1767, mockup §1) — its door lists
+          its work across every project and jumps into the terminals from
+          there.
 
           Alignment grid, re-measured in situ 2026-08-05 (MC-2101). This comment
           used to claim 36px for all four families; it was computing with icon

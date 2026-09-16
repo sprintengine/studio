@@ -17,7 +17,7 @@ export type ResolvedNotificationAction = {
 // Resolve the actions a notification row should offer.
 //
 // A module provider that owns the notification's `source` can return deep-focus
-// actions (e.g. open the Sprint Engine task, or open the global Automations
+// actions (e.g. open a module's own record, or open the global Automations
 // screen at a specific run). Provider actions are offered whether or not the
 // notification names a workspace — a provider may deep-link to an app-level
 // screen that has no backing workspace at all (Automations). Only the generic

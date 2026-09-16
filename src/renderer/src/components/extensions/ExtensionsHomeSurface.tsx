@@ -15,7 +15,6 @@ import type { CardLaunchChoice } from '../workspace/globalSurface/extensions/hom
 import { getExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
 import { useSkillSources } from '../workspace/globalSurface/extensions/skills/useSkillSources'
 import { skillsTotal } from '../workspace/globalSurface/extensions/skills/skillsSurfaceModel'
-import { useSprintRunIndex } from '../workspace/globalSurface/sprints/useSprintRunIndex'
 import type { SurfaceIconComponent } from '../../modules/renderer-host'
 import {
   agentCliCountLine,
@@ -23,7 +22,6 @@ import {
   EXTENSIONS_HOME_TILE_SUMMARIES,
   mcpServerCountLine,
   skillsCountLine,
-  sprintRunCountLine,
 } from './extensionsHomeTiles'
 import { homeCardCount, homeCardGrid, newHomeCardSlugs } from './homeCards'
 
@@ -167,7 +165,6 @@ function ExtensionsHomeTile({
  * something decorative.
  */
 function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
-  const sprintRuns = useSprintRunIndex()
   const mcpServers = useWorkspaceStore((s) => s.appSettings.mcp?.servers)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
@@ -185,7 +182,6 @@ function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
   const designLibrary = useDesignSystemLibraryCount()
 
   return useMemo(() => {
-    const runs = sprintRuns.runs
     const servers = Object.values(mcpServers ?? {})
     const installedClis = Object.values(cliAvailability ?? {}).filter((entry) => entry?.installed)
     const updates = Object.entries(cliVersionAdvisories ?? {}).filter(
@@ -199,11 +195,6 @@ function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
     // eventually disagree.
     const skillTotals = skillsTotal(skills.sourcesLoad, skills.sources, skills.scans)
     return {
-      sprints: sprintRunCountLine({
-        ready: sprintRuns.loadState === 'ready',
-        total: runs.length,
-        running: runs.filter((run) => run.runtimeState === 'running').length,
-      }),
       design: designLibraryCountLine(designLibrary),
       // Enabled servers, which is the number the Plugins surface's Installed
       // row states ("N active MCP servers") — the same count in two places has
@@ -229,8 +220,6 @@ function useExtensionsHomeCounts(): Readonly<Record<string, string | null>> {
     skills.scans,
     skills.sources,
     skills.sourcesLoad,
-    sprintRuns.loadState,
-    sprintRuns.runs,
   ])
 }
 

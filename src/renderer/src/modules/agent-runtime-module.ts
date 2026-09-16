@@ -125,7 +125,7 @@ export const agentRuntimeRendererModule: RendererModule = {
         consumePendingExtensionsSurfaceTarget()
       },
       // Three rows in the Extensions drawer, not one (drawer ruling,
-      // 2026-09-05: Sprints · Design · Plugins · Skills · Agent CLIs). Plugins,
+      // 2026-09-05: Design · Plugins · Skills · Agent CLIs). Plugins,
       // Skills and Agent CLIs are separate destinations to the operator even
       // though one surface still renders all three, so each contributes its own
       // row here rather than the shell learning this module's sections. Each

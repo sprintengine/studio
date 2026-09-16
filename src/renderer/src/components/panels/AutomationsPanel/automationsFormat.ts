@@ -33,7 +33,6 @@ import { relativeFromNow } from '../../../utils/relativeTime'
 export { REPO_EVENT_TRIGGER_KIND, SCHEDULE_TRIGGER_KIND, WEBHOOK_TRIGGER_KIND }
 export { contributorModuleIdFromKind, displayNameFromModuleId } from '../../../../../shared/automations/contracts'
 
-export const SPRINT_LANDED_TRIGGER_KIND = 'sprint-engine.run-landed'
 export { WEEKDAY_SHORT }
 
 // Shared async + editor state used across the control-center modules.
@@ -213,19 +212,8 @@ export function triggerDetail(
   }
   if (trigger.kind === REPO_EVENT_TRIGGER_KIND) return repoEventDetail(trigger.config)
   if (trigger.kind === WEBHOOK_TRIGGER_KIND) return webhookDetail(trigger.config)
-  if (trigger.kind === SPRINT_LANDED_TRIGGER_KIND) return sprintLandedDetail(trigger.config)
   return null
 }
-
-// Sprint-landed detail for the list line — the watched team dir. Null when the
-// config is unreadable so the row falls back to the family label alone.
-function sprintLandedDetail(config: unknown): string | null {
-  if (!config || typeof config !== 'object') return null
-  const team = (config as Record<string, unknown>).team
-  return typeof team === 'string' && team.trim() ? team.trim() : null
-}
-
-type SprintLandedTriggerConfig = { kind: typeof SPRINT_LANDED_TRIGGER_KIND; team: string }
 
 // ---------------------------------------------------------------------------
 // Trigger round-trip — build the trigger to persist without rewriting families
@@ -297,15 +285,6 @@ export type WebhookForm = {
   label: string
 }
 
-// The sprint-landed editor sub-state. Kind string is the persisted value the
-// Sprint Engine module registers; the form stays here so a saved definition
-// still round-trips when the module is enabled.
-export type SprintLandedForm = {
-  team: string
-}
-
-export const EMPTY_SPRINT_LANDED_FORM: SprintLandedForm = { team: '' }
-
 export const EMPTY_REPO_EVENT_FORM: RepoEventForm = { provider: 'any', eventTypes: [], externalKey: '', label: '' }
 export const EMPTY_WEBHOOK_FORM: WebhookForm = {
   enabled: false, port: '', path: '', secret: '', hasSecret: false, eventType: '', label: '',
@@ -317,7 +296,6 @@ export type SubmitTriggerForm = ScheduleCadenceForm & {
   triggerKind: TriggerKind
   repoEvent: RepoEventForm
   webhook: WebhookForm
-  sprintLanded: SprintLandedForm
 }
 
 // /automations/webhooks/<path> — mirrors WEBHOOK_ROUTE_PREFIX in the receiver.
@@ -331,20 +309,8 @@ const WEBHOOK_PATH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 // families return false — they stay read-only and round-trip verbatim.
 export function isAuthorableTrigger(trigger: AutomationDefinition['trigger']): boolean {
   if (trigger.kind === REPO_EVENT_TRIGGER_KIND || trigger.kind === WEBHOOK_TRIGGER_KIND) return true
-  if (trigger.kind === SPRINT_LANDED_TRIGGER_KIND) return true
   if (trigger.kind === SCHEDULE_TRIGGER_KIND) return isEditableScheduleTrigger(trigger)
   return false
-}
-
-function buildSprintLandedConfig(form: SprintLandedForm): SprintLandedTriggerConfig {
-  return { kind: SPRINT_LANDED_TRIGGER_KIND, team: form.team.trim() }
-}
-
-// Seed the sprint-landed form sub-state from a loaded config.
-export function sprintLandedFormFromConfig(config: unknown): SprintLandedForm {
-  if (!config || typeof config !== 'object') return { ...EMPTY_SPRINT_LANDED_FORM }
-  const record = config as Partial<SprintLandedTriggerConfig>
-  return { team: typeof record.team === 'string' ? record.team : '' }
 }
 
 export function buildRepoEventConfig(form: RepoEventForm): RepoEventTriggerConfig {
@@ -505,9 +471,6 @@ export function resolveSubmitTrigger(
   }
   if (form.triggerKind === WEBHOOK_TRIGGER_KIND) {
     return { kind: WEBHOOK_TRIGGER_KIND, config: buildWebhookConfig(form.webhook) }
-  }
-  if (form.triggerKind === SPRINT_LANDED_TRIGGER_KIND) {
-    return { kind: SPRINT_LANDED_TRIGGER_KIND, config: buildSprintLandedConfig(form.sprintLanded) }
   }
   const loaded = editor.mode === 'edit' ? editor.definition.trigger.config : null
   const timezone = isScheduleConfig(loaded) ? loaded.timezone : fallbackTimezone

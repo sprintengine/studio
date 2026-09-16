@@ -7,7 +7,7 @@ import type { DesignSystemBundleArrivals } from '../../../../../../shared/design
 // The door computes its markers from the bundles it has read, and those reads
 // die with it. The Extensions drawer's Design row has to carry a count while the
 // door is closed — which is most of the time — so the dates live here, in module
-// state that outlives every mount, exactly as the Sprints run index does for the
+// state that outlives every mount, exactly as a door's own index does for the
 // sidebar entry and its surface.
 //
 // Two sources feed it, and they must agree:

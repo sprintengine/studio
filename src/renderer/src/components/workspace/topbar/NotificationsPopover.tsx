@@ -41,7 +41,7 @@ const LEVEL_NAME: Record<DiagnosticLevel, string> = {
 }
 
 // Recency buckets so the list reads like an inbox instead of one undivided wall
-// at Sprint Engine scale. Headings are spacing + a quiet label, never a card.
+// at scale. Headings are spacing + a quiet label, never a card.
 type DayBucket = 'today' | 'yesterday' | 'earlier'
 const DAY_BUCKET_ORDER: DayBucket[] = ['today', 'yesterday', 'earlier']
 const DAY_BUCKET_LABEL: Record<DayBucket, string> = {
