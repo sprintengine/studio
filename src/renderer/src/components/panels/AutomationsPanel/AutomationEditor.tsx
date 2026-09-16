@@ -16,9 +16,7 @@ import type {
   TriggerKind,
 } from '../../../../../shared/automations/contracts'
 import {
-  EMPTY_REPO_EVENT_FORM,
   EMPTY_WEBHOOK_FORM,
-  REPO_EVENT_TRIGGER_KIND,
   WEBHOOK_TRIGGER_KIND,
   actionLabel,
   automationCliFieldError,
@@ -26,14 +24,12 @@ import {
   isScheduleConfig,
   missingProviderReason,
   providerUnavailableReason,
-  repoEventFormFromConfig,
   resolveSubmitTrigger,
   shouldSendWebhookTrigger,
   triggersEquivalent,
   webhookFormFromConfig,
   webhookTriggerError,
   type EditorState,
-  type RepoEventForm,
   type ScheduleCadenceForm,
   type WebhookForm,
 } from './automationsFormat'
@@ -56,7 +52,6 @@ type EditorFormState = ScheduleCadenceForm & {
   // Discriminates the active trigger family. Each family is authored from its own
   // sub-state below; resolveSubmitTrigger builds the trigger from the active one.
   triggerKind: TriggerKind
-  repoEvent: RepoEventForm
   webhook: WebhookForm
   config: Record<string, string>
 }
@@ -141,7 +136,7 @@ function schemaHasStringProp(schema: AutomationsProviderView['configSchema'], ke
 const EMPTY_FORM: EditorFormState = {
   name: '', enabled: true, runInWorktree: true, disableAfterRun: false, actionKind: '', triggerKind: 'schedule',
   cadenceType: 'interval', everyMinutes: 30, timeLocal: '09:00', daysOfWeek: [1, 2, 3, 4, 5], atDatetime: '',
-  repoEvent: { ...EMPTY_REPO_EVENT_FORM }, webhook: { ...EMPTY_WEBHOOK_FORM }, config: {},
+  webhook: { ...EMPTY_WEBHOOK_FORM }, config: {},
 }
 
 function initialFormState(editor: EditorState, providers: AutomationsProviders): EditorFormState {
@@ -175,9 +170,6 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
     timeLocal: cadence && (cadence.type === 'daily' || cadence.type === 'weekly') ? cadence.timeLocal : '09:00',
     daysOfWeek: cadence?.type === 'weekly' ? cadence.daysOfWeek : [1, 2, 3, 4, 5],
     atDatetime: cadence?.type === 'at' ? cadence.datetime : '',
-    repoEvent: def.trigger.kind === REPO_EVENT_TRIGGER_KIND
-      ? repoEventFormFromConfig(def.trigger.config)
-      : { ...EMPTY_REPO_EVENT_FORM },
     webhook: def.trigger.kind === WEBHOOK_TRIGGER_KIND
       ? webhookFormFromConfig(def.trigger.config)
       : { ...EMPTY_WEBHOOK_FORM },
@@ -307,8 +299,8 @@ export function AutomationEditor({
   }, [form.runInWorktree, sourceCatalogueId])
 
   // A loaded cron schedule (or unknown third-party family) has no authoring
-  // control — it is read-only and round-trips verbatim. Schedule/repo-event/
-  // webhook are authored from their own sub-state.
+  // control — it is read-only and round-trips verbatim. Schedule and webhook
+  // are authored from their own sub-state.
   const loadedTrigger = editor.mode === 'edit' ? editor.definition.trigger : null
   const triggerReadOnly = loadedTrigger ? !isAuthorableTrigger(loadedTrigger) : false
   const triggerUnavailableReason = triggerReadOnly

@@ -565,7 +565,6 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           return gitEnabled && config?.repoRoot && config.filePath
             ? timedPanel('GitConflictResolverPanel', (
               <GitConflictResolverPanel
-                workspaceId={workspaceId}
                 repoRoot={config.repoRoot}
                 filePath={config.filePath}
               />

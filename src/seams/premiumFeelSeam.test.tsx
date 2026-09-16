@@ -1260,7 +1260,6 @@ async function main(): Promise<void> {
               onMoveWorkspaceToNewWindow: () => {},
               onMoveWorkspaceToMainWindow: () => {},
               onCloseWorkspace: () => {},
-              onDeleteWorkspaceWithState: () => {},
               onForgetFolder: () => {},
               onNewChat: () => {},
               onNewChatInFolder: () => {},

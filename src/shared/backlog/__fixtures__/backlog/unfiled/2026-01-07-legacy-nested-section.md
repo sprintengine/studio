@@ -1,7 +1,7 @@
 ---
 backlog:
   status: ready
-  planKind: architect_plan
+  owner: platform
 ---
 
 # Retry budget for the fetch step

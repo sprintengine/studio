@@ -694,21 +694,6 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
   )
   assert.equal(bypass.requests.length, 0, 'a refused preset never reaches the launch service')
 
-  // A request naming a specialist is refused by name, never launched as a
-  // plain agent: the schema's additionalProperties is advisory to a client.
-  const specialist = launchHarness()
-  const refusedSpecialist = await tool(specialist.tools, 'agent.launch').handler({
-    workspaceId: 'ws-1',
-    specialistId: 'architect',
-    prompt: 'review',
-  })
-  assert.equal(refusedSpecialist.isError, true)
-  assert.equal(
-    (refusedSpecialist.structuredContent as { error: { code: string } }).error.code,
-    'specialist_removed'
-  )
-  assert.equal(specialist.requests.length, 0, 'a specialist request never reaches the launch service')
-
   // An out-of-vocabulary preset is a plain invalid_arguments failure.
   const badPreset = await tool(launchHarness().tools, 'agent.launch').handler({
     workspaceId: 'ws-1',
@@ -1989,23 +1974,6 @@ async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void>
     'permission_preset_not_allowed'
   )
   assert.equal(created.length, 1, 'the refused draft never reached the front door')
-
-  // A draft that still names a specialist is refused by name, not saved as a
-  // plain agent run.
-  const specialist = await tool(withFrontDoor, 'automation.create').handler({
-    workspaceId: 'ws-1',
-    definition: {
-      ...definition,
-      action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'auto', specialistId: 'architect' } },
-    },
-  })
-  assert.equal(specialist.isError, true)
-  assert.equal((specialist.structuredContent as { error: { code: string } }).error.code, 'specialist_removed')
-  assert.match(
-    (specialist.structuredContent as { error: { message: string } }).error.message,
-    /Specialists were removed/,
-  )
-  assert.equal(created.length, 1, 'the specialist draft never reached the front door')
 
   // Module disabled/not loaded ⇒ explicit failure, never buffering.
   const withoutModule = createAutomationTools(

@@ -27,7 +27,6 @@ import {
   namespacedProviderId,
   type RegisteredAutomationProvider,
 } from './provider-registry'
-import { REPO_EVENT_TRIGGER_KIND } from './triggers/repo-event'
 import { WEBHOOK_TRIGGER_KIND } from './triggers/webhook'
 
 function workspace(id: string, folderPath: string | null, overrides: Partial<Workspace> = {}): Workspace {
@@ -788,24 +787,16 @@ async function assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered(): Promise
 }
 
 function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): void {
-  const builtIns = createBuiltInAutomationProviderRegistry({
-    repoTasks: {
-      readAllTasks: async () => {
-        throw new Error('not used')
-      },
-    },
-  })
+  const builtIns = createBuiltInAutomationProviderRegistry()
   assert.equal(namespacedProviderId('automations', 'schedule'), 'automations.schedule')
   assert.equal(builtIns.getTriggerProvider('automations.schedule')?.kind, 'schedule')
   assert.equal(builtIns.getTriggerProvider(`automations.${WEBHOOK_TRIGGER_KIND}`)?.kind, WEBHOOK_TRIGGER_KIND)
-  assert.equal(builtIns.getTriggerProvider(`automations.${REPO_EVENT_TRIGGER_KIND}`)?.kind, REPO_EVENT_TRIGGER_KIND)
   assert.equal(builtIns.getActionProvider('automations.spawn-agent')?.kind, 'spawn-agent')
   assert.equal(builtIns.getActionProvider('automations.run-skill-loop')?.kind, 'run-skill-loop')
   assert.equal(builtIns.getActionProvider('other.spawn-agent'), undefined)
   assert.deepEqual(builtIns.listTriggerProviders().map((provider) => provider.kind), [
     'schedule',
     WEBHOOK_TRIGGER_KIND,
-    REPO_EVENT_TRIGGER_KIND,
   ])
   assert.deepEqual(builtIns.listActionProviders().map((provider) => provider.kind), [
     'spawn-agent',

@@ -7,7 +7,6 @@ import {
   backlogItemSlugFromPath,
   backlogPreviewMarkdown,
   createBacklogItem,
-  inferBacklogKind,
   nextArchiveRelativePath,
   scanBacklog,
   type BacklogFilesystemAdapter,
@@ -117,18 +116,17 @@ run('scan returns only markdown and html files under backlog and skips ignored d
 
   assert.equal(result.state, 'ready')
   assert.deepEqual(result.items.map((item) => item.relativePath), ['backlog/idea.md', 'backlog/mockup.html'])
-  assert.deepEqual(result.items.map((item) => item.kind), ['product_plan', 'html_mockup'])
+  assert.deepEqual(result.items.map((item) => item.type), [undefined, 'mockup'])
 })
 
-run('frontmatter overrides kind and status when values are valid', () => {
+run('frontmatter sets status when the value is valid', () => {
   const item = createBacklogItem({
     path: '/repo/backlog/context.md',
     relativePath: 'backlog/context.md',
-    sourceContent: '---\nkind: architect_plan\nstatus: idea\n---\n# Build Plan\nBody.',
+    sourceContent: '---\nstatus: idea\n---\n# Build Plan\nBody.',
     stats: { modifiedAtMs: 20, sizeBytes: 64 },
   })
 
-  assert.equal(item.kind, 'architect_plan')
   assert.equal(item.status, 'idea')
   assert.equal(item.title, 'Build Plan')
   // Excerpt drops the leading title so the row's supporting line starts at body.
@@ -146,34 +144,32 @@ run('needs_input is a valid lifecycle status for an agent awaiting the user', ()
   assert.equal(item.status, 'needs_input')
 })
 
-run('nested backlog frontmatter metadata overrides kind and status', () => {
+run('nested backlog frontmatter metadata sets status', () => {
   const item = createBacklogItem({
     path: '/repo/backlog/nested.md',
     relativePath: 'backlog/nested.md',
-    sourceContent: '---\nbacklog:\n  planKind: product_plan\n  status: ready\n---\n# Nested Metadata\nBody.',
+    sourceContent: '---\nbacklog:\n  status: ready\n---\n# Nested Metadata\nBody.',
     stats: { modifiedAtMs: 20, sizeBytes: 64 },
   })
 
-  assert.equal(item.kind, 'product_plan')
   assert.equal(item.status, 'ready')
   assert.equal(item.title, 'Nested Metadata')
 })
 
-run('invalid frontmatter falls back to default inference', () => {
+run('an invalid status falls back to the default', () => {
   const item = createBacklogItem({
     path: '/repo/backlog/plan.md',
     relativePath: 'backlog/plan.md',
-    sourceContent: '---\nkind: task_db\nstatus: parked\n---\n# Notes\nBody.',
+    sourceContent: '---\nstatus: parked\n---\n# Notes\nBody.',
     stats: { modifiedAtMs: 20, sizeBytes: 64 },
   })
 
-  assert.equal(item.kind, 'unknown')
-  // A rough, unknown-kind capture defaults to a calm "idea", never the
+  // A rough capture defaults to a calm "idea", never the
   // "needs_structure" warning that used to flag every rough note as a defect.
   assert.equal(item.status, 'idea')
 })
 
-run('an unknown-kind capture is never flagged needs_structure by default', () => {
+run('a rough capture is never flagged needs_structure by default', () => {
   const item = createBacklogItem({
     path: '/repo/backlog/rough-note.md',
     relativePath: 'backlog/rough-note.md',
@@ -181,7 +177,6 @@ run('an unknown-kind capture is never flagged needs_structure by default', () =>
     stats: { modifiedAtMs: 20, sizeBytes: 64 },
   })
 
-  assert.equal(item.kind, 'unknown')
   assert.equal(item.status, 'idea')
   // Triage stays unestimated until an architect sizes/prioritizes it.
   assert.equal(item.difficulty, undefined)
@@ -518,7 +513,6 @@ run('Windows-style path separators normalize to project-relative backlog paths',
   assert.equal(result.items[0]?.relativePath, 'backlog/implementation-plan.md')
   assert.equal(result.items[0]?.id, 'backlog/implementation-plan.md')
   assert.match(result.items[0]?.objectId ?? '', /^backlog_[a-z0-9]+$/)
-  assert.equal(result.items[0]?.kind, 'architect_plan')
 })
 
 run('read failures surface the failing project-relative path', async () => {
@@ -615,8 +609,7 @@ run('archive helper chooses collision-safe names', () => {
   )
 })
 
-run('HTML kind and title inference handles mockup files', () => {
-  assert.equal(inferBacklogKind('backlog/prototype.htm', '<h1>Checkout</h1>'), 'html_mockup')
+run('an HTML file reads as a mockup and takes its title from the markup', () => {
   const item = createBacklogItem({
     path: '/repo/backlog/prototype.htm',
     relativePath: 'backlog/prototype.htm',
@@ -624,7 +617,6 @@ run('HTML kind and title inference handles mockup files', () => {
     stats: { modifiedAtMs: 20, sizeBytes: 64 },
   })
   assert.equal(item.title, 'Checkout Mockup')
-  assert.equal(item.kind, 'html_mockup')
   assert.equal(item.type, 'mockup')
 })
 

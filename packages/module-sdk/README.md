@@ -51,9 +51,8 @@ contracts, so a published version always matches the app version it ships with.
   checks the declaration. Declare it if and only if your module uses the
   bridge or genuinely needs the broad legacy surface.
 - **Main host**: `registerIpc` (channel ownership enforced), service tokens,
-  startup/shutdown hooks, `registerSidecar` (including host-owned `kind:
-  'python'` sidecars — see "Python the host runs"), `runPython`,
-  `registerLaunchContribution` (per-spawn env, PATH shims, shell functions,
+  startup/shutdown hooks, `registerSidecar` (a declaration; the host does
+  not spawn it), `registerLaunchContribution` (per-spawn env, PATH shims, shell functions,
   managed-MCP entries, host-context sections and a session lifetime tag — see
   "Launch contributions"), `notify(severity, title, body?)` (identity stamped
   by the host, per-module flood-bounded), and `registerMcpTools(tools)` —
@@ -86,10 +85,9 @@ contracts, so a published version always matches the app version it ships with.
   page's body. Absent ⇒ the hub creates from `createTemplate` directly;
   `createLabel` names the create control (picker, hub) and defaults to
   `label`; `RowMark` is the glyph beside a sidebar row of this type;
-  `hasOnDiskState` / `onDiskStateDirectory` drive the shell's Delete-with-
-  on-disk-state confirm; `rowActions` are extra context-menu items on those
-  rows (`{ id, label, variant?, isVisible, confirm, run }`), gone with the
-  module, never a disabled core row; `hiddenFromRail` withholds workspaces
+  `rowActions` are extra context-menu items on those rows (`{ id, label,
+  variant?, isVisible, confirm, run }`), gone with the module, never a
+  disabled core row; `hiddenFromRail` withholds workspaces
   of this type from the Projects list, keyboard switch targets, and
   command-palette results — hidden from discovery, still in the store and
   explicitly activatable, the rail analog of `hiddenFromPicker`),
@@ -374,64 +372,6 @@ It never throws. `ok: false` with `status: 'unknown-skill'` means nothing
 answers to that id — usually a rename, or a module that failed to load;
 `'local'` and `'modified'` mean a hand-made copy is in the way and was left
 alone (both still report `ok: true`, because the skill IS present).
-
-## Python the host runs
-
-A module can ship Python packages inside its signed bundle and have the host
-run them on the CPython the app already bundles. You never see the interpreter
-path — that is the host's, so a missing user Python cannot silently take over.
-Third-party modules must declare `process:spawn`; the host checks it at
-`registerSidecar({ kind: 'python' })` and `runPython` and refuses a module
-that omitted it. Bundled first-party modules have no permissions list — they
-already run as the app — so that check is skipped for them.
-
-**Sidecar** (`kind: 'python'`). The host owns the process: it containment-checks
-`python.root` (the same rule as `registerSkills` — relative to your module
-root, or an absolute path when the module has no root), prepends that directory
-to `PYTHONPATH`, and spawns `python -m <module>`. `startOn: 'demand'` leaves
-starting to you via the returned handle; the default starts at app startup.
-`stop()` and unload kill the child.
-
-```ts
-export function registerMain(host: MainHost): void {
-  const sidecar = host.registerSidecar({
-    id: 'weather-deck-mcp',
-    kind: 'python',
-    python: {
-      root: 'python',
-      module: 'weather_deck_mcp',
-      args: ['--http', '--port', '0'],
-      env: { WEATHER_DECK_USER_ID: 'studio-app' },
-    },
-    startOn: 'demand',
-  })
-  sidecar.onStderr((chunk) => {
-    if (chunk.includes('ready')) sidecar.signalReady()
-  })
-  void sidecar.start().then(() => sidecar.ready)
-}
-```
-
-The handle also exposes `pid`, `onStdout` / `onStderr` chunk callbacks, and
-`onExit`. Extra env on `start({ env })` is merged for that start only — a
-per-start token belongs there, not in the spec. `kind: 'process'` is still a
-declaration (or a first-party lifecycle); it is how non-Python daemons
-register.
-
-**One-shot.** `runPython` is the same interpreter and the same `root`
-containment for a process that should exit:
-
-```ts
-const { exitCode, stdout, stderr } = await host.runPython({
-  root: 'python',
-  script: 'scripts/forecast.py',
-  args: ['--city', 'Dublin'],
-  timeoutMs: 15_000,
-})
-```
-
-Exactly one of `script` or `module`. `script` is resolved inside `root` and
-refused if it escapes.
 
 ## Theme tokens
 

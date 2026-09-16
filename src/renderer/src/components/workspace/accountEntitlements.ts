@@ -32,12 +32,8 @@ const PAID_FEATURE_KEYS: readonly string[] = [
 // operator grant (`admin_override`) for a key is real paid access, and an
 // account that already has it should not be told to upgrade to get it.
 //
-// Read off the entitlement snapshot the main process publishes rather than
-// through `window.api.authCheckPremiumAccess`, because these callers decide
-// what to render, not whether to run an expensive or irreversible action: they
-// need a synchronous answer, and the snapshot is the same one the seam decides
-// from. An action that spends hosted budget must still go through the IPC seam
-// for a fresh, grace-aware decision.
+// Read off the entitlement snapshot the main process publishes: these callers
+// decide what to render, so they need a synchronous answer.
 export function hasPaidEntitlement(authState: MulticodeAuthState): boolean {
   const features = authState.entitlements?.features
   if (!features) return false

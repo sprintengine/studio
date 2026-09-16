@@ -22,7 +22,6 @@ import {
   AutomationsEngineToken,
   AutomationsModuleServiceToken,
   AutomationsProviderRegistryToken,
-  RepoTaskSourceFrontDoorsToken,
   AgentLaunchServiceToken,
   TerminalRuntimeToken,
   WorkspaceSyncServiceToken,
@@ -34,10 +33,6 @@ import {
   type AutomationsDefinitionsChangedEvent,
   type AutomationsRunEvent,
 } from '../../shared/automations/contracts'
-import {
-  REPO_TASK_SOURCE_INTEGRATION_ID,
-  type RepoTaskSourceFrontDoors,
-} from '../automations/repo-task-source'
 import { createAutomationWebhookReceiver } from '../automations/webhook-receiver'
 
 export type AutomationsModuleOptions = {
@@ -98,15 +93,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       const agentLaunchService = host.requireService(AgentLaunchServiceToken)
       const workspaceSyncService = host.requireService(WorkspaceSyncServiceToken)
       const terminalRuntime = host.requireService(TerminalRuntimeToken)
-      const repoTaskFrontDoors = serviceBackedRepoTaskFrontDoors(() =>
-        host.getService(RepoTaskSourceFrontDoorsToken)
-      )
-      const isIntegrationAvailable = createFirstPartyAutomationIntegrationResolver({
-        hasRepoTaskSource: () => Boolean(host.getService(RepoTaskSourceFrontDoorsToken)),
-      })
-      const providerRegistry = createBuiltInAutomationProviderRegistry({
-        repoTasks: repoTaskFrontDoors,
-      })
+      const providerRegistry = createBuiltInAutomationProviderRegistry()
       const checkProviderPermission = options.checkProviderPermission ?? allowAutomationProvider
       host.provideService(AutomationsProviderRegistryToken, () => providerRegistry)
       const getTriggerProviderRegistrations = () => providerRegistry.listTriggerProviderRegistrations()
@@ -118,7 +105,6 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         resolveAgentExecutionId: (input) => terminalRuntime.resolveAgentExecutionId(input),
-        isIntegrationAvailable,
         getActionProviderRegistrations,
         checkProviderPermission,
       })
@@ -133,7 +119,6 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         (options.createEngine ?? createAutomationsEngine)({
           getWorkspaceSnapshot: () => workspaceSyncService.getSnapshot(),
           getTriggerProviders,
-          isIntegrationAvailable,
           runAutomation,
           onRunEvent: (event, definition) => {
             deliverRunEvent(event)
@@ -249,7 +234,6 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
         getTriggerProviderRegistrations,
         getActionProviderRegistrations,
         checkProviderPermission,
-        isIntegrationAvailable,
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
         getEngineSidecarStatus: () => engineSidecar.status(),
         onDefinitionsChanged,
@@ -261,20 +245,4 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
   }
 }
 
-function createFirstPartyAutomationIntegrationResolver(input: {
-  hasRepoTaskSource(): boolean
-}): (id: string) => boolean | undefined {
-  return (id) => {
-    if (id === REPO_TASK_SOURCE_INTEGRATION_ID) return input.hasRepoTaskSource()
-    return undefined
-  }
-}
 
-function serviceBackedRepoTaskFrontDoors(
-  resolve: () => RepoTaskSourceFrontDoors | undefined
-): RepoTaskSourceFrontDoors {
-  return {
-    readAllTasks: async (input) =>
-      resolve()?.readAllTasks(input) ?? { ok: false, message: 'No repo task source is available.' },
-  }
-}

@@ -2,7 +2,6 @@ import type { AppServices } from '../app-services'
 import type { AutomationsEngine } from '../automations/engine'
 import type { ModuleAutomationsRegistry } from '../automations/module-service'
 import type { AutomationProviderRegistryService } from '../automations/provider-registry'
-import type { RepoTaskSourceFrontDoors } from '../automations/repo-task-source'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { ModuleWorkspaceContextService, ModuleWorkspaceService } from '../modules/module-workspace-service'
 import type { ModuleStorageRegistry } from './module-storage'
@@ -74,11 +73,6 @@ export const AutomationsModuleServiceToken = createServiceToken<ModuleAutomation
 // callers — today the automation server's automation.create/automation.run.
 export const AutomationsAppFrontDoorToken = createServiceToken<AutomationsAppFrontDoor>(
   'automations.app-front-door'
-)
-// Backs the GitHub/Jira `repo-event` automation trigger. No bundled module
-// provides it today; a capability module that imports repo issues supplies one.
-export const RepoTaskSourceFrontDoorsToken = createServiceToken<RepoTaskSourceFrontDoors>(
-  'automations.repo-task-source'
 )
 // Programmatic workspace creation for capability modules. The key MUST equal the
 // SDK's WorkspaceServiceToken ('core.workspace') so a module that imports the

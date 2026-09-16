@@ -1,10 +1,5 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
-import type {
-  ElectronApi,
-  MulticodeAuthState,
-  PremiumAccessDecision,
-  PremiumAccessRequest,
-} from '../../shared/electron-api'
+import type { ElectronApi, MulticodeAuthState } from '../../shared/electron-api'
 
 export const authApi = {
   authGetState: (): Promise<MulticodeAuthState> => ipcRenderer.invoke('auth:get-state'),
@@ -14,8 +9,6 @@ export const authApi = {
   authRefreshEntitlements: (): Promise<MulticodeAuthState> => ipcRenderer.invoke('auth:refresh-entitlements'),
   authOpenUpgrade: (reason?: string): Promise<{ opened: true; url: string }> =>
     ipcRenderer.invoke('auth:open-upgrade', reason),
-  authCheckPremiumAccess: (input: PremiumAccessRequest): Promise<PremiumAccessDecision> =>
-    ipcRenderer.invoke('auth:check-premium-access', input),
   onAuthStateChanged: (cb: (state: MulticodeAuthState) => void): (() => void) => {
     const ch = 'auth:state-changed'
     const handler = (_: IpcRendererEvent, state: MulticodeAuthState) => cb(state)
@@ -35,7 +28,6 @@ export const authApi = {
   | 'authLogout'
   | 'authRefreshEntitlements'
   | 'authOpenUpgrade'
-  | 'authCheckPremiumAccess'
   | 'onAuthStateChanged'
   | 'onAuthCallbackError'
 >

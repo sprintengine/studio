@@ -11,7 +11,6 @@ const baseItem: BacklogItem = {
   path: '/repo/backlog/item.md',
   relativePath: 'backlog/item.md',
   title: 'Item',
-  kind: 'unknown',
   status: 'idea',
   isEpic: false,
   metadata: {},

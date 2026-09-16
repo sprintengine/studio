@@ -177,7 +177,7 @@ function testLifecycleAndSidecarsCollected(): void {
     registerMain: (host) => {
       host.onStartup(() => undefined)
       host.onShutdown(() => undefined)
-      host.registerSidecar({ id: 'svc-py', kind: 'python', module: 'svc_core' })
+      host.registerSidecar({ id: 'svc-daemon', kind: 'process', module: 'svc-core' })
     },
   }
 
@@ -186,7 +186,7 @@ function testLifecycleAndSidecarsCollected(): void {
 
   assert.equal(kernel.startupHooks().length, 1)
   assert.equal(kernel.shutdownHooks().length, 1)
-  assert.deepEqual(report.sidecars, [{ id: 'svc-py', kind: 'python', module: 'svc_core' }])
+  assert.deepEqual(report.sidecars, [{ id: 'svc-daemon', kind: 'process', module: 'svc-core' }])
 }
 
 async function testLaunchContributionRegistersAndUnloads(): Promise<void> {

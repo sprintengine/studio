@@ -53,7 +53,6 @@
   .demo-tone-good { color: var(--sem-color-status-good); }
   .demo-tone-warn { color: var(--sem-color-status-warn); }
   .demo-tone-danger { color: var(--sem-color-status-danger); }
-  .demo-tone-merged { color: var(--sem-color-status-merged); }
   .demo-tone-disabled { color: var(--sem-color-text-disabled); }
 </style>
 </head>
@@ -136,36 +135,13 @@
       <path d="M8 5.3v3.1" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
       <circle cx="8" cy="10.7" r="0.9" fill="currentColor"/>
     </symbol>
-    <symbol id="g-lc-changes" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4"/>
-      <path d="M9.7 5.9 6.4 8l3.3 2.1" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
-    </symbol>
     <symbol id="g-lc-in-progress" viewBox="0 0 16 16" fill="none">
       <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22"/>
       <path d="M8 3a5 5 0 0 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
     </symbol>
-    <symbol id="g-lc-review" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22"/>
-      <path d="M8 3a5 5 0 0 1 0 10" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-    </symbol>
-    <symbol id="g-lc-testing" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22"/>
-      <path d="M8 3a5 5 0 1 1 -5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
-    </symbol>
     <symbol id="g-lc-done" viewBox="0 0 16 16" fill="none">
       <circle cx="8" cy="8" r="5.25" fill="currentColor"/>
       <path d="M5.5 8.2l1.7 1.7 3.4-3.9" style="stroke: var(--sem-color-bg-app)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    </symbol>
-    <symbol id="g-lc-approved-auto" viewBox="0 0 16 16" fill="none">
-      <circle cx="8" cy="8" r="5.25" stroke="currentColor" stroke-width="1.4"/>
-      <path d="M5.5 8.2l1.7 1.7 3.4-3.9" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
-    </symbol>
-    <symbol id="g-lc-branch" viewBox="0 0 16 16" fill="none">
-      <circle cx="5" cy="3.6" r="1.55" stroke="currentColor" stroke-width="1.3"/>
-      <circle cx="5" cy="12.4" r="1.55" stroke="currentColor" stroke-width="1.3"/>
-      <circle cx="11" cy="4.2" r="1.55" stroke="currentColor" stroke-width="1.3"/>
-      <path d="M5 5.15v5.7" stroke="currentColor" stroke-width="1.3" stroke-linecap="round"/>
-      <path d="M11 5.75v.7a3.1 3.1 0 0 1-3.1 3.1H6.5" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/>
     </symbol>
     <symbol id="g-lc-archived" viewBox="0 0 16 16" fill="none">
       <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.4"/>
@@ -356,14 +332,8 @@
       <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="Blocked"><use href="#g-lc-blocked"/></svg><span class="demo-name">blocked</span></span>
       <span class="demo-cell"><svg class="ds-glyph" role="img" aria-label="Paused"><use href="#g-lc-paused"/></svg><span class="demo-name">paused</span></span>
       <span class="demo-cell demo-tone-live"><svg class="ds-glyph ds-glyph--spin" role="img" aria-label="In progress"><use href="#g-lc-in-progress"/></svg><span class="demo-name">in progress</span></span>
-      <span class="demo-cell demo-tone-live"><svg class="ds-glyph" role="img" aria-label="In review"><use href="#g-lc-review"/></svg><span class="demo-name">review</span></span>
-      <span class="demo-cell demo-tone-live"><svg class="ds-glyph" role="img" aria-label="In testing"><use href="#g-lc-testing"/></svg><span class="demo-name">testing</span></span>
-      <span class="demo-cell demo-tone-warn"><svg class="ds-glyph" role="img" aria-label="Changes requested"><use href="#g-lc-changes"/></svg><span class="demo-name">changes</span></span>
       <span class="demo-cell demo-tone-warn"><svg class="ds-glyph" role="img" aria-label="Needs input"><use href="#g-lc-needs-input"/></svg><span class="demo-name">needs input</span></span>
       <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Done"><use href="#g-lc-done"/></svg><span class="demo-name">done</span></span>
-      <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Approved automatically"><use href="#g-lc-approved-auto"/></svg><span class="demo-name">auto-approved</span></span>
-      <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Complete, not merged"><use href="#g-lc-branch"/></svg><span class="demo-name">unmerged</span></span>
-      <span class="demo-cell demo-tone-merged"><svg class="ds-glyph" role="img" aria-label="Merged"><use href="#g-lc-branch"/></svg><span class="demo-name">merged</span></span>
       <span class="demo-cell demo-tone-disabled"><svg class="ds-glyph" role="img" aria-label="Archived"><use href="#g-lc-archived"/></svg><span class="demo-name">archived</span></span>
       <span class="demo-cell demo-tone-danger"><svg class="ds-glyph" role="img" aria-label="Failed"><use href="#g-lc-failed"/></svg><span class="demo-name">failed</span></span>
     </div>
@@ -462,7 +432,6 @@
       <span class="demo-cell demo-tone-live"><svg class="ds-glyph ds-glyph--spin" role="img" aria-label="In progress"><use href="#g-lc-in-progress"/></svg><span class="demo-name">in progress</span></span>
       <span class="demo-cell demo-tone-warn"><svg class="ds-glyph" role="img" aria-label="Needs input"><use href="#g-lc-needs-input"/></svg><span class="demo-name">needs input</span></span>
       <span class="demo-cell demo-tone-good"><svg class="ds-glyph" role="img" aria-label="Done"><use href="#g-lc-done"/></svg><span class="demo-name">done</span></span>
-      <span class="demo-cell demo-tone-merged"><svg class="ds-glyph" role="img" aria-label="Merged"><use href="#g-lc-branch"/></svg><span class="demo-name">merged</span></span>
       <span class="demo-cell demo-tone-danger"><svg class="ds-glyph" role="img" aria-label="Failed"><use href="#g-lc-failed"/></svg><span class="demo-name">failed</span></span>
     </div>
   </div>

@@ -2,13 +2,41 @@
 
 ## Unreleased
 
-- **`ActionContext.spawnAgent` loses `specialistId`.** The app no longer has a
-  concept of a specialist or a role, so there is nothing for the field to name
-  and the host ignored it. This is a **breaking type change** for an automation
-  action provider that sets it: the property no longer exists, so the compile
-  fails rather than the value being dropped silently. Delete the assignment —
-  put whatever the specialist was for into `prompt`, or install the skill you
-  want and attach it through the Agent Sessions service instead.
+- **`BacklogItemView` loses `kind`.** A Backlog item is a markdown file with
+  metadata; the host no longer guesses a plan kind from its filename or title,
+  and no longer reads a `kind:` / `planKind:` frontmatter field. This is a
+  **breaking type change** for a module that reads `item.kind`. Read
+  `item.type` for the triage type (an `.html` file with no `type:` reads as
+  `mockup`), or `item.relativePath` for the file's format.
+
+- **The host no longer runs Python.** `MainHost.runPython`,
+  `RunPythonRequest`, `RunPythonResult`, `PythonSidecarConfig` and
+  `SidecarSpec.python` are removed, and the app stops bundling CPython. A
+  `registerSidecar` call is a declaration again: the host lists it but spawns
+  nothing, so `SidecarHandle` loses the members only a host-spawned child
+  could feed — `pid`, `onStdout`, `onStderr`, `onExit`, `ready` and
+  `signalReady()` — along with `SidecarChunkListener` and
+  `SidecarExitListener`. This is a **breaking change**: a module that
+  registered a `kind: 'python'` sidecar or called `runPython` stops
+  compiling. Ship your own runtime and spawn it yourself (declare
+  `process:spawn`), or port the work to TypeScript.
+
+- **`LifecycleState` loses `review`, `testing`, `product`,
+  `changes_requested`, `recorded`, `approved_auto`, `done_unmerged` and
+  `done_merged`, and `WorkspaceRunGlyphState` loses `review`.** They were
+  the in-tree run engine's pipeline stages, and nothing in the host produces
+  them any more. This is a **breaking type change**: a `deriveRunGlyph`
+  provider or a `LifecycleGlyph` caller that returns one stops compiling. Map
+  the stage onto the remaining vocabulary (`in_progress` for a stage still
+  running, `needs_input` for a stage waiting on a person, `done` for a
+  finished one).
+
+- **`ActionContext.spawnAgent` loses `specialistId`.** Nothing in the app
+  reads it, and the host ignored it. This is a **breaking type change** for an
+  automation action provider that sets it: the property no longer exists, so
+  the compile fails rather than the value being dropped silently. Delete the
+  assignment and say what the agent should do in `prompt`, or install the
+  skill you want and attach it through the Agent Sessions service instead.
 
   The module id `sprint-engine` stays in `BUNDLED_MODULE_IDS`. It is reserved,
   not bundled: the Sprint Engine ships as an out-of-tree module that installs
@@ -67,9 +95,8 @@
 - **A workspace type can own its sidebar row and its create control.**
   `WorkspaceTypeDefinition` gains `createLabel` (the picker/hub create
   control; defaults to `label`), `RowMark` (glyph beside the row title),
-  `hasOnDiskState` / `onDiskStateDirectory` (the Delete-with-on-disk-state
-  confirm), and `rowActions` (`{ id, label, variant?, isVisible, confirm,
-  run }`, extra context-menu items on that type's rows). The shell draws
+  and `rowActions` (`{ id, label, variant?, isVisible, confirm, run }`,
+  extra context-menu items on that type's rows). The shell draws
   those from the registration; they are absent with the module, never a
   disabled core row. New types: `WorkspaceTypeRowAction`,
   `WorkspaceTypeRowActionConfirm`, `WorkspaceTypeSidebarWorkspace`.

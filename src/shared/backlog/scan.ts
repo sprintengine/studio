@@ -17,8 +17,6 @@ import {
 import { parseBacklogMockups } from './mockups'
 import type { HighlightColor } from '../../renderer/src/types/workspace'
 import {
-  inferSourcePlanKind,
-  type SourcePlanKind,
   joinPath,
   markdownTitle,
   planBasename,
@@ -27,7 +25,6 @@ import {
   workspaceRelativePath,
 } from '../source-paths'
 
-export type BacklogItemKind = SourcePlanKind | 'html_mockup'
 export type BacklogItemStatus = 'idea' | 'ready' | 'in_progress' | 'needs_input' | 'completed' | 'archived'
 
 // Lightweight triage metadata, owned by the backlog object store (items.json),
@@ -118,7 +115,6 @@ export type BacklogItem = {
   path: string
   relativePath: string
   title: string
-  kind: BacklogItemKind
   status: BacklogItemStatus
   // Stable workspace-global identity from the frontmatter `id:` integer, allocated
   // once and never changed (across re-type/rename/re-triage). The human-facing
@@ -218,7 +214,6 @@ const ARCHIVED_PREFIX = 'backlog/archived/'
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/
 const SOURCE_EXTENSION_RE = /\.(md|html?)$/i
 const HTML_EXTENSION_RE = /\.html?$/i
-const VALID_KIND = new Set<BacklogItemKind>(['product_plan', 'architect_plan', 'html_mockup', 'unknown'])
 const VALID_STATUS = new Set<BacklogItemStatus>(['idea', 'ready', 'in_progress', 'needs_input', 'completed', 'archived'])
 const VALID_TYPE = new Set<BacklogType>(['epic', 'feature', 'bug', 'mockup', 'spike'])
 const VALID_DIFFICULTY = new Set<BacklogDifficulty>(['xs', 's', 'm', 'l', 'xl'])
@@ -438,8 +433,6 @@ export function createBacklogItem(input: {
 }): BacklogItem {
   const relativePath = normalizeRelativePath(input.relativePath)
   const { body, fields } = parseBacklogFrontmatter(input.sourceContent)
-  const frontmatterKind = parseBacklogKind(frontmatterValue(fields, 'kind', 'planKind', 'plan_kind', 'sourcePlanKind', 'source_plan_kind'))
-  const inferredKind = inferBacklogKind(relativePath, body)
   const archived = isArchivedBacklogPath(relativePath)
   const frontmatterStatus = parseBacklogStatus(frontmatterValue(fields, 'status'))
   const numericId = parseBacklogNumericId(frontmatterValue(fields, 'id'))
@@ -456,7 +449,7 @@ export function createBacklogItem(input: {
   // Lifecycle/triage and epic are frontmatter-sourced (frontmatter is the source
   // of truth); the sidecar object only contributes identity, links, metadata,
   // and highlight.
-  const type = frontmatterType ?? defaultBacklogType(frontmatterKind ?? inferredKind)
+  const type = frontmatterType ?? defaultBacklogType(relativePath)
 
   return {
     id: relativePath,
@@ -464,7 +457,6 @@ export function createBacklogItem(input: {
     path: input.path,
     relativePath,
     title,
-    kind: frontmatterKind ?? inferredKind,
     status: archived ? 'archived' : frontmatterStatus ?? defaultBacklogStatus(),
     numericId,
     type,
@@ -544,11 +536,6 @@ function backlogFilenameDateMs(relativePath: string): number | null {
   if (!match) return null
   const ms = Date.parse(`${match[1]}-${match[2]}-${match[3]}T00:00:00Z`)
   return Number.isNaN(ms) ? null : ms
-}
-
-export function inferBacklogKind(relativePath: string, content: string): BacklogItemKind {
-  if (HTML_EXTENSION_RE.test(relativePath)) return 'html_mockup'
-  return inferSourcePlanKind(relativePath, content)
 }
 
 function inferBacklogTitle(relativePath: string, content: string): string {
@@ -662,11 +649,6 @@ function frontmatterValue(fields: Record<string, string>, ...keys: string[]): st
   return undefined
 }
 
-function parseBacklogKind(value: string | undefined): BacklogItemKind | null {
-  if (!value) return null
-  return VALID_KIND.has(value as BacklogItemKind) ? (value as BacklogItemKind) : null
-}
-
 function parseBacklogStatus(value: string | undefined): BacklogItemStatus | null {
   if (!value) return null
   // Migrate the retired `needs_structure` status to `idea` (both are rough,
@@ -716,8 +698,10 @@ function defaultBacklogStatus(): BacklogItemStatus {
   return 'idea'
 }
 
-function defaultBacklogType(kind: BacklogItemKind): BacklogType | undefined {
-  return kind === 'html_mockup' ? 'mockup' : undefined
+// An HTML file in the backlog is a mockup by its format, so it reads as one
+// until its frontmatter says otherwise.
+export function defaultBacklogType(relativePath: string): BacklogType | undefined {
+  return HTML_EXTENSION_RE.test(relativePath) ? 'mockup' : undefined
 }
 
 function isArchivedBacklogPath(relativePath: string): boolean {

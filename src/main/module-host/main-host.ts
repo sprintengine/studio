@@ -28,16 +28,7 @@ import {
   registerModuleSkills,
   unregisterModuleSkills,
 } from '../builtin-skills'
-import { resolveContainedPath, resolveModuleSkillDirectory } from '../modules/entry-containment'
-import {
-  runManagedPython,
-  spawnManagedPython,
-  stopPythonChild,
-  type PythonRuntimeDeps,
-  type PythonSidecarConfig as HostPythonSidecarConfig,
-  type RunPythonRequest as HostRunPythonRequest,
-  type RunPythonResult as HostRunPythonResult,
-} from './python-runtime'
+import { resolveModuleSkillDirectory } from '../modules/entry-containment'
 
 // Main-process host kernel. Replaces the static, central wiring in
 // app-services.ts / register-*-ipc.ts with registries that capability modules
@@ -64,22 +55,12 @@ export function createServiceToken<T>(key: string): ServiceToken<T> {
   return { key }
 }
 
-export type PythonSidecarConfig = HostPythonSidecarConfig
-export type RunPythonRequest = HostRunPythonRequest
-export type RunPythonResult = HostRunPythonResult
-
 export type SidecarSpec = {
   id: string
-  /** e.g. 'python', 'python-mcp', 'process'. Free-form; the SidecarHost interprets it. */
+  /** e.g. 'process'. Free-form; the owner's lifecycle interprets it. */
   kind: string
-  /** Python module name or executable, depending on kind. */
+  /** Entry point or executable, depending on kind. */
   module?: string
-  /**
-   * Host-owned Python daemon. `kind` must be `'python'`. `root` is relative to
-   * the module root (absolute when the module has no root) and is refused when
-   * it escapes. The module never sees the interpreter path.
-   */
-  python?: PythonSidecarConfig
   description?: string
   /**
    * When the kernel spawns the sidecar: 'startup' (default) starts it during
@@ -97,31 +78,20 @@ export type SidecarStartOptions = {
   env?: Record<string, string>
 }
 
-export type SidecarChunkListener = (chunk: string) => void
-export type SidecarExitListener = (code: number | null, signal: string | null) => void
-
 /**
- * Handle returned by `registerSidecar`. Python sidecars are host-owned: `start`
- * spawns on the managed interpreter, `stop`/unload kill the child, and the
- * owner watches output to decide when the daemon is ready.
+ * Handle returned by `registerSidecar`. `start`/`stop` drive the registered
+ * lifecycle; a sidecar registered without one is a declaration, and `start`
+ * refuses it.
  */
 export type SidecarHandle = {
   start(options?: SidecarStartOptions): Promise<void>
   stop(): Promise<void>
   status(): SidecarRuntimeStatus
-  readonly pid: number | undefined
-  onStdout(listener: SidecarChunkListener): () => void
-  onStderr(listener: SidecarChunkListener): () => void
-  onExit(listener: SidecarExitListener): () => void
-  /** Resolves when the owner calls `signalReady()`. */
-  readonly ready: Promise<void>
-  signalReady(): void
 }
 
 // Process control a module hands the kernel along with its sidecar spec. The
 // kernel owns *when* start/stop run and the resulting status; the lifecycle
-// owns *how* (the module keeps its existing process management). Python
-// sidecars do not pass one — the kernel supplies it.
+// owns *how* (the module keeps its existing process management).
 export type SidecarLifecycle = {
   /** Spawn the process; resolve once running. Rejection is a spawn failure. */
   start(options?: SidecarStartOptions): Promise<void>
@@ -171,8 +141,6 @@ const defaultSkillRegistry: ModuleSkillHostRegistry = {
   unregister: unregisterModuleSkills,
   ensureInstalled: ensureSkillInstalledOnDisk,
 }
-
-const PROCESS_SPAWN_PERMISSION = 'process:spawn'
 
 export type MainHost = {
   /** The module currently registering. Useful for diagnostics and ownership. */
@@ -228,24 +196,14 @@ export type MainHost = {
   onShutdownBegin(hook: ShutdownBeginHook): void
   onShutdown(hook: ShutdownHook): void
   /**
-   * Declare a sidecar process this module owns. `kind: 'python'` with a
-   * `python` config is host-owned: the kernel resolves the managed interpreter,
-   * containment-checks `python.root`, prepends it to PYTHONPATH, and spawns.
-   * That path requires `process:spawn`. With a module-supplied lifecycle (non-
-   * Python processes), the kernel owns spawn/stop: 'startup' sidecars spawn
+   * Declare a sidecar process this module owns. With a module-supplied
+   * lifecycle, the kernel owns when spawn/stop run: 'startup' sidecars spawn
    * during runStartup and every lifecycle sidecar is stopped during runShutdown.
    * Spawn failures are recorded as a queryable 'failed' status and surfaced as
    * a module-identified error notification. Without a lifecycle the
    * registration stays declarative (status 'declared').
    */
   registerSidecar(spec: SidecarSpec, lifecycle?: SidecarLifecycle): SidecarHandle
-  /**
-   * Run a one-shot Python command on the managed interpreter. Same interpreter
-   * resolution and `python.root` containment as a python sidecar; the module
-   * never sees the interpreter path. Requires `process:spawn`. Exactly one of
-   * `script` or `module`.
-   */
-  runPython(request: RunPythonRequest): Promise<RunPythonResult>
   /**
    * Contribute env, PATH shims, shell functions, managed-MCP server entries,
    * host-context sections and a session lifetime tag to every agent launch.
@@ -339,11 +297,6 @@ export type MainKernelOptions = {
   resolveModuleRoot?: (moduleId: string) => string | undefined
   /** Skill registry override. Defaults to the real one in builtin-skills.ts. */
   skillRegistry?: ModuleSkillHostRegistry
-  /**
-   * Python interpreter/spawn injection for kernel tests. Production leaves both
-   * unset so the managed runtime and `child_process.spawn` are used.
-   */
-  python?: PythonRuntimeDeps
 }
 
 // Flood bounds: a module may emit at most this many notifications per window;
@@ -369,21 +322,7 @@ type SidecarEntry = {
   error?: string
   /** In-flight start, so concurrent start() calls share one spawn. */
   pendingStart?: Promise<void>
-  child?: import('node:child_process').ChildProcessWithoutNullStreams | null
-  pid?: number
-  stopping?: boolean
-  stdoutListeners: Set<SidecarChunkListener>
-  stderrListeners: Set<SidecarChunkListener>
-  exitListeners: Set<SidecarExitListener>
-  ready: Deferred<void>
   startEnv?: Record<string, string>
-}
-
-type Deferred<T> = {
-  promise: Promise<T>
-  resolve: (value: T | PromiseLike<T>) => void
-  reject: (reason?: unknown) => void
-  settled: boolean
 }
 
 type HookEntry<T> = {
@@ -555,138 +494,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     return true
   }
 
-  function createDeferred<T>(): Deferred<T> {
-    let resolve!: (value: T | PromiseLike<T>) => void
-    let reject!: (reason?: unknown) => void
-    const promise = new Promise<T>((res, rej) => {
-      resolve = res
-      reject = rej
-    })
-    return { promise, resolve, reject, settled: false }
-  }
-
-  function resetReady(entry: SidecarEntry): void {
-    if (!entry.ready.settled) {
-      entry.ready.settled = true
-      entry.ready.reject(new Error(`Sidecar "${entry.spec.id}" was restarted before it became ready.`))
-    }
-    entry.ready = createDeferred()
-    entry.ready.promise.catch(() => undefined)
-  }
-
-  function requireProcessSpawn(moduleId: string, surface: string): void {
-    const manifest = options.resolveModuleManifest?.(moduleId)
-    if (!manifest || manifest.source !== 'third-party') return
-    if (!manifest.permissions?.includes(PROCESS_SPAWN_PERMISSION)) {
-      throw new Error(
-        `Module "${moduleId}" cannot ${surface} without the "${PROCESS_SPAWN_PERMISSION}" permission.`
-      )
-    }
-  }
-
-  function resolvePythonRoot(moduleId: string, root: string, field: string): string {
-    return resolveModuleSkillDirectory(options.resolveModuleRoot?.(moduleId) ?? null, root, field)
-  }
-
-  function attachChildStreams(entry: SidecarEntry): void {
-    const child = entry.child
-    if (!child) return
-    child.stdout?.setEncoding('utf8')
-    child.stderr?.setEncoding('utf8')
-    child.stdout?.on('data', (chunk: string) => {
-      for (const listener of entry.stdoutListeners) listener(chunk)
-    })
-    child.stderr?.on('data', (chunk: string) => {
-      for (const listener of entry.stderrListeners) listener(chunk)
-    })
-    child.once('exit', (code, signal) => {
-      if (entry.child !== child && entry.child !== null) return
-      entry.pid = undefined
-      if (entry.child === child) entry.child = null
-      if (!entry.stopping && (entry.state === 'running' || entry.state === 'starting')) {
-        entry.state = 'failed'
-        entry.error = `Sidecar "${entry.spec.id}" exited unexpectedly with code ${code ?? 'unknown'}.`
-      }
-      if (!entry.ready.settled) {
-        entry.ready.settled = true
-        entry.ready.reject(new Error(entry.error ?? `Sidecar "${entry.spec.id}" exited before ready.`))
-      }
-      for (const listener of entry.exitListeners) listener(code, signal)
-    })
-    child.once('error', (error) => {
-      entry.error = error.message
-    })
-  }
-
-  function createPythonSidecarLifecycle(entry: SidecarEntry, pythonRoot: string, config: HostPythonSidecarConfig): SidecarLifecycle {
-    return {
-      async start(startOptions) {
-        entry.stopping = false
-        if (entry.ready.settled) resetReady(entry)
-        const env = { ...(config.env ?? {}), ...(startOptions?.env ?? {}), ...(entry.startEnv ?? {}) }
-        const { child } = spawnManagedPython(
-          {
-            pythonRoot,
-            module: config.module,
-            args: config.args,
-            env,
-          },
-          options.python
-        )
-        entry.child = child
-        entry.pid = child.pid
-        attachChildStreams(entry)
-      },
-      async stop() {
-        entry.stopping = true
-        const child = entry.child
-        entry.child = null
-        entry.pid = undefined
-        await stopPythonChild(child)
-        entry.state = 'stopped'
-        entry.error = undefined
-        if (!entry.ready.settled) {
-          entry.ready.settled = true
-          entry.ready.reject(new Error(`Sidecar "${entry.spec.id}" was stopped before it became ready.`))
-        }
-      },
-    }
-  }
-
   function sidecarHandleOf(entry: SidecarEntry): SidecarHandle {
     return {
       start: (startOptions) => startSidecar(entry, startOptions),
       stop: () => stopSidecar(entry),
       status: () => sidecarStatusOf(entry),
-      get pid() {
-        return entry.pid ?? entry.child?.pid
-      },
-      onStdout(listener) {
-        entry.stdoutListeners.add(listener)
-        return () => {
-          entry.stdoutListeners.delete(listener)
-        }
-      },
-      onStderr(listener) {
-        entry.stderrListeners.add(listener)
-        return () => {
-          entry.stderrListeners.delete(listener)
-        }
-      },
-      onExit(listener) {
-        entry.exitListeners.add(listener)
-        return () => {
-          entry.exitListeners.delete(listener)
-        }
-      },
-      get ready() {
-        return entry.ready.promise
-      },
-      signalReady() {
-        if (entry.ready.settled) return
-        entry.ready.settled = true
-        entry.ready.resolve()
-      },
     }
   }
 
@@ -727,17 +539,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       try {
         await entry.pendingStart
       } catch {
-        if (sidecarState(entry) !== 'running') {
-          if (entry.child) await stopPythonChild(entry.child)
-          return
-        }
+        if (sidecarState(entry) !== 'running') return
       }
     }
     const current = sidecarState(entry)
-    if (current !== 'starting' && current !== 'running') {
-      if (entry.child) await stopPythonChild(entry.child)
-      return
-    }
+    if (current !== 'starting' && current !== 'running') return
     try {
       await entry.lifecycle.stop()
       entry.state = 'stopped'
@@ -855,34 +661,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         if (existing) {
           throw new Error(`Sidecar "${spec.id}" is already registered by module "${existing.moduleId}".`)
         }
-        if (spec.python && spec.kind !== 'python') {
-          throw new Error(`Sidecar "${spec.id}" declared python config but kind is "${spec.kind}", not "python".`)
-        }
-        if (spec.python && lifecycle) {
-          throw new Error(`Sidecar "${spec.id}" is a host-owned python sidecar and cannot take a module lifecycle.`)
-        }
-        let pythonRoot: string | undefined
-        if (spec.python) {
-          requireProcessSpawn(moduleId, `register python sidecar "${spec.id}"`)
-          pythonRoot = resolvePythonRoot(
-            moduleId,
-            spec.python.root,
-            `Module "${moduleId}" sidecar "${spec.id}" python.root`
-          )
-        }
         const entry: SidecarEntry = {
           spec,
           moduleId,
           lifecycle,
-          state: lifecycle || spec.python ? 'stopped' : 'declared',
-          stdoutListeners: new Set(),
-          stderrListeners: new Set(),
-          exitListeners: new Set(),
-          ready: createDeferred(),
-        }
-        entry.ready.promise.catch(() => undefined)
-        if (spec.python && pythonRoot) {
-          entry.lifecycle = createPythonSidecarLifecycle(entry, pythonRoot, spec.python)
+          state: lifecycle ? 'stopped' : 'declared',
         }
         sidecarEntries.set(spec.id, entry)
         if (entry.lifecycle) {
@@ -895,32 +678,6 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
           shutdownHooks.push({ moduleId, hook: () => stopSidecar(entry) })
         }
         return sidecarHandleOf(entry)
-      },
-      runPython(request) {
-        requireProcessSpawn(moduleId, 'runPython')
-        if (Boolean(request.script) === Boolean(request.module)) {
-          throw new Error('runPython requires exactly one of script or module.')
-        }
-        const pythonRoot = resolvePythonRoot(
-          moduleId,
-          request.root,
-          `Module "${moduleId}" runPython root`
-        )
-        const script = request.script
-          ? resolveContainedPath(pythonRoot, request.script, `Module "${moduleId}" runPython script`)
-          : undefined
-        return runManagedPython(
-          {
-            pythonRoot,
-            module: request.module,
-            script,
-            args: request.args,
-            cwd: request.cwd,
-            env: request.env,
-            timeoutMs: request.timeoutMs,
-          },
-          options.python
-        )
       },
       registerLaunchContribution(contribution) {
         addLaunchContribution(moduleId, contribution)

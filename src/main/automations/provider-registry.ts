@@ -3,19 +3,9 @@ import { BUNDLED_MODULE_IDS } from '../../shared/modules/manifest'
 import { createRunSkillLoopActionProvider } from './actions/run-skill-loop'
 import { createSpawnAgentActionProvider } from './actions/spawn-agent'
 import { scheduleTriggerProvider } from './schedule'
-import type { RepoTaskSourceFrontDoors } from './repo-task-source'
-import { createRepoEventTriggerProvider } from './triggers/repo-event'
 import { createWebhookTriggerProvider } from './triggers/webhook'
 
 const AUTOMATIONS_PROVIDER_MODULE_ID = 'automations'
-
-export type BuiltInAutomationProviderRegistryOptions = {
-  /**
-   * Backs the GitHub/Jira `repo-event` trigger. Supplying it registers the
-   * trigger; a host without one advertises no repo-event family at all.
-   */
-  repoTasks?: RepoTaskSourceFrontDoors
-}
 
 type RegisteredProviderType = 'trigger' | 'action'
 
@@ -112,19 +102,12 @@ export function createAutomationProviderRegistry(): AutomationProviderRegistry {
   return new AutomationProviderRegistry()
 }
 
-export function createBuiltInAutomationProviderRegistry(
-  options: BuiltInAutomationProviderRegistryOptions = {}
-): AutomationProviderRegistry {
+export function createBuiltInAutomationProviderRegistry(): AutomationProviderRegistry {
   const registry = createAutomationProviderRegistry()
   registry.registerTriggerProvider(AUTOMATIONS_PROVIDER_MODULE_ID, scheduleTriggerProvider)
   registry.registerTriggerProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createWebhookTriggerProvider())
   registry.registerActionProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createSpawnAgentActionProvider())
   registry.registerActionProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createRunSkillLoopActionProvider())
-  // The repo-event trigger is owned by the automations module itself now: the
-  // repo task source is data it reads, not the module that contributes it.
-  if (options.repoTasks) {
-    registry.registerTriggerProvider(AUTOMATIONS_PROVIDER_MODULE_ID, createRepoEventTriggerProvider(options.repoTasks))
-  }
   return registry
 }
 

@@ -64,12 +64,6 @@ export function classifyChildProcess(row: PsProcessRow): ChildProcessClassificat
   if (args.includes('playwright-mcp') || args.includes('@playwright/mcp')) {
     return { kind: 'helper', name: 'Playwright MCP' }
   }
-  if (
-    /\s-m\s+\S+/.test(` ${args}`)
-    && (command === 'python' || command === 'python3' || command.startsWith('python'))
-  ) {
-    return { kind: 'helper', name: 'Python sidecar' }
-  }
   if (args.includes('/terminal-startup/') || ['zsh', 'bash', 'fish', 'sh'].includes(command)) {
     return { kind: 'terminal', name: 'Terminal shell' }
   }

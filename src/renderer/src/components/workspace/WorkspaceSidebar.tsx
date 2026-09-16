@@ -35,7 +35,6 @@ import {
 } from './sidebarWidth'
 import {
   ContextMenu,
-  Field,
   IconButton,
   Input,
   LifecycleGlyph,
@@ -53,7 +52,7 @@ import {
   TruncatedText,
   type Tone,
 } from '../ui'
-import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
+import { Modal, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { ExtensionsRail } from './ExtensionsRail'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import {
@@ -183,7 +182,6 @@ type WorkspaceSidebarProps = {
   onMoveWorkspaceToNewWindow: (id: WorkspaceId, placement?: WorkspaceDetachPlacement) => void
   onMoveWorkspaceToMainWindow: (id: WorkspaceId) => void
   onCloseWorkspace: (id: WorkspaceId) => void
-  onDeleteWorkspaceWithState: (id: WorkspaceId) => Promise<void> | void
   onForgetFolder: (folderPath: string) => void
   // Open the pre-creation New Chat panel scoped to the active workspace's
   // folder — the create control. The one way in (owner, 2026-09-04): the split
@@ -669,22 +667,6 @@ function sidebarWorkspaceOf(workspace: Workspace): {
     mode: workspace.mode,
     moduleState: workspace.moduleState,
   }
-}
-
-function workspaceHasOnDiskState(
-  workspace: Workspace,
-  moduleOverrides: Parameters<typeof resolveEnabledWorkspaceType>[1],
-): boolean {
-  return resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)
-    ?.hasOnDiskState?.(sidebarWorkspaceOf(workspace)) === true
-}
-
-function workspaceOnDiskStateDirectory(
-  workspace: Workspace,
-  moduleOverrides: Parameters<typeof resolveEnabledWorkspaceType>[1],
-): string | null {
-  return resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)
-    ?.onDiskStateDirectory?.(sidebarWorkspaceOf(workspace)) ?? null
 }
 
 function workspaceTypeRowActions(
@@ -1450,7 +1432,6 @@ export default function WorkspaceSidebar({
   onMoveWorkspaceToNewWindow,
   onMoveWorkspaceToMainWindow,
   onCloseWorkspace,
-  onDeleteWorkspaceWithState,
   onForgetFolder,
   onNewChat,
   onNewChatInFolder,
@@ -1692,14 +1673,12 @@ export default function WorkspaceSidebar({
   const [contextMenu, setContextMenu] = useState<{ workspaceId: WorkspaceId; x: number; y: number } | null>(null)
   const [folderMenu, setFolderMenu] = useState<{ folderKey: string; x: number; y: number } | null>(null)
   const [confirmClose, setConfirmClose] = useState<WorkspaceId | null>(null)
-  const [confirmDelete, setConfirmDelete] = useState<WorkspaceId | null>(null)
   const [pendingTypeAction, setPendingTypeAction] = useState<{
     workspaceId: WorkspaceId
     action: WorkspaceTypeRowAction
   } | null>(null)
   const [typeActionBusy, setTypeActionBusy] = useState(false)
   const [confirmForget, setConfirmForget] = useState<string | null>(null)
-  const [deleteTypedName, setDeleteTypedName] = useState('')
 
   const renameInputRef = useRef<HTMLInputElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
@@ -4279,12 +4258,6 @@ export default function WorkspaceSidebar({
               setContextMenu(null)
               return
             }
-            if (action === 'delete') {
-              setDeleteTypedName('')
-              setConfirmDelete(workspace.id)
-              setContextMenu(null)
-              return
-            }
             if (action === 'toggle-star') {
               setWorkspaceHighlight(workspace.id, {
                 starred: !isStarred(workspace.highlight),
@@ -4482,59 +4455,6 @@ export default function WorkspaceSidebar({
         ) : null}
       </Modal>
 
-      {/* Delete with on-disk state (registered type hasOnDiskState) */}
-      <Modal
-        open={confirmDelete !== null}
-        onClose={() => setConfirmDelete(null)}
-        labelledBy="ws-delete-title"
-        size="confirm"
-      >
-        {confirmDelete
-          ? (() => {
-              const workspace = workspaceById.get(confirmDelete)
-              if (!workspace) return null
-              const dirPath = workspaceOnDiskStateDirectory(workspace, moduleOverrides)
-              const typedOk = deleteTypedName.trim() === workspace.name.trim()
-              return (
-                <>
-                  <ModalHeader
-                    titleId="ws-delete-title"
-                    title={`Delete workspace “${workspace.name}”?`}
-                    subtitle={`This stops running agents and removes the on-disk state directory${
-                      dirPath ? ` at ${dirPath}` : ''
-                    }. This cannot be undone.`}
-                    onClose={() => setConfirmDelete(null)}
-                  />
-                  <ModalBody>
-                    <Field label="Type the workspace name to confirm" htmlFor="ws-delete-confirm-name">
-                      <Input
-                        autoFocus
-                        value={deleteTypedName}
-                        onChange={(event) => setDeleteTypedName(event.target.value)}
-                        placeholder={workspace.name}
-                      />
-                    </Field>
-                  </ModalBody>
-                  <ModalFooter>
-                    <ModalButton onClick={() => setConfirmDelete(null)}>Cancel</ModalButton>
-                    <ModalButton
-                      variant="danger"
-                      disabled={!typedOk}
-                      onClick={() => {
-                        const id = confirmDelete
-                        setConfirmDelete(null)
-                        setDeleteTypedName('')
-                        if (id) void onDeleteWorkspaceWithState(id)
-                      }}
-                    >
-                      Delete workspace
-                    </ModalButton>
-                  </ModalFooter>
-                </>
-              )
-            })()
-          : null}
-      </Modal>
     </aside>
   )
 }
@@ -4547,7 +4467,6 @@ type ContextMenuAction =
   | 'move-to-new-window'
   | 'move-to-main-window'
   | 'close'
-  | 'delete'
   | 'toggle-star'
   | 'toggle-settle'
   // Snooze presets dispatch as `snooze:<presetId>` so the union stays closed
@@ -4584,7 +4503,6 @@ function WorkspaceContextMenu({
   onPickColor: (color: HighlightColor) => void
 }) {
   if (!workspace) return null
-  const showDelete = workspaceHasOnDiskState(workspace, moduleOverrides)
   const typeActions = workspaceTypeRowActions(workspace, moduleOverrides)
   // Reveal is about THIS row's folder, so a missing one takes it away. New
   // chat is about the project the row files under, which a pruned worktree
@@ -4676,11 +4594,6 @@ function WorkspaceContextMenu({
         </MenuItem>
       ))}
       <MenuItem onClick={() => onSelect('close')}>Close workspace</MenuItem>
-      {showDelete ? (
-        <MenuItem variant="danger" onClick={() => onSelect('delete')}>
-          Delete workspace…
-        </MenuItem>
-      ) : null}
     </ContextMenu>
   )
 }

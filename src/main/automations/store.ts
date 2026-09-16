@@ -246,10 +246,7 @@ export class AutomationsStore {
     }
     const validation = this.validateState(parsed.value, target)
     if (!validation.ok) return validation
-    const normalized = normalizeStoreState(validation.value)
-    const normalizedValidation = this.validateState(normalized, target)
-    if (!normalizedValidation.ok) return normalizedValidation
-    return { ok: true, value: normalized }
+    return { ok: true, value: validation.value }
   }
 
   async writeState(state: AutomationStoreState): Promise<AutomationStoreWriteResult<AutomationStoreState>> {
@@ -606,27 +603,6 @@ function isTriggerBlockedReasonCache(value: unknown): value is Record<string, st
   return isRecord(value) && Object.values(value).every((entry) => isNullableString(entry))
 }
 
-function normalizeStoreState(value: AutomationStoreState): AutomationStoreState {
-  const legacyRepoEventDedup = (value as { repoEventDedupByAutomationId?: unknown }).repoEventDedupByAutomationId
-  if (!isTriggerEventDedupCache(legacyRepoEventDedup)) return value
-
-  const mergedTriggerEventDedupByAutomationId: Record<string, Record<string, string>> = {}
-  for (const [automationId, events] of Object.entries(legacyRepoEventDedup)) {
-    mergedTriggerEventDedupByAutomationId[automationId] = { ...events }
-  }
-  for (const [automationId, events] of Object.entries(value.triggerEventDedupByAutomationId ?? {})) {
-    mergedTriggerEventDedupByAutomationId[automationId] = {
-      ...mergedTriggerEventDedupByAutomationId[automationId],
-      ...events,
-    }
-  }
-  return {
-    nextRunAtByAutomationId: value.nextRunAtByAutomationId,
-    triggerEventDedupByAutomationId: mergedTriggerEventDedupByAutomationId,
-    triggerBlockedReasonByAutomationId: value.triggerBlockedReasonByAutomationId,
-    lock: value.lock,
-  }
-}
 
 function isAutomationStoreLock(value: unknown): value is AutomationStoreLock {
   return (

@@ -7,7 +7,6 @@ import { runBootDiscovery } from './boot-discovery'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
 import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
 import { markStartup } from './startup-timeline'
-import { currentRuntimeEnv, getManagedPython, reportManagedPythonResolution } from './managed-runtime'
 import { createBackgroundPresence } from './background-presence'
 import { buildElectronBackgroundMenu, createElectronBackgroundTray } from './background-tray-electron'
 import { emptyBackgroundStatus, type BackgroundStatus } from '../shared/background-mode'
@@ -156,10 +155,6 @@ export function registerAppLifecycle({
   app.whenReady().then(async () => {
     markStartup('main.app-ready')
     app.setAppLogsPath()
-
-    // Surface which Python the app resolved; warns when a packaged build missed
-    // the bundled CPython instead of silently falling back to system python3.
-    reportManagedPythonResolution(getManagedPython(), currentRuntimeEnv())
 
     if (process.platform === 'win32') {
       app.setAppUserModelId(

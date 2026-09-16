@@ -29,9 +29,7 @@ import {
   AUTOMATIONS_UPDATE_CHANNEL,
 } from '../../shared/automations/contracts'
 import { createAutomationsEngine } from '../automations/engine'
-import { REPO_TASK_SOURCE_INTEGRATION_ID } from '../automations/repo-task-source'
 import { createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
-import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
 import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
 import { AutomationsStore } from '../automations/store'
 import type { IpcInvokeHandler } from '../module-host/main-host'
@@ -289,13 +287,12 @@ async function testProviderList(): Promise<void> {
 
 async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations(): Promise<void> {
   const handlers: HandlerMap = new Map()
-  const providerRegistry = createBuiltInAutomationProviderRegistry({
-    repoTasks: {
-      readAllTasks: async () => {
-        throw new Error('not used')
-      },
-    },
-  })
+  const providerRegistry = createBuiltInAutomationProviderRegistry()
+  // A trigger that depends on an integration nobody connected.
+  const ISSUE_INTEGRATION_ID = 'module:issues'
+  const webhook = providerRegistry.listTriggerProviders().find((provider) => provider.kind === WEBHOOK_TRIGGER_KIND)
+  assert.ok(webhook)
+  const issueEvent = { ...webhook, kind: 'issue-event', requiredIntegrations: [ISSUE_INTEGRATION_ID] }
   registerAutomationsIpc(
     {
       registerIpc(channel, handler) {
@@ -313,9 +310,9 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
           problem: { code: 'not_used', message: 'not used' },
         }),
       },
-      triggerProviders: providerRegistry.listTriggerProviders(),
+      triggerProviders: [...providerRegistry.listTriggerProviders(), issueEvent],
       actionProviders: providerRegistry.listActionProviders(),
-      isIntegrationAvailable: (id) => id !== REPO_TASK_SOURCE_INTEGRATION_ID,
+      isIntegrationAvailable: (id) => id !== ISSUE_INTEGRATION_ID,
       now: () => currentNow,
     }
   )
@@ -324,12 +321,11 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
   assert.equal(providers.ok, true)
   if (!providers.ok) return
 
-  // The repo task source is not connected here, so the repo-event trigger is
-  // listed with its integration reported missing rather than hidden.
-  const repoEvent = providers.value.triggers.find((provider) => provider.kind === REPO_EVENT_TRIGGER_KIND)
-  assert.deepEqual(repoEvent?.requiredIntegrations, [REPO_TASK_SOURCE_INTEGRATION_ID])
-  assert.deepEqual(repoEvent?.missingIntegrations, [REPO_TASK_SOURCE_INTEGRATION_ID])
-  assert.deepEqual((repoEvent?.configSchema as { required?: unknown }).required, ['kind'])
+  // The integration is not connected here, so the trigger is listed with it
+  // reported missing rather than hidden.
+  const listed = providers.value.triggers.find((provider) => provider.kind === 'issue-event')
+  assert.deepEqual(listed?.requiredIntegrations, [ISSUE_INTEGRATION_ID])
+  assert.deepEqual(listed?.missingIntegrations, [ISSUE_INTEGRATION_ID])
 }
 
 async function testDefinitionRoundTripAndRunNow(): Promise<void> {
@@ -422,10 +418,10 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
     triggerEventDedupByAutomationId: {
       ...(stateBeforeDelete.value?.triggerEventDedupByAutomationId ?? {}),
       'nightly-review': {
-        'repo-event:github:acme/repo#1:updated:2026-06-17T09:00:00.000Z': '2026-06-18T00:06:00.000Z',
+        'webhook:deploy:delivery-1': '2026-06-18T00:06:00.000Z',
       },
       'other-automation': {
-        'repo-event:github:acme/repo#2:updated:2026-06-17T09:00:00.000Z': '2026-06-18T00:06:00.000Z',
+        'webhook:deploy:delivery-2': '2026-06-18T00:06:00.000Z',
       },
     },
     triggerBlockedReasonByAutomationId: {
@@ -449,7 +445,7 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   assert.equal(stateAfterDelete.value?.triggerEventDedupByAutomationId?.['nightly-review'], undefined)
   assert.equal(stateAfterDelete.value?.triggerBlockedReasonByAutomationId?.['nightly-review'], undefined)
   assert.deepEqual(stateAfterDelete.value?.triggerEventDedupByAutomationId?.['other-automation'], {
-    'repo-event:github:acme/repo#2:updated:2026-06-17T09:00:00.000Z': '2026-06-18T00:06:00.000Z',
+    'webhook:deploy:delivery-2': '2026-06-18T00:06:00.000Z',
   })
   assert.equal(stateAfterDelete.value?.triggerBlockedReasonByAutomationId?.['other-automation'], 'Still blocked.')
 

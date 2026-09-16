@@ -13,11 +13,6 @@ export { AgentWorkingDots } from './AgentWorkingDots'
 export { ContextRing, CONTEXT_RING_WARN_PERCENTAGE } from './ContextRing'
 export { Spinner } from './Spinner'
 export { LifecycleGlyph, type LifecycleState } from './LifecycleGlyph'
-// The barrel exports the PRIMITIVE only. `PULL_REQUEST_SHAPES` is the raw
-// drawing, and its one consumer (`LifecycleGlyph`, which draws two of these
-// marks under its own tones) imports it directly: putting bare SVG fragments in
-// the kit's public surface would invite exactly the pasted-paths duplication the
-// glyphs entry forbids.
 export { PullRequestGlyph } from './PullRequestGlyph'
 export {
   CaptionButton,

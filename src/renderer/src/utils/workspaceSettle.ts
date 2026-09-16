@@ -20,16 +20,13 @@ import type { LifecycleState } from '../../../shared/lifecycle-state'
 export const WORKSPACE_AUTO_SETTLE_AFTER_MS = 3 * 24 * 60 * 60 * 1000 // 3 days
 
 // Module-owned run states that must never settle on their own, no matter how
-// old: anything still in flight or waiting on the person, including a finished
-// branch that has not merged yet. Carried over from the archive sweep this
-// rule replaces.
+// old: anything still in flight or waiting on the person. Carried over from the
+// archive sweep this rule replaces.
 const PINNED_RUN_STATES: ReadonlySet<LifecycleState> = new Set([
   'in_progress',
   'needs_input',
   'paused',
   'failed',
-  'changes_requested',
-  'done_unmerged',
 ])
 
 // The chat's own activity clock lives with the other clocks now

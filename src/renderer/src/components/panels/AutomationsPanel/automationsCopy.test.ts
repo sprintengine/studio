@@ -93,8 +93,7 @@ run('names the owning module when a saved kind has no registered provider', () =
 
 // --- Non-schedule trigger summaries (T2 AC#4) ------------------------------
 
-run('summarizes repo-event and webhook triggers as human strings, not the raw kind', () => {
-  assert.equal(cadenceSummary(trigger('repo-event')), 'On GitHub/Jira event')
+run('summarizes a webhook trigger as a human string, not the raw kind', () => {
   assert.equal(cadenceSummary(trigger('webhook')), 'On webhook')
 })
 
@@ -112,7 +111,6 @@ run('does not apply a family summary to a schedule kind with a non-schedule conf
 
 run('labels the trigger family for the list supporting line', () => {
   assert.equal(triggerFamilyLabel(trigger('schedule', { kind: 'schedule' })), 'Schedule')
-  assert.equal(triggerFamilyLabel(trigger('repo-event')), 'Event')
   assert.equal(triggerFamilyLabel(trigger('webhook')), 'Webhook')
 })
 
@@ -122,7 +120,7 @@ run('falls back to the raw kind for an unknown trigger family', () => {
 
 // --- List supporting-line detail (T11 F2): no family double-say ------------
 // triggerDetail is the family-prefix-aware detail; it must not restate the
-// family word ('Event · On GitHub/Jira event' / 'Webhook · On webhook').
+// family word ('Webhook · On webhook').
 
 run('schedule rows keep their cadence summary as the detail', () => {
   const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
@@ -134,13 +132,6 @@ run('schedule rows keep their cadence summary as the detail', () => {
     triggerDetail(trigger('schedule', { kind: 'schedule', timezone: 'UTC', cadence: { type: 'daily', timeLocal: '09:00' } }), AT, READER_ZONE),
     'Daily at 09:00 UTC',
   )
-})
-
-run('repo-event detail is config-specific (provider + events), not the family word', () => {
-  assert.equal(triggerDetail(trigger('repo-event', { kind: 'repo-event', provider: 'github', eventTypes: ['created'] })), 'GitHub created')
-  assert.equal(triggerDetail(trigger('repo-event', { kind: 'repo-event', provider: 'jira', eventTypes: ['created', 'updated'] })), 'Jira created, updated')
-  // Provider with no event filter reads as the source alone, never 'On GitHub/Jira event'.
-  assert.equal(triggerDetail(trigger('repo-event', { kind: 'repo-event', provider: 'any' })), 'Any source')
 })
 
 run('webhook detail is the delivery path, or null when none is set', () => {

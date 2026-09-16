@@ -16,7 +16,6 @@ import {
   executableActionProviders,
   isFirstPartyAutomationProviderModule,
   type AutomationProviderPermissionChecker,
-  type BuiltInAutomationProviderRegistryOptions,
   type RegisteredAutomationProvider,
 } from './provider-registry'
 import { workspaceSidecarPath } from '../workspace-sidecar'
@@ -118,10 +117,8 @@ export function createLocalAutomationExecutor(options: LocalAutomationExecutorOp
   }
 }
 
-export function createBuiltInAutomationActionProviders(
-  options?: BuiltInAutomationProviderRegistryOptions
-): AutomationActionProvider[] {
-  return createBuiltInAutomationProviderRegistry(options).listActionProviders()
+export function createBuiltInAutomationActionProviders(): AutomationActionProvider[] {
+  return createBuiltInAutomationProviderRegistry().listActionProviders()
 }
 
 async function runLocalAutomationAction(
