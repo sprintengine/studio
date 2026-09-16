@@ -9,6 +9,7 @@
  * own) so the hairline is the only separator at rest. */
 
 .ds-side-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -45,6 +46,14 @@
 .ds-side-pane--lg {
   width: 44%;
   max-width: 560px;
+}
+
+/* A persisted drag width (inline style) keeps the floor above and this
+ * ceiling — max-width beats the inline width when they conflict, so a wide
+ * remembered pane cannot starve the board on a narrow window. */
+.ds-side-pane--resized {
+  flex-shrink: 0;
+  max-width: 65%;
 }
 
 /* The quiet secondary aside: one tone step of distance from the lane, and
@@ -95,4 +104,67 @@
   color: var(--sem-color-text-muted);
   font-size: var(--sem-font-size-micro);
   font-variant-numeric: tabular-nums;
+}
+
+/* Opt-in resize. A role="separator" straddling the hairline: a 6px hit strip
+ * (the guideline inside it is the visual), keyboard-operable, pointer
+ * captured on the handle so an iframe in the pane cannot swallow the drag. */
+.ds-side-pane-resize {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 6px;
+  z-index: var(--sem-z-sticky);
+  cursor: col-resize;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.ds-side-pane--right .ds-side-pane-resize {
+  left: 0;
+  transform: translateX(-50%);
+}
+
+.ds-side-pane--left .ds-side-pane-resize {
+  right: 0;
+  transform: translateX(50%);
+}
+
+/* The guideline: accent as a 1px hairline marking a genuinely live process —
+ * within the accent budget. Reduced strength on hover as the reach-for
+ * affordance, full strength while the drag is live. */
+.ds-side-pane-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--sem-color-accent-primary);
+  opacity: 0;
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-side-pane-resize:hover::after {
+  opacity: 0.6;
+}
+
+.ds-side-pane-resize[data-resizing="true"]::after {
+  opacity: 1;
+}
+
+.ds-side-pane-resize:focus-visible {
+  outline: var(--sem-focus-ring);
+  /* Negative offset: the handle straddles two surfaces, so an outset ring
+   * would draw over both panes' content. Clip-own-overflow controls take the
+   * negative offset rather than a second treatment. */
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-side-pane-resize::after {
+    transition: none;
+  }
 }

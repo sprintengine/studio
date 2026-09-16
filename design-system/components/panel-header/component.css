@@ -39,6 +39,19 @@
   min-width: 0;
 }
 
+/* 6px identity dot — which tool owns the panel, never a status. The color
+ * comes through a consumer channel because tool identity deliberately has no
+ * sem.* token; the fallback is the neutral status ink so an unwired demo
+ * still renders honestly. Sized by the same space.xs step the task-card dot
+ * uses for the 6px idiom. */
+.ds-panel-header-identity {
+  flex: none;
+  width: var(--sem-space-xs);
+  height: var(--sem-space-xs);
+  border-radius: 999px;
+  background: var(--ds-panel-header-identity, var(--sem-color-status-neutral));
+}
+
 /* The panel's name: body size at the emphasis weight, the strongest ink.
  * An <h2> in the markup, restated here so heading UA styles cannot leak. */
 .ds-panel-header-title {

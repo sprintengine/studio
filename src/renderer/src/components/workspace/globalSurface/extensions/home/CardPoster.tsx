@@ -25,7 +25,7 @@
 // What is NOT constant across those rows is the word. See `cardActionLabel`.
 //
 // **The whole card is the target, and hover is a background change only** — the
-// card-button family contract: no lift, no shadow, no scale.
+// task-card family contract: no lift, no shadow, no scale.
 //
 // **Unless there is nothing to target.** A card whose `go` is empty draws no
 // button, no glass, no hover and no cursor — it is a poster, which is what the
@@ -53,10 +53,10 @@
 // build hung `onClick` on the `<article>` with `cursor-pointer` over it and
 // nothing else, which is the half of the contract a mouse can see: no tab stop,
 // no key handler, no focus ring, so a keyboard could not reach a card at all.
-// The obvious repair — `role="button" tabIndex={0}` on the article — is not
-// available here, because a card CONTAINS a real `<button>` and a button inside
-// `role="button"` is markup no assistive technology is required to make sense
-// of.
+// The obvious repair — `role="button" tabIndex={0}` on the article, the way
+// `ui/TaskCard.tsx` does it — is not available here, because a card CONTAINS a
+// real `<button>` and a button inside `role="button"` is markup no assistive
+// technology is required to make sense of.
 //
 // So `Go` is the one tab stop and the one control, and the card is the area it
 // answers for: ONE pointer surface, a direct child of the article, aria-hidden,

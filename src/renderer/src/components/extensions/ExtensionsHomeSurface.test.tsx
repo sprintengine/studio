@@ -459,7 +459,7 @@ const accented = cardButtons().filter((button) =>
 )
 assert.equal(accented.length, 3, 'every card\u2019s action carries the accent, not the hero\u2019s alone')
 
-// The card-button family contract: hover is a background change, never a lift.
+// The task-card family contract: hover is a background change, never a lift.
 for (const poster of cardsIn(home.host)) {
   const classes = poster.getAttribute('class') ?? ''
   assert.ok(classes.includes('hover:bg-'), `${titleOf(poster)}: hover changes the ground`)

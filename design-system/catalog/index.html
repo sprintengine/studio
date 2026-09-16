@@ -574,6 +574,8 @@ code {
 #ds-view-component-badge:checked ~ .ds-catalog #component-badge { display: block; }
 #ds-view-component-banner:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-banner:checked ~ .ds-catalog #component-banner { display: block; }
+#ds-view-component-board-lane:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-board-lane:checked ~ .ds-catalog #component-board-lane { display: block; }
 #ds-view-component-button:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-button:checked ~ .ds-catalog #component-button { display: block; }
 #ds-view-component-card-button:checked ~ .ds-catalog #components { display: block; }
@@ -662,6 +664,8 @@ code {
 #ds-view-component-table:checked ~ .ds-catalog #component-table { display: block; }
 #ds-view-component-tabs:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-tabs:checked ~ .ds-catalog #component-tabs { display: block; }
+#ds-view-component-task-card:checked ~ .ds-catalog #components { display: block; }
+#ds-view-component-task-card:checked ~ .ds-catalog #component-task-card { display: block; }
 #ds-view-component-toast:checked ~ .ds-catalog #components { display: block; }
 #ds-view-component-toast:checked ~ .ds-catalog #component-toast { display: block; }
 #ds-view-component-toolbar:checked ~ .ds-catalog #components { display: block; }
@@ -680,6 +684,8 @@ code {
 #ds-view-component-badge:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-badge"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-banner:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-banner"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-banner:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-banner"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-board-lane:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-board-lane"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-board-lane:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-board-lane"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-button:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-button"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-card-button:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-card-button"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -768,6 +774,8 @@ code {
 #ds-view-component-table:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-table"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-tabs:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-tabs"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-tabs:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-tabs"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
+#ds-view-component-task-card:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-task-card"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
+#ds-view-component-task-card:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-task-card"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-toast:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-toast"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
 #ds-view-component-toast:focus-visible ~ .ds-catalog .catalog-nav label[for="ds-view-component-toast"] { outline: 2px solid var(--sem-color-accent-hover, #275842); outline-offset: 2px; }
 #ds-view-component-toolbar:checked ~ .ds-catalog .catalog-nav label[for="ds-view-component-toolbar"] { color: var(--sem-color-accent-primary, #2f6a4a); font-weight: var(--sem-font-weight-emphasis, 600); box-shadow: inset 2px 0 0 currentColor; }
@@ -978,6 +986,142 @@ code {
  * ghost variant — the tint is already the emphasis. */
 .ds-banner-action {
   flex: none;
+}
+
+/* components/board-lane/component.css */
+/* Board lane — the column chrome of a board: header band, scrollable card
+ * list, drag states. Extracted from the shipped BoardLane primitive
+ * (src/renderer/src/components/ui/BoardLane.tsx).
+ *
+ * Family contract: the lane owns the column, never the cards — children are
+ * ds-task-card components and their contract is unchanged inside a lane. At
+ * rest a board shows no accent; the accent appears only as the live-process
+ * ink of a drag (the drop-target ring and the 2px drop indicator). */
+
+.ds-board-lane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  /* The scroll floor, not a fixed width: lanes grow to share the row and
+   * shrink to this, past which the BOARD row scrolls horizontally. 260px is
+   * a comfortable card width; a denser board narrows it via the property. */
+  min-width: var(--ds-board-lane-min-width, 260px);
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* ── Surface variant ─────────────────────────────────────────────────────
+ * The lane as a discrete panel. The cards inside lift one step to
+ * bg.surface-raised with an inset hairline — load-bearing in light mode,
+ * where bg.surface and bg.surface-raised are deliberately the same white
+ * and only the hairline keeps a card legible on the fill. */
+.ds-board-lane--surface {
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-overlay);
+  background: var(--sem-color-bg-surface);
+}
+
+.ds-board-lane--surface .ds-task-card {
+  background: var(--sem-color-bg-surface-raised);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-subtle);
+}
+
+/* ── Drag states ─────────────────────────────────────────────────────────
+ * Four, and the lane is always in exactly one. --source is deliberately
+ * absent: the lane a card left stays neutral, so it needs no rule. */
+
+/* Not a legal target for the dragged card. Signals ineligibility to the
+ * pointer user mid-gesture; never the only carrier of that information. */
+.ds-board-lane--dimmed {
+  opacity: 0.4;
+}
+
+/* Will accept the card: a 1px accent ring — the accent as ink marking a
+ * genuinely live process, not elevation (no blur, no offset). */
+.ds-board-lane--drop-target {
+  box-shadow: 0 0 0 1px var(--sem-color-accent-primary);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────
+ * One band: glyph + label left, count right. It never scrolls away — only
+ * the body below it scrolls. */
+.ds-board-lane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-md) var(--sem-space-lg) var(--sem-space-sm);
+}
+
+.ds-board-lane-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  min-width: 0;
+}
+
+.ds-board-lane-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-board-lane-glyph svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+.ds-board-lane-label {
+  min-width: 0;
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The lane's canonical count — shown here, never restated inside the lane. */
+.ds-board-lane-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-subtle);
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────
+ * An <ol> of cards and the lane's one scroll region. min-height: 0 lets the
+ * flex column actually shrink it; without it the lane grows instead of
+ * scrolling. */
+.ds-board-lane-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-sm);
+  margin: 0;
+  padding: var(--sem-space-sm);
+  overflow-y: auto;
+  list-style: none;
+}
+
+/* ── Drop indicator ──────────────────────────────────────────────────────
+ * A 2px accent hairline the consumer interleaves at the computed drop index
+ * during a drag — one on the whole board. Negative block margins let it sit
+ * inside the list gap without shifting the cards it slots between. */
+.ds-board-lane-drop {
+  height: 2px;
+  margin-block: calc(-1 * var(--sem-space-2xs));
+  border-radius: 999px;
+  background: var(--sem-color-accent-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-board-lane {
+    transition: none;
+  }
 }
 
 /* components/button/component.css */
@@ -3204,8 +3348,8 @@ code {
  * supporting line, trailing timestamp. Extracted from the shipped InboxRow
  * and InboxSearchInput primitives (src/renderer/src/components/ui/).
  *
- * Family contract: same neutral two-tier selection as list-row,
- * background-only hover, top-aligned leading mark. No action
+ * Family contract: same neutral two-tier selection as list-row and
+ * task-card, background-only hover, top-aligned leading mark. No action
  * host — a queue row opens its item; acting on it happens in the detail
  * pane. Title canon is font.size.body per the list-row family; the shipped
  * InboxRow's 12px title is MC-2118. */
@@ -4966,6 +5110,19 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   min-width: 0;
 }
 
+/* 6px identity dot — which tool owns the panel, never a status. The color
+ * comes through a consumer channel because tool identity deliberately has no
+ * sem.* token; the fallback is the neutral status ink so an unwired demo
+ * still renders honestly. Sized by the same space.xs step the task-card dot
+ * uses for the 6px idiom. */
+.ds-panel-header-identity {
+  flex: none;
+  width: var(--sem-space-xs);
+  height: var(--sem-space-xs);
+  border-radius: 999px;
+  background: var(--ds-panel-header-identity, var(--sem-color-status-neutral));
+}
+
 /* The panel's name: body size at the emphasis weight, the strongest ink.
  * An <h2> in the markup, restated here so heading UA styles cannot leak. */
 .ds-panel-header-title {
@@ -6297,6 +6454,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  * own) so the hairline is the only separator at rest. */
 
 .ds-side-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -6333,6 +6491,14 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 .ds-side-pane--lg {
   width: 44%;
   max-width: 560px;
+}
+
+/* A persisted drag width (inline style) keeps the floor above and this
+ * ceiling — max-width beats the inline width when they conflict, so a wide
+ * remembered pane cannot starve the board on a narrow window. */
+.ds-side-pane--resized {
+  flex-shrink: 0;
+  max-width: 65%;
 }
 
 /* The quiet secondary aside: one tone step of distance from the lane, and
@@ -6383,6 +6549,69 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   color: var(--sem-color-text-muted);
   font-size: var(--sem-font-size-micro);
   font-variant-numeric: tabular-nums;
+}
+
+/* Opt-in resize. A role="separator" straddling the hairline: a 6px hit strip
+ * (the guideline inside it is the visual), keyboard-operable, pointer
+ * captured on the handle so an iframe in the pane cannot swallow the drag. */
+.ds-side-pane-resize {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 6px;
+  z-index: var(--sem-z-sticky);
+  cursor: col-resize;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.ds-side-pane--right .ds-side-pane-resize {
+  left: 0;
+  transform: translateX(-50%);
+}
+
+.ds-side-pane--left .ds-side-pane-resize {
+  right: 0;
+  transform: translateX(50%);
+}
+
+/* The guideline: accent as a 1px hairline marking a genuinely live process —
+ * within the accent budget. Reduced strength on hover as the reach-for
+ * affordance, full strength while the drag is live. */
+.ds-side-pane-resize::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--sem-color-accent-primary);
+  opacity: 0;
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-side-pane-resize:hover::after {
+  opacity: 0.6;
+}
+
+.ds-side-pane-resize[data-resizing="true"]::after {
+  opacity: 1;
+}
+
+.ds-side-pane-resize:focus-visible {
+  outline: var(--sem-focus-ring);
+  /* Negative offset: the handle straddles two surfaces, so an outset ring
+   * would draw over both panes' content. Clip-own-overflow controls take the
+   * negative offset rather than a second treatment. */
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-side-pane-resize::after {
+    transition: none;
+  }
 }
 
 /* components/skeleton/component.css */
@@ -6813,7 +7042,8 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
  *
  * Family contract: one status idiom per surface — the dot OR a lifecycle
  * glyph, never both. Healthy, done, and idle render no dot at all; the dot
- * marks the exceptions. Sized by the space.xs step, the 6px dot idiom. */
+ * marks the exceptions. Sized by the same space.xs step the task-card dot
+ * uses for the 6px idiom. */
 
 .ds-status-dot {
   display: inline-block;
@@ -7278,6 +7508,107 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 
 @media (prefers-reduced-motion: reduce) {
   .ds-tab {
+    transition: none;
+  }
+}
+
+/* components/task-card/component.css */
+/* Task card — extracted from the source product's TaskCard primitive
+ * (src/renderer/src/components/ui/TaskCard.tsx), the canonical board-card /
+ * inbox-row surface. Family contract: 6px status dot, mono identifier,
+ * medium title, neutral two-tier selection, background-only hover.
+ * Prefer components/list-row for list surfaces; this is the board card. */
+
+.ds-task-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-md);
+  background: var(--sem-color-bg-surface);
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-control);
+  font-family: var(--sem-font-family-ui);
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Hover is a background change only — no shadow, no scale, no glow. */
+.ds-task-card:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+.ds-task-card:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* Selection is neutral: the accent is reserved for the primary action, so a
+ * chosen card never outranks the one thing worth clicking. Two tiers, so a
+ * multi-pane surface shows exactly one focused selection. */
+.ds-task-card--selected {
+  background: var(--sem-color-bg-selected);
+  border-color: var(--sem-color-border-default);
+}
+
+.ds-task-card--resting {
+  background: var(--sem-color-bg-selected-resting);
+}
+
+/* 6px status dot. Status only — never decoration or category coding. */
+.ds-task-card-dot {
+  flex: none;
+  width: var(--sem-space-xs);
+  height: var(--sem-space-xs);
+  border-radius: 999px;
+  background: var(--sem-color-status-neutral);
+}
+
+.ds-task-card-dot--good {
+  background: var(--sem-color-status-good);
+}
+
+.ds-task-card-dot--warn {
+  background: var(--sem-color-status-warn);
+}
+
+.ds-task-card-dot--danger {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-task-card-id {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-task-card-title {
+  min-width: 0;
+  flex: 1;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-default);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-task-card--selected .ds-task-card-title {
+  color: var(--sem-color-text-primary);
+}
+
+/* Display-only trailing slot (never interactive — the card is the target). */
+.ds-task-card-trailing {
+  flex: none;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-task-card {
     transition: none;
   }
 }
@@ -7949,6 +8280,35 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     padding: var(--sem-space-lg);
     font-size: var(--sem-font-size-body);
     color: var(--sem-color-text-muted);
+  }
+.ds-embed-component-board-lane {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-board-lane .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+.ds-embed-component-board-lane .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+.ds-embed-component-board-lane .demo-board {
+    display: flex;
+    gap: var(--sem-space-lg);
+    height: 240px;
+    margin-bottom: var(--sem-space-lg);
+    overflow-x: auto;
+  }
+.ds-embed-component-board-lane .demo-board .ds-board-lane {
+    --ds-board-lane-min-width: 200px;
+  }
+.ds-embed-component-board-lane .demo-empty {
+    padding: var(--sem-space-md);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
   }
 .ds-embed-component-button {
     margin: 0;
@@ -9843,6 +10203,24 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     outline: var(--sem-focus-ring);
     outline-offset: var(--sem-focus-ring-offset);
   }
+.ds-embed-component-task-card {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+.ds-embed-component-task-card .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-xs);
+    max-width: 380px;
+  }
+.ds-embed-component-task-card .demo-label {
+    margin: 0 0 var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
 .ds-embed-component-toast {
     margin: 0;
     font-family: var(--sem-font-family-ui);
@@ -10708,6 +11086,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-components" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-badge" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-banner" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-board-lane" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-card-button" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-check-row" />
@@ -10752,6 +11131,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-switch" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-table" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tabs" />
+<input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-task-card" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-toast" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-toolbar" />
 <input type="radio" name="ds-view" class="ds-view-switch" id="ds-view-component-tooltip" />
@@ -10781,6 +11161,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-group" for="ds-view-components">Components</label>
 <label class="catalog-nav-item" for="ds-view-component-badge">Badge</label>
 <label class="catalog-nav-item" for="ds-view-component-banner">Banner</label>
+<label class="catalog-nav-item" for="ds-view-component-board-lane">Board lane</label>
 <label class="catalog-nav-item" for="ds-view-component-button">Button</label>
 <label class="catalog-nav-item" for="ds-view-component-card-button">Card button</label>
 <label class="catalog-nav-item" for="ds-view-component-check-row">Check row</label>
@@ -10825,6 +11206,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <label class="catalog-nav-item" for="ds-view-component-switch">Switch</label>
 <label class="catalog-nav-item" for="ds-view-component-table">Table</label>
 <label class="catalog-nav-item" for="ds-view-component-tabs">Tabs</label>
+<label class="catalog-nav-item" for="ds-view-component-task-card">Task card</label>
 <label class="catalog-nav-item" for="ds-view-component-toast">Toast</label>
 <label class="catalog-nav-item" for="ds-view-component-toolbar">Toolbar</label>
 <label class="catalog-nav-item" for="ds-view-component-tooltip">Tooltip</label>
@@ -11997,6 +12379,580 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 &lt;/html&gt;
 </code></pre></details>
 </div>
+<div id="component-board-lane" class="catalog-view catalog-component">
+<h3>Board lane</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-board-lane">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — a drag in flight: In progress is the source, In review will accept the card (ring + indicator), Done is not a legal target.</p>
+
+  <div class="demo-board">
+    <section class="ds-board-lane" aria-label="In progress lane">
+      <div class="ds-board-lane-header">
+        <span class="ds-board-lane-title">
+          <span class="ds-board-lane-glyph" aria-hidden="true">
+            <svg viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M7 7V3.8A3.2 3.2 0 0 1 10.2 7z" fill="currentColor"/></svg>
+          </span>
+          <span class="ds-board-lane-label">In progress</span>
+        </span>
+        <span class="ds-board-lane-count">3</span>
+      </div>
+      <ol class="ds-board-lane-body">
+        <li>
+          <button type="button" class="ds-task-card">
+            <span class="ds-task-card-id">MC-2093</span>
+            <span class="ds-task-card-title">Wire automation run history to the door rail</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
+            <span class="ds-task-card-id">MC-2101</span>
+            <span class="ds-task-card-title">Panel header rollout groundwork</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="ds-task-card">
+            <span class="ds-task-card-id">MC-2114</span>
+            <span class="ds-task-card-title">Backlog repair for orphaned epics</span>
+            <span class="ds-task-card-trailing">2d</span>
+          </button>
+        </li>
+      </ol>
+    </section>
+
+    <section class="ds-board-lane ds-board-lane--drop-target" aria-label="In review lane">
+      <div class="ds-board-lane-header">
+        <span class="ds-board-lane-title">
+          <span class="ds-board-lane-glyph" aria-hidden="true">
+            <svg viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4" stroke-dasharray="2.6 2.2"/></svg>
+          </span>
+          <span class="ds-board-lane-label">In review</span>
+        </span>
+        <span class="ds-board-lane-count">2</span>
+      </div>
+      <ol class="ds-board-lane-body">
+        <li>
+          <button type="button" class="ds-task-card">
+            <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
+            <span class="ds-task-card-id">MC-2088</span>
+            <span class="ds-task-card-title">Review brief for automations door</span>
+          </button>
+        </li>
+        <li aria-hidden="true"><div class="ds-board-lane-drop"></div></li>
+        <li>
+          <button type="button" class="ds-task-card">
+            <span class="ds-task-card-id">MC-2096</span>
+            <span class="ds-task-card-title">Changeset walkthrough polish</span>
+          </button>
+        </li>
+      </ol>
+    </section>
+
+    <section class="ds-board-lane ds-board-lane--dimmed" aria-label="Done lane">
+      <div class="ds-board-lane-header">
+        <span class="ds-board-lane-title">
+          <span class="ds-board-lane-glyph" aria-hidden="true">
+            <svg viewBox="0 0 14 14" fill="none"><circle cx="7" cy="7" r="5" stroke="currentColor" stroke-width="1.4"/><path d="M4.6 7.2l1.7 1.7 3.1-3.4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="ds-board-lane-label">Done</span>
+        </span>
+        <span class="ds-board-lane-count">8</span>
+      </div>
+      <ol class="ds-board-lane-body">
+        <li>
+          <button type="button" class="ds-task-card">
+            <span class="ds-task-card-id">MC-2071</span>
+            <span class="ds-task-card-title">Token metadata lint</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="ds-task-card">
+            <span class="ds-task-card-id">MC-2064</span>
+            <span class="ds-task-card-title">Focus ring literal audit</span>
+          </button>
+        </li>
+      </ol>
+    </section>
+  </div>
+
+  <p class="demo-label">Surface variant — lanes as discrete panels; cards lift one step with an inset hairline. The empty lane keeps its header and says what empty means.</p>
+  <div class="demo-board">
+    <section class="ds-board-lane ds-board-lane--surface" aria-label="Todo lane">
+      <div class="ds-board-lane-header">
+        <span class="ds-board-lane-title">
+          <span class="ds-board-lane-label">Todo</span>
+        </span>
+        <span class="ds-board-lane-count">2</span>
+      </div>
+      <ol class="ds-board-lane-body">
+        <li>
+          <button type="button" class="ds-task-card">
+            <span class="ds-task-card-id">MC-2118</span>
+            <span class="ds-task-card-title">InboxRow type step</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="ds-task-card">
+            <span class="ds-task-card-id">MC-2112</span>
+            <span class="ds-task-card-title">Panel header rollout</span>
+          </button>
+        </li>
+      </ol>
+    </section>
+    <section class="ds-board-lane ds-board-lane--surface" aria-label="Blocked lane">
+      <div class="ds-board-lane-header">
+        <span class="ds-board-lane-title">
+          <span class="ds-board-lane-label">Blocked</span>
+        </span>
+        <span class="ds-board-lane-count">0</span>
+      </div>
+      <ol class="ds-board-lane-body">
+        <li class="demo-empty">Nothing blocked.</li>
+      </ol>
+    </section>
+  </div>
+</div>
+
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — the surface variant's tone step does real work here; the inset hairline still draws the card edge.</p>
+  <div class="demo-board">
+    <section class="ds-board-lane" aria-label="In progress lane">
+      <div class="ds-board-lane-header">
+        <span class="ds-board-lane-title">
+          <span class="ds-board-lane-label">In progress</span>
+        </span>
+        <span class="ds-board-lane-count">2</span>
+      </div>
+      <ol class="ds-board-lane-body">
+        <li>
+          <button type="button" class="ds-task-card">
+            <span class="ds-task-card-id">MC-2093</span>
+            <span class="ds-task-card-title">Wire automation run history to the door rail</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
+            <span class="ds-task-card-id">MC-2101</span>
+            <span class="ds-task-card-title">Panel header rollout groundwork</span>
+          </button>
+        </li>
+      </ol>
+    </section>
+    <section class="ds-board-lane ds-board-lane--surface" aria-label="In review lane">
+      <div class="ds-board-lane-header">
+        <span class="ds-board-lane-title">
+          <span class="ds-board-lane-label">In review</span>
+        </span>
+        <span class="ds-board-lane-count">2</span>
+      </div>
+      <ol class="ds-board-lane-body">
+        <li>
+          <button type="button" class="ds-task-card">
+            <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
+            <span class="ds-task-card-id">MC-2088</span>
+            <span class="ds-task-card-title">Review brief for automations door</span>
+          </button>
+        </li>
+        <li>
+          <button type="button" class="ds-task-card">
+            <span class="ds-task-card-id">MC-2096</span>
+            <span class="ds-task-card-title">Changeset walkthrough polish</span>
+          </button>
+        </li>
+      </ol>
+    </section>
+  </div>
+</div>
+</div>
+<div class="catalog-doc">
+<p>The column chrome of a board: a header band naming the stage, a scrollable list of task cards, and the drag-and-drop states a card moves through. Extracted from the shipped <code>BoardLane</code> primitive (<code>src/renderer/src/components/ui/BoardLane.tsx</code>).</p>
+<p>The lane owns the column — its header rhythm, its scroll region, and its drop states. It does <strong>not</strong> own the cards: children are <code>task-card</code> components (already documented), and the card contract is unchanged inside a lane. Use <code>list-row</code> when the items form a pick-one list; a lane is a stage that work moves through.</p>
+<h4>Anatomy</h4>
+<p>| Part | Class | Required | |---|---|---| | Lane | <code>.ds-board-lane</code> | yes — a <code>&lt;section&gt;</code> with an <code>aria-label</code> | | Header | <code>.ds-board-lane-header</code> | yes — one band: label left, count right | | Glyph | <code>.ds-board-lane-glyph</code> | no — a lifecycle glyph beside the label, <code>aria-hidden</code> | | Label | <code>.ds-board-lane-label</code> | yes — <code>font.size.meta</code> at <code>font.weight.emphasis</code>, <code>text.primary</code>, sentence case, truncates | | Count | <code>.ds-board-lane-count</code> | yes — tabular, <code>font.size.micro</code>, <code>text.subtle</code> | | Body | <code>.ds-board-lane-body</code> | yes — an <code>&lt;ol&gt;</code> of cards, the lane's scroll region | | Drop indicator | <code>.ds-board-lane-drop</code> | during a drag — a 2px accent hairline <code>&lt;li&gt;</code> |</p>
+<p>Lanes flex to fill the board row and shrink to a floor — <code>--ds-board-lane-min-width</code>, 260px by default (a comfortable card width). Past the floor the <strong>board row</strong> scrolls horizontally; <strong>inside</strong> the lane only the body scrolls vertically. The header never scrolls away.</p>
+<h4>Variants</h4>
+<ul><li><strong>Default</strong> — transparent: the lane is a region of the board canvas, and hairlines between cards carry the structure.</li><li><strong><code>--surface</code></strong> — the lane is a filled, hairline-bordered panel (<code>bg.surface</code>, <code>radius.overlay</code>, <code>border.subtle</code>), and the cards inside lift one step to <code>bg.surface-raised</code> with an inset hairline. The inset hairline is load-bearing in light mode, where <code>bg.surface</code> and <code>bg.surface-raised</code> are deliberately the same white and the tone step does nothing. Opt in when columns must read as discrete panels; default off so a board canvas is not a grid of cards inside cards.</li></ul>
+<h4>States</h4>
+<p>Four drag states, and the lane is always in exactly one:</p>
+<p>| State | Treatment | |---|---| | Default | No special chrome | | <code>--dimmed</code> | <code>opacity: 0.4</code> — not a legal target for the dragged card | | <code>--drop-target</code> | 1px accent ring — this lane will accept the card | | <code>--source</code> | Neutral, same as default — the lane the card left |</p>
+<p>The accent ring and the 2px drop indicator are the accent as ink marking a genuinely live process — the one thing besides focus the accent budget lets a hairline say. At rest a board shows no accent at all.</p>
+<h4>Usage</h4>
+<p><strong>The header is one band.</strong> Label and glyph on the left, count on the right, nothing else. Lane-level actions belong in the board's own chrome or a context menu — a button row per lane multiplies controls by column count.</p>
+<p><strong>The count is the lane's canonical count.</strong> Never restate it in the lane (an empty-state line that says &quot;0 items&quot; under a header that says 0).</p>
+<p><strong>Drop position is the card midpoint.</strong> During a drag, the drop index is found by comparing the pointer's y position with each card's vertical midpoint; the consumer interleaves one drop indicator at that index. One indicator on the whole board — it marks the place, not the possibilities.</p>
+<p><strong>Reordering is the just-changed motion.</strong> When cards move, they slide to their new slots (a FLIP pass in the shipped primitive) composing <code>motion.duration.normal</code> and <code>motion.ease.standard</code> — a pattern-owned entrance, not a fourth motion. Reduced motion swaps the slide for an immediate move; the reorder itself is never withheld.</p>
+<p><strong>Drag is never the only path.</strong> A pointer drag has no keyboard equivalent, so every card move must also be reachable another way — a context-menu &quot;Move to…&quot; or the detail pane. A board you cannot operate from the keyboard is a bug, not a style.</p>
+<p><strong>Empty is a state, not an absence.</strong> An empty lane keeps its header and its body height, and says what the emptiness means (&quot;Nothing in review&quot;) — otherwise an empty column and a failed load render identically.</p>
+<h4>Accessibility</h4>
+<ul><li>Each lane is a <code>&lt;section&gt;</code> with an <code>aria-label</code> naming the stage (&quot;In review lane&quot;); the body is an <code>&lt;ol&gt;</code>, so assistive technology reports position in set for free.</li><li>The lane label's glyph is <code>aria-hidden</code> — the label carries the meaning.</li><li>The drop indicator is <code>aria-hidden</code>; the *result* of a drop is announced by the move's non-drag path, not by decoration.</li><li>The dimmed state keeps its content readable — 0.4 opacity signals ineligibility during a drag that a pointer user is already mid-gesture on; it never carries information a keyboard user cannot get elsewhere.</li><li>If the lane's body scrolls and must be keyboard-scrollable on its own, give it <code>tabindex=&quot;0&quot;</code> and the inward focus ring, as <code>tabs</code> does for its panel. When every card inside is focusable, the cards themselves usually carry the scroll and the extra tab stop is noise — decide per surface.</li></ul>
+<h4>Shipped implementation</h4>
+<p><code>src/renderer/src/components/ui/BoardLane.tsx</code>, exporting <code>BoardLane</code>, <code>BoardLaneDropIndicator</code> (the between-cards insertion mark) and <code>computeBoardLaneDropIndex</code> (the pure drop-target maths, kept separate so the drop position is testable without a drag).</p>
+</div>
+</div>
+<details class="catalog-source"><summary>components/board-lane/component.css</summary><pre><code>/* Board lane — the column chrome of a board: header band, scrollable card
+ * list, drag states. Extracted from the shipped BoardLane primitive
+ * (src/renderer/src/components/ui/BoardLane.tsx).
+ *
+ * Family contract: the lane owns the column, never the cards — children are
+ * ds-task-card components and their contract is unchanged inside a lane. At
+ * rest a board shows no accent; the accent appears only as the live-process
+ * ink of a drag (the drop-target ring and the 2px drop indicator). */
+
+.ds-board-lane {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  height: 100%;
+  /* The scroll floor, not a fixed width: lanes grow to share the row and
+   * shrink to this, past which the BOARD row scrolls horizontally. 260px is
+   * a comfortable card width; a denser board narrows it via the property. */
+  min-width: var(--ds-board-lane-min-width, 260px);
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* ── Surface variant ─────────────────────────────────────────────────────
+ * The lane as a discrete panel. The cards inside lift one step to
+ * bg.surface-raised with an inset hairline — load-bearing in light mode,
+ * where bg.surface and bg.surface-raised are deliberately the same white
+ * and only the hairline keeps a card legible on the fill. */
+.ds-board-lane--surface {
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-overlay);
+  background: var(--sem-color-bg-surface);
+}
+
+.ds-board-lane--surface .ds-task-card {
+  background: var(--sem-color-bg-surface-raised);
+  border-color: transparent;
+  box-shadow: inset 0 0 0 1px var(--sem-color-border-subtle);
+}
+
+/* ── Drag states ─────────────────────────────────────────────────────────
+ * Four, and the lane is always in exactly one. --source is deliberately
+ * absent: the lane a card left stays neutral, so it needs no rule. */
+
+/* Not a legal target for the dragged card. Signals ineligibility to the
+ * pointer user mid-gesture; never the only carrier of that information. */
+.ds-board-lane--dimmed {
+  opacity: 0.4;
+}
+
+/* Will accept the card: a 1px accent ring — the accent as ink marking a
+ * genuinely live process, not elevation (no blur, no offset). */
+.ds-board-lane--drop-target {
+  box-shadow: 0 0 0 1px var(--sem-color-accent-primary);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────
+ * One band: glyph + label left, count right. It never scrolls away — only
+ * the body below it scrolls. */
+.ds-board-lane-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-md) var(--sem-space-lg) var(--sem-space-sm);
+}
+
+.ds-board-lane-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-xs);
+  min-width: 0;
+}
+
+.ds-board-lane-glyph {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-board-lane-glyph svg {
+  width: var(--sem-icon-size-xs);
+  height: var(--sem-icon-size-xs);
+}
+
+.ds-board-lane-label {
+  min-width: 0;
+  font-size: var(--sem-font-size-meta);
+  font-weight: var(--sem-font-weight-emphasis);
+  color: var(--sem-color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The lane's canonical count — shown here, never restated inside the lane. */
+.ds-board-lane-count {
+  flex: none;
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-micro);
+  color: var(--sem-color-text-subtle);
+}
+
+/* ── Body ────────────────────────────────────────────────────────────────
+ * An &lt;ol&gt; of cards and the lane's one scroll region. min-height: 0 lets the
+ * flex column actually shrink it; without it the lane grows instead of
+ * scrolling. */
+.ds-board-lane-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sem-space-sm);
+  margin: 0;
+  padding: var(--sem-space-sm);
+  overflow-y: auto;
+  list-style: none;
+}
+
+/* ── Drop indicator ──────────────────────────────────────────────────────
+ * A 2px accent hairline the consumer interleaves at the computed drop index
+ * during a drag — one on the whole board. Negative block margins let it sit
+ * inside the list gap without shifting the cards it slots between. */
+.ds-board-lane-drop {
+  height: 2px;
+  margin-block: calc(-1 * var(--sem-space-2xs));
+  border-radius: 999px;
+  background: var(--sem-color-accent-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-board-lane {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/board-lane/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Board lane&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../task-card/component.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-sm);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+  /* The board row: lanes flex to share it and shrink to their floor, past
+     which this row — not the lanes — scrolls horizontally. */
+  .demo-board {
+    display: flex;
+    gap: var(--sem-space-lg);
+    height: 240px;
+    margin-bottom: var(--sem-space-lg);
+    overflow-x: auto;
+  }
+  /* Narrow floor so three lanes exercise both scroll axes in one demo. */
+  .demo-board .ds-board-lane {
+    --ds-board-lane-min-width: 200px;
+  }
+  .demo-empty {
+    padding: var(--sem-space-md);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a drag in flight: In progress is the source, In review will accept the card (ring + indicator), Done is not a legal target.&lt;/p&gt;
+
+  &lt;div class=&quot;demo-board&quot;&gt;
+    &lt;section class=&quot;ds-board-lane&quot; aria-label=&quot;In progress lane&quot;&gt;
+      &lt;div class=&quot;ds-board-lane-header&quot;&gt;
+        &lt;span class=&quot;ds-board-lane-title&quot;&gt;
+          &lt;span class=&quot;ds-board-lane-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot;&gt;&lt;circle cx=&quot;7&quot; cy=&quot;7&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;&lt;path d=&quot;M7 7V3.8A3.2 3.2 0 0 1 10.2 7z&quot; fill=&quot;currentColor&quot;/&gt;&lt;/svg&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-board-lane-label&quot;&gt;In progress&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-board-lane-count&quot;&gt;3&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;ol class=&quot;ds-board-lane-body&quot;&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2093&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Wire automation run history to the door rail&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card ds-task-card--selected&quot; aria-pressed=&quot;true&quot;&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2101&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Panel header rollout groundwork&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2114&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Backlog repair for orphaned epics&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-trailing&quot;&gt;2d&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+      &lt;/ol&gt;
+    &lt;/section&gt;
+
+    &lt;section class=&quot;ds-board-lane ds-board-lane--drop-target&quot; aria-label=&quot;In review lane&quot;&gt;
+      &lt;div class=&quot;ds-board-lane-header&quot;&gt;
+        &lt;span class=&quot;ds-board-lane-title&quot;&gt;
+          &lt;span class=&quot;ds-board-lane-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot;&gt;&lt;circle cx=&quot;7&quot; cy=&quot;7&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-dasharray=&quot;2.6 2.2&quot;/&gt;&lt;/svg&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-board-lane-label&quot;&gt;In review&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-board-lane-count&quot;&gt;2&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;ol class=&quot;ds-board-lane-body&quot;&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+            &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--warn&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2088&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Review brief for automations door&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+        &lt;li aria-hidden=&quot;true&quot;&gt;&lt;div class=&quot;ds-board-lane-drop&quot;&gt;&lt;/div&gt;&lt;/li&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2096&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Changeset walkthrough polish&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+      &lt;/ol&gt;
+    &lt;/section&gt;
+
+    &lt;section class=&quot;ds-board-lane ds-board-lane--dimmed&quot; aria-label=&quot;Done lane&quot;&gt;
+      &lt;div class=&quot;ds-board-lane-header&quot;&gt;
+        &lt;span class=&quot;ds-board-lane-title&quot;&gt;
+          &lt;span class=&quot;ds-board-lane-glyph&quot; aria-hidden=&quot;true&quot;&gt;
+            &lt;svg viewBox=&quot;0 0 14 14&quot; fill=&quot;none&quot;&gt;&lt;circle cx=&quot;7&quot; cy=&quot;7&quot; r=&quot;5&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot;/&gt;&lt;path d=&quot;M4.6 7.2l1.7 1.7 3.1-3.4&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;1.4&quot; stroke-linecap=&quot;round&quot; stroke-linejoin=&quot;round&quot;/&gt;&lt;/svg&gt;
+          &lt;/span&gt;
+          &lt;span class=&quot;ds-board-lane-label&quot;&gt;Done&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-board-lane-count&quot;&gt;8&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;ol class=&quot;ds-board-lane-body&quot;&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2071&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Token metadata lint&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2064&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Focus ring literal audit&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+      &lt;/ol&gt;
+    &lt;/section&gt;
+  &lt;/div&gt;
+
+  &lt;p class=&quot;demo-label&quot;&gt;Surface variant — lanes as discrete panels; cards lift one step with an inset hairline. The empty lane keeps its header and says what empty means.&lt;/p&gt;
+  &lt;div class=&quot;demo-board&quot;&gt;
+    &lt;section class=&quot;ds-board-lane ds-board-lane--surface&quot; aria-label=&quot;Todo lane&quot;&gt;
+      &lt;div class=&quot;ds-board-lane-header&quot;&gt;
+        &lt;span class=&quot;ds-board-lane-title&quot;&gt;
+          &lt;span class=&quot;ds-board-lane-label&quot;&gt;Todo&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-board-lane-count&quot;&gt;2&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;ol class=&quot;ds-board-lane-body&quot;&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2118&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;InboxRow type step&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2112&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Panel header rollout&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+      &lt;/ol&gt;
+    &lt;/section&gt;
+    &lt;section class=&quot;ds-board-lane ds-board-lane--surface&quot; aria-label=&quot;Blocked lane&quot;&gt;
+      &lt;div class=&quot;ds-board-lane-header&quot;&gt;
+        &lt;span class=&quot;ds-board-lane-title&quot;&gt;
+          &lt;span class=&quot;ds-board-lane-label&quot;&gt;Blocked&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-board-lane-count&quot;&gt;0&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;ol class=&quot;ds-board-lane-body&quot;&gt;
+        &lt;li class=&quot;demo-empty&quot;&gt;Nothing blocked.&lt;/li&gt;
+      &lt;/ol&gt;
+    &lt;/section&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — the surface variant's tone step does real work here; the inset hairline still draws the card edge.&lt;/p&gt;
+  &lt;div class=&quot;demo-board&quot;&gt;
+    &lt;section class=&quot;ds-board-lane&quot; aria-label=&quot;In progress lane&quot;&gt;
+      &lt;div class=&quot;ds-board-lane-header&quot;&gt;
+        &lt;span class=&quot;ds-board-lane-title&quot;&gt;
+          &lt;span class=&quot;ds-board-lane-label&quot;&gt;In progress&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-board-lane-count&quot;&gt;2&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;ol class=&quot;ds-board-lane-body&quot;&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2093&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Wire automation run history to the door rail&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card ds-task-card--selected&quot; aria-pressed=&quot;true&quot;&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2101&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Panel header rollout groundwork&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+      &lt;/ol&gt;
+    &lt;/section&gt;
+    &lt;section class=&quot;ds-board-lane ds-board-lane--surface&quot; aria-label=&quot;In review lane&quot;&gt;
+      &lt;div class=&quot;ds-board-lane-header&quot;&gt;
+        &lt;span class=&quot;ds-board-lane-title&quot;&gt;
+          &lt;span class=&quot;ds-board-lane-label&quot;&gt;In review&lt;/span&gt;
+        &lt;/span&gt;
+        &lt;span class=&quot;ds-board-lane-count&quot;&gt;2&lt;/span&gt;
+      &lt;/div&gt;
+      &lt;ol class=&quot;ds-board-lane-body&quot;&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+            &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--warn&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2088&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Review brief for automations door&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+        &lt;li&gt;
+          &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+            &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-2096&lt;/span&gt;
+            &lt;span class=&quot;ds-task-card-title&quot;&gt;Changeset walkthrough polish&lt;/span&gt;
+          &lt;/button&gt;
+        &lt;/li&gt;
+      &lt;/ol&gt;
+    &lt;/section&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
 <div id="component-button" class="catalog-view catalog-component">
 <h3>Button</h3>
 <div class="catalog-component-grid">
@@ -12699,7 +13655,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 </div>
 <div class="catalog-doc">
 <p>A block-level button whose content is a <strong>composition</strong> rather than a label: a preview frame over two caption lines, a swatch over a name, a summary tile with a glyph and a live count, a graph node the canvas positions itself.</p>
-<p>Use [row-button](../row-button/component.md) when the thing is a row in a list. Use this when the thing is a <strong>tile in a grid</strong>.</p>
+<p>Use [task-card](../task-card/component.md) when the thing is a card on a board. Use [row-button](../row-button/component.md) when the thing is a row in a list. Use this when the thing is a <strong>tile in a grid</strong>.</p>
 <h4>The rule</h4>
 <p><strong>Hover changes the ground, and nothing else.</strong> No border appearing, no shadow, no scale, no size change of any kind. A tile lives in a grid, and a grid that reflows under the pointer is the defect — <code>principles.md</code> already forbids &quot;a border appearing on hover and shifting the layout&quot;, and elevation in the document flow is what the hairline clause rules out for anything that is not a pressable control standing on its own.</p>
 <p>That single rule is why this is not [button](../button/component.md)'s outline variant with a column flow. The outline variant carries <code>shadow.control-edge</code>, pins a <code>size.control.*</code> height, centres its label and sets <code>font.weight.medium</code> — four decisions a tile has already made for itself, and four that a caller cannot reliably cancel, because two <code>justify-*</code> or two <code>height</code> declarations on one element are resolved by stylesheet order.</p>
@@ -13503,7 +14459,7 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>It is <strong>the same row</strong>: box beside name, box as a sibling, box never inside a control, name leading and never the part that truncates. Every structural claim this page makes still holds. What the variant changes is one thing — the name is allowed a second line — and the base row already conceded that ground in Usage: <code>min-height</code> is &quot;the 24px hit-target floor, not a fixed height: a row whose content grows is a row that grew, not a row that broke&quot;. A row that grows is not a different row.</p>
 <p>The temptation is to call it one, because it looks different at a glance: it is taller, it wraps, it sits on a bordered surface. But a new component would have to re-decide the box (sibling or descendant?), the name's flex behaviour, the hover fill, the selection tiers, the disabled treatment and the focus ring — and every one of those answers would be this page's, copied. That is exactly how five surfaces came to draw five checkboxes. The test the system applies is not &quot;does it look different&quot; but <strong>&quot;does anything about the row's structure change&quot;</strong>, and here nothing does.</p>
 <p>Two things it does NOT get, which is what keeps it a variant rather than a card:</p>
-<ul><li><strong>One supporting line, never two.</strong> A second line is a card, not a row.</li><li><strong>No trailing slot, no glyph slot, no tree.</strong> The described row's elements are box, title, scope, supporting — four, which is the repeated-row ceiling <code>principles.md</code> sets, with the box as the amendment's fifth *control*. The base row's glyph and trailing slots are unavailable here rather than merely unused: filling them would put six things on a row that already wraps.</li></ul>
+<ul><li><strong>One supporting line, never two.</strong> A second line is a card, and the system has <code>task-card</code> for that.</li><li><strong>No trailing slot, no glyph slot, no tree.</strong> The described row's elements are box, title, scope, supporting — four, which is the repeated-row ceiling <code>principles.md</code> sets, with the box as the amendment's fifth *control*. The base row's glyph and trailing slots are unavailable here rather than merely unused: filling them would put six things on a row that already wraps.</li></ul>
 <p><strong>It takes the STANDALONE box spelling</strong>, not the composite one. These rows come in eights inside a dialog, not four hundreds inside a listbox: the kit checkbox goes in whole, the row is the <code>&lt;label&gt;</code> that names it, and the row carries no <code>aria-checked</code> because the input is the state. Eight tab stops is a keyboard walk; four hundred is the reason the composite spelling exists at all.</p>
 <h4>Variants</h4>
 <ul><li><strong>Default</strong> — the flat list row: box, glyph, name, directory, trailing.</li><li><strong><code>--described</code></strong> — the same row with the <strong>name allowed a second line</strong>: a title, an optional mono scope name beside it, and one supporting sentence under both, inside a <code>.ds-check-row-list</code> surface whose rows are divided by hairlines. For a short set of consequential choices — the eight tailnet scopes on the pairing dialog — where the name alone does not say what granting it does. See the ruling below.</li><li><strong><code>--tree</code></strong> — adds the chevron slot ahead of the box and a depth indent. The indent is a <strong>unitless depth</strong> (<code>--ds-check-row-depth: 2</code>) multiplying one <code>space.lg</code> step, not a pixel value, so a tree cannot drift off the scale one level at a time and a surface that wants a tighter tree changes one step rather than every row. Expansion is <code>aria-expanded</code> <strong>on the row</strong>, which is what a <code>treeitem</code> announces; the chevron is decoration, because a control inside the row would be a second tab stop per level.</li></ul>
@@ -19171,7 +20127,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 <p>There is no standalone <code>CloseIcon</code>. The dismiss mark lives inside <code>ui/CloseIconButton</code>, on its own 14-grid at stroke 1.4, because a close glyph is only ever a button — an unpadded one is below the hit-target floor. <code>glyphs/close.svg</code> is the framework-neutral sample of the same mark.</p>
 <h5>Workspace-type identity (24-grid, registry-resolved)</h5>
 <p><code>WorkspaceTypeIcon</code> is the dispatcher: it resolves a workspace mode through the renderer host registry, gated on module enablement when <code>moduleOverrides</code> is passed, and degrades to the standard glyph for anything disabled or unknown. Consumers go through it; the concrete marks exist for the registry to point at:</p>
-<p>| Mark | Drawing | |---|---| | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>FolderTypeIcon</code> | The project folder, optionally wearing a workspace's own logo |</p>
+<p>| Mark | Drawing | |---|---| | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher | | <code>SprintEngineMarkIcon</code> | The SprintEngine brand comet — pair with <code>--tool-sprintengine-ink</code> | | <code>AutomationsWorkspaceTypeIcon</code> | Schedule dial around a lightning bolt — &quot;on a schedule, do work&quot; | | <code>FolderTypeIcon</code> | The project folder, optionally wearing a workspace's own logo |</p>
 <h5>Device identity (16-grid — <code>AppIcons.tsx</code>)</h5>
 <p>The identity family for <strong>a machine on the tailnet</strong>: what kind of thing it is, one shape each, at 16px so it leads a settings row without out-weighing the name beside it. Added 2026-09-10 for the rebuilt Settings › Remote, where a list merges this machine, paired devices, outbound connections and the peer scan into one set of rows — and a list that is one row per *machine* has to say which machine at a glance.</p>
 <p>They are drawn to <code>remote-machine.svg</code>'s discipline, deliberately, because that mark is the family's fallback and the five have to read as one set: the 16-grid, stroke <strong>1.4</strong>, <code>fill=&quot;none&quot;</code> line work in <code>currentColor</code>, rounded rects at <code>rx</code> 1.3–1.8, and a filled 0.75r dot where a unit needs a light. The Mac's dot sits at the same <code>cx</code> as the server mark's two, so the two boxes are visibly the same drawing at different counts.</p>
@@ -20700,8 +21656,8 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
  * supporting line, trailing timestamp. Extracted from the shipped InboxRow
  * and InboxSearchInput primitives (src/renderer/src/components/ui/).
  *
- * Family contract: same neutral two-tier selection as list-row,
- * background-only hover, top-aligned leading mark. No action
+ * Family contract: same neutral two-tier selection as list-row and
+ * task-card, background-only hover, top-aligned leading mark. No action
  * host — a queue row opens its item; acting on it happens in the detail
  * pane. Title canon is font.size.body per the list-row family; the shipped
  * InboxRow's 12px title is MC-2118. */
@@ -22801,7 +23757,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
 </div>
 <div class="catalog-doc">
 <p>The pick-an-item worklist row: rails, source lists, inboxes, categories, search results. The most repeated surface in the product, and the default answer for any list of things a person chooses between.</p>
-<p>Use this when the item is a row in a list.</p>
+<p>Use <code>task-card</code> instead when the item is a card on a board. Use this when the item is a row in a list.</p>
 <h4>Anatomy</h4>
 <p>| Part | Class | Required | |---|---|---| | Row | <code>.ds-list-row</code> | yes — renders as <code>&lt;button&gt;</code> when interactive | | Leading mark | <code>.ds-list-row-leading</code> | no — a status glyph, type icon, or monogram | | Text block | <code>.ds-list-row-text</code> | yes | | Title | <code>.ds-list-row-title</code> | yes — the row's one priority, claims the width | | Supporting line | <code>.ds-list-row-supporting</code> | no — one line, truncated | | Identifier | <code>.ds-list-row-id</code> | no — mono, tabular, inside the supporting line | | Trailing meta | <code>.ds-list-row-trailing</code> | no — display only, never interactive | | Action host | <code>.ds-list-row-host</code> | only when the row has revealed actions | | Action count | <code>data-actions</code> on the host | yes when there are actions — <code>&quot;1&quot;</code> or <code>&quot;2&quot;</code>, the value the trailing padding is reserved from | | Actions | <code>.ds-list-row-actions</code> | no — at most two | | Action | <code>.ds-list-row-action</code> | — | | Flash | <code>.ds-list-row-flash</code> | only as a row enters an attention state — a one-shot overlay, <code>aria-hidden</code> |</p>
 <p>At most <strong>four visual elements at rest</strong>. A fifth means the row is carrying work that belongs in the detail pane.</p>
@@ -25667,11 +26623,12 @@ document.addEventListener('keydown', (event) =&gt; {
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-panel-header">
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — the full band: title, count, scope, one action, one overflow.</p>
+  <p class="demo-label">Light — the full band: identity dot, title, count, scope, one action, one overflow.</p>
 
   <div class="demo-panel">
     <header class="ds-panel-header">
       <div class="ds-panel-header-lead">
+        <span class="ds-panel-header-identity" aria-hidden="true"></span>
         <h2 class="ds-panel-header-title">Backlog</h2>
         <span class="ds-panel-header-count">47</span>
         <span class="ds-panel-header-scope">This project</span>
@@ -25734,6 +26691,7 @@ document.addEventListener('keydown', (event) =&gt; {
   <div class="demo-panel demo-panel--narrow">
     <header class="ds-panel-header">
       <div class="ds-panel-header-lead">
+        <span class="ds-panel-header-identity" aria-hidden="true"></span>
         <h2 class="ds-panel-header-title">Automation runs and schedules</h2>
         <span class="ds-panel-header-count">128</span>
         <span class="ds-panel-header-scope">All workspaces</span>
@@ -25754,6 +26712,7 @@ document.addEventListener('keydown', (event) =&gt; {
   <div class="demo-panel">
     <header class="ds-panel-header">
       <div class="ds-panel-header-lead">
+        <span class="ds-panel-header-identity" aria-hidden="true"></span>
         <h2 class="ds-panel-header-title">Backlog</h2>
         <span class="ds-panel-header-count">47</span>
         <span class="ds-panel-header-scope">This project</span>
@@ -25799,7 +26758,7 @@ document.addEventListener('keydown', (event) =&gt; {
 <p>The one header contract for every panel: a single 34px band carrying the panel's name, its canonical count, an optional scope word, and at most two controls. Extracted from the shipped <code>PanelHeader</code> primitive (<code>src/renderer/src/components/ui/PanelHeader.tsx</code>); MC-2112 rolls this anatomy out to every panel that still draws its own header.</p>
 <p>A panel gets exactly one of these. A header stacked on a toolbar is the two-bands-of-chrome defect the principles reject on sight — the controls belong in this band, and a status belongs to the thing that has it.</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Header | <code>.ds-panel-header</code> | yes — a <code>&lt;header&gt;</code> band, <code>bg.surface</code>, one bottom hairline | | Title | <code>.ds-panel-header-title</code> | yes — an <code>&lt;h2&gt;</code>, <code>font.size.body</code> at <code>font.weight.emphasis</code>, <code>text.primary</code>, truncates | | Count | <code>.ds-panel-header-count</code> | no — the canonical count, mono-free, tabular, <code>text.muted</code> | | Scope | <code>.ds-panel-header-scope</code> | no — one word of context after a <code>·</code> separator | | Actions | <code>.ds-panel-header-actions</code> | no — the primary action and an overflow trigger, nothing else | | Progress | <code>.ds-panel-header-progress</code> | no — a 2px completion hairline overlaying the bottom border |</p>
+<p>| Part | Class | Required | |---|---|---| | Header | <code>.ds-panel-header</code> | yes — a <code>&lt;header&gt;</code> band, <code>bg.surface</code>, one bottom hairline | | Identity dot | <code>.ds-panel-header-identity</code> | no — 6px, colored by the consumer's identity channel | | Title | <code>.ds-panel-header-title</code> | yes — an <code>&lt;h2&gt;</code>, <code>font.size.body</code> at <code>font.weight.emphasis</code>, <code>text.primary</code>, truncates | | Count | <code>.ds-panel-header-count</code> | no — the canonical count, mono-free, tabular, <code>text.muted</code> | | Scope | <code>.ds-panel-header-scope</code> | no — one word of context after a <code>·</code> separator | | Actions | <code>.ds-panel-header-actions</code> | no — the primary action and an overflow trigger, nothing else | | Progress | <code>.ds-panel-header-progress</code> | no — a 2px completion hairline overlaying the bottom border |</p>
 <p><strong>The band is 34px</strong> (<code>size.control.md</code>): <code>space.sm</code> block insets around a body-size title line. Inline insets are <code>space.lg</code>. Everything in the band centers on one baseline; nothing wraps.</p>
 <p><strong>The title truncates, the scope evaporates.</strong> The scope word gives up its space first and disappears entirely before the title loses a character — a panel that clips its own name to &quot;Bac…&quot; while a scope word sits whole beside it has the priority backwards. Pair the title with <code>truncated-text</code> so the full name is recoverable when it is actually cut off.</p>
 <h4>Variants</h4>
@@ -25810,11 +26769,11 @@ document.addEventListener('keydown', (event) =&gt; {
 <h4>Usage</h4>
 <p><strong>One primary action, then overflow.</strong> The actions slot holds at most one labeled action and one overflow trigger. A second visible control means the first two are competing; move it into the overflow menu.</p>
 <p><strong>The count is the canonical count.</strong> Render it here or in the content, never both — two counts that could disagree are the defect the principles name.</p>
-<p><strong>Status belongs to rows and status dots, not to the header.</strong> The band stays accent-neutral.</p>
+<p><strong>The identity dot is identity, not status.</strong> It marks which tool owns the panel, using the consumer's identity color channel (<code>--ds-panel-header-identity</code> — the app supplies its per-tool value; there is no <code>sem.*</code> token for tool identity, deliberately). It never pulses, never changes tone, and the rest of the panel stays accent-neutral around it. Status belongs to rows and status dots, not to the header.</p>
 <p><strong>The progress hairline is earned.</strong> Attach it only when the panel has a canonical completion metric (accepted of total). It is not decoration, not a loading bar, and not a second accent — it is the accent-as-hairline marking real progress, which the accent budget permits.</p>
 <p><strong>No status chips, no counts line, no subtitle sentence.</strong> The panel under the band already shows its own state. A scope word (&quot;This project&quot;) is the ceiling; a sentence is a redesign signal.</p>
 <h4>Accessibility</h4>
-<ul><li>The band renders as <code>&lt;header&gt;</code>; the title is a real <code>&lt;h2&gt;</code> so the panel lands in the document outline. Give it an <code>id</code> when a region's <code>aria-labelledby</code> points at it.</li><li>The progress hairline carries <code>role=&quot;progressbar&quot;</code> with <code>aria-valuemin</code>, <code>aria-valuemax</code>, <code>aria-valuenow</code>, and an <code>aria-label</code> that states the metric (&quot;3 of 7 milestones accepted&quot;). A 2px line is invisible to a screen reader without it.</li><li>Overflowed controls stay reachable: anything demoted to the overflow menu is still in the tab order once the menu opens.</li></ul>
+<ul><li>The band renders as <code>&lt;header&gt;</code>; the title is a real <code>&lt;h2&gt;</code> so the panel lands in the document outline. Give it an <code>id</code> when a region's <code>aria-labelledby</code> points at it.</li><li>The identity dot is <code>aria-hidden=&quot;true&quot;</code> — the title already names the panel; the dot only colors it.</li><li>The progress hairline carries <code>role=&quot;progressbar&quot;</code> with <code>aria-valuemin</code>, <code>aria-valuemax</code>, <code>aria-valuenow</code>, and an <code>aria-label</code> that states the metric (&quot;3 of 7 milestones accepted&quot;). A 2px line is invisible to a screen reader without it.</li><li>Overflowed controls stay reachable: anything demoted to the overflow menu is still in the tab order once the menu opens.</li></ul>
 <h4>Known drift</h4>
 <ul><li><code>PanelHeader.tsx</code> animates the progress fill over <code>200ms</code>; the motion ramp has no such step. Canon is <code>motion.duration.normal</code> (180ms). Fold into the MC-2112 rollout.</li></ul>
 </div>
@@ -25858,6 +26817,19 @@ document.addEventListener('keydown', (event) =&gt; {
   align-items: center;
   gap: var(--sem-space-sm);
   min-width: 0;
+}
+
+/* 6px identity dot — which tool owns the panel, never a status. The color
+ * comes through a consumer channel because tool identity deliberately has no
+ * sem.* token; the fallback is the neutral status ink so an unwired demo
+ * still renders honestly. Sized by the same space.xs step the task-card dot
+ * uses for the 6px idiom. */
+.ds-panel-header-identity {
+  flex: none;
+  width: var(--sem-space-xs);
+  height: var(--sem-space-xs);
+  border-radius: 999px;
+  background: var(--ds-panel-header-identity, var(--sem-color-status-neutral));
 }
 
 /* The panel's name: body size at the emphasis weight, the strongest ink.
@@ -26074,11 +27046,12 @@ document.addEventListener('keydown', (event) =&gt; {
 &lt;/head&gt;
 &lt;body&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Light — the full band: title, count, scope, one action, one overflow.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — the full band: identity dot, title, count, scope, one action, one overflow.&lt;/p&gt;
 
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;header class=&quot;ds-panel-header&quot;&gt;
       &lt;div class=&quot;ds-panel-header-lead&quot;&gt;
+        &lt;span class=&quot;ds-panel-header-identity&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
         &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Backlog&lt;/h2&gt;
         &lt;span class=&quot;ds-panel-header-count&quot;&gt;47&lt;/span&gt;
         &lt;span class=&quot;ds-panel-header-scope&quot;&gt;This project&lt;/span&gt;
@@ -26141,6 +27114,7 @@ document.addEventListener('keydown', (event) =&gt; {
   &lt;div class=&quot;demo-panel demo-panel--narrow&quot;&gt;
     &lt;header class=&quot;ds-panel-header&quot;&gt;
       &lt;div class=&quot;ds-panel-header-lead&quot;&gt;
+        &lt;span class=&quot;ds-panel-header-identity&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
         &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Automation runs and schedules&lt;/h2&gt;
         &lt;span class=&quot;ds-panel-header-count&quot;&gt;128&lt;/span&gt;
         &lt;span class=&quot;ds-panel-header-scope&quot;&gt;All workspaces&lt;/span&gt;
@@ -26161,6 +27135,7 @@ document.addEventListener('keydown', (event) =&gt; {
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;header class=&quot;ds-panel-header&quot;&gt;
       &lt;div class=&quot;ds-panel-header-lead&quot;&gt;
+        &lt;span class=&quot;ds-panel-header-identity&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
         &lt;h2 class=&quot;ds-panel-header-title&quot;&gt;Backlog&lt;/h2&gt;
         &lt;span class=&quot;ds-panel-header-count&quot;&gt;47&lt;/span&gt;
         &lt;span class=&quot;ds-panel-header-scope&quot;&gt;This project&lt;/span&gt;
@@ -30818,11 +31793,12 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <div class="catalog-component-grid">
 <div class="catalog-stage ds-embed-component-side-pane">
 <div class="demo-stage" data-mode="light">
-  <p class="demo-label">Light — a right pane (md preset) sharing a panel with its board. No shadow, no scrim — one hairline does the separating.</p>
+  <p class="demo-label">Light — a right pane (md preset) sharing a panel with its board. Drag the divider, or focus it and use arrow keys; Home or double-click resets. No shadow, no scrim — one hairline does the separating.</p>
 
   <div class="demo-panel">
     <div class="demo-board">Board</div>
-    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md" aria-labelledby="pane-light-title">
+    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md" aria-labelledby="pane-light-title" data-resizable>
+      <button type="button" class="ds-side-pane-resize" role="separator" aria-orientation="vertical" aria-label="Resize running agents pane"></button>
       <header class="ds-side-pane-header">
         <h3 class="ds-side-pane-title" id="pane-light-title">Running agents</h3>
         <div style="display: flex; align-items: center; gap: var(--sem-space-sm);">
@@ -30833,9 +31809,9 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         </div>
       </header>
       <div class="demo-body">
-        <div class="demo-row"><span class="demo-key">Fix the login redirect — MC-2114</span><span class="demo-value">04:12</span></div>
-        <div class="demo-row"><span class="demo-key">Tidy the diff viewer — MC-2110</span><span class="demo-value">01:38</span></div>
-        <div class="demo-row"><span class="demo-key">Draft release notes — MC-2098</span><span class="demo-value">00:22</span></div>
+        <div class="demo-row"><span class="demo-key">builder-2 — MC-2114</span><span class="demo-value">04:12</span></div>
+        <div class="demo-row"><span class="demo-key">reviewer-1 — MC-2110</span><span class="demo-value">01:38</span></div>
+        <div class="demo-row"><span class="demo-key">planner — MC-2098</span><span class="demo-value">00:22</span></div>
       </div>
     </aside>
   </div>
@@ -30846,7 +31822,8 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 
   <div class="demo-panel">
     <div class="demo-board">Board</div>
-    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken" aria-labelledby="pane-dark-title">
+    <aside class="ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken" aria-labelledby="pane-dark-title" data-resizable>
+      <button type="button" class="ds-side-pane-resize" role="separator" aria-orientation="vertical" aria-label="Resize active review pane"></button>
       <header class="ds-side-pane-header">
         <h3 class="ds-side-pane-title" id="pane-dark-title">Active review</h3>
         <div style="display: flex; align-items: center; gap: var(--sem-space-sm);">
@@ -30870,18 +31847,20 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <p>It is deliberately <strong>not</strong> a drawer variant. The overlay family's defining question is &quot;does this surface cover the page?&quot; — a drawer answers yes (scrim, shadow, focus trap, <code>z.drawer</code>) and a side pane answers no. It is not a raised surface either: it shares the panel's own background, so the hairline does all the separating, exactly as the principles order — borders carry the structure, shadows belong to overlays.</p>
 <p>Use a drawer when the surface is summoned and dismissed; use a side pane when it is part of the page's standing anatomy. A multi-pane surface built from side panes has exactly one focused selection — every other pane's selection rests (<code>patterns/selection</code>).</p>
 <h4>Anatomy</h4>
-<p>| Part | Class | Required | |---|---|---| | Pane | <code>.ds-side-pane</code> | yes — <code>&lt;aside&gt;</code> for secondary content, <code>&lt;section&gt;</code> for a primary column; flex column, hairline on its inner edge | | Header | <code>.ds-side-pane-header</code> | no — title, optional count, close; simpler asides only | | Title | <code>.ds-side-pane-title</code> | with the header — <code>font.size.body</code> at <code>emphasis</code>, matching the panel-header rhythm so board and aside read as one family | | Count | <code>.ds-side-pane-count</code> | no — display-only, <code>tabular-nums</code>; never hosts a control | | Body | — | caller-owned scroll container: keyboard handlers and list semantics vary per surface, so the system does not pre-empt them |</p>
+<p>| Part | Class | Required | |---|---|---| | Pane | <code>.ds-side-pane</code> | yes — <code>&lt;aside&gt;</code> for secondary content, <code>&lt;section&gt;</code> for a primary column; flex column, hairline on its inner edge | | Header | <code>.ds-side-pane-header</code> | no — title, optional count, close; simpler asides only | | Title | <code>.ds-side-pane-title</code> | with the header — <code>font.size.body</code> at <code>emphasis</code>, matching the panel-header rhythm so board and aside read as one family | | Count | <code>.ds-side-pane-count</code> | no — display-only, <code>tabular-nums</code>; never hosts a control | | Body | — | caller-owned scroll container: keyboard handlers and list semantics vary per surface, so the system does not pre-empt them | | Resize handle | <code>.ds-side-pane-resize</code> | no — <code>role=&quot;separator&quot;</code>, keyboard-operable, opt-in |</p>
 <h4>Variants</h4>
 <ul><li><strong>Side</strong> — <code>.ds-side-pane--left</code> / <code>.ds-side-pane--right</code>: which inner edge carries the hairline (<code>border.default</code>). A pane's outer edge is the panel's edge and draws nothing — no doubled borders where surfaces meet.</li><li><strong>Width presets</strong> — <code>.ds-side-pane--sm</code> (38%, 320–520px), <code>--md</code> (42%, 320–560px, the default detail aside), <code>--lg</code> (44%, 320–560px, a primary content column). Percent of the panel with pixel rails, so the pane breathes with the window but can neither starve nor swallow its neighbour. The values are layout measures, not tokens.</li><li><code>.ds-side-pane--sunken</code> — <code>bg.app</code> instead of the inherited panel surface, for the quiet secondary asides (running agents, active review) that want a shade of distance from the lane. In light mode this is the one tone step the pane is allowed; it never adds a shadow to go with it.</li><li><code>.ds-side-pane--expanded</code> — the pane takes the whole row (the caller hides the neighbour). The hairline is dropped: there is nothing left to separate from.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Rest | Hairline, inherited surface; nothing else | | Expanded | Full row, no hairline |</p>
+<p>| State | Treatment | |---|---| | Rest | Hairline, inherited surface; nothing else | | Resizing | The handle's 1px <code>accent.primary</code> guideline at full strength while the drag is live — accent as a hairline marking a genuinely live process, within budget | | Handle hovered | The same guideline at reduced strength, as the reach-for affordance | | Handle focused | The standard <code>focus.ring</code> at <code>focus.ring-offset</code> | | Expanded | Full row, no hairline |</p>
+<p>A persisted drag width overrides the preset but keeps the 320px floor and a 65% ceiling — CSS <code>max-width</code> beats the inline width when they conflict, so a wide remembered pane cannot starve the board on a narrow window.</p>
 <h4>Usage</h4>
 <p><strong>One hairline, on the inner edge.</strong> The pane never draws its own box. If a pane seems to need a full border, it is trying to be a card inside a panel — reconsider the surface.</p>
 <p><strong>The header is one chrome band.</strong> Title left, count and close right, <code>space.sm</code>/<code>space.lg</code> inset, one <code>border.default</code> rule beneath — a working edge over the scrolling body, matching the drawer's header. A toolbar stacked under it is the second band the composition rules exist to prevent.</p>
+<p><strong>Resize is opt-in and fully keyboard-operable.</strong> The handle is a <code>role=&quot;separator&quot;</code> with <code>aria-orientation=&quot;vertical&quot;</code>: arrow keys step the width 16px toward or away from the divider, Home (and double-click) resets to the preset. The drag captures the pointer on the handle itself, because panes routinely host iframes that would otherwise swallow <code>pointermove</code> mid-drag and leave the resize stuck.</p>
 <p><strong>Element choice is a semantic claim.</strong> <code>&lt;aside&gt;</code> for the pane that supports the main flow; <code>&lt;section&gt;</code> (with an accessible name) when the column *is* the main flow — an inbox column is not an aside to its own detail.</p>
-<p><strong>Rebuilding it in a framework:</strong> what must survive is the flow-not-overlay nature (no portal, no trap — Tab passes through), the inner-edge hairline, and the clamped width presets.</p>
+<p><strong>Rebuilding it in a framework:</strong> what must survive is the flow-not-overlay nature (no portal, no trap — Tab passes through), the inner-edge hairline, the clamped width contract, and the separator keyboard behaviour.</p>
 <h4>Accessibility</h4>
-<ul><li>The pane carries <code>aria-label</code> or <code>aria-labelledby</code> — a <code>&lt;section&gt;</code> requires one to be exposed as a landmark, and an <code>&lt;aside&gt;</code> with several siblings needs the disambiguation.</li><li>No focus trap and no scroll lock: the pane is page content. Tab order runs through it in document order.</li><li>The close button's label names what it closes — &quot;Close running agents&quot;, not &quot;Close&quot; — because several side panes can be open in one view.</li><li>The count is display-only. A count that should be clickable is a filter, and belongs in the body, not the header.</li></ul>
+<ul><li>The pane carries <code>aria-label</code> or <code>aria-labelledby</code> — a <code>&lt;section&gt;</code> requires one to be exposed as a landmark, and an <code>&lt;aside&gt;</code> with several siblings needs the disambiguation.</li><li>No focus trap and no scroll lock: the pane is page content. Tab order runs through it in document order.</li><li>The resize handle is focusable, visibly focused via <code>focus.ring</code>, and operable by keyboard with the same result as the drag. Its <code>aria-label</code> names the pane it resizes (&quot;Resize review pane&quot;).</li><li>The close button's label names what it closes — &quot;Close running agents&quot;, not &quot;Close&quot; — because several side panes can be open in one view.</li><li>The count is display-only. A count that should be clickable is a filter, and belongs in the body, not the header.</li></ul>
 </div>
 </div>
 <details class="catalog-source"><summary>components/side-pane/component.css</summary><pre><code>/* Side pane — the column that shares the page. Extracted from the source
@@ -30895,6 +31874,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
  * own) so the hairline is the only separator at rest. */
 
 .ds-side-pane {
+  position: relative;
   display: flex;
   flex-direction: column;
   box-sizing: border-box;
@@ -30931,6 +31911,14 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 .ds-side-pane--lg {
   width: 44%;
   max-width: 560px;
+}
+
+/* A persisted drag width (inline style) keeps the floor above and this
+ * ceiling — max-width beats the inline width when they conflict, so a wide
+ * remembered pane cannot starve the board on a narrow window. */
+.ds-side-pane--resized {
+  flex-shrink: 0;
+  max-width: 65%;
 }
 
 /* The quiet secondary aside: one tone step of distance from the lane, and
@@ -30981,6 +31969,69 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   color: var(--sem-color-text-muted);
   font-size: var(--sem-font-size-micro);
   font-variant-numeric: tabular-nums;
+}
+
+/* Opt-in resize. A role=&quot;separator&quot; straddling the hairline: a 6px hit strip
+ * (the guideline inside it is the visual), keyboard-operable, pointer
+ * captured on the handle so an iframe in the pane cannot swallow the drag. */
+.ds-side-pane-resize {
+  position: absolute;
+  top: 0;
+  height: 100%;
+  width: 6px;
+  z-index: var(--sem-z-sticky);
+  cursor: col-resize;
+  background: transparent;
+  border: 0;
+  padding: 0;
+}
+
+.ds-side-pane--right .ds-side-pane-resize {
+  left: 0;
+  transform: translateX(-50%);
+}
+
+.ds-side-pane--left .ds-side-pane-resize {
+  right: 0;
+  transform: translateX(50%);
+}
+
+/* The guideline: accent as a 1px hairline marking a genuinely live process —
+ * within the accent budget. Reduced strength on hover as the reach-for
+ * affordance, full strength while the drag is live. */
+.ds-side-pane-resize::after {
+  content: &quot;&quot;;
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 1px;
+  transform: translateX(-50%);
+  background: var(--sem-color-accent-primary);
+  opacity: 0;
+  transition: opacity var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+.ds-side-pane-resize:hover::after {
+  opacity: 0.6;
+}
+
+.ds-side-pane-resize[data-resizing=&quot;true&quot;]::after {
+  opacity: 1;
+}
+
+.ds-side-pane-resize:focus-visible {
+  outline: var(--sem-focus-ring);
+  /* Negative offset: the handle straddles two surfaces, so an outset ring
+   * would draw over both panes' content. Clip-own-overflow controls take the
+   * negative offset rather than a second treatment. */
+  outline-offset: calc(-1 * var(--sem-focus-ring-offset));
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-side-pane-resize::after {
+    transition: none;
+  }
 }
 </code></pre></details>
 <details class="catalog-source"><summary>components/side-pane/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
@@ -31055,11 +32106,12 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 &lt;/head&gt;
 &lt;body&gt;
 &lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
-  &lt;p class=&quot;demo-label&quot;&gt;Light — a right pane (md preset) sharing a panel with its board. No shadow, no scrim — one hairline does the separating.&lt;/p&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — a right pane (md preset) sharing a panel with its board. Drag the divider, or focus it and use arrow keys; Home or double-click resets. No shadow, no scrim — one hairline does the separating.&lt;/p&gt;
 
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;div class=&quot;demo-board&quot;&gt;Board&lt;/div&gt;
-    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md&quot; aria-labelledby=&quot;pane-light-title&quot;&gt;
+    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md&quot; aria-labelledby=&quot;pane-light-title&quot; data-resizable&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-side-pane-resize&quot; role=&quot;separator&quot; aria-orientation=&quot;vertical&quot; aria-label=&quot;Resize running agents pane&quot;&gt;&lt;/button&gt;
       &lt;header class=&quot;ds-side-pane-header&quot;&gt;
         &lt;h3 class=&quot;ds-side-pane-title&quot; id=&quot;pane-light-title&quot;&gt;Running agents&lt;/h3&gt;
         &lt;div style=&quot;display: flex; align-items: center; gap: var(--sem-space-sm);&quot;&gt;
@@ -31070,9 +32122,9 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
         &lt;/div&gt;
       &lt;/header&gt;
       &lt;div class=&quot;demo-body&quot;&gt;
-        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;Fix the login redirect — MC-2114&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;04:12&lt;/span&gt;&lt;/div&gt;
-        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;Tidy the diff viewer — MC-2110&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;01:38&lt;/span&gt;&lt;/div&gt;
-        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;Draft release notes — MC-2098&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;00:22&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;builder-2 — MC-2114&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;04:12&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;reviewer-1 — MC-2110&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;01:38&lt;/span&gt;&lt;/div&gt;
+        &lt;div class=&quot;demo-row&quot;&gt;&lt;span class=&quot;demo-key&quot;&gt;planner — MC-2098&lt;/span&gt;&lt;span class=&quot;demo-value&quot;&gt;00:22&lt;/span&gt;&lt;/div&gt;
       &lt;/div&gt;
     &lt;/aside&gt;
   &lt;/div&gt;
@@ -31083,7 +32135,8 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;div class=&quot;demo-board&quot;&gt;Board&lt;/div&gt;
-    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken&quot; aria-labelledby=&quot;pane-dark-title&quot;&gt;
+    &lt;aside class=&quot;ds-side-pane ds-side-pane--right ds-side-pane--md ds-side-pane--sunken&quot; aria-labelledby=&quot;pane-dark-title&quot; data-resizable&gt;
+      &lt;button type=&quot;button&quot; class=&quot;ds-side-pane-resize&quot; role=&quot;separator&quot; aria-orientation=&quot;vertical&quot; aria-label=&quot;Resize active review pane&quot;&gt;&lt;/button&gt;
       &lt;header class=&quot;ds-side-pane-header&quot;&gt;
         &lt;h3 class=&quot;ds-side-pane-title&quot; id=&quot;pane-dark-title&quot;&gt;Active review&lt;/h3&gt;
         &lt;div style=&quot;display: flex; align-items: center; gap: var(--sem-space-sm);&quot;&gt;
@@ -31102,6 +32155,76 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
   &lt;/div&gt;
 &lt;/div&gt;
 
+&lt;script&gt;
+/* Reference behaviour for the resize contract in component.md. What must
+   survive a framework rewrite: pointer capture on the handle (an iframe in
+   the pane would otherwise swallow the drag), the 16px keyboard step toward
+   or away from the divider, Home/double-click reset, and the floor/ceiling
+   clamp done by CSS min-/max-width, not by script. */
+
+const KEY_STEP = 16
+
+for (const pane of document.querySelectorAll('[data-resizable]')) {
+  const handle = pane.querySelector('.ds-side-pane-resize')
+  const isRight = pane.classList.contains('ds-side-pane--right')
+
+  function setWidth(px) {
+    pane.classList.add('ds-side-pane--resized')
+    pane.style.width = Math.round(px) + 'px'
+  }
+
+  function reset() {
+    pane.classList.remove('ds-side-pane--resized')
+    pane.style.removeProperty('width')
+  }
+
+  /* The pane grows away from its divider edge: a right pane measures from
+     its right edge back to the pointer. */
+  function widthFromPointer(clientX) {
+    const rect = pane.getBoundingClientRect()
+    return isRight ? rect.right - clientX : clientX - rect.left
+  }
+
+  handle.addEventListener('pointerdown', (event) =&gt; {
+    if (event.button !== 0) return
+    event.preventDefault()
+    handle.setPointerCapture(event.pointerId)
+    handle.dataset.resizing = 'true'
+    document.body.style.cursor = 'col-resize'
+    document.body.style.userSelect = 'none'
+    const onMove = (e) =&gt; setWidth(widthFromPointer(e.clientX))
+    const end = () =&gt; {
+      handle.removeEventListener('pointermove', onMove)
+      handle.removeEventListener('pointerup', end)
+      handle.removeEventListener('pointercancel', end)
+      delete handle.dataset.resizing
+      document.body.style.cursor = ''
+      document.body.style.userSelect = ''
+    }
+    handle.addEventListener('pointermove', onMove)
+    handle.addEventListener('pointerup', end)
+    handle.addEventListener('pointercancel', end)
+  })
+
+  handle.addEventListener('keydown', (event) =&gt; {
+    const current = pane.getBoundingClientRect().width
+    const grow = isRight ? 'ArrowLeft' : 'ArrowRight'
+    const shrink = isRight ? 'ArrowRight' : 'ArrowLeft'
+    if (event.key === grow) {
+      event.preventDefault()
+      setWidth(current + KEY_STEP)
+    } else if (event.key === shrink) {
+      event.preventDefault()
+      setWidth(current - KEY_STEP)
+    } else if (event.key === 'Home') {
+      event.preventDefault()
+      reset()
+    }
+  })
+
+  handle.addEventListener('dblclick', reset)
+}
+&lt;/script&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>
@@ -32866,7 +33989,8 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
  *
  * Family contract: one status idiom per surface — the dot OR a lifecycle
  * glyph, never both. Healthy, done, and idle render no dot at all; the dot
- * marks the exceptions. Sized by the space.xs step, the 6px dot idiom. */
+ * marks the exceptions. Sized by the same space.xs step the task-card dot
+ * uses for the 6px idiom. */
 
 .ds-status-dot {
   display: inline-block;
@@ -33935,7 +35059,7 @@ document.querySelectorAll('.ds-segmented-control').forEach((group) =&gt; {
 <ul><li>The tablist carries a required <code>aria-label</code> naming what the tabs switch (&quot;Inbox views&quot;). Tabs are <code>&lt;button role=&quot;tab&quot;&gt;</code> with <code>aria-selected</code> and <code>aria-controls</code> pointing at their panel's <code>id</code>.</li><li>The panel carries <code>role=&quot;tabpanel&quot;</code> and <code>aria-labelledby</code> pointing back at its tab, so its accessible name is the tab's label.</li><li>The panel's focus indicator is the ring drawn <strong>inward</strong> (a negative <code>focus.ring-offset</code>): it sits at the edge of a scrolling region, where an outward ring is clipped. Without it a focusable panel falls back to the UA outline — the one treatment the system cannot theme.</li><li>Icons on tabs are <code>aria-hidden</code>; the label carries the name. On the <code>--icon-only</code> variant the glyph stays <code>aria-hidden</code> and the label moves to the tab's <code>aria-label</code>, so the accessible name is identical in both variants — the tooltip is the sighted user's version of the same string, and it opens on focus as well as hover.</li><li>An icon-only tab's count lives in its tooltip and its <code>aria-label</code>, not in a badge, so the number is announced once and read once.</li><li>Disabled tabs keep their label readable (<code>opacity</code>, not an ink swap to <code>text.disabled</code> alone) and are skipped by arrow navigation.</li></ul>
 <h4>Known drift</h4>
 <p>All in <code>src/renderer/src/components/ui/Tabs.tsx</code>:</p>
-<ul><li>~~Tabs render 32px tall (<code>h-8</code>); the control ramp has no 32px step. Canon is <code>size.control.sm</code> (30px) — the default for a labeled control.~~ <strong>Resolved 2026-09-02:</strong> <code>h-control-sm</code>.</li><li>~~Tab icons render at 14px (<code>h-3.5</code>); the icon ramp has no 14px step. Canon is <code>icon.size.xs</code> (13px).~~ <strong>Resolved 2026-09-02:</strong> <code>size-icon-xs</code>.</li><li>~~Disabled tabs ship <code>opacity-45</code>; the system-wide disabled treatment (list-row) is 0.5.~~ <strong>Resolved 2026-09-02:</strong> <code>disabled:opacity-50</code>, the row-family value — a tab is a row in a strip, not a button.</li></ul>
+<ul><li>~~Tabs render 32px tall (<code>h-8</code>); the control ramp has no 32px step. Canon is <code>size.control.sm</code> (30px) — the default for a labeled control.~~ <strong>Resolved 2026-09-02:</strong> <code>h-control-sm</code>.</li><li>~~Tab icons render at 14px (<code>h-3.5</code>); the icon ramp has no 14px step. Canon is <code>icon.size.xs</code> (13px).~~ <strong>Resolved 2026-09-02:</strong> <code>size-icon-xs</code>.</li><li>~~Disabled tabs ship <code>opacity-45</code>; the system-wide disabled treatment (list-row, task-card) is 0.5.~~ <strong>Resolved 2026-09-02:</strong> <code>disabled:opacity-50</code>, the row-family value — a tab is a row in a strip, not a button.</li></ul>
 <h4>Shipped implementation</h4>
 <p><code>src/renderer/src/components/ui/Tabs.tsx</code>, exporting <code>Tabs</code> (the strip, with the <code>iconOnly</code> prop and the per-item <code>tooltip</code>), <code>TabPanel</code> (the panel bound to it by <code>aria-controls</code> / <code>aria-labelledby</code>), and <code>TabsScroller</code> (the overflow wrapper — it owns the wheel routing and measures which edges actually overflow before it fades them).</p>
 </div>
@@ -34390,6 +35514,263 @@ document.querySelectorAll('[data-demo-tabs]').forEach((list) =&gt; {
   })
 })
 &lt;/script&gt;
+&lt;/body&gt;
+&lt;/html&gt;
+</code></pre></details>
+</div>
+<div id="component-task-card" class="catalog-view catalog-component">
+<h3>Task card</h3>
+<div class="catalog-component-grid">
+<div class="catalog-stage ds-embed-component-task-card">
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light</p>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1487</span>
+    <span class="ds-task-card-title">Module SDK epic</span>
+    <span class="ds-task-card-trailing">2d</span>
+  </button>
+  <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
+    <span class="ds-task-card-dot ds-task-card-dot--good" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1450</span>
+    <span class="ds-task-card-title">Module registry honored across surfaces</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1465</span>
+    <span class="ds-task-card-title">Resume predicates need input on manifest capabilities and a longer title to show truncation</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--danger" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1416</span>
+    <span class="ds-task-card-title">Worktree diff resolution failed</span>
+    <span class="ds-task-card-trailing">1h</span>
+  </button>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark</p>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1487</span>
+    <span class="ds-task-card-title">Module SDK epic</span>
+    <span class="ds-task-card-trailing">2d</span>
+  </button>
+  <button type="button" class="ds-task-card ds-task-card--selected" aria-pressed="true">
+    <span class="ds-task-card-dot ds-task-card-dot--good" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1450</span>
+    <span class="ds-task-card-title">Module registry honored across surfaces</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--warn" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1465</span>
+    <span class="ds-task-card-title">Resume predicates need input on manifest capabilities and a longer title to show truncation</span>
+  </button>
+  <button type="button" class="ds-task-card">
+    <span class="ds-task-card-dot ds-task-card-dot--danger" aria-hidden="true"></span>
+    <span class="ds-task-card-id">MC-1416</span>
+    <span class="ds-task-card-title">Worktree diff resolution failed</span>
+    <span class="ds-task-card-trailing">1h</span>
+  </button>
+</div>
+</div>
+<div class="catalog-doc">
+<p>Extracted from the source product's <code>TaskCard</code> primitive — the canonical board-card and inbox-row surface. Its family contract keeps every worklist in the product reading as one system.</p>
+<h4>Anatomy</h4>
+<ul><li>The card itself is the single interactive element (a <code>&lt;button&gt;</code> or a row with one click target) on <code>bg.surface</code> with a <code>border.subtle</code> hairline and <code>radius.control</code>.</li><li>Leading: an optional 6px status dot (<code>ds-task-card-dot</code>). Status only — omit it when the surrounding column or text already states the status.</li><li>Identifier: mono, tabular numerals, <code>font.size.meta</code>, <code>text.subtle</code>.</li><li>Title: <code>font.size.body</code> at <code>font.weight.medium</code>, truncating to one line.</li><li>Trailing: display-only meta (age, count) in <code>text.muted</code>; never interactive.</li></ul>
+<h4>Variants</h4>
+<ul><li>Row (shown): one line, identifier and title share the baseline.</li><li>Card: identifier above the title, title clamps to two lines — same tokens, different stacking; rebuild per layout need.</li><li>Dot tones: default neutral, <code>--good</code>, <code>--warn</code>, <code>--danger</code>.</li></ul>
+<h4>States</h4>
+<ul><li>Hover: <code>bg.hover</code> only — no shadow, scale, or glow.</li><li>Selected (focused pane): <code>bg.selected</code> neutral fill, border lifts to <code>border.default</code>, title ink lifts to <code>text.primary</code>.</li><li>Selected (resting pane): <code>bg.selected-resting</code>. A board that is not the focused pane shows its selection at this tier — see <code>patterns/selection</code>.</li><li>Focus-visible: <code>focus.ring</code>.</li></ul>
+<p>Selection is neutral, never the accent, and carries no left bar. The accent is reserved for the primary action.</p>
+<h4>Usage</h4>
+<ul><li>The dot is a status signal, not decoration or category color; done/healthy rows usually carry no mark at all.</li><li>Do not add a second interactive element inside the card; actions live in a context menu or the detail surface.</li><li>Keep the trailing slot to short meta (relative age, a count).</li></ul>
+<h4>Accessibility</h4>
+<ul><li>The card exposes one accessible name combining identifier and title.</li><li>Selection is conveyed with <code>aria-pressed</code> (or <code>aria-selected</code> in list semantics), never by the fill alone — assistive technology reads the state from the attribute, and the ink lift to <code>text.primary</code> carries it visually.</li><li>Status dots are <code>aria-hidden</code> when adjacent text already carries the state; otherwise give them a <code>role=&quot;img&quot;</code> label.</li></ul>
+<h4>Drift ruling (MC-2118, 2026-08-05)</h4>
+<p><strong>This spec won on both counts; the code moved.</strong></p>
+<ul><li><strong>Title is <code>font.size.body</code> (13px)</strong>, not <code>meta</code>. A card's title is its primary content; at <code>meta</code> it sat level with the supporting line beneath it. Ruled together with <code>inbox-row</code> and the door rails (MC-2101) so every title-over-supporting pair in the system uses the same two steps.</li><li><strong>Identifier is <code>font.size.meta</code> in <code>text.subtle</code></strong>, in both variants. It shipped at <code>micro</code>, and — only on the card variant — in <code>text.muted</code>, so the same identifier changed weight depending on which variant happened to be showing it. One identifier, one treatment.</li></ul>
+</div>
+</div>
+<details class="catalog-source"><summary>components/task-card/component.css</summary><pre><code>/* Task card — extracted from the source product's TaskCard primitive
+ * (src/renderer/src/components/ui/TaskCard.tsx), the canonical board-card /
+ * inbox-row surface. Family contract: 6px status dot, mono identifier,
+ * medium title, neutral two-tier selection, background-only hover.
+ * Prefer components/list-row for list surfaces; this is the board card. */
+
+.ds-task-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sem-space-sm);
+  padding: var(--sem-space-xs) var(--sem-space-md);
+  background: var(--sem-color-bg-surface);
+  border: 1px solid var(--sem-color-border-subtle);
+  border-radius: var(--sem-radius-control);
+  font-family: var(--sem-font-family-ui);
+  text-align: left;
+  width: 100%;
+  cursor: pointer;
+  transition: background-color var(--sem-motion-duration-fast) var(--sem-motion-ease-standard);
+}
+
+/* Hover is a background change only — no shadow, no scale, no glow. */
+.ds-task-card:hover {
+  background: var(--sem-color-bg-hover);
+}
+
+.ds-task-card:focus-visible {
+  outline: var(--sem-focus-ring);
+  outline-offset: var(--sem-focus-ring-offset);
+}
+
+/* Selection is neutral: the accent is reserved for the primary action, so a
+ * chosen card never outranks the one thing worth clicking. Two tiers, so a
+ * multi-pane surface shows exactly one focused selection. */
+.ds-task-card--selected {
+  background: var(--sem-color-bg-selected);
+  border-color: var(--sem-color-border-default);
+}
+
+.ds-task-card--resting {
+  background: var(--sem-color-bg-selected-resting);
+}
+
+/* 6px status dot. Status only — never decoration or category coding. */
+.ds-task-card-dot {
+  flex: none;
+  width: var(--sem-space-xs);
+  height: var(--sem-space-xs);
+  border-radius: 999px;
+  background: var(--sem-color-status-neutral);
+}
+
+.ds-task-card-dot--good {
+  background: var(--sem-color-status-good);
+}
+
+.ds-task-card-dot--warn {
+  background: var(--sem-color-status-warn);
+}
+
+.ds-task-card-dot--danger {
+  background: var(--sem-color-status-danger);
+}
+
+.ds-task-card-id {
+  flex: none;
+  font-family: var(--sem-font-family-mono);
+  font-variant-numeric: tabular-nums;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-subtle);
+}
+
+.ds-task-card-title {
+  min-width: 0;
+  flex: 1;
+  font-size: var(--sem-font-size-body);
+  font-weight: var(--sem-font-weight-medium);
+  color: var(--sem-color-text-default);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ds-task-card--selected .ds-task-card-title {
+  color: var(--sem-color-text-primary);
+}
+
+/* Display-only trailing slot (never interactive — the card is the target). */
+.ds-task-card-trailing {
+  flex: none;
+  font-size: var(--sem-font-size-meta);
+  color: var(--sem-color-text-muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ds-task-card {
+    transition: none;
+  }
+}
+</code></pre></details>
+<details class="catalog-source"><summary>components/task-card/component.html (demo)</summary><pre><code>&lt;!doctype html&gt;
+&lt;html lang=&quot;en&quot;&gt;
+&lt;head&gt;
+&lt;meta charset=&quot;utf-8&quot; /&gt;
+&lt;meta name=&quot;viewport&quot; content=&quot;width=device-width, initial-scale=1&quot; /&gt;
+&lt;title&gt;Task card&lt;/title&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;../../foundations/tokens.css&quot; /&gt;
+&lt;link rel=&quot;stylesheet&quot; href=&quot;component.css&quot; /&gt;
+&lt;style&gt;
+  body {
+    margin: 0;
+    font-family: var(--sem-font-family-ui);
+  }
+  .demo-stage {
+    padding: var(--sem-space-3xl);
+    background: var(--sem-color-bg-app);
+    color: var(--sem-color-text-default);
+    display: flex;
+    flex-direction: column;
+    gap: var(--sem-space-xs);
+    max-width: 380px;
+  }
+  .demo-label {
+    margin: 0 0 var(--sem-space-2xs);
+    font-size: var(--sem-font-size-meta);
+    color: var(--sem-color-text-subtle);
+  }
+&lt;/style&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light&lt;/p&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1487&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Module SDK epic&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-trailing&quot;&gt;2d&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card ds-task-card--selected&quot; aria-pressed=&quot;true&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--good&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1450&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Module registry honored across surfaces&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--warn&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1465&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Resume predicates need input on manifest capabilities and a longer title to show truncation&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--danger&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1416&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Worktree diff resolution failed&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-trailing&quot;&gt;1h&lt;/span&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark&lt;/p&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1487&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Module SDK epic&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-trailing&quot;&gt;2d&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card ds-task-card--selected&quot; aria-pressed=&quot;true&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--good&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1450&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Module registry honored across surfaces&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--warn&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1465&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Resume predicates need input on manifest capabilities and a longer title to show truncation&lt;/span&gt;
+  &lt;/button&gt;
+  &lt;button type=&quot;button&quot; class=&quot;ds-task-card&quot;&gt;
+    &lt;span class=&quot;ds-task-card-dot ds-task-card-dot--danger&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-id&quot;&gt;MC-1416&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-title&quot;&gt;Worktree diff resolution failed&lt;/span&gt;
+    &lt;span class=&quot;ds-task-card-trailing&quot;&gt;1h&lt;/span&gt;
+  &lt;/button&gt;
+&lt;/div&gt;
 &lt;/body&gt;
 &lt;/html&gt;
 </code></pre></details>
@@ -36239,7 +37620,7 @@ triggersOut.textContent = String(document.querySelectorAll('[data-tip]').length)
 </div>
 <div class="catalog-doc">
 <p>Text that ellipsis-truncates in a constrained box and restates itself in a tooltip <strong>only when it is actually cut off</strong>. Extracted from the shipped <code>TruncatedText</code> primitive (<code>src/renderer/src/components/ui/TruncatedText.tsx</code>).</p>
-<p>This component is the enforcement of the tooltip's restate-only-when-cut-off rule (see <code>components/tooltip</code>): a tooltip repeating a title the person can already read is noise, so the tooltip attaches only while the text overflows. It is the default treatment for every title, label, and path in a width-constrained slot — <code>panel-header</code> titles, row titles.</p>
+<p>This component is the enforcement of the tooltip's restate-only-when-cut-off rule (see <code>components/tooltip</code>): a tooltip repeating a title the person can already read is noise, so the tooltip attaches only while the text overflows. It is the default treatment for every title, label, and path in a width-constrained slot — <code>panel-header</code> titles, <code>board-lane</code> labels, row titles.</p>
 <h4>Anatomy</h4>
 <p>| Part | Class | Required | |---|---|---| | Text | <code>.ds-truncated-text</code> | yes — applied to the real element: a <code>&lt;span&gt;</code>, <code>&lt;p&gt;</code>, or the actual <code>&lt;h2&gt;</code> |</p>
 <p>One part. The tooltip, when earned, is the system <code>tooltip</code> component — this entry adds no surface of its own.</p>

@@ -2,8 +2,8 @@
  * supporting line, trailing timestamp. Extracted from the shipped InboxRow
  * and InboxSearchInput primitives (src/renderer/src/components/ui/).
  *
- * Family contract: same neutral two-tier selection as list-row,
- * background-only hover, top-aligned leading mark. No action
+ * Family contract: same neutral two-tier selection as list-row and
+ * task-card, background-only hover, top-aligned leading mark. No action
  * host — a queue row opens its item; acting on it happens in the detail
  * pane. Title canon is font.size.body per the list-row family; the shipped
  * InboxRow's 12px title is MC-2118. */

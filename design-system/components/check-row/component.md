@@ -142,7 +142,8 @@ change"**, and here nothing does.
 
 Two things it does NOT get, which is what keeps it a variant rather than a card:
 
-- **One supporting line, never two.** A second line is a card, not a row.
+- **One supporting line, never two.** A second line is a card, and the system
+  has `task-card` for that.
 - **No trailing slot, no glyph slot, no tree.** The described row's elements are
   box, title, scope, supporting — four, which is the repeated-row ceiling
   `principles.md` sets, with the box as the amendment's fifth *control*. The

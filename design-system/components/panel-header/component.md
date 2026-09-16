@@ -15,6 +15,7 @@ belong in this band, and a status belongs to the thing that has it.
 | Part | Class | Required |
 |---|---|---|
 | Header | `.ds-panel-header` | yes — a `<header>` band, `bg.surface`, one bottom hairline |
+| Identity dot | `.ds-panel-header-identity` | no — 6px, colored by the consumer's identity channel |
 | Title | `.ds-panel-header-title` | yes — an `<h2>`, `font.size.body` at `font.weight.emphasis`, `text.primary`, truncates |
 | Count | `.ds-panel-header-count` | no — the canonical count, mono-free, tabular, `text.muted` |
 | Scope | `.ds-panel-header-scope` | no — one word of context after a `·` separator |
@@ -60,8 +61,12 @@ first two are competing; move it into the overflow menu.
 **The count is the canonical count.** Render it here or in the content, never
 both — two counts that could disagree are the defect the principles name.
 
-**Status belongs to rows and status dots, not to the header.** The band
-stays accent-neutral.
+**The identity dot is identity, not status.** It marks which tool owns the
+panel, using the consumer's identity color channel (`--ds-panel-header-identity`
+— the app supplies its per-tool value; there is no `sem.*` token for tool
+identity, deliberately). It never pulses, never changes tone, and the rest of
+the panel stays accent-neutral around it. Status belongs to rows and status
+dots, not to the header.
 
 **The progress hairline is earned.** Attach it only when the panel has a
 canonical completion metric (accepted of total). It is not decoration, not a
@@ -77,6 +82,8 @@ ceiling; a sentence is a redesign signal.
 - The band renders as `<header>`; the title is a real `<h2>` so the panel
   lands in the document outline. Give it an `id` when a region's
   `aria-labelledby` points at it.
+- The identity dot is `aria-hidden="true"` — the title already names the
+  panel; the dot only colors it.
 - The progress hairline carries `role="progressbar"` with `aria-valuemin`,
   `aria-valuemax`, `aria-valuenow`, and an `aria-label` that states the metric
   ("3 of 7 milestones accepted"). A 2px line is invisible to a screen reader

@@ -103,6 +103,7 @@ the registry to point at:
 | Mark | Drawing |
 |---|---|
 | the standard fallback | Terminal-in-frame — module-private, reached only through the dispatcher |
+| `SprintEngineMarkIcon` | The SprintEngine brand comet — pair with `--tool-sprintengine-ink` |
 | `AutomationsWorkspaceTypeIcon` | Schedule dial around a lightning bolt — "on a schedule, do work" |
 | `FolderTypeIcon` | The project folder, optionally wearing a workspace's own logo |
 

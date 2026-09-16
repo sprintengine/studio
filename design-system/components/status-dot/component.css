@@ -5,7 +5,8 @@
  *
  * Family contract: one status idiom per surface — the dot OR a lifecycle
  * glyph, never both. Healthy, done, and idle render no dot at all; the dot
- * marks the exceptions. Sized by the space.xs step, the 6px dot idiom. */
+ * marks the exceptions. Sized by the same space.xs step the task-card dot
+ * uses for the 6px idiom. */
 
 .ds-status-dot {
   display: inline-block;

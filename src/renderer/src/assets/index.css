@@ -373,6 +373,14 @@
   --diff-changed: var(--sem-color-diff-changed);
   --diff-changed-strong: var(--sem-color-diff-changed-strong);
 
+  /* Tool identity dots only — header chrome, never row chrome. */
+  --tool-sprintengine: #fcc030;
+  /* Brand mark ink: the brand yellow pulled toward the theme's strongest text
+     color, so small glyphs stay legible everywhere — pure #fcc030 vanishes on
+     light backgrounds. Derived, so every theme (and any future one) adapts
+     without its own override. */
+  --tool-sprintengine-ink: color-mix(in srgb, var(--tool-sprintengine) 60%, var(--text-strong));
+
   /* Scrollbar surfaces. Pull from the ink scale so each theme can re-tune. */
   --scrollbar-thumb: #24242c;
   --scrollbar-thumb-hover: #303038;
@@ -1634,13 +1642,51 @@ samp,
   height: var(--icon-lg);
 }
 
+@keyframes card-just-moved-pulse {
+  0% {
+    box-shadow: 0 0 0 0 rgba(124, 92, 242, 0.55);
+    background-color: rgba(124, 92, 242, 0.18);
+  }
+  100% {
+    box-shadow: 0 0 0 12px rgba(124, 92, 242, 0);
+    background-color: transparent;
+  }
+}
+
+@keyframes card-just-moved-pulse-gold {
+  0% {
+    box-shadow: 0 0 0 0 rgba(255, 191, 47, 0.55);
+    background-color: rgba(255, 191, 47, 0.16);
+  }
+  100% {
+    box-shadow: 0 0 0 12px rgba(255, 191, 47, 0);
+    background-color: transparent;
+  }
+}
+
+.card-just-moved {
+  animation: card-just-moved-pulse 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+.card-just-moved-gold {
+  animation: card-just-moved-pulse-gold 600ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-just-moved,
+  .card-just-moved-gold {
+    animation: none;
+  }
+}
+
 /* Status-count "just changed" pulse — a one-shot tint+glow that sweeps through
  * a status icon when the number it represents changes (unread notifications,
  * live sessions, git change count). The consuming element supplies its own
  * status colour through the `--pulse-tint` custom property, so the bell pulses
  * red, Sessions green, etc. — the icon flashes its existing status hue rather
  * than introducing a new accent. It is deliberately one-shot (not ambient): a
- * single 620ms ease-back from tint+glow to the icon's resting colour. */
+ * single 620ms ease-back from tint+glow to the icon's resting colour, in the
+ * same "just changed" family as `.card-just-moved`. */
 @keyframes status-icon-pulse {
   0% {
     color: var(--pulse-tint);
