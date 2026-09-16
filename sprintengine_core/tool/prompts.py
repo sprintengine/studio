@@ -110,8 +110,8 @@ def load_roleless_soul_prompt(
     parts: list[str] = []
     for raw_skill in roleless_skills:
         skill_id = normalize_role_id(raw_skill)
-        entry = registry.skills.get(skill_id)
-        if entry is None or not isinstance(entry.value, SkillDocument):
+        entry = registry.layer_skill(skill_id)
+        if entry is None:
             continue
         body = entry.value.body.strip()
         if body:

@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 from contextvars import ContextVar
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable, Mapping
 
@@ -170,6 +170,11 @@ class RegistryDiscovery:
     skills: Mapping[str, RegistryEntry]
     aliases: Mapping[str, str]
     warnings: tuple[RegistryWarning, ...]
+    # Package-owned host layers (norms, product skills, phase packs). extra_skills
+    # reads from here so an installable workspace skill of the same id cannot
+    # substitute for them. The skills map stays first-hit-wins so a workspace
+    # can still shadow a phase pack for listing and phase composition.
+    host_skills: Mapping[str, RegistryEntry] = field(default_factory=dict)
 
     def get_role(self, role_or_alias: str) -> RoleManifest:
         normalized = normalize_role_id(role_or_alias)
@@ -181,6 +186,13 @@ class RegistryDiscovery:
     def role_entry(self, role_or_alias: str) -> RegistryEntry:
         role = self.get_role(role_or_alias)
         return self.roles[role.normalized_id]
+
+    def layer_skill(self, skill_id: str) -> RegistryEntry | None:
+        """The packaged host-layer copy of a skill, else the first-hit skills map."""
+        entry = self.host_skills.get(skill_id) or self.skills.get(skill_id)
+        if entry is None or not isinstance(entry.value, SkillDocument):
+            return None
+        return entry
 
     def referenced_skills(self, role_or_alias: str) -> tuple[SkillDocument, ...]:
         role = self.get_role(role_or_alias)
@@ -237,8 +249,8 @@ class RegistryDiscovery:
             if extra_id in seen_skill_ids:
                 continue
             seen_skill_ids.add(extra_id)
-            extra_entry = self.skills.get(extra_id)
-            if extra_entry is None or not isinstance(extra_entry.value, SkillDocument):
+            extra_entry = self.layer_skill(extra_id)
+            if extra_entry is None:
                 warnings.append(
                     RegistryWarning(
                         code="missing_layer_skill",
@@ -303,6 +315,7 @@ class RoleSkillRegistry:
             warnings,
         )
 
+        host_skills: dict[str, RegistryEntry] = {}
         host_layer = SourceLayer(
             "bundled",
             BUNDLED_HOST_SKILLS_ROOT,
@@ -315,6 +328,7 @@ class RoleSkillRegistry:
             skills,
             warnings,
             as_roles=False,
+            host_skills=host_skills,
         )
 
         return RegistryDiscovery(
@@ -322,6 +336,7 @@ class RoleSkillRegistry:
             skills=skills,
             aliases={role_id: role_id for role_id in roles},
             warnings=tuple(warnings),
+            host_skills=host_skills,
         )
 
     def _ingest_skill_dir(
@@ -333,6 +348,7 @@ class RoleSkillRegistry:
         warnings: list[RegistryWarning],
         *,
         as_roles: bool = True,
+        host_skills: dict[str, RegistryEntry] | None = None,
     ) -> None:
         if not skills_dir.is_dir():
             return
@@ -342,12 +358,15 @@ class RoleSkillRegistry:
             if document is None:
                 continue
             source = SourceEntry(layer, path)
-            # Role skills: first hit wins (workspace harnesses, then the bundled
-            # pack). Host layers are package-owned and ingested last: a
-            # workspace skill of the same id (the installable
-            # workspace-knowledge skill) must not substitute for them.
-            if not as_roles or skill_id not in skills:
-                skills[skill_id] = RegistryEntry(value=document, source=source)
+            entry = RegistryEntry(value=document, source=source)
+            # First hit wins on the skills map (workspace harnesses, then the
+            # bundled pack). Host ingest also records a package-owned copy so
+            # extra_skills cannot be substituted by an installable skill of the
+            # same id; a workspace can still shadow a phase pack via skills.
+            if skill_id not in skills:
+                skills[skill_id] = entry
+            if host_skills is not None:
+                host_skills[skill_id] = entry
             if not as_roles:
                 continue
             manifest = _role_from_skill(document)

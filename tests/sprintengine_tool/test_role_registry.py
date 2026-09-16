@@ -169,7 +169,10 @@ def test_host_layer_skills_come_from_the_package_not_the_workspace(tmp_path: Pat
     )
     assert "MULTICODE_KNOWLEDGE_ROOT" in rendered.content
     assert "Workspace copy of the knowledge skill." not in rendered.content
-    host = discovery.skills["workspace_knowledge"]
+    listed = discovery.skills["workspace_knowledge"]
+    assert listed.source.layer.name == "workspace"
+    host = discovery.layer_skill("workspace_knowledge")
+    assert host is not None
     assert host.source.layer.name == "bundled"
     assert "resources/sprintengine/skills" in str(host.source.path).replace("\\", "/")
 
