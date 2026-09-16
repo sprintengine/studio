@@ -1,9 +1,9 @@
 import type { CapabilityModule } from '../module-host/load-modules'
-import { automationsModule, createAutomationsModule, type AutomationsModuleOptions } from './automations-module'
+import { createAutomationsModule, type AutomationsModuleOptions } from './automations-module'
 import { mobileRelayModule } from './mobile-relay-module'
 
 export type BundledMainModuleOptions = {
-  automations?: AutomationsModuleOptions
+  automations: AutomationsModuleOptions
 }
 
 // Bundled main-process capability modules, in registration-priority order.
@@ -15,7 +15,7 @@ export type BundledMainModuleOptions = {
 // register-core-ipc; only their renderer panels are capability modules.
 export function createBundledMainModules(options: BundledMainModuleOptions): CapabilityModule[] {
   return [
-    options.automations ? createAutomationsModule(options.automations) : automationsModule,
+    createAutomationsModule(options.automations),
     mobileRelayModule,
   ]
 }

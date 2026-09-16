@@ -48,8 +48,8 @@ export type ModulePermissionsResolver = (moduleId: string) => readonly string[] 
 // `provideServices` seeding index.ts used to do — the dependency is now an
 // explicit, resolver-enforced edge.
 //
-// (Terminal/agent IPC itself still registers in register-core-ipc /
-// register-workflow-ipc; since agent-runtime is always enabled, that's
+// (Terminal/agent IPC itself still registers in register-core-ipc; since
+// agent-runtime is always enabled, that's
 // behavior-identical. Migrating that IPC onto this module is optional later
 // polish, not required to formalize the core.)
 export const AGENT_RUNTIME_MANIFEST: CapabilityManifest = {

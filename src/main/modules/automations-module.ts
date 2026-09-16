@@ -261,8 +261,6 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
   }
 }
 
-export const automationsModule = createAutomationsModule()
-
 function createFirstPartyAutomationIntegrationResolver(input: {
   hasRepoTaskSource(): boolean
 }): (id: string) => boolean | undefined {

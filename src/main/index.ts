@@ -29,7 +29,6 @@ import { defaultUserModuleRoot, discoverUserModules, discoverUserModulesSync } f
 import { attachBuildSkewWatch, createBuildSkewWatch } from './build-skew'
 import { adoptLegacySkillSources, isDefaultProfileDir } from './skills/legacy-profile'
 import { registerCoreIpc } from './register-core-ipc'
-import { registerWorkflowIpc } from './register-workflow-ipc'
 import { attachStartupTimeline, markStartup } from './startup-timeline'
 import { readStudioEnv } from '../shared/studio-env'
 
@@ -71,7 +70,6 @@ registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
   includeDevModules,
   applyModuleEnablementLive: (overrides) => applyModuleEnablementLive?.(overrides),
 })
-registerWorkflowIpc(ipcMain, services)
 
 // Capability modules register their own IPC/services/sidecars through the host
 // kernel, gated by the user's enablement overrides (mirrored from the renderer
