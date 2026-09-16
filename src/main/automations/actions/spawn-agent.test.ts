@@ -7,6 +7,8 @@ import {
   fingerprintPrompt,
   parseSpawnAgentConfig,
   runSpawnAgentAction,
+  SPECIALIST_REMOVED_CODE,
+  SpecialistRemovedError,
   type SpawnAgentRuntime,
 } from './spawn-agent'
 
@@ -287,6 +289,36 @@ async function assertRunSkillLoopPassesFlagThrough(): Promise<void> {
   assert.ok(captured.prompt.includes('"taskId": "T3"'), 'run-skill-loop carries the payload')
 }
 
+// A definition saved while specialists existed still names one. It must fail
+// by name — never launch a plain agent the author did not ask for.
+async function assertANamedSpecialistIsRefused(): Promise<void> {
+  const isRefusal = (error: unknown): boolean =>
+    error instanceof SpecialistRemovedError
+    && error.code === SPECIALIST_REMOVED_CODE
+    && /Specialists were removed/.test(error.message)
+    && /invoke the skill in the terminal/.test(error.message)
+  assert.throws(() => parseSpawnAgentConfig({ prompt: 'Review it.', specialistId: 'architect' }), isRefusal)
+
+  let launched = false
+  const runtime = stubRuntime(undefined, { prompt: '' })
+  const watched: SpawnAgentRuntime = {
+    ...runtime,
+    spawnAgent: async (input) => {
+      launched = true
+      return runtime.spawnAgent(input)
+    },
+  }
+  await assert.rejects(
+    runSpawnAgentAction({ prompt: 'Review it.', specialistId: 'architect' }, watched),
+    isRefusal,
+  )
+  await assert.rejects(
+    runSkillLoopAction({ prompt: 'Review it.', skill: 'backlog-steward', specialistId: 'architect' }, watched),
+    isRefusal,
+  )
+  assert.equal(launched, false, 'no agent is launched for a config that names a specialist')
+}
+
 async function main(): Promise<void> {
   assertNoRunStatusFileInstruction()
   assertNonInteractiveDirectiveStated()
@@ -300,6 +332,7 @@ async function main(): Promise<void> {
   await assertExecutorThreadsPayloadWhenOptedIn()
   await assertRunSkillLoopPassesFlagThrough()
   await assertUnspecifiedPresetResolvesToBypass()
+  await assertANamedSpecialistIsRefused()
   console.log('automations spawn-agent prompt tests passed')
 }
 
