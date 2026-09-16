@@ -4,7 +4,6 @@ import { ChipButton, Field, GhostButton, InlineNotice, Input, Select, type Selec
 import type { AutomationDefinition, AutomationsProviders, TriggerKind } from '../../../../../shared/automations/contracts'
 import { foreignScheduleTimeZone } from '../../../../../shared/automations/cadence'
 import {
-  REPO_EVENT_TRIGGER_KIND,
   SCHEDULE_TRIGGER_KIND,
   TRIGGER_FAMILY_LABEL,
   WEBHOOK_ROUTE_PREFIX,
@@ -19,9 +18,6 @@ import {
   missingProviderReason,
   providerUnavailableReason,
   type EditorState,
-  type RepoEventForm,
-  type RepoEventProvider,
-  type RepoEventType,
   type ScheduleCadenceForm,
   type ScheduleCadenceType,
   type WebhookForm,
@@ -31,7 +27,6 @@ import {
 // even when unavailable (disabled + reason) so a control boundary is never hidden.
 const CANONICAL_FAMILIES: TriggerKind[] = [
   SCHEDULE_TRIGGER_KIND,
-  REPO_EVENT_TRIGGER_KIND,
   WEBHOOK_TRIGGER_KIND,
 ]
 
@@ -61,19 +56,17 @@ const DATETIME_CONTROL = 'w-52 tabular-nums'
 // authoritative declaration (automationsFormat.ts) instead of parallel copies.
 export type TriggerFieldsValue = ScheduleCadenceForm & {
   triggerKind: TriggerKind
-  repoEvent: RepoEventForm
   webhook: WebhookForm
 }
 
 // Reason a trigger family cannot be authored. schedule/webhook are always
-// registered; repo-event and every module-contributed family depend on a module
-// or a connected integration, so their absence from providers.triggers is
-// surfaced explicitly rather than hiding the family.
+// registered; every module-contributed family depends on a module, so its
+// absence from providers.triggers is surfaced explicitly rather than hiding the
+// family.
 function familyUnavailableReason(kind: TriggerKind, providers: AutomationsProviders | null): string | null {
   if (!providers) return null
   const provider = providers.triggers.find((t) => t.kind === kind)
   if (!provider) {
-    if (kind === REPO_EVENT_TRIGGER_KIND) return 'This trigger needs a module that syncs GitHub or Jira issues into this project, and none is connected.'
     if (contributorModuleIdFromKind(kind)) return missingProviderReason(kind, 'trigger')
     return null
   }
@@ -153,8 +146,6 @@ export function TriggerFields({
 
       {value.triggerKind === SCHEDULE_TRIGGER_KIND ? (
         <ScheduleFields value={value} onChange={onChange} writtenTimeZone={loadedScheduleForeignZone(loaded)} />
-      ) : value.triggerKind === REPO_EVENT_TRIGGER_KIND ? (
-        <RepoEventFields value={value.repoEvent} onChange={(repoEvent) => onChange({ repoEvent })} />
       ) : value.triggerKind === WEBHOOK_TRIGGER_KIND ? (
         <WebhookFields value={value.webhook} onChange={(webhook) => onChange({ webhook })} />
       ) : null}
@@ -263,76 +254,6 @@ function ScheduleFields({
           </div>
         </fieldset>
       ) : null}
-    </>
-  )
-}
-
-const REPO_EVENT_PROVIDERS: { value: RepoEventProvider; label: string }[] = [
-  { value: 'any', label: 'Any source' },
-  { value: 'github', label: 'GitHub' },
-  { value: 'jira', label: 'Jira' },
-]
-const REPO_EVENT_TYPES: { value: RepoEventType; label: string }[] = [
-  { value: 'created', label: 'Created' },
-  { value: 'updated', label: 'Updated' },
-]
-
-function RepoEventFields({
-  value, onChange,
-}: {
-  value: RepoEventForm
-  onChange: (next: RepoEventForm) => void
-}) {
-  return (
-    <>
-      <Field label="Source" htmlFor="automation-repo-provider" help="Which connected source emits the event.">
-        <Select<RepoEventProvider>
-          ariaLabel="Event source"
-          value={value.provider}
-          onChange={(provider) => onChange({ ...value, provider })}
-          items={REPO_EVENT_PROVIDERS}
-        />
-      </Field>
-      {/* No `htmlFor`: the row is a chip group, not one labellable control, and
-          the group names itself. Passing one put the id on this div and left the
-          label addressing an element that cannot be labelled. */}
-      <Field label="Event types" help="Fire when a matching item is created or updated.">
-        <div className="flex flex-wrap gap-1" role="group" aria-label="Event types">
-          {REPO_EVENT_TYPES.map((event) => {
-            const checked = value.eventTypes.includes(event.value)
-            return (
-              <ChipButton
-                key={event.value}
-                variant="outline"
-                pressed={checked}
-                onClick={() => onChange({
-                  ...value,
-                  eventTypes: checked
-                    ? value.eventTypes.filter((e) => e !== event.value)
-                    : [...value.eventTypes, event.value],
-                })}
-                className="min-w-9 justify-center"
-              >
-                {event.label}
-              </ChipButton>
-            )
-          })}
-        </div>
-      </Field>
-      <Field label="External key" htmlFor="automation-repo-key" help="Optional. Match a specific issue or PR key, e.g. PROJ-12.">
-        <Input
-          id="automation-repo-key"
-          value={value.externalKey}
-          onChange={(e) => onChange({ ...value, externalKey: e.target.value })}
-        />
-      </Field>
-      <Field label="Label" htmlFor="automation-repo-label" help="Optional. A human label for this event source.">
-        <Input
-          id="automation-repo-label"
-          value={value.label}
-          onChange={(e) => onChange({ ...value, label: e.target.value })}
-        />
-      </Field>
     </>
   )
 }

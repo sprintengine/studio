@@ -306,12 +306,12 @@ async function assertStateRoundTrip(): Promise<void> {
       'weekly-cleanup': null,
     },
     triggerEventDedupByAutomationId: {
-      'repo-event-watch': {
-        'repo-event:github:acme/repo#1:updated:2026-06-17T09:00:00.000Z': '2026-06-17T10:00:00.000Z',
+      'deploy-hook': {
+        'webhook:deploy:delivery-1': '2026-06-17T10:00:00.000Z',
       },
     },
     triggerBlockedReasonByAutomationId: {
-      'repo-event-watch': 'This workspace has no github sync state.',
+      'deploy-hook': 'The webhook receiver is not running.',
     },
   })
   const written = await store.writeState(nextState)
@@ -323,30 +323,6 @@ async function assertStateRoundTrip(): Promise<void> {
 
   const stateFile = await readFile(join(workspaceRoot, '.sprintengine', 'automations', 'state.json'), 'utf8')
   assert.match(stateFile, /nextRunAtByAutomationId/)
-
-  const legacyRepoEventState = {
-    nextRunAtByAutomationId: {
-      'repo-event-watch': null,
-    },
-    repoEventDedupByAutomationId: {
-      'repo-event-watch': {
-        'repo-event:github:acme/repo#1:updated:2026-06-17T09:30:00.000Z': '2026-06-17T10:30:00.000Z',
-      },
-    },
-    lock: null,
-  }
-  await writeFile(join(workspaceRoot, '.sprintengine', 'automations', 'state.json'), JSON.stringify(legacyRepoEventState), 'utf8')
-  const migratedLegacyState = await store.readState()
-  assert.equal(migratedLegacyState.ok, true)
-  assert.deepEqual(
-    migratedLegacyState.ok && migratedLegacyState.value?.triggerEventDedupByAutomationId,
-    legacyRepoEventState.repoEventDedupByAutomationId
-  )
-  assert.equal(
-    migratedLegacyState.ok
-      && Object.prototype.hasOwnProperty.call(migratedLegacyState.value ?? {}, 'repoEventDedupByAutomationId'),
-    false
-  )
 
   const invalidKey = await store.writeState(state({ nextRunAtByAutomationId: { '..': '2026-06-18T01:00:00.000Z' } }))
   assert.equal(invalidKey.ok, false)

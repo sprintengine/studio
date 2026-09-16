@@ -116,8 +116,8 @@ run('a step wider than its field is quoted, not read back as an interval', () =>
 })
 
 run('a malformed or non-schedule trigger answers without inventing a time', () => {
-  assert.equal(automationScheduleWords({ kind: 'repo-event', config: {} }), 'On a trigger')
-  assert.equal(automationScheduleCron({ kind: 'repo-event', config: {} }), null)
+  assert.equal(automationScheduleWords({ kind: 'webhook', config: {} }), 'On a trigger')
+  assert.equal(automationScheduleCron({ kind: 'webhook', config: {} }), null)
   assert.equal(automationScheduleWords(schedule({ type: 'daily', timeLocal: 'later' })), 'Daily')
   assert.equal(automationScheduleCron(schedule({ type: 'daily', timeLocal: 'later' })), null)
   assert.equal(

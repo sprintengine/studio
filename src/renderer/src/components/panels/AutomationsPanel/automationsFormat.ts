@@ -4,7 +4,6 @@ import {
   type AgentCliCatalogOption,
 } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import {
-  REPO_EVENT_TRIGGER_KIND,
   SCHEDULE_TRIGGER_KIND,
   WEBHOOK_TRIGGER_KIND,
   contributorModuleIdFromKind,
@@ -17,20 +16,17 @@ import {
   type AutomationsProviderView,
   type AutomationsProviders,
   type AutomationsRunsListResult,
-  type RepoEventTriggerConfig,
   type ScheduleTriggerConfig,
   type TriggerKind,
   type WebhookTriggerConfig,
 } from '../../../../../shared/automations/contracts'
 import { WEEKDAY_SHORT, scheduleCadenceSummaryForReader } from '../../../../../shared/automations/cadence'
-import { TRACKER_PROVIDER_LABEL } from '../../../../../shared/tracker/provider-label'
-import type { TrackerProviderId } from '../../../../../shared/tracker/provider-label'
 import { relativeFromNow } from '../../../utils/relativeTime'
 
 // Re-exported so the editor (AutomationEditor.tsx, TriggerFields.tsx) keeps
 // importing the canonical trigger-kind constants and cadence copy from this
 // module; the definitions themselves live in contracts.ts and cadence.ts.
-export { REPO_EVENT_TRIGGER_KIND, SCHEDULE_TRIGGER_KIND, WEBHOOK_TRIGGER_KIND }
+export { SCHEDULE_TRIGGER_KIND, WEBHOOK_TRIGGER_KIND }
 export { contributorModuleIdFromKind, displayNameFromModuleId } from '../../../../../shared/automations/contracts'
 
 export { WEEKDAY_SHORT }
@@ -122,13 +118,11 @@ export function actionLabel(kind: string, providers?: AutomationsProviders | nul
 }
 
 const TRIGGER_SUMMARY: Record<string, string> = {
-  'repo-event': 'On GitHub/Jira event',
   webhook: 'On webhook',
 }
 
 export const TRIGGER_FAMILY_LABEL: Record<string, string> = {
   schedule: 'Schedule',
-  'repo-event': 'Event',
   webhook: 'Webhook',
 }
 
@@ -163,27 +157,6 @@ export function cadenceSummary(
   return scheduleCadenceSummaryForReader(trigger.config, at, readerTimeZone)
 }
 
-// Config-specific repo-event detail for the list's supporting line ('GitHub
-// created', 'Jira created, updated', 'Any source'). Provider names come from the
-// shared tracker-provider label table; 'any' is an automations-only pseudo-
-// provider handled here. Null when the config is unreadable so the row falls
-// back to the family label alone.
-function repoEventProviderDetailLabel(provider: string): string {
-  if (provider === 'any') return 'Any source'
-  return TRACKER_PROVIDER_LABEL[provider as TrackerProviderId] ?? provider
-}
-
-function repoEventDetail(config: unknown): string | null {
-  if (!config || typeof config !== 'object') return null
-  const record = config as Record<string, unknown>
-  const provider = typeof record.provider === 'string' ? record.provider : 'any'
-  const label = repoEventProviderDetailLabel(provider)
-  const events = Array.isArray(record.eventTypes)
-    ? record.eventTypes.filter((e): e is string => e === 'created' || e === 'updated')
-    : []
-  return events.length > 0 ? `${label} ${events.join(', ')}` : label
-}
-
 // Webhook detail for the list line — the delivery path ('/deploy'). Null when no
 // path is configured, so the row shows the family alone rather than a redundant
 // restatement of the family.
@@ -197,9 +170,8 @@ function webhookDetail(config: unknown): string | null {
 
 // Supporting-line detail for the definitions list, kept distinct from the family
 // prefix (triggerFamilyLabel) so a non-schedule row never double-says its family
-// ('Event · On GitHub/Jira event'). Schedule rows summarize their cadence;
-// non-schedule rows surface a config-specific fragment (watched source/event, the
-// webhook path) or null when none exists — the caller then shows the family label
+// ('Webhook · On webhook'). Schedule rows summarize their cadence;
+// non-schedule rows surface a config-specific fragment (the webhook path) or null when none exists — the caller then shows the family label
 // on its own. cadenceSummary stays the standalone summary used where no family
 // prefix precedes it (the detail pane's Trigger meta).
 export function triggerDetail(
@@ -210,7 +182,6 @@ export function triggerDetail(
   if (trigger.kind === SCHEDULE_TRIGGER_KIND) {
     return isScheduleConfig(trigger.config) ? cadenceSummary(trigger, at, readerTimeZone) : null
   }
-  if (trigger.kind === REPO_EVENT_TRIGGER_KIND) return repoEventDetail(trigger.config)
   if (trigger.kind === WEBHOOK_TRIGGER_KIND) return webhookDetail(trigger.config)
   return null
 }
@@ -220,7 +191,7 @@ export function triggerDetail(
 // the editor cannot author yet.
 // ---------------------------------------------------------------------------
 // The schedule editor authors interval/daily/weekly/at cadences. A loaded
-// repo-event/webhook trigger (no editor until T4) or a cron schedule (no cron
+// webhook trigger or a cron schedule (no cron
 // authoring control) must survive an edit verbatim instead of being silently
 // rewritten to an interval schedule. These helpers are pure so the round-trip
 // guarantee is unit-testable without rendering the form.
@@ -239,7 +210,7 @@ export type ScheduleCadenceForm = {
 }
 
 // True only when the loaded trigger is a schedule whose cadence the editor can
-// actually author (interval/daily/weekly/at). Cron, repo-event, webhook, and
+// actually author (interval/daily/weekly/at). Cron, webhook, and
 // any other family are read-only here.
 function isEditableScheduleTrigger(trigger: AutomationDefinition['trigger']): boolean {
   if (trigger.kind !== SCHEDULE_TRIGGER_KIND || !isScheduleConfig(trigger.config)) return false
@@ -255,22 +226,10 @@ function buildScheduleCadence(form: ScheduleCadenceForm): ScheduleTriggerConfig[
 
 // ---------------------------------------------------------------------------
 // Trigger families the editor can author (T4). Schedule (interval/daily/weekly/
-// at), repo-event, and webhook are authored from their own form sub-state. A loaded
+// at) and webhook are authored from their own form sub-state. A loaded
 // cron schedule (the engine rejects cron — schedule.ts has no cron cadence) and
 // any unknown third-party family stay read-only and round-trip verbatim.
 // ---------------------------------------------------------------------------
-
-export type RepoEventProvider = 'github' | 'jira' | 'any'
-export type RepoEventType = 'created' | 'updated'
-
-// The repo-event editor sub-state (src/main/automations/triggers/repo-event.ts
-// schema: provider github|jira|any, eventTypes created|updated, externalKey, label).
-export type RepoEventForm = {
-  provider: RepoEventProvider
-  eventTypes: RepoEventType[]
-  externalKey: string
-  label: string
-}
 
 // The webhook editor sub-state. `secret` is the write-only NEW secret generated
 // this session — never the stored value (the IPC redacts it). `hasSecret` mirrors
@@ -285,7 +244,6 @@ export type WebhookForm = {
   label: string
 }
 
-export const EMPTY_REPO_EVENT_FORM: RepoEventForm = { provider: 'any', eventTypes: [], externalKey: '', label: '' }
 export const EMPTY_WEBHOOK_FORM: WebhookForm = {
   enabled: false, port: '', path: '', secret: '', hasSecret: false, eventType: '', label: '',
 }
@@ -294,7 +252,6 @@ export const EMPTY_WEBHOOK_FORM: WebhookForm = {
 // this structurally.
 export type SubmitTriggerForm = ScheduleCadenceForm & {
   triggerKind: TriggerKind
-  repoEvent: RepoEventForm
   webhook: WebhookForm
 }
 
@@ -308,19 +265,9 @@ const WEBHOOK_PATH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/
 // A loaded trigger the editor can author. Cron schedules and unknown third-party
 // families return false — they stay read-only and round-trip verbatim.
 export function isAuthorableTrigger(trigger: AutomationDefinition['trigger']): boolean {
-  if (trigger.kind === REPO_EVENT_TRIGGER_KIND || trigger.kind === WEBHOOK_TRIGGER_KIND) return true
+  if (trigger.kind === WEBHOOK_TRIGGER_KIND) return true
   if (trigger.kind === SCHEDULE_TRIGGER_KIND) return isEditableScheduleTrigger(trigger)
   return false
-}
-
-export function buildRepoEventConfig(form: RepoEventForm): RepoEventTriggerConfig {
-  const config: RepoEventTriggerConfig = { kind: REPO_EVENT_TRIGGER_KIND, provider: form.provider }
-  if (form.eventTypes.length > 0) config.eventTypes = [...form.eventTypes]
-  const externalKey = form.externalKey.trim()
-  if (externalKey) config.externalKey = externalKey
-  const label = form.label.trim()
-  if (label) config.label = label
-  return config
 }
 
 export function buildWebhookConfig(form: WebhookForm): WebhookTriggerConfig {
@@ -391,24 +338,7 @@ export function webhookTriggerError(form: WebhookForm, opts: { sendingTrigger: b
   return null
 }
 
-// Seed the repo-event / webhook form sub-state from a loaded (redacted) config.
-export function repoEventFormFromConfig(config: unknown): RepoEventForm {
-  if (!config || typeof config !== 'object') return { ...EMPTY_REPO_EVENT_FORM }
-  // The loaded config is untrusted, so the runtime guards stay; typing the view as
-  // a Partial of the wire config makes a field-name typo a compile error.
-  const record = config as Partial<RepoEventTriggerConfig>
-  const provider = record.provider
-  const eventTypes = Array.isArray(record.eventTypes)
-    ? record.eventTypes.filter((e): e is RepoEventType => e === 'created' || e === 'updated')
-    : []
-  return {
-    provider: provider === 'github' || provider === 'jira' ? provider : 'any',
-    eventTypes,
-    externalKey: typeof record.externalKey === 'string' ? record.externalKey : '',
-    label: typeof record.label === 'string' ? record.label : '',
-  }
-}
-
+// Seed the webhook form sub-state from a loaded (redacted) config.
 export function webhookFormFromConfig(config: unknown): WebhookForm {
   if (!config || typeof config !== 'object') return { ...EMPTY_WEBHOOK_FORM }
   // The renderer receives the config with `secret` redacted to a `hasSecret`
@@ -456,8 +386,8 @@ export function missingProviderReason(kind: string, noun: 'action' | 'trigger'):
 
 // Resolve the trigger to persist from the ACTIVE family. A loaded cron schedule
 // or unknown family is returned verbatim (read-only — no authoring control), so a
-// save never converts a trigger the editor cannot author. Schedule/repo-event/
-// webhook are built from their form sub-state.
+// save never converts a trigger the editor cannot author. Schedule and webhook
+// are built from their form sub-state.
 export function resolveSubmitTrigger(
   editor: EditorState,
   form: SubmitTriggerForm,
@@ -465,9 +395,6 @@ export function resolveSubmitTrigger(
 ): { kind: TriggerKind; config: unknown } {
   if (editor.mode === 'edit' && !isAuthorableTrigger(editor.definition.trigger)) {
     return editor.definition.trigger
-  }
-  if (form.triggerKind === REPO_EVENT_TRIGGER_KIND) {
-    return { kind: REPO_EVENT_TRIGGER_KIND, config: buildRepoEventConfig(form.repoEvent) }
   }
   if (form.triggerKind === WEBHOOK_TRIGGER_KIND) {
     return { kind: WEBHOOK_TRIGGER_KIND, config: buildWebhookConfig(form.webhook) }
@@ -508,7 +435,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 
 // Whether a freshly built trigger matches the loaded one (key-order-insensitive).
 // Used to omit an unchanged trigger from an update patch — required so a webhook's
-// stored secret survives a name/action edit, and so an existing repo-event whose
+// stored secret survives a name/action edit, and so an existing trigger whose
 // provider is no longer registered can still be renamed.
 export function triggersEquivalent(
   built: { kind: TriggerKind; config: unknown },

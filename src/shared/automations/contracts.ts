@@ -74,7 +74,6 @@ export type AutomationsRunEvent = {
 // symbol, never a bare literal. Each built-in config type pins `kind` to its
 // constant.
 export const SCHEDULE_TRIGGER_KIND = 'schedule'
-export const REPO_EVENT_TRIGGER_KIND = 'repo-event'
 export const WEBHOOK_TRIGGER_KIND = 'webhook'
 
 export const SPAWN_AGENT_ACTION_KIND = 'spawn-agent'
@@ -113,22 +112,6 @@ export type ScheduleTriggerConfig = {
     | { type: 'at'; datetime: string }
     | { type: 'cron'; expression: string }
   timezone: string
-}
-
-export type RepoEventType = 'created' | 'updated'
-
-/** The trackers a repo task can be imported from. */
-export type RepoEventTrackerProvider = 'github' | 'jira'
-
-// Repo-event trigger wire config (GitHub/Jira issue import events). Shared so
-// producer (src/main/automations/triggers/repo-event.ts) and the renderer
-// editor build/parse it typed, instead of as Record<string, unknown>.
-export type RepoEventTriggerConfig = {
-  kind: typeof REPO_EVENT_TRIGGER_KIND
-  provider?: RepoEventTrackerProvider | 'any'
-  eventTypes?: RepoEventType[]
-  externalKey?: string
-  label?: string
 }
 
 // Webhook trigger wire config. The renderer receives it with `secret` redacted

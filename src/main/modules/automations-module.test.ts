@@ -29,7 +29,6 @@ import { loadMainModules } from '../module-host/load-modules'
 import {
   AgentLaunchServiceToken,
   AutomationsProviderRegistryToken,
-  RepoTaskSourceFrontDoorsToken,
   TerminalRuntimeToken,
   WorkspaceSyncServiceToken,
 } from '../module-host/service-tokens'
@@ -38,7 +37,6 @@ import {
   AUTOMATIONS_PROVIDERS_LIST_CHANNEL,
   AUTOMATIONS_RUN_EVENT_CHANNEL,
 } from '../../shared/automations/contracts'
-import { REPO_EVENT_TRIGGER_KIND } from '../automations/triggers/repo-event'
 import { WEBHOOK_TRIGGER_KIND } from '../automations/triggers/webhook'
 import { broadcastAutomationsRunEvent, createAutomationsModule } from './automations-module'
 
@@ -145,27 +143,6 @@ function fakeAgentRuntimeModule(options: {
           ?? (async () => ({ ok: false, code: 'not_used', message: 'not used in module registration tests' })),
         dispose: () => ({ ok: true, workspaceId: '', agentId: '' }),
       } as never))
-    },
-  }
-}
-
-function fakeRepoTaskSourceModule(): CapabilityModule {
-  return {
-    manifest: {
-      id: 'repo-tasks',
-      displayName: 'Repo tasks',
-      version: 1,
-      defaultEnabled: true,
-      dependsOn: ['agent-runtime'],
-    },
-    registerMain(host) {
-      host.provideService(RepoTaskSourceFrontDoorsToken, () => ({
-        readAllTasks: async (input) => ({
-          ok: true,
-          workspaceRoot: input.workspaceRoot,
-          tasks: [],
-        }),
-      }))
     },
   }
 }
@@ -734,7 +711,6 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
     ipcMain,
     modules: [
       fakeAgentRuntimeModule(),
-      fakeRepoTaskSourceModule(),
       createAutomationsModule(),
     ],
   })
@@ -753,7 +729,6 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
     [
       'schedule',
       WEBHOOK_TRIGGER_KIND,
-      REPO_EVENT_TRIGGER_KIND,
     ]
   )
   assert.deepEqual(

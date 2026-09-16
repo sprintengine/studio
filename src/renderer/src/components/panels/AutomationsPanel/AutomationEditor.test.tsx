@@ -6,11 +6,8 @@ import type {
   AutomationsProviders,
 } from '../../../../../shared/automations/contracts'
 import {
-  EMPTY_REPO_EVENT_FORM,
   EMPTY_WEBHOOK_FORM,
-  buildRepoEventConfig,
   buildWebhookConfig,
-  repoEventFormFromConfig,
   isAuthorableTrigger,
   resolveSubmitTrigger,
   shouldSendWebhookTrigger,
@@ -29,7 +26,6 @@ function triggerForm(overrides: Partial<SubmitTriggerForm>): SubmitTriggerForm {
     timeLocal: '09:00',
     daysOfWeek: [1, 2, 3, 4, 5],
     atDatetime: '',
-    repoEvent: { ...EMPTY_REPO_EVENT_FORM },
     webhook: { ...EMPTY_WEBHOOK_FORM },
     ...overrides,
   }
@@ -90,19 +86,8 @@ assert.match(markup, /<button[^>]*disabled=""[^>]*>Create automation/u, 'blocked
 console.log('AutomationEditor blocked-provider render tests passed')
 
 // ---------------------------------------------------------------------------
-// Config-build unit tests (T4 AC#5) — pure repo-event / webhook drafts.
+// Config-build unit tests (T4 AC#5) — pure webhook drafts.
 // ---------------------------------------------------------------------------
-
-assert.deepEqual(
-  buildRepoEventConfig({ provider: 'github', eventTypes: ['created', 'updated'], externalKey: 'PROJ-1', label: 'My source' }),
-  { kind: 'repo-event', provider: 'github', eventTypes: ['created', 'updated'], externalKey: 'PROJ-1', label: 'My source' },
-  'repo-event config carries provider, event types, key and label',
-)
-assert.deepEqual(
-  buildRepoEventConfig({ ...EMPTY_REPO_EVENT_FORM }),
-  { kind: 'repo-event', provider: 'any' },
-  'an empty repo-event omits optional fields and defaults provider to any',
-)
 
 assert.deepEqual(
   buildWebhookConfig({ enabled: true, port: '8765', path: 'deploy', secret: 'x'.repeat(20), hasSecret: false, eventType: 'push', label: 'Deploy' }),
@@ -158,15 +143,6 @@ console.log('AutomationEditor webhook-secret rule tests passed')
 // Round-trip without conversion (T4 AC#4) — load → form → build reproduces the
 // trigger for every family; a loaded cron schedule stays verbatim.
 // ---------------------------------------------------------------------------
-
-// repo-event: seed the form from the loaded config, rebuild, expect the same.
-const repoEventTrigger = {
-  kind: 'repo-event',
-  config: { kind: 'repo-event', provider: 'github', eventTypes: ['created'], externalKey: 'PROJ-9', label: 'Issues' },
-}
-const repoForm = triggerForm({ triggerKind: 'repo-event', repoEvent: repoEventFormFromConfig(repoEventTrigger.config) })
-const repoResolved = resolveSubmitTrigger({ mode: 'edit', definition: definition(repoEventTrigger) }, repoForm, 'UTC')
-assert.deepEqual(repoResolved, repoEventTrigger, 'repo-event round-trips through edit unchanged')
 
 // webhook: the redacted config (hasSecret, no secret) rebuilds without a secret;
 // the trigger is equivalent so the patch is omitted and the stored secret kept.
@@ -240,10 +216,9 @@ console.log('AutomationEditor trigger round-trip tests passed')
 // family is disabled with its reason; cron stays read-only.
 // ---------------------------------------------------------------------------
 
-const repoEventProviders: AutomationsProviders = {
+const familyProviders: AutomationsProviders = {
   triggers: [
     { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'repo-event', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: ['module:repo-tasks'], missingIntegrations: [] },
     { kind: 'webhook', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
   ],
   actions: [{
@@ -255,41 +230,10 @@ const repoEventProviders: AutomationsProviders = {
   }],
 }
 
-const repoEventMarkup = renderToStaticMarkup(
-  <AutomationEditor
-    editor={{ mode: 'edit', definition: definition(repoEventTrigger) }}
-    providers={repoEventProviders}
-    workspaceRoot="/tmp/multicode-automation-editor"
-    onCancel={() => {}}
-    onSaved={() => {}}
-  />,
-)
-assert.match(repoEventMarkup, /Event types/, 'repo-event renders its authoring fields')
-assert.doesNotMatch(repoEventMarkup, /Editing this trigger type isn.t supported yet/, 'repo-event is now editable, not read-only')
-
-// repo-event absent from providers.triggers entirely — shown, not hidden.
-const noRepoEventProviders: AutomationsProviders = {
-  triggers: [
-    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'webhook', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-  ],
-  actions: repoEventProviders.actions,
-}
-const unavailableRepoMarkup = renderToStaticMarkup(
-  <AutomationEditor
-    editor={{ mode: 'edit', definition: definition(repoEventTrigger) }}
-    providers={noRepoEventProviders}
-    workspaceRoot="/tmp/multicode-automation-editor"
-    onCancel={() => {}}
-    onSaved={() => {}}
-  />,
-)
-assert.match(unavailableRepoMarkup, /needs a module that syncs GitHub or Jira issues/, 'an unavailable repo-event family shows its reason inline')
-
 const webhookMarkup = renderToStaticMarkup(
   <AutomationEditor
     editor={{ mode: 'edit', definition: definition(webhookTrigger) }}
-    providers={repoEventProviders}
+    providers={familyProviders}
     workspaceRoot="/tmp/multicode-automation-editor"
     onCancel={() => {}}
     onSaved={() => {}}
@@ -302,7 +246,7 @@ assert.match(webhookMarkup, /x-multicode-signature/, 'webhook shows the HMAC sig
 const cronMarkup = renderToStaticMarkup(
   <AutomationEditor
     editor={{ mode: 'edit', definition: definition(cronTrigger) }}
-    providers={repoEventProviders}
+    providers={familyProviders}
     workspaceRoot="/tmp/multicode-automation-editor"
     onCancel={() => {}}
     onSaved={() => {}}
