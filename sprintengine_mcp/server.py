@@ -26,6 +26,7 @@ from sprintengine_core.role_registry import (
     RegistryWarning,
     RoleManifest,
     SkillDocument,
+    SOUL_GET_MCP_DEPRECATED,
     SoulRenderError,
     active_workspace_root,
     discover_role_registry,
@@ -305,6 +306,7 @@ class SprintEngineMcpServer:
         if tool_name in {
             "sprintengine.roles.list",
             "sprintengine.roles.get",
+            "sprintengine.roles.brief",
             "sprintengine.soul.get",
             "sprintengine.skills.list",
             "sprintengine.skill.get",
@@ -698,7 +700,7 @@ class SprintEngineMcpServer:
             except KeyError as exc:
                 raise McpToolError("unknown_role", str(exc)) from exc
             return {"ok": True, "role": _role_payload(entry, include_shadowed=True), "warnings": _warning_payloads(registry.warnings)}
-        if tool_name == "sprintengine.soul.get":
+        if tool_name in {"sprintengine.roles.brief", "sprintengine.soul.get"}:
             run_id = str(payload.get("runId") or "")
             try:
                 rendered = registry.render_soul(str(payload["roleId"]), workspace_root=workspace_root, run_id=run_id)
@@ -706,12 +708,15 @@ class SprintEngineMcpServer:
                 raise McpToolError("unknown_role", str(exc)) from exc
             except SoulRenderError as exc:
                 raise McpToolError("soul_render_failed", str(exc), {"warnings": _warning_payloads(exc.warnings)}) from exc
-            return {
+            result = {
                 "ok": True,
                 "role": _role_manifest_payload(rendered.role),
                 "soul": {"content": rendered.content, "contentLength": len(rendered.content)},
                 "warnings": _warning_payloads(rendered.warnings),
             }
+            if tool_name == "sprintengine.soul.get":
+                result["deprecated"] = SOUL_GET_MCP_DEPRECATED
+            return result
         if tool_name == "sprintengine.skills.list":
             include_body = bool(payload.get("includeBody", False))
             skills = [_skill_payload(entry, include_body=include_body) for _, entry in sorted(registry.skills.items())]

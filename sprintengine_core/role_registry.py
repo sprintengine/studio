@@ -57,6 +57,18 @@ MISSING_ROLE_REMEDIES = (
     "or add a role skill to your skills folder (~/.multicode/skills)."
 )
 
+# `sprintengine.soul.get` / `soul get` stay registered until this Studio
+# release, then they go. Recorded 2026-09-16 (MC-2508, one-release alias).
+SOUL_GET_REMOVAL_RELEASE = "0.5.0"
+SOUL_GET_MCP_DEPRECATED = (
+    "sprintengine.soul.get is deprecated; use sprintengine.roles.brief. "
+    f"Removed in SprintEngine Studio {SOUL_GET_REMOVAL_RELEASE}."
+)
+SOUL_GET_CLI_DEPRECATED = (
+    "sprintengine soul get is deprecated; use sprintengine roles brief. "
+    f"Removed in SprintEngine Studio {SOUL_GET_REMOVAL_RELEASE}."
+)
+
 
 def normalize_role_id(value: str) -> str:
     return value.strip().lower().replace("-", "_")

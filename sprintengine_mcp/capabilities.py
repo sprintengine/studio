@@ -75,6 +75,7 @@ AGENT_COMMON_TOOLS: frozenset[str] = frozenset({
     "sprintengine.run.get",
     "sprintengine.run.policy.get",
     "sprintengine.run.subscribe",
+    "sprintengine.roles.brief",
     "sprintengine.soul.get",
     "sprintengine.skill.get",
     "sprintengine.skills.list",

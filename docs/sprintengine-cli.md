@@ -105,29 +105,17 @@ path — `publish` and `advance` are.
 
 ## Roles
 
-Sprint Engine roles are registry-backed. Active role validation resolves role
-ids and aliases through the Sprint Engine role registry at command time rather
-than through a hardcoded runtime enum. The registry search path supports
-workspace-local `.sprintengine/{roles,skills}/`, plugin-scoped Sprint Engine
-registry folders, and user registry folders — where the app installs the
-specialist pack shipped in `resources/specialist-pack/{roles,skills}/`. The
-bundled layer under `resources/sprintengine/` carries skills only; there is no
-bundled `roles/` directory.
+Sprint Engine roles are skills. Active role validation resolves a role id — in
+either spelling, `spec_reviewer` or `spec-reviewer` — by reading the workspace's
+harness skill directories, then the bundled workflow-roles pack. A skill whose
+frontmatter carries `metadata.sprintengine-role` is a role. Dropped legacy
+aliases (`qa-test` and the rest) do not resolve: they produce the missing-role
+state naming the spelling that failed.
 
-A role manifest (`sprintengine_core/role_registry.py`) is `id`, `label`,
-`aliases`, optional `description`/`icon`, and a required `directives` object:
-
-- `directives.implement` — the ordered `{ "skill": "<id>" }` entries composed
-  into the role's startup brief. Required and non-empty.
-- `directives.<phase>` — optional role-specific additions appended to that
-  phase's shared base pack. The only shipped phase key is `review`; any other
-  key rejects the manifest.
-- The removed keys `soul` and `capabilities` are rejected by name
-  (`REMOVED_MANIFEST_KEYS`): a manifest carrying either is skipped with a
-  `v1_role_manifest` warning that names its `directives` replacement. There is
-  no compatibility shim.
-- The renamed key `summary` is ignored with a `renamed_manifest_key` warning
-  naming `description` (`RENAMED_MANIFEST_KEYS`, MC-1831).
+`sprintengine roles list` reports each role as
+`{ id, label, description, icon, source }`. `source` is the resolved skill file
+(`layer` plus `path`), so a workspace that defines the same role in two harness
+directories shows which copy won.
 
 Sprint Engine routing is driven by run state: the run's `configuredRoles` (the
 roles a task may be tagged with), the per-role `roleRuntimes` binding, and each
@@ -144,31 +132,37 @@ so `--state` is optional and ignored for these command groups.
 sprintengine roles list
 sprintengine roles list --include-shadowed
 sprintengine role get developer
+sprintengine roles brief developer --run-id my-run
 sprintengine soul get developer --run-id my-run
 sprintengine skill list
 sprintengine skill list --include-body
 sprintengine skill get developer
 ```
 
+`sprintengine soul get` is a deprecated alias for `sprintengine roles brief`.
+It still answers, prints a deprecation line to stderr, and is removed in
+SprintEngine Studio 0.5.0.
+
 The JSON payloads match the local MCP registry tools. Role and skill records
-include `source.layer`, and commands that inspect one role or list roles with
-`--include-shadowed` include `shadowedSources` where lower-precedence registry
-entries are hidden by workspace, plugin, user, or bundled precedence. Unknown
-role and skill errors include the known configured ids to make typos and
-missing custom registries easy to diagnose.
+include `source.layer` and `source.path`, and commands that inspect one role or
+list roles with `--include-shadowed` include `shadowedSources` where a later
+harness copy is hidden by first-hit-wins. Unknown role and skill errors include
+the known configured ids to make typos and a missing workflow-roles pack easy
+to diagnose.
 
 The same inspection commands can be routed through the local MCP backend:
 
 ```bash
 sprintengine --backend mcp-local roles list
 sprintengine --backend mcp-local role get developer
+sprintengine --backend mcp-local roles brief developer
 sprintengine --backend mcp-local soul get developer
 sprintengine --backend mcp-local skill list
 sprintengine --backend mcp-local skill get developer
 ```
 
-Plugin registry roots can be supplied to direct inspection commands, the MCP
-backend, or the stdio server:
+`--extra-dir` is still accepted on these commands, the MCP backend, and the
+stdio server, and is ignored: roles come from the workspace's installed skills.
 
 ```bash
 sprintengine roles list --extra-dir ./plugin/.sprintengine
@@ -327,9 +321,9 @@ Current command groups:
 - `join`: receive the role prompt and next directive.
 - `triage`: inspect architect-actionable blockers.
 - `mcp`: `serve` the MCP boundary — local stdio by default, or a local Streamable HTTP server under `--http` with `--host`, `--port` and `--auth-token`.
-- `roles`: list configured registry roles.
+- `roles`: list configured registry roles, or `brief` to render a role's startup brief.
 - `role`: inspect one configured registry role.
-- `soul`: render a role's startup brief from its `directives.implement` skills.
+- `soul`: deprecated alias for `roles brief`. Removed in SprintEngine Studio 0.5.0.
 - `skill`: list or inspect configured registry skills.
 - `task`: `next`, `claim`, `status`, `resolve-input`, `release`,
   `refresh-ready`, `log`, `publish`, `advance`, `note`, `comment` and `list`.

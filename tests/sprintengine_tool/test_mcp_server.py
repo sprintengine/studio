@@ -10,6 +10,7 @@ import urllib.error
 import urllib.request
 
 from helpers import REPO_ROOT, create_team, create_workspace_team, get_task, read_state, task, write_state, write_workspace_role
+from sprintengine_core.role_registry import SOUL_GET_MCP_DEPRECATED, SOUL_GET_REMOVAL_RELEASE
 from sprintengine_core.tool.constants import FEEDBACK_COUNT_FIELDS, FEEDBACK_SCORE_FIELDS, FEEDBACK_TEXT_FIELDS
 from sprintengine_mcp import McpRequestContext, SprintEngineMcpServer
 from sprintengine_mcp.auth import ActorContext
@@ -178,6 +179,7 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
         "sprintengine.triage.needs_input",
         "sprintengine.roles.list",
         "sprintengine.roles.get",
+        "sprintengine.roles.brief",
         "sprintengine.soul.get",
         "sprintengine.skills.list",
         "sprintengine.skill.get",
@@ -223,6 +225,11 @@ def test_mcp_tool_schemas_cover_swarm_command_groups() -> None:
     listed = SprintEngineMcpServer().list_tools()
     assert {tool["name"] for tool in listed} == expected
     assert all("inputSchema" in tool for tool in listed)
+    # One object, two names: a later edit to one advertised schema cannot leave
+    # the other behind.
+    assert TOOL_SCHEMAS["sprintengine.roles.brief"] is TOOL_SCHEMAS["sprintengine.soul.get"]
+    listed_by_name = {tool["name"]: tool for tool in listed}
+    assert listed_by_name["sprintengine.roles.brief"]["inputSchema"] is listed_by_name["sprintengine.soul.get"]["inputSchema"]
 
 
 def test_mcp_contract_registry_covers_schemas_and_payload_adapters(tmp_path) -> None:
@@ -317,6 +324,7 @@ def test_mcp_v1_contract_schemas_include_planned_lifecycle_tools() -> None:
         "sprintengine.triage.needs_input",
         "sprintengine.roles.list",
         "sprintengine.roles.get",
+        "sprintengine.roles.brief",
         "sprintengine.soul.get",
         "sprintengine.skills.list",
         "sprintengine.skill.get",
@@ -1122,6 +1130,15 @@ def test_mcp_join_and_soul_get_name_a_dropped_alias(tmp_path) -> None:
     assert "workflow-roles" in soul["error"]["message"]
     assert "Known roles:" in soul["error"]["message"]
 
+    brief = server.call_tool(
+        "sprintengine.roles.brief",
+        {"workspaceRoot": str(tmp_path), "roleId": "qa-test"},
+        actor_user,
+    )
+    assert brief["ok"] is False
+    assert brief["error"]["code"] == "unknown_role"
+    assert brief["error"]["message"] == soul["error"]["message"]
+
 
 def test_mcp_agent_join_response_contains_no_cli_command_strings(tmp_path) -> None:
     """Regression: agent.join must instruct via MCP tools only.
@@ -1447,6 +1464,90 @@ def test_mcp_registry_discovery_returns_roles_skills_brief_and_warnings(tmp_path
     assert soul["ok"] is True
     assert soul["result"]["soul"]["content"].startswith("<soul-legend>")
     assert '<skill name="writer">\nDraft for writer in run-123.\n</skill>' in soul["result"]["soul"]["content"]
+
+
+def test_soul_get_alias_still_answers_and_warns_deprecated(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    write_workspace_role(workspace, "writer", label="Writer", body="Draft for {{role}} in {{run_id}}.")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    actor_user = actor("workspace-user", "user")
+    payload = {"workspaceRoot": str(workspace), "roleId": "writer", "runId": "run-123"}
+
+    brief = server.call_tool("sprintengine.roles.brief", payload, actor_user)
+    soul = server.call_tool("sprintengine.soul.get", payload, actor_user)
+
+    assert brief["ok"] is True
+    assert soul["ok"] is True
+    assert brief["result"]["soul"]["content"] == soul["result"]["soul"]["content"]
+    assert brief["result"]["soul"]["contentLength"] == soul["result"]["soul"]["contentLength"]
+    assert "deprecated" not in brief["result"]
+    assert soul["result"]["deprecated"] == SOUL_GET_MCP_DEPRECATED
+    assert "sprintengine.roles.brief" in soul["result"]["deprecated"]
+    assert SOUL_GET_REMOVAL_RELEASE in soul["result"]["deprecated"]
+
+    listed = {tool["name"]: tool for tool in server.list_tools()}
+    assert "sprintengine.roles.brief" in listed
+    assert listed["sprintengine.soul.get"]["description"].startswith("Deprecated:")
+    assert "sprintengine.roles.brief" in listed["sprintengine.soul.get"]["description"]
+    assert SOUL_GET_REMOVAL_RELEASE in listed["sprintengine.soul.get"]["description"]
+
+
+def test_soul_get_accepts_and_ignores_plugin_registry_roots(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    write_workspace_role(workspace, "writer", body="Writer brief.")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    soul = server.call_tool(
+        "sprintengine.soul.get",
+        {
+            "workspaceRoot": str(workspace),
+            "roleId": "writer",
+            "pluginRegistryRoots": [{"id": "writer-plugin", "root": str(tmp_path / "missing")}],
+            "extraDirs": [str(tmp_path / "also-missing")],
+        },
+        actor("workspace-user", "user"),
+    )
+
+    assert soul["ok"] is True
+    assert "Writer brief." in soul["result"]["soul"]["content"]
+    assert soul["result"]["deprecated"] == SOUL_GET_MCP_DEPRECATED
+
+
+def test_roles_brief_and_soul_get_resolve_either_spelling(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    write_workspace_role(workspace, "spec_reviewer", body="Spec reviewer brief.")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+    actor_user = actor("workspace-user", "user")
+
+    for role_id in ("spec_reviewer", "spec-reviewer"):
+        for tool_name in ("sprintengine.roles.brief", "sprintengine.soul.get"):
+            result = server.call_tool(
+                tool_name,
+                {"workspaceRoot": str(workspace), "roleId": role_id},
+                actor_user,
+            )
+            assert result["ok"] is True, (tool_name, role_id)
+            assert "Spec reviewer brief." in result["result"]["soul"]["content"]
+
+
+def test_roles_list_reports_the_winning_harness_path(tmp_path) -> None:
+    workspace = tmp_path / "workspace"
+    claude_path = write_workspace_role(workspace, "architect", body="Claude copy.", harness=".claude")
+    write_workspace_role(workspace, "architect", body="Agents copy.", harness=".agents")
+    server = SprintEngineMcpServer(allowed_roots=[tmp_path])
+
+    listed = server.call_tool(
+        "sprintengine.roles.list",
+        {"workspaceRoot": str(workspace)},
+        actor("workspace-user", "user"),
+    )
+
+    assert listed["ok"] is True
+    architect = next(role for role in listed["result"]["roles"] if role["id"] == "architect")
+    for key in ("id", "label", "description", "icon", "source"):
+        assert key in architect
+    assert architect["source"]["path"] == str(claude_path)
+    assert ".claude/skills" in architect["source"]["path"].replace("\\", "/")
 
 
 def test_mcp_registry_discovery_ignores_plugin_registry_roots(tmp_path) -> None:

@@ -7,6 +7,7 @@ import sys
 from pathlib import Path
 
 from helpers import REPO_ROOT, create_team, create_workspace_team, get_task, read_state, task, write_state, write_workspace_role
+from sprintengine_core.role_registry import SOUL_GET_CLI_DEPRECATED, SOUL_GET_REMOVAL_RELEASE
 
 MCP_USER_ID_ENV = "SPRINTENGINE_MCP_USER_ID"
 MCP_USER_AUTHORIZED_ENV = "SPRINTENGINE_MCP_USER_AUTHORIZED"
@@ -313,13 +314,17 @@ def test_mcp_backend_registry_inspection_commands_work_from_custom_workspace(tmp
 
     roles = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "roles", "list"], workspace, env=env))
     role = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "role", "get", "marketer"], workspace, env=env))
+    brief = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "roles", "brief", "marketer"], workspace, env=env))
     soul = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "soul", "get", "marketer"], workspace, env=env))
     skills = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "skill", "list"], workspace, env=env))
     skill = parse_stdout_json(run_swarm_in_cwd(["--backend", "mcp-local", "skill", "get", "marketer"], workspace, env=env))
 
     assert any(entry["id"] == "marketer" and entry["source"]["layer"] == "workspace" for entry in roles["roles"])
     assert role["role"]["id"] == "marketer"
+    assert brief["role"]["id"] == "marketer"
+    assert brief["soul"]["content"] == soul["soul"]["content"]
     assert soul["role"]["id"] == "marketer"
+    assert "deprecated" in soul
     assert any(entry["id"] == "marketer" for entry in skills["skills"])
     assert skill["skill"]["id"] == "marketer"
 
@@ -337,6 +342,38 @@ def test_mcp_backend_soul_get_unknown_role_error_includes_known_ids() -> None:
     assert "Unknown role 'not-a-role'" in soul.stderr
     assert "Known roles:" in soul.stderr
     assert "developer" in soul.stderr
+
+
+def test_sprintengine_roles_brief_matches_soul_get_and_warns_deprecated() -> None:
+    brief = run_swarm(["roles", "brief", "architect"])
+    soul = run_swarm(["soul", "get", "architect"])
+
+    assert brief.returncode == 0, brief.stderr
+    assert soul.returncode == 0, soul.stderr
+    assert brief.stdout == soul.stdout
+    assert SOUL_GET_CLI_DEPRECATED in soul.stderr
+    assert SOUL_GET_REMOVAL_RELEASE in soul.stderr
+    assert SOUL_GET_CLI_DEPRECATED not in brief.stderr
+    payload = json.loads(brief.stdout)
+    assert payload["ok"] is True
+    assert payload["role"]["id"] == "architect"
+    assert payload["soul"]["content"]
+
+
+def test_sprintengine_roles_brief_resolves_either_spelling_and_rejects_dropped_alias() -> None:
+    hyphen = parse_stdout_json(run_swarm(["roles", "brief", "spec-reviewer"]))
+    underscore = parse_stdout_json(run_swarm(["soul", "get", "spec_reviewer"]))
+    assert hyphen["soul"]["content"] == underscore["soul"]["content"]
+    assert hyphen["role"]["id"] == "spec_reviewer"
+
+    missing_brief = run_swarm(["roles", "brief", "qa-test"])
+    missing_soul = run_swarm(["soul", "get", "qa-test"])
+    assert missing_brief.returncode != 0
+    assert missing_soul.returncode != 0
+    assert "Unknown role 'qa-test'" in missing_brief.stderr
+    assert "Unknown role 'qa-test'" in missing_soul.stderr
+    assert "no skill declaring it is installed" in missing_brief.stderr
+    assert SOUL_GET_CLI_DEPRECATED in missing_soul.stderr
 
 
 def test_mcp_backend_task_advance_uses_the_advance_lifecycle_tool(tmp_path) -> None:

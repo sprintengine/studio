@@ -544,9 +544,12 @@ def test_worker_tool_listing_stays_under_byte_budget(tmp_path) -> None:
     # that back; MC-1591 deleting the roster-growth/dispatch tools bought more
     # (measured ~25.5k), so the ceiling ratcheted from 28k to 26k. MC-1671 adds one
     # agent-common tool (`vcs.request_repo`, ~0.5k), a real new capability every
-    # worker needs, nudging it to 27k. It still guards against regression toward the
-    # old ~62k-char full listing.
-    assert serialized < 27_000, f"worker tools/list serialized to {serialized} chars"
+    # worker needs, nudging it to 27k. MC-2508 (2026-09-16) adds `roles.brief`
+    # beside `soul.get` so every worker can fetch a role brief under the new
+    # name (~0.7k), the same argued-new-tool exception as MC-1671, nudging it
+    # to 28k. It still guards against regression toward the old ~62k-char
+    # full listing.
+    assert serialized < 28_000, f"worker tools/list serialized to {serialized} chars"
     full_listing = len(json.dumps(server.list_tools(None)))
     assert serialized < full_listing
 
