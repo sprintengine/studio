@@ -9,17 +9,9 @@ import { isSupportedMobileControlProtocolVersion } from '../../../../packages/mo
 
 const MOBILE_CONTROL_CAPABILITIES = [
   'snapshots.read',
-  'artifacts.read',
-  'sprintengines.create',
-  'tasks.start',
-  'artifacts.review',
-  'agents.followUp',
   'devices.revoke',
   'backlog.update',
-  'backlog.start',
   'backlog.create',
-  'sprintengines.pr',
-  'sprintengines.automation',
   'automations.control',
 ] as const satisfies readonly MobileControlCapability[]
 

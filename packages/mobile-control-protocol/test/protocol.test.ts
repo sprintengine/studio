@@ -19,15 +19,15 @@ const now = "2026-04-28T19:00:00.000Z";
 const validCommand: MobileControlCommand = {
   protocolVersion: mobileControlProtocolVersion,
   commandId: "cmd_1",
-  type: "artifact.requestChanges",
+  type: "backlog.update",
   issuedAt: now,
   deviceId: "device_1",
   idempotencyKey: "mobile:device_1:cmd_1",
   expectedSnapshotVersion: "snap_1",
   payload: {
-    sprintEngineId: "mobile-sprintengine-companion-integration",
-    artifactId: "A1",
-    feedback: "Clarify the acceptance criteria.",
+    workspacePath: "ws_multicode",
+    relativePath: "backlog/2026-04-28-example.md",
+    status: "in_progress",
   },
 };
 
@@ -38,116 +38,12 @@ const validSnapshot: MobileControlSnapshot = {
   snapshotVersion: "snap_root_1",
   commands: [
     "snapshot.request",
-    "artifact.read",
-    "sprintengine.create",
-    "task.start",
-    "artifact.approve",
-    "artifact.requestChanges",
-    "agent.followUp",
     "device.revoke",
-  ],
-  sprintEngines: [
-    {
-      sprintEngineId: "mobile-sprintengine-companion-integration",
-      name: "Mobile Sprint Engine Companion Integration",
-      workspacePath: "/workspace/multicode",
-      statePath: "/workspace/multicode/.sprintengine/sprintengine/state.yaml",
-      planPath: "/workspace/multicode/.sprintengine/sprintengine/plan.md",
-      snapshotVersion: "snap_1",
-      updatedAt: now,
-      board: {
-        todo: 1,
-        ready: 2,
-        inProgress: 3,
-        review: 0,
-        needsInput: 0,
-        done: 4,
-      },
-      tasks: [
-        {
-          taskId: "T3",
-          title: "Define shared mobile-control protocol",
-          role: "developer",
-          status: "in_progress",
-          ownerAgentId: "developer-2",
-          dependsOn: ["T1"],
-          latestComments: [
-            {
-              id: "C1",
-              type: "implementation_summary",
-              actor: "developer-2",
-              authorRole: "developer",
-              body: "Implemented the bridge update.",
-              createdAt: now,
-            },
-          ],
-          latestOpenFeedback: [
-            {
-              id: "C2",
-              type: "review_feedback",
-              actor: "security",
-              authorRole: "security",
-              body: "Add one regression test.",
-              createdAt: now,
-            },
-          ],
-          recordedArtifacts: [
-            {
-              id: "R1",
-              kind: "code_review",
-              title: "Code review",
-              path: ".sprintengine/sprintengine/team/reviews/code-review.md",
-              createdAt: now,
-            },
-          ],
-        },
-      ],
-      artifacts: [
-        {
-          artifactId: "A2",
-          title: "Architect Plan",
-          kind: "architect_plan",
-          status: "approved",
-          taskId: "T1",
-          path: ".sprintengine/sprintengine/mobile-sprintengine-companion-integration/plan.md",
-        },
-      ],
-    },
+    "backlog.update",
+    "backlog.create",
+    "automations.control",
   ],
   workspaces: [
-    {
-      workspaceId: "mobile-sprintengine-companion-integration",
-      kind: "sprintengine",
-      name: "Mobile Sprint Engine Companion Integration",
-      workspacePath: "/workspace/multicode",
-      statePath: "/workspace/multicode/.sprintengine/sprintengine/state.yaml",
-      updatedAt: now,
-      capabilities: ["summary.read", "detail.read", "logs.read"],
-      detailVersion: mobileControlWorkspaceSnapshotVersion,
-      summary: {
-        status: "running",
-        headline: "2 ready, 0 needs input",
-        counts: {
-          ready: 2,
-          needsInput: 0,
-        },
-      },
-      detail: {
-        kind: "sprintengine",
-        data: {
-          sprintEngineId: "mobile-sprintengine-companion-integration",
-          snapshotVersion: "snap_1",
-          board: {
-            todo: 1,
-            ready: 2,
-            inProgress: 3,
-            review: 0,
-            needsInput: 0,
-            done: 4,
-          },
-        },
-      },
-    },
     {
       workspaceId: "switchboard-main",
       kind: "switchboard",
@@ -272,23 +168,97 @@ const validSnapshot: MobileControlSnapshot = {
   ],
 };
 
-const validTaskStartCommand: MobileControlCommand = {
+const validAutomationsControlCommand: MobileControlCommand = {
   protocolVersion: mobileControlProtocolVersion,
-  commandId: "cmd_task_start",
-  type: "task.start",
+  commandId: "cmd_automations_control",
+  type: "automations.control",
   issuedAt: now,
   deviceId: "device_1",
   payload: {
-    sprintEngineId: "mobile-sprintengine-companion-integration",
-    taskId: "T3",
-    role: "developer",
-    worktreeIsolation: "preferred",
+    workspacePath: "ws_multicode",
+    automationId: "auto_1",
+    action: "runNow",
   },
 };
 
 assert.equal(validateMobileControlCommand(validCommand).ok, true);
-assert.equal(validateMobileControlCommand(validTaskStartCommand).ok, true);
+assert.equal(validateMobileControlCommand(validAutomationsControlCommand).ok, true);
 assert.equal(validateMobileControlSnapshot(validSnapshot).ok, true);
+
+// ── The Sprint Engine is off the wire (protocol v3) ──────────────────────────
+//
+// This block is the inverse of what this file asserted at v2, and deliberately
+// so. `sprintEngines` was a REQUIRED member of the snapshot, the nine sprint
+// commands were valid command types, and `sprintengine` was a workspace kind.
+// The desktop stopped being able to serve any of it when the Sprint Engine left
+// the app as a module (MC-2575), and kept emitting the empty shapes only because
+// a paired phone demanded them. Pre-release there is no such phone, so the
+// shapes are gone rather than hollowed out, and what used to pass must now fail.
+
+// `sprintEngines` is not merely optional now — there is no such collection. A
+// snapshot that omits it is the ORDINARY snapshot, which is the whole point:
+// requiring it is what would have broken every read on the phone.
+assert.equal(
+  "sprintEngines" in validSnapshot,
+  false,
+  "the wire snapshot no longer declares a sprintEngines collection",
+);
+assert.equal(validateMobileControlSnapshot(validSnapshot).ok, true);
+
+for (const retired of [
+  "sprintengine.create",
+  "task.start",
+  "artifact.read",
+  "artifact.approve",
+  "artifact.requestChanges",
+  "agent.followUp",
+  "backlog.startSprintEngine",
+  "sprintengine.openPullRequest",
+  "sprintengine.setAutomationMode",
+]) {
+  assertInvalid(
+    `retired sprint command ${retired}`,
+    validateMobileControlCommand({ ...validCommand, type: retired, payload: {} }),
+  );
+}
+
+for (const retired of [
+  "artifacts.read",
+  "sprintengines.create",
+  "tasks.start",
+  "artifacts.review",
+  "agents.followUp",
+  "backlog.start",
+  "sprintengines.pr",
+  "sprintengines.automation",
+]) {
+  assertInvalid(
+    `retired sprint capability ${retired}`,
+    validateMobileControlCapabilities({
+      protocolVersion: mobileControlProtocolVersion,
+      deviceId: "device_1",
+      commands: ["snapshot.request"],
+      capabilities: [retired],
+      snapshotTtlMs: 15000,
+    }),
+  );
+}
+
+assertInvalid(
+  "retired sprintengine workspace kind",
+  validateMobileControlSnapshot({
+    ...validSnapshot,
+    workspaces: [{ ...validSnapshot.workspaces![0], kind: "sprintengine" }],
+  }),
+);
+
+// The version stamp, not a field check, is what keeps a v2 payload out. A phone
+// built against v2 is refused at the door rather than part-way through a shape
+// this build no longer has a reader for.
+assertInvalid(
+  "a v2 snapshot",
+  validateMobileControlSnapshot({ ...validSnapshot, protocolVersion: 2 as never }),
+);
 
 // ── The protocol version window ──────────────────────────────────────────────
 //
@@ -346,11 +316,10 @@ assertInvalid("unknown command type", validateMobileControlCommand({ ...validCom
 assertInvalid(
   "missing command payload field",
   validateMobileControlCommand({
-    ...validTaskStartCommand,
+    ...validAutomationsControlCommand,
     payload: {
-      sprintEngineId: "mobile-sprintengine-companion-integration",
-      taskId: "T3",
-      role: "developer",
+      workspacePath: "ws_multicode",
+      automationId: "auto_1",
     },
   }),
 );
@@ -359,21 +328,20 @@ assertInvalid(
   validateMobileControlCommand({
     ...validCommand,
     payload: {
-      sprintEngineId: "mobile-sprintengine-companion-integration",
-      artifactId: "A1",
+      workspacePath: "ws_multicode",
     },
   }),
 );
 assertInvalid(
-  "invalid snapshot board count",
+  "invalid workspace summary count",
   validateMobileControlSnapshot({
     ...validSnapshot,
-    sprintEngines: [
+    workspaces: [
       {
-        ...validSnapshot.sprintEngines[0],
-        board: {
-          ...validSnapshot.sprintEngines[0].board,
-          ready: -1,
+        ...validSnapshot.workspaces![0],
+        summary: {
+          ...validSnapshot.workspaces![0].summary,
+          counts: { inbox: -1 },
         },
       },
     ],
@@ -397,9 +365,11 @@ assertInvalid(
     ...validSnapshot,
     workspaces: [
       {
+        // A switchboard workspace carrying a watchtower detail. `sprintengine`
+        // was the mismatching kind here until v3 removed it from the union.
         ...validSnapshot.workspaces![0],
         detail: {
-          kind: "switchboard",
+          kind: "watchtower",
           data: {},
         },
       },
@@ -412,7 +382,7 @@ assertInvalid(
     ...validSnapshot,
     workspaces: [
       {
-        ...validSnapshot.workspaces![1],
+        ...validSnapshot.workspaces![0],
         detail: {
           kind: "switchboard",
           data: {
@@ -442,26 +412,32 @@ assertInvalid(
   validateMobileControlCapabilities({
     protocolVersion: mobileControlProtocolVersion,
     deviceId: "device_1",
-    commands: ["artifact.approve", "terminal.write"],
+    commands: ["backlog.update", "terminal.write"],
     capabilities: ["snapshots.read"],
-    artifactPreviewModes: ["text"],
-    maxFollowUpCharacters: 1000,
     snapshotTtlMs: 15000,
   }),
 );
 assertInvalid(
-  "invalid task dependency list",
+  "invalid switchboard evidence count",
   validateMobileControlSnapshot({
     ...validSnapshot,
-    sprintEngines: [
+    workspaces: [
       {
-        ...validSnapshot.sprintEngines[0],
-        tasks: [
-          {
-            ...validSnapshot.sprintEngines[0].tasks[0],
-            dependsOn: ["T1", 42],
+        ...validSnapshot.workspaces![0],
+        detail: {
+          kind: "switchboard",
+          data: {
+            evidence: [
+              {
+                taskId: "task_1",
+                artifactCount: -1,
+                commandCount: 2,
+                touchedFileCount: 3,
+                updatedAt: now,
+              },
+            ],
           },
-        ],
+        },
       },
     ],
   }),
@@ -485,8 +461,6 @@ assertInvalid(
     deviceId: "device_1",
     commands: ["snapshot.request"],
     capabilities: ["terminal.write"],
-    artifactPreviewModes: ["text"],
-    maxFollowUpCharacters: 1000,
     snapshotTtlMs: 15000,
   }),
 );

@@ -25,18 +25,9 @@ import {
 // here is a compile error.
 const RELAY_COMMAND_TYPES: Record<RelayCommandType, true> = {
   'snapshot.request': true,
-  'artifact.read': true,
-  'sprintengine.create': true,
-  'task.start': true,
-  'artifact.approve': true,
-  'artifact.requestChanges': true,
-  'agent.followup': true,
   'device.revoke': true,
   'backlog.update': true,
-  'backlog.startSprintEngine': true,
   'backlog.create': true,
-  'sprintengine.openPullRequest': true,
-  'sprintengine.setAutomationMode': true,
   'automations.control': true,
 }
 

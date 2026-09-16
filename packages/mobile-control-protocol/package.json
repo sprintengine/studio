@@ -1,6 +1,6 @@
 {
   "name": "@sprintengine/mobile-control-protocol",
-  "version": "2.0.0",
+  "version": "3.0.0",
   "description": "The mobile-control wire protocol spoken between SprintEngine Studio on the desktop and the SprintEngine companion phone app: command, event and snapshot types, the runtime validators that guard them, and the protocol version window.",
   "license": "MIT",
   "type": "module",

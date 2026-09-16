@@ -79,8 +79,8 @@ The mobile protocol is the one wire that ships as a package —
 one: `mobileControlProtocolVersion`, the integer on the wire, and the package's
 npm semver.
 
-**The npm major is the wire version.** `mobileControlProtocolVersion` is 2, so
-the package is `2.x.y`. Bumping the wire to 3 means publishing `3.0.0`.
+**The npm major is the wire version.** `mobileControlProtocolVersion` is 3, so
+the package is `3.x.y`. Bumping the wire to 4 means publishing `4.0.0`.
 
 This is not a naming convention dressed up as policy. A wire bump changes which
 peers are refused at the handshake — the one thing every consumer of this package
@@ -132,7 +132,11 @@ If your change alters anything that crosses either wire, do all of this:
    examples are in `src/main/automation/tailnet-peers.test.ts`,
    `src/main/automation/tailnet-fleet-reachability.test.ts` and
    `src/main/mobile/bridge/validation.test.ts`.
-5. **Mirror the mobile protocol module, and publish it.** The module now lives
+5. **Mirror the mobile protocol module, and publish it.** Note that each repo's
+   pin hashes only its OWN copy, so the two constants have to be set to the same
+   value by hand — a pin left at its old value in one repo does not fail there,
+   it just stops comparing the two files, which is how the copies came to differ
+   by an optional `rolesUnavailable` field before v3 found it. The module now lives
    in `packages/mobile-control-protocol` and is published as
    `@sprintengine/mobile-control-protocol`. Until a released phone build depends
    on that package it still carries its own copy, so
@@ -146,6 +150,41 @@ If your change alters anything that crosses either wire, do all of this:
    migration and the order of operations.
 6. **Update this file**, if what you changed is the policy rather than an
    instance of it.
+
+## Bumps that have happened
+
+### 3 — the Sprint Engine leaves the wire (2026-09-16)
+
+**Breaking, and deliberately so.** `sprintEngines` was a required member of the
+snapshot; the nine sprint commands, the eight sprint capabilities, their relay
+scopes, the role catalogue and the `sprintengine` workspace kind were all wire
+vocabulary. All of it is deleted. `mobileControlProtocolVersion` moved 2 -> 3 and
+the window moved with it, to `[2, 3]`. The package published `3.0.0`.
+
+**Why it could not be additive.** MC-2575 took the Sprint Engine out of the
+desktop as a signed module, and the desktop stopped being able to serve any of
+it. It kept emitting `sprintEngines: []` anyway, and the phone kept demanding
+the key, because removing a required member is not additive: a desktop that
+dropped it while the phone still required it would fail EVERY snapshot read on
+the phone with `invalid_payload`, taking backlog and automations down with the
+runs. Emitting an empty array forever was the right answer while a paired phone
+existed. It also meant the wire carried a large vocabulary — a whole run type
+tree, nine commands, eight capabilities — that nothing on either side could
+produce or act on.
+
+**What made it possible.** Pre-release: no users, no published consumers, no
+paired devices to protect. Both halves — this package and the phone's mirror of
+it — moved in one coordinated change, with both sha256 pins set to the new shared
+hash in that same change.
+
+**Where this departs from step 2 below.** Step 2 says a bump leaves the code that
+reads the previous shape in place for one release, so the window is a grace
+period rather than an outage. That was skipped on purpose here: there is no
+deployed peer to grant grace to, and a retained v2 reader would have been a copy
+of exactly the vocabulary the change exists to delete. The window itself is still
+one version wide and still enforced; nothing reads v2.
+
+`packages/mobile-control-protocol/CHANGELOG.md` has the member-by-member list.
 
 ## What never changes without a bump
 

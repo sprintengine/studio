@@ -19,18 +19,25 @@ import { authorizeRelayCommand } from './relay-auth'
 // pass by construction and prove nothing. This is the assertion side of MC-1499.
 const GRANTED_AT_PAIRING: MobileControlCapability[] = [
   'snapshots.read',
+  'devices.revoke',
+  'backlog.update',
+  'backlog.create',
+  'automations.control',
+]
+
+// The eight capabilities that left with the Sprint Engine (protocol v3). Spelled
+// out as plain strings because they are no longer members of the type — which is
+// the fact this list exists to pin. `isMobileControlCapability` must reject every
+// one: a device still advertising one is speaking a wire this build does not.
+const RETIRED_WITH_THE_SPRINT_ENGINE = [
   'artifacts.read',
   'sprintengines.create',
   'tasks.start',
   'artifacts.review',
   'agents.followUp',
-  'devices.revoke',
-  'backlog.update',
   'backlog.start',
-  'backlog.create',
   'sprintengines.pr',
   'sprintengines.automation',
-  'automations.control',
 ]
 
 void main()
@@ -40,6 +47,7 @@ async function main(): Promise<void> {
   assertDeviceGrantedAutomationsControlIsValid()
   await assertStoreKeepsDeviceGrantedAutomationsControl()
   assertAutomationsControlNeedsItsOwnScope()
+  assertRetiredSprintCapabilitiesAreRefused()
   assertStoredDeviceSurvivesTheProtocolWindow()
   await assertStoreKeepsDeviceStampedOneVersionBack()
   assertPairingLinkFollowsTheSameWindow()
@@ -47,12 +55,16 @@ async function main(): Promise<void> {
 }
 
 // THE SECURITY DECISION THIS COMMAND EXISTS TO MAKE, held on the desktop side.
-// `relay:sprintengine:automation` was the tempting donor scope: every device paired for
-// sprintengine.setAutomationMode already holds it, so reusing it would have meant no
-// re-pair. It was declined — that scope is the Sprint Engine RUN automation mode, a
-// different subsystem, and reusing it would silently grant every already-paired device
-// the power to pause automations and fire agent runs on the desktop. multiauth pins the
-// refusal at the relay; this pins it here, where the capability is actually derived.
+// `relay:sprintengine:automation` was the tempting donor scope: every device paired
+// for sprintengine.setAutomationMode already held it, so reusing it would have
+// meant no re-pair. It was declined — that scope was the Sprint Engine RUN
+// automation mode, a different subsystem, and reusing it would silently have
+// granted every already-paired device the power to fire agent runs here.
+//
+// Protocol v3 removed that scope from the wire, so the donor no longer exists to
+// be reached for. This now pins the general shape of the same decision: no scope
+// other than `relay:automations:control` authorizes the command, and a device
+// that presents one of the retired sprint scopes derives no capability at all.
 function assertAutomationsControlNeedsItsOwnScope(): void {
   const authorize = (scopes: MobileRelayScope[]): string | null => {
     const device = relayAuthenticatedDevice(scopes)
@@ -68,14 +80,42 @@ function assertAutomationsControlNeedsItsOwnScope(): void {
 
   assert.equal(authorize(['relay:automations:control']), null, 'the granted scope must authorize automations.control')
   assert.equal(
-    authorize(['relay:sprintengine:automation']),
+    authorize(['relay:backlog:update']),
     'unauthorized',
-    'the Sprint Engine run-mode scope must NOT authorize automations.control — that is the escape hatch the plan declined'
+    'no other granted scope may authorize automations.control'
+  )
+  assert.equal(
+    authorize(['relay:sprintengine:automation' as MobileRelayScope]),
+    'unauthorized',
+    'the retired Sprint Engine run-mode scope is not merely unmapped, it grants nothing'
+  )
+  assert.deepEqual(
+    relayDeviceCapabilities(relayAuthenticatedDevice(['relay:sprintengine:automation' as MobileRelayScope])),
+    [],
+    'a retired scope derives no capability'
   )
   assert.deepEqual(
     relayDeviceCapabilities(relayAuthenticatedDevice(['relay:automations:control'])),
     ['automations.control']
   )
+}
+
+// The inverse of what this file asserted at v2, and the point of the change: a
+// capability that WAS granted at pairing must now be refused. A device still
+// advertising one is a device built against a wire this desktop no longer speaks.
+function assertRetiredSprintCapabilitiesAreRefused(): void {
+  for (const capability of RETIRED_WITH_THE_SPRINT_ENGINE) {
+    assert.equal(
+      isMobileControlCapability(capability),
+      false,
+      `${capability} left the wire with the Sprint Engine and must no longer validate`
+    )
+    assert.equal(
+      isMobileControlDevice(pairedDevice([capability as MobileControlCapability])),
+      false,
+      `a device advertising ${capability} must not read back as valid`
+    )
+  }
 }
 
 function relayAuthenticatedDevice(scopes: MobileRelayScope[]): MobileRelayAuthenticatedDevice {
