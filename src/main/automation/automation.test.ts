@@ -3985,7 +3985,7 @@ async function testMobileCommandToolDispatchesOnlyTheServedEnvelopes(): Promise<
         },
         dispatchCommand: async (input) => {
           dispatched.push({ type: input.type, deviceId: input.deviceId, idempotencyKey: input.idempotencyKey })
-          if (input.type === 'sprintengine.create') {
+          if ((input.payload as { workspacePath?: string }).workspacePath === 'ws_zzz') {
             return { ok: false as const, code: 'path_not_allowed', message: 'workspace token matched no root' }
           }
           return {
@@ -4016,16 +4016,20 @@ async function testMobileCommandToolDispatchesOnlyTheServedEnvelopes(): Promise<
 
   // Backend refusals surface as tool errors with the backend's own code.
   const refusedByBackend = await reg.handler(
-    { type: 'sprintengine.create', payload: { workspacePath: 'ws_zzz', productPrompt: 'x' }, idempotencyKey: 'idem-2' },
+    { type: 'backlog.update', payload: { workspacePath: 'ws_zzz', relativePath: 'backlog/x.md', status: 'ready' }, idempotencyKey: 'idem-2' },
     { metadata: { kind: 'remote-tailnet', deviceId: 'tnd_phone' } }
   )
   assert.equal(refusedByBackend.isError, true)
   assert.match(JSON.stringify(refusedByBackend.structuredContent), /path_not_allowed/u)
 
-  // A command type outside the served set never reaches the backend.
-  const refusedByTool = await reg.handler({ type: 'device.revoke', payload: {}, idempotencyKey: 'idem-3' })
-  assert.equal(refusedByTool.isError, true)
-  assert.match(JSON.stringify(refusedByTool.structuredContent), /command_not_supported/u)
+  // A command type outside the served set never reaches the backend — including
+  // `sprintengine.create`, which this transport served until the Sprint Engine
+  // left the app (MC-2575).
+  for (const [index, type] of ['device.revoke', 'sprintengine.create'].entries()) {
+    const refusedByTool = await reg.handler({ type, payload: {}, idempotencyKey: `idem-${index + 3}` })
+    assert.equal(refusedByTool.isError, true)
+    assert.match(JSON.stringify(refusedByTool.structuredContent), /command_not_supported/u)
+  }
   assert.equal(dispatched.length, 2)
 }
 

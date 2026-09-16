@@ -1,11 +1,9 @@
 import {
-  MobileSprintEngineCommandService,
+  MobileControlCommandService,
   type MobileControlCommand,
-  type MobileSprintEngineCommandResult,
-} from '../sprintengine/command'
-import type { MobilePushRegistrationTarget } from '../sprintengine/activity'
-import { MobileSprintEngineSnapshotService, type MobileControlSnapshot } from '../sprintengine/snapshot'
-import { validateSprintEngineStatePath } from '../sprintengine/state-path'
+  type MobileControlCommandResult,
+} from '../control/command'
+import { MobileControlSnapshotService, type MobileControlSnapshot } from '../control/snapshot'
 import { getErrorMessage } from '../../error-message'
 import { hashSecret } from './crypto'
 import { getDesktopDisplayName } from './desktop'
@@ -21,10 +19,8 @@ import {
   summarizeCommandResult,
 } from './command-results'
 import { relayCommandTypeToMobile, relayEnvelopeToMobileCommand } from './relay-command'
-import { dispatchArtifactRead } from './artifact-read'
 import { dispatchDeviceRevoke } from './device-revoke'
 import { dispatchSnapshotRequest } from './snapshot-request'
-import { filterToDefaultSnapshotStatePaths } from '../../mobile-sprintengine-discovery'
 import { authorizeRelayCommand } from './relay-auth'
 import { upsertRelayDevice } from './relay-device'
 import { DEFAULT_MOBILE_RELAY_URL } from '../../service-endpoints'
@@ -43,6 +39,7 @@ import {
   registerMobilePushToken,
   revokeMobilePushRegistration,
   revokePushRegistrationsForDevice,
+  type MobilePushRegistrationTarget,
 } from './push'
 
 // The wire's version window is owned by packages/mobile-control-protocol/src/index.ts.
@@ -376,7 +373,6 @@ type DesktopSessionProvider = () => Promise<{
   selectedOrganization?: { id: string } | null
 }>
 type DesktopAccessTokenProvider = () => Promise<string | null>
-type SprintEngineStatePathsProvider = () => Promise<string[]>
 type MobileWorkspaceRootsProvider = () => Promise<string[]>
 
 export type MobileBridgeOptions = {
@@ -384,9 +380,8 @@ export type MobileBridgeOptions = {
   storePath?: string
   accessTokenProvider?: DesktopAccessTokenProvider
   relayTransport?: MobileRelayTransport
-  commandService?: MobileSprintEngineCommandService
-  snapshotService?: MobileSprintEngineSnapshotService
-  statePathsProvider?: SprintEngineStatePathsProvider
+  commandService?: MobileControlCommandService
+  snapshotService?: MobileControlSnapshotService
   workspaceRootsProvider?: MobileWorkspaceRootsProvider
   commandPollIntervalMs?: number
   commandPollCeilingMs?: number
@@ -407,50 +402,33 @@ const DEFAULT_COMMAND_POLL_INTERVAL_MS = 2_000
 // an actively-viewed phone keeps the desktop fast.
 const DEFAULT_COMMAND_POLL_CEILING_MS = 30_000
 const DEFAULT_COMMAND_POLL_ATTENTION_WINDOW_MS = 150_000
+// What this desktop ASKS a phone for at pairing, and what it tells a paired
+// phone it can do. The Sprint Engine's scopes and commands are gone from all
+// three lists (MC-2575): a scope is a privilege, and asking for one the desktop
+// cannot exercise would put a consent prompt in front of someone for something
+// that does not exist. The INBOUND vocabulary is untouched — `RelayCommandType`,
+// `MobileControlCapability` and the protocol's command union all still carry the
+// sprint members, because a phone that predates the cut keeps sending them and
+// the desktop has to read the envelope in order to answer it.
 const REQUESTED_SCOPES: MobileControlCapability[] = [
   'snapshots.read',
-  'artifacts.read',
-  'sprintengines.create',
-  'tasks.start',
-  'artifacts.review',
-  'agents.followUp',
   'devices.revoke',
   'backlog.update',
-  'backlog.start',
   'backlog.create',
-  'sprintengines.pr',
-  'sprintengines.automation',
   'automations.control',
 ]
 const REQUESTED_RELAY_SCOPES: MobileRelayScope[] = [
   'relay:snapshot:read',
-  'relay:artifact:read',
-  'relay:sprintengine:create',
-  'relay:task:start',
-  'relay:artifact:review',
-  'relay:agent:followup',
   'relay:device:revoke',
   'relay:backlog:update',
-  'relay:backlog:start',
   'relay:backlog:create',
-  'relay:sprintengine:pr',
-  'relay:sprintengine:automation',
   'relay:automations:control',
 ]
 const SUPPORTED_COMMANDS: MobileControlCommandType[] = [
   'snapshot.request',
-  'artifact.read',
-  'sprintengine.create',
-  'task.start',
-  'artifact.approve',
-  'artifact.requestChanges',
-  'agent.followUp',
   'device.revoke',
   'backlog.update',
-  'backlog.startSprintEngine',
   'backlog.create',
-  'sprintengine.openPullRequest',
-  'sprintengine.setAutomationMode',
   'automations.control',
 ]
 function normalizeRelayUrlUpdate(value: string | null | undefined): string | null {
@@ -501,9 +479,8 @@ export class MobileBridge {
   private readonly storePathOverride?: string
   private readonly accessTokenProvider: DesktopAccessTokenProvider
   private readonly relayTransport: MobileRelayTransport
-  private readonly commandService: MobileSprintEngineCommandService
-  private readonly snapshotService: MobileSprintEngineSnapshotService
-  private readonly statePathsProvider: SprintEngineStatePathsProvider
+  private readonly commandService: MobileControlCommandService
+  private readonly snapshotService: MobileControlSnapshotService
   private readonly workspaceRootsProvider: MobileWorkspaceRootsProvider
   private readonly commandPollIntervalMs: number
   private readonly commandPollCeilingMs: number
@@ -520,9 +497,8 @@ export class MobileBridge {
     this.storePathOverride = options.storePath
     this.accessTokenProvider = options.accessTokenProvider ?? (async () => null)
     this.relayTransport = options.relayTransport ?? new FetchMobileRelayTransport()
-    this.commandService = options.commandService ?? new MobileSprintEngineCommandService()
-    this.snapshotService = options.snapshotService ?? new MobileSprintEngineSnapshotService()
-    this.statePathsProvider = options.statePathsProvider ?? defaultSprintEngineStatePaths
+    this.commandService = options.commandService ?? new MobileControlCommandService()
+    this.snapshotService = options.snapshotService ?? new MobileControlSnapshotService()
     this.workspaceRootsProvider = options.workspaceRootsProvider ?? (async () => [])
     this.commandPollIntervalMs = Math.max(250, options.commandPollIntervalMs ?? DEFAULT_COMMAND_POLL_INTERVAL_MS)
     this.commandPollCeilingMs = Math.max(
@@ -912,8 +888,12 @@ export class MobileBridge {
       deviceId: this.desktopInstanceId,
       commands: SUPPORTED_COMMANDS,
       capabilities: REQUESTED_SCOPES,
-      artifactPreviewModes: ['text', 'markdown'],
-      maxFollowUpCharacters: 2000,
+      // Both are Sprint Engine facts — an artifact preview and an agent
+      // follow-up are commands this desktop no longer serves — but the
+      // capabilities record requires them, so they report the empty truth
+      // rather than a promise (MC-2575).
+      artifactPreviewModes: [],
+      maxFollowUpCharacters: 0,
       snapshotTtlMs: 10_000,
     }
   }
@@ -1158,7 +1138,7 @@ export class MobileBridge {
   private async dispatchRelayCommand(
     envelope: RelayCommandEnvelope,
     device: MobileRelayAuthenticatedDevice | null
-  ): Promise<MobileSprintEngineCommandResult> {
+  ): Promise<MobileControlCommandResult> {
     const commandType = relayCommandTypeToMobile(envelope.commandType)
     const authorizationError = authorizeRelayCommand({
       desktopRelaySessionId: this.desktopRelaySessionId,
@@ -1190,21 +1170,18 @@ export class MobileBridge {
           command,
           snapshotService: this.snapshotService,
           desktopSessionId: this.desktopRelaySessionId ?? this.desktopInstanceId,
-          statePathsProvider: this.statePathsProvider,
           workspaceRootsProvider: this.workspaceRootsProvider,
-        })
-      case 'artifact.read':
-        return dispatchArtifactRead({
-          command,
-          snapshotService: this.snapshotService,
-          desktopSessionId: this.desktopRelaySessionId ?? this.desktopInstanceId,
-          statePathsProvider: this.statePathsProvider,
         })
       case 'device.revoke':
         return dispatchDeviceRevoke({
           command,
           revokeDevice: (deviceId, reason) => this.revokeDevice(deviceId, reason),
         })
+      // Everything else, including the nine commands that left with the Sprint
+      // Engine (MC-2575). The command service answers a retired one with an
+      // audited `command_not_supported`, which is what the relay hands back to
+      // the phone — a refusal it can show, not a delivery that never returns.
+      case 'artifact.read':
       case 'sprintengine.create':
       case 'task.start':
       case 'artifact.approve':
@@ -1212,7 +1189,6 @@ export class MobileBridge {
       case 'agent.followUp':
       case 'sprintengine.openPullRequest':
       case 'sprintengine.setAutomationMode':
-        return this.dispatchSprintEngineMutation(command)
       case 'backlog.update':
       case 'backlog.startSprintEngine':
       case 'backlog.create':
@@ -1221,32 +1197,12 @@ export class MobileBridge {
     }
   }
 
-  private async dispatchSprintEngineMutation(command: MobileControlCommand): Promise<MobileSprintEngineCommandResult> {
-    const statePaths = await this.statePathsProvider()
-    const allowedWorkspaceRoots = statePaths.map((statePath) => validateSprintEngineStatePath(statePath).workspaceRoot)
-    return this.commandService.dispatch(command, {
-      statePaths,
-      allowedWorkspaceRoots,
-    })
-  }
-
-  // Backlog and automations commands target workspace roots directly (no Sprint
-  // Engine run is involved), so the allowed roots include the snapshot workspace
-  // roots alongside any roots derived from configured run state paths. The phone
+  // Backlog and automations commands target workspace roots directly. The phone
   // sends a workspace token, never a path; the handler resolves it against these
   // roots and fails closed when it matches none.
-  private async dispatchWorkspaceMutation(command: MobileControlCommand): Promise<MobileSprintEngineCommandResult> {
-    const [statePaths, workspaceRoots] = await Promise.all([
-      this.statePathsProvider(),
-      this.workspaceRootsProvider(),
-    ])
-    const allowedWorkspaceRoots = [
-      ...statePaths.map((statePath) => validateSprintEngineStatePath(statePath).workspaceRoot),
-      ...workspaceRoots,
-    ]
+  private async dispatchWorkspaceMutation(command: MobileControlCommand): Promise<MobileControlCommandResult> {
     return this.commandService.dispatch(command, {
-      statePaths,
-      allowedWorkspaceRoots,
+      allowedWorkspaceRoots: await this.workspaceRootsProvider(),
     })
   }
 
@@ -1277,7 +1233,7 @@ export class MobileBridge {
     }
   }
 
-  private async postCommandResult(commandId: string, result: MobileSprintEngineCommandResult): Promise<void> {
+  private async postCommandResult(commandId: string, result: MobileControlCommandResult): Promise<void> {
     if (!this.relayUrl || !this.relayToken) return
     const resultForRelay = this.ensureRelaySizedCommandResult(result)
     const summary = summarizeCommandResult(resultForRelay)
@@ -1291,7 +1247,7 @@ export class MobileBridge {
     })
   }
 
-  private ensureRelaySizedCommandResult(result: MobileSprintEngineCommandResult): MobileSprintEngineCommandResult {
+  private ensureRelaySizedCommandResult(result: MobileControlCommandResult): MobileControlCommandResult {
     if (!result.ok || result.commandType !== 'snapshot.request') {
       return result
     }
@@ -1311,12 +1267,8 @@ export class MobileBridge {
   private async publishSnapshotToRelay(): Promise<void> {
     if (!this.relayTransport.publishSnapshot || !this.relayUrl || !this.relayToken || !this.desktopRelaySessionId) return
     try {
-      // The proactive publish is the unscoped default snapshot, so it sheds
-      // terminal runs beyond the recent-N keep-window (item 1600) exactly as the
-      // unscoped on-demand read does.
       const snapshot = await this.snapshotService.publishSnapshot({
         desktopSessionId: this.desktopRelaySessionId,
-        statePaths: await filterToDefaultSnapshotStatePaths(await this.statePathsProvider()),
         workspaceRoots: await this.workspaceRootsProvider(),
       })
       if (snapshot) {
@@ -1333,7 +1285,7 @@ export class MobileBridge {
   }
 }
 
-function failedSnapshotSizeResult(result: Extract<MobileSprintEngineCommandResult, { ok: true }>): MobileSprintEngineCommandResult {
+function failedSnapshotSizeResult(result: Extract<MobileControlCommandResult, { ok: true }>): MobileControlCommandResult {
   return failedCommandResult(
     {
       commandId: result.commandId,
@@ -1350,8 +1302,4 @@ function normalizeRelayCommandDelivery(delivery: RelayCommandDelivery): {
   device: MobileRelayAuthenticatedDevice | null
 } {
   return { envelope: delivery.envelope, device: delivery.device }
-}
-
-async function defaultSprintEngineStatePaths(): Promise<string[]> {
-  return []
 }

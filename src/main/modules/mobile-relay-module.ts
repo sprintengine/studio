@@ -1,7 +1,6 @@
 import { registerMobileBridgeIpc } from '../ipc/mobile-bridge-ipc'
-import { discoverMobileSprintEngineStatePaths } from '../mobile-sprintengine-discovery'
 import { MobileBridge } from '../mobile/bridge'
-import { MobileSprintEngineSnapshotService } from '../mobile/sprintengine/snapshot'
+import { MobileControlSnapshotService } from '../mobile/control/snapshot'
 import { MulticodeAuthToken, TerminalRuntimeToken, WorkspaceSyncServiceToken } from '../module-host/service-tokens'
 import { listKnownWorkspaceRoots, uniqueResolvedRoots } from '../workspace-roots'
 import type { CapabilityModule } from '../module-host/load-modules'
@@ -46,12 +45,11 @@ export const mobileRelayModule: CapabilityModule = {
     // the snapshot itself travels through a hosted relay, where a MagicDNS
     // hostname would be network topology handed to a third party for a URL that
     // device probably cannot use. Web targets ride the tailnet gateway only.
-    const snapshotService = new MobileSprintEngineSnapshotService()
+    const snapshotService = new MobileControlSnapshotService()
     const bridge = new MobileBridge(() => multicodeAuth.getSession(), {
       accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),
       commandService: terminalRuntime.commandService,
       snapshotService,
-      statePathsProvider: () => discoverMobileSprintEngineStatePaths(resolveWorkspaceRoots()),
       workspaceRootsProvider: async () => resolveWorkspaceRoots(),
     })
 

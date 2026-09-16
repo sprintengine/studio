@@ -3,7 +3,6 @@ import { join } from 'path'
 
 import type { IpcInvokeHandler } from '../module-host/main-host'
 import { SPRINT_ENGINE_CHANNELS } from '../../shared/sprintengine/ipc-channels'
-import { clearRoleCatalogCache } from '../mobile/sprintengine/role-catalog'
 import {
   defaultUserRoleRegistryRoot,
   installRoleFolder,
@@ -17,15 +16,10 @@ export type SprintEngineRoleRegistryIpcHost = {
 // Kernel-level IPC for the user-global Sprint Engine role registry. It's pure
 // filesystem config management (validate + copy declarative manifests). Discovery
 // of installed roles flows through the existing sprintengine registry read.
-// Installing roles changes what the phone may staff, and the mobile snapshot caches
-// the resolved registry (it costs a process to read). Every write here invalidates
-// that cache, so a role the user just authored is offerable from the phone on the
-// next snapshot rather than up to a TTL later.
-async function withRoleCatalogInvalidation<T>(write: Promise<T>): Promise<T> {
-  const result = await write
-  clearRoleCatalogCache()
-  return result
-}
+//
+// There is no mobile role-catalog cache to invalidate alongside it any more: the
+// phone's launch picker read the resolved registry off the mobile snapshot, and
+// that surface left with the engine (MC-2575).
 
 // The shipped specialist-pack source tree (17 role manifests + their soul
 // skills), un-shipped from the bundled registry root in MC-1587. Packaged builds
@@ -44,12 +38,11 @@ export function registerSprintEngineRoleRegistryIpc(host: SprintEngineRoleRegist
   // from the shipped source tree into the user-global root, for users who had
   // the bundled pack enabled before it stopped being bundled. The renderer owns
   // the run-once guard (appSettings.specialistPacks.migratedBundledPack) and the
-  // enabled/disabled decision; this handler only performs the copy and
-  // invalidates the role catalog so the session reflects the new roles.
+  // enabled/disabled decision; this handler only performs the copy.
   host.registerIpc(
     SPRINT_ENGINE_CHANNELS.specialistPackInstallBundled,
     (): Promise<RoleInstallResult> => {
-      return withRoleCatalogInvalidation(installRoleFolder(bundledSpecialistPackDir(), defaultUserRoleRegistryRoot()))
+      return installRoleFolder(bundledSpecialistPackDir(), defaultUserRoleRegistryRoot())
     },
   )
 }

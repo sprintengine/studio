@@ -2,15 +2,15 @@ import { Buffer } from 'node:buffer'
 import { randomUUID } from 'crypto'
 import type {
   MobileControlCommand,
-  MobileSprintEngineCommandAuditEntry,
-  MobileSprintEngineCommandResult,
-} from '../sprintengine/command'
+  MobileControlCommandAuditEntry,
+  MobileControlCommandResult,
+} from '../control/command'
 import type {
   MobileControlErrorCode,
   RelayCommandEnvelope,
 } from './index'
 import { relayCommandTypeToMobile } from './relay-command'
-import { deepRedactLocalPaths } from '../sprintengine/relay-path-safety'
+import { deepRedactLocalPaths } from '../control/relay-path-safety'
 
 const mobileControlProtocolVersion = 2 as const
 export const relayResultSummaryMaxBytes = 256 * 1024
@@ -22,7 +22,7 @@ export function relaySummaryByteLength(value: unknown): number {
 export function acceptedBridgeCommand(
   command: MobileControlCommand,
   data: unknown
-): Extract<MobileSprintEngineCommandResult, { ok: true }> {
+): Extract<MobileControlCommandResult, { ok: true }> {
   return {
     ok: true,
     commandId: command.commandId,
@@ -49,7 +49,7 @@ export function failedCommandResult(
   command: Pick<MobileControlCommand, 'commandId' | 'type' | 'idempotencyKey'> | RelayCommandEnvelope,
   code: MobileControlErrorCode,
   message: string
-): Extract<MobileSprintEngineCommandResult, { ok: false }> {
+): Extract<MobileControlCommandResult, { ok: false }> {
   const commandType = 'type' in command ? command.type : relayCommandTypeToMobile(command.commandType)
   return {
     ok: false,
@@ -75,7 +75,7 @@ export function failedCommandResult(
   }
 }
 
-export function summarizeCommandResult(result: MobileSprintEngineCommandResult): Record<string, unknown> {
+export function summarizeCommandResult(result: MobileControlCommandResult): Record<string, unknown> {
   if (!result.ok) {
     return {
       ok: false,
@@ -102,7 +102,7 @@ export function summarizeCommandResult(result: MobileSprintEngineCommandResult):
   }
 }
 
-function summarizeAudit(audit: MobileSprintEngineCommandAuditEntry): Record<string, unknown> {
+function summarizeAudit(audit: MobileControlCommandAuditEntry): Record<string, unknown> {
   return {
     auditId: audit.auditId,
     commandId: audit.commandId,
@@ -110,8 +110,6 @@ function summarizeAudit(audit: MobileSprintEngineCommandAuditEntry): Record<stri
     commandType: audit.commandType,
     status: audit.status,
     ...(audit.code ? { code: audit.code } : {}),
-    ...(audit.artifactId ? { artifactId: audit.artifactId } : {}),
-    ...(audit.exitCode !== undefined ? { exitCode: audit.exitCode } : {}),
     recordedAt: audit.recordedAt,
   }
 }

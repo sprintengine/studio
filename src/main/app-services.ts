@@ -47,12 +47,10 @@ import { createBuiltinSkillManager, ensureSkillInstalled, setDefaultSkillManager
 import { installMulticodeCliTools } from './cli-install'
 import { MulticodeAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
-import { discoverMobileSprintEngineStatePaths } from './mobile-sprintengine-discovery'
 import { createTailnetShareService, readTailnetWebTargets } from './automation/tailnet/tailnet-share-service'
-import { MobileSprintEngineSnapshotService, sanitizeMobileSnapshotForRelay } from './mobile/sprintengine/snapshot'
-import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
-import { validateSprintEngineStatePath } from './mobile/sprintengine/state-path'
-import { deepRedactLocalPaths } from './mobile/sprintengine/relay-path-safety'
+import { MobileControlSnapshotService, sanitizeMobileSnapshotForRelay } from './mobile/control/snapshot'
+import { MobileControlCommandService } from './mobile/control/command'
+import { deepRedactLocalPaths } from './mobile/control/relay-path-safety'
 import { listKnownWorkspaceRoots, uniqueResolvedRoots } from './workspace-roots'
 import {
   mobileControlProtocolVersion,
@@ -559,18 +557,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       }
     },
     prepareAgentStateHook: (workspaceRoot, cli) => agentStateService.installForWorkspace(workspaceRoot, cli),
-    // MC-1497: the phone's setAutomationMode writes the main-owned intent
-    // directly — no renderer round-trip, works headless.
-    setSprintEngineAutomationMode: async (input) => {
-      const result = await sprintEngineAutomation.setAutomationMode({
-        statePath: input.statePath,
-        mode: input.mode,
-        actor: 'mobile',
-        deviceId: input.deviceId ?? null,
-      })
-      if (result.ok) return { ok: true }
-      return { ok: false, retryable: false, message: result.message }
-    },
   })
   // The conversation pull request record (epic `pull-request-marks`, decision
   // 10): main owns which pull requests a conversation has and what state each is
@@ -1143,17 +1129,17 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // Dev servers this machine publishes on the tailnet ride the snapshot
           // so the phone has a door to them. Stateless; the daemon is the truth.
           const shareService = createTailnetShareService()
-          const snapshotService = new MobileSprintEngineSnapshotService({
+          const snapshotService = new MobileControlSnapshotService({
             readWebTargets: () => readTailnetWebTargets(shareService),
           })
-          const commandService = new MobileSprintEngineCommandService()
+          const commandService = new MobileControlCommandService()
           // Stable for the app's lifetime; the phone treats it as an opaque id.
           const desktopSessionId = `tailnet:${hostname()}`
           // The commands the gateway transport actually serves: snapshot reads
           // via workspace.snapshot, mutations via workspace.mobile_command's
           // allowlist. Advertised in the snapshot so the phone's affordance
           // gate shows exactly what will work over this transport.
-          const gatewayCommands: MobileControlCommandType[] = ['snapshot.request', 'backlog.update', 'sprintengine.create']
+          const gatewayCommands: MobileControlCommandType[] = ['snapshot.request', 'backlog.update']
           const workspaceRoots = () => uniqueResolvedRoots(listKnownWorkspaceRoots(workspaceSyncService.getSnapshot()))
           return {
             async readSnapshot(input: { include?: string[]; knownSnapshotVersion?: string }) {
@@ -1163,7 +1149,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
               )
               const snapshot = await snapshotService.readSnapshot({
                 desktopSessionId,
-                statePaths: await discoverMobileSprintEngineStatePaths(roots),
                 workspaceRoots: roots,
                 commands: gatewayCommands,
                 ...(include && include.length > 0 ? { include } : {}),
@@ -1181,13 +1166,6 @@ export function createAppServices(diagnosticsEnabled: boolean) {
               idempotencyKey: string
               expectedSnapshotVersion?: string
             }) {
-              const statePaths = await discoverMobileSprintEngineStatePaths(workspaceRoots())
-              // Mirror the relay bridge's scope split exactly: sprint-engine
-              // mutations resolve roots from run state paths; workspace-level
-              // mutations (backlog.*) also accept the open workspace roots.
-              const stateRoots = statePaths.map((statePath) => validateSprintEngineStatePath(statePath).workspaceRoot)
-              const allowedWorkspaceRoots =
-                input.type === 'sprintengine.create' ? stateRoots : [...stateRoots, ...workspaceRoots()]
               const result = await commandService.dispatch(
                 {
                   protocolVersion: mobileControlProtocolVersion,
@@ -1199,7 +1177,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
                   idempotencyKey: input.idempotencyKey,
                   ...(input.expectedSnapshotVersion ? { expectedSnapshotVersion: input.expectedSnapshotVersion } : {}),
                 },
-                { statePaths, allowedWorkspaceRoots }
+                { allowedWorkspaceRoots: workspaceRoots() }
               )
               if (!result.ok) {
                 return { ok: false as const, code: result.error.code, message: result.error.message }

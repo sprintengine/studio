@@ -72,9 +72,9 @@ jobs:
       # The only test script this job still runs, and only on Windows: it is the
       # sole check ever measured on that platform. The Linux JS suite is the
       # js-tests job below, so a broken test no longer hides a broken build.
-      - name: Test mobile sprintengine command
+      - name: Test mobile control command
         if: runner.os == 'Windows'
-        run: node scripts/testing/run-tests.mjs src/main/mobile/sprintengine/command.test.ts
+        run: node scripts/testing/run-tests.mjs src/main/mobile/control/command.test.ts
 
       - name: Build
         run: npm run build

@@ -23,11 +23,14 @@ from sprintengine_mcp.schemas import TOOL_SCHEMAS
 # DO name tools literally, so they are guarded here too. Anything added here
 # must actually contain a literal tool name — the empty-set assertion below is
 # what keeps this list honest.
+# `src/main/mobile/sprintengine/session.ts` was a fourth entry until MC-2575:
+# the phone's sprint session orchestrator composed a startup prompt that named
+# tools literally. The phone's sprint surface was cut with the in-tree engine,
+# and the file is gone.
 RENDERER_PROMPT_SOURCES = [
     "src/shared/sprintengine/handoff-prompt.ts",
     "src/shared/sprintengine/agent-prompt.ts",
     "src/shared/sprintengine/auto-run.ts",
-    "src/main/mobile/sprintengine/session.ts",
 ]
 
 TOOL_NAME_PATTERN = re.compile(r"\bsprintengine\.[a-z_]+(?:\.[a-z_]+)?\b")

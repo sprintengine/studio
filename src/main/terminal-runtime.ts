@@ -2,7 +2,6 @@ import { BrowserWindow, type WebContents } from 'electron'
 import * as pty from 'node-pty'
 import type {
   AgentCli,
-  AgentExecutionMode,
   AgentPhase,
   AgentSessionIdentity,
   AgentSessionMetadata,
@@ -40,7 +39,7 @@ import { getSharedCredentialStore } from './secret-store'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
 import type { AutomationsAppFrontDoor } from './ipc/automations-ipc'
-import { MobileSprintEngineCommandService } from './mobile/sprintengine/command'
+import { MobileControlCommandService } from './mobile/control/command'
 import { getPluginById, getPluginRegistryUserRoot, getPluginSprintEngineRegistryRoots } from './plugin-registry-instance'
 import { cliCredentialLaunchBlock, pluginIdForCli } from './agent-launch-render'
 import {
@@ -99,7 +98,6 @@ import type { TerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { createTerminalDiagnostics } from './terminal-diagnostics'
 import { createTerminalOutputBuffer, type TerminalOutputSink } from './terminal-output-buffer'
 import { createTerminalMobileCommandService } from './terminal-mobile-command-service'
-import type { DesktopMobileSprintEngineSessionAdapters } from './mobile/sprintengine/session'
 import {
   explainSessionReapDecision,
   selectReapableSessions,
@@ -199,10 +197,6 @@ type TerminalRuntimeOptions = {
     agentId?: string
     sessionId?: string
   }): void
-  // MC-1497: the phone's `sprintengine.setAutomationMode` writes the main-owned
-  // automation intent (`sprintengine-automation-service.ts`) through this seam,
-  // so it works headless. Absent in tests: the mobile command rejects cleanly.
-  setSprintEngineAutomationMode?: DesktopMobileSprintEngineSessionAdapters['setSprintEngineAutomationMode']
   // Item 47: the phone's `automations.control` command enables, pauses and fires
   // automations through the Automations module's app front door — the same write
   // path as the desktop UI. Resolved lazily (the module registers it on the kernel
@@ -263,7 +257,7 @@ type TerminalIpcHandlers = {
 }
 
 type TerminalRuntime = {
-  commandService: MobileSprintEngineCommandService
+  commandService: MobileControlCommandService
   ipcHandlers: TerminalIpcHandlers
   // The conversation peek's read of a session (transcript path + the prompts
   // seen since launch). Exposed as a plain reader rather than an IPC handler so
@@ -328,7 +322,6 @@ let excludeWorktreeMcpConfig: TerminalRuntimeOptions['excludeWorktreeMcpConfig']
 let prepareAgentStateHook: TerminalRuntimeOptions['prepareAgentStateHook']
 let snapshotSidecars: TerminalRuntimeOptions['snapshotSidecars']
 let logReapDiagnostic: TerminalRuntimeOptions['logDiagnostic']
-let setSprintEngineAutomationModeAdapter: TerminalRuntimeOptions['setSprintEngineAutomationMode']
 let resolveAutomationsFrontDoorAdapter: TerminalRuntimeOptions['resolveAutomationsFrontDoor']
 let onAgentLaunched: TerminalRuntimeOptions['onAgentLaunched']
 let onAgentFileEdit: TerminalRuntimeOptions['onAgentFileEdit']
@@ -511,7 +504,6 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
   prepareAgentStateHook = options.prepareAgentStateHook
   snapshotSidecars = options.snapshotSidecars
   logReapDiagnostic = options.logDiagnostic
-  setSprintEngineAutomationModeAdapter = options.setSprintEngineAutomationMode
   resolveAutomationsFrontDoorAdapter = options.resolveAutomationsFrontDoor
   onAgentLaunched = options.onAgentLaunched
   onAgentFileEdit = options.onAgentFileEdit
@@ -880,8 +872,7 @@ const terminalOutput = createTerminalOutputBuffer({
  * and a window opened later reattaches through `spawnTerminalFromIpc`'s
  * existing-session branch, adopting the real WebContents and replaying
  * scrollback. The one definition for every main-process spawn: the descriptor
- * and mobile `task.start` spawns below, and the sprint scheduler's spawn port
- * in `src/main/app-services.ts`.
+ * and the sprint scheduler's spawn port in `src/main/app-services.ts`.
  */
 export function resolveSpawnEventSink(): WebContents {
   return BrowserWindow.getAllWindows()
@@ -3329,246 +3320,13 @@ async function spawnAgentSessionFromDescriptor(input: {
   }
 }
 
-function createMobileCommandService(): MobileSprintEngineCommandService {
+function createMobileCommandService(): MobileControlCommandService {
   return createTerminalMobileCommandService({
-    listTerminals: async () => {
-      return [...terminals.values()].map(getTerminalSnapshot)
-    },
-    spawnAgentTerminal: spawnMobileAgentTerminal,
-    setSprintEngineAutomationMode: setSprintEngineAutomationModeAdapter,
     // Re-read on every command: the adapter is registered once the Automations
     // module is up, which is after the runtime (and this service) exist.
     resolveAutomationsFrontDoor: () => resolveAutomationsFrontDoorAdapter?.() ?? null,
-    writeTerminal: (sessionId, data) => {
-      const session = terminals.get(sessionId)
-      if (!session || !isTerminalProcessAlive(session)) {
-        throw new Error('Desktop terminal session is no longer running.')
-      }
-      try {
-        recordTerminalInput(session)
-        session.process.write(data)
-      } catch (error) {
-        setTerminalActivity(session, {
-          kind: 'failed',
-          at: Date.now(),
-          exitCode: session.exitCode ?? 1,
-          message: getErrorMessage(error),
-        })
-        throw error
-      }
-    },
   })
 }
-
-async function spawnMobileAgentTerminal(input: {
-  sessionId: string
-  cwd: string
-  sprintEngineStatePath: string
-  agentId: string
-  role: string
-  initialPrompt: string
-  cli: AgentCli
-  executionMode: AgentExecutionMode
-  worktreeId?: string
-  worktreePath?: string
-}): Promise<{ ok: true; sessionId: string } | { ok: false; message: string }> {
-  const sender = resolveSpawnEventSink()
-
-  try {
-    requireAuthenticatedUser('Sign in to launch sprint workflows from the app.')
-  } catch (error) {
-    const message = getErrorMessage(error)
-    retainFailedTerminalSession({
-      sessionId: input.sessionId,
-      sender,
-      message,
-      kind: 'agent',
-      agentId: input.agentId,
-      cli: input.cli,
-      cwd: input.cwd,
-      sprintEngineStatePath: input.sprintEngineStatePath,
-      executionMode: input.executionMode,
-      worktreeId: input.worktreeId,
-      worktreePath: input.worktreePath,
-    })
-    return { ok: false, message }
-  }
-
-  disposeTerminal(input.sessionId)
-
-  let sprintEngineMcpRunId: string | undefined
-  let sprintEngineMcpEnv: Record<string, string> | undefined
-  let sprintEngineMcpRunRetained = false
-  try {
-    if (!syncMcpConfig) {
-      const message = 'Managed Sprint Engine MCP config sync is unavailable; cannot launch a Sprint Engine agent.'
-      retainFailedTerminalSession({
-        sessionId: input.sessionId,
-        sender,
-        message,
-        kind: 'agent',
-        agentId: input.agentId,
-        cli: input.cli,
-        cwd: input.cwd,
-        sprintEngineStatePath: input.sprintEngineStatePath,
-        executionMode: input.executionMode,
-        worktreeId: input.worktreeId,
-        worktreePath: input.worktreePath,
-      })
-      return { ok: false, message }
-    }
-
-    const syncResult = await syncMcpConfig({
-      workspaceRoot: input.cwd,
-      settings: { syncEnabled: false, servers: {} },
-      clients: [input.cli],
-      managedSprintEngine: buildManagedSprintEngineSyncInputForLaunch(input.sprintEngineStatePath, input.cwd, {
-        agentId: input.agentId,
-        role: input.role,
-        cli: input.cli,
-      }),
-    })
-    if (!syncResult.ok) {
-      retainFailedTerminalSession({
-        sessionId: input.sessionId,
-        sender,
-        message: syncResult.message,
-        kind: 'agent',
-        agentId: input.agentId,
-        cli: input.cli,
-        cwd: input.cwd,
-        sprintEngineStatePath: input.sprintEngineStatePath,
-        executionMode: input.executionMode,
-        worktreeId: input.worktreeId,
-        worktreePath: input.worktreePath,
-      })
-      return { ok: false, message: syncResult.message }
-    }
-    sprintEngineMcpRunId = syncResult.managedSprintEngineRunId
-    sprintEngineMcpEnv = syncResult.runTokenEnv
-    retainSprintEngineMcpRunRef(sprintEngineMcpRunId, input.cwd)
-    sprintEngineMcpRunRetained = Boolean(sprintEngineMcpRunId)
-
-    // Resolve a CLI auth token (only CLIs whose manifest declares `auth`, e.g.
-    // Z.AI, return one) from the shared credential store, so the manifest's
-    // `launch.env` `{{secret}}` resolves into the spawned process env.
-    const mobileAuthSecret = await getSharedCredentialStore().resolveSecret(input.cli)
-    const mobileCliAuthToken = mobileAuthSecret.ok ? mobileAuthSecret.value : undefined
-    // Block launch when the CLI requires an API key that isn't configured, rather
-    // than starting it into an auth error (mirrors the desktop spawn guard).
-    const mobileAuthPlugin = getPluginById(input.cli)
-    const mobileBlock = cliCredentialLaunchBlock({
-      displayName: mobileAuthPlugin?.manifest.displayName ?? input.cli,
-      auth: mobileAuthPlugin?.manifest.auth,
-      secretConfigured: mobileAuthSecret.ok,
-    })
-    if (mobileBlock) return { ok: false, message: mobileBlock.message }
-    const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath, hostContextPath, managed, reapExempt } = getShellLaunchConfig(
-      input.cwd,
-      input.sessionId,
-      false,
-      input.sprintEngineStatePath,
-      input.cli,
-      input.initialPrompt,
-      undefined,
-      'auto',
-      undefined,
-      undefined,
-      undefined,
-      sprintEngineMcpEnv,
-      false,
-      mobileCliAuthToken
-    )
-    // Expose the agent's identity (=== session.agentId below) so the agent-state
-    // reporter resolves its hook frames, and strip any stale inherited id.
-    const mobileEnv = applyAgentIdentityEnv(env ?? getTerminalEnv(), { agentId: input.agentId })
-    if (agentStateSupportsCli(input.cli)) {
-      await prepareAgentStateHook?.(launchCwd ?? input.cwd, input.cli)
-    }
-    const initialSize = getTerminalSize(120, 30)
-    const termProcess = pty.spawn(command, args, {
-      name: 'xterm-256color',
-      cols: initialSize.cols,
-      rows: initialSize.rows,
-      cwd: launchCwd ?? input.cwd,
-      env: mobileEnv,
-    })
-    const startedAt = Date.now()
-    const terminalSession: TerminalSession = {
-      sessionId: input.sessionId,
-      process: termProcess,
-      sender,
-      isReady: process.platform !== 'win32',
-      hasExited: false,
-      exitedAt: null,
-      isDisposed: false,
-      activity: createInitialTerminalActivity(startedAt),
-      agentState: createInitialAgentState('agent', startedAt),
-      outputChunks: [],
-      outputChunkBytes: [],
-      outputChunkStart: 0,
-      outputBytes: 0,
-      outputLength: 0,
-      kind: 'agent',
-      pathStyle,
-      agentId: input.agentId,
-      cli: input.cli,
-      cwd: launchCwd ?? input.cwd,
-        sprintEngineStatePath: input.sprintEngineStatePath,
-        sprintEngineMcpRunId,
-        sprintEngineRole: input.role,
-        managed: managed === true,
-        ...(reapExempt ? { reapExempt: true } : {}),
-        executionMode: input.executionMode,
-      worktreeId: input.worktreeId,
-      worktreePath: input.worktreePath,
-      visible: false,
-      startedAt,
-      lastOutputAt: startedAt,
-      lastInputAt: null,
-      lastVisibleAt: null,
-      startupScriptPath,
-      hostContextPath,
-    }
-
-    attachTerminalSession(input.sessionId, terminalSession, initialInput)
-
-    return { ok: true, sessionId: input.sessionId }
-  } catch (error) {
-    const releaseContext = {
-      workspaceRoot: input.cwd,
-      clients: [input.cli],
-    }
-    if (sprintEngineMcpRunRetained && sprintEngineMcpRunId) {
-      releaseSprintEngineMcpRunRef(sprintEngineMcpRunId, releaseContext)
-    } else {
-      releaseUnusedSprintEngineMcpRun(sprintEngineMcpRunId, releaseContext)
-    }
-    const message = getTerminalErrorMessage(error)
-    retainFailedTerminalSession({
-      sessionId: input.sessionId,
-      sender,
-      message,
-      kind: 'agent',
-      agentId: input.agentId,
-      cli: input.cli,
-      cwd: input.cwd,
-      sprintEngineStatePath: input.sprintEngineStatePath,
-      executionMode: input.executionMode,
-      worktreeId: input.worktreeId,
-      worktreePath: input.worktreePath,
-    })
-    return { ok: false, message }
-  }
-}
-
-/**
- * Test seam for the mobile `task.start` spawn. In production it is reachable
- * only as the mobile command service's `spawnAgentTerminal` adapter, whose
- * dispatch path needs a paired device, a scoped workspace root, and a real run
- * projection — none of which the spawn behavior under test depends on.
- */
-export const __spawnMobileAgentTerminalForTest = spawnMobileAgentTerminal
 
 async function spawnTerminalFromIpc(
   sender: WebContents,

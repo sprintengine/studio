@@ -1,13 +1,13 @@
 import { createHash } from 'crypto'
-import { dirname, resolve } from 'path'
+import { resolve } from 'path'
 
 // Mobile snapshots must never carry absolute local filesystem paths: the relay
 // rejects any command-result summary that contains one (see multiauth
 // src/relay/result-summary.ts -> containsLocalPath). We therefore hand the phone
 // a relay-safe opaque token in place of a workspace root, and resolve it back to
-// the real root server-side when a command (sprintengine.create, backlog.create
-// / .update / .startSprintEngine) round-trips it. The token is a one-way hash so
-// the absolute path itself never leaves the desktop.
+// the real root server-side when a command (backlog.create / .update,
+// automations.control) round-trips it. The token is a one-way hash so the
+// absolute path itself never leaves the desktop.
 
 const WORKSPACE_ID_PREFIX = 'ws_'
 
@@ -33,13 +33,4 @@ export function resolveWorkspaceIdToRoot(
     }
   }
   return null
-}
-
-// Derive a workspace root from a Sprint Engine run.yaml state path, mirroring the
-// layout `<root>/<sidecar>/sprintengine/<team>/run.yaml`. Used to widen the
-// candidate set for token resolution so workspaces that live under a configured
-// parent root still resolve.
-export function workspaceRootFromStatePath(statePath: string): string {
-  // run.yaml -> <team> -> sprintengine -> <sidecar> -> <root>
-  return dirname(dirname(dirname(dirname(resolve(statePath)))))
 }

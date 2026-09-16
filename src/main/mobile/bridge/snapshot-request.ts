@@ -1,12 +1,7 @@
-import { basename, dirname, resolve } from 'path'
-import type { MobileControlCommand, MobileSprintEngineCommandResult } from '../sprintengine/command'
-import { MobileSprintEngineSnapshotService, sanitizeMobileSnapshotForRelay, type MobileControlSnapshot } from '../sprintengine/snapshot'
-import { filterToDefaultSnapshotStatePaths } from '../../mobile-sprintengine-discovery'
-import {
-  isWorkspaceIdToken,
-  resolveWorkspaceIdToRoot,
-  workspaceRootFromStatePath,
-} from '../sprintengine/workspace-id'
+import { resolve } from 'path'
+import type { MobileControlCommand, MobileControlCommandResult } from '../control/command'
+import { MobileControlSnapshotService, sanitizeMobileSnapshotForRelay, type MobileControlSnapshot } from '../control/snapshot'
+import { isWorkspaceIdToken, resolveWorkspaceIdToRoot } from '../control/workspace-id'
 import { mobileSnapshotCollections, type MobileSnapshotCollection } from '../../../../packages/mobile-control-protocol/src/index'
 import {
   acceptedBridgeCommand,
@@ -19,29 +14,22 @@ const relaySnapshotResultTargetBytes = relayResultSummaryMaxBytes - 8 * 1024
 
 export async function dispatchSnapshotRequest(input: {
   command: MobileControlCommand
-  snapshotService: MobileSprintEngineSnapshotService
+  snapshotService: MobileControlSnapshotService
   desktopSessionId: string
-  statePathsProvider: () => Promise<string[]>
   workspaceRootsProvider?: () => Promise<string[]>
-}): Promise<MobileSprintEngineCommandResult> {
-  const { command, snapshotService, desktopSessionId, statePathsProvider, workspaceRootsProvider } = input
+}): Promise<MobileControlCommandResult> {
+  const { command, snapshotService, desktopSessionId, workspaceRootsProvider } = input
   const payload = command.type === 'snapshot.request' ? command.payload : undefined
-  const requestedSprintEngineId = typeof payload?.sprintEngineId === 'string' ? payload.sprintEngineId : null
   const requestedWorkspacePath = typeof payload?.workspacePath === 'string' ? payload.workspacePath : null
   const knownSnapshotVersion = typeof payload?.knownSnapshotVersion === 'string' ? payload.knownSnapshotVersion : null
   const include = readIncludeCollections(payload?.include)
 
-  const [allStatePaths, allWorkspaceRoots] = await Promise.all([
-    statePathsProvider(),
-    workspaceRootsProvider ? workspaceRootsProvider() : Promise.resolve<string[]>([]),
-  ])
-
-  const scope = await resolveSnapshotScope({
-    requestedSprintEngineId,
-    requestedWorkspacePath,
-    allStatePaths,
-    allWorkspaceRoots,
-  })
+  // A `sprintEngineId` scope is read and ignored: the collection it narrowed is
+  // always empty now (MC-2575), so honouring it would return the same snapshot
+  // as refusing it, and refusing it would fail a request the phone is entitled
+  // to make.
+  const allWorkspaceRoots = workspaceRootsProvider ? await workspaceRootsProvider() : []
+  const scope = resolveSnapshotScope({ requestedWorkspacePath, allWorkspaceRoots })
 
   // readSnapshot() returns the internal snapshot with real local paths; the
   // on-demand command-result path (workspace open / backlog refresh) does not go
@@ -49,7 +37,6 @@ export async function dispatchSnapshotRequest(input: {
   // rejects the result for carrying local paths.
   const snapshot = sanitizeMobileSnapshotForRelay(await snapshotService.readSnapshot({
     desktopSessionId,
-    statePaths: scope.statePaths,
     workspaceRoots: scope.workspaceRoots,
     ...(include ? { include } : {}),
   }))
@@ -69,56 +56,35 @@ export async function dispatchSnapshotRequest(input: {
 }
 
 type SnapshotScope = {
-  statePaths: string[]
   workspaceRoots: string[]
-  // Whether the request named a scope (sprintEngineId or workspacePath). A scoped
-  // request skips the size-shedding ladder and the unscoped terminal-run filter —
-  // the phone gets exactly the scope it named, finished runs included.
+  // Whether the request named a workspace. A scoped request skips the
+  // size-shedding ladder — the phone gets exactly the scope it named.
   scoped: boolean
 }
 
-// Map a request's scope fields to the state paths and workspace roots readSnapshot
-// composes from. Item 1600: `workspacePath` narrows to one project root, an
-// unscoped request sheds terminal runs beyond the recent-N keep-window, and a
-// `sprintEngineId` request keeps its established shape (narrows the engine set only).
-async function resolveSnapshotScope(input: {
-  requestedSprintEngineId: string | null
+// Map a request's scope fields to the workspace roots readSnapshot composes from
+// (item 1600): `workspacePath` narrows to one project root, an unscoped request
+// serves every root this desktop knows.
+function resolveSnapshotScope(input: {
   requestedWorkspacePath: string | null
-  allStatePaths: string[]
   allWorkspaceRoots: string[]
-}): Promise<SnapshotScope> {
-  const { requestedSprintEngineId, requestedWorkspacePath, allStatePaths, allWorkspaceRoots } = input
+}): SnapshotScope {
+  const { requestedWorkspacePath, allWorkspaceRoots } = input
 
   if (requestedWorkspacePath) {
     // The phone holds a relay-safe token (projectKey), never the absolute root, so
-    // resolve it against the roots we know before scoping engines/backlog/automations.
-    const candidateRoots = uniqueResolvedRoots([...allStatePaths.map(workspaceRootFromStatePath), ...allWorkspaceRoots])
+    // resolve it against the roots we know before scoping backlog/automations.
+    const candidateRoots = uniqueResolvedRoots(allWorkspaceRoots)
     const matchedRoot = resolveScopedRoot(requestedWorkspacePath, candidateRoots)
     // Unknown workspace: fail closed with an empty-but-valid scope rather than
     // falling back to the whole fleet.
     if (!matchedRoot) {
-      return { statePaths: [], workspaceRoots: [], scoped: true }
+      return { workspaceRoots: [], scoped: true }
     }
-    return {
-      statePaths: allStatePaths.filter((statePath) => workspaceRootFromStatePath(statePath) === matchedRoot),
-      workspaceRoots: [matchedRoot],
-      scoped: true,
-    }
+    return { workspaceRoots: [matchedRoot], scoped: true }
   }
 
-  if (requestedSprintEngineId) {
-    return {
-      statePaths: allStatePaths.filter((statePath) => basename(dirname(statePath)) === requestedSprintEngineId),
-      workspaceRoots: allWorkspaceRoots,
-      scoped: true,
-    }
-  }
-
-  return {
-    statePaths: await filterToDefaultSnapshotStatePaths(allStatePaths),
-    workspaceRoots: allWorkspaceRoots,
-    scoped: false,
-  }
+  return { workspaceRoots: allWorkspaceRoots, scoped: false }
 }
 
 function resolveScopedRoot(requested: string, candidateRoots: string[]): string | null {
@@ -155,48 +121,20 @@ function relaySizedSnapshot(
     return snapshot
   }
 
-  // Shed the role catalogs first (MC-1543). They are duplicated per backlog
-  // workspace and are an enhancement — losing them costs the phone a
-  // registry-accurate launch picker (it falls back to its bundled list), whereas
-  // losing a sprint engine costs it a run it can no longer see or drive. Cheapest
-  // thing in the payload, so it goes before anything load-bearing.
-  const shed = withoutRoleCatalogs(snapshot)
-  if (snapshotFitsRelayResult(command, shed)) {
-    return shed
-  }
-
-  // Then the automations' recent-run history (item 47). The producer caps it (24
-  // automations per project, 5 runs each, 160-char run text) but the caps bound a
-  // PROJECT, not a snapshot: at full cap a single project measures ~27% of the
-  // budget, so four workspace roots crowd the snapshot out on automations alone.
-  // Run text is ~90% of those bytes, so dropping it is what buys the room back.
-  // It goes above the sprint engines for the same reason the role catalogs do:
-  // losing run history costs the phone some monitor detail on automations it can
-  // still see, whereas losing a sprint engine costs it a run it can no longer see
-  // or drive. `recentRuns` is optional on the wire, so shedding it is omitting it.
-  const withoutRuns = withoutAutomationRecentRuns(shed)
-  if (snapshotFitsRelayResult(command, withoutRuns)) {
-    return withoutRuns
-  }
-
-  for (let includedCount = withoutRuns.sprintEngines.length - 1; includedCount >= 0; includedCount -= 1) {
-    const candidate = limitSprintEngines(withoutRuns, includedCount)
-    if (snapshotFitsRelayResult(command, candidate)) {
-      return candidate
-    }
-  }
-
-  return withoutRuns
-}
-
-function withoutRoleCatalogs(snapshot: MobileControlSnapshot): MobileControlSnapshot {
-  if (!snapshot.backlog?.some((workspace) => workspace.roles !== undefined)) {
-    return snapshot
-  }
-  return {
-    ...snapshot,
-    backlog: snapshot.backlog.map(({ roles: _roles, ...workspace }) => workspace),
-  }
+  // The automations' recent-run history (item 47) is what the ladder sheds. The
+  // producer caps it (24 automations per project, 5 runs each, 160-char run text)
+  // but the caps bound a PROJECT, not a snapshot: at full cap a single project
+  // measures ~27% of the budget, so four workspace roots crowd the snapshot out
+  // on automations alone. Run text is ~90% of those bytes, so dropping it is what
+  // buys the room back, and losing run history costs the phone some monitor
+  // detail on automations it can still see. `recentRuns` is optional on the wire,
+  // so shedding it is omitting it.
+  //
+  // The two rungs above this one are gone with the Sprint Engine (MC-2575): there
+  // are no role catalogues to shed and no runs to cap. A snapshot that is still
+  // over budget after this is returned as it stands — the bridge's own size gate
+  // turns it into a `snapshot_too_large` refusal rather than a truncated success.
+  return withoutAutomationRecentRuns(snapshot)
 }
 
 function withoutAutomationRecentRuns(snapshot: MobileControlSnapshot): MobileControlSnapshot {
@@ -215,25 +153,4 @@ function snapshotFitsRelayResult(command: MobileControlCommand, snapshot: Mobile
   }
   const result = acceptedBridgeCommand(command, snapshot)
   return relaySummaryByteLength(summarizeCommandResult(result)) <= relaySnapshotResultTargetBytes
-}
-
-function limitSprintEngines(snapshot: MobileControlSnapshot, includedCount: number): MobileControlSnapshot {
-  const sprintEngines = snapshot.sprintEngines.slice(0, includedCount)
-  const includedIds = new Set(sprintEngines.map((sprintEngine) => sprintEngine.sprintEngineId))
-  return {
-    ...snapshot,
-    sprintEngines,
-    workspaces: snapshot.workspaces?.filter((workspace) =>
-      workspace.kind !== 'sprintengine' || includedIds.has(workspace.workspaceId)
-    ),
-    snapshotLimits: {
-      ...(snapshot.snapshotLimits ?? {}),
-      sprintEngines: {
-        included: sprintEngines.length,
-        omitted: Math.max(0, snapshot.sprintEngines.length - sprintEngines.length),
-        total: snapshot.sprintEngines.length,
-        reason: 'relay_result_summary_size',
-      },
-    },
-  }
 }

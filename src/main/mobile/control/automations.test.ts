@@ -343,7 +343,7 @@ async function main(): Promise<void> {
       throw error
     }
   }
-  console.log('mobile/sprintengine/automations.test.ts: ok')
+  console.log('mobile/control/automations.test.ts: ok')
 }
 
 main().catch((error) => {

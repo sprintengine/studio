@@ -14,10 +14,6 @@ import {
   isValidBacklogKey,
   parseBacklogNumericId,
 } from '../../../shared/backlog/item-id'
-import {
-  sprintEnginePullRequestLinkOf,
-  sprintEngineRunLinkOf,
-} from '../../../shared/backlog/sprintengine-links'
 import type { BacklogFrontmatterFields } from '../../backlog-service'
 import type { BacklogObjectRecordPayload } from '../../../shared/electron-api'
 import type {
@@ -25,7 +21,7 @@ import type {
   MobileControlBacklogItemSnapshot,
   MobileControlBacklogWorkspaceSnapshot,
 } from '../../../../packages/mobile-control-protocol/src/index'
-import { MobileSprintEngineCommandError } from './command-error'
+import { MobileControlCommandError } from './command-error'
 import {
   backlogAbsolutePath,
   backlogLocationFor,
@@ -151,42 +147,7 @@ async function buildBacklogEpics(
   return epics
 }
 
-// childrenOfEpic for non-panel consumers (Sprint Engine / mobile): the derived
-// epic -> children query over the same read path, so callers enumerate an epic's
-// members without re-parsing the backlog folder themselves. Membership is read
-// from each child's frontmatter `epic:` slug (never a stored children list), and
-// the result is the active (non-archived) children, ordered like the snapshot.
-export async function readBacklogEpicChildren(
-  workspaceRoot: string,
-  slug: string | readonly string[],
-): Promise<MobileControlBacklogItemSnapshot[]> {
-  const slugs = new Set(typeof slug === 'string' ? [slug] : slug)
-  const root = resolve(workspaceRoot)
-  const { items } = await readActiveBacklogItems(root, await readBacklogLocation(root))
-  // Leaves only, mirroring the renderer's childrenOfEpic: an epic container may
-  // carry its own slug in `epic:`, so without the type guard it would come back
-  // as a child of itself.
-  return items.filter((item) => item.type !== 'epic' && item.epic !== undefined && slugs.has(item.epic))
-}
-
-// Every slug a child could legitimately be pointing at to mean "this epic".
-//
-// Two conventions are live in real backlogs and they disagree. The desktop's
-// canonical slug is the epic file's FILENAME STEM (`epicSlug` ->
-// `backlogItemSlugFromPath`), which is how `backlog/epics/<slug>.md` containers
-// work. But an epic container written as an ordinary item commonly names the
-// epic in its own `epic:` frontmatter instead, and its children point at THAT.
-// Matching only one convention silently resolves zero children for the other —
-// and an epic launch that quietly drops its children is worse than a loud
-// failure. So accept either.
-function epicSlugsForContainer(relativePath: string, epicField: string | undefined): string[] {
-  const stem = (relativePath.split('/').pop() ?? relativePath).replace(/\.md$/iu, '')
-  const slugs = [stem]
-  if (epicField && epicField !== stem) slugs.push(epicField)
-  return slugs
-}
-
-// Shared read pass for the snapshot and childrenOfEpic: merges scanned backlog
+// The snapshot's read pass: merges scanned backlog
 // markdown with the items.json records, then builds active, frontmatter-sourced
 // item snapshots. `present` is false only when the workspace has neither a
 // backlog folder nor any sidecar record (a calm absence, not an error).
@@ -221,87 +182,6 @@ async function readActiveBacklogItems(
   return { items, present }
 }
 
-interface BacklogStartChild {
-  relativePath: string
-  absolutePath: string
-  status: MobileControlBacklogItemSnapshot['status']
-}
-
-export interface BacklogStartContext {
-  title: string
-  /** Absolute path of the item, handed to `handover --handover` as the run's root source. */
-  absolutePath: string
-  relativePath: string
-  /** True when the item is an epic container, so a start means "work the whole epic". */
-  isEpic: boolean
-  /** Active leaf children of the epic; empty for a leaf item or a childless epic. */
-  children: BacklogStartChild[]
-}
-
-// Resolves a backlog item into everything a Sprint Engine handover start needs.
-//
-// The item is handed to the engine as a *file reference*, not as inlined text:
-// `handover --handover <path> --reference-sources` records the run's source as
-// `backlog/<file>.md`, and that path is the whole basis on which the engine
-// decides a run is backlog-sourced (skill_layers.run_is_backlog_sourced) and so
-// grants the `multicode_backlog` lifecycle skill that keeps the item's status
-// truthful. An inlined `--handover-text` body carries no path and silently loses
-// that skill — which is why the phone's runs never updated their item.
-//
-// Referencing also means the architect reads the whole item in place instead of a
-// truncated copy, so there is no prompt budget to cap here.
-export async function resolveBacklogStartContext(
-  workspaceRoot: string,
-  relativePath: string,
-): Promise<BacklogStartContext> {
-  const normalized = assertBacklogRelativePath(relativePath)
-  const root = resolve(workspaceRoot)
-  const location = await readBacklogLocation(root)
-  const absolutePath = backlogAbsolutePath(location, normalized)
-  if (absolutePath === null) {
-    throw new MobileSprintEngineCommandError(
-      'path_not_allowed',
-      'Backlog item paths must be relative markdown paths under backlog/.',
-      false,
-    )
-  }
-  let raw: string
-  try {
-    raw = await readFile(absolutePath, 'utf-8')
-  } catch {
-    throw new MobileSprintEngineCommandError(
-      'invalid_payload',
-      `Backlog item ${normalized} could not be read on the desktop.`,
-      false,
-    )
-  }
-
-  const body = stripBacklogFrontmatter(raw).trim()
-  if (!body) {
-    throw new MobileSprintEngineCommandError(
-      'invalid_payload',
-      `Backlog item ${normalized} is empty; add content before starting a sprint from it.`,
-      false,
-    )
-  }
-
-  const fields = readBacklogFrontmatterFields(raw)
-  const isEpic = fields.type === 'epic'
-  const children = isEpic ? await readBacklogEpicChildren(root, epicSlugsForContainer(normalized, fields.epic)) : []
-
-  return {
-    title: extractBacklogTitle(body, normalized),
-    absolutePath,
-    relativePath: normalized,
-    isEpic,
-    children: children.map((child) => ({
-      relativePath: child.relativePath,
-      absolutePath: backlogAbsolutePath(location, child.relativePath) ?? join(root, child.relativePath),
-      status: child.status,
-    })),
-  }
-}
-
 export function assertBacklogRelativePath(value: string): string {
   const normalized = value.replace(/\\/g, '/').replace(/^\/+/, '').replace(/\/+/g, '/')
   const unsafe =
@@ -313,7 +193,7 @@ export function assertBacklogRelativePath(value: string): string {
     normalized.startsWith('../') ||
     normalized.includes('/../')
   if (unsafe || !normalized.startsWith(`${BACKLOG_FOLDER}/`) || !normalized.endsWith('.md')) {
-    throw new MobileSprintEngineCommandError(
+    throw new MobileControlCommandError(
       'path_not_allowed',
       'Backlog item paths must be relative markdown paths under backlog/.',
       false,
@@ -372,13 +252,11 @@ async function toBacklogItemSnapshot(
   const difficulty = fields.difficulty ?? record.difficulty
   const criticality = fields.criticality ?? record.criticality
 
-  // The run working this item, and the pull request it produced, both read off the
-  // item's links (written by src/main/sprintengine-backlog-links.ts). The run link's
-  // target id is the team slug, which is exactly the `sprintEngineId` the run
-  // snapshots are keyed by — so the phone can join an item to its live run.
-  const links = record.links ?? []
-  const sprintEngineId = sprintEngineRunLinkOf(links)?.target.id
-  const pullRequestUrl = sprintEnginePullRequestLinkOf(links)?.target.url
+  // `sprintEngineId` and `pullRequestUrl` are optional on the wire and no longer
+  // emitted (MC-2575): both were read off Sprint Engine links on the item, and
+  // the phone's only use for them was joining an item to a run in the same
+  // snapshot. There are no runs in the snapshot any more, so a pointer to one
+  // would draw an affordance that dead-ends.
 
   return {
     itemId: record.id,
@@ -390,8 +268,6 @@ async function toBacklogItemSnapshot(
     ...(difficulty ? { difficulty } : {}),
     ...(criticality ? { criticality } : {}),
     ...(fields.epic ? { epic: fields.epic } : {}),
-    ...(sprintEngineId ? { sprintEngineId } : {}),
-    ...(pullRequestUrl ? { pullRequestUrl } : {}),
     ...(record.updatedAt ? { updatedAt: record.updatedAt } : {}),
   }
 }

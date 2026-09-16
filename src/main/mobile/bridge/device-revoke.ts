@@ -1,4 +1,4 @@
-import type { MobileControlCommand, MobileSprintEngineCommandResult } from '../sprintengine/command'
+import type { MobileControlCommand, MobileControlCommandResult } from '../control/command'
 import type { MobileControlDevice } from './index'
 import { getErrorMessage } from '../../error-message'
 import { acceptedBridgeCommand, failedCommandResult } from './command-results'
@@ -7,7 +7,7 @@ import { stringPayload } from './command-payload'
 export async function dispatchDeviceRevoke(input: {
   command: MobileControlCommand
   revokeDevice: (deviceId: string, reason?: string) => Promise<MobileControlDevice>
-}): Promise<MobileSprintEngineCommandResult> {
+}): Promise<MobileControlCommandResult> {
   const { command, revokeDevice } = input
   const deviceId = stringPayload(command.payload, 'deviceId')
   if (deviceId !== command.deviceId) {
