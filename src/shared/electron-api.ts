@@ -3301,7 +3301,6 @@ export type ElectronApi = {
   authLogout: () => Promise<{ loggedOut: true }>
   authRefreshEntitlements: () => Promise<MulticodeAuthState>
   authOpenUpgrade: (reason?: string) => Promise<{ opened: true; url: string }>
-  authCheckPremiumAccess: (input: PremiumAccessRequest) => Promise<PremiumAccessDecision>
   onAuthStateChanged: (cb: (state: MulticodeAuthState) => void) => () => void
   onAuthCallbackError: (cb: (message: string) => void) => () => void
   mobileBridgeGetState: () => Promise<MobileBridgeState>
