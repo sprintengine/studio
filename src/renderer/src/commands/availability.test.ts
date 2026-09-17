@@ -71,6 +71,16 @@ assert.equal(isCommandIdEnabled('panel.git.toggle', workspaceScopes, {}), false)
 assert.equal(isCommandIdEnabled('terminal.new', workspaceScopes, { activeWorkspace: true }), true)
 assert.equal(isCommandIdEnabled('terminal.new', ['global'], { activeWorkspace: true }), false)
 
+// Canvas is a module surface: an active workspace is not enough, the module has
+// to be on. The palette row and the keystroke read the same predicate, so this
+// is what keeps a stale binding from mounting a tab kind the launcher hides.
+assert.equal(
+  isCommandIdEnabled('panel.canvas.toggle', workspaceScopes, { activeWorkspace: true, canvasEnabled: true }),
+  true,
+)
+assert.equal(isCommandIdEnabled('panel.canvas.toggle', workspaceScopes, { activeWorkspace: true }), false)
+assert.equal(isCommandIdEnabled('panel.canvas.toggle', ['global'], { activeWorkspace: true, canvasEnabled: true }), false)
+
 // Git refresh/fetch/commit run real Git-panel handlers — only available while
 // the Git panel is mounted (gitPanelActive), in addition to an active workspace.
 for (const id of ['git.refresh', 'git.fetch', 'git.commit']) {

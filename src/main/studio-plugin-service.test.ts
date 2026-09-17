@@ -61,15 +61,16 @@ async function openingAWorkspaceInstallsThePlugin(): Promise<void> {
 
   const record = service.installed(workspace)
   assert.notEqual(record, null, `the open recorded an install; warnings=${JSON.stringify(warnings)}`)
-  // The version the bundled manifest declares, read rather than restated: a
-  // bump (1.1.0 pruned the retired studio-sprints skill) must not fail here.
+  // The version and the skill set the bundled plugin declares, read rather than
+  // restated: a bump (1.1.0 pruned the retired studio-sprints skill, 1.2.0 added
+  // studio-canvas) must not fail here.
   const manifest = JSON.parse(
     await readFile(join(TEMPLATE_ROOT, 'sprintengine-studio', '.claude-plugin', 'plugin.json'), 'utf8')
   ) as { version: string }
   assert.equal(record?.version, manifest.version)
-  assert.equal(record?.version, '1.1.0')
   assert.equal(record?.claudePluginKey, 'sprintengine-studio@sprintengine-studio')
-  assert.equal(record?.skillDirNames.length, 4)
+  const bundledSkills = await readdir(join(TEMPLATE_ROOT, 'sprintengine-studio', 'skills'))
+  assert.equal(record?.skillDirNames.length, bundledSkills.length)
     assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-backlog', 'SKILL.md')), true)
   assert.equal(existsSync(join(workspace, '.multicode', 'studio-plugin')), true)
   assert.equal(existsSync(join(workspace, '.multicode', 'hooks', 'agent-state.mjs')), true)
@@ -205,7 +206,12 @@ async function noSocketMeansNoHookButStillTheSkills(): Promise<void> {
   const service = createStudioPluginService(built.options)
   await service.ensureInstalled(built.workspace)
   const record = service.installed(built.workspace)
-  assert.equal(record?.skillDirNames.length, 4, 'the skills are what an agent reads; they still land')
+  const bundledSkills = await readdir(join(TEMPLATE_ROOT, 'sprintengine-studio', 'skills'))
+  assert.equal(
+    record?.skillDirNames.length,
+    bundledSkills.length,
+    'the skills are what an agent reads; they still land'
+  )
   assert.equal(record?.hookSettingsPath, '', 'no hook is registered with nothing to report to')
   // And the question was never answered, because it was never asked.
   assert.equal(existsSync(join(built.userData, 'studio-plugin.json')), false)

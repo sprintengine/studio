@@ -87,6 +87,23 @@ function BrowserGlyph({ className }: { className?: string }) {
   )
 }
 
+// A pencil drawing on a frame: the board and the hand on it. The frame is the
+// same rounded rect the Terminal and Files marks are built from, so the six
+// kinds read as one family rather than as six drawings.
+//
+// Exported because the board picker plates the same mark on every one of its
+// rows: the tab's kind and the rows that open a tab of that kind must be one
+// drawing, not two that drift.
+export function CanvasGlyph({ className }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
+      <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h9A1.5 1.5 0 0 1 14 4.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M2 8.5v3A1.5 1.5 0 0 0 3.5 13H7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M13.2 8.3 9 12.5l-2 .5.5-2 4.2-4.2a1.06 1.06 0 0 1 1.5 1.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+    </svg>
+  )
+}
+
 // The header's Backlog switch draws this same mark (PanelSwitches): one glyph
 // for the surface on both ends of the gesture.
 function BacklogGlyph({ className }: { className?: string }) {
@@ -102,7 +119,9 @@ function BacklogGlyph({ className }: { className?: string }) {
 
 // The five general-purpose kinds first, in the order below; Backlog is
 // ours alone and goes last so the shared five keep the low chord numbers.
-// Its letter is L (back-L-og) because B is Browser's.
+// Its letter is L (back-L-og) because B is Browser's. Canvas follows it, on
+// the same rule: it is a workspace surface of ours, not one of the shared
+// five, so it appends rather than pushing a chord number along.
 export const STATIC_PANE_KINDS: readonly PaneKindDefinition[] = [
   { kind: 'browser', label: 'Browser', letter: 'B', Glyph: BrowserGlyph },
   { kind: 'terminal', label: 'Terminal', letter: 'T', Glyph: TerminalGlyph },
@@ -110,6 +129,7 @@ export const STATIC_PANE_KINDS: readonly PaneKindDefinition[] = [
   { kind: 'diff', label: 'Diff', letter: 'D', moduleId: 'git', Glyph: DiffGlyph },
   { kind: 'git', label: 'Git', letter: 'G', moduleId: 'git', Glyph: GitGlyph },
   { kind: 'backlog', label: 'Backlog', letter: 'L', moduleId: 'backlog', Glyph: BacklogGlyph },
+  { kind: 'canvas', label: 'Canvas', letter: 'C', moduleId: 'canvas', Glyph: CanvasGlyph },
 ]
 
 // The list one pane offers: the shell's own kinds, then the rows modules
@@ -156,6 +176,9 @@ export function paneKindDefinition(kind: PaneLaunchKind): PaneKindDefinition {
 
 // Kinds that keep their panel mounted while another tab is showing: a
 // terminal's buffer (and, later, a browser's page) must survive a tab switch.
+// A canvas joins them because unmounting its editor drops the board's
+// subscription and the undo stack the person built up, and remounting reloads
+// and re-lays-out a scene — a tab switch must not cost either.
 export function paneKindRetainsPanel(kind: WorkspacePaneTabKind): boolean {
-  return kind === 'terminal' || kind === 'browser'
+  return kind === 'terminal' || kind === 'browser' || kind === 'canvas'
 }

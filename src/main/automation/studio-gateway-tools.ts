@@ -1,4 +1,5 @@
 import { BROWSER_MUTATION_TOOL_NAMES } from './browser-tools'
+import { CANVAS_MUTATION_TOOL_NAMES } from './canvas-tools'
 import type { McpToolContribution } from '../module-host/main-host'
 import { TAILNET_MUTATION_TOOL_NAMES } from './tailnet/tailnet-tools'
 import {
@@ -8,6 +9,11 @@ import {
 
 const APP_MUTATION_TOOLS = new Set([
   ...BROWSER_MUTATION_TOOL_NAMES,
+  // Drawing on a board writes a file in the person's project, so every one of
+  // these is audited and needs `<family>:operate` from a remote caller.
+  // `canvas.describe`, `canvas.find`, `canvas.list` and `canvas.screenshot`
+  // only look, and stay on the read scope.
+  ...CANVAS_MUTATION_TOOL_NAMES,
   'agent.launch',
   'automation.create',
   'automation.run',

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { BUNDLED_MODULE_IDS } from '../../../shared/modules/manifest'
+import { BUNDLED_MODULE_IDS, CANVAS_MODULE_DEFAULT_ENABLED } from '../../../shared/modules/manifest'
 import { BUNDLED_RENDERER_MODULE_MANIFESTS } from './index'
 
 // Drift guard: BUNDLED_MODULE_IDS (the shared reserved-id list a third-party
@@ -30,5 +30,16 @@ for (const id of RETIRED_RESERVED_IDS) {
   assert.ok(reserved.includes(id), `reserved module id "${id}" must stay reserved`)
   assert.ok(!bundled.includes(id), `reserved module id "${id}" must not be a live bundled module`)
 }
+
+// The same drift guard for the one manifest field main has to read without
+// importing the renderer: the canvas tools answer on the shared default until a
+// window's registry mirror carries an entry, so the two must be the same value.
+const canvasManifest = BUNDLED_RENDERER_MODULE_MANIFESTS.find((manifest) => manifest.id === 'canvas')
+assert.ok(canvasManifest, 'the canvas module is bundled')
+assert.equal(
+  canvasManifest.defaultEnabled,
+  CANVAS_MODULE_DEFAULT_ENABLED,
+  'CANVAS_MODULE_DEFAULT_ENABLED is what main answers on before a window has spoken',
+)
 
 console.log('bundled-ids guard passed')

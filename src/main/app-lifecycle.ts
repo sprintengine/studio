@@ -13,6 +13,7 @@ import { emptyBackgroundStatus, type BackgroundStatus } from '../shared/backgrou
 import { writeDiagnosticLog } from './diagnostics-service'
 import type { MulticodeUpdateService } from './update-service'
 import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
+import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { readHostedModelFeed } from './hosted-feed/hosted-feed-service'
 import { readHostedCardFeed } from './hosted-feed/card-feed-service'
 import { readHostedSourcesFeed } from './hosted-feed/sources-feed-service'
@@ -42,6 +43,13 @@ type RegisterAppLifecycleOptions = {
   workspaceSyncService?: {
     /** Persist the debounced workspace registry write before the app exits. */
     flush(): Promise<void>
+  }
+  // The Canvas pane's service: it holds a board mid-write (temp file, then a
+  // rename), a directory watcher per open board, and a hidden worker window.
+  // Quitting between those two fs calls would leave a stray temp file in the
+  // person's project, so its own dispose waits for the write to land.
+  canvasService?: {
+    dispose(): Promise<void>
   }
   // The conversation pull request record (epic `pull-request-marks`). It holds
   // a chained write per repository and a watch timer per open pull request, so
@@ -88,6 +96,7 @@ export function registerAppLifecycle({
   automationService,
   agentStateService,
   workspaceSyncService,
+  canvasService,
   pullRequestRecord,
   analytics,
   moduleKernel,
@@ -119,7 +128,10 @@ export function registerAppLifecycle({
   // Reopening from the tray (or a second launch of the app) has to work on
   // Windows and Linux, where there is no `activate` event to fall back on.
   function openWindowFromBackground(): void {
-    const existing = BrowserWindow.getAllWindows()[0]
+    // The hidden canvas worker is not a way back into the app: with the pane
+    // closed and an agent drawing, it can be the only window there is, and
+    // focusing it would drop the tray and leave nothing on screen.
+    const existing = BrowserWindow.getAllWindows().find((win) => !isCanvasWorkerWindow(win))
     if (existing) {
       if (existing.isMinimized()) existing.restore()
       existing.focus()
@@ -286,7 +298,9 @@ export function registerAppLifecycle({
     handleAuthCallback(process.argv)
 
     app.on('activate', () => {
-      if (BrowserWindow.getAllWindows().length === 0) createMainWindow({ diagnosticsEnabled })
+      if (BrowserWindow.getAllWindows().every((win) => isCanvasWorkerWindow(win))) {
+        createMainWindow({ diagnosticsEnabled })
+      }
       // The tray stands in for a window; with one on screen it goes away, so a
       // backgrounded app never shows two ways in at once.
       backgroundPresence.onWindowOpened()
@@ -322,6 +336,7 @@ export function registerAppLifecycle({
       await pullRequestRecord?.flush()
       pullRequestRecord?.dispose()
       await conversationRuntime?.shutdown()
+      await canvasService?.dispose()
       await workspaceSyncService?.flush()
       // Last of the app-owned legs: every service above has had its chance to
       // record, and a network round trip must not sit in front of anything

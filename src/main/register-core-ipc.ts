@@ -50,6 +50,7 @@ import { registerVersionControlIpc } from './ipc/version-control-ipc'
 import { registerVoiceIpc } from './ipc/voice-ipc'
 import { registerWindowIpc } from './ipc/window-ipc'
 import { registerBrowserIpc } from './ipc/browser-ipc'
+import { registerCanvasIpc } from './ipc/canvas-ipc'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
 import { confirmWorkspaceWindowClose, createDiagnosticsWindow, createMainWindow, isAuxWindow, openAuxWindow } from './window-factory'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
@@ -79,6 +80,7 @@ export function registerCoreIpc(
     isAuxWindow,
   })
   registerBrowserIpc(ipcMain, services.browserManager)
+  registerCanvasIpc(ipcMain, services.canvasService, services.canvasSubscribers)
   registerWorkspaceSyncIpc(ipcMain, services.workspaceSyncService, {
     registry: services.workspaceRegistry,
   })

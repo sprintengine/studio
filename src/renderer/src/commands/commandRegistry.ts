@@ -246,6 +246,21 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace'],
     handlerPath: { kind: 'app-menu', command: 'panel.git.toggle' },
   }),
+  // Canvas is a pane tab like Files and Git, so its toggle reads the same way:
+  // showing → close it, present but behind → bring it forward, absent → open
+  // it. It ships UNBOUND, because the three letters a whiteboard wants
+  // (⌘⇧C/⌘⇧D/⌘⇧W) are all spoken for elsewhere and a new surface does not get
+  // to take a chord someone's hands already know; the launcher tile and the
+  // pane's "+" menu are its reachable entry points, and Shortcuts settings is
+  // where a person who draws every day binds it.
+  command({
+    id: 'panel.canvas.toggle',
+    title: 'Toggle Canvas',
+    category: 'panel',
+    scopes: ['workspace'],
+    availability: ['activeWorkspace', 'canvasEnabled'],
+    handlerPath: { kind: 'workspace-manager', handler: "togglePaneKind(windowActiveWorkspaceId, 'canvas')" },
+  }),
   // The Knowledge Graph has no rail glyph (the rail is reserved for the
   // navigational core: Files / Git / Backlog), so this
   // command — surfaced in the palette and the View menu — is its entry point.

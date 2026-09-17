@@ -2296,6 +2296,16 @@ async function testStudioGatewayRejectsDuplicatesAndClassifiesMutations(): Promi
   assert.equal(isStudioGatewayMutation('browser.click'), true)
   assert.equal(isStudioGatewayMutation('browser.open'), true)
   assert.equal(isStudioGatewayMutation('browser.snapshot'), false)
+  // canvas-pane package F: drawing on a board writes a file in the person's
+  // project, so it is audited and needs `operate`; reading the board is not.
+  assert.equal(isStudioGatewayMutation('canvas.edit'), true)
+  assert.equal(isStudioGatewayMutation('canvas.open'), true)
+  assert.equal(isStudioGatewayMutation('canvas.layout'), true)
+  assert.equal(isStudioGatewayMutation('canvas.import'), true)
+  assert.equal(isStudioGatewayMutation('canvas.describe'), false)
+  assert.equal(isStudioGatewayMutation('canvas.find'), false)
+  assert.equal(isStudioGatewayMutation('canvas.list'), false)
+  assert.equal(isStudioGatewayMutation('canvas.screenshot'), false)
 
   // A module's tool classifies itself (D11): core has no table it could appear
   // in, so `mutates: true` on the registration is what makes a remote caller

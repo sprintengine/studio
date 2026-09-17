@@ -1,3 +1,6 @@
+// First, before any other module can pull the canvas editor in behind it: the
+// editor reads both window globals as its chunk evaluates. See canvasAssetPath.ts.
+import './canvasAssetPath'
 import React from 'react'
 import ReactDOM from 'react-dom/client'
 import './assets/index.css'

@@ -19,6 +19,7 @@ for (const id of [
   'search.everywhere',
   'panel.files.toggle',
   'panel.knowledge-graph.toggle',
+  'panel.canvas.toggle',
   'git.worktrees.open',
   'git.refresh',
   'git.fetch',

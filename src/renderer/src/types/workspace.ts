@@ -627,7 +627,7 @@ export type WorkspaceGitPanelState = {
 // Backlog. Tabs are a plain per-workspace record rather than a FlexLayout
 // tabset because the pane mixes kinds FlexLayout used to scatter across two
 // exclusive rails.
-export type WorkspacePaneTabKind = 'browser' | 'terminal' | 'files' | 'diff' | 'git' | 'backlog'
+export type WorkspacePaneTabKind = 'browser' | 'terminal' | 'files' | 'diff' | 'git' | 'backlog' | 'canvas'
 
 export type WorkspacePaneTab = {
   id: string
@@ -654,6 +654,11 @@ export type WorkspacePaneTab = {
     /** Filter the viewer to one changelist (`agent:<agentId>`); absent = all. */
     changelistId?: string
   }
+  // Canvas only: the board the tab is drawing on, project-relative and
+  // normalized (`normalizeCanvasPath`). Absent is a real state, not a broken
+  // one — that tab shows the board picker. A workspace holds at most one tab
+  // per board, so this doubles as the tab's identity for the opener.
+  canvas?: { path: string }
   // Browser only: the device toolbar's viewport; absent means fill.
   viewport?: BrowserViewport
   // Browser only: where the floating player sits, in viewport pixels. Persisted

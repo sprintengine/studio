@@ -16,6 +16,11 @@
     // every un-annotated parameter was silently `any` until this line. Kept here
     // rather than in the vendored base, which npm rewrites.
     "noImplicitAny": true,
+    // The canvas editor (`@excalidraw/excalidraw`) publishes its types only
+    // through its `exports` map, so `node`/`node10` resolution cannot see
+    // either the package or its `/types` subpath. The renderer is bundled by
+    // Vite, which resolves exactly this way; the other two projects already do.
+    "moduleResolution": "bundler",
     "baseUrl": ".",
     "types": ["vite/client"],
     "paths": {

@@ -40,6 +40,7 @@ import { updateApi } from './api/update'
 import { voiceApi } from './api/voice'
 import { windowApi } from './api/window'
 import { browserApi } from './api/browser'
+import { canvasApi } from './api/canvas'
 import { workspaceBackupApi } from './api/workspace-backup'
 import { workspaceSkillsApi } from './api/workspace-skills'
 import { workspaceSyncApi } from './api/workspace-sync'
@@ -55,6 +56,7 @@ const api = {
   ...agentConfigImportApi,
   ...windowApi,
   ...browserApi,
+  ...canvasApi,
   ...splashApi,
   ...startupApi,
   ...buildStampApi,

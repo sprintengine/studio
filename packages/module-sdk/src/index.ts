@@ -75,6 +75,7 @@ export type ModuleTrustStatus = 'trusted' | 'signed' | 'unsigned' | 'invalid'
 export const BUNDLED_MODULE_IDS: readonly string[] = [
   'agent-runtime',
   'backlog',
+  'canvas',
   'design',
   // Retired but still reserved (Design Wizard, deleted 2026-09-08) — like
   // 'switchboard' below, the id stays claimed so nothing can impersonate it.
@@ -1806,6 +1807,7 @@ export type CommandAvailability =
   | 'activeWorkspace'
   | 'activeFile'
   | 'memoryGraphEnabled'
+  | 'canvasEnabled'
   | 'gitPanelActive'
   | 'terminalActive'
   | 'diagnosticsEnabled'

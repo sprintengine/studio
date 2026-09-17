@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-import { composePaneKinds, STATIC_PANE_KINDS } from './paneKinds'
+import { composePaneKinds, paneKindDefinition, paneKindRetainsPanel, STATIC_PANE_KINDS } from './paneKinds'
 import type { RegisteredModalSurfaceLauncher } from '../../../modules/renderer-host'
 
 // What the workspace pane offers: the shell's own kinds, then the rows modules
@@ -98,6 +98,34 @@ const allEnabled = (): boolean => true
   // No two rows may answer to the same keypress.
   const letters = kinds.map((kind) => kind.letter).filter((letter) => letter !== '')
   assert.equal(new Set(letters).size, letters.length, 'every shortcut in the composed list is unique')
+}
+
+// --- The Canvas row ----------------------------------------------------------
+// Its module gates it like Files' and Git's do theirs, and it RETAINS: the
+// editor holds a subscription, an undo stack and a laid-out scene, and a tab
+// switch must cost none of them.
+{
+  const canvas = STATIC_PANE_KINDS.find((kind) => kind.kind === 'canvas')
+  assert.ok(canvas, 'the pane offers a Canvas kind')
+  assert.equal(canvas.label, 'Canvas')
+  assert.equal(canvas.letter, 'C', 'C was free — Browser has B and Backlog has L')
+  assert.equal(canvas.moduleId, 'canvas')
+  assert.equal(paneKindDefinition('canvas').label, 'Canvas', 'and a tab with no title reads as its kind')
+
+  const withoutCanvas = composePaneKinds([], (moduleId) => moduleId !== 'canvas')
+  assert.deepEqual(
+    withoutCanvas.filter((kind) => kind.kind === 'canvas'),
+    [],
+    'a disabled canvas module drops the row rather than greying it',
+  )
+
+  assert.equal(paneKindRetainsPanel('canvas'), true)
+  assert.equal(paneKindRetainsPanel('terminal'), true)
+  assert.equal(paneKindRetainsPanel('browser'), true)
+  assert.equal(paneKindRetainsPanel('files'), false, 'and the panel kinds still mount only while showing')
+  assert.equal(paneKindRetainsPanel('git'), false)
+  assert.equal(paneKindRetainsPanel('diff'), false)
+  assert.equal(paneKindRetainsPanel('backlog'), false)
 }
 
 console.log('pane kinds composition tests passed')

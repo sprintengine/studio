@@ -1,0 +1,156 @@
+/* The one place the canvas editor's own CSS variables are mapped onto ours.
+ *
+ * `@excalidraw/excalidraw` ships a complete stylesheet with its own palette in
+ * its own variables. This file does not restyle it — restyling a third-party
+ * editor rule by rule is how a dependency upgrade turns into a visual bug hunt
+ * — it re-points the handful of variables that stylesheet already reads at the
+ * tokens the rest of the app is painted with, so the editor's chrome is made of
+ * the same surfaces, edges, ink and accent as the pane around it.
+ *
+ * It is a file rather than part of `assets/index.css` because it belongs to one
+ * component and must ride the one chunk that component is in: it is imported by
+ * `CanvasEditor.tsx`, the only file that imports the editor, so it is fetched
+ * with the editor's own stylesheet and never with the boot document. (It is
+ * also the reason this is the tree's second CSS file: the first, `index.css`,
+ * is the token layer itself, which every document needs.)
+ *
+ * Every value here is a `var(--…)` of ours. Adding a literal would put one
+ * colour decision in a file nobody reviewing the design system would look at.
+ *
+ * Scope: `.se-canvas` is the wrapper the tab renders around the editor, so the
+ * mapping is two class selectors deep and outranks the library's own one-class
+ * rules whatever order the two stylesheets land in.
+ *
+ * DARK MODE. The library does not have a dark palette for the DRAWING: it
+ * inverts the canvas with a CSS filter (`--theme-filter`, applied to the
+ * `<canvas>` elements). So the board's own background stays a light colour in
+ * the scene file and the filter makes it dark, and nothing here tries to paint
+ * the drawing surface. Only the chrome around it is mapped, and because our
+ * tokens already resolve per mode, one mapping serves both. The dark block at
+ * the end is not a second palette: it re-states the two variables the library
+ * ALSO declares under `.theme--dark`, which is the same specificity as the
+ * block above and would otherwise be decided by which stylesheet the bundler
+ * emitted last.
+ */
+
+.se-canvas {
+  /* The two names the editor shares with us, carried down under names it does
+     not use, so the rule below can point its copies at ours. Declared on the
+     WRAPPER: a property may not reference itself on the element it is declared
+     on, and on this element these two are ordinary inherited values. */
+  --se-canvas-scrollbar-thumb: var(--scrollbar-thumb);
+  --se-canvas-scrollbar-thumb-hover: var(--scrollbar-thumb-hover);
+}
+
+.se-canvas .excalidraw {
+  /* Type. The system ships two families, permanently; the editor's UI takes
+     the UI one. The hand-drawn faces inside the DRAWING are scene fonts loaded
+     by the editor and are not a UI font choice. */
+  --ui-font: var(--sem-font-family-ui);
+
+  /* Surfaces. An "island" is the editor's word for a floating panel — the
+     toolbar, the properties rail, a popover — so they take the raised step the
+     rest of the app's floating chrome takes. */
+  --island-bg-color: var(--bg-surface-raised);
+  --popup-bg-color: var(--bg-surface-raised);
+  --popup-secondary-bg-color: var(--bg-surface);
+  --default-bg-color: var(--bg-surface);
+  --sidebar-bg-color: var(--bg-surface-raised);
+  --color-surface-lowest: var(--bg-app);
+  --color-surface-low: var(--bg-surface);
+  --color-surface-mid: var(--bg-surface-raised);
+  --color-surface-high: var(--bg-hover);
+  --color-surface-primary-container: var(--accent-primary-soft);
+  /* The scrim a dialog draws over the board: the app's one scrim token. */
+  --overlay-bg-color: var(--surface-overlay-backdrop);
+
+  /* Edges. One hairline vocabulary, so a dialog, a panel and a field do not
+     each draw their own idea of a border. */
+  --default-border-color: var(--border-default);
+  --dialog-border-color: var(--border-default);
+  --sidebar-border-color: var(--border-default);
+  --list-border-color: var(--border-subtle);
+  --color-border-outline: var(--border-strong);
+  --color-border-outline-variant: var(--border-default);
+  --avatar-border-color: var(--border-default);
+
+  /* Ink. */
+  --text-primary-color: var(--text-default);
+  --color-on-surface: var(--text-default);
+  --popup-text-color: var(--text-default);
+  --popup-text-inverted-color: var(--text-on-accent);
+  --icon-fill-color: var(--text-default);
+  --color-icon-white: var(--text-on-accent);
+  --color-muted: var(--text-muted);
+  --color-muted-darker: var(--text-subtle);
+  --color-muted-darkest: var(--text-strong);
+  --color-disabled: var(--text-disabled);
+  --keybinding-color: var(--text-subtle);
+  --input-label-color: var(--text-muted);
+
+  /* The accent. The editor spends its brand colour on the same things ours is
+     spent on — the active tool, a selected row, a primary button — so the
+     ramp maps one for one rather than being flattened to a single value. */
+  --color-primary: var(--accent-primary);
+  --color-primary-hover: var(--accent-primary-hover);
+  --color-primary-darker: var(--accent-primary-hover);
+  --color-primary-darkest: var(--accent-primary-hover);
+  --color-primary-light: var(--accent-primary-soft);
+  --color-primary-light-darker: var(--accent-primary-soft-strong);
+  --color-brand-hover: var(--accent-primary-hover);
+  --color-brand-active: var(--accent-primary-hover);
+  --color-on-primary-container: var(--text-default);
+  --color-selection: var(--accent-primary);
+  --link-color: var(--accent-primary);
+
+  /* Fields. */
+  --input-bg-color: var(--bg-field);
+  --input-border-color: var(--border-default);
+  --input-hover-bg-color: var(--bg-hover);
+
+  /* Focus. One indicator, the shared ring's colour — never a second idiom. */
+  --focus-highlight-color: var(--border-focus);
+  --select-highlight-color: var(--border-focus);
+
+  /* Shape. The editor's two radii sit on our control/overlay steps. */
+  --border-radius-md: var(--radius-sm);
+  --border-radius-lg: var(--radius-md);
+
+  /* Scrollbars, so a list inside the editor scrolls like every other list.
+     Read through the wrapper's aliases, not straight from our own tokens: the
+     editor happens to spell these two exactly as we do, and a custom property
+     that names itself is a cycle and resolves to nothing at all. */
+  --scrollbar-thumb: var(--se-canvas-scrollbar-thumb);
+  --scrollbar-thumb-hover: var(--se-canvas-scrollbar-thumb-hover);
+}
+
+/* Same two tokens, one class deeper, so the library's own `.theme--dark`
+   declarations cannot win on source order. Everything else above already
+   follows the mode, because our tokens do. */
+.se-canvas .excalidraw.theme--dark {
+  --list-border-color: var(--border-subtle);
+  --popup-bg-color: var(--bg-surface-raised);
+}
+
+/* A retained board that is NOT the tab on screen has to stop painting.
+ *
+ * The pane hides an inactive retained layer with `visibility: hidden` (the
+ * `invisible` utility on the `role="tabpanel"` wrapper) rather than unmounting
+ * it or setting `display: none`, because the editor measures its container and
+ * a layer with no box would re-lay-out the whole scene on every tab switch.
+ * That works for a terminal. It does not work on its own here: `visibility` is
+ * the one inherited property a descendant can take back, and the library's
+ * stylesheet does exactly that on four of its own nodes — the zoom buttons'
+ * wrapper among them. A hidden board therefore drew its zoom and undo controls
+ * over whichever tab the person was actually looking at, and, because a visible
+ * element is also a hit-testable one, swallowed clicks meant for it.
+ *
+ * So the subtree is hidden again from the layer that owns the hiding. Matched
+ * through `aria-hidden`, which the pane already puts on exactly those layers,
+ * rather than through a utility class that means nothing in particular. The
+ * `!important` is aimed at a third-party declaration this file cannot reorder
+ * and is the reason it is here rather than in a component. */
+[aria-hidden='true'] .se-canvas,
+[aria-hidden='true'] .se-canvas * {
+  visibility: hidden !important;
+}

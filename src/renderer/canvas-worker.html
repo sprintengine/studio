@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Canvas worker</title>
+    <!--
+      The hidden canvas worker. A THIRD renderer entry, owned by main: it is
+      loaded into a window nobody sees, and every drawing operation that needs a
+      document — measuring a label, fastening an arrow to a shape, importing a
+      diagram from text, rendering an image — happens here so that no canvas
+      tool depends on the pane being open.
+
+      No app chrome and no theme pre-paint: nothing in this document is ever
+      looked at. What it does need is a real layout box for the one editor
+      instance it mounts, which is why the host below is positioned off-screen
+      rather than hidden — an editor in a `display: none` subtree measures every
+      glyph as zero.
+    -->
+    <style>
+      html,
+      body {
+        margin: 0;
+        padding: 0;
+        overflow: hidden;
+        background: #ffffff;
+      }
+      /* Fixed 800x600 and parked far off-screen. The size is arbitrary but must
+         be non-zero and stable: the editor reads it once on mount, and a box
+         that resizes would make it recompute a scene nobody is looking at. */
+      #canvas-worker-host {
+        position: fixed;
+        left: -10000px;
+        top: -10000px;
+        width: 800px;
+        height: 600px;
+        pointer-events: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div id="canvas-worker-host"></div>
+    <script type="module" src="/src/canvasWorker/main.tsx"></script>
+  </body>
+</html>

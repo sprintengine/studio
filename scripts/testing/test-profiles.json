@@ -339,6 +339,7 @@
     "src/renderer/src/components/workspace/newWorkspace/DesignSystemAttachStep.test.tsx": "cjs-bundled-jsx",
     "src/renderer/src/components/workspace/newWorkspace/folderCreation.test.ts": "cjs-external",
     "src/renderer/src/components/workspace/openInEditorTargets.test.ts": "cjs-external",
+    "src/renderer/src/components/workspace/pane/canvas/CanvasBoardPicker.test.tsx": "cjs-bundled-jsx-jsdom",
     "src/renderer/src/components/workspace/pane/paneKinds.test.ts": "cjs-bundled-jsx",
     "src/renderer/src/components/workspace/sidebarWidth.test.ts": "cjs-external",
     "src/renderer/src/components/workspace/terminalLines.test.ts": "cjs-external",
