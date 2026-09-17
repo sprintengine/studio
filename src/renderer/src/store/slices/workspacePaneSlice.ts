@@ -1,6 +1,7 @@
 import { nanoid } from 'nanoid'
 import { BROWSER_MAX_RECENT_URLS } from '../../../../shared/browser'
 import { normalizeBrowserViewport } from '../../../../shared/browser-devices'
+import { canvasBoardKeyPath, canvasBoardName, normalizeCanvasPath } from '../../../../shared/canvas/paths'
 import type {
   Workspace,
   WorkspaceId,
@@ -21,16 +22,47 @@ const WORKSPACE_PANE_TAB_KINDS: readonly WorkspacePaneTabKind[] = [
   'diff',
   'git',
   'backlog',
+  'canvas',
 ]
 
 // Kinds a workspace opens at most once: opening them again focuses the tab
 // that exists. Browser and terminal tabs may open many.
+//
+// Canvas is in neither camp, which is why it is not listed here: a workspace
+// may hold several boards at once, but only ONE tab per board. Its identity is
+// the board path rather than the kind, so `canvasTabKey` below is what the
+// opener and the normalizer both dedupe on.
 const SINGLETON_PANE_TAB_KINDS: ReadonlySet<WorkspacePaneTabKind> = new Set([
   'files',
   'diff',
   'git',
   'backlog',
 ])
+
+/**
+ * What makes one Canvas tab the same tab as another: its board.
+ *
+ * A tab with no board is the picker, and there is only ever one of those —
+ * opening Canvas again while the picker is up should land on the picker the
+ * person is already looking at, not mint a second one. So "no board" is a key
+ * like any other rather than an opt-out of the rule.
+ */
+function canvasTabKey(tab: Pick<WorkspacePaneTab, 'canvas'>): string {
+  // Folded where the filesystem folds it, and main folds its own registry key
+  // the same way: two spellings of one path are one file, so two tabs over them
+  // would be two live editors writing the same board.
+  return canvasBoardKeyPath(tab.canvas?.path ?? '', rendererPlatform())
+}
+
+/**
+ * The platform, as the preload reports it. Read per call and defaulted rather
+ * than captured: this module is loaded by tests that have no preload, and a
+ * case-sensitive answer there is the conservative one.
+ */
+function rendererPlatform(): string {
+  const api = typeof window === 'undefined' ? undefined : window.api
+  return typeof api?.platform === 'string' ? api.platform : 'linux'
+}
 
 const MAX_PANE_TABS = 24
 const MAX_TITLE_LENGTH = 200
@@ -85,6 +117,13 @@ function normalizeTab(input: unknown): WorkspacePaneTab | null {
     if (typeof raw.terminalId !== 'string' || raw.terminalId.trim().length === 0) return null
     tab.terminalId = raw.terminalId
   }
+  if (tab.kind === 'canvas' && raw.canvas && typeof raw.canvas === 'object') {
+    // An unusable path drops the FIELD, never the tab: the tab then opens on
+    // the board picker, which is a surface the person can act in, where
+    // dropping the tab would lose a place in the strip with no explanation.
+    const path = normalizeCanvasPath(String((raw.canvas as { path?: unknown }).path ?? ''))
+    if (path.ok) tab.canvas = { path: path.value }
+  }
   if (tab.kind === 'diff' && raw.diff && typeof raw.diff === 'object') {
     const focusPath = typeof raw.diff.focusPath === 'string' && raw.diff.focusPath ? raw.diff.focusPath : null
     const focusKind =
@@ -106,6 +145,11 @@ export function normalizeWorkspacePaneState(input: unknown): WorkspacePaneState 
   const raw = input as Partial<WorkspacePaneState>
   const seenIds = new Set<string>()
   const seenSingletons = new Set<WorkspacePaneTabKind>()
+  const canvasBoardTabs = new Map<string, string>()
+  // Where a dropped duplicate's active-ness goes: the tab that survived for the
+  // same board. Falling back to the first tab in the strip would drop the
+  // person somewhere they did not ask to be, on a board they did not name.
+  const replacedBy = new Map<string, string>()
   const tabs: WorkspacePaneTab[] = []
   for (const candidate of Array.isArray(raw.tabs) ? raw.tabs : []) {
     const tab = normalizeTab(candidate)
@@ -114,14 +158,26 @@ export function normalizeWorkspacePaneState(input: unknown): WorkspacePaneState 
       if (seenSingletons.has(tab.kind)) continue
       seenSingletons.add(tab.kind)
     }
+    if (tab.kind === 'canvas') {
+      // Two tabs on one board would each hold a live editor over the same
+      // file, so the second is dropped exactly as a second singleton is.
+      const key = canvasTabKey(tab)
+      const survivor = canvasBoardTabs.get(key)
+      if (survivor !== undefined) {
+        replacedBy.set(tab.id, survivor)
+        continue
+      }
+      canvasBoardTabs.set(key, tab.id)
+    }
     seenIds.add(tab.id)
     tabs.push(tab)
     if (tabs.length >= MAX_PANE_TABS) break
   }
+  const asked = typeof raw.activeTabId === 'string' ? raw.activeTabId : null
   const activeTabId =
-    typeof raw.activeTabId === 'string' && seenIds.has(raw.activeTabId)
-      ? raw.activeTabId
-      : tabs[0]?.id ?? null
+    asked !== null && seenIds.has(asked)
+      ? asked
+      : (asked !== null ? replacedBy.get(asked) : undefined) ?? tabs[0]?.id ?? null
   const recentUrls = normalizeRecentUrls(raw.recentUrls)
   return {
     open: raw.open === true,
@@ -277,6 +333,8 @@ type WorkspacePaneOpenInput = {
   url?: string
   terminalId?: string
   diff?: WorkspacePaneTab['diff']
+  /** Canvas only: the board to open. Omitted, the tab opens on the picker. */
+  canvas?: WorkspacePaneTab['canvas']
   // Whether the new (or found) tab becomes the active one and the pane opens.
   // Default true; an agent opening a background tab passes false.
   activate?: boolean
@@ -285,13 +343,25 @@ type WorkspacePaneOpenInput = {
 export interface WorkspacePaneSliceActions {
   /**
    * Open a tab and return its id. A singleton kind (Files, Git, Diff) returns
-   * the existing tab, patched with the input, instead of a second copy. Null
-   * for an unknown workspace.
+   * the existing tab, patched with the input, instead of a second copy; a
+   * Canvas tab does the same per BOARD, so `canvas.open` on a board that is
+   * already up focuses it rather than opening it twice. Null for an unknown
+   * workspace.
    */
   openPaneTab: (id: WorkspaceId, input: WorkspacePaneOpenInput) => string | null
   closePaneTab: (id: WorkspaceId, tabId: string) => void
   setActivePaneTab: (id: WorkspaceId, tabId: string) => void
   updatePaneTab: (id: WorkspaceId, tabId: string, patch: Partial<Omit<WorkspacePaneTab, 'id' | 'kind'>>) => void
+  /**
+   * Point a Canvas tab at a board.
+   *
+   * Not `updatePaneTab`: if another tab in this pane already holds that board,
+   * that tab is brought forward and THIS one closes. Two tabs over one file are
+   * two live editors committing the same scene, and writing the path on anyway
+   * would leave the normalizer to drop one of them after the fact — taking the
+   * person somewhere they did not ask to be.
+   */
+  setPaneTabBoard: (id: WorkspaceId, tabId: string, path: string) => void
   setPaneOpen: (id: WorkspaceId, open: boolean) => void
   /**
    * The shortcut semantics of the old rail switches, for the singleton kinds:
@@ -368,7 +438,11 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
         const activate = input.activate !== false
         const existing = SINGLETON_PANE_TAB_KINDS.has(input.kind)
           ? pane.tabs.find((tab) => tab.kind === input.kind)
-          : undefined
+          : input.kind === 'canvas'
+            ? pane.tabs.find(
+                (tab) => tab.kind === 'canvas' && canvasTabKey(tab) === canvasTabKey(input),
+              )
+            : undefined
         if (existing) {
           if (input.title !== undefined) existing.title = input.title
           if (input.diff !== undefined) existing.diff = input.diff
@@ -380,6 +454,13 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
           if (input.kind === 'browser' && input.url) tab.url = input.url
           if (input.kind === 'terminal') tab.terminalId = input.terminalId ?? nanoid(10)
           if (input.kind === 'diff') tab.diff = input.diff ?? { focusPath: null, focusKind: null }
+          if (input.kind === 'canvas' && input.canvas) {
+            tab.canvas = input.canvas
+            // The board's name IS the tab's label, so it is written where the
+            // board is written. The strip falls back to the kind's label
+            // ("Canvas") for a tab that has no board yet.
+            tab.title ??= canvasBoardName(input.canvas.path)
+          }
           pane.tabs.push(tab)
           opened = tab.id
         }
@@ -424,6 +505,42 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
         const tab = pane.tabs.find((candidate) => candidate.id === tabId)
         if (!tab) return
         Object.assign(tab, patch)
+        // A Canvas tab that just gained (or changed) its board takes the
+        // board's name with it. Derived here rather than at the call site
+        // because every route to a board — the picker, an agent's open
+        // request, a restored record being retargeted — must land on the same
+        // label, and a caller that passed its own title still wins.
+        if (tab.kind === 'canvas' && 'canvas' in patch && !('title' in patch)) {
+          if (tab.canvas) tab.title = canvasBoardName(tab.canvas.path)
+          else delete tab.title
+        }
+        ws.paneState = normalizeWorkspacePaneState(pane)
+      }),
+
+    setPaneTabBoard: (id, tabId, path) =>
+      set((state) => {
+        const ws = state.workspaces.find((w) => w.id === id)
+        if (!ws) return
+        const pane = paneOf(ws)
+        const index = pane.tabs.findIndex((candidate) => candidate.id === tabId)
+        const tab = pane.tabs[index]
+        if (!tab || tab.kind !== 'canvas') return
+        const normalized = normalizeCanvasPath(path)
+        if (!normalized.ok) return
+        const key = canvasTabKey({ canvas: { path: normalized.value } })
+        const existing = pane.tabs.find(
+          (candidate) => candidate.id !== tabId && candidate.kind === 'canvas' && canvasTabKey(candidate) === key,
+        )
+        if (existing) {
+          pane.tabs.splice(index, 1)
+          pane.activeTabId = existing.id
+          pane.open = true
+        } else {
+          tab.canvas = { path: normalized.value }
+          // The same rule `updatePaneTab` follows: the board's name is the
+          // tab's label, written where the board is written.
+          tab.title = canvasBoardName(normalized.value)
+        }
         ws.paneState = normalizeWorkspacePaneState(pane)
       }),
 

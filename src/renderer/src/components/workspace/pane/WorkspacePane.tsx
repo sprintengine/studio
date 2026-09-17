@@ -144,9 +144,20 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
         openModalSurface(definition.modalSurfaceId, { workspaceId })
         return
       }
-      openPaneTab(workspaceId, { kind: kind as WorkspacePaneTabKind })
+      const before = new Set(tabs.map((tab) => tab.id))
+      const opened = openPaneTab(workspaceId, { kind: kind as WorkspacePaneTabKind })
+      // A Canvas tab the PERSON opened takes the whole row. The editor drops to
+      // its compact phone layout below 730px of container, and a docked pane is
+      // 240-720 — so a board opened deliberately is opened at a width it can be
+      // drawn on. An agent's canvas.open deliberately does not do this
+      // (WorkspacePaneColumn).
+      //
+      // Only for a tab that was actually MADE: opening Canvas again when this
+      // workspace already has a Canvas tab focuses the one that exists, and
+      // taking over the whole row for that is a gesture nobody asked for.
+      if (opened !== null && kind === 'canvas' && !before.has(opened)) setMaximised(true)
     },
-    [kinds, openModalSurface, openPaneTab, workspaceId],
+    [kinds, openModalSurface, openPaneTab, setMaximised, tabs, workspaceId],
   )
 
   const items: TabItem[] = tabs.map((tab) => {

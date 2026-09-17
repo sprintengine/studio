@@ -40,6 +40,16 @@ import type {
 } from './browser'
 import type { BrowserColorScheme, BrowserViewport } from './browser-devices'
 import type {
+  CanvasBoardRef,
+  CanvasBoardState,
+  CanvasBoardSummary,
+  CanvasElement,
+  CanvasPresence,
+  CanvasResult,
+  CanvasScenePush,
+} from './canvas/types'
+import type { CanvasWorkerReport, CanvasWorkerRequest, CanvasWorkerResponse } from './canvas/worker-protocol'
+import type {
   FolderOpenRequest,
   FolderOpenResult,
   FolderOpenTargetAvailability,
@@ -3089,6 +3099,59 @@ export type ElectronApi = {
   onBrowserState: (cb: (state: BrowserTabState) => void) => () => void
   onBrowserFocusUrl: (cb: (payload: { tabId: string }) => void) => () => void
   onBrowserHostKey: (cb: (payload: { tabId: string; key: BrowserHostKey }) => void) => () => void
+  // The Canvas pane (src/shared/canvas). Main owns the `.excalidraw` file, the
+  // revision and the merge; a tab subscribes by opening a board and is pushed
+  // every accepted scene until it closes it. Every path crossing here is
+  // resolved against the workspace root on the main side, so a renderer cannot
+  // name a file outside the project however it spells one.
+  canvasListBoards: (workspaceId: string) => Promise<CanvasResult<CanvasBoardSummary[]>>
+  /** Opens (optionally creating) a board and subscribes the calling window to it. */
+  canvasOpenBoard: (input: {
+    workspaceId: string
+    path: string
+    create?: boolean
+  }) => Promise<CanvasResult<CanvasBoardState>>
+  canvasCloseBoard: (input: CanvasBoardRef) => Promise<void>
+  /**
+   * The person's edit, debounced by the tab. `elements` is the full array
+   * including tombstones, and `baseRevision` is what the tab last saw, so main
+   * can merge rather than overwrite. `elements` comes back non-null only when
+   * the merge differs from what was sent — that is the tab's cue to reconcile,
+   * and sending it back unconditionally would echo every keystroke.
+   */
+  canvasCommitScene: (
+    input: CanvasBoardRef & {
+      baseRevision: number
+      elements: CanvasElement[]
+      appState: Record<string, unknown>
+      files: Record<string, unknown>
+    },
+  ) => Promise<CanvasResult<{ revision: number; elements: CanvasElement[] | null }>>
+  /**
+   * The person has started a gesture on this board. Presence ONLY: it moves the
+   * badge every other window shows, so an agent stops looking like it holds the
+   * pen. It cancels nothing — an agent action in flight keeps running, and what
+   * protects the person's work is the per-element merge in main, which
+   * recomputes a contested agent edit once and then fails it `interrupted`.
+   * Fire-and-forget.
+   */
+  canvasNoteHumanInput: (input: CanvasBoardRef) => void
+  onCanvasScene: (cb: (push: CanvasScenePush) => void) => () => void
+  onCanvasPresence: (cb: (presence: CanvasBoardRef & CanvasPresence) => void) => () => void
+  /** An agent asked for a board in this workspace's pane (canvas.open); the tab opens docked. */
+  onCanvasOpenRequest: (cb: (ref: CanvasBoardRef) => void) => () => void
+  // The hidden canvas worker window's half of the same surface. Only that window
+  // uses these three: it announces itself once its editor instance has mounted,
+  // then answers requests until main disposes it.
+  /**
+   * Ready to take requests, and how the fonts went. A family in `missing` means
+   * every label the worker measures is measured in a fallback face and written
+   * to the person's file at that size, so main appends a warning to every edit,
+   * layout and import it makes while that is true.
+   */
+  canvasWorkerReady: (report: CanvasWorkerReport) => void
+  onCanvasWorkerRequest: (cb: (request: CanvasWorkerRequest) => void) => () => void
+  canvasWorkerRespond: (response: CanvasWorkerResponse) => void
   // Splash boot handshake. `onSplashProgress` is consumed only by the standalone
   // splash renderer; `notifyBootComplete` is sent once by the primary workspace
   // window when its first frame is on screen, and is what closes the splash and

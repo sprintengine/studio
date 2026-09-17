@@ -811,6 +811,9 @@ export default function WorkspaceManager() {
     // The Knowledge Graph toggle is the panel's only entry point (no rail
     // glyph), so its availability tracks the memory-graph module directly.
     if (selectModuleEnabled(moduleEnablement, 'memory-graph')) context.memoryGraphEnabled = true
+    // The Canvas tab is a pane tab the canvas module gates; with it off the
+    // pane renders the unavailable surface, so the toggle is not offered.
+    if (selectModuleEnabled(moduleEnablement, 'canvas')) context.canvasEnabled = true
     // The global Automations screen needs the automations module (its store/IPC).
     if (selectModuleEnabled(moduleEnablement, 'automations')) context.automationsEnabled = true
     // The Git panel mounts only while its pane tab is the one showing (the
@@ -3551,6 +3554,22 @@ export default function WorkspaceManager() {
     }
     if (commandId === 'panel.git.toggle' && windowActiveWorkspaceId) {
       togglePaneKind(windowActiveWorkspaceId, 'git')
+      return true
+    }
+    if (commandId === 'panel.canvas.toggle' && windowActiveWorkspaceId) {
+      // The module guard mirrors the command's availability, so a binding that
+      // outlived a module being turned off cannot mount a surface that is not
+      // there.
+      if (!selectModuleEnabled(moduleEnablement, 'canvas')) return false
+      const pane = useWorkspaceStore.getState().workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState
+      const hadTab = pane?.tabs.some((tab) => tab.kind === 'canvas') ?? false
+      // Only a tab this keystroke CREATED takes the pane wide — the editor
+      // falls back to its compact layout below 730px and a docked pane is
+      // narrower than that. Bringing an existing board forward leaves the
+      // pane's width exactly as the person last set it.
+      if (togglePaneKind(windowActiveWorkspaceId, 'canvas') && !hadTab) {
+        useWorkspaceStore.getState().setWorkspacePaneMaximised(true)
+      }
       return true
     }
     if (commandId === 'panel.knowledge-graph.toggle' && windowActiveWorkspaceId) {

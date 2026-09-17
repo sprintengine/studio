@@ -1,6 +1,7 @@
 import { isAbsolute } from 'node:path'
 import { BrowserWindow, screen, shell, type IpcMain, type IpcMainEvent, type IpcMainInvokeEvent } from 'electron'
 import { offerDockDiff, type DockDiffRequest } from './dock-diff'
+import { isCanvasWorkerWindow } from '../canvas/canvas-worker-window'
 import { safeExternalUrl } from './external-url'
 import type {
   AuxWindowKind,
@@ -266,13 +267,21 @@ export function registerWindowIpc(ipcMain: IpcMain, options: RegisterWindowIpcOp
  * one they meant by "the app" — and the others follow newest first, which is
  * the closest thing to "most recently used" that `getAllWindows` (creation
  * order) can be turned into without main tracking focus itself.
+ *
+ * The hidden canvas worker is out for the same reason as an aux window and one
+ * worse: it has no pane, and it never answers. Each ask spends a per-window
+ * slice of `offerDockDiff`'s budget waiting for an ack that cannot come, and
+ * being created lazily it sorts NEWEST — so it would be asked first and, with
+ * two workspace windows open, the third ask would never happen and the person
+ * would be told nobody took the diff. The test stays here rather than in
+ * `dock-diff.ts`, which is deliberately free of electron.
  */
 function dockDiffCandidates(
   sender: BrowserWindow,
   isAuxWindow: (win: BrowserWindow) => boolean
 ): BrowserWindow[] {
   const candidates = BrowserWindow.getAllWindows().filter(
-    (win) => win !== sender && !win.isDestroyed() && !isAuxWindow(win)
+    (win) => win !== sender && !win.isDestroyed() && !isAuxWindow(win) && !isCanvasWorkerWindow(win)
   )
   const focused = BrowserWindow.getFocusedWindow()
   const rest = candidates.filter((win) => win !== focused).reverse()

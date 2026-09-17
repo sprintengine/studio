@@ -30,6 +30,7 @@ import {
   getShellLaunchConfig,
   getTerminalEnv,
 } from './terminal-launch'
+import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { getSharedCredentialStore } from './secret-store'
 import { getErrorMessage } from './error-message'
 import { getTerminalErrorMessage } from './terminal-error'
@@ -612,7 +613,7 @@ const terminalOutput = createTerminalOutputBuffer({
  */
 export function resolveSpawnEventSink(): WebContents {
   return BrowserWindow.getAllWindows()
-    .find((win) => !win.isDestroyed() && !win.webContents.isDestroyed())
+    .find((win) => !win.isDestroyed() && !win.webContents.isDestroyed() && !isCanvasWorkerWindow(win))
     ?.webContents
     ?? createHeadlessTerminalSender()
 }

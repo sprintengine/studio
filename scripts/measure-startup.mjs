@@ -21,7 +21,7 @@
 
 import { spawn } from 'node:child_process'
 import { createRequire } from 'node:module'
-import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -55,26 +55,63 @@ function fail(message) {
 }
 
 // The eager entry chunk, the thing the ceiling is about: largest index-*.js.
+/**
+ * The renderer's entry chunk, read out of `out/renderer/index.html` rather than
+ * guessed from a filename.
+ *
+ * This used to take "the largest `index-*.js`", which was true while the shell
+ * was the only HTML entry. The canvas worker made it a third one, and with it
+ * came LAZY chunks that are also called `index-*.js` — the Mermaid importer is
+ * ~1 MB of one — so the old rule was one growth spurt away from reporting a
+ * chunk the shell never loads. `scripts/check-bundle-budget.mjs` reads the same
+ * document for the same reason; the note at the top of that file has the
+ * details. `eagerTotalKb` is the whole boot graph (this chunk plus every
+ * modulepreload beside it), which is what the ceiling there is measured
+ * against; the compile timing below stays on the entry alone, because that is
+ * the one file it makes sense to compile in isolation.
+ */
 function eagerChunk() {
-  let files
+  let html
   try {
-    files = readdirSync(ASSETS_DIR)
+    html = readFileSync(join(ROOT, 'out/renderer/index.html'), 'utf8')
   } catch {
-    fail(`${ASSETS_DIR} not found — run \`npx electron-vite build\` first.`)
+    fail('out/renderer/index.html not found — run `npx electron-vite build` first.')
   }
-  const chunks = files
-    .filter((file) => /^index-.*\.js$/.test(file))
-    .map((file) => ({ file, path: join(ASSETS_DIR, file), size: statSync(join(ASSETS_DIR, file)).size }))
-    .sort((a, b) => b.size - a.size)
-  if (chunks.length === 0) fail('no eager index chunk found in the build output.')
-  return chunks[0]
+  const refs = []
+  for (const tag of html.match(/<script\b[^>]*>/gi) ?? []) {
+    if (!/\btype\s*=\s*["']module["']/i.test(tag)) continue
+    const src = tag.match(/\bsrc\s*=\s*["']([^"']+)["']/i)
+    if (src) refs.push({ ref: src[1], entry: true })
+  }
+  for (const tag of html.match(/<link\b[^>]*>/gi) ?? []) {
+    if (!/\brel\s*=\s*["']modulepreload["']/i.test(tag)) continue
+    const href = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i)
+    if (href) refs.push({ ref: href[1], entry: false })
+  }
+  if (refs.length === 0) fail('out/renderer/index.html loads no module script.')
+
+  let total = 0
+  let entry = null
+  for (const { ref, entry: isEntry } of refs) {
+    const path = join(ROOT, 'out/renderer', ref.replace(/^\.?\//, '').split('?')[0])
+    let size
+    try {
+      size = statSync(path).size
+    } catch {
+      fail(`${ref} is loaded by index.html but is not in the build output.`)
+    }
+    total += size
+    if (isEntry && !entry) entry = { file: ref.replace(/^.*\//, ''), path, size }
+  }
+  if (!entry) fail('out/renderer/index.html names no entry script.')
+  return { ...entry, eagerTotalKb: Math.round(total / 1024) }
 }
 
 async function reportStartup() {
   const chunk = eagerChunk()
   console.log(
     `[measure-startup] ${args.runs} run(s), ${args.profile} profile — eager chunk ${chunk.file} `
-    + `(${Math.round(chunk.size / 1024)} KB)`
+    + `(${Math.round(chunk.size / 1024)} KB of a ${chunk.eagerTotalKb} KB boot graph)`
   )
 
   const sharedProfile = args.profile === 'reuse' ? mkdtempSync(join(tmpdir(), 'multicode-startup-')) : null
@@ -222,7 +259,7 @@ function summarize(runs, chunk) {
     // read as a clean series to someone skimming the table.
     incompleteRuns: runs.filter((run) => !run.complete).length,
     missingMarks: [...new Set(runs.flatMap((run) => run.missing))],
-    eagerChunk: { file: chunk.file, kb: Math.round(chunk.size / 1024) },
+    eagerChunk: { file: chunk.file, kb: Math.round(chunk.size / 1024), eagerTotalKb: chunk.eagerTotalKb },
     marks: rowIds.map((id) => {
       const offsets = pick(id, 'offsetMs', 'rows')
       return { id, label: label(id), medianMs: median(offsets), minMs: Math.min(...offsets), maxMs: Math.max(...offsets) }

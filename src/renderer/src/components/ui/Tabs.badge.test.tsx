@@ -116,6 +116,44 @@ async function main(): Promise<void> {
     unmount(root, host)
   })
 
+  // A tab that reserves trailing room (for the badge, or for a closable tab's
+  // close glyph) must not ALSO carry the two-sided `px-3`: both set the right
+  // edge, the shorthand won the cascade, and the reservation silently collapsed
+  // to 12px — which drew the close glyph over the last letters of the label.
+  // Class names are all a Node test can see; the computed padding is the CSS
+  // build's, so the rule asserted here is "never both".
+  run('a trailing reservation is never emitted beside the two-sided shorthand', () => {
+    const badged = mount(strip([{ id: 'updates', label: 'Updates', badgeCount: 3 }]))
+    const badgedTab = badged.host.querySelector('[role="tab"]') as HTMLElement
+    assert.match(badgedTab.className, /(^|\s)pl-3(\s|$)/, 'leading padding stays')
+    assert.doesNotMatch(badgedTab.className, /(^|\s)px-3(\s|$)/, 'and the shorthand that would override pr-6 is gone')
+    unmount(badged.root, badged.host)
+
+    const closable = mount(
+      <Tabs
+        ariaLabel="Documents"
+        items={[{ id: 'board', label: 'race', closeLabel: 'Close race' }]}
+        value="board"
+        onChange={() => {}}
+        onCloseItem={() => {}}
+      />,
+    )
+    const closableTab = closable.host.querySelector('[role="tab"]') as HTMLElement
+    assert.match(closableTab.className, /(^|\s)pr-8(\s|$)/, 'the close glyph has its reserved room')
+    assert.match(closableTab.className, /(^|\s)pl-3(\s|$)/, 'leading padding stays')
+    assert.doesNotMatch(closableTab.className, /(^|\s)px-3(\s|$)/, 'and nothing else sets the trailing edge')
+    assert.ok(closable.host.querySelector('button[aria-label="Close race"]'), 'the close control is there')
+    unmount(closable.root, closable.host)
+
+    const plain = mount(strip([{ id: 'installed', label: 'Installed' }]))
+    assert.match(
+      (plain.host.querySelector('[role="tab"]') as HTMLElement).className,
+      /(^|\s)px-3(\s|$)/,
+      'a tab with nothing docked keeps the symmetric shorthand',
+    )
+    unmount(plain.root, plain.host)
+  })
+
   run('a count of zero is not news', () => {
     const { host, root } = mount(strip([{ id: 'installed', label: 'Installed', badgeCount: 0 }]))
     assert.equal(

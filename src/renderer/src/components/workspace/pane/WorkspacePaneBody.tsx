@@ -11,9 +11,13 @@ import { paneKindRetainsPanel } from './paneKinds'
 import { FLOATING_PAGE_INSET, FloatingPlayerChrome, useFloatRect } from './FloatingPlayer'
 
 // The pane's content region: one layer per tab that needs to stay mounted
-// (terminal, later browser) plus the active tab. Inactive retained layers are
+// (terminal, browser, canvas) plus the active tab. Inactive retained layers are
 // `invisible` rather than `hidden` so xterm keeps its measured size and a tab
 // switch never refits the buffer; everything else mounts only while showing.
+// A canvas layer hides the same way, and for the same reason: the editor
+// measures its container, and a layer with no box would be re-laid-out on
+// every tab switch. The offscreen park below is the browser's alone — it exists
+// because a <webview> guest cannot survive `visibility: hidden`.
 
 const FileExplorer = React.lazy(() => import('../../panels/FileExplorer'))
 const PlainTerminalPanel = React.lazy(() => import('../../panels/PlainTerminalPanel'))
@@ -24,6 +28,15 @@ const DiffViewer = React.lazy(() =>
 )
 const BrowserTab = React.lazy(() =>
   import('./browser/BrowserTab').then((module) => ({ default: module.BrowserTab })),
+)
+// The canvas editor is the heaviest dependency in the tree, and this is the
+// boundary that keeps it out of the boot chunk (scripts/check-bundle-budget.mjs
+// fails the build if its signature reaches there). A local lazy const rather
+// than a host-registered panel because the tab needs the tab RECORD — which
+// board it is on — and whether it is the one on screen, and a host panel is
+// handed neither; the same split dev-tools makes for its explorer.
+const CanvasTab = React.lazy(() =>
+  import('./canvas/CanvasTab').then((module) => ({ default: module.CanvasTab })),
 )
 
 // An inactive layer is normally `invisible`; a browser layer is parked
@@ -163,6 +176,10 @@ function PaneTabPanel({ workspaceId, tab, active, onDiffCountChange }: PaneTabPa
         : <PaneUnavailable />
     case 'browser':
       return <BrowserTab workspaceId={workspaceId} tab={tab} active={active} />
+    case 'canvas':
+      return selectModuleEnabled(moduleOverrides, 'canvas')
+        ? <CanvasTab workspaceId={workspaceId} tab={tab} active={active} />
+        : <PaneUnavailable />
     case 'diff': {
       // The opener's repository wins: the Git panel can be showing a worktree
       // scope that is not the workspace's own checkout, and re-deriving one
@@ -222,6 +239,10 @@ export function WorkspacePaneBody({
             aria-hidden={!selected}
             // No stacking tier: an unselected panel is offscreen (browser) or
             // invisible (terminal), so the selected one is the only paint.
+            // `aria-hidden` below is load-bearing as well as correct: a canvas
+            // layer needs its subtree hidden a second time, because the editor's
+            // own stylesheet takes `visibility` back on a few of its nodes, and
+            // `canvasTheme.css` matches those layers through this attribute.
             //
             // FLOATING is the one case that leaves the pane's box: the SAME
             // element is restyled to `position: fixed`, never moved in the

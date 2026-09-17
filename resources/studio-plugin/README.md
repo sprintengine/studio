@@ -114,21 +114,23 @@ the flag; the flag is the whole change.
 
 ## The skills
 
-One per area: `studio-backlog`, `studio-automations`, `studio-workspaces`, and
-`studio-design-system` — four. (`studio-review` left with the Reviews module,
-which ships it itself.) The last one is the odd shape of the set: the other three
-are manuals for a tool surface, and it is the manual for the *repository's*
-design system. It sits here rather than with the workflow skills because it
-teaches the studio's own kit, spec trio and lint gates by path, which is
-knowledge about this product and not a general technique. It ships one executable
-of its own, `skills/studio-design-system/scripts/`, which the other three do not.
+One per area: `studio-backlog`, `studio-automations`, `studio-canvas`,
+`studio-workspaces`, and `studio-design-system` — five. (`studio-review` left
+with the Reviews module, which ships it itself.) The last one is the odd shape of
+the set: the other four are manuals for a tool surface, and it is the manual for
+the *repository's* design system. It sits here rather than with the workflow
+skills because it teaches the studio's own kit, spec trio and lint gates by path,
+which is knowledge about this product and not a general technique. It ships one
+executable of its own, `skills/studio-design-system/scripts/`, which the other
+four do not.
 Each is written to the Agent Skills specification — `name` equal to its
 directory, a `description` under 1024 characters that says **when** to use it, a
 body under 500 lines — and `src/main/skills/studio-plugin-skills.test.ts` checks
 them against the same frontmatter parser the app's own skill reader uses.
 
-The three tool-surface skills are distilled from the tool descriptions in
-`src/main/automation/automation-tools.ts` and the review gateway tools.
+The four tool-surface skills are distilled from the tool descriptions in
+`src/main/automation/automation-tools.ts`, `canvas-tools.ts` and the review
+gateway tools.
 `studio-design-system` is distilled from a different set — `design-system/`'s
 own `USAGE.md`, `AGENTS.md` and `foundations/principles.md`, the kit under
 `src/renderer/src/components/ui/`, and the lint gates under `scripts/` that

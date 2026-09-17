@@ -7,6 +7,7 @@ import { markStartup } from '../utils/startupTimeline'
 import { agentRuntimeRendererModule } from './agent-runtime-module'
 import { automationsRendererModule } from './automations-module'
 import { backlogRendererModule } from './backlog-module'
+import { canvasRendererModule } from './canvas-module'
 import { designRendererModule } from './design-module'
 import { devToolsRendererModule } from './dev-tools-module'
 import { gitRendererModule } from './git-module'
@@ -21,6 +22,7 @@ import { createRendererHost, type RendererModule } from './renderer-host'
 const BUNDLED_RENDERER_MODULES: RendererModule[] = [
   agentRuntimeRendererModule,
   backlogRendererModule,
+  canvasRendererModule,
   designRendererModule,
   devToolsRendererModule,
   memoryRendererModule,

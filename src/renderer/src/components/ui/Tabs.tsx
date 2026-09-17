@@ -236,7 +236,22 @@ export function Tabs<T extends string = string>({
               borderless ? '' : '-mb-px',
               // Icon-only tabs sit on a square-ish footprint: the label's
               // inline padding around a 16px glyph reads as a gap, not a tab.
-              iconOnly ? 'w-control-sm justify-center px-0' : 'px-3',
+              //
+              // The inline padding is emitted per SIDE whenever a trailing
+              // reservation follows. `px-3` next to `pr-8` is two utilities
+              // setting the same edge, and which one wins is decided by
+              // stylesheet order, not by this list. The app's own sheet sorts
+              // `pr-8` last, but a module's stylesheet is injected after it and
+              // re-declares the utilities that module uses in the same layer —
+              // with `px-3` among them the shorthand won, the reserved 32px
+              // collapsed to 12, and the close glyph was drawn on top of the
+              // last letters of the label. Two utilities that never share an
+              // edge cannot be reordered into a bug.
+              iconOnly
+                ? 'w-control-sm justify-center px-0'
+                : closable || badged
+                  ? 'pl-3'
+                  : 'px-3',
               'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
               // The close glyph sits in this reserved trailing padding, so
               // revealing it never reflows the label. A closable tab is a

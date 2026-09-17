@@ -20,6 +20,7 @@
 export const BUNDLED_MODULE_IDS: readonly string[] = [
   'agent-runtime',
   'backlog',
+  'canvas',
   'design',
   // RETIRED, still reserved: the Design Wizard (the guided brief) was deleted
   // 2026-09-08. Its id stays here so a third-party module can never install
@@ -38,6 +39,19 @@ export const BUNDLED_MODULE_IDS: readonly string[] = [
   'mobile-relay',
   'voice-dictation',
 ]
+
+/**
+ * The Canvas module's own default, in the one place both processes can read it.
+ *
+ * `canvas` is renderer-only, so main has no manifest of it to resolve: the
+ * module's surface is a pane tab, and its enablement reaches main only through
+ * the window's mirrored registry. Until that mirror carries a `canvas` entry —
+ * at start-up, or because the window has not listed it — this is what the
+ * canvas tools answer on. Kept here rather than read off the renderer manifest
+ * so main never imports renderer code, and asserted against that manifest by
+ * the bundled-module drift guard.
+ */
+export const CANVAS_MODULE_DEFAULT_ENABLED = true
 
 /**
  * The bundled modules whose enablement takes effect WITHOUT an app restart —

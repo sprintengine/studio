@@ -14,6 +14,7 @@ import { join, resolve } from 'node:path'
 import { parseSkillFrontmatter, SKILL_ENTRY_FILE } from '../../shared/skills'
 import { createAutomationTools } from '../automation/automation-tools'
 import { createBrowserTools } from '../automation/browser-tools'
+import { createCanvasTools } from '../automation/canvas-tools'
 import { createTailnetTools } from '../automation/tailnet/tailnet-tools'
 import { STUDIO_PLUGIN_ID } from './studio-plugin'
 
@@ -26,10 +27,11 @@ const MAX_DESCRIPTION_LENGTH = 1024
 /** The specification's guidance on how long a body may run before it splits. */
 const MAX_BODY_LINES = 500
 
-/** The four areas the item names. A fifth is fine; a missing one is not. */
+/** The areas the item names. One more is fine; a missing one is not. */
 const REQUIRED_AREAS = [
   'studio-backlog',
   'studio-automations',
+  'studio-canvas',
   'studio-workspaces',
 ]
 
@@ -40,10 +42,16 @@ const REQUIRED_AREAS = [
  */
 const NON_TOOL_TOKENS = new Set([
   'bypass_all',
+  'canvas_module_disabled',
   'in_progress',
+  // A canvas error code, not a tool: the board file on disk is unreadable, so
+  // nothing was written over it.
+  'invalid_scene',
   'needs_input',
   'node_modules',
+  'not_found',
   'project_root_required',
+  'too_large',
 ])
 
 /**
@@ -63,6 +71,7 @@ function registeredToolNames(): Set<string> {
   const registrations = [
     ...createAutomationTools({} as never),
     ...createBrowserTools({} as never),
+    ...createCanvasTools({} as never),
     ...createTailnetTools({ resolveTailnet: () => null }),
   ]
   return new Set(registrations.map((registration) => registration.name.replace(/\./g, '_')))
@@ -78,6 +87,7 @@ async function everyToolASkillNamesIsRegistered(dirs: string[]): Promise<void> {
   const registered = registeredToolNames()
   assert.equal(registered.has('workspace_create'), true, 'the registered names are read in their harness form')
   assert.equal(registered.has('browser_open'), true)
+  assert.equal(registered.has('canvas_edit'), true)
   assert.equal(registered.has('tailnet_status'), true)
   const families = new Set([...registered].map((name) => name.split('_')[0]))
   for (const family of RETIRED_TOOL_FAMILIES) families.add(family)
@@ -88,7 +98,11 @@ async function everyToolASkillNamesIsRegistered(dirs: string[]): Promise<void> {
     for (const match of raw.matchAll(/`([a-z]+(?:_[a-z]+)+)`/g)) {
       if (!NON_TOOL_TOKENS.has(match[1])) mentioned.add(match[1])
     }
-    for (const match of raw.matchAll(bareMention)) mentioned.add(match[0])
+    for (const match of raw.matchAll(bareMention)) {
+      // The same allow-list as above: this sweep reads the raw file, so a
+      // backticked error code is seen here too and must not read as a tool.
+      if (!NON_TOOL_TOKENS.has(match[0])) mentioned.add(match[0])
+    }
     for (const name of mentioned) {
       assert.equal(
         registered.has(name),

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, Notification, powerMonitor } from 'electron'
+import { app, BrowserWindow, Notification, ipcMain, powerMonitor } from 'electron'
 import { randomUUID } from 'crypto'
 import { existsSync } from 'fs'
 import { hostname } from 'os'
@@ -17,6 +17,7 @@ import {
 import { createAutomationService } from './automation/automation-service'
 import { REMOTE_OPEN_REQUESTED_CHANNEL, TAILNET_EVENT_CHANNEL } from '../shared/tailnet'
 import { FLEET_EVENT_CHANNEL } from '../shared/tailnet-fleet'
+import { CANVAS_MODULE_DEFAULT_ENABLED } from '../shared/modules/manifest'
 import { createTailnetNotifier } from './tailnet-notifications'
 import { revealMainWindow } from './window-factory'
 import { createAutomationTools } from './automation/automation-tools'
@@ -100,6 +101,12 @@ import { createPullRequestRecord } from './pull-request-record'
 import { createBrowserManager } from './browser/browser-manager'
 import { createBrowserControl } from './browser/browser-control'
 import { createBrowserTools } from './automation/browser-tools'
+import { createCanvasTools } from './automation/canvas-tools'
+import { createCanvasService } from './canvas/canvas-service'
+import { createNodeCanvasFs, watchCanvasDirectory } from './canvas/canvas-node-fs'
+import { createCanvasSubscriberRegistry } from './canvas/canvas-subscribers'
+import { createCanvasWorkerHost } from './canvas/canvas-worker-host'
+import { createCanvasWorkerTransport, isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { broadcastToWorkspaceWindows, isWorkspaceWindowWebContents } from './window-factory'
 import { createAgentControlPlane } from './agent-control-plane'
 import { createAgentLaunchService } from './agent-launch-service'
@@ -694,7 +701,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     isAnyWindowFocused: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && window.isFocused()),
     isEnabled: () => automationService.getTailnetStatus().notifications,
     openRemote: () => {
-      const window = BrowserWindow.getAllWindows().find((candidate) => !candidate.isDestroyed())
+      // Never the hidden canvas worker: `revealMainWindow` shows and focuses
+      // what it is given, and with the pane closed and an agent drawing it can
+      // be the only window open.
+      const window = BrowserWindow.getAllWindows().find(
+        (candidate) => !candidate.isDestroyed() && !isCanvasWorkerWindow(candidate),
+      )
       if (!window) return
       revealMainWindow(window)
       window.webContents.send(REMOTE_OPEN_REQUESTED_CHANNEL)
@@ -727,6 +739,71 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const browserControl = createBrowserControl(browserManager)
   browserManager.onUnregister((tabId) => browserControl.forget(tabId))
 
+  // The Canvas pane's main half. It owns the `.excalidraw` files under a
+  // workspace root — the SAME root the browser sidecar and the backlog resolve
+  // against — and it is the only writer of them: the tab commits through it and
+  // the `canvas.*` tools call it directly, so a board has one merge and one
+  // revision however it was edited. The hidden worker window behind it is built
+  // lazily on the first call that needs a DOM and disposed when it goes idle.
+  const canvasSubscribers = createCanvasSubscriberRegistry()
+  const canvasService = createCanvasService({
+    fs: createNodeCanvasFs(),
+    now: () => Date.now(),
+    resolveWorkspaceRoot: (workspaceId) =>
+      workspaceSyncService.getSnapshot().state.workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ?? null,
+    broadcast: broadcastToWorkspaceWindows,
+    sendTo: canvasSubscribers.sendTo,
+    watch: watchCanvasDirectory,
+    worker: createCanvasWorkerHost({
+      transport: createCanvasWorkerTransport({
+        ipcMain,
+        log: (message, details) => {
+          void writeDiagnosticLog({
+            level: 'warning',
+            source: 'workspace',
+            title: 'Canvas',
+            message,
+            ...(details ? { details: JSON.stringify(details) } : {}),
+          })
+        },
+      }),
+    }),
+    log: (message, details) => {
+      void writeDiagnosticLog({
+        level: 'info',
+        source: 'workspace',
+        title: 'Canvas',
+        message,
+        ...(details ? { details: JSON.stringify(details) } : {}),
+      })
+    },
+  })
+  /**
+   * Whether the Canvas module is on.
+   *
+   * `canvas` is a renderer-only module: main's enablement gate resolves the
+   * manifests of modules with a MAIN half, and a module whose whole substance
+   * is a pane tab is not in that list — it would answer false for a module the
+   * person can see switched on. The renderer's mirrored registry is the one
+   * place main can read the user's actual switch, and until a window has pushed
+   * one the module's own `defaultEnabled` stands: refusing every canvas tool
+   * for the first seconds of a run would read as a broken capability, not a
+   * disabled one.
+   *
+   * A snapshot that ARRIVED but carries no `canvas` entry means the same thing
+   * as no snapshot at all — the window's registry has not listed it yet — so it
+   * falls to the same default. Reading it as "off" put the answer through a
+   * resolver that has no canvas manifest to resolve and therefore always says
+   * false, which turned a module the person can see switched on into every
+   * canvas tool refusing.
+   */
+  const isCanvasEnabled = (): boolean => {
+    const snapshot = moduleRegistryMirror.read()
+    const entry = snapshot?.modules.find((module) => module.id === 'canvas')
+    if (entry) return entry.enabled
+    return CANVAS_MODULE_DEFAULT_ENABLED
+  }
+
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
   // the main services that own them — one lane, no window required (MC-2161).
@@ -754,7 +831,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       }
       tailnetNotifier.onFleetEvent(event)
     },
-    hasWindow: () => BrowserWindow.getAllWindows().some((window) => !window.isDestroyed()),
+    hasWindow: () =>
+      BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && !isCanvasWorkerWindow(window)),
     // Terminal streaming for the tailnet listener (MC-2165): the runtime's own
     // multi-viewer port, so a paired device watches the same pty the local
     // window does rather than a second copy of it.
@@ -780,6 +858,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           control: browserControl,
           hasWorkspace: (workspaceId) =>
             workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+        }),
+        ...createCanvasTools({
+          service: canvasService,
+          hasWorkspace: (workspaceId) =>
+            workspaceSyncService.getSnapshot().state.workspaces.some((workspace) => workspace.id === workspaceId),
+          isCanvasEnabled,
         }),
         ...createAutomationTools({
         getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
@@ -1042,6 +1126,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     agentConfigImportService,
     agentStateService,
     browserManager,
+    canvasService,
+    canvasSubscribers,
     automationService,
     backgroundModeStore,
     telemetryConsentStore,

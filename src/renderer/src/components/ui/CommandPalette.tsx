@@ -430,6 +430,27 @@ export default function CommandPalette({
               onClose()
             },
           },
+          // Canvas has no rail glyph either, so this row and the pane's "+"
+          // menu are its entry points. Availability-gated the same way, and run
+          // through the shell rather than `togglePaneKind` directly: the
+          // command's handler also widens the pane for a tab the person has
+          // just created, and the editor falls back to its phone layout in a
+          // pane narrower than 730px. A row that toggled the tab itself would
+          // quietly drop that.
+          ...(panelCommandEnabled('panel.canvas.toggle')
+            ? [
+                {
+                  id: 'panel.canvas.toggle',
+                  label: 'Toggle Canvas',
+                  searchLabel: 'Canvas',
+                  shortcut: shortcutFor('panel.canvas.toggle'),
+                  run: () => {
+                    onRunCommand('panel.canvas.toggle')
+                    onClose()
+                  },
+                },
+              ]
+            : []),
           // The Knowledge Graph has no rail glyph, so this row (and the View
           // menu) is its entry point. Availability-gated like the panel
           // commands: hidden while the memory-graph module is disabled.

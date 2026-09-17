@@ -300,4 +300,149 @@ run('a Diff tab remembers the repository it was opened for', () => {
   assert.deepEqual(bare.pane().tabs[0].diff, { focusPath: null, focusKind: null })
 })
 
+// --- the Canvas tab ---------------------------------------------------------
+// A workspace holds many boards but one tab per board, so the rules a Canvas
+// tab is held to are neither the browser's (open as many as you like) nor a
+// singleton's (only ever one). These pin the three that decide it.
+
+run('a Canvas tab keeps a usable board path and drops an unusable one', () => {
+  const normalized = normalizeWorkspacePaneState({
+    open: true,
+    activeTabId: 'c1',
+    tabs: [
+      // A bare name lands in the default folder, exactly as the tools spell it.
+      { id: 'c1', kind: 'canvas', canvas: { path: 'arch' } },
+      { id: 'c2', kind: 'canvas', canvas: { path: '../outside.excalidraw' } },
+    ],
+  })
+  assert.equal(normalized?.tabs[0].canvas?.path, 'diagrams/arch.excalidraw')
+  // The tab survives, the field does not: the tab then shows the board picker,
+  // which is a surface the person can act in.
+  assert.equal(normalized?.tabs.length, 2, 'a refused path never costs the tab')
+  assert.equal(normalized?.tabs[1].id, 'c2')
+  assert.equal(normalized?.tabs[1].canvas, undefined, 'a path that climbs out of the project is refused')
+  const notABoard = normalizeWorkspacePaneState({
+    open: true,
+    activeTabId: 'c3',
+    tabs: [{ id: 'c3', kind: 'canvas', canvas: { path: 'notes/plan.md' } }],
+  })
+  assert.equal(notABoard?.tabs[0].canvas, undefined, 'and so is a file that is not a board')
+})
+
+run('one tab per board, and one picker', () => {
+  const normalized = normalizeWorkspacePaneState({
+    open: true,
+    activeTabId: 'a',
+    tabs: [
+      { id: 'a', kind: 'canvas', canvas: { path: 'diagrams/a.excalidraw' } },
+      // The same board spelled two ways is the same board.
+      { id: 'b', kind: 'canvas', canvas: { path: 'diagrams//a.excalidraw' } },
+      { id: 'c', kind: 'canvas', canvas: { path: 'diagrams/b.excalidraw' } },
+      // Two pickers is one picker: "no board" is a key like any other.
+      { id: 'd', kind: 'canvas' },
+      { id: 'e', kind: 'canvas' },
+    ],
+  })
+  assert.deepEqual(
+    normalized?.tabs.map((tab) => tab.canvas?.path),
+    ['diagrams/a.excalidraw', 'diagrams/b.excalidraw', undefined],
+  )
+  assert.deepEqual(normalized?.tabs.map((tab) => tab.id), ['a', 'c', 'd'])
+})
+
+run('opening a board that already has a tab focuses it instead of opening a second', () => {
+  const { slice, pane } = carrierWith()
+  const first = slice.openPaneTab(WS, { kind: 'canvas', canvas: { path: 'diagrams/arch.excalidraw' } })!
+  assert.equal(pane().tabs[0].title, 'arch', 'the board names the tab')
+  const again = slice.openPaneTab(WS, { kind: 'canvas', canvas: { path: 'diagrams/arch.excalidraw' } })
+  assert.equal(again, first, 'the same board is the same tab')
+  assert.equal(pane().tabs.length, 1)
+  const other = slice.openPaneTab(WS, { kind: 'canvas', canvas: { path: 'diagrams/flow.excalidraw' } })
+  assert.notEqual(other, first, 'another board is another tab')
+  assert.equal(pane().tabs.length, 2)
+  // A tab with no board is the picker, and there is only one of those.
+  const picker = slice.openPaneTab(WS, { kind: 'canvas' })
+  assert.equal(slice.openPaneTab(WS, { kind: 'canvas' }), picker)
+  assert.equal(pane().tabs.length, 3)
+})
+
+run('picking a board on the picker names the tab, and switching board un-names it', () => {
+  const { slice, pane } = carrierWith()
+  const id = slice.openPaneTab(WS, { kind: 'canvas' })!
+  assert.equal(pane().tabs[0].title, undefined, 'a tab with no board reads as its kind')
+  slice.updatePaneTab(WS, id, { canvas: { path: 'diagrams/flow.excalidraw' } })
+  assert.deepEqual(pane().tabs[0].canvas, { path: 'diagrams/flow.excalidraw' })
+  assert.equal(pane().tabs[0].title, 'flow')
+  slice.updatePaneTab(WS, id, { canvas: undefined })
+  assert.equal(pane().tabs[0].canvas, undefined, 'Switch board… puts the picker back')
+  assert.equal(pane().tabs[0].title, undefined, 'and the old board stops naming the tab')
+})
+
+run('the toggle opens a Canvas tab on the picker, brings it forward, then closes it', () => {
+  const { slice, pane } = carrierWith()
+  assert.equal(slice.togglePaneKind(WS, 'canvas'), true)
+  assert.deepEqual(pane().tabs.map((tab) => tab.kind), ['canvas'])
+  assert.equal(pane().tabs[0].canvas, undefined, 'with no board named, the tab is the picker')
+  assert.equal(slice.togglePaneKind(WS, 'files'), true)
+  assert.equal(slice.togglePaneKind(WS, 'canvas'), true, 'behind Files: brought forward')
+  assert.equal(slice.togglePaneKind(WS, 'canvas'), false, 'showing: closed')
+  assert.deepEqual(pane().tabs.map((tab) => tab.kind), ['files'])
+})
+
+run('a Canvas tab survives a persist round trip with its board', () => {
+  const { slice, pane } = carrierWith()
+  slice.openPaneTab(WS, { kind: 'canvas', canvas: { path: 'diagrams/arch.excalidraw' } })
+  const restored = normalizeWorkspacePaneState(partializeWorkspacePaneState(pane()))
+  assert.deepEqual(restored?.tabs[0].canvas, { path: 'diagrams/arch.excalidraw' })
+  assert.equal(restored?.tabs[0].title, 'arch')
+})
+
+run('picking a board another tab already holds brings that tab forward', () => {
+  const { slice, pane } = carrierWith()
+  const held = slice.openPaneTab(WS, { kind: 'canvas', canvas: { path: 'diagrams/arch.excalidraw' } })!
+  const picker = slice.openPaneTab(WS, { kind: 'canvas' })!
+  assert.equal(pane().activeTabId, picker)
+
+  slice.setPaneTabBoard(WS, picker, 'diagrams/arch.excalidraw')
+  assert.deepEqual(pane().tabs.map((tab) => tab.id), [held], 'the picker closed rather than becoming a second editor')
+  assert.equal(pane().activeTabId, held, 'and the person is looking at the board they picked')
+
+  // A board nobody holds is written onto the tab as before.
+  const second = slice.openPaneTab(WS, { kind: 'canvas' })!
+  slice.setPaneTabBoard(WS, second, 'flow')
+  assert.deepEqual(pane().tabs.find((tab) => tab.id === second)?.canvas, { path: 'diagrams/flow.excalidraw' })
+  assert.equal(pane().tabs.find((tab) => tab.id === second)?.title, 'flow')
+})
+
+run('two spellings of one board are one tab on a case-insensitive platform', () => {
+  const anyGlobal = globalThis as unknown as { window?: unknown }
+  const hadWindow = 'window' in anyGlobal
+  const previous = anyGlobal.window
+  anyGlobal.window = { api: { platform: 'darwin' } }
+  try {
+    const { slice, pane } = carrierWith()
+    const first = slice.openPaneTab(WS, { kind: 'canvas', canvas: { path: 'diagrams/Arch.excalidraw' } })!
+    const again = slice.openPaneTab(WS, { kind: 'canvas', canvas: { path: 'diagrams/arch.excalidraw' } })
+    assert.equal(again, first, 'the same file under another spelling focuses the tab that has it')
+    assert.equal(pane().tabs.length, 1)
+
+    // And the normalizer, on a record that already holds both, keeps the person
+    // on the surviving tab rather than dropping them at the front of the strip.
+    const normalized = normalizeWorkspacePaneState({
+      open: true,
+      activeTabId: 'b',
+      tabs: [
+        { id: 'z', kind: 'files' },
+        { id: 'a', kind: 'canvas', canvas: { path: 'diagrams/Arch.excalidraw' } },
+        { id: 'b', kind: 'canvas', canvas: { path: 'diagrams/arch.excalidraw' } },
+      ],
+    })
+    assert.deepEqual(normalized?.tabs.map((tab) => tab.id), ['z', 'a'])
+    assert.equal(normalized?.activeTabId, 'a', 'the dropped duplicate hands its focus to the tab that survived')
+  } finally {
+    if (hadWindow) anyGlobal.window = previous
+    else delete anyGlobal.window
+  }
+})
+
 console.log('workspacePaneSlice tests passed')

@@ -75,6 +75,30 @@ export function WorkspacePaneColumn({
     [activeWorkspaceId],
   )
 
+  // canvas.open from an agent: the same rule as the browser's, and the same
+  // reason — only the window SHOWING that workspace answers, so no orphan tab
+  // appears in a second window and the tool can report honestly when no window
+  // shows it. One tab per board, so a board that is already open is focused
+  // rather than opened twice (the slice's own rule; this just asks).
+  //
+  // It deliberately does NOT maximise the pane. The editor drops to its compact
+  // layout in a docked pane, and that is the trade: an agent revealing what it
+  // is about to draw must not take the window away from what the person is
+  // doing. A person opening a Canvas tab themselves does get the width
+  // (WorkspacePane's launcher, and the toggle command).
+  useEffect(
+    () =>
+      window.api.onCanvasOpenRequest(({ workspaceId, path }) => {
+        if (workspaceId !== activeWorkspaceId) return
+        const store = useWorkspaceStore.getState()
+        // A pane already at its tab cap takes nothing, and opening the column
+        // on nothing new would be a window change with no answer in it.
+        if (store.openPaneTab(workspaceId, { kind: 'canvas', canvas: { path } }) === null) return
+        store.setPaneOpen(workspaceId, true)
+      }),
+    [activeWorkspaceId],
+  )
+
   return (
     <WorkspaceAsideColumn
       label="Workspace pane"
