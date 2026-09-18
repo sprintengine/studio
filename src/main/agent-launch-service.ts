@@ -119,10 +119,7 @@ export type AgentLaunchServiceDeps = {
    * a host that cannot resolve one launches without the graph rather than
    * failing, which is what a project with no KG configured gets anyway.
    */
-  resolveKnowledgeRoot?: (input: {
-    workspaceRoot: string
-    relativeRoot: string
-  }) => Promise<MemoryRootStatus>
+  resolveKnowledgeRoot?: (input: { workspaceRoot: string; relativeRoot: string }) => Promise<MemoryRootStatus>
   terminal: {
     list: () => TerminalSessionSnapshot[]
     spawn: (payload: TerminalSpawnPayload) => Promise<TerminalSpawnResult>
@@ -247,9 +244,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       // every start path); the fallback covers the other agent.launch callers,
       // which take the app-level spawn default (MC-1900).
       cliPermissionPreset:
-        request.permissionPreset
-        ?? settings.lastAgentSpawnPermissionPreset
-        ?? DEFAULT_PERMISSION_PRESET,
+        request.permissionPreset ?? settings.lastAgentSpawnPermissionPreset ?? DEFAULT_PERMISSION_PRESET,
       ...(connector?.ok ? { connectorMcpSettings: connector.resolved.mcpSettings } : {}),
       ...(request.spawnSkillId?.trim() ? { spawnSkillId: request.spawnSkillId.trim() } : {}),
       ...(worktreePath ? { worktreePath } : {}),
@@ -277,15 +272,13 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       agentName: name,
       cliPermissionPreset: record.cliPermissionPreset,
       ...(record.cliModel ? { cliModel: record.cliModel } : {}),
-      ...(worktreePath
-        ? { executionMode: 'worktree' as const, worktreePath }
-        : {}),
+      ...(worktreePath ? { executionMode: 'worktree' as const, worktreePath } : {}),
       ...(knowledge.rootPath ? { memoryRootPath: knowledge.rootPath } : {}),
       ...(knowledge.relativeRoot ? { memoryRelativeRoot: knowledge.relativeRoot } : {}),
       // A connector launch forwards its own single-server MCP instead of the
       // workspace's, and marks itself so the spawn prunes anything else out of
       // the worktree config. Ordinary agents fall through to the user's MCP.
-      ...(connectorLaunchMcp(record, settings.mcp)),
+      ...connectorLaunchMcp(record, settings.mcp),
       ...(record.spawnSkillId ? { spawnSkillId: record.spawnSkillId } : {}),
       // Nothing is bound to this session yet. A window open right now projects
       // and reveals it within a session-snapshot tick; a window opened later
@@ -381,10 +374,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
  * no renderer record to read, and two launches in the same second would
  * otherwise both pick the same "unused" name.
  */
-function takenAgentNames(
-  workspace: AgentLaunchWorkspace,
-  sessions: ReadonlyArray<TerminalSessionSnapshot>,
-): string[] {
+function takenAgentNames(workspace: AgentLaunchWorkspace, sessions: ReadonlyArray<TerminalSessionSnapshot>): string[] {
   const names = Object.values(workspace.agents ?? {})
     .map((agent) => agent?.name)
     .filter((name): name is string => Boolean(name))

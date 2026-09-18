@@ -37,7 +37,9 @@ async function loadAnnounced(): Promise<Set<string>> {
   if (announced) return announced
   try {
     const parsed = JSON.parse(await readFile(resolveNoticesPath(), 'utf8')) as unknown
-    announced = new Set(Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : [])
+    announced = new Set(
+      Array.isArray(parsed) ? parsed.filter((entry): entry is string => typeof entry === 'string') : [],
+    )
   } catch {
     announced = new Set()
   }

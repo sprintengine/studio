@@ -50,10 +50,7 @@ run('a weekly cadence names its days, and never says nightly', () => {
 run('an interval and a one-shot say what they are', () => {
   assert.equal(automationScheduleWords(schedule({ type: 'interval', everyMinutes: 30 })), 'Every 30 min')
   assert.equal(automationScheduleWords(schedule({ type: 'interval', everyMinutes: 180 })), 'Every 3h')
-  assert.equal(
-    automationScheduleWords(schedule({ type: 'at', datetime: '2026-07-09T09:30' })),
-    'Once 2026-07-09 09:30',
-  )
+  assert.equal(automationScheduleWords(schedule({ type: 'at', datetime: '2026-07-09T09:30' })), 'Once 2026-07-09 09:30')
 })
 
 run('the cron line is derived from the cadence, and only where one exists', () => {

@@ -27,7 +27,11 @@ export function readAutomationSettings(userDataDir: string): AutomationSettingsR
   }
   try {
     const parsed: unknown = JSON.parse(raw)
-    if (typeof parsed !== 'object' || parsed === null || typeof (parsed as { enabled?: unknown }).enabled !== 'boolean') {
+    if (
+      typeof parsed !== 'object' ||
+      parsed === null ||
+      typeof (parsed as { enabled?: unknown }).enabled !== 'boolean'
+    ) {
       return {
         settings: { enabled: true },
         error: `${AUTOMATION_SETTINGS_FILENAME} is malformed (expected {"enabled": boolean}); the Studio MCP remains on.`,

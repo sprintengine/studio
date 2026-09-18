@@ -63,7 +63,11 @@ const settingsPanel = read('src/renderer/src/components/settings/SettingsPanel.t
 expectIncludes(popover, "popupRole: 'menu' | 'listbox' | 'dialog'", 'Popover exposes a thin popup role API')
 expectIncludes(popover, "'aria-haspopup'", 'Popover wires aria-haspopup for triggers')
 expectIncludes(popover, "'aria-expanded': open", 'Popover wires trigger expanded state')
-expectIncludes(popover, "'aria-controls': open ? popoverId : undefined", 'Popover wires trigger controls to a generated surface id')
+expectIncludes(
+  popover,
+  "'aria-controls': open ? popoverId : undefined",
+  'Popover wires trigger controls to a generated surface id',
+)
 expectIncludes(popover, 'id={popoverId}', 'Popover assigns the generated id to the surface')
 expectIncludes(popover, 'role={popupRole}', 'Popover applies the requested popup role to the surface')
 expectIncludes(popover, 'aria-label={ariaLabel}', 'Popover requires an accessible surface name')
@@ -101,7 +105,11 @@ expectIncludes(popover, 'OVERLAY_SURFACE_CLASS', 'Popover uses the canonical pop
 // literal: match the capture, not the handler's name.
 expectIncludes(popover, "addEventListener('scroll'", 'Popover tracks its trigger on scroll')
 expectIncludes(popover, "removeEventListener('scroll'", 'Popover releases the scroll listener')
-expectIncludes(popover, "wantsBottom && surfaceHeight + SURFACE_GAP > spaceBelow", 'Popover flips above the trigger when space is tight')
+expectIncludes(
+  popover,
+  'wantsBottom && surfaceHeight + SURFACE_GAP > spaceBelow',
+  'Popover flips above the trigger when space is tight',
+)
 
 // ContextMenu — pointer-positioned menu primitive (right-click / kebab-corner
 // menus). Unlike Popover it opens at viewport coordinates, so it owns its own
@@ -169,14 +177,22 @@ const chatView = read('src/renderer/src/components/panels/AgentChatView.tsx')
 // The launch panel used to open them from a chip of its own, so the open-focus
 // contract moved with the control rather than being restated per host.
 const spawnFooter = read('src/renderer/src/components/workspace/agentComposer/spawnFooter.tsx')
-expectIncludes(spawnFooter, 'onOpenAutoFocus={focusActivePresetRow}', 'the picker dropdown lands focus on the checked preset on open')
+expectIncludes(
+  spawnFooter,
+  'onOpenAutoFocus={focusActivePresetRow}',
+  'the picker dropdown lands focus on the checked preset on open',
+)
 expectIncludes(spawnFooter, '<PermissionPresetMenuRows', 'and opens the shared rows, not a second rendering of them')
 assert.equal(
   launchPanel.includes('<PermissionPresetMenuRows'),
   false,
   'the launch panel opens the preset rows through that dropdown, never its own copy',
 )
-expectIncludes(chatView, 'onOpenAutoFocus={focusActivePresetRow}', 'the chat pill lands focus on the checked preset on open')
+expectIncludes(
+  chatView,
+  'onOpenAutoFocus={focusActivePresetRow}',
+  'the chat pill lands focus on the checked preset on open',
+)
 assert.equal(
   (launchPanel.match(/ role="menu"/g) ?? []).length,
   0,
@@ -202,11 +218,7 @@ expectIncludes(contextMenu, "event.key === 'ArrowLeft'", 'MenuFlyoutItem flyout 
 // just this one: a host that hand-rolls its row is a host that can forget the
 // ring, and three of them had.
 const menuClasses = read('src/renderer/src/components/ui/menuClasses.ts')
-expectIncludes(
-  menuClasses,
-  'FOCUS_RING_INSET_CLASS',
-  'the shared menu item carries the inset focus ring',
-)
+expectIncludes(menuClasses, 'FOCUS_RING_INSET_CLASS', 'the shared menu item carries the inset focus ring')
 for (const host of ['ContextMenu', 'OverflowMenu', 'FilterMenu', 'SplitButton']) {
   expectIncludes(
     read(`src/renderer/src/components/ui/${host}.tsx`),
@@ -218,17 +230,18 @@ for (const host of ['ContextMenu', 'OverflowMenu', 'FilterMenu', 'SplitButton'])
 // WorkspaceSidebar consumes the primitive — it must not hand-roll menu chrome.
 expectIncludes(workspaceSidebar, '<ContextMenu', 'WorkspaceSidebar menus render through the ui ContextMenu primitive')
 expectIncludes(workspaceSidebar, '<MenuSwatchRow', 'WorkspaceSidebar highlight swatch row comes from the primitive')
-assert.ok(
-  !/role="menu"/.test(workspaceSidebar),
-  'WorkspaceSidebar no longer hand-rolls a role="menu" surface',
-)
+assert.ok(!/role="menu"/.test(workspaceSidebar), 'WorkspaceSidebar no longer hand-rolls a role="menu" surface')
 assert.ok(
   !/useClampedMenuPosition/.test(workspaceSidebar),
   'WorkspaceSidebar delegates menu positioning to the ContextMenu primitive',
 )
 
 expectIncludes(overflowMenu, 'aria-haspopup="menu"', 'Overflow menu trigger exposes menu semantics')
-expectIncludes(overflowMenu, "aria-expanded={triggerProps['aria-expanded']}", 'Overflow menu trigger reports expanded state')
+expectIncludes(
+  overflowMenu,
+  "aria-expanded={triggerProps['aria-expanded']}",
+  'Overflow menu trigger reports expanded state',
+)
 expectIncludes(overflowMenu, 'popupRole="menu"', 'Overflow menu delegates menu role to Popover')
 expectIncludes(overflowMenu, 'role="menuitem"', 'Overflow menu actions use menuitem role')
 expectIncludes(overflowMenu, '<Popover', 'Overflow menu uses the shared Popover primitive')
@@ -263,11 +276,7 @@ expectMatches(
   /event\.key === 'Enter'[\s\S]*event\.preventDefault\(\)/,
   'Switch prevents Enter from toggling',
 )
-expectIncludes(
-  switchPrimitive,
-  'var(--accent-primary)',
-  'Switch uses the accent token for the checked state',
-)
+expectIncludes(switchPrimitive, 'var(--accent-primary)', 'Switch uses the accent token for the checked state')
 expectIncludes(
   switchPrimitive,
   'FOCUS_RING_CLASS',
@@ -307,7 +316,11 @@ expectIncludes(drawer, 'role="dialog"', 'Drawer surface exposes the dialog role'
 expectIncludes(drawer, 'aria-label={ariaLabel}', 'Drawer requires an accessible name on the dialog surface')
 expectIncludes(drawer, 'aria-labelledby={titleId}', 'Drawer wires aria-labelledby to its visible title')
 expectIncludes(drawer, "event.key === 'Escape'", 'Drawer closes on Escape')
-expectIncludes(drawer, 'event.preventDefault()', 'Drawer cancels default behaviour on Escape to match prior consumer contract')
+expectIncludes(
+  drawer,
+  'event.preventDefault()',
+  'Drawer cancels default behaviour on Escape to match prior consumer contract',
+)
 expectIncludes(drawer, 'restoreFocusRef.current', 'Drawer captures the opener for focus restoration')
 expectIncludes(drawer, 'target.focus()', 'Drawer restores focus to the opener on close')
 expectIncludes(drawer, "document.body.style.overflow = 'hidden'", 'Drawer locks body scroll while open')
@@ -332,10 +345,7 @@ assert.ok(
   !/role="dialog"/.test(firstRunCliCard),
   'FirstRunCliCard is a card, not a dialog — the app behind it is usable',
 )
-assert.ok(
-  !/aria-modal/.test(firstRunCliCard),
-  'FirstRunCliCard never claims to be modal',
-)
+assert.ok(!/aria-modal/.test(firstRunCliCard), 'FirstRunCliCard never claims to be modal')
 assert.ok(
   !/data-focus-sentinel/.test(firstRunCliCard) && !/trapFocus/.test(firstRunCliCard),
   'FirstRunCliCard traps no focus: everything behind it stays reachable by keyboard',
@@ -361,7 +371,11 @@ expectMatches(toast, /error:\s*false/, 'Toast disables auto-dismiss for error to
 expectMatches(toast, /neutral:\s*\d{3,}/, 'Toast auto-dismisses neutral tone after a finite duration')
 expectIncludes(toast, 'role={TOAST_ROLE[tone]}', 'Toast surface reads role from the tone map')
 expectIncludes(toast, 'aria-live={TOAST_LIVE[tone]}', 'Toast surface reads aria-live from the tone map')
-expectIncludes(toast, 'toast-enter', 'Toast uses the shared toast-enter class which is disabled under prefers-reduced-motion')
+expectIncludes(
+  toast,
+  'toast-enter',
+  'Toast uses the shared toast-enter class which is disabled under prefers-reduced-motion',
+)
 
 // Tooltip — Radix-free; hover + focus open, ESC closes, aria-describedby on trigger.
 expectIncludes(tooltip, 'role="tooltip"', 'Tooltip surface uses the tooltip role')
@@ -387,11 +401,23 @@ assert.ok(!/\btitle=/.test(tooltip), 'Tooltip does not fall back to the native t
 // interactive surface only when `onSelect` is provided; otherwise it must not
 // steal keyboard focus or expose a button role.
 expectIncludes(taskCard, 'data-task-card={variant}', 'TaskCard tags the variant on its root element')
-expectIncludes(taskCard, "role={onSelect ? 'button' : undefined}", 'TaskCard exposes role="button" only when interactive')
+expectIncludes(
+  taskCard,
+  "role={onSelect ? 'button' : undefined}",
+  'TaskCard exposes role="button" only when interactive',
+)
 expectIncludes(taskCard, 'tabIndex={onSelect ? 0 : undefined}', 'TaskCard joins the tab order only when interactive')
-expectIncludes(taskCard, 'aria-pressed={onSelect ? selected : undefined}', 'TaskCard reports selection via aria-pressed when interactive')
+expectIncludes(
+  taskCard,
+  'aria-pressed={onSelect ? selected : undefined}',
+  'TaskCard reports selection via aria-pressed when interactive',
+)
 expectIncludes(taskCard, 'aria-label={ariaLabel}', 'TaskCard accepts an accessible name')
-expectIncludes(taskCard, 'onKeyDown={onSelect ? handleKeyDown : undefined}', 'TaskCard only attaches keyboard handler when interactive')
+expectIncludes(
+  taskCard,
+  'onKeyDown={onSelect ? handleKeyDown : undefined}',
+  'TaskCard only attaches keyboard handler when interactive',
+)
 expectMatches(
   taskCard,
   /event\.key === 'Enter' \|\| event\.key === ' '[\s\S]*event\.preventDefault\(\)[\s\S]*onSelect\?\.\(\)/,
@@ -410,11 +436,23 @@ expectIncludes(taskCard, 'font-mono tabular-nums', 'TaskCard identifier uses mon
 // rendered when the panel has a real completion metric.
 expectIncludes(panelHeader, 'role="progressbar"', 'PanelHeader.progress exposes the progressbar role')
 expectIncludes(panelHeader, 'aria-valuemin={0}', 'PanelHeader.progress declares the progressbar minimum')
-expectIncludes(panelHeader, 'aria-valuemax={progress.total}', 'PanelHeader.progress declares the progressbar maximum from total')
+expectIncludes(
+  panelHeader,
+  'aria-valuemax={progress.total}',
+  'PanelHeader.progress declares the progressbar maximum from total',
+)
 expectIncludes(panelHeader, 'aria-valuenow={progress.value}', 'PanelHeader.progress publishes the current value')
-expectIncludes(panelHeader, 'aria-label={progress.ariaLabel}', 'PanelHeader.progress accepts an accessible name from the caller')
+expectIncludes(
+  panelHeader,
+  'aria-label={progress.ariaLabel}',
+  'PanelHeader.progress accepts an accessible name from the caller',
+)
 expectIncludes(panelHeader, 'pointer-events-none', 'PanelHeader.progress hairline does not capture pointer events')
-expectIncludes(panelHeader, 'progress && progress.total > 0', 'PanelHeader.progress only renders when the panel has a real completion metric')
+expectIncludes(
+  panelHeader,
+  'progress && progress.total > 0',
+  'PanelHeader.progress only renders when the panel has a real completion metric',
+)
 assert.ok(
   !/progress[\s\S]*tabIndex=/.test(panelHeader),
   'PanelHeader.progress does not assign a tabIndex (must not steal keyboard focus)',
@@ -427,17 +465,26 @@ expectIncludes(kbdChord, '<kbd ', 'KbdChord renders each key as a real <kbd> ele
 expectIncludes(kbdChord, 'role="img"', 'KbdChord exposes role="img" on its wrapper')
 expectIncludes(kbdChord, 'aria-label={label}', 'KbdChord exposes an accessible name for the chord')
 expectIncludes(kbdChord, 'font-mono', 'KbdChord keys wear the monospace token')
-assert.ok(
-  !/role="button"|onClick=/.test(kbdChord),
-  'KbdChord has no interactive role or click handler',
-)
+assert.ok(!/role="button"|onClick=/.test(kbdChord), 'KbdChord has no interactive role or click handler')
 
 expectIncludes(settingsPanel, 'role="tablist"', 'Settings categories expose tablist semantics')
 expectIncludes(settingsPanel, 'role="tabpanel"', 'Settings content exposes tabpanel semantics')
-expectIncludes(settingsPanel, 'ArrowDown: (index + 1) % visibleSettingsTabs.length', 'Settings category tabs support ArrowDown focus movement')
-expectIncludes(settingsPanel, 'ArrowUp: (index - 1 + visibleSettingsTabs.length) % visibleSettingsTabs.length', 'Settings category tabs support ArrowUp focus movement')
+expectIncludes(
+  settingsPanel,
+  'ArrowDown: (index + 1) % visibleSettingsTabs.length',
+  'Settings category tabs support ArrowDown focus movement',
+)
+expectIncludes(
+  settingsPanel,
+  'ArrowUp: (index - 1 + visibleSettingsTabs.length) % visibleSettingsTabs.length',
+  'Settings category tabs support ArrowUp focus movement',
+)
 expectIncludes(settingsPanel, 'Home: 0', 'Settings category tabs support Home focus movement')
-expectIncludes(settingsPanel, 'End: visibleSettingsTabs.length - 1', 'Settings category tabs support End focus movement')
+expectIncludes(
+  settingsPanel,
+  'End: visibleSettingsTabs.length - 1',
+  'Settings category tabs support End focus movement',
+)
 
 // --- The focus indicator (WCAG 2.4.7 / 1.4.11) -------------------------------
 //
@@ -548,9 +595,7 @@ expectIncludes(settingsPanel, 'End: visibleSettingsTabs.length - 1', 'Settings c
     const privateTerminalRing = collectSources(join(root, 'src/renderer/src')).filter((path) => {
       if (/\.test\.tsx?$/.test(path)) return false
       if (/ui[\\/]tokens\.ts$/.test(path)) return false
-      return /'terminal-focus-ring'|"terminal-focus-ring"|terminal-focus-ring /.test(
-        readFileSync(path, 'utf8'),
-      )
+      return /'terminal-focus-ring'|"terminal-focus-ring"|terminal-focus-ring /.test(readFileSync(path, 'utf8'))
     })
     assert.deepEqual(
       privateTerminalRing.map((path) => relative(root, path)),
@@ -629,7 +674,7 @@ const MOUNTS_FOCUS_TRAP = /<FocusTrap[\s/>]/
   // never exercised on a known offender and a known non-offender is a rule that
   // can quietly stop matching anything at all.
   const TRUE_POSITIVE = '<div role="dialog" aria-modal="true">\n  <p>no trap</p>\n</div>'
-  const FALSE_POSITIVE = "const open = document.querySelector('[role=\"dialog\"][aria-modal=\"true\"]')"
+  const FALSE_POSITIVE = 'const open = document.querySelector(\'[role="dialog"][aria-modal="true"]\')'
   const WITH_TRAP = '<FocusTrap active={open}>\n  <div role="dialog" aria-modal={true} />\n</FocusTrap>'
   assert.ok(
     CLAIMS_MODALITY.test(TRUE_POSITIVE) && !MOUNTS_FOCUS_TRAP.test(TRUE_POSITIVE),

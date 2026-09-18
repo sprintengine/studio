@@ -60,7 +60,8 @@ export class FetchMobileRelayTransport implements MobileRelayTransport {
       desktopRelaySessionId: requireRelayString(payload, 'desktopRelaySessionId'),
       relayToken: requireRelayString(payload, 'relayToken'),
       expiresAt: requireRelayString(payload, 'expiresAt'),
-      heartbeatAfterSeconds: typeof payload.heartbeatAfterSeconds === 'number' ? payload.heartbeatAfterSeconds : undefined,
+      heartbeatAfterSeconds:
+        typeof payload.heartbeatAfterSeconds === 'number' ? payload.heartbeatAfterSeconds : undefined,
     }
   }
 
@@ -137,14 +138,18 @@ export class FetchMobileRelayTransport implements MobileRelayTransport {
     deviceId: string
     reason: string
   }): Promise<{ revoked: true }> {
-    const payload = await relayJsonRequest(input.relayUrl, `/api/relay/devices/${encodeURIComponent(input.deviceId)}/revoke`, {
-      token: input.accessToken,
-      organizationId: input.organizationId,
-      method: 'POST',
-      body: {
-        reason: input.reason,
+    const payload = await relayJsonRequest(
+      input.relayUrl,
+      `/api/relay/devices/${encodeURIComponent(input.deviceId)}/revoke`,
+      {
+        token: input.accessToken,
+        organizationId: input.organizationId,
+        method: 'POST',
+        body: {
+          reason: input.reason,
+        },
       },
-    })
+    )
 
     if (payload.revoked !== true) {
       throw new Error('Relay revoke response did not confirm device revocation.')
@@ -165,7 +170,7 @@ async function relayJsonRequest(
     organizationId?: string | null
     method: 'POST'
     body: Record<string, unknown>
-  }
+  },
 ): Promise<Record<string, unknown>> {
   const response = await fetch(`${relayUrl}${path}`, {
     method: input.method,
@@ -178,7 +183,7 @@ async function relayJsonRequest(
     },
     body: JSON.stringify(input.body),
   })
-  const payload = await response.json().catch(() => ({})) as Record<string, unknown>
+  const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>
 
   if (!response.ok) {
     throw new Error(readRelayErrorMessage(payload, response.status))
@@ -262,7 +267,7 @@ function requireRelayRecordString(payload: Record<string, unknown>, field: strin
 
 function optionalPairingPayload(
   payload: Record<string, unknown>,
-  field: string
+  field: string,
 ): RelayPairingChallengeResult['pairingPayload'] | undefined {
   const value = payload[field]
   if (value === undefined) return undefined

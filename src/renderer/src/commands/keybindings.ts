@@ -12,9 +12,7 @@ export type KeybindingChord = {
   canonical: string
 }
 
-export type ParsedKeybinding =
-  | { ok: true; chord: KeybindingChord }
-  | { ok: false; error: string }
+export type ParsedKeybinding = { ok: true; chord: KeybindingChord } | { ok: false; error: string }
 
 const MODIFIER_ALIASES: Record<string, KeybindingModifier> = {
   cmd: 'meta',
@@ -132,7 +130,10 @@ export function parseKeybinding(input: string): ParsedKeybinding {
     .map((stroke) => stroke.trim())
     .filter(Boolean)
   if (rawStrokes.length === 1 && /\s/.test(raw) && !raw.includes('+')) {
-    const canonicalLikeStrokes = raw.split(/\s+/).map((stroke) => stroke.trim()).filter(Boolean)
+    const canonicalLikeStrokes = raw
+      .split(/\s+/)
+      .map((stroke) => stroke.trim())
+      .filter(Boolean)
     if (canonicalLikeStrokes.length > 1) rawStrokes = canonicalLikeStrokes
   }
   if (rawStrokes.length === 0) return { ok: false, error: 'Keybinding is empty.' }
@@ -170,7 +171,12 @@ export function parseKeybinding(input: string): ParsedKeybinding {
 
     if (key === null) return { ok: false, error: `Stroke "${rawStroke}" is missing a key.` }
     if (MODIFIER_ALIASES[key]) return { ok: false, error: `Stroke "${rawStroke}" is missing a key.` }
-    if (key.length !== 1 && !/^(?:f(?:[1-9]|1[0-9]|2[0-4])|arrow(?:left|right|up|down)|backspace|delete|enter|escape|home|end|pageup|pagedown|space|tab)$/.test(key)) {
+    if (
+      key.length !== 1 &&
+      !/^(?:f(?:[1-9]|1[0-9]|2[0-4])|arrow(?:left|right|up|down)|backspace|delete|enter|escape|home|end|pageup|pagedown|space|tab)$/.test(
+        key,
+      )
+    ) {
       return { ok: false, error: `Unsupported key "${key}".` }
     }
 
@@ -187,8 +193,14 @@ export function parseKeybinding(input: string): ParsedKeybinding {
   // or AltGraph is pressed, and the menu from being handed "shift" as an
   // accelerator.
   const loneModifierStrokes = strokes.filter((stroke) => isModifierKeyToken(stroke.key)).length
-  if (loneModifierStrokes > 0 && !(strokes.length === 2 && loneModifierStrokes === 2 && strokes[0].key === strokes[1].key)) {
-    return { ok: false, error: 'A modifier on its own only binds as a double tap of the same modifier, e.g. "Shift Shift".' }
+  if (
+    loneModifierStrokes > 0 &&
+    !(strokes.length === 2 && loneModifierStrokes === 2 && strokes[0].key === strokes[1].key)
+  ) {
+    return {
+      ok: false,
+      error: 'A modifier on its own only binds as a double tap of the same modifier, e.g. "Shift Shift".',
+    }
   }
 
   const canonical = strokes.map((stroke) => [...stroke.modifiers, stroke.key].join('+')).join(' ')
@@ -223,11 +235,8 @@ function renderStrokeKeys(stroke: KeybindingStroke, platform: KeybindingPlatform
   // "Option"), not the raw token uppercased ("SHIFT").
   const keyLabel = isModifierKeyToken(stroke.key)
     ? renderModifier(stroke.key as KeybindingModifier, platform)
-    : DISPLAY_KEY[stroke.key] ?? stroke.key.toUpperCase()
-  return [
-    ...stroke.modifiers.map((modifier) => renderModifier(modifier, platform)),
-    keyLabel,
-  ]
+    : (DISPLAY_KEY[stroke.key] ?? stroke.key.toUpperCase())
+  return [...stroke.modifiers.map((modifier) => renderModifier(modifier, platform)), keyLabel]
 }
 
 /**
@@ -239,8 +248,9 @@ export function isModifierTapChord(input: string | KeybindingChord): boolean {
   const parsed = typeof input === 'string' ? parseKeybinding(input) : { ok: true as const, chord: input }
   if (!parsed.ok) return false
   const strokes = parsed.chord.strokes
-  return strokes.length > 1
-    && strokes.every((stroke) => stroke.modifiers.length === 0 && isModifierKeyToken(stroke.key))
+  return (
+    strokes.length > 1 && strokes.every((stroke) => stroke.modifiers.length === 0 && isModifierKeyToken(stroke.key))
+  )
 }
 
 export function renderKeybinding(input: string | KeybindingChord, platform: KeybindingPlatform = 'linux'): string {
@@ -251,7 +261,10 @@ export function renderKeybinding(input: string | KeybindingChord, platform: Keyb
     .join(isModifierTapChord(chord.chord) ? ' ' : ' then ')
 }
 
-export function keybindingToKbdKeys(input: string | KeybindingChord, platform: KeybindingPlatform = 'linux'): string[][] {
+export function keybindingToKbdKeys(
+  input: string | KeybindingChord,
+  platform: KeybindingPlatform = 'linux',
+): string[][] {
   const chord = typeof input === 'string' ? parseKeybinding(input) : { ok: true as const, chord: input }
   if (!chord.ok) return []
   return chord.chord.strokes.map((stroke) => renderStrokeKeys(stroke, platform))

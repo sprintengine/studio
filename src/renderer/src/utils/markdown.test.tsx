@@ -47,11 +47,7 @@ function countMatches(value: string, pattern: RegExp): number {
 }
 
 function testOrderedListsRenderAsSingleOrderedList(): void {
-  const html = render([
-    '1. First',
-    '2. Second',
-    '3. Third',
-  ].join('\n'))
+  const html = render(['1. First', '2. Second', '3. Third'].join('\n'))
 
   assert.match(html, /<ol[^>]*>/)
   assert.equal(countMatches(html, /<li/g), 3)
@@ -61,10 +57,7 @@ function testOrderedListsRenderAsSingleOrderedList(): void {
 }
 
 function testGfmTaskListsKeepCheckboxState(): void {
-  const html = render([
-    '- [x] Done',
-    '- [ ] Todo',
-  ].join('\n'))
+  const html = render(['- [x] Done', '- [ ] Todo'].join('\n'))
 
   assert.equal(countMatches(html, /type="checkbox"/g), 2)
   assert.equal(countMatches(html, /checked=""/g), 1)
@@ -72,11 +65,9 @@ function testGfmTaskListsKeepCheckboxState(): void {
 }
 
 function testUnsafeAndRelativeLinksAreInert(): void {
-  const html = render([
-    '[External](https://example.com)',
-    '[Relative](docs/plan.md)',
-    '[Script](javascript:alert(1))',
-  ].join('\n\n'))
+  const html = render(
+    ['[External](https://example.com)', '[Relative](docs/plan.md)', '[Script](javascript:alert(1))'].join('\n\n'),
+  )
 
   assert.match(html, /<a href="https:\/\/example\.com"[^>]*>External<\/a>/)
   assert.doesNotMatch(html, /href="docs\/plan\.md"/)
@@ -93,13 +84,7 @@ function testImagesRenderAsPlaceholders(): void {
 }
 
 function testPreviewChangeMarkersAttachToChangedBlocks(): void {
-  const html = render([
-    '# Title',
-    '',
-    'Body text',
-  ].join('\n'), [
-    { kind: 'added', startLine: 3, endLine: 3 },
-  ])
+  const html = render(['# Title', '', 'Body text'].join('\n'), [{ kind: 'added', startLine: 3, endLine: 3 }])
 
   assert.match(html, /<p class="[^"]*markdown-change-block markdown-change-added[^"]*">Body text<\/p>/)
   assert.doesNotMatch(html, /<h1 class="[^"]*markdown-change-added/)
@@ -160,11 +145,7 @@ function testHostileSkillContentNeitherExecutesNorNavigates(): void {
  * no `uppercase`, no `text-transform`, at either density.
  */
 function testHeadingsKeepTheAuthorsOwnCase(): void {
-  const source = [
-    '# Running the release',
-    '',
-    '###### Session notes',
-  ].join('\n')
+  const source = ['# Running the release', '', '###### Session notes'].join('\n')
 
   for (const html of [render(source), renderWithCorpus(source, ['SKILL.md'])]) {
     assert.doesNotMatch(html, /class="[^"]*\buppercase\b/, 'no uppercase class on any heading')

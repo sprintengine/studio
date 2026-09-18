@@ -16,7 +16,8 @@ export const gitRendererModule: RendererModule = {
     version: 1,
     publisher: 'multicode',
     category: 'vcs',
-    summary: 'Commit, stage, branch, and view diffs. Disabling hides the panel; change indicators in the editor and explorer stay.',
+    summary:
+      'Commit, stage, branch, and view diffs. Disabling hides the panel; change indicators in the editor and explorer stay.',
     defaultEnabled: true,
   },
   registerRenderer(host) {

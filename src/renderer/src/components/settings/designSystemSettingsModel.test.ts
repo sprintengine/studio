@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { DesignSystemLibraryEntry } from '../../../../shared/design-system/library'
-import {
-  compareBundleVersions,
-  findLibraryUpdate,
-  resolveBundleOrigin,
-} from './designSystemSettingsModel'
+import { compareBundleVersions, findLibraryUpdate, resolveBundleOrigin } from './designSystemSettingsModel'
 
 const tests: Array<{ name: string; body: () => void }> = []
 
@@ -68,10 +64,7 @@ run('update offers the highest readable same-name entry above the attached versi
 run('update is null when nothing newer is registered', () => {
   const attached = { name: 'example', version: '2.0.0' }
   assert.equal(findLibraryUpdate(attached, []), null)
-  assert.equal(
-    findLibraryUpdate(attached, [entry({ version: '2.0.0' }), entry({ version: '1.9.0' })]),
-    null,
-  )
+  assert.equal(findLibraryUpdate(attached, [entry({ version: '2.0.0' }), entry({ version: '1.9.0' })]), null)
 })
 
 for (const test of tests) {

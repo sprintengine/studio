@@ -129,7 +129,13 @@ async function prepareBackend(
 // already answered. Errored probes are absent from the map, which reads here
 // as "could not be probed" — never as "not installed".
 async function cachedDetect(cli: string, runtime?: { command?: string; useWsl?: boolean }): Promise<CliDetectResult> {
-  const base = { cli, binary: runtime?.command?.trim() || cli, version: null, resolvedPath: null, useWsl: runtime?.useWsl ?? false }
+  const base = {
+    cli,
+    binary: runtime?.command?.trim() || cli,
+    version: null,
+    resolvedPath: null,
+    useWsl: runtime?.useWsl ?? false,
+  }
   const entry = listPluginRegistryEntries().find((candidate) => candidate.id === cli)
   if (!entry) return { ...base, installed: false, error: `No plugin manifest found for "${cli}".` }
   const availability = await detectAgentCliAvailability(
@@ -137,7 +143,13 @@ async function cachedDetect(cli: string, runtime?: { command?: string; useWsl?: 
     { listEntries: () => [entry] },
   )
   const detected = availability[cli]
-  if (!detected) return { ...base, binary: base.binary === cli ? entry.binary : base.binary, installed: false, error: 'the availability probe failed' }
+  if (!detected)
+    return {
+      ...base,
+      binary: base.binary === cli ? entry.binary : base.binary,
+      installed: false,
+      error: 'the availability probe failed',
+    }
   return {
     ...base,
     binary: base.binary === cli ? entry.binary : base.binary,
@@ -216,7 +228,10 @@ function guard(raw: string | null, cli: string, ms: number): TextGenerationResul
 }
 
 function lastLine(text: string): string {
-  const lines = text.split(/\r?\n/).map((line) => line.trim()).filter(Boolean)
+  const lines = text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
   return lines[lines.length - 1] ?? text
 }
 

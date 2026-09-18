@@ -110,7 +110,7 @@ async function serviceWith(extra: Partial<SkillsServiceDeps>): Promise<ReturnTyp
       },
       ...extra,
     },
-    memoryStore()
+    memoryStore(),
   )
 }
 

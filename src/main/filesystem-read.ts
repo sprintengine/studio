@@ -4,10 +4,7 @@ import { extname, sep } from 'path'
 import { pathToFileURL } from 'url'
 import { normalizeReportPath } from '../shared/automations/contracts'
 import { imageMimeType } from './filesystem-image'
-import {
-  MAX_IMAGE_DATA_URL_BYTES,
-  MAX_TEXT_FILE_READ_BYTES,
-} from './filesystem-read-limits'
+import { MAX_IMAGE_DATA_URL_BYTES, MAX_TEXT_FILE_READ_BYTES } from './filesystem-read-limits'
 import { checkWorkspaceFolder, pathExists } from './filesystem-workspace'
 import { createProjectLogoResolver } from './project-logo'
 import { createProjectLogoIo } from './project-logo-io'
@@ -15,10 +12,7 @@ import { createProjectLogoIo } from './project-logo-io'
 const BINARY_SNIFF_BYTES = 4096
 const MAX_CONTROL_CHARACTER_RATIO = 0.05
 
-export {
-  MAX_IMAGE_DATA_URL_BYTES,
-  MAX_TEXT_FILE_READ_BYTES,
-}
+export { MAX_IMAGE_DATA_URL_BYTES, MAX_TEXT_FILE_READ_BYTES }
 
 export function createFilesystemReadHandlers() {
   // One resolver per handler set, so the hit cache outlives a single project
@@ -41,7 +35,7 @@ export function createFilesystemReadHandlers() {
       }
       if (targetStats.size > MAX_TEXT_FILE_READ_BYTES) {
         throw new Error(
-          `File is too large to open in Multicode (${formatBytes(targetStats.size)}; limit ${formatBytes(MAX_TEXT_FILE_READ_BYTES)}).`
+          `File is too large to open in Multicode (${formatBytes(targetStats.size)}; limit ${formatBytes(MAX_TEXT_FILE_READ_BYTES)}).`,
         )
       }
 
@@ -61,7 +55,7 @@ export function createFilesystemReadHandlers() {
       }
       if (targetStats.size > MAX_IMAGE_DATA_URL_BYTES) {
         throw new Error(
-          `Image is too large to preview in Multicode (${formatBytes(targetStats.size)}; limit ${formatBytes(MAX_IMAGE_DATA_URL_BYTES)}).`
+          `Image is too large to preview in Multicode (${formatBytes(targetStats.size)}; limit ${formatBytes(MAX_IMAGE_DATA_URL_BYTES)}).`,
         )
       }
       const content = await readFile(filePath)
@@ -161,11 +155,7 @@ export function looksLikeBinary(content: Buffer): boolean {
 
   for (const byte of sample) {
     if (byte === 0) return true
-    const isAllowedControl =
-      byte === 0x09
-      || byte === 0x0a
-      || byte === 0x0d
-      || byte === 0x1b
+    const isAllowedControl = byte === 0x09 || byte === 0x0a || byte === 0x0d || byte === 0x1b
     if (byte < 0x20 && !isAllowedControl) controlCharacters += 1
   }
 

@@ -32,12 +32,7 @@ const WORKSPACE_PANE_TAB_KINDS: readonly WorkspacePaneTabKind[] = [
 // may hold several boards at once, but only ONE tab per board. Its identity is
 // the board path rather than the kind, so `canvasTabKey` below is what the
 // opener and the normalizer both dedupe on.
-const SINGLETON_PANE_TAB_KINDS: ReadonlySet<WorkspacePaneTabKind> = new Set([
-  'files',
-  'diff',
-  'git',
-  'backlog',
-])
+const SINGLETON_PANE_TAB_KINDS: ReadonlySet<WorkspacePaneTabKind> = new Set(['files', 'diff', 'git', 'backlog'])
 
 /**
  * What makes one Canvas tab the same tab as another: its board.
@@ -106,9 +101,9 @@ function normalizeTab(input: unknown): WorkspacePaneTab | null {
     if (float) tab.float = float
     if (raw.floating === true) tab.floating = true
     if (
-      typeof raw.faviconUrl === 'string'
-      && raw.faviconUrl.startsWith('data:image/')
-      && raw.faviconUrl.length <= MAX_FAVICON_LENGTH
+      typeof raw.faviconUrl === 'string' &&
+      raw.faviconUrl.startsWith('data:image/') &&
+      raw.faviconUrl.length <= MAX_FAVICON_LENGTH
     ) {
       tab.faviconUrl = raw.faviconUrl
     }
@@ -126,8 +121,7 @@ function normalizeTab(input: unknown): WorkspacePaneTab | null {
   }
   if (tab.kind === 'diff' && raw.diff && typeof raw.diff === 'object') {
     const focusPath = typeof raw.diff.focusPath === 'string' && raw.diff.focusPath ? raw.diff.focusPath : null
-    const focusKind =
-      raw.diff.focusKind === 'staged' || raw.diff.focusKind === 'unstaged' ? raw.diff.focusKind : null
+    const focusKind = raw.diff.focusKind === 'staged' || raw.diff.focusKind === 'unstaged' ? raw.diff.focusKind : null
     const repoRoot = typeof raw.diff.repoRoot === 'string' && raw.diff.repoRoot ? raw.diff.repoRoot : undefined
     tab.diff = { ...(repoRoot ? { repoRoot } : {}), focusPath, focusKind }
   }
@@ -177,7 +171,7 @@ export function normalizeWorkspacePaneState(input: unknown): WorkspacePaneState 
   const activeTabId =
     asked !== null && seenIds.has(asked)
       ? asked
-      : (asked !== null ? replacedBy.get(asked) : undefined) ?? tabs[0]?.id ?? null
+      : ((asked !== null ? replacedBy.get(asked) : undefined) ?? tabs[0]?.id ?? null)
   const recentUrls = normalizeRecentUrls(raw.recentUrls)
   return {
     open: raw.open === true,
@@ -295,16 +289,13 @@ export function paneStateFromLegacyLayout(layoutModel: unknown): WorkspacePaneSt
  * backlog behind it. The same record back (by reference) when there is
  * nothing to do — the layout docks no backlog, or the pane already has one.
  */
-export function adoptLegacyBacklogTab(
-  layoutModel: unknown,
-  paneState: WorkspacePaneState,
-): WorkspacePaneState {
+export function adoptLegacyBacklogTab(layoutModel: unknown, paneState: WorkspacePaneState): WorkspacePaneState {
   if (!layoutHasComponent(layoutModel, 'backlog')) return paneState
   // The heal runs on raw persisted records before any normalization: a torn
   // record without a tabs array is repaired here, never thrown on.
   const pane = Array.isArray(paneState.tabs)
     ? paneState
-    : normalizeWorkspacePaneState(paneState) ?? defaultWorkspacePaneState()
+    : (normalizeWorkspacePaneState(paneState) ?? defaultWorkspacePaneState())
   if (pane.tabs.some((tab) => tab.kind === 'backlog')) return pane
   if (pane.tabs.length >= MAX_PANE_TABS) {
     // The rail tab is still stripped by the caller; say so rather than lose
@@ -322,7 +313,7 @@ export function adoptLegacyBacklogTab(
   return {
     ...pane,
     open: pane.open || railWasShowing,
-    activeTabId: paneWasShowing || !railWasShowing ? pane.activeTabId ?? tab.id : tab.id,
+    activeTabId: paneWasShowing || !railWasShowing ? (pane.activeTabId ?? tab.id) : tab.id,
     tabs: [...pane.tabs, tab],
   }
 }
@@ -439,9 +430,7 @@ export function createWorkspacePaneSlice(set: PaneSliceSet): WorkspacePaneSliceA
         const existing = SINGLETON_PANE_TAB_KINDS.has(input.kind)
           ? pane.tabs.find((tab) => tab.kind === input.kind)
           : input.kind === 'canvas'
-            ? pane.tabs.find(
-                (tab) => tab.kind === 'canvas' && canvasTabKey(tab) === canvasTabKey(input),
-              )
+            ? pane.tabs.find((tab) => tab.kind === 'canvas' && canvasTabKey(tab) === canvasTabKey(input))
             : undefined
         if (existing) {
           if (input.title !== undefined) existing.title = input.title

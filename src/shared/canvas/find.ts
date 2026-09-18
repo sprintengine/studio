@@ -26,7 +26,9 @@ export type CanvasFindQuery = {
  * dropped, so the three spellings of one name collapse to `authflow`.
  */
 export function normalizeCanvasSearchText(value: string): string {
-  return String(value).toLowerCase().replace(/[\s\-_]+/g, '')
+  return String(value)
+    .toLowerCase()
+    .replace(/[\s\-_]+/g, '')
 }
 
 export function findElements(elements: CanvasElement[], query: CanvasFindQuery = {}): CanvasSkeleton[] {

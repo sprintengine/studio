@@ -77,8 +77,7 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
 
   const activeTab = tabs.find((tab) => tab.path === activePath) ?? null
   const activeBuffer = activePath ? buffers[activePath] : undefined
-  const activeTextBuffer =
-    activeBuffer && !activeBuffer.loading && activeBuffer.kind === 'text' ? activeBuffer : null
+  const activeTextBuffer = activeBuffer && !activeBuffer.loading && activeBuffer.kind === 'text' ? activeBuffer : null
   const isMarkdown = activeTab ? detectLanguage(activeTab.name) === 'markdown' : false
   const markdownPreviewTooLarge =
     isMarkdown && !!activeTextBuffer && activeTextBuffer.value.length > MARKDOWN_PREVIEW_MAX_CHARS
@@ -90,30 +89,27 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
     if (isMarkdown) setMarkdownMode('preview')
   }, [activePath, isMarkdown])
 
-  const closeTab = useCallback(
-    (path: string) => {
-      setTabs((prev) => {
-        const next = prev.filter((tab) => tab.path !== path)
-        if (next.length === 0) {
-          void window.api.windowClose()
-          return prev
-        }
-        setActivePath((current) => {
-          if (current !== path) return current
-          const closedIndex = prev.findIndex((tab) => tab.path === path)
-          const neighbor = next[Math.min(closedIndex, next.length - 1)]
-          return neighbor?.path ?? null
-        })
-        return next
+  const closeTab = useCallback((path: string) => {
+    setTabs((prev) => {
+      const next = prev.filter((tab) => tab.path !== path)
+      if (next.length === 0) {
+        void window.api.windowClose()
+        return prev
+      }
+      setActivePath((current) => {
+        if (current !== path) return current
+        const closedIndex = prev.findIndex((tab) => tab.path === path)
+        const neighbor = next[Math.min(closedIndex, next.length - 1)]
+        return neighbor?.path ?? null
       })
-      setBuffers((prev) => {
-        const next = { ...prev }
-        delete next[path]
-        return next
-      })
-    },
-    []
-  )
+      return next
+    })
+    setBuffers((prev) => {
+      const next = { ...prev }
+      delete next[path]
+      return next
+    })
+  }, [])
 
   const saveBuffer = useCallback(async (path: string): Promise<void> => {
     const buffer = buffersRef.current[path]
@@ -198,11 +194,7 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
                       and this is one of the two targets inside it. Its ring is
                       inset, which the scrolling strip needs — an outset one at
                       either end is clipped by the overflow container. */}
-                  <RowButton
-                    density="flush"
-                    onClick={() => setActivePath(tab.path)}
-                    className="max-w-[200px]"
-                  >
+                  <RowButton density="flush" onClick={() => setActivePath(tab.path)} className="max-w-[200px]">
                     <span className="min-w-0 truncate">{tab.name}</span>
                   </RowButton>
                 </Tooltip>
@@ -263,12 +255,22 @@ export default function ExternalEditorWindow({ incoming, nonce }: Props) {
               >
                 {showPreview ? (
                   <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
-                    <path d="M2.5 11.75L2.5 13.5h1.75L12 5.75 10.25 4 2.5 11.75z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                    <path
+                      d="M2.5 11.75L2.5 13.5h1.75L12 5.75 10.25 4 2.5 11.75z"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinejoin="round"
+                    />
                     <path d="M9.25 5L11 6.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
                   </svg>
                 ) : (
                   <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
-                    <path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4S1.5 8 1.5 8z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+                    <path
+                      d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4S1.5 8 1.5 8z"
+                      stroke="currentColor"
+                      strokeWidth="1.4"
+                      strokeLinejoin="round"
+                    />
                     <circle cx="8" cy="8" r="1.75" stroke="currentColor" strokeWidth="1.4" />
                   </svg>
                 )}
@@ -297,7 +299,7 @@ function renderBody(
   activePath: string | null,
   setBuffers: React.Dispatch<React.SetStateAction<Record<string, FileBuffer>>>,
   showPreview: boolean,
-  monacoTheme: 'vs' | 'vs-dark'
+  monacoTheme: 'vs' | 'vs-dark',
 ): React.ReactNode {
   // Kit states, not the window's own dialect (MC-2115): the sentences a person
   // reads are `EmptyState` copy rather than `--text-disabled` mono, and a read

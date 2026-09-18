@@ -6,11 +6,7 @@ import type {
 } from '../../shared/automations/contracts'
 import type { AutomationRunExecutor, AutomationsEngineEvaluationResult, AutomationsProjectFolder } from './engine'
 import { AutomationsStore, type AutomationStoreProblem, type AutomationStoreState } from './store'
-import {
-  clearTriggerBlockedReasonState,
-  enqueueTriggerEventRun,
-  triggerEventInFlightKey,
-} from './trigger-event-runner'
+import { clearTriggerBlockedReasonState, enqueueTriggerEventRun, triggerEventInFlightKey } from './trigger-event-runner'
 
 export { TRIGGER_EVENT_DEDUP_RETENTION_LIMIT } from './trigger-event-runner'
 
@@ -65,10 +61,14 @@ export async function evaluatePollingTriggerDefinition(input: PollingTriggerEval
     return
   }
 
-  const missingIntegrations = (provider.requiredIntegrations ?? [])
-    .filter((id) => input.isIntegrationAvailable?.(id) !== true)
+  const missingIntegrations = (provider.requiredIntegrations ?? []).filter(
+    (id) => input.isIntegrationAvailable?.(id) !== true,
+  )
   if (missingIntegrations.length > 0) {
-    await recordBlockedTriggerRun(input, `Required trigger integration is unavailable: ${missingIntegrations.join(', ')}.`)
+    await recordBlockedTriggerRun(
+      input,
+      `Required trigger integration is unavailable: ${missingIntegrations.join(', ')}.`,
+    )
     return
   }
 
@@ -83,7 +83,7 @@ export async function evaluatePollingTriggerDefinition(input: PollingTriggerEval
   } catch (error) {
     await recordBlockedTriggerRun(
       input,
-      error instanceof Error ? error.message : `Automation trigger "${definition.trigger.kind}" failed while polling.`
+      error instanceof Error ? error.message : `Automation trigger "${definition.trigger.kind}" failed while polling.`,
     )
     return
   }
@@ -153,7 +153,7 @@ async function updateDefinitionAfterTriggerRun(
   input: PollingTriggerEvaluationInput,
   run: AutomationRun,
   updatedAt: number,
-  mutateState: () => void
+  mutateState: () => void,
 ): Promise<boolean> {
   const { definition, projectFolder, result, state, store } = input
   const workspaceRoot = projectFolder.folderPath
@@ -183,7 +183,7 @@ async function updateDefinitionAfterTriggerRun(
 function runRecord(
   input: PollingTriggerEvaluationInput,
   dueAt: string,
-  fields: Pick<AutomationRun, 'status' | 'startedAt' | 'completedAt'> & Partial<AutomationRun>
+  fields: Pick<AutomationRun, 'status' | 'startedAt' | 'completedAt'> & Partial<AutomationRun>,
 ): AutomationRun {
   return {
     id: input.createRunId({ workspaceRoot: input.projectFolder.folderPath, automationId: input.definition.id, dueAt }),

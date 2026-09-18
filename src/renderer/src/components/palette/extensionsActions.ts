@@ -46,14 +46,10 @@ import type { ExtensionPluginRow, ExtensionSkillRow } from './extensionsProvider
 /** The plugin installed, but nothing it shipped is a skill an agent can run. */
 export const PLUGIN_HAS_NO_SKILL_MESSAGE = 'That plugin ships no skill an agent can run.'
 
-export type ExtensionActionOutcome =
-  | { ok: true; toast: ShowToastInput | null }
-  | { ok: false; message: string }
+export type ExtensionActionOutcome = { ok: true; toast: ShowToastInput | null } | { ok: false; message: string }
 
 /** The workspace-inventory record a row resolved to, once it is really there. */
-export type ResolvedSkillOutcome =
-  | { ok: true; skill: WorkspaceSkill }
-  | { ok: false; message: string }
+export type ResolvedSkillOutcome = { ok: true; skill: WorkspaceSkill } | { ok: false; message: string }
 
 /** Only the calls these actions make, so a test hands over two functions. */
 export type ExtensionsActionApi = Pick<typeof window.api, 'skillsInstall' | 'skillsInstallPlugin'>
@@ -148,8 +144,7 @@ export type PluginDeepLinkReason =
   | 'nothing-to-run'
 
 export type PluginRowPlan =
-  | { kind: 'install-and-use'; skillDirName: string }
-  | { kind: 'deep-link'; reason: PluginDeepLinkReason }
+  { kind: 'install-and-use'; skillDirName: string } | { kind: 'deep-link'; reason: PluginDeepLinkReason }
 
 /**
  * What selecting a plugin row should do, decided from the scan alone.

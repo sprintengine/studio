@@ -81,12 +81,7 @@ export function emptyAgentLaunchSettings(): AgentLaunchSettings {
   }
 }
 
-const cliPermissionPresets = new Set<CliPermissionPreset>([
-  'none',
-  'manual',
-  'auto',
-  'bypass',
-])
+const cliPermissionPresets = new Set<CliPermissionPreset>(['none', 'manual', 'auto', 'bypass'])
 
 /**
  * Fail-soft parse of a settings payload (an IPC push or a legacy on-disk
@@ -112,14 +107,13 @@ export function normalizeAgentLaunchSettings(raw: unknown): AgentLaunchSettings 
       }
     }
   }
-  const mcp = record.mcp && typeof record.mcp === 'object' && !Array.isArray(record.mcp)
-    ? record.mcp as McpSettings
-    : empty.mcp
+  const mcp =
+    record.mcp && typeof record.mcp === 'object' && !Array.isArray(record.mcp) ? (record.mcp as McpSettings) : empty.mcp
   const projectKnowledgeRoots: Record<string, string | null> = {}
   if (
-    record.projectKnowledgeRoots
-    && typeof record.projectKnowledgeRoots === 'object'
-    && !Array.isArray(record.projectKnowledgeRoots)
+    record.projectKnowledgeRoots &&
+    typeof record.projectKnowledgeRoots === 'object' &&
+    !Array.isArray(record.projectKnowledgeRoots)
   ) {
     for (const [key, value] of Object.entries(record.projectKnowledgeRoots as Record<string, unknown>)) {
       if (typeof value === 'string' || value === null) projectKnowledgeRoots[key] = value
@@ -129,13 +123,12 @@ export function normalizeAgentLaunchSettings(raw: unknown): AgentLaunchSettings 
     cliRuntimes,
     mcp,
     projectKnowledgeRoots,
-    lastSelectedCli: typeof record.lastSelectedCli === 'string' && record.lastSelectedCli
-      ? record.lastSelectedCli
-      : null,
+    lastSelectedCli:
+      typeof record.lastSelectedCli === 'string' && record.lastSelectedCli ? record.lastSelectedCli : null,
     lastAgentSpawnPermissionPreset:
-      typeof record.lastAgentSpawnPermissionPreset === 'string'
-        && cliPermissionPresets.has(record.lastAgentSpawnPermissionPreset as CliPermissionPreset)
-        ? record.lastAgentSpawnPermissionPreset as CliPermissionPreset
+      typeof record.lastAgentSpawnPermissionPreset === 'string' &&
+      cliPermissionPresets.has(record.lastAgentSpawnPermissionPreset as CliPermissionPreset)
+        ? (record.lastAgentSpawnPermissionPreset as CliPermissionPreset)
         : null,
   }
 }
@@ -147,24 +140,21 @@ export function normalizeAgentLaunchSettings(raw: unknown): AgentLaunchSettings 
  * record yet": the caller re-seeds from the settings it holds, so a legacy or
  * corrupt file costs one hydration rather than a crash.
  */
-export function parseAgentLaunchSettingsRecord(
-  raw: unknown,
-): AgentLaunchSettingsRecord | null {
+export function parseAgentLaunchSettingsRecord(raw: unknown): AgentLaunchSettingsRecord | null {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null
   const record = raw as Record<string, unknown>
   if (record.schemaVersion !== AGENT_LAUNCH_SETTINGS_SCHEMA_VERSION) return null
   const revision = record.revision
   if (typeof revision !== 'number' || !Number.isInteger(revision) || revision < 1) return null
-  const rawWrite = record.lastWrite && typeof record.lastWrite === 'object' && !Array.isArray(record.lastWrite)
-    ? record.lastWrite as Record<string, unknown>
-    : null
+  const rawWrite =
+    record.lastWrite && typeof record.lastWrite === 'object' && !Array.isArray(record.lastWrite)
+      ? (record.lastWrite as Record<string, unknown>)
+      : null
   return {
     schemaVersion: AGENT_LAUNCH_SETTINGS_SCHEMA_VERSION,
     revision,
     settings: normalizeAgentLaunchSettings(record.settings),
-    changedAt: typeof record.changedAt === 'number' && Number.isFinite(record.changedAt)
-      ? record.changedAt
-      : 0,
+    changedAt: typeof record.changedAt === 'number' && Number.isFinite(record.changedAt) ? record.changedAt : 0,
     lastWrite: {
       actor: rawWrite?.actor === 'ui' ? 'ui' : 'system',
       at: typeof rawWrite?.at === 'string' ? rawWrite.at : '',
@@ -192,15 +182,10 @@ export function nextAgentLaunchSettingsRecord(input: {
  * key order is stable and a serialized compare is exact — an unchanged push
  * must not bump the revision or wake subscribers.
  */
-export function agentLaunchSettingsEqual(
-  left: AgentLaunchSettings,
-  right: AgentLaunchSettings,
-): boolean {
+export function agentLaunchSettingsEqual(left: AgentLaunchSettings, right: AgentLaunchSettings): boolean {
   return JSON.stringify(left) === JSON.stringify(right)
 }
 
-export function serializeAgentLaunchSettingsRecord(
-  record: AgentLaunchSettingsRecord,
-): string {
+export function serializeAgentLaunchSettingsRecord(record: AgentLaunchSettingsRecord): string {
   return `${JSON.stringify(record, null, 2)}\n`
 }

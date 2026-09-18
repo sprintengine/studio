@@ -4,7 +4,11 @@ import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { revealAgentTerminalTab } from '../../../../utils/agentTabReveal'
 import { publishDiagnosticSync } from '../../../../utils/diagnostics'
 import { listAutomationProjectFolders } from '../../../../utils/automationsEntry'
-import type { AutomationDefinition, AutomationRun, AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
+import type {
+  AutomationDefinition,
+  AutomationRun,
+  AutomationsInstanceEntry,
+} from '../../../../../../shared/automations/contracts'
 import type { BuiltinAutomation } from '../../../../../../shared/automations/builtin'
 import { selectAgentCliCatalog } from '../../newWorkspace/cliRuntimeOptions'
 import {
@@ -74,9 +78,21 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   const back = useSurfaceBackNav()
 
   const {
-    entries, problems, providers, engineStatus,
-    loadState, loadError, actionError, busyId,
-    load, clearActionError, runNow, toggleStatus, remove, applySaved, rootForDefinition,
+    entries,
+    problems,
+    providers,
+    engineStatus,
+    loadState,
+    loadError,
+    actionError,
+    busyId,
+    load,
+    clearActionError,
+    runNow,
+    toggleStatus,
+    remove,
+    applySaved,
+    rootForDefinition,
   } = useAutomationsController({ scope: 'instance' })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -209,7 +225,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
 
   const selectedBuiltin = useMemo(() => {
     const builtinId = builtinIdFromRowId(selectedId)
-    return builtinId ? builtins.find((entry) => entry.id === builtinId) ?? null : null
+    return builtinId ? (builtins.find((entry) => entry.id === builtinId) ?? null) : null
   }, [builtins, selectedId])
 
   // Keep the selection valid, and default to the first automation once the index
@@ -235,10 +251,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     () => builtinAddTarget(activeFolderPath, projectFolders),
     [activeFolderPath, projectFolders],
   )
-  const addedIds = useMemo(
-    () => readAddedBuiltinIds(entries, addTarget?.folderPath ?? null),
-    [entries, addTarget],
-  )
+  const addedIds = useMemo(() => readAddedBuiltinIds(entries, addTarget?.folderPath ?? null), [entries, addTarget])
 
   // What an added copy would actually launch on. The built-in payload names no
   // CLI, so the run falls back to the app's last-selected one — the same order
@@ -257,7 +270,11 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   // Adding re-reads the index rather than patching it: the definition main wrote
   // is the one the rail must list, and `load()` is the read that produced every
   // other row in it.
-  const adder = useAddBuiltinAutomation(useCallback(() => { void load() }, [load]))
+  const adder = useAddBuiltinAutomation(
+    useCallback(() => {
+      void load()
+    }, [load]),
+  )
 
   // Deep-link: drain the latch on mount and subscribe live, then apply once the
   // named automation is present in the loaded index.
@@ -270,10 +287,13 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     })
   }, [])
 
-  const openChooser = useCallback((anchor: { x: number; y: number }) => {
-    clearActionError()
-    setChooser(anchor)
-  }, [clearActionError])
+  const openChooser = useCallback(
+    (anchor: { x: number; y: number }) => {
+      clearActionError()
+      setChooser(anchor)
+    },
+    [clearActionError],
+  )
 
   const startCreate = useCallback((workspaceRoot: string) => {
     setChooser(null)
@@ -281,11 +301,14 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     setEditorTarget({ editor: { mode: 'create' }, workspaceRoot })
   }, [])
 
-  const startEdit = useCallback((entry: AutomationsInstanceEntry) => {
-    const workspaceRoot = rootForDefinition(entry.definition.id) ?? entry.workspaceRoot
-    setSelectedId(entry.definition.id)
-    setEditorTarget({ editor: { mode: 'edit', definition: entry.definition }, workspaceRoot })
-  }, [rootForDefinition])
+  const startEdit = useCallback(
+    (entry: AutomationsInstanceEntry) => {
+      const workspaceRoot = rootForDefinition(entry.definition.id) ?? entry.workspaceRoot
+      setSelectedId(entry.definition.id)
+      setEditorTarget({ editor: { mode: 'edit', definition: entry.definition }, workspaceRoot })
+    },
+    [rootForDefinition],
+  )
 
   // Apply a latched deep-link once its automation is in the loaded index. The
   // `editor` view is the shelf's hand-off (MC-2035): the automation it just added
@@ -308,49 +331,61 @@ export default function AutomationsGlobalSurface(): JSX.Element {
     setPendingTarget(null)
   }, [pendingTarget, entries, startEdit])
 
-  const handleEditorSaved = useCallback((saved: AutomationDefinition) => {
-    applySaved(saved, editorTarget?.workspaceRoot)
-    setSelectedId(saved.id)
-    setEditorTarget(null)
-  }, [applySaved, editorTarget])
+  const handleEditorSaved = useCallback(
+    (saved: AutomationDefinition) => {
+      applySaved(saved, editorTarget?.workspaceRoot)
+      setSelectedId(saved.id)
+      setEditorTarget(null)
+    },
+    [applySaved, editorTarget],
+  )
 
   // Run now on the surface: the only run whose terminal status the renderer sees
   // (the IPC return). A failed/blocked outcome raises a notification whose Open
   // deep-links back to this door and the originating run (the door target the
   // scheduled-run observer also uses now).
-  const handleRunNow = useCallback(async (entry: AutomationsInstanceEntry) => {
-    const run = await runNow(entry.definition)
-    if (!run || (run.status !== 'failed' && run.status !== 'blocked')) return
-    publishDiagnosticSync({
-      level: run.status === 'failed' ? 'error' : 'warning',
-      source: 'automations',
-      title: `Automation ${run.status}: ${entry.definition.name}`,
-      message: run.blockedReason || run.summary || `The run ended ${run.status}.`,
-      workspaceId: entry.workspaceId,
-      navigationTarget: automationsDoorTarget(entry.definition.id, run.id, entry.workspaceRoot),
-    })
-  }, [runNow])
+  const handleRunNow = useCallback(
+    async (entry: AutomationsInstanceEntry) => {
+      const run = await runNow(entry.definition)
+      if (!run || (run.status !== 'failed' && run.status !== 'blocked')) return
+      publishDiagnosticSync({
+        level: run.status === 'failed' ? 'error' : 'warning',
+        source: 'automations',
+        title: `Automation ${run.status}: ${entry.definition.name}`,
+        message: run.blockedReason || run.summary || `The run ended ${run.status}.`,
+        workspaceId: entry.workspaceId,
+        navigationTarget: automationsDoorTarget(entry.definition.id, run.id, entry.workspaceRoot),
+      })
+    },
+    [runNow],
+  )
 
   // Delete drops the definition and its run-history directory, so gate it behind
   // a danger confirm — cancel leaves both untouched.
-  const handleDelete = useCallback(async (entry: AutomationsInstanceEntry) => {
-    const confirmed = await dialog.confirm({
-      title: `Delete ${entry.definition.name}?`,
-      body: 'This removes the automation and its run history. This cannot be undone.',
-      confirmLabel: 'Delete',
-      tone: 'danger',
-    })
-    if (confirmed) await remove(entry.definition)
-  }, [dialog, remove])
+  const handleDelete = useCallback(
+    async (entry: AutomationsInstanceEntry) => {
+      const confirmed = await dialog.confirm({
+        title: `Delete ${entry.definition.name}?`,
+        body: 'This removes the automation and its run history. This cannot be undone.',
+        confirmLabel: 'Delete',
+        tone: 'danger',
+      })
+      if (confirmed) await remove(entry.definition)
+    },
+    [dialog, remove],
+  )
 
-  const onOpenAgent = useCallback((workspaceId: string, agentId?: string) => {
-    // Focus the concrete launched agent tab; fall back to activating the
-    // workspace when the run carries no agentId or the agent is gone. Activating
-    // a workspace clears this surface — leaving the door to read the run is the
-    // intent.
-    if (agentId && revealAgentTerminalTab({ workspaceId, agentId })) return
-    setActiveWorkspace(workspaceId)
-  }, [setActiveWorkspace])
+  const onOpenAgent = useCallback(
+    (workspaceId: string, agentId?: string) => {
+      // Focus the concrete launched agent tab; fall back to activating the
+      // workspace when the run carries no agentId or the agent is gone. Activating
+      // a workspace clears this surface — leaving the door to read the run is the
+      // intent.
+      if (agentId && revealAgentTerminalTab({ workspaceId, agentId })) return
+      setActiveWorkspace(workspaceId)
+    },
+    [setActiveWorkspace],
+  )
 
   // ── Surface bar ────────────────────────────────────────────────────────────
   const bar = useMemo(() => {
@@ -415,7 +450,13 @@ export default function AutomationsGlobalSurface(): JSX.Element {
           disabled: busy,
         },
         { kind: 'separator', id: 'sep' },
-        { id: 'delete', label: 'Delete', onSelect: () => void handleDelete(selectedEntry), disabled: busy, destructive: true },
+        {
+          id: 'delete',
+          label: 'Delete',
+          onSelect: () => void handleDelete(selectedEntry),
+          disabled: busy,
+          destructive: true,
+        },
       ]
       // Name and controls only: the canvas states what this automation does, when
       // it next runs, and whether it is paused — the bar restating it made the
@@ -434,7 +475,19 @@ export default function AutomationsGlobalSurface(): JSX.Element {
       }
     }
     return { title: 'Automations' }
-  }, [editorTarget, selectedBuiltin, selectedEntry, addedIds, addTarget, adder, busyId, handleRunNow, startEdit, toggleStatus, handleDelete])
+  }, [
+    editorTarget,
+    selectedBuiltin,
+    selectedEntry,
+    addedIds,
+    addTarget,
+    adder,
+    busyId,
+    handleRunNow,
+    startEdit,
+    toggleStatus,
+    handleDelete,
+  ])
 
   // ── Attention strip: non-blocking degraded signals ──────────────────────────
   const attention = useMemo(() => {
@@ -545,7 +598,9 @@ export default function AutomationsGlobalSurface(): JSX.Element {
             hasEntries={entries.length > 0}
             selectedBuiltin={selectedBuiltin}
             builtinCliLabel={cliLabel}
-            builtinAddedIn={selectedBuiltin && addedIds.has(selectedBuiltin.id) ? addTarget?.displayName ?? null : null}
+            builtinAddedIn={
+              selectedBuiltin && addedIds.has(selectedBuiltin.id) ? (addTarget?.displayName ?? null) : null
+            }
             builtinAddBlockedReason={
               addTarget ? null : 'Open the project this automation should run in, then add it there.'
             }
@@ -560,7 +615,9 @@ export default function AutomationsGlobalSurface(): JSX.Element {
             focusRunId={focusRunId}
             focusNonce={focusNonce}
             onOpenAgent={onOpenAgent}
-            onViewReport={(run) => { if (selectedEntry) setViewerRun({ run, workspaceRoot: selectedEntry.workspaceRoot }) }}
+            onViewReport={(run) => {
+              if (selectedEntry) setViewerRun({ run, workspaceRoot: selectedEntry.workspaceRoot })
+            }}
             onCreate={openChooser}
           />
         </div>
@@ -610,9 +667,27 @@ export default function AutomationsGlobalSurface(): JSX.Element {
 // states (SurfaceCanvasState) plus the editor. Split out so the surface's return
 // stays readable.
 function SurfaceBody({
-  loadState, loadError, onRetry, hasEntries, editorTarget, editorActionsSlot, providers, onEditorCancel, onEditorSaved,
-  selectedEntry, selectedBuiltin, builtinCliLabel, builtinAddedIn, builtinAddBlockedReason, builtinAddError,
-  now, focusRunId, focusNonce, onOpenAgent, onViewReport, onCreate,
+  loadState,
+  loadError,
+  onRetry,
+  hasEntries,
+  editorTarget,
+  editorActionsSlot,
+  providers,
+  onEditorCancel,
+  onEditorSaved,
+  selectedEntry,
+  selectedBuiltin,
+  builtinCliLabel,
+  builtinAddedIn,
+  builtinAddBlockedReason,
+  builtinAddError,
+  now,
+  focusRunId,
+  focusNonce,
+  onOpenAgent,
+  onViewReport,
+  onCreate,
 }: {
   loadState: string
   loadError: string | null
@@ -717,11 +792,7 @@ function SurfaceBody({
   // effect fires. The quiet kit state, never a blank canvas and never a bare
   // line of copy in a dialect of its own.
   return (
-    <EmptyState
-      density="pane"
-      glyph={<AutomationsGlyph />}
-      title="Select an automation to see its runs and setup."
-    />
+    <EmptyState density="pane" glyph={<AutomationsGlyph />} title="Select an automation to see its runs and setup." />
   )
 }
 

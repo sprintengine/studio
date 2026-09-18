@@ -60,7 +60,10 @@ assert.equal(fleetTerminalTabName('mini', 'Ada'), 'Ada · mini')
 // its process is not.
 assert.deepEqual(fleetTerminalStatus({ ...terminal, suspended: true }), { label: 'Paused', tone: 'neutral' })
 assert.deepEqual(fleetTerminalStatus({ ...terminal, processAlive: false }), { label: 'Exited', tone: 'neutral' })
-assert.deepEqual(fleetTerminalStatus({ ...terminal, phase: 'awaiting_input' }), { label: 'awaiting input', tone: 'good' })
+assert.deepEqual(fleetTerminalStatus({ ...terminal, phase: 'awaiting_input' }), {
+  label: 'awaiting input',
+  tone: 'good',
+})
 assert.deepEqual(fleetTerminalStatus(terminal), { label: 'Running', tone: 'good' })
 
 assert.equal(fleetTerminalTitle(terminal), 'Ada')

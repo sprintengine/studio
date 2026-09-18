@@ -31,11 +31,7 @@ export function workspaceLastWorkedAt(workspace: Workspace): number {
  * from under them.
  */
 export function workspaceLastActiveAt(workspace: Workspace): number {
-  return Math.max(
-    workspaceLastWorkedAt(workspace),
-    workspace.lastUserMessageAt ?? 0,
-    workspace.lastTurnEndedAt ?? 0,
-  )
+  return Math.max(workspaceLastWorkedAt(workspace), workspace.lastUserMessageAt ?? 0, workspace.lastTurnEndedAt ?? 0)
 }
 
 /**
@@ -101,7 +97,7 @@ export function sortWorkspacesByUserMessage(workspaces: Workspace[]): Workspace[
 // than the one the person left.
 export function keepLaterWorkspaceClocks(
   existing: Pick<Workspace, (typeof MONOTONIC_WORKSPACE_CLOCKS)[number]>,
-  incoming: Workspace
+  incoming: Workspace,
 ): Workspace {
   let merged: Workspace | null = null
   for (const clock of MONOTONIC_WORKSPACE_CLOCKS) {

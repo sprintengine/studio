@@ -25,15 +25,18 @@ export function dropRetiredNotifications(notifications: unknown): AppNotificatio
   if (!Array.isArray(notifications)) return []
   return notifications.filter(
     (notification): notification is AppNotification =>
-      Boolean(notification)
-      && typeof notification === 'object'
-      && !RETIRED_NOTIFICATION_SOURCES.has(String((notification as { source?: unknown }).source)),
+      Boolean(notification) &&
+      typeof notification === 'object' &&
+      !RETIRED_NOTIFICATION_SOURCES.has(String((notification as { source?: unknown }).source)),
   )
 }
 
 // The persist `merge`: the stored state over the initial one, less any
 // notification from a retired source.
-export function mergePersistedNotificationState<T extends PersistedNotificationState>(persisted: unknown, current: T): T {
+export function mergePersistedNotificationState<T extends PersistedNotificationState>(
+  persisted: unknown,
+  current: T,
+): T {
   if (!persisted || typeof persisted !== 'object') return current
   const stored = persisted as Partial<PersistedNotificationState>
   return {
@@ -124,6 +127,6 @@ export const useNotificationStore = create<NotificationStore>()(
       name: NOTIFICATION_STORAGE_KEY,
       version: 1,
       merge: mergePersistedNotificationState,
-    }
-  )
+    },
+  ),
 )

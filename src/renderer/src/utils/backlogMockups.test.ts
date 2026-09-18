@@ -23,10 +23,10 @@ function run(name: string, fn: () => void): void {
 // ---- parseBacklogMockups ---------------------------------------------------
 
 run('parseBacklogMockups splits the CSV scalar into a clean project-relative list', () => {
-  assert.deepEqual(
-    parseBacklogMockups('backlog/mockups/a.html, backlog/mockups/b.html'),
-    ['backlog/mockups/a.html', 'backlog/mockups/b.html'],
-  )
+  assert.deepEqual(parseBacklogMockups('backlog/mockups/a.html, backlog/mockups/b.html'), [
+    'backlog/mockups/a.html',
+    'backlog/mockups/b.html',
+  ])
 })
 
 run('parseBacklogMockups is empty for absent/blank input', () => {
@@ -36,10 +36,10 @@ run('parseBacklogMockups is empty for absent/blank input', () => {
 })
 
 run('parseBacklogMockups normalizes backslashes and dedupes preserving first-seen order', () => {
-  assert.deepEqual(
-    parseBacklogMockups('mockups\\x.html, mockups/x.html, mockups/y.html'),
-    ['mockups/x.html', 'mockups/y.html'],
-  )
+  assert.deepEqual(parseBacklogMockups('mockups\\x.html, mockups/x.html, mockups/y.html'), [
+    'mockups/x.html',
+    'mockups/y.html',
+  ])
 })
 
 run('parseBacklogMockups drops absolute paths, `..` escapes, and URLs', () => {
@@ -56,18 +56,12 @@ run('parseBacklogMockups drops absolute paths, `..` escapes, and URLs', () => {
 
 run('detectBacklogMockupReferences resolves ../mockups links relative to the item dir', () => {
   const body = 'Mockup: [preview](../mockups/2026-07-06-foo.html)\n\nMore text.'
-  assert.deepEqual(
-    detectBacklogMockupReferences(body, 'backlog/2026-07-06-item.md'),
-    ['mockups/2026-07-06-foo.html'],
-  )
+  assert.deepEqual(detectBacklogMockupReferences(body, 'backlog/2026-07-06-item.md'), ['mockups/2026-07-06-foo.html'])
 })
 
 run('detectBacklogMockupReferences keeps a bare root-relative backtick path as-is', () => {
   const body = 'See `backlog/mockups/x.html` and `mockups/y.html`.'
-  assert.deepEqual(
-    detectBacklogMockupReferences(body, 'backlog/item.md'),
-    ['backlog/mockups/x.html', 'mockups/y.html'],
-  )
+  assert.deepEqual(detectBacklogMockupReferences(body, 'backlog/item.md'), ['backlog/mockups/x.html', 'mockups/y.html'])
 })
 
 run('detectBacklogMockupReferences finds two references shaped like a real prose-only item', () => {
@@ -94,10 +88,7 @@ run('detectBacklogMockupReferences skips http(s), absolute, and non-html refs', 
 
 run('detectBacklogMockupReferences ignores #fragment/?query tails when testing the extension', () => {
   const body = '[a](../mockups/x.html#top) and [b](../mockups/z.html?v=2)'
-  assert.deepEqual(
-    detectBacklogMockupReferences(body, 'backlog/item.md'),
-    ['mockups/x.html', 'mockups/z.html'],
-  )
+  assert.deepEqual(detectBacklogMockupReferences(body, 'backlog/item.md'), ['mockups/x.html', 'mockups/z.html'])
 })
 
 run('detectBacklogMockupReferences dedupes a file linked twice', () => {
@@ -138,16 +129,11 @@ run('collectBacklogMockups handles an item with no mockups and no references', (
 // ---- backlogMockupResolutionCandidates -------------------------------------
 
 run('backlogMockupResolutionCandidates probes the ref as-authored, then under backlog/', () => {
-  assert.deepEqual(backlogMockupResolutionCandidates('mockups/x.html'), [
-    'mockups/x.html',
-    'backlog/mockups/x.html',
-  ])
+  assert.deepEqual(backlogMockupResolutionCandidates('mockups/x.html'), ['mockups/x.html', 'backlog/mockups/x.html'])
 })
 
 run('backlogMockupResolutionCandidates does not double-prefix an already backlog/-relative ref', () => {
-  assert.deepEqual(backlogMockupResolutionCandidates('backlog/mockups/x.html'), [
-    'backlog/mockups/x.html',
-  ])
+  assert.deepEqual(backlogMockupResolutionCandidates('backlog/mockups/x.html'), ['backlog/mockups/x.html'])
 })
 
 run('backlogMockupResolutionCandidates is empty for an empty ref', () => {
@@ -168,8 +154,7 @@ async function runAsync(name: string, fn: () => Promise<void>): Promise<void> {
 }
 
 // An existence probe backed by a fixed set of present root-relative paths.
-const existsIn = (present: readonly string[]) => async (relativePath: string) =>
-  present.includes(relativePath)
+const existsIn = (present: readonly string[]) => async (relativePath: string) => present.includes(relativePath)
 
 async function collectDanglingMockupsTests(): Promise<void> {
   await runAsync('collectDanglingMockups flags an attached ref that resolves under neither root', async () => {

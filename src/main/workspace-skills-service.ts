@@ -64,8 +64,7 @@ type RawSkill = {
 }
 
 export type ReadSkillsResult =
-  | { ok: true; skills: RawSkill[] }
-  | { ok: false; reason: 'missing' | 'unreadable'; message: string }
+  { ok: true; skills: RawSkill[] } | { ok: false; reason: 'missing' | 'unreadable'; message: string }
 
 /**
  * Reads a directory of skills. `missing` and `unreadable` are deliberately
@@ -189,9 +188,10 @@ async function resolveSkills(
   if (!read.ok) {
     return {
       skills: [],
-      diagnostics: read.reason === 'unreadable'
-        ? [{ capability: 'skills', reason: 'unreadable', path: skillsDir, message: read.message }]
-        : [],
+      diagnostics:
+        read.reason === 'unreadable'
+          ? [{ capability: 'skills', reason: 'unreadable', path: skillsDir, message: read.message }]
+          : [],
     }
   }
 

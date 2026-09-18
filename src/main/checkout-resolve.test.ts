@@ -5,7 +5,13 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 
-import { MISSING_DIRECTORY, NOT_A_CHECKOUT, hostCwdForResolution, parseCommonGitDir, resolveCheckoutForCwd } from './checkout-resolve'
+import {
+  MISSING_DIRECTORY,
+  NOT_A_CHECKOUT,
+  hostCwdForResolution,
+  parseCommonGitDir,
+  resolveCheckoutForCwd,
+} from './checkout-resolve'
 
 const execFileAsync = promisify(execFile)
 
@@ -40,7 +46,11 @@ function assertHostPathTranslation(): void {
   assert.equal(hostCwdForResolution('\\\\server\\share\\proj', 'win32'), '\\\\server\\share\\proj')
   // POSIX main: POSIX paths pass through; a Windows-form path is unanswerable.
   assert.equal(hostCwdForResolution('/Users/me/proj', 'darwin'), '/Users/me/proj')
-  assert.equal(hostCwdForResolution('/mnt/c/Users/me', 'linux'), '/mnt/c/Users/me', 'on Linux /mnt/c is just a directory')
+  assert.equal(
+    hostCwdForResolution('/mnt/c/Users/me', 'linux'),
+    '/mnt/c/Users/me',
+    'on Linux /mnt/c is just a directory',
+  )
   assert.equal(hostCwdForResolution('C:/Users/me', 'linux'), null)
   assert.equal(hostCwdForResolution('C:\\Users\\me', 'darwin'), null)
 }
@@ -50,7 +60,11 @@ function assertCommonGitDirParsing(): void {
   // flag with exit 0, which must read as "unsupported", never as a path.
   assert.equal(parseCommonGitDir('/repo/.git\n', '/repo/src'), '/repo/.git')
   assert.equal(parseCommonGitDir('--path-format=absolute\n.git\n', '/repo'), null, 'an echoed flag is not a path')
-  assert.equal(parseCommonGitDir('.git\n', '/repo'), '/repo/.git', 'relative answers resolve against the cwd git ran in')
+  assert.equal(
+    parseCommonGitDir('.git\n', '/repo'),
+    '/repo/.git',
+    'relative answers resolve against the cwd git ran in',
+  )
   assert.equal(parseCommonGitDir('../.git\n', '/repo/src'), '/repo/.git')
   assert.equal(parseCommonGitDir('', '/repo'), null)
 }
@@ -115,19 +129,23 @@ async function run(): Promise<void> {
     assert.deepEqual(
       await resolveCheckoutForCwd(plain),
       NOT_A_CHECKOUT,
-      'a directory outside every repository is a plain folder, not "unknown"'
+      'a directory outside every repository is a plain folder, not "unknown"',
     )
 
     // A removed worktree (pruned out from under the agent) is a folder that
     // no longer exists — reported as not a checkout, never as a git failure.
     await rm(worktree, { recursive: true, force: true })
-    assert.deepEqual(await resolveCheckoutForCwd(worktree), MISSING_DIRECTORY, 'a vanished cwd is reported missing, not as a folder')
+    assert.deepEqual(
+      await resolveCheckoutForCwd(worktree),
+      MISSING_DIRECTORY,
+      'a vanished cwd is reported missing, not as a folder',
+    )
 
     // Inside the `.git` directory itself there is no work tree.
     assert.deepEqual(
       await resolveCheckoutForCwd(join(repo, '.git')),
       NOT_A_CHECKOUT,
-      'the .git directory is not a work tree'
+      'the .git directory is not a work tree',
     )
 
     // --- GIT_DIR leaking from the app's environment ------------------------
@@ -136,14 +154,22 @@ async function run(): Promise<void> {
     const originalGitDir = process.env.GIT_DIR
     process.env.GIT_DIR = join(repo, '.git')
     try {
-      assert.deepEqual(await resolveCheckoutForCwd(plain), NOT_A_CHECKOUT, 'an inherited GIT_DIR must not make a folder a checkout')
+      assert.deepEqual(
+        await resolveCheckoutForCwd(plain),
+        NOT_A_CHECKOUT,
+        'an inherited GIT_DIR must not make a folder a checkout',
+      )
     } finally {
       if (originalGitDir === undefined) delete process.env.GIT_DIR
       else process.env.GIT_DIR = originalGitDir
     }
 
     // A cwd that is a regular file is not a checkout either.
-    assert.deepEqual(await resolveCheckoutForCwd(join(repo, 'README.md')), NOT_A_CHECKOUT, 'a file cwd is not a checkout')
+    assert.deepEqual(
+      await resolveCheckoutForCwd(join(repo, 'README.md')),
+      NOT_A_CHECKOUT,
+      'a file cwd is not a checkout',
+    )
 
     // --- git cannot answer ------------------------------------------------
     // A git that fails for a reason other than "no repository here" must

@@ -34,10 +34,7 @@ export function parseMarketplaceExtraHosts(raw: string | null | undefined): stri
     .filter((token) => token.length > 0 && !token.includes('*') && !token.includes('/'))
 }
 
-export function isMarketplaceSourceHostAllowed(
-  hostname: string,
-  extraHosts: readonly string[] = []
-): boolean {
+export function isMarketplaceSourceHostAllowed(hostname: string, extraHosts: readonly string[] = []): boolean {
   const host = hostname.toLowerCase()
   return MARKETPLACE_ALLOWED_SOURCE_HOSTS.includes(host) || extraHosts.includes(host)
 }

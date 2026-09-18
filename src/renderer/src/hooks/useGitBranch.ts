@@ -24,9 +24,9 @@ export function useGitBranch(folderPath: string | null): GitBranchState {
     setState({ branch: null, isRepo: false })
 
     if (
-      !folderPath
-      || typeof window.api.getGitRepoRoot !== 'function'
-      || typeof window.api.getGitBranches !== 'function'
+      !folderPath ||
+      typeof window.api.getGitRepoRoot !== 'function' ||
+      typeof window.api.getGitBranches !== 'function'
     ) {
       return
     }

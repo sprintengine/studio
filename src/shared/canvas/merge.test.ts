@@ -1,13 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { CanvasElement } from './types'
-import {
-  CANVAS_TOMBSTONE_TTL_MS,
-  dropStaleTombstones,
-  mergeElements,
-  pickWinner,
-  sceneVersionHash,
-} from './merge'
+import { CANVAS_TOMBSTONE_TTL_MS, dropStaleTombstones, mergeElements, pickWinner, sceneVersionHash } from './merge'
 
 function run(name: string, body: () => void): void {
   try {
@@ -104,11 +98,7 @@ run('sceneVersionHash moves on every field a merge can act on', () => {
   assert.equal(sceneVersionHash([element('a', 1, 1), element('b', 2, 2)]), same)
   assert.notEqual(sceneVersionHash([element('a', 2, 1), element('b', 2, 2)]), same, 'version')
   assert.notEqual(sceneVersionHash([element('a', 1, 9), element('b', 2, 2)]), same, 'versionNonce')
-  assert.notEqual(
-    sceneVersionHash([element('a', 1, 1, { isDeleted: true }), element('b', 2, 2)]),
-    same,
-    'tombstone',
-  )
+  assert.notEqual(sceneVersionHash([element('a', 1, 1, { isDeleted: true }), element('b', 2, 2)]), same, 'tombstone')
   assert.notEqual(sceneVersionHash([element('a', 1, 1)]), same, 'id set')
   assert.notEqual(sceneVersionHash([...base, element('c', 1, 1)]), same, 'added id')
 })
@@ -128,10 +118,7 @@ run('sceneVersionHash moves when only the paint order does', () => {
 run('sceneVersionHash ignores what a merge cannot act on', () => {
   // The editor fires onChange on pointer move; a cursor that touched nothing
   // must not cost a write.
-  assert.equal(
-    sceneVersionHash([element('a', 1, 1, { x: 0 })]),
-    sceneVersionHash([element('a', 1, 1, { x: 400 })]),
-  )
+  assert.equal(sceneVersionHash([element('a', 1, 1, { x: 0 })]), sceneVersionHash([element('a', 1, 1, { x: 400 })]))
 })
 
 console.log('canvas merge tests passed')

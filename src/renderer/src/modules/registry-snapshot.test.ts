@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { CapabilityManifest } from '../../../shared/modules/manifest'
-import {
-  normalizeModuleRegistrySnapshot,
-  type ModuleRegistrySnapshot,
-} from '../../../shared/modules/registry-snapshot'
+import { normalizeModuleRegistrySnapshot, type ModuleRegistrySnapshot } from '../../../shared/modules/registry-snapshot'
 import {
   buildModuleRegistrySnapshot,
   collectModuleSurfaces,
@@ -69,7 +66,7 @@ function testSurfacesAreGroupedByOwningModule(): void {
       { kind: 'workspaceTypes', id: 'atlas-chart', moduleId: 'atlas' },
       { kind: 'commands', id: 'atlas.open-board', moduleId: 'atlas' },
       { kind: 'sidebarNavEntries', id: 'design', moduleId: 'design' },
-    ])
+    ]),
   )
   assert.deepEqual(surfaces['atlas'].globalSurfaces, ['charts'])
   assert.deepEqual(surfaces['atlas'].commands, ['atlas.open-board'])
@@ -96,7 +93,7 @@ function testEnablementMatchesWhatTheAppResolves(): void {
   assert.equal(
     byId.get('weather')?.absence?.reason,
     'disabled_dependency',
-    'a module blocked by its dependency says which failure it was, not just "off"'
+    'a module blocked by its dependency says which failure it was, not just "off"',
   )
   assert.equal(byId.get('weather')?.source, 'third-party')
   assert.equal(byId.get('git')?.source, 'bundled', 'an unstamped manifest is bundled')
@@ -114,7 +111,10 @@ function testTheUniverseIsReportedAsGiven(): void {
     channel: 'production',
     now: 2_000,
   })
-  assert.deepEqual(snapshot.modules.map((module) => module.id), ['agent-runtime', 'git'])
+  assert.deepEqual(
+    snapshot.modules.map((module) => module.id),
+    ['agent-runtime', 'git'],
+  )
   assert.equal(snapshot.channel, 'production')
 }
 

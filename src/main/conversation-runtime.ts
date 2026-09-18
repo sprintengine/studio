@@ -70,9 +70,11 @@ type ConversationRuntimeOptions = {
   readFile?: typeof readFile
   now?: () => number
   randomId?: () => string
-  prepareStudioMcp?: (input: { workspaceRoot: string; workspaceId: string; agentId: string }) => Promise<
-    { ok: true } | { ok: false; message: string }
-  >
+  prepareStudioMcp?: (input: {
+    workspaceRoot: string
+    workspaceId: string
+    agentId: string
+  }) => Promise<{ ok: true } | { ok: false; message: string }>
 }
 
 type ConversationRuntimeListener = (event: ConversationEvent) => void
@@ -88,7 +90,8 @@ const IDLE_SWEEP_INTERVAL_MS = 3 * 60 * 1000
 
 export class ConversationRuntime {
   private readonly adapters = new Map<string, ConversationProviderAdapter>()
-  private readonly secretStore: Pick<ProviderSecretStore, 'getStatus'> & Partial<Pick<ProviderSecretStore, 'resolveSecret'>>
+  private readonly secretStore: Pick<ProviderSecretStore, 'getStatus'> &
+    Partial<Pick<ProviderSecretStore, 'resolveSecret'>>
   private readonly getProviderById: typeof getConversationProviderById
   private readonly stat: typeof stat
   private readonly mkdir: typeof mkdir
@@ -188,7 +191,7 @@ export class ConversationRuntime {
         // Continuation channel: the adapter opens a mirror turn here when its
         // child resumes after a `result` (background subagents completing).
         onSessionEvent: (event) => this.enqueueContinuationEvent(session, event),
-      })
+      }),
     )
     session.status = 'ready'
     session.updatedAt = this.now()
@@ -233,7 +236,7 @@ export class ConversationRuntime {
         text: message,
         ...(input.localTurnId ? { localTurnId: input.localTurnId } : {}),
       }),
-      { turnId }
+      { turnId },
     )
     // The model sees prior completed turns plus this message, so it has memory.
     // Stateful providers own their history natively — replaying ours would
@@ -255,14 +258,14 @@ export class ConversationRuntime {
         messages,
         signal: turnAbort.signal,
       }),
-      { turnId }
+      { turnId },
     )
     const currentSession = this.sessions.get(input.sessionId)
     if (
-      currentSession
-      && currentSession.status !== 'stopped'
-      && currentSession.activeTurnId === turnId
-      && !currentSession.canceledTurnIds.has(turnId)
+      currentSession &&
+      currentSession.status !== 'stopped' &&
+      currentSession.activeTurnId === turnId &&
+      !currentSession.canceledTurnIds.has(turnId)
     ) {
       this.applyTurnState(currentSession, events, requestId)
       currentSession.activeTurnAbort = null
@@ -270,9 +273,9 @@ export class ConversationRuntime {
       // failed turn leaves history untouched and a retry re-sends without
       // duplicating the user message. Stateful providers keep their own.
       const completed =
-        !currentSession.stateful
-        && events.some((event) => event.type === 'turn_completed')
-        && !events.some((event) => event.type === 'turn_failed')
+        !currentSession.stateful &&
+        events.some((event) => event.type === 'turn_completed') &&
+        !events.some((event) => event.type === 'turn_failed')
       if (completed) {
         currentSession.history.push({ role: 'user', content: message })
         const assistantText = events
@@ -304,7 +307,7 @@ export class ConversationRuntime {
         requestId: input.requestId,
         approved: input.approved,
         answers: input.answers,
-      })
+      }),
     )
     if (session.stateful) {
       // The turn is still streaming inside the adapter (the approval resolved
@@ -376,8 +379,12 @@ export class ConversationRuntime {
       this.cancelActiveTurn(session)
       await this.emit(
         session,
-        this.eventForSession(session, 'turn_failed', { turnId, reason: 'interrupted', message: 'Conversation stopped.' }),
-        { allowCanceledTurnId: turnId }
+        this.eventForSession(session, 'turn_failed', {
+          turnId,
+          reason: 'interrupted',
+          message: 'Conversation stopped.',
+        }),
+        { allowCanceledTurnId: turnId },
       )
     }
     await this.emitAll(session, adapter.stopSession(session), { allowCanceledTurnId: turnId })
@@ -476,10 +483,9 @@ export class ConversationRuntime {
     }
   }
 
-  private async validateStartInput(input: ConversationStartSessionInput): Promise<
-    | { ok: true; adapter: ConversationProviderAdapter }
-    | { ok: false; message: string }
-  > {
+  private async validateStartInput(
+    input: ConversationStartSessionInput,
+  ): Promise<{ ok: true; adapter: ConversationProviderAdapter } | { ok: false; message: string }> {
     if (!input.workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
     try {
       const stats = await this.stat(input.workspaceRoot)
@@ -508,8 +514,8 @@ export class ConversationRuntime {
     // seed, so the CLI is the validator there too. A truly invalid model is
     // surfaced by the provider as a `turn_failed` model error at call time.
     const supportsDynamicModels =
-      Boolean(registryProvider?.manifest.openaiCompatible?.modelsPath)
-      || registryProvider?.manifest.providerType === 'agent-harness'
+      Boolean(registryProvider?.manifest.openaiCompatible?.modelsPath) ||
+      registryProvider?.manifest.providerType === 'agent-harness'
     if (!input.modelId.trim()) return { ok: false, message: 'Conversation model is invalid.' }
     if (!supportsDynamicModels) {
       const models = registryProvider?.manifest.models.map((model) => model.id) ?? adapter?.listModels() ?? []
@@ -519,7 +525,8 @@ export class ConversationRuntime {
     if (registryProvider?.manifest.auth) {
       const secretStatus = await this.secretStore.getStatus(providerId)
       if (!secretStatus.ok) return { ok: false, message: secretStatus.message }
-      if (!secretStatus.status.configured) return { ok: false, message: 'Conversation provider secret is not configured.' }
+      if (!secretStatus.status.configured)
+        return { ok: false, message: 'Conversation provider secret is not configured.' }
     }
 
     if (!adapter) return { ok: false, message: 'Conversation provider adapter is unavailable.' }
@@ -535,7 +542,9 @@ export class ConversationRuntime {
     return undefined
   }
 
-  private async resolveSecret(providerId: string): Promise<{ ok: true; value: string } | { ok: false; message: string }> {
+  private async resolveSecret(
+    providerId: string,
+  ): Promise<{ ok: true; value: string } | { ok: false; message: string }> {
     if (!this.secretStore.resolveSecret) {
       return { ok: false, message: 'Conversation provider secret resolver is unavailable.' }
     }
@@ -552,7 +561,7 @@ export class ConversationRuntime {
   private async emitAll(
     session: RuntimeSession,
     events: ConversationProviderEventStream,
-    options: { turnId?: string; allowCanceledTurnId?: string | null } = {}
+    options: { turnId?: string; allowCanceledTurnId?: string | null } = {},
   ): Promise<ConversationEvent[]> {
     const emitted: ConversationEvent[] = []
     const resolved = await events
@@ -573,7 +582,7 @@ export class ConversationRuntime {
   private async emit(
     session: RuntimeSession,
     event: ConversationEvent,
-    options: { turnId?: string; allowCanceledTurnId?: string | null } = {}
+    options: { turnId?: string; allowCanceledTurnId?: string | null } = {},
   ): Promise<ConversationEvent | null> {
     if (this.shouldSuppressEvent(session, event, options)) return null
     const stamped: ConversationEvent = {
@@ -652,7 +661,11 @@ export class ConversationRuntime {
       session.updatedAt = this.now()
     }
     await this.emit(session, event, turnId ? { turnId } : {})
-    if (turnId && session.activeTurnId === turnId && (event.type === 'turn_completed' || event.type === 'turn_failed')) {
+    if (
+      turnId &&
+      session.activeTurnId === turnId &&
+      (event.type === 'turn_completed' || event.type === 'turn_failed')
+    ) {
       session.activeTurnId = null
       session.activeTurnAbort = null
       session.turnLockRequestId = null
@@ -666,11 +679,10 @@ export class ConversationRuntime {
   private shouldSuppressEvent(
     session: RuntimeSession,
     event: ConversationEvent,
-    options: { turnId?: string; allowCanceledTurnId?: string | null }
+    options: { turnId?: string; allowCanceledTurnId?: string | null },
   ): boolean {
-    const eventTurnId = event.payload && typeof event.payload.turnId === 'string'
-      ? event.payload.turnId
-      : options.turnId
+    const eventTurnId =
+      event.payload && typeof event.payload.turnId === 'string' ? event.payload.turnId : options.turnId
     if (!eventTurnId) return false
     if (eventTurnId === options.allowCanceledTurnId) return false
     if (session.status === 'stopped') return true
@@ -681,7 +693,7 @@ export class ConversationRuntime {
   private eventForSession(
     session: RuntimeSession,
     type: ConversationEvent['type'],
-    payload?: Record<string, unknown>
+    payload?: Record<string, unknown>,
   ): ConversationEvent {
     return {
       id: '',
@@ -733,7 +745,7 @@ export class ConversationRuntime {
     await this.appendFile(
       join(dir, `${safeSegment(session.agentId)}.jsonl`),
       `${JSON.stringify(redactEvent(event))}\n`,
-      'utf-8'
+      'utf-8',
     )
   }
 
@@ -742,7 +754,7 @@ export class ConversationRuntime {
       workspaceRoot,
       'conversations',
       safeSegment(workspaceId),
-      `${safeSegment(agentId)}.jsonl`
+      `${safeSegment(agentId)}.jsonl`,
     )
   }
 
@@ -754,7 +766,10 @@ export class ConversationRuntime {
     }
     let raw: string
     try {
-      raw = await this.readFile(this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId), 'utf-8') as string
+      raw = (await this.readFile(
+        this.transcriptPath(input.workspaceRoot, input.workspaceId, input.agentId),
+        'utf-8',
+      )) as string
     } catch {
       return { ok: true, events: [] }
     }
@@ -778,7 +793,7 @@ export class ConversationRuntime {
   private async readResumeCursor(
     workspaceRoot: string,
     workspaceId: string,
-    agentId: string
+    agentId: string,
   ): Promise<string | undefined> {
     const transcript = await this.readTranscript({ workspaceRoot, workspaceId, agentId })
     if (!transcript.ok) return undefined
@@ -792,7 +807,8 @@ export class ConversationRuntime {
   }
 
   private toSummary(session: RuntimeSession): ConversationSessionSummary {
-    const { sessionId, workspaceId, agentId, providerId, modelId, status, createdAt, updatedAt, permissionPreset } = session
+    const { sessionId, workspaceId, agentId, providerId, modelId, status, createdAt, updatedAt, permissionPreset } =
+      session
     return {
       sessionId,
       workspaceId,
@@ -850,18 +866,22 @@ function syntheticTurnClosures(events: ConversationEvent[]): ConversationEvent[]
   }))
 }
 
-function isAsyncIterable(value: ConversationEvent[] | AsyncIterable<ConversationEvent>): value is AsyncIterable<ConversationEvent> {
+function isAsyncIterable(
+  value: ConversationEvent[] | AsyncIterable<ConversationEvent>,
+): value is AsyncIterable<ConversationEvent> {
   return typeof (value as AsyncIterable<ConversationEvent>)[Symbol.asyncIterator] === 'function'
 }
 
 function redactEvent(event: ConversationEvent): ConversationEvent {
-  return JSON.parse(JSON.stringify(event, (key, value) => {
-    if (key === 'inputTokens' || key === 'outputTokens' || key === 'totalTokens') {
+  return JSON.parse(
+    JSON.stringify(event, (key, value) => {
+      if (key === 'inputTokens' || key === 'outputTokens' || key === 'totalTokens') {
+        return value
+      }
+      if (typeof key === 'string' && /secret|token|api[-_]?key|authorization/i.test(key)) {
+        return '[redacted]'
+      }
       return value
-    }
-    if (typeof key === 'string' && /secret|token|api[-_]?key|authorization/i.test(key)) {
-      return '[redacted]'
-    }
-    return value
-  })) as ConversationEvent
+    }),
+  ) as ConversationEvent
 }

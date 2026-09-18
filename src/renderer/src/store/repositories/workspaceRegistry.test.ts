@@ -32,12 +32,12 @@ const split = splitLegacyV44Envelope(legacyRaw)
 assert.ok(split)
 assert.equal(split?.registry.state.workspaces.length, 1)
 assert.equal(split?.registry.state.activeWorkspaceId, 'legacy-1')
-assert.equal(split?.registry.state.workspaceRegistryEmptyState, null,
-  'split backfills workspaceRegistryEmptyState=null on the registry half')
-assert.ok(split?.extractedSettings, 'settings half is returned for migration')
-assert.deepEqual(
-  (split!.extractedSettings as { sidebarCollapsed: unknown }).sidebarCollapsed,
-  true,
+assert.equal(
+  split?.registry.state.workspaceRegistryEmptyState,
+  null,
+  'split backfills workspaceRegistryEmptyState=null on the registry half',
 )
+assert.ok(split?.extractedSettings, 'settings half is returned for migration')
+assert.deepEqual((split!.extractedSettings as { sidebarCollapsed: unknown }).sidebarCollapsed, true)
 
 console.log('workspaceRegistry.test.ts: ok')

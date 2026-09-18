@@ -88,15 +88,15 @@ export function findInstalledRecord(
   // both are installed.
   const older = aliases.filter((name) => name !== plugin.id)
   const own =
-    records.find((record) => record.sourceId === sourceId && record.pluginId === plugin.id)
-    ?? records.find((record) => record.sourceId === sourceId && older.includes(record.pluginId))
+    records.find((record) => record.sourceId === sourceId && record.pluginId === plugin.id) ??
+    records.find((record) => record.sourceId === sourceId && older.includes(record.pluginId))
   if (own) return own
   if (marketplaceName === '') return null
   const key = `${plugin.id}@${marketplaceName}`
   return (
-    records.find((record) => record.claudePluginKey === key)
-    ?? records.find((record) => older.some((name) => record.claudePluginKey === `${name}@${marketplaceName}`))
-    ?? null
+    records.find((record) => record.claudePluginKey === key) ??
+    records.find((record) => older.some((name) => record.claudePluginKey === `${name}@${marketplaceName}`)) ??
+    null
   )
 }
 
@@ -114,7 +114,12 @@ export function derivePluginInstallState(
   if (!record) return { kind: 'not-installed' }
   // Only our own receipts carry a commit to compare; a hand-enabled plugin has
   // no commit we wrote, and "update available" would be a guess.
-  if (record.sourceId === sourceId && record.commitSha !== '' && currentCommit !== '' && record.commitSha !== currentCommit) {
+  if (
+    record.sourceId === sourceId &&
+    record.commitSha !== '' &&
+    currentCommit !== '' &&
+    record.commitSha !== currentCommit
+  ) {
     return { kind: 'update-available', record }
   }
   return { kind: 'installed', record }
@@ -134,8 +139,10 @@ export function derivePluginRows(input: {
   const renames = scanPluginRenames(input.scan)
   const needle = input.query.trim().toLowerCase()
   return scanPlugins(input.scan)
-    .filter((plugin) =>
-      needle === '' || `${plugin.name} ${plugin.description} ${plugin.category} ${plugin.author}`.toLowerCase().includes(needle),
+    .filter(
+      (plugin) =>
+        needle === '' ||
+        `${plugin.name} ${plugin.description} ${plugin.category} ${plugin.author}`.toLowerCase().includes(needle),
     )
     .map((plugin) => ({
       pluginId: plugin.id,
@@ -170,8 +177,7 @@ export function countPluginUpdates(input: {
   scan: ScanResult
   installed: readonly InstalledPluginRecord[]
 }): number {
-  return derivePluginRows({ ...input, query: '' }).filter((row) => row.install.kind === 'update-available')
-    .length
+  return derivePluginRows({ ...input, query: '' }).filter((row) => row.install.kind === 'update-available').length
 }
 
 /** A plugin by the name it goes by now, or any name the marketplace renamed onto it. */
@@ -232,9 +238,7 @@ export function describeInstallPlan(input: {
     const claude = harness === 'claude'
     const parts: string[] = []
     if (skills > 0) {
-      parts.push(
-        `Skills you install are copied into ${harnessDir(harness)}/skills`,
-      )
+      parts.push(`Skills you install are copied into ${harnessDir(harness)}/skills`)
     }
     if (plugin.components.mcpServers.length > 0) {
       parts.push('MCP servers you add are written to MCP settings')
@@ -301,7 +305,10 @@ export function derivePluginInstallAvailability(
   harnesses: readonly SkillHarness[],
 ): PluginInstallAvailability {
   if (!workspaceRoot) {
-    return { enabled: false, reason: 'Open a workspace to install a plugin — a plugin installs into a workspace, not into the app.' }
+    return {
+      enabled: false,
+      reason: 'Open a workspace to install a plugin — a plugin installs into a workspace, not into the app.',
+    }
   }
   if (!plugin) return { enabled: false, reason: null }
   if (harnesses.length === 0) return { enabled: false, reason: 'No agent CLI on this machine reads plugins or skills.' }
@@ -321,7 +328,9 @@ export function summarizePluginInstall(outcome: {
   const skills = outcome.harnesses.filter((h) => h.mode === 'skills' && h.skillDirNames.length > 0)
   if (skills.length > 0) {
     const count = Math.max(...skills.map((h) => h.skillDirNames.length))
-    parts.push(`${count} ${count === 1 ? 'skill' : 'skills'} copied for ${skills.map((h) => HARNESS_LABEL[h.harness]).join(', ')}`)
+    parts.push(
+      `${count} ${count === 1 ? 'skill' : 'skills'} copied for ${skills.map((h) => HARNESS_LABEL[h.harness]).join(', ')}`,
+    )
   }
   if (outcome.mcpServers.length > 0) {
     parts.push(`${outcome.mcpServers.length} MCP ${outcome.mcpServers.length === 1 ? 'server' : 'servers'} added`)

@@ -57,15 +57,34 @@ const HUB_SCAN: ScanResult = {
       keywords: [],
       origin: { kind: 'in-tree', path: 'plugins/read-one' },
       componentsKnown: true,
-      components: { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], lspServers: [], missingSkills: [] },
+      components: {
+        skills: [],
+        commands: [],
+        agents: [],
+        hooks: [],
+        mcpServers: [],
+        lspServers: [],
+        missingSkills: [],
+      },
     },
   ],
 }
 
 const hasPlugin = (scan: ScanResult, id: string): boolean => (scan.plugins ?? []).some((plugin) => plugin.id === id)
 
-function resolve(landing: CatalogueLanding, scans: Record<string, SkillScanLoad>, sources: SkillSource[] = [HUB, OTHER]) {
-  return resolveCatalogueLanding({ landing, sourcesLoad: { status: 'ready' }, sources, scans, noun: 'plugin', has: hasPlugin })
+function resolve(
+  landing: CatalogueLanding,
+  scans: Record<string, SkillScanLoad>,
+  sources: SkillSource[] = [HUB, OTHER],
+) {
+  return resolveCatalogueLanding({
+    landing,
+    sourcesLoad: { status: 'ready' },
+    sources,
+    scans,
+    noun: 'plugin',
+    has: hasPlugin,
+  })
 }
 
 // ── From a target ────────────────────────────────────────────────────────────
@@ -93,7 +112,11 @@ run('a landing is the item the view can open; a bare view or Installed asks for 
     sourceId: HUB.id,
     itemId: null,
   })
-  assert.equal(landingFromTarget({ view: 'agent-clis', sourceId: HUB.id, pluginId: 'x' }), null, 'Agent CLIs has no source tabs to land on')
+  assert.equal(
+    landingFromTarget({ view: 'agent-clis', sourceId: HUB.id, pluginId: 'x' }),
+    null,
+    'Agent CLIs has no source tabs to land on',
+  )
 })
 
 run('a target names a place when it names a tab, a plugin or a skill — a bare view does not', () => {
@@ -119,7 +142,9 @@ run('it waits while the source list, or the named source’s scan, is still on i
     { status: 'waiting' },
   )
   assert.deepEqual(resolve({ sourceId: HUB.id, itemId: 'read-one' }, {}), { status: 'waiting' }, 'not requested yet')
-  assert.deepEqual(resolve({ sourceId: HUB.id, itemId: 'read-one' }, { [HUB.id]: { status: 'loading' } }), { status: 'waiting' })
+  assert.deepEqual(resolve({ sourceId: HUB.id, itemId: 'read-one' }, { [HUB.id]: { status: 'loading' } }), {
+    status: 'waiting',
+  })
 })
 
 run('it lands once the scan is in hand and holds the plugin', () => {
@@ -145,7 +170,10 @@ run('a plugin the scan does not hold, or a scan that failed, is said in the sour
     status: 'missed',
     notice: 'acme/hub no longer lists a plugin called nope. It may have been renamed or removed.',
   })
-  const failed = resolve({ sourceId: HUB.id, itemId: 'read-one' }, { [HUB.id]: { status: 'error', message: 'rate limited' } })
+  const failed = resolve(
+    { sourceId: HUB.id, itemId: 'read-one' },
+    { [HUB.id]: { status: 'error', message: 'rate limited' } },
+  )
   assert.deepEqual(failed, { status: 'missed', notice: 'acme/hub could not be read, so read-one could not be opened.' })
 })
 
@@ -158,17 +186,19 @@ run('a source list that could not be read is a notice too', () => {
     noun: 'plugin',
     has: hasPlugin,
   })
-  assert.deepEqual(outcome, { status: 'missed', notice: 'Your sources could not be read, so read-one could not be opened.' })
+  assert.deepEqual(outcome, {
+    status: 'missed',
+    notice: 'Your sources could not be read, so read-one could not be opened.',
+  })
 })
 
 run('with no source named, the plugin is looked for in the scans already in hand and no read is started', () => {
   const found = resolve({ sourceId: '', itemId: 'read-one' }, { [HUB.id]: { status: 'ready', scan: HUB_SCAN } })
   assert.deepEqual(found, { status: 'landed', source: HUB, itemId: 'read-one' })
   // One scan still loading might hold it: wait for that one, and no longer.
-  assert.deepEqual(
-    resolve({ sourceId: '', itemId: 'read-one' }, { [OTHER.id]: { status: 'loading' } }),
-    { status: 'waiting' },
-  )
+  assert.deepEqual(resolve({ sourceId: '', itemId: 'read-one' }, { [OTHER.id]: { status: 'loading' } }), {
+    status: 'waiting',
+  })
   // Nothing loading and nothing holding it: a source nobody has opened is NOT
   // read to find out — the same rule the search box keeps.
   assert.deepEqual(resolve({ sourceId: '', itemId: 'read-one' }, {}), {

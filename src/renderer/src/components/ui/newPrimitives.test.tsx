@@ -270,7 +270,11 @@ async function main(): Promise<void> {
     )
     const classes = view.container.querySelector('ul')?.getAttribute('class') ?? ''
     assert.match(classes, /sm:grid-cols-2/, 'two abreast from the sm breakpoint')
-    assert.match(classes, /nth-child\(2\)\]:border-t-0/, 'the first row is two cells, so the second cell drops its top rule')
+    assert.match(
+      classes,
+      /nth-child\(2\)\]:border-t-0/,
+      'the first row is two cells, so the second cell drops its top rule',
+    )
     assert.match(
       classes,
       /nth-child\(odd\)\]:border-r/,
@@ -284,7 +288,11 @@ async function main(): Promise<void> {
     assert.equal(cells.length, 4, 'an odd count gets one filler cell')
     const filler = cells[3]
     assert.equal(filler.getAttribute('aria-hidden'), 'true', 'the filler is not a list item to a screen reader')
-    assert.match(filler.getAttribute('class') ?? '', /\bhidden\b.*\bsm:block\b/, 'and not a row in the one-column fallback')
+    assert.match(
+      filler.getAttribute('class') ?? '',
+      /\bhidden\b.*\bsm:block\b/,
+      'and not a row in the one-column fallback',
+    )
     view.unmount()
 
     const even = mount(

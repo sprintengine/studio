@@ -1,4 +1,9 @@
-import type { AgentCli, CliRuntimeSettings, CliVersionAdvisoriesResult, CliVersionAdvisoryMap } from '../../../../shared/electron-api'
+import type {
+  AgentCli,
+  CliRuntimeSettings,
+  CliVersionAdvisoriesResult,
+  CliVersionAdvisoryMap,
+} from '../../../../shared/electron-api'
 
 // CLI version advisories as the renderer sees them: installed version against
 // the registry's newest, per CLI. Not persisted; the main process recomputes
@@ -65,7 +70,10 @@ export function createCliVersionAdvisorySlice(
         apply(result)
         return result
       } catch (error) {
-        const failure: CliVersionAdvisoriesResult = { ok: false, message: error instanceof Error ? error.message : String(error) }
+        const failure: CliVersionAdvisoriesResult = {
+          ok: false,
+          message: error instanceof Error ? error.message : String(error),
+        }
         apply(failure)
         return failure
       }

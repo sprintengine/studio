@@ -33,14 +33,7 @@ export type EmptyStateProps = {
   className?: string
 }
 
-export function EmptyState({
-  title,
-  body,
-  glyph,
-  action,
-  density = 'pane',
-  className,
-}: EmptyStateProps): JSX.Element {
+export function EmptyState({ title, body, glyph, action, density = 'pane', className }: EmptyStateProps): JSX.Element {
   const pane = density === 'pane'
   return (
     <div

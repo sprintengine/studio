@@ -1,14 +1,7 @@
 import type { IpcMain, IpcMainInvokeEvent } from 'electron'
 
-import {
-  MODULE_BRIDGE_INVOKE_CHANNEL,
-  type ModuleBridgeInvokeResult,
-} from '../../shared/modules/bridge'
-import {
-  MODULE_EVENTS_CHANNEL,
-  validateModuleEventTopic,
-  type ModuleEventEnvelope,
-} from '../../shared/modules/events'
+import { MODULE_BRIDGE_INVOKE_CHANNEL, type ModuleBridgeInvokeResult } from '../../shared/modules/bridge'
+import { MODULE_EVENTS_CHANNEL, validateModuleEventTopic, type ModuleEventEnvelope } from '../../shared/modules/events'
 import type { CapabilityManifest } from '../../shared/modules/manifest'
 import type { McpToolRegistration } from '../../shared/modules/mcp-tools'
 import {
@@ -36,10 +29,7 @@ import { resolveModuleSkillDirectory } from '../modules/entry-containment'
 // carries its own id but shares the kernel's registries, so cross-module
 // services and IPC ownership are tracked centrally.
 
-export type IpcInvokeHandler = (
-  event: IpcMainInvokeEvent,
-  ...args: unknown[]
-) => unknown | Promise<unknown>
+export type IpcInvokeHandler = (event: IpcMainInvokeEvent, ...args: unknown[]) => unknown | Promise<unknown>
 
 type StartupHook = () => void | Promise<void>
 type ShutdownBeginHook = () => void | Promise<void>
@@ -372,10 +362,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
   // module-id prefix before IPC.
   // Registered through the kernel's own registerIpc so the dispatcher channel
   // shares every other channel's ownership tracking and lifecycle.
-  async function dispatchBridgeInvoke(
-    event: IpcMainInvokeEvent,
-    request: unknown
-  ): Promise<ModuleBridgeInvokeResult> {
+  async function dispatchBridgeInvoke(event: IpcMainInvokeEvent, request: unknown): Promise<ModuleBridgeInvokeResult> {
     const channel =
       typeof (request as { channel?: unknown } | undefined)?.channel === 'string'
         ? (request as { channel: string }).channel
@@ -441,10 +428,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         body: failure.message,
       })
     } catch (error) {
-      console.warn(
-        `[modules] launch contribution from "${failure.moduleId}" failed: ${failure.message}`,
-        error
-      )
+      console.warn(`[modules] launch contribution from "${failure.moduleId}" failed: ${failure.message}`, error)
     }
   })
 
@@ -468,7 +452,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     severity: string,
     title: string,
     body: string | undefined,
-    emittedAt: number
+    emittedAt: number,
   ): boolean {
     const state = floodStateByModule.get(moduleId) ?? { emittedAt: [], lastKey: '', lastAt: 0, warnedDropAt: 0 }
     floodStateByModule.set(moduleId, state)
@@ -482,7 +466,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       if (state.warnedDropAt <= windowStart) {
         state.warnedDropAt = emittedAt
         console.warn(
-          `[modules] dropping notifications from "${moduleId}" (${isOverRate ? 'rate cap reached' : 'identical repeat'}).`
+          `[modules] dropping notifications from "${moduleId}" (${isOverRate ? 'rate cap reached' : 'identical repeat'}).`,
         )
       }
       return false
@@ -578,9 +562,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       registerIpc(channel, handler) {
         const existing = channels.get(channel)
         if (existing) {
-          throw new Error(
-            `IPC channel "${channel}" is already registered by module "${existing.owner}".`
-          )
+          throw new Error(`IPC channel "${channel}" is already registered by module "${existing.owner}".`)
         }
         channels.set(channel, { owner: moduleId, handler })
         ipcMain.handle(channel, handler)
@@ -593,9 +575,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
         for (const tool of tools) {
           const existing = mcpTools.get(tool.name)
           if (existing) {
-            throw new Error(
-              `MCP tool "${tool.name}" is already registered by module "${existing.owner}".`
-            )
+            throw new Error(`MCP tool "${tool.name}" is already registered by module "${existing.owner}".`)
           }
           if (batch.has(tool.name)) {
             throw new Error(`MCP tool "${tool.name}" is registered twice by module "${moduleId}".`)
@@ -615,7 +595,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
           sourceDir: resolveModuleSkillDirectory(
             options.resolveModuleRoot?.(moduleId) ?? null,
             skill.sourceDir,
-            `Module "${moduleId}" skill "${skill.id}" sourceDir`
+            `Module "${moduleId}" skill "${skill.id}" sourceDir`,
           ),
         }))
         skillRegistry.register(moduleId, resolved)
@@ -628,9 +608,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       },
       provideService<T>(token: ServiceToken<T>, factory: (host: MainHost) => T): T {
         if (services.has(token.key)) {
-          throw new Error(
-            `Service "${token.key}" is already provided; module "${moduleId}" tried to provide it again.`
-          )
+          throw new Error(`Service "${token.key}" is already provided; module "${moduleId}" tried to provide it again.`)
         }
         const instance = factory(this)
         services.set(token.key, { moduleId, value: instance })
@@ -641,9 +619,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
       },
       requireService<T>(token: ServiceToken<T>): T {
         if (!services.has(token.key)) {
-          throw new Error(
-            `Module "${moduleId}" requires service "${token.key}", which no enabled module provides.`
-          )
+          throw new Error(`Module "${moduleId}" requires service "${token.key}", which no enabled module provides.`)
         }
         return services.get(token.key)!.value as T
       },
@@ -691,7 +667,10 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     }
   }
 
-  async function runHooks(hooks: ReadonlyArray<HookEntry<StartupHook | ShutdownBeginHook | ShutdownHook>>, failureLabel: string): Promise<void> {
+  async function runHooks(
+    hooks: ReadonlyArray<HookEntry<StartupHook | ShutdownBeginHook | ShutdownHook>>,
+    failureLabel: string,
+  ): Promise<void> {
     for (const { hook } of hooks) {
       try {
         await hook()
@@ -704,11 +683,11 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
   async function unregisterModule(moduleId: string): Promise<void> {
     await runHooks(
       shutdownBeginHooks.filter((entry) => entry.moduleId === moduleId),
-      `shutdown-begin for module "${moduleId}"`
+      `shutdown-begin for module "${moduleId}"`,
     )
     await runHooks(
       [...shutdownHooks].reverse().filter((entry) => entry.moduleId === moduleId),
-      `shutdown for module "${moduleId}"`
+      `shutdown for module "${moduleId}"`,
     )
 
     startupHooks = startupHooks.filter((entry) => entry.moduleId !== moduleId)
@@ -759,7 +738,7 @@ export function createMainKernel(ipcMain: IpcMain, options: MainKernelOptions = 
     async runStartupForModule(moduleId: string): Promise<void> {
       await runHooks(
         startupHooks.filter((entry) => entry.moduleId === moduleId),
-        `startup for module "${moduleId}"`
+        `startup for module "${moduleId}"`,
       )
     },
     async runShutdownBegin(): Promise<void> {

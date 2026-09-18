@@ -1,7 +1,5 @@
 import type { IpcMain } from 'electron'
-import {
-  AUTOMATION_GET_STATUS_CHANNEL,
-} from '../../shared/automation'
+import { AUTOMATION_GET_STATUS_CHANNEL } from '../../shared/automation'
 import {
   TAILNET_CANCEL_PAIRING_CHANNEL,
   TAILNET_GET_LIVE_STATE_CHANNEL,
@@ -39,12 +37,8 @@ export function registerAutomationIpc(ipcMain: IpcMain, service: AutomationServi
   // The initial read behind the push channel: a subscriber takes this snapshot
   // once, then stores each pushed payload's fresher copy.
   ipcMain.handle(TAILNET_GET_LIVE_STATE_CHANNEL, () => service.getTailnetLiveState())
-  ipcMain.handle(TAILNET_SET_ENABLED_CHANNEL, (_event, enabled: unknown) =>
-    service.setTailnetEnabled(enabled === true)
-  )
-  ipcMain.handle(TAILNET_OFFER_PAIRING_CHANNEL, (_event, scopes: unknown) =>
-    service.offerTailnetPairing({ scopes })
-  )
+  ipcMain.handle(TAILNET_SET_ENABLED_CHANNEL, (_event, enabled: unknown) => service.setTailnetEnabled(enabled === true))
+  ipcMain.handle(TAILNET_OFFER_PAIRING_CHANNEL, (_event, scopes: unknown) => service.offerTailnetPairing({ scopes }))
   ipcMain.handle(TAILNET_CANCEL_PAIRING_CHANNEL, () => service.cancelTailnetPairing())
   // Answering a request is the same authority as minting a code, so it lives on
   // the same IPC-only front door: a remote device can ask, and only this
@@ -52,20 +46,20 @@ export function registerAutomationIpc(ipcMain: IpcMain, service: AutomationServi
   // The code is the six digits on the ASKER's screen, typed here: main
   // compares, so a window cannot approve what its person did not read.
   ipcMain.handle(TAILNET_APPROVE_PAIR_REQUEST_CHANNEL, (_event, id: unknown, scopes: unknown, code: unknown) =>
-    service.approveTailnetPairRequest({ id: typeof id === 'string' ? id : '', scopes, code })
+    service.approveTailnetPairRequest({ id: typeof id === 'string' ? id : '', scopes, code }),
   )
   ipcMain.handle(TAILNET_DENY_PAIR_REQUEST_CHANNEL, (_event, id: unknown) =>
-    service.denyTailnetPairRequest(typeof id === 'string' ? id : '')
+    service.denyTailnetPairRequest(typeof id === 'string' ? id : ''),
   )
   ipcMain.handle(TAILNET_REVOKE_DEVICE_CHANNEL, (_event, deviceId: unknown) =>
-    service.revokeTailnetDevice(typeof deviceId === 'string' ? deviceId : '')
+    service.revokeTailnetDevice(typeof deviceId === 'string' ? deviceId : ''),
   )
   // Widening an existing pairing is the same authority as granting one, so it
   // is on this same IPC-only door and nowhere else. `tailnet-scopes.ts` says
   // why the family has no gateway tool: a device that could widen its own grant
   // would make revoking the device it came in on meaningless.
   ipcMain.handle(TAILNET_UPDATE_DEVICE_SCOPES_CHANNEL, (_event, deviceId: unknown, scopes: unknown) =>
-    service.updateTailnetDeviceScopes(typeof deviceId === 'string' ? deviceId : '', scopes)
+    service.updateTailnetDeviceScopes(typeof deviceId === 'string' ? deviceId : '', scopes),
   )
   // Both halves of one pairing, ended together: the device that machine holds
   // here, and the credential this machine holds there. Either may be absent.
@@ -87,9 +81,9 @@ export function registerAutomationIpc(ipcMain: IpcMain, service: AutomationServi
   const shareService = createTailnetShareService()
   ipcMain.handle(TAILNET_SHARE_STATUS_CHANNEL, () => shareService.readStatus())
   ipcMain.handle(TAILNET_SHARE_PORT_CHANNEL, (_event, input: unknown) =>
-    shareService.share(Number(asRecord(input)?.localPort))
+    shareService.share(Number(asRecord(input)?.localPort)),
   )
   ipcMain.handle(TAILNET_UNSHARE_PORT_CHANNEL, (_event, input: unknown) =>
-    shareService.unshare(Number(asRecord(input)?.servePort))
+    shareService.unshare(Number(asRecord(input)?.servePort)),
   )
 }

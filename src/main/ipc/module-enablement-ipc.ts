@@ -8,12 +8,12 @@ import { writeModuleOverrides, type ModuleEnablementWriteResult } from '../modul
 // source of truth (persisted settings), so there's no read path back — main
 // caches the latest pushed value and applies live-capable main modules.
 export type ModuleEnablementLiveApplier = (
-  overrides: ModuleEnablementOverrides
+  overrides: ModuleEnablementOverrides,
 ) => void | ModuleEnablementWriteResult | Promise<void | ModuleEnablementWriteResult>
 
 export function registerModuleEnablementIpc(
   ipcMain: IpcMain,
-  options: { applyLive?: ModuleEnablementLiveApplier } = {}
+  options: { applyLive?: ModuleEnablementLiveApplier } = {},
 ): void {
   ipcMain.handle(
     'modules:set-enablement',
@@ -29,6 +29,6 @@ export function registerModuleEnablementIpc(
         return { ok: false, message: err instanceof Error ? err.message : 'live_apply_failed' }
       }
       return written
-    }
+    },
   )
 }

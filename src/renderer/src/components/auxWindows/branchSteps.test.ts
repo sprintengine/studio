@@ -44,14 +44,17 @@ run('the strip is span, then the tail, then commits oldest first', () => {
   const entries = stripEntriesFrom(snapshot({ hasUncommitted: true }))
   assert.deepEqual(
     entries.map((entry) => entry.key),
-    ['span', 'uncommitted', 'aaaaaa1', 'bbbbbb2']
+    ['span', 'uncommitted', 'aaaaaa1', 'bbbbbb2'],
   )
   assert.equal(entries[0].label, 'All commits 2')
 })
 
 run('with no commits the span is still the one entry, and is operable', () => {
   const entries = stripEntriesFrom(snapshot({ steps: [], hasUncommitted: false }))
-  assert.deepEqual(entries.map((entry) => entry.key), ['span'])
+  assert.deepEqual(
+    entries.map((entry) => entry.key),
+    ['span'],
+  )
   assert.equal(entries[0].label, 'All changes', 'not "All commits 0"')
 })
 
@@ -66,7 +69,10 @@ run('a merge step is flagged so the strip can label it', () => {
 })
 
 run('a null snapshot yields a usable strip rather than nothing', () => {
-  assert.deepEqual(stripEntriesFrom(null).map((entry) => entry.key), ['span'])
+  assert.deepEqual(
+    stripEntriesFrom(null).map((entry) => entry.key),
+    ['span'],
+  )
 })
 
 // The case a rebase creates: the hash a person had selected stops existing.
@@ -85,10 +91,7 @@ run('a selection that still exists is kept', () => {
 run('sameSelection distinguishes commits but not kinds alone', () => {
   assert.equal(sameSelection({ kind: 'span' }, { kind: 'span' }), true)
   assert.equal(sameSelection({ kind: 'span' }, { kind: 'uncommitted' }), false)
-  assert.equal(
-    sameSelection({ kind: 'commit', hash: 'a' }, { kind: 'commit', hash: 'b' }),
-    false
-  )
+  assert.equal(sameSelection({ kind: 'commit', hash: 'a' }, { kind: 'commit', hash: 'b' }), false)
 })
 
 run('a commit reads against its parent — which is empty for a root commit', () => {
@@ -129,7 +132,7 @@ run('an addition has no original side and a deletion has no modified side', () =
     },
     { kind: 'commit', hash: 'abc' },
     snapshot(),
-    '/repo'
+    '/repo',
   )
   assert.equal(items[0].originalRev, null, 'never asks git for an object it knows is absent')
   assert.equal(items[0].modifiedRev, 'abc')

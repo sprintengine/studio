@@ -234,7 +234,11 @@ async function main(): Promise<void> {
       color: null,
     })
     assert.equal(colorCleared.ok, true)
-    assert.equal('color' in (await readItem()).fields, false, 'clearing the epic colour must remove the frontmatter line')
+    assert.equal(
+      'color' in (await readItem()).fields,
+      false,
+      'clearing the epic colour must remove the frontmatter line',
+    )
 
     const beforeBadColor = await readFile(itemPath, 'utf-8')
     const rejectedEpicColor = await updateBacklogEpicColor({
@@ -244,7 +248,11 @@ async function main(): Promise<void> {
     })
     assert.equal(rejectedEpicColor.ok, false)
     assert.match(rejectedEpicColor.ok ? '' : rejectedEpicColor.message, /colour/)
-    assert.equal(await readFile(itemPath, 'utf-8'), beforeBadColor, 'a rejected epic colour must not mutate the item file')
+    assert.equal(
+      await readFile(itemPath, 'utf-8'),
+      beforeBadColor,
+      'a rejected epic colour must not mutate the item file',
+    )
 
     // Prerequisites are the dependent-side write: the single comma-separated
     // `dependsOn:` frontmatter line, set/cleared via the shared CSV + slug
@@ -342,10 +350,7 @@ async function main(): Promise<void> {
     assert.match(await readFile(epicOrderPath, 'utf-8'), /^dependenciesPlanned: true$/m)
     assert.equal((await readEpicOrder()).fields.custom, 'keep-me')
     assert.equal((await readEpicOrder()).body, epicOrderBody, 'the mark must preserve the body byte-for-byte')
-    assert.equal(
-      readBacklogFrontmatterFields(await readFile(epicOrderPath, 'utf-8')).dependenciesPlanned,
-      true,
-    )
+    assert.equal(readBacklogFrontmatterFields(await readFile(epicOrderPath, 'utf-8')).dependenciesPlanned, true)
 
     const unmarked = await updateBacklogDependenciesPlanned({
       workspaceRoot: tempRoot,
@@ -358,10 +363,7 @@ async function main(): Promise<void> {
       false,
       'clearing the mark removes the line rather than writing a negative assertion',
     )
-    assert.equal(
-      readBacklogFrontmatterFields(await readFile(epicOrderPath, 'utf-8')).dependenciesPlanned,
-      undefined,
-    )
+    assert.equal(readBacklogFrontmatterFields(await readFile(epicOrderPath, 'utf-8')).dependenciesPlanned, undefined)
 
     const rejectedMark = await updateBacklogDependenciesPlanned({
       workspaceRoot: tempRoot,
@@ -403,7 +405,11 @@ async function main(): Promise<void> {
     })
     assert.equal(rejectedMock.ok, false)
     assert.match(rejectedMock.ok ? '' : rejectedMock.message, /mockup/)
-    assert.equal(await readFile(mockPath, 'utf-8'), beforeBadMock, 'a rejected mockup path must not mutate the item file')
+    assert.equal(
+      await readFile(mockPath, 'utf-8'),
+      beforeBadMock,
+      'a rejected mockup path must not mutate the item file',
+    )
 
     // Clearing with an empty list removes the line while retaining the mutation timestamp.
     const mockCleared = await updateBacklogMockups({
@@ -430,10 +436,9 @@ async function main(): Promise<void> {
       value: { lastForecastId: 'checkout' },
     })
     assert.equal(metadataUpdated.ok, true)
-    assert.deepEqual(
-      metadataUpdated.ok ? metadataUpdated.store.items[0]?.metadata?.['weather-deck'] : null,
-      { lastForecastId: 'checkout' },
-    )
+    assert.deepEqual(metadataUpdated.ok ? metadataUpdated.store.items[0]?.metadata?.['weather-deck'] : null, {
+      lastForecastId: 'checkout',
+    })
 
     const beforeHighlightUpdatedAt = metadataUpdated.ok ? metadataUpdated.store.items[0]?.updatedAt : undefined
     const highlighted = await updateBacklogHighlight({
@@ -518,14 +523,29 @@ async function main(): Promise<void> {
         moduleId: 'weather-deck',
         type: 'execution',
         label: 'Weather Deck forecast',
-        target: { kind: 'weather-deck.forecast', id: 'checkout', path: '.sprintengine/weather-deck/checkout/forecast.yaml' },
+        target: {
+          kind: 'weather-deck.forecast',
+          id: 'checkout',
+          path: '.sprintengine/weather-deck/checkout/forecast.yaml',
+        },
         status: 'active',
       },
     })
     assert.equal(linked.ok, true)
-    assert.equal(linked.ok ? linked.store.items[0]?.links?.[0]?.target.path : null, '.sprintengine/weather-deck/checkout/forecast.yaml')
-    assert.equal(linked.ok ? linked.store.items[0]?.status : null, undefined, 'link lifecycle must not leak into the link cache')
-    assert.equal((await readItem()).fields.status, 'in_progress', 'link lifecycle writes the frontmatter source of truth')
+    assert.equal(
+      linked.ok ? linked.store.items[0]?.links?.[0]?.target.path : null,
+      '.sprintengine/weather-deck/checkout/forecast.yaml',
+    )
+    assert.equal(
+      linked.ok ? linked.store.items[0]?.status : null,
+      undefined,
+      'link lifecycle must not leak into the link cache',
+    )
+    assert.equal(
+      (await readItem()).fields.status,
+      'in_progress',
+      'link lifecycle writes the frontmatter source of truth',
+    )
 
     // Manual lifecycle control clears stale v1/link-written sidecar status so a
     // subsequent migration cannot restore completed over the user's Ready.
@@ -550,7 +570,11 @@ async function main(): Promise<void> {
       linkId: 'weather-deck:checkout',
     })
     assert.equal(unlinked.ok, true)
-    assert.deepEqual(unlinked.ok ? unlinked.store.items[0]?.links : null, [], 'unlink removes only the selected association')
+    assert.deepEqual(
+      unlinked.ok ? unlinked.store.items[0]?.links : null,
+      [],
+      'unlink removes only the selected association',
+    )
     assert.equal((await readItem()).fields.status, 'ready', 'unlink leaves manually controlled lifecycle unchanged')
 
     const persisted = JSON.parse(await readFile(storePath, 'utf-8')) as {
@@ -587,7 +611,7 @@ async function main(): Promise<void> {
         [concurrentA.relativePath, concurrentB.relativePath].map(async (relativePath) => {
           const parsed = parseBacklogFrontmatter(await readFile(join(tempRoot, relativePath), 'utf-8'))
           return parsed.fields.id
-        })
+        }),
       )
       assert.deepEqual(ids.sort(), ['2', '3'])
       const persisted = JSON.parse(await readFile(storePath, 'utf-8')) as {
@@ -596,7 +620,7 @@ async function main(): Promise<void> {
       assert.equal(
         persisted.items.filter((record) => record.source.relativePath.includes('concurrent-create')).length,
         2,
-        'both concurrent creates remain registered'
+        'both concurrent creates remain registered',
       )
     }
 
@@ -607,11 +631,17 @@ async function main(): Promise<void> {
     assert.equal(createdEpic.ok, true)
     assert.equal(createdEpic.ok ? createdEpic.slug : '', 'auth-revamp')
     assert.equal(createdEpic.ok ? createdEpic.relativePath : '', 'backlog/epics/auth-revamp.md')
-    const epicFile = parseBacklogFrontmatter(await readFile(join(tempRoot, 'backlog', 'epics', 'auth-revamp.md'), 'utf-8'))
+    const epicFile = parseBacklogFrontmatter(
+      await readFile(join(tempRoot, 'backlog', 'epics', 'auth-revamp.md'), 'utf-8'),
+    )
     assert.equal(epicFile.fields.type, 'epic')
     assert.match(epicFile.fields.updated ?? '', PRECISE_ISO_TIMESTAMP)
     assert.match(epicFile.body, /^# Auth Revamp$/m)
-    assert.equal(await readFile(storePath, 'utf-8'), storeBeforeEpicCreate, 'creating an epic must not touch the link cache')
+    assert.equal(
+      await readFile(storePath, 'utf-8'),
+      storeBeforeEpicCreate,
+      'creating an epic must not touch the link cache',
+    )
 
     // A second epic with the same title gets a collision-safe slug, not a clobber.
     const createdEpic2 = await createBacklogEpic({ workspaceRoot: tempRoot, title: 'Auth Revamp' })
@@ -731,7 +761,6 @@ async function main(): Promise<void> {
       await chmod(writeFailureItemPath, 0o644).catch(() => {})
       await rm(writeFailureRoot, { force: true, recursive: true })
     }
-
   } finally {
     await rm(tempRoot, { force: true, recursive: true })
   }
@@ -767,11 +796,19 @@ async function assertArchiveLeavesSidecarLifecycleFree(): Promise<void> {
     })
     assert.equal(moved.ok, true)
     const movedRecord = moved.ok ? moved.store.items[0] : null
-    assert.equal(movedRecord?.source.relativePath, 'backlog/archived/checkout.md', 'archive must rewrite the sidecar source path')
+    assert.equal(
+      movedRecord?.source.relativePath,
+      'backlog/archived/checkout.md',
+      'archive must rewrite the sidecar source path',
+    )
     // The normalized in-memory record carries lifecycle keys as `undefined`;
     // JSON.stringify drops them, so the value (not key presence) is the invariant.
     for (const key of lifecycleKeys) {
-      assert.equal((movedRecord as Record<string, unknown>)[key], undefined, `archive must not write ${key} into the sidecar record`)
+      assert.equal(
+        (movedRecord as Record<string, unknown>)[key],
+        undefined,
+        `archive must not write ${key} into the sidecar record`,
+      )
     }
     const persisted = JSON.parse(await readFile(storePath, 'utf-8')) as { items: Array<Record<string, unknown>> }
     for (const key of lifecycleKeys) {
@@ -785,8 +822,14 @@ async function assertArchiveLeavesSidecarLifecycleFree(): Promise<void> {
     const read = await readBacklogObjectStore(root)
     assert.equal(read.ok, true)
     const reloaded = read.ok ? read.store.items[0] : null
-    assert.equal(reloaded?.status as unknown, undefined, 'migration must not synthesize a sidecar status for an archived record')
-    const afterMigrate = parseBacklogFrontmatter(await readFile(join(root, 'backlog', 'archived', 'checkout.md'), 'utf-8'))
+    assert.equal(
+      reloaded?.status as unknown,
+      undefined,
+      'migration must not synthesize a sidecar status for an archived record',
+    )
+    const afterMigrate = parseBacklogFrontmatter(
+      await readFile(join(root, 'backlog', 'archived', 'checkout.md'), 'utf-8'),
+    )
     assert.equal(afterMigrate.fields.status, 'ready', 'archive must not clobber the archived file frontmatter status')
     assert.equal(
       await readFile(join(root, 'backlog', 'archived', 'checkout.md'), 'utf-8'),
@@ -806,7 +849,13 @@ async function assertLazyMigrationMatrix(): Promise<void> {
   const plan = planBacklogStoreMigration({
     schemaVersion: 1,
     items: [
-      { id: 'a', source: { type: 'file', relativePath: 'backlog/a.md' }, status: 'ready', type: 'saga', metadata: { x: 1 } },
+      {
+        id: 'a',
+        source: { type: 'file', relativePath: 'backlog/a.md' },
+        status: 'ready',
+        type: 'saga',
+        metadata: { x: 1 },
+      },
       { id: 'b', source: { type: 'file', relativePath: 'backlog/b.md' }, difficulty: 7, links: [] },
       { id: 'c', source: { type: 'file', relativePath: 'backlog/c.md' }, metadata: {} },
     ],
@@ -816,19 +865,33 @@ async function assertLazyMigrationMatrix(): Promise<void> {
   const aMig = plan.migrations.find((m) => m.relativePath === 'backlog/a.md')
   assert.deepEqual(aMig?.updates, { status: 'ready', type: 'saga' })
   // 'b' carried only a non-string difficulty: stripped, but nothing to migrate.
-  assert.equal(plan.migrations.some((m) => m.relativePath === 'backlog/b.md'), false)
+  assert.equal(
+    plan.migrations.some((m) => m.relativePath === 'backlog/b.md'),
+    false,
+  )
   // 'c' had no migratable fields and produces no migration.
-  assert.equal(plan.migrations.some((m) => m.relativePath === 'backlog/c.md'), false)
+  assert.equal(
+    plan.migrations.some((m) => m.relativePath === 'backlog/c.md'),
+    false,
+  )
   // Every record is slimmed of the lightweight fields.
   assert.ok(plan.slimRecords.every((r) => !('status' in r) && !('type' in r) && !('difficulty' in r)))
   assert.deepEqual((plan.slimRecords[0] as { metadata?: unknown }).metadata, { x: 1 })
   // An already-migrated store is a no-op.
-  assert.equal(planBacklogStoreMigration({ schemaVersion: 1, items: [{ id: 'a', source: { type: 'file', relativePath: 'backlog/a.md' } }] }).changed, false)
+  assert.equal(
+    planBacklogStoreMigration({
+      schemaVersion: 1,
+      items: [{ id: 'a', source: { type: 'file', relativePath: 'backlog/a.md' } }],
+    }).changed,
+    false,
+  )
   // sec F1: a crafted multi-line cache scalar is flattened before it can
   // reach the frontmatter writer, so it cannot inject extra keys.
   const injected = planBacklogStoreMigration({
     schemaVersion: 1,
-    items: [{ id: 'x', source: { type: 'file', relativePath: 'backlog/x.md' }, status: 'idea\ntype: epic\norder: -999' }],
+    items: [
+      { id: 'x', source: { type: 'file', relativePath: 'backlog/x.md' }, status: 'idea\ntype: epic\norder: -999' },
+    ],
   }).migrations.find((m) => m.relativePath === 'backlog/x.md')
   assert.deepEqual(injected?.updates, { status: 'idea type: epic order: -999' })
 
@@ -841,21 +904,42 @@ async function assertLazyMigrationMatrix(): Promise<void> {
     // The file already carries a status; the sidecar must WIN over it on migrate.
     await writeFile(join(root, 'backlog', 'a.md'), `---\nstatus: idea\n---\n${body}`, 'utf-8')
     await mkdir(join(root, '.sprintengine', 'backlog', 'cache'), { recursive: true })
-    await writeFile(storePath, `${JSON.stringify({
-      schemaVersion: 1,
-      items: [
-        { id: 'a', source: { type: 'file', relativePath: 'backlog/a.md' }, status: 'ready', type: 'saga', difficulty: 'm', criticality: 'high', risk: 'low', metadata: { jira: 'P-1' }, links: [] },
-        // Orphan: no file on disk -> must be pruned.
-        { id: 'ghost', source: { type: 'file', relativePath: 'backlog/ghost.md' }, status: 'in_progress' },
-      ],
-    }, null, 2)}\n`, 'utf-8')
+    await writeFile(
+      storePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          items: [
+            {
+              id: 'a',
+              source: { type: 'file', relativePath: 'backlog/a.md' },
+              status: 'ready',
+              type: 'saga',
+              difficulty: 'm',
+              criticality: 'high',
+              risk: 'low',
+              metadata: { jira: 'P-1' },
+              links: [],
+            },
+            // Orphan: no file on disk -> must be pruned.
+            { id: 'ghost', source: { type: 'file', relativePath: 'backlog/ghost.md' }, status: 'in_progress' },
+          ],
+        },
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    )
 
     const read = await readBacklogObjectStore(root)
     assert.equal(read.ok, true)
     const records = read.ok ? read.store.items : []
     // Orphan pruned; only the real item's record survives, slimmed of triage but
     // keeping its app-owned churn.
-    assert.deepEqual(records.map((r) => r.source.relativePath), ['backlog/a.md'])
+    assert.deepEqual(
+      records.map((r) => r.source.relativePath),
+      ['backlog/a.md'],
+    )
     assert.equal(records[0]?.status, undefined)
     assert.equal(records[0]?.type, undefined)
     assert.equal(records[0]?.risk as unknown, undefined)
@@ -898,7 +982,11 @@ async function assertLazyMigrationMatrix(): Promise<void> {
     const read = await readBacklogObjectStore(freshRoot)
     assert.equal(read.ok, true)
     assert.deepEqual(read.ok ? read.store.items : null, [])
-    assert.equal(await readFile(join(freshRoot, 'backlog', 'fresh.md'), 'utf-8'), fresh, 'no sidecar -> no migration, file untouched')
+    assert.equal(
+      await readFile(join(freshRoot, 'backlog', 'fresh.md'), 'utf-8'),
+      fresh,
+      'no sidecar -> no migration, file untouched',
+    )
   } finally {
     await rm(freshRoot, { force: true, recursive: true })
   }
@@ -943,10 +1031,15 @@ async function testBacklogIntegrityRepairsAreNarrowAndIdempotent(): Promise<void
       issue: 'duplicate_id',
     })
     assert.equal(duplicate.ok, true)
-    assert.deepEqual(duplicate.ok ? {
-      previousNumericId: duplicate.previousNumericId,
-      numericId: duplicate.numericId,
-    } : null, { previousNumericId: 41, numericId: 46 })
+    assert.deepEqual(
+      duplicate.ok
+        ? {
+            previousNumericId: duplicate.previousNumericId,
+            numericId: duplicate.numericId,
+          }
+        : null,
+      { previousNumericId: 41, numericId: 46 },
+    )
     const repaired = parseBacklogFrontmatter(await readFile(join(root, 'backlog', 'duplicate.md'), 'utf-8'))
     assert.equal(repaired.fields.id, '46', 'allocation includes nested/archived Backlog sources')
     assert.match(repaired.fields.updated ?? '', PRECISE_ISO_TIMESTAMP)
@@ -972,7 +1065,7 @@ async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
     await writeFile(
       join(tempRoot, 'backlog', '2026-07-08-ship-thing.md'),
       '---\ntype: feature\nstatus: ready\ndifficulty: m\ncriticality: high\nrisk: low\nepic: things\nid: 12\n---\n\n# Ship the thing\n\nBody text.\n',
-      'utf-8'
+      'utf-8',
     )
     await writeFile(join(tempRoot, 'backlog', 'no-frontmatter.md'), '# Bare capture\n', 'utf-8')
     await writeFile(join(tempRoot, 'backlog', 'old.md'), '---\nstatus: archived\n---\n# Old\n', 'utf-8')
@@ -982,7 +1075,7 @@ async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
     await writeFile(
       join(tempRoot, 'backlog', 'roadmaps', 'payments.md'),
       '---\ntype: roadmap\nstatus: ready\n---\n# Payments roadmap\n\n## Backend\n- backlog/2026-07-08-ship-thing.md\n',
-      'utf-8'
+      'utf-8',
     )
 
     const listed = await listBacklogItems(tempRoot)
@@ -1004,7 +1097,13 @@ async function testListAndReadBacklogItemsAreReadOnly(): Promise<void> {
       },
       { relativePath: 'backlog/epics/things.md', title: 'Things', isEpic: true, status: 'idea', type: 'epic' },
       { relativePath: 'backlog/no-frontmatter.md', title: 'Bare capture', isEpic: false, status: 'idea' },
-      { relativePath: 'backlog/roadmaps/payments.md', title: 'Payments roadmap', isEpic: false, isRoadmap: true, status: 'ready' },
+      {
+        relativePath: 'backlog/roadmaps/payments.md',
+        title: 'Payments roadmap',
+        isEpic: false,
+        isRoadmap: true,
+        status: 'ready',
+      },
     ])
     // Read-only means read-only: listing registers nothing and persists no key.
     await assert.rejects(() => stat(join(tempRoot, '.sprintengine')), /ENOENT/, 'listing must not create .sprintengine')
@@ -1082,7 +1181,11 @@ async function testConfirmingRewritesLeaveTheSidecarAlone(): Promise<void> {
 
     // A hand-edited ignore file is never clobbered on a later save.
     await writeFile(cacheIgnore, '# mine\n*\n', 'utf-8')
-    await addOrUpdateBacklogLink({ workspaceRoot: tempRoot, relativePath, link: { ...link, status: 'failed' as const } })
+    await addOrUpdateBacklogLink({
+      workspaceRoot: tempRoot,
+      relativePath,
+      link: { ...link, status: 'failed' as const },
+    })
     assert.equal(await readFile(cacheIgnore, 'utf-8'), '# mine\n*\n', 'an existing ignore file is left alone')
 
     // A real change must still land, or the guard would be silently swallowing writes.
@@ -1112,38 +1215,46 @@ async function testLegacySidecarMigration(): Promise<void> {
     await mkdir(join(root, 'backlog'), { recursive: true })
     await writeFile(join(root, 'backlog', 'worked.md'), `---\nstatus: completed\nid: 7\n---\n${body}`, 'utf-8')
     await mkdir(join(root, '.sprintengine', 'backlog'), { recursive: true })
-    await writeFile(legacyPath, `${JSON.stringify({
-      schemaVersion: 1,
-      items: [
+    await writeFile(
+      legacyPath,
+      `${JSON.stringify(
         {
-          id: 'backlog_worked',
-          source: { type: 'file', relativePath: 'backlog/worked.md' },
-          highlight: { starred: true, color: 'amber' },
-          metadata: { 'agent-runtime': { agentId: 'agent-x' } },
-          links: [
-            // Durable: belongs in the file.
+          schemaVersion: 1,
+          items: [
             {
-              id: 'backlog:pull-request',
-              moduleId: 'backlog',
-              type: 'external',
-              label: 'Pull request',
-              target: { kind: 'backlog.pullRequest', id: 'https://x.test/pull/9', url: 'https://x.test/pull/9' },
-              status: 'active',
+              id: 'backlog_worked',
+              source: { type: 'file', relativePath: 'backlog/worked.md' },
+              highlight: { starred: true, color: 'amber' },
+              metadata: { 'agent-runtime': { agentId: 'agent-x' } },
+              links: [
+                // Durable: belongs in the file.
+                {
+                  id: 'backlog:pull-request',
+                  moduleId: 'backlog',
+                  type: 'external',
+                  label: 'Pull request',
+                  target: { kind: 'backlog.pullRequest', id: 'https://x.test/pull/9', url: 'https://x.test/pull/9' },
+                  status: 'active',
+                },
+                // Volatile: a terminal id, meaningless after a restart.
+                {
+                  id: 'agent-runtime:working-agent',
+                  moduleId: 'agent-runtime',
+                  type: 'agent',
+                  label: 'Agent: Someone',
+                  target: { kind: 'agent.terminal', id: 'ws1/agent-x' },
+                },
+              ],
             },
-            // Volatile: a terminal id, meaningless after a restart.
-            {
-              id: 'agent-runtime:working-agent',
-              moduleId: 'agent-runtime',
-              type: 'agent',
-              label: 'Agent: Someone',
-              target: { kind: 'agent.terminal', id: 'ws1/agent-x' },
-            },
+            // Orphan: the markdown is gone, so the record describes nothing.
+            { id: 'ghost', source: { type: 'file', relativePath: 'backlog/ghost.md' }, links: [] },
           ],
         },
-        // Orphan: the markdown is gone, so the record describes nothing.
-        { id: 'ghost', source: { type: 'file', relativePath: 'backlog/ghost.md' }, links: [] },
-      ],
-    }, null, 2)}\n`, 'utf-8')
+        null,
+        2,
+      )}\n`,
+      'utf-8',
+    )
 
     const read = await readBacklogObjectStore(root)
     assert.equal(read.ok, true, 'the migration runs on the first read')
@@ -1166,14 +1277,21 @@ async function testLegacySidecarMigration(): Promise<void> {
     }
     assert.equal(cache.items.length, 1, 'the orphan record is dropped, not carried over')
     assert.equal(cache.items[0].source.relativePath, 'backlog/worked.md')
-    assert.ok(cache.items[0].links?.some((link) => link.id === 'agent-runtime:working-agent'), 'the agent link stays cached')
+    assert.ok(
+      cache.items[0].links?.some((link) => link.id === 'agent-runtime:working-agent'),
+      'the agent link stays cached',
+    )
     assert.equal(cache.items[0].highlight, undefined, 'the star moved to the file and is not duplicated')
 
     // 4. Idempotent: a second read changes nothing.
     const fileAfterFirst = await readFile(join(root, 'backlog', 'worked.md'), 'utf-8')
     const again = await readBacklogObjectStore(root)
     assert.equal(again.ok, true)
-    assert.equal(await readFile(join(root, 'backlog', 'worked.md'), 'utf-8'), fileAfterFirst, 're-reading rewrites nothing')
+    assert.equal(
+      await readFile(join(root, 'backlog', 'worked.md'), 'utf-8'),
+      fileAfterFirst,
+      're-reading rewrites nothing',
+    )
   } finally {
     await rm(root, { force: true, recursive: true })
   }
@@ -1187,9 +1305,16 @@ async function testNewItemsAreFiledUnderTheirEpic(): Promise<void> {
   try {
     const filed = await createBacklogItem({ workspaceRoot: root, title: 'Filed item', epic: 'auth-revamp' })
     assert.equal(filed.ok, true)
-    assert.equal(filed.ok ? filed.relativePath : '', `backlog/auth-revamp/${filed.ok ? filed.relativePath.split('/').pop() : ''}`)
+    assert.equal(
+      filed.ok ? filed.relativePath : '',
+      `backlog/auth-revamp/${filed.ok ? filed.relativePath.split('/').pop() : ''}`,
+    )
     assert.match(filed.ok ? filed.relativePath : '', /^backlog\/auth-revamp\/\d{4}-\d{2}-\d{2}-filed-item\.md$/)
-    assert.equal((await readBacklogItem(root, filed.ok ? filed.relativePath : '')).ok, true, 'and it is readable where it landed')
+    assert.equal(
+      (await readBacklogItem(root, filed.ok ? filed.relativePath : '')).ok,
+      true,
+      'and it is readable where it landed',
+    )
 
     // No epic still needs a home, and the top level is reserved for epic folders.
     const unfiled = await createBacklogItem({ workspaceRoot: root, title: 'Loose item' })
@@ -1229,8 +1354,14 @@ async function testListingWalksNestedEpicFolders(): Promise<void> {
       await writeFile(join(root, relativePath), `---\n${front}\n---\n\n# ${basename(relativePath, '.md')}\n`, 'utf-8')
     }
     await write('backlog/epics/auth-revamp.md', 'type: epic\nstatus: in_progress\nid: 1')
-    await write('backlog/auth-revamp/2026-09-01-token-rotation.md', 'type: bug\nstatus: ready\nepic: auth-revamp\nid: 2')
-    await write('backlog/auth-revamp/2026-09-02-session-expiry.md', 'type: feature\nstatus: idea\nepic: auth-revamp\nid: 3')
+    await write(
+      'backlog/auth-revamp/2026-09-01-token-rotation.md',
+      'type: bug\nstatus: ready\nepic: auth-revamp\nid: 2',
+    )
+    await write(
+      'backlog/auth-revamp/2026-09-02-session-expiry.md',
+      'type: feature\nstatus: idea\nepic: auth-revamp\nid: 3',
+    )
     await write('backlog/unfiled/2026-09-03-loose-thought.md', 'type: spike\nstatus: idea\nid: 4')
     await write('backlog/roadmaps/2026-09-04-a-plan.md', 'status: idea\nid: 5')
     // Archived stays excluded, wherever it lives.
@@ -1239,19 +1370,25 @@ async function testListingWalksNestedEpicFolders(): Promise<void> {
     const listed = await listBacklogItems(root)
     assert.equal(listed.ok, true)
     const paths = listed.ok ? listed.items.map((item) => item.relativePath).sort() : []
-    assert.deepEqual(paths, [
-      'backlog/auth-revamp/2026-09-01-token-rotation.md',
-      'backlog/auth-revamp/2026-09-02-session-expiry.md',
-      'backlog/epics/auth-revamp.md',
-      'backlog/roadmaps/2026-09-04-a-plan.md',
-      'backlog/unfiled/2026-09-03-loose-thought.md',
-    ], 'items inside epic folders are listed, and archived is not')
+    assert.deepEqual(
+      paths,
+      [
+        'backlog/auth-revamp/2026-09-01-token-rotation.md',
+        'backlog/auth-revamp/2026-09-02-session-expiry.md',
+        'backlog/epics/auth-revamp.md',
+        'backlog/roadmaps/2026-09-04-a-plan.md',
+        'backlog/unfiled/2026-09-03-loose-thought.md',
+      ],
+      'items inside epic folders are listed, and archived is not',
+    )
 
     const nested = listed.ok ? listed.items.find((item) => item.relativePath.endsWith('token-rotation.md')) : undefined
     assert.equal(nested?.epic, 'auth-revamp', 'a nested item keeps its epic membership')
     assert.equal(nested?.id, 2)
     assert.equal(nested?.isEpic, false, 'an item in an epic folder is not itself an epic')
-    const epic = listed.ok ? listed.items.find((item) => item.relativePath === 'backlog/epics/auth-revamp.md') : undefined
+    const epic = listed.ok
+      ? listed.items.find((item) => item.relativePath === 'backlog/epics/auth-revamp.md')
+      : undefined
     assert.equal(epic?.isEpic, true)
   } finally {
     await rm(root, { force: true, recursive: true })
@@ -1314,7 +1451,10 @@ async function testABacklogCanLiveOutsideTheCheckout(): Promise<void> {
 
     // And the display key survives a config rewrite rather than being clobbered
     // by a whole-object write from the key path.
-    const config = JSON.parse(await readFile(join(root, '.sprintengine', 'backlog', 'config.json'), 'utf-8')) as Record<string, unknown>
+    const config = JSON.parse(await readFile(join(root, '.sprintengine', 'backlog', 'config.json'), 'utf-8')) as Record<
+      string,
+      unknown
+    >
     assert.equal(config['root'], elsewhere, 'persisting the key must not drop the configured root')
     assert.equal(config['key'], 'MC')
   } finally {
@@ -1365,7 +1505,10 @@ async function testSettingABacklogRootValidatesWhatItIsGiven(): Promise<void> {
     const reset = await setBacklogRoot({ workspaceRoot: root, root: null })
     assert.equal(reset.ok, true)
     assert.equal(reset.ok && reset.location.isDefault, true)
-    const config = JSON.parse(await readFile(join(root, '.sprintengine', 'backlog', 'config.json'), 'utf-8')) as Record<string, unknown>
+    const config = JSON.parse(await readFile(join(root, '.sprintengine', 'backlog', 'config.json'), 'utf-8')) as Record<
+      string,
+      unknown
+    >
     assert.equal('root' in config, false, 'resetting removes the field rather than writing an empty one')
   } finally {
     await rm(root, { force: true, recursive: true })

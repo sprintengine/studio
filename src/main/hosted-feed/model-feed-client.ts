@@ -52,7 +52,7 @@ export function modelFeedSeedCandidates(options: {
   resourcesPath?: string
   appPath?: string | null
   cwd?: string
-} ): string[] {
+}): string[] {
   const candidates: string[] = []
   if (options.isPackaged) {
     if (options.resourcesPath) candidates.push(join(options.resourcesPath, MODEL_FEED_SEED_FILENAME))
@@ -153,7 +153,13 @@ export class HostedModelFeedClient {
     if (response.status === 304) {
       if (!cache) {
         this.lastFailureAtMs = nowMs
-        return { ok: false, state: 'fetch-error', feedUrl, statusCode: 304, message: 'GitHub answered 304 Not Modified, but there is no cached copy.' }
+        return {
+          ok: false,
+          state: 'fetch-error',
+          feedUrl,
+          statusCode: 304,
+          message: 'GitHub answered 304 Not Modified, but there is no cached copy.',
+        }
       }
       const touched: CacheFile = { ...cache, fetchedAt: this.now().toISOString() }
       await this.writeCache(touched)
@@ -173,7 +179,14 @@ export class HostedModelFeedClient {
 
     if (!response.ok) {
       this.lastFailureAtMs = nowMs
-      return this.serveLocal(feedUrl, cache, seed, `GitHub answered HTTP ${response.status}.`, 'fetch-error', response.status)
+      return this.serveLocal(
+        feedUrl,
+        cache,
+        seed,
+        `GitHub answered HTTP ${response.status}.`,
+        'fetch-error',
+        response.status,
+      )
     }
 
     let body: string
@@ -201,7 +214,16 @@ export class HostedModelFeedClient {
     const changed = !cache || JSON.stringify(cache.feed) !== JSON.stringify(parsed.feed)
     await this.writeCache({ schemaVersion: 1, feedUrl, ...(etag ? { etag } : {}), fetchedAt, feed: parsed.feed })
     this.lastFailureAtMs = null
-    return { ok: true, state: 'ok', feedUrl, source: 'network', fetchedAt, ...(etag ? { etag } : {}), changed, feed: parsed.feed }
+    return {
+      ok: true,
+      state: 'ok',
+      feedUrl,
+      source: 'network',
+      fetchedAt,
+      ...(etag ? { etag } : {}),
+      changed,
+      feed: parsed.feed,
+    }
   }
 
   // What to show when the network did not answer with a fresh body: the cache,
@@ -239,7 +261,13 @@ export class HostedModelFeedClient {
         ...(message ? { message } : {}),
       }
     }
-    return { ok: false, state: failureState, feedUrl, ...(statusCode ? { statusCode } : {}), message: message ?? 'No model feed is available.' }
+    return {
+      ok: false,
+      state: failureState,
+      feedUrl,
+      ...(statusCode ? { statusCode } : {}),
+      message: message ?? 'No model feed is available.',
+    }
   }
 
   private async fetchWithTimeout(url: URL, cache: CacheFile | null, forceRefresh: boolean): Promise<Response> {
@@ -247,7 +275,9 @@ export class HostedModelFeedClient {
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
     const headers: Record<string, string> = { accept: 'application/json' }
     if (!forceRefresh && cache?.etag) headers['if-none-match'] = cache.etag
-    return this.fetcher(url.toString(), { method: 'GET', headers, signal: controller.signal }).finally(() => clearTimeout(timeout))
+    return this.fetcher(url.toString(), { method: 'GET', headers, signal: controller.signal }).finally(() =>
+      clearTimeout(timeout),
+    )
   }
 
   private async readCache(feedUrl: string): Promise<CacheFile | null> {

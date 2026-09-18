@@ -6,10 +6,7 @@ import {
   type AutomationCliPermissionPreset,
 } from '../../../../../../shared/automations/contracts'
 import type { BuiltinAutomation } from '../../../../../../shared/automations/builtin'
-import {
-  automationScheduleCron,
-  automationScheduleWords,
-} from '../../../../../../shared/automations/scheduleWords'
+import { automationScheduleCron, automationScheduleWords } from '../../../../../../shared/automations/scheduleWords'
 import type { AutomationProjectFolder } from '../../../../utils/automationsEntry'
 
 // The "Built in" half of the Automations surface (Extensions drawer ruling,
@@ -84,7 +81,7 @@ export function builtinAddTarget(
     if (known) return known
     return { folderPath: activeFolderPath, displayName: folderDisplayName(activeFolderPath) }
   }
-  return projectFolders.length === 1 ? projectFolders[0] ?? null : null
+  return projectFolders.length === 1 ? (projectFolders[0] ?? null) : null
 }
 
 function folderDisplayName(value: string): string {
@@ -123,11 +120,7 @@ export type BuiltinFact = { term: string; description: string; code?: string }
  * truth), and "Delivers" follows from `runInWorktree`, because a run with no
  * worktree has no branch and so nothing to open a pull request from.
  */
-export function builtinFacts(
-  entry: BuiltinAutomation,
-  permissionLabel: string,
-  cliLabel: string,
-): BuiltinFact[] {
+export function builtinFacts(entry: BuiltinAutomation, permissionLabel: string, cliLabel: string): BuiltinFact[] {
   const cron = automationScheduleCron(entry.trigger)
   const words = automationScheduleWords(entry.trigger)
   const inWorktree = builtinRunsInWorktree(entry)
@@ -162,9 +155,9 @@ export function matchesBuiltinQuery(entry: BuiltinAutomation, query: string): bo
   const needle = query.trim().toLowerCase()
   if (!needle) return true
   return (
-    entry.name.toLowerCase().includes(needle)
-    || entry.description.toLowerCase().includes(needle)
-    || entry.category.toLowerCase().includes(needle)
+    entry.name.toLowerCase().includes(needle) ||
+    entry.description.toLowerCase().includes(needle) ||
+    entry.category.toLowerCase().includes(needle)
   )
 }
 
@@ -191,11 +184,7 @@ export function useBuiltinAutomations(): BuiltinAutomationsState {
       try {
         const result = await window.api.listBuiltinAutomations()
         if (cancelled) return
-        setState(
-          result.ok
-            ? { status: 'ready', entries: result.value }
-            : { status: 'error', message: result.message },
-        )
+        setState(result.ok ? { status: 'ready', entries: result.value } : { status: 'error', message: result.message })
       } catch (error) {
         if (cancelled) return
         setState({
@@ -213,9 +202,7 @@ export function useBuiltinAutomations(): BuiltinAutomationsState {
 }
 
 type BuiltinAddState =
-  | { status: 'idle' }
-  | { status: 'adding'; builtinId: string }
-  | { status: 'error'; message: string }
+  { status: 'idle' } | { status: 'adding'; builtinId: string } | { status: 'error'; message: string }
 
 export type BuiltinAdder = {
   state: BuiltinAddState
@@ -257,8 +244,5 @@ export function useAddBuiltinAutomation(onAdded: (automationId: string) => void)
     [onAdded],
   )
 
-  return useMemo(
-    () => ({ state, add, clearError: () => setState({ status: 'idle' }) }),
-    [state, add],
-  )
+  return useMemo(() => ({ state, add, clearError: () => setState({ status: 'idle' }) }), [state, add])
 }

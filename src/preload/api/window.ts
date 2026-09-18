@@ -53,8 +53,7 @@ export const windowApi = {
     ipcRenderer.send('window:dock-diff-ack', requestId)
   },
   confirmWindowClose: (): Promise<void> => ipcRenderer.invoke('window:confirm-close'),
-  openExternal: (url: string): Promise<OpenExternalResult> =>
-    ipcRenderer.invoke('window:open-external', url),
+  openExternal: (url: string): Promise<OpenExternalResult> => ipcRenderer.invoke('window:open-external', url),
   onWindowStateChanged: (cb: (state: WindowState) => void): (() => void) => {
     const ch = 'window:state-changed'
     const handler = (_: IpcRendererEvent, state: WindowState) => cb(state)

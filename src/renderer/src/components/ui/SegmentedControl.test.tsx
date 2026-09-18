@@ -85,15 +85,7 @@ async function main(): Promise<void> {
   ]
 
   function iconStrip(value = 'split'): React.ReactElement {
-    return (
-      <SegmentedControl
-        ariaLabel="Diff layout"
-        iconOnly
-        items={items}
-        value={value}
-        onChange={() => {}}
-      />
-    )
+    return <SegmentedControl ariaLabel="Diff layout" iconOnly items={items} value={value} onChange={() => {}} />
   }
 
   run('the label does not disappear — it becomes the accessible name', () => {
@@ -109,10 +101,8 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
-  run('the name is identical to the labelled variant\'s', () => {
-    const labelled = mount(
-      <SegmentedControl ariaLabel="Diff layout" items={items} value="split" onChange={() => {}} />,
-    )
+  run("the name is identical to the labelled variant's", () => {
+    const labelled = mount(<SegmentedControl ariaLabel="Diff layout" items={items} value="split" onChange={() => {}} />)
     const labelledRadio = labelled.container.querySelector('[role="radio"]') as HTMLElement
     assert.equal(labelledRadio.textContent, 'Side by side')
     assert.equal(labelledRadio.getAttribute('aria-label'), null, 'the visible word IS the name there')
@@ -137,7 +127,7 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
-  run('segments are square at the toolbar\'s own control step', () => {
+  run("segments are square at the toolbar's own control step", () => {
     const view = mount(iconStrip())
     const radio = view.container.querySelector('[role="radio"]') as HTMLElement
     const classes = radio.getAttribute('class') ?? ''
@@ -150,11 +140,21 @@ async function main(): Promise<void> {
   run('selection stays neutral, and the radiogroup contract is untouched', () => {
     const view = mount(iconStrip('unified'))
     const radios = Array.from(view.container.querySelectorAll('[role="radio"]'))
-    assert.deepEqual(radios.map((r) => r.getAttribute('aria-checked')), ['false', 'true'])
-    assert.deepEqual(radios.map((r) => (r as HTMLButtonElement).tabIndex), [-1, 0], 'one tab stop, on the selection')
+    assert.deepEqual(
+      radios.map((r) => r.getAttribute('aria-checked')),
+      ['false', 'true'],
+    )
+    assert.deepEqual(
+      radios.map((r) => (r as HTMLButtonElement).tabIndex),
+      [-1, 0],
+      'one tab stop, on the selection',
+    )
     const checked = radios[1].getAttribute('class') ?? ''
     assert.match(checked, /bg-\[color:var\(--bg-selected\)\]/)
-    assert.ok(!/bg-\[color:var\(--accent-primary\)\]/.test(checked), 'a selected segment is a state display, not the primary action')
+    assert.ok(
+      !/bg-\[color:var\(--accent-primary\)\]/.test(checked),
+      'a selected segment is a state display, not the primary action',
+    )
     assert.equal(view.container.querySelector('[role="radiogroup"]')?.getAttribute('aria-label'), 'Diff layout')
     view.unmount()
   })
@@ -167,7 +167,7 @@ async function main(): Promise<void> {
       assert.equal(
         child.getAttribute('role'),
         'presentation',
-        'a radiogroup\'s children are its radios; the tooltip\'s span is a rendering detail',
+        "a radiogroup's children are its radios; the tooltip's span is a rendering detail",
       )
     }
     view.unmount()

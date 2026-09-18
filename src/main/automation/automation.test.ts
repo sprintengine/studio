@@ -128,23 +128,21 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
     // Default: no launch port wired. A test that reaches a launch without
     // stubbing one gets an explicit failure, not a silent success.
     launchAgent:
-      overrides.launchAgent
-      ?? (async () => ({ ok: false, code: 'no_launch_service', message: 'no launch service in test' })),
+      overrides.launchAgent ??
+      (async () => ({ ok: false, code: 'no_launch_service', message: 'no launch service in test' })),
     // A machine where nobody has chosen a preset yet — the honest starting
     // state, so a case that depends on a default has to say so.
     getAgentSpawnPermissionDefault: overrides.getAgentSpawnPermissionDefault ?? (() => null),
     // Default: the mobile lane is unwired. A test that exercises the mobile
     // tools stubs this; anything else that reaches it fails loudly.
-    mobileControl:
-      overrides.mobileControl
-      ?? {
-        readSnapshot: async () => {
-          throw new Error('unexpected mobileControl.readSnapshot call')
-        },
-        dispatchCommand: async () => {
-          throw new Error('unexpected mobileControl.dispatchCommand call')
-        },
+    mobileControl: overrides.mobileControl ?? {
+      readSnapshot: async () => {
+        throw new Error('unexpected mobileControl.readSnapshot call')
       },
+      dispatchCommand: async () => {
+        throw new Error('unexpected mobileControl.dispatchCommand call')
+      },
+    },
     listBacklogItems: overrides.listBacklogItems ?? (async () => ({ ok: true, key: null, items: [] })),
     readBacklogItem:
       overrides.readBacklogItem ?? (async (_root, relativePath) => ({ ok: false, message: `no item ${relativePath}` })),
@@ -162,14 +160,14 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
     },
     getAutomationsFrontDoor: overrides.getAutomationsFrontDoor ?? (() => null),
     createAgentWorktree:
-      overrides.createAgentWorktree
-      ?? (async ({ workspaceRoot, name }) => ({
+      overrides.createAgentWorktree ??
+      (async ({ workspaceRoot, name }) => ({
         worktreePath: `${workspaceRoot}/.multicode-worktrees/${name}`,
         branch: `agent/${name}`,
       })),
     readWorkspaceCheckout:
-      overrides.readWorkspaceCheckout
-      ?? (async () => ({ git: false, branch: null, defaultBranch: null, branches: [], worktrees: [] })),
+      overrides.readWorkspaceCheckout ??
+      (async () => ({ git: false, branch: null, defaultBranch: null, branches: [], worktrees: [] })),
     readRepositoryIdentity: overrides.readRepositoryIdentity ?? (async () => null),
     listPlugins: overrides.listPlugins ?? (() => []),
     ensureBuiltinSkillInstalled: overrides.ensureBuiltinSkillInstalled ?? (async () => true),
@@ -181,8 +179,8 @@ function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
       overrides.listInstalledThirdPartyModules ?? (async () => ({ modules: [], rejected: [] })),
     listModuleContributedTools: overrides.listModuleContributedTools ?? (() => []),
     readMarketplaceRegistry:
-      overrides.readMarketplaceRegistry
-      ?? (async () => {
+      overrides.readMarketplaceRegistry ??
+      (async () => {
         throw new Error('unexpected readMarketplaceRegistry call')
       }),
     // Confirmation polling is exercised against static snapshots; collapse the
@@ -267,35 +265,32 @@ async function testStudioGatewayEndpointContractAcrossPlatforms(): Promise<void>
 
 async function testToolListNamesTheToolSurface(): Promise<void> {
   const tools = createAutomationTools(backendsOf())
-  assert.deepEqual(
-    tools.map((registration) => registration.name).sort(),
-    [
-      'agent.launch',
-      'agent.status',
-      'automation.create',
-      'automation.list',
-      'automation.run',
-      'automation.runs',
-      'backlog.assign',
-      'backlog.list',
-      'backlog.read',
-      'backlog.repair',
-      'backlog.update',
-      'backlog.work',
-      'cli.runtime.list',
-      'marketplace.list',
-      'module.list',
-      'module.status',
-      'terminal.create',
-      'terminal.list',
-      'workspace.checkout',
-      'workspace.create',
-      'workspace.list',
-      'workspace.mobile_command',
-      'workspace.snapshot',
-      'workspace.status',
-    ]
-  )
+  assert.deepEqual(tools.map((registration) => registration.name).sort(), [
+    'agent.launch',
+    'agent.status',
+    'automation.create',
+    'automation.list',
+    'automation.run',
+    'automation.runs',
+    'backlog.assign',
+    'backlog.list',
+    'backlog.read',
+    'backlog.repair',
+    'backlog.update',
+    'backlog.work',
+    'cli.runtime.list',
+    'marketplace.list',
+    'module.list',
+    'module.status',
+    'terminal.create',
+    'terminal.list',
+    'workspace.checkout',
+    'workspace.create',
+    'workspace.list',
+    'workspace.mobile_command',
+    'workspace.snapshot',
+    'workspace.status',
+  ])
 }
 
 // MC-2165: the list a remote client reads before attaching to one of these.
@@ -366,17 +361,22 @@ async function testTerminalListReportsAttachableSessions(): Promise<void> {
 
   const all = await tool(tools, 'terminal.list').handler({})
   assert.equal(all.isError, undefined, JSON.stringify(all.structuredContent))
-  const listed = (all.structuredContent as {
-    terminals: Array<{
-      sessionId: string
-      processAlive: boolean
-      suspended: boolean
-      agentState: unknown
-      workspaceName: string | null
-      git: unknown
-    }>
-  }).terminals
-  assert.deepEqual(listed.map((entry) => entry.sessionId), ['session-live', 'session-paused', 'session-shell'])
+  const listed = (
+    all.structuredContent as {
+      terminals: Array<{
+        sessionId: string
+        processAlive: boolean
+        suspended: boolean
+        agentState: unknown
+        workspaceName: string | null
+        git: unknown
+      }>
+    }
+  ).terminals
+  assert.deepEqual(
+    listed.map((entry) => entry.sessionId),
+    ['session-live', 'session-paused', 'session-shell'],
+  )
   assert.equal(snapshotReads, 1, 'one snapshot read serves every row of a terminal.list')
   assert.equal(listed[0].workspaceName, testWorkspace('ws-1').name, 'a known workspace names its row')
   assert.equal(listed[1].workspaceName, null, 'an unknown workspace id reads as no name, never a guess')
@@ -393,8 +393,10 @@ async function testTerminalListReportsAttachableSessions(): Promise<void> {
 
   const filtered = await tool(tools, 'terminal.list').handler({ workspaceId: 'ws-1', kind: 'agent' })
   assert.deepEqual(
-    (filtered.structuredContent as { terminals: Array<{ sessionId: string }> }).terminals.map((entry) => entry.sessionId),
-    ['session-live']
+    (filtered.structuredContent as { terminals: Array<{ sessionId: string }> }).terminals.map(
+      (entry) => entry.sessionId,
+    ),
+    ['session-live'],
   )
 
   const refused = await tool(tools, 'terminal.list').handler({ kind: 'sideways' })
@@ -465,9 +467,13 @@ async function testTerminalListCarriesTheRowsProjectAndConversationFacts(): Prom
       ],
       readRepositoryIdentity: async (folderPath) =>
         folderPath === '/code/multicode'
-          ? { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
+          ? {
+              canonicalKey: 'github.com/acme/multicode',
+              remoteUrl: 'git@github.com:acme/multicode.git',
+              name: 'multicode',
+            }
           : null,
-    })
+    }),
   )
 
   const listed = (
@@ -556,7 +562,7 @@ async function testReadToolsAnswerFromSnapshot(): Promise<void> {
           ? { canonicalKey: 'github.com/acme/old', remoteUrl: 'git@github.com:acme/old.git', name: 'old' }
           : null
       },
-    })
+    }),
   )
 
   const list = await tool(tools, 'workspace.list').handler({})
@@ -565,11 +571,17 @@ async function testReadToolsAnswerFromSnapshot(): Promise<void> {
     workspaces: Array<{ id: string; detail: string; repository: { canonicalKey: string } | null }>
   }
   assert.equal(listed.workspaces.length, 2)
-  assert.deepEqual(listed.workspaces.map((entry) => entry.detail), ['full', 'full'])
+  assert.deepEqual(
+    listed.workspaces.map((entry) => entry.detail),
+    ['full', 'full'],
+  )
   // one-project-across-machines: each folder's repository rides the listing,
   // null where the reader has nothing, so a paired Studio can match clones.
   assert.deepEqual(identityReads, ['/repo/old'], 'read once per folder; a folderless workspace is not asked about')
-  assert.equal(listed.workspaces.find((entry) => entry.id === 'ws-old')?.repository?.canonicalKey, 'github.com/acme/old')
+  assert.equal(
+    listed.workspaces.find((entry) => entry.id === 'ws-old')?.repository?.canonicalKey,
+    'github.com/acme/old',
+  )
   assert.equal(listed.workspaces.find((entry) => entry.id === 'ws-1')?.repository, null)
 
   // A gateway tool operates on the restart survivor with no live agent
@@ -583,7 +595,8 @@ async function testReadToolsAnswerFromSnapshot(): Promise<void> {
 
   const status = await tool(tools, 'agent.status').handler({ workspaceId: 'ws-1', agentId: 'agent-a' })
   assert.equal(status.isError, undefined)
-  const agent = (status.structuredContent as { agent: { terminal: { processAlive: boolean } | null; cli: string } }).agent
+  const agent = (status.structuredContent as { agent: { terminal: { processAlive: boolean } | null; cli: string } })
+    .agent
   assert.equal(agent.cli, 'claude-code')
   assert.equal(agent.terminal?.processAlive, true)
 }
@@ -634,14 +647,17 @@ function launchHarness(overrides: BackendsOverrides = {}): {
     getWorkspaceSyncSnapshot: () => snapshotOf([workspace]),
     listTerminalSessions: () => sessions,
     createAgentWorktree:
-      overrides.createAgentWorktree
-      ?? (async (input) => {
+      overrides.createAgentWorktree ??
+      (async (input) => {
         worktreeCalls.push(input)
-        return { worktreePath: `${input.workspaceRoot}/.multicode-worktrees/${input.name}`, branch: `agent/${input.name}` }
+        return {
+          worktreePath: `${input.workspaceRoot}/.multicode-worktrees/${input.name}`,
+          branch: `agent/${input.name}`,
+        }
       }),
     launchAgent:
-      overrides.launchAgent
-      ?? (async (request) => {
+      overrides.launchAgent ??
+      (async (request) => {
         requests.push(request)
         const agentId = 'agent-claude-abc'
         workspace.agents[agentId] = { id: agentId, name: 'Scout', cli: 'claude-code', cliSessionId: 'sess-1' } as never
@@ -688,10 +704,7 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
     permissionPreset: 'bypass',
   })
   assert.equal(refused.isError, true)
-  assert.equal(
-    (refused.structuredContent as { error: { code: string } }).error.code,
-    'permission_preset_not_allowed'
-  )
+  assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
   assert.equal(bypass.requests.length, 0, 'a refused preset never reaches the launch service')
 
   // An out-of-vocabulary preset is a plain invalid_arguments failure.
@@ -733,12 +746,12 @@ async function testAgentLaunchWidensConfigAndIsolation(): Promise<void> {
   assert.equal(worktreeReq.worktreePath, '/tmp/project-a/.multicode-worktrees/Scout')
   assert.equal(
     (okWorktree.structuredContent as { worktreePath?: string }).worktreePath,
-    '/tmp/project-a/.multicode-worktrees/Scout'
+    '/tmp/project-a/.multicode-worktrees/Scout',
   )
   assert.equal(
     (okWorktree.structuredContent as { worktreeBranch?: string }).worktreeBranch,
     'agent/Scout',
-    'the branch the worktree was minted on is reported, for the row that will name it'
+    'the branch the worktree was minted on is reported, for the row that will name it',
   )
 
   // worktree.baseRef (checkout-and-branch-on-remote-create) is the ref the
@@ -798,9 +811,11 @@ async function testCreateMintsInMainWithNoWindow(): Promise<void> {
     folderPath: '/repo/a',
   })
   assert.equal(created.isError, undefined, 'creation no longer depends on a window being open')
-  const projection = (created.structuredContent as {
-    workspace: { id: string; name: string; folderPath: string | null; detail: string }
-  }).workspace
+  const projection = (
+    created.structuredContent as {
+      workspace: { id: string; name: string; folderPath: string | null; detail: string }
+    }
+  ).workspace
   assert.equal(projection.id, 'ws-created-1')
   assert.equal(projection.name, 'Created via automation')
   assert.equal(projection.folderPath, '/repo/a')
@@ -870,10 +885,9 @@ async function testTerminalCreateSpawnsAndReturnsTheAttachableSession(): Promise
     testWorkspace('ws-left', { name: 'Twin', folderPath: '/tmp/left' }),
     testWorkspace('ws-right', { name: 'Twin', folderPath: '/tmp/right' }),
   ]
-  const ambiguous = await tool(
-    createAutomationTools(backendsOf({ workspaces: twins })),
-    'terminal.create'
-  ).handler({ workspaceName: 'twin' })
+  const ambiguous = await tool(createAutomationTools(backendsOf({ workspaces: twins })), 'terminal.create').handler({
+    workspaceName: 'twin',
+  })
   assert.equal((ambiguous.structuredContent as { error: { code: string } }).error.code, 'ambiguous_workspace_name')
   assert.match(JSON.stringify(ambiguous.structuredContent), /ws-left/)
   assert.match(JSON.stringify(ambiguous.structuredContent), /ws-right/)
@@ -899,11 +913,14 @@ async function testWorkspaceCheckoutReportsTheBackendsFacts(): Promise<void> {
           git: true,
           branch: 'main',
           defaultBranch: 'main',
-          branches: [{ name: 'feat/x', current: false }, { name: 'main', current: true }],
+          branches: [
+            { name: 'feat/x', current: false },
+            { name: 'main', current: true },
+          ],
           worktrees: [{ path: '/tmp/project-a', branch: 'main', isMain: true }],
         }
       },
-    })
+    }),
   )
   const answer = await tool(tools, 'workspace.checkout').handler({ workspaceId: 'ws-1' })
   assert.equal(answer.isError, undefined, JSON.stringify(answer.structuredContent))
@@ -919,14 +936,21 @@ async function testWorkspaceCheckoutReportsTheBackendsFacts(): Promise<void> {
   assert.equal(facts.workspaceId, 'ws-1')
   assert.equal(facts.git, true)
   assert.equal(facts.branch, 'main')
-  assert.deepEqual(facts.branches.map((entry) => entry.name), ['feat/x', 'main'])
+  assert.deepEqual(
+    facts.branches.map((entry) => entry.name),
+    ['feat/x', 'main'],
+  )
   assert.equal(facts.worktrees[0]?.isMain, true)
 
   const noFolder = await tool(tools, 'workspace.checkout').handler({ workspaceId: 'ws-none' })
   assert.equal((noFolder.structuredContent as { error: { code: string } }).error.code, 'workspace_without_folder')
   const unknown = await tool(tools, 'workspace.checkout').handler({ workspaceId: 'ws-ghost' })
   assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_workspace')
-  assert.equal(isStudioGatewayMutation('workspace.checkout'), false, 'a read, on workspace:read — the worktree itself is agent.launch')
+  assert.equal(
+    isStudioGatewayMutation('workspace.checkout'),
+    false,
+    'a read, on workspace:read — the worktree itself is agent.launch',
+  )
 }
 
 async function testTerminalCreateTakesThisMachinesLaunchDefaults(): Promise<void> {
@@ -939,7 +963,7 @@ async function testTerminalCreateTakesThisMachinesLaunchDefaults(): Promise<void
   assert.equal(
     inherited.requests[0].cli,
     undefined,
-    'an unnamed CLI is left to the launch service, which reads the same settings store'
+    'an unnamed CLI is left to the launch service, which reads the same settings store',
   )
   assert.equal(inherited.requests[0].permissionPreset, 'auto', "this machine's preset, not a hardcoded one")
   assert.equal((ok.structuredContent as { permissionPreset: string }).permissionPreset, 'auto')
@@ -966,10 +990,7 @@ async function testTerminalCreateTakesThisMachinesLaunchDefaults(): Promise<void
     permissionPreset: 'bypass',
   })
   assert.equal(refused.isError, true)
-  assert.equal(
-    (refused.structuredContent as { error: { code: string } }).error.code,
-    'permission_preset_not_allowed'
-  )
+  assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
   assert.equal(asked.requests.length, 0, 'a refused preset never reaches the launch service')
 
   // Inherited: clamped to the most restrictive preset rather than refused — the
@@ -1023,7 +1044,7 @@ async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
         probe.once('error', reject)
       }),
     /ENOENT|ECONNREFUSED/,
-    'no listener before start'
+    'no listener before start',
   )
 
   await server.start()
@@ -1055,24 +1076,35 @@ async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
       }
     }
 
-    socket.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'sprintengine.studio/connect', params: { agentId: 'agent-a', workspaceId: 'ws-1' } })}\n`)
-    socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } })}\n`)
+    socket.write(
+      `${JSON.stringify({ jsonrpc: '2.0', method: 'sprintengine.studio/connect', params: { agentId: 'agent-a', workspaceId: 'ws-1' } })}\n`,
+    )
+    socket.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } })}\n`,
+    )
     socket.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'notifications/initialized' })}\n`)
     socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' })}\n`)
-    socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'workspace.list', arguments: {} } })}\n`)
+    socket.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: 3, method: 'tools/call', params: { name: 'workspace.list', arguments: {} } })}\n`,
+    )
     socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 4, method: 'tools/call', params: { name: 'bogus.tool' } })}\n`)
     socket.write(`${JSON.stringify({ jsonrpc: '2.0', id: 5, method: 'no/such/method' })}\n`)
     socket.write('this is not json\n')
     await waitForResponses(6)
 
     const byId = new Map(responses.map((response) => [response.id, response]))
-    const init = byId.get(1) as { result: { protocolVersion: string; serverInfo: { name: string }; capabilities: { tools: object } } }
+    const init = byId.get(1) as {
+      result: { protocolVersion: string; serverInfo: { name: string }; capabilities: { tools: object } }
+    }
     assert.equal(init.result.protocolVersion, '2025-03-26')
     assert.equal(init.result.serverInfo.name, 'multicode-automation')
     assert.ok(init.result.capabilities.tools)
 
     const tools = byId.get(2) as { result: { tools: Array<{ name: string }> } }
-    assert.deepEqual(tools.result.tools.map((entry) => entry.name), ['workspace.list'])
+    assert.deepEqual(
+      tools.result.tools.map((entry) => entry.name),
+      ['workspace.list'],
+    )
 
     const call = byId.get(3) as { result: { structuredContent: { workspaces: unknown[] } } }
     assert.deepEqual(call.result.structuredContent.workspaces, [])
@@ -1105,7 +1137,7 @@ async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
         probe.once('error', reject)
       }),
     /ENOENT|ECONNREFUSED/,
-    'no listener after stop'
+    'no listener after stop',
   )
 }
 
@@ -1118,10 +1150,7 @@ async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): P
   // have to be re-pointed here the moment we start serving it, and the subject of
   // this test is the downgrade rule, not any one version.
   const unsupported = '2099-01-01'
-  assert.ok(
-    !SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(unsupported),
-    'this test needs a version we do NOT serve'
-  )
+  assert.ok(!SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(unsupported), 'this test needs a version we do NOT serve')
   // The maximum rose to 2026-07-28 in the commit that earned it: handshake-optional
   // framing, per-request `_meta.protocolVersion`, and `ttlMs` (the two tests below).
   assert.equal(DEFAULT_MCP_PROTOCOL_VERSION, '2026-07-28', 'the declared default is the declared maximum')
@@ -1174,7 +1203,7 @@ async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): P
     await waitUntil('seven initialize responses', () => responses.length >= 7)
 
     const answered = new Map(
-      responses.map((response) => [response.id, (response.result as { protocolVersion: string }).protocolVersion])
+      responses.map((response) => [response.id, (response.result as { protocolVersion: string }).protocolVersion]),
     )
     assert.equal(answered.get(1), '2025-03-26', 'a supported version is answered with itself')
     assert.equal(answered.get(2), DEFAULT_MCP_PROTOCOL_VERSION, 'an unsupported version downgrades, never errors')
@@ -1182,7 +1211,11 @@ async function testInitializeNegotiatesTheProtocolVersionInsteadOfEchoingIt(): P
     assert.equal(answered.get(4), DEFAULT_MCP_PROTOCOL_VERSION, 'a non-string version answers the default')
     assert.equal(answered.get(5), '2026-07-28', 'the version this gateway now implements is answered with itself')
     assert.equal(answered.get(6), '2025-06-18', 'an unknown version downgrades to the newest we serve at or below it')
-    assert.equal(answered.get(7), '2024-11-05', 'a client older than everything we serve gets our oldest, not our newest')
+    assert.equal(
+      answered.get(7),
+      '2024-11-05',
+      'a client older than everything we serve gets our oldest, not our newest',
+    )
     assert.ok(!raw.includes(unsupported), 'the requested version must never come back to the caller')
 
     socket.destroy()
@@ -1264,7 +1297,10 @@ async function testToolsAnswerAConnectionThatNeverInitialized(): Promise<void> {
     const byId = new Map(client.responses.map((response) => [response.id, response]))
     const list = byId.get(1) as { error?: unknown; result: { tools: Array<{ name: string }>; ttlMs: number } }
     assert.equal(list.error, undefined, 'tools/list is not gated on a handshake')
-    assert.deepEqual(list.result.tools.map((entry) => entry.name), ['workspace.list'])
+    assert.deepEqual(
+      list.result.tools.map((entry) => entry.name),
+      ['workspace.list'],
+    )
     // ttlMs (SEP-2549): five minutes, because module enable/disable rewrites this
     // surface live and notifications/tools/list_changed rides the same socket.
     assert.equal(list.result.ttlMs, 300_000, 'tools/list carries a cache hint')
@@ -1357,7 +1393,10 @@ const BRIDGE_SCRIPT = join(process.cwd(), 'resources', 'automation', 'mcp-stdio-
 
 type BridgeExit = { code: number | null; stdoutLines: Array<Record<string, unknown>>; stderr: string }
 
-function spawnBridge(infoPath: string, env: NodeJS.ProcessEnv = process.env): {
+function spawnBridge(
+  infoPath: string,
+  env: NodeJS.ProcessEnv = process.env,
+): {
   child: ChildProcessWithoutNullStreams
   stdoutLines: Array<Record<string, unknown>>
   stderrChunks: string[]
@@ -1416,7 +1455,7 @@ async function testBridgePipesStdioToSocketAndExitsOnServerStop(): Promise<void>
   const bridge = spawnBridge(infoPath)
   try {
     bridge.child.stdin.write(
-      `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } })}\n`
+      `${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: '2025-03-26' } })}\n`,
     )
     bridge.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/list' })}\n`)
     await waitUntil('bridge responses', () => bridge.stdoutLines.length >= 2)
@@ -1425,7 +1464,10 @@ async function testBridgePipesStdioToSocketAndExitsOnServerStop(): Promise<void>
     const init = byId.get(1) as { result: { serverInfo: { name: string } } }
     assert.equal(init.result.serverInfo.name, 'multicode-automation')
     const tools = byId.get(2) as { result: { tools: Array<{ name: string }> } }
-    assert.deepEqual(tools.result.tools.map((entry) => entry.name), ['workspace.list'])
+    assert.deepEqual(
+      tools.result.tools.map((entry) => entry.name),
+      ['workspace.list'],
+    )
   } finally {
     // Server stop closes the socket; the bridge must exit cleanly, the way MCP
     // clients expect a server shutdown to look.
@@ -1444,16 +1486,19 @@ async function testConcurrentBridgesKeepResponsesAndAttributionIsolated(): Promi
     socketPath,
     serverName: 'sprintengine-studio',
     serverVersion: '0.0.0-test',
-    resolveTools: () => [{
-      name: 'agent.identity',
-      description: 'test attribution',
-      inputSchema: { type: 'object' },
-      handler: async (args, context) => {
-        if (typeof args.delayMs === 'number') await new Promise((resolve) => setTimeout(resolve, args.delayMs as number))
-        const agentId = context?.metadata.agentId ?? 'external-local'
-        return { content: [{ type: 'text', text: agentId }], structuredContent: { agentId } }
+    resolveTools: () => [
+      {
+        name: 'agent.identity',
+        description: 'test attribution',
+        inputSchema: { type: 'object' },
+        handler: async (args, context) => {
+          if (typeof args.delayMs === 'number')
+            await new Promise((resolve) => setTimeout(resolve, args.delayMs as number))
+          const agentId = context?.metadata.agentId ?? 'external-local'
+          return { content: [{ type: 'text', text: agentId }], structuredContent: { agentId } }
+        },
       },
-    }],
+    ],
   })
   await server.start()
   writeFileSync(infoPath, JSON.stringify({ socketPath, protocol: 'mcp-jsonrpc-ndjson', pid: process.pid }))
@@ -1463,11 +1508,22 @@ async function testConcurrentBridgesKeepResponsesAndAttributionIsolated(): Promi
     for (const bridge of [first, second]) {
       bridge.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} })}\n`)
     }
-    first.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'agent.identity', arguments: { delayMs: 40 } } })}\n`)
-    second.child.stdin.write(`${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'agent.identity', arguments: {} } })}\n`)
-    await waitUntil('two independent bridge responses', () => first.stdoutLines.length >= 2 && second.stdoutLines.length >= 2)
-    const firstCall = first.stdoutLines.find((response) => response.id === 2) as { result: { structuredContent: { agentId: string } } }
-    const secondCall = second.stdoutLines.find((response) => response.id === 2) as { result: { structuredContent: { agentId: string } } }
+    first.child.stdin.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'agent.identity', arguments: { delayMs: 40 } } })}\n`,
+    )
+    second.child.stdin.write(
+      `${JSON.stringify({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'agent.identity', arguments: {} } })}\n`,
+    )
+    await waitUntil(
+      'two independent bridge responses',
+      () => first.stdoutLines.length >= 2 && second.stdoutLines.length >= 2,
+    )
+    const firstCall = first.stdoutLines.find((response) => response.id === 2) as {
+      result: { structuredContent: { agentId: string } }
+    }
+    const secondCall = second.stdoutLines.find((response) => response.id === 2) as {
+      result: { structuredContent: { agentId: string } }
+    }
     assert.equal(firstCall.result.structuredContent.agentId, 'agent-first')
     assert.equal(secondCall.result.structuredContent.agentId, 'agent-second')
   } finally {
@@ -1495,7 +1551,7 @@ async function testBridgeReportsStaleDiscoveryFile(): Promise<void> {
   await new Promise<void>((resolve) => dead.once('exit', () => resolve()))
   writeFileSync(
     join(dir, 'automation-server-info.json'),
-    JSON.stringify({ socketPath: join(dir, 'gone.sock'), pid: dead.pid })
+    JSON.stringify({ socketPath: join(dir, 'gone.sock'), pid: dead.pid }),
   )
   const bridge = spawnBridge(join(dir, 'automation-server-info.json'))
   const exit = await bridge.exited
@@ -1533,7 +1589,7 @@ async function testReadToolsResolveWorkspaceRootThroughSnapshot(): Promise<void>
         seenRoots.push(root)
         return { ok: true, values: [] }
       },
-    })
+    }),
   )
 
   // Backlog reads default to the connection's own workspace — no id argument.
@@ -1541,9 +1597,7 @@ async function testReadToolsResolveWorkspaceRootThroughSnapshot(): Promise<void>
   assert.equal(listed.isError, undefined)
   assert.deepEqual(listed.structuredContent, {
     workspaceKey: 'MC',
-    items: [
-      { relativePath: 'backlog/2026-07-08-example.md', title: 'Example', id: 7, isEpic: false, status: 'ready' },
-    ],
+    items: [{ relativePath: 'backlog/2026-07-08-example.md', title: 'Example', id: 7, isEpic: false, status: 'ready' }],
   })
 
   const automations = await tool(tools, 'automation.list').handler({ workspaceId: 'ws-1' })
@@ -1587,25 +1641,22 @@ async function testBacklogRepairRoutesOnlyValidatedIntegrityOperations(): Promis
             ok: true,
             relativePath: input.relativePath,
             issue: input.issue,
-            ...(input.issue === 'duplicate_id'
-              ? { previousNumericId: 1741, numericId: 1744 }
-              : { replacements: 1 }),
+            ...(input.issue === 'duplicate_id' ? { previousNumericId: 1741, numericId: 1744 } : { replacements: 1 }),
           }
         },
       },
-    })
+    }),
   )
   const repair = tool(tools, 'backlog.repair')
-  const repaired = await repair.handler(
-    { path: 'backlog/example.md', issue: 'duplicate_id' },
-    agentContext('ws-1')
-  )
+  const repaired = await repair.handler({ path: 'backlog/example.md', issue: 'duplicate_id' }, agentContext('ws-1'))
   assert.equal(repaired.isError, undefined)
-  assert.deepEqual(repairs, [{
-    workspaceRoot: '/tmp/project-a',
-    relativePath: 'backlog/example.md',
-    issue: 'duplicate_id',
-  }])
+  assert.deepEqual(repairs, [
+    {
+      workspaceRoot: '/tmp/project-a',
+      relativePath: 'backlog/example.md',
+      issue: 'duplicate_id',
+    },
+  ])
   assert.deepEqual(repaired.structuredContent, {
     repaired: {
       ok: true,
@@ -1641,13 +1692,13 @@ async function testBacklogUpdateAppliesInOrderAndStopsOnFailure(): Promise<void>
           return { ok: true, store: { schemaVersion: 1, items: [] } }
         },
       },
-    })
+    }),
   )
   const update = tool(tools, 'backlog.update')
 
   const failed = await update.handler(
     { path: 'backlog/example.md', status: 'in_progress', type: 'feature', epic: null },
-    agentContext('ws-1')
+    agentContext('ws-1'),
   )
   assert.equal(failed.isError, true)
   assert.equal((failed.structuredContent as { error: { code: string } }).error.code, 'backlog_update_failed')
@@ -1673,18 +1724,18 @@ async function testBacklogUpdateCarriesTheEpicOrderingMark(): Promise<void> {
           return { ok: true, store: { schemaVersion: 1, items: [] } }
         },
       },
-    })
+    }),
   )
   const update = tool(tools, 'backlog.update')
 
   const marked = await update.handler(
     { path: 'backlog/epics/auth.md', dependenciesPlanned: true },
-    agentContext('ws-1')
+    agentContext('ws-1'),
   )
   assert.equal(marked.isError, undefined)
   const cleared = await update.handler(
     { path: 'backlog/epics/auth.md', dependenciesPlanned: false },
-    agentContext('ws-1')
+    agentContext('ws-1'),
   )
   assert.equal(cleared.isError, undefined)
   assert.deepEqual(marks, [true, false], 'the mark is written exactly as asserted, both ways')
@@ -1692,7 +1743,7 @@ async function testBacklogUpdateCarriesTheEpicOrderingMark(): Promise<void> {
   // It is an assertion, not a string: a stringy "true" is refused before any write.
   const stringy = await update.handler(
     { path: 'backlog/epics/auth.md', dependenciesPlanned: 'true' },
-    agentContext('ws-1')
+    agentContext('ws-1'),
   )
   assert.equal((stringy.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   assert.equal(marks.length, 2, 'an invalid mark never reaches the writer')
@@ -1715,7 +1766,7 @@ async function testBacklogAssignBuildsTheCanonicalLink(): Promise<void> {
           return { ok: true, store: { schemaVersion: 1, items: [] } }
         },
       },
-    })
+    }),
   )
   const assign = tool(tools, 'backlog.assign')
 
@@ -1737,7 +1788,7 @@ async function testBacklogAssignBuildsTheCanonicalLink(): Promise<void> {
   assert.equal(input.link.label, 'Agent: Paddy')
   assert.deepEqual(
     { kind: input.link.target.kind, id: input.link.target.id },
-    { kind: 'agent.terminal', id: 'ws-1/agent-7' }
+    { kind: 'agent.terminal', id: 'ws-1/agent-7' },
   )
 
   const unknownAgent = await assign.handler({ path: 'backlog/example.md', agentId: 'nope' }, agentContext('ws-1'))
@@ -1806,12 +1857,21 @@ async function testBacklogWorkHandsItemToAgent(): Promise<void> {
       name: 'Scout',
       instructions: 'Focus on the failing test first.',
     },
-    agentContext('ws-1')
+    agentContext('ws-1'),
   )
   assert.equal(worked.isError, undefined, JSON.stringify(worked.structuredContent))
-  const result = (worked.structuredContent as {
-    worked: { invocation: string; skillEnsured: boolean; assigned: boolean; agentId: string; relativePath: string; warning?: string }
-  }).worked
+  const result = (
+    worked.structuredContent as {
+      worked: {
+        invocation: string
+        skillEnsured: boolean
+        assigned: boolean
+        agentId: string
+        relativePath: string
+        warning?: string
+      }
+    }
+  ).worked
   assert.equal(result.invocation, '/backlog backlog/example.md', 'Claude plugin renders /backlog <path>')
   assert.equal(result.skillEnsured, true)
   assert.equal(result.assigned, true)
@@ -1849,7 +1909,7 @@ async function testBacklogWorkFallsBackAndRefusesFinishedItems(): Promise<void> 
   })
   const worked = await tool(fallback.tools, 'backlog.work').handler(
     { path: 'backlog/example.md', cli: 'mystery-cli' },
-    agentContext('ws-1')
+    agentContext('ws-1'),
   )
   assert.equal(worked.isError, undefined, JSON.stringify(worked.structuredContent))
   const invocation = (worked.structuredContent as { worked: { invocation: string } }).worked.invocation
@@ -1862,7 +1922,10 @@ async function testBacklogWorkFallsBackAndRefusesFinishedItems(): Promise<void> 
   // completed and archived items are refused and never launched.
   for (const [item, path] of [
     [{ relativePath: 'backlog/done.md', title: 'D', isEpic: false, status: 'completed' as const }, 'backlog/done.md'],
-    [{ relativePath: 'backlog/archived/old.md', title: 'O', isEpic: false, status: 'ready' as const }, 'backlog/archived/old.md'],
+    [
+      { relativePath: 'backlog/archived/old.md', title: 'O', isEpic: false, status: 'ready' as const },
+      'backlog/archived/old.md',
+    ],
   ] as const) {
     const refuse = launchHarness({ readBacklogItem: async () => ({ ok: true, item, body: '' }) })
     const refused = await tool(refuse.tools, 'backlog.work').handler({ path }, agentContext('ws-1'))
@@ -1888,7 +1951,7 @@ async function testBacklogWorkPresetGuardAndPostLaunchLinkFailure(): Promise<voi
   })
   const refused = await tool(bypass.tools, 'backlog.work').handler(
     { path: 'backlog/example.md', permissionPreset: 'bypass' },
-    agentContext('ws-1')
+    agentContext('ws-1'),
   )
   assert.equal((refused.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
   assert.equal(bypass.requests.length, 0, 'a refused preset never launches')
@@ -1908,12 +1971,14 @@ async function testBacklogWorkPresetGuardAndPostLaunchLinkFailure(): Promise<voi
   })
   const worked = await tool(linkFail.tools, 'backlog.work').handler(
     { path: 'backlog/example.md', cli: 'claude-code' },
-    agentContext('ws-1')
+    agentContext('ws-1'),
   )
   assert.equal(worked.isError, undefined, 'a post-launch link failure is not overall failure')
-  const result = (worked.structuredContent as {
-    worked: { assigned: boolean; warning?: string; skillEnsured: boolean; agentId: string }
-  }).worked
+  const result = (
+    worked.structuredContent as {
+      worked: { assigned: boolean; warning?: string; skillEnsured: boolean; agentId: string }
+    }
+  ).worked
   assert.equal(result.assigned, false)
   assert.equal(result.skillEnsured, false, 'a non-fatal skill-ensure failure rides skillEnsured')
   assert.match(result.warning ?? '', /read-only/)
@@ -1934,16 +1999,24 @@ async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void>
         },
         // No MCP tool edits a definition (create + run only), so an update here
         // would mean the surface grew: refuse rather than fake a success.
-        updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
+        updateDefinition: async () => ({
+          ok: false,
+          code: 'not_stubbed',
+          message: 'No automation tool updates definitions.',
+        }),
         // Nor does any MCP tool install a marketplace automation — that is the
         // marketplace install path's door, reached from the app, not from a tool.
-        installCatalogueDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool installs catalogue automations.' }),
+        installCatalogueDefinition: async () => ({
+          ok: false,
+          code: 'not_stubbed',
+          message: 'No automation tool installs catalogue automations.',
+        }),
         runNow: async (input) => {
           ran.push(input)
           return { ok: true, value: { definition: { id: 'auto-1' }, run: { runId: 'run-1' } } as never }
         },
       }),
-    })
+    }),
   )
 
   const definition = {
@@ -1969,15 +2042,12 @@ async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void>
     },
   })
   assert.equal(bypass.isError, true)
-  assert.equal(
-    (bypass.structuredContent as { error: { code: string } }).error.code,
-    'permission_preset_not_allowed'
-  )
+  assert.equal((bypass.structuredContent as { error: { code: string } }).error.code, 'permission_preset_not_allowed')
   assert.equal(created.length, 1, 'the refused draft never reached the front door')
 
   // Module disabled/not loaded ⇒ explicit failure, never buffering.
   const withoutModule = createAutomationTools(
-    backendsOf({ workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })] })
+    backendsOf({ workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })] }),
   )
   for (const [name, args] of [
     ['automation.create', { workspaceId: 'ws-1', definition }],
@@ -1985,10 +2055,7 @@ async function testAutomationMutationToolsGateOnPresetAndModule(): Promise<void>
   ] as const) {
     const result = await tool(withoutModule, name).handler(args as Record<string, unknown>)
     assert.equal(result.isError, true)
-    assert.equal(
-      (result.structuredContent as { error: { code: string } }).error.code,
-      'automations_module_unavailable'
-    )
+    assert.equal((result.structuredContent as { error: { code: string } }).error.code, 'automations_module_unavailable')
   }
 }
 
@@ -2007,13 +2074,21 @@ async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> 
           created.push(input)
           return { ok: true, value: { id: 'auto-1', name: 'Nightly' } as never }
         },
-        updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
+        updateDefinition: async () => ({
+          ok: false,
+          code: 'not_stubbed',
+          message: 'No automation tool updates definitions.',
+        }),
         // Nor does any MCP tool install a marketplace automation — that is the
         // marketplace install path's door, reached from the app, not from a tool.
-        installCatalogueDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool installs catalogue automations.' }),
+        installCatalogueDefinition: async () => ({
+          ok: false,
+          code: 'not_stubbed',
+          message: 'No automation tool installs catalogue automations.',
+        }),
         runNow: async () => ({ ok: false, code: 'not_stubbed', message: 'Not exercised here.' }),
       }),
-    })
+    }),
   )
 
   // The advertised vocabulary is the boundary: two members, bypass absent,
@@ -2038,7 +2113,10 @@ async function testBypassStaysRefusedAtTheExternalToolBoundary(): Promise<void> 
       action: { kind: 'spawn-agent', config: { prompt: 'do it', permissionPreset: 'bypass' } },
     },
   })
-  for (const [surface, refusal] of [['agent.launch', launchRefusal], ['automation.create', createRefusal]] as const) {
+  for (const [surface, refusal] of [
+    ['agent.launch', launchRefusal],
+    ['automation.create', createRefusal],
+  ] as const) {
     const error = (refusal.structuredContent as { error: { code: string; message: string } }).error
     assert.equal(refusal.isError, true, `${surface} refuses bypass`)
     assert.equal(error.code, 'permission_preset_not_allowed', `${surface} refuses with its own code`)
@@ -2131,14 +2209,26 @@ async function testAutomationMutationToolsPassPipelineFailuresThrough(): Promise
     backendsOf({
       workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
       getAutomationsFrontDoor: () => ({
-        createDefinition: async () => ({ ok: false, code: 'workspace_root_untrusted', message: 'Folder is not an open workspace.' }),
-        updateDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool updates definitions.' }),
+        createDefinition: async () => ({
+          ok: false,
+          code: 'workspace_root_untrusted',
+          message: 'Folder is not an open workspace.',
+        }),
+        updateDefinition: async () => ({
+          ok: false,
+          code: 'not_stubbed',
+          message: 'No automation tool updates definitions.',
+        }),
         // Nor does any MCP tool install a marketplace automation — that is the
         // marketplace install path's door, reached from the app, not from a tool.
-        installCatalogueDefinition: async () => ({ ok: false, code: 'not_stubbed', message: 'No automation tool installs catalogue automations.' }),
+        installCatalogueDefinition: async () => ({
+          ok: false,
+          code: 'not_stubbed',
+          message: 'No automation tool installs catalogue automations.',
+        }),
         runNow: async () => ({ ok: false, code: 'unsupported_trigger', message: 'Run now needs a schedule trigger.' }),
       }),
-    })
+    }),
   )
   const created = await tool(tools, 'automation.create').handler({
     workspaceId: 'ws-1',
@@ -2208,11 +2298,14 @@ async function testCliRuntimeListReportsTheRegistry(): Promise<void> {
 
   const listed = await tool(tools, 'cli.runtime.list').handler({})
   const clis = (listed.structuredContent as { clis: Array<Record<string, unknown>> }).clis
-  assert.deepEqual(clis.map((entry) => entry.id), ['claude-code', 'plain-cli', 'hook-cli'])
+  assert.deepEqual(
+    clis.map((entry) => entry.id),
+    ['claude-code', 'plain-cli', 'hook-cli'],
+  )
   assert.deepEqual(
     clis.map((entry) => entry.agentSelectable),
     [false, false, true],
-    'agentSelectable mirrors agentStateSpec presence — marked, never omitted'
+    'agentSelectable mirrors agentStateSpec presence — marked, never omitted',
   )
   assert.deepEqual(clis[0].models, [{ id: 'claude-opus-5', label: 'Opus 5' }, { id: 'claude-sonnet-5' }])
   assert.equal(clis[0].allowCustomModelId, true)
@@ -2227,7 +2320,7 @@ async function testCliRuntimeListReportsTheRegistry(): Promise<void> {
   const one = await tool(tools, 'cli.runtime.list').handler({ cli: 'plain-cli' })
   assert.deepEqual(
     (one.structuredContent as { clis: Array<{ id: string }> }).clis.map((entry) => entry.id),
-    ['plain-cli']
+    ['plain-cli'],
   )
 
   // An unknown id fails rather than answering an empty list a caller would read
@@ -2241,12 +2334,15 @@ async function testReadToolsPassServiceFailuresThrough(): Promise<void> {
   const tools = createAutomationTools(
     backendsOf({
       workspaces: [testWorkspace('ws-1', { folderPath: '/tmp/project-a' })],
-      readBacklogItem: async () => ({ ok: false, message: 'Backlog item backlog/gone.md does not exist in this workspace.' }),
+      readBacklogItem: async () => ({
+        ok: false,
+        message: 'Backlog item backlog/gone.md does not exist in this workspace.',
+      }),
       listAutomationRuns: async () => ({
         ok: false,
         errors: [{ code: 'io_error', message: 'runs folder unreadable' } as never],
       }),
-    })
+    }),
   )
 
   const read = await tool(tools, 'backlog.read').handler({ path: 'backlog/gone.md' }, agentContext('ws-1'))
@@ -2278,7 +2374,10 @@ async function testStudioGatewayRejectsDuplicatesAndClassifiesMutations(): Promi
     resolveModuleTools: () => [],
     isModuleEnabled: () => true,
   })()
-  assert.deepEqual(tools.map((entry) => entry.name), ['workspace.list'])
+  assert.deepEqual(
+    tools.map((entry) => entry.name),
+    ['workspace.list'],
+  )
 
   assert.throws(
     () =>
@@ -2287,7 +2386,7 @@ async function testStudioGatewayRejectsDuplicatesAndClassifiesMutations(): Promi
         resolveModuleTools: () => [],
         isModuleEnabled: () => true,
       }),
-    /Duplicate SprintEngine Studio MCP tool/
+    /Duplicate SprintEngine Studio MCP tool/,
   )
   assert.equal(isStudioGatewayMutation('backlog.update'), true)
   assert.equal(isStudioGatewayMutation('backlog.repair'), true)
@@ -2337,17 +2436,17 @@ async function testStudioGatewayRejectsDuplicatesAndClassifiesMutations(): Promi
   assert.equal(
     isStudioGatewayMutation('widget_write'),
     false,
-    'without a resolver only the core tables answer — nothing is invented'
+    'without a resolver only the core tables answer — nothing is invented',
   )
   assert.equal(
     requiredScopeForTool('widget_write', isStudioGatewayMutation('widget_write', resolveWidgetTools)),
     'workspace:operate',
-    'a declared write needs the operate scope a remote device must be granted'
+    'a declared write needs the operate scope a remote device must be granted',
   )
   assert.equal(
     requiredScopeForTool('widget_read', isStudioGatewayMutation('widget_read', resolveWidgetTools)),
     'workspace:read',
-    'and an undeclared one stays on the read scope'
+    'and an undeclared one stays on the read scope',
   )
 }
 
@@ -2403,7 +2502,7 @@ async function testModuleMcpToolContributionOwnershipAndCollisions(): Promise<vo
   assert.equal(
     served.some((registration) => registration.name === 'second_owner_extra'),
     false,
-    'a rejected batch registers nothing, not half'
+    'a rejected batch registers nothing, not half',
   )
   assert.deepEqual(warnings, [], 'a kernel-rejected collision never reaches the gateway merge')
 
@@ -2414,7 +2513,11 @@ async function testModuleMcpToolContributionOwnershipAndCollisions(): Promise<vo
   const resolveShadowed = createStudioGatewayTools({
     appTools: [coreTool],
     resolveModuleTools: () => [
-      { moduleId: 'first-owner', moduleDisplayName: 'first-owner', registration: registrationOf('workspace.list', 'shadow') },
+      {
+        moduleId: 'first-owner',
+        moduleDisplayName: 'first-owner',
+        registration: registrationOf('workspace.list', 'shadow'),
+      },
     ],
     isModuleEnabled: () => true,
     warn: (text) => shadowWarnings.push(text),
@@ -2493,7 +2596,11 @@ async function testModuleContributedToolIsLiveOnAConnectedSession(): Promise<voi
         newline = buffer.indexOf('\n')
       }
     })
-    const call = async (id: number, method: string, params?: Record<string, unknown>): Promise<Record<string, unknown>> => {
+    const call = async (
+      id: number,
+      method: string,
+      params?: Record<string, unknown>,
+    ): Promise<Record<string, unknown>> => {
       socket.write(`${JSON.stringify({ jsonrpc: '2.0', id, method, ...(params ? { params } : {}) })}\n`)
       const deadline = Date.now() + 5_000
       while (!responses.has(id)) {
@@ -2504,25 +2611,30 @@ async function testModuleContributedToolIsLiveOnAConnectedSession(): Promise<voi
     }
 
     // A Studio-launched agent's bridge announces itself, then lists.
-    socket.write(`${JSON.stringify({ jsonrpc: '2.0', method: 'sprintengine.studio/connect', params: { agentId: 'agent-a', workspaceId: 'ws-1' } })}\n`)
+    socket.write(
+      `${JSON.stringify({ jsonrpc: '2.0', method: 'sprintengine.studio/connect', params: { agentId: 'agent-a', workspaceId: 'ws-1' } })}\n`,
+    )
     const listed = await call(1, 'tools/list')
     const names = (listed.result as { tools: Array<{ name: string; description: string }> }).tools
     const contributed = names.find((entry) => entry.name === 'weather_deck_forecast')
     assert.ok(contributed, 'the module tool is listed to a live session alongside the core tools')
     assert.equal(contributed.description, 'Forecast from the fixture module.')
-    assert.ok(names.some((entry) => entry.name === 'workspace.list'), 'core tools are still served')
+    assert.ok(
+      names.some((entry) => entry.name === 'workspace.list'),
+      'core tools are still served',
+    )
     // The discovery tool is only useful if a connected agent can actually see
     // it, so prove it on the same live listing rather than in isolation.
     assert.ok(
       names.some((entry) => entry.name === 'cli.runtime.list'),
-      'cli.runtime.list reaches the connected session that needs it'
+      'cli.runtime.list reaches the connected session that needs it',
     )
 
     const answered = await call(2, 'tools/call', { name: 'weather_deck_forecast', arguments: { city: 'Dublin' } })
     assert.deepEqual(
       (answered.result as { structuredContent: Record<string, unknown> }).structuredContent,
       { city: 'Dublin', sky: 'clear' },
-      'the module handler runs for the connected session'
+      'the module handler runs for the connected session',
     )
 
     // Disabling the owner mid-session keeps the tool ADVERTISED and answers an
@@ -2531,11 +2643,16 @@ async function testModuleContributedToolIsLiveOnAConnectedSession(): Promise<voi
     moduleEnabled = false
     const relisted = await call(3, 'tools/list')
     assert.ok(
-      (relisted.result as { tools: Array<{ name: string }> }).tools.some((entry) => entry.name === 'weather_deck_forecast'),
-      'a disabled module keeps advertising its capability'
+      (relisted.result as { tools: Array<{ name: string }> }).tools.some(
+        (entry) => entry.name === 'weather_deck_forecast',
+      ),
+      'a disabled module keeps advertising its capability',
     )
     const refused = await call(4, 'tools/call', { name: 'weather_deck_forecast', arguments: {} })
-    const refusal = refused.result as { isError?: boolean; structuredContent: { error: { code: string; message: string } } }
+    const refusal = refused.result as {
+      isError?: boolean
+      structuredContent: { error: { code: string; message: string } }
+    }
     assert.equal(refusal.isError, true)
     assert.equal(refusal.structuredContent.error.code, 'weather-deck_module_disabled')
     assert.match(refusal.structuredContent.error.message, /Weather Deck module is disabled/)
@@ -2592,7 +2709,7 @@ async function testStudioGatewayAuditIsRedactedAndRotated(): Promise<void> {
 
 function registryEntry(
   manifest: CapabilityManifest,
-  overrides: Partial<ModuleRegistryEntry> = {}
+  overrides: Partial<ModuleRegistryEntry> = {},
 ): ModuleRegistryEntry {
   return {
     id: manifest.id,
@@ -2607,7 +2724,7 @@ function registryEntry(
 
 function registrySnapshot(
   modules: ModuleRegistryEntry[],
-  channel: ModuleRegistrySnapshot['channel'] = 'development'
+  channel: ModuleRegistrySnapshot['channel'] = 'development',
 ): ModuleRegistrySnapshot {
   return { capturedAt: Date.parse('2026-08-06T10:00:00Z'), channel, modules }
 }
@@ -2615,7 +2732,7 @@ function registrySnapshot(
 function installedModuleView(
   id: string,
   trust: ThirdPartyModuleView['trust'],
-  launch: Partial<ThirdPartyModuleView['launch']> = {}
+  launch: Partial<ThirdPartyModuleView['launch']> = {},
 ): ThirdPartyModuleView {
   return {
     manifest: { id, displayName: `Module ${id}`, version: 3, defaultEnabled: true, source: 'third-party' },
@@ -2640,22 +2757,20 @@ async function testModuleToolsReportTheRegistryTheUserSees(): Promise<void> {
           ...EMPTY_MODULE_SURFACES,
           globalSurfaces: ['backlog'],
         },
-      }
+      },
     ),
     registryEntry(
       { id: 'git', displayName: 'Git panel', version: 1, defaultEnabled: true },
-      { enabled: false, absence: { reason: 'disabled', message: 'Module "git" is not enabled (Settings → Modules).' } }
+      { enabled: false, absence: { reason: 'disabled', message: 'Module "git" is not enabled (Settings → Modules).' } },
     ),
-    registryEntry(
-      {
-        id: 'weather',
-        displayName: 'Weather',
-        version: 2,
-        defaultEnabled: true,
-        source: 'third-party',
-        permissions: ['workspace.read'],
-      }
-    ),
+    registryEntry({
+      id: 'weather',
+      displayName: 'Weather',
+      version: 2,
+      defaultEnabled: true,
+      source: 'third-party',
+      permissions: ['workspace.read'],
+    }),
   ])
   const tools = createAutomationTools(
     backendsOf({
@@ -2670,17 +2785,26 @@ async function testModuleToolsReportTheRegistryTheUserSees(): Promise<void> {
         rejected: [],
       }),
       listModuleContributedTools: () => [{ moduleId: 'weather', toolName: 'weather.forecast' }],
-    })
+    }),
   )
 
   const listed = await tool(tools, 'module.list').handler({})
-  const modules = (listed.structuredContent as {
-    modules: Array<{ id: string; source: string; enabled: boolean; installed: boolean; absence: { reason: string } | null; trust?: string }>
-  }).modules
+  const modules = (
+    listed.structuredContent as {
+      modules: Array<{
+        id: string
+        source: string
+        enabled: boolean
+        installed: boolean
+        absence: { reason: string } | null
+        trust?: string
+      }>
+    }
+  ).modules
   assert.deepEqual(
     modules.map((module) => module.id).sort(),
     ['backlog', 'git', 'sketchy', 'weather'],
-    'every module the user could see is listed, including an installed-but-untrusted one'
+    'every module the user could see is listed, including an installed-but-untrusted one',
   )
   const git = modules.find((module) => module.id === 'git')
   assert.equal(git?.enabled, false)
@@ -2693,29 +2817,36 @@ async function testModuleToolsReportTheRegistryTheUserSees(): Promise<void> {
   assert.equal(
     modules.find((module) => module.id === 'weather')?.trust,
     'trusted',
-    'main-owned trust rides along for a loaded third-party module'
+    'main-owned trust rides along for a loaded third-party module',
   )
 
   const thirdParty = await tool(tools, 'module.list').handler({ source: 'third-party' })
   assert.deepEqual(
     (thirdParty.structuredContent as { modules: Array<{ id: string }> }).modules.map((module) => module.id).sort(),
-    ['sketchy', 'weather']
+    ['sketchy', 'weather'],
   )
   const enabledOnly = await tool(tools, 'module.list').handler({ enabled: true })
   assert.deepEqual(
     (enabledOnly.structuredContent as { modules: Array<{ id: string }> }).modules.map((module) => module.id),
-    ['backlog', 'weather']
+    ['backlog', 'weather'],
   )
   assert.equal(
     (await tool(tools, 'module.list').handler({ source: 'nope' })).isError,
     true,
-    'an unknown source is rejected rather than filtered to nothing'
+    'an unknown source is rejected rather than filtered to nothing',
   )
 
   const status = await tool(tools, 'module.status').handler({ id: 'backlog' })
-  const detail = (status.structuredContent as {
-    module: { manifest: { id: string }; dependsOn: string[]; surfaces: { globalSurfaces: string[] }; contributedTools: string[] }
-  }).module
+  const detail = (
+    status.structuredContent as {
+      module: {
+        manifest: { id: string }
+        dependsOn: string[]
+        surfaces: { globalSurfaces: string[] }
+        contributedTools: string[]
+      }
+    }
+  ).module
   assert.equal(detail.manifest.id, 'backlog')
   assert.deepEqual(detail.dependsOn, ['agent-runtime'])
   assert.deepEqual(detail.surfaces.globalSurfaces, ['backlog'], 'contributed surfaces are reported, not guessed')
@@ -2727,16 +2858,18 @@ async function testModuleToolsReportTheRegistryTheUserSees(): Promise<void> {
       ...(weatherStatus.structuredContent as { module: Record<string, unknown> }).module,
       contributedTools: ['weather.forecast'],
       permissions: ['workspace.read'],
-    }
+    },
   )
 
   // An installed-but-untrusted module still reports its own manifest — the
   // declared permissions are what a caller reads BEFORE deciding to trust it —
   // and null surfaces, because it registered nothing.
   const untrusted = await tool(tools, 'module.status').handler({ id: 'sketchy' })
-  const untrustedDetail = (untrusted.structuredContent as {
-    module: { manifest: { id: string } | null; surfaces: unknown; absence: { reason: string }; trust: string }
-  }).module
+  const untrustedDetail = (
+    untrusted.structuredContent as {
+      module: { manifest: { id: string } | null; surfaces: unknown; absence: { reason: string }; trust: string }
+    }
+  ).module
   assert.equal(untrustedDetail.manifest?.id, 'sketchy')
   assert.equal(untrustedDetail.surfaces, null, 'a module that never loaded contributes nothing')
   assert.equal(untrustedDetail.absence.reason, 'untrusted')
@@ -2785,12 +2918,18 @@ async function testModuleStatusAgreesWithTheToolsTheGatewayServes(): Promise<voi
             manifest,
             moduleEnabled
               ? {}
-              : { enabled: false, absence: { reason: 'disabled', message: 'Module "weather-deck" is not enabled (Settings -> Modules).' } }
+              : {
+                  enabled: false,
+                  absence: {
+                    reason: 'disabled',
+                    message: 'Module "weather-deck" is not enabled (Settings -> Modules).',
+                  },
+                },
           ),
         ]),
       listModuleContributedTools: () =>
         kernel.mcpToolRegistrations().map((entry) => ({ moduleId: entry.moduleId, toolName: entry.registration.name })),
-    })
+    }),
   )
   const server = createMcpSocketServer({
     socketPath,
@@ -2798,7 +2937,7 @@ async function testModuleStatusAgreesWithTheToolsTheGatewayServes(): Promise<voi
     serverVersion: '0.0.0-test',
     resolveTools: createStudioGatewayTools({
       appTools,
-        resolveModuleTools: () => kernel.mcpToolRegistrations(),
+      resolveModuleTools: () => kernel.mcpToolRegistrations(),
       isModuleEnabled: () => moduleEnabled,
     }),
   })
@@ -2850,9 +2989,7 @@ async function testModuleStatusAgreesWithTheToolsTheGatewayServes(): Promise<voi
     // What the session is actually served, minus everything core owns: whatever
     // is left is this module's, and is what module.status must name.
     const coreNames = new Set(createAutomationTools(backendsOf()).map((entry) => entry.name))
-    const servedByModule = (
-      (await rpc('tools/list')) as { result: { tools: Array<{ name: string }> } }
-    ).result.tools
+    const servedByModule = ((await rpc('tools/list')) as { result: { tools: Array<{ name: string }> } }).result.tools
       .map((entry) => entry.name)
       .filter((name) => !coreNames.has(name))
     assert.deepEqual(servedByModule, ['weather_deck_forecast'], 'the session is served exactly one module tool')
@@ -2863,7 +3000,7 @@ async function testModuleStatusAgreesWithTheToolsTheGatewayServes(): Promise<voi
     assert.deepEqual(
       status.module.contributedTools,
       servedByModule,
-      'module.status names the tools the gateway is really serving, read off this session'
+      'module.status names the tools the gateway is really serving, read off this session',
     )
     assert.equal(status.module.absence, null, 'and reports the module as present while it is serving them')
 
@@ -2880,7 +3017,7 @@ async function testModuleStatusAgreesWithTheToolsTheGatewayServes(): Promise<voi
     assert.equal(
       disabled.module.absence?.reason,
       'disabled',
-      'module.status and the gateway agree about enablement at the same instant'
+      'module.status and the gateway agree about enablement at the same instant',
     )
     const listedRow = (
       (await callTool('module.list')) as { modules: Array<{ id: string; enabled: boolean }> }
@@ -2901,9 +3038,9 @@ async function testDevOnlyModulesAreAbsentFromAPackagedBuild(): Promise<void> {
       getModuleRegistrySnapshot: () =>
         registrySnapshot(
           [registryEntry({ id: 'backlog', displayName: 'Backlog', version: 1, defaultEnabled: true })],
-          'production'
+          'production',
         ),
-    })
+    }),
   )
   const listed = await tool(tools, 'module.list').handler({})
   const listedIds = (listed.structuredContent as { modules: Array<{ id: string }> }).modules.map((m) => m.id)
@@ -2927,7 +3064,7 @@ async function testModuleToolsRefuseBeforeTheRegistryArrives(): Promise<void> {
     assert.equal(
       (answered.structuredContent as { error: { code: string } }).error.code,
       'module_registry_unavailable',
-      `${name} never reports an empty registry as fact`
+      `${name} never reports an empty registry as fact`,
     )
   }
 }
@@ -2975,7 +3112,7 @@ async function testMarketplaceListReadsTheSameIndexTheDoorReads(): Promise<void>
           marketplace,
         }
       },
-    })
+    }),
   )
 
   const all = await tool(tools, 'marketplace.list').handler({})
@@ -2993,19 +3130,19 @@ async function testMarketplaceListReadsTheSameIndexTheDoorReads(): Promise<void>
   assert.deepEqual(
     (modulesOnly.structuredContent as { plugins: Array<{ id: string }> }).plugins.map((plugin) => plugin.id),
     ['weather-module'],
-    'the module-first facet is a provides filter over the same index'
+    'the module-first facet is a provides filter over the same index',
   )
   const searched = await tool(tools, 'marketplace.list').handler({ query: 'RAILWAY' })
   assert.deepEqual(
     (searched.structuredContent as { plugins: Array<{ id: string }> }).plugins.map((plugin) => plugin.id),
-    ['railway-mcp']
+    ['railway-mcp'],
   )
   await tool(tools, 'marketplace.list').handler({ forceRefresh: true })
   assert.deepEqual(reads, [undefined, undefined, undefined, { forceRefresh: true }])
   assert.equal(
     (await tool(tools, 'marketplace.list').handler({ provides: 'widgets' })).isError,
     true,
-    'an unknown component kind is rejected'
+    'an unknown component kind is rejected',
   )
 
   const offline = createAutomationTools(
@@ -3017,7 +3154,7 @@ async function testMarketplaceListReadsTheSameIndexTheDoorReads(): Promise<void>
         stale: false,
         message: 'network unreachable',
       }),
-    })
+    }),
   )
   const failed = await tool(offline, 'marketplace.list').handler({})
   assert.equal(failed.isError, true)
@@ -3041,7 +3178,7 @@ async function testModuleAndMarketplaceToolsAreReadOnly(): Promise<void> {
   assert.equal(
     tools.some((registration) => /^module\.(install|uninstall|enable|disable)$/.test(registration.name)),
     false,
-    'no module mutation reached this surface'
+    'no module mutation reached this surface',
   )
 }
 
@@ -3066,7 +3203,7 @@ async function testMobileSnapshotToolServesTheCompanionReadModel(): Promise<void
           throw new Error('not under test')
         },
       },
-    })
+    }),
   )
 
   const full = await tool(tools, 'workspace.snapshot').handler({ include: ['automations', 'backlog'] })
@@ -3115,7 +3252,7 @@ async function testMobileCommandToolDispatchesOnlyTheServedEnvelopes(): Promise<
           }
         },
       },
-    })
+    }),
   )
   const reg = tool(tools, 'workspace.mobile_command')
 
@@ -3126,7 +3263,7 @@ async function testMobileCommandToolDispatchesOnlyTheServedEnvelopes(): Promise<
       payload: { workspacePath: 'ws_abc123', relativePath: 'backlog/x.md', status: 'ready' },
       idempotencyKey: 'idem-1',
     },
-    { metadata: { kind: 'remote-tailnet', deviceId: 'tnd_phone' } }
+    { metadata: { kind: 'remote-tailnet', deviceId: 'tnd_phone' } },
   )
   assert.equal(ok.isError, undefined)
   assert.equal((ok.structuredContent as { ok: boolean }).ok, true)
@@ -3134,8 +3271,12 @@ async function testMobileCommandToolDispatchesOnlyTheServedEnvelopes(): Promise<
 
   // Backend refusals surface as tool errors with the backend's own code.
   const refusedByBackend = await reg.handler(
-    { type: 'backlog.update', payload: { workspacePath: 'ws_zzz', relativePath: 'backlog/x.md', status: 'ready' }, idempotencyKey: 'idem-2' },
-    { metadata: { kind: 'remote-tailnet', deviceId: 'tnd_phone' } }
+    {
+      type: 'backlog.update',
+      payload: { workspacePath: 'ws_zzz', relativePath: 'backlog/x.md', status: 'ready' },
+      idempotencyKey: 'idem-2',
+    },
+    { metadata: { kind: 'remote-tailnet', deviceId: 'tnd_phone' } },
   )
   assert.equal(refusedByBackend.isError, true)
   assert.match(JSON.stringify(refusedByBackend.structuredContent), /path_not_allowed/u)

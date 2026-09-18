@@ -39,7 +39,10 @@ function assertFitRunsWhenVisibleAndIdle(): void {
 function assertHiddenContainerParksFitUntilReveal(): void {
   const fits: number[] = []
   let visible = false
-  const scheduler = createTerminalFitScheduler(() => fits.push(1), container(() => visible))
+  const scheduler = createTerminalFitScheduler(
+    () => fits.push(1),
+    container(() => visible),
+  )
 
   scheduler.requestFit()
   scheduler.requestFit()
@@ -106,7 +109,10 @@ function assertSidebarAnimationDefersFitUntilLanding(): void {
 function assertDisposeDropsListeners(): void {
   const fits: number[] = []
   let visible = false
-  const scheduler = createTerminalFitScheduler(() => fits.push(1), container(() => visible))
+  const scheduler = createTerminalFitScheduler(
+    () => fits.push(1),
+    container(() => visible),
+  )
 
   scheduler.requestFit()
   scheduler.dispose()

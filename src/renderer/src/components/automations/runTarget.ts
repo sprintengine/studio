@@ -90,10 +90,22 @@ export function scheduledRunNotification(
   // field), so every line sends the reader to the run rather than guessing for them.
   const copy =
     event.status === 'failed'
-      ? { level: 'error' as const, title: 'Automation failed', message: 'This scheduled run did not finish. Open it to see what stopped it.' }
+      ? {
+          level: 'error' as const,
+          title: 'Automation failed',
+          message: 'This scheduled run did not finish. Open it to see what stopped it.',
+        }
       : event.status === 'blocked'
-        ? { level: 'warning' as const, title: 'Automation blocked', message: 'This scheduled run is blocked and cannot continue. Open it to see why.' }
-        : { level: 'info' as const, title: 'Automation finished', message: 'This scheduled run finished. Open it to see what it did.' }
+        ? {
+            level: 'warning' as const,
+            title: 'Automation blocked',
+            message: 'This scheduled run is blocked and cannot continue. Open it to see why.',
+          }
+        : {
+            level: 'info' as const,
+            title: 'Automation finished',
+            message: 'This scheduled run finished. Open it to see what it did.',
+          }
   return {
     level: copy.level,
     source: 'automations',

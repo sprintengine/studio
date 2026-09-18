@@ -63,10 +63,7 @@ export type GrowthRates = {
 
 // Sum each process kind across all instances (there can be several renderers /
 // utilities). Totals are the headline; per-kind drives the sparklines.
-export function deriveMetricsSample(
-  snapshot: ProcessMetricsSnapshot,
-  heap: RendererHeap | null
-): MetricsSample {
+export function deriveMetricsSample(snapshot: ProcessMetricsSnapshot, heap: RendererHeap | null): MetricsSample {
   let rendererCpuPercent = 0
   let rendererRssBytes = 0
   let mainCpuPercent = 0
@@ -121,7 +118,7 @@ export function diffMetricsSamples(baseline: MetricsSample, current: MetricsSamp
 // steady workload is the leak signal. First-vs-last keeps it cheap and obvious.
 export function computeGrowthRates(
   input: readonly MetricsSample[],
-  options: { windowMs?: number; now?: number } = {}
+  options: { windowMs?: number; now?: number } = {},
 ): GrowthRates {
   const now = options.now ?? Date.now()
   const windowMs = options.windowMs ?? GROWTH_WINDOW_MS

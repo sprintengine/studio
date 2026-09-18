@@ -3,12 +3,7 @@ import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { createHash, randomBytes } from 'crypto'
 import { createServer, type Server } from 'http'
 import { dirname, join } from 'path'
-import type {
-  EntitlementSnapshot,
-  MulticodeAuthState,
-  SessionSnapshot,
-  SessionUser,
-} from '../shared/electron-api'
+import type { EntitlementSnapshot, MulticodeAuthState, SessionSnapshot, SessionUser } from '../shared/electron-api'
 import { AccountPhotoCache } from './account-photo-cache'
 import { CURRENT_DEEP_LINK_SCHEME, DEEP_LINK_SCHEMES, LEGACY_DEEP_LINK_SCHEME } from './deep-link-scheme'
 import {
@@ -156,7 +151,8 @@ class ElectronIdentityMarkerStore implements IdentityMarkerStore {
       if (!isIdentityProviderKind(payload.provider)) return null
       const shared = {
         baseUrl: typeof payload.baseUrl === 'string' ? payload.baseUrl : undefined,
-        organizationId: typeof payload.organizationId === 'string' && payload.organizationId.trim() ? payload.organizationId : null,
+        organizationId:
+          typeof payload.organizationId === 'string' && payload.organizationId.trim() ? payload.organizationId : null,
       }
       if (payload.provider === CLERK_IDENTITY_PROVIDER) {
         // Re-validated, not trusted: this file is plain JSON beside a
@@ -233,7 +229,7 @@ export class MulticodeAuthBridge {
       product: PRODUCT_KEY,
       graceMs: ENTITLEMENT_GRACE_MS,
       maxCacheAgeMs: ENTITLEMENT_MAX_CACHE_AGE_MS,
-    }
+    },
   )
 
   async initialize(): Promise<MulticodeAuthState> {
@@ -243,7 +239,7 @@ export class MulticodeAuthBridge {
       await this.client.resumeStoredSession()
       return this.refreshEntitlements({ forceRefresh: true })
     } catch {
-      const cache = this.cachedEntitlements ?? await this.readCachedEntitlements()
+      const cache = this.cachedEntitlements ?? (await this.readCachedEntitlements())
       this.cachedEntitlements = cache
       if (cache) {
         const entitlementStatus = entitlementCacheStatus(cache)
@@ -256,9 +252,10 @@ export class MulticodeAuthBridge {
           authenticated: true,
           entitlements: cache.snapshot,
           entitlementStatus,
-          message: entitlementStatus === 'offline_grace'
-            ? offlineGraceMessage(graceExpiresAt)
-            : 'Sign in again to refresh Multicode access.',
+          message:
+            entitlementStatus === 'offline_grace'
+              ? offlineGraceMessage(graceExpiresAt)
+              : 'Sign in again to refresh Multicode access.',
           lastRefreshAt: cache.lastRefreshAt,
           graceExpiresAt,
         })
@@ -291,14 +288,15 @@ export class MulticodeAuthBridge {
       nonce,
       organizationId: selectedOrganizationId ?? null,
     }
-    const authorizationUrl = identity.provider === CLERK_IDENTITY_PROVIDER
-      ? buildClerkAuthorizationUrl(request, identity)
-      : buildMultiauthAuthorizationUrl(request, {
-          baseUrl: MULTIAUTH_BASE_URL,
-          clientId: DESKTOP_CLIENT_ID,
-          product: PRODUCT_KEY,
-          scope: MULTIAUTH_DESKTOP_SCOPE,
-        })
+    const authorizationUrl =
+      identity.provider === CLERK_IDENTITY_PROVIDER
+        ? buildClerkAuthorizationUrl(request, identity)
+        : buildMultiauthAuthorizationUrl(request, {
+            baseUrl: MULTIAUTH_BASE_URL,
+            clientId: DESKTOP_CLIENT_ID,
+            product: PRODUCT_KEY,
+            scope: MULTIAUTH_DESKTOP_SCOPE,
+          })
 
     if (REDIRECT_URI === LOOPBACK_REDIRECT_URI) {
       try {
@@ -439,7 +437,7 @@ export class MulticodeAuthBridge {
         graceExpiresAt,
       })
     } catch (error) {
-      const cache = this.cachedEntitlements ?? await this.readCachedEntitlements()
+      const cache = this.cachedEntitlements ?? (await this.readCachedEntitlements())
       this.cachedEntitlements = cache
       if (cache) {
         const entitlementStatus = entitlementCacheStatus(cache)
@@ -452,9 +450,7 @@ export class MulticodeAuthBridge {
           entitlements: cache.snapshot,
           status: 'signed_in',
           entitlementStatus,
-          message: entitlementStatus === 'offline_grace'
-            ? offlineGraceMessage(graceExpiresAt)
-            : getErrorMessage(error),
+          message: entitlementStatus === 'offline_grace' ? offlineGraceMessage(graceExpiresAt) : getErrorMessage(error),
           lastRefreshAt: cache.lastRefreshAt,
           graceExpiresAt,
         })
@@ -582,7 +578,11 @@ export class MulticodeAuthBridge {
     // No profile this time (a Multiauth without `/api/auth/me`, or a request
     // that failed on its own): keep the identity already on screen, else the
     // one cached from an earlier session, else the ids alone.
-    if (this.state.authenticated && this.state.user && this.state.selectedOrganization?.id === entitlements.organizationId) {
+    if (
+      this.state.authenticated &&
+      this.state.user &&
+      this.state.selectedOrganization?.id === entitlements.organizationId
+    ) {
       return {
         authenticated: true,
         user: this.state.user,
@@ -605,10 +605,17 @@ export class MulticodeAuthBridge {
     const sourceUrl = user.avatarUrl
     if (!sourceUrl || this.photoRefreshInFlight === sourceUrl) return
     this.photoRefreshInFlight = sourceUrl
-    void this.photoCache.resolve(sourceUrl)
+    void this.photoCache
+      .resolve(sourceUrl)
       .then((photoUrl) => {
         const current = this.state.user
-        if (!photoUrl || !this.state.authenticated || !current || current.id !== user.id || current.photoUrl === photoUrl) {
+        if (
+          !photoUrl ||
+          !this.state.authenticated ||
+          !current ||
+          current.id !== user.id ||
+          current.photoUrl === photoUrl
+        ) {
           return
         }
         this.setState({ ...this.state, user: { ...current, photoUrl } })
@@ -650,8 +657,12 @@ export class MulticodeAuthBridge {
       return { user: this.state.user, selectedOrganization: this.state.selectedOrganization }
     }
 
-    const cached = this.cachedAccount ?? await this.readCachedAccount()
-    if (cached && cached.user.id === entitlements.userId && cached.selectedOrganization.id === entitlements.organizationId) {
+    const cached = this.cachedAccount ?? (await this.readCachedAccount())
+    if (
+      cached &&
+      cached.user.id === entitlements.userId &&
+      cached.selectedOrganization.id === entitlements.organizationId
+    ) {
       this.cachedAccount = cached
       const photoUrl = await this.photoCache.resolve(cached.user.avatarUrl, { allowNetwork: false })
       return { user: toSessionUser(cached.user, photoUrl), selectedOrganization: cached.selectedOrganization }
@@ -727,7 +738,9 @@ export class MulticodeAuthBridge {
   }
 }
 
-async function startDesktopCallbackServer(onCallback: (callbackUrl: string) => Promise<void>): Promise<DesktopCallbackServer> {
+async function startDesktopCallbackServer(
+  onCallback: (callbackUrl: string) => Promise<void>,
+): Promise<DesktopCallbackServer> {
   let closed = false
   const server = createServer((request, response) => {
     void (async () => {
@@ -764,7 +777,9 @@ async function startDesktopCallbackServer(onCallback: (callbackUrl: string) => P
       resolve()
     })
   }).catch((error) => {
-    throw new Error(`Could not start the sign-in callback listener on ${LOOPBACK_REDIRECT_URI}: ${getErrorMessage(error)}`)
+    throw new Error(
+      `Could not start the sign-in callback listener on ${LOOPBACK_REDIRECT_URI}: ${getErrorMessage(error)}`,
+    )
   })
 
   return {
@@ -785,7 +800,7 @@ async function closeServer(server: Server): Promise<void> {
 // included — so callers can use it both as "which redirect_uri does this
 // callback belong to" and as "did this arrive over the OS".
 function customSchemeRedirectUriFor(
-  url: URL
+  url: URL,
 ): typeof CUSTOM_SCHEME_REDIRECT_URI | typeof LEGACY_CUSTOM_SCHEME_REDIRECT_URI | null {
   if (url.protocol === `${CURRENT_DEEP_LINK_SCHEME}:`) return CUSTOM_SCHEME_REDIRECT_URI
   if (url.protocol === `${LEGACY_DEEP_LINK_SCHEME}:`) return LEGACY_CUSTOM_SCHEME_REDIRECT_URI
@@ -793,8 +808,13 @@ function customSchemeRedirectUriFor(
 }
 
 function isSupportedAuthCallbackUrl(url: URL): boolean {
-  return (url.protocol === 'http:' && url.hostname === LOOPBACK_HOST && url.port === String(LOOPBACK_PORT) && url.pathname === '/callback')
-    || (customSchemeRedirectUriFor(url) !== null && url.hostname === 'auth' && url.pathname === '/callback')
+  return (
+    (url.protocol === 'http:' &&
+      url.hostname === LOOPBACK_HOST &&
+      url.port === String(LOOPBACK_PORT) &&
+      url.pathname === '/callback') ||
+    (customSchemeRedirectUriFor(url) !== null && url.hostname === 'auth' && url.pathname === '/callback')
+  )
 }
 
 function callbackSuccessHtml(): string {
@@ -802,13 +822,17 @@ function callbackSuccessHtml(): string {
 }
 
 function callbackErrorHtml(message: string): string {
-  const escaped = message.replace(/[&<>"']/gu, (char) => ({
-    '&': '&amp;',
-    '<': '&lt;',
-    '>': '&gt;',
-    '"': '&quot;',
-    "'": '&#39;',
-  }[char] ?? char))
+  const escaped = message.replace(
+    /[&<>"']/gu,
+    (char) =>
+      ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#39;',
+      })[char] ?? char,
+  )
   return `<!doctype html><meta charset="utf-8"><title>Multicode sign-in failed</title><body style="font:14px system-ui,sans-serif;background:#101012;color:#f4f4f5;padding:32px">Sign-in failed: ${escaped}</body>`
 }
 
@@ -849,8 +873,10 @@ function pkceChallenge(codeVerifier: string): string {
 // and nothing guarantees which case the OS hands back.
 function isAuthCallbackArg(arg: string): boolean {
   const lowered = arg.toLowerCase()
-  return DEEP_LINK_SCHEMES.some((scheme) => lowered.startsWith(`${scheme}://auth/callback`))
-    || lowered.startsWith(LOOPBACK_REDIRECT_URI)
+  return (
+    DEEP_LINK_SCHEMES.some((scheme) => lowered.startsWith(`${scheme}://auth/callback`)) ||
+    lowered.startsWith(LOOPBACK_REDIRECT_URI)
+  )
 }
 
 export async function parseAuthCallbackFromArgv(auth: MulticodeAuthBridge, argv: string[]): Promise<void> {

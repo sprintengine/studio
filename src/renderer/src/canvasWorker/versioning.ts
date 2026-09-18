@@ -75,11 +75,7 @@ export function stampVersion(next: CanvasElement, previous: CanvasElement | unde
 }
 
 /** The same element with `updates` applied, on a version above its own. */
-export function withChanges(
-  element: CanvasElement,
-  updates: Partial<CanvasElement>,
-  stamp: Stamp,
-): CanvasElement {
+export function withChanges(element: CanvasElement, updates: Partial<CanvasElement>, stamp: Stamp): CanvasElement {
   const next = { ...element, ...updates } as CanvasElement
   return stampVersion(next, element, stamp)
 }

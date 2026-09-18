@@ -99,11 +99,7 @@ async function main(): Promise<void> {
     assert.equal(position.textContent, '2/27', 'the drawing shrinks')
     assert.equal(position.getAttribute('aria-label'), 'File 2 of 27', 'the announcement does not')
     assert.equal(position.getAttribute('aria-live'), 'polite')
-    assert.equal(
-      view.nav.querySelectorAll('[aria-live]').length,
-      1,
-      'still exactly one live region in the pager',
-    )
+    assert.equal(view.nav.querySelectorAll('[aria-live]').length, 1, 'still exactly one live region in the pager')
     view.unmount()
   })
 
@@ -123,7 +119,7 @@ async function main(): Promise<void> {
     last.unmount()
   })
 
-  run('the chevrons are square at the band\'s own control step', () => {
+  run("the chevrons are square at the band's own control step", () => {
     const view = mount(inline(2))
     const button = view.nav.querySelector('button') as HTMLElement
     const classes = button.getAttribute('class') ?? ''
@@ -168,13 +164,7 @@ async function main(): Promise<void> {
 
   run('the full pager is untouched by the variant', () => {
     const view = mount(
-      <Pager
-        page={2}
-        pageCount={27}
-        rangeLabel="Showing 13–24 of 318"
-        ariaLabel="Plugins"
-        onPageChange={() => {}}
-      />,
+      <Pager page={2} pageCount={27} rangeLabel="Showing 13–24 of 318" ariaLabel="Plugins" onPageChange={() => {}} />,
     )
     assert.match(view.nav.textContent ?? '', /Showing 13–24 of 318/, 'the words sentence is still drawn here')
     assert.match(view.nav.getAttribute('class') ?? '', /pt-3/, 'and it is still the foot of a list')

@@ -163,37 +163,38 @@ async function main(): Promise<void> {
   ] as SidebarProps['workspaces']
 
   const noop = () => {}
-  const propsFor = (rows: SidebarProps['workspaces']) => ({
-    workspaces: rows,
-    activeWorkspaceId: 'w1',
-    workspaceWindowId: 'win1',
-    isDetachedWindow: false,
-    sidebarCollapsed: false,
-    chromeSlot: null,
-    activityByWorkspaceId: {},
-    residentWorkspaceIds: new Set<string>(),
-    terminalRecencyByWorkspaceId: {},
-    onSelectWorkspace: noop,
-    onMoveWorkspaceToNewWindow: noop,
-    onMoveWorkspaceToMainWindow: noop,
-    onCloseWorkspace: noop,
-    onForgetFolder: noop,
-    onNewChat: noop,
-    onNewChatInFolder: noop,
-    onRevealFolder: noop,
-    onSetSidebarCollapsed: noop,
-    sidebarWidth: 260,
-    onSetSidebarWidth: noop,
-    authState: { authenticated: false },
-    authMessage: null,
-    accountOpen: false,
-    setAccountOpen: noop,
-    startLogin: noop,
-    refreshAuthState: noop,
-    logout: noop,
-    openSettings: noop,
-    settingsOpen: false,
-  } as unknown as SidebarProps)
+  const propsFor = (rows: SidebarProps['workspaces']) =>
+    ({
+      workspaces: rows,
+      activeWorkspaceId: 'w1',
+      workspaceWindowId: 'win1',
+      isDetachedWindow: false,
+      sidebarCollapsed: false,
+      chromeSlot: null,
+      activityByWorkspaceId: {},
+      residentWorkspaceIds: new Set<string>(),
+      terminalRecencyByWorkspaceId: {},
+      onSelectWorkspace: noop,
+      onMoveWorkspaceToNewWindow: noop,
+      onMoveWorkspaceToMainWindow: noop,
+      onCloseWorkspace: noop,
+      onForgetFolder: noop,
+      onNewChat: noop,
+      onNewChatInFolder: noop,
+      onRevealFolder: noop,
+      onSetSidebarCollapsed: noop,
+      sidebarWidth: 260,
+      onSetSidebarWidth: noop,
+      authState: { authenticated: false },
+      authMessage: null,
+      accountOpen: false,
+      setAccountOpen: noop,
+      startLogin: noop,
+      refreshAuthState: noop,
+      logout: noop,
+      openSettings: noop,
+      settingsOpen: false,
+    }) as unknown as SidebarProps
 
   const settle = async () => {
     for (let i = 0; i < 12; i += 1) await Promise.resolve()
@@ -218,21 +219,21 @@ async function main(): Promise<void> {
 
   const rowFor = (container: Element, name: string) => {
     const row = [...container.querySelectorAll('[role="treeitem"]')].find((candidate) =>
-      candidate.textContent?.includes(name)
+      candidate.textContent?.includes(name),
     )
     assert.ok(row, `row for ${name} rendered`)
     return row!
   }
   const headerFor = (container: Element, name: string) => {
     const header = [...container.querySelectorAll('button[aria-expanded]')].find((candidate) =>
-      candidate.textContent?.includes(name)
+      candidate.textContent?.includes(name),
     )
     assert.ok(header, `folder header for ${name} rendered`)
     return header!
   }
   const openFolderMenu = (container: Element, name: string) => {
     const button = [...container.querySelectorAll('button[aria-label^="Folder actions"]')].find((candidate) =>
-      candidate.getAttribute('aria-label')?.includes(name)
+      candidate.getAttribute('aria-label')?.includes(name),
     )
     assert.ok(button, `${name}'s header offers its folder menu`)
     act(() => {
@@ -267,7 +268,7 @@ async function main(): Promise<void> {
   assert.equal(
     hueOf(headerFor(pending.container, 'projA').querySelector('svg')),
     null,
-    'the header glyph is the plain outline while the repository read is in flight, not a hue it would have to give back'
+    'the header glyph is the plain outline while the repository read is in flight, not a hue it would have to give back',
   )
 
   // The picker is gated on the same answer, and for a sharper reason: a hue
@@ -282,12 +283,12 @@ async function main(): Promise<void> {
   assert.equal(
     hueOf(headerFor(pending.container, 'projA').querySelector('svg')),
     HUE_A,
-    'once answered, the folder that is a repository wears the hue hashed from the REPOSITORY key'
+    'once answered, the folder that is a repository wears the hue hashed from the REPOSITORY key',
   )
   assert.equal(
     hueOf(headerFor(pending.container, 'projB').querySelector('svg')),
     HUE_B,
-    'and the folder whose read said "no remote" — the case a settled-only gate must not swallow — wears its folder hue'
+    'and the folder whose read said "no remote" — the case a settled-only gate must not swallow — wears its folder hue',
   )
   assert.deepEqual(projectColorsNow(), {}, 'a hue is derived, never written: the map holds only what a person chose')
 
@@ -311,7 +312,7 @@ async function main(): Promise<void> {
   assert.equal(
     hueOf(headerFor(spunDown.container, 'projC').querySelector('svg')),
     null,
-    'a folder whose read could not be made stays plain rather than claiming a project colour'
+    'a folder whose read could not be made stays plain rather than claiming a project colour',
   )
   openFolderMenu(spunDown.container, 'projC')
   assert.equal(hueSwatch(), null, 'nor can a colour be picked for a project whose identity is unknown')
@@ -332,7 +333,7 @@ async function main(): Promise<void> {
   assert.equal(
     hueOf(headerFor(spunDown.container, 'projC').querySelector('svg')),
     projectHue('folder:/projc'),
-    'once it answers, the project wears its hue like any other'
+    'once it answers, the project wears its hue like any other',
   )
 
   act(() => {
@@ -347,8 +348,7 @@ async function main(): Promise<void> {
 
   // The project line is the row's first child in the stream, and its glyph is
   // the first svg in it: the ONE element the colour is allowed on.
-  const glyphOf = (container: Element, name: string) =>
-    rowFor(container, name).firstElementChild!.querySelector('svg')
+  const glyphOf = (container: Element, name: string) => rowFor(container, name).firstElementChild!.querySelector('svg')
 
   assert.equal(hueOf(glyphOf(stream.container, 'Alpha')), HUE_A, "the stream line wears its project's hue")
   assert.equal(hueOf(glyphOf(stream.container, 'Bravo')), HUE_A, 'every chat of one project shows that project one hue')
@@ -359,7 +359,7 @@ async function main(): Promise<void> {
   assert.equal(
     hueOf(rowFor(stream.container, 'Alpha').firstElementChild!.querySelector('span')),
     null,
-    'the project name stays in the row ink — the colour is on the glyph and nowhere else'
+    'the project name stays in the row ink — the colour is on the glyph and nowhere else',
   )
 
   // No folder is not a project.
@@ -368,7 +368,7 @@ async function main(): Promise<void> {
   assert.equal(
     echoGlyph!.querySelector('path')?.getAttribute('stroke-dasharray'),
     '2 1.6',
-    'it wears the dashed outline instead, so unfiled reads as its own thing'
+    'it wears the dashed outline instead, so unfiled reads as its own thing',
   )
 
   // A chat running on a paired machine (owner, 2026-09-11). It is a row of its
@@ -377,12 +377,16 @@ async function main(): Promise<void> {
   // is one colour wherever it runs. The machine glyph sits immediately right of
   // that folder icon and is the only thing marking the row as remote.
   const foxtrot = rowFor(stream.container, 'Foxtrot')
-  assert.equal(hueOf(glyphOf(stream.container, 'Foxtrot')), HUE_A, 'the Air’s clone of acme/multicode is acme/multicode')
+  assert.equal(
+    hueOf(glyphOf(stream.container, 'Foxtrot')),
+    HUE_A,
+    'the Air’s clone of acme/multicode is acme/multicode',
+  )
   const marks = [...foxtrot.firstElementChild!.children]
   assert.equal(marks[0]?.tagName.toLowerCase(), 'svg', 'the folder glyph leads the project line')
   assert.equal(
-    marks[1]?.querySelector('[data-remote-row-glyph]')?.getAttribute('data-remote-row-glyph')
-      ?? marks[1]?.getAttribute('data-remote-row-glyph'),
+    marks[1]?.querySelector('[data-remote-row-glyph]')?.getAttribute('data-remote-row-glyph') ??
+      marks[1]?.getAttribute('data-remote-row-glyph'),
     'MacBook Air',
     'and the machine glyph is immediately right of it, naming the device',
   )
@@ -402,27 +406,31 @@ async function main(): Promise<void> {
   assert.equal(
     swatchLabelled(AUTOMATIC_LABEL)?.getAttribute('aria-checked'),
     'true',
-    'with no override, "Automatic" is the checked swatch'
+    'with no override, "Automatic" is the checked swatch',
   )
   await clickSwatch(PICK_HUE_LABEL)
 
   assert.equal(
     hueOf(headerFor(tree.container, 'projA').querySelector('svg')),
     PICKED_HUE,
-    "the header's own glyph takes the colour the person picked"
+    "the header's own glyph takes the colour the person picked",
   )
   assert.equal(hueOf(headerFor(tree.container, 'projB').querySelector('svg')), HUE_B, 'the other project is untouched')
   assert.deepEqual(
     projectColorsNow(),
     { 'repo:github.com/acme/multicode': PICKED_HUE },
-    'and the choice is stored under the repository key, as the only entry'
+    'and the choice is stored under the repository key, as the only entry',
   )
 
   // "Automatic" deletes the override rather than storing the hashed hue: stored,
   // it would stop following the name if the hash were ever retuned.
   openFolderMenu(tree.container, 'projA')
   await clickSwatch(AUTOMATIC_LABEL)
-  assert.equal(hueOf(headerFor(tree.container, 'projA').querySelector('svg')), HUE_A, '"Automatic" returns the hashed hue')
+  assert.equal(
+    hueOf(headerFor(tree.container, 'projA').querySelector('svg')),
+    HUE_A,
+    '"Automatic" returns the hashed hue',
+  )
   assert.deepEqual(projectColorsNow(), {}, 'by deleting the override')
 
   openFolderMenu(tree.container, 'projA')
@@ -447,12 +455,12 @@ async function main(): Promise<void> {
   assert.equal(
     hueOf(glyphOf(restarted.container, 'Alpha')),
     PICKED_HUE,
-    'a fresh store hydrated from the persisted map keeps the colour the person chose'
+    'a fresh store hydrated from the persisted map keeps the colour the person chose',
   )
   assert.equal(
     hueOf(glyphOf(restarted.container, 'Charlie')),
     HUE_B,
-    'and a project with no override wears the same hashed hue it wore before'
+    'and a project with no override wears the same hashed hue it wore before',
   )
   assert.equal(hueOf(glyphOf(restarted.container, 'Echo')), null, 'the unfiled row is still no project')
 

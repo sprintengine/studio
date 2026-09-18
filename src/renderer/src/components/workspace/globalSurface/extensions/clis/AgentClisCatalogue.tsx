@@ -178,9 +178,7 @@ export function AgentClisCatalogue({
     )
 
   const notices =
-    tabId !== INSTALLED_TAB_ID
-    && cliRuntime.availabilityStatus === 'error'
-    && cliRuntime.availabilityError ? (
+    tabId !== INSTALLED_TAB_ID && cliRuntime.availabilityStatus === 'error' && cliRuntime.availabilityError ? (
       // One fact for the whole list (the settings rule): every row would
       // otherwise repeat the same reason.
       <InlineNotice tone="warn">{`Agent CLIs could not be checked: ${cliRuntime.availabilityError}`}</InlineNotice>

@@ -60,11 +60,7 @@ await __workspaceStoreBackupRecoveryPromise
 // registry that no longer exists. What survives is the assertion that mattered
 // — this window subscribes to main's bus and mirrors it — now with the flag set
 // to '1' to prove the retired path cannot be switched back on.
-assert.equal(
-  storageListeners.length,
-  0,
-  'no storage listener is registered even with the retired live-sync flag set',
-)
+assert.equal(storageListeners.length, 0, 'no storage listener is registered even with the retired live-sync flag set')
 assert.equal(broadcastListeners.length, 1, 'the window subscribes to main-mediated workspace sync')
 
 console.log('workspaceStore.storageLiveSyncFlag.test.ts: ok')

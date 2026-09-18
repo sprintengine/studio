@@ -74,9 +74,7 @@ export function workspaceTerminalSessionIds(workspace: Workspace): string[] {
  */
 export async function terminateWorkspaceTerminals(workspace: Workspace): Promise<void> {
   await Promise.all(
-    workspaceTerminalSessionIds(workspace).map((sessionId) =>
-      window.api.terminalKill(sessionId).catch(() => {}),
-    ),
+    workspaceTerminalSessionIds(workspace).map((sessionId) => window.api.terminalKill(sessionId).catch(() => {})),
   )
 }
 
@@ -106,8 +104,6 @@ export async function terminateWorkspaceTerminals(workspace: Workspace): Promise
  */
 export async function suspendWorkspaceTerminals(workspace: Workspace): Promise<void> {
   await Promise.all(
-    workspaceTerminalSessionIds(workspace).map((sessionId) =>
-      window.api.terminalSuspend(sessionId).catch(() => {}),
-    ),
+    workspaceTerminalSessionIds(workspace).map((sessionId) => window.api.terminalSuspend(sessionId).catch(() => {})),
   )
 }

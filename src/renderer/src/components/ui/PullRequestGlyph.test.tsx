@@ -7,11 +7,7 @@ import React from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import { PullRequestGlyph } from './PullRequestGlyph'
-import {
-  PULL_REQUEST_TONE_VAR,
-  pullRequestTone,
-  type PullRequestState,
-} from '../../../../shared/git/pull-request'
+import { PULL_REQUEST_TONE_VAR, pullRequestTone, type PullRequestState } from '../../../../shared/git/pull-request'
 
 // The pull request marks (epic `pull-request-marks`, decisions 1–3). Four
 // contracts, all read off the RENDERED glyph rather than the source text:
@@ -173,7 +169,11 @@ run('each drawing matches its design-system asset', () => {
 
     const componentPaths = Array.from(svg.querySelectorAll('path')).map((p) => p.getAttribute('d'))
     const assetPaths = Array.from(disk.matchAll(/\sd="([^"]+)"/g)).map((m) => m[1])
-    assert.deepEqual(componentPaths, assetPaths, `${state} has drifted from design-system/glyphs/pull-request-${state}.svg`)
+    assert.deepEqual(
+      componentPaths,
+      assetPaths,
+      `${state} has drifted from design-system/glyphs/pull-request-${state}.svg`,
+    )
 
     const componentNodes = Array.from(svg.querySelectorAll('circle')).map(
       (c) => `${c.getAttribute('cx')},${c.getAttribute('cy')},${c.getAttribute('r')}`,

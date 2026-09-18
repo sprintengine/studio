@@ -1,15 +1,6 @@
 import { isAbsolute, resolve } from 'path'
-import type {
-  GitCommandResult,
-  GitWorktreeOperationResult,
-} from './git'
-import {
-  normalizeComparablePath,
-  runGit,
-  runGitCommand,
-  toFilesystemPath,
-  toPosixPath,
-} from './git-utils'
+import type { GitCommandResult, GitWorktreeOperationResult } from './git'
+import { normalizeComparablePath, runGit, runGitCommand, toFilesystemPath, toPosixPath } from './git-utils'
 
 export async function resolveRepoRoot(repoRoot: string): Promise<GitWorktreeOperationResult<string>> {
   const normalizedRoot = toPosixPath(repoRoot)
@@ -25,7 +16,10 @@ export async function resolveRepoRoot(repoRoot: string): Promise<GitWorktreeOper
   return { ok: true, data: actualRoot, message: null }
 }
 
-export function resolveWorktreeDestination(containerPath: string, destinationPath: string): GitWorktreeOperationResult<{
+export function resolveWorktreeDestination(
+  containerPath: string,
+  destinationPath: string,
+): GitWorktreeOperationResult<{
   containerPath: string
   destinationPath: string
 }> {
@@ -36,10 +30,7 @@ export function resolveWorktreeDestination(containerPath: string, destinationPat
 
   const comparableContainer = normalizeComparablePath(resolvedContainer)
   const comparableDestination = normalizeComparablePath(resolvedDestination)
-  if (
-    comparableDestination !== comparableContainer
-    && !comparableDestination.startsWith(`${comparableContainer}/`)
-  ) {
+  if (comparableDestination !== comparableContainer && !comparableDestination.startsWith(`${comparableContainer}/`)) {
     return {
       ok: false,
       message: 'Worktree destination must be inside the configured worktree container.',
@@ -56,7 +47,10 @@ export function resolveWorktreeDestination(containerPath: string, destinationPat
   }
 }
 
-export async function validateBranchName(repoRoot: string, branchName: string): Promise<GitWorktreeOperationResult<string>> {
+export async function validateBranchName(
+  repoRoot: string,
+  branchName: string,
+): Promise<GitWorktreeOperationResult<string>> {
   const trimmedBranch = branchName.trim()
 
   if (!trimmedBranch) {
@@ -107,7 +101,7 @@ export async function validateBaseRef(repoRoot: string, baseRef: string): Promis
 export function toWorktreeResult<T>(
   result: GitCommandResult,
   data: T,
-  successMessage: string | null = null
+  successMessage: string | null = null,
 ): GitWorktreeOperationResult<T> {
   if (result.ok) {
     return { ok: true, data, message: successMessage, stdout: result.stdout, stderr: result.stderr }

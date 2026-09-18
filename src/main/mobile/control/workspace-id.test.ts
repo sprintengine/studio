@@ -2,11 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join, resolve } from 'path'
-import {
-  deriveWorkspaceId,
-  isWorkspaceIdToken,
-  resolveWorkspaceIdToRoot,
-} from './workspace-id'
+import { deriveWorkspaceId, isWorkspaceIdToken, resolveWorkspaceIdToRoot } from './workspace-id'
 import { sanitizeMobileSnapshotForRelay, type MobileControlSnapshot } from './snapshot'
 import { validateMobileWorkspacePath } from './workspace'
 import { dispatchSnapshotRequest } from '../bridge/snapshot-request'
@@ -100,7 +96,7 @@ async function assertOnDemandSnapshotIsSanitized(): Promise<void> {
   assert.equal(
     localPathProbe.test(JSON.stringify(result)),
     false,
-    'on-demand snapshot.request result must contain no local path'
+    'on-demand snapshot.request result must contain no local path',
   )
 }
 
@@ -116,6 +112,6 @@ async function assertValidateResolvesToken(): Promise<void> {
   // An unresolvable token fails closed rather than guessing.
   await assert.rejects(
     validateMobileWorkspacePath({ workspacePath: 'ws_unknownunknownunknown', allowedWorkspaceRoots: [root] }),
-    /not available/u
+    /not available/u,
   )
 }

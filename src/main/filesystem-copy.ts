@@ -5,7 +5,7 @@ export async function getUniqueCopyPath(
   destinationDir: string,
   sourceName: string,
   sourcePath: string,
-  pathExists: (targetPath: string) => Promise<boolean>
+  pathExists: (targetPath: string) => Promise<boolean>,
 ): Promise<string> {
   const base = await buildCopyBaseName(sourceName, sourcePath)
   let attempt = 0
@@ -22,7 +22,7 @@ export async function getUniqueCopyPath(
 
 async function buildCopyBaseName(
   sourceName: string,
-  sourcePath: string
+  sourcePath: string,
 ): Promise<{ first: string; next: (count: number) => string }> {
   const sourceStats = await stat(sourcePath)
   const sourceIsDirectory = sourceStats.isDirectory()

@@ -1,11 +1,7 @@
 import { BrowserWindow, app, type IpcMain, type IpcMainEvent } from 'electron'
 import { join } from 'path'
 
-import type {
-  CanvasWorkerReport,
-  CanvasWorkerRequest,
-  CanvasWorkerResponse,
-} from '../../shared/canvas/worker-protocol'
+import type { CanvasWorkerReport, CanvasWorkerRequest, CanvasWorkerResponse } from '../../shared/canvas/worker-protocol'
 import type { CanvasWorkerTransport } from './canvas-worker-host'
 
 // The canvas worker's window: a renderer that exists only to hold a DOM.

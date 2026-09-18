@@ -19,7 +19,7 @@ export type FleetMachinePhase =
 export function fleetMachinePhase(
   connectionId: string,
   attachments: ReadonlyMap<string, FleetLiveAttachment>,
-  reachability?: ReadonlyMap<string, FleetMachineReachability>
+  reachability?: ReadonlyMap<string, FleetMachineReachability>,
 ): FleetMachinePhase {
   const mine = [...attachments.values()].filter((attachment) => attachment.connectionId === connectionId)
   const liveSessions = new Set(mine.filter((a) => a.state === 'live').map((a) => a.sessionId))
@@ -62,7 +62,9 @@ export function machinePhaseText(machineName: string, phase: FleetMachinePhase, 
       // How long it has been silent, not a second clause about when it last
       // was not: the state is already named, and the row has a Retry and a
       // Disconnect to fit beside it.
-      return phase.lastReachedAt ? `not answering · ${since(phase.lastReachedAt, now)}` : 'not answering · never reached'
+      return phase.lastReachedAt
+        ? `not answering · ${since(phase.lastReachedAt, now)}`
+        : 'not answering · never reached'
     case 'revoked':
       return 'revoked there — pair again to reconnect'
   }
@@ -76,7 +78,9 @@ export function machinePhaseText(machineName: string, phase: FleetMachinePhase, 
  * says "connecting…", and a colour for "almost" is a colour nobody reads.
  */
 export function machineGlyphToneClass(phase: FleetMachinePhase): string {
-  return phase.phase === 'connected' || phase.phase === 'reachable' ? 'text-[color:var(--tone-good)]' : 'text-[color:var(--text-subtle)]'
+  return phase.phase === 'connected' || phase.phase === 'reachable'
+    ? 'text-[color:var(--tone-good)]'
+    : 'text-[color:var(--text-subtle)]'
 }
 
 /** Whether a phase means the machine is answering right now — what the top bar's count adds up. */
@@ -128,7 +132,7 @@ export type DrivenTerminalSession = {
 export function drivenTerminalView(
   sessionId: string,
   sessions: readonly DrivenTerminalSession[],
-  agentName: (workspaceId: string, agentId: string) => string | null
+  agentName: (workspaceId: string, agentId: string) => string | null,
 ): { label: string; target: { workspaceId: string; agentId: string } | null } {
   const session = sessions.find((candidate) => candidate.sessionId === sessionId)
   if (!session?.workspaceId || !session.agentId) {

@@ -69,12 +69,7 @@ export type StudioPluginServiceOptions = {
    * harness is written to, exactly as it was.
    */
   resolveLaunchPluginsActive?: () => boolean
-  logDiagnostic?: (input: {
-    level: 'warning' | 'info'
-    title: string
-    message: string
-    details?: string
-  }) => void
+  logDiagnostic?: (input: { level: 'warning' | 'info'; title: string; message: string; details?: string }) => void
 }
 
 type StudioPluginInstallRecord = {
@@ -176,7 +171,7 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
       await writeFile(
         temp,
         `${JSON.stringify({ plugin: STUDIO_PLUGIN_ID, hooksAcknowledgedAt: at }, null, 2)}\n`,
-        'utf8'
+        'utf8',
       )
       await rename(temp, path)
     } catch (error) {
@@ -185,7 +180,7 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
       warn(
         'Studio plugin acknowledgement not recorded',
         'The hook acknowledgement for the built-in plugin could not be written, so it will be answered again next run.',
-        describe(error)
+        describe(error),
       )
     }
     cachedAcknowledgement = at
@@ -197,7 +192,7 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
     if (version === '') {
       warn(
         'Studio plugin missing from this build',
-        'The built-in SprintEngine Studio plugin did not ship with this build, so no workspace receives it.'
+        'The built-in SprintEngine Studio plugin did not ship with this build, so no workspace receives it.',
       )
       return
     }
@@ -222,7 +217,8 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
         options.logDiagnostic?.({
           level: 'info',
           title: 'Workspace tidied',
-          message: 'SprintEngine Studio now passes its skills and agent-state hook to Claude at launch, so the copies in this workspace were removed.',
+          message:
+            'SprintEngine Studio now passes its skills and agent-state hook to Claude at launch, so the copies in this workspace were removed.',
           details: removed.join(', '),
         })
       }
@@ -233,7 +229,7 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
     if (!templateRoot || !reporter) return
     const socketPath = options.resolveAgentStateSocketPath()
     const harnesses = (await options.listHarnesses()).filter(
-      (harness) => !(launchPluginsActive && harness === 'claude')
+      (harness) => !(launchPluginsActive && harness === 'claude'),
     )
     if (harnesses.length === 0) return
 
@@ -281,10 +277,9 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
     // every known root, so the settled case has to cost nothing — not a chain
     // link, not a stat.
     if (
-      cachedVersion !== null
-      && cachedVersion !== ''
-      && done.get(`${cachedVersion}::${root}`)?.launchPluginsActive
-        === (options.resolveLaunchPluginsActive?.() ?? false)
+      cachedVersion !== null &&
+      cachedVersion !== '' &&
+      done.get(`${cachedVersion}::${root}`)?.launchPluginsActive === (options.resolveLaunchPluginsActive?.() ?? false)
     ) {
       return
     }
@@ -298,7 +293,7 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
     // rather than inheriting a poisoned promise.
     chains.set(
       root,
-      next.catch(() => {})
+      next.catch(() => {}),
     )
     await next.catch((error) => warn('Studio plugin install threw', describe(error)))
   }

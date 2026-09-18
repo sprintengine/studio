@@ -80,9 +80,7 @@ export function InboxRow({
         >
           {title}
         </div>
-        {supporting ? (
-          <div className="truncate text-meta text-[color:var(--text-muted)]">{supporting}</div>
-        ) : null}
+        {supporting ? <div className="truncate text-meta text-[color:var(--text-muted)]">{supporting}</div> : null}
       </div>
       {trailing ? (
         <div className="shrink-0 tabular-nums text-micro text-[color:var(--text-muted)]">{trailing}</div>

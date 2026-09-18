@@ -52,11 +52,7 @@ async function main(): Promise<void> {
           // the trigger Tooltip wants.
           React.createElement(RowTooltip, {
             content: '12 files updated — changed by this terminal',
-            children: React.createElement(
-              'button',
-              { type: 'button' },
-              '+12',
-            ) as React.ReactElement<TooltipChildProps>,
+            children: React.createElement('button', { type: 'button' }, '+12') as React.ReactElement<TooltipChildProps>,
           }),
         ),
       )
@@ -72,20 +68,14 @@ async function main(): Promise<void> {
   try {
     const withoutCard = openByFocus(false)
     assert.ok(withoutCard, 'a row with no conversation peek still opens its tooltips')
-    assert.ok(
-      (withoutCard?.textContent ?? '').includes('12 files updated'),
-      'and it is the row’s own words',
-    )
+    assert.ok((withoutCard?.textContent ?? '').includes('12 files updated'), 'and it is the row’s own words')
 
     const withCard = openByFocus(true)
     assert.equal(withCard, null, 'a row whose card is the hover surface opens no tooltip over it')
 
     // The reading must not move when its tooltip goes: the suppressed path
     // renders the same wrapper the kit does.
-    assert.ok(
-      container.querySelector('span.relative'),
-      'the trigger keeps the wrapper it had, so nothing shifts',
-    )
+    assert.ok(container.querySelector('span.relative'), 'the trigger keeps the wrapper it had, so nothing shifts')
   } finally {
     act(() => {
       root.unmount()

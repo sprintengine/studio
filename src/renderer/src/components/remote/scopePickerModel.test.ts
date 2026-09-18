@@ -34,7 +34,7 @@ function check(name: string, run: () => void): void {
 check('one row per scope, in vocabulary order', () => {
   assert.deepEqual(
     SCOPE_ROWS.map((row) => row.scope),
-    [...TAILNET_SCOPES]
+    [...TAILNET_SCOPES],
   )
   // The identifier beside a title is always that row's own scope: a row whose
   // mono name named a different scope would be worse than no mono name.
@@ -56,11 +56,7 @@ check('the terminal rows say what they are about', () => {
 })
 
 check('read only is every :read plus terminal:observe', () => {
-  assert.deepEqual([...READ_ONLY_SCOPES], [
-    'workspace:read',
-    'backlog:read',
-    'terminal:observe',
-  ])
+  assert.deepEqual([...READ_ONLY_SCOPES], ['workspace:read', 'backlog:read', 'terminal:observe'])
 })
 
 check('standard is every scope, terminal:control included', () => {
@@ -86,21 +82,14 @@ check('a hand-picked set is neither preset', () => {
 })
 
 check('toggling keeps vocabulary order and is idempotent', () => {
-  assert.deepEqual(toggleScope(['terminal:control'], 'workspace:read', true), [
-    'workspace:read',
-    'terminal:control',
-  ])
+  assert.deepEqual(toggleScope(['terminal:control'], 'workspace:read', true), ['workspace:read', 'terminal:control'])
   assert.deepEqual(toggleScope(['workspace:read'], 'workspace:read', true), ['workspace:read'])
   assert.deepEqual(toggleScope(['workspace:read'], 'workspace:read', false), [])
   assert.deepEqual(toggleScope([], 'workspace:read', false), [])
 })
 
 check('missingScopes is the complement, in vocabulary order', () => {
-  assert.deepEqual(missingScopes(READ_ONLY_SCOPES), [
-    'workspace:operate',
-    'backlog:operate',
-    'terminal:control',
-  ])
+  assert.deepEqual(missingScopes(READ_ONLY_SCOPES), ['workspace:operate', 'backlog:operate', 'terminal:control'])
   assert.deepEqual(missingScopes(STANDARD_SCOPES), [])
 })
 

@@ -49,7 +49,11 @@ async function testListResolvesFirstSettledSnapshot(): Promise<void> {
   assert.equal(emitters.length, 1)
   emitters[0]!({ scan: scanResult([item('a'), item('b')]), loading: false })
   const items = await pending
-  assert.deepEqual(items.map((entry) => entry.id), ['a', 'b'], 'list resolves with the settled scan items')
+  assert.deepEqual(
+    items.map((entry) => entry.id),
+    ['a', 'b'],
+    'list resolves with the settled scan items',
+  )
   assert.deepEqual(watcherOptions, [false], 'a one-shot list never spins up the filesystem watcher')
   await settleMicrotasks()
   assert.equal(unsubscribed, 1, 'list is a one-shot ride — it unsubscribes after resolving')
@@ -75,7 +79,10 @@ async function testListResolvesImmediatelyFromCachedSnapshot(): Promise<void> {
     },
   })
   const items = await reader.list('ws-1')
-  assert.deepEqual(items.map((entry) => entry.id), ['cached'])
+  assert.deepEqual(
+    items.map((entry) => entry.id),
+    ['cached'],
+  )
   await settleMicrotasks()
   assert.equal(unsubscribed, 1, 'the synchronous-snapshot path still unsubscribes exactly once')
 }
@@ -205,7 +212,10 @@ async function testReaderSharesTheSingleScanPipeline(): Promise<void> {
     assert.equal(scans, 1)
 
     const items = await reader.list('ws-1')
-    assert.deepEqual(items.map((entry) => entry.id), ['shared'])
+    assert.deepEqual(
+      items.map((entry) => entry.id),
+      ['shared'],
+    )
     assert.equal(__backlogScanSubscriptionCountForTests(), 1, 'list rides the existing entry — no second pipeline')
     assert.equal(scans, 1, 'the cached snapshot serves list without a re-scan')
 

@@ -125,9 +125,7 @@ type OwnedAgents = {
   executionIds: Set<string>
 }
 
-export function createAgentSessionsModuleRegistry(
-  deps: AgentSessionsModuleDeps
-): AgentSessionsModuleRegistry {
+export function createAgentSessionsModuleRegistry(deps: AgentSessionsModuleDeps): AgentSessionsModuleRegistry {
   const owned = new Map<string, OwnedAgents>()
   const exitListeners = new Map<string, Set<(event: ModuleAgentExitEvent) => void>>()
   // executionId → sessionId, for every session this registry spawned. The
@@ -188,15 +186,10 @@ export function createAgentSessionsModuleRegistry(
 
   /** This agent's terminal, live or retained, found by the id the module owns. */
   function findByAgentId(agentId: string): TerminalSessionSnapshot | undefined {
-    return deps.terminal
-      .list()
-      .find((session) => session.kind === 'agent' && session.agentId === agentId)
+    return deps.terminal.list().find((session) => session.kind === 'agent' && session.agentId === agentId)
   }
 
-  async function spawn(
-    moduleId: string,
-    request: ModuleAgentSpawnRequest
-  ): Promise<ModuleAgentSpawnResult> {
+  async function spawn(moduleId: string, request: ModuleAgentSpawnRequest): Promise<ModuleAgentSpawnResult> {
     if (!declaresPermission(moduleId)) {
       return { ok: false, code: 'permission_missing', message: permissionMessage(moduleId, 'spawn an agent') }
     }
@@ -331,21 +324,14 @@ export function createAgentSessionsModuleRegistry(
     return resolved ? { skillInvocation: resolved } : {}
   }
 
-  function remember(
-    moduleId: string,
-    input: { prefix: string; sessionId: string; executionId?: string }
-  ): void {
+  function remember(moduleId: string, input: { prefix: string; sessionId: string; executionId?: string }): void {
     const mine = ownedFor(moduleId)
     if (input.prefix) mine.prefixes.add(input.prefix)
     mine.sessionIds.add(input.sessionId)
     if (input.executionId) mine.executionIds.add(input.executionId)
   }
 
-  async function send(
-    moduleId: string,
-    sessionId: string,
-    text: string
-  ): Promise<{ ok: boolean; message?: string }> {
+  async function send(moduleId: string, sessionId: string, text: string): Promise<{ ok: boolean; message?: string }> {
     if (!declaresPermission(moduleId)) {
       return { ok: false, message: permissionMessage(moduleId, 'prompt an agent session') }
     }
@@ -385,8 +371,8 @@ export function createAgentSessionsModuleRegistry(
       .list()
       .filter(
         (session) =>
-          session.kind === 'agent'
-          && (matchesPrefix(prefixes, session.agentId) || mine.sessionIds.has(session.sessionId))
+          session.kind === 'agent' &&
+          (matchesPrefix(prefixes, session.agentId) || mine.sessionIds.has(session.sessionId)),
       )
       .map(toRecord)
   }
@@ -411,8 +397,7 @@ export function createAgentSessionsModuleRegistry(
     }
     for (const [moduleId, listeners] of exitListeners) {
       const mine = ownedFor(moduleId)
-      const isMine =
-        mine.executionIds.has(event.executionId) || matchesPrefix(prefixesFor(moduleId), event.agentId)
+      const isMine = mine.executionIds.has(event.executionId) || matchesPrefix(prefixesFor(moduleId), event.agentId)
       if (!isMine) continue
       for (const listener of [...listeners]) listener(projected)
     }

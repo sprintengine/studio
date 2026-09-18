@@ -65,7 +65,7 @@ const INLINE_STEP_CLASS =
  *  for the callers that have no shortcut to say. */
 function withStepHint(
   button: React.ReactElement<import('./Tooltip').TooltipChildProps>,
-  hint: string | null
+  hint: string | null,
 ): React.ReactElement {
   if (!hint) return button
   return (
@@ -202,11 +202,7 @@ export function Pager({
           </button>
           {steps.map((step, index) =>
             step === 'gap' ? (
-              <span
-                key={`gap-${index}`}
-                aria-hidden="true"
-                className="px-1 text-meta text-[color:var(--text-subtle)]"
-              >
+              <span key={`gap-${index}`} aria-hidden="true" className="px-1 text-meta text-[color:var(--text-subtle)]">
                 …
               </span>
             ) : (
@@ -244,7 +240,13 @@ export function Pager({
 function ChevronLeft(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-      <path d="M10 3.5 5.5 8 10 12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M10 3.5 5.5 8 10 12.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -252,7 +254,13 @@ function ChevronLeft(): JSX.Element {
 function ChevronRight(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-      <path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M6 3.5 10.5 8 6 12.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }

@@ -84,7 +84,7 @@ async function assertSkillLoadable(pluginName: string, skillsRoot: string, dirNa
   assert.equal(
     parsed.description.length <= MAX_DESCRIPTION_LENGTH,
     true,
-    `${where}: description is ${parsed.description.length} characters, over the ${MAX_DESCRIPTION_LENGTH} limit`
+    `${where}: description is ${parsed.description.length} characters, over the ${MAX_DESCRIPTION_LENGTH} limit`,
   )
   assert.match(parsed.description, /\bUse when\b/, `${where}: the description must say WHEN to use the skill`)
   const lines = raw.split(/\r?\n/).length
@@ -120,7 +120,7 @@ async function main(): Promise<void> {
     assert.equal(
       skillDirs.length > 0,
       true,
-      `${entry.name} ships no skill; a server without one is not listed, because a bad manual is worse than none`
+      `${entry.name} ships no skill; a server without one is not listed, because a bad manual is worse than none`,
     )
     for (const dirName of skillDirs) await assertSkillLoadable(entry.name, join(pluginDir, 'skills'), dirName)
 
@@ -137,18 +137,18 @@ async function main(): Promise<void> {
       assert.equal(
         server.transport === 'stdio' ? server.command !== '' : server.url !== '',
         true,
-        `${entry.name}: ${server.id} names neither a command nor a URL`
+        `${entry.name}: ${server.id} names neither a command nor a URL`,
       )
       assert.equal(
         CONVERTED_CATALOG_IDS.has(server.id),
         true,
-        `${entry.name}: server id "${server.id}" is not the connector catalogue id this server had, so an install made under the old id would appear as a second row`
+        `${entry.name}: server id "${server.id}" is not the connector catalogue id this server had, so an install made under the old id would appear as a second row`,
       )
       for (const [name, value] of [...Object.entries(server.env), ...Object.entries(server.headers)]) {
         assert.match(
           value,
           /\$\{?[A-Z][A-Z0-9_]*/,
-          `${entry.name}: ${server.id} sets ${name} to a literal; .mcp.json names env variables, never values`
+          `${entry.name}: ${server.id} sets ${name} to a literal; .mcp.json names env variables, never values`,
         )
       }
     }

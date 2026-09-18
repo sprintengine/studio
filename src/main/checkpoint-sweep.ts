@@ -90,11 +90,7 @@ export function checkoutsFromIndex(raw: string): string[] {
  * simply reports zero.
  */
 export async function sweepCheckpointRefs(cwd: string): Promise<{ deleted: number; ok: boolean }> {
-  const listed = await runGitCommand(cwd, [
-    'for-each-ref',
-    '--format=%(refname)',
-    `${REFS_PREFIX}**`,
-  ])
+  const listed = await runGitCommand(cwd, ['for-each-ref', '--format=%(refname)', `${REFS_PREFIX}**`])
   // A repo we could not even LIST is not a repo we have finished with. Reporting
   // ok:false keeps the index — and so the next launch's attempt — alive.
   if (!listed.ok) return { deleted: 0, ok: false }
@@ -141,7 +137,7 @@ async function sweepTempIndexes(cwd: string): Promise<void> {
   await Promise.all(
     entries
       .filter((name) => name.startsWith(TEMP_INDEX_PREFIX))
-      .map((name) => rm(join(dir, name), { force: true }).catch(() => {}))
+      .map((name) => rm(join(dir, name), { force: true }).catch(() => {})),
   )
 }
 
@@ -170,7 +166,7 @@ export async function sweepRetiredCheckpoints(userDataDir: string): Promise<Chec
   // never ran these builds — and the caller logs on that flag.
   const corruptRemoved = await rm(`${indexPath}${CORRUPT_SUFFIX}`).then(
     () => true,
-    () => false
+    () => false,
   )
 
   if (raw === null) {

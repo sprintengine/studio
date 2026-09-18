@@ -40,8 +40,7 @@ export type GlobalSurfaceShellProps = {
   children: React.ReactNode
 }
 
-export const GlobalSurfaceShell: (props: GlobalSurfaceShellProps) => React.ReactElement =
-  hostProvided()
+export const GlobalSurfaceShell: (props: GlobalSurfaceShellProps) => React.ReactElement = hostProvided()
 
 /** Wire the shell's back affordance to the host's surface history. Pass the
  *  door's own close when it has one. */
@@ -72,8 +71,7 @@ export type SurfaceCanvasStateProps =
       extraAction?: React.ReactNode
     }
 
-export const SurfaceCanvasState: (props: SurfaceCanvasStateProps) => React.ReactElement =
-  hostProvided()
+export const SurfaceCanvasState: (props: SurfaceCanvasStateProps) => React.ReactElement = hostProvided()
 
 // ── The rail ─────────────────────────────────────────────────────────────────
 

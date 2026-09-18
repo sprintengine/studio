@@ -15,7 +15,7 @@ const roots = {
 
 const relative = findTerminalFileReferences(
   'Open src/renderer/src/components/panels/TerminalView.tsx:274:7 for details.',
-  roots
+  roots,
 )
 assert.equal(relative.length, 1)
 assert.equal(relative[0]?.text, 'src/renderer/src/components/panels/TerminalView.tsx:274:7')
@@ -53,19 +53,13 @@ const wrappedSegments = [
   { y: 10, startIndex: 0, startColumn: 1, text: wrappedFirstSegment },
   { y: 11, startIndex: wrappedFirstSegment.length, startColumn: 1, text: wrappedSecondSegment },
 ]
-const wrappedReferences = findTerminalFileReferences(
-  wrappedSegments.map((segment) => segment.text).join(''),
-  roots
-)
+const wrappedReferences = findTerminalFileReferences(wrappedSegments.map((segment) => segment.text).join(''), roots)
 assert.equal(wrappedReferences.length, 1)
 assert.equal(wrappedReferences[0]?.text, 'src/renderer/src/components/panels/TerminalView.tsx:274:7')
-assert.deepEqual(
-  rangeForTerminalFileReference(wrappedReferences[0]!, wrappedSegments),
-  {
-    start: { x: 12, y: 10 },
-    end: { x: wrappedSecondSegment.length, y: 11 },
-  }
-)
+assert.deepEqual(rangeForTerminalFileReference(wrappedReferences[0]!, wrappedSegments), {
+  start: { x: 12, y: 10 },
+  end: { x: wrappedSecondSegment.length, y: 11 },
+})
 
 // Producer hard-wrap stitching: an agent CLI word-wraps a long path token onto
 // an indented continuation line, emitting separate non-wrapped buffer lines.
@@ -117,19 +111,13 @@ const hangingTerminal = makeTerminal(hangingPathHead.length, [
 ])
 const hangingLogical = readWrappedLogicalLine(hangingTerminal, 1)
 assert.ok(hangingLogical)
-assert.equal(
-  hangingLogical.text,
-  '    future-plans/2026-06-07-targeted-review-gate-rechecks.md'
-)
+assert.equal(hangingLogical.text, '    future-plans/2026-06-07-targeted-review-gate-rechecks.md')
 const hangingRefs = findTerminalFileReferences(hangingLogical.text, roots)
 assert.equal(hangingRefs.length, 1)
-assert.equal(
-  hangingRefs[0]?.text,
-  'future-plans/2026-06-07-targeted-review-gate-rechecks.md'
-)
+assert.equal(hangingRefs[0]?.text, 'future-plans/2026-06-07-targeted-review-gate-rechecks.md')
 assert.equal(
   hangingRefs[0]?.resolvedPath,
-  '/repo/packages/app/future-plans/2026-06-07-targeted-review-gate-rechecks.md'
+  '/repo/packages/app/future-plans/2026-06-07-targeted-review-gate-rechecks.md',
 )
 const hangingRange = rangeForTerminalFileReference(hangingRefs[0]!, hangingLogical.segments)
 assert.deepEqual(hangingRange, { start: { x: 5, y: 1 }, end: { x: 15, y: 2 } })
@@ -177,16 +165,11 @@ type Drop = { reason: string; text: string }
 
 // The bare resolver, which is where the null originates.
 assert.equal(resolveTerminalFileReferencePath(reportedPath, {}), null)
-assert.equal(
-  resolveTerminalFileReferencePath(reportedPath, { workspaceRoot: null, executionRoot: null }),
-  null
-)
+assert.equal(resolveTerminalFileReferencePath(reportedPath, { workspaceRoot: null, executionRoot: null }), null)
 
 const rootlessDrops: Drop[] = []
-const rootless = findTerminalFileReferences(
-  reportedLine,
-  { workspaceRoot: null, executionRoot: null },
-  (drop) => rootlessDrops.push(drop)
+const rootless = findTerminalFileReferences(reportedLine, { workspaceRoot: null, executionRoot: null }, (drop) =>
+  rootlessDrops.push(drop),
 )
 assert.equal(rootless.length, 0)
 assert.deepEqual(rootlessDrops, [{ reason: 'no-root', text: reportedPath }])
@@ -213,7 +196,7 @@ const rootlessAbsoluteDrops: Drop[] = []
 const rootlessAbsolute = findTerminalFileReferences(
   'Failure at /repo/src/main.ts:8',
   { workspaceRoot: null, executionRoot: null },
-  (drop) => rootlessAbsoluteDrops.push(drop)
+  (drop) => rootlessAbsoluteDrops.push(drop),
 )
 assert.equal(rootlessAbsolute.length, 1)
 assert.deepEqual(rootlessAbsoluteDrops, [])
@@ -229,7 +212,7 @@ for (const roots of [
   const remote = findTerminalFileReferences(
     'Docs: https://example.com/src/main.ts and ~/notes.md and ~/notes.md:12',
     roots,
-    (drop) => remoteDrops.push(drop)
+    (drop) => remoteDrops.push(drop),
   )
   assert.equal(remote.length, 0)
   assert.deepEqual(remoteDrops, [])
@@ -239,11 +222,10 @@ for (const roots of [
 // It cannot be reached through the provider (the references are matched against
 // the very text the segments tile), so it is exercised where it is reachable.
 assert.equal(
-  rangeForTerminalFileReference(
-    { startIndex: 100, endIndex: 140 },
-    [{ y: 1, startIndex: 0, startColumn: 1, text: 'src/a.ts' }]
-  ),
-  null
+  rangeForTerminalFileReference({ startIndex: 100, endIndex: 140 }, [
+    { y: 1, startIndex: 0, startColumn: 1, text: 'src/a.ts' },
+  ]),
+  null,
 )
 assert.equal(rangeForTerminalFileReference({ startIndex: 0, endIndex: 4 }, []), null)
 
@@ -253,7 +235,7 @@ assert.equal(rangeForTerminalFileReference({ startIndex: 0, endIndex: 4 }, []), 
 function provideLinksFor(
   terminal: Terminal,
   bufferLineNumber: number,
-  roots: { workspaceRoot: string | null; executionRoot: string | null }
+  roots: { workspaceRoot: string | null; executionRoot: string | null },
 ): { links: ILink[] | undefined; drops: Drop[] } {
   const drops: Drop[] = []
   let links: ILink[] | undefined
@@ -304,11 +286,10 @@ for (const hoveredRow of [1, 2]) {
 
 // The same pane with no folder configured: no link, and a counted drop rather
 // than silence. This is the acceptance criterion of the item.
-const rootlessProvider = provideLinksFor(
-  makeTerminal(120, [{ text: reportedLine, isWrapped: false }]),
-  1,
-  { workspaceRoot: null, executionRoot: null }
-)
+const rootlessProvider = provideLinksFor(makeTerminal(120, [{ text: reportedLine, isWrapped: false }]), 1, {
+  workspaceRoot: null,
+  executionRoot: null,
+})
 assert.equal(rootlessProvider.links, undefined)
 assert.deepEqual(rootlessProvider.drops, [{ reason: 'no-root', text: reportedPath }])
 

@@ -22,11 +22,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react'
 
-import type {
-  SkillDiscoveryResult,
-  SkillRepoHit,
-  SkillSearchHit,
-} from '../../../../../../../shared/skills'
+import type { SkillDiscoveryResult, SkillRepoHit, SkillSearchHit } from '../../../../../../../shared/skills'
 import {
   Badge,
   EmptyState,
@@ -245,8 +241,7 @@ export function DiscoverRepoList({
     <>
       {tokenOnlyGap ? (
         <p className="mt-3 text-meta text-[color:var(--text-subtle)]">
-          Without a GitHub token this list is stars only — repositories carrying a plugin manifest are
-          not included.
+          Without a GitHub token this list is stars only — repositories carrying a plugin manifest are not included.
         </p>
       ) : (
         <Condition condition={degraded} onConfigureToken={onConfigureToken} onRetry={onRetry} />
@@ -270,11 +265,7 @@ export function DiscoverRepoList({
           <div role="list" className="mt-1.5 flex flex-col gap-0.5">
             {results.map((hit) => (
               <div role="listitem" key={hit.repo}>
-                <RepoHitRow
-                  hit={hit}
-                  added={isRepoAdded(addedRepos, hit.repo)}
-                  onScan={() => onScanRepo(hit.repo)}
-                />
+                <RepoHitRow hit={hit} added={isRepoAdded(addedRepos, hit.repo)} onScan={() => onScanRepo(hit.repo)} />
               </div>
             ))}
           </div>
@@ -346,9 +337,7 @@ export function DiscoverSearchResults({
           }
         >
           {results.length === 0 ? (
-            <EmptyState
-              title={degraded ? 'Nothing was returned for this search.' : skillSearchEmptyLine(load.query)}
-            />
+            <EmptyState title={degraded ? 'Nothing was returned for this search.' : skillSearchEmptyLine(load.query)} />
           ) : (
             <div role="list" className="mt-1.5 flex flex-col gap-0.5">
               {results.map((hit) => (
@@ -422,15 +411,7 @@ function HitRow({
   )
 }
 
-function RepoHitRow({
-  hit,
-  added,
-  onScan,
-}: {
-  hit: SkillRepoHit
-  added: boolean
-  onScan: () => void
-}): JSX.Element {
+function RepoHitRow({ hit, added, onScan }: { hit: SkillRepoHit; added: boolean; onScan: () => void }): JSX.Element {
   return (
     <HitRow
       href={hit.htmlUrl}
@@ -441,9 +422,7 @@ function RepoHitRow({
       body={
         <>
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate font-mono text-body font-medium text-[color:var(--text-strong)]">
-              {hit.repo}
-            </span>
+            <span className="truncate font-mono text-body font-medium text-[color:var(--text-strong)]">{hit.repo}</span>
             {hit.description ? (
               <span className="truncate text-meta text-[color:var(--text-muted)]">{hit.description}</span>
             ) : null}
@@ -493,16 +472,12 @@ function SearchHitRow({
       body={
         <>
           <span className="flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-body font-medium text-[color:var(--text-strong)]">
-              {hit.name}
-            </span>
+            <span className="truncate text-body font-medium text-[color:var(--text-strong)]">{hit.name}</span>
             {hit.description ? (
               <span className="truncate text-meta text-[color:var(--text-muted)]">{hit.description}</span>
             ) : null}
           </span>
-          <span className="shrink-0 truncate font-mono text-meta text-[color:var(--text-subtle)]">
-            {hit.repo}
-          </span>
+          <span className="shrink-0 truncate font-mono text-meta text-[color:var(--text-subtle)]">{hit.repo}</span>
         </>
       }
     />
@@ -556,7 +531,6 @@ function Loading({ label }: { label: string }): JSX.Element {
     </div>
   )
 }
-
 
 function describe(error: unknown): string {
   return error instanceof Error ? error.message : String(error)

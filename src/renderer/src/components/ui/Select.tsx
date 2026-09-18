@@ -82,10 +82,7 @@ export function Select<V extends string = string>({
   const typeaheadRef = useRef<{ buffer: string; timer: number | null }>({ buffer: '', timer: null })
   const listboxId = useId()
 
-  const selectedItem = useMemo(
-    () => items.find((item) => item.value === value) ?? null,
-    [items, value],
-  )
+  const selectedItem = useMemo(() => items.find((item) => item.value === value) ?? null, [items, value])
   const selectedTone = toneOf(selectedItem)
 
   const openMenu = useCallback(() => {
@@ -103,9 +100,7 @@ export function Select<V extends string = string>({
 
   useEffect(() => {
     if (!open) return
-    const node = listboxRef.current?.querySelector<HTMLLIElement>(
-      `[data-option-index="${activeIndex}"]`,
-    )
+    const node = listboxRef.current?.querySelector<HTMLLIElement>(`[data-option-index="${activeIndex}"]`)
     node?.scrollIntoView({ block: 'nearest' })
   }, [open, activeIndex])
 
@@ -151,9 +146,7 @@ export function Select<V extends string = string>({
         state.buffer = ''
         state.timer = null
       }, TYPEAHEAD_RESET_MS)
-      const match = items.findIndex(
-        (item) => !item.disabled && item.label.toLowerCase().startsWith(state.buffer),
-      )
+      const match = items.findIndex((item) => !item.disabled && item.label.toLowerCase().startsWith(state.buffer))
       if (match >= 0) setActiveIndex(match)
     },
     [items],
@@ -170,12 +163,7 @@ export function Select<V extends string = string>({
         return
       }
       if (!open) {
-        if (
-          event.key === 'ArrowDown' ||
-          event.key === 'ArrowUp' ||
-          event.key === 'Enter' ||
-          event.key === ' '
-        ) {
+        if (event.key === 'ArrowDown' || event.key === 'ArrowUp' || event.key === 'Enter' || event.key === ' ') {
           event.preventDefault()
           openMenu()
           return
@@ -263,10 +251,7 @@ export function Select<V extends string = string>({
           ].join(' ')}
         >
           <span
-            className={[
-              'min-w-0 flex-1 truncate',
-              !selectedItem ? 'text-[color:var(--text-muted)]' : '',
-            ].join(' ')}
+            className={['min-w-0 flex-1 truncate', !selectedItem ? 'text-[color:var(--text-muted)]' : ''].join(' ')}
             style={selectedTone ? { color: TONE_COLOR_VAR[selectedTone] } : undefined}
           >
             {selectedItem ? selectedItem.label : placeholder}
@@ -291,67 +276,69 @@ export function Select<V extends string = string>({
         </button>
       )}
     >
-          {items.map((item, index) => {
-            const selected = item.value === value
-            const active = index === activeIndex && !item.disabled
-            const itemTone = toneOf(item)
-            return (
-              <li
-                key={item.value}
-                id={`${listboxId}-option-${index}`}
-                role="option"
-                aria-selected={selected}
-                aria-disabled={item.disabled || undefined}
-                data-option-index={index}
-                onMouseEnter={() => {
-                  if (!item.disabled) setActiveIndex(index)
-                }}
-                onMouseDown={(event) => {
-                  event.preventDefault()
-                }}
-                onClick={() => selectAt(index)}
-                // The shared menu row: same padding, same gap, same highlight as
-                // an action row, so a value list and an action list do not drift
-                // apart. `text-body` rather than the menu's 12px is deliberate —
-                // this popup echoes the string its own trigger is already
-                // showing at that size (design-system/components/select), and
-                // picking a value must not resize it. A menu item has no such
-                // at-rest twin, which is why 12px is right there and not here.
-                className={[
-                  MENU_ROW_CLASS,
-                  'cursor-pointer text-body',
-                  item.disabled ? 'cursor-not-allowed opacity-45' : '',
-                  active ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]' : 'text-[color:var(--text-default)]',
-                ].join(' ')}
+      {items.map((item, index) => {
+        const selected = item.value === value
+        const active = index === activeIndex && !item.disabled
+        const itemTone = toneOf(item)
+        return (
+          <li
+            key={item.value}
+            id={`${listboxId}-option-${index}`}
+            role="option"
+            aria-selected={selected}
+            aria-disabled={item.disabled || undefined}
+            data-option-index={index}
+            onMouseEnter={() => {
+              if (!item.disabled) setActiveIndex(index)
+            }}
+            onMouseDown={(event) => {
+              event.preventDefault()
+            }}
+            onClick={() => selectAt(index)}
+            // The shared menu row: same padding, same gap, same highlight as
+            // an action row, so a value list and an action list do not drift
+            // apart. `text-body` rather than the menu's 12px is deliberate —
+            // this popup echoes the string its own trigger is already
+            // showing at that size (design-system/components/select), and
+            // picking a value must not resize it. A menu item has no such
+            // at-rest twin, which is why 12px is right there and not here.
+            className={[
+              MENU_ROW_CLASS,
+              'cursor-pointer text-body',
+              item.disabled ? 'cursor-not-allowed opacity-45' : '',
+              active
+                ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
+                : 'text-[color:var(--text-default)]',
+            ].join(' ')}
+          >
+            <span
+              className="min-w-0 flex-1 truncate"
+              style={itemTone ? { color: TONE_COLOR_VAR[itemTone] } : undefined}
+            >
+              {item.label}
+            </span>
+            {selected ? (
+              <svg
+                width="10"
+                height="10"
+                viewBox="0 0 10 10"
+                aria-hidden="true"
+                focusable="false"
+                className="shrink-0 text-[color:var(--accent-primary)]"
               >
-                <span
-                  className="min-w-0 flex-1 truncate"
-                  style={itemTone ? { color: TONE_COLOR_VAR[itemTone] } : undefined}
-                >
-                  {item.label}
-                </span>
-                {selected ? (
-                  <svg
-                    width="10"
-                    height="10"
-                    viewBox="0 0 10 10"
-                    aria-hidden="true"
-                    focusable="false"
-                    className="shrink-0 text-[color:var(--accent-primary)]"
-                  >
-                    <path
-                      d="M2 5.2l2 2 4-4"
-                      stroke="currentColor"
-                      strokeWidth="1.6"
-                      fill="none"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                ) : null}
-              </li>
-            )
-          })}
+                <path
+                  d="M2 5.2l2 2 4-4"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  fill="none"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
+              </svg>
+            ) : null}
+          </li>
+        )
+      })}
     </Popover>
   )
 }

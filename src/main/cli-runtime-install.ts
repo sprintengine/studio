@@ -8,18 +8,10 @@ import type {
   CliInstallResult,
   CliRuntimeSettings,
 } from '../shared/electron-api'
-import type {
-  PluginInstallMethod,
-  PluginInstallPlatform,
-  PluginManifest,
-} from '../shared/plugin-manifest'
+import type { PluginInstallMethod, PluginInstallPlatform, PluginManifest } from '../shared/plugin-manifest'
 import { getPluginManifest } from './plugin-registry-instance'
 import { chooseCliUpdateCommand } from './cli-version-advisory'
-import {
-  currentRuntimeEnv,
-  ensureManagedRuntimeShims,
-  withManagedRuntimePath,
-} from './managed-runtime'
+import { currentRuntimeEnv, ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
 
 // Exit code our probe scripts use to signal "binary not found on PATH" so we
 // can distinguish a missing CLI from a CLI that exists but whose --version
@@ -36,10 +28,7 @@ type RunOutcome = { code: number; stdout: string; stderr: string; timedOut: bool
 
 // Maps the OS platform + per-CLI WSL override onto the manifest install bucket.
 // WSL is a logical target (Windows host, POSIX guest) distinct from win32.
-export function resolveInstallPlatform(
-  platform: NodeJS.Platform,
-  useWsl: boolean,
-): PluginInstallPlatform {
+export function resolveInstallPlatform(platform: NodeJS.Platform, useWsl: boolean): PluginInstallPlatform {
   if (platform === 'win32') return useWsl ? 'wsl' : 'win32'
   if (platform === 'darwin') return 'darwin'
   // Treat any other POSIX-like platform (linux, and uncommon ones) as linux.
@@ -61,10 +50,7 @@ function powerShellSingleQuote(value: string): string {
 // Wraps a shell snippet in the right host shell for the target. POSIX targets
 // run through a login shell so user-local install dirs (~/.local/bin, npm
 // global prefix) are on PATH; WSL routes through wsl.exe.
-function shellDescriptorForScript(
-  target: PluginInstallPlatform,
-  script: string,
-): SpawnDescriptor {
+function shellDescriptorForScript(target: PluginInstallPlatform, script: string): SpawnDescriptor {
   if (target === 'win32') {
     return {
       file: 'powershell.exe',
@@ -113,10 +99,7 @@ export function buildProbeDescriptor(input: {
 // "not installed" verdict need to know whether the full probe chain ran: without
 // the interactive fallback, an absent binary may simply be one the primary
 // `bash -lc` probe cannot see.
-export function userShellProbeSupported(
-  target: PluginInstallPlatform,
-  shell: string | undefined,
-): shell is string {
+export function userShellProbeSupported(target: PluginInstallPlatform, shell: string | undefined): shell is string {
   if (target !== 'darwin' && target !== 'linux') return false
   const shellPath = shell?.trim()
   if (!shellPath) return false
@@ -159,10 +142,7 @@ export function buildUserShellProbeDescriptor(input: {
 
 // Builds a script that exits NOT_FOUND_EXIT when a prerequisite binary (npm,
 // brew, curl, …) is absent, without invoking it.
-export function buildExistsDescriptor(input: {
-  binary: string
-  target: PluginInstallPlatform
-}): SpawnDescriptor {
+export function buildExistsDescriptor(input: { binary: string; target: PluginInstallPlatform }): SpawnDescriptor {
   const { binary, target } = input
   if (isPosixTarget(target)) {
     const bin = posixSingleQuote(binary)
@@ -177,10 +157,7 @@ export function buildExistsDescriptor(input: {
 
 // Builds the descriptor that runs an install method's command verbatim in the
 // target shell.
-export function buildInstallDescriptor(input: {
-  shell: string
-  target: PluginInstallPlatform
-}): SpawnDescriptor {
+export function buildInstallDescriptor(input: { shell: string; target: PluginInstallPlatform }): SpawnDescriptor {
   return shellDescriptorForScript(input.target, input.shell)
 }
 
@@ -204,8 +181,7 @@ export function parseProbeOutput(
   }
   // First non-path line that carries a version-looking token, else the first
   // line, else null.
-  const version =
-    versionLines.find((line) => /\d+\.\d+/.test(line)) ?? versionLines[0] ?? null
+  const version = versionLines.find((line) => /\d+\.\d+/.test(line)) ?? versionLines[0] ?? null
   return { installed: true, version, resolvedPath }
 }
 
@@ -428,10 +404,7 @@ export async function detectCli(
   }
 }
 
-async function prerequisiteAvailable(
-  requires: string,
-  target: PluginInstallPlatform,
-): Promise<boolean> {
+async function prerequisiteAvailable(requires: string, target: PluginInstallPlatform): Promise<boolean> {
   try {
     const outcome = await runDescriptor(buildExistsDescriptor({ binary: requires, target }))
     return outcome.code !== NOT_FOUND_EXIT
@@ -440,10 +413,7 @@ async function prerequisiteAvailable(
   }
 }
 
-function selectInstallMethods(
-  manifest: PluginManifest,
-  target: PluginInstallPlatform,
-): PluginInstallMethod[] {
+function selectInstallMethods(manifest: PluginManifest, target: PluginInstallPlatform): PluginInstallMethod[] {
   return manifest.install?.[target] ?? []
 }
 
@@ -458,15 +428,12 @@ export async function cliInstallMethods(
   const methods = selectInstallMethods(manifest, target)
   const infos = await Promise.all(
     methods.map(async (method): Promise<CliInstallMethodInfo> => {
-      const available = method.requires
-        ? await prerequisiteAvailable(method.requires, target)
-        : true
+      const available = method.requires ? await prerequisiteAvailable(method.requires, target) : true
       return {
         id: method.id,
         label: method.label,
         available,
-        unavailableReason:
-          available || !method.requires ? null : `Requires "${method.requires}" on PATH`,
+        unavailableReason: available || !method.requires ? null : `Requires "${method.requires}" on PATH`,
         recommended: method.recommended ?? false,
         commandPreview: method.shell,
         platform: target,
@@ -524,11 +491,7 @@ export async function installCli(
 
   let runError: string | null = null
   try {
-    const outcome = await runDescriptor(
-      buildInstallDescriptor({ shell: method.shell, target }),
-      capture,
-      installEnv,
-    )
+    const outcome = await runDescriptor(buildInstallDescriptor({ shell: method.shell, target }), capture, installEnv)
     if (outcome.code !== 0) {
       runError = `Install command exited with code ${outcome.code}.`
     }
@@ -664,9 +627,10 @@ export async function updateCli(
   }
 
   const methods = await cliInstallMethods(cli, runtime)
-  const method = methods.find((entry) => entry.recommended && entry.available)
-    ?? methods.find((entry) => entry.available)
-    ?? methods[0]
+  const method =
+    methods.find((entry) => entry.recommended && entry.available) ??
+    methods.find((entry) => entry.available) ??
+    methods[0]
   if (!method) {
     return {
       ok: false,

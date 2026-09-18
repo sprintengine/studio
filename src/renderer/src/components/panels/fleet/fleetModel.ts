@@ -101,7 +101,6 @@ export function fleetTerminalTabName(machineName: string, title: string): string
   return `${title} · ${machineName}`
 }
 
-
 // The machine picker and the waiting card moved to `components/remote/`
 // (pair-from-the-scan-and-stay-paired, phases 1–3): one picker for Settings
 // and the Fleet, and a wait that main owns so closing this panel does not

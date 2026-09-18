@@ -53,7 +53,15 @@ const api: Record<string, unknown> = {
   platform: 'darwin',
   cliDetect: async (cli: string) => {
     calls.cliDetect.push(cli)
-    return { cli, binary: 'cursor-agent', installed: false, version: null, resolvedPath: null, useWsl: false, error: null }
+    return {
+      cli,
+      binary: 'cursor-agent',
+      installed: false,
+      version: null,
+      resolvedPath: null,
+      useWsl: false,
+      error: null,
+    }
   },
   cliInstallMethods: async (cli: string) => {
     calls.cliInstallMethods.push(cli)
@@ -103,9 +111,8 @@ function run(name: string, body: () => void): void {
 }
 
 function findButton(scope: ParentNode, label: RegExp): HTMLButtonElement | null {
-  return ([...scope.querySelectorAll('button')].find((candidate) =>
-    label.test(candidate.textContent ?? ''),
-  ) ?? null) as HTMLButtonElement | null
+  return ([...scope.querySelectorAll('button')].find((candidate) => label.test(candidate.textContent ?? '')) ??
+    null) as HTMLButtonElement | null
 }
 
 const cursorEntry = {

@@ -44,10 +44,7 @@ function bodyFor(diffView: 'side-by-side' | 'unified', hideUnchanged = false): R
     currentItem: item,
     onMount: () => {},
     monacoTheme: 'vs',
-    options: diffEditorOptions(
-      { diffView, ...DEFAULT_DIFF_EDITOR_PREFS, hideUnchanged },
-      'mono',
-    ),
+    options: diffEditorOptions({ diffView, ...DEFAULT_DIFF_EDITOR_PREFS, hideUnchanged }, 'mono'),
   })
   assert.ok(React.isValidElement(element), 'a ready diff renders an element')
   return element as React.ReactElement
@@ -135,10 +132,7 @@ run('a step into another repository, or a first read, still shows the message', 
   assert.deepEqual(contentAcrossTargetChange(READY, false), { state: 'loading' })
   assert.deepEqual(contentAcrossTargetChange({ state: 'loading' }, true), { state: 'loading' })
   assert.deepEqual(contentAcrossTargetChange({ state: 'binary' }, true), { state: 'loading' })
-  assert.deepEqual(
-    contentAcrossTargetChange({ state: 'error', message: 'no' }, true),
-    { state: 'loading' },
-  )
+  assert.deepEqual(contentAcrossTargetChange({ state: 'error', message: 'no' }, true), { state: 'loading' })
 })
 
 if (failures > 0) {

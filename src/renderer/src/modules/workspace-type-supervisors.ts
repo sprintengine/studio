@@ -1,7 +1,4 @@
-import type {
-  RegisteredWorkspaceTypeDefinition,
-  WorkspaceTypeSupervisorComponent,
-} from './renderer-host'
+import type { RegisteredWorkspaceTypeDefinition, WorkspaceTypeSupervisorComponent } from './renderer-host'
 
 export type MountedWorkspaceTypeSupervisor = {
   key: string
@@ -18,6 +15,6 @@ export function collectWorkspaceTypeSupervisors(
       .map((supervisor, index) => ({
         key: `${definition.id}:${supervisor.scope}:${index}`,
         Component: supervisor.Component,
-      }))
+      })),
   )
 }

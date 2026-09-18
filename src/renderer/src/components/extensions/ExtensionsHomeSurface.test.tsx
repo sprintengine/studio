@@ -27,7 +27,11 @@ anyGlobal.CustomEvent = dom.window.CustomEvent
 anyGlobal.getComputedStyle = dom.window.getComputedStyle
 anyGlobal.localStorage = dom.window.localStorage
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
-class FakeResizeObserver { observe() {} unobserve() {} disconnect() {} }
+class FakeResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 anyGlobal.ResizeObserver = FakeResizeObserver
 domWindow.ResizeObserver = FakeResizeObserver
 // React's change-event POLYFILL, given the two IE methods it reaches for.
@@ -48,13 +52,19 @@ domWindow.ResizeObserver = FakeResizeObserver
 const asAny = dom.window.HTMLElement.prototype as unknown as Record<string, unknown>
 asAny.attachEvent = () => {}
 asAny.detachEvent = () => {}
-dom.window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} })) as unknown as typeof dom.window.matchMedia
+dom.window.matchMedia = ((q: string) => ({
+  matches: false,
+  media: q,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  addListener: () => {},
+  removeListener: () => {},
+})) as unknown as typeof dom.window.matchMedia
 // The page's five readers, stubbed at the preload boundary. The two that are
 // absent here (`skillsListSources`, `listDesignSystemLibrary`) are absent on
 // purpose: every reader is guarded, and a missing one must leave its tile
 // standing with no count line rather than taking the tile down with it.
-domWindow.api = {
-}
+domWindow.api = {}
 
 import React from 'react'
 import { createRoot } from 'react-dom/client'
@@ -70,15 +80,8 @@ import {
   type ExtensionsSurfaceTarget,
 } from '../workspace/globalSurface/extensions/extensionsSurfaceTarget'
 import { setExtensionsSurfaceHost } from '../workspace/globalSurface/extensions/extensionsSurfaceHost'
-import {
-  cardRunsAModel,
-  type CardLaunchChoice,
-} from '../workspace/globalSurface/extensions/home/CardGoPicker'
-import {
-  __resetModelPermissionPresetsForTest,
-  setModelPermissionPreset,
-} from '../ui/modelPermissionPresets'
-
+import { cardRunsAModel, type CardLaunchChoice } from '../workspace/globalSurface/extensions/home/CardGoPicker'
+import { __resetModelPermissionPresetsForTest, setModelPermissionPreset } from '../ui/modelPermissionPresets'
 
 /** A model id this machine "has", added the way Settings adds one. */
 const MODEL = 'claude-opus-5'
@@ -105,8 +108,7 @@ const tilesIn = (host: HTMLElement) => [...host.querySelectorAll('ul button')] a
 // The name is the tile's first span that is not decorative — the glyph and the
 // chevron wrappers are `aria-hidden`, which is both correct markup and what
 // makes the name findable without depending on child order.
-const nameOf = (tile: HTMLElement) =>
-  tile.querySelector(':scope > span:not([aria-hidden])')?.textContent?.trim() ?? ''
+const nameOf = (tile: HTMLElement) => tile.querySelector(':scope > span:not([aria-hidden])')?.textContent?.trim() ?? ''
 
 // ── The tiles, in the drawer's order ─────────────────────────────────────────
 const home = mount(React.createElement(ExtensionsHomeSurface))
@@ -141,10 +143,7 @@ const summaryFor: Record<string, string> = {
 }
 for (const tile of tilesIn(home.host)) {
   const name = nameOf(tile)
-  assert.ok(
-    tile.textContent?.includes(summaryFor[name]),
-    `${name}: the tile carries its own one-line summary`,
-  )
+  assert.ok(tile.textContent?.includes(summaryFor[name]), `${name}: the tile carries its own one-line summary`)
 }
 
 // ── A feed with nothing in it is the page it was yesterday ───────────────────
@@ -152,11 +151,7 @@ for (const tile of tilesIn(home.host)) {
 // also an old build meeting a feed of cards whose artwork ships later. Both
 // fall back to the tiles ALONE, and the page says nothing about either: no
 // apology, no notice, no version line (epic rulings R5 and R6).
-assert.equal(
-  home.host.querySelectorAll('article').length,
-  0,
-  'no cards, so no card region',
-)
+assert.equal(home.host.querySelectorAll('article').length, 0, 'no cards, so no card region')
 assert.equal(
   home.host.querySelectorAll('input[type="search"]').length,
   0,
@@ -166,7 +161,16 @@ assert.ok(
   !home.host.textContent?.includes('Or go straight to the parts'),
   'the heading arrives with the cards and leaves with them — with nothing above them the tiles ARE the page again',
 )
-for (const apology of ['offline', 'Offline', 'could not', 'Could not', 'unavailable', 'Unavailable', 'Retry', 'try again']) {
+for (const apology of [
+  'offline',
+  'Offline',
+  'could not',
+  'Could not',
+  'unavailable',
+  'Unavailable',
+  'Retry',
+  'try again',
+]) {
   assert.ok(
     !home.host.textContent?.includes(apology),
     `the page never reports on its own network (R6), and it does not say “${apology}”`,
@@ -182,10 +186,7 @@ for (const apology of ['offline', 'Offline', 'could not', 'Could not', 'unavaila
 // nothing has scheduled that scan. Building the browse is not refused, it is
 // unscheduled — so if it returns it returns as a rendered browse, never as this
 // empty state.
-assert.ok(
-  !home.host.textContent?.includes('Coming soon'),
-  'the page promises nothing that has no owner and no date',
-)
+assert.ok(!home.host.textContent?.includes('Coming soon'), 'the page promises nothing that has no owner and no date')
 assert.equal(
   home.host.querySelector('section[aria-labelledby="extensions-community-heading"]'),
   null,
@@ -233,11 +234,7 @@ for (const label of RULED_ORDER) {
   assert.ok(row && tile, `${label}: both the drawer row and the tile exist`)
   const fromRow = landing(() => row.click())
   const fromTile = landing(() => tile.click())
-  assert.deepEqual(
-    fromTile,
-    fromRow,
-    `${label}: the tile lands where the row lands — same surface, same latched view`,
-  )
+  assert.deepEqual(fromTile, fromRow, `${label}: the tile lands where the row lands — same surface, same latched view`)
   assert.ok(fromTile.surface, `${label}: and clicking it actually routes the card region somewhere`)
 }
 
@@ -249,7 +246,9 @@ act(() => {
 })
 consumePendingExtensionsSurfaceTarget()
 act(() => {
-  tilesIn(home.host).find((tile) => nameOf(tile) === 'Skills')?.click()
+  tilesIn(home.host)
+    .find((tile) => nameOf(tile) === 'Skills')
+    ?.click()
 })
 assert.equal(useWorkspaceStore.getState().activeGlobalSurface, 'extensions')
 assert.deepEqual(
@@ -344,11 +343,7 @@ const titleOf = (poster: HTMLElement) => poster.querySelector('h3')?.textContent
 
 assert.deepEqual(
   cardsIn(home.host).map(titleOf),
-  [
-    'Big task? No problem.',
-    'Let an agent drive your browser',
-    'Build a 3D apocalypse of your own street',
-  ],
+  ['Big task? No problem.', 'Let an agent drive your browser', 'Build a 3D apocalypse of your own street'],
   'the hero leads however old it is, then newest first — and the card naming artwork this build does not hold is not there at all (2467’s ruling)',
 )
 assert.ok(
@@ -477,7 +472,11 @@ for (const poster of cardsIn(home.host)) {
 // and a stretched overlay is what makes the rest of the card press it.
 for (const poster of cardsIn(home.host)) {
   assert.equal(poster.getAttribute('tabindex'), null, `${titleOf(poster)}: the card is not a second tab stop`)
-  assert.equal(poster.getAttribute('role'), null, `${titleOf(poster)}: and it claims no role a button could not sit inside`)
+  assert.equal(
+    poster.getAttribute('role'),
+    null,
+    `${titleOf(poster)}: and it claims no role a button could not sit inside`,
+  )
   assert.equal(
     [...poster.querySelectorAll('button, a[href], input, [tabindex]')].length,
     1,
@@ -494,9 +493,7 @@ for (const poster of cardsIn(home.host)) {
   const go = [...poster.querySelectorAll('button')][0] as HTMLElement
   const stretched =
     (go.getAttribute('class') ?? '').includes('after:absolute after:inset-0') ||
-    [...poster.children].some((child) =>
-      (child.getAttribute('class') ?? '').includes('absolute inset-0'),
-    )
+    [...poster.children].some((child) => (child.getAttribute('class') ?? '').includes('absolute inset-0'))
   assert.ok(stretched, `${titleOf(poster)}: something stretches over the card, so the card is the target`)
 }
 
@@ -519,12 +516,9 @@ async function main(): Promise<void> {
   // IS this page's — one press, one popover, one run — plus the states around it.
 
   /** The card's picker, portaled to <body> rather than into the card. */
-  const picker = () =>
-    dom.window.document.querySelector('[role="dialog"][aria-label^="Run "]') as HTMLElement | null
-  const pickerRows = () =>
-    [...(picker()?.querySelectorAll('[data-model-row="true"]') ?? [])] as HTMLElement[]
-  const rowNamed = (needle: string) =>
-    pickerRows().find((row) => row.textContent?.includes(needle))
+  const picker = () => dom.window.document.querySelector('[role="dialog"][aria-label^="Run "]') as HTMLElement | null
+  const pickerRows = () => [...(picker()?.querySelectorAll('[data-model-row="true"]') ?? [])] as HTMLElement[]
+  const rowNamed = (needle: string) => pickerRows().find((row) => row.textContent?.includes(needle))
   /** The card's glass — the pointer surface a mouse actually lands on. */
   const glassOf = (index: number) =>
     cardsIn(home.host)[index]?.querySelector(':scope > span[aria-hidden="true"]') as HTMLElement | undefined
@@ -651,7 +645,11 @@ async function main(): Promise<void> {
     // pressed — and a disabled trigger opens no popover, which is what keeps the
     // non-re-entrancy guard true for the picker as well as for the run.
     for (const go of cardButtons()) {
-      assert.equal((go as HTMLButtonElement).disabled, true, 'every card\u2019s control is disabled while a run is in flight')
+      assert.equal(
+        (go as HTMLButtonElement).disabled,
+        true,
+        'every card\u2019s control is disabled while a run is in flight',
+      )
     }
     act(() => {
       cardButtons()[1]?.click()
@@ -818,7 +816,10 @@ async function main(): Promise<void> {
     // rail, so "the whole catalogue" is asserted where the catalogue lives.
     const railFor = (label: string) =>
       picker()?.querySelector(`[role="radio"][aria-label="${label}"]`) as HTMLElement | null
-    assert.ok(railFor('Codex'), 'the runtime the card did not name is offered too — `require.cli` leads the list, it does not shorten it')
+    assert.ok(
+      railFor('Codex'),
+      'the runtime the card did not name is offered too — `require.cli` leads the list, it does not shorten it',
+    )
     act(() => {
       railFor('Codex')?.click()
     })
@@ -844,9 +845,7 @@ async function main(): Promise<void> {
     assert.ok(ramp(), 'and the levels the manifest declares are the levels offered')
     const step = (key: string) =>
       act(() => {
-        ramp()?.dispatchEvent(
-          new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
-        )
+        ramp()?.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
       })
     step('Home')
     for (let walked = 0; walked <= 12 && ramp()?.getAttribute('aria-valuetext') !== 'high'; walked += 1) {
@@ -876,11 +875,7 @@ async function main(): Promise<void> {
       rememberedCli,
       'and choosing a row leaves the remembered New-chat engine exactly where it was',
     )
-    assert.deepEqual(
-      useWorkspaceStore.getState().appSettings.lastSelectedAgentModel,
-      rememberedModel,
-      'model included',
-    )
+    assert.deepEqual(useWorkspaceStore.getState().appSettings.lastSelectedAgentModel, rememberedModel, 'model included')
     setExtensionsSurfaceHost(null)
   }
 
@@ -1002,8 +997,16 @@ async function main(): Promise<void> {
     // work.
     const [direct, spawner] = cardButtons()
     assert.equal(direct?.getAttribute('aria-haspopup'), null, 'a card that runs no model has a plain control')
-    assert.equal(direct?.getAttribute('aria-expanded'), null, 'and it controls nothing, because there is nothing to control')
-    assert.equal(spawner?.getAttribute('aria-haspopup'), 'dialog', 'and the card beside it that DOES spawn is unchanged')
+    assert.equal(
+      direct?.getAttribute('aria-expanded'),
+      null,
+      'and it controls nothing, because there is nothing to control',
+    )
+    assert.equal(
+      spawner?.getAttribute('aria-haspopup'),
+      'dialog',
+      'and the card beside it that DOES spawn is unchanged',
+    )
     // This card's whole `go` is one `open.surface`, so its label names the door
     // rather than its kind — the two hosts still draw ONE button, they just no
     // longer draw one WORD (2026-09-06: the label is derived per card, and "Go"
@@ -1013,11 +1016,7 @@ async function main(): Promise<void> {
       'Open Agent CLIs — Big task? No problem.',
       'both hosts draw the same button: same label, same name, same card in it',
     )
-    assert.equal(
-      spawner?.textContent?.trim(),
-      'Install',
-      'and the card that spawns names its own offer, from its kind',
-    )
+    assert.equal(spawner?.textContent?.trim(), 'Install', 'and the card that spawns names its own offer, from its kind')
 
     // One press runs it. No popover appears at any point — not before the run
     // and not after it.
@@ -1143,7 +1142,11 @@ async function main(): Promise<void> {
 
     const poster = cardsIn(home.host).find((candidate) => titleOf(candidate) === 'Look what somebody built')
     assert.ok(poster, 'the card is still rendered — an empty `go` is not a reason to drop the row')
-    assert.equal(cardButtons().length, 1, 'and the only control on the page belongs to the card that has something to run')
+    assert.equal(
+      cardButtons().length,
+      1,
+      'and the only control on the page belongs to the card that has something to run',
+    )
     assert.equal(
       poster?.querySelectorAll('button, a[href], input, [tabindex]').length,
       0,
@@ -1154,13 +1157,18 @@ async function main(): Promise<void> {
     // neither. There is nothing for Enter to do here, and a tab stop that
     // answers no key is worse than no tab stop at all.
     const posterClasses = poster?.getAttribute('class') ?? ''
-    assert.ok(!posterClasses.includes('has-[button:focus-visible]'), 'so it wears no ring keyed to a button it does not have')
+    assert.ok(
+      !posterClasses.includes('has-[button:focus-visible]'),
+      'so it wears no ring keyed to a button it does not have',
+    )
     assert.ok(!posterClasses.includes('cursor-pointer'), 'and no pointer cursor, because there is nothing to point at')
-    assert.ok(!posterClasses.includes('hover:bg-'), 'and no hover tint, because hover is how this card family says “target”')
+    assert.ok(
+      !posterClasses.includes('hover:bg-'),
+      'and no hover tint, because hover is how this card family says “target”',
+    )
     assert.equal(
-      [...(poster?.children ?? [])].filter((child) =>
-        (child.getAttribute('class') ?? '').includes('absolute inset-0'),
-      ).length,
+      [...(poster?.children ?? [])].filter((child) => (child.getAttribute('class') ?? '').includes('absolute inset-0'))
+        .length,
       0,
       'and no glass over it: an overlay that swallows the pointer and answers nothing is the dead button again',
     )
@@ -1239,13 +1247,13 @@ async function main(): Promise<void> {
   }
 
   search('postcode')
+  assert.deepEqual(cardsIn(home.host).map(titleOf), ['Build a 3D apocalypse of your own street'], 'the dek is searched')
+  search('playwright')
   assert.deepEqual(
     cardsIn(home.host).map(titleOf),
-    ['Build a 3D apocalypse of your own street'],
-    'the dek is searched',
+    ['Let an agent drive your browser'],
+    'so is the credit, case and all',
   )
-  search('playwright')
-  assert.deepEqual(cardsIn(home.host).map(titleOf), ['Let an agent drive your browser'], 'so is the credit, case and all')
   search('big task')
   assert.deepEqual(cardsIn(home.host).map(titleOf), ['Big task? No problem.'], 'and so is the title')
   assert.equal(
@@ -1301,10 +1309,7 @@ async function main(): Promise<void> {
     useWorkspaceStore.setState(() => ({ cards: [], cardFeedStatus: 'loading' as const }))
   })
   const shimmers = [...home.host.querySelectorAll('.skeleton-shimmer')]
-  assert.ok(
-    shimmers.length > 0,
-    'a page with nothing to draw yet draws the shape of what is coming',
-  )
+  assert.ok(shimmers.length > 0, 'a page with nothing to draw yet draws the shape of what is coming')
   // And the shape is PAINTED. `.skeleton-shimmer` carries the sweep and no ground,
   // and the sweep itself only runs under `prefers-reduced-motion: no-preference` —
   // so a caller that passes no background draws transparent rectangles, and draws
@@ -1390,11 +1395,7 @@ async function main(): Promise<void> {
   // before anything was marked, so a muscle-memory pick still lands.
   assert.deepEqual(
     cardsIn(visit.host).map(titleOf),
-    [
-      'Big task? No problem.',
-      'Let an agent drive your browser',
-      'Build a 3D apocalypse of your own street',
-    ],
+    ['Big task? No problem.', 'Let an agent drive your browser', 'Build a 3D apocalypse of your own street'],
     'the chip is the only difference — it moves nothing',
   )
 
@@ -1402,11 +1403,12 @@ async function main(): Promise<void> {
   // out — and the chips survive that write, because the stamp the page marks
   // against was frozen on mount.
   const stampedAt = useNotificationStore.getState().sectionSeenAt.extensions
-  assert.ok(
-    stampedAt && Date.parse(stampedAt) > Date.parse(STAMP),
-    'the home advances the section stamp on mount',
+  assert.ok(stampedAt && Date.parse(stampedAt) > Date.parse(STAMP), 'the home advances the section stamp on mount')
+  assert.equal(
+    chipped('Let an agent drive your browser'),
+    true,
+    'and the marks stay up for the visit that revealed them',
   )
-  assert.equal(chipped('Let an agent drive your browser'), true, 'and the marks stay up for the visit that revealed them')
 
   // A card pushed while the person is reading the page is SEEN, not badged
   // behind them: the feed changing stamps again, and the new card is marked

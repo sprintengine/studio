@@ -1,8 +1,4 @@
-import type {
-  AgentCli,
-  AgentCliAvailabilityMap,
-  CliRuntimeSettings,
-} from '../../../../shared/electron-api'
+import type { AgentCli, AgentCliAvailabilityMap, CliRuntimeSettings } from '../../../../shared/electron-api'
 
 // Whether the detected-availability map is trustworthy yet. Pickers only filter
 // out uninstalled CLIs once this is `ready` with at least one installed entry;
@@ -136,7 +132,10 @@ export function createCliAvailabilitySlice(
         // A foreground request must not inherit an in-flight background run's
         // no-loading/suppressed-error behavior; queue a foreground run after it.
         if (background || !current.background) return current.promise
-        return track(false, current.promise.then(() => runRefresh(opts)))
+        return track(
+          false,
+          current.promise.then(() => runRefresh(opts)),
+        )
       }
       return track(background, runRefresh(opts))
     },

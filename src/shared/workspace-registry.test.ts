@@ -73,8 +73,14 @@ test('every retired-mode record is filtered on parse, with its window references
   file.workspaceWindows[0]!.activeWorkspaceId = 'ws-roadmap'
   const parsed = parseWorkspaceRegistryFile(JSON.parse(serializeWorkspaceRegistryFile(file)))
   assert.ok(parsed)
-  assert.deepEqual(parsed.file.workspaces.map((record) => record.id), ['ws-keep'])
-  assert.deepEqual(parsed.retiredRecordIds, RETIRED_WORKSPACE_MODES.map((mode) => `ws-${mode}`))
+  assert.deepEqual(
+    parsed.file.workspaces.map((record) => record.id),
+    ['ws-keep'],
+  )
+  assert.deepEqual(
+    parsed.retiredRecordIds,
+    RETIRED_WORKSPACE_MODES.map((mode) => `ws-${mode}`),
+  )
   assert.deepEqual(parsed.droppedRecords, [], 'a retired row is not reported as malformed')
   assert.equal(parsed.file.activeWorkspaceId, null)
   assert.deepEqual(parsed.file.workspaceWindows[0]?.workspaceIds, ['ws-keep'])
@@ -99,7 +105,11 @@ test('a default-named record locked at birth is healed on read', () => {
   const parsed = parseWorkspaceRegistryFile(JSON.parse(serializeWorkspaceRegistryFile(file)))
   assert.ok(parsed)
   const byId = new Map(parsed.file.workspaces.map((record) => [record.id, record]))
-  assert.equal(byId.get('ws-chat')?.titleLocked, undefined, 'a "Chat N" lock is dropped so the first prompt can name it')
+  assert.equal(
+    byId.get('ws-chat')?.titleLocked,
+    undefined,
+    'a "Chat N" lock is dropped so the first prompt can name it',
+  )
   assert.equal(byId.get('ws-named')?.titleLocked, true, 'a chosen name keeps its lock')
   assert.equal(byId.get('ws-renamed')?.titleLocked, true, 'a hand rename keeps its lock')
 })
@@ -120,7 +130,10 @@ test('one malformed record is dropped and the rest of the file survives', () => 
     workspaces: [good, bad],
   })
   assert.ok(parsed)
-  assert.deepEqual(parsed.file.workspaces.map((record) => record.id), ['ws-1'])
+  assert.deepEqual(
+    parsed.file.workspaces.map((record) => record.id),
+    ['ws-1'],
+  )
   assert.deepEqual(parsed.droppedRecords, [{ id: 'ws-2', reason: 'layoutModel' }])
 })
 
@@ -161,24 +174,26 @@ test('content equality ignores the revision so an unchanged write is a no-op', (
 })
 
 test('durability normalization strips renderer-owned view state and live agent noise', () => {
-  const normalized = normalizeWorkspaceForRegistry(workspace({
-    editorState: { openFiles: [{ path: '/a.ts', content: 'x', isDirty: true }], activeFilePath: '/a.ts' },
-    fileExplorerState: { expandedPaths: ['/repo/src'] },
-    moduleState: { weather: { deck: 'compact' }, backlog: { lens: 'all' } },
-    agents: {
-      'agent-1': {
-        id: 'agent-1',
-        name: 'A',
-        status: 'running',
-        streamBuffer: 'half a screen of output',
-        cliRestartNonce: 4,
-        cliSessionId: 'session-1',
-        cliResumeAvailable: true,
-        cliOnboardingPromptSent: true,
-        cliStartupPrompt: 'do the thing',
+  const normalized = normalizeWorkspaceForRegistry(
+    workspace({
+      editorState: { openFiles: [{ path: '/a.ts', content: 'x', isDirty: true }], activeFilePath: '/a.ts' },
+      fileExplorerState: { expandedPaths: ['/repo/src'] },
+      moduleState: { weather: { deck: 'compact' }, backlog: { lens: 'all' } },
+      agents: {
+        'agent-1': {
+          id: 'agent-1',
+          name: 'A',
+          status: 'running',
+          streamBuffer: 'half a screen of output',
+          cliRestartNonce: 4,
+          cliSessionId: 'session-1',
+          cliResumeAvailable: true,
+          cliOnboardingPromptSent: true,
+          cliStartupPrompt: 'do the thing',
+        },
       },
-    },
-  } as unknown as Partial<Workspace>))
+    } as unknown as Partial<Workspace>),
+  )
 
   assert.deepEqual(normalized.editorState, { openFiles: [], activeFilePath: null })
   assert.equal(normalized.fileExplorerState, undefined)
@@ -224,10 +239,15 @@ test('a record still carrying the retired archive stamp reads as settled', () =>
 })
 
 test('a fresh record carries zeroed stamps unless seeded', () => {
-  assert.deepEqual(
-    emptyWorkspaceRegistryFieldStamps(),
-    { name: 0, layoutModel: 0, folderPath: 0, memory: 0, settledAt: 0, settledOverride: 0, snoozedUntil: 0 },
-  )
+  assert.deepEqual(emptyWorkspaceRegistryFieldStamps(), {
+    name: 0,
+    layoutModel: 0,
+    folderPath: 0,
+    memory: 0,
+    settledAt: 0,
+    settledOverride: 0,
+    snoozedUntil: 0,
+  })
   assert.deepEqual(toWorkspaceRegistryRecord(workspace(), 1).fieldEditedAt, emptyWorkspaceRegistryFieldStamps())
 })
 
@@ -287,10 +307,7 @@ test('classification: every hydration row of the migration table', () => {
   assert.equal(classifyPersistedWorkspaceState({ rawLocalStorage: present }), 'present')
   assert.equal(isDangerousEmptyClassification('present'), false)
 
-  assert.equal(
-    classifyPersistedWorkspaceState({ rawLocalStorage: null }),
-    'dangerous_empty_missing_storage',
-  )
+  assert.equal(classifyPersistedWorkspaceState({ rawLocalStorage: null }), 'dangerous_empty_missing_storage')
   assert.equal(
     classifyPersistedWorkspaceState({ rawLocalStorage: '{not json', parseError: undefined }),
     'dangerous_empty_unreadable',

@@ -274,9 +274,7 @@ function readBundleDimensions() {
     .map((step) => readTokenDimensionPx(tokens, `sem.radius.${step}`))
     .filter((value) => value !== null)
   if (microFontSizePx === null || radiusSteps.length === 0) {
-    process.stderr.write(
-      `${TOKENS_JSON_PATH} must declare sem.font.size.micro and sem.radius.* as px dimensions.\n`,
-    )
+    process.stderr.write(`${TOKENS_JSON_PATH} must declare sem.font.size.micro and sem.radius.* as px dimensions.\n`)
     process.exit(2)
   }
   return {
@@ -645,8 +643,7 @@ const SPACING_ARBITRARY =
 // A focus-scoped border recolour, in every variant form the tree spells it.
 // `border-` and not `border-b`/`border-l` alone: the shape a swap takes is
 // always a colour on some edge, and the rule wants all of them.
-const FOCUS_BORDER_SWAP =
-  /(?<![\w-])(?:group-|peer-)?focus(?:-within|-visible)?:border-/g
+const FOCUS_BORDER_SWAP = /(?<![\w-])(?:group-|peer-)?focus(?:-within|-visible)?:border-/g
 
 const EMOJI = /[\p{Extended_Pictographic}☀-⛿✀-➿]/gu
 const EMOJI_ALLOWED = new Set(['©', '®', '™'])
@@ -753,8 +750,7 @@ const SPACING_NAMED =
   /(?<![\w-])-?(?:px|py|pt|pr|pb|pl|p|mx|my|mt|mr|mb|ml|m|gap-x|gap-y|gap|space-x|space-y)-(\d+(?:\.\d+)?)(?![\w.[-])/g
 const SPACING_STEPS_ON_SCALE = new Set([0, 0.5, 1, 1.5, 2, 2.5, 3, 4, 5, 6, 8])
 
-const RADIUS_ARBITRARY =
-  /(?<![\w-])rounded(?:-(?:[tblr]|[tb][lr]|ss|se|es|ee))?-\[(\d+(?:\.\d+)?)px\]/g
+const RADIUS_ARBITRARY = /(?<![\w-])rounded(?:-(?:[tblr]|[tb][lr]|ss|se|es|ee))?-\[(\d+(?:\.\d+)?)px\]/g
 const RADIUS_XL = /(?<![\w-])rounded(?:-(?:[tblr]|[tb][lr]))?-xl(?![\w-])/g
 const RADIUS_STEPS_PX = new Set(bundleDimensions.radiusStepsPx)
 
@@ -1472,9 +1468,7 @@ function readDisabledContrastBaseline() {
     process.exit(2)
   }
   if (!Array.isArray(parsed) || parsed.some((entry) => typeof entry !== 'string')) {
-    process.stderr.write(
-      `${DISABLED_CONTRAST_BASELINE_PATH} must be a JSON array of "<theme>:<surface>" strings.\n`,
-    )
+    process.stderr.write(`${DISABLED_CONTRAST_BASELINE_PATH} must be a JSON array of "<theme>:<surface>" strings.\n`)
     process.exit(2)
   }
   const lines = raw.split('\n')
@@ -1491,8 +1485,7 @@ function resolveBundle(bundleSource) {
   const light = new Map()
   const dark = new Map()
   for (const block of readTopLevelBlocks(bundleSource, kinds)) {
-    const target =
-      block.selector === ':root' ? light : block.selector === '[data-mode="dark"]' ? dark : null
+    const target = block.selector === ':root' ? light : block.selector === '[data-mode="dark"]' ? dark : null
     if (!target) continue
     const body = bundleSource.slice(block.bodyStart, block.bodyEnd)
     const declaration = /(--[\w-]+)\s*:\s*([^;}]*)[;}]/g
@@ -1568,14 +1561,14 @@ const FIX_HINT = {
   'shadow-in-flow':
     'overlays take --shadow-popover / --shadow-modal; a pressable control takes .control-raised / ' +
     '.control-edge; all other in-flow chrome takes a hairline',
-  'arbitrary-z-index': 'use the layering scale: sticky 10, pane 20, float 30, drawer 40, modal 70, popover 80, menu 90, toast 100',
+  'arbitrary-z-index':
+    'use the layering scale: sticky 10, pane 20, float 30, drawer 40, modal 70, popover 80, menu 90, toast 100',
   'accent-marks-active': 'mark active with --bg-selected and an ink lift, not the accent',
   'uppercase-tracked': 'sentence case; hierarchy from weight and size',
   'marketing-radii': 'operational chrome uses --radius-sm / --radius-md',
   'hover-without-focus': 'pair the hover reveal with group-focus-within:opacity-100',
   'micro-type-floor': `grow the container rather than shrinking the type below ${MICRO_FLOOR_PX}px`,
-  'flexlayout-scoped-var':
-    '--color-N exists only inside .flexlayout__layout; use --border-default / --border-strong',
+  'flexlayout-scoped-var': '--color-N exists only inside .flexlayout__layout; use --border-default / --border-strong',
   'weight-off-ramp': 'the weight ramp is 400 / 500 / 600: font-semibold is the top step',
   'named-z-off-ladder':
     'z-[var(--z-pane)] (20) / z-[var(--z-float)] (30) in flow; --z-drawer and above for ' +
@@ -1611,7 +1604,12 @@ function walkSource(absoluteRoot, root) {
     if (entry.name.endsWith('.d.ts')) continue
     const dot = entry.name.lastIndexOf('.')
     if (dot < 0 || !SOURCE_EXT.has(entry.name.slice(dot))) continue
-    out.push(full.slice(root.length + 1).split(sep).join('/'))
+    out.push(
+      full
+        .slice(root.length + 1)
+        .split(sep)
+        .join('/'),
+    )
   }
   return out
 }
@@ -1685,9 +1683,7 @@ const appCssAbs = resolve(repoRoot, APP_CSS_PATH)
 const bundleCssAbs = resolve(repoRoot, BUNDLE_CSS_PATH)
 
 if (!existsSync(appCssAbs) || !existsSync(bundleCssAbs)) {
-  process.stderr.write(
-    `Missing ${existsSync(appCssAbs) ? BUNDLE_CSS_PATH : APP_CSS_PATH}. Run from the repo root.\n`,
-  )
+  process.stderr.write(`Missing ${existsSync(appCssAbs) ? BUNDLE_CSS_PATH : APP_CSS_PATH}. Run from the repo root.\n`)
   process.exit(2)
 }
 
@@ -1730,17 +1726,13 @@ markerLinesByPath.set(APP_CSS_PATH, collectMarkerLines(APP_CSS_PATH, appCssLines
 const bundle = resolveBundle(readFileSync(bundleCssAbs, 'utf8'))
 const rootBlocks = readRootBlocks(appCss, appCssKinds)
 
-const baseBlock = rootBlocks.find(
-  (block) => block.appliesToAllThemes && block.themes.includes('dark'),
-)
+const baseBlock = rootBlocks.find((block) => block.appliesToAllThemes && block.themes.includes('dark'))
 const lightBlock = rootBlocks.find(
   (block) => !block.appliesToAllThemes && block.themes.length === 1 && block.themes[0] === 'light',
 )
 
 if (!baseBlock || !lightBlock) {
-  process.stderr.write(
-    `Could not locate the base dark and light token blocks in ${APP_CSS_PATH}.\n`,
-  )
+  process.stderr.write(`Could not locate the base dark and light token blocks in ${APP_CSS_PATH}.\n`)
   process.exit(2)
 }
 
@@ -1838,11 +1830,7 @@ for (const theme of [...themeIds].sort()) {
     // through to a base alias would read the wrong mode's value, so its mode
     // is left unknown rather than guessed — see the unresolved branch below.
     const bundleMode =
-      block === baseBlock && theme === 'dark'
-        ? 'dark'
-        : block === lightBlock && theme === 'light'
-          ? 'light'
-          : null
+      block === baseBlock && theme === 'dark' ? 'dark' : block === lightBlock && theme === 'light' ? 'light' : null
     for (const [name, declaration] of readDeclarations(appCss, appCssKinds, block, bundleMode)) {
       resolved.set(name, declaration)
     }
@@ -1939,9 +1927,7 @@ for (const [pairing, line] of disabledContrastBaseline) {
  * Exemptions and report
  * ------------------------------------------------------------------ */
 
-const suppressed = violations.filter((violation) =>
-  markerLinesByPath.get(violation.path)?.has(violation.line),
-)
+const suppressed = violations.filter((violation) => markerLinesByPath.get(violation.path)?.has(violation.line))
 const suppressedSet = new Set(suppressed)
 // Everything an allow-marker did not carve out is a failure. There is nothing
 // between "the marker documents why" and "fix it".
@@ -1960,9 +1946,7 @@ if (!QUIET) {
   for (const [path, list] of [...grouped.entries()].sort()) {
     process.stdout.write(`\n${path}\n`)
     for (const violation of list.sort((a, b) => a.line - b.line || a.column - b.column)) {
-      process.stdout.write(
-        `  ${violation.line}:${violation.column}  ${violation.rule}  ${violation.text}\n`,
-      )
+      process.stdout.write(`  ${violation.line}:${violation.column}  ${violation.rule}  ${violation.text}\n`)
     }
   }
   for (const error of markerErrors) {
@@ -1992,14 +1976,10 @@ if (!QUIET) {
   // Named, with their measured ratios, on every run: a tolerated failure that
   // prints nothing is one nobody clears.
   if (toleratedDisabledContrast.length > 0) {
-    process.stdout.write(
-      `  tolerated by ${DISABLED_CONTRAST_BASELINE_PATH}: ${toleratedDisabledContrast.length}\n`,
-    )
+    process.stdout.write(`  tolerated by ${DISABLED_CONTRAST_BASELINE_PATH}: ${toleratedDisabledContrast.length}\n`)
     for (const { pairing, ratio } of toleratedDisabledContrast) {
       const [theme, surface] = pairing.split(':')
-      process.stdout.write(
-        `    ${theme}: --text-disabled ${ratio.toFixed(2)}:1 on ${surface}\n`,
-      )
+      process.stdout.write(`    ${theme}: --text-disabled ${ratio.toFixed(2)}:1 on ${surface}\n`)
     }
   }
 }

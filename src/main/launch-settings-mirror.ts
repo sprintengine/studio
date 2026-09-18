@@ -108,7 +108,8 @@ export function createAgentLaunchSettingsMirror(deps: AgentLaunchSettingsMirrorD
         deps.logDiagnostic?.({
           level: 'warning',
           title: 'Agent launch settings not persisted',
-          message: 'The launch settings could not be written to disk; in-memory values still apply until the app restarts.',
+          message:
+            'The launch settings could not be written to disk; in-memory values still apply until the app restarts.',
           details: error instanceof Error ? error.message : String(error),
         })
       }
@@ -117,10 +118,7 @@ export function createAgentLaunchSettingsMirror(deps: AgentLaunchSettingsMirrorD
     return settled
   }
 
-  function commit(
-    settings: AgentLaunchSettings,
-    actor: 'ui' | 'system',
-  ): AgentLaunchSettingsWriteResult {
+  function commit(settings: AgentLaunchSettings, actor: 'ui' | 'system'): AgentLaunchSettingsWriteResult {
     const record = nextAgentLaunchSettingsRecord({
       current: loadOnce(),
       settings,

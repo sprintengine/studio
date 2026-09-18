@@ -5,7 +5,13 @@ import { basename, join } from 'path'
 
 import { BUNDLED_MODULE_IDS, type CapabilityManifest } from '../../shared/modules/manifest'
 import { parseThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
-import { classifyModuleTrust, isSignedByTrustedPublisher, manifestFingerprint, type ModuleTrust, type ModuleTrustContext } from './module-signature'
+import {
+  classifyModuleTrust,
+  isSignedByTrustedPublisher,
+  manifestFingerprint,
+  type ModuleTrust,
+  type ModuleTrustContext,
+} from './module-signature'
 import { readStudioEnv } from '../../shared/studio-env'
 
 // Discovery + install for third-party capability modules under
@@ -81,7 +87,7 @@ function validateInstalledManifestSource(
   source: string,
   manifestPath: string,
   expectedId: string,
-  ctx: ModuleTrustContext
+  ctx: ModuleTrustContext,
 ): { ok: true; manifest: CapabilityManifest } | { ok: false; rejection: ModuleRejection } {
   const result = parseThirdPartyModuleManifest(source)
   if (!result.ok) return { ok: false, rejection: { path: manifestPath, issues: result.issues } }
@@ -91,7 +97,12 @@ function validateInstalledManifestSource(
       ok: false,
       rejection: {
         path: manifestPath,
-        issues: [{ path: 'id', message: `"${result.manifest.id}" is a reserved id, publisher-locked to the first-party signing key.` }],
+        issues: [
+          {
+            path: 'id',
+            message: `"${result.manifest.id}" is a reserved id, publisher-locked to the first-party signing key.`,
+          },
+        ],
       },
     }
   }
@@ -112,7 +123,7 @@ function validateInstalledManifestSource(
 async function loadManifestFromDir(
   moduleRoot: string,
   expectedId: string,
-  ctx: ModuleTrustContext
+  ctx: ModuleTrustContext,
 ): Promise<{ ok: true; manifest: CapabilityManifest } | { ok: false; rejection: ModuleRejection }> {
   const manifestPath = join(moduleRoot, 'manifest.json')
   let source: string
@@ -133,7 +144,7 @@ async function loadManifestFromDir(
 function loadManifestFromDirSync(
   moduleRoot: string,
   expectedId: string,
-  ctx: ModuleTrustContext
+  ctx: ModuleTrustContext,
 ): { ok: true; manifest: CapabilityManifest } | { ok: false; rejection: ModuleRejection } {
   const manifestPath = join(moduleRoot, 'manifest.json')
   let source: string
@@ -197,7 +208,7 @@ export function discoverUserModulesSync(root: string, ctx: ModuleTrustContext): 
 export async function installModuleFolder(
   srcDir: string,
   root: string,
-  ctx: ModuleTrustContext
+  ctx: ModuleTrustContext,
 ): Promise<InstallModuleResult> {
   // The folder name a manifest must match is its own id, so validate against the
   // manifest's declared id rather than the (arbitrary) source folder name.

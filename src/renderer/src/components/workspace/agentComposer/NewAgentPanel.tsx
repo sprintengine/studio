@@ -1,9 +1,5 @@
 import React from 'react'
-import type {
-  AgentCli,
-  CliPermissionPreset,
-  WorkspaceSkill,
-} from '../../../../../shared/electron-api'
+import type { AgentCli, CliPermissionPreset, WorkspaceSkill } from '../../../../../shared/electron-api'
 import type {
   FleetBrowse,
   FleetCheckoutRequest,
@@ -73,11 +69,7 @@ import { type ProjectCloneRequest, type ProjectCloneResult } from './ProjectSour
 import { mergeDraftConnectors, readNewChatDraft, writeNewChatDraft, type NewChatDraftImage } from './newChatDraft'
 import { showToast } from '../../../store/toastStore'
 import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
-import {
-  launchCommandLineKey,
-  launchPreviewRequest,
-  type LaunchCommandLineState,
-} from './launchCommandLine'
+import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
 import {
   rowMatchesSelection,
@@ -225,14 +217,18 @@ export function machineCopyOf(browse: FleetBrowse, identity: RepositoryIdentity 
 export function machineAvailabilityOf(
   machine: FleetConnection,
   browse: FleetBrowse | 'loading' | undefined,
-  identity: RepositoryIdentity | null
+  identity: RepositoryIdentity | null,
 ): MachineAvailability {
   if (!identity) return { state: 'none' }
   if (browse === undefined || browse === 'loading') return { state: 'loading' }
   if (!browse.reachable) {
     return { state: 'unreachable', reason: browse.unreachableReason ?? `${machine.machineName} is not answering.` }
   }
-  if (browse.unauthorized) return { state: 'unreachable', reason: `${machine.machineName} refused this pairing — re-pair from Settings → Remote.` }
+  if (browse.unauthorized)
+    return {
+      state: 'unreachable',
+      reason: `${machine.machineName} refused this pairing — re-pair from Settings → Remote.`,
+    }
   const copy = machineCopyOf(browse, identity)
   if (copy) return { state: 'has', workspace: copy }
   const gap = browse.gaps.find((entry) => entry.part === 'workspaces')
@@ -502,12 +498,12 @@ export default function NewAgentPanel({
   const localIdentities = useFolderRepositoryIdentities(
     React.useMemo(
       () => [workspaceRoot, ...(projectOptions ?? []).map((option) => option.path)],
-      [projectOptions, workspaceRoot]
-    )
+      [projectOptions, workspaceRoot],
+    ),
   )
-  const localIdentity = workspaceRoot ? localIdentities.get(folderIdentityKey(workspaceRoot)) ?? null : null
+  const localIdentity = workspaceRoot ? (localIdentities.get(folderIdentityKey(workspaceRoot)) ?? null) : null
   const activeIdentity: RepositoryIdentity | null = remoteTarget
-    ? remoteTarget.picked?.repository ?? null
+    ? (remoteTarget.picked?.repository ?? null)
     : localIdentity
   activeIdentityRef.current = activeIdentity
   // The colour the scope line wears (owner ruling 2026-09-09, backlog item
@@ -548,7 +544,10 @@ export default function NewAgentPanel({
   // and both are settled the moment the machine answered.
   const localIdentityRead = !workspaceRoot?.trim() || localIdentities.has(folderIdentityKey(workspaceRoot))
   const scopeProjectColor = useProjectColor(remoteTarget || localIdentityRead ? scopeProjectKey : null)
-  const pickRemoteMachine = (connection: FleetConnection | null, keep: RepositoryIdentity | null = activeIdentity): void => {
+  const pickRemoteMachine = (
+    connection: FleetConnection | null,
+    keep: RepositoryIdentity | null = activeIdentity,
+  ): void => {
     lastPickedMachineId = connection?.id ?? null
     if (!connection) {
       // Back to This device with a project in hand: keep it when a local clone
@@ -556,10 +555,15 @@ export default function NewAgentPanel({
       // project when it exists there); otherwise the line returns
       // to the folder it was scoped to before, as it always did. The folder
       // the door is already scoped to wins when it is that repository.
-      const scopedIsTwin = Boolean(keep && workspaceRoot && sameRepository(localIdentities.get(folderIdentityKey(workspaceRoot)), keep))
-      const twin = keep && !scopedIsTwin
-        ? (projectOptions ?? []).find((option) => sameRepository(localIdentities.get(folderIdentityKey(option.path)), keep))
-        : null
+      const scopedIsTwin = Boolean(
+        keep && workspaceRoot && sameRepository(localIdentities.get(folderIdentityKey(workspaceRoot)), keep),
+      )
+      const twin =
+        keep && !scopedIsTwin
+          ? (projectOptions ?? []).find((option) =>
+              sameRepository(localIdentities.get(folderIdentityKey(option.path)), keep),
+            )
+          : null
       if (twin && onSelectProject && twin.path !== workspaceRoot) onSelectProject(twin.path)
       setRemoteTarget(null)
       return
@@ -574,57 +578,56 @@ export default function NewAgentPanel({
       checkout: null,
       checkoutError: null,
     })
-    void browseMachine(connection)
-      .then((browse) => {
-        setRemoteTarget((current) => {
-          if (current?.connection.id !== connection.id) return current
-          if (!browse.reachable) {
-            return {
-              ...current,
-              workspaces: [],
-              projects: [],
-              error: browse.unreachableReason ?? 'That machine is not answering.',
-            }
-          }
-          if (browse.unauthorized) {
-            return {
-              ...current,
-              workspaces: [],
-              projects: [],
-              error: 'That machine refused this pairing — re-pair from Settings → Remote.',
-            }
-          }
-          // A gap is a DIFFERENT statement from an empty list: a pairing
-          // without workspace:read genuinely cannot list workspaces, and
-          // "no workspaces on that machine" would be false (the FleetGap
-          // contract). Say the real reason instead.
-          const workspaceGap = browse.gaps.find((gap) => gap.part === 'workspaces')
-          if (browse.workspaces.length === 0 && workspaceGap) {
-            return { ...current, workspaces: [], projects: [], error: workspaceGap.message }
-          }
-          // The machine's chats folded into the folders they stand in
-          // (`remoteProjects`). What `workspace.list` serves is one entry per
-          // open CONVERSATION over there, and this chip is choosing a project
-          // — so three chats in one checkout are one row, not three.
-          const projects = remoteProjectsOf(browse.workspaces)
-          // An explicit choice, not the first row: a project picked by list
-          // order is a launch into the wrong repo waiting to happen. Two
-          // exceptions: a machine with exactly one project, where there is
-          // nothing to choose, and the machine's copy of the project already
-          // in hand (one-project-across-machines) — switching the machine
-          // keeps the project.
-          const copy = machineCopyOf(browse, keep ?? activeIdentityRef.current)
-          const kept = copy ? remoteProjectOfWorkspace(projects, browse.workspaces, copy.id) : null
+    void browseMachine(connection).then((browse) => {
+      setRemoteTarget((current) => {
+        if (current?.connection.id !== connection.id) return current
+        if (!browse.reachable) {
           return {
             ...current,
-            scopes: browse.scopes,
-            workspaces: browse.workspaces,
-            projects,
-            // A choice already made meanwhile is never overwritten by a late answer.
-            picked: current.picked ?? kept ?? (projects.length === 1 ? projects[0]! : null),
+            workspaces: [],
+            projects: [],
+            error: browse.unreachableReason ?? 'That machine is not answering.',
           }
-        })
+        }
+        if (browse.unauthorized) {
+          return {
+            ...current,
+            workspaces: [],
+            projects: [],
+            error: 'That machine refused this pairing — re-pair from Settings → Remote.',
+          }
+        }
+        // A gap is a DIFFERENT statement from an empty list: a pairing
+        // without workspace:read genuinely cannot list workspaces, and
+        // "no workspaces on that machine" would be false (the FleetGap
+        // contract). Say the real reason instead.
+        const workspaceGap = browse.gaps.find((gap) => gap.part === 'workspaces')
+        if (browse.workspaces.length === 0 && workspaceGap) {
+          return { ...current, workspaces: [], projects: [], error: workspaceGap.message }
+        }
+        // The machine's chats folded into the folders they stand in
+        // (`remoteProjects`). What `workspace.list` serves is one entry per
+        // open CONVERSATION over there, and this chip is choosing a project
+        // — so three chats in one checkout are one row, not three.
+        const projects = remoteProjectsOf(browse.workspaces)
+        // An explicit choice, not the first row: a project picked by list
+        // order is a launch into the wrong repo waiting to happen. Two
+        // exceptions: a machine with exactly one project, where there is
+        // nothing to choose, and the machine's copy of the project already
+        // in hand (one-project-across-machines) — switching the machine
+        // keeps the project.
+        const copy = machineCopyOf(browse, keep ?? activeIdentityRef.current)
+        const kept = copy ? remoteProjectOfWorkspace(projects, browse.workspaces, copy.id) : null
+        return {
+          ...current,
+          scopes: browse.scopes,
+          workspaces: browse.workspaces,
+          projects,
+          // A choice already made meanwhile is never overwritten by a late answer.
+          picked: current.picked ?? kept ?? (projects.length === 1 ? projects[0]! : null),
+        }
       })
+    })
   }
   const pickRemoteMachineRef = React.useRef(pickRemoteMachine)
   pickRemoteMachineRef.current = pickRemoteMachine
@@ -654,7 +657,8 @@ export default function NewAgentPanel({
       .then((result) => {
         if (cancelled) return
         setRemoteTarget((current) => {
-          if (current?.connection.id !== remoteConnectionId || current.picked?.workspaceId !== remotePickedId) return current
+          if (current?.connection.id !== remoteConnectionId || current.picked?.workspaceId !== remotePickedId)
+            return current
           if (!result.ok) return { ...current, checkout: null, checkoutError: result.message }
           return { ...current, checkout: result.checkout, checkoutError: null }
         })
@@ -664,7 +668,7 @@ export default function NewAgentPanel({
         setRemoteTarget((current) =>
           current?.connection.id === remoteConnectionId && current.picked?.workspaceId === remotePickedId
             ? { ...current, checkout: null, checkoutError: error instanceof Error ? error.message : String(error) }
-            : current
+            : current,
         )
       })
     return () => {
@@ -678,7 +682,7 @@ export default function NewAgentPanel({
   // below is what stops one being asked for where the pairing cannot make it.
   const activeBranch = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
-    return ws ? resolveWorkspaceWorktree(ws)?.branch ?? null : null
+    return ws ? (resolveWorkspaceWorktree(ws)?.branch ?? null) : null
   })
   // A branch belongs to the workspace's own checkout; a chat scoped to another
   // project is not on it, and printing it there would be a lie.
@@ -728,7 +732,7 @@ export default function NewAgentPanel({
 
   const insertPromptPath = (path: string) => {
     setPrompt((current) =>
-      current.length === 0 || /\s$/.test(current) ? `${current}${quotePath(path)} ` : `${current} ${quotePath(path)} `
+      current.length === 0 || /\s$/.test(current) ? `${current}${quotePath(path)} ` : `${current} ${quotePath(path)} `,
     )
     promptRef.current?.focus()
   }
@@ -807,7 +811,8 @@ export default function NewAgentPanel({
     if (!remoteMachineName) return
     if (REMOTE_PERMISSION_PRESETS.has(effectivePreset)) return
     const next = nearestRemotePermissionPreset(effectivePreset)
-    const from = AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === effectivePreset)?.label ?? effectivePreset
+    const from =
+      AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === effectivePreset)?.label ?? effectivePreset
     const to = AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === next)?.label ?? next
     // The move is written against the ROW the machine refused it for, so
     // picking a local model back does not inherit the remote's narrowing.
@@ -975,7 +980,7 @@ export default function NewAgentPanel({
         cliModel: confirm.model ?? null,
         permissionPreset: effectivePreset,
         checkout,
-        branch: checkout.mode === 'current' ? remoteTarget.checkout?.branch ?? null : null,
+        branch: checkout.mode === 'current' ? (remoteTarget.checkout?.branch ?? null) : null,
         remoteRepository: remoteTarget.picked.repository,
       })
         .finally(() => setRemoteLaunching(false))
@@ -1075,7 +1080,10 @@ export default function NewAgentPanel({
   }
 
   return (
-    <div ref={rootRef} className="relative flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 pb-8 pt-8">
+    <div
+      ref={rootRef}
+      className="relative flex h-full min-h-0 flex-col overflow-auto bg-[color:var(--bg-app)] px-6 pb-8 pt-8"
+    >
       {showCloseButton ? (
         <div className="absolute right-3 top-3">
           <CloseIconButton onClick={onClose} aria-label="Cancel" />
@@ -1086,7 +1094,7 @@ export default function NewAgentPanel({
           {/* icon-lg is the top of the icon scale and the step the system names for
             empty-state glyphs. There is no larger token, and an off-scale hero
             mark is what made this fill the pane. */}
-        <SprintEngineFrond tone="current" className="icon-lg mx-auto text-[color:var(--text-strong)]" />
+          <SprintEngineFrond tone="current" className="icon-lg mx-auto text-[color:var(--text-strong)]" />
           <h1 className="mt-2.5 text-title font-semibold tracking-[-0.01em] text-[color:var(--text-strong)]">
             {greeting}
           </h1>
@@ -1111,7 +1119,9 @@ export default function NewAgentPanel({
                 machines={remoteMachines}
                 selected={remoteTarget?.connection ?? null}
                 onSelect={(connection) => pickRemoteMachine(connection)}
-                availability={(machine) => machineAvailabilityOf(machine, browseOf(machineBrowses.get(machine.id)), activeIdentity)}
+                availability={(machine) =>
+                  machineAvailabilityOf(machine, browseOf(machineBrowses.get(machine.id)), activeIdentity)
+                }
                 // With a project in hand, opening the list asks every machine
                 // what it holds — once, then again when the answer is old or
                 // was "not answering" (a machine asleep at the first open
@@ -1127,11 +1137,15 @@ export default function NewAgentPanel({
               />
             ) : null}
             {remoteTarget ? (
-              <RemoteProjectPicker target={remoteTarget} color={scopeProjectColor} onPick={(project) => {
-                setRemoteTarget((current) =>
-                  current ? { ...current, picked: project, checkout: null, checkoutError: null } : current
-                )
-              }} />
+              <RemoteProjectPicker
+                target={remoteTarget}
+                color={scopeProjectColor}
+                onPick={(project) => {
+                  setRemoteTarget((current) =>
+                    current ? { ...current, picked: project, checkout: null, checkoutError: null } : current,
+                  )
+                }}
+              />
             ) : canChooseProject ? (
               <ProjectScopePicker
                 label={projectLabel ?? 'Choose a project'}
@@ -1157,11 +1171,7 @@ export default function NewAgentPanel({
               // scope line carries the colour, or the colour stops being how you
               // tell one project from another.
               <p className="inline-flex items-center gap-1.5 text-meta text-[color:var(--text-subtle)]">
-                <FolderIdentityIcon
-                  folderPath={workspaceRoot}
-                  className="icon-xs shrink-0"
-                  color={scopeProjectColor}
-                />
+                <FolderIdentityIcon folderPath={workspaceRoot} className="icon-xs shrink-0" color={scopeProjectColor} />
                 <span className="min-w-0 truncate">
                   {projectLabel}
                   {branch ? ` · ${branch}` : ''}
@@ -1250,7 +1260,13 @@ export default function NewAgentPanel({
               fill="none"
               className="mt-1 size-icon-sm shrink-0 select-none text-[color:var(--accent-primary)]"
             >
-              <path d="M5.5 3.5 10 8l-4.5 4.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M5.5 3.5 10 8l-4.5 4.5"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
             {/* Grows with its content (field-sizing: content) from the two-row
                 floor to a ceiling, then scrolls — a box that showed two lines
@@ -1320,9 +1336,7 @@ export default function NewAgentPanel({
                       text={engineNames.modelLabel ?? engineNames.cliLabel}
                       className="max-w-[150px]"
                     />
-                    {reasoning ? (
-                      <span className="text-[color:var(--text-subtle)]">· {reasoning}</span>
-                    ) : null}
+                    {reasoning ? <span className="text-[color:var(--text-subtle)]">· {reasoning}</span> : null}
                     <ChevronGlyph />
                   </ChipButton>
                 )}
@@ -1378,10 +1392,14 @@ export default function NewAgentPanel({
                 {composer.mcpServers.map((server) => (
                   <AttachmentChip
                     key={`mcp-${server.id}`}
-                    glyph={<ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={13} />}
+                    glyph={
+                      <ExtensionIcon slug={mcpIconSlug(server.id)} name={server.name} icon={server.icon} size={13} />
+                    }
                     label={server.name}
                     removeLabel={`Remove MCP server ${server.name}`}
-                    onRemove={() => composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))}
+                    onRemove={() =>
+                      composer.setMcpServers(composer.mcpServers.filter((entry) => entry.id !== server.id))
+                    }
                   />
                 ))}
                 <SkillsAndMcpsPicker
@@ -1436,7 +1454,7 @@ export default function NewAgentPanel({
             {/* Always rendered, whatever is selected: this menu is the only way
                 to change WHAT is being launched, so hiding it for a terminal
                 stranded the surface with no way back to an agent. */}
-            {(
+            {
               <Popover
                 open={moreOpen}
                 onOpenChange={setMoreOpen}
@@ -1468,9 +1486,7 @@ export default function NewAgentPanel({
                     openSettingsOverlay({ initialTab: 'agents' })
                   }}
                   worktreeName={composer.worktreeName}
-                  onToggleWorktree={() =>
-                    composer.setWorktreeName(composer.worktreeName === null ? '' : null)
-                  }
+                  onToggleWorktree={() => composer.setWorktreeName(composer.worktreeName === null ? '' : null)}
                   onChangeWorktree={composer.setWorktreeName}
                   // One row for both targets now. A remote one is offered it
                   // once a project is picked — until then there is no checkout
@@ -1483,7 +1499,7 @@ export default function NewAgentPanel({
                   onToggleDebug={() => onChangeDebugMode(!debugMode)}
                 />
               </Popover>
-            )}
+            }
 
             <span className="flex-1" />
 
@@ -1542,7 +1558,12 @@ export default function NewAgentPanel({
         {isTerminalLaunch ? null : (
           <div className="mt-4 grid grid-cols-1 gap-2 @[520px]:grid-cols-2">
             {suggestions.map((entry) => (
-              <SuggestionCard key={entry.id} entry={entry} disabled={!canLaunch} onLaunch={() => launch(entry.prompt)} />
+              <SuggestionCard
+                key={entry.id}
+                entry={entry}
+                disabled={!canLaunch}
+                onLaunch={() => launch(entry.prompt)}
+              />
             ))}
           </div>
         )}
@@ -1556,11 +1577,16 @@ export default function NewAgentPanel({
 function ChevronGlyph() {
   return (
     <svg className="icon-xs text-[color:var(--text-subtle)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="m4 6.5 4 3.5 4-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="m4 6.5 4 3.5 4-3.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
-
 
 function BranchGlyph() {
   return (
@@ -1573,14 +1599,16 @@ function BranchGlyph() {
   )
 }
 
-
-
-
 function DebugGlyph() {
   return (
     <svg className="icon-xs text-[color:var(--accent-primary)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
       <rect x="5" y="5" width="6" height="7" rx="3" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M2.5 7.5h2.5M11 7.5h2.5M2.5 11h2.5M11 11h2.5M8 2.5V5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+      <path
+        d="M2.5 7.5h2.5M11 7.5h2.5M2.5 11h2.5M11 11h2.5M8 2.5V5"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+      />
     </svg>
   )
 }
@@ -1618,8 +1646,8 @@ function MachineScopePicker({
     menuRadioRowKeyDown(event, '[data-machine-option="true"]', activate)
   const focusChecked = React.useCallback((surface: HTMLElement) => {
     const target =
-      surface.querySelector<HTMLButtonElement>('[data-machine-option="true"][aria-checked="true"]:not([disabled])')
-      ?? surface.querySelector<HTMLButtonElement>('[data-machine-option="true"]:not([disabled])')
+      surface.querySelector<HTMLButtonElement>('[data-machine-option="true"][aria-checked="true"]:not([disabled])') ??
+      surface.querySelector<HTMLButtonElement>('[data-machine-option="true"]:not([disabled])')
     target?.focus()
     if (target && document.activeElement !== target) {
       requestAnimationFrame(() => {
@@ -1658,7 +1686,12 @@ function MachineScopePicker({
         selected={selected === null}
         data-machine-option="true"
         tabIndex={selected === null ? 0 : -1}
-        onKeyDown={(event) => rowKey(event, () => { onSelect(null); setOpen(false) })}
+        onKeyDown={(event) =>
+          rowKey(event, () => {
+            onSelect(null)
+            setOpen(false)
+          })
+        }
         onClick={() => {
           onSelect(null)
           setOpen(false)
@@ -1702,14 +1735,16 @@ function MachineScopePicker({
             icon={<RemoteMachineGlyph className={`icon-xs shrink-0${hint ? ' mt-0.5' : ''}`} />}
             trailing={
               hint ? null : (
-                <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">{machine.endpoint}</span>
+                <span className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">
+                  {machine.endpoint}
+                </span>
               )
             }
           >
-            <span className={hint ? 'block truncate text-body font-medium' : 'block truncate'}>{machine.machineName}</span>
-            {hint ? (
-              <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span>
-            ) : null}
+            <span className={hint ? 'block truncate text-body font-medium' : 'block truncate'}>
+              {machine.machineName}
+            </span>
+            {hint ? <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span> : null}
           </MenuOption>
         )
       })}
@@ -1757,14 +1792,14 @@ function RemoteProjectPicker({
       : needle
         ? target.projects.filter(
             (project) =>
-              project.name.toLowerCase().includes(needle) || project.folderPath.toLowerCase().includes(needle)
+              project.name.toLowerCase().includes(needle) || project.folderPath.toLowerCase().includes(needle),
           )
         : target.projects
   const label = target.error
     ? 'Unavailable'
     : target.projects === null
       ? 'Loading…'
-      : target.picked?.name ?? 'Choose a project'
+      : (target.picked?.name ?? 'Choose a project')
   // Dashed says one thing and only one: there is no folder here, so there is no
   // project (decision 6). That is true of "Choose a project" — the machine
   // answered and nothing has been picked — and false of "Loading…" and
@@ -1992,7 +2027,6 @@ function MoreMenu({
   )
 }
 
-
 function MenuValueRow({
   label,
   value,
@@ -2022,7 +2056,9 @@ function MenuValueRow({
       trailing={
         <>
           <span className="max-w-[110px] shrink-0 truncate text-[color:var(--text-subtle)]">{value}</span>
-          <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">›</span>
+          <span aria-hidden="true" className="shrink-0 text-micro text-[color:var(--text-disabled)]">
+            ›
+          </span>
         </>
       }
     >
@@ -2105,9 +2141,7 @@ function MenuRow({
           anything, and a tooltip to recover a sentence the surface had room
           for is a worse answer than two lines. */}
       <span className={hint ? 'block text-body font-medium' : 'block'}>{label}</span>
-      {hint ? (
-        <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span>
-      ) : null}
+      {hint ? <span className="block text-meta leading-snug text-[color:var(--text-subtle)]">{hint}</span> : null}
     </MenuOption>
   )
 }
@@ -2127,12 +2161,7 @@ function SuggestionCard({
     // and nothing else — a grid that reflows under the pointer is the defect
     // the tile spec rules out. The inset stays with the caller, because a
     // tile's padding is a composition decision.
-    <CardButton
-      variant="bordered"
-      onClick={onLaunch}
-      disabled={disabled}
-      className="px-3 py-2.5"
-    >
+    <CardButton variant="bordered" onClick={onLaunch} disabled={disabled} className="px-3 py-2.5">
       <div className="text-body font-medium text-[color:var(--text-strong)]">{entry.title}</div>
       <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{entry.description}</p>
       <span className="mt-1.5 inline-block self-start rounded border border-[color:var(--border-default)] px-1.5 text-micro text-[color:var(--text-subtle)]">

@@ -65,9 +65,7 @@ export function moduleLabelForModuleId(moduleId: string): string {
  * Pure and dependency-injected so the rule is asserted without a renderer host.
  */
 export type WorkspaceModuleAbsence =
-  | { kind: 'not-installed'; label: string }
-  | { kind: 'disabled'; label: string; moduleId: string }
-  | null
+  { kind: 'not-installed'; label: string } | { kind: 'disabled'; label: string; moduleId: string } | null
 
 export function workspaceModuleAbsence(
   mode: string,
@@ -227,7 +225,10 @@ function DoorModuleInstallControls({
   const [flow, setFlow] = useState<InstallFlowState>({ status: 'idle' })
 
   const install = useCallback(async () => {
-    if (typeof window.api?.verifyMarketplacePlugin !== 'function' || typeof window.api?.installMarketplacePluginFromRegistry !== 'function') {
+    if (
+      typeof window.api?.verifyMarketplacePlugin !== 'function' ||
+      typeof window.api?.installMarketplacePluginFromRegistry !== 'function'
+    ) {
       setFlow({ status: 'error', message: 'Installing extensions needs a newer app build. Update and restart.' })
       return
     }
@@ -241,7 +242,12 @@ function DoorModuleInstallControls({
     }
     const outcome = classifyVerification(verify, entry.provides)
     if (outcome.kind === 'blocked') {
-      setFlow({ status: 'blocked', classification: outcome.classification, message: outcome.message, issues: outcome.issues })
+      setFlow({
+        status: 'blocked',
+        classification: outcome.classification,
+        message: outcome.message,
+        issues: outcome.issues,
+      })
       return
     }
     if (outcome.kind === 'needs-trust') {
@@ -256,7 +262,9 @@ function DoorModuleInstallControls({
       // No workspace: a module installs into the user module root, and this
       // door may be open with no project at all.
       const { installAndActivateRendererModules } = await import('../../modules')
-      const result = await installAndActivateRendererModules(() => window.api.installMarketplacePluginFromRegistry({ entry }))
+      const result = await installAndActivateRendererModules(() =>
+        window.api.installMarketplacePluginFromRegistry({ entry }),
+      )
       setFlow(summarizeInstallResult(result))
     } catch (error) {
       setFlow({
@@ -317,7 +325,7 @@ function isModulePresent(moduleId: string): boolean {
 export function marketplaceModuleForComponent(
   componentId: string,
   plugins: ReadonlyArray<Pick<MarketplacePluginEntry, 'id' | 'name' | 'provides'>>,
-  isPresent: (moduleId: string) => boolean = isModulePresent
+  isPresent: (moduleId: string) => boolean = isModulePresent,
 ): { id: string; name: string } | null {
   const dot = componentId.indexOf('.')
   if (dot <= 0) return null

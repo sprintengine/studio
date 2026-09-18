@@ -36,8 +36,6 @@ export function setHostedSourcesFeedClientForTests(next: HostedSourcesFeedClient
   client = next
 }
 
-export function readHostedSourcesFeed(
-  input: HostedSourcesFeedReadInput = {},
-): Promise<HostedSourcesFeedReadResult> {
+export function readHostedSourcesFeed(input: HostedSourcesFeedReadInput = {}): Promise<HostedSourcesFeedReadResult> {
   return getHostedSourcesFeedClient().read(input)
 }

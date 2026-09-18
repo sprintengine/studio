@@ -72,7 +72,8 @@ const mobile = '/work/multicode-mobile'
 // The Design door's world (item 2002): an empty library first, then one real
 // bundle, so the door can be driven through both its first-run empty state and
 // its populated rail.
-let designLibrary: Array<{ path: string; name: string; version: string; summary: string; releasedAt: string | null }> = []
+let designLibrary: Array<{ path: string; name: string; version: string; summary: string; releasedAt: string | null }> =
+  []
 const designBundlePath = `${multicode}/design-system`
 const designLibraryOnlyPath = '/work/harbor/design-system'
 const designBundles: Record<string, unknown> = {
@@ -96,7 +97,13 @@ const designBundles: Record<string, unknown> = {
       provenance: {},
     },
     // design-tokens-allow: a PREVIEWED bundle's own tokens are content under test, not app chrome — the point is that they are not ours.
-    specimen: { tokensCss: ':root{--sem-color-bg-app:#08080c}', ramp: [], fontFamilyUi: null, fontFamilyMono: null, problems: [] },
+    specimen: {
+      tokensCss: ':root{--sem-color-bg-app:#08080c}',
+      ramp: [],
+      fontFamilyUi: null,
+      fontFamilyMono: null,
+      problems: [],
+    },
     groups: [
       { key: 'foundations', label: 'Foundations', entries: ['tokens'], count: 1 },
       { key: 'components', label: 'Components', entries: ['card'], count: 1 },
@@ -127,7 +134,13 @@ const designBundles: Record<string, unknown> = {
       provenance: {},
     },
     // design-tokens-allow: a PREVIEWED bundle's own tokens are content under test, not app chrome — the point is that they are not ours.
-    specimen: { tokensCss: ':root{--sem-color-bg-app:#08080c}', ramp: [], fontFamilyUi: null, fontFamilyMono: null, problems: [] },
+    specimen: {
+      tokensCss: ':root{--sem-color-bg-app:#08080c}',
+      ramp: [],
+      fontFamilyUi: null,
+      fontFamilyMono: null,
+      problems: [],
+    },
     groups: [
       { key: 'foundations', label: 'Foundations', entries: ['tokens'], count: 1 },
       { key: 'components', label: 'Components', entries: ['button', 'input'], count: 2 },
@@ -203,20 +216,16 @@ async function main(): Promise<void> {
   {
     const host = getRendererHost()
     const doorOrder = host.getSidebarNavEntries().map((entry) => [entry.id, entry.order] as const)
-    assert.deepEqual(
-      doorOrder,
-      [],
-      'no bundled module draws its own sidebar row in a stock build',
-    )
+    assert.deepEqual(doorOrder, [], 'no bundled module draws its own sidebar row in a stock build')
     // The door registry, with the user-facing labels the drawer and the rail
     // read: the `extensions` id keeps its name (it is a persisted surface id
     // and a deep-link target) while every string a person sees says Plugins.
     // Each door names itself here: the Extensions home builds its tiles from
     // this registry, and a shell that hard-coded a name and a glyph for one
     // module's surface would be naming it on the module's behalf.
-    const doorSurfaces = host.getGlobalSurfaces().map(
-      (surface) => [surface.id, surface.label ?? null, surface.railPlacement ?? 'sidebar'] as const,
-    )
+    const doorSurfaces = host
+      .getGlobalSurfaces()
+      .map((surface) => [surface.id, surface.label ?? null, surface.railPlacement ?? 'sidebar'] as const)
     assert.deepEqual(
       doorSurfaces,
       [
@@ -256,11 +265,7 @@ async function main(): Promise<void> {
       [],
       'the modal registry is empty in a stock build; Settings is core and never registered',
     )
-    assert.deepEqual(
-      host.getModalSurfaceLaunchers(),
-      [],
-      'and no bundled module contributes a pane-strip launcher row',
-    )
+    assert.deepEqual(host.getModalSurfaceLaunchers(), [], 'and no bundled module contributes a pane-strip launcher row')
     // A door is only as present as its module: turning the module off must take
     // BOTH the row and the page, or the row routes to a page that cannot mount.
     // The Design row
@@ -279,8 +284,24 @@ async function main(): Promise<void> {
   // of them active.
   useWorkspaceStore.setState({
     workspaces: [
-      { id: 'w-mc', name: 'multicode', mode: 'standard', folderPath: multicode, agents: {}, openFiles: [], createdAt: 1 },
-      { id: 'w-ma', name: 'multiauth', mode: 'standard', folderPath: multiauth, agents: {}, openFiles: [], createdAt: 2 },
+      {
+        id: 'w-mc',
+        name: 'multicode',
+        mode: 'standard',
+        folderPath: multicode,
+        agents: {},
+        openFiles: [],
+        createdAt: 1,
+      },
+      {
+        id: 'w-ma',
+        name: 'multiauth',
+        mode: 'standard',
+        folderPath: multiauth,
+        agents: {},
+        openFiles: [],
+        createdAt: 2,
+      },
       { id: 'w-mm', name: 'mobile', mode: 'standard', folderPath: mobile, agents: {}, openFiles: [], createdAt: 3 },
     ],
     activeWorkspaceId: 'w-mc',
@@ -302,9 +323,7 @@ async function main(): Promise<void> {
   designLibrary = []
   const designRoot = createRoot(container)
   await act(async () => {
-    designRoot.render(
-      React.createElement(ConfirmDialogProvider, null, React.createElement(DesignGlobalSurface)),
-    )
+    designRoot.render(React.createElement(ConfirmDialogProvider, null, React.createElement(DesignGlobalSurface)))
   })
   await settle()
   {
@@ -340,9 +359,7 @@ async function main(): Promise<void> {
   ]
   const designRoot2 = createRoot(container)
   await act(async () => {
-    designRoot2.render(
-      React.createElement(ConfirmDialogProvider, null, React.createElement(DesignGlobalSurface)),
-    )
+    designRoot2.render(React.createElement(ConfirmDialogProvider, null, React.createElement(DesignGlobalSurface)))
   })
   await settle()
   {
@@ -422,9 +439,8 @@ async function main(): Promise<void> {
   // read as an empty one).
   {
     const { default: ExtensionsGlobalSurface } = await import('./extensions/ExtensionsGlobalSurface')
-    const { dispatchExtensionsSurfaceTarget, consumePendingExtensionsSurfaceTarget } = await import(
-      './extensions/extensionsSurfaceTarget'
-    )
+    const { dispatchExtensionsSurfaceTarget, consumePendingExtensionsSurfaceTarget } =
+      await import('./extensions/extensionsSurfaceTarget')
 
     // Latch semantics are load-bearing for every deep-link entry point:
     // the latest dispatch wins, and the latch drains exactly once.
@@ -490,9 +506,8 @@ async function main(): Promise<void> {
     // right and the fixture beneath it was two days stale. The constants are
     // imported rather than typed out so the next rename moves this fixture with
     // the product instead of leaving it behind again.
-    const { STUDIO_SKILL_SOURCE_ID, STUDIO_SKILL_SOURCE_NAME, STUDIO_SKILL_SOURCE_REPO } = await import(
-      '../../../../../shared/skills'
-    )
+    const { STUDIO_SKILL_SOURCE_ID, STUDIO_SKILL_SOURCE_NAME, STUDIO_SKILL_SOURCE_REPO } =
+      await import('../../../../../shared/skills')
     const acmeSource = {
       id: 'github:acme/skills',
       kind: 'github' as const,
@@ -641,14 +656,8 @@ async function main(): Promise<void> {
     })
     await settle()
     const degradedText = container.textContent ?? ''
-    assert.ok(
-      degradedText.includes('The marketplace is unavailable.'),
-      'the failure is stated where the rows would be',
-    )
-    assert.ok(
-      !/SprintEngine Studio\s*0/.test(degradedText),
-      'a half-down catalogue never renders as a zero count',
-    )
+    assert.ok(degradedText.includes('The marketplace is unavailable.'), 'the failure is stated where the rows would be')
+    assert.ok(!/SprintEngine Studio\s*0/.test(degradedText), 'a half-down catalogue never renders as a zero count')
     await act(async () => {
       degradedRoot.unmount()
     })
@@ -692,9 +701,7 @@ async function main(): Promise<void> {
       /The Atlas module isn’t installed\./,
       'and says its module is not installed',
     )
-    const cta = [...absentHost.querySelectorAll('button')].find(
-      (button) => button.textContent === 'Find it in Plugins',
-    )
+    const cta = [...absentHost.querySelectorAll('button')].find((button) => button.textContent === 'Find it in Plugins')
     assert.ok(cta, 'one CTA into Plugins')
     await act(async () => {
       cta.click()
@@ -744,8 +751,11 @@ async function main(): Promise<void> {
     // — Disabled, not uninstalled — the copy stays honest and the CTA lands
     // on Installed, where the module's toggle lives.
     const disabledOpens: ExtensionsSurfaceTarget[] = []
-    const disabled = resolveActiveDoorSurface('tide-tables', getSurface, () => false, (view) =>
-      disabledOpens.push(view),
+    const disabled = resolveActiveDoorSurface(
+      'tide-tables',
+      getSurface,
+      () => false,
+      (view) => disabledOpens.push(view),
     )
     const disabledHost = dom.window.document.createElement('div')
     dom.window.document.body.appendChild(disabledHost)

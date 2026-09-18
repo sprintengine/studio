@@ -130,7 +130,10 @@ run('only live, main-launched agent sessions in known workspaces project', () =>
     knownWorkspaceIds: KNOWN,
     existing: new Set(),
   })
-  assert.deepEqual(projected.map((entry) => entry.agentId), ['a-live'])
+  assert.deepEqual(
+    projected.map((entry) => entry.agentId),
+    ['a-live'],
+  )
 })
 
 run('two sessions for one agent project it once', () => {

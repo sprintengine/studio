@@ -50,7 +50,10 @@ export function offerableRecommendations(
   feed: { sources: HostedSource[] } | null,
   existing: readonly Pick<SkillSource, 'id'>[],
 ): HostedSource[] {
-  return recommendedSourcesToAdd(feed, existing.map((source) => source.id))
+  return recommendedSourcesToAdd(
+    feed,
+    existing.map((source) => source.id),
+  )
 }
 
 type FeedLoad =
@@ -135,9 +138,7 @@ export function RecommendedSources({
       <p className="text-meta leading-4 text-[color:var(--text-subtle)]">
         Places to get skills and plugins. The studio recommends these; it does not publish what is in them.
       </p>
-      {failure ? (
-        <InlineNotice tone="error" title="That source was not added." hint={failure.message} />
-      ) : null}
+      {failure ? <InlineNotice tone="error" title="That source was not added." hint={failure.message} /> : null}
       {/* The same list card the catalogue groups above it sit in (list-card
           ruling 2026-09-15): this list is offered under them and must not
           look like a different kind of list. */}
@@ -146,7 +147,9 @@ export function RecommendedSources({
           <li key={source.id}>
             <ConnectorRow
               surface="card"
-              icon={<SourceMonogram monogram={skillSourceMonogram(source.repo.split('/')[1] ?? source.repo)} size="lg" />}
+              icon={
+                <SourceMonogram monogram={skillSourceMonogram(source.repo.split('/')[1] ?? source.repo)} size="lg" />
+              }
               name={source.repo}
               summary={source.description}
               chips={[KIND_LABEL[source.kind]]}

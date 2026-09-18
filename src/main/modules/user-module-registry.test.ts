@@ -52,13 +52,19 @@ async function testInstallThenDiscover(): Promise<void> {
     }
 
     const listed = await discoverUserModules(root, EMPTY_TRUST)
-    assert.deepEqual(listed.modules.map((m) => m.manifest.id), ['demo'])
+    assert.deepEqual(
+      listed.modules.map((m) => m.manifest.id),
+      ['demo'],
+    )
     assert.equal(listed.modules[0].trust.status, 'unsigned')
     assert.equal(listed.modules[0].manifest.source, 'third-party')
     assert.equal(listed.rejected.length, 0)
 
     const syncListed = discoverUserModulesSync(root, EMPTY_TRUST)
-    assert.deepEqual(syncListed.modules.map((m) => m.manifest.id), ['demo'])
+    assert.deepEqual(
+      syncListed.modules.map((m) => m.manifest.id),
+      ['demo'],
+    )
     assert.equal(syncListed.modules[0].trust.status, 'unsigned')
     assert.equal(syncListed.rejected.length, 0)
   })
@@ -100,7 +106,9 @@ function signedManifestJson(overrides: Record<string, unknown>): { json: string;
   const signature = {
     algorithm: 'ed25519' as const,
     publicKey: publicKeyDer.toString('base64'),
-    signature: sign(null, Buffer.from(canonicalManifestPayload(validated.manifest), 'utf8'), privateKey).toString('base64'),
+    signature: sign(null, Buffer.from(canonicalManifestPayload(validated.manifest), 'utf8'), privateKey).toString(
+      'base64',
+    ),
   }
   return {
     json: JSON.stringify({ ...validated.manifest, signature }),
@@ -130,7 +138,10 @@ async function testReservedIdPublisherLock(): Promise<void> {
     assert.equal(install.ok, true, 'first-party-signed module may claim its reserved id')
     if (install.ok) assert.equal(install.trust.status, 'trusted')
     const listed = await discoverUserModules(root, firstPartyCtx)
-    assert.deepEqual(listed.modules.map((entry) => entry.manifest.id), ['switchboard'])
+    assert.deepEqual(
+      listed.modules.map((entry) => entry.manifest.id),
+      ['switchboard'],
+    )
 
     // A different signer is rejected even though its signature is valid —
     // and even if the user id-trusted that exact manifest.
@@ -193,7 +204,10 @@ async function testReinstallPrunesStaleFiles(): Promise<void> {
 
     // The install staging folder never survives, and never shows up as a module.
     const listed = await discoverUserModules(root, EMPTY_TRUST)
-    assert.deepEqual(listed.modules.map((entry) => entry.manifest.id), ['demo'])
+    assert.deepEqual(
+      listed.modules.map((entry) => entry.manifest.id),
+      ['demo'],
+    )
     assert.deepEqual(listed.rejected, [])
     assert.deepEqual(
       readdirSync(root).filter((name) => name.startsWith('.')),

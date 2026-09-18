@@ -18,8 +18,8 @@ const CLONE_TIMEOUT_MS = 15 * 60 * 1000
 // cross-host redirect mid-clone gets nothing rather than the token.
 const TOKEN_ENV_VAR = 'SPRINTENGINE_GITHUB_CLONE_TOKEN'
 const TOKEN_CREDENTIAL_HELPER =
-  '!f() { h=; while IFS= read -r l; do [ "$l" = "host=github.com" ] && h=1; [ -z "$l" ] && break; done; '
-  + `[ "$h" = "1" ] && printf "username=x-access-token\\npassword=%s\\n" "$${TOKEN_ENV_VAR}"; :; }; f`
+  '!f() { h=; while IFS= read -r l; do [ "$l" = "host=github.com" ] && h=1; [ -z "$l" ] && break; done; ' +
+  `[ "$h" = "1" ] && printf "username=x-access-token\\npassword=%s\\n" "$${TOKEN_ENV_VAR}"; :; }; f`
 
 // lstat, not stat: a dangling symlink at the target is still an occupied
 // path — git would refuse it, so the pre-check must see it too.
@@ -37,9 +37,7 @@ async function pathExists(target: string): Promise<boolean> {
  * Never throws — failures return `{ok:false}` with a user-facing message so
  * the hub can surface them in the folder field's error slot.
  */
-export async function cloneGitHubRepo(
-  input: GitHubCloneInput & { token?: string | null },
-): Promise<GitHubCloneResult> {
+export async function cloneGitHubRepo(input: GitHubCloneInput & { token?: string | null }): Promise<GitHubCloneResult> {
   const urlCheck = validateCloneUrl(input.url)
   if (!urlCheck.ok) return { ok: false, message: urlCheck.error }
 

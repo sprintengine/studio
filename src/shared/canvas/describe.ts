@@ -85,19 +85,13 @@ function summaryLines(visible: CanvasElement[], index: CanvasSceneIndex): string
 
   const lines = [`Board: ${visible.length} element(s)${breakdown ? ` (${breakdown})` : ''}.`]
   const bounds = sceneBounds(visible)
-  lines.push(
-    bounds
-      ? `Bounds: (${bounds.x},${bounds.y}) ${bounds.width}x${bounds.height}.`
-      : 'Bounds: empty board.',
-  )
+  lines.push(bounds ? `Bounds: (${bounds.x},${bounds.y}) ${bounds.width}x${bounds.height}.` : 'Bounds: empty board.')
   const labelled = visible.filter((element) => canvasElementLabel(element, index)).length
   lines.push(`Labelled: ${labelled} of ${visible.length}.`)
   return lines
 }
 
-function sceneBounds(
-  elements: CanvasElement[],
-): { x: number; y: number; width: number; height: number } | null {
+function sceneBounds(elements: CanvasElement[]): { x: number; y: number; width: number; height: number } | null {
   if (elements.length === 0) return null
   let minX = Infinity
   let minY = Infinity
@@ -218,7 +212,5 @@ function frameLines(visible: CanvasElement[], index: CanvasSceneIndex): string[]
 
 function clip(text: string): string {
   const flat = text.replace(/\s+/g, ' ').trim()
-  return flat.length > CANVAS_DESCRIBE_LABEL_MAX
-    ? `${flat.slice(0, CANVAS_DESCRIBE_LABEL_MAX - 1)}...`
-    : flat
+  return flat.length > CANVAS_DESCRIBE_LABEL_MAX ? `${flat.slice(0, CANVAS_DESCRIBE_LABEL_MAX - 1)}...` : flat
 }

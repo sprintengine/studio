@@ -46,9 +46,7 @@ import { terminalSurfaceLinkRoots, type TerminalSurface } from './terminalSurfac
  *    with `terminalFileLinks`' own `normalizePath`, so the OSC 8 route and the
  *    heuristic route agree on what a path is.
  */
-export type TerminalOscLinkTarget =
-  | { kind: 'file'; path: string }
-  | { kind: 'url'; url: string }
+export type TerminalOscLinkTarget = { kind: 'file'; path: string } | { kind: 'url'; url: string }
 
 const ALLOWED_URL_SCHEMES = new Set(['http:', 'https:'])
 
@@ -91,10 +89,7 @@ function hostUsesWindowsPaths(): boolean {
  * malformed sequence in the middle of a busy pane can never take the renderer
  * down.
  */
-export function resolveTerminalOscLink(
-  uri: string,
-  options: TerminalOscLinkOptions
-): TerminalOscLinkTarget | null {
+export function resolveTerminalOscLink(uri: string, options: TerminalOscLinkOptions): TerminalOscLinkTarget | null {
   const trimmed = uri.trim()
   if (!trimmed) return null
 
@@ -205,7 +200,7 @@ export type TerminalSurfaceOscLinkCallbacks = {
   /** Opens the chooser for a verified local path (`setLinkMenu`). */
   onActivateFile: (
     input: { resolvedPath: string; isDirectory: boolean },
-    anchor: { x: number; y: number }
+    anchor: { x: number; y: number },
   ) => void | Promise<void>
   /** Opens the chooser for an http(s) URL, exactly as the web-links path does. */
   onActivateUrl: (url: string, anchor: { x: number; y: number }) => void
@@ -234,7 +229,7 @@ export type TerminalOscLinkHandlerInput = TerminalSurfaceOscLinkCallbacks & {
  */
 export function createTerminalSurfaceOscLinkHandler(
   surface: TerminalSurface,
-  callbacks: TerminalSurfaceOscLinkCallbacks
+  callbacks: TerminalSurfaceOscLinkCallbacks,
 ): ILinkHandler {
   return createTerminalOscLinkHandler({
     allowLocalPaths: terminalSurfaceLinkRoots(surface) !== null,
@@ -282,10 +277,7 @@ export function createTerminalOscLinkHandler({
           }
           await onActivateFile({ resolvedPath: target.path, isDirectory: info.isDirectory }, anchor)
         } catch (error) {
-          onOpenError?.(
-            error instanceof Error ? error.message : 'Could not open terminal link.',
-            anchor,
-          )
+          onOpenError?.(error instanceof Error ? error.message : 'Could not open terminal link.', anchor)
         }
       })()
     },
@@ -304,10 +296,7 @@ export function createTerminalOscLinkHandler({
  * it was launched — so the same "another machine's path is not ours" rule that
  * governs OSC 8 has to hold here too.
  */
-export function parseTerminalOscCwd(
-  data: string,
-  options: TerminalOscLinkOptions
-): string | null {
+export function parseTerminalOscCwd(data: string, options: TerminalOscLinkOptions): string | null {
   const target = resolveTerminalOscLink(data, options)
   return target?.kind === 'file' ? target.path : null
 }

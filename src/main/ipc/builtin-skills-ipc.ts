@@ -16,6 +16,6 @@ export function registerBuiltinSkillsIpc(ipcMain: IpcMain, handlers: BuiltinSkil
   ipcMain.handle(
     'builtin-skills:status',
     async (_, input: { workspaceRoot: string | null; skillId: string }): Promise<BuiltinSkillStatus> =>
-      handlers.getStatus(input?.workspaceRoot ?? null, input?.skillId ?? '')
+      handlers.getStatus(input?.workspaceRoot ?? null, input?.skillId ?? ''),
   )
 }

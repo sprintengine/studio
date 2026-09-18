@@ -26,7 +26,10 @@ import { basename, dirname, isAbsolute, resolve } from 'path'
 import type { ObservedCheckout } from '../shared/observed-checkout'
 import { pathExists, runGitCommand } from './git-utils'
 
-export type ResolvedCheckoutFacts = Pick<ObservedCheckout, 'gitRoot' | 'repoRoot' | 'branch' | 'isLinkedWorktree' | 'missing'>
+export type ResolvedCheckoutFacts = Pick<
+  ObservedCheckout,
+  'gitRoot' | 'repoRoot' | 'branch' | 'isLinkedWorktree' | 'missing'
+>
 
 export type ObservedCheckoutResolver = (cwd: string) => Promise<ResolvedCheckoutFacts | null>
 
@@ -138,7 +141,7 @@ export async function resolveCheckoutForCwd(reportedCwd: string): Promise<Resolv
   // case ask again without it and resolve the relative answer against cwd.
   let commonGitDir = ''
   const absolute = await runGitCommand(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'], CLEAN_GIT_ENV)
-  commonGitDir = absolute.ok ? parseCommonGitDir(absolute.stdout, cwd) ?? '' : ''
+  commonGitDir = absolute.ok ? (parseCommonGitDir(absolute.stdout, cwd) ?? '') : ''
   if (!commonGitDir) {
     const relative = await runGitCommand(cwd, ['rev-parse', '--git-common-dir'], CLEAN_GIT_ENV)
     if (relative.ok) commonGitDir = parseCommonGitDir(relative.stdout, cwd) ?? ''
@@ -148,9 +151,8 @@ export async function resolveCheckoutForCwd(reportedCwd: string): Promise<Resolv
   // The primary checkout owns the common git dir as `<root>/.git`; anything
   // else (a bare repository, an unusual GIT_DIR layout) has no primary work
   // tree to point at.
-  const repoRoot = commonGitDir && basename(commonGitDir) === '.git'
-    ? dirname(commonGitDir)
-    : isLinkedWorktree ? null : gitRoot
+  const repoRoot =
+    commonGitDir && basename(commonGitDir) === '.git' ? dirname(commonGitDir) : isLinkedWorktree ? null : gitRoot
 
   const head = await runGitCommand(cwd, ['symbolic-ref', '--quiet', '--short', 'HEAD'], CLEAN_GIT_ENV)
   const branch = head.ok ? firstLine(head.stdout) || null : null

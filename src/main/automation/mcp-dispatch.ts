@@ -68,7 +68,7 @@ export type McpDispatcher = {
     method: string,
     params: Record<string, unknown>,
     context: McpConnectionContext,
-    gate?: McpDispatchGate
+    gate?: McpDispatchGate,
   ): Promise<McpDispatchOutcome>
 }
 
@@ -167,7 +167,7 @@ export function createMcpDispatcher(options: {
  */
 function applyDeclaredConnectionMetadata(
   established: McpConnectionMetadata,
-  params: Record<string, unknown>
+  params: Record<string, unknown>,
 ): McpConnectionMetadata {
   const text = (key: string): string | undefined => {
     const value = params[key]
@@ -211,10 +211,12 @@ export type DeclaredProtocolVersion = { kind: 'absent' | 'supported' } | { kind:
  */
 export function declaredProtocolVersion(
   params: Record<string, unknown>,
-  header?: string | null
+  header?: string | null,
 ): DeclaredProtocolVersion {
   if (typeof header === 'string' && header.trim()) {
-    return isSupportedMcpProtocolVersion(header.trim()) ? { kind: 'supported' } : { kind: 'unsupported', value: header.trim() }
+    return isSupportedMcpProtocolVersion(header.trim())
+      ? { kind: 'supported' }
+      : { kind: 'unsupported', value: header.trim() }
   }
   const meta = isRecord(params._meta) ? params._meta : undefined
   if (!meta || !('protocolVersion' in meta) || meta.protocolVersion === undefined) return { kind: 'absent' }

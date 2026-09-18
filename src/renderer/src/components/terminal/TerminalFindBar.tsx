@@ -103,12 +103,7 @@ export function TerminalFindBar({ find }: { find: TerminalFind }) {
       >
         <ChevronIcon direction="up" />
       </IconButton>
-      <IconButton
-        aria-label="Next match"
-        size="xs"
-        disabled={find.results.count === 0}
-        onClick={() => find.findNext()}
-      >
+      <IconButton aria-label="Next match" size="xs" disabled={find.results.count === 0} onClick={() => find.findNext()}>
         <ChevronIcon direction="down" />
       </IconButton>
       <CloseIconButton aria-label="Close find" size="xs" onClick={() => find.close()} />

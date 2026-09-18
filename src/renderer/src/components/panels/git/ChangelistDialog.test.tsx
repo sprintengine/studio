@@ -46,11 +46,7 @@ function render(over: Partial<ChangelistDialogProps> = {}): Element {
     'Make this the active changelist',
     'and the words are the label’s own, not a sibling the input never knew about',
   )
-  assert.equal(
-    checkbox!.getAttribute('aria-label'),
-    null,
-    'no second accessible name: the visible label is the name',
-  )
+  assert.equal(checkbox!.getAttribute('aria-label'), null, 'no second accessible name: the visible label is the name')
 }
 
 // ── what each mode asks ──────────────────────────────────────────────────────
@@ -82,10 +78,7 @@ function render(over: Partial<ChangelistDialogProps> = {}): Element {
     'Feature name',
     'not "Modal header group", which was a stray from another form',
   )
-  assert.equal(
-    dialog.querySelector('textarea')?.getAttribute('placeholder'),
-    'What this set of changes is',
-  )
+  assert.equal(dialog.querySelector('textarea')?.getAttribute('placeholder'), 'What this set of changes is')
 }
 
 // ── closed is closed ─────────────────────────────────────────────────────────

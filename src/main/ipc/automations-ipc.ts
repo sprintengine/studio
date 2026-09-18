@@ -22,11 +22,7 @@ import type {
   AutomationsRunsListResult,
   AutomationsUpdateInput,
 } from '../../shared/automations/contracts'
-import {
-  BUILTIN_AUTOMATIONS,
-  builtinAutomationById,
-  builtinAutomationPayload,
-} from '../../shared/automations/builtin'
+import { BUILTIN_AUTOMATIONS, builtinAutomationById, builtinAutomationPayload } from '../../shared/automations/builtin'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 import {
   AUTOMATIONS_BUILTIN_INSTALL_CHANNEL,
@@ -51,10 +47,7 @@ import {
   type DefinitionWriteResult,
   type ParsedDefinitionPatch,
 } from '../automations/definition-write'
-import {
-  buildAutomationsInstanceIndex,
-  type AutomationsInstanceProjectFolder,
-} from '../automations/instance-index'
+import { buildAutomationsInstanceIndex, type AutomationsInstanceProjectFolder } from '../automations/instance-index'
 import {
   projectFoldersFromWorkspaceSyncSnapshot,
   type AutomationsEngine,
@@ -109,20 +102,25 @@ export type AutomationsIpcDependencies = {
   createAutomationId?: (draft: AutomationDefinitionDraft) => string
 }
 
-export function registerAutomationsIpc(host: AutomationsIpcHost, deps: AutomationsIpcDependencies): AutomationsAppFrontDoor {
+export function registerAutomationsIpc(
+  host: AutomationsIpcHost,
+  deps: AutomationsIpcDependencies,
+): AutomationsAppFrontDoor {
   const createStore = deps.createStore ?? ((workspaceRoot) => new AutomationsStore(workspaceRoot))
   const staticTriggerProviders = deps.triggerProviders ?? []
   const staticActionProviders = deps.actionProviders ?? []
   const getTriggerProviders = deps.getTriggerProviders ?? (() => staticTriggerProviders)
   const getActionProviders = deps.getActionProviders ?? (() => staticActionProviders)
-  const getTriggerProviderRegistrations = deps.getTriggerProviderRegistrations
-    ?? (() => deps.triggerProviderRegistrations ?? getTriggerProviders().map((provider) =>
-      legacyProviderRegistration('trigger', provider)
-    ))
-  const getActionProviderRegistrations = deps.getActionProviderRegistrations
-    ?? (() => deps.actionProviderRegistrations ?? getActionProviders().map((provider) =>
-      legacyProviderRegistration('action', provider)
-    ))
+  const getTriggerProviderRegistrations =
+    deps.getTriggerProviderRegistrations ??
+    (() =>
+      deps.triggerProviderRegistrations ??
+      getTriggerProviders().map((provider) => legacyProviderRegistration('trigger', provider)))
+  const getActionProviderRegistrations =
+    deps.getActionProviderRegistrations ??
+    (() =>
+      deps.actionProviderRegistrations ??
+      getActionProviders().map((provider) => legacyProviderRegistration('action', provider)))
   const checkProviderPermission = deps.checkProviderPermission ?? allowAutomationProvider
   const now = deps.now ?? Date.now
   // Shared with the module-scoped Automations service: one write core, two
@@ -168,11 +166,13 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
       return fail('invalid_input', 'sourceCatalogueId is required.')
     }
     const sourcePublisher = trimmedString(input.sourcePublisher)
-    const installed = withPostWriteFailure(await writeCore.installFromCatalogue(workspaceRoot.value, {
-      payload: input.definition,
-      sourceCatalogueId: input.sourceCatalogueId,
-      ...(sourcePublisher ? { sourcePublisher } : {}),
-    }))
+    const installed = withPostWriteFailure(
+      await writeCore.installFromCatalogue(workspaceRoot.value, {
+        payload: input.definition,
+        sourceCatalogueId: input.sourceCatalogueId,
+        ...(sourcePublisher ? { sourcePublisher } : {}),
+      }),
+    )
     if (!installed.ok) return installed
     return ok({
       definition: definitionForRenderer(installed.value.definition),
@@ -197,11 +197,9 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     const parsed = parseUpdateInput(input, deps.getWorkspaceSyncSnapshot)
     if (!parsed.ok) return parsed
 
-    const written = withPostWriteFailure(await writeCore.update(
-      parsed.value.workspaceRoot,
-      parsed.value.automationId,
-      parsed.value.patch
-    ))
+    const written = withPostWriteFailure(
+      await writeCore.update(parsed.value.workspaceRoot, parsed.value.automationId, parsed.value.patch),
+    )
     if (!written.ok) return written
     return ok(definitionForRenderer(written.value))
   }
@@ -227,36 +225,42 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
     return runNow(input)
   })
 
-  host.registerIpc(AUTOMATIONS_RUN_FINALIZE_CHANNEL, async (_event, input: unknown): Promise<AutomationsRunFinalizeResult> => {
-    const parsed = parseRunFinalizeInput(input, deps.getWorkspaceSyncSnapshot)
-    if (!parsed.ok) return parsed
-    const result = await deps.engine.finalizeRun(parsed.value)
-    return engineFinalizeResult(result)
-  })
+  host.registerIpc(
+    AUTOMATIONS_RUN_FINALIZE_CHANNEL,
+    async (_event, input: unknown): Promise<AutomationsRunFinalizeResult> => {
+      const parsed = parseRunFinalizeInput(input, deps.getWorkspaceSyncSnapshot)
+      if (!parsed.ok) return parsed
+      const result = await deps.engine.finalizeRun(parsed.value)
+      return engineFinalizeResult(result)
+    },
+  )
 
-  host.registerIpc(AUTOMATIONS_RUNS_LIST_CHANNEL, async (_event, input: unknown): Promise<AutomationsRunsListResult> => {
-    const parsed = parseRunsListInput(input, deps.getWorkspaceSyncSnapshot)
-    if (!parsed.ok) return parsed
-    const runs = await createStore(parsed.value.workspaceRoot).listRuns(parsed.value.automationId)
-    if (!runs.ok) return storeErrors(runs.errors)
-    return ok(runs.values)
-  })
+  host.registerIpc(
+    AUTOMATIONS_RUNS_LIST_CHANNEL,
+    async (_event, input: unknown): Promise<AutomationsRunsListResult> => {
+      const parsed = parseRunsListInput(input, deps.getWorkspaceSyncSnapshot)
+      if (!parsed.ok) return parsed
+      const runs = await createStore(parsed.value.workspaceRoot).listRuns(parsed.value.automationId)
+      if (!runs.ok) return storeErrors(runs.errors)
+      return ok(runs.values)
+    },
+  )
 
   host.registerIpc(AUTOMATIONS_PROVIDERS_LIST_CHANNEL, async (): Promise<AutomationsProvidersResult> => {
     return ok({
       triggers: getTriggerProviderRegistrations().map((registration) =>
-        providerView(registration, deps.isIntegrationAvailable, checkProviderPermission)
+        providerView(registration, deps.isIntegrationAvailable, checkProviderPermission),
       ),
       actions: getActionProviderRegistrations().map((registration) =>
-        providerView(registration, deps.isIntegrationAvailable, checkProviderPermission)
+        providerView(registration, deps.isIntegrationAvailable, checkProviderPermission),
       ),
     })
   })
 
   host.registerIpc(AUTOMATIONS_INSTANCE_LIST_CHANNEL, async (): Promise<AutomationsInstanceListResult> => {
     const snapshot = deps.getWorkspaceSyncSnapshot?.()
-    const projectFolders = deps.getProjectFolders?.()
-      ?? (snapshot ? projectFoldersFromWorkspaceSyncSnapshot(snapshot) : [])
+    const projectFolders =
+      deps.getProjectFolders?.() ?? (snapshot ? projectFoldersFromWorkspaceSyncSnapshot(snapshot) : [])
     const index = await buildAutomationsInstanceIndex({
       projectFolders,
       createStore,
@@ -281,19 +285,22 @@ export function registerAutomationsIpc(host: AutomationsIpcHost, deps: Automatio
   // project that already has this one (including a copy the old Plugins shelf
   // added, which recorded the same id) is reported as already added rather than
   // gaining a duplicate.
-  host.registerIpc(AUTOMATIONS_BUILTIN_INSTALL_CHANNEL, async (_event, input: unknown): Promise<AutomationsBuiltinInstallResult> => {
-    if (!isRecord(input) || typeof input.builtinId !== 'string') {
-      return fail('invalid_input', 'builtinId is required.')
-    }
-    const builtin = builtinAutomationById(input.builtinId.trim())
-    if (!builtin) return fail('not_found', 'That automation does not ship with this version of the app.')
-    return installCatalogueDefinition({
-      workspaceRoot: input.workspaceRoot,
-      definition: builtinAutomationPayload(builtin),
-      sourceCatalogueId: builtin.id,
-      sourcePublisher: builtin.publisher,
-    })
-  })
+  host.registerIpc(
+    AUTOMATIONS_BUILTIN_INSTALL_CHANNEL,
+    async (_event, input: unknown): Promise<AutomationsBuiltinInstallResult> => {
+      if (!isRecord(input) || typeof input.builtinId !== 'string') {
+        return fail('invalid_input', 'builtinId is required.')
+      }
+      const builtin = builtinAutomationById(input.builtinId.trim())
+      if (!builtin) return fail('not_found', 'That automation does not ship with this version of the app.')
+      return installCatalogueDefinition({
+        workspaceRoot: input.workspaceRoot,
+        definition: builtinAutomationPayload(builtin),
+        sourceCatalogueId: builtin.id,
+        sourcePublisher: builtin.publisher,
+      })
+    },
+  )
 
   host.registerIpc(AUTOMATIONS_ENGINE_STATUS_CHANNEL, async (): Promise<AutomationsEngineStatusResult> => {
     const status = deps.getEngineSidecarStatus?.()
@@ -338,7 +345,7 @@ export type AutomationsAppFrontDoor = {
 function providerView(
   registration: RegisteredAutomationProvider<AutomationTriggerProvider | AutomationActionProvider>,
   isIntegrationAvailable: ((id: string) => boolean | undefined) | undefined,
-  checkProviderPermission: AutomationProviderPermissionChecker
+  checkProviderPermission: AutomationProviderPermissionChecker,
 ): AutomationsProviderView {
   const blockedReason = automationProviderBlockedReason(registration, checkProviderPermission(registration))
   const requiredIntegrations = registration.requiredIntegrations
@@ -360,7 +367,7 @@ function providerView(
 
 function legacyProviderRegistration<T extends AutomationTriggerProvider | AutomationActionProvider>(
   providerType: T extends AutomationTriggerProvider ? 'trigger' : 'action',
-  provider: T
+  provider: T,
 ): RegisteredAutomationProvider<T> {
   const label = ownDataProperty<unknown>(provider, 'label', undefined)
   const glyph = ownDataProperty<unknown>(provider, 'glyph', undefined)
@@ -397,7 +404,7 @@ function definitionForRenderer(definition: AutomationDefinition): AutomationDefi
 
 function parseWorkspaceRoot(
   input: unknown,
-  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined,
 ): AutomationsResult<string> {
   if (!isRecord(input) || typeof input.workspaceRoot !== 'string' || input.workspaceRoot.trim() === '') {
     return fail('invalid_input', 'workspaceRoot is required.')
@@ -410,7 +417,7 @@ function parseWorkspaceRoot(
 
 function parseDefinitionInput(
   input: unknown,
-  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined,
 ): AutomationsResult<AutomationsDefinitionInput> {
   const workspaceRoot = parseWorkspaceRoot(input, getWorkspaceSyncSnapshot)
   if (!workspaceRoot.ok) return workspaceRoot
@@ -427,7 +434,7 @@ function parseDefinitionInput(
 
 function parseCreateInput(
   input: unknown,
-  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined,
 ): AutomationsResult<AutomationsCreateInput> {
   const workspaceRoot = parseWorkspaceRoot(input, getWorkspaceSyncSnapshot)
   if (!workspaceRoot.ok) return workspaceRoot
@@ -439,7 +446,7 @@ function parseCreateInput(
 
 function parseUpdateInput(
   input: unknown,
-  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined,
 ): AutomationsResult<AutomationsUpdateInput & { patch: ParsedDefinitionPatch }> {
   const base = parseDefinitionInput(input, getWorkspaceSyncSnapshot)
   if (!base.ok) return base
@@ -451,14 +458,14 @@ function parseUpdateInput(
 
 function parseRunsListInput(
   input: unknown,
-  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined,
 ): AutomationsResult<AutomationsRunsListInput> {
   return parseDefinitionInput(input, getWorkspaceSyncSnapshot)
 }
 
 function parseRunFinalizeInput(
   input: unknown,
-  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined,
 ): AutomationsResult<AutomationsRunFinalizeInput> {
   const base = parseDefinitionInput(input, getWorkspaceSyncSnapshot)
   if (!base.ok) return base
@@ -500,11 +507,7 @@ function snapshotRequiredIntegrations(provider: AutomationTriggerProvider | Auto
   return value.filter((integration): integration is string => typeof integration === 'string')
 }
 
-function ownDataProperty<T>(
-  target: object,
-  key: string,
-  fallback: T
-): T {
+function ownDataProperty<T>(target: object, key: string, fallback: T): T {
   const descriptor = Object.getOwnPropertyDescriptor(target, key)
   if (!descriptor || !('value' in descriptor)) return fallback
   return descriptor.value as T

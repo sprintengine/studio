@@ -21,10 +21,21 @@ anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
 anyGlobal.getComputedStyle = dom.window.getComputedStyle
 anyGlobal.localStorage = dom.window.localStorage
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
-class FakeResizeObserver { observe() {} unobserve() {} disconnect() {} }
+class FakeResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 anyGlobal.ResizeObserver = FakeResizeObserver
 domWindow.ResizeObserver = FakeResizeObserver
-dom.window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} })) as unknown as typeof dom.window.matchMedia
+dom.window.matchMedia = ((q: string) => ({
+  matches: false,
+  media: q,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  addListener: () => {},
+  removeListener: () => {},
+})) as unknown as typeof dom.window.matchMedia
 domWindow.api = { authOpenUpgrade: async () => ({ opened: true, url: '' }) }
 
 import React from 'react'
@@ -33,17 +44,33 @@ import { act } from 'react'
 import SidebarAccountBar from './SidebarAccountBar'
 import type { MulticodeAuthState } from '../../../../shared/electron-api'
 
-function state(planCode: string, features: Record<string, boolean>, entitlementStatus: MulticodeAuthState['entitlementStatus'] = 'fresh'): MulticodeAuthState {
+function state(
+  planCode: string,
+  features: Record<string, boolean>,
+  entitlementStatus: MulticodeAuthState['entitlementStatus'] = 'fresh',
+): MulticodeAuthState {
   return {
     authenticated: true,
     user: { id: 'u1', email: 'dev@example.com', displayName: 'Dev Person', photoUrl: null },
     selectedOrganization: null,
     entitlements: {
-      userId: 'u1', organizationId: 'o1', product: 'multicode', roles: [], features, limits: {}, sources: {},
+      userId: 'u1',
+      organizationId: 'o1',
+      product: 'multicode',
+      roles: [],
+      features,
+      limits: {},
+      sources: {},
       plan: { code: planCode, status: 'active' },
-      issuedAt: '2026-08-01T00:00:00.000Z', expiresAt: '2026-08-04T00:00:00.000Z', schemaVersion: 1,
+      issuedAt: '2026-08-01T00:00:00.000Z',
+      expiresAt: '2026-08-04T00:00:00.000Z',
+      schemaVersion: 1,
     },
-    status: 'signed_in', entitlementStatus, message: null, lastRefreshAt: null, graceExpiresAt: null,
+    status: 'signed_in',
+    entitlementStatus,
+    message: null,
+    lastRefreshAt: null,
+    graceExpiresAt: null,
   }
 }
 const FREE = { 'multicode.sprintengine': true, 'multicode.mobile_companion': false }
@@ -56,9 +83,16 @@ function render(authState: MulticodeAuthState): HTMLElement {
   act(() => {
     root.render(
       React.createElement(SidebarAccountBar, {
-        collapsed: false, authState, authMessage: null, accountOpen: true,
-        setAccountOpen: () => {}, startLogin: () => {}, refreshAuthState: () => {},
-        logout: () => {}, openSettings: () => {}, settingsOpen: false,
+        collapsed: false,
+        authState,
+        authMessage: null,
+        accountOpen: true,
+        setAccountOpen: () => {},
+        startLogin: () => {},
+        refreshAuthState: () => {},
+        logout: () => {},
+        openSettings: () => {},
+        settingsOpen: false,
       }),
     )
   })

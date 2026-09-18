@@ -86,7 +86,11 @@ async function main(): Promise<void> {
   assert.equal(first.failures.length, 1)
   assert.equal(first.failures[0].sourceId, 'github:broken/repo')
   assert.equal(first.sources.length, 3, 'a source that could not be asked is a failure, not a row')
-  assert.equal(first.sources.every((entry) => entry.checked), true, 'every row here was really asked')
+  assert.equal(
+    first.sources.every((entry) => entry.checked),
+    true,
+    'every row here was really asked',
+  )
 
   // The head is written onto the source, so a rail can mark it without a
   // second read.
@@ -117,7 +121,10 @@ async function main(): Promise<void> {
     ['github:anthropics/claude-plugins-official', 'github:pbakaus/impeccable', 'github:sprintengine/studio-releases'],
     'every source that was checked is inside its window',
   )
-  assert.equal(immediately.sources.every((entry) => !entry.checked), true)
+  assert.equal(
+    immediately.sources.every((entry) => !entry.checked),
+    true,
+  )
   // A source that FAILED is not skipped next time: nothing was recorded for
   // it, so it is still due.
   assert.equal(
@@ -237,7 +244,7 @@ async function overGit(): Promise<void> {
   const inWindow = await checker.check()
   assert.deepEqual(asked, [], 'half an hour is inside the hourly window')
   const message = inWindow.skipped.find(
-    (entry) => entry.sourceId === 'github:anthropics/claude-plugins-official'
+    (entry) => entry.sourceId === 'github:anthropics/claude-plugins-official',
   )?.message
   assert.equal(message, 'Checked 30 minutes ago; the studio checks each source once an hour over git.')
   assert.doesNotMatch(message ?? '', /token/, 'the token is not what decides this cadence')

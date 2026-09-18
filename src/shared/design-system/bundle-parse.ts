@@ -14,8 +14,20 @@ import type { DesignSystemComponentDoc, DesignSystemStage } from './bundle-view'
 
 /** Elements that never have a closing tag, so the scanner must not wait for one. */
 const VOID_ELEMENTS = new Set([
-  'area', 'base', 'br', 'col', 'embed', 'hr', 'img', 'input',
-  'link', 'meta', 'param', 'source', 'track', 'wbr',
+  'area',
+  'base',
+  'br',
+  'col',
+  'embed',
+  'hr',
+  'img',
+  'input',
+  'link',
+  'meta',
+  'param',
+  'source',
+  'track',
+  'wbr',
 ])
 
 /** Extract the contents of every `<style>` block, in document order. */
@@ -119,10 +131,7 @@ function modeAttribute(attributes: string): string | null {
  * them scannable — and the detail view shows every stage. Matching the app's mode
  * means a specimen in a dark app is not a white rectangle.
  */
-export function representativeStage(
-  stages: readonly DesignSystemStage[],
-  mode: string,
-): DesignSystemStage | null {
+export function representativeStage(stages: readonly DesignSystemStage[], mode: string): DesignSystemStage | null {
   if (stages.length === 0) return null
   return stages.find((stage) => stage.mode === mode) ?? stages[0]
 }
@@ -151,9 +160,7 @@ export function parseComponentDoc(markdown: string): DesignSystemComponentDoc | 
   }
   for (let index = 0; index < marks.length; index += 1) {
     const mark = marks[index]
-    const canonical = DOC_SECTIONS.find(
-      (section) => section.toLowerCase() === mark.name.toLowerCase(),
-    )
+    const canonical = DOC_SECTIONS.find((section) => section.toLowerCase() === mark.name.toLowerCase())
     if (!canonical) continue
     const next = marks[index + 1]?.start ?? markdown.length
     found.set(canonical, markdown.slice(mark.end, next).trim())
@@ -178,9 +185,7 @@ export function parseComponentDoc(markdown: string): DesignSystemComponentDoc | 
  */
 export function countDocListItems(section: string | undefined): number | null {
   if (!section) return null
-  const items = section
-    .split('\n')
-    .filter((line) => /^\s{0,3}([-*+]|\d+[.)])\s+\S/.test(line))
+  const items = section.split('\n').filter((line) => /^\s{0,3}([-*+]|\d+[.)])\s+\S/.test(line))
   return items.length > 0 ? items.length : null
 }
 

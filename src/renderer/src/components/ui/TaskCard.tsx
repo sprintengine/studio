@@ -166,9 +166,7 @@ export function TaskCard({
                 (MC-2118). The identifier shipped at `micro` and — only on this
                 variant — in `text.muted`, so the same identifier read at a
                 different weight of ink depending on which variant showed it. */}
-            <div className="font-mono tabular-nums text-meta text-[color:var(--text-subtle)]">
-              {identifier}
-            </div>
+            <div className="font-mono tabular-nums text-meta text-[color:var(--text-subtle)]">{identifier}</div>
             <div
               className={`mt-0.5 text-body font-medium leading-[1.35] text-[color:var(--text-strong)] ${
                 clampTitle ? 'line-clamp-2' : 'break-words [overflow-wrap:anywhere]'
@@ -177,25 +175,17 @@ export function TaskCard({
               {title}
             </div>
             {supporting ? (
-              <div className="mt-1 line-clamp-2 text-micro leading-4 text-[color:var(--text-muted)]">
-                {supporting}
-              </div>
+              <div className="mt-1 line-clamp-2 text-micro leading-4 text-[color:var(--text-muted)]">{supporting}</div>
             ) : null}
           </>
         ) : (
           <div className="flex items-baseline gap-2">
-            <span className="font-mono tabular-nums text-meta text-[color:var(--text-subtle)]">
-              {identifier}
-            </span>
-            <span className="min-w-0 flex-1 truncate text-body font-medium leading-[1.4]">
-              {title}
-            </span>
+            <span className="font-mono tabular-nums text-meta text-[color:var(--text-subtle)]">{identifier}</span>
+            <span className="min-w-0 flex-1 truncate text-body font-medium leading-[1.4]">{title}</span>
           </div>
         )}
         {!isCard && supporting ? (
-          <div className="mt-0.5 truncate text-micro leading-4 text-[color:var(--text-muted)]">
-            {supporting}
-          </div>
+          <div className="mt-0.5 truncate text-micro leading-4 text-[color:var(--text-muted)]">{supporting}</div>
         ) : null}
       </div>
       {trailing ? <div className="shrink-0">{trailing}</div> : null}

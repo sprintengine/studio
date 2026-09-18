@@ -1,11 +1,4 @@
-import React, {
-  useCallback,
-  useEffect,
-  useId,
-  useLayoutEffect,
-  useRef,
-  useState,
-} from 'react'
+import React, { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 export type TooltipChildProps = {
@@ -283,9 +276,7 @@ export function Tooltip({
                 // is neither alive nor arriving, it is the label made visible.
                 'pointer-events-none',
                 layer === 'menu' ? 'z-[var(--z-menu)]' : 'z-[var(--z-popover)]',
-                multiline
-                  ? 'max-w-[420px] whitespace-pre-wrap break-words'
-                  : 'whitespace-nowrap',
+                multiline ? 'max-w-[420px] whitespace-pre-wrap break-words' : 'whitespace-nowrap',
                 'rounded-sm border border-[color:var(--border-strong)]',
                 // 10/6px and `meta`, per design-system/components/tooltip
                 // (MC-2118). This shipped at `micro` (11px), which put the

@@ -74,7 +74,10 @@ async function main(): Promise<void> {
       platform: 'darwin',
       runPs: async () => PS_OUTPUT,
     })
-    assert.equal(metrics.some((metric) => metric.name === 'Claude CLI'), true)
+    assert.equal(
+      metrics.some((metric) => metric.name === 'Claude CLI'),
+      true,
+    )
   })
 
   await run('headless SDK sessions (stream-json) classify as Claude conversation', () => {

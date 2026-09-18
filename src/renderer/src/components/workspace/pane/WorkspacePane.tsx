@@ -3,10 +3,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react'
 import { browserTabLabel } from '../../../../../shared/browser'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../../modules'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
-import type {
-  WorkspacePaneTab,
-  WorkspacePaneTabKind,
-} from '../../../types/workspace'
+import type { WorkspacePaneTab, WorkspacePaneTabKind } from '../../../types/workspace'
 import { ContextMenu, IconButton, MenuItem, Tabs, TabsScroller, Tooltip, type TabItem } from '../../ui'
 import { composePaneKinds, paneKindDefinition, type PaneLaunchKind } from './paneKinds'
 import { WORKSPACE_PANE_DATA_ATTRIBUTE } from './paneFocus'
@@ -24,7 +21,13 @@ import { WindowCaptionReserve, windowCaptionReserve } from '../WindowControls'
 function MaximiseGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path d="M9.5 3H13v3.5M6.5 13H3V9.5M13 3 9.2 6.8M3 13l3.8-3.8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M9.5 3H13v3.5M6.5 13H3V9.5M13 3 9.2 6.8M3 13l3.8-3.8"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -32,7 +35,13 @@ function MaximiseGlyph({ className }: { className?: string }) {
 function RestoreGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path d="M13 3 9.5 6.5M9.5 3v3.5H13M3 13l3.5-3.5M6.5 13V9.5H3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M13 3 9.5 6.5M9.5 3v3.5H13M3 13l3.5-3.5M6.5 13V9.5H3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -95,10 +104,10 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
   // contributed on their modal surfaces. A disabled module's kind is absent,
   // not greyed — for a contributed row exactly as for a built-in one.
   const kinds = useMemo(
-    () => composePaneKinds(
-      getRendererHost().getModalSurfaceLaunchers(),
-      (moduleId) => selectModuleEnabled(moduleOverrides, moduleId),
-    ),
+    () =>
+      composePaneKinds(getRendererHost().getModalSurfaceLaunchers(), (moduleId) =>
+        selectModuleEnabled(moduleOverrides, moduleId),
+      ),
     // moduleRegistryGeneration: a late third-party load re-derives the list.
     [moduleOverrides, moduleRegistryGeneration],
   )
@@ -168,9 +177,11 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
       label,
       closeLabel: `Close ${label}`,
       ...(tab.kind === 'diff' && diffCount !== null ? { count: diffCount } : {}),
-      icon: tab.faviconUrl
-        ? <img src={tab.faviconUrl} alt="" className="size-icon-xs shrink-0 rounded-[3px]" />
-        : <Glyph className="size-icon-xs shrink-0" />,
+      icon: tab.faviconUrl ? (
+        <img src={tab.faviconUrl} alt="" className="size-icon-xs shrink-0 rounded-[3px]" />
+      ) : (
+        <Glyph className="size-icon-xs shrink-0" />
+      ),
     }
   })
 
@@ -293,10 +304,7 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
           surfaceClassName="min-w-[180px]"
         >
           <MenuItem onClick={() => closeTab(tabMenu.tabId)}>Close</MenuItem>
-          <MenuItem
-            disabled={tabs.length <= 1}
-            onClick={() => closeTabsWhere((tab) => tab.id !== tabMenu.tabId)}
-          >
+          <MenuItem disabled={tabs.length <= 1} onClick={() => closeTabsWhere((tab) => tab.id !== tabMenu.tabId)}>
             Close others
           </MenuItem>
           <MenuItem

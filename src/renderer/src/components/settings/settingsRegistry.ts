@@ -62,11 +62,7 @@ type SettingFieldSelect<V extends string = string> = {
 }
 
 type SettingField =
-  | SettingFieldText
-  | SettingFieldMultiline
-  | SettingFieldNumber
-  | SettingFieldSwitch
-  | SettingFieldSelect
+  SettingFieldText | SettingFieldMultiline | SettingFieldNumber | SettingFieldSwitch | SettingFieldSelect
 
 export type SettingDescriptor = {
   // Stable id; consumers use this as React key + htmlFor / aria-controls link.

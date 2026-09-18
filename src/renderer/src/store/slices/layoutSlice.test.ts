@@ -35,7 +35,10 @@ const standardTemplate: LayoutTemplate = {
   },
 }
 
-function findTabset(model: IJsonModel, predicate: (record: Record<string, unknown>) => boolean): Record<string, unknown> | null {
+function findTabset(
+  model: IJsonModel,
+  predicate: (record: Record<string, unknown>) => boolean,
+): Record<string, unknown> | null {
   let found: Record<string, unknown> | null = null
   const walk = (node: unknown) => {
     if (found || !node || typeof node !== 'object') return
@@ -141,9 +144,7 @@ const navRailLayoutForStripMigration: IJsonModel = {
       {
         type: 'tabset',
         weight: 18,
-        children: [
-          { type: 'tab', name: 'Knowledge Graph', component: 'memory-graph' },
-        ],
+        children: [{ type: 'tab', name: 'Knowledge Graph', component: 'memory-graph' }],
       },
       {
         type: 'tabset',
@@ -156,9 +157,7 @@ const navRailLayoutForStripMigration: IJsonModel = {
       {
         type: 'tabset',
         weight: 30,
-        children: [
-          { type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } },
-        ],
+        children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } }],
       },
     ],
   },
@@ -218,7 +217,11 @@ const draggedLayout: IJsonModel = {
     type: 'row',
     children: [
       { type: 'tabset', weight: 60, children: [{ type: 'tab', name: 'Editor', component: 'editor' }] },
-      { type: 'tabset', weight: 40, children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } }] },
+      {
+        type: 'tabset',
+        weight: 40,
+        children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } }],
+      },
     ],
   },
 }
@@ -243,8 +246,17 @@ assert.deepEqual(
     layout: {
       type: 'row',
       children: [
-        { type: 'tabset', weight: 18, enableTabStrip: false, children: [{ type: 'tab', name: 'Backlog', component: 'backlog' }] },
-        { type: 'tabset', weight: 82, children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } }] },
+        {
+          type: 'tabset',
+          weight: 18,
+          enableTabStrip: false,
+          children: [{ type: 'tab', name: 'Backlog', component: 'backlog' }],
+        },
+        {
+          type: 'tabset',
+          weight: 82,
+          children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } }],
+        },
       ],
     },
   }
@@ -257,14 +269,20 @@ assert.deepEqual(
   assert.notEqual(healed, withPane)
   assert.equal(modelContainsComponent(healed.layoutModel, 'backlog'), false, 'the rail tab is stripped')
   assert.equal(modelContainsComponent(healed.layoutModel, 'agent'), true, 'the rest of the layout survives')
-  assert.deepEqual(healed.paneState?.tabs.map((tab) => tab.kind), ['files', 'backlog'])
+  assert.deepEqual(
+    healed.paneState?.tabs.map((tab) => tab.kind),
+    ['files', 'backlog'],
+  )
   assert.equal(healed.paneState?.open, true)
   assert.equal(healed.paneState?.activeTabId, healed.paneState?.tabs[1].id)
   assert.equal(healRetiredRailLayout(healed), healed, 'idempotent and reference-preserving once healed')
 
   const paneless = { id: 'heal-ws-2', layoutModel: railLayout } as unknown as Workspace
   const seeded = healRetiredRailLayout(paneless)
-  assert.deepEqual(seeded.paneState?.tabs.map((tab) => tab.kind), ['backlog'])
+  assert.deepEqual(
+    seeded.paneState?.tabs.map((tab) => tab.kind),
+    ['backlog'],
+  )
   assert.equal(modelContainsComponent(seeded.layoutModel, 'backlog'), false)
 
   const stripped = stripRetiredRailTabsFromLayout(railLayout) as IJsonModel
@@ -273,7 +291,10 @@ assert.deepEqual(
   // An empty root tabset — what FlexLayout persists after the last tab closes —
   // was never stripped, so the heal hands the same record back; otherwise every
   // registry snapshot would write the layout back to main again.
-  const emptyTabset = { id: 'heal-ws-3', layoutModel: { global: {}, borders: [], layout: { type: 'tabset', children: [] } } } as unknown as Workspace
+  const emptyTabset = {
+    id: 'heal-ws-3',
+    layoutModel: { global: {}, borders: [], layout: { type: 'tabset', children: [] } },
+  } as unknown as Workspace
   assert.equal(healRetiredRailLayout(emptyTabset), emptyTabset)
   assert.equal(stripRetiredRailTabsFromLayout(emptyTabset.layoutModel), emptyTabset.layoutModel)
 }

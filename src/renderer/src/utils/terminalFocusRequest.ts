@@ -38,10 +38,7 @@ export type TerminalFocusIdentity = {
  * matches only on the kind it has. An agent pane never answers a terminal request
  * (and vice versa) even if the ids happen to collide across the two id spaces.
  */
-export function terminalFocusRequestMatches(
-  request: TerminalFocusTarget,
-  identity: TerminalFocusIdentity,
-): boolean {
+export function terminalFocusRequestMatches(request: TerminalFocusTarget, identity: TerminalFocusIdentity): boolean {
   if (request.workspaceId !== identity.workspaceId) return false
   if (request.agentId) return Boolean(identity.agentId) && request.agentId === identity.agentId
   if (request.terminalId) return Boolean(identity.terminalId) && request.terminalId === identity.terminalId
@@ -85,10 +82,7 @@ export function requestTerminalFocus(target: TerminalFocusTarget): boolean {
  * Subscribes a mounted terminal pane. `focus` runs only for requests naming it,
  * and marking the request handled is what stops the caller retrying.
  */
-export function onTerminalFocusRequest(
-  identity: TerminalFocusIdentity,
-  focus: () => void,
-): () => void {
+export function onTerminalFocusRequest(identity: TerminalFocusIdentity, focus: () => void): () => void {
   const listener = (event: Event): void => {
     const detail = (event as CustomEvent<TerminalFocusRequestDetail>).detail
     if (!detail || !terminalFocusRequestMatches(detail, identity)) return

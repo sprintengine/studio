@@ -93,9 +93,7 @@ export async function createGitPatch(
     return {
       ok: true,
       patch: '',
-      message: cached
-        ? 'Nothing staged in the selected files.'
-        : 'No changes in the selected files.',
+      message: cached ? 'Nothing staged in the selected files.' : 'No changes in the selected files.',
     }
   }
   return { ok: true, patch: chunks.join(''), message: null }
@@ -104,7 +102,11 @@ export async function createGitPatch(
 /** The name the save dialog opens on: the repository, the date, `.patch`. */
 export function suggestedPatchFileName(repoRoot: string, now = new Date()): string {
   const name = repoRoot.replace(/\\/g, '/').replace(/\/+$/, '').split('/').filter(Boolean).pop() ?? 'changes'
-  const slug = name.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').toLowerCase() || 'changes'
+  const slug =
+    name
+      .replace(/[^A-Za-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .toLowerCase() || 'changes'
   const stamp = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
   return `${slug}-${stamp}.patch`
 }

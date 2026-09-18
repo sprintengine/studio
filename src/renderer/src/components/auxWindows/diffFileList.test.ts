@@ -25,11 +25,11 @@ function testOrdersStagedThenUnstaged(): void {
       b: { path: '/repo/b.ts', relativePath: 'b.ts', status: 'modified', staged: false, unstaged: true },
       a: { path: '/repo/a.ts', relativePath: 'a.ts', status: 'new', staged: true, unstaged: false },
       c: { path: '/repo/c.ts', relativePath: 'c.ts', status: 'modified', staged: true, unstaged: false },
-    })
+    }),
   )
   assert.deepEqual(
     items.map((item) => `${item.kind}:${item.relativePath}`),
-    ['staged:a.ts', 'staged:c.ts', 'unstaged:b.ts']
+    ['staged:a.ts', 'staged:c.ts', 'unstaged:b.ts'],
   )
 }
 
@@ -37,11 +37,11 @@ function testPartiallyStagedAppearsTwice(): void {
   const items = buildDiffFileList(
     snapshot({
       a: { path: '/repo/a.ts', relativePath: 'a.ts', status: 'modified', staged: true, unstaged: true },
-    })
+    }),
   )
   assert.deepEqual(
     items.map((item) => item.kind),
-    ['staged', 'unstaged']
+    ['staged', 'unstaged'],
   )
 }
 
@@ -49,7 +49,7 @@ function testExcludesConflicts(): void {
   const items = buildDiffFileList(
     snapshot({
       a: { path: '/repo/a.ts', relativePath: 'a.ts', status: 'conflicted', staged: true, unstaged: true },
-    })
+    }),
   )
   assert.equal(items.length, 0)
 }
@@ -58,7 +58,7 @@ function testFindsExactFocus(): void {
   const items = buildDiffFileList(
     snapshot({
       a: { path: '/repo/a.ts', relativePath: 'a.ts', status: 'modified', staged: true, unstaged: true },
-    })
+    }),
   )
   assert.equal(findDiffFocusIndex(items, '/repo/a.ts', 'unstaged'), 1)
   assert.equal(findDiffFocusIndex(items, '/repo/a.ts', 'staged'), 0)
@@ -68,7 +68,7 @@ function testFocusFallsBackToPath(): void {
   const items = buildDiffFileList(
     snapshot({
       a: { path: '/repo/a.ts', relativePath: 'a.ts', status: 'new', staged: true, unstaged: false },
-    })
+    }),
   )
   // Requested unstaged scope but only a staged entry exists → falls back to it.
   assert.equal(findDiffFocusIndex(items, '/repo/a.ts', 'unstaged'), 0)
@@ -104,7 +104,7 @@ function testChangelistKeepsHomePathsAndSpans(): void {
   })
   assert.deepEqual(
     items.map((item) => `${item.kind}:${item.relativePath}`),
-    ['staged:b.ts', 'unstaged:a.ts', 'unstaged:b.ts']
+    ['staged:b.ts', 'unstaged:a.ts', 'unstaged:b.ts'],
   )
 }
 

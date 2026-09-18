@@ -50,14 +50,14 @@ export const browserApi = {
     ipcRenderer.invoke('browser:local-servers', { workspaceId }),
   browserNoteActive: (workspaceId: string, tabId: string | null): Promise<void> =>
     ipcRenderer.invoke('browser:note-active', { workspaceId, tabId }),
-  onBrowserOpenRequest: (cb: (payload: { workspaceId: string; url: string | null; tabId: string | null }) => void): (() => void) =>
-    subscribe('browser:open-request', cb),
+  onBrowserOpenRequest: (
+    cb: (payload: { workspaceId: string; url: string | null; tabId: string | null }) => void,
+  ): (() => void) => subscribe('browser:open-request', cb),
   onBrowserPointer: (cb: (event: BrowserPointerEvent) => void): (() => void) => subscribe('browser:pointer', cb),
   onBrowserViewportRequest: (cb: (payload: { tabId: string; viewport: BrowserViewport }) => void): (() => void) =>
     subscribe('browser:viewport-request', cb),
   onBrowserState: (cb: (state: BrowserTabState) => void): (() => void) => subscribe('browser:state', cb),
-  onBrowserFocusUrl: (cb: (payload: { tabId: string }) => void): (() => void) =>
-    subscribe('browser:focus-url', cb),
+  onBrowserFocusUrl: (cb: (payload: { tabId: string }) => void): (() => void) => subscribe('browser:focus-url', cb),
   onBrowserHostKey: (cb: (payload: { tabId: string; key: BrowserHostKey }) => void): (() => void) =>
     subscribe('browser:host-key', cb),
 } satisfies Pick<

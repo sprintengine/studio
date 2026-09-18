@@ -1,23 +1,11 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import {
-  cpSync,
-  existsSync,
-  mkdirSync,
-  mkdtempSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { parseDesignSystemManifest } from '../../shared/design-system/manifest'
-import {
-  kebabCaseBundleName,
-  scaffoldDesignSystemBundle,
-  seedDesignSystemBundle,
-} from './bundle-scaffold'
+import { kebabCaseBundleName, scaffoldDesignSystemBundle, seedDesignSystemBundle } from './bundle-scaffold'
 
 // Scaffolds against the real repo templates (the same files the packaged app
 // carries as extraResources), so template drift breaks this test instead of a
@@ -62,9 +50,7 @@ run('stamps the full bundle layout with templates verbatim and a parseable manif
       )
     }
 
-    const manifest = parseDesignSystemManifest(
-      readFileSync(join(bundleDir, 'design-system.json'), 'utf8'),
-    )
+    const manifest = parseDesignSystemManifest(readFileSync(join(bundleDir, 'design-system.json'), 'utf8'))
     assert.equal(manifest.name, 'caf-shift-trader', 'name is kebab-cased (non-ascii dropped)')
     assert.equal(manifest.summary, 'A warm, editorial system.', 'summary whitespace collapses')
     assert.deepEqual(manifest.contents.components, [], 'no sample content is seeded')
@@ -116,10 +102,7 @@ run('missing templates are an observable failure, not a silent skip', async () =
     })
     assert.equal(result.ok, false)
     assert.ok(result.message && result.message.length > 0)
-    assert.ok(
-      !existsSync(join(workspace, 'design-system', 'design-system.json')),
-      'no manifest is written on failure',
-    )
+    assert.ok(!existsSync(join(workspace, 'design-system', 'design-system.json')), 'no manifest is written on failure')
   } finally {
     rmSync(workspace, { recursive: true, force: true })
   }
@@ -298,7 +281,15 @@ run('a failed seed leaves NOTHING on disk; an existing bundle is never overwritt
 
     // And no name is a refusal, not an unnamed bundle.
     assert.equal(
-      (await seedDesignSystemBundle({ sourceDir: null, targetDir: join(parent, 'x'), name: '  ', summary: '', templatesDir })).ok,
+      (
+        await seedDesignSystemBundle({
+          sourceDir: null,
+          targetDir: join(parent, 'x'),
+          name: '  ',
+          summary: '',
+          templatesDir,
+        })
+      ).ok,
       false,
     )
   } finally {

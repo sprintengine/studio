@@ -205,9 +205,7 @@ export function CardSplashStamp({
   mark?: React.ReactNode
 }): JSX.Element {
   if (!mark) {
-    return (
-      <span className={`${STAMP_CORNER} ${STAMP_PILL}`}>{label}</span>
-    )
+    return <span className={`${STAMP_CORNER} ${STAMP_PILL}`}>{label}</span>
   }
   return (
     <span className={`${STAMP_CORNER} inline-flex items-center gap-1.5`}>

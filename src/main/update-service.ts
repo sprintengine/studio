@@ -139,9 +139,10 @@ export class MulticodeUpdateService {
       return {
         ok: true,
         state: this.getState(),
-        message: info.version && info.version !== getAppVersion()
-          ? `Multicode ${info.version} is available.`
-          : getStatusMessage(this.state.status),
+        message:
+          info.version && info.version !== getAppVersion()
+            ? `Multicode ${info.version} is available.`
+            : getStatusMessage(this.state.status),
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to check for updates.'

@@ -6,12 +6,13 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { IpcMain } from 'electron'
 
-import type {
-  McpSettings,
-} from '../../shared/electron-api'
+import type { McpSettings } from '../../shared/electron-api'
 import type { MarketplacePluginEntry, MarketplacePluginManifest } from '../../shared/marketplace'
 import { canonicalManifestPayload, validateMarketplacePluginManifest } from '../../shared/marketplace'
-import { canonicalManifestPayload as canonicalModulePayload, validateThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
+import {
+  canonicalManifestPayload as canonicalModulePayload,
+  validateThirdPartyModuleManifest,
+} from '../../shared/modules/third-party-manifest'
 import type { PluginManifest, PluginMcpConfigFormat } from '../../shared/plugin-manifest'
 import { createDefinitionWriteCore } from '../automations/definition-write'
 import { allowAutomationProvider, createBuiltInAutomationProviderRegistry } from '../automations/provider-registry'
@@ -24,7 +25,11 @@ import { planThirdPartyMainModules } from '../modules/third-party-main-loader'
 import { readTrustedModulesSync, setModuleTrust } from '../modules/trust-store'
 import { discoverUserModules } from '../modules/user-module-registry'
 import type { InstallPluginResult } from '../plugin-install'
-import { createMarketplacePluginLifecycleService, readMarketplacePluginInstallReceipts, type MarketplacePluginLifecycleServices } from './plugin-lifecycle'
+import {
+  createMarketplacePluginLifecycleService,
+  readMarketplacePluginInstallReceipts,
+  type MarketplacePluginLifecycleServices,
+} from './plugin-lifecycle'
 import { MarketplaceRegistryClient, configuredMarketplaceRegistryUrl } from './registry-client'
 import { skillContentDigest } from './skill-content'
 import { readMarketplaceUpdateStates } from './update-detection'
@@ -99,7 +104,7 @@ function sha256Hex(source: string): string {
 
 function componentsWithDigests(
   components: BundleComponents,
-  files: Map<string, string>
+  files: Map<string, string>,
 ): MarketplacePluginManifest['components'] {
   return Object.fromEntries(
     Object.entries(components).map(([kind, component]) => {
@@ -108,7 +113,7 @@ function componentsWithDigests(
         .map(([path, source]) => ({ path, sha256: sha256Hex(source) }))
         .sort((a, b) => a.path.localeCompare(b.path))
       return [kind, { path: component.path, files: componentFiles }]
-    })
+    }),
   ) as MarketplacePluginManifest['components']
 }
 
@@ -117,7 +122,7 @@ function signedPluginManifest(
   files: Map<string, string>,
   signer: Signer,
   version: number,
-  overrides: Record<string, unknown> = {}
+  overrides: Record<string, unknown> = {},
 ): MarketplacePluginManifest {
   const unsigned = {
     id: 'registry-plugin',
@@ -161,7 +166,7 @@ async function writeBundle(
   components: BundleComponents,
   signer: Signer,
   version: number,
-  options: { unsigned?: boolean } = {}
+  options: { unsigned?: boolean } = {},
 ): Promise<{
   files: Map<string, string>
   entry: MarketplacePluginEntry
@@ -170,56 +175,86 @@ async function writeBundle(
   const bundleRoot = join(root, folder)
   const files = new Map<string, string>()
   if (components.mcp) {
-    files.set(components.mcp.path, `${JSON.stringify({
-      servers: [
+    files.set(
+      components.mcp.path,
+      `${JSON.stringify(
         {
-          id: components.mcp.id,
-          name: components.mcp.id,
-          transport: 'stdio',
-          command: 'node',
-          args: ['-e', `console.log("${components.mcp.id}")`],
-          clients: ['codex'],
-          scope: 'workspace',
-          source: 'custom',
-          riskLevel: 'local-command',
+          servers: [
+            {
+              id: components.mcp.id,
+              name: components.mcp.id,
+              transport: 'stdio',
+              command: 'node',
+              args: ['-e', `console.log("${components.mcp.id}")`],
+              clients: ['codex'],
+              scope: 'workspace',
+              source: 'custom',
+              riskLevel: 'local-command',
+            },
+          ],
         },
-      ],
-      }, null, 2)}\n`)
+        null,
+        2,
+      )}\n`,
+    )
   }
 
   if (components.skills) {
-    files.set(`${components.skills.path}/SKILL.md`, `---\nname: ${components.skills.name}\ndescription: ${components.skills.name} v${version}.\n---\n`)
+    files.set(
+      `${components.skills.path}/SKILL.md`,
+      `---\nname: ${components.skills.name}\ndescription: ${components.skills.name} v${version}.\n---\n`,
+    )
   }
   if (components.module) {
-    files.set(`${components.module.path}/manifest.json`, `${JSON.stringify(signedModuleManifest(components.module.id, signer, version), null, 2)}\n`)
+    files.set(
+      `${components.module.path}/manifest.json`,
+      `${JSON.stringify(signedModuleManifest(components.module.id, signer, version), null, 2)}\n`,
+    )
     files.set(`${components.module.path}/main.cjs`, 'exports.registerMain = () => {}\n')
   }
   if (components.cli) {
-    files.set(`${components.cli.path}/plugin.json`, `${JSON.stringify({
-      id: components.cli.id,
-      displayName: components.cli.id,
-      version,
-      binary: 'node',
-      permissionPresets: { default: { label: 'Default', args: [] } },
-      launch: { argv: ['{{binary}}'] },
-      promptInjection: { mode: 'stdin-pipe' },
-      completion: { mode: 'process-exit' },
-      capabilities: {
-        resumeSession: false,
-        sessionIdFromCaller: false,
-        toolUse: false,
-        mcpServers: false,
-      },
-    }, null, 2)}\n`)
+    files.set(
+      `${components.cli.path}/plugin.json`,
+      `${JSON.stringify(
+        {
+          id: components.cli.id,
+          displayName: components.cli.id,
+          version,
+          binary: 'node',
+          permissionPresets: { default: { label: 'Default', args: [] } },
+          launch: { argv: ['{{binary}}'] },
+          promptInjection: { mode: 'stdin-pipe' },
+          completion: { mode: 'process-exit' },
+          capabilities: {
+            resumeSession: false,
+            sessionIdFromCaller: false,
+            toolUse: false,
+            mcpServers: false,
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    )
   }
 
   if (components.automation) {
-    files.set(components.automation.path, `${JSON.stringify({
-      name: components.automation.name,
-      status: 'enabled',
-      trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' } },
-      action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
-    }, null, 2)}\n`)
+    files.set(
+      components.automation.path,
+      `${JSON.stringify(
+        {
+          name: components.automation.name,
+          status: 'enabled',
+          trigger: {
+            kind: 'schedule',
+            config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
+          },
+          action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
+        },
+        null,
+        2,
+      )}\n`,
+    )
   }
 
   const signed = signedPluginManifest(components, files, signer, version)
@@ -256,16 +291,22 @@ async function writeBundle(
 
 function createGithubFetcher(folders: Map<string, Map<string, string>>): MarketplacePluginDownloadFetch {
   return async (url) => {
-    const github = url.match(/^https:\/\/api\.github\.com\/repos\/sprintengine\/studio-releases\/contents\/plugins\/([^?]+)\?ref=main$/)
+    const github = url.match(
+      /^https:\/\/api\.github\.com\/repos\/sprintengine\/studio-releases\/contents\/plugins\/([^?]+)\?ref=main$/,
+    )
     if (github) {
       const folder = github[1]!
       const files = folders.get(folder)
       if (!files) return new Response('not found', { status: 404 })
-      return new Response(JSON.stringify(Array.from(files.keys()).map((path) => ({
-        type: 'file',
-        path: `plugins/${folder}/${path}`,
-        download_url: `https://raw.githubusercontent.com/sprintengine/studio-releases/main/${folder}/${path}`,
-      }))))
+      return new Response(
+        JSON.stringify(
+          Array.from(files.keys()).map((path) => ({
+            type: 'file',
+            path: `plugins/${folder}/${path}`,
+            download_url: `https://raw.githubusercontent.com/sprintengine/studio-releases/main/${folder}/${path}`,
+          })),
+        ),
+      )
     }
     const raw = url.match(/^https:\/\/raw\.githubusercontent\.com\/sprintengine\/studio-releases\/main\/([^/]+)\/(.+)$/)
     if (raw) {
@@ -278,7 +319,11 @@ function createGithubFetcher(folders: Map<string, Map<string, string>>): Marketp
   }
 }
 
-async function createServices(temp: string, fetcher: MarketplacePluginDownloadFetch, trustContext: ModuleTrustContext): Promise<{
+async function createServices(
+  temp: string,
+  fetcher: MarketplacePluginDownloadFetch,
+  trustContext: ModuleTrustContext,
+): Promise<{
   services: MarketplacePluginLifecycleServices
   workspaceRoot: string
   moduleRoot: string
@@ -290,7 +335,7 @@ async function createServices(temp: string, fetcher: MarketplacePluginDownloadFe
   const pluginRoot = join(temp, 'plugins')
   const receiptStorePath = join(temp, 'marketplace-installs.json')
   await mkdir(workspaceRoot, { recursive: true })
-  const lookupPlugin: PluginLookup = (id) => id === 'codex' ? { manifest: mcpPluginManifest(id, 'codex') } : undefined
+  const lookupPlugin: PluginLookup = (id) => (id === 'codex' ? { manifest: mcpPluginManifest(id, 'codex') } : undefined)
   return {
     workspaceRoot,
     moduleRoot,
@@ -342,11 +387,11 @@ async function testVerifiedRegistryInstallFansOutAndRecordsReceipt(): Promise<vo
       cli: { path: 'cli', id: 'registry-cli-v1' },
     }
     const bundle = await writeBundle(temp, 'verified-plugin', components, signer, 1)
-    const folders = new Map([[ 'verified-plugin', bundle.files ]])
+    const folders = new Map([['verified-plugin', bundle.files]])
     const { services, workspaceRoot, moduleRoot, pluginRoot, receiptStorePath } = await createServices(
       temp,
       createGithubFetcher(folders),
-      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundle.fingerprint]) }
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundle.fingerprint]) },
     )
     const lifecycle = createMarketplacePluginLifecycleService(services)
     const mcpSettings: McpSettings = { syncEnabled: false, servers: {} }
@@ -395,12 +440,10 @@ async function testCommunityBundleRequiresTrustGrant(): Promise<void> {
     const components: BundleComponents = { mcp: { path: 'mcp/server.json', id: 'community-mcp' } }
     const bundle = await writeBundle(temp, 'community-plugin', components, signer, 1)
     bundle.entry.publisher.verified = false
-    const folders = new Map([[ 'community-plugin', bundle.files ]])
-    const { services, workspaceRoot } = await createServices(
-      temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map() }
-    )
+    const folders = new Map([['community-plugin', bundle.files]])
+    const { services, workspaceRoot } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+    })
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
     const blocked = await lifecycle.installFromRegistry({
@@ -438,12 +481,10 @@ async function testUnsignedMcpSkillsBundleRoutesThroughTrust(): Promise<void> {
       skills: { path: 'skills/unsigned-skill', name: 'unsigned-skill' },
     }
     const bundle = await writeBundle(temp, 'unsigned-plugin', components, signer, 1, { unsigned: true })
-    const folders = new Map([[ 'unsigned-plugin', bundle.files ]])
-    const { services, workspaceRoot, receiptStorePath } = await createServices(
-      temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map() }
-    )
+    const folders = new Map([['unsigned-plugin', bundle.files]])
+    const { services, workspaceRoot, receiptStorePath } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+    })
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
     const blocked = await lifecycle.installFromRegistry({
@@ -491,11 +532,11 @@ async function testUnsignedModuleBearingBundleHardBlocksEvenWithTrust(): Promise
       module: { path: 'module', id: 'unsigned-module' },
     }
     const bundle = await writeBundle(temp, 'unsigned-module-plugin', components, signer, 1, { unsigned: true })
-    const folders = new Map([[ 'unsigned-module-plugin', bundle.files ]])
+    const folders = new Map([['unsigned-module-plugin', bundle.files]])
     const { services, workspaceRoot, moduleRoot, receiptStorePath } = await createServices(
       temp,
       createGithubFetcher(folders),
-      { trustedModules: new Map() }
+      { trustedModules: new Map() },
     )
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
@@ -528,12 +569,10 @@ async function testUnsignedSkillsOnlyBundleRoutesThroughTrust(): Promise<void> {
       skills: { path: 'skills/unsigned-skill', name: 'unsigned-skill' },
     }
     const bundle = await writeBundle(temp, 'unsigned-skills-plugin', components, signer, 1, { unsigned: true })
-    const folders = new Map([[ 'unsigned-skills-plugin', bundle.files ]])
-    const { services, workspaceRoot, receiptStorePath } = await createServices(
-      temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map() }
-    )
+    const folders = new Map([['unsigned-skills-plugin', bundle.files]])
+    const { services, workspaceRoot, receiptStorePath } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+    })
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
     const blocked = await lifecycle.installFromRegistry({
@@ -580,11 +619,11 @@ async function testUnsignedCliBearingBundleHardBlocksEvenWithTrust(): Promise<vo
       cli: { path: 'cli', id: 'unsigned-cli' },
     }
     const bundle = await writeBundle(temp, 'unsigned-cli-plugin', components, signer, 1, { unsigned: true })
-    const folders = new Map([[ 'unsigned-cli-plugin', bundle.files ]])
+    const folders = new Map([['unsigned-cli-plugin', bundle.files]])
     const { services, workspaceRoot, pluginRoot, receiptStorePath } = await createServices(
       temp,
       createGithubFetcher(folders),
-      { trustedModules: new Map() }
+      { trustedModules: new Map() },
     )
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
@@ -607,11 +646,9 @@ async function testUnsignedCliBearingBundleHardBlocksEvenWithTrust(): Promise<vo
 
 async function testInlineMcpEntryRoutesThroughTrustAndSyncs(): Promise<void> {
   await withTempDir(async (temp) => {
-    const { services, workspaceRoot, receiptStorePath } = await createServices(
-      temp,
-      createGithubFetcher(new Map()),
-      { trustedModules: new Map() }
-    )
+    const { services, workspaceRoot, receiptStorePath } = await createServices(temp, createGithubFetcher(new Map()), {
+      trustedModules: new Map(),
+    })
     const lifecycle = createMarketplacePluginLifecycleService(services)
     const entry: MarketplacePluginEntry = {
       id: 'inline-mcp-plugin',
@@ -681,12 +718,11 @@ async function testDigestMismatchedRegistryInstallDoesNotFanOut(): Promise<void>
     const components: BundleComponents = { mcp: { path: 'mcp/server.json', id: 'tampered-mcp' } }
     const bundle = await writeBundle(temp, 'tampered-plugin', components, signer, 1)
     bundle.files.set(components.mcp!.path, `${JSON.stringify({ servers: [] }, null, 2)}\n`)
-    const folders = new Map([[ 'tampered-plugin', bundle.files ]])
-    const { services, workspaceRoot, receiptStorePath } = await createServices(
-      temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundle.fingerprint]) }
-    )
+    const folders = new Map([['tampered-plugin', bundle.files]])
+    const { services, workspaceRoot, receiptStorePath } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+      trustedKeyFingerprints: new Set([bundle.fingerprint]),
+    })
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
     const result = await lifecycle.installFromRegistry({
@@ -712,12 +748,11 @@ async function testSkillInstallFailureRollsBackResidue(): Promise<void> {
       skills: { path: 'skills/registry-skill', name: 'registry-skill' },
     }
     const bundle = await writeBundle(temp, 'skill-plugin', components, signer, 1)
-    const folders = new Map([[ 'skill-plugin', bundle.files ]])
-    const { services, workspaceRoot, receiptStorePath } = await createServices(
-      temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundle.fingerprint]) }
-    )
+    const folders = new Map([['skill-plugin', bundle.files]])
+    const { services, workspaceRoot, receiptStorePath } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+      trustedKeyFingerprints: new Set([bundle.fingerprint]),
+    })
     // A real, deterministic install failure: the harness skill directory is a
     // file, so nothing can be written under it.
     await mkdir(join(workspaceRoot, '.agents'), { recursive: true })
@@ -743,18 +778,30 @@ async function testSkillInstallFailureRollsBackResidue(): Promise<void> {
 async function testUpdateAndUninstallRemoveOldComponents(): Promise<void> {
   await withTempDir(async (temp) => {
     const signer = generateKeyPairSync('ed25519')
-    const v1 = await writeBundle(temp, 'plugin-v1', {
-      mcp: { path: 'mcp/server.json', id: 'registry-mcp-v1' },
-      skills: { path: 'skills/registry-skill-v1', name: 'registry-skill-v1' },
-      module: { path: 'module', id: 'registry-module-v1' },
-      cli: { path: 'cli', id: 'registry-cli-v1' },
-    }, signer, 1)
-    const v2 = await writeBundle(temp, 'plugin-v2', {
-      mcp: { path: 'mcp/server.json', id: 'registry-mcp-v2' },
-      skills: { path: 'skills/registry-skill-v2', name: 'registry-skill-v2' },
-      module: { path: 'module', id: 'registry-module-v2' },
-      cli: { path: 'cli', id: 'registry-cli-v2' },
-    }, signer, 2)
+    const v1 = await writeBundle(
+      temp,
+      'plugin-v1',
+      {
+        mcp: { path: 'mcp/server.json', id: 'registry-mcp-v1' },
+        skills: { path: 'skills/registry-skill-v1', name: 'registry-skill-v1' },
+        module: { path: 'module', id: 'registry-module-v1' },
+        cli: { path: 'cli', id: 'registry-cli-v1' },
+      },
+      signer,
+      1,
+    )
+    const v2 = await writeBundle(
+      temp,
+      'plugin-v2',
+      {
+        mcp: { path: 'mcp/server.json', id: 'registry-mcp-v2' },
+        skills: { path: 'skills/registry-skill-v2', name: 'registry-skill-v2' },
+        module: { path: 'module', id: 'registry-module-v2' },
+        cli: { path: 'cli', id: 'registry-cli-v2' },
+      },
+      signer,
+      2,
+    )
     const folders = new Map([
       ['plugin-v1', v1.files],
       ['plugin-v2', v2.files],
@@ -762,7 +809,7 @@ async function testUpdateAndUninstallRemoveOldComponents(): Promise<void> {
     const { services, workspaceRoot, moduleRoot, pluginRoot, receiptStorePath } = await createServices(
       temp,
       createGithubFetcher(folders),
-      { trustedModules: new Map(), trustedKeyFingerprints: new Set([v1.fingerprint, v2.fingerprint]) }
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([v1.fingerprint, v2.fingerprint]) },
     )
     const lifecycle = createMarketplacePluginLifecycleService(services)
     const installed = await lifecycle.installFromRegistry({
@@ -818,16 +865,21 @@ async function testUpdateAndUninstallRemoveOldComponents(): Promise<void> {
 async function testAutomationInstallRecordsReceiptAndSurvivesUninstall(): Promise<void> {
   await withTempDir(async (temp) => {
     const signer = generateKeyPairSync('ed25519')
-    const bundle = await writeBundle(temp, 'automation-plugin', {
-      skills: { path: 'skills/sweep-skill', name: 'sweep-skill' },
-      automation: { path: 'automation/automation.json', name: 'Nightly dependency sweep' },
-    }, signer, 1)
-    const folders = new Map([['automation-plugin', bundle.files]])
-    const { services, workspaceRoot, receiptStorePath } = await createServices(
+    const bundle = await writeBundle(
       temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundle.fingerprint]) }
+      'automation-plugin',
+      {
+        skills: { path: 'skills/sweep-skill', name: 'sweep-skill' },
+        automation: { path: 'automation/automation.json', name: 'Nightly dependency sweep' },
+      },
+      signer,
+      1,
     )
+    const folders = new Map([['automation-plugin', bundle.files]])
+    const { services, workspaceRoot, receiptStorePath } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+      trustedKeyFingerprints: new Set([bundle.fingerprint]),
+    })
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
     const installed = await lifecycle.installFromRegistry({
@@ -840,7 +892,10 @@ async function testAutomationInstallRecordsReceiptAndSurvivesUninstall(): Promis
 
     assert.equal(installed.ok, true, JSON.stringify(installed))
     if (!installed.ok) return
-    assert.deepEqual(installed.installed.map((component) => component.kind), ['skills', 'automation'])
+    assert.deepEqual(
+      installed.installed.map((component) => component.kind),
+      ['skills', 'automation'],
+    )
 
     const definitions = await new AutomationsStore(workspaceRoot).listDefinitions()
     assert.equal(definitions.ok, true)
@@ -856,7 +911,7 @@ async function testAutomationInstallRecordsReceiptAndSurvivesUninstall(): Promis
     assert.equal(
       automationReceipt?.id,
       automationId,
-      'the receipt carries the automation kind and the store-issued id it created'
+      'the receipt carries the automation kind and the store-issued id it created',
     )
 
     const uninstalled = await lifecycle.uninstall({
@@ -865,7 +920,11 @@ async function testAutomationInstallRecordsReceiptAndSurvivesUninstall(): Promis
       skillHarnesses: ['agents'],
     })
     assert.equal(uninstalled.ok, true, JSON.stringify(uninstalled))
-    assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'sweep-skill')), false, 'the skill copy is removed')
+    assert.equal(
+      existsSync(join(workspaceRoot, '.agents', 'skills', 'sweep-skill')),
+      false,
+      'the skill copy is removed',
+    )
 
     // Owner ruling: an added automation is the user's. Uninstalling the plugin
     // that shipped its starter must not silently delete a scheduled job that
@@ -873,25 +932,40 @@ async function testAutomationInstallRecordsReceiptAndSurvivesUninstall(): Promis
     const afterUninstall = await new AutomationsStore(workspaceRoot).listDefinitions()
     assert.equal(afterUninstall.ok, true)
     if (!afterUninstall.ok) return
-    assert.deepEqual(afterUninstall.values.map((definition) => definition.id), [automationId])
+    assert.deepEqual(
+      afterUninstall.values.map((definition) => definition.id),
+      [automationId],
+    )
   })
 }
 
 async function testFailedUpdateRollsBackReplacementAndKeepsReceipt(): Promise<void> {
   await withTempDir(async (temp) => {
     const signer = generateKeyPairSync('ed25519')
-    const v1 = await writeBundle(temp, 'plugin-v1', {
-      mcp: { path: 'mcp/server.json', id: 'registry-mcp' },
-      skills: { path: 'skills/registry-skill', name: 'registry-skill' },
-      module: { path: 'module', id: 'registry-module' },
-      cli: { path: 'cli', id: 'registry-cli' },
-    }, signer, 1)
-    const v2 = await writeBundle(temp, 'plugin-v2', {
-      mcp: { path: 'mcp/server.json', id: 'registry-mcp' },
-      skills: { path: 'skills/registry-skill', name: 'registry-skill' },
-      module: { path: 'module', id: 'registry-module' },
-      cli: { path: 'cli', id: 'registry-cli' },
-    }, signer, 2)
+    const v1 = await writeBundle(
+      temp,
+      'plugin-v1',
+      {
+        mcp: { path: 'mcp/server.json', id: 'registry-mcp' },
+        skills: { path: 'skills/registry-skill', name: 'registry-skill' },
+        module: { path: 'module', id: 'registry-module' },
+        cli: { path: 'cli', id: 'registry-cli' },
+      },
+      signer,
+      1,
+    )
+    const v2 = await writeBundle(
+      temp,
+      'plugin-v2',
+      {
+        mcp: { path: 'mcp/server.json', id: 'registry-mcp' },
+        skills: { path: 'skills/registry-skill', name: 'registry-skill' },
+        module: { path: 'module', id: 'registry-module' },
+        cli: { path: 'cli', id: 'registry-cli' },
+      },
+      signer,
+      2,
+    )
     const folders = new Map([
       ['plugin-v1', v1.files],
       ['plugin-v2', v2.files],
@@ -899,7 +973,7 @@ async function testFailedUpdateRollsBackReplacementAndKeepsReceipt(): Promise<vo
     const { services, workspaceRoot, moduleRoot, pluginRoot, receiptStorePath } = await createServices(
       temp,
       createGithubFetcher(folders),
-      { trustedModules: new Map(), trustedKeyFingerprints: new Set([v1.fingerprint, v2.fingerprint]) }
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([v1.fingerprint, v2.fingerprint]) },
     )
     const lifecycle = createMarketplacePluginLifecycleService(services)
     const installed = await lifecycle.installFromRegistry({
@@ -932,10 +1006,17 @@ async function testFailedUpdateRollsBackReplacementAndKeepsReceipt(): Promise<vo
 
     const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
     assert.match(codexConfig, /registry-mcp/)
-    assert.match(await readFile(join(workspaceRoot, '.agents', 'skills', 'registry-skill', 'SKILL.md'), 'utf8'), /registry-skill v1/)
-    const moduleManifest = JSON.parse(await readFile(join(moduleRoot, 'registry-module', 'manifest.json'), 'utf8')) as { version?: unknown }
+    assert.match(
+      await readFile(join(workspaceRoot, '.agents', 'skills', 'registry-skill', 'SKILL.md'), 'utf8'),
+      /registry-skill v1/,
+    )
+    const moduleManifest = JSON.parse(await readFile(join(moduleRoot, 'registry-module', 'manifest.json'), 'utf8')) as {
+      version?: unknown
+    }
     assert.equal(moduleManifest.version, 1)
-    const cliManifest = JSON.parse(await readFile(join(pluginRoot, 'registry-cli', 'plugin.json'), 'utf8')) as { version?: unknown }
+    const cliManifest = JSON.parse(await readFile(join(pluginRoot, 'registry-cli', 'plugin.json'), 'utf8')) as {
+      version?: unknown
+    }
     assert.equal(cliManifest.version, 1)
 
     const receipts = JSON.parse(await readFile(receiptStorePath, 'utf8')) as {
@@ -950,7 +1031,7 @@ async function testReceiptStoreValidationRejectsMalformedAndUnsafeState(): Promi
     const { services, workspaceRoot, receiptStorePath, moduleRoot } = await createServices(
       temp,
       createGithubFetcher(new Map()),
-      { trustedModules: new Map() }
+      { trustedModules: new Map() },
     )
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
@@ -966,20 +1047,28 @@ async function testReceiptStoreValidationRejectsMalformedAndUnsafeState(): Promi
 
     const outsidePath = join(moduleRoot, '..', 'outside')
     await mkdir(outsidePath, { recursive: true })
-    await writeFile(receiptStorePath, `${JSON.stringify({
-      schemaVersion: 1,
-      plugins: {
-        'registry-plugin': {
-          id: 'registry-plugin',
-          displayName: 'Registry Plugin',
-          version: 1,
-          sourceUrl: 'https://example.test/registry-plugin',
-          classification: 'verified',
-          installedAt: new Date().toISOString(),
-          components: [{ kind: 'module', id: '../outside' }],
+    await writeFile(
+      receiptStorePath,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          plugins: {
+            'registry-plugin': {
+              id: 'registry-plugin',
+              displayName: 'Registry Plugin',
+              version: 1,
+              sourceUrl: 'https://example.test/registry-plugin',
+              classification: 'verified',
+              installedAt: new Date().toISOString(),
+              components: [{ kind: 'module', id: '../outside' }],
+            },
+          },
         },
-      },
-    }, null, 2)}\n`, 'utf8')
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
     const unsafe = await lifecycle.uninstall({
       pluginId: 'registry-plugin',
       workspaceRoot,
@@ -990,7 +1079,6 @@ async function testReceiptStoreValidationRejectsMalformedAndUnsafeState(): Promi
     assert.equal(existsSync(outsidePath), true)
   })
 }
-
 
 // --- Claude Code plugin installs (bundled snapshot content) -----------------
 
@@ -1049,7 +1137,9 @@ async function installClaudePayload(temp: string): Promise<(relativePath: string
 
 async function testClaudePluginRequiresTrustGrant(): Promise<void> {
   await withTempDir(async (temp) => {
-    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), {
+      trustedModules: new Map(),
+    })
     services.packagedResourceResolver = await installClaudePayload(temp)
     const lifecycle = createMarketplacePluginLifecycleService(services)
     const result = await lifecycle.installFromRegistry({ entry: CLAUDE_LIFECYCLE_ENTRY, workspaceRoot })
@@ -1064,11 +1154,9 @@ async function testClaudePluginRequiresTrustGrant(): Promise<void> {
 
 async function testClaudePluginInstallsSkillsIntoClaudeHarnessAndUninstalls(): Promise<void> {
   await withTempDir(async (temp) => {
-    const { services, workspaceRoot, receiptStorePath } = await createServices(
-      temp,
-      createClaudeLifecycleFetcher(),
-      { trustedModules: new Map() }
-    )
+    const { services, workspaceRoot, receiptStorePath } = await createServices(temp, createClaudeLifecycleFetcher(), {
+      trustedModules: new Map(),
+    })
     services.packagedResourceResolver = await installClaudePayload(temp)
     const lifecycle = createMarketplacePluginLifecycleService(services)
     const result = await lifecycle.installFromRegistry({
@@ -1083,7 +1171,7 @@ async function testClaudePluginInstallsSkillsIntoClaudeHarnessAndUninstalls(): P
     // back to the Claude harness dir only — never a silent no-op.
     assert.equal(
       await readFile(join(workspaceRoot, '.claude', 'skills', 'alpha', 'SKILL.md'), 'utf8'),
-      '---\nname: alpha\ndescription: First.\n---\n'
+      '---\nname: alpha\ndescription: First.\n---\n',
     )
     assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'beta', 'SKILL.md')), true)
     assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'alpha')), false)
@@ -1095,7 +1183,7 @@ async function testClaudePluginInstallsSkillsIntoClaudeHarnessAndUninstalls(): P
     assert.ok(receipt, 'receipt written')
     assert.deepEqual(
       receipt.components.map((component) => `${component.kind}:${component.installedDirName}`),
-      ['skills:alpha', 'skills:beta']
+      ['skills:alpha', 'skills:beta'],
     )
     assert.deepEqual(receipt.components[0]!.harnesses, ['claude'])
 
@@ -1106,14 +1194,11 @@ async function testClaudePluginInstallsSkillsIntoClaudeHarnessAndUninstalls(): P
   })
 }
 
-
 async function testClaudePluginDefaultFanOutUsesResolvedHarnesses(): Promise<void> {
   await withTempDir(async (temp) => {
-    const { services, workspaceRoot, receiptStorePath } = await createServices(
-      temp,
-      createClaudeLifecycleFetcher(),
-      { trustedModules: new Map() }
-    )
+    const { services, workspaceRoot, receiptStorePath } = await createServices(temp, createClaudeLifecycleFetcher(), {
+      trustedModules: new Map(),
+    })
     services.packagedResourceResolver = await installClaudePayload(temp)
     // The wired resolver (installed CLIs with native skill support + agents)
     // drives the default target set; the caller passes no skillHarnesses.
@@ -1126,11 +1211,7 @@ async function testClaudePluginDefaultFanOutUsesResolvedHarnesses(): Promise<voi
     })
     assert.equal(result.ok, true, JSON.stringify(result))
     for (const dir of ['.claude', '.codex', '.agents']) {
-      assert.equal(
-        existsSync(join(workspaceRoot, dir, 'skills', 'alpha', 'SKILL.md')),
-        true,
-        `alpha lands in ${dir}`
-      )
+      assert.equal(existsSync(join(workspaceRoot, dir, 'skills', 'alpha', 'SKILL.md')), true, `alpha lands in ${dir}`)
     }
     // No writes outside the resolved set.
     assert.equal(existsSync(join(workspaceRoot, '.cursor', 'skills', 'alpha')), false)
@@ -1151,12 +1232,18 @@ async function testClaudePluginDefaultFanOutUsesResolvedHarnesses(): Promise<voi
 
 async function testClaudePluginAutoResolveUpdateNeverDeletesOnProbeHiccup(): Promise<void> {
   await withTempDir(async (temp) => {
-    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), {
+      trustedModules: new Map(),
+    })
     services.packagedResourceResolver = await installClaudePayload(temp)
     // First auto-resolved install lands claude+codex+agents.
     services.resolveSkillHarnesses = () => Promise.resolve(['claude', 'codex', 'agents'])
     const lifecycle = createMarketplacePluginLifecycleService(services)
-    const first = await lifecycle.installFromRegistry({ entry: CLAUDE_LIFECYCLE_ENTRY, workspaceRoot, trustGranted: true })
+    const first = await lifecycle.installFromRegistry({
+      entry: CLAUDE_LIFECYCLE_ENTRY,
+      workspaceRoot,
+      trustGranted: true,
+    })
     assert.equal(first.ok, true, JSON.stringify(first))
     for (const dir of ['.claude', '.codex', '.agents']) {
       assert.equal(existsSync(join(workspaceRoot, dir, 'skills', 'alpha')), true, `alpha in ${dir} after first install`)
@@ -1166,26 +1253,42 @@ async function testClaudePluginAutoResolveUpdateNeverDeletesOnProbeHiccup(): Pro
     // resolved set narrows to claude+agents. Auto-resolution must NOT delete
     // the still-wanted .codex copies — union with the prior receipt keeps them.
     services.resolveSkillHarnesses = () => Promise.resolve(['claude', 'agents'])
-    const update = await lifecycle.installFromRegistry({ entry: CLAUDE_LIFECYCLE_ENTRY, workspaceRoot, trustGranted: true })
+    const update = await lifecycle.installFromRegistry({
+      entry: CLAUDE_LIFECYCLE_ENTRY,
+      workspaceRoot,
+      trustGranted: true,
+    })
     assert.equal(update.ok, true, JSON.stringify(update))
     for (const dir of ['.claude', '.codex', '.agents']) {
-      assert.equal(existsSync(join(workspaceRoot, dir, 'skills', 'alpha')), true, `alpha preserved in ${dir} after probe hiccup`)
+      assert.equal(
+        existsSync(join(workspaceRoot, dir, 'skills', 'alpha')),
+        true,
+        `alpha preserved in ${dir} after probe hiccup`,
+      )
     }
   })
 }
 
 async function testClaudePluginExplicitHarnessNarrowingStillRemoves(): Promise<void> {
   await withTempDir(async (temp) => {
-    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), {
+      trustedModules: new Map(),
+    })
     services.packagedResourceResolver = await installClaudePayload(temp)
     const lifecycle = createMarketplacePluginLifecycleService(services)
     const first = await lifecycle.installFromRegistry({
-      entry: CLAUDE_LIFECYCLE_ENTRY, workspaceRoot, trustGranted: true, skillHarnesses: ['claude', 'codex', 'agents'],
+      entry: CLAUDE_LIFECYCLE_ENTRY,
+      workspaceRoot,
+      trustGranted: true,
+      skillHarnesses: ['claude', 'codex', 'agents'],
     })
     assert.equal(first.ok, true, JSON.stringify(first))
     // An EXPLICIT narrowing is a deliberate intent — the .codex copies go.
     const update = await lifecycle.installFromRegistry({
-      entry: CLAUDE_LIFECYCLE_ENTRY, workspaceRoot, trustGranted: true, skillHarnesses: ['claude'],
+      entry: CLAUDE_LIFECYCLE_ENTRY,
+      workspaceRoot,
+      trustGranted: true,
+      skillHarnesses: ['claude'],
     })
     assert.equal(update.ok, true, JSON.stringify(update))
     assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'alpha')), true)
@@ -1196,7 +1299,9 @@ async function testClaudePluginExplicitHarnessNarrowingStillRemoves(): Promise<v
 
 async function testClaudePluginResolverFailureFallsBackToClaude(): Promise<void> {
   await withTempDir(async (temp) => {
-    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), {
+      trustedModules: new Map(),
+    })
     services.packagedResourceResolver = await installClaudePayload(temp)
     services.resolveSkillHarnesses = () => Promise.reject(new Error('probe blew up'))
     const lifecycle = createMarketplacePluginLifecycleService(services)
@@ -1211,7 +1316,9 @@ async function testClaudePluginResolverFailureFallsBackToClaude(): Promise<void>
   })
 
   await withTempDir(async (temp) => {
-    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), {
+      trustedModules: new Map(),
+    })
     services.packagedResourceResolver = await installClaudePayload(temp)
     // An empty resolved set must not install nowhere while claiming success.
     services.resolveSkillHarnesses = () => Promise.resolve([])
@@ -1228,7 +1335,9 @@ async function testClaudePluginResolverFailureFallsBackToClaude(): Promise<void>
 
 async function testClaudePluginHarnessChangeRemovesOrphanedCopies(): Promise<void> {
   await withTempDir(async (temp) => {
-    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), {
+      trustedModules: new Map(),
+    })
     services.packagedResourceResolver = await installClaudePayload(temp)
     const lifecycle = createMarketplacePluginLifecycleService(services)
     // First install targets claude + agents.
@@ -1257,7 +1366,9 @@ async function testClaudePluginHarnessChangeRemovesOrphanedCopies(): Promise<voi
 
 async function testClaudePluginRefusesForeignSkillDirCollision(): Promise<void> {
   await withTempDir(async (temp) => {
-    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), { trustedModules: new Map() })
+    const { services, workspaceRoot } = await createServices(temp, createClaudeLifecycleFetcher(), {
+      trustedModules: new Map(),
+    })
     services.packagedResourceResolver = await installClaudePayload(temp)
     // A hand-dropped skill dir this plugin does not own.
     await mkdir(join(workspaceRoot, '.claude', 'skills', 'alpha'), { recursive: true })
@@ -1271,7 +1382,10 @@ async function testClaudePluginRefusesForeignSkillDirCollision(): Promise<void> 
     assert.equal(result.ok, false)
     if (!result.ok) assert.match(result.message, /already exists/)
     // The pre-flight refusal copies nothing and never clobbers the existing dir.
-    assert.equal(await readFile(join(workspaceRoot, '.claude', 'skills', 'alpha', 'SKILL.md'), 'utf8'), 'mine, not yours')
+    assert.equal(
+      await readFile(join(workspaceRoot, '.claude', 'skills', 'alpha', 'SKILL.md'), 'utf8'),
+      'mine, not yours',
+    )
     assert.equal(existsSync(join(workspaceRoot, '.claude', 'skills', 'beta')), false)
   })
 }
@@ -1293,7 +1407,7 @@ async function testUpdateAvailabilitySettlesThroughRegistryUpdate(): Promise<voi
     const { services, workspaceRoot, moduleRoot, receiptStorePath } = await createServices(
       temp,
       createGithubFetcher(folders),
-      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundleV1.fingerprint]) }
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundleV1.fingerprint]) },
     )
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
@@ -1325,11 +1439,13 @@ async function testUpdateAvailabilitySettlesThroughRegistryUpdate(): Promise<voi
     const before = await readMarketplaceUpdateStates(updateStateServices)
     assert.equal(before.ok && before.checked, true)
     if (!before.ok || !before.checked) return
-    assert.deepEqual(before.entries, [{
-      id: 'registry-plugin',
-      displayName: 'Registry Plugin',
-      availability: { state: 'update-available', installedVersion: 1, latestVersion: 2 },
-    }])
+    assert.deepEqual(before.entries, [
+      {
+        id: 'registry-plugin',
+        displayName: 'Registry Plugin',
+        availability: { state: 'update-available', installedVersion: 1, latestVersion: 2 },
+      },
+    ])
 
     const updated = await lifecycle.updateFromRegistry({ entry: bundleV2.entry, workspaceRoot })
     assert.equal(updated.ok, true, JSON.stringify(updated))
@@ -1363,7 +1479,9 @@ async function testUpdateWithInvalidSignatureIsBlocked(): Promise<void> {
     const bundleV2 = await writeBundle(temp, 'tamper-plugin-v2', components, signer, 2)
     // The served v2 bundle and its registry entry carry a signature that no
     // longer verifies over the manifest payload.
-    const manifest = JSON.parse(bundleV2.files.get('plugin.json')!) as { signature: Parameters<typeof corruptSignature>[0] }
+    const manifest = JSON.parse(bundleV2.files.get('plugin.json')!) as {
+      signature: Parameters<typeof corruptSignature>[0]
+    }
     manifest.signature = corruptSignature(manifest.signature)
     bundleV2.files.set('plugin.json', `${JSON.stringify(manifest, null, 2)}\n`)
     bundleV2.entry.signature = manifest.signature
@@ -1375,7 +1493,7 @@ async function testUpdateWithInvalidSignatureIsBlocked(): Promise<void> {
     const { services, workspaceRoot, moduleRoot, receiptStorePath } = await createServices(
       temp,
       createGithubFetcher(folders),
-      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundleV1.fingerprint]) }
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundleV1.fingerprint]) },
     )
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
@@ -1394,7 +1512,7 @@ async function testUpdateWithInvalidSignatureIsBlocked(): Promise<void> {
     if (!receipts.ok) return
     assert.equal(receipts.receipts[0]?.version, 1)
     const installedManifest = JSON.parse(
-      await readFile(join(moduleRoot, 'update-module', 'manifest.json'), 'utf8')
+      await readFile(join(moduleRoot, 'update-module', 'manifest.json'), 'utf8'),
     ) as { version: number }
     assert.equal(installedManifest.version, 1)
   })
@@ -1418,7 +1536,7 @@ async function testUpdateSignedByDifferentPublisherReprompts(): Promise<void> {
     const { services, workspaceRoot, moduleRoot, receiptStorePath } = await createServices(
       temp,
       createGithubFetcher(folders),
-      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundleV1.fingerprint]) }
+      { trustedModules: new Map(), trustedKeyFingerprints: new Set([bundleV1.fingerprint]) },
     )
     const lifecycle = createMarketplacePluginLifecycleService(services)
 
@@ -1460,11 +1578,9 @@ async function testUpdateSignedByDifferentPublisherReprompts(): Promise<void> {
       ['rekey-plugin-v1', bundleV1.files],
       ['rekey-plugin-v2', bundleV2.files],
     ])
-    const { services, workspaceRoot, moduleRoot } = await createServices(
-      temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map() }
-    )
+    const { services, workspaceRoot, moduleRoot } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+    })
     const userDataDir = join(temp, 'userdata')
     useRealTrustStore(services, userDataDir)
     // Only the original publisher key is trusted, so v1 installs verified.
@@ -1510,12 +1626,10 @@ async function testCommunityModuleInstallGrantsTrustAndUninstallRevokes(): Promi
     const components: BundleComponents = { module: { path: 'module', id: 'granted-module' } }
     const bundle = await writeBundle(temp, 'granted-plugin', components, signer, 1)
     bundle.entry.publisher.verified = false
-    const folders = new Map([[ 'granted-plugin', bundle.files ]])
-    const { services, workspaceRoot, moduleRoot } = await createServices(
-      temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map() }
-    )
+    const folders = new Map([['granted-plugin', bundle.files]])
+    const { services, workspaceRoot, moduleRoot } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+    })
     const userDataDir = join(temp, 'userdata')
     useRealTrustStore(services, userDataDir)
     const lifecycle = createMarketplacePluginLifecycleService(services)
@@ -1566,11 +1680,9 @@ async function testUninstallResolvesAModuleIdToItsOwningReceipt(): Promise<void>
     const bundle = await writeBundle(temp, 'granted-plugin', components, signer, 1)
     bundle.entry.publisher.verified = false
     const folders = new Map([['granted-plugin', bundle.files]])
-    const { services, workspaceRoot, moduleRoot } = await createServices(
-      temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map() }
-    )
+    const { services, workspaceRoot, moduleRoot } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+    })
     const userDataDir = join(temp, 'userdata')
     useRealTrustStore(services, userDataDir)
     const lifecycle = createMarketplacePluginLifecycleService(services)
@@ -1597,7 +1709,11 @@ async function testUninstallResolvesAModuleIdToItsOwningReceipt(): Promise<void>
     // update of something that is no longer there.
     const receipts = await readMarketplacePluginInstallReceipts(services.receiptStorePath)
     assert.equal(receipts.ok, true)
-    if (receipts.ok) assert.deepEqual(receipts.receipts.map((receipt) => receipt.id), [])
+    if (receipts.ok)
+      assert.deepEqual(
+        receipts.receipts.map((receipt) => receipt.id),
+        [],
+      )
 
     // A second uninstall is refused rather than silently succeeding.
     const again = await lifecycle.uninstall({ pluginId: 'granted-module', workspaceRoot })
@@ -1614,12 +1730,10 @@ async function testFailedReceiptWriteLeavesTrustStoreUnchanged(): Promise<void> 
     const components: BundleComponents = { module: { path: 'module', id: 'granted-module' } }
     const bundle = await writeBundle(temp, 'granted-plugin', components, signer, 1)
     bundle.entry.publisher.verified = false
-    const folders = new Map([[ 'granted-plugin', bundle.files ]])
-    const { services, workspaceRoot, moduleRoot } = await createServices(
-      temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map() }
-    )
+    const folders = new Map([['granted-plugin', bundle.files]])
+    const { services, workspaceRoot, moduleRoot } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+    })
     const userDataDir = join(temp, 'userdata')
     useRealTrustStore(services, userDataDir)
     // A grant this install must not clobber: some other manifest under the
@@ -1669,11 +1783,9 @@ async function testFailedUpdateKeepsThePreviousModuleTrust(): Promise<void> {
       ['granted-plugin-v1', bundleV1.files],
       ['granted-plugin-v2', bundleV2.files],
     ])
-    const { services, workspaceRoot, moduleRoot } = await createServices(
-      temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map() }
-    )
+    const { services, workspaceRoot, moduleRoot } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+    })
     const userDataDir = join(temp, 'userdata')
     useRealTrustStore(services, userDataDir)
     const lifecycle = createMarketplacePluginLifecycleService(services)
@@ -1696,7 +1808,11 @@ async function testFailedUpdateKeepsThePreviousModuleTrust(): Promise<void> {
     assert.equal(failed.ok, false, JSON.stringify(failed))
     if (failed.ok) return
     assert.equal(failed.component, 'automation')
-    assert.deepEqual(failed.installed?.map((component) => component.kind), ['module'], 'the module was installed, then rolled back')
+    assert.deepEqual(
+      failed.installed?.map((component) => component.kind),
+      ['module'],
+      'the module was installed, then rolled back',
+    )
     const modules = await discoverUserModules(moduleRoot, services.trustContext())
     assert.equal(modules.modules[0]?.manifest.version, 1, 'the previous module was restored')
     assert.equal(readTrustedModulesSync(userDataDir).get('granted-module'), trustedFingerprint)
@@ -1714,12 +1830,10 @@ async function testTrustWriteFailuresAreSurfacedNotSwallowed(): Promise<void> {
     const components: BundleComponents = { module: { path: 'module', id: 'granted-module' } }
     const bundle = await writeBundle(temp, 'granted-plugin', components, signer, 1)
     bundle.entry.publisher.verified = false
-    const folders = new Map([[ 'granted-plugin', bundle.files ]])
-    const { services, workspaceRoot, receiptStorePath } = await createServices(
-      temp,
-      createGithubFetcher(folders),
-      { trustedModules: new Map() }
-    )
+    const folders = new Map([['granted-plugin', bundle.files]])
+    const { services, workspaceRoot, receiptStorePath } = await createServices(temp, createGithubFetcher(folders), {
+      trustedModules: new Map(),
+    })
     services.setModuleTrust = async () => ({ ok: false, message: 'disk is full' })
     const lifecycle = createMarketplacePluginLifecycleService(services)
 

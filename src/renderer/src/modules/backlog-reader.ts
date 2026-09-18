@@ -21,7 +21,7 @@ export type BacklogReaderDeps = {
   subscribe(
     folderPath: string,
     cb: (snapshot: BacklogScanSnapshot) => void,
-    options?: BacklogReaderSubscribeOptions
+    options?: BacklogReaderSubscribeOptions,
   ): () => void
 }
 
@@ -62,9 +62,11 @@ export function createBacklogReader(deps: BacklogReaderDeps): BacklogReader {
               // An unreadable backlog directory must not look like an empty
               // backlog; the first scan error names the cause.
               const cause = snapshot.scan.errors[0]
-              reject(new Error(
-                `The Backlog for "${workspaceId}" could not be read${cause ? `: ${cause.relativePath}: ${cause.message}` : '.'}`
-              ))
+              reject(
+                new Error(
+                  `The Backlog for "${workspaceId}" could not be read${cause ? `: ${cause.relativePath}: ${cause.message}` : '.'}`,
+                ),
+              )
             } else {
               resolve(copyItems(snapshot.scan))
             }
@@ -72,7 +74,7 @@ export function createBacklogReader(deps: BacklogReaderDeps): BacklogReader {
             // `subscribe` has returned the unsubscriber — defer in that case.
             queueMicrotask(done)
           },
-          { startWatcher: false }
+          { startWatcher: false },
         )
         if (settled) done()
       })
@@ -85,12 +87,13 @@ export function createBacklogReader(deps: BacklogReaderDeps): BacklogReader {
       // as soon as it lands unless the caller already unsubscribed. There is no
       // error channel on a watch, so resolution failures are surfaced as
       // console diagnostics instead of a silently dead subscription.
-      deps.resolveFolderPath(workspaceId)
+      deps
+        .resolveFolderPath(workspaceId)
         .then((folderPath) => {
           if (disposed) return
           if (!folderPath) {
             console.error(
-              `[backlog] watchBacklogItems: workspace "${workspaceId}" has no project folder — this watch will never fire.`
+              `[backlog] watchBacklogItems: workspace "${workspaceId}" has no project folder — this watch will never fire.`,
             )
             return
           }
@@ -100,7 +103,7 @@ export function createBacklogReader(deps: BacklogReaderDeps): BacklogReader {
             if (snapshot.loading || !snapshot.scan) return
             if (snapshot.scan.state === 'error') {
               console.warn(
-                `[backlog] watchBacklogItems: the Backlog for "${workspaceId}" could not be read; skipping this update.`
+                `[backlog] watchBacklogItems: the Backlog for "${workspaceId}" could not be read; skipping this update.`,
               )
               return
             }
@@ -114,7 +117,7 @@ export function createBacklogReader(deps: BacklogReaderDeps): BacklogReader {
         .catch((error) => {
           console.error(
             `[backlog] watchBacklogItems: resolving workspace "${workspaceId}" failed — this watch will never fire.`,
-            error
+            error,
           )
         })
       return () => {

@@ -105,8 +105,9 @@ export function createTerminalSearchHandle(addon: SearchAddon): TerminalSearchHa
     findPrevious: (query) => (query ? addon.findPrevious(query, terminalSearchOptions()) : false),
     clear: () => addon.clearDecorations(),
     clearActive: () => addon.clearActiveDecoration(),
-    onResults: (listener) => addon.onDidChangeResults(({ resultIndex, resultCount }) => {
-      listener({ index: resultIndex, count: resultCount })
-    }),
+    onResults: (listener) =>
+      addon.onDidChangeResults(({ resultIndex, resultCount }) => {
+        listener({ index: resultIndex, count: resultCount })
+      }),
   }
 }

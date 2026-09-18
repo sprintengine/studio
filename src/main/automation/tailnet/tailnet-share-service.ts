@@ -68,7 +68,7 @@ export function createTailnetShareService(deps: TailscaleServeDeps = {}): Tailne
       const servePort = allocateServePort(served, localPort)
       if (servePort === null) {
         return refuse(
-          `This machine is already sharing ${SERVE_PORT_LADDER.length} ports. Stop sharing one before starting another.`
+          `This machine is already sharing ${SERVE_PORT_LADDER.length} ports. Stop sharing one before starting another.`,
         )
       }
       const result = await shareLocalPort({ localPort, servePort }, deps)

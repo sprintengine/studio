@@ -36,7 +36,11 @@ import type { GitHubRepoSummary } from '../../../../../shared/electron-api'
 {
   const otherHost = validateCloneUrl('https://gitlab.example.com/group/sub/repo.git')
   assert.ok(otherHost.ok, 'non-github https hosts keep their full path')
-  assert.equal(otherHost.ok && otherHost.url, 'https://gitlab.example.com/group/sub/repo.git', 'no truncation off github.com')
+  assert.equal(
+    otherHost.ok && otherHost.url,
+    'https://gitlab.example.com/group/sub/repo.git',
+    'no truncation off github.com',
+  )
   assert.equal(otherHost.ok && otherHost.repoName, 'repo')
 }
 assert.equal(validateCloneUrl('').ok, false, 'blank is rejected')

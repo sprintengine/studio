@@ -17,11 +17,7 @@ import { branchItemsFrom, scopeNote, stripEntriesFrom, type BranchDiffItem } fro
 import { useBranchSteps } from './useBranchSteps'
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
-import {
-  buildDiffFileList,
-  findDiffFocusIndex,
-  type DiffFileItem,
-} from './diffFileList'
+import { buildDiffFileList, findDiffFocusIndex, type DiffFileItem } from './diffFileList'
 import { navigateFile, nextDiffPosition, resolveEdgeHunkIndex, takesNavigationKey } from './diffNavigation'
 import {
   Checkbox,
@@ -165,7 +161,7 @@ const STATUS_LABEL: Record<DiffFileItem['status'], string> = {
 async function readStageSide(
   repoRoot: string,
   path: string,
-  stage: 'head' | 'index'
+  stage: 'head' | 'index',
 ): Promise<{ content: string; binary: boolean; tooLarge: boolean } | { error: string }> {
   const result = await window.api.getGitFileAtStage(repoRoot, path, stage)
   if (!result.ok) return { error: result.message }
@@ -226,7 +222,7 @@ async function readWorktreeSide(path: string): Promise<{ content: string; binary
 async function readRevSide(
   repoRoot: string,
   path: string,
-  rev: string | 'worktree' | null
+  rev: string | 'worktree' | null,
 ): Promise<{ content: string; binary: boolean; tooLarge: boolean }> {
   if (rev === null) return { content: '', binary: false, tooLarge: false }
   if (rev === 'worktree') {
@@ -290,8 +286,20 @@ function OpenInWindowButton({ onClick }: { onClick: () => void }) {
     <Tooltip content="Open in separate window" placement="bottom">
       <ToolbarButton ariaLabel="Open in separate window" onClick={onClick}>
         <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-          <path d="M6.5 3H3v10h10V9.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-          <path d="M9.5 3H13v3.5M13 3 7.5 8.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M6.5 3H3v10h10V9.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+          <path
+            d="M9.5 3H13v3.5M13 3 7.5 8.5"
+            stroke="currentColor"
+            strokeWidth="1.5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       </ToolbarButton>
     </Tooltip>
@@ -511,8 +519,8 @@ export function DiffViewer({
     from: changelistId ?? null,
     id: changelistId ?? null,
   }))
-  const filterId = chosenFilter.from === (changelistId ?? null) ? chosenFilter.id : changelistId ?? null
-  const filterList = filterId ? changelists.find((list) => list.id === filterId) ?? null : null
+  const filterId = chosenFilter.from === (changelistId ?? null) ? chosenFilter.id : (changelistId ?? null)
+  const filterList = filterId ? (changelists.find((list) => list.id === filterId) ?? null) : null
 
   // "Not read yet" and "gone" are the same shape — a list that is not in the
   // array — and they must not be told apart by guessing. The first completed
@@ -539,7 +547,7 @@ export function DiffViewer({
   const filterMissing = Boolean(filterId) && !filterList && (listsRead || !filterReadable)
   const pendingList = useMemo<Changelist | null>(
     () => (filterPending && filterId ? { id: filterId, name: '', paths: [], active: false } : null),
-    [filterPending, filterId]
+    [filterPending, filterId],
   )
   const showAllChanges = useCallback(() => {
     setChosenFilter({ from: changelistId ?? null, id: null })
@@ -547,11 +555,11 @@ export function DiffViewer({
 
   const workingItems = useMemo(
     () => buildDiffFileList(status, { changelist: filterList ?? pendingList }),
-    [status, filterList, pendingList]
+    [status, filterList, pendingList],
   )
   const unfilteredBranchItems = useMemo(
     () => branchItemsFrom(steps.diff, steps.selection, steps.snapshot, repoRoot),
-    [steps.diff, steps.selection, steps.snapshot, repoRoot]
+    [steps.diff, steps.selection, steps.snapshot, repoRoot],
   )
   // The pane steps through the BRANCH, and its file list is a step's diff, not
   // git status — so the filter has to be applied here too, or the pane shows
@@ -564,7 +572,7 @@ export function DiffViewer({
     if (!list) return unfilteredBranchItems
     const owned = new Set(pathsOfChangelist(list))
     return unfilteredBranchItems.filter(
-      (item) => item.modifiedRev !== 'worktree' || owned.has(normalizeChangelistPath(item.relativePath))
+      (item) => item.modifiedRev !== 'worktree' || owned.has(normalizeChangelistPath(item.relativePath)),
     )
   }, [unfilteredBranchItems, filterList, pendingList])
   // Whether what the pane is showing is the working tree at all — the one step
@@ -629,7 +637,7 @@ export function DiffViewer({
     currentPathRef.current = items[clamped]?.path ?? null
   }, [items, focusPath, focusKind, currentIndex])
 
-  const currentItem = currentIndex >= 0 ? items[currentIndex] ?? null : null
+  const currentItem = currentIndex >= 0 ? (items[currentIndex] ?? null) : null
 
   const [content, setContent] = useState<DiffContent>({ state: 'loading' })
   // Read by the target effect, which has to know what is on screen without
@@ -832,12 +840,8 @@ export function DiffViewer({
       // ⌘Home / ⌘End of the same editor still gives.
       editor.addCommand(monaco.KeyCode.F7, () => navigateRef.current('next'))
       editor.addCommand(monaco.KeyMod.Shift | monaco.KeyCode.F7, () => navigateRef.current('prev'))
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.DownArrow, () =>
-        navigateWholeFileRef.current('next')
-      )
-      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.UpArrow, () =>
-        navigateWholeFileRef.current('prev')
-      )
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.DownArrow, () => navigateWholeFileRef.current('next'))
+      editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.UpArrow, () => navigateWholeFileRef.current('prev'))
       editor.onDidUpdateDiff(() => {
         const changes = editor.getLineChanges() ?? []
         monacoStepsRef.current = changes.map(monacoStep)
@@ -852,7 +856,7 @@ export function DiffViewer({
         }
       })
     },
-    [revealHunk]
+    [revealHunk],
   )
 
   const navigate = useCallback(
@@ -862,7 +866,7 @@ export function DiffViewer({
         { fileIndex: currentIndex, hunkIndex: hunkIndexRef.current },
         direction,
         diffSteps().length,
-        items.length
+        items.length,
       )
       if (move.type === 'none') return
       if (move.type === 'hunk') {
@@ -876,7 +880,7 @@ export function DiffViewer({
       currentPathRef.current = items[move.fileIndex]?.path ?? null
       setCurrentIndex(move.fileIndex)
     },
-    [items, currentIndex, revealHunk]
+    [items, currentIndex, revealHunk],
   )
 
   // Land on a file by index — the toolbar's `‹ 2/27 files ›` stepper and
@@ -892,7 +896,7 @@ export function DiffViewer({
       currentPathRef.current = items[fileIndex]?.path ?? null
       setCurrentIndex(fileIndex)
     },
-    [items, currentIndex]
+    [items, currentIndex],
   )
 
   const navigateWholeFile = useCallback(
@@ -901,7 +905,7 @@ export function DiffViewer({
       if (move.type !== 'file') return
       goToFileIndex(move.fileIndex)
     },
-    [currentIndex, items.length, goToFileIndex]
+    [currentIndex, items.length, goToFileIndex],
   )
 
   navigateRef.current = navigate
@@ -1038,18 +1042,10 @@ export function DiffViewer({
   // Narrowed on read: the persisted envelope is a JSON blob a previous version
   // (or a hand edit) could have left anything in, and an unrecognised value
   // would leave the radiogroup with no checked segment at all.
-  const diffView = useWorkspaceStore((state) =>
-    state.diffView === 'unified' ? 'unified' : 'side-by-side'
-  )
+  const diffView = useWorkspaceStore((state) => (state.diffView === 'unified' ? 'unified' : 'side-by-side'))
   const [sessionPrefs, setSessionPrefs] = useState(DEFAULT_DIFF_EDITOR_PREFS)
-  const editorPrefs = useMemo<DiffEditorPrefs>(
-    () => ({ diffView, ...sessionPrefs }),
-    [diffView, sessionPrefs]
-  )
-  const editorOptions = useMemo(
-    () => diffEditorOptions(editorPrefs, MONO_FONT_STACK),
-    [editorPrefs]
-  )
+  const editorPrefs = useMemo<DiffEditorPrefs>(() => ({ diffView, ...sessionPrefs }), [diffView, sessionPrefs])
+  const editorOptions = useMemo(() => diffEditorOptions(editorPrefs, MONO_FONT_STACK), [editorPrefs])
 
   useEffect(() => {
     // No editor yet is not a missed update: the construction options above
@@ -1077,7 +1073,7 @@ export function DiffViewer({
   const gitEntry = getGitEntry(status, currentItem?.path ?? null)
   const observedInclude = useMemo(
     () => includeBoxState(gitEntry ? { staged: gitEntry.staged, unstaged: gitEntry.unstaged } : null),
-    [gitEntry?.staged, gitEntry?.unstaged]
+    [gitEntry?.staged, gitEntry?.unstaged],
   )
   // `git status` is debounced by a second under the watcher, so between the
   // click and the next read the box would still show the old state — and a
@@ -1086,9 +1082,7 @@ export function DiffViewer({
   // until git agrees; the busy latch refuses a second write while one is in
   // flight. Keyed on the PATH, not the (kind, path) key, because including a
   // file is exactly what moves it between the two kinds.
-  const [includeOverride, setIncludeOverride] = useState<
-    { path: string; state: IncludeBoxState } | null
-  >(null)
+  const [includeOverride, setIncludeOverride] = useState<{ path: string; state: IncludeBoxState } | null>(null)
   const includeBusyRef = useRef(false)
   // What the file's include box means UNDER A FILTER: this list's hunks, and
   // their include state. Filled in below, after the hunk read that answers it —
@@ -1098,9 +1092,7 @@ export function DiffViewer({
   const listStageRef = useRef<{ list: string | null; hunks: GitHunkView[] }>({ list: null, hunks: [] })
 
   const fileInclude =
-    includeOverride && includeOverride.path === currentItem?.path
-      ? includeOverride.state
-      : observedInclude
+    includeOverride && includeOverride.path === currentItem?.path ? includeOverride.state : observedInclude
 
   useEffect(() => {
     if (!includeOverride) return
@@ -1109,8 +1101,8 @@ export function DiffViewer({
       return
     }
     if (
-      observedInclude.checked === includeOverride.state.checked
-      && observedInclude.indeterminate === includeOverride.state.indeterminate
+      observedInclude.checked === includeOverride.state.checked &&
+      observedInclude.indeterminate === includeOverride.state.indeterminate
     ) {
       setIncludeOverride(null)
     }
@@ -1197,9 +1189,7 @@ export function DiffViewer({
   // box acts on, and what its tri-state reads.
   const listHunks = useMemo(() => {
     if (!filterList || !currentItem || currentItem.kind === 'branch') return []
-    return fileHunks.hunks.filter(
-      (hunk) => hunkOwnerId(changelists, currentItem.relativePath, hunk) === filterList.id
-    )
+    return fileHunks.hunks.filter((hunk) => hunkOwnerId(changelists, currentItem.relativePath, hunk) === filterList.id)
   }, [filterList, changelists, fileHunks.hunks, currentItem?.kind, currentItem?.relativePath])
   listStageRef.current = { list: filterList && listHunks.length > 0 ? filterList.id : null, hunks: listHunks }
 
@@ -1215,7 +1205,7 @@ export function DiffViewer({
     return { checked: false, indeterminate: true }
   }, [filterList, listHunks])
   const boxInclude =
-    includeOverride && includeOverride.path === currentItem?.path ? fileInclude : listInclude ?? fileInclude
+    includeOverride && includeOverride.path === currentItem?.path ? fileInclude : (listInclude ?? fileInclude)
 
   const gutterBoxes = useMemo(
     () =>
@@ -1233,7 +1223,7 @@ export function DiffViewer({
       currentItem?.kind,
       currentItem?.path,
       currentItem?.relativePath,
-    ]
+    ],
   )
 
   // The stepper's stops, from the same hunks the boxes and the counter come
@@ -1309,7 +1299,7 @@ export function DiffViewer({
       { value: ALL_CHANGES, label: 'All changes' },
       ...changelists.map((list) => ({ value: list.id, label: list.name })),
     ],
-    [changelists]
+    [changelists],
   )
 
   // The window's name, editor-style: `Commit: <file>`. ONE string, used by
@@ -1318,7 +1308,7 @@ export function DiffViewer({
   // them. The pane host never touches the document title: it does not own the
   // window.
   const relativePath = currentItem?.relativePath ?? null
-  const fileName = relativePath ? relativePath.split('/').filter(Boolean).pop() ?? relativePath : null
+  const fileName = relativePath ? (relativePath.split('/').filter(Boolean).pop() ?? relativePath) : null
   const windowTitle = fileName ? `Commit: ${fileName}` : 'Diff'
   useEffect(() => {
     if (variant !== 'window') return
@@ -1337,10 +1327,7 @@ export function DiffViewer({
   // agent's work has all been committed. That is an ANSWER, not an empty
   // repository, so it says whose list it is and offers the one click out.
   const filteredEmpty =
-    Boolean(filterList)
-    && items.length === 0
-    && repoState === 'ready'
-    && (!branchSteps || branchShowsWorktree)
+    Boolean(filterList) && items.length === 0 && repoState === 'ready' && (!branchSteps || branchShowsWorktree)
 
   return (
     <div
@@ -1360,19 +1347,12 @@ export function DiffViewer({
       }
     >
       {branchSteps ? (
-        <BranchStepStrip
-          entries={stripEntries}
-          selection={steps.selection}
-          onSelect={steps.select}
-          note={stepNote}
-        />
+        <BranchStepStrip entries={stripEntries} selection={steps.selection} onSelect={steps.select} note={stepNote} />
       ) : null}
 
       {variant === 'window' ? (
         <div className={titleBarClass}>
-          <span className="truncate text-body font-semibold text-[color:var(--text-strong)]">
-            {windowTitle}
-          </span>
+          <span className="truncate text-body font-semibold text-[color:var(--text-strong)]">{windowTitle}</span>
         </div>
       ) : null}
 
@@ -1384,11 +1364,7 @@ export function DiffViewer({
           counter, the layout toggle and the gear are about HOW. */}
       <Toolbar ariaLabel="Diff">
         <Tooltip content={`Previous change (${isMac ? '⇧F7' : 'Shift+F7'})`} placement="bottom">
-          <ToolbarButton
-            ariaLabel="Previous change"
-            disabled={noFiles}
-            onClick={() => navigate('prev')}
-          >
+          <ToolbarButton ariaLabel="Previous change" disabled={noFiles} onClick={() => navigate('prev')}>
             <PreviousDifferenceGlyph />
           </ToolbarButton>
         </Tooltip>
@@ -1555,15 +1531,13 @@ export function DiffViewer({
           {currentItem ? (
             <span className="shrink-0 text-micro text-[color:var(--text-subtle)]">
               {STATUS_LABEL[currentItem.status]}
-              {currentItem.kind === 'branch'
-              && (currentItem as BranchDiffItem).additions + (currentItem as BranchDiffItem).deletions > 0 ? (
+              {currentItem.kind === 'branch' &&
+              (currentItem as BranchDiffItem).additions + (currentItem as BranchDiffItem).deletions > 0 ? (
                 /* One channel for the whole diff surface: +N/−N read --diff-*,
                    the same tokens the body's ink and the gutter use, not the
                    status tones they used to borrow. */
                 <span className="ml-1 font-mono tabular-nums">
-                  <span className="text-[color:var(--diff-added)]">
-                    +{(currentItem as BranchDiffItem).additions}
-                  </span>
+                  <span className="text-[color:var(--diff-added)]">+{(currentItem as BranchDiffItem).additions}</span>
                   <span className="ml-1 text-[color:var(--diff-removed)]">
                     −{(currentItem as BranchDiffItem).deletions}
                   </span>

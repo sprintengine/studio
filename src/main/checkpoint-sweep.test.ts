@@ -4,11 +4,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  checkoutsFromIndex,
-  sweepCheckpointRefs,
-  sweepRetiredCheckpoints,
-} from './checkpoint-sweep'
+import { checkoutsFromIndex, sweepCheckpointRefs, sweepRetiredCheckpoints } from './checkpoint-sweep'
 
 // The one-shot cleanup of the retired checkpoint machinery
 // (the-diff-an-agent-made / remove-checkpoint-machinery). What it must never do
@@ -86,9 +82,7 @@ function userData(indexJson: string | null): string {
 // Name AND object: comparing names alone would pass a sweep that reset a branch
 // to a different commit, which is precisely the harm the invariant forbids.
 function refsIn(dir: string, prefix: string): string[] {
-  return git(dir, 'for-each-ref', '--format=%(refname) %(objectname)', `${prefix}**`)
-    .split('\n')
-    .filter(Boolean)
+  return git(dir, 'for-each-ref', '--format=%(refname) %(objectname)', `${prefix}**`).split('\n').filter(Boolean)
 }
 
 void (async () => {
@@ -97,7 +91,12 @@ void (async () => {
   await run('checkoutsFromIndex collects distinct cwds', () => {
     const raw = JSON.stringify({
       workspaces: {
-        a: { turns: [{ cwd: '/repo/one', ref: 'r1' }, { cwd: '/repo/one', ref: 'r2' }] },
+        a: {
+          turns: [
+            { cwd: '/repo/one', ref: 'r1' },
+            { cwd: '/repo/one', ref: 'r2' },
+          ],
+        },
         b: { turns: [{ cwd: '/repo/two', ref: 'r3' }] },
       },
     })
@@ -119,11 +118,7 @@ void (async () => {
     const dir = repoWithCheckpoints(4)
     const headsBefore = refsIn(dir, 'refs/heads/')
     const notesBefore = refsIn(dir, 'refs/notes/')
-    assert.equal(
-      refsIn(dir, 'refs/multicode/checkpoints/').length,
-      4,
-      'four of ours, plus two near misses beside them'
-    )
+    assert.equal(refsIn(dir, 'refs/multicode/checkpoints/').length, 4, 'four of ours, plus two near misses beside them')
 
     const remotesBefore = refsIn(dir, 'refs/remotes/')
     const swept = await sweepCheckpointRefs(dir)
@@ -131,9 +126,11 @@ void (async () => {
     assert.equal(swept.deleted, 4)
     assert.equal(swept.ok, true)
     assert.deepEqual(
-      refsIn(dir, 'refs/multicode/').map((line) => line.split(' ')[0]).sort(),
+      refsIn(dir, 'refs/multicode/')
+        .map((line) => line.split(' ')[0])
+        .sort(),
       ['refs/multicode/checkpointsOTHER/x', 'refs/multicode/mybackup'],
-      'the near misses under our own namespace survive'
+      'the near misses under our own namespace survive',
     )
     assert.deepEqual(refsIn(dir, 'refs/heads/'), headsBefore, 'branches byte-identical')
     assert.deepEqual(refsIn(dir, 'refs/notes/'), notesBefore, 'other refs byte-identical')
@@ -177,7 +174,7 @@ void (async () => {
           alive: { turns: [{ cwd: alive, ref: 'x' }] },
           gone: { turns: [{ cwd: unreachable, ref: 'y' }] },
         },
-      })
+      }),
     )
     const result = await sweepRetiredCheckpoints(data)
     assert.equal(result.refsDeleted, 2, 'the reachable repo is still swept')
@@ -206,7 +203,7 @@ void (async () => {
           a: { turns: [{ cwd: repoA, ref: 'x' }] },
           b: { turns: [{ cwd: repoB, ref: 'y' }] },
         },
-      })
+      }),
     )
     const result = await sweepRetiredCheckpoints(data)
     assert.equal(result.reposVisited, 2)

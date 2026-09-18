@@ -8,7 +8,7 @@ import { isAbsolute, relative, resolve } from 'node:path'
 export function resolveContainedEntry(
   moduleRoot: string,
   entryRelative: string,
-  field: 'entry.main' | 'entry.renderer'
+  field: 'entry.main' | 'entry.renderer',
 ): string {
   return resolveContainedPath(moduleRoot, entryRelative, field)
 }
@@ -43,7 +43,7 @@ export function resolveContainedPath(moduleRoot: string, candidate: string, fiel
 export function resolveModuleSkillDirectory(
   moduleRoot: string | null | undefined,
   sourceDir: string,
-  field = 'skill sourceDir'
+  field = 'skill sourceDir',
 ): string {
   if (!sourceDir || sourceDir.includes('\0')) {
     throw new Error(`${field} must be a non-empty path.`)

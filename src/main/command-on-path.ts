@@ -21,8 +21,6 @@ export function commandOnPath(command: string): boolean {
   if (isAbsolute(trimmed)) return existsSync(trimmed)
   const pathValue = process.env.PATH ?? process.env.Path ?? ''
   const names =
-    process.platform === 'win32'
-      ? [trimmed, `${trimmed}.cmd`, `${trimmed}.exe`, `${trimmed}.ps1`]
-      : [trimmed]
+    process.platform === 'win32' ? [trimmed, `${trimmed}.cmd`, `${trimmed}.exe`, `${trimmed}.ps1`] : [trimmed]
   return pathValue.split(delimiter).some((dir) => names.some((name) => existsSync(join(dir, name))))
 }

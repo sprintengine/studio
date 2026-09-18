@@ -7,7 +7,11 @@ import { extractReportPaths } from '../../automations/reportPaths'
 // View report, the Pull request link, and the manual Finalize fallback for a
 // running agent. Rendered only when a run has something actionable.
 export function AutomationRunActions({
-  run, onOpenAgent, onViewReport, onFinalize, finalizing,
+  run,
+  onOpenAgent,
+  onViewReport,
+  onFinalize,
+  finalizing,
 }: {
   run: AutomationRun
   onOpenAgent: (workspaceId: string, agentId?: string) => void
@@ -29,7 +33,10 @@ export function AutomationRunActions({
         <span className="truncate font-mono text-micro text-[color:var(--text-subtle)]">{run.agentId}</span>
       ) : null}
       {run.workspaceId ? (
-        <GhostButton onClick={() => onOpenAgent(run.workspaceId!, run.agentId ?? undefined)} className="h-5 px-1.5 text-micro">
+        <GhostButton
+          onClick={() => onOpenAgent(run.workspaceId!, run.agentId ?? undefined)}
+          className="h-5 px-1.5 text-micro"
+        >
           Open agent
         </GhostButton>
       ) : null}

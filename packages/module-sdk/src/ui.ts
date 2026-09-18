@@ -39,16 +39,7 @@ export type Tone = 'neutral' | 'accent' | 'good' | 'warn' | 'error'
 export type StatusTone = Tone | 'merged'
 
 export type LifecycleState =
-  | 'todo'
-  | 'idea'
-  | 'ready'
-  | 'blocked'
-  | 'in_progress'
-  | 'paused'
-  | 'needs_input'
-  | 'done'
-  | 'archived'
-  | 'failed'
+  'todo' | 'idea' | 'ready' | 'blocked' | 'in_progress' | 'paused' | 'needs_input' | 'done' | 'archived' | 'failed'
 
 export type SelectItem<V extends string = string> = {
   value: V
@@ -160,8 +151,7 @@ type SharedInputProps = {
   fullWidth?: boolean
 }
 
-export type InputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> &
-  SharedInputProps
+export type InputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> & SharedInputProps
 
 export type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> &
   SharedInputProps & {
@@ -213,8 +203,7 @@ export type SelectProps<V extends string = string> = {
   'aria-required'?: boolean
 }
 
-export const Select: <V extends string = string>(props: SelectProps<V>) => React.ReactElement =
-  hostProvided()
+export const Select: <V extends string = string>(props: SelectProps<V>) => React.ReactElement = hostProvided()
 
 export type SegmentedControlProps<V extends string = string> = {
   ariaLabel: string
@@ -227,9 +216,8 @@ export type SegmentedControlProps<V extends string = string> = {
   className?: string
 }
 
-export const SegmentedControl: <V extends string = string>(
-  props: SegmentedControlProps<V>
-) => React.ReactElement = hostProvided()
+export const SegmentedControl: <V extends string = string>(props: SegmentedControlProps<V>) => React.ReactElement =
+  hostProvided()
 
 // ── Feedback ─────────────────────────────────────────────────────────────────
 
@@ -420,6 +408,4 @@ export type CliModelPickerButtonProps = {
 
 /** The runtime + model trigger, so a module's agent controls read as the
  *  app's own. Feed it from `RendererHost.listAgentRuntimes()`. */
-export const CliModelPickerButton: (
-  props: CliModelPickerButtonProps
-) => React.ReactElement | null = hostProvided()
+export const CliModelPickerButton: (props: CliModelPickerButtonProps) => React.ReactElement | null = hostProvided()

@@ -28,19 +28,12 @@ import {
   TriggerButton,
   TruncatedText,
 } from '../ui'
-import {
-  groupSessionItems,
-  sessionsAttentionTone,
-} from './workspaceManagerHelpers'
+import { groupSessionItems, sessionsAttentionTone } from './workspaceManagerHelpers'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import CliIcon from '../CliIcon'
 import { TerminalSessionIcon } from './agentComposer/agentSpawnShared'
-import type {
-  AgentCli,
-  AppNotification,
-  Workspace,
-} from '../../types/workspace'
+import type { AgentCli, AppNotification, Workspace } from '../../types/workspace'
 import { hasComponentTab, toggleComponentTab } from '../../utils/modelRegistry'
 import { getWorkspaceAccentHex, isStarred } from '../../utils/highlight'
 import type { NotificationRowAction } from './topbar/NotificationsPopover'
@@ -56,9 +49,7 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 // (bundle-budget ratchet; same shape as the Settings surfaces in
 // WorkspaceManager). The glyphs themselves, and the state they wear, stay eager:
 // `remoteGlyph.ts` holds that half.
-const RemotePopover = React.lazy(() =>
-  import('./topbar/RemotePopover').then((m) => ({ default: m.RemotePopover })),
-)
+const RemotePopover = React.lazy(() => import('./topbar/RemotePopover').then((m) => ({ default: m.RemotePopover })))
 const NotificationsPopover = React.lazy(() =>
   import('./topbar/NotificationsPopover').then((m) => ({ default: m.NotificationsPopover })),
 )
@@ -125,7 +116,13 @@ function SessionsIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="4" y="5" width="16" height="12.5" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M7.5 9.25L10.25 12L7.5 14.75" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M7.5 9.25L10.25 12L7.5 14.75"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <path d="M12.5 14.75H16.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
       <path d="M8.5 20H15.5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
     </svg>
@@ -135,7 +132,13 @@ function SessionsIcon({ className }: { className?: string }) {
 function NotificationBellIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M18.25 10.75V9.5a6.25 6.25 0 0 0-12.5 0v1.25c0 2.3-.8 3.6-1.55 4.38a1.24 1.24 0 0 0 .88 2.12h13.84a1.24 1.24 0 0 0 .88-2.12c-.75-.78-1.55-2.08-1.55-4.38Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M18.25 10.75V9.5a6.25 6.25 0 0 0-12.5 0v1.25c0 2.3-.8 3.6-1.55 4.38a1.24 1.24 0 0 0 .88 2.12h13.84a1.24 1.24 0 0 0 .88-2.12c-.75-.78-1.55-2.08-1.55-4.38Z"
+        stroke="currentColor"
+        strokeWidth="1.7"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <path d="M9.75 19.25a2.35 2.35 0 0 0 4.5 0" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
     </svg>
   )
@@ -144,9 +147,7 @@ function NotificationBellIcon({ className }: { className?: string }) {
 // Earned status dot: idle rows get no dot at all — a "working" indicator must be
 // earned, not the default for every live row. Live attention states pulse; a
 // crashed session shows a steady error dot.
-function sessionStatusDot(
-  status: SessionItem['status'],
-): { tone: 'warn' | 'good' | 'error'; pulse: boolean } | null {
+function sessionStatusDot(status: SessionItem['status']): { tone: 'warn' | 'good' | 'error'; pulse: boolean } | null {
   switch (status) {
     case 'needs-input':
       return { tone: 'warn', pulse: true }
@@ -224,9 +225,7 @@ function SessionsPopover({
                   className="flex items-center gap-2 px-2.5 py-1.5 text-meta font-semibold"
                   style={{ color: headerColor }}
                 >
-                  {workspace ? (
-                    <WorkspaceTypeIcon mode={workspace.mode} className="size-icon-xs shrink-0" />
-                  ) : null}
+                  {workspace ? <WorkspaceTypeIcon mode={workspace.mode} className="size-icon-xs shrink-0" /> : null}
                   <TruncatedText as="span" text={group.group.label} className="min-w-0" />
                   {starred ? (
                     <StarGlyph
@@ -253,13 +252,13 @@ function SessionsPopover({
                 </div>
                 <div className="space-y-1">
                   {group.items.map((item) => {
-                    const identityParts = item.kind === 'terminal'
-                      ? [item.label.toLowerCase()]
-                      : [item.cli].filter((value): value is string => Boolean(value))
+                    const identityParts =
+                      item.kind === 'terminal'
+                        ? [item.label.toLowerCase()]
+                        : [item.cli].filter((value): value is string => Boolean(value))
                     // Lead the subline with honest status + recency, then identity.
-                    const subline = [sessionStatusMeta(item, now), ...identityParts]
-                      .filter(Boolean)
-                      .join(' · ') || item.cli
+                    const subline =
+                      [sessionStatusMeta(item, now), ...identityParts].filter(Boolean).join(' · ') || item.cli
                     const dot = sessionStatusDot(item.status)
                     return (
                       <div
@@ -267,9 +266,7 @@ function SessionsPopover({
                         className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-sm px-2.5 py-2 text-body text-[color:var(--text-default)] hover:bg-[color:var(--bg-surface-raised)]"
                       >
                         <div className="flex min-w-0 items-center gap-2">
-                          <span
-                            className="flex size-control-xs shrink-0 items-center justify-center rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]"
-                          >
+                          <span className="flex size-control-xs shrink-0 items-center justify-center rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] text-[color:var(--text-muted)]">
                             <SessionAgentIcon item={item} className="size-icon-md" />
                           </span>
                           <span className="min-w-0">
@@ -279,9 +276,7 @@ function SessionsPopover({
                                 text={item.label}
                                 className="min-w-0 font-medium text-[color:var(--text-strong)]"
                               />
-                              {dot ? (
-                                <StatusDot tone={dot.tone} pulse={dot.pulse} />
-                              ) : null}
+                              {dot ? <StatusDot tone={dot.tone} pulse={dot.pulse} /> : null}
                             </span>
                             <TruncatedText
                               as="span"
@@ -292,42 +287,40 @@ function SessionsPopover({
                         </div>
 
                         <div className="flex shrink-0 items-center gap-2">
-                        {/* Open activates the row's workspace and focuses its
+                          {/* Open activates the row's workspace and focuses its
                             pane. A detached session has no workspace to activate,
                             so the button is absent rather than present-and-inert;
                             Pause and Stop act on the process and still work. */}
-                        {item.group.kind === 'workspace' ? (
-                          <OutlineButton size="xs" onClick={() => void onOpen(item)}>
-                            Open
-                          </OutlineButton>
-                        ) : null}
+                          {item.group.kind === 'workspace' ? (
+                            <OutlineButton size="xs" onClick={() => void onOpen(item)}>
+                              Open
+                            </OutlineButton>
+                          ) : null}
 
-                        {/* Pause suspends a PTY. A conversation agent has none,
+                          {/* Pause suspends a PTY. A conversation agent has none,
                             so the control is absent for those rows instead of
                             failing quietly against the terminal runtime. */}
-                        {item.kind === 'agent'
-                        && item.transport === 'terminal'
-                        && item.status !== 'failed' ? (
-                          <Tooltip content="Pause — suspends the agent to free memory; reopen resumes it">
-                            <IconButton onClick={() => onPause(item)} aria-label={`Pause ${item.label}`}>
-                              <PauseIcon className="icon-sm" />
-                            </IconButton>
-                          </Tooltip>
-                        ) : null}
+                          {item.kind === 'agent' && item.transport === 'terminal' && item.status !== 'failed' ? (
+                            <Tooltip content="Pause — suspends the agent to free memory; reopen resumes it">
+                              <IconButton onClick={() => onPause(item)} aria-label={`Pause ${item.label}`}>
+                                <PauseIcon className="icon-sm" />
+                              </IconButton>
+                            </Tooltip>
+                          ) : null}
 
-                        {/* A failed session has no process to stop — the action
+                          {/* A failed session has no process to stop — the action
                             disposes the retained crash row, so it reads as "Dismiss".
                             Neutral ink at rest: the tooltip and name say what it
                             does, and a status hue as a button ground is not a
                             button variant the system has. */}
-                        <Tooltip content={item.status === 'failed' ? 'Dismiss' : 'Stop'}>
-                          <IconButton
-                            onClick={() => onStop(item)}
-                            aria-label={`${item.status === 'failed' ? 'Dismiss' : 'Stop'} ${item.label}`}
-                          >
-                            <StopIcon className="icon-sm" />
-                          </IconButton>
-                        </Tooltip>
+                          <Tooltip content={item.status === 'failed' ? 'Dismiss' : 'Stop'}>
+                            <IconButton
+                              onClick={() => onStop(item)}
+                              aria-label={`${item.status === 'failed' ? 'Dismiss' : 'Stop'} ${item.label}`}
+                            >
+                              <StopIcon className="icon-sm" />
+                            </IconButton>
+                          </Tooltip>
                         </div>
                       </div>
                     )
@@ -375,7 +368,6 @@ export type WorkspaceActionsProps = {
   clearNotifications: () => void
   /** Resolve a notification's Open action(s); empty when no deep-link or reveal is possible. */
   resolveNotificationActions: (notification: AppNotification) => NotificationRowAction[]
-
 }
 
 // The shared AppIcons branch fork (mirrored in
@@ -443,7 +435,10 @@ export function WorkspaceActions({
   // reference, so this memo only recomputes when the mode or enablement changes;
   // null means no switcher (most types, or a disabled module).
   const activeWorkspaceViews = React.useMemo(
-    () => (activeWorkspace ? resolveEnabledWorkspaceType(activeWorkspace.mode, moduleOverrides)?.topBarViews ?? null : null),
+    () =>
+      activeWorkspace
+        ? (resolveEnabledWorkspaceType(activeWorkspace.mode, moduleOverrides)?.topBarViews ?? null)
+        : null,
     [activeWorkspace, moduleOverrides],
   )
   // The view-panels menu surface, so its rows rove with the arrow keys the way
@@ -458,37 +453,37 @@ export function WorkspaceActions({
     surface.querySelector<HTMLElement>('[data-menu-item="true"]:not([disabled])')?.focus()
   }, [])
   return (
-      <div className="app-no-drag flex shrink-0 items-center gap-1.5">
-        {/*
-         * WorkspaceActions at-rest control inventory — capped at five groups.
-         * The Git change-count badge migrated to the PanelRail Git icon
-         * (`workspace-context` retired) and the agent split-button was
-         * deleted with MC-2222 (`agent-spawn` retired: spawning is New chat's
-         * and the tab strip's job), so the row carries two canonical groups;
-         * adding a sixth top-bar-group marker fails
-         * scripts/lint-panel-composition.mjs, which holds the canonical
-         * TopBar inventory.
-         */}
-        {/* top-bar-group: activity-and-views */}
-        {workspaces.length > 0 ? (
-          <div ref={sessionsRef} className="relative inline-flex">
-            <Popover
-              open={sessionsOpen}
-              onOpenChange={(next) => {
-                setSessionsOpen(next)
-                if (next) {
-                  setNotificationsOpen(false)
-                  setRemoteOpen(false)
-                }
-              }}
-              ariaLabel="Sessions"
-              popupRole="menu"
-              placement="bottom-end"
-              renderTrigger={({ ref, triggerProps, togglePopover }) => {
-                // Badge tone reflects attention: warn if any session needs the
-                // user, error if any crashed, else good — never a flat "all fine".
-                const sessionsTone = sessionsAttentionTone(sessions)
-                return (
+    <div className="app-no-drag flex shrink-0 items-center gap-1.5">
+      {/*
+       * WorkspaceActions at-rest control inventory — capped at five groups.
+       * The Git change-count badge migrated to the PanelRail Git icon
+       * (`workspace-context` retired) and the agent split-button was
+       * deleted with MC-2222 (`agent-spawn` retired: spawning is New chat's
+       * and the tab strip's job), so the row carries two canonical groups;
+       * adding a sixth top-bar-group marker fails
+       * scripts/lint-panel-composition.mjs, which holds the canonical
+       * TopBar inventory.
+       */}
+      {/* top-bar-group: activity-and-views */}
+      {workspaces.length > 0 ? (
+        <div ref={sessionsRef} className="relative inline-flex">
+          <Popover
+            open={sessionsOpen}
+            onOpenChange={(next) => {
+              setSessionsOpen(next)
+              if (next) {
+                setNotificationsOpen(false)
+                setRemoteOpen(false)
+              }
+            }}
+            ariaLabel="Sessions"
+            popupRole="menu"
+            placement="bottom-end"
+            renderTrigger={({ ref, triggerProps, togglePopover }) => {
+              // Badge tone reflects attention: warn if any session needs the
+              // user, error if any crashed, else good — never a flat "all fine".
+              const sessionsTone = sessionsAttentionTone(sessions)
+              return (
                 <Tooltip content="Sessions" placement="bottom">
                   {/* The kit's icon button at its `md` step: the open state is the
                       neutral selection fill, not a border lift (the lift read
@@ -503,7 +498,12 @@ export function WorkspaceActions({
                     aria-label="Sessions"
                     {...triggerProps}
                   >
-                    <ChangePulse value={sessions.length} mode="increase" tint={`var(--tone-${sessionsTone})`} className="inline-flex">
+                    <ChangePulse
+                      value={sessions.length}
+                      mode="increase"
+                      tint={`var(--tone-${sessionsTone})`}
+                      className="inline-flex"
+                    >
                       <SessionsIcon className="size-icon-md" />
                     </ChangePulse>
                     {sessions.length > 0 ? (
@@ -511,147 +511,155 @@ export function WorkspaceActions({
                     ) : null}
                   </IconButton>
                 </Tooltip>
-                )
-              }}
-            >
-              <SessionsPopover
-                items={sessions}
-                workspaceOrder={sidebarWorkspaceOrder}
-                onOpen={openSession}
-                onPause={pauseSession}
-                onStop={stopSession}
-                onStopGroup={stopSessionGroup}
-              />
-            </Popover>
-          </div>
-        ) : null}
+              )
+            }}
+          >
+            <SessionsPopover
+              items={sessions}
+              workspaceOrder={sidebarWorkspaceOrder}
+              onOpen={openSession}
+              onPause={pauseSession}
+              onStop={stopSession}
+              onStopGroup={stopSessionGroup}
+            />
+          </Popover>
+        </div>
+      ) : null}
 
-        {workspaceActionsEnabled && activeWorkspace && activeWorkspaceViews ? (
-          /*
-           * The trigger condenses to an icon-only 30px square below ~1000px so
-           * the right cluster gives way before the hoisted workspace name is
-           * squeezed out at narrow widths; the label and chevron re-appear at
-           * >= 1000px. The WIDTH lives here rather than on the control because
-           * `TriggerButton` fills its track — one `w-*` on the element, not two
-           * for a stylesheet to choose between.
-           */
-          <div ref={viewMenuRef} className="relative inline-flex w-control-sm min-[1000px]:w-auto">
-            <Popover
-              open={viewMenuOpen}
-              onOpenChange={(next) => {
-                setViewMenuOpen(next)
-                if (next) {
-                  setViewMenuTick((tick) => tick + 1)
-                  setSessionsOpen(false)
-                  setNotificationsOpen(false)
-                }
-              }}
-              ariaLabel={`${activeWorkspaceViews?.label ?? 'View'} panels`}
-              popupRole="menu"
-              placement="bottom-end"
-              surfaceClassName={`w-60 ${MENU_LIST_CLASS}`}
-              onOpenAutoFocus={focusFirstViewMenuItem}
-              renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                <Tooltip content={`${activeWorkspaceViews?.label ?? 'View'} panels`} placement="bottom">
-                  {/* The kit's popover trigger. `open` is the state this
+      {workspaceActionsEnabled && activeWorkspace && activeWorkspaceViews ? (
+        /*
+         * The trigger condenses to an icon-only 30px square below ~1000px so
+         * the right cluster gives way before the hoisted workspace name is
+         * squeezed out at narrow widths; the label and chevron re-appear at
+         * >= 1000px. The WIDTH lives here rather than on the control because
+         * `TriggerButton` fills its track — one `w-*` on the element, not two
+         * for a stylesheet to choose between.
+         */
+        <div ref={viewMenuRef} className="relative inline-flex w-control-sm min-[1000px]:w-auto">
+          <Popover
+            open={viewMenuOpen}
+            onOpenChange={(next) => {
+              setViewMenuOpen(next)
+              if (next) {
+                setViewMenuTick((tick) => tick + 1)
+                setSessionsOpen(false)
+                setNotificationsOpen(false)
+              }
+            }}
+            ariaLabel={`${activeWorkspaceViews?.label ?? 'View'} panels`}
+            popupRole="menu"
+            placement="bottom-end"
+            surfaceClassName={`w-60 ${MENU_LIST_CLASS}`}
+            onOpenAutoFocus={focusFirstViewMenuItem}
+            renderTrigger={({ ref, triggerProps, togglePopover }) => (
+              <Tooltip content={`${activeWorkspaceViews?.label ?? 'View'} panels`} placement="bottom">
+                {/* The kit's popover trigger. `open` is the state this
                       spelled by hand and paints it identically —
                       `--border-strong` over `--bg-selected` with `--text-strong`
                       ink — and the field variant is the `--bg-surface-raised`
                       ground and `--border-default` edge it rested on. The
                       tooltip and `aria-label` carry the meaning in the icon-only
                       state. */}
-                  <TriggerButton
-                    ref={ref}
-                    open={viewMenuOpen}
-                    onClick={togglePopover}
-                    aria-label="Toggle workspace panels"
-                    {...triggerProps}
+                <TriggerButton
+                  ref={ref}
+                  open={viewMenuOpen}
+                  onClick={togglePopover}
+                  aria-label="Toggle workspace panels"
+                  {...triggerProps}
+                >
+                  <svg className="size-icon-xs shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                    <rect x="2" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                    <rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                    <rect x="9" y="10" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4" />
+                  </svg>
+                  <span className="hidden text-meta font-semibold min-[1000px]:inline">
+                    {activeWorkspaceViews?.label ?? 'View'}
+                  </span>
+                  <svg
+                    className={`hidden icon-xs transition-transform min-[1000px]:block ${viewMenuOpen ? 'rotate-180' : ''}`}
+                    viewBox="0 0 20 20"
+                    fill="none"
+                    aria-hidden="true"
                   >
-                    <svg className="size-icon-xs shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                      <rect x="2" y="2" width="5" height="12" rx="1" stroke="currentColor" strokeWidth="1.4" />
-                      <rect x="9" y="2" width="5" height="6" rx="1" stroke="currentColor" strokeWidth="1.4" />
-                      <rect x="9" y="10" width="5" height="4" rx="1" stroke="currentColor" strokeWidth="1.4" />
-                    </svg>
-                    <span className="hidden text-meta font-semibold min-[1000px]:inline">{activeWorkspaceViews?.label ?? 'View'}</span>
-                    <svg className={`hidden icon-xs transition-transform min-[1000px]:block ${viewMenuOpen ? 'rotate-180' : ''}`} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-                      <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
-                    </svg>
-                  </TriggerButton>
-                </Tooltip>
-              )}
-            >
-              {/* The shared menu rows: `MenuItem` carries the `menuitemcheckbox`
+                    <path
+                      d="M5 7.5L10 12.5L15 7.5"
+                      stroke="currentColor"
+                      strokeWidth="1.8"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </TriggerButton>
+              </Tooltip>
+            )}
+          >
+            {/* The shared menu rows: `MenuItem` carries the `menuitemcheckbox`
                   role, `aria-checked`, the inset ring and the hover fill, and
                   the surface roves the arrow keys. The tick is a neutral glyph
                   in a fixed leading slot — selection in a menu is the checked
                   state, never an accent-filled box per row. */}
-              <div onKeyDown={(event) => roveMenuFocus(event, viewMenuSurfaceRef.current)}>
-                <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1`}>
-                  {activeWorkspaceViews?.label ?? 'View'} panels
-                </div>
-                {(activeWorkspaceViews?.views ?? []).map((view) => {
-                  void viewMenuTick
-                  const checked = hasComponentTab(activeWorkspace.id, view.component)
-                  return (
-                    <MenuItem
-                      key={view.component}
-                      checked={checked}
-                      onClick={() => {
-                        toggleComponentTab(activeWorkspace.id, view.component, view.name)
-                        setViewMenuTick((tick) => tick + 1)
-                      }}
-                      icon={
-                        <CheckIcon className={`icon-xs shrink-0 ${checked ? '' : 'invisible'}`} />
-                      }
-                    >
-                      {view.name}
-                    </MenuItem>
-                  )
-                })}
+            <div onKeyDown={(event) => roveMenuFocus(event, viewMenuSurfaceRef.current)}>
+              <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1`}>
+                {activeWorkspaceViews?.label ?? 'View'} panels
               </div>
-            </Popover>
-          </div>
-        ) : null}
+              {(activeWorkspaceViews?.views ?? []).map((view) => {
+                void viewMenuTick
+                const checked = hasComponentTab(activeWorkspace.id, view.component)
+                return (
+                  <MenuItem
+                    key={view.component}
+                    checked={checked}
+                    onClick={() => {
+                      toggleComponentTab(activeWorkspace.id, view.component, view.name)
+                      setViewMenuTick((tick) => tick + 1)
+                    }}
+                    icon={<CheckIcon className={`icon-xs shrink-0 ${checked ? '' : 'invisible'}`} />}
+                  >
+                    {view.name}
+                  </MenuItem>
+                )
+              })}
+            </div>
+          </Popover>
+        </div>
+      ) : null}
 
-        {/* top-bar-group: communication */}
-        {/* The Remote glyph (remote-sessions-ux / remote-glyph-topbar):
+      {/* top-bar-group: communication */}
+      {/* The Remote glyph (remote-sessions-ux / remote-glyph-topbar):
             presence for both directions of the tailnet — who is driving this
             machine, and the machines this Studio drives. Consciously
             supersedes the Fleet "no rail glyph" ruling for the TOP BAR (epic
             decision 5); commandRegistry's fleet comment records the same.
             Hidden while the feature is off and no machine is paired — absent,
             not present-but-empty. */}
-        {remoteState.visible ? (
-          <div className="relative inline-flex">
-            <Popover
-              open={remoteOpen}
-              onOpenChange={(next) => {
-                setRemoteOpen(next)
-                if (next) {
-                  setSessionsOpen(false)
-                  setNotificationsOpen(false)
-                }
-              }}
-              ariaLabel="Remote"
-              // Rows carry their own buttons (Revoke, Review) — a dialog, not
-              // a menu, same ruling as the notifications popover (MC-2138).
-              popupRole="dialog"
-              placement="bottom-end"
-              renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                <Tooltip
-                  content={remoteGlyphTooltip(remoteState)}
-                  placement="bottom"
+      {remoteState.visible ? (
+        <div className="relative inline-flex">
+          <Popover
+            open={remoteOpen}
+            onOpenChange={(next) => {
+              setRemoteOpen(next)
+              if (next) {
+                setSessionsOpen(false)
+                setNotificationsOpen(false)
+              }
+            }}
+            ariaLabel="Remote"
+            // Rows carry their own buttons (Revoke, Review) — a dialog, not
+            // a menu, same ruling as the notifications popover (MC-2138).
+            popupRole="dialog"
+            placement="bottom-end"
+            renderTrigger={({ ref, triggerProps, togglePopover }) => (
+              <Tooltip content={remoteGlyphTooltip(remoteState)} placement="bottom">
+                <IconButton
+                  ref={ref}
+                  size="md"
+                  onClick={togglePopover}
+                  pressed={remoteOpen}
+                  className="relative"
+                  aria-label="Remote"
+                  {...triggerProps}
                 >
-                  <IconButton
-                    ref={ref}
-                    size="md"
-                    onClick={togglePopover}
-                    pressed={remoteOpen}
-                    className="relative"
-                    aria-label="Remote"
-                    {...triggerProps}
-                  >
-                    {/* The GLYPH carries the state, and nothing sits in the
+                  {/* The GLYPH carries the state, and nothing sits in the
                         corner beside it (owner ruling 2026-09-05: one
                         indicator, not two on a 16px mark). Green while this
                         Studio is serving or something is connected; pulsing
@@ -660,103 +668,103 @@ export function WorkspaceActions({
                         default ink when remote is idle. A phone driving a
                         terminal is the feature working, not a summons, so it
                         is green like any other connection. */}
-                    <ChangePulse
-                      value={remoteState.requestCount}
-                      mode="increase"
-                      tint="var(--tone-warn)"
-                      className="inline-flex"
-                    >
-                      <RemoteMachineGlyph className={`size-icon-md ${remoteGlyphToneClass(remoteState)}`} />
-                    </ChangePulse>
-                    {/* The count the glyph wears (owner ruling 2026-09-05):
+                  <ChangePulse
+                    value={remoteState.requestCount}
+                    mode="increase"
+                    tint="var(--tone-warn)"
+                    className="inline-flex"
+                  >
+                    <RemoteMachineGlyph className={`size-icon-md ${remoteGlyphToneClass(remoteState)}`} />
+                  </ChangePulse>
+                  {/* The count the glyph wears (owner ruling 2026-09-05):
                         machines answering right now, the way the terminal
                         glyph counts open sessions. A waiting pair request
                         outranks it — that one asks for a person. */}
-                    {remoteState.requestCount > 0 ? (
-                      <Badge corner decorative tone="warn" count={remoteState.requestCount} max={9} />
-                    ) : remoteState.answering > 0 ? (
-                      <Badge corner decorative tone="good" count={remoteState.answering} max={9} />
-                    ) : null}
-                  </IconButton>
-                </Tooltip>
-              )}
-            >
-              <React.Suspense fallback={null}>
-                <RemotePopover
-                  presence={remotePresence}
-                  onOpenRemoteSettings={() => {
-                    setRemoteOpen(false)
-                    openRemoteSettings()
-                  }}
-                />
-              </React.Suspense>
-            </Popover>
-          </div>
-        ) : null}
-        <div ref={notificationsRef} className="relative inline-flex">
-          <Popover
-            open={notificationsOpen}
-            onOpenChange={(next) => {
-              setNotificationsOpen(next)
-              if (next) {
-                setSessionsOpen(false)
-                setRemoteOpen(false)
-              }
-            }}
-            ariaLabel="Notifications"
-            // A list of reports, each with its own buttons — not a menu. It
-            // carried `role="menu"` with `role="menuitem"` on the report blocks,
-            // which announced rows that could not be activated (MC-2138).
-            popupRole="dialog"
-            placement="bottom-end"
-            renderTrigger={({ ref, triggerProps, togglePopover }) => (
-              <Tooltip content="Notifications" placement="bottom">
-                <IconButton
-                  ref={ref}
-                  size="md"
-                  onClick={togglePopover}
-                  pressed={notificationsOpen}
-                  className="relative"
-                  aria-label="Notifications"
-                  {...triggerProps}
-                >
-                  <ChangePulse value={unreadErrorCount} mode="increase" tint="var(--tone-error)" className="inline-flex">
-                    <NotificationBellIcon className="size-icon-md" />
-                  </ChangePulse>
-                  {unreadErrorCount > 0 ? (
-                    <Badge corner decorative tone="error" count={unreadErrorCount} max={99} />
+                  {remoteState.requestCount > 0 ? (
+                    <Badge corner decorative tone="warn" count={remoteState.requestCount} max={9} />
+                  ) : remoteState.answering > 0 ? (
+                    <Badge corner decorative tone="good" count={remoteState.answering} max={9} />
                   ) : null}
                 </IconButton>
               </Tooltip>
             )}
           >
             <React.Suspense fallback={null}>
-              <NotificationsPopover
-                notifications={notifications}
-                onMarkRead={markNotificationRead}
-                onMarkAllRead={markAllNotificationsRead}
-                onClear={clearNotifications}
-                onOpenLogs={() => void window.api.openDiagnosticsLogsFolder()}
-                resolveActions={resolveNotificationActions}
+              <RemotePopover
+                presence={remotePresence}
+                onOpenRemoteSettings={() => {
+                  setRemoteOpen(false)
+                  openRemoteSettings()
+                }}
               />
             </React.Suspense>
           </Popover>
         </div>
-
-        {/* Module-contributed top-bar controls (registerTopBarItem): the mic
-          * button and its siblings render here, in the communication cluster's
-          * module slot. Enablement-filtered above, so a module toggle
-          * adds/removes its control live. */}
-        {moduleTopBarItems.map((item) => (
-          <React.Suspense key={item.id} fallback={null}>
-            <item.Component />
+      ) : null}
+      <div ref={notificationsRef} className="relative inline-flex">
+        <Popover
+          open={notificationsOpen}
+          onOpenChange={(next) => {
+            setNotificationsOpen(next)
+            if (next) {
+              setSessionsOpen(false)
+              setRemoteOpen(false)
+            }
+          }}
+          ariaLabel="Notifications"
+          // A list of reports, each with its own buttons — not a menu. It
+          // carried `role="menu"` with `role="menuitem"` on the report blocks,
+          // which announced rows that could not be activated (MC-2138).
+          popupRole="dialog"
+          placement="bottom-end"
+          renderTrigger={({ ref, triggerProps, togglePopover }) => (
+            <Tooltip content="Notifications" placement="bottom">
+              <IconButton
+                ref={ref}
+                size="md"
+                onClick={togglePopover}
+                pressed={notificationsOpen}
+                className="relative"
+                aria-label="Notifications"
+                {...triggerProps}
+              >
+                <ChangePulse value={unreadErrorCount} mode="increase" tint="var(--tone-error)" className="inline-flex">
+                  <NotificationBellIcon className="size-icon-md" />
+                </ChangePulse>
+                {unreadErrorCount > 0 ? (
+                  <Badge corner decorative tone="error" count={unreadErrorCount} max={99} />
+                ) : null}
+              </IconButton>
+            </Tooltip>
+          )}
+        >
+          <React.Suspense fallback={null}>
+            <NotificationsPopover
+              notifications={notifications}
+              onMarkRead={markNotificationRead}
+              onMarkAllRead={markAllNotificationsRead}
+              onClear={clearNotifications}
+              onOpenLogs={() => void window.api.openDiagnosticsLogsFolder()}
+              resolveActions={resolveNotificationActions}
+            />
           </React.Suspense>
-        ))}
+        </Popover>
+      </div>
 
-        {/* Account + Settings relocated to the sidebar bottom (SidebarAccountBar).
+      {/* Module-contributed top-bar controls (registerTopBarItem): the mic
+       * button and its siblings render here, in the communication cluster's
+       * module slot. Enablement-filtered above, so a module toggle
+       * adds/removes its control live. */}
+      {moduleTopBarItems.map((item) => (
+        <React.Suspense key={item.id} fallback={null}>
+          <item.Component />
+        </React.Suspense>
+      ))}
+
+      {/* Account + Settings relocated to the sidebar bottom (SidebarAccountBar).
             The former `account-and-settings` top-bar group is
             retired; see CANONICAL_TOP_BAR_GROUPS in
             scripts/lint-panel-composition.mjs for the TopBar inventory. */}
-      </div>
+    </div>
   )
 }

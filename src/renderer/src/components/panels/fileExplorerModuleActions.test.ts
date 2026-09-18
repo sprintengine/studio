@@ -21,12 +21,7 @@ function run(name: string, fn: () => void): void {
   }
 }
 
-function entry(
-  id: string,
-  moduleId: string,
-  label: string,
-  order: number,
-): FileExplorerModuleActionEntry {
+function entry(id: string, moduleId: string, label: string, order: number): FileExplorerModuleActionEntry {
   return { id, moduleId, moduleLabel: moduleId === 'atlas' ? 'Atlas' : 'Weather Deck', label, order, disabled: false }
 }
 
@@ -49,7 +44,10 @@ run('two modules become two groups sorted by module id', () => {
     entry('weather-deck.open-notes', 'weather-deck', 'Open forecast notes…', 10),
     entry('atlas.chart-from-plan', 'atlas', 'Chart from plan…', 10),
   ])
-  assert.deepEqual(grouped.map((group) => group.moduleId), ['atlas', 'weather-deck'])
+  assert.deepEqual(
+    grouped.map((group) => group.moduleId),
+    ['atlas', 'weather-deck'],
+  )
   assert.equal(grouped[0]?.heading, 'Atlas')
   assert.equal(grouped[1]?.heading, 'Weather Deck')
 })
@@ -88,7 +86,10 @@ run('visibleFileExplorerModuleActions drops disabled modules and invisible rows'
     moduleLabel: (moduleId) => (moduleId === 'atlas' ? 'Atlas' : moduleId),
     context,
   })
-  assert.deepEqual(visible.map((action) => action.id), ['atlas.chart-from-plan'])
+  assert.deepEqual(
+    visible.map((action) => action.id),
+    ['atlas.chart-from-plan'],
+  )
   assert.equal(visible[0]?.moduleLabel, 'Atlas')
   assert.equal(visible[0]?.disabled, false)
 })

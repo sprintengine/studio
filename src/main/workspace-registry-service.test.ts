@@ -35,8 +35,11 @@ function harness(options: { persistDebounceMs?: number } = {}) {
     registry,
     store,
     sync,
-    advanceClock: (ms: number) => { clock += ms },
-    readFile: () => parseWorkspaceRegistryFile(JSON.parse(readFileSync(join(dir, WORKSPACE_REGISTRY_FILE_NAME), 'utf8'))),
+    advanceClock: (ms: number) => {
+      clock += ms
+    },
+    readFile: () =>
+      parseWorkspaceRegistryFile(JSON.parse(readFileSync(join(dir, WORKSPACE_REGISTRY_FILE_NAME), 'utf8'))),
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   }
 }
@@ -132,10 +135,7 @@ test('two mutations in one tick land in revision order and persist', async () =>
     const persisted = h.readFile()
     assert.ok(persisted)
     assert.equal(persisted.file.revision, h.registry.getRevision())
-    assert.deepEqual(
-      persisted.file.workspaces.map((record) => record.name).sort(),
-      ['One', 'Two'],
-    )
+    assert.deepEqual(persisted.file.workspaces.map((record) => record.name).sort(), ['One', 'Two'])
   } finally {
     h.cleanup()
   }
@@ -214,9 +214,7 @@ test('hydration seeds once from a window and then no-ops', () => {
   try {
     assert.equal(h.registry.needsHydration(), true, 'a fresh install has nothing to mirror yet')
     const payload = {
-      workspaces: [
-        { ...create(h, { name: 'discarded' }).workspace, id: 'legacy-1', name: 'From localStorage' },
-      ],
+      workspaces: [{ ...create(h, { name: 'discarded' }).workspace, id: 'legacy-1', name: 'From localStorage' }],
       activeWorkspaceId: 'legacy-1',
       rawLocalStorage: JSON.stringify({ state: { workspaces: [{ id: 'legacy-1' }] } }),
     }
@@ -242,11 +240,7 @@ test('hydration seeds once from a window and then no-ops', () => {
 })
 
 test('hydration refuses every dangerous-empty row and leaves the legacy key to retry', () => {
-  for (const rawLocalStorage of [
-    null,
-    '{ not json',
-    JSON.stringify({ state: { workspaces: [] } }),
-  ]) {
+  for (const rawLocalStorage of [null, '{ not json', JSON.stringify({ state: { workspaces: [] } })]) {
     const h = harness()
     try {
       const result = h.registry.hydrate({ workspaces: [], rawLocalStorage })
@@ -292,7 +286,10 @@ test('hydration drops one bad record and keeps the rest', () => {
       })
       assert.equal(result.reason, 'seeded')
       assert.deepEqual(result.droppedRecordIds, ['broken'])
-      assert.deepEqual(fresh.registry.getRecords().map((record) => record.id), [good.id])
+      assert.deepEqual(
+        fresh.registry.getRecords().map((record) => record.id),
+        [good.id],
+      )
       assert.equal(
         fresh.diagnostics.some((diagnostic) => diagnostic.title === 'Workspace dropped during registry migration'),
         true,
@@ -358,7 +355,10 @@ test('a corrupt registry file is refused rather than presented as an empty list'
     })
     assert.equal(registry.getRecords().length, 0)
     assert.equal(registry.needsHydration(), true, 'the next boot re-seeds from the untouched legacy key')
-    assert.equal(diagnostics.some((diagnostic) => diagnostic.title === 'Workspace registry unreadable'), true)
+    assert.equal(
+      diagnostics.some((diagnostic) => diagnostic.title === 'Workspace registry unreadable'),
+      true,
+    )
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -391,14 +391,23 @@ test('a retired-mode row is dropped on load and cannot be proposed back', async 
       persistDebounceMs: 0,
       logDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
     })
-    const registry = createWorkspaceRegistryService({ store, logDiagnostic: (diagnostic) => diagnostics.push(diagnostic) })
+    const registry = createWorkspaceRegistryService({
+      store,
+      logDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    })
     const sync = createWorkspaceSyncService({ registry })
 
     // Main's own consumers read these: the gateway's workspace_list and the
     // phone snapshot never see the retired row.
-    assert.deepEqual(registry.getRecords().map((record) => record.id), [kept.workspace.id])
+    assert.deepEqual(
+      registry.getRecords().map((record) => record.id),
+      [kept.workspace.id],
+    )
     const snapshot = sync.getSnapshot().state
-    assert.deepEqual(snapshot.workspaces.map((record) => record.id), [kept.workspace.id])
+    assert.deepEqual(
+      snapshot.workspaces.map((record) => record.id),
+      [kept.workspace.id],
+    )
     assert.equal(snapshot.workspaceWindows[0]!.workspaceIds.includes(retired.workspace.id), false)
     assert.equal(snapshot.workspaceWindows[0]!.activeWorkspaceId, null)
     assert.equal(snapshot.activeWorkspaceId, null)
@@ -426,17 +435,26 @@ test('a retired-mode row is dropped on load and cannot be proposed back', async 
     // …and an edit naming it is refused as unknown.
     const renamed = sync.dispatch({
       sourceWindowId: 'primary',
-      command: { type: 'workspace.rename', payload: { workspaceId: retired.workspace.id, name: 'Back', editedAt: 9_999_999 } },
+      command: {
+        type: 'workspace.rename',
+        payload: { workspaceId: retired.workspace.id, name: 'Back', editedAt: 9_999_999 },
+      },
     })
     assert.equal(renamed.ok ? '' : renamed.reason, 'unknown_workspace')
-    assert.deepEqual(registry.getRecords().map((record) => record.id), [kept.workspace.id])
+    assert.deepEqual(
+      registry.getRecords().map((record) => record.id),
+      [kept.workspace.id],
+    )
 
     // The next accepted write persists the registry without the row.
     const ok = sync.createWorkspace({ name: 'Fresh', folderPath: '/repo' }, 'gateway')
     assert.ok(ok.ok)
     await registry.flush()
     const persisted = JSON.parse(readFileSync(path, 'utf8')) as { workspaces: { id: string }[] }
-    assert.equal(persisted.workspaces.some((record) => record.id === retired.workspace.id), false)
+    assert.equal(
+      persisted.workspaces.some((record) => record.id === retired.workspace.id),
+      false,
+    )
   } finally {
     h.cleanup()
   }

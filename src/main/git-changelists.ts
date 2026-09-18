@@ -63,7 +63,11 @@ export function changelistsStorePath(userDataDir: string, repoRoot: string): str
   const comparable = normalizeComparablePath(repoRoot)
   const hash = createHash('sha1').update(comparable).digest('hex').slice(0, 16)
   const name = comparable.split('/').filter(Boolean).pop() ?? 'repo'
-  const slug = name.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'repo'
+  const slug =
+    name
+      .replace(/[^A-Za-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'repo'
   return join(userDataDir, STORE_DIR, `${slug}-${hash}.json`)
 }
 
@@ -161,9 +165,7 @@ async function readSpanHunks(
   changedPaths: string[],
 ): Promise<Record<string, HunkRange[]> | undefined> {
   const present = new Set(changedPaths)
-  const paths = [
-    ...new Set(lists.flatMap((list) => Object.keys(list.spans ?? {}))),
-  ].filter((path) => present.has(path))
+  const paths = [...new Set(lists.flatMap((list) => Object.keys(list.spans ?? {})))].filter((path) => present.has(path))
   if (paths.length === 0) return undefined
   const hunksByPath: Record<string, HunkRange[]> = {}
   await Promise.all(
@@ -275,11 +277,7 @@ export function recordAgentEdits(
  * stays, named after an agent that is no longer running, until a person commits,
  * moves or deletes it.
  */
-export function markOwnerExited(
-  userDataDir: string,
-  repoRoot: string,
-  agentId: string,
-): Promise<Changelist[]> {
+export function markOwnerExited(userDataDir: string, repoRoot: string, agentId: string): Promise<Changelist[]> {
   const id = changelistOwnerId(agentId)
   return updateLists(userDataDir, repoRoot, (lists) =>
     normalizeChangelists(
@@ -294,11 +292,7 @@ export function getGitChangelists(userDataDir: string, repoRoot: string): Promis
   return updateLists(userDataDir, repoRoot, (lists) => lists)
 }
 
-export function setActiveGitChangelist(
-  userDataDir: string,
-  repoRoot: string,
-  id: string,
-): Promise<Changelist[]> {
+export function setActiveGitChangelist(userDataDir: string, repoRoot: string, id: string): Promise<Changelist[]> {
   return updateLists(userDataDir, repoRoot, (lists) => setActiveInModel(lists, id))
 }
 
@@ -311,7 +305,11 @@ export function createGitChangelist(
   return updateLists(userDataDir, repoRoot, (lists) => {
     const created = createInModel(lists, { id, name: input.name, comment: input.comment, activate: input.activate })
     if (!input.paths?.length) return created
-    return moveChangelistPaths(created, id, input.paths.map((path) => toStoredPath(repoRoot, path)))
+    return moveChangelistPaths(
+      created,
+      id,
+      input.paths.map((path) => toStoredPath(repoRoot, path)),
+    )
   })
 }
 
@@ -324,11 +322,7 @@ export function renameGitChangelist(
   return updateLists(userDataDir, repoRoot, (lists) => renameInModel(lists, id, input))
 }
 
-export function deleteGitChangelist(
-  userDataDir: string,
-  repoRoot: string,
-  id: string,
-): Promise<Changelist[]> {
+export function deleteGitChangelist(userDataDir: string, repoRoot: string, id: string): Promise<Changelist[]> {
   return updateLists(userDataDir, repoRoot, (lists) => deleteInModel(lists, id))
 }
 
@@ -339,6 +333,10 @@ export function moveGitChangelistPaths(
   paths: string[],
 ): Promise<Changelist[]> {
   return updateLists(userDataDir, repoRoot, (lists) =>
-    moveChangelistPaths(lists, id, paths.map((path) => toStoredPath(repoRoot, path))),
+    moveChangelistPaths(
+      lists,
+      id,
+      paths.map((path) => toStoredPath(repoRoot, path)),
+    ),
   )
 }

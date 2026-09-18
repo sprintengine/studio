@@ -13,15 +13,24 @@ import {
   isBroadCapabilityPermission,
   isKnownCapabilityPermission,
 } from '../../../../shared/modules/permissions'
-import {
-  getThirdPartyRendererLoadState,
-  type ThirdPartyRendererLoadState,
-} from '../../modules/third-party-loader'
+import { getThirdPartyRendererLoadState, type ThirdPartyRendererLoadState } from '../../modules/third-party-loader'
 import { getRendererHost, onThirdPartyRendererModulesLoaded, refreshThirdPartyRendererModules } from '../../modules'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import type { Tone } from '../ui/tokens'
-import { type ActionResult, ActionResultMessage, Badge, EmptyState, IconButton, InlineNotice, OutlineButton, Spinner, StatusDot, Switch, Tooltip } from '../ui'
+import {
+  type ActionResult,
+  ActionResultMessage,
+  Badge,
+  EmptyState,
+  IconButton,
+  InlineNotice,
+  OutlineButton,
+  Spinner,
+  StatusDot,
+  Switch,
+  Tooltip,
+} from '../ui'
 import { FolderPlusIcon } from '../AppIcons'
 import { addThirdPartyModuleFromFolder } from './addThirdPartyModuleFromFolder'
 import { SettingCard, SettingsSectionTitle } from './SettingsAtoms'
@@ -52,7 +61,7 @@ export const TRUST_PRESENTATION: Record<ModuleTrustStatus, TrustPresentation> = 
 // also writes to — so the copy never disagrees with the toggle next to it.
 export function describeModuleLaunch(
   launch: ThirdPartyModuleLaunchView,
-  enabled: boolean
+  enabled: boolean,
 ): {
   label: string
   detail: string
@@ -61,9 +70,7 @@ export function describeModuleLaunch(
     case 'trusted_executable':
       return {
         label: 'Main entry ready',
-        detail: enabled
-          ? 'Loads on the next app launch.'
-          : 'Disabled — enable it to load on the next app launch.',
+        detail: enabled ? 'Loads on the next app launch.' : 'Disabled — enable it to load on the next app launch.',
       }
     case 'trusted_manifest_only':
       return { label: 'Manifest only', detail: 'Contributes metadata; it has no code to run.' }
@@ -91,7 +98,7 @@ export function describeModuleLaunch(
 export function describeRendererEntry(
   view: ThirdPartyRendererEntryView | undefined,
   loadState: ThirdPartyRendererLoadState | undefined,
-  trust: ModuleTrustStatus
+  trust: ModuleTrustStatus,
 ): { label: string; detail: string } | null {
   if (trust !== 'trusted' || !view || view.availability === 'none' || view.availability === 'blocked') {
     return null
@@ -119,10 +126,7 @@ export function describeRendererEntry(
 // `enablementOverrides[id] ?? manifest.defaultEnabled` so the renderer toggle and
 // the startup gate read the same value. A pure read — it never rewrites the map,
 // so resolving one module cannot disturb another module's override.
-export function resolveModuleEnabled(
-  overrides: ModuleEnablementOverrides,
-  module: ThirdPartyModuleView
-): boolean {
+export function resolveModuleEnabled(overrides: ModuleEnablementOverrides, module: ThirdPartyModuleView): boolean {
   return overrides[module.manifest.id] ?? module.manifest.defaultEnabled
 }
 
@@ -202,9 +206,7 @@ export function ThirdPartyModuleRow({
   // The enable control is only meaningful once a module is trusted and actually
   // has code to run; without it the row would dead-end on a disabled trusted
   // module. Renderer-entry contributions gate by the same toggle, live.
-  const hasRendererEntry = Boolean(
-    module.launch.rendererEntry && module.launch.rendererEntry.availability !== 'none'
-  )
+  const hasRendererEntry = Boolean(module.launch.rendererEntry && module.launch.rendererEntry.availability !== 'none')
   const canEnable = module.trust === 'trusted' && (module.launch.hasMainEntry || hasRendererEntry)
   const enableLabel = module.launch.hasMainEntry
     ? hasRendererEntry
@@ -231,9 +233,7 @@ export function ThirdPartyModuleRow({
             </span>
           </div>
           {module.manifest.summary ? (
-            <div className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">
-              {module.manifest.summary}
-            </div>
+            <div className="mt-0.5 text-body leading-5 text-[color:var(--text-muted)]">{module.manifest.summary}</div>
           ) : null}
         </div>
         {isInvalid ? (
@@ -315,7 +315,13 @@ export function ThirdPartyModuleList({
   useEffect(() => {
     void load()
   }, [load])
-  useEffect(() => onThirdPartyRendererModulesLoaded(() => { void load() }), [load])
+  useEffect(
+    () =>
+      onThirdPartyRendererModulesLoaded(() => {
+        void load()
+      }),
+    [load],
+  )
 
   const installFromFolder = useCallback(async () => {
     setInstalling(true)
@@ -387,9 +393,7 @@ export function ThirdPartyModuleList({
       if (!trusted) {
         const state = useWorkspaceStore.getState()
         const kernel = getRendererHost()
-        const affected = state.workspaces.filter(
-          (workspace) => kernel.getWorkspaceTypeModule(workspace.mode) === id
-        )
+        const affected = state.workspaces.filter((workspace) => kernel.getWorkspaceTypeModule(workspace.mode) === id)
         if (affected.length > 0) {
           const confirmed = await confirmDialog({
             title: 'Stop trusting this module?',
@@ -412,7 +416,7 @@ export function ThirdPartyModuleList({
         setPendingId(null)
       }
     },
-    [confirmDialog, load]
+    [confirmDialog, load],
   )
 
   // A build whose preload predates the uninstall channel offers no control at
@@ -443,10 +447,7 @@ export function ThirdPartyModuleList({
       <ActionResultMessage message={message} />
 
       {modules.length === 0 ? (
-        <EmptyState
-          density="list"
-          title="No third-party modules installed."
-        />
+        <EmptyState density="list" title="No third-party modules installed." />
       ) : (
         <SettingCard>
           {modules.map((module) => (

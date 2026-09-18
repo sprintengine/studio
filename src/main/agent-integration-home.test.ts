@@ -61,14 +61,14 @@ async function aBuildMaterialisesItsOwnCopy(): Promise<void> {
   // its `--settings`, and it is the only way the app learns how much of a
   // session's context window is gone.
   const forwarder = await readFile(join(result.home.root, LAUNCH_STATUS_LINE_REL), 'utf8')
-  assert.ok(forwarder.includes('usedPercentage') || forwarder.includes('StatusLine'), 'the copied forwarder must be the real one')
+  assert.ok(
+    forwarder.includes('usedPercentage') || forwarder.includes('StatusLine'),
+    'the copied forwarder must be the real one',
+  )
 
   // Unlike the workspace copy, this one's hook declaration is the ONLY
   // registration there is, so it must survive materialising intact.
-  const hooks = await readFile(
-    join(result.home.root, 'sprintengine-studio', 'hooks', 'hooks.json'),
-    'utf8'
-  )
+  const hooks = await readFile(join(result.home.root, 'sprintengine-studio', 'hooks', 'hooks.json'), 'utf8')
   const parsed = JSON.parse(hooks) as { hooks: Record<string, unknown> }
   assert.ok(Object.keys(parsed.hooks).length >= 8, 'the app-owned copy keeps its hooks')
   assert.ok(hooks.includes(LAUNCH_REPORTER_REL.split('\\').join('/')), 'the hook command names the copied reporter')

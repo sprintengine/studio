@@ -97,7 +97,7 @@ function isPathInsideOrEqual(parentPath: string, childPath: string): boolean {
 export function resolveProjectKnowledgeConfig(
   workspaceRoot: string | null | undefined,
   projectKnowledgeRoots: Record<string, string | null> | null | undefined,
-  workspaceRelativeRoot?: string | null
+  workspaceRelativeRoot?: string | null,
 ): ProjectKnowledgeConfig | null {
   const workspaceKey = normalizeProjectRootKey(workspaceRoot)
   if (!workspaceKey) return null
@@ -152,17 +152,14 @@ export function relativePathBetween(fromPath: string, toPath: string): string | 
 
   let common = 0
   while (
-    common < from.parts.length
-    && common < to.parts.length
-    && from.parts[common].toLowerCase() === to.parts[common].toLowerCase()
+    common < from.parts.length &&
+    common < to.parts.length &&
+    from.parts[common].toLowerCase() === to.parts[common].toLowerCase()
   ) {
     common += 1
   }
 
-  return [
-    ...from.parts.slice(common).map(() => '..'),
-    ...to.parts.slice(common),
-  ].join('/') || '.'
+  return [...from.parts.slice(common).map(() => '..'), ...to.parts.slice(common)].join('/') || '.'
 }
 
 /**
@@ -176,7 +173,7 @@ export function listOpenProjectKnowledge(
     folderPath: string | null
     memory?: { relativeRoot: string | null } | null
   }>,
-  projectKnowledgeRoots: Record<string, string | null> | null | undefined
+  projectKnowledgeRoots: Record<string, string | null> | null | undefined,
 ): ProjectKnowledgeEntry[] {
   const byKey = new Map<string, ProjectKnowledgeEntry>()
 
@@ -184,7 +181,7 @@ export function listOpenProjectKnowledge(
     const config = resolveProjectKnowledgeConfig(
       workspace.folderPath,
       projectKnowledgeRoots,
-      workspace.memory?.relativeRoot
+      workspace.memory?.relativeRoot,
     )
     const projectRoot = config?.projectRoot ?? normalizeProjectRootKey(workspace.folderPath)
     if (!projectRoot) continue

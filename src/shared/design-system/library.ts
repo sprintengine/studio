@@ -64,12 +64,7 @@ export interface DesignSystemRegistryFile {
  * four different problems with four different fixes. A row shows which one it
  * is, with its path — never a disappeared row and never a generic error.
  */
-export type DesignSystemSourceState =
-  | 'ok'
-  | 'missing'
-  | 'no-manifest'
-  | 'invalid-manifest'
-  | 'unreadable'
+export type DesignSystemSourceState = 'ok' | 'missing' | 'no-manifest' | 'invalid-manifest' | 'unreadable'
 
 /** One design system in the library, as the rail lists it. */
 export interface DesignSystemLibraryEntry {
@@ -98,9 +93,7 @@ export type DesignSystemLibraryReadResult =
   | { ok: true; entry: DesignSystemLibraryEntry; manifest: DesignSystemManifest }
   | { ok: false; message: string; sourceState: DesignSystemSourceState }
 
-export type DesignSystemRegisterResult =
-  | { ok: true; entry: DesignSystemLibraryEntry }
-  | { ok: false; message: string }
+export type DesignSystemRegisterResult = { ok: true; entry: DesignSystemLibraryEntry } | { ok: false; message: string }
 
 /**
  * FNV-1a over the normalised path — the same hashing the Backlog object ids use.

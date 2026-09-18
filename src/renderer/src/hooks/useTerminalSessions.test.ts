@@ -67,10 +67,7 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   assert.equal(getTerminalSessionsSignature(base), getTerminalSessionsSignature(outputOnly))
 
   // Order-independent: the signature sorts by sessionId first.
-  assert.equal(
-    getTerminalSessionsSignature(base),
-    getTerminalSessionsSignature([base[1], base[0]])
-  )
+  assert.equal(getTerminalSessionsSignature(base), getTerminalSessionsSignature([base[1], base[0]]))
 
   // An observed checkout (MC-2440) must survive the dedupe — the tab glyph and
   // identity card render it: both the cwd moving and git's later answer for it.
@@ -79,21 +76,45 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
       sessionId: 'a',
       activity: { kind: 'working', since: 1 },
       lastOutputAt: 100,
-      observedCheckout: { cwd: '/wt', at: 5, resolved: false, gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false },
+      observedCheckout: {
+        cwd: '/wt',
+        at: 5,
+        resolved: false,
+        gitRoot: null,
+        repoRoot: null,
+        branch: null,
+        isLinkedWorktree: false,
+      },
     }),
     base[1],
   ]
-  assert.notEqual(getTerminalSessionsSignature(base), getTerminalSessionsSignature(observedMoved), 'a cwd move re-renders')
+  assert.notEqual(
+    getTerminalSessionsSignature(base),
+    getTerminalSessionsSignature(observedMoved),
+    'a cwd move re-renders',
+  )
   const observedResolved = [
     session({
       sessionId: 'a',
       activity: { kind: 'working', since: 1 },
       lastOutputAt: 100,
-      observedCheckout: { cwd: '/wt', at: 5, resolved: true, gitRoot: '/wt', repoRoot: '/repo', branch: 'agent/x', isLinkedWorktree: true },
+      observedCheckout: {
+        cwd: '/wt',
+        at: 5,
+        resolved: true,
+        gitRoot: '/wt',
+        repoRoot: '/repo',
+        branch: 'agent/x',
+        isLinkedWorktree: true,
+      },
     }),
     base[1],
   ]
-  assert.notEqual(getTerminalSessionsSignature(observedMoved), getTerminalSessionsSignature(observedResolved), 'git answering re-renders')
+  assert.notEqual(
+    getTerminalSessionsSignature(observedMoved),
+    getTerminalSessionsSignature(observedResolved),
+    'git answering re-renders',
+  )
 
   // An activity-kind transition changes the signature.
   const activityChanged = [
@@ -138,7 +159,7 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   // numbers a row shows would never repaint. Each pair below moves exactly ONE
   // component, so each pins its own.
   const ledger = (
-    changes: Array<{ path: string; additions: number; deletions: number; edits: number; lastEditedAt: number }>
+    changes: Array<{ path: string; additions: number; deletions: number; edits: number; lastEditedAt: number }>,
   ) => [
     session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100, fileChanges: changes }),
     base[1],
@@ -147,61 +168,58 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   assert.notEqual(
     getTerminalSessionsSignature(base),
     getTerminalSessionsSignature(ledger(oneFile)),
-    'a first edit re-renders'
+    'a first edit re-renders',
   )
   assert.equal(
     getTerminalSessionsSignature(ledger(oneFile)),
     getTerminalSessionsSignature(ledger([{ ...oneFile[0] }])),
-    'an equal ledger delivered as a fresh array is not a change: the dedupe is by value, not identity'
+    'an equal ledger delivered as a fresh array is not a change: the dedupe is by value, not identity',
   )
   assert.notEqual(
     getTerminalSessionsSignature(ledger(oneFile)),
     getTerminalSessionsSignature(ledger([{ ...oneFile[0], additions: 5 }])),
-    'added lines alone re-render'
+    'added lines alone re-render',
   )
   assert.notEqual(
     getTerminalSessionsSignature(ledger(oneFile)),
     getTerminalSessionsSignature(ledger([{ ...oneFile[0], deletions: 2 }])),
-    'removed lines alone re-render'
+    'removed lines alone re-render',
   )
   assert.notEqual(
     getTerminalSessionsSignature(ledger(oneFile)),
     getTerminalSessionsSignature(ledger([{ ...oneFile[0], edits: 2 }])),
-    'an edit that changed no line count at all — the reporter’s answer for a tool it cannot count — still re-renders'
+    'an edit that changed no line count at all — the reporter’s answer for a tool it cannot count — still re-renders',
   )
   assert.notEqual(
     getTerminalSessionsSignature(ledger(oneFile)),
     getTerminalSessionsSignature(ledger([{ ...oneFile[0], lastEditedAt: 70 }])),
-    'a newer edit time alone re-renders'
+    'a newer edit time alone re-renders',
   )
-  const twoFiles = [
-    { path: '/repo/b.ts', additions: 0, deletions: 0, edits: 1, lastEditedAt: 50 },
-    oneFile[0],
-  ]
+  const twoFiles = [{ path: '/repo/b.ts', additions: 0, deletions: 0, edits: 1, lastEditedAt: 50 }, oneFile[0]]
   assert.notEqual(
     getTerminalSessionsSignature(ledger(oneFile)),
     getTerminalSessionsSignature(ledger(twoFiles)),
-    'a second file re-renders even when it changed no lines'
+    'a second file re-renders even when it changed no lines',
   )
   assert.notEqual(
     getTerminalSessionsSignature(ledger(twoFiles)),
     getTerminalSessionsSignature(ledger([twoFiles[1], twoFiles[0]])),
-    'the list is rendered newest-first, so promoting a file to the head re-renders'
+    'the list is rendered newest-first, so promoting a file to the head re-renders',
   )
   // Same head file, same totals, same edit count, same time — two edits of one
   // file against one edit each of two. Only the file COUNT tells them apart,
   // and a row that says "2 files" has to notice.
   assert.notEqual(
     getTerminalSessionsSignature(
-      ledger([{ path: '/repo/a.ts', additions: 4, deletions: 0, edits: 2, lastEditedAt: 50 }])
+      ledger([{ path: '/repo/a.ts', additions: 4, deletions: 0, edits: 2, lastEditedAt: 50 }]),
     ),
     getTerminalSessionsSignature(
       ledger([
         { path: '/repo/a.ts', additions: 2, deletions: 0, edits: 1, lastEditedAt: 50 },
         { path: '/repo/b.ts', additions: 2, deletions: 0, edits: 1, lastEditedAt: 50 },
-      ])
+      ]),
     ),
-    'the same work spread over two files is a different ledger'
+    'the same work spread over two files is a different ledger',
   )
   const withContext = (contextUsage: { usedPercentage: number; at: number } | null) => [
     session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100, contextUsage }),
@@ -210,7 +228,7 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   assert.notEqual(
     getTerminalSessionsSignature(base),
     getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 50 })),
-    'a first context reading re-renders'
+    'a first context reading re-renders',
   )
   // `at` held CONSTANT: every other assertion here would pass with the
   // percentage left out of the signature entirely, because a moving `at` moves
@@ -219,26 +237,26 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   assert.notEqual(
     getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 50 })),
     getTerminalSessionsSignature(withContext({ usedPercentage: 9, at: 50 })),
-    'a moved percentage re-renders'
+    'a moved percentage re-renders',
   )
   // And the converse: `at` is deliberately NOT in the signature, so a reading
   // re-stamped at the same percentage is not a repaint.
   assert.equal(
     getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 50 })),
     getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 900 })),
-    'a re-stamped identical percentage is not news'
+    'a re-stamped identical percentage is not news',
   )
   assert.equal(
     getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 50 })),
     getTerminalSessionsSignature(withContext({ usedPercentage: 8, at: 50 })),
-    'and an unchanged one does not'
+    'and an unchanged one does not',
   )
   // Zero is a reading — a session that has just been compacted to nothing is
   // not a session nothing has read.
   assert.notEqual(
     getTerminalSessionsSignature(withContext(null)),
     getTerminalSessionsSignature(withContext({ usedPercentage: 0, at: 0 })),
-    'zero percent is a reading, not an absence'
+    'zero percent is a reading, not an absence',
   )
   // The pull request marks, for the same reason as the context reading above: a
   // pull request lands on GitHub, or a branch lookup finally answers, and no
@@ -249,7 +267,7 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
     base[1],
   ]
   const mark = (
-    over: Partial<NonNullable<TerminalSessionSnapshot['pullRequests']>[number]> & { number: number }
+    over: Partial<NonNullable<TerminalSessionSnapshot['pullRequests']>[number]> & { number: number },
   ): NonNullable<TerminalSessionSnapshot['pullRequests']>[number] => ({
     url: `https://github.com/acme/multicode/pull/${over.number}`,
     repoKey: 'github.com/acme/multicode',
@@ -264,27 +282,27 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   assert.notEqual(
     getTerminalSessionsSignature(base),
     getTerminalSessionsSignature(withPullRequests([mark({ number: 418 })])),
-    'a first pull request re-renders — the mark has to appear'
+    'a first pull request re-renders — the mark has to appear',
   )
   assert.notEqual(
     getTerminalSessionsSignature(withPullRequests([mark({ number: 418 })])),
     getTerminalSessionsSignature(withPullRequests([mark({ number: 418, state: 'merged' })])),
-    'a pull request landing on GitHub re-renders: the shape and the tone both change'
+    'a pull request landing on GitHub re-renders: the shape and the tone both change',
   )
   assert.notEqual(
     getTerminalSessionsSignature(withPullRequests([mark({ number: 418 })])),
     getTerminalSessionsSignature(withPullRequests([mark({ number: 418, isDraft: true })])),
-    'a draft says so in the tooltip, so the flag is rendered'
+    'a draft says so in the tooltip, so the flag is rendered',
   )
   assert.notEqual(
     getTerminalSessionsSignature(withPullRequests([mark({ number: 418 })])),
     getTerminalSessionsSignature(withPullRequests([mark({ number: 418, title: 'Gate OSC 52' })])),
-    'a captured pull request learning its title re-renders: the peek leads with it'
+    'a captured pull request learning its title re-renders: the peek leads with it',
   )
   assert.notEqual(
     getTerminalSessionsSignature(withPullRequests([mark({ number: 418 })])),
     getTerminalSessionsSignature(withPullRequests([mark({ number: 418 }), mark({ number: 421 })])),
-    'a second pull request re-renders: the peek grows its chevron'
+    'a second pull request re-renders: the peek grows its chevron',
   )
   // `stateAt` held out, like `contextUsage.at`: the watch re-stamps it on every
   // backoff tick whether or not GitHub said anything new, and a repaint per
@@ -292,7 +310,7 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   assert.equal(
     getTerminalSessionsSignature(withPullRequests([mark({ number: 418, stateAt: 20 })])),
     getTerminalSessionsSignature(withPullRequests([mark({ number: 418, stateAt: 9_000 })])),
-    'a re-read that changed nothing is not news'
+    'a re-read that changed nothing is not news',
   )
   const subagentRunning = [
     session({ sessionId: 'a', activity: { kind: 'working', since: 1 }, lastOutputAt: 100, activeSubagents: 2 }),
@@ -301,7 +319,7 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   assert.notEqual(
     getTerminalSessionsSignature(base),
     getTerminalSessionsSignature(subagentRunning),
-    'a subagent count is rendered, so it must survive the dedupe'
+    'a subagent count is rendered, so it must survive the dedupe',
   )
   // Several harnesses cast their way to a snapshot; a signature is not the
   // place to learn that a field is missing.
@@ -313,7 +331,7 @@ function assertSignatureIgnoresOutputTimingButTracksActivity(): void {
   assert.equal(
     getTerminalSessionsSignature([partial as TerminalSessionSnapshot, base[1]]),
     getTerminalSessionsSignature(base),
-    'a snapshot missing the new fields reads as an empty ledger, no subagents, no reading and no pull requests, not a crash'
+    'a snapshot missing the new fields reads as an empty ledger, no subagents, no reading and no pull requests, not a crash',
   )
 }
 
@@ -341,7 +359,11 @@ function assertIdleSinceIsWhenTheAgentFinished(): void {
     activity: { kind: 'working', since: 1_000 },
     lastTurnEndedAt: 400,
   })
-  assert.equal(deriveWorkspaceIdleSince('workspace_1', [stillWorking]), 400, 'a turn in flight keeps the last finish (the row hides it while working)')
+  assert.equal(
+    deriveWorkspaceIdleSince('workspace_1', [stillWorking]),
+    400,
+    'a turn in flight keeps the last finish (the row hides it while working)',
+  )
 
   const failed = session({
     sessionId: 'failed',
@@ -444,15 +466,12 @@ function assertWorkspaceDisplayActivityPriority(): void {
   ]
 
   assert.equal(deriveWorkspaceDisplayActivity('workspace_1', sessions), 'working')
-  assert.equal(
-    deriveWorkspaceDisplayActivity('workspace_1', [sessions[1]]),
-    'failed'
-  )
+  assert.equal(deriveWorkspaceDisplayActivity('workspace_1', [sessions[1]]), 'failed')
   assert.equal(
     deriveWorkspaceDisplayActivity('workspace_1', [
       session({ sessionId: 'session_idle', activity: { kind: 'idle', since: 300 } }),
     ]),
-    'idle'
+    'idle',
   )
 }
 
@@ -532,23 +551,19 @@ function assertWorkspaceTerminalActivityPriorityAndPersistedRecency(): void {
     lastOutputAt: 9_999,
   })
 
-  assert.deepEqual(
-    deriveWorkspaceTerminalActivity('workspace_1', [failedOlder, failedNewer, idle], 500),
-    { kind: 'failed', at: 300, exitCode: 2, message: 'new failure' }
-  )
-  assert.deepEqual(
-    deriveWorkspaceTerminalActivity('workspace_1', [idle], 500),
-    { kind: 'idle-recency', lastInputAt: 500 }
-  )
+  assert.deepEqual(deriveWorkspaceTerminalActivity('workspace_1', [failedOlder, failedNewer, idle], 500), {
+    kind: 'failed',
+    at: 300,
+    exitCode: 2,
+    message: 'new failure',
+  })
+  assert.deepEqual(deriveWorkspaceTerminalActivity('workspace_1', [idle], 500), {
+    kind: 'idle-recency',
+    lastInputAt: 500,
+  })
   assert.equal(deriveWorkspaceLastInputAt('workspace_1', [idle], 425), 450)
-  assert.deepEqual(
-    deriveWorkspaceTerminalActivity('workspace_1', [], 500),
-    { kind: 'idle-recency', lastInputAt: 500 }
-  )
-  assert.deepEqual(
-    deriveWorkspaceTerminalActivity('workspace_1', [], null),
-    { kind: 'quiet' }
-  )
+  assert.deepEqual(deriveWorkspaceTerminalActivity('workspace_1', [], 500), { kind: 'idle-recency', lastInputAt: 500 })
+  assert.deepEqual(deriveWorkspaceTerminalActivity('workspace_1', [], null), { kind: 'quiet' })
   assert.equal(deriveWorkspaceIdleSince('workspace_1', [idle], 500), 400)
   assert.equal(deriveWorkspaceIdleSince('workspace_1', [], 500), 500)
 
@@ -557,10 +572,7 @@ function assertWorkspaceTerminalActivityPriorityAndPersistedRecency(): void {
     kind: 'terminal',
     activity: { kind: 'working', since: 600 },
   })
-  assert.deepEqual(
-    deriveWorkspaceTerminalActivity('workspace_1', [workingTerminal]),
-    { kind: 'working', since: 600 }
-  )
+  assert.deepEqual(deriveWorkspaceTerminalActivity('workspace_1', [workingTerminal]), { kind: 'working', since: 600 })
 }
 
 // A session suspended mid-turn keeps the `working` stamp it had when its pty
@@ -586,17 +598,17 @@ function assertSuspendedSessionNeverReadsAsWorking(): void {
   assert.deepEqual(
     deriveWorkspaceTerminalActivity('workspace_1', [suspendedMidTurn], 900),
     { kind: 'idle-recency', lastInputAt: 900 },
-    'a paused chat falls back to recency, not to a turn in flight'
+    'a paused chat falls back to recency, not to a turn in flight',
   )
   assert.equal(
     deriveWorkspaceDisplayActivity('workspace_1', [suspendedMidTurn]),
     'idle',
-    'the row that lights the sidebar and the peek card must go quiet'
+    'the row that lights the sidebar and the peek card must go quiet',
   )
   assert.equal(
     deriveWorkspaceWorkingSince('workspace_1', [suspendedMidTurn]),
     null,
-    'no elapsed counter for a turn whose process is gone'
+    'no elapsed counter for a turn whose process is gone',
   )
 
   // The gate is liveness alone: a live session mid-turn is untouched, and one
@@ -607,10 +619,10 @@ function assertSuspendedSessionNeverReadsAsWorking(): void {
     agentState: { phase: 'thinking', since: 2_000, source: 'hook' },
   })
   assert.equal(isSessionWorking(liveMidTurn), true)
-  assert.deepEqual(
-    deriveWorkspaceTerminalActivity('workspace_1', [suspendedMidTurn, liveMidTurn], 900),
-    { kind: 'working', since: 2_000 }
-  )
+  assert.deepEqual(deriveWorkspaceTerminalActivity('workspace_1', [suspendedMidTurn, liveMidTurn], 900), {
+    kind: 'working',
+    since: 2_000,
+  })
 }
 
 function assertTerminalTabRecencyUsesIdleTransition(): void {
@@ -669,10 +681,7 @@ function assertAgentTabRecencyFallbackChain(): void {
     lastOutputAt: 9_999,
     exitedAt: null,
   })
-  assert.deepEqual(
-    pickAgentTabRecency(liveAgent, 6_000, 5_000),
-    { at: 8_000, source: 'idle' }
-  )
+  assert.deepEqual(pickAgentTabRecency(liveAgent, 6_000, 5_000), { at: 8_000, source: 'idle' })
 
   const exitedAgent = session({
     sessionId: 'session_exited_agent',
@@ -681,10 +690,7 @@ function assertAgentTabRecencyFallbackChain(): void {
     lastInputAt: 4_000,
     exitedAt: 9_000,
   })
-  assert.deepEqual(
-    pickAgentTabRecency(exitedAgent, null, null),
-    { at: 4_000, source: 'input' }
-  )
+  assert.deepEqual(pickAgentTabRecency(exitedAgent, null, null), { at: 4_000, source: 'input' })
 
   const exitedAgentMissingInput = session({
     sessionId: 'session_exited_no_input',
@@ -694,20 +700,11 @@ function assertAgentTabRecencyFallbackChain(): void {
     lastOutputAt: 8_000,
     exitedAt: 9_500,
   })
-  assert.deepEqual(
-    pickAgentTabRecency(exitedAgentMissingInput, null, null),
-    { at: 9_500, source: 'exited' }
-  )
+  assert.deepEqual(pickAgentTabRecency(exitedAgentMissingInput, null, null), { at: 9_500, source: 'exited' })
 
-  assert.deepEqual(
-    pickAgentTabRecency(null, 6_000, 5_000),
-    { at: 6_000, source: 'persisted' }
-  )
+  assert.deepEqual(pickAgentTabRecency(null, 6_000, 5_000), { at: 6_000, source: 'persisted' })
 
-  assert.deepEqual(
-    pickAgentTabRecency(null, null, 5_000),
-    { at: 5_000, source: 'exited' }
-  )
+  assert.deepEqual(pickAgentTabRecency(null, null, 5_000), { at: 5_000, source: 'exited' })
 
   assert.equal(pickAgentTabRecency(null, null, null), null)
   assert.equal(tabRecencyLabel('persisted'), 'Last activity')
@@ -736,7 +733,10 @@ async function assertSharedStoreUsesOneUnderlyingSubscription(): Promise<void> {
   assert.equal(ipcListeners.size, 1, 'many semantic subscribers must share one IPC listener')
   await flushPromises()
   assert.equal(terminalListCalls, 1, 'shared store performs one initial terminalList refresh')
-  assert.deepEqual(store.getSemanticSnapshot().map((item) => item.sessionId), ['session_initial'])
+  assert.deepEqual(
+    store.getSemanticSnapshot().map((item) => item.sessionId),
+    ['session_initial'],
+  )
 
   await store.refresh()
   assert.equal(ipcListeners.size, 1, 'manual refresh must not add another IPC listener')
@@ -747,8 +747,8 @@ async function assertSharedStoreUsesOneUnderlyingSubscription(): Promise<void> {
 }
 
 async function assertSharedStoreDedupsSemanticUpdatesButKeepsLive(): Promise<void> {
-  let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null =
-    null as ((sessions: TerminalSessionSnapshot[]) => void) | null
+  let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null = null as
+    ((sessions: TerminalSessionSnapshot[]) => void) | null
   const store = createTerminalSessionsStore(() => ({
     terminalList: async () => [
       session({ sessionId: 'session_a', activity: { kind: 'idle', since: 1 }, lastOutputAt: 100 }),
@@ -781,16 +781,12 @@ async function assertSharedStoreDedupsSemanticUpdatesButKeepsLive(): Promise<voi
   semanticNotifications = 0
   liveNotifications = 0
   liveSnapshots.length = 0
-  ipcListener?.([
-    session({ sessionId: 'session_a', activity: { kind: 'idle', since: 1 }, lastOutputAt: 999 }),
-  ])
+  ipcListener?.([session({ sessionId: 'session_a', activity: { kind: 'idle', since: 1 }, lastOutputAt: 999 })])
   assert.equal(semanticNotifications, 0, 'semantic subscribers skip output-only churn')
   assert.equal(liveNotifications, 1, 'live subscribers receive output-only churn')
   assert.equal(liveSnapshots[0]?.[0]?.lastOutputAt, 999)
 
-  ipcListener?.([
-    session({ sessionId: 'session_a', activity: { kind: 'working', since: 2 }, lastOutputAt: 1000 }),
-  ])
+  ipcListener?.([session({ sessionId: 'session_a', activity: { kind: 'working', since: 2 }, lastOutputAt: 1000 })])
   assert.equal(semanticNotifications, 1, 'semantic subscribers receive lifecycle/activity changes')
   assert.equal(liveNotifications, 2)
 
@@ -827,8 +823,8 @@ async function assertSharedStoreDedupsSemanticUpdatesButKeepsLive(): Promise<voi
 }
 
 async function assertSharedStoreHandlesDuplicateSubscriberCallbacks(): Promise<void> {
-  let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null =
-    null as ((sessions: TerminalSessionSnapshot[]) => void) | null
+  let ipcListener: ((sessions: TerminalSessionSnapshot[]) => void) | null = null as
+    ((sessions: TerminalSessionSnapshot[]) => void) | null
   let unsubscribeCalls = 0
   const store = createTerminalSessionsStore(() => ({
     terminalList: async () => [],
@@ -863,9 +859,10 @@ async function assertSharedStoreHandlesDuplicateSubscriberCallbacks(): Promise<v
 async function assertSharedStoreIgnoresDisconnectedInitialRefresh(): Promise<void> {
   const pendingTerminalLists: Array<(sessions: TerminalSessionSnapshot[]) => void> = []
   const store = createTerminalSessionsStore(() => ({
-    terminalList: () => new Promise<TerminalSessionSnapshot[]>((resolve) => {
-      pendingTerminalLists.push(resolve)
-    }),
+    terminalList: () =>
+      new Promise<TerminalSessionSnapshot[]>((resolve) => {
+        pendingTerminalLists.push(resolve)
+      }),
     onTerminalSessionsChanged: () => () => undefined,
   }))
 
@@ -894,9 +891,10 @@ async function assertSharedStoreIgnoresDisconnectedInitialRefresh(): Promise<voi
 
   pendingTerminalLists[2]?.([session({ sessionId: 'session_fresh_after_reconnect' })])
   await flushPromises()
-  assert.deepEqual(liveSnapshots.map((sessions) => sessions.map((item) => item.sessionId)), [
-    ['session_fresh_after_reconnect'],
-  ])
+  assert.deepEqual(
+    liveSnapshots.map((sessions) => sessions.map((item) => item.sessionId)),
+    [['session_fresh_after_reconnect']],
+  )
   unsubscribeSecond()
 }
 
@@ -1023,9 +1021,7 @@ async function assertClaudeCodeSessionIdentitySurvivesStartupReconciliation(): P
   })
 }
 
-function session(
-  input: Partial<TerminalSessionSnapshot> & { sessionId: string }
-): TerminalSessionSnapshot {
+function session(input: Partial<TerminalSessionSnapshot> & { sessionId: string }): TerminalSessionSnapshot {
   return {
     sessionId: input.sessionId,
     processAlive: input.processAlive ?? true,

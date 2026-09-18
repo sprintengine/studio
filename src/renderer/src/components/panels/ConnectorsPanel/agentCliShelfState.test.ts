@@ -140,7 +140,6 @@ assert.equal(agentCliPlatformLabel('darwin', false), 'macOS')
 
 console.log('agent-cli shelf state model passed')
 
-
 // ── present: what the row recedes on ────────────────────────────────────────
 //
 // `present` decides whether a row drops a contrast step, so the states that are

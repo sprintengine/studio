@@ -35,11 +35,7 @@ assert.equal(
   true,
   'the create/start path sets cliStartRequested',
 )
-assert.equal(
-  hasLiveAgentLaunchIntent({ cliRestartNonce: 1 }),
-  true,
-  'an explicit restart bumps the nonce',
-)
+assert.equal(hasLiveAgentLaunchIntent({ cliRestartNonce: 1 }), true, 'an explicit restart bumps the nonce')
 assert.equal(
   hasLiveAgentLaunchIntent({ cliStartupPrompt: 'Work the auth revamp…' }),
   true,
@@ -83,11 +79,7 @@ assert.equal(
   'spawn',
   'a newly created agent has intent and no sidecar → it must still spawn',
 )
-assert.equal(
-  resolveAgentColdLoadDecision({ ...coldLoaded, processAlive: true }),
-  'spawn',
-  'a live pty reattaches',
-)
+assert.equal(resolveAgentColdLoadDecision({ ...coldLoaded, processAlive: true }), 'spawn', 'a live pty reattaches')
 assert.equal(
   resolveAgentColdLoadDecision({ ...coldLoaded, attachedSessionId: 'sess-attached' }),
   'spawn',
@@ -215,11 +207,7 @@ assert.equal(
 
 resetFailedLaunchAgentsForTest()
 
-assert.equal(
-  hasAgentLaunchFailedThisAppSession('ws-1', 'agent-kimi'),
-  false,
-  'a fresh agent has no failure on record',
-)
+assert.equal(hasAgentLaunchFailedThisAppSession('ws-1', 'agent-kimi'), false, 'a fresh agent has no failure on record')
 
 markAgentLaunchFailed('ws-1', 'agent-kimi')
 assert.equal(

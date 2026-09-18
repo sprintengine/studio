@@ -31,9 +31,7 @@ import {
 // invent ids nothing correlates.
 
 /** Client→server frames. Anything else is answered with `unknown_frame`. */
-type TerminalClientFrame =
-  | { type: 'input'; data: string }
-  | { type: 'resize'; cols: number; rows: number }
+type TerminalClientFrame = { type: 'input'; data: string } | { type: 'resize'; cols: number; rows: number }
 
 export type TailnetTerminalStream = {
   deviceId: string
@@ -183,18 +181,17 @@ export function createTailnetTerminalStream(options: TailnetTerminalStreamOption
     // it is a security event, not a client mistake to swallow.
     if (scope !== 'control') {
       options.log?.(
-        `tailnet terminal: device ${options.deviceName} (${options.deviceId}) sent "${frame.type}" on a watch-only attach to ${options.sessionId}; dropped.`
+        `tailnet terminal: device ${options.deviceName} (${options.deviceId}) sent "${frame.type}" on a watch-only attach to ${options.sessionId}; dropped.`,
       )
       send({
         type: 'error',
         code: 'terminal_control_required',
-        message: 'This connection is attached to watch only. Re-pair the device with the terminal control scope to type into it.',
+        message:
+          'This connection is attached to watch only. Re-pair the device with the terminal control scope to type into it.',
       })
       return
     }
-    const outcome = frame.type === 'input'
-      ? attachment.write(frame.data)
-      : attachment.resize(frame.cols, frame.rows)
+    const outcome = frame.type === 'input' ? attachment.write(frame.data) : attachment.resize(frame.cols, frame.rows)
     if (!outcome.ok) send({ type: 'error', code: outcome.code, message: outcome.message })
   }
 

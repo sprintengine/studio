@@ -43,11 +43,11 @@ const mountedTerminalFinds: MountedTerminalFind[] = []
  */
 export function respondToTerminalFind(activeWorkspaceId: string | null): MountedTerminalFind | null {
   const responder =
-    mountedTerminalFinds.find((entry) => entry.isFocused())
-    ?? [...mountedTerminalFinds].reverse().find(
-      (entry) => entry.workspaceId !== null && entry.workspaceId === activeWorkspaceId,
-    )
-    ?? null
+    mountedTerminalFinds.find((entry) => entry.isFocused()) ??
+    [...mountedTerminalFinds]
+      .reverse()
+      .find((entry) => entry.workspaceId !== null && entry.workspaceId === activeWorkspaceId) ??
+    null
   responder?.openFind()
   return responder
 }

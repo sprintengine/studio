@@ -45,7 +45,7 @@ export function PairRequestCard({
   // field existed.
   const requested = React.useMemo<TailnetScope[]>(
     () => [...(request.requestedScopes ?? TAILNET_STRUCTURED_SCOPES)],
-    [request.requestedScopes]
+    [request.requestedScopes],
   )
   const [scopes, setScopes] = React.useState<TailnetScope[]>(requested)
   // A request replaced under the cursor (answered elsewhere, re-asked) must not
@@ -66,9 +66,9 @@ export function PairRequestCard({
   const frame =
     variant === 'card'
       ? 'mx-2.5 my-1.5 rounded-[7px] border border-[color:var(--border-default)] p-2.5'
-      // A row inside a card: the card owns the hairline, so the row owns only
-      // its padding — and it pads its sides too, since the card is full-bleed.
-      : 'px-3 py-2.5'
+      : // A row inside a card: the card owns the hairline, so the row owns only
+        // its padding — and it pads its sides too, since the card is full-bleed.
+        'px-3 py-2.5'
 
   return (
     <div className={frame} data-pair-request={request.id}>
@@ -82,7 +82,9 @@ export function PairRequestCard({
           (Tailscale's whois, or the bare address, unverified); the device
           name is whatever the asker typed. */}
       <dl className="mt-1 grid grid-cols-[auto_minmax(0,1fr)] gap-x-2 gap-y-0.5 text-micro">
-        <dt className="text-[color:var(--text-subtle)]">{request.peerNode ? 'Tailnet node' : 'Address (unverified)'}</dt>
+        <dt className="text-[color:var(--text-subtle)]">
+          {request.peerNode ? 'Tailnet node' : 'Address (unverified)'}
+        </dt>
         <dd className="truncate font-mono text-[color:var(--text-default)]">{asker}</dd>
         <dt className="text-[color:var(--text-subtle)]">Calls itself</dt>
         <dd className="truncate text-[color:var(--text-default)]">{request.deviceName}</dd>
@@ -96,7 +98,8 @@ export function PairRequestCard({
           value={code}
           onChange={(event) => setCode(event.target.value)}
           onKeyDown={(event) => {
-            if (event.key === 'Enter' && code.length === 6 && !disabled && scopes.length > 0) void answer('allow', scopes)
+            if (event.key === 'Enter' && code.length === 6 && !disabled && scopes.length > 0)
+              void answer('allow', scopes)
           }}
           inputMode="numeric"
           pattern="[0-9]*"
@@ -109,18 +112,15 @@ export function PairRequestCard({
           disabled={disabled}
           className="text-center font-mono text-title tracking-[0.3em]"
         />
-        <p id={helpId} className={`mt-1 text-micro ${codeError ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}`}>
-          {codeError
-            ?? `Allow enables at six digits. ${PAIR_REQUEST_CODE_ATTEMPTS} wrong codes decline the request.`}
+        <p
+          id={helpId}
+          className={`mt-1 text-micro ${codeError ? 'text-[color:var(--tone-error)]' : 'text-[color:var(--text-subtle)]'}`}
+        >
+          {codeError ?? `Allow enables at six digits. ${PAIR_REQUEST_CODE_ATTEMPTS} wrong codes decline the request.`}
         </p>
       </div>
       <div className="pb-2">
-        <ScopePicker
-          value={scopes}
-          onChange={setScopes}
-          disabled={disabled}
-          idPrefix={`pair-request-${request.id}`}
-        />
+        <ScopePicker value={scopes} onChange={setScopes} disabled={disabled} idPrefix={`pair-request-${request.id}`} />
       </div>
       <div className="flex items-center gap-2">
         <span className="font-mono text-micro tabular-nums text-[color:var(--tone-warn)]">
@@ -138,9 +138,7 @@ export function PairRequestCard({
           {busy === 'allow' ? 'Allowing…' : 'Allow'}
         </PrimaryButton>
       </div>
-      {answerable.note ? (
-        <p className="mt-1.5 text-micro text-[color:var(--text-subtle)]">{answerable.note}</p>
-      ) : null}
+      {answerable.note ? <p className="mt-1.5 text-micro text-[color:var(--text-subtle)]">{answerable.note}</p> : null}
     </div>
   )
 }

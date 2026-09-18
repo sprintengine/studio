@@ -51,11 +51,11 @@ export function respondToTerminalPromptNavigation(
   direction: TerminalPromptDirection,
 ): MountedTerminalPromptNavigation | null {
   const responder =
-    mountedTerminalPromptNavigations.find((entry) => entry.isFocused())
-    ?? [...mountedTerminalPromptNavigations].reverse().find(
-      (entry) => entry.workspaceId !== null && entry.workspaceId === activeWorkspaceId,
-    )
-    ?? null
+    mountedTerminalPromptNavigations.find((entry) => entry.isFocused()) ??
+    [...mountedTerminalPromptNavigations]
+      .reverse()
+      .find((entry) => entry.workspaceId !== null && entry.workspaceId === activeWorkspaceId) ??
+    null
   responder?.scrollToPrompt(direction)
   return responder
 }
@@ -79,9 +79,7 @@ function onTerminalPromptNavigationPanelCommand(event: Event): void {
  * registers and removed when the last unregisters — a listener per pane would
  * run the election once per mounted terminal.
  */
-export function registerMountedTerminalPromptNavigation(
-  entry: MountedTerminalPromptNavigation,
-): () => void {
+export function registerMountedTerminalPromptNavigation(entry: MountedTerminalPromptNavigation): () => void {
   if (mountedTerminalPromptNavigations.length === 0) {
     window.addEventListener(PANEL_COMMAND_EVENT, onTerminalPromptNavigationPanelCommand)
   }

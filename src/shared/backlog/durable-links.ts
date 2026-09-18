@@ -70,9 +70,7 @@ function splitScalarList(value: string | undefined): string[] {
 // deliberately absent: it is volatile, and the caller merges it in from the
 // cache. A link with no cached status renders as `unknown`, which is exactly
 // what it is before anything resolves it.
-export function durableBacklogLinksFromFrontmatter(
-  fields: Readonly<Record<string, string>>,
-): BacklogItemLink[] {
+export function durableBacklogLinksFromFrontmatter(fields: Readonly<Record<string, string>>): BacklogItemLink[] {
   const links: BacklogItemLink[] = []
 
   for (const entry of splitScalarList(fields.pr)) {

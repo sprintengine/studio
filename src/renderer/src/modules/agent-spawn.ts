@@ -60,7 +60,9 @@ export type ModuleFocusTabInput = {
 }
 
 export type AgentSpawnPorts = {
-  getWorkspace: (workspaceId: string) => { folderPath: string | null; agents: Array<{ id: string; name: string }> } | null
+  getWorkspace: (
+    workspaceId: string,
+  ) => { folderPath: string | null; agents: Array<{ id: string; name: string }> } | null
   /** Upserts the agent record ahead of the spawn (the store's updateAgent). */
   upsertAgent: (workspaceId: string, agentId: string, patch: { name: string; cli: string; cliModel?: string }) => void
   /** Rolls the record back when the spawn fails (the store's removeAgent). */
@@ -106,8 +108,9 @@ export function createModuleAgentSpawner(ports: AgentSpawnPorts): ModuleAgentSpa
       // last-used CLI only while it is actually available (its binary can be
       // uninstalled), else any available runtime.
       const defaultCli = ports.defaultCli()
-      const cli = input.cli
-        ?? (defaultCli && runtimes.some((runtime) => runtime.id === defaultCli) ? defaultCli : runtimes[0]?.id)
+      const cli =
+        input.cli ??
+        (defaultCli && runtimes.some((runtime) => runtime.id === defaultCli) ? defaultCli : runtimes[0]?.id)
       if (!cli || !runtimes.some((runtime) => runtime.id === cli)) {
         return {
           ok: false,

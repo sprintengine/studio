@@ -21,19 +21,13 @@ export function MemoryGraphLegend({ nodes }: LegendProps) {
   // repaints on every pan, and a blur over it re-runs each frame.
   return (
     <div className="pointer-events-none absolute bottom-3 left-3 rounded-[7px] border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] px-3 py-2 text-micro text-[color:var(--text-default)]">
-      <div className="mb-1.5 text-micro font-semibold text-[color:var(--text-muted)]">
-        Types
-      </div>
+      <div className="mb-1.5 text-micro font-semibold text-[color:var(--text-muted)]">Types</div>
       <ul className="space-y-1">
         {entries.map(([bucket, count]) => {
           const color = colorForBucket(bucket)
           return (
             <li key={bucket} className="flex items-center gap-2">
-              <span
-                className="h-[7px] w-[7px] rounded-full"
-                style={{ background: color }}
-                aria-hidden
-              />
+              <span className="h-[7px] w-[7px] rounded-full" style={{ background: color }} aria-hidden />
               <span className="capitalize">{bucket}</span>
               <span className="tabular-nums text-[color:var(--text-muted)]">{count}</span>
             </li>
@@ -60,20 +54,12 @@ export function MemoryGraphTooltip({ node, x, y }: TooltipProps) {
       style={{ left: x + 16, top: y + 16 }}
     >
       <div className="flex items-center gap-2">
-        <span
-          className="h-[6px] w-[6px] shrink-0 rounded-full"
-          style={{ background: color }}
-          aria-hidden
-        />
-        <span className="truncate text-meta font-semibold text-[color:var(--text-strong)]">
-          {title}
-        </span>
+        <span className="h-[6px] w-[6px] shrink-0 rounded-full" style={{ background: color }} aria-hidden />
+        <span className="truncate text-meta font-semibold text-[color:var(--text-strong)]">{title}</span>
       </div>
       <div className="mt-0.5 truncate text-[color:var(--text-muted)]">
         <span className="capitalize">{bucket}</span>
-        {node.inboundDegree > 0 ? (
-          <span> · {node.inboundDegree} inbound</span>
-        ) : null}
+        {node.inboundDegree > 0 ? <span> · {node.inboundDegree} inbound</span> : null}
       </div>
       {node.tags && node.tags.length > 0 ? (
         <div className="mt-1.5 flex flex-wrap gap-1">

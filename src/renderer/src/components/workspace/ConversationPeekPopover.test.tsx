@@ -130,7 +130,8 @@ async function main(): Promise<void> {
   await run('a scroll INSIDE the card does not dismiss it', async () => {
     const { cleanup } = await openCard()
     assert.equal(isOpen(), true, 'precondition: the card is up')
-    const inside = document.querySelector('[role="dialog"]')!.querySelector('*') ?? document.querySelector('[role="dialog"]')!
+    const inside =
+      document.querySelector('[role="dialog"]')!.querySelector('*') ?? document.querySelector('[role="dialog"]')!
     await act(async () => {
       // Exactly what the thread's own layout effect produces: a scroll event
       // whose target is inside the card. `scroll` does not bubble, so it is

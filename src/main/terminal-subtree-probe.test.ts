@@ -14,7 +14,11 @@ function run(name: string, body: () => void | Promise<void>): Promise<void> | vo
   const finish = () => console.log(`ok - ${name}`)
   try {
     const out = body()
-    if (out instanceof Promise) return out.then(finish, (error) => { console.error(`not ok - ${name}`); throw error })
+    if (out instanceof Promise)
+      return out.then(finish, (error) => {
+        console.error(`not ok - ${name}`)
+        throw error
+      })
     finish()
   } catch (error) {
     console.error(`not ok - ${name}`)
@@ -55,7 +59,10 @@ async function main(): Promise<void> {
 
   await run('parseListeningPids dedups and ignores non-numeric lines', () => {
     const pids = parseListeningPids('103\n103\n\nfoo\n205\n')
-    assert.deepEqual([...pids].sort((a, b) => a - b), [103, 205])
+    assert.deepEqual(
+      [...pids].sort((a, b) => a - b),
+      [103, 205],
+    )
   })
 
   await run('a listening descendant marks the subtree live', () => {
@@ -85,7 +92,7 @@ async function main(): Promise<void> {
     // with a lone shell holding a port and no children.
     assert.equal(
       subtreeHasLiveProcess(999, [{ pid: 999, ppid: 1, cpuPercent: 0, command: '/bin/zsh -l' }], new Set([999])),
-      false
+      false,
     )
   })
 
@@ -166,7 +173,9 @@ async function main(): Promise<void> {
       platform: 'darwin',
       delayMs: 0,
       runPs: async () => '  200     1  1.2 claude --session-id aaaa-bbbb',
-      kill: (pid) => { killedPids.push(pid) },
+      kill: (pid) => {
+        killedPids.push(pid)
+      },
     })
     assert.deepEqual(killed, [200])
     assert.deepEqual(killedPids, [200])
@@ -174,7 +183,9 @@ async function main(): Promise<void> {
       platform: 'darwin',
       delayMs: 0,
       runPs: async () => null,
-      kill: () => { throw new Error('must not be called') },
+      kill: () => {
+        throw new Error('must not be called')
+      },
     })
     assert.deepEqual(onFailedRead, [])
   })

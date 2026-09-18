@@ -70,7 +70,11 @@ run('falls back to the first row when the agent row is missing too', () => {
 
 run('returns the preferred selection unchanged for an empty roster', () => {
   const preferred: AgentComposerSelection = { kind: 'general' }
-  assert.deepEqual(resolveInitialSelection([], preferred), preferred, 'an empty roster never yields an out-of-range fallback')
+  assert.deepEqual(
+    resolveInitialSelection([], preferred),
+    preferred,
+    'an empty roster never yields an out-of-range fallback',
+  )
 })
 
 // Source-contract: the pure helper above is only meaningful if the hook actually

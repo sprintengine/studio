@@ -65,7 +65,7 @@ function testIdenticalRepeatIsDroppedAndDistinctPasses(): void {
   assert.deepEqual(
     delivered.map((n) => n.title),
     ['API slow', 'API degraded'],
-    'an identical repeat within the window is dropped; distinct payloads pass'
+    'an identical repeat within the window is dropped; distinct payloads pass',
   )
 
   // After the window passes, the same payload is allowed again.
@@ -173,7 +173,7 @@ function testThirdPartyLoadErrorsBecomeNotificationsBundledStayLogOnly(): void {
   assert.deepEqual(
     delivered.map((n) => n.sourceModuleId).sort(),
     ['broken-module', 'untrusted-module'],
-    'only third-party load errors graduate to notifications'
+    'only third-party load errors graduate to notifications',
   )
   for (const notification of delivered) {
     assert.equal(notification.severity, 'error')
@@ -182,7 +182,7 @@ function testThirdPartyLoadErrorsBecomeNotificationsBundledStayLogOnly(): void {
   assert.equal(
     broken?.body,
     'Module startup failed.',
-    'a message containing an absolute path is replaced, never forwarded'
+    'a message containing an absolute path is replaced, never forwarded',
   )
   const untrusted = delivered.find((n) => n.sourceModuleId === 'untrusted-module')
   assert.match(untrusted?.body ?? '', /not trusted yet/)

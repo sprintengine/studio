@@ -29,9 +29,10 @@ export function createProjectLogoIo(): ProjectLogoIo {
 
       // Constrain the longest edge only, so the aspect ratio survives — a wide
       // wordmark must not be squashed into the square slot.
-      const resized = width >= height
-        ? image.resize({ width: maxPx, quality: 'best' })
-        : image.resize({ height: maxPx, quality: 'best' })
+      const resized =
+        width >= height
+          ? image.resize({ width: maxPx, quality: 'best' })
+          : image.resize({ height: maxPx, quality: 'best' })
       return { bytes: resized.toPNG(), mimeType: 'image/png' }
     },
     join,

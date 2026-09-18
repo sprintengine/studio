@@ -46,14 +46,11 @@ export function useIgnoredPaths(repoRoot: string | null, refreshToken: number): 
   const generationRef = useRef(0)
   const runCheckRef = useRef<(dirPath: string, absolutePaths: string[]) => void>(() => {})
 
-  const checkDirectory = useCallback(
-    (dirPath: string, absolutePaths: string[]) => {
-      if (absolutePaths.length === 0) return
-      offeredDirectories.current.set(dirPath, absolutePaths)
-      runCheckRef.current(dirPath, absolutePaths)
-    },
-    []
-  )
+  const checkDirectory = useCallback((dirPath: string, absolutePaths: string[]) => {
+    if (absolutePaths.length === 0) return
+    offeredDirectories.current.set(dirPath, absolutePaths)
+    runCheckRef.current(dirPath, absolutePaths)
+  }, [])
 
   const runCheck = useCallback(
     (dirPath: string, absolutePaths: string[]) => {
@@ -92,7 +89,7 @@ export function useIgnoredPaths(repoRoot: string | null, refreshToken: number): 
           checkedDirectories.current.delete(dirPath)
         })
     },
-    [repoRoot]
+    [repoRoot],
   )
 
   runCheckRef.current = runCheck

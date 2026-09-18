@@ -32,7 +32,11 @@ const valid = {
   assert.equal(parsed.feed.clis.cursor.models.length, 0)
   assert.equal(parsed.feed.clis['claude-code'].models[1].alias, true)
   assert.equal(parsed.feed.clis['claude-code'].models[1].releasedAt, undefined, 'an alias floats undated')
-  const bare = parseHostedModelFeed({ schemaVersion: 1, updatedAt: '2026-09-04T00:00:00Z', clis: { codex: { models: [{ id: ' gpt-5.5 ', releasedAt: '2026-04-23' }] } } })
+  const bare = parseHostedModelFeed({
+    schemaVersion: 1,
+    updatedAt: '2026-09-04T00:00:00Z',
+    clis: { codex: { models: [{ id: ' gpt-5.5 ', releasedAt: '2026-04-23' }] } },
+  })
   assert.ok(bare.ok)
   assert.deepEqual(bare.feed.clis.codex.models, [{ id: 'gpt-5.5', label: 'gpt-5.5', releasedAt: '2026-04-23' }])
 }
@@ -43,7 +47,20 @@ const valid = {
 for (const [label, body] of [
   ['unknown schemaVersion', { ...valid, schemaVersion: 2 }],
   ['missing updatedAt', { schemaVersion: 1, clis: valid.clis }],
-  ['duplicate id', { ...valid, clis: { codex: { models: [{ id: 'a', label: 'A', releasedAt: '2026-01-01' }, { id: 'a', label: 'A again', releasedAt: '2026-01-01' }] } } }],
+  [
+    'duplicate id',
+    {
+      ...valid,
+      clis: {
+        codex: {
+          models: [
+            { id: 'a', label: 'A', releasedAt: '2026-01-01' },
+            { id: 'a', label: 'A again', releasedAt: '2026-01-01' },
+          ],
+        },
+      },
+    },
+  ],
   ['model without releasedAt', { ...valid, clis: { codex: { models: [{ id: 'a', label: 'A' }] } } }],
   ['releasedAt not a date', { ...valid, clis: { codex: { models: [{ id: 'a', label: 'A', releasedAt: 'soon' }] } } }],
   ['row without id', { ...valid, clis: { codex: { models: [{ label: 'nameless' }] } } }],
@@ -61,7 +78,11 @@ for (const [label, body] of [
   assert.equal(isNewHostedModel({ id: 'a', label: 'A', releasedAt: '2026-07-25' }, now), false)
   assert.equal(isNewHostedModel({ id: 'a', label: 'A', releasedAt: '2026-08-20', alias: true }, now), false)
   assert.equal(isNewHostedModel({ id: 'a', label: 'A', releasedAt: '2026-08-20', retired: true }, now), false)
-  assert.equal(isNewHostedModel({ id: 'a', label: 'A', releasedAt: '2026-09-10' }, now), false, 'a future date is not new yet')
+  assert.equal(
+    isNewHostedModel({ id: 'a', label: 'A', releasedAt: '2026-09-10' }, now),
+    false,
+    'a future date is not new yet',
+  )
   assert.equal(isNewHostedModel({ id: 'a', label: 'A' }, now), false)
 }
 
@@ -88,7 +109,13 @@ for (const [label, body] of [
         models: [
           ...valid.clis['claude-code'].models,
           { id: 'claude-fable-5-1', label: 'Fable 5.1', releasedAt: '2026-09-04' },
-          { id: 'claude-opus-4-7', label: 'Opus 4.7', releasedAt: '2026-03-03', retired: true, retiredAt: '2026-09-05' },
+          {
+            id: 'claude-opus-4-7',
+            label: 'Opus 4.7',
+            releasedAt: '2026-03-03',
+            retired: true,
+            retiredAt: '2026-09-05',
+          },
         ],
       },
       codex: { models: [{ id: 'gpt-5.6-sol', label: 'GPT-5.6 Sol', releasedAt: '2026-07-09' }] },
@@ -97,10 +124,19 @@ for (const [label, body] of [
   assert.ok(after.ok)
   const added = hostedModelAdditions(before.feed, after.feed)
   assert.deepEqual(Object.keys(added), ['claude-code', 'codex'])
-  assert.deepEqual(added['claude-code'].map((model) => model.id), ['claude-fable-5-1'])
-  assert.deepEqual(added.codex.map((model) => model.id), ['gpt-5.6-sol'])
+  assert.deepEqual(
+    added['claude-code'].map((model) => model.id),
+    ['claude-fable-5-1'],
+  )
+  assert.deepEqual(
+    added.codex.map((model) => model.id),
+    ['gpt-5.6-sol'],
+  )
   assert.deepEqual(Object.keys(hostedModelAdditions(after.feed, after.feed)), [])
-  assert.deepEqual(hostedModelAdditions(null, before.feed)['claude-code'].map((model) => model.id), ['claude-opus-5', 'opus[1m]'])
+  assert.deepEqual(
+    hostedModelAdditions(null, before.feed)['claude-code'].map((model) => model.id),
+    ['claude-opus-5', 'opus[1m]'],
+  )
 }
 
 console.log('hosted-model-feed: ok')

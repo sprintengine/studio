@@ -20,7 +20,7 @@ import type { ScannedMcpServer } from '../skills'
 export function mcpServerConfigFromScanned(
   server: ScannedMcpServer,
   clients: readonly string[],
-  sourceRef?: McpServerSourceRef
+  sourceRef?: McpServerSourceRef,
 ): McpServerConfig {
   const needsSecrets = server.envVarNames.length > 0
   return {

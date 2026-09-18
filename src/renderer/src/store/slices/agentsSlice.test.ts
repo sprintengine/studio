@@ -93,10 +93,13 @@ assert.equal(
   'manual',
 )
 assert.equal(
-  normalizeAgentState({
-    ...defaultAgent('agent-normalize-fallback'),
-    cli: undefined,
-  }, 'claude-code').cli,
+  normalizeAgentState(
+    {
+      ...defaultAgent('agent-normalize-fallback'),
+      cli: undefined,
+    },
+    'claude-code',
+  ).cli,
   'claude-code',
 )
 assert.equal(
@@ -330,8 +333,8 @@ useWorkspaceStore.getState().updateAgent(storeWorkspaceId, 'store-agent', {
   cliSessionId: 'store-session',
 })
 assert.deepEqual(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === storeWorkspaceId)
-    ?.agents['store-agent']?.execution,
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === storeWorkspaceId)?.agents['store-agent']
+    ?.execution,
   {
     mode: 'worktree',
     worktreeId: 'store-wt',
@@ -346,8 +349,8 @@ useWorkspaceStore.getState().reconcileWorkspaceAgentLaunchFlags([
   }),
 ])
 assert.equal(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === storeWorkspaceId)
-    ?.agents['store-agent']?.cliSessionId,
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === storeWorkspaceId)?.agents['store-agent']
+    ?.cliSessionId,
   'store-session',
 )
 
@@ -367,10 +370,7 @@ assert.deepEqual(
 )
 
 // Legacy persisted agent (no runtimeKind) normalizes to terminal, never corrupt.
-assert.deepEqual(
-  normalizeAgentRuntime({}),
-  { runtimeKind: 'terminal', conversation: undefined },
-)
+assert.deepEqual(normalizeAgentRuntime({}), { runtimeKind: 'terminal', conversation: undefined })
 
 // A conversation kind with a valid pair is preserved.
 assert.deepEqual(

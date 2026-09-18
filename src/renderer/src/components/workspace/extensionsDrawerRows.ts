@@ -87,10 +87,7 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
   // but its row — the only user-visible way in — would stay absent until an
   // unrelated module toggle or a reload.
   const [registryGeneration, setRegistryGeneration] = useState(0)
-  useEffect(
-    () => onThirdPartyRendererModulesLoaded(() => setRegistryGeneration((n) => n + 1)),
-    [],
-  )
+  useEffect(() => onThirdPartyRendererModulesLoaded(() => setRegistryGeneration((n) => n + 1)), [])
   const globalSurfaces = useMemo(
     () => getRendererHost().getGlobalSurfaces((id) => selectModuleEnabled(moduleOverrides, id)),
     [moduleOverrides, registryGeneration],
@@ -101,12 +98,8 @@ export function useExtensionsDrawerRows(): ExtensionsDrawerRowView[] {
   )
 
   return useMemo(() => {
-    const surfaceById = new Map<string, RegisteredGlobalSurface>(
-      globalSurfaces.map((surface) => [surface.id, surface]),
-    )
-    const entryById = new Map<string, RegisteredSidebarNavEntry>(
-      hostNavEntries.map((entry) => [entry.id, entry]),
-    )
+    const surfaceById = new Map<string, RegisteredGlobalSurface>(globalSurfaces.map((surface) => [surface.id, surface]))
+    const entryById = new Map<string, RegisteredSidebarNavEntry>(hostNavEntries.map((entry) => [entry.id, entry]))
     const fixedRows = DRAWER_ROWS.flatMap((row): ExtensionsDrawerRowView[] => {
       if (row.kind === 'nav') {
         const entry = entryById.get(row.entryId)

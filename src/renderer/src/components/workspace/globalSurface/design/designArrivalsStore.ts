@@ -118,10 +118,7 @@ export function reportDesignArrivals(
   publish({ bundles, loadState: snapshot.loadState === 'error' ? 'error' : 'ready' })
 }
 
-function sameDates(
-  a: Readonly<Record<string, string>>,
-  b: Readonly<Record<string, string>>,
-): boolean {
+function sameDates(a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>): boolean {
   const keys = Object.keys(b)
   if (Object.keys(a).length !== keys.length) return false
   return keys.every((key) => a[key] === b[key])

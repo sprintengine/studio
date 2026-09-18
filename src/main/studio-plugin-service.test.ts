@@ -65,13 +65,13 @@ async function openingAWorkspaceInstallsThePlugin(): Promise<void> {
   // restated: a bump (1.1.0 pruned the retired studio-sprints skill, 1.2.0 added
   // studio-canvas) must not fail here.
   const manifest = JSON.parse(
-    await readFile(join(TEMPLATE_ROOT, 'sprintengine-studio', '.claude-plugin', 'plugin.json'), 'utf8')
+    await readFile(join(TEMPLATE_ROOT, 'sprintengine-studio', '.claude-plugin', 'plugin.json'), 'utf8'),
   ) as { version: string }
   assert.equal(record?.version, manifest.version)
   assert.equal(record?.claudePluginKey, 'sprintengine-studio@sprintengine-studio')
   const bundledSkills = await readdir(join(TEMPLATE_ROOT, 'sprintengine-studio', 'skills'))
   assert.equal(record?.skillDirNames.length, bundledSkills.length)
-    assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-backlog', 'SKILL.md')), true)
+  assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-backlog', 'SKILL.md')), true)
   assert.equal(existsSync(join(workspace, '.multicode', 'studio-plugin')), true)
   assert.equal(existsSync(join(workspace, '.multicode', 'hooks', 'agent-state.mjs')), true)
   assert.equal(record?.hookSettingsPath, resolve(workspace, '.claude/settings.local.json'))
@@ -145,7 +145,7 @@ async function aBuildWithNoPluginSaysSoAndInstallsNothing(): Promise<void> {
   assert.equal(
     built.warnings.some((warning) => /missing from this build/.test(warning)),
     true,
-    'a missing plugin is stated, not silent'
+    'a missing plugin is stated, not silent',
   )
   await rm(built.workspace, { recursive: true, force: true })
 }
@@ -172,7 +172,7 @@ async function aFailingInstallNeverEscapes(): Promise<void> {
   assert.equal(
     built.warnings.some((warning) => /fell over/.test(warning)),
     true,
-    'the failure is logged'
+    'the failure is logged',
   )
   assert.equal(service.installed(built.workspace), null)
 
@@ -210,7 +210,7 @@ async function noSocketMeansNoHookButStillTheSkills(): Promise<void> {
   assert.equal(
     record?.skillDirNames.length,
     bundledSkills.length,
-    'the skills are what an agent reads; they still land'
+    'the skills are what an agent reads; they still land',
   )
   assert.equal(record?.hookSettingsPath, '', 'no hook is registered with nothing to report to')
   // And the question was never answered, because it was never asked.
@@ -236,7 +236,7 @@ async function launchInjectionTidiesTheWorkspaceAndSkipsClaude(): Promise<void> 
   await writeFile(
     join(built.workspace, '.claude', 'skills', 'studio-backlog', '.multicode-skill.json'),
     `${JSON.stringify({ sourceId: 'sprintengine-studio', skillId: 'studio-backlog', commitSha: '0.0.1', installedAt: '2026-01-01T00:00:00.000Z' })}\n`,
-    'utf8'
+    'utf8',
   )
   await mkdir(join(built.workspace, '.claude', 'skills', 'their-own-skill'), { recursive: true })
   await writeFile(join(built.workspace, '.claude', 'skills', 'their-own-skill', 'SKILL.md'), '# theirs\n', 'utf8')
@@ -263,14 +263,14 @@ async function launchInjectionTidiesTheWorkspaceAndSkipsClaude(): Promise<void> 
         theirLocalSetting: true,
       },
       null,
-      2
+      2,
     )}\n`,
-    'utf8'
+    'utf8',
   )
   await writeFile(
     join(built.workspace, '.claude', 'settings.json'),
     `${JSON.stringify({ enabledPlugins: { 'sprintengine-studio@sprintengine-studio': true }, theirSetting: 'kept' }, null, 2)}\n`,
-    'utf8'
+    'utf8',
   )
 
   const service = createStudioPluginService(built.options)
@@ -285,14 +285,14 @@ async function launchInjectionTidiesTheWorkspaceAndSkipsClaude(): Promise<void> 
   assert.equal(
     JSON.stringify(local.hooks ?? {}).includes('agent-state.mjs'),
     false,
-    'the hook this app wrote must be taken back out'
+    'the hook this app wrote must be taken back out',
   )
   assert.equal(local.extraKnownMarketplaces, undefined, 'and the machine path with it')
   assert.equal(local.theirLocalSetting, true, 'their own settings are untouched')
   assert.equal(
     existsSync(join(built.workspace, '.multicode', 'hooks', 'agent-state.mjs')),
     false,
-    'the reporter script the old hook named is removed, and never written back'
+    'the reporter script the old hook named is removed, and never written back',
   )
 
   const project = JSON.parse(await readFile(join(built.workspace, '.claude', 'settings.json'), 'utf8')) as {
@@ -344,18 +344,22 @@ async function aWorkspaceOpenedBeforeTheCopyLandedIsReinstalled(): Promise<void>
   assert.equal(
     (await readFile(join(built.workspace, '.claude', 'settings.local.json'), 'utf8')).includes('agent-state.mjs'),
     false,
-    'and takes the hook the earlier open wrote back out'
+    'and takes the hook the earlier open wrote back out',
   )
   assert.equal(
     existsSync(join(built.workspace, '.multicode', 'hooks', 'agent-state.mjs')),
     false,
-    'along with the script it named'
+    'along with the script it named',
   )
 
   // And it settles: a third open with nothing changed does no further work.
   const settled = service.installed(built.workspace)
   await service.ensureInstalledForRoots([built.workspace])
-  assert.equal(service.installed(built.workspace)?.installedAt, settled?.installedAt, 'a settled workspace is left alone')
+  assert.equal(
+    service.installed(built.workspace)?.installedAt,
+    settled?.installedAt,
+    'a settled workspace is left alone',
+  )
 
   await rm(built.workspace, { recursive: true, force: true })
 }

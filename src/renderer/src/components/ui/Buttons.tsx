@@ -15,8 +15,7 @@ type ButtonBase = React.ButtonHTMLAttributes<HTMLButtonElement>
 // `justify-*` left for the same reason (see ALIGN below), and the cursor with
 // it (see CURSOR).
 const SHARED =
-  'interactive inline-flex items-center gap-1.5 font-medium ' +
-  'disabled:opacity-45 aria-disabled:opacity-45'
+  'interactive inline-flex items-center gap-1.5 font-medium ' + 'disabled:opacity-45 aria-disabled:opacity-45'
 
 /**
  * The disabled treatment for a control that must STAY FOCUSABLE — the
@@ -182,70 +181,72 @@ const GHOST_TONE: Record<GhostTone, string> = {
 // two rules for one property at equal specificity, and which of them paints
 // would be a matter of stylesheet order. `:disabled:hover` outranks a plain
 // `:hover` on its own, so the guard needs no help winning.
-export const PrimaryButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(
-  function PrimaryButton({ className, size = 'sm', align = 'center', busy, type, ...rest }, ref) {
-    return (
-      <button
-        ref={ref}
-        type={type ?? 'button'}
-        aria-busy={busy || undefined}
-        {...rest}
-        className={[
-          SHARED,
-          SIZE[size],
-          ALIGN[align],
-          cursorClass(busy),
-          // The raised step: a lit top edge over a shallow drop, inverting to a
-          // sunken one while held. Elevation is a class, not a `shadow-[...]`
-          // utility, because the resting, pressed, and disabled steps have to
-          // move together — see `.control-raised` in assets/index.css.
-          'control-raised',
-          'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]',
-          'hover:bg-[color:var(--accent-primary-hover)]',
-          'disabled:hover:bg-[color:var(--accent-primary)]',
-          FOCUS_RING_CLASS,
-          className ?? '',
-        ].join(' ')}
-      />
-    )
-  },
-)
+export const PrimaryButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(function PrimaryButton(
+  { className, size = 'sm', align = 'center', busy, type, ...rest },
+  ref,
+) {
+  return (
+    <button
+      ref={ref}
+      type={type ?? 'button'}
+      aria-busy={busy || undefined}
+      {...rest}
+      className={[
+        SHARED,
+        SIZE[size],
+        ALIGN[align],
+        cursorClass(busy),
+        // The raised step: a lit top edge over a shallow drop, inverting to a
+        // sunken one while held. Elevation is a class, not a `shadow-[...]`
+        // utility, because the resting, pressed, and disabled steps have to
+        // move together — see `.control-raised` in assets/index.css.
+        'control-raised',
+        'bg-[color:var(--accent-primary)] text-[color:var(--text-on-accent)]',
+        'hover:bg-[color:var(--accent-primary-hover)]',
+        'disabled:hover:bg-[color:var(--accent-primary)]',
+        FOCUS_RING_CLASS,
+        className ?? '',
+      ].join(' ')}
+    />
+  )
+})
 
 // The destructive counterpart to PrimaryButton: one solid tone, spent on the
 // action a person cannot undo. It exists here rather than inside `ui/Modal` —
 // where the `ModalButton` danger variant used to spell it — because a dialog is
 // not the only place a destructive confirm appears, and a variant declared
 // inside one host is how the product grew five primaries (MC-2113).
-export const DangerButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(
-  function DangerButton({ className, size = 'sm', align = 'center', busy, type, ...rest }, ref) {
-    return (
-      <button
-        ref={ref}
-        type={type ?? 'button'}
-        aria-busy={busy || undefined}
-        {...rest}
-        className={[
-          SHARED,
-          SIZE[size],
-          ALIGN[align],
-          cursorClass(busy),
-          // No hover step: the system ships no `--tone-error-hover`, and a
-          // hand-tuned one here would be the nineteen-theme drift this kit
-          // exists to stop. Carrying the same rest state the retired
-          // `ModalButton` danger variant had is a faithful move, not a
-          // regression — a token is the fix, not a literal.
-          // Raised for the same reason primary is: both are filled controls,
-          // and a destructive confirm that sat flat beside a raised primary
-          // would read as the weaker of the two.
-          'control-raised',
-          'bg-[color:var(--tone-error)] text-[color:var(--tone-error-ink)]',
-          FOCUS_RING_CLASS,
-          className ?? '',
-        ].join(' ')}
-      />
-    )
-  },
-)
+export const DangerButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(function DangerButton(
+  { className, size = 'sm', align = 'center', busy, type, ...rest },
+  ref,
+) {
+  return (
+    <button
+      ref={ref}
+      type={type ?? 'button'}
+      aria-busy={busy || undefined}
+      {...rest}
+      className={[
+        SHARED,
+        SIZE[size],
+        ALIGN[align],
+        cursorClass(busy),
+        // No hover step: the system ships no `--tone-error-hover`, and a
+        // hand-tuned one here would be the nineteen-theme drift this kit
+        // exists to stop. Carrying the same rest state the retired
+        // `ModalButton` danger variant had is a faithful move, not a
+        // regression — a token is the fix, not a literal.
+        // Raised for the same reason primary is: both are filled controls,
+        // and a destructive confirm that sat flat beside a raised primary
+        // would read as the weaker of the two.
+        'control-raised',
+        'bg-[color:var(--tone-error)] text-[color:var(--tone-error-ink)]',
+        FOCUS_RING_CLASS,
+        className ?? '',
+      ].join(' ')}
+    />
+  )
+})
 
 /**
  * The neutral SELECTION fill a borderless control takes while it is thrown, and
@@ -300,38 +301,32 @@ type GhostButtonProps = SizedButtonProps & {
   armed?: boolean
 }
 
-export const GhostButton = React.forwardRef<HTMLButtonElement, GhostButtonProps>(
-  function GhostButton(
-    { className, size = 'sm', align = 'center', tone = 'neutral', pressed, armed, busy, type, ...rest },
-    ref,
-  ) {
-    return (
-      <button
-        ref={ref}
-        type={type ?? 'button'}
-        aria-pressed={pressed}
-        aria-busy={busy || undefined}
-        {...rest}
-        className={[
-          SHARED,
-          SIZE[size],
-          ALIGN[align],
-          cursorClass(busy),
-          // The ground arrives with the state, never as a default plus a
-          // repaint: `bg-transparent` beside a state's own `bg-…` is two
-          // declarations of one property at equal specificity.
-          armed === true
-            ? ARMED_FILL
-            : pressed === true
-              ? pressedFill(tone)
-              : `bg-transparent ${GHOST_TONE[tone]}`,
-          FOCUS_RING_CLASS,
-          className ?? '',
-        ].join(' ')}
-      />
-    )
-  },
-)
+export const GhostButton = React.forwardRef<HTMLButtonElement, GhostButtonProps>(function GhostButton(
+  { className, size = 'sm', align = 'center', tone = 'neutral', pressed, armed, busy, type, ...rest },
+  ref,
+) {
+  return (
+    <button
+      ref={ref}
+      type={type ?? 'button'}
+      aria-pressed={pressed}
+      aria-busy={busy || undefined}
+      {...rest}
+      className={[
+        SHARED,
+        SIZE[size],
+        ALIGN[align],
+        cursorClass(busy),
+        // The ground arrives with the state, never as a default plus a
+        // repaint: `bg-transparent` beside a state's own `bg-…` is two
+        // declarations of one property at equal specificity.
+        armed === true ? ARMED_FILL : pressed === true ? pressedFill(tone) : `bg-transparent ${GHOST_TONE[tone]}`,
+        FOCUS_RING_CLASS,
+        className ?? '',
+      ].join(' ')}
+    />
+  )
+})
 
 /**
  * The one button whose SURFACE is content: a pasted screenshot's thumbnail, a
@@ -348,25 +343,26 @@ export const GhostButton = React.forwardRef<HTMLButtonElement, GhostButtonProps>
  * an `aspect-*` utility, a grid cell) — because a media frame is a content
  * measure, not a control height.
  */
-export const MediaButton = React.forwardRef<HTMLButtonElement, ButtonBase>(
-  function MediaButton({ className, type, ...rest }, ref) {
-    return (
-      <button
-        ref={ref}
-        type={type ?? 'button'}
-        {...rest}
-        className={[
-          'interactive block overflow-hidden rounded-sm border',
-          'border-[color:var(--border-subtle)] hover:border-[color:var(--border-strong)]',
-          'disabled:cursor-not-allowed disabled:opacity-45',
-          'disabled:hover:border-[color:var(--border-subtle)]',
-          FOCUS_RING_CLASS,
-          className ?? '',
-        ].join(' ')}
-      />
-    )
-  },
-)
+export const MediaButton = React.forwardRef<HTMLButtonElement, ButtonBase>(function MediaButton(
+  { className, type, ...rest },
+  ref,
+) {
+  return (
+    <button
+      ref={ref}
+      type={type ?? 'button'}
+      {...rest}
+      className={[
+        'interactive block overflow-hidden rounded-sm border',
+        'border-[color:var(--border-subtle)] hover:border-[color:var(--border-strong)]',
+        'disabled:cursor-not-allowed disabled:opacity-45',
+        'disabled:hover:border-[color:var(--border-subtle)]',
+        FOCUS_RING_CLASS,
+        className ?? '',
+      ].join(' ')}
+    />
+  )
+})
 
 // Bordered neutral button — the "outline" variant. Retired the hand-rolled
 // lookalike (a GhostButton re-styled with a border className, or a raw <button>
@@ -393,46 +389,44 @@ export const OutlineButton = React.forwardRef<
      *  border and takes the neutral selection fill; tri-state, as elsewhere. */
     pressed?: boolean
   }
->(
-  function OutlineButton(
-    { className, size = 'sm', align = 'center', tone = 'neutral', pressed, busy, type, ...rest },
-    ref,
-  ) {
-    return (
-      <button
-        ref={ref}
-        type={type ?? 'button'}
-        aria-pressed={pressed}
-        aria-busy={busy || undefined}
-        {...rest}
-        className={[
-          SHARED,
-          SIZE[size],
-          ALIGN[align],
-          cursorClass(busy),
-          // Half a step below `control-raised`: enough that it reads as a
-          // control rather than a labelled box, quiet enough that it never
-          // competes with the view's one primary.
-          'control-edge',
-          'border border-[color:var(--border-default)]',
-          // The ground and the ink move together with `pressed`, in one
-          // declaration each: a thrown chip takes the neutral selection fill and
-          // holds it under the pointer, exactly as the icon toggle does.
-          pressed === true
-            ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ' +
-              'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-selected)] ' +
-              'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-selected)]'
-            : 'bg-[color:var(--bg-surface)] ' +
-              OUTLINE_TONE[tone] +
-              ' hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] ' +
-              'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface)]',
-          FOCUS_RING_CLASS,
-          className ?? '',
-        ].join(' ')}
-      />
-    )
-  },
-)
+>(function OutlineButton(
+  { className, size = 'sm', align = 'center', tone = 'neutral', pressed, busy, type, ...rest },
+  ref,
+) {
+  return (
+    <button
+      ref={ref}
+      type={type ?? 'button'}
+      aria-pressed={pressed}
+      aria-busy={busy || undefined}
+      {...rest}
+      className={[
+        SHARED,
+        SIZE[size],
+        ALIGN[align],
+        cursorClass(busy),
+        // Half a step below `control-raised`: enough that it reads as a
+        // control rather than a labelled box, quiet enough that it never
+        // competes with the view's one primary.
+        'control-edge',
+        'border border-[color:var(--border-default)]',
+        // The ground and the ink move together with `pressed`, in one
+        // declaration each: a thrown chip takes the neutral selection fill and
+        // holds it under the pointer, exactly as the icon toggle does.
+        pressed === true
+          ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ' +
+            'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-selected)] ' +
+            'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-selected)]'
+          : 'bg-[color:var(--bg-surface)] ' +
+            OUTLINE_TONE[tone] +
+            ' hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] ' +
+            'disabled:hover:border-[color:var(--border-default)] disabled:hover:bg-[color:var(--bg-surface)]',
+        FOCUS_RING_CLASS,
+        className ?? '',
+      ].join(' ')}
+    />
+  )
+})
 
 /**
  * The icon square's steps. `sm`/`md`/`lg` are the control ramp — 26 / 30 / 40px
@@ -472,7 +466,7 @@ export type IconButtonSize = 'inline' | '3xs' | '2xs' | 'xs' | 'sm' | 'md' | 'lg
  * only for a candidate it can see as text.
  */
 const HIT_PAD =
-  "relative before:absolute before:left-1/2 before:top-1/2 before:size-[var(--hit-target-min)] " +
+  'relative before:absolute before:left-1/2 before:top-1/2 before:size-[var(--hit-target-min)] ' +
   "before:-translate-x-1/2 before:-translate-y-1/2 before:content-['']"
 
 type IconButtonProps = ButtonBase & {
@@ -554,42 +548,40 @@ const CIRCLE_EDGE =
 // an icon toggle and a chip toggle cannot disagree about what "thrown" looks
 // like. It used to be a second map here under the name PRESSED_TONE.
 
-export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(
-  function IconButton(
-    { className, size = 'sm', tone = 'neutral', shape = 'square', pressed, busy, children, type, ...rest },
-    ref,
-  ) {
-    return (
-      <button
-        ref={ref}
-        type={type ?? 'button'}
-        // Before the spread: an explicit `aria-pressed` from the caller still wins.
-        // Passed through as-is so `false` reaches the DOM as "false" rather than
-        // being folded into "no attribute" — see the prop's docs.
-        aria-pressed={pressed}
-        aria-busy={busy || undefined}
-        {...rest}
-        className={[
-          // Deliberately flat — no `control-raised`/`control-edge`. A
-          // borderless square has no edge to light, and a toolbar of lifted
-          // icon buttons reads as a row of tiles rather than as chrome. It
-          // keeps the `.interactive` press scale instead.
-          'interactive inline-flex items-center justify-center',
-          shape === 'circle' ? 'rounded-full' : ICON_RADIUS[size],
-          shape === 'circle' ? CIRCLE_EDGE : '',
-          ICON_BOX[size],
-          pressed === true ? pressedFill(tone) : GHOST_TONE[tone],
-          cursorClass(busy),
-          'disabled:opacity-45 aria-disabled:opacity-45',
-          FOCUS_RING_CLASS,
-          className ?? '',
-        ].join(' ')}
-      >
-        {children}
-      </button>
-    )
-  },
-)
+export const IconButton = React.forwardRef<HTMLButtonElement, IconButtonProps>(function IconButton(
+  { className, size = 'sm', tone = 'neutral', shape = 'square', pressed, busy, children, type, ...rest },
+  ref,
+) {
+  return (
+    <button
+      ref={ref}
+      type={type ?? 'button'}
+      // Before the spread: an explicit `aria-pressed` from the caller still wins.
+      // Passed through as-is so `false` reaches the DOM as "false" rather than
+      // being folded into "no attribute" — see the prop's docs.
+      aria-pressed={pressed}
+      aria-busy={busy || undefined}
+      {...rest}
+      className={[
+        // Deliberately flat — no `control-raised`/`control-edge`. A
+        // borderless square has no edge to light, and a toolbar of lifted
+        // icon buttons reads as a row of tiles rather than as chrome. It
+        // keeps the `.interactive` press scale instead.
+        'interactive inline-flex items-center justify-center',
+        shape === 'circle' ? 'rounded-full' : ICON_RADIUS[size],
+        shape === 'circle' ? CIRCLE_EDGE : '',
+        ICON_BOX[size],
+        pressed === true ? pressedFill(tone) : GHOST_TONE[tone],
+        cursorClass(busy),
+        'disabled:opacity-45 aria-disabled:opacity-45',
+        FOCUS_RING_CLASS,
+        className ?? '',
+      ].join(' ')}
+    >
+      {children}
+    </button>
+  )
+})
 
 /**
  * The window's own caption buttons — minimise, maximise/restore, close — on
@@ -647,18 +639,10 @@ export const CaptionButton = React.forwardRef<
 // variants compete with the surface they sit on and add a second radius
 // to the view, breaking the ≤ 2 radii rule. A bordered, brand-coloured
 // variant was retired here; do not reintroduce it.
-export function CloseIconButton({
-  size = 'sm',
-  ...rest
-}: Omit<IconButtonProps, 'children'>) {
+export function CloseIconButton({ size = 'sm', ...rest }: Omit<IconButtonProps, 'children'>) {
   return (
     <IconButton {...rest} size={size}>
-      <svg
-        className="icon-sm"
-        viewBox="0 0 14 14"
-        fill="none"
-        aria-hidden="true"
-      >
+      <svg className="icon-sm" viewBox="0 0 14 14" fill="none" aria-hidden="true">
         <path
           d="M3.25 3.25L10.75 10.75M10.75 3.25L3.25 10.75"
           stroke="currentColor"

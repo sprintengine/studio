@@ -2,7 +2,12 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useWorkspaceFolderStatus } from '../../hooks/useWorkspaceFolderStatus'
 import type { AgentExecution, AgentExecutionMode } from '../../types/workspace'
-import type { AgentSessionIdentity, AgentSessionSystem, TerminalSpawnMetadata, TerminalSpawnResult } from '../../../../shared/electron-api'
+import type {
+  AgentSessionIdentity,
+  AgentSessionSystem,
+  TerminalSpawnMetadata,
+  TerminalSpawnResult,
+} from '../../../../shared/electron-api'
 import { useSession } from '../../hooks/useTerminalSessions'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
@@ -10,7 +15,12 @@ import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
 import { createTerminalFitScheduler } from '../../utils/terminalFitScheduler'
 import { onTerminalFocusRequest } from '../../utils/terminalFocusRequest'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
-import { createStudioTerminal, terminalSurfaceLinkRoots, type StudioTerminal, type TerminalSurface } from '../../utils/createStudioTerminal'
+import {
+  createStudioTerminal,
+  terminalSurfaceLinkRoots,
+  type StudioTerminal,
+  type TerminalSurface,
+} from '../../utils/createStudioTerminal'
 import { useTerminalFind } from '../../hooks/useTerminalFind'
 import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
 import { TerminalFindBar } from '../terminal/TerminalFindBar'
@@ -56,7 +66,6 @@ import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { workspaceSyncClient } from '../../store/workspaceSyncClient'
 
-
 interface Props {
   workspaceId: string
   agentId: string
@@ -79,7 +88,7 @@ function resolveAgentExecutionRoot(
   execution: AgentExecution | undefined,
   storedWorktreePath: string | undefined,
   workspaceReadyPath: string | null,
-  workspaceWorktreeCwd: string | null
+  workspaceWorktreeCwd: string | null,
 ): AgentExecutionRoot {
   if (execution?.mode !== 'worktree') {
     // A non-worktree agent (manually-added conversation agent, agent whose
@@ -107,20 +116,22 @@ function resolveAgentExecutionRoot(
 
 async function resolveMemoryLaunchContext(
   workspaceRoot: string | null,
-  relativeRoot: string | null
+  relativeRoot: string | null,
 ): Promise<MemoryLaunchContext> {
   const configuredRoot = relativeRoot?.trim()
   if (!configuredRoot) return { promptSuffix: null, rootPath: undefined, relativeRoot: undefined }
 
-  const status = await window.api.memoryResolveRoot({
-    workspaceRoot,
-    relativeRoot: configuredRoot,
-  }).catch((error): MemoryRootStatus => ({
-    ok: false,
-    status: 'inaccessible',
-    relativeRoot: configuredRoot,
-    message: error instanceof Error ? error.message : 'Unable to resolve workspace knowledge.',
-  }))
+  const status = await window.api
+    .memoryResolveRoot({
+      workspaceRoot,
+      relativeRoot: configuredRoot,
+    })
+    .catch((error): MemoryRootStatus => ({
+      ok: false,
+      status: 'inaccessible',
+      relativeRoot: configuredRoot,
+      message: error instanceof Error ? error.message : 'Unable to resolve workspace knowledge.',
+    }))
 
   // Resolved through `shared/project-knowledge` for the ENV VARS the spawn
   // payload carries (`memoryRootPath` / `memoryRelativeRoot`). The sentence that
@@ -129,7 +140,12 @@ async function resolveMemoryLaunchContext(
   return knowledgeLaunchContext(status)
 }
 
-export default function TerminalView({ workspaceId, agentId, sessionId: attachedSessionId, shouldKillOnUnmount }: Props) {
+export default function TerminalView({
+  workspaceId,
+  agentId,
+  sessionId: attachedSessionId,
+  shouldKillOnUnmount,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   // The padding-free box xterm is opened into; see TerminalMount.
   const terminalMountRef = useRef<HTMLDivElement>(null)
@@ -143,9 +159,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const [isFileDragOver, setIsFileDragOver] = useState(false)
   // A failed file-link click or file drop, anchored to the pointer that raised
   // it so the error surfaces next to the cursor instead of a corner toast.
-  const [clickError, setClickError] = useState<{ message: string; x: number; y: number } | null>(
-    null,
-  )
+  const [clickError, setClickError] = useState<{ message: string; x: number; y: number } | null>(null)
   // A clicked link awaiting a destination (MC-1899). Both link kinds — file
   // paths and http(s) URLs — route here instead of firing one hard-wired action.
   const [linkMenu, setLinkMenu] = useState<{
@@ -155,12 +169,8 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     line?: number
     column?: number
   } | null>(null)
-  const agent = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
-  )
-  const workspaceName = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.name
-  )
+  const agent = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId])
+  const workspaceName = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name)
   // Freeze-the-view resume: when this terminal's session is suspended (agent
   // process killed, scrollback painted), the first keystroke relaunches it under
   // the same id with --resume and flushes the keys typed during the boot. These
@@ -169,7 +179,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   // dispose the painted term).
   const effectiveSessionId = attachedSessionId ?? agent?.cliSessionId
   const suspendedSession = useSession(
-    useCallback((s) => Boolean(effectiveSessionId) && s.sessionId === effectiveSessionId, [effectiveSessionId])
+    useCallback((s) => Boolean(effectiveSessionId) && s.sessionId === effectiveSessionId, [effectiveSessionId]),
   )
   const suspendedRef = useRef(false)
   const resumeThunkRef = useRef<(() => Promise<TerminalSpawnResult>) | null>(null)
@@ -194,20 +204,14 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     checkingFolder,
     message: folderStatusMessage,
   } = useWorkspaceFolderStatus(workspaceId)
-  const workspaceFolderPath = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.folderPath
-  )
-  const workspaceMemoryRelativeRoot = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.memory.relativeRoot
+  const workspaceFolderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath)
+  const workspaceMemoryRelativeRoot = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.memory.relativeRoot,
   )
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots)
   const memoryConfig = useMemo(
-    () => resolveProjectKnowledgeConfig(
-      workspaceFolderPath,
-      projectKnowledgeRoots,
-      workspaceMemoryRelativeRoot
-    ),
-    [workspaceFolderPath, projectKnowledgeRoots, workspaceMemoryRelativeRoot]
+    () => resolveProjectKnowledgeConfig(workspaceFolderPath, projectKnowledgeRoots, workspaceMemoryRelativeRoot),
+    [workspaceFolderPath, projectKnowledgeRoots, workspaceMemoryRelativeRoot],
   )
   const cliPermissionPreset = useWorkspaceStore((s) => {
     const workspace = s.workspaces.find((w) => w.id === workspaceId)
@@ -223,7 +227,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   // so the launch effect below re-runs at most once (null -> path).
   const workspaceWorktreeGitRoot = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
-    return ws ? resolveWorkspaceWorktree(ws)?.gitRoot ?? null : null
+    return ws ? (resolveWorkspaceWorktree(ws)?.gitRoot ?? null) : null
   })
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const mcpSettings = useWorkspaceStore((s) => s.appSettings.mcp ?? EMPTY_MCP_SETTINGS)
@@ -343,7 +347,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
 
     const sessionId = attachedSessionId ?? initialContext.agent?.cliSessionId
     if (!sessionId) return
-    const shouldResume = attachedSessionId ? true : initialContext.agent?.cliHasLaunched ?? false
+    const shouldResume = attachedSessionId ? true : (initialContext.agent?.cliHasLaunched ?? false)
     const shouldResumeCodexConversation =
       initialContext.cli === 'codex' && Boolean(initialContext.agent?.cliResumeAvailable)
     // The roots a relative path in this pane resolves against. Both are null
@@ -365,7 +369,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       currentContext().agent?.execution,
       currentContext().storedExecutionWorktreePath,
       folderReadyPath,
-      null
+      null,
     )
     let launchExecutionRoot: string | null = linkExecutionRoot.cwd ?? null
     const terminalSurface: TerminalSurface = {
@@ -504,31 +508,35 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     // Non-null for every agent surface; the guard is what keeps a surface that
     // must not resolve local paths (fleet) from ever registering this provider.
     const linkRoots = studioTerminal.linkRoots
-    const fileLinkDisposable = linkRoots ? term.registerLinkProvider(createTerminalFileLinkProvider({
-      terminal: term,
-      workspaceRoot: linkRoots.workspaceRoot,
-      // A thunk, so the correction the launch path makes below reaches the links
-      // already on screen without re-registering the provider.
-      executionRoot: () => launchExecutionRoot,
-      inspectPath,
-      // The click no longer decides anything — it opens the chooser (MC-1899).
-      onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
-        setLinkMenu({
-          target: { kind: 'file', resolvedPath, isDirectory, workspaceRoot: linkRoots.workspaceRoot },
-          x: anchor.x,
-          y: anchor.y,
-          line,
-          column,
-        })
-      },
-      onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
-      // A matched path that never became a link leaves no trace on screen, so
-      // count it. Both roots are null for a workspace with no configured folder
-      // — the case this effect deliberately runs for — and every relative path
-      // in the pane is then dropped for `no-root`, which is the one shape of
-      // "the terminal linkifies nothing" a user can actually report.
-      onDrop: terminalDiagnostics.recordFileLinkDrop,
-    })) : null
+    const fileLinkDisposable = linkRoots
+      ? term.registerLinkProvider(
+          createTerminalFileLinkProvider({
+            terminal: term,
+            workspaceRoot: linkRoots.workspaceRoot,
+            // A thunk, so the correction the launch path makes below reaches the links
+            // already on screen without re-registering the provider.
+            executionRoot: () => launchExecutionRoot,
+            inspectPath,
+            // The click no longer decides anything — it opens the chooser (MC-1899).
+            onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
+              setLinkMenu({
+                target: { kind: 'file', resolvedPath, isDirectory, workspaceRoot: linkRoots.workspaceRoot },
+                x: anchor.x,
+                y: anchor.y,
+                line,
+                column,
+              })
+            },
+            onOpenError: (message, anchor) => setClickError({ message, x: anchor.x, y: anchor.y }),
+            // A matched path that never became a link leaves no trace on screen, so
+            // count it. Both roots are null for a workspace with no configured folder
+            // — the case this effect deliberately runs for — and every relative path
+            // in the pane is then dropped for `no-root`, which is the one shape of
+            // "the terminal linkifies nothing" a user can actually report.
+            onDrop: terminalDiagnostics.recordFileLinkDrop,
+          }),
+        )
+      : null
 
     // Loaded AFTER the file-link provider on purpose: xterm resolves link
     // providers in registration order and the earlier one's links suppress the
@@ -585,11 +593,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // a genuine startup error surfaces ahead of the exit banner.
       replayGate.flushResumeSuppression()
       term.write(`\r\n\x1b[31m[Terminal exited with code ${code}]\x1b[0m\r\n`)
-      const currentSessionId = useWorkspaceStore
-        .getState()
-        .workspaces.find((w) => w.id === workspaceId)
-        ?.agents[agentId]
-        ?.cliSessionId
+      const currentSessionId = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.agents[
+        agentId
+      ]?.cliSessionId
       if (code !== 0 && !reportedTerminalFailure) {
         reportedTerminalFailure = true
         publishDiagnosticSync({
@@ -712,10 +718,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // `^[[I`; worse, a focus event while suspended would otherwise be buffered
       // as "input" and kick a resume. Drop them in that window — a live PTY still
       // receives them so the CLI's focus tracking keeps working.
-      if (
-        (data === '\x1b[I' || data === '\x1b[O') &&
-        (suspendedRef.current || resumingRef.current)
-      ) {
+      if ((data === '\x1b[I' || data === '\x1b[O') && (suspendedRef.current || resumingRef.current)) {
         return
       }
       terminalDiagnostics.recordInput(data)
@@ -814,7 +817,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       const latestAgent = latestContext.agent
       const latestCli = latestContext.cli
       if (!latestAgent || !latestCli) return
-      const terminalStatus = await window.api.terminalStatus(sessionId).catch(() => ({ processAlive: false, suspended: false }))
+      const terminalStatus = await window.api
+        .terminalStatus(sessionId)
+        .catch(() => ({ processAlive: false, suspended: false }))
       if (disposed) return
       const postStatusContext = currentContext()
       const postStatusAgent = postStatusContext.agent
@@ -829,9 +834,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // this feature — reading it directly would be a startup race (the plugin
       // catalog loads async, so an early launchTerminal could see it empty and
       // silently spawn a claude-code/zai agent fresh, losing the conversation).
-      const postStatusResumeCaps = resumeCapabilitiesForCli(postStatusCli, useWorkspaceStore.getState().pluginCatalogEntries)
-      const usesStableSessionId = postStatusAgent.cliUsesStableSessionId
-        ?? agentCliUsesStableSessionIdForResume(postStatusResumeCaps)
+      const postStatusResumeCaps = resumeCapabilitiesForCli(
+        postStatusCli,
+        useWorkspaceStore.getState().pluginCatalogEntries,
+      )
+      const usesStableSessionId =
+        postStatusAgent.cliUsesStableSessionId ?? agentCliUsesStableSessionIdForResume(postStatusResumeCaps)
       const shouldResumeClaudeConversation = usesStableSessionId && shouldResume
       const shouldResumeCli = resumeExistingPty || shouldResumeClaudeConversation || shouldResumeCodexConversation
       // What this tab should do, decided in one place (utils/terminalColdLoad.ts).
@@ -909,19 +917,16 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // value on its worktree branch and resolveWorktreeSpawnFallback below
       // already guards that agent's own cwd, so resolving here would double-call
       // pathExists.
-      const workspaceWorktreeCwd = launchAgent.execution?.mode === 'worktree'
-        ? { cwd: null, missing: false }
-        : await resolveWorkspaceTerminalCwd(
-            workspaceWorktreeGitRoot,
-            folderReadyPath,
-            window.api.pathExists,
-          )
+      const workspaceWorktreeCwd =
+        launchAgent.execution?.mode === 'worktree'
+          ? { cwd: null, missing: false }
+          : await resolveWorkspaceTerminalCwd(workspaceWorktreeGitRoot, folderReadyPath, window.api.pathExists)
       if (disposed) return
       let executionRoot = resolveAgentExecutionRoot(
         launchAgent.execution,
         launchContext.storedExecutionWorktreePath,
         folderReadyPath,
-        workspaceWorktreeCwd.cwd
+        workspaceWorktreeCwd.cwd,
       )
       if (workspaceWorktreeCwd.missing) {
         // The worktree-backed workspace's worktree is gone (merge cleanup, the
@@ -986,10 +991,12 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
         launchContext.cliPermissionPreset ? `CLI permissions: ${launchContext.cliPermissionPreset}` : null,
         `Workspace path: ${folderReadyPath ?? launchContext.savedFolderPath ?? 'default app path'}`,
         executionRoot.worktreePath ? `Worktree path: ${executionRoot.worktreePath}` : null,
-      ].filter(Boolean).join('\n')
+      ]
+        .filter(Boolean)
+        .join('\n')
       const memoryContext = await resolveMemoryLaunchContext(
         launchContext.memoryConfig?.projectRoot ?? folderReadyPath ?? null,
-        launchContext.memoryConfig?.relativeRoot ?? null
+        launchContext.memoryConfig?.relativeRoot ?? null,
       )
       if (disposed) return
       // The user's prompt, and only the user's prompt. Everything the HOST wants
@@ -1018,52 +1025,53 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       // --resume (freeze-the-view resume-on-keystroke). Mirrors the spawn payload
       // below but forces resume and sends no fresh prompt; reads the live term
       // size at call time.
-      resumeThunkRef.current = () => window.api.terminalResume(
-        sessionId,
-        term.cols,
-        term.rows,
-        executionRoot.cwd,
-        true,
-        finalCli,
-        undefined,
-        finalContext.cliRuntimes,
-        false,
-        ({
-          kind: 'agent',
-          workspaceId,
-          agentId,
-          agentName: finalAgent.name,
-          // The agent's own CLI/harness session id, used as the resume token so
-          // non-Claude CLIs (e.g. Codex) reattach the right conversation. Read
-          // live at call time — the resume thunk outlives this closure, and the
-          // harness id is learned from the hook AFTER launch, so the captured
-          // `finalAgent` may not have it yet. For Claude this coincides with the
-          // terminal id, so main's fallback keeps `--resume <id>` identical.
-          cliSessionId: currentContext().agent?.harnessSessionId ?? finalAgent.harnessSessionId,
-          executionMode: executionRoot.mode,
-          worktreeId: executionRoot.worktreeId,
-          worktreePath: executionRoot.worktreePath,
-          cliPermissionPreset: finalContext.cliPermissionPreset,
-          debugMode: finalAgent.debugMode,
-          cliModel: finalAgent.cliModel,
-          cliReasoning: finalAgent.cliReasoning,
-          memoryRootPath: memoryContext.rootPath,
-          memoryRelativeRoot: memoryContext.relativeRoot,
-          // A connector chat forwards its own connector-only MCP settings so the
-          // spawn syncs that server into the worktree .mcp.json — never the
-          // global appSettings.mcp. Ordinary agents fall through to the
-          // workspace's MCP.
-          mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
-          connectorLaunch: finalAgent.connectorMcpSettings != null,
-          spawnSkillId: finalAgent.spawnSkillId,
-          visible: true,
-          ...(agentSession ? { agentSession } : {}),
-        } as TerminalSpawnMetadata & {
-          executionMode: AgentExecutionMode
-          worktreeId?: string
-          worktreePath?: string
-        })
-      )
+      resumeThunkRef.current = () =>
+        window.api.terminalResume(
+          sessionId,
+          term.cols,
+          term.rows,
+          executionRoot.cwd,
+          true,
+          finalCli,
+          undefined,
+          finalContext.cliRuntimes,
+          false,
+          {
+            kind: 'agent',
+            workspaceId,
+            agentId,
+            agentName: finalAgent.name,
+            // The agent's own CLI/harness session id, used as the resume token so
+            // non-Claude CLIs (e.g. Codex) reattach the right conversation. Read
+            // live at call time — the resume thunk outlives this closure, and the
+            // harness id is learned from the hook AFTER launch, so the captured
+            // `finalAgent` may not have it yet. For Claude this coincides with the
+            // terminal id, so main's fallback keeps `--resume <id>` identical.
+            cliSessionId: currentContext().agent?.harnessSessionId ?? finalAgent.harnessSessionId,
+            executionMode: executionRoot.mode,
+            worktreeId: executionRoot.worktreeId,
+            worktreePath: executionRoot.worktreePath,
+            cliPermissionPreset: finalContext.cliPermissionPreset,
+            debugMode: finalAgent.debugMode,
+            cliModel: finalAgent.cliModel,
+            cliReasoning: finalAgent.cliReasoning,
+            memoryRootPath: memoryContext.rootPath,
+            memoryRelativeRoot: memoryContext.relativeRoot,
+            // A connector chat forwards its own connector-only MCP settings so the
+            // spawn syncs that server into the worktree .mcp.json — never the
+            // global appSettings.mcp. Ordinary agents fall through to the
+            // workspace's MCP.
+            mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
+            connectorLaunch: finalAgent.connectorMcpSettings != null,
+            spawnSkillId: finalAgent.spawnSkillId,
+            visible: true,
+            ...(agentSession ? { agentSession } : {}),
+          } as TerminalSpawnMetadata & {
+            executionMode: AgentExecutionMode
+            worktreeId?: string
+            worktreePath?: string
+          },
+        )
 
       if (pauseInsteadOfLaunch) {
         // Arm the freeze-the-view resume path (resumeThunkRef is set above) so
@@ -1086,66 +1094,66 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       }
 
       replayGate.beginReplayWait()
-      const spawnResult = await window.api.terminalSpawn(
-        sessionId,
-        term.cols,
-        term.rows,
-        executionRoot.cwd,
-        shouldResumeCli,
-        finalCli,
-        launchInitialPrompt,
-        finalContext.cliRuntimes,
-        false,
-        ({
-          kind: 'agent',
-          workspaceId,
-          agentId,
-          agentName: finalAgent.name,
-          // The agent's own CLI/harness session id, used as the resume token so
-          // non-Claude CLIs (e.g. Codex) reattach the right conversation. Read
-          // live at call time — the resume thunk outlives this closure, and the
-          // harness id is learned from the hook AFTER launch, so the captured
-          // `finalAgent` may not have it yet. For Claude this coincides with the
-          // terminal id, so main's fallback keeps `--resume <id>` identical.
-          cliSessionId: currentContext().agent?.harnessSessionId ?? finalAgent.harnessSessionId,
-          executionMode: executionRoot.mode,
-          worktreeId: executionRoot.worktreeId,
-          worktreePath: executionRoot.worktreePath,
-          cliPermissionPreset: finalContext.cliPermissionPreset,
-          debugMode: finalAgent.debugMode,
-          cliModel: finalAgent.cliModel,
-          cliReasoning: finalAgent.cliReasoning,
-          memoryRootPath: memoryContext.rootPath,
-          memoryRelativeRoot: memoryContext.relativeRoot,
-          // A connector chat forwards its own connector-only MCP settings so the
-          // spawn syncs that server into the worktree .mcp.json — never the
-          // global appSettings.mcp. Ordinary agents fall through to the
-          // workspace's MCP.
-          mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
-          connectorLaunch: finalAgent.connectorMcpSettings != null,
-          spawnSkillId: finalAgent.spawnSkillId,
-          visible: true,
-          ...(agentSession ? { agentSession } : {}),
-        } as TerminalSpawnMetadata & {
-          executionMode: AgentExecutionMode
-          worktreeId?: string
-          worktreePath?: string
-        })
-      ).catch((error): TerminalSpawnResult => ({
-        ok: false,
-        sessionId,
-        message: error instanceof Error ? error.message : 'Failed to start terminal.',
-        exitCode: 1,
-      }))
+      const spawnResult = await window.api
+        .terminalSpawn(
+          sessionId,
+          term.cols,
+          term.rows,
+          executionRoot.cwd,
+          shouldResumeCli,
+          finalCli,
+          launchInitialPrompt,
+          finalContext.cliRuntimes,
+          false,
+          {
+            kind: 'agent',
+            workspaceId,
+            agentId,
+            agentName: finalAgent.name,
+            // The agent's own CLI/harness session id, used as the resume token so
+            // non-Claude CLIs (e.g. Codex) reattach the right conversation. Read
+            // live at call time — the resume thunk outlives this closure, and the
+            // harness id is learned from the hook AFTER launch, so the captured
+            // `finalAgent` may not have it yet. For Claude this coincides with the
+            // terminal id, so main's fallback keeps `--resume <id>` identical.
+            cliSessionId: currentContext().agent?.harnessSessionId ?? finalAgent.harnessSessionId,
+            executionMode: executionRoot.mode,
+            worktreeId: executionRoot.worktreeId,
+            worktreePath: executionRoot.worktreePath,
+            cliPermissionPreset: finalContext.cliPermissionPreset,
+            debugMode: finalAgent.debugMode,
+            cliModel: finalAgent.cliModel,
+            cliReasoning: finalAgent.cliReasoning,
+            memoryRootPath: memoryContext.rootPath,
+            memoryRelativeRoot: memoryContext.relativeRoot,
+            // A connector chat forwards its own connector-only MCP settings so the
+            // spawn syncs that server into the worktree .mcp.json — never the
+            // global appSettings.mcp. Ordinary agents fall through to the
+            // workspace's MCP.
+            mcpSettings: finalAgent.connectorMcpSettings ?? finalContext.mcpSettings,
+            connectorLaunch: finalAgent.connectorMcpSettings != null,
+            spawnSkillId: finalAgent.spawnSkillId,
+            visible: true,
+            ...(agentSession ? { agentSession } : {}),
+          } as TerminalSpawnMetadata & {
+            executionMode: AgentExecutionMode
+            worktreeId?: string
+            worktreePath?: string
+          },
+        )
+        .catch((error): TerminalSpawnResult => ({
+          ok: false,
+          sessionId,
+          message: error instanceof Error ? error.message : 'Failed to start terminal.',
+          exitCode: 1,
+        }))
       replayGate.finishReplayWait()
       if (disposed) return
       if (!spawnResult.ok) {
         const failureContext = currentContext()
-        const currentSessionId = useWorkspaceStore
-          .getState()
-          .workspaces.find((w) => w.id === workspaceId)
-          ?.agents[agentId]
-          ?.cliSessionId
+        const currentSessionId = useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.agents[
+          agentId
+        ]?.cliSessionId
         if (attachedSessionId) return
         if (currentSessionId !== sessionId) return
         // Record that this agent's launch failed this renderer session BEFORE we
@@ -1212,9 +1220,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           // input line is ready). Never auto-sent — the user finishes it.
           if (finalAgent.cliPendingInput) {
             const pendingInput = finalAgent.cliPendingInput
-            void window.api
-              .terminalWrite(sessionId, `\x1b[200~${pendingInput}\x1b[201~`)
-              .catch(() => {})
+            void window.api.terminalWrite(sessionId, `\x1b[200~${pendingInput}\x1b[201~`).catch(() => {})
           }
         }
       }
@@ -1299,9 +1305,9 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
   const folderBlocked = Boolean(savedFolderPath && !folderReadyPath)
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
     if (
-      !hasFileDropData(event.dataTransfer)
-      && !hasCommitDropData(event.dataTransfer)
-      && !hasSkillDropData(event.dataTransfer)
+      !hasFileDropData(event.dataTransfer) &&
+      !hasCommitDropData(event.dataTransfer) &&
+      !hasSkillDropData(event.dataTransfer)
     ) {
       return
     }
@@ -1325,8 +1331,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
     focusTerminalRef.current()
 
     const dropAnchor = { x: event.clientX, y: event.clientY }
-    const showDropError = (message: string) =>
-      setClickError({ message, x: dropAnchor.x, y: dropAnchor.y })
+    const showDropError = (message: string) => setClickError({ message, x: dropAnchor.x, y: dropAnchor.y })
 
     const sessionId = attachedSessionId ?? agent?.cliSessionId
     if (!sessionId) {
@@ -1335,7 +1340,7 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
           ? 'Start this agent terminal before dropping a commit into it.'
           : isSkillDrop
             ? 'Start this agent terminal before dropping a skill into it.'
-            : 'Start this agent terminal before dropping files into it.'
+            : 'Start this agent terminal before dropping files into it.',
       )
       return
     }
@@ -1446,7 +1451,8 @@ export default function TerminalView({ workspaceId, agentId, sessionId: attached
       ) : null}
       {folderBlocked && folderMissing ? (
         <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-meta text-[color:var(--text-muted)]">
-          {folderStatusMessage ?? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'}
+          {folderStatusMessage ??
+            'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'}
         </div>
       ) : null}
     </div>

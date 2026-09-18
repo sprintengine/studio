@@ -34,10 +34,7 @@ import {
 
 const MISSING_API_MESSAGE = 'Skills need an app restart before they are available.'
 
-type SkillFileRead =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; content: string }
+type SkillFileRead = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; content: string }
 
 export function SkillReader({
   source,
@@ -81,13 +78,7 @@ export function SkillReader({
           {!active ? (
             <p className="text-body text-[color:var(--text-subtle)]">This skill lists no files.</p>
           ) : (
-            <SkillDocument
-              file={active}
-              read={read}
-              files={files}
-              onOpenFile={setActivePath}
-              onRetry={retry}
-            />
+            <SkillDocument file={active} read={read} files={files} onOpenFile={setActivePath} onRetry={retry} />
           )}
         </div>
       </div>
@@ -214,9 +205,7 @@ export function SkillDocument({
   const body = stripSkillFrontmatter(read.content).trim()
   if (!body) {
     return (
-      <p className="text-body text-[color:var(--text-subtle)]">
-        {`${file.path} carries frontmatter and no body.`}
-      </p>
+      <p className="text-body text-[color:var(--text-subtle)]">{`${file.path} carries frontmatter and no body.`}</p>
     )
   }
   return <>{renderMarkdown(body, { density: 'compact', links })}</>
@@ -227,11 +216,7 @@ export function SkillDocument({
  * skill stays open — so walking SKILL.md → LOGIC.md → SKILL.md costs one read
  * per file, and opening a skill never reads more than the file being shown.
  */
-function useSkillFile(
-  sourceId: string,
-  skillId: string,
-  path: string,
-): { read: SkillFileRead; retry: () => void } {
+function useSkillFile(sourceId: string, skillId: string, path: string): { read: SkillFileRead; retry: () => void } {
   const [read, setRead] = useState<SkillFileRead>({ status: 'loading' })
   const [nonce, setNonce] = useState(0)
   // Keyed by source AND skill, not by path alone: two skills both have a

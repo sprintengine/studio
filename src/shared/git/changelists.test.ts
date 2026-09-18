@@ -78,7 +78,10 @@ function pathsOf(lists: Changelist[], id: string): string[] {
   // Setting active is exclusive, and naming a list that does not exist is a
   // no-op rather than a state with nothing active.
   const moved = setActiveChangelist(none, 'a')
-  assert.deepEqual(moved.filter((list) => list.active).map((list) => list.id), ['a'])
+  assert.deepEqual(
+    moved.filter((list) => list.active).map((list) => list.id),
+    ['a'],
+  )
   assert.deepEqual(setActiveChangelist(moved, 'ghost'), moved)
 }
 
@@ -158,7 +161,10 @@ function pathsOf(lists: Changelist[], id: string): string[] {
   // A clean tree empties every list without deleting any of them.
   const clean = reconcileChangelists(thirdRead, [])
   assert.deepEqual(ids(clean), [DEFAULT_CHANGELIST_ID, 'feature'])
-  assert.deepEqual(clean.flatMap((list) => list.paths), [])
+  assert.deepEqual(
+    clean.flatMap((list) => list.paths),
+    [],
+  )
 }
 
 // --- Rename, and the order the panel renders ---------------------------------
@@ -176,8 +182,15 @@ function pathsOf(lists: Changelist[], id: string): string[] {
 
   const renamed = renameChangelist(lists, 'a', { name: '  Skills catalogue paging  ', comment: '' })
   assert.equal(renamed.find((list) => list.id === 'a')?.name, 'Skills catalogue paging')
-  assert.equal(renamed.find((list) => list.id === 'a')?.comment, undefined, 'an emptied comment is dropped, not stored blank')
-  assert.equal(renameChangelist(renamed, 'a', { name: '   ' }).find((list) => list.id === 'a')?.name, 'Skills catalogue paging')
+  assert.equal(
+    renamed.find((list) => list.id === 'a')?.comment,
+    undefined,
+    'an emptied comment is dropped, not stored blank',
+  )
+  assert.equal(
+    renameChangelist(renamed, 'a', { name: '   ' }).find((list) => list.id === 'a')?.name,
+    'Skills catalogue paging',
+  )
 
   // The default is renameable — the id, not the name, is what paths key to.
   const renamedDefault = renameChangelist(renamed, DEFAULT_CHANGELIST_ID, { name: 'Everything else' })
@@ -292,7 +305,11 @@ function seeded(): Changelist[] {
   const fourth = recordEdit(third, DEFAULT_CHANGELIST_ID, FILE, [
     { oldStart: 7, oldLines: 2, newStart: 7, newLines: 2 },
   ])
-  assert.deepEqual(spansIn(fourth, NADIA_ID), [{ start: 9, lines: 1 }], 'the home edit cuts the guest span it overwrote')
+  assert.deepEqual(
+    spansIn(fourth, NADIA_ID),
+    [{ start: 9, lines: 1 }],
+    'the home edit cuts the guest span it overwrote',
+  )
   assert.equal(fourth[0].spans, undefined, 'and the home writes no span for its own file')
   assert.equal(hunkOwnerId(fourth, FILE, { newStart: 7, newLines: 2 }), DEFAULT_CHANGELIST_ID)
 
@@ -369,13 +386,22 @@ function seeded(): Changelist[] {
       name: 'Nadia',
       paths: [],
       active: false,
-      spans: { [FILE]: [{ start: 3, lines: 0 }, { start: 5, lines: 0 }, { start: 8, lines: 0 }] },
+      spans: {
+        [FILE]: [
+          { start: 3, lines: 0 },
+          { start: 5, lines: 0 },
+          { start: 8, lines: 0 },
+        ],
+      },
     },
   ])
   const cutAround = recordEdit(anchored, DEFAULT_CHANGELIST_ID, FILE, [
     { oldStart: 4, oldLines: 3, newStart: 3, newLines: 0 },
   ])
-  assert.deepEqual(spansIn(cutAround, NADIA_ID), [{ start: 3, lines: 0 }, { start: 5, lines: 0 }])
+  assert.deepEqual(spansIn(cutAround, NADIA_ID), [
+    { start: 3, lines: 0 },
+    { start: 5, lines: 0 },
+  ])
 
   // Two lists cannot hold the same deletion point either.
   const twice = normalizeChangelists([
@@ -396,10 +422,19 @@ function seeded(): Changelist[] {
       name: 'Nadia',
       paths: [],
       active: false,
-      spans: { [FILE]: [{ start: 10, lines: 3 }, { start: 11, lines: 0 }, { start: 13, lines: 0 }] },
+      spans: {
+        [FILE]: [
+          { start: 10, lines: 3 },
+          { start: 11, lines: 0 },
+          { start: 13, lines: 0 },
+        ],
+      },
     },
   ])
-  assert.deepEqual(spansIn(swallowed, NADIA_ID), [{ start: 10, lines: 3 }, { start: 13, lines: 0 }])
+  assert.deepEqual(spansIn(swallowed, NADIA_ID), [
+    { start: 10, lines: 3 },
+    { start: 13, lines: 0 },
+  ])
   assert.equal(hunkOwnerId(swallowed, FILE, { newStart: 11, newLines: 0 }), NADIA_ID)
 }
 
@@ -455,9 +490,25 @@ function seeded(): Changelist[] {
       name: 'Nadia',
       paths: [],
       active: false,
-      spans: { [FILE]: [{ start: 10, lines: 3 }, { start: 30, lines: 2 }] },
+      spans: {
+        [FILE]: [
+          { start: 10, lines: 3 },
+          { start: 30, lines: 2 },
+        ],
+      },
     },
-    { id: RAVI_ID, name: 'Ravi', paths: [], active: false, spans: { [FILE]: [{ start: 13, lines: 1 }, { start: 32, lines: 2 }] } },
+    {
+      id: RAVI_ID,
+      name: 'Ravi',
+      paths: [],
+      active: false,
+      spans: {
+        [FILE]: [
+          { start: 13, lines: 1 },
+          { start: 32, lines: 2 },
+        ],
+      },
+    },
   ])
 
   assert.equal(hunkOwnerId(lists, FILE, { newStart: 10, newLines: 5 }), NADIA_ID, 'three lines beat one')
@@ -467,9 +518,17 @@ function seeded(): Changelist[] {
     NADIA_ID,
     'a tie goes to the list earlier in the array, so the row does not flicker between two groups',
   )
-  assert.equal(hunkOwnerId(lists, FILE, { newStart: 50, newLines: 2 }), DEFAULT_CHANGELIST_ID, 'the remainder is the home list')
+  assert.equal(
+    hunkOwnerId(lists, FILE, { newStart: 50, newLines: 2 }),
+    DEFAULT_CHANGELIST_ID,
+    'the remainder is the home list',
+  )
   assert.equal(hunkOwnerId(lists, 'src/other.ts', { newStart: 1, newLines: 9 }), DEFAULT_CHANGELIST_ID)
-  assert.equal(hunkOwnerId(lists, FILE, { newStart: 11, newLines: 0 }), NADIA_ID, 'a deletion inside a run belongs to that run')
+  assert.equal(
+    hunkOwnerId(lists, FILE, { newStart: 11, newLines: 0 }),
+    NADIA_ID,
+    'a deletion inside a run belongs to that run',
+  )
 
   // A whole line always beats a deletion point, whatever the count.
   const mixed = normalizeChangelists([
@@ -480,7 +539,12 @@ function seeded(): Changelist[] {
       name: 'Ravi',
       paths: [],
       active: false,
-      spans: { [FILE]: [{ start: 6, lines: 0 }, { start: 7, lines: 0 }] },
+      spans: {
+        [FILE]: [
+          { start: 6, lines: 0 },
+          { start: 7, lines: 0 },
+        ],
+      },
     },
   ])
   assert.equal(hunkOwnerId(mixed, FILE, { newStart: 5, newLines: 4 }), NADIA_ID)
@@ -490,7 +554,13 @@ function seeded(): Changelist[] {
 // --- A span is a guest: no home, or its own home, and it is not a span -------
 {
   const repaired = normalizeChangelists([
-    { id: DEFAULT_CHANGELIST_ID, name: 'Changes', paths: [FILE], active: true, spans: { [FILE]: [{ start: 1, lines: 2 }] } },
+    {
+      id: DEFAULT_CHANGELIST_ID,
+      name: 'Changes',
+      paths: [FILE],
+      active: true,
+      spans: { [FILE]: [{ start: 1, lines: 2 }] },
+    },
     {
       id: NADIA_ID,
       name: 'Nadia',
@@ -508,14 +578,32 @@ function seeded(): Changelist[] {
   ])
   assert.equal(repaired[0].spans, undefined, 'a list does not span its own file')
   assert.deepEqual(Object.keys(repaired[1].spans ?? {}), [FILE], 'no home, own home, and malformed all go')
-  assert.deepEqual(spansIn(repaired, NADIA_ID), [{ start: 4, lines: 2 }, { start: 8, lines: 1 }], 'and two spellings are one path')
+  assert.deepEqual(
+    spansIn(repaired, NADIA_ID),
+    [
+      { start: 4, lines: 2 },
+      { start: 8, lines: 1 },
+    ],
+    'and two spellings are one path',
+  )
 
   // Two lists cannot own one line: the earlier list keeps it, exactly as it
   // does for whole-file membership.
   const overlapping = normalizeChangelists([
     { id: DEFAULT_CHANGELIST_ID, name: 'Changes', paths: [FILE], active: true },
     { id: NADIA_ID, name: 'Nadia', paths: [], active: false, spans: { [FILE]: [{ start: 5, lines: 4 }] } },
-    { id: RAVI_ID, name: 'Ravi', paths: [], active: false, spans: { [FILE]: [{ start: 6, lines: 4 }, { start: 6, lines: 0 }] } },
+    {
+      id: RAVI_ID,
+      name: 'Ravi',
+      paths: [],
+      active: false,
+      spans: {
+        [FILE]: [
+          { start: 6, lines: 4 },
+          { start: 6, lines: 0 },
+        ],
+      },
+    },
   ])
   assert.deepEqual(spansIn(overlapping, NADIA_ID), [{ start: 5, lines: 4 }])
   assert.deepEqual(spansIn(overlapping, RAVI_ID), [{ start: 9, lines: 1 }])
@@ -529,12 +617,9 @@ function seeded(): Changelist[] {
 
 // --- The rows a list draws ---------------------------------------------------
 {
-  const lists = recordEdit(
-    moveChangelistPaths(seeded(), NADIA_ID, ['src/mine.ts']),
-    NADIA_ID,
-    FILE,
-    [{ oldStart: 5, oldLines: 1, newStart: 5, newLines: 2 }],
-  )
+  const lists = recordEdit(moveChangelistPaths(seeded(), NADIA_ID, ['src/mine.ts']), NADIA_ID, FILE, [
+    { oldStart: 5, oldLines: 1, newStart: 5, newLines: 2 },
+  ])
   const nadia = lists.find((list) => list.id === NADIA_ID) as Changelist
   assert.deepEqual(pathsOfChangelist(nadia), [FILE, 'src/mine.ts'], 'a list draws its whole files and its pieces')
   assert.equal(isPartialInList(nadia, FILE), true)
@@ -560,12 +645,9 @@ function seeded(): Changelist[] {
 
   // Deleting the HOME moves the home to the default, and a span the default was
   // holding on that file becomes a span on its own file — dropped, not kept.
-  const guestIsDefault = recordEdit(
-    moveChangelistPaths(seeded(), NADIA_ID, [FILE]),
-    DEFAULT_CHANGELIST_ID,
-    FILE,
-    [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1 }],
-  )
+  const guestIsDefault = recordEdit(moveChangelistPaths(seeded(), NADIA_ID, [FILE]), DEFAULT_CHANGELIST_ID, FILE, [
+    { oldStart: 2, oldLines: 1, newStart: 2, newLines: 1 },
+  ])
   assert.deepEqual(spansIn(guestIsDefault, DEFAULT_CHANGELIST_ID), [{ start: 2, lines: 1 }])
   const homeGone = deleteChangelist(guestIsDefault, NADIA_ID)
   assert.deepEqual(pathsOf(homeGone, DEFAULT_CHANGELIST_ID), [FILE])
@@ -586,7 +668,11 @@ function seeded(): Changelist[] {
   // The hunks moved on — Nadia's lines are no longer part of any difference.
   const stale = reconcileChangelists(base, [FILE], { [FILE]: [{ newStart: 40, newLines: 2 }] })
   assert.deepEqual(spansIn(stale, NADIA_ID), [])
-  assert.equal(stale.find((list) => list.id === NADIA_ID)?.spans, undefined, 'and the empty record is dropped, not left as {}')
+  assert.equal(
+    stale.find((list) => list.id === NADIA_ID)?.spans,
+    undefined,
+    'and the empty record is dropped, not left as {}',
+  )
 
   const live = reconcileChangelists(base, [FILE], { [FILE]: [{ newStart: 6, newLines: 1 }] })
   assert.deepEqual(spansIn(live, NADIA_ID), [{ start: 5, lines: 3 }], 'a span that overlaps a hunk stays whole')
@@ -599,7 +685,11 @@ function seeded(): Changelist[] {
   // An agent that exited and holds nothing is deleted; one that still holds
   // something is not.
   const exited = base.map((list) => (list.id === NADIA_ID ? { ...list, owner: { ...NADIA, exited: true } } : list))
-  assert.deepEqual(ids(reconcileChangelists(exited, [FILE])), [DEFAULT_CHANGELIST_ID, NADIA_ID, RAVI_ID], 'it still owns hunks')
+  assert.deepEqual(
+    ids(reconcileChangelists(exited, [FILE])),
+    [DEFAULT_CHANGELIST_ID, NADIA_ID, RAVI_ID],
+    'it still owns hunks',
+  )
   assert.deepEqual(
     ids(reconcileChangelists(exited, [FILE], { [FILE]: [{ newStart: 40, newLines: 2 }] })),
     [DEFAULT_CHANGELIST_ID, RAVI_ID],
@@ -638,13 +728,15 @@ function seeded(): Changelist[] {
     createChangelist(createDefaultChangelists(), { id: 'feature', name: 'Feature' }),
     'feature',
   )
-  assert.deepEqual(pathsOf(reconcileChangelists(featureActive, ['src/new.ts', '.claude/settings.local.json']), 'feature'), [
-    '.claude/settings.local.json',
-    'src/new.ts',
-  ])
+  assert.deepEqual(
+    pathsOf(reconcileChangelists(featureActive, ['src/new.ts', '.claude/settings.local.json']), 'feature'),
+    ['.claude/settings.local.json', 'src/new.ts'],
+  )
   // The hook's explicit claim still puts a hidden file the agent edited in its list.
   const claimed = recordEdit(nadiaActive, NADIA_ID, '.github/workflows/ci.yml', [])
-  assert.deepEqual(pathsOf(reconcileChangelists(claimed, ['.github/workflows/ci.yml']), NADIA_ID), ['.github/workflows/ci.yml'])
+  assert.deepEqual(pathsOf(reconcileChangelists(claimed, ['.github/workflows/ci.yml']), NADIA_ID), [
+    '.github/workflows/ci.yml',
+  ])
 }
 
 console.log('changelists model ok')

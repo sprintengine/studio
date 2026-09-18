@@ -10,10 +10,7 @@ export type TerminalDiagnosticsWarning =
   // Runtime `visible === true` but the terminal's workspace is not the active
   // workspace of any window: a retained/hidden workspace is keeping a mounted
   // xterm live. This is the cost the panel exists to surface.
-  | 'hidden-but-visible'
-  | 'large-replay'
-  | 'long-idle'
-  | 'stale'
+  'hidden-but-visible' | 'large-replay' | 'long-idle' | 'stale'
 
 export type TerminalDiagnosticsRow = {
   sessionId: string
@@ -87,27 +84,19 @@ export type DiagnosticsAggregationInput = {
 // activity — started, typed, or output. Deliberately excludes lastVisibleAt (in
 // lockstep with main) so merely viewing a workspace never resets the stale clock.
 function terminalLastSeenAt(session: TerminalSessionSnapshot): number {
-  return Math.max(
-    session.startedAt,
-    session.lastInputAt ?? 0,
-    session.lastOutputAt ?? 0
-  )
+  return Math.max(session.startedAt, session.lastInputAt ?? 0, session.lastOutputAt ?? 0)
 }
 
 function computeWarnings(
   session: TerminalSessionSnapshot,
   hiddenButVisible: boolean,
   lastSeenAt: number,
-  now: number
+  now: number,
 ): TerminalDiagnosticsWarning[] {
   const warnings: TerminalDiagnosticsWarning[] = []
   if (hiddenButVisible) warnings.push('hidden-but-visible')
   if (session.retainedOutputBytes > LARGE_REPLAY_WARNING_BYTES) warnings.push('large-replay')
-  if (
-    session.processAlive &&
-    session.activity.kind === 'idle' &&
-    now - session.startedAt > LONG_IDLE_WARNING_MS
-  ) {
+  if (session.processAlive && session.activity.kind === 'idle' && now - session.startedAt > LONG_IDLE_WARNING_MS) {
     warnings.push('long-idle')
   }
   if (now - lastSeenAt > STALE_LAST_SEEN_WARNING_MS) warnings.push('stale')
@@ -116,7 +105,7 @@ function computeWarnings(
 
 export function buildTerminalDiagnosticsRow(
   session: TerminalSessionSnapshot,
-  input: { activeWorkspaceIds: ReadonlySet<string>; workspaceNames?: ReadonlyMap<string, string>; now: number }
+  input: { activeWorkspaceIds: ReadonlySet<string>; workspaceNames?: ReadonlyMap<string, string>; now: number },
 ): TerminalDiagnosticsRow {
   const workspaceId = session.workspaceId ?? null
   // A terminal with no workspace id cannot be attributed to a hidden workspace,
@@ -127,7 +116,7 @@ export function buildTerminalDiagnosticsRow(
   return {
     sessionId: session.sessionId,
     workspaceId,
-    workspaceName: workspaceId ? input.workspaceNames?.get(workspaceId) ?? null : null,
+    workspaceName: workspaceId ? (input.workspaceNames?.get(workspaceId) ?? null) : null,
     agentId: session.agentId ?? null,
     terminalId: session.terminalId ?? null,
     kind: session.kind,
@@ -155,7 +144,7 @@ export function aggregateDiagnostics(input: DiagnosticsAggregationInput): Diagno
       activeWorkspaceIds: input.activeWorkspaceIds,
       workspaceNames: input.workspaceNames,
       now,
-    })
+    }),
   )
 
   const rollupById = new Map<string, WorkspaceDiagnosticsRollup>()
@@ -186,10 +175,7 @@ export function aggregateDiagnostics(input: DiagnosticsAggregationInput): Diagno
     if (row.visible) rollup.visibleTerminalCount += 1
     if (row.hiddenButVisible) rollup.hiddenButVisibleCount += 1
     rollup.totalRetainedReplayBytes += row.retainedOutputBytes
-    rollup.largestRetainedReplayBytes = Math.max(
-      rollup.largestRetainedReplayBytes,
-      row.retainedOutputBytes
-    )
+    rollup.largestRetainedReplayBytes = Math.max(rollup.largestRetainedReplayBytes, row.retainedOutputBytes)
     if (row.activity.kind === 'working') rollup.activeCount += 1
     else if (row.activity.kind === 'idle') rollup.idleCount += 1
     else if (row.activity.kind === 'failed') rollup.failedCount += 1
@@ -206,7 +192,7 @@ export function aggregateDiagnostics(input: DiagnosticsAggregationInput): Diagno
   const workspaces = [...rollupById.values()].sort(
     (a, b) =>
       b.totalRetainedReplayBytes - a.totalRetainedReplayBytes ||
-      (a.workspaceName ?? a.workspaceId).localeCompare(b.workspaceName ?? b.workspaceId)
+      (a.workspaceName ?? a.workspaceId).localeCompare(b.workspaceName ?? b.workspaceId),
   )
 
   const totals = rows.reduce(
@@ -228,7 +214,7 @@ export function aggregateDiagnostics(input: DiagnosticsAggregationInput): Diagno
       totalRetainedReplayBytes: 0,
       largestRetainedReplayBytes: 0,
       warningCount: 0,
-    }
+    },
   )
 
   return { rows, workspaces, totals }
@@ -240,7 +226,7 @@ export type TerminalDiagnosticsSortKey = 'retained' | 'activity' | 'workspace' |
 // retained replay first — the brief's primary triage axis.
 export function sortTerminalDiagnosticsRows(
   rows: readonly TerminalDiagnosticsRow[],
-  key: TerminalDiagnosticsSortKey
+  key: TerminalDiagnosticsSortKey,
 ): TerminalDiagnosticsRow[] {
   const sorted = [...rows]
   switch (key) {
@@ -255,12 +241,14 @@ export function sortTerminalDiagnosticsRows(
       break
     case 'activity': {
       const rank: Record<SessionActivity['kind'], number> = { working: 0, idle: 1, failed: 2, exited: 3 }
-      sorted.sort((a, b) => rank[a.activity.kind] - rank[b.activity.kind] || b.retainedOutputBytes - a.retainedOutputBytes)
+      sorted.sort(
+        (a, b) => rank[a.activity.kind] - rank[b.activity.kind] || b.retainedOutputBytes - a.retainedOutputBytes,
+      )
       break
     }
     case 'workspace':
       sorted.sort((a, b) =>
-        (a.workspaceName ?? a.workspaceId ?? '').localeCompare(b.workspaceName ?? b.workspaceId ?? '')
+        (a.workspaceName ?? a.workspaceId ?? '').localeCompare(b.workspaceName ?? b.workspaceId ?? ''),
       )
       break
   }

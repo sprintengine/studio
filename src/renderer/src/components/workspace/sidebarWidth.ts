@@ -24,9 +24,7 @@ export function clampSidebarWidth(width: number): number {
   return Math.min(SIDEBAR_MAX_WIDTH, Math.max(SIDEBAR_MIN_WIDTH, Math.round(width)))
 }
 
-export type SidebarResizeOutcome =
-  | { kind: 'collapse' }
-  | { kind: 'width'; width: number }
+export type SidebarResizeOutcome = { kind: 'collapse' } | { kind: 'width'; width: number }
 
 // Given a raw dragged width, decide whether the sidebar should collapse or take
 // a clamped expanded width. Used on every pointer-move during a resize drag.

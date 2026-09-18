@@ -261,7 +261,9 @@ async function toBacklogItemSnapshot(
   return {
     itemId: record.id,
     relativePath: record.source.relativePath,
-    title: body ? extractBacklogTitle(body, record.source.relativePath) : backlogTitleFromPath(record.source.relativePath),
+    title: body
+      ? extractBacklogTitle(body, record.source.relativePath)
+      : backlogTitleFromPath(record.source.relativePath),
     ...(body ? { excerpt: extractExcerpt(body) } : {}),
     status,
     ...(type ? { type } : {}),
@@ -307,10 +309,7 @@ const statusOrder: Record<MobileControlBacklogItemSnapshot['status'], number> = 
   archived: 5,
 }
 
-function compareBacklogItems(
-  left: MobileControlBacklogItemSnapshot,
-  right: MobileControlBacklogItemSnapshot,
-): number {
+function compareBacklogItems(left: MobileControlBacklogItemSnapshot, right: MobileControlBacklogItemSnapshot): number {
   const statusDelta = statusOrder[left.status] - statusOrder[right.status]
   if (statusDelta !== 0) return statusDelta
   const leftTime = left.updatedAt ? Date.parse(left.updatedAt) : 0

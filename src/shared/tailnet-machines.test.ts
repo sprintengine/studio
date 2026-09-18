@@ -35,12 +35,7 @@ const HOUR = 60 * MINUTE
 const DAY = 24 * HOUR
 const WEEK = 7 * DAY
 
-const STRUCTURED: TailnetScope[] = [
-  'workspace:read',
-  'workspace:operate',
-  'backlog:read',
-  'backlog:operate',
-]
+const STRUCTURED: TailnetScope[] = ['workspace:read', 'workspace:operate', 'backlog:read', 'backlog:operate']
 
 function peer(over: Partial<TailnetPeer> & { id: string; hostName: string }): TailnetPeer {
   return {
@@ -125,9 +120,7 @@ check('one machine known three ways is one row carrying all three', () => {
 check('a device with no resolved node falls back to who granted it', () => {
   const rows = mergeMachines({
     peers: [peer({ id: 'n-book', hostName: 'laptop', dnsName: 'laptop.tail1234.ts.net' })],
-    devices: [
-      device({ id: 'tnd_2', lastPeerNode: null, origin: { kind: 'reverse', by: 'laptop.tail1234.ts.net' } }),
-    ],
+    devices: [device({ id: 'tnd_2', lastPeerNode: null, origin: { kind: 'reverse', by: 'laptop.tail1234.ts.net' } })],
     connections: [],
     now: NOW,
   })
@@ -142,10 +135,7 @@ check('a pairing whose machine the scan never saw still gets a row', () => {
     connections: [connection({ id: 'tnc_3', machineName: 'server.tail1234.ts.net' })],
     now: NOW,
   })
-  assert.deepEqual(
-    rows.map((row) => row.name).sort(),
-    ['a phone', 'server.tail1234.ts.net']
-  )
+  assert.deepEqual(rows.map((row) => row.name).sort(), ['a phone', 'server.tail1234.ts.net'])
   // Nothing pretends to know a machine Tailscale never mentioned.
   assert.equal(byKey(rows, 'device:tnd_3').online, false)
   assert.equal(byKey(rows, 'device:tnd_3').os, null)
@@ -195,7 +185,9 @@ check('this machine appears even with Tailscale down', () => {
 
 check('last seen prefers the device, then the connection, then Tailscale', () => {
   const base = {
-    peers: [peer({ id: 'n', hostName: 'box', dnsName: 'box.tail1234.ts.net', online: false, lastSeenAt: ago(3 * WEEK) })],
+    peers: [
+      peer({ id: 'n', hostName: 'box', dnsName: 'box.tail1234.ts.net', online: false, lastSeenAt: ago(3 * WEEK) }),
+    ],
     connections: [connection({ id: 'tnc', machineName: 'box.tail1234.ts.net', lastConnectedAt: ago(2 * DAY) })],
     now: NOW,
   }
@@ -259,7 +251,7 @@ check('self, then live paired, then asleep by last seen, then pairable, then the
   })
   assert.deepEqual(
     rows.map((row) => row.name),
-    ['this-desk', 'live-mini', 'recent-box', 'old-book', 'abe-online', 'zed-offline']
+    ['this-desk', 'live-mini', 'recent-box', 'old-book', 'abe-online', 'zed-offline'],
   )
 })
 
@@ -276,7 +268,7 @@ check('names break every tie, so a scan that changed nothing reshuffles nothing'
   })
   assert.deepEqual(
     rows.map((row) => row.name),
-    ['alpha', 'bravo', 'charlie']
+    ['alpha', 'bravo', 'charlie'],
   )
 })
 
@@ -295,7 +287,7 @@ check('an asleep machine with no last seen at all sorts after ones that have one
   })
   assert.deepEqual(
     rows.map((row) => row.name),
-    ['aa-known', 'zz-never']
+    ['aa-known', 'zz-never'],
   )
 })
 
@@ -343,7 +335,13 @@ check('nothing to say produces nothing, not invented copy', () => {
 
 check('a Date is accepted wherever epoch ms is', () => {
   assert.equal(relativeSeen(ago(3 * HOUR), new Date(NOW)).short, '3h')
-  const rows = mergeMachines({ self: { name: 'desk', os: null }, peers: [], devices: [], connections: [], now: new Date(NOW) })
+  const rows = mergeMachines({
+    self: { name: 'desk', os: null },
+    peers: [],
+    devices: [],
+    connections: [],
+    now: new Date(NOW),
+  })
   assert.equal(rows[0].isSelf, true)
 })
 

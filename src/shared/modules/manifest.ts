@@ -68,13 +68,7 @@ export const CANVAS_MODULE_DEFAULT_ENABLED = true
 export const LIVE_ENABLED_MODULE_IDS: readonly string[] = ['automations']
 
 export type CapabilityCategory =
-  | 'core'
-  | 'dev-tools'
-  | 'vcs'
-  | 'orchestration'
-  | 'insight'
-  | 'connectivity'
-  | (string & {})
+  'core' | 'dev-tools' | 'vcs' | 'orchestration' | 'insight' | 'connectivity' | (string & {})
 
 // Where a module came from. Absent means 'bundled' (first-party, compiled in).
 // 'third-party' modules are discovered from ~/.multicode/modules/, carry declared

@@ -29,7 +29,12 @@ const STATUS_JSON = JSON.stringify({
   BackendState: 'Running',
   // 100.64.0.0/10 — an address outside that range is not a tailnet address and
   // the peer parser drops the node, which is exactly what it should do.
-  Self: { ID: 'self', DNSName: 'studio-mac.tail1a2b.ts.net.', HostName: 'studio-mac', TailscaleIPs: ['100.101.102.103'] },
+  Self: {
+    ID: 'self',
+    DNSName: 'studio-mac.tail1a2b.ts.net.',
+    HostName: 'studio-mac',
+    TailscaleIPs: ['100.101.102.103'],
+  },
   Peer: {},
 })
 
@@ -62,15 +67,15 @@ check('status lists what the daemon serves, sorted by local port', async () => {
       new Map([
         [10000, 5173],
         [8443, 3000],
-      ])
-    )
+      ]),
+    ),
   )
   const status = await service.readStatus()
   assert.equal(status.available, true)
   assert.equal(status.dnsName, 'studio-mac.tail1a2b.ts.net')
   assert.deepEqual(
     status.shares.map((share) => share.localPort),
-    [3000, 5173]
+    [3000, 5173],
   )
   assert.equal(status.shares[0]?.url, 'https://studio-mac.tail1a2b.ts.net:8443/')
 })

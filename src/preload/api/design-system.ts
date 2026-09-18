@@ -3,10 +3,7 @@ import type { ElectronApi } from '../../shared/electron-api'
 import type { DesignSystemBundleLintRunResult } from '../../shared/design-system/bundle-lint-run'
 import type { DesignSystemScaffoldResult } from '../../shared/design-system/bundle-scaffold'
 import type { DesignSystemBundleReadResult } from '../../shared/design-system/bundle-view'
-import type {
-  DesignSystemLibraryListResult,
-  DesignSystemRegisterResult,
-} from '../../shared/design-system/library'
+import type { DesignSystemLibraryListResult, DesignSystemRegisterResult } from '../../shared/design-system/library'
 import type { DesignSystemArrivalsResult } from '../../shared/design-system/arrivals'
 import type {
   DesignSystemAttachResult,
@@ -37,8 +34,7 @@ export const designSystemApi = {
   attachDesignSystemBundle: (
     source: DesignSystemAttachSource,
     workspaceRoot: string,
-  ): Promise<DesignSystemAttachResult> =>
-    ipcRenderer.invoke('design-system:attach', source, workspaceRoot),
+  ): Promise<DesignSystemAttachResult> => ipcRenderer.invoke('design-system:attach', source, workspaceRoot),
   detachDesignSystemBundle: (workspaceRoot: string): Promise<DesignSystemDetachResult> =>
     ipcRenderer.invoke('design-system:detach', workspaceRoot),
 } satisfies Pick<

@@ -25,7 +25,10 @@ function main(): void {
   for (const form of forms) {
     assert.equal(canonicalRepositoryKey(form), 'github.com/acme/multicode', form)
   }
-  assert.equal(canonicalRepositoryKey('ssh://git@gitlab.example.com:2222/team/sub/repo.git'), 'gitlab.example.com/team/sub/repo')
+  assert.equal(
+    canonicalRepositoryKey('ssh://git@gitlab.example.com:2222/team/sub/repo.git'),
+    'gitlab.example.com/team/sub/repo',
+  )
   // A path with no owner segment is not host/owner/name; it stays a stable string.
   assert.equal(canonicalRepositoryKey('https://example.com/repo.git'), 'https://example.com/repo')
   // A local path remote is still a key — two clones of one bare repo on disk.
@@ -43,7 +46,11 @@ function main(): void {
   const tokened = repositoryIdentityFromRemote('https://me:ghp_secret@github.com/acme/multicode.git')
   assert.equal(tokened?.remoteUrl, 'https://github.com/acme/multicode.git')
   assert.equal(tokened?.canonicalKey, 'github.com/acme/multicode')
-  assert.equal(stripRemoteCredentials('git@github.com:acme/multicode.git'), 'git@github.com:acme/multicode.git', 'scp-style user is the ssh login, not a secret')
+  assert.equal(
+    stripRemoteCredentials('git@github.com:acme/multicode.git'),
+    'git@github.com:acme/multicode.git',
+    'scp-style user is the ssh login, not a secret',
+  )
 
   // `git remote -v` parsing: fetch URLs only, one per remote.
   const remotes = parseRemoteFetchUrls(
@@ -53,15 +60,23 @@ function main(): void {
       'upstream\thttps://github.com/acme/multicode.git (fetch)',
       'upstream\thttps://github.com/acme/multicode.git (push)',
       '',
-    ].join('\n')
+    ].join('\n'),
   )
   assert.deepEqual([...remotes.keys()], ['origin', 'upstream'])
   // upstream beats origin: a fork's identity is the repository it forked.
-  assert.deepEqual(pickPrimaryRemote(remotes), { remoteName: 'upstream', remoteUrl: 'https://github.com/acme/multicode.git' })
+  assert.deepEqual(pickPrimaryRemote(remotes), {
+    remoteName: 'upstream',
+    remoteUrl: 'https://github.com/acme/multicode.git',
+  })
   assert.deepEqual(
-    pickPrimaryRemote(new Map([['zeta', 'z'], ['alpha', 'a']])),
+    pickPrimaryRemote(
+      new Map([
+        ['zeta', 'z'],
+        ['alpha', 'a'],
+      ]),
+    ),
     { remoteName: 'alpha', remoteUrl: 'a' },
-    'otherwise alphabetical, so the answer is stable'
+    'otherwise alphabetical, so the answer is stable',
   )
   assert.equal(pickPrimaryRemote(new Map()), null)
 

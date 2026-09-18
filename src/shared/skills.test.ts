@@ -22,22 +22,20 @@ function frontmatter(): void {
       '',
       '# Body',
       'name: not-frontmatter',
-    ].join('\n')
+    ].join('\n'),
   )
   assert.equal(block.name, 'impeccable')
   assert.equal(block.description, 'Design work that earns its keep')
   assert.deepEqual(block.allowedTools, ['Bash(npx impeccable *)', 'Read'])
 
   const inline = parseSkillFrontmatter(
-    ['---', "name: 'alpha'", 'allowed-tools: Read, Write, Bash', '---', 'body'].join('\n')
+    ['---', "name: 'alpha'", 'allowed-tools: Read, Write, Bash', '---', 'body'].join('\n'),
   )
   assert.deepEqual(inline.allowedTools, ['Read', 'Write', 'Bash'])
   assert.equal(inline.name, 'alpha')
   assert.equal(inline.description, '')
 
-  const bracketed = parseSkillFrontmatter(
-    ['---', 'allowed-tools: [Read, "Bash(ls)"]', '---'].join('\n')
-  )
+  const bracketed = parseSkillFrontmatter(['---', 'allowed-tools: [Read, "Bash(ls)"]', '---'].join('\n'))
   assert.deepEqual(bracketed.allowedTools, ['Read', 'Bash(ls)'])
 
   // No frontmatter, and a body that merely looks like it, disclose nothing.
@@ -61,10 +59,7 @@ function frontmatter(): void {
   assert.deepEqual(folded.allowedTools, ['Read'])
 
   // A literal block folds the same way; the marker itself is never the value.
-  assert.equal(
-    parseSkillFrontmatter('---\ndescription: |\n  One line.\n---\n').description,
-    'One line.',
-  )
+  assert.equal(parseSkillFrontmatter('---\ndescription: |\n  One line.\n---\n').description, 'One line.')
 }
 
 /**
@@ -80,28 +75,27 @@ function allowedToolsIsSpaceSeparated(): void {
   assert.deepEqual(spec.allowedTools, ['Bash(git:*)', 'Bash(jq:*)', 'Read'])
 
   // A space inside a tool's own argument pattern is not a separator.
-  assert.deepEqual(
-    parseSkillFrontmatter('---\nallowed-tools: Bash(npx impeccable *) Read\n---\n').allowedTools,
-    ['Bash(npx impeccable *)', 'Read'],
-  )
+  assert.deepEqual(parseSkillFrontmatter('---\nallowed-tools: Bash(npx impeccable *) Read\n---\n').allowedTools, [
+    'Bash(npx impeccable *)',
+    'Read',
+  ])
   // Nor is one inside quotes.
-  assert.deepEqual(
-    parseSkillFrontmatter('---\nallowed-tools: "my tool" Read\n---\n').allowedTools,
-    ['my tool', 'Read'],
-  )
+  assert.deepEqual(parseSkillFrontmatter('---\nallowed-tools: "my tool" Read\n---\n').allowedTools, ['my tool', 'Read'])
   // The comma-separated form Claude Code's own documentation used still reads,
   // including the mixed form a repository ends up with.
-  assert.deepEqual(
-    parseSkillFrontmatter('---\nallowed-tools: Read, Write Bash\n---\n').allowedTools,
-    ['Read', 'Write', 'Bash'],
-  )
+  assert.deepEqual(parseSkillFrontmatter('---\nallowed-tools: Read, Write Bash\n---\n').allowedTools, [
+    'Read',
+    'Write',
+    'Bash',
+  ])
   // An apostrophe inside a command is not an opening quote. Treating it as one
   // swallowed the rest of the line into a single bogus tool name — the very
   // failure splitting on whitespace was meant to end.
-  assert.deepEqual(
-    parseSkillFrontmatter("---\nallowed-tools: Bash(don't:*) Read Write\n---\n").allowedTools,
-    ["Bash(don't:*)", 'Read', 'Write'],
-  )
+  assert.deepEqual(parseSkillFrontmatter("---\nallowed-tools: Bash(don't:*) Read Write\n---\n").allowedTools, [
+    "Bash(don't:*)",
+    'Read',
+    'Write',
+  ])
 }
 
 /**
@@ -146,7 +140,14 @@ function optionalSpecFields(): void {
   // A folded license or compatibility block reads like every other folded
   // scalar, and a flow map is still a map.
   const folded = parseSkillFrontmatter(
-    ['---', 'compatibility: >', '  Designed for Claude Code', '  (or similar products)', 'metadata: {author: acme}', '---'].join('\n'),
+    [
+      '---',
+      'compatibility: >',
+      '  Designed for Claude Code',
+      '  (or similar products)',
+      'metadata: {author: acme}',
+      '---',
+    ].join('\n'),
   )
   assert.equal(folded.compatibility, 'Designed for Claude Code (or similar products)')
   assert.deepEqual(folded.metadata, { author: 'acme' })

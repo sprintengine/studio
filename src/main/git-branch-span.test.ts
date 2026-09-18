@@ -229,7 +229,6 @@ void (async () => {
     assert.ok(paths.includes('renamed.txt'), `expected the new path, got ${paths.join(', ')}`)
   })
 
-
   // ---- parseNameStatusZ: the OTHER `-z` framing --------------------------
   //
   // `--numstat` separates its fields with tabs and its records with NULs;
@@ -252,7 +251,7 @@ void (async () => {
     assert.equal(
       statuses.get('src/after.ts'),
       'updated',
-      'the record after a rename must not be shifted by the extra field'
+      'the record after a rename must not be shifted by the extra field',
     )
   })
 
@@ -297,7 +296,7 @@ void (async () => {
         ['b', 'removed' as const],
         ['c', 'updated' as const],
         ['not-in-the-diff', 'added' as const],
-      ])
+      ]),
     )
     assert.deepEqual(counts, { added: 1, updated: 2, removed: 1 })
     assert.equal(counts.added + counts.updated + counts.removed, files.length)
@@ -329,7 +328,7 @@ void (async () => {
     assert.equal(
       counts.added + counts.updated + counts.removed,
       span!.stat.changedFiles,
-      'the breakdown must sum to the file count the row draws beside it'
+      'the breakdown must sum to the file count the row draws beside it',
     )
   })
 

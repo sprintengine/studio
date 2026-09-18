@@ -159,7 +159,11 @@ function isLightHex(color: string): boolean {
   const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())
   if (!match) return false
   let hex = match[1]
-  if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('')
+  if (hex.length === 3)
+    hex = hex
+      .split('')
+      .map((c) => c + c)
+      .join('')
   const r = parseInt(hex.slice(0, 2), 16)
   const g = parseInt(hex.slice(2, 4), 16)
   const b = parseInt(hex.slice(4, 6), 16)
@@ -168,8 +172,7 @@ function isLightHex(color: string): boolean {
 
 function readGraphPalette(): GraphPalette {
   const cs = typeof window === 'undefined' ? null : getComputedStyle(document.documentElement)
-  const read = (name: string, fallback: string): string =>
-    cs?.getPropertyValue(name).trim() || fallback
+  const read = (name: string, fallback: string): string => cs?.getPropertyValue(name).trim() || fallback
   const background = read('--bg-app', '#08080c')
   const isLight = isLightHex(background)
   return {
@@ -191,18 +194,8 @@ function readGraphPalette(): GraphPalette {
 }
 
 const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(function MemoryGraphCanvas(
-  {
-    nodes,
-    edges,
-    matchIds,
-    onSelectNode,
-    onHoverNode,
-    onCameraChange,
-    synapses,
-    latestEvent,
-    eventNonce,
-  },
-  forwardedRef
+  { nodes, edges, matchIds, onSelectNode, onHoverNode, onCameraChange, synapses, latestEvent, eventNonce },
+  forwardedRef,
 ) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const positionedRef = useRef<PositionedNode[]>([])
@@ -363,7 +356,10 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         const w = canvas.clientWidth
         const h = canvas.clientHeight
         if (w > 0 && h > 0) {
-          let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+          let minX = Infinity,
+            minY = Infinity,
+            maxX = -Infinity,
+            maxY = -Infinity
           for (const node of positioned) {
             if (node.x - node.radius < minX) minX = node.x - node.radius
             if (node.y - node.radius < minY) minY = node.y - node.radius
@@ -373,11 +369,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
           const dx = Math.max(1, maxX - minX)
           const dy = Math.max(1, maxY - minY)
           const padding = 80
-          const zoom = clamp(
-            Math.min((w - padding * 2) / dx, (h - padding * 2) / dy),
-            MIN_ZOOM,
-            MAX_ZOOM
-          )
+          const zoom = clamp(Math.min((w - padding * 2) / dx, (h - padding * 2) / dy), MIN_ZOOM, MAX_ZOOM)
           const cx = (minX + maxX) / 2
           const cy = (minY + maxY) / 2
           cameraRef.current = { zoom, x: -cx * zoom, y: -cy * zoom }
@@ -476,7 +468,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       ctx.translate(width / 2 + camera.x, height / 2 + camera.y)
       ctx.scale(camera.zoom, camera.zoom)
 
-      const focusNeighbors = hoveredId ? neighbors.get(hoveredId) ?? null : null
+      const focusNeighbors = hoveredId ? (neighbors.get(hoveredId) ?? null) : null
       const isMatched = (id: string): boolean => (matchSet ? matchSet.has(id) : true)
 
       // Edges first so nodes draw on top.
@@ -486,17 +478,11 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         const a = byId.get(edge.source)
         const b = byId.get(edge.target)
         if (!a || !b) continue
-        const touchesHover = hoveredId
-          ? edge.source === hoveredId || edge.target === hoveredId
-          : false
+        const touchesHover = hoveredId ? edge.source === hoveredId || edge.target === hoveredId : false
         const bothMatched = isMatched(a.id) && isMatched(b.id)
         const dimmed = matchSet && !bothMatched
 
-        ctx.strokeStyle = touchesHover
-          ? palette.edgeHover
-          : dimmed
-            ? palette.edgeDim
-            : palette.edgeBase
+        ctx.strokeStyle = touchesHover ? palette.edgeHover : dimmed ? palette.edgeDim : palette.edgeBase
         ctx.lineWidth = touchesHover ? baseLine * 1.35 : baseLine * 0.85
         ctx.beginPath()
         ctx.moveTo(a.x, a.y)
@@ -617,7 +603,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
           // Trailing comet tail toward the source.
           const tailX = a.x + (b.x - a.x) * Math.max(0, eased - 0.12)
           const tailY = a.y + (b.y - a.y) * Math.max(0, eased - 0.12)
-          ctx.lineWidth = (3 / camera.zoom)
+          ctx.lineWidth = 3 / camera.zoom
           ctx.strokeStyle = hexWithAlpha(palette.activity, 0.55 * (1 - t))
           ctx.beginPath()
           ctx.moveTo(tailX, tailY)
@@ -645,9 +631,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
         // visibleCount scales linearly with zoom: ~3 at min zoom (0.15),
         // ~25 at zoom 1, every node by ~zoom 1.6.
         const visibleCount = Math.max(3, Math.min(pos.length, Math.round(camera.zoom * 25)))
-        const ranked = [...pos]
-          .sort((a, b) => (b.degree || 0) - (a.degree || 0))
-          .slice(0, visibleCount)
+        const ranked = [...pos].sort((a, b) => (b.degree || 0) - (a.degree || 0)).slice(0, visibleCount)
         return new Set(ranked.map((n) => n.id))
       })()
 
@@ -672,10 +656,7 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       // Reschedule only while something is still animating. Otherwise the
       // canvas sleeps until an event wakes it via requestRender().
       const stillAnimating =
-        isDraggingNode ||
-        performance.now() < simHotUntil ||
-        pulsesRef.current.size > 0 ||
-        sparksRef.current.length > 0
+        isDraggingNode || performance.now() < simHotUntil || pulsesRef.current.size > 0 || sparksRef.current.length > 0
       if (stillAnimating) {
         requestRender()
       }
@@ -728,7 +709,10 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
       const canvas = canvasRef.current
       const positioned = positionedRef.current
       if (!canvas || positioned.length === 0) return
-      let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity
+      let minX = Infinity,
+        minY = Infinity,
+        maxX = -Infinity,
+        maxY = -Infinity
       for (const node of positioned) {
         if (node.x - node.radius < minX) minX = node.x - node.radius
         if (node.y - node.radius < minY) minY = node.y - node.radius
@@ -794,21 +778,24 @@ const MemoryGraphCanvas = React.forwardRef<MemoryGraphCanvasHandle, Props>(funct
     }
   }, [])
 
-  const hitTest = useCallback((clientX: number, clientY: number): PositionedNode | null => {
-    const { x, y } = screenToWorld(clientX, clientY)
-    let best: PositionedNode | null = null
-    let bestDist = Infinity
-    for (const node of positionedRef.current) {
-      const dx = x - node.x
-      const dy = y - node.y
-      const dist = Math.sqrt(dx * dx + dy * dy)
-      if (dist <= node.radius + 6 && dist < bestDist) {
-        best = node
-        bestDist = dist
+  const hitTest = useCallback(
+    (clientX: number, clientY: number): PositionedNode | null => {
+      const { x, y } = screenToWorld(clientX, clientY)
+      let best: PositionedNode | null = null
+      let bestDist = Infinity
+      for (const node of positionedRef.current) {
+        const dx = x - node.x
+        const dy = y - node.y
+        const dist = Math.sqrt(dx * dx + dy * dy)
+        if (dist <= node.radius + 6 && dist < bestDist) {
+          best = node
+          bestDist = dist
+        }
       }
-    }
-    return best
-  }, [screenToWorld])
+      return best
+    },
+    [screenToWorld],
+  )
 
   return (
     <canvas

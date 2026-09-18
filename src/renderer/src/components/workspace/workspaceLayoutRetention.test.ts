@@ -48,14 +48,17 @@ assertRetained(['active'], {
     removed: NOW,
   },
 })
-assert.equal(compute({
-  mountedWorkspaceIds: ['active', 'removed'],
-  visibleWorkspaceIds: ['active'],
-  lastFocusedAtByWorkspaceId: {
-    active: NOW,
-    removed: NOW,
-  },
-}).evicted[0]?.reason, 'not-visible')
+assert.equal(
+  compute({
+    mountedWorkspaceIds: ['active', 'removed'],
+    visibleWorkspaceIds: ['active'],
+    lastFocusedAtByWorkspaceId: {
+      active: NOW,
+      removed: NOW,
+    },
+  }).evicted[0]?.reason,
+  'not-visible',
+)
 
 assertRetained(['active', 'recent'], {
   mountedWorkspaceIds: ['active', 'recent', 'quiet-a', 'quiet-b'],
@@ -68,17 +71,20 @@ assertRetained(['active', 'recent'], {
   },
   inactiveLimit: 1,
 })
-assert.equal(compute({
-  mountedWorkspaceIds: ['active', 'recent', 'quiet-a', 'quiet-b'],
-  visibleWorkspaceIds: ['active', 'recent', 'quiet-a', 'quiet-b'],
-  lastFocusedAtByWorkspaceId: {
-    active: NOW,
-    recent: NOW - 1 * MINUTE,
-    'quiet-a': NOW - 2 * MINUTE,
-    'quiet-b': NOW - 3 * MINUTE,
-  },
-  inactiveLimit: 1,
-}).evicted.find((entry) => entry.workspaceId === 'quiet-a')?.reason, 'inactive-limit')
+assert.equal(
+  compute({
+    mountedWorkspaceIds: ['active', 'recent', 'quiet-a', 'quiet-b'],
+    visibleWorkspaceIds: ['active', 'recent', 'quiet-a', 'quiet-b'],
+    lastFocusedAtByWorkspaceId: {
+      active: NOW,
+      recent: NOW - 1 * MINUTE,
+      'quiet-a': NOW - 2 * MINUTE,
+      'quiet-b': NOW - 3 * MINUTE,
+    },
+    inactiveLimit: 1,
+  }).evicted.find((entry) => entry.workspaceId === 'quiet-a')?.reason,
+  'inactive-limit',
+)
 
 assertRetained(['active', 'busy'], {
   busyWorkspaceIds: new Set(['busy']),
@@ -96,24 +102,30 @@ assertRetained(['active', 'busy-a'], {
   },
   busyLimit: 1,
 })
-assert.equal(compute({
-  mountedWorkspaceIds: ['active', 'busy-a', 'busy-b'],
-  visibleWorkspaceIds: ['active', 'busy-a', 'busy-b'],
-  busyWorkspaceIds: new Set(['busy-a', 'busy-b']),
-  lastFocusedAtByWorkspaceId: {
-    active: NOW,
-    'busy-a': NOW - 10 * MINUTE,
-    'busy-b': NOW - 11 * MINUTE,
-  },
-  busyLimit: 1,
-}).evicted.find((entry) => entry.workspaceId === 'busy-b')?.reason, 'busy-limit')
+assert.equal(
+  compute({
+    mountedWorkspaceIds: ['active', 'busy-a', 'busy-b'],
+    visibleWorkspaceIds: ['active', 'busy-a', 'busy-b'],
+    busyWorkspaceIds: new Set(['busy-a', 'busy-b']),
+    lastFocusedAtByWorkspaceId: {
+      active: NOW,
+      'busy-a': NOW - 10 * MINUTE,
+      'busy-b': NOW - 11 * MINUTE,
+    },
+    busyLimit: 1,
+  }).evicted.find((entry) => entry.workspaceId === 'busy-b')?.reason,
+  'busy-limit',
+)
 
 assertRetained(['active'], {
   mountedWorkspaceIds: ['active', 'older'],
 })
-assert.equal(compute({
-  mountedWorkspaceIds: ['active', 'older'],
-}).evicted.find((entry) => entry.workspaceId === 'older')?.reason, 'expired')
+assert.equal(
+  compute({
+    mountedWorkspaceIds: ['active', 'older'],
+  }).evicted.find((entry) => entry.workspaceId === 'older')?.reason,
+  'expired',
+)
 
 // --- Production tuning (2026-06-13 progressive replay / retention) ---
 
@@ -167,10 +179,7 @@ assert.equal(
   const result = compute(input)
   assert.equal(result.retainedWorkspaceIds.length, 1 + WORKSPACE_LAYOUT_BUSY_RETAINED_LIMIT)
   assert.equal(result.retainedWorkspaceIds.includes('busy-10'), false)
-  assert.equal(
-    result.evicted.find((entry) => entry.workspaceId === 'busy-10')?.reason,
-    'busy-limit',
-  )
+  assert.equal(result.evicted.find((entry) => entry.workspaceId === 'busy-10')?.reason, 'busy-limit')
 }
 
 console.log('workspaceLayoutRetention.test.ts: ok')

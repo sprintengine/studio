@@ -39,19 +39,18 @@ export function remoteGlyphState(presence: TailnetPresence): {
   const enabled = presence.status?.enabled === true
   const driving = presence.live.devices.some((device) => device.attachedTerminalSessions.length > 0)
   const connected =
-    presence.live.devices.length > 0
-    || [...presence.fleetLiveSessions.values()].some((sessions) => sessions.size > 0)
+    presence.live.devices.length > 0 || [...presence.fleetLiveSessions.values()].some((sessions) => sessions.size > 0)
   const degraded =
     [...presence.fleetAttachments.values()].some(
-      (attachment) => attachment.state === 'reconnecting' || attachment.state === 'offline'
-    )
+      (attachment) => attachment.state === 'reconnecting' || attachment.state === 'offline',
+    ) ||
     // A machine that revoked us is degraded too: it will not fix itself, and
     // the glyph is where a person would look before opening anything.
-    || [...presence.fleetReachability.values()].some((entry) => entry.unauthorized)
+    [...presence.fleetReachability.values()].some((entry) => entry.unauthorized)
   const serving = presence.status?.running === true
   const answering = serving
     ? presence.fleet.filter((connection) =>
-        machineIsAnswering(fleetMachinePhase(connection.id, presence.fleetAttachments, presence.fleetReachability))
+        machineIsAnswering(fleetMachinePhase(connection.id, presence.fleetAttachments, presence.fleetReachability)),
       ).length
     : 0
   return {
@@ -65,7 +64,7 @@ export function remoteGlyphState(presence: TailnetPresence): {
     degraded,
     requestCount: presence.status?.pairRequests.length ?? 0,
     answering,
-    listenerError: enabled && !serving ? presence.status?.lastError ?? null : null,
+    listenerError: enabled && !serving ? (presence.status?.lastError ?? null) : null,
   }
 }
 
@@ -77,7 +76,9 @@ export function remoteGlyphState(presence: TailnetPresence): {
 export function remoteGlyphTooltip(state: ReturnType<typeof remoteGlyphState>): string {
   if (state.requestCount > 0) return 'Remote — a pair request is waiting'
   if (!state.serving) {
-    return state.listenerError ? `Remote — not connected to Tailscale. ${state.listenerError}` : 'Remote — not connected to Tailscale'
+    return state.listenerError
+      ? `Remote — not connected to Tailscale. ${state.listenerError}`
+      : 'Remote — not connected to Tailscale'
   }
   const machines = state.answering === 1 ? '1 machine answering' : `${state.answering} machines answering`
   if (state.driving) return `Remote — live · ${machines} · a device is driving a terminal here`

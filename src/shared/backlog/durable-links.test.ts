@@ -65,7 +65,10 @@ function main(): void {
   // its repo id.
   const multi = durableBacklogLinksFromFrontmatter({ pr: 'https://x.test/pull/1,web=https://x.test/pull/2' })
   assert.equal(multi.length, 2)
-  assert.deepEqual(multi.map((link) => link.id), ['backlog:pull-request', 'backlog:pull-request:web'])
+  assert.deepEqual(
+    multi.map((link) => link.id),
+    ['backlog:pull-request', 'backlog:pull-request:web'],
+  )
   assert.equal(multi[1].label, 'Pull request (web)', 'a sibling PR names its project')
   // And back again, so a multi-project item survives the round trip intact.
   assert.equal(durableBacklogLinkFields(multi).pr, 'https://x.test/pull/1,web=https://x.test/pull/2')

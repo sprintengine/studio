@@ -26,7 +26,8 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
     value: 'none',
     label: 'None',
     summary: 'No flag — the CLI decides.',
-    title: 'Pass no permission flag and let the CLI choose. Claude Code now starts in auto mode on Pro, Max and Team plans, so this is no longer the same as asking every time.',
+    title:
+      'Pass no permission flag and let the CLI choose. Claude Code now starts in auto mode on Pro, Max and Team plans, so this is no longer the same as asking every time.',
   },
   {
     value: 'manual',
@@ -38,7 +39,8 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
     value: 'auto',
     label: 'Auto',
     summary: 'Run without asking; the CLI’s own safety checks stay on.',
-    title: 'Run without stopping to ask, with the CLI’s own safety checks — a classifier on Claude Code, a workspace sandbox on Codex.',
+    title:
+      'Run without stopping to ask, with the CLI’s own safety checks — a classifier on Claude Code, a workspace sandbox on Codex.',
   },
   {
     value: 'bypass',
@@ -98,9 +100,7 @@ export const REMOTE_PRESET_DISABLED_REASONS: Partial<Record<CliPermissionPreset,
  * nothing — the remote would clamp to Manual anyway, and Auto is the closest
  * the surface can honestly offer.
  */
-export function nearestRemotePermissionPreset(
-  preset: CliPermissionPreset,
-): CliPermissionPreset {
+export function nearestRemotePermissionPreset(preset: CliPermissionPreset): CliPermissionPreset {
   if (REMOTE_PERMISSION_PRESETS.has(preset)) return preset
   return preset === 'bypass' ? 'auto' : 'manual'
 }
@@ -119,8 +119,8 @@ const PRESET_ROW_SELECTOR = '[data-preset-option="true"]'
 export function focusActivePresetRow(surface: HTMLElement): void {
   const rows = Array.from(surface.querySelectorAll<HTMLButtonElement>(PRESET_ROW_SELECTOR))
   const target =
-    rows.find((row) => row.getAttribute('aria-checked') === 'true' && !row.disabled)
-    ?? rows.find((row) => !row.disabled)
+    rows.find((row) => row.getAttribute('aria-checked') === 'true' && !row.disabled) ??
+    rows.find((row) => !row.disabled)
   if (!target) return
   target.focus()
   if (document.activeElement === target) return
@@ -152,9 +152,7 @@ export function menuRadioRowKeyDown(
   event.stopPropagation()
   const current = event.currentTarget
   const surface = current.closest<HTMLElement>('[role="menu"]') ?? current.parentElement
-  const rows = Array.from(surface?.querySelectorAll<HTMLButtonElement>(selector) ?? []).filter(
-    (row) => !row.disabled,
-  )
+  const rows = Array.from(surface?.querySelectorAll<HTMLButtonElement>(selector) ?? []).filter((row) => !row.disabled)
   const index = rows.indexOf(current)
   const focusAt = (next: number): void => {
     if (rows.length === 0) return
@@ -225,11 +223,26 @@ export function PermissionPresetMenuRows({
             disabled={rowDisabled}
             onKeyDown={(event) => menuRadioRowKeyDown(event, PRESET_ROW_SELECTOR, () => onSelect(option.value))}
             onClick={() => onSelect(option.value)}
-            icon={<span className="mt-0.5 inline-flex shrink-0"><PresetGlyph preset={option.value} /></span>}
+            icon={
+              <span className="mt-0.5 inline-flex shrink-0">
+                <PresetGlyph preset={option.value} />
+              </span>
+            }
             trailing={
               active ? (
-                <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--accent-primary)]">
-                  <path d="M3.5 8.5L6.5 11.5L12.5 4.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                  className="mt-0.5 icon-xs shrink-0 text-[color:var(--accent-primary)]"
+                >
+                  <path
+                    d="M3.5 8.5L6.5 11.5L12.5 4.5"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
                 </svg>
               ) : null
             }
@@ -256,13 +269,7 @@ export function PermissionPresetMenuRows({
 // on/off control sitting beside the permission-preset group — it does not
 // change the selected preset. State is signalled by the literal "DEBUG" label
 // and aria-pressed, not by color alone, so it reads for non-color users and AT.
-export function SpawnDebugToggle({
-  active,
-  onChange,
-}: {
-  active: boolean
-  onChange: (next: boolean) => void
-}) {
+export function SpawnDebugToggle({ active, onChange }: { active: boolean; onChange: (next: boolean) => void }) {
   return (
     <Tooltip
       content="Debug mode drives the agent through a file-backed debugging state machine: reproduce, form hypotheses, instrument, then remove all instrumentation before finishing. Works best with the Auto or Bypass permission presets."
@@ -285,7 +292,13 @@ export function TerminalSessionIcon({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" strokeWidth="1.7" />
-      <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M7.25 10L10 12.5L7.25 15"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <path d="M12.5 15H16.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   )

@@ -58,7 +58,7 @@ function stamp(overrides: Partial<BuildStamp> = {}): BuildStamp {
 {
   const line = formatBuildSkewLogLine(
     stamp({ commit: '78d0e16c7' + '0'.repeat(31) }),
-    stamp({ commit: 'feac30b62' + '0'.repeat(31) })
+    stamp({ commit: 'feac30b62' + '0'.repeat(31) }),
   )
   assert.ok(line.includes(BUILD_SKEW_CODE), 'carries the stable code')
   assert.ok(line.includes('main=78d0e16'), 'names main’s build')
@@ -72,7 +72,7 @@ function stamp(overrides: Partial<BuildStamp> = {}): BuildStamp {
 {
   const notice = formatBuildSkewNotice(
     stamp({ commit: '78d0e16c7' + '0'.repeat(31) }),
-    stamp({ commit: 'feac30b62' + '0'.repeat(31), builtAt: '2026-08-07T05:31:44.000Z' })
+    stamp({ commit: 'feac30b62' + '0'.repeat(31), builtAt: '2026-08-07T05:31:44.000Z' }),
   )
   assert.equal(notice.headline, 'Main and window are running different builds.')
   assert.ok(notice.detail.includes('78d0e16'), 'names main’s build')
@@ -92,10 +92,12 @@ function stamp(overrides: Partial<BuildStamp> = {}): BuildStamp {
 // stamp is rejected rather than coerced into one.
 {
   assert.deepEqual(parseBuildStamp(stamp()), stamp())
-  assert.deepEqual(
-    parseBuildStamp({ commit: null, source: 'unavailable', builtAt: 'x', mode: 'production' }),
-    { commit: null, source: 'unavailable', builtAt: 'x', mode: 'production' }
-  )
+  assert.deepEqual(parseBuildStamp({ commit: null, source: 'unavailable', builtAt: 'x', mode: 'production' }), {
+    commit: null,
+    source: 'unavailable',
+    builtAt: 'x',
+    mode: 'production',
+  })
   assert.equal(parseBuildStamp(null), null)
   assert.equal(parseBuildStamp('a'.repeat(40)), null, 'a bare sha is not a stamp')
   assert.equal(parseBuildStamp({ ...stamp(), commit: 42 }), null, 'commit must be a sha or null')

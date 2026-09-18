@@ -1,8 +1,5 @@
 import { createHash } from 'crypto'
-import type {
-  MobileControlCommand,
-  MobileControlCommandResult,
-} from './command'
+import type { MobileControlCommand, MobileControlCommandResult } from './command'
 
 const maxRememberedIdempotencyKeys = 500
 
@@ -12,9 +9,7 @@ type CachedMobileControlCommandResult = {
 }
 
 export type RememberedMobileControlCommandResult =
-  | { status: 'miss' }
-  | { status: 'conflict' }
-  | { status: 'hit'; result: MobileControlCommandResult }
+  { status: 'miss' } | { status: 'conflict' } | { status: 'hit'; result: MobileControlCommandResult }
 
 const idempotencyResults = new Map<string, CachedMobileControlCommandResult>()
 
@@ -50,11 +45,7 @@ export function rememberedCommandResult(key: string, requestHash: string): Remem
   }
 }
 
-export function rememberCommandResult(
-  key: string,
-  requestHash: string,
-  result: MobileControlCommandResult
-): void {
+export function rememberCommandResult(key: string, requestHash: string, result: MobileControlCommandResult): void {
   idempotencyResults.set(key, {
     requestHash,
     result: cloneCommandResult(result),

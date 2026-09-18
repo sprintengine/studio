@@ -60,9 +60,10 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
   assert.equal(read.template.version.length > 0, true)
   // The marketplace manifest is what a Claude-format marketplace is read by,
   // and the plugin entry's source must point at the directory we install from.
-  const marketplace = JSON.parse(
-    await readFile(join(TEMPLATE_ROOT, '.claude-plugin', 'marketplace.json'), 'utf8')
-  ) as { name: string; plugins: { name: string; source: string }[] }
+  const marketplace = JSON.parse(await readFile(join(TEMPLATE_ROOT, '.claude-plugin', 'marketplace.json'), 'utf8')) as {
+    name: string
+    plugins: { name: string; source: string }[]
+  }
   assert.equal(marketplace.name, STUDIO_PLUGIN_ID)
   // That it LISTS us, at the directory we install from — not that it lists only
   // us. This marketplace is where every MCP server we ship becomes a plugin
@@ -83,7 +84,7 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
     assert.equal(
       existsSync(join(TEMPLATE_ROOT, entry.source.slice(2), '.claude-plugin', 'plugin.json')),
       true,
-      `${entry.name} is listed at ${entry.source}, which holds no plugin manifest`
+      `${entry.name} is listed at ${entry.source}, which holds no plugin manifest`,
     )
   }
   // The workflow skills are the marketplace's OTHER plugin, and they are here:
@@ -93,7 +94,7 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
   assert.equal(
     workflow.filter((entry) => entry.isDirectory()).length,
     9,
-    'the nine workflow skills ship inside the marketplace'
+    'the nine workflow skills ship inside the marketplace',
   )
   // Every file the plugin needs must be IN THE REPOSITORY. `.mcp.json` in
   // particular: the root `.gitignore` entry for the generated workspace config
@@ -103,7 +104,7 @@ async function theTemplateShipsAndNamesItself(): Promise<void> {
     assert.equal(
       existsSync(join(read.template.pluginDir, ...relative)),
       true,
-      `${relative.join('/')} is missing from the bundled plugin`
+      `${relative.join('/')} is missing from the bundled plugin`,
     )
   }
   const dirs = await listStudioPluginSkillDirs(read.template)
@@ -136,7 +137,7 @@ function tokensAreSplicedSafely(): void {
   }
   const out = substituteStudioPluginTokens(
     '{"a":"__SPRINTENGINE_NODE__","b":"__SPRINTENGINE_AGENT_STATE_SOCKET__"}',
-    windows
+    windows,
   )
   const parsed = JSON.parse(out) as { a: string; b: string }
   // Paths become forward slashes (Node accepts `C:/...`); the named pipe keeps
@@ -148,8 +149,10 @@ function tokensAreSplicedSafely(): void {
 
 function aPluginDeclaringTwoCommandsIsRefused(): void {
   assert.equal(
-    parsePluginHookRegistration('{"hooks":{"Stop":[{"hooks":[{"command":"a"}]}],"SessionEnd":[{"hooks":[{"command":"b"}]}]}}'),
-    null
+    parsePluginHookRegistration(
+      '{"hooks":{"Stop":[{"hooks":[{"command":"a"}]}],"SessionEnd":[{"hooks":[{"command":"b"}]}]}}',
+    ),
+    null,
   )
   assert.equal(parsePluginHookRegistration('not json'), null)
   assert.equal(parsePluginHookRegistration('{"hooks":{}}'), null)
@@ -176,8 +179,9 @@ async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
   assert.equal(result.root, materialised)
   const mcp = await readFile(join(materialised, STUDIO_PLUGIN_ID, '.mcp.json'), 'utf8')
   assert.equal(hasUnsubstitutedTokens(mcp), false, 'the bridge command is rewritten at install')
-  const server = (JSON.parse(mcp) as { mcpServers: Record<string, { command: string; args: string[] }> })
-    .mcpServers['sprintengine-studio']
+  const server = (JSON.parse(mcp) as { mcpServers: Record<string, { command: string; args: string[] }> }).mcpServers[
+    'sprintengine-studio'
+  ]
   assert.equal(server.args[0].endsWith('mcp-stdio-bridge.mjs'), true)
   // The materialised hook declaration is EMPTY while native loading is off.
   // Claude Code 2.1.266 registers our directory marketplace into its own
@@ -194,12 +198,12 @@ async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
   assert.equal(
     hooksJson.includes('agent-state.mjs'),
     false,
-    'no reporter command may survive in the copy Claude Code loads'
+    'no reporter command may survive in the copy Claude Code loads',
   )
   // The TEMPLATE still carries the real declaration: it is the authority for
   // what the by-hand merge registers, and blanking the copy must not blank it.
   const templateHooks = JSON.parse(
-    await readFile(join(TEMPLATE_ROOT, STUDIO_PLUGIN_ID, 'hooks', 'hooks.json'), 'utf8')
+    await readFile(join(TEMPLATE_ROOT, STUDIO_PLUGIN_ID, 'hooks', 'hooks.json'), 'utf8'),
   ) as { hooks: Record<string, unknown> }
   assert.equal(Object.keys(templateHooks.hooks).length >= 8, true, 'the template keeps the declaration the merge reads')
 
@@ -209,12 +213,12 @@ async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
   // Only `.mcp.json` is checked: the hook declaration's copy is replaced
   // wholesale above, comment and all.
   for (const relative of [['.mcp.json']]) {
-    const before = JSON.parse(
-      await readFile(join(TEMPLATE_ROOT, STUDIO_PLUGIN_ID, ...relative), 'utf8')
-    ) as { $comment?: string }
-    const after = JSON.parse(
-      await readFile(join(materialised, STUDIO_PLUGIN_ID, ...relative), 'utf8')
-    ) as { $comment?: string }
+    const before = JSON.parse(await readFile(join(TEMPLATE_ROOT, STUDIO_PLUGIN_ID, ...relative), 'utf8')) as {
+      $comment?: string
+    }
+    const after = JSON.parse(await readFile(join(materialised, STUDIO_PLUGIN_ID, ...relative), 'utf8')) as {
+      $comment?: string
+    }
     assert.equal(after.$comment, before.$comment, `${relative.join('/')}: the comment was rewritten by substitution`)
     assert.notEqual(before.$comment, undefined, `${relative.join('/')}: the template must explain itself`)
   }
@@ -237,10 +241,16 @@ async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
     hooks: Record<string, { hooks: { command: string; _multicode?: string }[] }[]>
     extraKnownMarketplaces: Record<string, { source: { source: string; path: string } }>
   }
-  assert.deepEqual(
-    Object.keys(local.hooks).sort(),
-    ['Notification', 'PostToolUse', 'SessionEnd', 'SessionStart', 'Stop', 'SubagentStart', 'SubagentStop', 'UserPromptSubmit']
-  )
+  assert.deepEqual(Object.keys(local.hooks).sort(), [
+    'Notification',
+    'PostToolUse',
+    'SessionEnd',
+    'SessionStart',
+    'Stop',
+    'SubagentStart',
+    'SubagentStop',
+    'UserPromptSubmit',
+  ])
   const entry = local.hooks.Stop[0].hooks[0]
   assert.equal(entry._multicode, 'multicode-agent-state')
   assert.match(entry.command, /^node ".*\/\.multicode\/hooks\/agent-state\.mjs" --socket "/)
@@ -257,7 +267,7 @@ async function aWorkspaceOpenInstallsTheWholePlugin(): Promise<void> {
   assert.equal(
     'extraKnownMarketplaces' in (project as Record<string, unknown>),
     false,
-    'the machine path must never land in the file a project commits'
+    'the machine path must never land in the file a project commits',
   )
   assert.deepEqual(local.extraKnownMarketplaces[STUDIO_PLUGIN_ID].source, {
     source: 'directory',
@@ -273,7 +283,7 @@ async function installIsIdempotentAndPreservesWhatItFinds(): Promise<void> {
   await mkdir(join(workspace, '.claude'), { recursive: true })
   await writeFile(
     resolve(workspace, CLAUDE_SETTINGS_RELATIVE_PATH),
-    JSON.stringify({ permissions: { allow: ['Bash(ls:*)'] }, enabledPlugins: { 'theirs@theirs': true } }, null, 2)
+    JSON.stringify({ permissions: { allow: ['Bash(ls:*)'] }, enabledPlugins: { 'theirs@theirs': true } }, null, 2),
   )
   await writeFile(
     resolve(workspace, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH),
@@ -284,8 +294,8 @@ async function installIsIdempotentAndPreservesWhatItFinds(): Promise<void> {
         extraKnownMarketplaces: { theirs: { source: { source: 'github', repo: 'a/b' } } },
       },
       null,
-      2
-    )
+      2,
+    ),
   )
 
   const first = await installStudioPlugin({
@@ -329,7 +339,7 @@ async function installIsIdempotentAndPreservesWhatItFinds(): Promise<void> {
   assert.equal(
     stopCommands.filter((command) => command.includes('agent-state.mjs')).length,
     1,
-    'a second install registers one reporter, not two'
+    'a second install registers one reporter, not two',
   )
 
   await rm(workspace, { recursive: true, force: true })
@@ -372,7 +382,10 @@ async function unreadableSettingsAreLeftAloneNotOverwritten(): Promise<void> {
   // The skills still land; only the settings write is refused, and it says so.
   assert.ok(result.ok, result.ok ? '' : result.message)
   assert.equal(result.claudePluginKey, '')
-  assert.equal(result.warnings.some((warning) => /not valid JSON/.test(warning)), true)
+  assert.equal(
+    result.warnings.some((warning) => /not valid JSON/.test(warning)),
+    true,
+  )
   assert.equal(await readFile(path, 'utf8'), '{ "permissions": ', 'the half-typed file is untouched')
   await rm(workspace, { recursive: true, force: true })
 }
@@ -479,18 +492,18 @@ async function skillsThePluginNoLongerShipsArePrunedOnTheNextOpen(): Promise<voi
   // A harness this install does not target still gets swept.
   const staleOpencode = await plant(SKILL_HARNESS_DIR.opencode, 'studio-sprints', ours('studio-sprints'))
   const usersOwn = await plant(SKILL_HARNESS_DIR.agents, 'my-sprints', null)
-  const otherSource = await plant(
-    SKILL_HARNESS_DIR.agents,
-    'studio-roles',
-    { sourceId: 'someone-elses-repo', skillId: 'studio-roles', commitSha: 'abc' },
-  )
+  const otherSource = await plant(SKILL_HARNESS_DIR.agents, 'studio-roles', {
+    sourceId: 'someone-elses-repo',
+    skillId: 'studio-roles',
+    commitSha: 'abc',
+  })
 
   const second = await installStudioPlugin(options)
   assert.ok(second.ok, second.ok ? '' : second.message)
   assert.deepEqual(second.warnings, [])
   assert.equal(existsSync(staleAgents), false, 'a copy this plugin installed and no longer ships is removed')
   assert.equal(existsSync(staleOpencode), false, 'from every harness directory, not only the targeted ones')
-  assert.equal(existsSync(join(usersOwn, 'SKILL.md')), true, 'a skill with no marker is the person\'s and stays')
+  assert.equal(existsSync(join(usersOwn, 'SKILL.md')), true, "a skill with no marker is the person's and stays")
   assert.equal(existsSync(join(otherSource, 'SKILL.md')), true, 'a copy another source installed stays')
   for (const dirName of second.skillDirNames) {
     assert.equal(
@@ -537,17 +550,17 @@ async function aLaunchInjectedWorkspaceKeepsItsClaudeFilesClean(): Promise<void>
   assert.equal(
     existsSync(resolve(workspace, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)),
     false,
-    'the gitignored Claude settings file is never created'
+    'the gitignored Claude settings file is never created',
   )
   assert.equal(
     existsSync(resolve(workspace, CLAUDE_SETTINGS_RELATIVE_PATH)),
     false,
-    'and neither is the one a project commits'
+    'and neither is the one a project commits',
   )
   assert.equal(
     existsSync(join(workspace, SKILL_HARNESS_DIR.claude, 'skills')),
     false,
-    'no .claude/skills copy: Claude reads them from the directory the launch passes'
+    'no .claude/skills copy: Claude reads them from the directory the launch passes',
   )
 
   await rm(workspace, { recursive: true, force: true })
@@ -571,7 +584,7 @@ async function nativeEnablementIsOffAndSaysSo(): Promise<void> {
   assert.match(
     source,
     /if \(options\.registerWithClaude && !STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT && options\.hooksAcknowledged\) \{/,
-    'the hook merge must be gated on the flag, so flipping it stops the double registration'
+    'the hook merge must be gated on the flag, so flipping it stops the double registration',
   )
   // The other half of the same coupling, measured against 2.1.266 on
   // 2026-09-09: Claude Code writes a directory marketplace named in a PROJECT's
@@ -586,12 +599,12 @@ async function nativeEnablementIsOffAndSaysSo(): Promise<void> {
   assert.match(
     source,
     /neuterHooks: !STUDIO_PLUGIN_NATIVE_CLAUDE_ENABLEMENT/,
-    'the workspace copy must be blanked while the by-hand merge is the registration'
+    'the workspace copy must be blanked while the by-hand merge is the registration',
   )
   assert.match(
     source,
     /2\.1\.266/,
-    'the finding that made native loading unavoidable belongs in the constant`s own comment'
+    'the finding that made native loading unavoidable belongs in the constant`s own comment',
   )
 }
 
@@ -620,7 +633,7 @@ async function proseThatNamesATokenSurvivesVerbatim(): Promise<void> {
   const dirName = result.skillDirNames[0]
   assert.equal(
     await readFile(join(result.root, STUDIO_PLUGIN_ID, 'skills', dirName, 'SKILL.md'), 'utf8'),
-    await readFile(join(TEMPLATE_ROOT, STUDIO_PLUGIN_ID, 'skills', dirName, 'SKILL.md'), 'utf8')
+    await readFile(join(TEMPLATE_ROOT, STUDIO_PLUGIN_ID, 'skills', dirName, 'SKILL.md'), 'utf8'),
   )
   await rm(workspace, { recursive: true, force: true })
 }
@@ -685,7 +698,7 @@ function theBuiltinRowStatesWhatItKnows(): void {
       hooksAcknowledgedAt: '',
     }),
     null,
-    'a build that shipped no plugin shows no row rather than an empty version'
+    'a build that shipped no plugin shows no row rather than an empty version',
   )
 
   // The status crosses IPC, so a partial or absent payload is a real input:
@@ -694,7 +707,7 @@ function theBuiltinRowStatesWhatItKnows(): void {
   assert.equal(deriveStudioPluginRow({} as never), null)
   assert.equal(
     deriveStudioPluginRow({ bundledVersion: '1.0.0', installedVersion: '1.0.0' } as never)?.summary,
-    'Version 1.0.0. 0 skills in this workspace.'
+    'Version 1.0.0. 0 skills in this workspace.',
   )
 
   const noWorkspace = deriveStudioPluginRow({

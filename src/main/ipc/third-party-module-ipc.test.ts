@@ -26,14 +26,15 @@ function testLaunchReadinessClasses(): void {
   }
 
   assert.deepEqual(
-    toThirdPartyModuleView(installedModule({ id: 'trusted-main', trust: 'trusted', main: 'main.cjs' }), snapshot).launch,
+    toThirdPartyModuleView(installedModule({ id: 'trusted-main', trust: 'trusted', main: 'main.cjs' }), snapshot)
+      .launch,
     {
       status: 'trusted_executable',
       hasMainEntry: true,
       expectedToLoad: true,
       rendererEntry: { availability: 'none' },
       message: 'Trusted main entry is eligible for startup execution.',
-    }
+    },
   )
   assert.deepEqual(
     toThirdPartyModuleView(installedModule({ id: 'manifest-only', trust: 'trusted' }), snapshot).launch,
@@ -43,7 +44,7 @@ function testLaunchReadinessClasses(): void {
       expectedToLoad: false,
       rendererEntry: { availability: 'none' },
       message: 'Trusted manifest-only module; no main entry will run.',
-    }
+    },
   )
   assert.deepEqual(
     toThirdPartyModuleView(installedModule({ id: 'unsigned', trust: 'unsigned', main: 'main.cjs' }), snapshot).launch,
@@ -53,7 +54,7 @@ function testLaunchReadinessClasses(): void {
       expectedToLoad: false,
       rendererEntry: { availability: 'none' },
       message: 'Unsigned module is waiting for trust before startup execution.',
-    }
+    },
   )
   assert.deepEqual(
     toThirdPartyModuleView(installedModule({ id: 'signed', trust: 'signed', main: 'main.cjs' }), snapshot).launch,
@@ -63,7 +64,7 @@ function testLaunchReadinessClasses(): void {
       expectedToLoad: false,
       rendererEntry: { availability: 'none' },
       message: 'Signed module is waiting for trust before startup execution.',
-    }
+    },
   )
   assert.deepEqual(
     toThirdPartyModuleView(installedModule({ id: 'invalid', trust: 'invalid', main: 'main.cjs' }), snapshot).launch,
@@ -73,7 +74,7 @@ function testLaunchReadinessClasses(): void {
       expectedToLoad: false,
       rendererEntry: { availability: 'none' },
       message: 'Invalid signature blocks startup execution.',
-    }
+    },
   )
   assert.deepEqual(
     toThirdPartyModuleView(installedModule({ id: 'broken-main', trust: 'trusted', main: 'main.cjs' }), snapshot).launch,
@@ -83,7 +84,7 @@ function testLaunchReadinessClasses(): void {
       expectedToLoad: false,
       rendererEntry: { availability: 'none' },
       message: 'entry.main must export a callable registerMain(host).',
-    }
+    },
   )
 }
 
@@ -98,7 +99,7 @@ function testExpectedToLoadUsesEnablementOverrides(): void {
     toThirdPartyModuleView(
       installedModule({ id: 'default-on-disabled', trust: 'trusted', main: 'main.cjs', defaultEnabled: true }),
       snapshot,
-      { 'default-on-disabled': false }
+      { 'default-on-disabled': false },
     ).launch,
     {
       status: 'trusted_executable',
@@ -106,13 +107,13 @@ function testExpectedToLoadUsesEnablementOverrides(): void {
       expectedToLoad: false,
       rendererEntry: { availability: 'none' },
       message: 'Trusted main entry is disabled by user setting until enabled.',
-    }
+    },
   )
   assert.deepEqual(
     toThirdPartyModuleView(
       installedModule({ id: 'default-off-enabled', trust: 'trusted', main: 'main.cjs', defaultEnabled: false }),
       snapshot,
-      { 'default-off-enabled': true }
+      { 'default-off-enabled': true },
     ).launch,
     {
       status: 'trusted_executable',
@@ -120,7 +121,7 @@ function testExpectedToLoadUsesEnablementOverrides(): void {
       expectedToLoad: true,
       rendererEntry: { availability: 'none' },
       message: 'Trusted main entry is eligible for startup execution.',
-    }
+    },
   )
 }
 
@@ -132,14 +133,15 @@ function testCurrentBlockedStateWinsOverStaleLaunchError(): void {
   }
 
   assert.deepEqual(
-    toThirdPartyModuleView(installedModule({ id: 'changed-module', trust: 'unsigned', main: 'main.cjs' }), snapshot).launch,
+    toThirdPartyModuleView(installedModule({ id: 'changed-module', trust: 'unsigned', main: 'main.cjs' }), snapshot)
+      .launch,
     {
       status: 'blocked_unsigned',
       hasMainEntry: true,
       expectedToLoad: false,
       rendererEntry: { availability: 'none' },
       message: 'Unsigned module is waiting for trust before startup execution.',
-    }
+    },
   )
 }
 
@@ -149,18 +151,23 @@ function testLaunchErrorsAreSanitized(): void {
     manifestOnly: [],
     disabled: [],
     sidecars: [],
-    errors: [{ id: 'broken-main', message: "Cannot find module '/Users/example/.multicode/modules/broken-main/main.cjs'" }],
+    errors: [
+      { id: 'broken-main', message: "Cannot find module '/Users/example/.multicode/modules/broken-main/main.cjs'" },
+    ],
   })
 
   assert.deepEqual(
-    toThirdPartyModuleView(installedModule({ id: 'broken-main', trust: 'trusted', main: 'main.cjs' }), readThirdPartyMainLaunchSnapshot()).launch,
+    toThirdPartyModuleView(
+      installedModule({ id: 'broken-main', trust: 'trusted', main: 'main.cjs' }),
+      readThirdPartyMainLaunchSnapshot(),
+    ).launch,
     {
       status: 'launch_error',
       hasMainEntry: true,
       expectedToLoad: false,
       rendererEntry: { availability: 'none' },
       message: 'Module main entry failed during startup.',
-    }
+    },
   )
 }
 

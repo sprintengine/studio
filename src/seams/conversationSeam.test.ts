@@ -140,9 +140,7 @@ async function testContinuationTurnIsBusyOnBothSidesOfTheBoundary(): Promise<voi
     const { ConversationRuntime } = await import('../main/conversation-runtime')
     const { registerConversationIpc } = await import('../main/ipc/conversation-ipc')
     const { conversationApi } = await import('../preload/api/conversation')
-    const { projectConversation, isConversationBusy } = await import(
-      '../renderer/src/components/panels/AgentChatView'
-    )
+    const { projectConversation, isConversationBusy } = await import('../renderer/src/components/panels/AgentChatView')
 
     const capture: {
       base: MockAdapterSessionInput | null

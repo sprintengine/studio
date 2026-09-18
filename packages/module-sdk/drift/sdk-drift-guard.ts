@@ -148,7 +148,11 @@ import type {
   WorkspaceRunGlyph as AppWorkspaceRunGlyph,
   WorkspaceRunGlyphProviderInput as AppWorkspaceRunGlyphProviderInput,
 } from '../../../src/renderer/src/utils/workspaceRunGlyph'
-import type { CommandAvailability as AppCommandAvailability, CommandScope as AppCommandScope, ModuleCommandContext as AppModuleCommandContext } from '../../../src/renderer/src/commands/types'
+import type {
+  CommandAvailability as AppCommandAvailability,
+  CommandScope as AppCommandScope,
+  ModuleCommandContext as AppModuleCommandContext,
+} from '../../../src/renderer/src/commands/types'
 import type { ModuleWorkspaceView as AppModuleWorkspaceView } from '../../../src/shared/modules/workspace-view'
 import type { WorkspaceFileWatchEvent as AppWorkspaceFileWatchEvent } from '../../../src/renderer/src/modules/workspace-file-watch'
 import type { ModuleAgentSessionView as AppModuleAgentSessionView } from '../../../src/renderer/src/modules/agent-session-watch'
@@ -165,7 +169,10 @@ import type {
   BacklogItemStatus as AppBacklogItemStatus,
   BacklogResolvedLink as AppBacklogResolvedLink,
 } from '../../../src/renderer/src/utils/backlog'
-import type { LayoutTemplate as AppLayoutTemplate, PreviewSlot as AppPreviewSlot } from '../../../src/renderer/src/types/workspace'
+import type {
+  LayoutTemplate as AppLayoutTemplate,
+  PreviewSlot as AppPreviewSlot,
+} from '../../../src/renderer/src/types/workspace'
 
 import type {
   AgentIdNamespaceDefinition as SdkAgentIdNamespaceDefinition,
@@ -284,7 +291,12 @@ import type {
   WorkspaceTypeDefinition as SdkWorkspaceTypeDefinition,
   WorkspaceTypeSupervisor as SdkWorkspaceTypeSupervisor,
 } from '../src/index'
-import { BUNDLED_MODULE_IDS as SDK_BUNDLED_MODULE_IDS, KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS, MULTICODE_FILE_DROP_MIME as SDK_FILE_DROP_MIME, AUTOMATION_PROVIDER_GLYPHS as SDK_AUTOMATION_PROVIDER_GLYPHS } from '../src/index'
+import {
+  BUNDLED_MODULE_IDS as SDK_BUNDLED_MODULE_IDS,
+  KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS,
+  MULTICODE_FILE_DROP_MIME as SDK_FILE_DROP_MIME,
+  AUTOMATION_PROVIDER_GLYPHS as SDK_AUTOMATION_PROVIDER_GLYPHS,
+} from '../src/index'
 
 // The bridged UI kit and door shell (D6). The SDK restates these shapes by
 // hand — it cannot import app source — so both halves are imported here as
@@ -482,10 +494,14 @@ expectType<IsExact<AppRendererHost['registerDoorBadge'], SdkRendererHost['regist
 expectType<Extends<SdkNotificationActionProvider, AppNotificationActionProvider>>()
 expectType<Extends<SdkNotificationAction, AppNotificationAction>>()
 expectType<Extends<AppNotificationActionContext, SdkNotificationActionContext>>()
-expectType<Extends<AppRendererHost['registerNotificationActionProvider'], SdkRendererHost['registerNotificationActionProvider']>>()
+expectType<
+  Extends<AppRendererHost['registerNotificationActionProvider'], SdkRendererHost['registerNotificationActionProvider']>
+>()
 // The published notification view is what a module may read; the shell passes
 // a richer in-app notification (same narrowing as FileActionContext).
-expectType<Extends<Parameters<AppNotificationActionProvider['resolveActions']>[0]['notification'], SdkNotificationActionView>>()
+expectType<
+  Extends<Parameters<AppNotificationActionProvider['resolveActions']>[0]['notification'], SdkNotificationActionView>
+>()
 expectType<Extends<SdkBacklogLinkProvider, AppBacklogLinkProvider>>()
 expectType<Extends<SdkSettingsSectionDefinition, AppSettingsSectionDefinition>>()
 expectType<Extends<SdkSidebarNavEntryDefinition, AppSidebarNavEntryDefinition>>()
@@ -530,10 +546,12 @@ expectType<IsExact<AppRendererHost['listAgentRuntimes'], SdkRendererHost['listAg
 // 1. Async workspace creation: the hook and both of its wire shapes.
 expectType<IsExact<AppWorkspaceTypeCreateRequest, SdkWorkspaceTypeCreateRequest>>()
 expectType<IsExact<AppWorkspaceTypeCreateHost, SdkWorkspaceTypeCreateHost>>()
-expectType<IsExact<
-  NonNullable<AppWorkspaceTypeDefinition['createWorkspace']>,
-  NonNullable<SdkWorkspaceTypeDefinition['createWorkspace']>
->>()
+expectType<
+  IsExact<
+    NonNullable<AppWorkspaceTypeDefinition['createWorkspace']>,
+    NonNullable<SdkWorkspaceTypeDefinition['createWorkspace']>
+  >
+>()
 
 // 2. Module-owned agent-id namespaces.
 expectType<IsExact<AppAgentIdNamespaceDefinition, SdkAgentIdNamespaceDefinition>>()
@@ -558,16 +576,20 @@ expectType<Extends<AppFileActionContext, SdkFileActionContext>>()
 expectType<Extends<AppBacklogLinkProviderInput, SdkBacklogLinkProviderInput>>()
 
 // Mirrored value exports must stay identical (run via test:sdk:drift).
-assert.deepEqual([...SDK_BUNDLED_MODULE_IDS], [...APP_BUNDLED_MODULE_IDS], 'BUNDLED_MODULE_IDS drifted between SDK and app')
+assert.deepEqual(
+  [...SDK_BUNDLED_MODULE_IDS],
+  [...APP_BUNDLED_MODULE_IDS],
+  'BUNDLED_MODULE_IDS drifted between SDK and app',
+)
 assert.deepEqual(
   [...SDK_KNOWN_CAPABILITY_PERMISSIONS],
   [...APP_KNOWN_CAPABILITY_PERMISSIONS],
-  'KNOWN_CAPABILITY_PERMISSIONS drifted between SDK and app'
+  'KNOWN_CAPABILITY_PERMISSIONS drifted between SDK and app',
 )
 assert.deepEqual(
   [...SDK_AUTOMATION_PROVIDER_GLYPHS],
   [...APP_AUTOMATION_PROVIDER_GLYPHS],
-  'AUTOMATION_PROVIDER_GLYPHS drifted between SDK and app'
+  'AUTOMATION_PROVIDER_GLYPHS drifted between SDK and app',
 )
 assert.equal(SDK_FILE_DROP_MIME, APP_FILE_DROP_MIME, 'MULTICODE_FILE_DROP_MIME drifted between SDK and app')
 
@@ -580,42 +602,38 @@ assert.equal(AppModuleStorageToken.key, 'core.module-storage', 'ModuleStorageTok
 assert.equal(
   AppAgentSessionsModuleServiceToken.key,
   'agent-sessions.module-service',
-  'AgentSessionsModuleServiceToken key drifted'
+  'AgentSessionsModuleServiceToken key drifted',
 )
 
 // The published surface must not contain `any` (the source is also compiled
 // with strict settings; this guards the emitted declarations the tarball ships).
 // test:sdk:drift runs from the repo root (the script builds dist first).
 const publicTypes = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', 'index.d.ts'), 'utf8')
-assert.equal(
-  (publicTypes.match(/\bany\b/g) ?? []).length,
-  0,
-  'SDK public declaration surface must not contain `any`'
-)
+assert.equal((publicTypes.match(/\bany\b/g) ?? []).length, 0, 'SDK public declaration surface must not contain `any`')
 assert.equal(
   publicTypes.includes('AutomationsProviderRegistryToken'),
   false,
-  'SDK public surface must not expose the raw Automations provider registry token'
+  'SDK public surface must not expose the raw Automations provider registry token',
 )
 assert.equal(
   publicTypes.includes('AutomationsProviderRegistry'),
   false,
-  'SDK public surface must not expose the raw Automations provider registry contract'
+  'SDK public surface must not expose the raw Automations provider registry contract',
 )
 assert.equal(
   publicTypes.includes('AutomationsModuleRegistry'),
   false,
-  'SDK public surface must not expose the raw moduleId-first Automations service registry'
+  'SDK public surface must not expose the raw moduleId-first Automations service registry',
 )
 assert.equal(
   publicTypes.includes('ModuleStorageRegistry'),
   false,
-  'SDK public surface must not expose the raw moduleId-first storage registry'
+  'SDK public surface must not expose the raw moduleId-first storage registry',
 )
 assert.equal(
   publicTypes.includes('moduleStorageToken'),
   false,
-  'SDK public surface must not expose the raw storage registry token'
+  'SDK public surface must not expose the raw storage registry token',
 )
 
 // ── Bridged UI kit and door shell (D6) ───────────────────────────────────────
@@ -632,12 +650,20 @@ assert.equal(
 // added to (or dropped from) either side without the other fails here rather
 // than at a module author's first `import`.
 
-expectType<Extends<React.ComponentProps<typeof sdkUi.PrimaryButton>, React.ComponentProps<typeof appSdkUi.PrimaryButton>>>()
-expectType<IsExact<React.ComponentProps<typeof sdkUi.PrimaryButton>, React.ComponentProps<typeof appSdkUi.PrimaryButton>>>()
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.PrimaryButton>, React.ComponentProps<typeof appSdkUi.PrimaryButton>>
+>()
+expectType<
+  IsExact<React.ComponentProps<typeof sdkUi.PrimaryButton>, React.ComponentProps<typeof appSdkUi.PrimaryButton>>
+>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.GhostButton>, React.ComponentProps<typeof appSdkUi.GhostButton>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.GhostButton>, React.ComponentProps<typeof appSdkUi.GhostButton>>>()
-expectType<Extends<React.ComponentProps<typeof sdkUi.OutlineButton>, React.ComponentProps<typeof appSdkUi.OutlineButton>>>()
-expectType<IsExact<React.ComponentProps<typeof sdkUi.OutlineButton>, React.ComponentProps<typeof appSdkUi.OutlineButton>>>()
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.OutlineButton>, React.ComponentProps<typeof appSdkUi.OutlineButton>>
+>()
+expectType<
+  IsExact<React.ComponentProps<typeof sdkUi.OutlineButton>, React.ComponentProps<typeof appSdkUi.OutlineButton>>
+>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.LinkButton>, React.ComponentProps<typeof appSdkUi.LinkButton>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.LinkButton>, React.ComponentProps<typeof appSdkUi.LinkButton>>>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.RowButton>, React.ComponentProps<typeof appSdkUi.RowButton>>>()
@@ -650,33 +676,59 @@ expectType<Extends<React.ComponentProps<typeof sdkUi.Field>, React.ComponentProp
 expectType<IsExact<React.ComponentProps<typeof sdkUi.Field>, React.ComponentProps<typeof appSdkUi.Field>>>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.Select>, React.ComponentProps<typeof appSdkUi.Select>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.Select>, React.ComponentProps<typeof appSdkUi.Select>>>()
-expectType<Extends<React.ComponentProps<typeof sdkUi.SegmentedControl>, React.ComponentProps<typeof appSdkUi.SegmentedControl>>>()
-expectType<IsExact<React.ComponentProps<typeof sdkUi.SegmentedControl>, React.ComponentProps<typeof appSdkUi.SegmentedControl>>>()
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.SegmentedControl>, React.ComponentProps<typeof appSdkUi.SegmentedControl>>
+>()
+expectType<
+  IsExact<React.ComponentProps<typeof sdkUi.SegmentedControl>, React.ComponentProps<typeof appSdkUi.SegmentedControl>>
+>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.Banner>, React.ComponentProps<typeof appSdkUi.Banner>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.Banner>, React.ComponentProps<typeof appSdkUi.Banner>>>()
 // PanelHeader deliberately omits the host-internal tool identity vocabulary.
 expectType<Extends<React.ComponentProps<typeof sdkUi.PanelHeader>, React.ComponentProps<typeof appSdkUi.PanelHeader>>>()
-expectType<Extends<React.ComponentProps<typeof sdkUi.InlineNotice>, React.ComponentProps<typeof appSdkUi.InlineNotice>>>()
-expectType<IsExact<React.ComponentProps<typeof sdkUi.InlineNotice>, React.ComponentProps<typeof appSdkUi.InlineNotice>>>()
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.InlineNotice>, React.ComponentProps<typeof appSdkUi.InlineNotice>>
+>()
+expectType<
+  IsExact<React.ComponentProps<typeof sdkUi.InlineNotice>, React.ComponentProps<typeof appSdkUi.InlineNotice>>
+>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.EmptyState>, React.ComponentProps<typeof appSdkUi.EmptyState>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.EmptyState>, React.ComponentProps<typeof appSdkUi.EmptyState>>>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.Spinner>, React.ComponentProps<typeof appSdkUi.Spinner>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.Spinner>, React.ComponentProps<typeof appSdkUi.Spinner>>>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.StatusDot>, React.ComponentProps<typeof appSdkUi.StatusDot>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.StatusDot>, React.ComponentProps<typeof appSdkUi.StatusDot>>>()
-expectType<Extends<React.ComponentProps<typeof sdkUi.LifecycleGlyph>, React.ComponentProps<typeof appSdkUi.LifecycleGlyph>>>()
-expectType<IsExact<React.ComponentProps<typeof sdkUi.LifecycleGlyph>, React.ComponentProps<typeof appSdkUi.LifecycleGlyph>>>()
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.LifecycleGlyph>, React.ComponentProps<typeof appSdkUi.LifecycleGlyph>>
+>()
+expectType<
+  IsExact<React.ComponentProps<typeof sdkUi.LifecycleGlyph>, React.ComponentProps<typeof appSdkUi.LifecycleGlyph>>
+>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.Section>, React.ComponentProps<typeof appSdkUi.Section>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.Section>, React.ComponentProps<typeof appSdkUi.Section>>>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.Drawer>, React.ComponentProps<typeof appSdkUi.Drawer>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.Drawer>, React.ComponentProps<typeof appSdkUi.Drawer>>>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.Drawer.Body>, React.ComponentProps<typeof appSdkUi.Drawer.Body>>>()
-expectType<Extends<React.ComponentProps<typeof sdkUi.TruncatedText>, React.ComponentProps<typeof appSdkUi.TruncatedText>>>()
-expectType<IsExact<React.ComponentProps<typeof sdkUi.TruncatedText>, React.ComponentProps<typeof appSdkUi.TruncatedText>>>()
+expectType<
+  Extends<React.ComponentProps<typeof sdkUi.TruncatedText>, React.ComponentProps<typeof appSdkUi.TruncatedText>>
+>()
+expectType<
+  IsExact<React.ComponentProps<typeof sdkUi.TruncatedText>, React.ComponentProps<typeof appSdkUi.TruncatedText>>
+>()
 expectType<Extends<React.ComponentProps<typeof sdkUi.KbdChord>, React.ComponentProps<typeof appSdkUi.KbdChord>>>()
 expectType<IsExact<React.ComponentProps<typeof sdkUi.KbdChord>, React.ComponentProps<typeof appSdkUi.KbdChord>>>()
-expectType<Extends<React.ComponentProps<typeof sdkUi.CliModelPickerButton>, React.ComponentProps<typeof appSdkUi.CliModelPickerButton>>>()
-expectType<IsExact<React.ComponentProps<typeof sdkUi.CliModelPickerButton>, React.ComponentProps<typeof appSdkUi.CliModelPickerButton>>>()
+expectType<
+  Extends<
+    React.ComponentProps<typeof sdkUi.CliModelPickerButton>,
+    React.ComponentProps<typeof appSdkUi.CliModelPickerButton>
+  >
+>()
+expectType<
+  IsExact<
+    React.ComponentProps<typeof sdkUi.CliModelPickerButton>,
+    React.ComponentProps<typeof appSdkUi.CliModelPickerButton>
+  >
+>()
 
 // Shared vocabulary the kit's props are written in.
 expectType<IsExact<typeof sdkUi.FOCUS_RING_CLASS, string>>()
@@ -687,12 +739,36 @@ expectType<IsExact<sdkUi.SegmentedControlItem, appSdkUi.SegmentedControlItem>>()
 expectType<IsExact<sdkUi.SelectItem, appSdkUi.SelectItem>>()
 
 // The door shell.
-expectType<Extends<React.ComponentProps<typeof sdkSurface.GlobalSurfaceShell>, React.ComponentProps<typeof appSdkSurface.GlobalSurfaceShell>>>()
-expectType<IsExact<React.ComponentProps<typeof sdkSurface.GlobalSurfaceShell>, React.ComponentProps<typeof appSdkSurface.GlobalSurfaceShell>>>()
-expectType<Extends<React.ComponentProps<typeof sdkSurface.SurfaceCanvasState>, React.ComponentProps<typeof appSdkSurface.SurfaceCanvasState>>>()
-expectType<IsExact<React.ComponentProps<typeof sdkSurface.SurfaceCanvasState>, React.ComponentProps<typeof appSdkSurface.SurfaceCanvasState>>>()
-expectType<Extends<React.ComponentProps<typeof sdkSurface.SurfaceRail>, React.ComponentProps<typeof appSdkSurface.SurfaceRail>>>()
-expectType<IsExact<React.ComponentProps<typeof sdkSurface.SurfaceRail>, React.ComponentProps<typeof appSdkSurface.SurfaceRail>>>()
+expectType<
+  Extends<
+    React.ComponentProps<typeof sdkSurface.GlobalSurfaceShell>,
+    React.ComponentProps<typeof appSdkSurface.GlobalSurfaceShell>
+  >
+>()
+expectType<
+  IsExact<
+    React.ComponentProps<typeof sdkSurface.GlobalSurfaceShell>,
+    React.ComponentProps<typeof appSdkSurface.GlobalSurfaceShell>
+  >
+>()
+expectType<
+  Extends<
+    React.ComponentProps<typeof sdkSurface.SurfaceCanvasState>,
+    React.ComponentProps<typeof appSdkSurface.SurfaceCanvasState>
+  >
+>()
+expectType<
+  IsExact<
+    React.ComponentProps<typeof sdkSurface.SurfaceCanvasState>,
+    React.ComponentProps<typeof appSdkSurface.SurfaceCanvasState>
+  >
+>()
+expectType<
+  Extends<React.ComponentProps<typeof sdkSurface.SurfaceRail>, React.ComponentProps<typeof appSdkSurface.SurfaceRail>>
+>()
+expectType<
+  IsExact<React.ComponentProps<typeof sdkSurface.SurfaceRail>, React.ComponentProps<typeof appSdkSurface.SurfaceRail>>
+>()
 expectType<IsExact<typeof sdkSurface.useSurfaceBackNav, typeof appSdkSurface.useSurfaceBackNav>>()
 expectType<IsExact<sdkSurface.GlobalSurfaceBar, appSdkSurface.GlobalSurfaceBar>>()
 expectType<IsExact<sdkSurface.SurfaceRailRow, appSdkSurface.SurfaceRailRow>>()
@@ -705,14 +781,35 @@ expectType<IsExact<sdkSurface.SurfaceRailNewAffordance, appSdkSurface.SurfaceRai
 // The published export lists. Only VALUE exports count: a type-only export
 // costs a module nothing at runtime, a missing component costs it everything.
 const SDK_UI_EXPORT_NAMES = [
-  'GhostButton', 'OutlineButton', 'PrimaryButton',
-  'Banner', 'PanelHeader', 'Drawer', 'EmptyState', 'Field', 'Input', 'Textarea', 'InlineNotice',
-  'KbdChord', 'LifecycleGlyph', 'LinkButton', 'RowButton', 'Section',
-  'SegmentedControl', 'Select', 'Spinner', 'StatusDot', 'TruncatedText',
-  'FOCUS_RING_CLASS', 'CliModelPickerButton',
+  'GhostButton',
+  'OutlineButton',
+  'PrimaryButton',
+  'Banner',
+  'PanelHeader',
+  'Drawer',
+  'EmptyState',
+  'Field',
+  'Input',
+  'Textarea',
+  'InlineNotice',
+  'KbdChord',
+  'LifecycleGlyph',
+  'LinkButton',
+  'RowButton',
+  'Section',
+  'SegmentedControl',
+  'Select',
+  'Spinner',
+  'StatusDot',
+  'TruncatedText',
+  'FOCUS_RING_CLASS',
+  'CliModelPickerButton',
 ] as const
 const SDK_SURFACE_EXPORT_NAMES = [
-  'GlobalSurfaceShell', 'useSurfaceBackNav', 'SurfaceCanvasState', 'SurfaceRail',
+  'GlobalSurfaceShell',
+  'useSurfaceBackNav',
+  'SurfaceCanvasState',
+  'SurfaceRail',
 ] as const
 
 // Both bridges must export exactly this list — no more, no less, on either
@@ -734,17 +831,17 @@ const declaredExports = (file: string): string[] => {
 assert.deepEqual(
   declaredExports('ui.d.ts').sort(),
   [...SDK_UI_EXPORT_NAMES].sort(),
-  '@sprintengine/module-sdk/ui declares a different set of components than the host bridges'
+  '@sprintengine/module-sdk/ui declares a different set of components than the host bridges',
 )
 assert.deepEqual(
   declaredExports('surface.d.ts').sort(),
   [...SDK_SURFACE_EXPORT_NAMES].sort(),
-  '@sprintengine/module-sdk/surface declares a different set of exports than the host bridges'
+  '@sprintengine/module-sdk/surface declares a different set of exports than the host bridges',
 )
 
 // The subpaths must be reachable as published entry points, not just as files.
 const sdkPackageJson = JSON.parse(
-  readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'package.json'), 'utf8')
+  readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'package.json'), 'utf8'),
 ) as { exports: Record<string, { types: string; default: string } | undefined> }
 for (const subpath of ['./ui', './surface']) {
   assert.ok(sdkPackageJson.exports[subpath], `@sprintengine/module-sdk is missing the "${subpath}" export`)
@@ -757,9 +854,9 @@ for (const subpath of ['ui', 'surface'] as const) {
   const runtime = readFileSync(join(process.cwd(), 'packages', 'module-sdk', 'dist', `${subpath}.js`), 'utf8')
   assert.ok(
     runtime.includes(
-      `const HOST_PROVIDED_MESSAGE = '@sprintengine/module-sdk/${subpath} is provided by the host at runtime; mark it external in your bundler'`
+      `const HOST_PROVIDED_MESSAGE = '@sprintengine/module-sdk/${subpath} is provided by the host at runtime; mark it external in your bundler'`,
     ) && runtime.includes('throw new Error(HOST_PROVIDED_MESSAGE)'),
-    `@sprintengine/module-sdk/${subpath} must throw its host-provided message when it is bundled instead of externalised`
+    `@sprintengine/module-sdk/${subpath} must throw its host-provided message when it is bundled instead of externalised`,
   )
 }
 

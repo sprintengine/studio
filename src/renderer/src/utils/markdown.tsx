@@ -19,9 +19,7 @@ type MarkdownDensity = 'document' | 'compact'
  * opens in place, a miss is stated as a miss rather than rendered as if it
  * would work.
  */
-type MarkdownLinkTarget =
-  | { kind: 'file'; path: string }
-  | { kind: 'dead'; reason: string }
+type MarkdownLinkTarget = { kind: 'file'; path: string } | { kind: 'dead'; reason: string }
 
 export type MarkdownLinkResolver = {
   /** null when the href is not this corpus's to own (a scheme, a fragment). */
@@ -36,8 +34,8 @@ type MarkdownRenderOptions = {
 }
 
 type MarkdownNode = Element | undefined
-type MarkdownComponentProps<TagName extends keyof JSX.IntrinsicElements> =
-  React.ComponentPropsWithoutRef<TagName> & ExtraProps
+type MarkdownComponentProps<TagName extends keyof JSX.IntrinsicElements> = React.ComponentPropsWithoutRef<TagName> &
+  ExtraProps
 
 // Prose, so it takes the ramp step *below* the 15px it used to hard-code, not
 // the one above: `text-title` would put document body text at the same size as
@@ -86,8 +84,7 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     // A long path wraps instead of pushing the line box wider than the column;
     // `break-words` keeps a short token whole and moves it down instead.
     code: 'rounded-xs border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-[color:var(--tone-warn)] break-words',
-    blockquote:
-      'my-4 border-l-2 border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
+    blockquote: 'my-4 border-l-2 border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
     hr: 'my-6 border-0 border-t border-[color:var(--border-default)]',
     table: 'w-full border-collapse text-left text-body text-[color:var(--text-default)]',
   },
@@ -107,8 +104,7 @@ const MARKDOWN_SCALE: Record<MarkdownDensity, MarkdownScale> = {
     // Inline code sits inside running text, so it matches that text's size;
     // inside a fence it takes the fence's, which is already set on the <pre>.
     code: 'rounded-[3px] bg-[color:var(--bg-active)] px-[0.34em] py-[0.1em] text-[0.92em] text-[color:var(--text-default)] break-words [pre_&]:text-[1em]',
-    blockquote:
-      'my-3 border-l border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
+    blockquote: 'my-3 border-l border-[color:var(--border-strong)] py-0.5 pl-4 text-[color:var(--text-muted)]',
     hr: 'my-[22px] border-0 border-t border-[color:var(--border-subtle)]',
     table: 'w-full border-collapse text-left text-micro text-[color:var(--text-default)]',
   },
@@ -141,7 +137,7 @@ function lineRange(node: MarkdownNode): { startLine: number; endLine: number } |
 
 function changeKindForRange(
   node: MarkdownNode,
-  lineChanges: GitLineChange[] | undefined
+  lineChanges: GitLineChange[] | undefined,
 ): GitLineChange['kind'] | null {
   if (!lineChanges?.length) return null
   const range = lineRange(node)
@@ -160,10 +156,7 @@ function changeKindForRange(
   return matched
 }
 
-function changedBlockClass(
-  node: MarkdownNode,
-  lineChanges: GitLineChange[] | undefined
-): string | null {
+function changedBlockClass(node: MarkdownNode, lineChanges: GitLineChange[] | undefined): string | null {
   const kind = changeKindForRange(node, lineChanges)
   return kind ? `markdown-change-block markdown-change-${kind}` : null
 }
@@ -174,39 +167,25 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
 
   const components: Components = {
     h1: ({ node, children, className }: MarkdownComponentProps<'h1'>) => (
-      <h1 className={joinClasses(className, scale.h1, changedBlockClass(node, lineChanges))}>
-        {children}
-      </h1>
+      <h1 className={joinClasses(className, scale.h1, changedBlockClass(node, lineChanges))}>{children}</h1>
     ),
     h2: ({ node, children, className }: MarkdownComponentProps<'h2'>) => (
-      <h2 className={joinClasses(className, scale.h2, changedBlockClass(node, lineChanges))}>
-        {children}
-      </h2>
+      <h2 className={joinClasses(className, scale.h2, changedBlockClass(node, lineChanges))}>{children}</h2>
     ),
     h3: ({ node, children, className }: MarkdownComponentProps<'h3'>) => (
-      <h3 className={joinClasses(className, scale.h3, changedBlockClass(node, lineChanges))}>
-        {children}
-      </h3>
+      <h3 className={joinClasses(className, scale.h3, changedBlockClass(node, lineChanges))}>{children}</h3>
     ),
     h4: ({ node, children, className }: MarkdownComponentProps<'h4'>) => (
-      <h4 className={joinClasses(className, scale.h4, changedBlockClass(node, lineChanges))}>
-        {children}
-      </h4>
+      <h4 className={joinClasses(className, scale.h4, changedBlockClass(node, lineChanges))}>{children}</h4>
     ),
     h5: ({ node, children, className }: MarkdownComponentProps<'h5'>) => (
-      <h5 className={joinClasses(className, scale.h5, changedBlockClass(node, lineChanges))}>
-        {children}
-      </h5>
+      <h5 className={joinClasses(className, scale.h5, changedBlockClass(node, lineChanges))}>{children}</h5>
     ),
     h6: ({ node, children, className }: MarkdownComponentProps<'h6'>) => (
-      <h6 className={joinClasses(className, scale.h6, changedBlockClass(node, lineChanges))}>
-        {children}
-      </h6>
+      <h6 className={joinClasses(className, scale.h6, changedBlockClass(node, lineChanges))}>{children}</h6>
     ),
     p: ({ node, children, className }: MarkdownComponentProps<'p'>) => (
-      <p className={joinClasses(className, scale.p, changedBlockClass(node, lineChanges))}>
-        {children}
-      </p>
+      <p className={joinClasses(className, scale.p, changedBlockClass(node, lineChanges))}>{children}</p>
     ),
     a: ({ children, href, className }: MarkdownComponentProps<'a'>) => {
       const target = links && typeof href === 'string' ? links.resolve(href) : null
@@ -238,7 +217,10 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
         return (
           <span
             title={target.reason}
-            className={joinClasses(className, 'cursor-help text-[color:var(--text-muted)] underline decoration-dotted underline-offset-2')}
+            className={joinClasses(
+              className,
+              'cursor-help text-[color:var(--text-muted)] underline decoration-dotted underline-offset-2',
+            )}
           >
             {children}
             <span className="sr-only">{` — ${target.reason}`}</span>
@@ -251,45 +233,30 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       }
 
       return (
-        <a
-          href={href}
-          target="_blank"
-          rel="noreferrer"
-          className={joinClasses(className, LINK_CLASS)}
-        >
+        <a href={href} target="_blank" rel="noreferrer" className={joinClasses(className, LINK_CLASS)}>
           {children}
         </a>
       )
     },
     strong: ({ children, className }: MarkdownComponentProps<'strong'>) => (
-      <strong className={joinClasses(className, 'font-semibold text-[color:var(--text-strong)]')}>
-        {children}
-      </strong>
+      <strong className={joinClasses(className, 'font-semibold text-[color:var(--text-strong)]')}>{children}</strong>
     ),
     em: ({ children, className }: MarkdownComponentProps<'em'>) => (
-      <em className={joinClasses(className, 'italic text-[color:var(--text-default)]')}>
-        {children}
-      </em>
+      <em className={joinClasses(className, 'italic text-[color:var(--text-default)]')}>{children}</em>
     ),
     code: ({ children, className }: MarkdownComponentProps<'code'>) => (
       <code className={joinClasses(className, scale.code)}>{children}</code>
     ),
     pre: ({ node, children, className }: MarkdownComponentProps<'pre'>) => (
-      <pre className={joinClasses(className, scale.pre, changedBlockClass(node, lineChanges))}>
-        {children}
-      </pre>
+      <pre className={joinClasses(className, scale.pre, changedBlockClass(node, lineChanges))}>{children}</pre>
     ),
     blockquote: ({ node, children, className }: MarkdownComponentProps<'blockquote'>) => (
-      <blockquote
-        className={joinClasses(className, scale.blockquote, changedBlockClass(node, lineChanges))}
-      >
+      <blockquote className={joinClasses(className, scale.blockquote, changedBlockClass(node, lineChanges))}>
         {children}
       </blockquote>
     ),
     ul: ({ node, children, className }: MarkdownComponentProps<'ul'>) => (
-      <ul
-        className={joinClasses(className, scale.list, 'list-disc', changedBlockClass(node, lineChanges))}
-      >
+      <ul className={joinClasses(className, scale.list, 'list-disc', changedBlockClass(node, lineChanges))}>
         {children}
       </ul>
     ),
@@ -304,13 +271,7 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
       </ol>
     ),
     li: ({ node, children, className, value }: MarkdownComponentProps<'li'>) => (
-      <li
-        value={value}
-        className={joinClasses(
-          className,
-          changedBlockClass(node, lineChanges)
-        )}
-      >
+      <li value={value} className={joinClasses(className, changedBlockClass(node, lineChanges))}>
         {children}
       </li>
     ),
@@ -335,13 +296,19 @@ export function renderMarkdown(markdown: string, options: MarkdownRenderOptions 
     th: ({ children, className, align }: MarkdownComponentProps<'th'>) => (
       <th
         align={align}
-        className={joinClasses(className, 'border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-3 py-2 font-semibold text-[color:var(--text-strong)]')}
+        className={joinClasses(
+          className,
+          'border border-[color:var(--border-strong)] bg-[color:var(--bg-surface-raised)] px-3 py-2 font-semibold text-[color:var(--text-strong)]',
+        )}
       >
         {children}
       </th>
     ),
     td: ({ children, className, align }: MarkdownComponentProps<'td'>) => (
-      <td align={align} className={joinClasses(className, 'border border-[color:var(--border-default)] px-3 py-2 align-top')}>
+      <td
+        align={align}
+        className={joinClasses(className, 'border border-[color:var(--border-default)] px-3 py-2 align-top')}
+      >
         {children}
       </td>
     ),

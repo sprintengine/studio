@@ -89,7 +89,7 @@ void (async () => {
     assert.deepEqual(
       snapshot.steps.map((step) => step.subject),
       ['first step', 'second step'],
-      'oldest first — the order the work happened in'
+      'oldest first — the order the work happened in',
     )
     assert.ok(snapshot.steps[0].shortHash.length > 0)
     assert.ok(snapshot.steps[0].authoredAt > 0)
@@ -206,7 +206,7 @@ void (async () => {
     const tail = await diffBranchSelection(dir, { kind: 'uncommitted' })
     assert.ok(
       paths(tail.files).includes('brand-new.txt'),
-      'but it is reachable — the uncommitted step is where it lives'
+      'but it is reachable — the uncommitted step is where it lives',
     )
   })
 
@@ -283,7 +283,7 @@ void (async () => {
     assert.equal(
       snapshot.steps.filter((step) => !step.isMerge).length,
       1,
-      'the branch’s own work is still one ordinary step'
+      'the branch’s own work is still one ordinary step',
     )
   })
 
@@ -409,7 +409,11 @@ void (async () => {
     // span still leaves out. The line totals above stay git's tracked diff on
     // both. Stated here as an exact equation rather than glossed, so the day
     // the pane lists untracked files too this line is the one that fails.
-    assert.equal(span.files.length + 1, row.changedFiles, 'the row counts the untracked file as added; the pane does not yet')
+    assert.equal(
+      span.files.length + 1,
+      row.changedFiles,
+      'the row counts the untracked file as added; the pane does not yet',
+    )
     // b.txt is new against the merge base, untracked.txt is new on disk, a.txt existed at the base.
     assert.deepEqual(row.files, { added: 2, updated: 1, removed: 0 }, 'b.txt and untracked.txt are the added ones')
   })

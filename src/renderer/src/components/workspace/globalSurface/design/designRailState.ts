@@ -122,10 +122,7 @@ export function designRowStateLine(entry: DesignRailEntry): string {
   return entry.cachedVersion ?? 'Reading…'
 }
 
-export function designFailureLine(
-  failure: DesignSystemBundleReadFailure,
-  path: string,
-): string {
+export function designFailureLine(failure: DesignSystemBundleReadFailure, path: string): string {
   switch (failure) {
     case 'missing':
       return `Folder not found · ${path}`
@@ -166,10 +163,7 @@ export function designRowMatchesSearch(entry: DesignRailEntry, query: string): b
   if (entry.cachedName?.toLowerCase().includes(needle)) return true
   const identity = entry.identity
   if (!identity) return false
-  return (
-    identity.name.toLowerCase().includes(needle) ||
-    identity.summary.toLowerCase().includes(needle)
-  )
+  return identity.name.toLowerCase().includes(needle) || identity.summary.toLowerCase().includes(needle)
 }
 
 /**
@@ -193,10 +187,7 @@ export const DESIGN_RAIL_STATUS_ITEMS: ReadonlyArray<{
   { value: 'broken', label: 'Needs attention' },
 ]
 
-function designRowMatchesStatus(
-  entry: DesignRailEntry,
-  status: DesignRailStatusFilter,
-): boolean {
+function designRowMatchesStatus(entry: DesignRailEntry, status: DesignRailStatusFilter): boolean {
   if (status === 'all') return true
   // A row still being read is neither yet. Keep it under "readable" so rows do
   // not flicker out of the list and back while their reads land.

@@ -2,7 +2,14 @@ import { readdirSync, readFileSync, rmSync, statSync } from 'fs'
 import { mkdir, rename, rm, writeFile } from 'fs/promises'
 import type { ObservedCheckout } from '../shared/observed-checkout'
 import { join } from 'path'
-import type { AgentCli, AgentExecutionMode, SessionContextUsage, SessionFileChange, SessionPrompt, TerminalKind } from '../shared/electron-api'
+import type {
+  AgentCli,
+  AgentExecutionMode,
+  SessionContextUsage,
+  SessionFileChange,
+  SessionPrompt,
+  TerminalKind,
+} from '../shared/electron-api'
 
 // Durable freeze-the-view: per-terminal snapshot sidecars under
 // `<userData>/terminal-snapshots/<sessionId>.json`.
@@ -133,9 +140,7 @@ export function createTerminalSnapshotSidecarStore(options: {
   const chains = new Map<string, Promise<void>>()
 
   function chain(sessionId: string, task: () => Promise<void>, title: string): void {
-    const next = (chains.get(sessionId) ?? Promise.resolve())
-      .then(task)
-      .catch((error) => warn(title, error))
+    const next = (chains.get(sessionId) ?? Promise.resolve()).then(task).catch((error) => warn(title, error))
     chains.set(sessionId, next)
     void next.then(() => {
       if (chains.get(sessionId) === next) chains.delete(sessionId)
@@ -158,12 +163,12 @@ export function createTerminalSnapshotSidecarStore(options: {
       try {
         const parsed = JSON.parse(raw) as Partial<TerminalSnapshotSidecar>
         if (
-          parsed.version !== 1
-          || parsed.sessionId !== sessionId
-          || typeof parsed.savedAt !== 'number'
-          || typeof parsed.cols !== 'number'
-          || typeof parsed.rows !== 'number'
-          || (typeof parsed.snapshot !== 'string' && typeof parsed.rawReplay !== 'string')
+          parsed.version !== 1 ||
+          parsed.sessionId !== sessionId ||
+          typeof parsed.savedAt !== 'number' ||
+          typeof parsed.cols !== 'number' ||
+          typeof parsed.rows !== 'number' ||
+          (typeof parsed.snapshot !== 'string' && typeof parsed.rawReplay !== 'string')
         ) {
           throw new Error('malformed_terminal_snapshot_sidecar')
         }
@@ -190,7 +195,7 @@ export function createTerminalSnapshotSidecarStore(options: {
           await rename(tmp, path)
           if (pending.get(sessionId) === sidecar) pending.delete(sessionId)
         },
-        'Terminal snapshot sidecar write failed'
+        'Terminal snapshot sidecar write failed',
       )
     },
     remove(sessionId: string): void {

@@ -12,11 +12,7 @@
 // than a second name.
 
 import type { AgentCli } from '../../types/workspace'
-import type {
-  PluginModelCatalog,
-  PluginModelOption,
-  PluginReasoningCatalog,
-} from '../../../../shared/plugin-manifest'
+import type { PluginModelCatalog, PluginModelOption, PluginReasoningCatalog } from '../../../../shared/plugin-manifest'
 
 // Structurally compatible with AgentCliCatalogOption from
 // newWorkspace/cliRuntimeOptions; declared here so the ui primitive does not

@@ -28,14 +28,14 @@ const MAX_VERSION = 40
  * Table 13-22 of ISO/IEC 18004.
  */
 const ECC_CODEWORDS_PER_BLOCK_M: readonly number[] = [
-  -1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28,
-  28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
+  -1, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28, 28, 28, 28, 28, 28,
+  28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28,
 ]
 
 /** Error-correction block count, level M, indexed by version (index 0 unused). */
 const ECC_BLOCKS_M: readonly number[] = [
-  -1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25,
-  26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49,
+  -1, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33,
+  35, 37, 38, 40, 43, 45, 47, 49,
 ]
 
 /** A rendered symbol: a square grid where true is a dark module. */
@@ -265,9 +265,7 @@ class QrSymbol {
       for (let j = 0; j < positions.length; j++) {
         // The three finder corners already own these centres.
         const isFinderCorner =
-          (i === 0 && j === 0)
-          || (i === 0 && j === positions.length - 1)
-          || (i === positions.length - 1 && j === 0)
+          (i === 0 && j === 0) || (i === 0 && j === positions.length - 1) || (i === positions.length - 1 && j === 0)
         if (!isFinderCorner) this.drawAlignment(positions[i], positions[j])
       }
     }
@@ -405,9 +403,9 @@ class QrSymbol {
       for (let x = 0; x < this.size - 1; x++) {
         const value = this.modules[y][x]
         if (
-          value === this.modules[y][x + 1]
-          && value === this.modules[y + 1][x]
-          && value === this.modules[y + 1][x + 1]
+          value === this.modules[y][x + 1] &&
+          value === this.modules[y + 1][x] &&
+          value === this.modules[y + 1][x + 1]
         ) {
           score += 3
         }

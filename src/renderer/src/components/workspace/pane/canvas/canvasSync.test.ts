@@ -197,7 +197,7 @@ run('a commit answer is stale, a reconcile, or an acceptance', () => {
   assert.deepEqual(canvasCommitOutcome({ revision: 5, elements: null }, 4), { kind: 'accepted', revision: 5 })
 })
 
-run('a failed commit puts its own hash back, and never somebody else\'s', () => {
+run("a failed commit puts its own hash back, and never somebody else's", () => {
   assert.equal(canvasHashAfterFailedCommit('sent', 'sent', 'before'), 'before')
   assert.equal(
     canvasHashAfterFailedCommit('newer', 'sent', 'before'),

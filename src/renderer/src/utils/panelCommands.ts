@@ -5,7 +5,5 @@
 export const PANEL_COMMAND_EVENT = 'multicode:panel-command'
 
 export function dispatchPanelCommandEvent(id: string, workspaceId?: string): void {
-  window.dispatchEvent(
-    new CustomEvent(PANEL_COMMAND_EVENT, { detail: workspaceId ? { id, workspaceId } : { id } })
-  )
+  window.dispatchEvent(new CustomEvent(PANEL_COMMAND_EVENT, { detail: workspaceId ? { id, workspaceId } : { id } }))
 }

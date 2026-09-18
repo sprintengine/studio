@@ -66,7 +66,7 @@ type IpcDiagnostics = {
     scope: string,
     event: string,
     payload: Record<string, unknown>,
-    action: () => Promise<T>
+    action: () => Promise<T>,
   ): Promise<T>
 }
 
@@ -85,64 +85,53 @@ export type GitIpcPaths = {
   onChangelistsChanged?: (repoRoot: string) => void
 }
 
-export function registerGitIpc(
-  ipcMain: IpcMain,
-  diagnostics: IpcDiagnostics,
-  paths: GitIpcPaths
-): void {
+export function registerGitIpc(ipcMain: IpcMain, diagnostics: IpcDiagnostics, paths: GitIpcPaths): void {
   ipcMain.handle('git:get-repo-root', async (_, folderPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repo-root', { folderPath }, () => getGitRepoRoot(folderPath))
   })
 
   ipcMain.handle('git:get-workspace-change-summary', async (_, checkoutPath: string) => {
-    return diagnostics.withIpcDiagnostics(
-      'GitIPC',
-      'get-workspace-change-summary',
-      { checkoutPath },
-      () => getWorkspaceChangeSummary({ checkoutPath })
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-workspace-change-summary', { checkoutPath }, () =>
+      getWorkspaceChangeSummary({ checkoutPath }),
     )
   })
 
   ipcMain.handle('git:get-branch-steps', async (_, checkoutPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-branch-steps', { checkoutPath }, () =>
-      listBranchSteps(checkoutPath)
+      listBranchSteps(checkoutPath),
     )
   })
 
-  ipcMain.handle(
-    'git:get-branch-step-diff',
-    async (_, checkoutPath: string, selection: BranchStepSelection) => {
-      return diagnostics.withIpcDiagnostics(
-        'GitIPC',
-        'get-branch-step-diff',
-        { checkoutPath, selection: selection?.kind },
-        () => diffBranchSelection(checkoutPath, selection)
-      )
-    }
-  )
-
-  ipcMain.handle('git:get-file-at-rev', async (_, repoRoot: string, rev: string, filePath: string) => {
+  ipcMain.handle('git:get-branch-step-diff', async (_, checkoutPath: string, selection: BranchStepSelection) => {
     return diagnostics.withIpcDiagnostics(
       'GitIPC',
-      'get-file-at-rev',
-      { repoRoot, rev, filePath },
-      () => readFileAtRev(repoRoot, rev, filePath)
+      'get-branch-step-diff',
+      { checkoutPath, selection: selection?.kind },
+      () => diffBranchSelection(checkoutPath, selection),
+    )
+  })
+
+  ipcMain.handle('git:get-file-at-rev', async (_, repoRoot: string, rev: string, filePath: string) => {
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-file-at-rev', { repoRoot, rev, filePath }, () =>
+      readFileAtRev(repoRoot, rev, filePath),
     )
   })
 
   ipcMain.handle('git:get-status', async (_, repoRoot: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'get-status', { repoRoot }, async () => {
-      const snapshot = await getGitStatus(repoRoot)
-      return snapshot
-    }).then((snapshot) => {
-      if (diagnostics.enabled) {
-        diagnostics.logMainPerfEvent('GitIPC', 'get-status-result', {
-          repoRoot,
-          changedFileCount: Object.keys(snapshot.files).length,
-        })
-      }
-      return snapshot
-    })
+    return diagnostics
+      .withIpcDiagnostics('GitIPC', 'get-status', { repoRoot }, async () => {
+        const snapshot = await getGitStatus(repoRoot)
+        return snapshot
+      })
+      .then((snapshot) => {
+        if (diagnostics.enabled) {
+          diagnostics.logMainPerfEvent('GitIPC', 'get-status-result', {
+            repoRoot,
+            changedFileCount: Object.keys(snapshot.files).length,
+          })
+        }
+        return snapshot
+      })
   })
 
   ipcMain.handle('git:check-ignored', async (_, repoRoot: string, relativePaths: string[]) => {
@@ -150,17 +139,19 @@ export function registerGitIpc(
       'GitIPC',
       'check-ignored',
       { repoRoot, pathCount: relativePaths.length },
-      async () => Array.from(await checkIgnoredPaths(repoRoot, relativePaths))
+      async () => Array.from(await checkIgnoredPaths(repoRoot, relativePaths)),
     )
   })
 
   ipcMain.handle('git:get-file-base', async (_, repoRoot: string, filePath: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'get-file-base', { repoRoot, filePath }, () => getGitFileBase(repoRoot, filePath))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-file-base', { repoRoot, filePath }, () =>
+      getGitFileBase(repoRoot, filePath),
+    )
   })
 
   ipcMain.handle('git:get-file-at-stage', async (_, repoRoot: string, filePath: string, stage: GitFileStage) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-file-at-stage', { repoRoot, filePath, stage }, () =>
-      getGitFileAtStage(repoRoot, filePath, stage)
+      getGitFileAtStage(repoRoot, filePath, stage),
     )
   })
 
@@ -171,7 +162,7 @@ export function registerGitIpc(
   // treat a spun-down volume as "no remote" (RepositoryIdentityRead).
   ipcMain.handle('git:get-repository-identity', async (_, folderPath: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-repository-identity', { folderPath }, () =>
-      readRepositoryIdentityRead(folderPath)
+      readRepositoryIdentityRead(folderPath),
     )
   })
 
@@ -181,24 +172,32 @@ export function registerGitIpc(
 
   ipcMain.handle('git:get-commit-graph', async (_, repoRoot: string, options?: { limit?: number; skip?: number }) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-commit-graph', { repoRoot, ...options }, () =>
-      getGitCommitGraph(repoRoot, options ?? {})
+      getGitCommitGraph(repoRoot, options ?? {}),
     )
   })
 
   ipcMain.handle('git:get-conflict-file', async (_, repoRoot: string, filePath: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'get-conflict-file', { repoRoot, filePath }, () => getGitConflictFile(repoRoot, filePath))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'get-conflict-file', { repoRoot, filePath }, () =>
+      getGitConflictFile(repoRoot, filePath),
+    )
   })
 
   ipcMain.handle('git:resolve-conflict', async (_, repoRoot: string, filePath: string, content: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'resolve-conflict', { repoRoot, filePath }, () => resolveGitConflict(repoRoot, filePath, content))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'resolve-conflict', { repoRoot, filePath }, () =>
+      resolveGitConflict(repoRoot, filePath, content),
+    )
   })
 
   ipcMain.handle('git:stage', async (_, repoRoot: string, paths: string[]) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'stage', { repoRoot, pathCount: paths.length }, () => stageGitPaths(repoRoot, paths))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'stage', { repoRoot, pathCount: paths.length }, () =>
+      stageGitPaths(repoRoot, paths),
+    )
   })
 
   ipcMain.handle('git:unstage', async (_, repoRoot: string, paths: string[]) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'unstage', { repoRoot, pathCount: paths.length }, () => unstageGitPaths(repoRoot, paths))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'unstage', { repoRoot, pathCount: paths.length }, () =>
+      unstageGitPaths(repoRoot, paths),
+    )
   })
 
   // Per-hunk staging (git-commit-window T7). The renderer NAMES a hunk — the
@@ -213,30 +212,40 @@ export function registerGitIpc(
   ipcMain.handle('git:get-file-hunks', async (_, repoRoot: string, filePath: string, scope: GitHunkScope) => {
     if (!isRepoRoot(repoRoot)) return { ok: false, message: 'That repository path is not absolute.' }
     return diagnostics.withIpcDiagnostics('GitIPC', 'get-file-hunks', { repoRoot, filePath, scope }, () =>
-      readFileHunks(repoRoot, filePath, scope)
+      readFileHunks(repoRoot, filePath, scope),
     )
   })
 
   ipcMain.handle('git:stage-hunk', async (_, ref: GitHunkRef) => {
     if (!isRepoRoot(ref?.repoRoot)) return refusedHunkWrite()
-    return diagnostics.withIpcDiagnostics('GitIPC', 'stage-hunk', { repoRoot: ref.repoRoot, filePath: ref.filePath, index: ref.index }, () =>
-      stageGitHunk(ref)
+    return diagnostics.withIpcDiagnostics(
+      'GitIPC',
+      'stage-hunk',
+      { repoRoot: ref.repoRoot, filePath: ref.filePath, index: ref.index },
+      () => stageGitHunk(ref),
     )
   })
 
   ipcMain.handle('git:unstage-hunk', async (_, ref: GitHunkRef) => {
     if (!isRepoRoot(ref?.repoRoot)) return refusedHunkWrite()
-    return diagnostics.withIpcDiagnostics('GitIPC', 'unstage-hunk', { repoRoot: ref.repoRoot, filePath: ref.filePath, index: ref.index }, () =>
-      unstageGitHunk(ref)
+    return diagnostics.withIpcDiagnostics(
+      'GitIPC',
+      'unstage-hunk',
+      { repoRoot: ref.repoRoot, filePath: ref.filePath, index: ref.index },
+      () => unstageGitHunk(ref),
     )
   })
 
   ipcMain.handle('git:revert', async (_, repoRoot: string, paths: string[]) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'revert', { repoRoot, pathCount: paths.length }, () => revertGitPaths(repoRoot, paths))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'revert', { repoRoot, pathCount: paths.length }, () =>
+      revertGitPaths(repoRoot, paths),
+    )
   })
 
   ipcMain.handle('git:commit', async (_, repoRoot: string, message: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'commit', { repoRoot, messageLength: message.length }, () => commitGitChanges(repoRoot, message))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'commit', { repoRoot, messageLength: message.length }, () =>
+      commitGitChanges(repoRoot, message),
+    )
   })
 
   ipcMain.handle('git:push', async (_, repoRoot: string) => {
@@ -248,11 +257,15 @@ export function registerGitIpc(
   })
 
   ipcMain.handle('git:pull-with-stash', async (_, repoRoot: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'pull-with-stash', { repoRoot }, () => pullGitBranchWithStash(repoRoot))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'pull-with-stash', { repoRoot }, () =>
+      pullGitBranchWithStash(repoRoot),
+    )
   })
 
   ipcMain.handle('git:switch-branch', async (_, repoRoot: string, branchName: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'switch-branch', { repoRoot, branchName }, () => switchGitBranch(repoRoot, branchName))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'switch-branch', { repoRoot, branchName }, () =>
+      switchGitBranch(repoRoot, branchName),
+    )
   })
 
   ipcMain.handle('git:merge-ref', async (_, repoRoot: string, ref: string) => {
@@ -260,44 +273,50 @@ export function registerGitIpc(
   })
 
   ipcMain.handle('git:rebase-branch', async (_, repoRoot: string, ontoRef: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'rebase-branch', { repoRoot, ontoRef }, () => rebaseGitBranch(repoRoot, ontoRef))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'rebase-branch', { repoRoot, ontoRef }, () =>
+      rebaseGitBranch(repoRoot, ontoRef),
+    )
   })
 
   ipcMain.handle('git:cherry-pick', async (_, repoRoot: string, commitHash: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'cherry-pick', { repoRoot, commitHash }, () => cherryPickGitCommit(repoRoot, commitHash))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'cherry-pick', { repoRoot, commitHash }, () =>
+      cherryPickGitCommit(repoRoot, commitHash),
+    )
   })
 
   ipcMain.handle('git:revert-commit', async (_, repoRoot: string, commitHash: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'revert-commit', { repoRoot, commitHash }, () => revertGitCommit(repoRoot, commitHash))
+    return diagnostics.withIpcDiagnostics('GitIPC', 'revert-commit', { repoRoot, commitHash }, () =>
+      revertGitCommit(repoRoot, commitHash),
+    )
   })
 
   ipcMain.handle('git:reset-to-commit', async (_, repoRoot: string, commitHash: string, mode: GitResetMode) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'reset-to-commit', { repoRoot, commitHash, mode }, () =>
-      resetGitBranchToCommit(repoRoot, commitHash, mode)
+      resetGitBranchToCommit(repoRoot, commitHash, mode),
     )
   })
 
   ipcMain.handle('git:delete-branch', async (_, repoRoot: string, branchName: string, force?: boolean) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'delete-branch', { repoRoot, branchName, force }, () =>
-      deleteGitBranch(repoRoot, branchName, force)
+      deleteGitBranch(repoRoot, branchName, force),
     )
   })
 
   ipcMain.handle('git:rename-branch', async (_, repoRoot: string, branchName: string, newName: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'rename-branch', { repoRoot, branchName, newName }, () =>
-      renameGitBranch(repoRoot, branchName, newName)
+      renameGitBranch(repoRoot, branchName, newName),
     )
   })
 
   ipcMain.handle('git:operation-continue', async (_, repoRoot: string, operation: GitRepoOperation) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'operation-continue', { repoRoot, operation }, () =>
-      continueGitOperation(repoRoot, operation)
+      continueGitOperation(repoRoot, operation),
     )
   })
 
   ipcMain.handle('git:operation-abort', async (_, repoRoot: string, operation: GitRepoOperation) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'operation-abort', { repoRoot, operation }, () =>
-      abortGitOperation(repoRoot, operation)
+      abortGitOperation(repoRoot, operation),
     )
   })
 
@@ -307,35 +326,43 @@ export function registerGitIpc(
 
   ipcMain.handle('git:stash-push', async (_, repoRoot: string, message: string, includeUntracked?: boolean) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'stash-push', { repoRoot, includeUntracked }, () =>
-      pushGitStash(repoRoot, message, includeUntracked)
+      pushGitStash(repoRoot, message, includeUntracked),
     )
   })
 
   ipcMain.handle('git:stash-apply', async (_, repoRoot: string, index: number, expectedHash: string, pop?: boolean) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'stash-apply', { repoRoot, index, pop }, () =>
-      applyGitStash(repoRoot, index, expectedHash, pop)
+      applyGitStash(repoRoot, index, expectedHash, pop),
     )
   })
 
   ipcMain.handle('git:stash-drop', async (_, repoRoot: string, index: number, expectedHash: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'stash-drop', { repoRoot, index }, () =>
-      dropGitStash(repoRoot, index, expectedHash)
+      dropGitStash(repoRoot, index, expectedHash),
     )
   })
 
   ipcMain.handle('git:checkout-commit', async (_, repoRoot: string, commitHash: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'checkout-commit', { repoRoot, commitHash }, () => checkoutGitCommit(repoRoot, commitHash))
-  })
-
-  ipcMain.handle('git:checkout-commit-as-branch', async (_, repoRoot: string, branchName: string, commitHash: string) => {
-    return diagnostics.withIpcDiagnostics('GitIPC', 'checkout-commit-as-branch', { repoRoot, branchName, commitHash }, () =>
-      checkoutGitCommitAsBranch(repoRoot, branchName, commitHash)
+    return diagnostics.withIpcDiagnostics('GitIPC', 'checkout-commit', { repoRoot, commitHash }, () =>
+      checkoutGitCommit(repoRoot, commitHash),
     )
   })
 
+  ipcMain.handle(
+    'git:checkout-commit-as-branch',
+    async (_, repoRoot: string, branchName: string, commitHash: string) => {
+      return diagnostics.withIpcDiagnostics(
+        'GitIPC',
+        'checkout-commit-as-branch',
+        { repoRoot, branchName, commitHash },
+        () => checkoutGitCommitAsBranch(repoRoot, branchName, commitHash),
+      )
+    },
+  )
+
   ipcMain.handle('git:tag-from-commit', async (_, repoRoot: string, tagName: string, commitHash: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'tag-from-commit', { repoRoot, tagName, commitHash }, () =>
-      createGitTagFromCommit(repoRoot, tagName, commitHash)
+      createGitTagFromCommit(repoRoot, tagName, commitHash),
     )
   })
 
@@ -363,7 +390,7 @@ export function registerGitIpc(
   // re-renders from it and a partial answer would leave two truths on screen.
   ipcMain.handle('git:changelists:get', async (_, repoRoot: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-get', { repoRoot }, () =>
-      getGitChangelists(paths.userDataDir, repoRoot)
+      getGitChangelists(paths.userDataDir, repoRoot),
     )
   })
 
@@ -383,7 +410,7 @@ export function registerGitIpc(
 
   ipcMain.handle('git:changelists:set-active', async (_, repoRoot: string, id: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-set-active', { repoRoot, id }, () =>
-      changed(repoRoot, () => setActiveGitChangelist(paths.userDataDir, repoRoot, id))
+      changed(repoRoot, () => setActiveGitChangelist(paths.userDataDir, repoRoot, id)),
     )
   })
 
@@ -391,23 +418,23 @@ export function registerGitIpc(
     'git:changelists:create',
     async (_, repoRoot: string, input: { name: string; comment?: string; activate?: boolean; paths?: string[] }) => {
       return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-create', { repoRoot }, () =>
-        changed(repoRoot, () => createGitChangelist(paths.userDataDir, repoRoot, input))
+        changed(repoRoot, () => createGitChangelist(paths.userDataDir, repoRoot, input)),
       )
-    }
+    },
   )
 
   ipcMain.handle(
     'git:changelists:rename',
     async (_, repoRoot: string, id: string, input: { name: string; comment?: string }) => {
       return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-rename', { repoRoot, id }, () =>
-        changed(repoRoot, () => renameGitChangelist(paths.userDataDir, repoRoot, id, input))
+        changed(repoRoot, () => renameGitChangelist(paths.userDataDir, repoRoot, id, input)),
       )
-    }
+    },
   )
 
   ipcMain.handle('git:changelists:delete', async (_, repoRoot: string, id: string) => {
     return diagnostics.withIpcDiagnostics('GitIPC', 'changelists-delete', { repoRoot, id }, () =>
-      changed(repoRoot, () => deleteGitChangelist(paths.userDataDir, repoRoot, id))
+      changed(repoRoot, () => deleteGitChangelist(paths.userDataDir, repoRoot, id)),
     )
   })
 
@@ -416,7 +443,7 @@ export function registerGitIpc(
       'GitIPC',
       'changelists-move-paths',
       { repoRoot, id, pathCount: filePaths.length },
-      () => changed(repoRoot, () => moveGitChangelistPaths(paths.userDataDir, repoRoot, id, filePaths))
+      () => changed(repoRoot, () => moveGitChangelistPaths(paths.userDataDir, repoRoot, id, filePaths)),
     )
   })
 
@@ -428,7 +455,7 @@ export function registerGitIpc(
       'GitIPC',
       'create-patch',
       { repoRoot, pathCount: filePaths.length, cached: cached === true },
-      () => createGitPatch(repoRoot, filePaths, { cached })
+      () => createGitPatch(repoRoot, filePaths, { cached }),
     )
   })
 

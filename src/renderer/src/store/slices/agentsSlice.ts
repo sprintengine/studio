@@ -23,10 +23,7 @@ import {
   type LaunchedAgentProjection,
 } from '../../utils/launchedAgentProjection'
 import { normalizeCliPermissionPreset } from './settingsSlice'
-import type {
-  AgentTerminalLaunchStateApply,
-  AgentTerminalSessionApply,
-} from '../workspaceSyncClient'
+import type { AgentTerminalLaunchStateApply, AgentTerminalSessionApply } from '../workspaceSyncClient'
 import type {
   AgentCli,
   AgentConversationRuntime,
@@ -39,15 +36,10 @@ import type {
   WorkspaceId,
 } from '../../types/workspace'
 
-
 export function normalizeAgentExecution(input: Partial<AgentExecution> | null | undefined): AgentExecution {
   const mode = input?.mode === 'worktree' ? 'worktree' : 'current_workspace'
-  const worktreeId = typeof input?.worktreeId === 'string' && input.worktreeId.trim()
-    ? input.worktreeId.trim()
-    : null
-  const cwd = typeof input?.cwd === 'string' && input.cwd.trim()
-    ? input.cwd
-    : null
+  const worktreeId = typeof input?.worktreeId === 'string' && input.worktreeId.trim() ? input.worktreeId.trim() : null
+  const cwd = typeof input?.cwd === 'string' && input.cwd.trim() ? input.cwd : null
 
   if (mode === 'current_workspace') return defaultAgentExecution()
 
@@ -57,7 +49,6 @@ export function normalizeAgentExecution(input: Partial<AgentExecution> | null | 
     cwd,
   }
 }
-
 
 export const defaultEditorState = (): EditorState => ({
   openFiles: [],
@@ -127,11 +118,7 @@ interface AgentsSliceActions {
   updateAgent: (workspaceId: WorkspaceId, agentId: AgentId, update: Partial<AgentState>) => void
   applyAgentTerminalSessionEvent: (apply: AgentTerminalSessionApply) => void
   applyAgentTerminalLaunchStateEvent: (apply: AgentTerminalLaunchStateApply) => void
-  setAgentExecution: (
-    workspaceId: WorkspaceId,
-    agentId: AgentId,
-    execution: Partial<AgentExecution>
-  ) => void
+  setAgentExecution: (workspaceId: WorkspaceId, agentId: AgentId, execution: Partial<AgentExecution>) => void
   appendStream: (workspaceId: WorkspaceId, agentId: AgentId, chunk: string) => void
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
@@ -167,7 +154,14 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
         ws.agents[agentId].execution = normalizeAgentExecution(ws.agents[agentId].execution)
       }),
 
-    applyAgentTerminalSessionEvent: ({ workspaceId, agentId, sessionId, cli, cliResumeAvailable, cliUsesStableSessionId }) =>
+    applyAgentTerminalSessionEvent: ({
+      workspaceId,
+      agentId,
+      sessionId,
+      cli,
+      cliResumeAvailable,
+      cliUsesStableSessionId,
+    }) =>
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
@@ -288,13 +282,10 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
           for (const [agentId, agent] of Object.entries(ws.agents)) {
             const matchingLive = sessions.find(
               (session) =>
-                session.processAlive
-                && session.kind === 'agent'
-                && session.workspaceId === ws.id
-                && (
-                  (agent.cliSessionId && session.sessionId === agent.cliSessionId)
-                  || session.agentId === agentId
-                )
+                session.processAlive &&
+                session.kind === 'agent' &&
+                session.workspaceId === ws.id &&
+                ((agent.cliSessionId && session.sessionId === agent.cliSessionId) || session.agentId === agentId),
             )
             if (matchingLive) {
               agent.cliStartRequested = true
@@ -309,11 +300,7 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
               if (matchingLive.cli) agent.cli = matchingLive.cli
               continue
             }
-            if (
-              !agent.cliStartRequested
-              && !agent.cliHasLaunched
-              && !agent.cliSessionId
-            ) continue
+            if (!agent.cliStartRequested && !agent.cliHasLaunched && !agent.cliSessionId) continue
             // No live session: clear the launch/resume GATE, never the session
             // identity. `cliSessionId`/`harnessSessionId` key the painted screen
             // on disk (`<userData>/terminal-snapshots/<cliSessionId>.json`);

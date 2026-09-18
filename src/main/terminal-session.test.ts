@@ -88,16 +88,12 @@ function assertSnapshotCarriesThePullRequestRecordsAnswer(): void {
   }
   try {
     setSessionPullRequestReader((asked) => (asked === session ? [pullRequest] : []))
-    assert.deepEqual(getTerminalSnapshot(session).pullRequests, [pullRequest], 'the record\'s answer rides the snapshot')
+    assert.deepEqual(getTerminalSnapshot(session).pullRequests, [pullRequest], "the record's answer rides the snapshot")
 
     setSessionPullRequestReader(() => {
       throw new Error('the store fell over')
     })
-    assert.deepEqual(
-      getTerminalSnapshot(session).pullRequests,
-      [],
-      'a store that threw costs a list, never a session',
-    )
+    assert.deepEqual(getTerminalSnapshot(session).pullRequests, [], 'a store that threw costs a list, never a session')
   } finally {
     setSessionPullRequestReader(null)
   }
@@ -121,7 +117,7 @@ function assertFileLedgerAccumulatesAndStaysBounded(): void {
       { path: '/repo/a.ts', additions: 7, deletions: 3, edits: 2, lastEditedAt: 300 },
       { path: '/repo/b.ts', additions: 2, deletions: 0, edits: 1, lastEditedAt: 200 },
     ],
-    'counts accumulate per file and the most recently edited file is first'
+    'counts accumulate per file and the most recently edited file is first',
   )
 
   // An out-of-order frame still counts, and cannot drag the recency backwards.
@@ -129,7 +125,7 @@ function assertFileLedgerAccumulatesAndStaysBounded(): void {
   assert.deepEqual(
     listSessionFileChanges(session)[0],
     { path: '/repo/a.ts', additions: 8, deletions: 3, edits: 3, lastEditedAt: 300 },
-    'a late-arriving earlier edit adds its lines without moving the time back'
+    'a late-arriving earlier edit adds its lines without moving the time back',
   )
 
   // Bounded by count…
@@ -143,7 +139,7 @@ function assertFileLedgerAccumulatesAndStaysBounded(): void {
   assert.deepEqual(
     countedList[countedList.length - 1],
     { path: '/repo/file-20.ts', additions: 1, deletions: 1, edits: 1, lastEditedAt: 1_020 },
-    'a survivor keeps its own counts — eviction takes entries, not their contents'
+    'a survivor keeps its own counts — eviction takes entries, not their contents',
   )
 
   // …and by the characters those paths cost, which the count alone does not
@@ -157,7 +153,7 @@ function assertFileLedgerAccumulatesAndStaysBounded(): void {
   assert.ok(wideList.length < 40, 'long paths hit the character budget well before the count cap')
   assert.ok(
     wideList.reduce((total, change) => total + change.path.length, 0) <= MAX_SESSION_FILE_CHANGE_PATH_CHARS,
-    'the ledger stays inside its character budget'
+    'the ledger stays inside its character budget',
   )
   assert.equal(wideList[0]?.path, longPath(39), 'and the newest edit is what survives')
 }
@@ -187,7 +183,7 @@ function assertPersistedLedgerIsReadBackAsUntrustedInput(): void {
     assert.equal(
       parseSessionFileChanges([entry, good])?.size,
       1,
-      `a malformed entry is dropped without taking the ledger with it: ${JSON.stringify(entry)}`
+      `a malformed entry is dropped without taking the ledger with it: ${JSON.stringify(entry)}`,
     )
   }
 
@@ -197,11 +193,8 @@ function assertPersistedLedgerIsReadBackAsUntrustedInput(): void {
   ])
   assert.deepEqual(
     [...(parsed?.values() ?? [])].reverse(),
-    [
-      { path: '/repo/newest.ts', additions: 1, deletions: 0, edits: 1, lastEditedAt: 400 },
-      good,
-    ],
-    'the persisted order survives the round trip, and fractional counts floor'
+    [{ path: '/repo/newest.ts', additions: 1, deletions: 0, edits: 1, lastEditedAt: 400 }, good],
+    'the persisted order survives the round trip, and fractional counts floor',
   )
 
   const oversized = Array.from({ length: MAX_SESSION_FILE_CHANGES + 200 }, (_unused, index) => ({
@@ -238,14 +231,14 @@ function assertPersistedPromptsAreReadBackAsUntrustedInput(): void {
     assert.deepEqual(
       parseSessionPrompts([entry, good]),
       [good],
-      `a malformed entry is dropped without taking the list with it: ${JSON.stringify(entry)}`
+      `a malformed entry is dropped without taking the list with it: ${JSON.stringify(entry)}`,
     )
   }
 
   assert.deepEqual(
     parseSessionPrompts([{ text: 'first', at: 10.9 }, good]),
     [{ text: 'first', at: 10 }, good],
-    'the persisted order survives the round trip, and a fractional stamp floors'
+    'the persisted order survives the round trip, and a fractional stamp floors',
   )
 
   const oversized = Array.from({ length: MAX_LIVE_PEEK_PROMPTS + 40 }, (_unused, index) => ({
@@ -278,7 +271,7 @@ function assertRehydratedPlaceholderKeepsItsPrompts(): void {
   assert.deepEqual(
     session.lastPrompt,
     prompts[1],
-    'and the tab hover names the newest, not the one that started the chat'
+    'and the tab hover names the newest, not the one that started the chat',
   )
 
   const empty = createSuspendedPlaceholderSession({
@@ -308,7 +301,7 @@ function assertStatusLineReadingsMergeAndGateTheBroadcast(): void {
   assert.equal(
     recordSessionStatusLine(session, { usedPercentage: 8, totalCostUsd: 0.5, model: 'Opus' }, 100),
     true,
-    'a first reading moves the snapshot'
+    'a first reading moves the snapshot',
   )
   assert.deepEqual(session.contextUsage, { usedPercentage: 8, at: 100 })
   assert.equal(session.statusLine?.model, 'Opus')
@@ -316,7 +309,7 @@ function assertStatusLineReadingsMergeAndGateTheBroadcast(): void {
   assert.equal(
     recordSessionStatusLine(session, { usedPercentage: 8, totalCostUsd: 0.9, linesAdded: 40 }, 200),
     false,
-    'the same whole percent is not news, however much the cost moved'
+    'the same whole percent is not news, however much the cost moved',
   )
   assert.deepEqual(session.contextUsage, { usedPercentage: 8, at: 100 }, 'and the timestamp does not drift')
   assert.equal(session.statusLine?.totalCostUsd, 0.9, 'but the reading itself is kept current')
@@ -327,7 +320,7 @@ function assertStatusLineReadingsMergeAndGateTheBroadcast(): void {
   assert.deepEqual(
     session.contextUsage,
     { usedPercentage: 8, at: 100 },
-    'a reading with no percentage keeps the last known one'
+    'a reading with no percentage keeps the last known one',
   )
   assert.equal(session.statusLine?.model, 'Opus', 'and takes nothing else with it either')
 
@@ -361,7 +354,7 @@ function assertPersistedContextUsageIsReadBackAsUntrustedInput(): void {
   assert.deepEqual(
     parseSessionContextUsage({ usedPercentage: 8, at: 8.6e15 }, 1_000),
     { usedPercentage: 8, at: 1_000 },
-    'a far-future sidecar time is clamped, not believed'
+    'a far-future sidecar time is clamped, not believed',
   )
 
   // And it comes back onto a rehydrated placeholder.
@@ -374,7 +367,7 @@ function assertPersistedContextUsageIsReadBackAsUntrustedInput(): void {
   assert.equal(
     getTerminalSnapshot(createSuspendedPlaceholderSession({ sessionId: 'no-reading', savedAt: 1_000 })).contextUsage,
     null,
-    'a session nothing read reports null, never a guess'
+    'a session nothing read reports null, never a guess',
   )
 }
 
@@ -516,13 +509,13 @@ function assertActivityTransitionDiagnostics(): void {
   const previous = failed.activity
   assert.equal(
     transitionTerminalActivity(failed, { kind: 'failed', at: 600, exitCode: 1, message: 'spawn failed' }),
-    true
+    true,
   )
   diagnostics.recordActivityTransition(failed, previous, failed.activity)
 
   assert.deepEqual(
     events.map((entry) => entry.event),
-    ['activity-transition', 'activity-transition', 'activity-transition', 'activity-transition']
+    ['activity-transition', 'activity-transition', 'activity-transition', 'activity-transition'],
   )
   assert.deepEqual(
     events.map((entry) => [
@@ -539,7 +532,7 @@ function assertActivityTransitionDiagnostics(): void {
       ['session_1', 'idle', 'working', 100, 125, undefined, undefined],
       ['session_1', 'working', 'exited', 100, 125, 0, undefined],
       ['session_1', 'working', 'failed', 500, null, 1, 'spawn failed'],
-    ]
+    ],
   )
 }
 
@@ -608,28 +601,27 @@ function assertCutReplayNeverStartsMidEscapeSequence(): void {
   assert.equal(
     resyncTerminalReplayHead(`8;2;34;34;37m painted${esc}[0m\r\nnext`),
     `${esc}[0m\r\nnext`,
-    'the head starts at an ESC, which is where a terminal can start parsing'
+    'the head starts at an ESC, which is where a terminal can start parsing',
   )
   assert.equal(
     resyncTerminalReplayHead('half a line\nwhole one\n'),
     'whole one\n',
-    'a newline resyncs too — no CSI sequence spans one'
+    'a newline resyncs too — no CSI sequence spans one',
   )
   assert.equal(
     resyncTerminalReplayHead(`${esc}[0m already clean`),
     `${esc}[0m already clean`,
-    'a head already at a sequence boundary is untouched'
+    'a head already at a sequence boundary is untouched',
   )
   assert.equal(
     resyncTerminalReplayHead('y'.repeat(9_000)),
     'y'.repeat(9_000),
-    'no resync point inside the window: keep the scrollback rather than gut it'
+    'no resync point inside the window: keep the scrollback rather than gut it',
   )
 
   // And end to end, through the eviction that causes it.
   const session = createSession({ startedAt: Date.now() })
-  const paint = (line: number) =>
-    `${esc}[38;2;139;139;140;48;2;34;34;37m line ${line} of painted output${esc}[0m\r\n`
+  const paint = (line: number) => `${esc}[38;2;139;139;140;48;2;34;34;37m line ${line} of painted output${esc}[0m\r\n`
   let pending = ''
   for (let line = 0; line < 40_000; line += 1) {
     pending += paint(line)
@@ -643,11 +635,7 @@ function assertCutReplayNeverStartsMidEscapeSequence(): void {
   assert.equal(session.replayTruncated, true, 'the buffer really did evict')
   const replay = materializeTerminalReplay(session)
   assert.equal(replay.charCodeAt(0), 0x1b, 'the replay opens on an escape sequence, not the tail of one')
-  assert.equal(
-    /^[0-9;:]/.test(replay),
-    false,
-    'and never on the parameters of a sequence whose introducer was evicted'
-  )
+  assert.equal(/^[0-9;:]/.test(replay), false, 'and never on the parameters of a sequence whose introducer was evicted')
 }
 
 // The other half: a buffer nobody cut is the CLI's own first byte onwards, and
@@ -659,7 +647,7 @@ function assertUncutReplayIsHandedBackByteForByte(): void {
   assert.equal(
     materializeTerminalReplay(session),
     'Welcome to the agent\nReady\n',
-    'an untouched buffer replays verbatim, first line included'
+    'an untouched buffer replays verbatim, first line included',
   )
 }
 
@@ -683,7 +671,11 @@ function assertVisibilityRecordingUpdatesRecency(): void {
 
   recordTerminalVisibility(session, false, 900)
   assert.equal(session.visible, false)
-  assert.equal(session.lastVisibleAt, 900, 'hiding still records lastVisibleAt for the snapshot, even though it no longer feeds the idle clock')
+  assert.equal(
+    session.lastVisibleAt,
+    900,
+    'hiding still records lastVisibleAt for the snapshot, even though it no longer feeds the idle clock',
+  )
 
   const snapshot = getTerminalSnapshot(session)
   assert.equal(snapshot.lastVisibleAt, 900)

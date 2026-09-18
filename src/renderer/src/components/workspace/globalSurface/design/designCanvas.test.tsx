@@ -212,8 +212,7 @@ async function main(): Promise<void> {
   }
 
   const text = (): string => container.textContent ?? ''
-  const frames = (): HTMLIFrameElement[] =>
-    Array.from(container.querySelectorAll('iframe')) as HTMLIFrameElement[]
+  const frames = (): HTMLIFrameElement[] => Array.from(container.querySelectorAll('iframe')) as HTMLIFrameElement[]
   const tabs = (): Element[] => Array.from(container.querySelectorAll('[role="tab"]'))
 
   // ── The band ───────────────────────────────────────────────────────────────
@@ -256,10 +255,7 @@ async function main(): Promise<void> {
     })
     assert.deepEqual(changed, [['tab', 'glyphs']], 'the click is reported upward')
     assert.equal(
-      (tabs().find((tab) => tab.getAttribute('aria-selected') === 'true')?.textContent ?? '').replace(
-        /\d+$/,
-        '',
-      ),
+      (tabs().find((tab) => tab.getAttribute('aria-selected') === 'true')?.textContent ?? '').replace(/\d+$/, ''),
       'Components',
       'and nothing moved until the door said so',
     )
@@ -448,10 +444,7 @@ async function main(): Promise<void> {
     }
     assert.ok(!classes.has('font-mono'), 'nothing in the door is set in mono')
     for (const element of Array.from(container.querySelectorAll('[style]'))) {
-      assert.ok(
-        !/font-family/i.test(element.getAttribute('style') ?? ''),
-        'and no element states a face of its own',
-      )
+      assert.ok(!/font-family/i.test(element.getAttribute('style') ?? ''), 'and no element states a face of its own')
     }
     assert.match(text(), /\/work\/brand\/design-system/, 'the folder rides the band')
     assert.ok(!text().includes('multicode'), 'the name is the door bar’s, and only the door bar’s')

@@ -21,10 +21,7 @@ type WorkspacePaneColumnProps = {
   renderedWorkspaceIds: readonly WorkspaceId[]
 }
 
-export function WorkspacePaneColumn({
-  activeWorkspaceId,
-  renderedWorkspaceIds,
-}: WorkspacePaneColumnProps) {
+export function WorkspacePaneColumn({ activeWorkspaceId, renderedWorkspaceIds }: WorkspacePaneColumnProps) {
   const width = useWorkspaceStore((s) => s.workspacePaneWidth)
   const setWidth = useWorkspaceStore((s) => s.setWorkspacePaneWidth)
   const maximised = useWorkspaceStore((s) => s.workspacePaneMaximised)
@@ -41,7 +38,9 @@ export function WorkspacePaneColumn({
   // retain and mounts only while it is the active one.
   const mountedIds = useWorkspaceStore((s) =>
     renderedWorkspaceIds
-      .filter((id) => id === activeWorkspaceId || (s.workspaces.find((w) => w.id === id)?.paneState?.tabs.length ?? 0) > 0)
+      .filter(
+        (id) => id === activeWorkspaceId || (s.workspaces.find((w) => w.id === id)?.paneState?.tabs.length ?? 0) > 0,
+      )
       .join('\n'),
   )
   const ids = mountedIds ? mountedIds.split('\n') : []

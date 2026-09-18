@@ -30,8 +30,7 @@ type ResolvedConnectorLaunch = {
 }
 
 export type ConnectorLaunchResolution =
-  | { ok: true; resolved: ResolvedConnectorLaunch }
-  | { ok: false; title: string; message: string }
+  { ok: true; resolved: ResolvedConnectorLaunch } | { ok: false; title: string; message: string }
 
 /**
  * Can this connector be launched at all? Only an installed, enabled server —

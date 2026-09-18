@@ -14,10 +14,14 @@ assert.deepEqual(
   ['primary+shift+h'],
 )
 assert.equal(
-  getEffectiveKeybindingLabel('panel.git.toggle', {
-    overrides: { 'panel.git.toggle': ['primary+shift+h'] },
-    disabled: {},
-  }, 'darwin'),
+  getEffectiveKeybindingLabel(
+    'panel.git.toggle',
+    {
+      overrides: { 'panel.git.toggle': ['primary+shift+h'] },
+      disabled: {},
+    },
+    'darwin',
+  ),
   'Cmd+Shift+H',
 )
 assert.equal(
@@ -46,11 +50,18 @@ assert.equal(platformKeybindingsFromApiPlatform('linux'), 'linux')
 // `commandPalette.open` still advertises ⌘K as its accelerator.
 assert.equal(getElectronAccelerator('commandPalette.open', { overrides: {}, disabled: {} }), 'CmdOrCtrl+K')
 assert.equal(
-  getElectronAccelerator('commandPalette.open', { overrides: { 'commandPalette.open': ['Shift Shift'] }, disabled: {} }),
+  getElectronAccelerator('commandPalette.open', {
+    overrides: { 'commandPalette.open': ['Shift Shift'] },
+    disabled: {},
+  }),
   null,
 )
 assert.equal(
-  getEffectiveKeybindingLabel('commandPalette.open', { overrides: { 'commandPalette.open': ['Shift Shift'] }, disabled: {} }, 'darwin'),
+  getEffectiveKeybindingLabel(
+    'commandPalette.open',
+    { overrides: { 'commandPalette.open': ['Shift Shift'] }, disabled: {} },
+    'darwin',
+  ),
   'Shift Shift',
 )
 // A hand-edited one-stroke `Shift` override does not parse, so it can never
@@ -59,14 +70,10 @@ assert.equal(
   getElectronAccelerator('commandPalette.open', { overrides: { 'commandPalette.open': ['Shift'] }, disabled: {} }),
   null,
 )
-assert.deepEqual(
-  getEffectiveKeybindings('commandPalette.open', { overrides: {}, disabled: {} }),
-  ['primary+k', 'primary+shift+p'],
-)
+assert.deepEqual(getEffectiveKeybindings('commandPalette.open', { overrides: {}, disabled: {} }), [
+  'primary+k',
+  'primary+shift+p',
+])
 // `Shift Shift` moved onto `search.everywhere`, so disabling the gesture leaves
 // ⌘K standing (skills-everywhere, 2026-09-10).
-assert.deepEqual(
-  getEffectiveKeybindings('search.everywhere', { overrides: {}, disabled: {} }),
-  ['shift shift'],
-)
-
+assert.deepEqual(getEffectiveKeybindings('search.everywhere', { overrides: {}, disabled: {} }), ['shift shift'])

@@ -20,15 +20,7 @@ type Props = {
   onClose: () => void
 }
 
-export default function MemoryPreviewPane({
-  workspaceId,
-  node,
-  preview,
-  nodes,
-  edges,
-  onNavigate,
-  onClose,
-}: Props) {
+export default function MemoryPreviewPane({ workspaceId, node, preview, nodes, edges, onNavigate, onClose }: Props) {
   const paneRef = useRef<HTMLElement>(null)
   const openFile = useWorkspaceStore((s) => s.openFile)
 
@@ -77,7 +69,9 @@ export default function MemoryPreviewPane({
   const color = colorForBucket(bucket)
   const title = node.title?.trim() || node.name
   const path = node.relativePath
-  const canOpen = preview?.ok && (preview.previewKind === 'markdown' || preview.previewKind === 'text' || preview.previewKind === 'image')
+  const canOpen =
+    preview?.ok &&
+    (preview.previewKind === 'markdown' || preview.previewKind === 'text' || preview.previewKind === 'image')
 
   const onOpenInEditor = () => {
     if (!preview?.ok) return
@@ -129,11 +123,7 @@ export default function MemoryPreviewPane({
               AND ink from the same hex (a raw rgba written into style) while
               also drawing the dot — the same fact said twice. */}
           <span className="inline-flex items-center gap-1.5 rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-2 py-0.5 text-micro font-medium text-[color:var(--text-default)]">
-            <span
-              className="h-[6px] w-[6px] rounded-full"
-              style={{ background: color }}
-              aria-hidden
-            />
+            <span className="h-[6px] w-[6px] rounded-full" style={{ background: color }} aria-hidden />
             {bucket}
           </span>
           {node.tags?.slice(0, 4).map((tag) => (
@@ -148,11 +138,11 @@ export default function MemoryPreviewPane({
         {!preview ? (
           <PaneNotice message="Loading preview…" />
         ) : !preview.ok ? (
-          <InlineNotice tone="error" className="px-4 py-3">{preview.message}</InlineNotice>
+          <InlineNotice tone="error" className="px-4 py-3">
+            {preview.message}
+          </InlineNotice>
         ) : preview.previewKind === 'markdown' ? (
-          <article className="memory-markdown">
-            {renderMarkdown(preview.content)}
-          </article>
+          <article className="memory-markdown">{renderMarkdown(preview.content)}</article>
         ) : preview.previewKind === 'text' ? (
           <pre className="m-0 overflow-x-auto rounded-sm border border-[color:var(--border-default)] bg-[color:var(--bg-app)] p-4 font-mono text-meta leading-5 text-[color:var(--text-default)]">
             {preview.content}
@@ -173,9 +163,7 @@ export default function MemoryPreviewPane({
 
       {related.length > 0 ? (
         <footer className="shrink-0 border-t border-[color:var(--border-default)] px-5 py-4">
-          <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">
-            Related
-          </div>
+          <div className="mb-2 text-micro font-semibold text-[color:var(--text-muted)]">Related</div>
           <div className="flex flex-wrap gap-1.5">
             {related.map((target) => {
               const targetBucket = bucketForNode(target)
@@ -191,11 +179,7 @@ export default function MemoryPreviewPane({
                   tone="neutral"
                   onClick={() => onNavigate(target)}
                 >
-                  <span
-                    className="h-[6px] w-[6px] rounded-full"
-                    style={{ background: targetColor }}
-                    aria-hidden
-                  />
+                  <span className="h-[6px] w-[6px] rounded-full" style={{ background: targetColor }} aria-hidden />
                   {label}
                 </ChipButton>
               )
@@ -208,9 +192,5 @@ export default function MemoryPreviewPane({
 }
 
 function PaneNotice({ message }: { message: string }) {
-  return (
-    <div className="flex h-32 items-center justify-center text-body text-[color:var(--text-muted)]">
-      {message}
-    </div>
-  )
+  return <div className="flex h-32 items-center justify-center text-body text-[color:var(--text-muted)]">{message}</div>
 }

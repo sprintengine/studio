@@ -24,16 +24,15 @@ export function readTabDragPayload(dataTransfer: DataTransfer): TabDragPayload |
   try {
     const parsed = JSON.parse(raw) as Partial<TabDragPayload>
     if (
-      typeof parsed.sourceWorkspaceId !== 'string'
-      || typeof parsed.tabId !== 'string'
-      || typeof parsed.component !== 'string'
-      || typeof parsed.name !== 'string'
+      typeof parsed.sourceWorkspaceId !== 'string' ||
+      typeof parsed.tabId !== 'string' ||
+      typeof parsed.component !== 'string' ||
+      typeof parsed.name !== 'string'
     ) {
       return null
     }
-    const config = parsed.config && typeof parsed.config === 'object'
-      ? (parsed.config as Record<string, unknown>)
-      : null
+    const config =
+      parsed.config && typeof parsed.config === 'object' ? (parsed.config as Record<string, unknown>) : null
     const className = typeof parsed.className === 'string' ? parsed.className : null
     return {
       sourceWorkspaceId: parsed.sourceWorkspaceId,

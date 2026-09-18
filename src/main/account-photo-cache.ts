@@ -178,10 +178,12 @@ export class AccountPhotoCache {
 }
 
 function isCacheEntry(value: Partial<AccountPhotoCacheEntry>): value is AccountPhotoCacheEntry {
-  return typeof value.sourceUrl === 'string'
-    && typeof value.dataUrl === 'string'
-    && value.dataUrl.startsWith('data:image/')
-    && typeof value.fetchedAt === 'string'
+  return (
+    typeof value.sourceUrl === 'string' &&
+    typeof value.dataUrl === 'string' &&
+    value.dataUrl.startsWith('data:image/') &&
+    typeof value.fetchedAt === 'string'
+  )
 }
 
 function isHttpsUrl(value: string): boolean {

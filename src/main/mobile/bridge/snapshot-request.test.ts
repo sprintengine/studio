@@ -34,12 +34,23 @@ async function assertConsecutiveIdleReadsShareTheTopLevelVersion(): Promise<void
   const workspaceRoot = await writeIdleFleetFixture()
   const service = new MobileControlSnapshotService()
 
-  const first = await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt: generatedAtA })
-  const second = await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt: generatedAtB })
+  const first = await service.readSnapshot({
+    desktopSessionId: 'desktop_1',
+    workspaceRoots: [workspaceRoot],
+    generatedAt: generatedAtA,
+  })
+  const second = await service.readSnapshot({
+    desktopSessionId: 'desktop_1',
+    workspaceRoots: [workspaceRoot],
+    generatedAt: generatedAtB,
+  })
 
   assert.notEqual(first.generatedAt, second.generatedAt, 'the two reads must carry different read-time stamps')
-  assert.equal(second.snapshotVersion, first.snapshotVersion,
-    'the top-level snapshotVersion is content-derived and stable across idle reads')
+  assert.equal(
+    second.snapshotVersion,
+    first.snapshotVersion,
+    'the top-level snapshotVersion is content-derived and stable across idle reads',
+  )
   // The fleet really is non-trivial (backlog + automation), so stability is not an
   // artifact of an empty snapshot.
   assert.equal((first.backlog ?? []).length >= 1, true)
@@ -60,17 +71,35 @@ async function assertWallClockCadenceAutomationStaysStableAcrossIdleReads(): Pro
   const store = new AutomationsStore(workspaceRoot)
   await store.createDefinition({
     ...automationDefinition('daily', 'enabled'),
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'America/Los_Angeles' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'America/Los_Angeles' },
+    },
   })
   const service = new MobileControlSnapshotService()
 
-  const first = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [workspaceRoot], generatedAt: generatedAtA })
-  const second = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [workspaceRoot], generatedAt: generatedAtB })
+  const first = await service.readSnapshot({
+    desktopSessionId: 'd',
+    workspaceRoots: [workspaceRoot],
+    generatedAt: generatedAtA,
+  })
+  const second = await service.readSnapshot({
+    desktopSessionId: 'd',
+    workspaceRoots: [workspaceRoot],
+    generatedAt: generatedAtB,
+  })
 
   // The cadence really did render a wall-clock string, so this is not a vacuous pass.
-  assert.equal((first.automations ?? [])[0]?.cadence?.startsWith('Daily at 09:00'), true, 'the daily cadence must be pre-rendered')
-  assert.equal(second.snapshotVersion, first.snapshotVersion,
-    'a wall-clock cadence must not destabilise the version between same-DST-period idle reads')
+  assert.equal(
+    (first.automations ?? [])[0]?.cadence?.startsWith('Daily at 09:00'),
+    true,
+    'the daily cadence must be pre-rendered',
+  )
+  assert.equal(
+    second.snapshotVersion,
+    first.snapshotVersion,
+    'a wall-clock cadence must not destabilise the version between same-DST-period idle reads',
+  )
   service.shutdown()
 }
 
@@ -84,9 +113,17 @@ async function assertBacklogAndAutomationsChangesEachBumpTheVersion(): Promise<v
     const root = await makeWorkspaceRoot()
     await writeBacklogFixture(root, 'backlog_x', 'Backlog item', 'ready')
     const service = new MobileControlSnapshotService()
-    const before = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [root], generatedAt: generatedAtA })
+    const before = await service.readSnapshot({
+      desktopSessionId: 'd',
+      workspaceRoots: [root],
+      generatedAt: generatedAtA,
+    })
     await writeBacklogFixture(root, 'backlog_x', 'Backlog item', 'in_progress')
-    const after = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [root], generatedAt: generatedAtA })
+    const after = await service.readSnapshot({
+      desktopSessionId: 'd',
+      workspaceRoots: [root],
+      generatedAt: generatedAtA,
+    })
     assert.notEqual(after.snapshotVersion, before.snapshotVersion, 'a backlog-only change bumps the top-level version')
     service.shutdown()
   }
@@ -96,11 +133,23 @@ async function assertBacklogAndAutomationsChangesEachBumpTheVersion(): Promise<v
     const store = new AutomationsStore(root)
     await store.createDefinition(automationDefinition('nightly', 'enabled'))
     const service = new MobileControlSnapshotService()
-    const before = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [root], generatedAt: generatedAtA })
+    const before = await service.readSnapshot({
+      desktopSessionId: 'd',
+      workspaceRoots: [root],
+      generatedAt: generatedAtA,
+    })
     const paused = await store.updateDefinition(automationDefinition('nightly', 'paused'))
     assert.equal(paused.ok, true)
-    const after = await service.readSnapshot({ desktopSessionId: 'd', workspaceRoots: [root], generatedAt: generatedAtA })
-    assert.notEqual(after.snapshotVersion, before.snapshotVersion, 'an automations-only change bumps the top-level version')
+    const after = await service.readSnapshot({
+      desktopSessionId: 'd',
+      workspaceRoots: [root],
+      generatedAt: generatedAtA,
+    })
+    assert.notEqual(
+      after.snapshotVersion,
+      before.snapshotVersion,
+      'an automations-only change bumps the top-level version',
+    )
     service.shutdown()
   }
 }
@@ -129,8 +178,11 @@ async function assertMatchingKnownVersionYieldsTheUnchangedFastPath(): Promise<v
     workspaceRootsProvider: async () => [workspaceRoot],
   })
   const data = okData<Record<string, unknown>>(unchanged)
-  assert.deepEqual(data, { unchanged: true, snapshotVersion: knownVersion },
-    'a matching knownSnapshotVersion returns only the change-token, no snapshot content')
+  assert.deepEqual(
+    data,
+    { unchanged: true, snapshotVersion: knownVersion },
+    'a matching knownSnapshotVersion returns only the change-token, no snapshot content',
+  )
   // No content-bearing keys leaked into the fast-path result.
   for (const key of ['sprintEngines', 'workspaces', 'backlog', 'automations', 'commands']) {
     assert.equal(key in data, false, `fast-path result must not carry ${key}`)
@@ -152,7 +204,11 @@ async function assertStaleKnownVersionFallsThroughToTheFullSnapshot(): Promise<v
     workspaceRootsProvider: async () => [workspaceRoot],
   })
   const data = okData<MobileControlSnapshot>(result)
-  assert.equal('unchanged' in (data as unknown as Record<string, unknown>), false, 'a stale version must not trigger the fast path')
+  assert.equal(
+    'unchanged' in (data as unknown as Record<string, unknown>),
+    false,
+    'a stale version must not trigger the fast path',
+  )
   assert.equal((data.backlog ?? []).length >= 1, true, 'the full snapshot is returned')
   assert.equal(validateMobileControlSnapshot(data).ok, true, 'the fallback full snapshot still validates on the wire')
   service.shutdown()
@@ -187,15 +243,21 @@ async function assertUnchangedResultCollapsesIdleReadTraffic(): Promise<void> {
   const savedPctPerRead = ((fullBytes - unchangedBytes) / fullBytes) * 100
 
   // Evidence line (T2 acceptance requires reported numbers, not a claim).
-  console.log(`[1605-traffic] idle read: full=${fullBytes}B unchanged=${unchangedBytes}B ` +
-    `saved=${savedPctPerRead.toFixed(1)}%/read ` +
-    `perHour@20s: full=${Math.round((fullBytes * pollsPerHour) / 1024)}KiB/h ` +
-    `unchanged=${Math.round((unchangedBytes * pollsPerHour) / 1024)}KiB/h`)
+  console.log(
+    `[1605-traffic] idle read: full=${fullBytes}B unchanged=${unchangedBytes}B ` +
+      `saved=${savedPctPerRead.toFixed(1)}%/read ` +
+      `perHour@20s: full=${Math.round((fullBytes * pollsPerHour) / 1024)}KiB/h ` +
+      `unchanged=${Math.round((unchangedBytes * pollsPerHour) / 1024)}KiB/h`,
+  )
 
   // Regression assertions: the fast path must be a small constant, and a large cut.
   assert.equal(unchangedBytes < 700, true, `unchanged result should be tiny, was ${unchangedBytes}B`)
   assert.equal(fullBytes > unchangedBytes * 4, true, 'the full idle read must be several times the unchanged read')
-  assert.equal(savedPctPerRead > 80, true, `item 1605 should cut >80% of per-read idle bytes, cut ${savedPctPerRead.toFixed(1)}%`)
+  assert.equal(
+    savedPctPerRead > 80,
+    true,
+    `item 1605 should cut >80% of per-read idle bytes, cut ${savedPctPerRead.toFixed(1)}%`,
+  )
   service.shutdown()
 }
 
@@ -217,7 +279,7 @@ async function writeIdleFleetFixture(): Promise<string> {
     await writeFile(
       join(root, 'backlog', `${itemId}.md`),
       `---\ntype: feature\n---\n\n# Backlog item ${index}\n\nA sentence of body text the excerpt is cut from.\n`,
-      'utf8'
+      'utf8',
     )
     items.push({
       id: itemId,
@@ -233,7 +295,7 @@ async function writeIdleFleetFixture(): Promise<string> {
   await writeFile(
     join(root, '.sprintengine', 'backlog', 'items.json'),
     JSON.stringify({ schemaVersion: 1, items }),
-    'utf8'
+    'utf8',
   )
   const store = new AutomationsStore(root)
   await store.createDefinition(automationDefinition('nightly', 'enabled'))
@@ -246,26 +308,37 @@ async function makeWorkspaceRoot(): Promise<string> {
 
 // Overwrites the item record so a second call with a new status is a real backlog-only
 // change (idempotent on id).
-async function writeBacklogFixture(workspaceRoot: string, itemId: string, title: string, status: string): Promise<void> {
+async function writeBacklogFixture(
+  workspaceRoot: string,
+  itemId: string,
+  title: string,
+  status: string,
+): Promise<void> {
   await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
-  await writeFile(join(workspaceRoot, 'backlog', `${itemId}.md`), `---\ntype: feature\n---\n\n# ${title}\n\nBody.\n`, 'utf8')
+  await writeFile(
+    join(workspaceRoot, 'backlog', `${itemId}.md`),
+    `---\ntype: feature\n---\n\n# ${title}\n\nBody.\n`,
+    'utf8',
+  )
   await mkdir(join(workspaceRoot, '.sprintengine', 'backlog'), { recursive: true })
   await writeFile(
     join(workspaceRoot, '.sprintengine', 'backlog', 'items.json'),
     JSON.stringify({
       schemaVersion: 1,
-      items: [{
-        id: itemId,
-        source: { type: 'file', relativePath: `backlog/${itemId}.md` },
-        status,
-        type: 'feature',
-        metadata: {},
-        links: [],
-        createdAt: generatedAtA,
-        updatedAt: generatedAtA,
-      }],
+      items: [
+        {
+          id: itemId,
+          source: { type: 'file', relativePath: `backlog/${itemId}.md` },
+          status,
+          type: 'feature',
+          metadata: {},
+          links: [],
+          createdAt: generatedAtA,
+          updatedAt: generatedAtA,
+        },
+      ],
     }),
-    'utf8'
+    'utf8',
   )
 }
 
@@ -276,7 +349,10 @@ function automationDefinition(id: string, status: 'enabled' | 'paused'): Automat
     status,
     // Interval cadence renders with no timezone suffix, so the automation projection
     // carries no wall-clock — the whole projection is content-only.
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' },
+    },
     action: { kind: 'agent-run', config: { prompt: 'sweep' } },
     nextRunAt: null,
     lastRunAt: generatedAtA,

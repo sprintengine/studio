@@ -16,31 +16,22 @@
 // must establish a stacking context (`relative isolate`) so the negative z sits
 // above the panel's --bg-app fill but behind all in-flow content.
 
-import { useResolvedTheme } from "../../hooks/useAppTheme";
-import {
-  backdropFor,
-  type BackdropSurface,
-} from "../../assets/backdrops/backdropRegistry";
+import { useResolvedTheme } from '../../hooks/useAppTheme'
+import { backdropFor, type BackdropSurface } from '../../assets/backdrops/backdropRegistry'
 
 interface CreationBackdropProps {
-  surface: BackdropSurface;
+  surface: BackdropSurface
   // Whether the plate is shown. Defaults to true; pass the empty-state predicate
   // (e.g. `timelineRows.length === 0`) to fade the plate out as content arrives.
-  visible?: boolean;
+  visible?: boolean
 }
 
-export function CreationBackdrop({
-  surface,
-  visible = true,
-}: CreationBackdropProps) {
-  const resolved = useResolvedTheme();
-  const sources = backdropFor(resolved, surface);
-  if (!sources) return null;
+export function CreationBackdrop({ surface, visible = true }: CreationBackdropProps) {
+  const resolved = useResolvedTheme()
+  const sources = backdropFor(resolved, surface)
+  if (!sources) return null
   return (
-    <div
-      aria-hidden="true"
-      className={`creation-backdrop${visible ? "" : " creation-backdrop--hidden"}`}
-    >
+    <div aria-hidden="true" className={`creation-backdrop${visible ? '' : ' creation-backdrop--hidden'}`}>
       <img
         alt=""
         className="creation-backdrop-image"
@@ -50,5 +41,5 @@ export function CreationBackdrop({
       />
       <div className="creation-backdrop-scrim" />
     </div>
-  );
+  )
 }

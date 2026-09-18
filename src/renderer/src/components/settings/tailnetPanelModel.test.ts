@@ -55,7 +55,7 @@ check('with no Tailscale the switch cannot be turned on, and the panel says why'
 
 check('Tailscale going down under an enabled listener is an error, not a quiet Off', () => {
   const readiness = tailnetReadiness(
-    status({ enabled: true, tailnetAddress: null, lastError: 'no Tailscale interface was found' })
+    status({ enabled: true, tailnetAddress: null, lastError: 'no Tailscale interface was found' }),
   )
   assert.equal(readiness.state, 'no-tailnet')
   assert.equal(readiness.tone, 'error')
@@ -77,9 +77,7 @@ check('off, failed-to-start, and listening are three distinct states', () => {
   assert.equal(failed.detail, 'port 8471 is in use', 'the real reason, not a generic one')
   assert.equal(failed.canPair, false)
 
-  const listening = tailnetReadiness(
-    status({ enabled: true, running: true, endpoint: '100.64.0.1:8471' })
-  )
+  const listening = tailnetReadiness(status({ enabled: true, running: true, endpoint: '100.64.0.1:8471' }))
   assert.equal(listening.state, 'listening')
   assert.equal(listening.tone, 'good')
   assert.equal(listening.canPair, true)
@@ -121,7 +119,7 @@ check('a code the panel cannot re-show is still admitted to, not hidden', () => 
   const now = Date.parse('2026-08-07T12:00:00Z')
   const note = outstandingPairingNote(
     { scopes: ['workspace:read', 'backlog:read'], expiresAt: '2026-08-07T12:07:00Z' },
-    now
+    now,
   )
   assert.match(note, /already active/u)
   assert.match(note, /expires in 7 min/u)
@@ -142,10 +140,7 @@ check('a waiting request names who is asking, and says when it cannot vouch for 
   // No whois means the address and a stated caveat — never an invented name,
   // and never dropping the request, which would make the feature dead on any
   // machine without the Tailscale CLI.
-  assert.equal(
-    pairRequestSummary({ ...request, peerNode: null }),
-    'Asking from 100.64.0.9 · name unverified'
-  )
+  assert.equal(pairRequestSummary({ ...request, peerNode: null }), 'Asking from 100.64.0.9 · name unverified')
   assert.match(pairRequestSummary({ ...request, peerNode: null, peerAddress: '' }), /unknown address/u)
 })
 

@@ -27,11 +27,7 @@ import { getRendererHost, selectModuleEnabled } from '../../modules'
 import { isModeHiddenFromRail } from '../../../../shared/workspace-mode'
 import { samePath } from '../../utils/paths'
 import { EXTENSIONS_BROWSE_DEEPLINK, MODULES_SETTINGS_TAB } from '../settings/extensionsRoute'
-import {
-  MissingModulePanelSurface,
-  ModuleNotInstalledSurface,
-  workspaceModuleAbsence,
-} from './ModuleAbsenceSurfaces'
+import { MissingModulePanelSurface, ModuleNotInstalledSurface, workspaceModuleAbsence } from './ModuleAbsenceSurfaces'
 import {
   isSessionFailed,
   isSessionWorking,
@@ -43,7 +39,15 @@ import {
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { formatRelativeMs, formatRelativeMsAgo } from '../../utils/relativeTime'
 import type { HighlightColor, Workspace } from '../../types/workspace'
-import { NEW_AGENT_TAB_COMPONENT, captureRailWidthFractions, consumePendingAgentFlash, deleteTabPreservingRails, registerModel, restoreRailWidthFractions, unregisterModel } from '../../utils/modelRegistry'
+import {
+  NEW_AGENT_TAB_COMPONENT,
+  captureRailWidthFractions,
+  consumePendingAgentFlash,
+  deleteTabPreservingRails,
+  registerModel,
+  restoreRailWidthFractions,
+  unregisterModel,
+} from '../../utils/modelRegistry'
 import { TAB_DRAG_MIME, serializeTabDragPayload } from '../../utils/tabDragPayload'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { getHighlightSwatch } from '../../utils/highlight'
@@ -57,7 +61,17 @@ import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import { TabPromptPeek } from './TabPromptPeek'
 import { GitBranchGlyph } from './WorkspaceActions'
 import { changelistOwnerId } from '../../../../shared/git/changelists'
-import { ContextMenu, IconButton, LoadingOverlay, MenuDivider, MenuItem, MenuSwatchRow, StatusDot, type Tone, Tooltip } from '../ui'
+import {
+  ContextMenu,
+  IconButton,
+  LoadingOverlay,
+  MenuDivider,
+  MenuItem,
+  MenuSwatchRow,
+  StatusDot,
+  type Tone,
+  Tooltip,
+} from '../ui'
 
 interface Props {
   workspaceId: string
@@ -161,9 +175,7 @@ type AgentTabActivityDot = {
 
 // The tab status dot follows actual work rather than mere process residency.
 // Priority: working > failed. Idle sessions fall back to elapsed idle time.
-function agentTabStatusDot(
-  session: TerminalSessionSnapshot | undefined,
-): AgentTabActivityDot | null {
+function agentTabStatusDot(session: TerminalSessionSnapshot | undefined): AgentTabActivityDot | null {
   // A paused agent keeps a retained (frozen) snapshot with the process gone, so
   // it is stopped, not resting — distinguish it from a live idle tab (which has
   // no dot). "Paused" mirrors the AgentPanel footer's user-facing wording.
@@ -221,10 +233,7 @@ function timedPanel(component: string, children: React.ReactNode) {
   )
 }
 
-function renderTerminalRecencyIndicator(
-  session: TerminalSessionSnapshot | undefined,
-  now: number
-): React.ReactNode {
+function renderTerminalRecencyIndicator(session: TerminalSessionSnapshot | undefined, now: number): React.ReactNode {
   if (!session) return null
   // Active work gets the pulsing green dot. Idle sessions show elapsed idle
   // time instead, beginning at 1m; sub-minute recency renders blank.
@@ -259,10 +268,7 @@ function renderTerminalRecencyIndicator(
  * an agent attached to a terminal that was already there. Both are "the agent
  * the person is working with", which is what the Diff surfaces default to.
  */
-function agentIdOfTab(
-  node: TabNode,
-  sessions: readonly { sessionId: string; agentId?: string }[],
-): string | null {
+function agentIdOfTab(node: TabNode, sessions: readonly { sessionId: string; agentId?: string }[]): string | null {
   const component = node.getComponent()
   if (component === 'agent') {
     const config = node.getConfig() as { agentId?: string } | undefined
@@ -283,14 +289,14 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   // tab and the same focus a Git panel row opens (see GitPanel.handleOpenFile).
   const openPaneTab = useWorkspaceStore((s) => s.openPaneTab)
   const openSettingsOverlay = useWorkspaceStore((s) => s.openSettingsOverlay)
-  const workspaceAgents = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.agents ?? EMPTY_WORKSPACE_AGENTS
+  const workspaceAgents = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents ?? EMPTY_WORKSPACE_AGENTS,
   )
-  const editorOpenFiles = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.editorState?.openFiles ?? EMPTY_OPEN_FILES
+  const editorOpenFiles = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.editorState?.openFiles ?? EMPTY_OPEN_FILES,
   )
-  const lastTerminalActivityAt = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null
+  const lastTerminalActivityAt = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.lastTerminalActivityAt ?? null,
   )
   // Worktree-backed workspace (a worktree opened as a workspace). The branch
   // glyph is workspace-level on the tabs below: every
@@ -303,11 +309,11 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   //      glyph condition + tooltip cwd.
   const worktreeGitRoot = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
-    return ws ? resolveWorkspaceWorktree(ws)?.gitRoot ?? null : null
+    return ws ? (resolveWorkspaceWorktree(ws)?.gitRoot ?? null) : null
   })
   const worktreeBranch = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
-    return ws ? resolveWorkspaceWorktree(ws)?.branch ?? null : null
+    return ws ? (resolveWorkspaceWorktree(ws)?.branch ?? null) : null
   })
   // A worktree-backed workspace's worktree can be removed out from under it
   // (merge cleanup, the Worktree manager, `git worktree prune`). When it is gone,
@@ -400,7 +406,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
     // `splitterExtra` gives the handle back the hit area the narrower splitter
     // costs: 4 + 2x4 = 12px of grab, up from the 8px it had.
     modelRef.current.doAction(
-      Actions.updateModelAttributes({ tabEnableRename: false, splitterSize: 4, splitterExtra: 4 })
+      Actions.updateModelAttributes({ tabEnableRename: false, splitterSize: 4, splitterExtra: 4 }),
     )
   }
 
@@ -509,32 +515,31 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       const component = node.getComponent()
       const devToolsEnabled = selectModuleEnabled(moduleOverrides, 'dev-tools')
       const gitEnabled = selectModuleEnabled(moduleOverrides, 'git')
-      const config = node.getConfig() as {
-        agentId?: string
-        terminalId?: string
-        filePath?: string
-        repoRoot?: string
-        checkForUpdatesRequestId?: number
-        initialTab?: string
-        highlightColor?: HighlightColor
-        executionId?: string
-        workspaceRoot?: string
-        role?: string
-        title?: string
-        sessionId?: string
-        connectionId?: string
-        machineName?: string
-        remoteSessionId?: string
-      } | undefined
+      const config = node.getConfig() as
+        | {
+            agentId?: string
+            terminalId?: string
+            filePath?: string
+            repoRoot?: string
+            checkForUpdatesRequestId?: number
+            initialTab?: string
+            highlightColor?: HighlightColor
+            executionId?: string
+            workspaceRoot?: string
+            role?: string
+            title?: string
+            sessionId?: string
+            connectionId?: string
+            machineName?: string
+            remoteSessionId?: string
+          }
+        | undefined
 
       const wrapWithHighlight = (children: React.ReactNode): React.ReactNode => {
         if (component !== 'terminal' || !config?.highlightColor) return children
         const swatch = getHighlightSwatch(config.highlightColor)
         return (
-          <div
-            className="relative h-full w-full"
-            style={{ boxShadow: `inset 0 0 0 1px ${swatch.hex}` }}
-          >
+          <div className="relative h-full w-full" style={{ boxShadow: `inset 0 0 0 1px ${swatch.hex}` }}>
             {children}
           </div>
         )
@@ -549,35 +554,37 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       // through to `default`, which renders it gated by its owning module.
       switch (component) {
         case 'agent':
-          return timedPanel('AgentPanel', (
+          return timedPanel(
+            'AgentPanel',
             <AgentPanel
               workspaceId={workspaceId}
               agentId={config?.agentId ?? node.getId()}
               sessionId={config?.sessionId}
               shouldKillTerminalOnUnmount={shouldKillTerminalOnUnmount}
-            />
-          ))
+            />,
+          )
         case 'file-editor':
           return devToolsEnabled && config?.filePath
             ? timedPanel('EditorPanel', <EditorPanel workspaceId={workspaceId} filePath={config.filePath} />)
             : DISABLED_SURFACE
         case 'git-conflict':
           return gitEnabled && config?.repoRoot && config.filePath
-            ? timedPanel('GitConflictResolverPanel', (
-              <GitConflictResolverPanel
-                repoRoot={config.repoRoot}
-                filePath={config.filePath}
-              />
-            ))
+            ? timedPanel(
+                'GitConflictResolverPanel',
+                <GitConflictResolverPanel repoRoot={config.repoRoot} filePath={config.filePath} />,
+              )
             : DISABLED_SURFACE
         case 'terminal':
-          return wrapWithHighlight(timedPanel('PlainTerminalPanel', (
-            <PlainTerminalPanel
-              workspaceId={workspaceId}
-              terminalId={config?.terminalId ?? node.getId()}
-              shouldKillOnUnmount={shouldKillTerminalOnUnmount}
-            />
-          )))
+          return wrapWithHighlight(
+            timedPanel(
+              'PlainTerminalPanel',
+              <PlainTerminalPanel
+                workspaceId={workspaceId}
+                terminalId={config?.terminalId ?? node.getId()}
+                shouldKillOnUnmount={shouldKillTerminalOnUnmount}
+              />,
+            ),
+          )
         // The tab the "+" opened, holding the launch surface until a spawn
         // retypes this same node into an agent tab. Nothing is created while it
         // is open, so a host that cannot spawn (no handler) renders nothing.
@@ -598,23 +605,24 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           // rendered as an empty terminal: there is no session to attach to, and
           // a blank xterm would look like one that simply had no output.
           return config?.connectionId && config.remoteSessionId
-            ? timedPanel('FleetTerminalPanel', (
-              <FleetTerminalPanel
-                // Scoped by WORKSPACE, not just by the tab's session-derived id:
-                // the tab id is deliberately deterministic per session (dedupe
-                // within a workspace), so the same session opened in a second
-                // workspace — a New-chat-door solo pane plus a sidebar row
-                // opened elsewhere — used to collide on one attachId, where main's
-                // same-pane replace rule silently stole the first pane's
-                // stream. The remote terminal port is multi-viewer; two panes
-                // are two healthy attachments (remote-sessions-ux review).
-                attachId={`${workspaceId}:${node.getId()}`}
-                workspaceId={workspaceId}
-                connectionId={config.connectionId}
-                machineName={config.machineName ?? 'Remote machine'}
-                sessionId={config.remoteSessionId}
-              />
-            ))
+            ? timedPanel(
+                'FleetTerminalPanel',
+                <FleetTerminalPanel
+                  // Scoped by WORKSPACE, not just by the tab's session-derived id:
+                  // the tab id is deliberately deterministic per session (dedupe
+                  // within a workspace), so the same session opened in a second
+                  // workspace — a New-chat-door solo pane plus a sidebar row
+                  // opened elsewhere — used to collide on one attachId, where main's
+                  // same-pane replace rule silently stole the first pane's
+                  // stream. The remote terminal port is multi-viewer; two panes
+                  // are two healthy attachments (remote-sessions-ux review).
+                  attachId={`${workspaceId}:${node.getId()}`}
+                  workspaceId={workspaceId}
+                  connectionId={config.connectionId}
+                  machineName={config.machineName ?? 'Remote machine'}
+                  sessionId={config.remoteSessionId}
+                />,
+              )
             : DISABLED_SURFACE
         default: {
           // Host-registered panels: render the registered component gated by its
@@ -643,12 +651,13 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         }
       }
     },
-    [moduleOverrides, openSettingsOverlay, shouldKillTerminalOnUnmount, workspaceId]
+    [moduleOverrides, openSettingsOverlay, shouldKillTerminalOnUnmount, workspaceId],
   )
 
   const cleanupNode = useCallback(
     (node: TabNode) => {
-      const config = node.getConfig() as { agentId?: string; sessionId?: string; terminalId?: string; filePath?: string } | undefined
+      const config = node.getConfig() as
+        { agentId?: string; sessionId?: string; terminalId?: string; filePath?: string } | undefined
       if (node.getComponent() === 'file-editor') {
         if (config?.filePath) closeFile(workspaceId, config.filePath)
         return
@@ -661,10 +670,8 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         if (config?.sessionId) sessionIds.add(config.sessionId)
         if (agent?.cliSessionId) sessionIds.add(agent.cliSessionId)
         terminalSessions
-          .filter((session) =>
-            session.kind === 'agent'
-            && session.workspaceId === workspaceId
-            && session.agentId === agentId
+          .filter(
+            (session) => session.kind === 'agent' && session.workspaceId === workspaceId && session.agentId === agentId,
           )
           .forEach((session) => sessionIds.add(session.sessionId))
         sessionIds.forEach((sessionId) => {
@@ -687,10 +694,9 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         const terminalId = config?.terminalId ?? node.getId()
         const sessionIds = new Set<string>([`terminal-${terminalId}`])
         terminalSessions
-          .filter((session) =>
-            session.kind === 'terminal'
-            && session.workspaceId === workspaceId
-            && session.terminalId === terminalId
+          .filter(
+            (session) =>
+              session.kind === 'terminal' && session.workspaceId === workspaceId && session.terminalId === terminalId,
           )
           .forEach((session) => sessionIds.add(session.sessionId))
         sessionIds.forEach((sessionId) => {
@@ -699,7 +705,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         })
       }
     },
-    [closeFile, terminalSessions, updateAgent, workspaceAgents, workspaceId]
+    [closeFile, terminalSessions, updateAgent, workspaceAgents, workspaceId],
   )
 
   const handleAction = useCallback(
@@ -765,22 +771,28 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
 
       return action
     },
-    [cleanupNode, setActiveFile, updateAgent, workspaceId]
+    [cleanupNode, setActiveFile, updateAgent, workspaceId],
   )
 
-  const closeTabWithCleanup = useCallback((node: TabNode) => {
-    cleanupNode(node)
-    const model = modelRef.current
-    if (model) deleteTabPreservingRails(model, node.getId())
-  }, [cleanupNode])
+  const closeTabWithCleanup = useCallback(
+    (node: TabNode) => {
+      cleanupNode(node)
+      const model = modelRef.current
+      if (model) deleteTabPreservingRails(model, node.getId())
+    },
+    [cleanupNode],
+  )
 
-  const handleAuxMouseClick = useCallback<NodeMouseEvent>((node, event) => {
-    if (event.button !== 1 || !(node instanceof TabNode) || !node.isEnableClose()) return
+  const handleAuxMouseClick = useCallback<NodeMouseEvent>(
+    (node, event) => {
+      if (event.button !== 1 || !(node instanceof TabNode) || !node.isEnableClose()) return
 
-    event.preventDefault()
-    event.stopPropagation()
-    closeTabWithCleanup(node)
-  }, [closeTabWithCleanup])
+      event.preventDefault()
+      event.stopPropagation()
+      closeTabWithCleanup(node)
+    },
+    [closeTabWithCleanup],
+  )
 
   const findTabNodeFromElement = useCallback((element: Element): TabNode | null => {
     const tabButton = element.closest<HTMLElement>('.flexlayout__tab_button')
@@ -796,26 +808,32 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
     return result
   }, [])
 
-  const handleMouseDownCapture = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
-    if (event.button !== 1) return
-    if (!(event.target instanceof Element)) return
+  const handleMouseDownCapture = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      if (event.button !== 1) return
+      if (!(event.target instanceof Element)) return
 
-    const node = findTabNodeFromElement(event.target)
-    if (!node || !node.isEnableClose()) return
-    event.preventDefault()
-    event.stopPropagation()
-    closeTabWithCleanup(node)
-  }, [closeTabWithCleanup, findTabNodeFromElement])
+      const node = findTabNodeFromElement(event.target)
+      if (!node || !node.isEnableClose()) return
+      event.preventDefault()
+      event.stopPropagation()
+      closeTabWithCleanup(node)
+    },
+    [closeTabWithCleanup, findTabNodeFromElement],
+  )
 
-  const closeOtherTabsInSet = useCallback((node: TabNode) => {
-    const parent = node.getParent()
-    if (!(parent instanceof TabSetNode)) return
+  const closeOtherTabsInSet = useCallback(
+    (node: TabNode) => {
+      const parent = node.getParent()
+      if (!(parent instanceof TabSetNode)) return
 
-    parent.getChildren().forEach((child) => {
-      if (!(child instanceof TabNode) || child.getId() === node.getId() || !child.isEnableClose()) return
-      closeTabWithCleanup(child)
-    })
-  }, [closeTabWithCleanup])
+      parent.getChildren().forEach((child) => {
+        if (!(child instanceof TabNode) || child.getId() === node.getId() || !child.isEnableClose()) return
+        closeTabWithCleanup(child)
+      })
+    },
+    [closeTabWithCleanup],
+  )
 
   const hideAllAgentTabs = useCallback(() => {
     const model = modelRef.current
@@ -845,8 +863,9 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
     requestAnimationFrame(() => {
       const escapedPath = parentPath.replace(/"/gu, '\\"')
       const tabsetEl = document.querySelector<HTMLElement>(`[data-layout-path="${escapedPath}"]`)
-      const nextActive = tabsetEl?.querySelector<HTMLElement>('.flexlayout__tab_button--selected')
-        ?? tabsetEl?.querySelector<HTMLElement>('.flexlayout__tab_button')
+      const nextActive =
+        tabsetEl?.querySelector<HTMLElement>('.flexlayout__tab_button--selected') ??
+        tabsetEl?.querySelector<HTMLElement>('.flexlayout__tab_button')
       nextActive?.focus()
     })
   }, [])
@@ -861,9 +880,12 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
     event.stopPropagation()
 
     const parent = node.getParent()
-    const otherClosableTabs = parent instanceof TabSetNode
-      ? parent.getChildren().filter((child) => child instanceof TabNode && child.getId() !== node.getId() && child.isEnableClose())
-      : []
+    const otherClosableTabs =
+      parent instanceof TabSetNode
+        ? parent
+            .getChildren()
+            .filter((child) => child instanceof TabNode && child.getId() !== node.getId() && child.isEnableClose())
+        : []
 
     let agentTabCount = 0
     modelRef.current?.visitNodes((candidate) => {
@@ -890,9 +912,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
     // Preserve any existing non-highlight class names on the tab while we
     // replace the tab-highlight-* class.
     const existingClassName = node.getClassName() ?? ''
-    const baseClassNames = existingClassName
-      .split(/\s+/u)
-      .filter((cls) => cls && !cls.startsWith('tab-highlight-'))
+    const baseClassNames = existingClassName.split(/\s+/u).filter((cls) => cls && !cls.startsWith('tab-highlight-'))
     if (nextColor) baseClassNames.push(`tab-highlight-${nextColor}`)
     const nextClassName = baseClassNames.join(' ').trim() || undefined
 
@@ -900,7 +920,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       Actions.updateNodeAttributes(node.getId(), {
         config: nextConfig,
         className: nextClassName,
-      })
+      }),
     )
   }, [])
 
@@ -926,7 +946,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         if (!wt) return existing
         const heading = wt.branch ? `Worktree · ${wt.branch}` : 'Running in a git worktree'
         const title = missing
-          ? missingTitle ?? `Worktree removed — ${wt.cwd ?? ''}\nNew terminals open in the main checkout.`
+          ? (missingTitle ?? `Worktree removed — ${wt.cwd ?? ''}\nNew terminals open in the main checkout.`)
           : wt.cwd
             ? `${heading}\n${wt.cwd}`
             : heading
@@ -941,8 +961,13 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           </span>
         )
         return existing ? (
-          <span className="flex shrink-0 items-center gap-1">{glyph}{existing}</span>
-        ) : glyph
+          <span className="flex shrink-0 items-center gap-1">
+            {glyph}
+            {existing}
+          </span>
+        ) : (
+          glyph
+        )
       }
 
       if (renamingTabId === node.getId()) {
@@ -984,10 +1009,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
               tabId: node.getId(),
               component: node.getComponent() ?? '',
               name: node.getName(),
-              config:
-                rawConfig && typeof rawConfig === 'object'
-                  ? (rawConfig as Record<string, unknown>)
-                  : null,
+              config: rawConfig && typeof rawConfig === 'object' ? (rawConfig as Record<string, unknown>) : null,
               className: node.getClassName() ?? null,
             })
             event.dataTransfer.effectAllowed = 'move'
@@ -998,24 +1020,25 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       // Dragging a file-editor tab out of the app window pops the file into the
       // external editor window and flips the sticky preference to pop-up mode.
       // Drops inside the window fall through to FlexLayout's own tab handling.
-      const handleTabDragEnd = canDragOut && node.getComponent() === 'file-editor'
-        ? (event: React.DragEvent<HTMLSpanElement>) => {
-            const left = window.screenX
-            const top = window.screenY
-            const outside =
-              event.screenX < left
-              || event.screenX > left + window.outerWidth
-              || event.screenY < top
-              || event.screenY > top + window.outerHeight
-            if (!outside) return
-            const config = node.getConfig() as { filePath?: string } | undefined
-            const filePath = config?.filePath
-            if (!filePath) return
-            void openExternalFileWindow({ workspaceId, path: filePath, name: node.getName() })
-            useWorkspaceStore.getState().setOpenFilesInExternalWindow(true)
-            deleteTabPreservingRails(node.getModel(), node.getId())
-          }
-        : undefined
+      const handleTabDragEnd =
+        canDragOut && node.getComponent() === 'file-editor'
+          ? (event: React.DragEvent<HTMLSpanElement>) => {
+              const left = window.screenX
+              const top = window.screenY
+              const outside =
+                event.screenX < left ||
+                event.screenX > left + window.outerWidth ||
+                event.screenY < top ||
+                event.screenY > top + window.outerHeight
+              if (!outside) return
+              const config = node.getConfig() as { filePath?: string } | undefined
+              const filePath = config?.filePath
+              if (!filePath) return
+              void openExternalFileWindow({ workspaceId, path: filePath, name: node.getName() })
+              useWorkspaceStore.getState().setOpenFilesInExternalWindow(true)
+              deleteTabPreservingRails(node.getModel(), node.getId())
+            }
+          : undefined
       // A live PTY bolds the tab name, mirroring the sidebar's resident-workspace
       // bolding (font-semibold) so suspended/exited terminals read as the quieter
       // state. Covers plain terminals and agent terminals; editors and panels have
@@ -1025,9 +1048,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       let liveTabSession: TerminalSessionSnapshot | undefined
       if (tabComponentId === 'terminal') {
         const cfg = node.getConfig() as { terminalId?: string } | undefined
-        liveTabSession = terminalSessions.find(
-          (s) => s.sessionId === `terminal-${cfg?.terminalId ?? node.getId()}`
-        )
+        liveTabSession = terminalSessions.find((s) => s.sessionId === `terminal-${cfg?.terminalId ?? node.getId()}`)
       } else if (tabComponentId === 'agent') {
         const cfg = node.getConfig() as { agentId?: string; sessionId?: string } | undefined
         const aId = cfg?.agentId ?? node.getId()
@@ -1070,7 +1091,11 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
           <span className="inline-flex min-w-0 items-center gap-1">
             {tabContent}
             {file?.isDirty && (
-              <span className="shrink-0 text-[color:var(--tone-warn)]" aria-label="Unsaved changes" title="Unsaved changes">
+              <span
+                className="shrink-0 text-[color:var(--tone-warn)]"
+                aria-label="Unsaved changes"
+                title="Unsaved changes"
+              >
                 •
               </span>
             )}
@@ -1139,9 +1164,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       const agentId = config?.agentId ?? node.getId()
       const agent = workspaceAgents[agentId]
       const agentSessionId = config?.sessionId ?? agent?.cliSessionId
-      const agentSession = agentSessionId
-        ? terminalSessions.find((s) => s.sessionId === agentSessionId)
-        : undefined
+      const agentSession = agentSessionId ? terminalSessions.find((s) => s.sessionId === agentSessionId) : undefined
       const isWorking = isSessionWorking(agentSession)
       const activityDot: AgentTabActivityDot | null = agentTabStatusDot(agentSession)
 
@@ -1181,13 +1204,17 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       const observedAtWorkspaceWorktree = Boolean(
         observed?.gitRoot && worktreeGitRoot && samePath(slashed(observed.gitRoot), slashed(worktreeGitRoot)),
       )
-      const agentWorktree = agentCheckout?.kind === 'worktree'
-        ? { cwd: agentCheckout.cwd, branch: agentCheckout.branch }
-        : agentCheckout?.kind === 'missing'
-          ? { cwd: agentCheckout.cwd, branch: null }
-          : null
-      const agentWorktreeMissing = agentCheckout?.kind === 'missing'
-        || (agentCheckout?.kind === 'worktree' && worktreeMissing && (!agentCheckout.observed || observedAtWorkspaceWorktree))
+      const agentWorktree =
+        agentCheckout?.kind === 'worktree'
+          ? { cwd: agentCheckout.cwd, branch: agentCheckout.branch }
+          : agentCheckout?.kind === 'missing'
+            ? { cwd: agentCheckout.cwd, branch: null }
+            : null
+      const agentWorktreeMissing =
+        agentCheckout?.kind === 'missing' ||
+        (agentCheckout?.kind === 'worktree' &&
+          worktreeMissing &&
+          (!agentCheckout.observed || observedAtWorkspaceWorktree))
       renderValues.leading = withWorktreeGlyph(
         renderValues.leading,
         agentWorktree,
@@ -1199,25 +1226,18 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       // dot instead.
       const agentRecency = isWorking
         ? null
-        : pickAgentTabRecency(
-            agentSession,
-            lastTerminalActivityAt,
-            agent?.cliLastExitedAt
-          )
-      const agentRecencyText = agentRecency !== null
-        ? formatRelativeMs(agentRecency.at, now)
-        : ''
-      const recencyIndicator = agentRecency !== null && agentRecencyText
-        ? (
-            <span
-              className="ml-0.5 shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
-              title={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)} (${new Date(agentRecency.at).toLocaleString()})`}
-              aria-label={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)}`}
-            >
-              {agentRecencyText}
-            </span>
-          )
-        : null
+        : pickAgentTabRecency(agentSession, lastTerminalActivityAt, agent?.cliLastExitedAt)
+      const agentRecencyText = agentRecency !== null ? formatRelativeMs(agentRecency.at, now) : ''
+      const recencyIndicator =
+        agentRecency !== null && agentRecencyText ? (
+          <span
+            className="ml-0.5 shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]"
+            title={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)} (${new Date(agentRecency.at).toLocaleString()})`}
+            aria-label={`${tabRecencyLabel(agentRecency.source)} ${formatRelativeMsAgo(agentRecency.at, now)}`}
+          >
+            {agentRecencyText}
+          </span>
+        ) : null
 
       // Trailing status treatment: the activity dot, plus recency while idle.
       // A phone is looking at this agent's terminal right now (owner,
@@ -1346,15 +1366,36 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
         </AgentTabIdentityPopover>
       )
     },
-    [commitRename, editorOpenFiles, hideTab, lastTerminalActivityAt, moduleOverrides, now, renameValue, renamingTabId, openTabContextMenu, startRename, remoteAttachedSessions, terminalSessions, workspaceAgents, worktreeBranch, worktreeGitRoot, worktreeMissing, workspaceId]
+    [
+      commitRename,
+      editorOpenFiles,
+      hideTab,
+      lastTerminalActivityAt,
+      moduleOverrides,
+      now,
+      renameValue,
+      renamingTabId,
+      openTabContextMenu,
+      startRename,
+      remoteAttachedSessions,
+      terminalSessions,
+      workspaceAgents,
+      worktreeBranch,
+      worktreeGitRoot,
+      worktreeMissing,
+      workspaceId,
+    ],
   )
 
-  const handleContextMenu = useCallback<NodeMouseEvent>((node, event) => {
-    if (!(node instanceof TabNode)) return
-    event.preventDefault()
-    event.stopPropagation()
-    openTabContextMenu(event, node)
-  }, [openTabContextMenu])
+  const handleContextMenu = useCallback<NodeMouseEvent>(
+    (node, event) => {
+      if (!(node instanceof TabNode)) return
+      event.preventDefault()
+      event.stopPropagation()
+      openTabContextMenu(event, node)
+    },
+    [openTabContextMenu],
+  )
 
   // The tab strip's "+" (MC-2147). It rides the tabsets that host agents and
   // terminals — never a rail pane, whose strip is chrome for a panel, and never

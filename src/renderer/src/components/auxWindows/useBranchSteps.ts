@@ -1,11 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import { selectedEntry, stripEntriesFrom } from './branchSteps'
-import type {
-  BranchStepDiff,
-  BranchStepSelection,
-  BranchStepsSnapshot,
-} from '../../../../shared/electron-api'
+import type { BranchStepDiff, BranchStepSelection, BranchStepsSnapshot } from '../../../../shared/electron-api'
 
 /**
  * The branch's steps and the selected step's diff
@@ -38,11 +34,7 @@ const SPAN: BranchStepSelection = { kind: 'span' }
 /** How often the interval trigger described above re-reads the strip. */
 const REFRESH_MS = 10_000
 
-export function useBranchSteps(
-  repoRoot: string | null,
-  enabled: boolean,
-  revision: unknown
-): BranchStepsState {
+export function useBranchSteps(repoRoot: string | null, enabled: boolean, revision: unknown): BranchStepsState {
   const [snapshot, setSnapshot] = useState<BranchStepsSnapshot | null>(null)
   const [diff, setDiff] = useState<BranchStepDiff | null>(null)
   const [selection, setSelection] = useState<BranchStepSelection>(SPAN)

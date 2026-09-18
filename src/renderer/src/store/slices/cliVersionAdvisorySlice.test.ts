@@ -11,12 +11,23 @@ const behind: CliVersionAdvisoriesResult = {
   ok: true,
   checkedAt: '2026-09-04T12:00:00Z',
   advisories: {
-    codex: { cli: 'codex', status: 'behind_latest', currentVersion: '0.153.2', latestVersion: '0.153.3', updateCommand: { kind: 'brew', command: 'brew upgrade codex' }, checkedAt: '2026-09-04T12:00:00Z' },
+    codex: {
+      cli: 'codex',
+      status: 'behind_latest',
+      currentVersion: '0.153.2',
+      latestVersion: '0.153.3',
+      updateCommand: { kind: 'brew', command: 'brew upgrade codex' },
+      checkedAt: '2026-09-04T12:00:00Z',
+    },
   },
 }
 
 async function main(): Promise<void> {
-  const carrier: CliVersionAdvisorySliceState = { cliVersionAdvisories: {}, cliVersionAdvisoriesCheckedAt: null, cliVersionAdvisoriesError: null }
+  const carrier: CliVersionAdvisorySliceState = {
+    cliVersionAdvisories: {},
+    cliVersionAdvisoriesCheckedAt: null,
+    cliVersionAdvisoriesError: null,
+  }
   const inputs: unknown[] = []
   const slice = createCliVersionAdvisorySlice((mutator) => mutator(carrier), {
     getApi: () => ({
@@ -26,7 +37,10 @@ async function main(): Promise<void> {
       },
     }),
   })
-  const result = await slice.refreshCliVersionAdvisories({ force: true, cliRuntimes: { codex: { command: '/opt/homebrew/bin/codex' } } })
+  const result = await slice.refreshCliVersionAdvisories({
+    force: true,
+    cliRuntimes: { codex: { command: '/opt/homebrew/bin/codex' } },
+  })
   assert.equal(result?.ok, true)
   assert.deepEqual(inputs, [{ force: true, cliRuntimes: { codex: { command: '/opt/homebrew/bin/codex' } } }])
   assert.equal(carrier.cliVersionAdvisories.codex?.status, 'behind_latest')

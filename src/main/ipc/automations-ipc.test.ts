@@ -37,11 +37,13 @@ import { registerAutomationsIpc } from './automations-ipc'
 
 type HandlerMap = Map<string, IpcInvokeHandler>
 
-function createFakeHost(options: {
-  onDefinitionsChanged?: (workspaceRoot: string) => void | Promise<void>
-  onRunEvent?: (event: AutomationsRunEvent) => void
-  workspaceRoots?: string[]
-} = {}): HandlerMap {
+function createFakeHost(
+  options: {
+    onDefinitionsChanged?: (workspaceRoot: string) => void | Promise<void>
+    onRunEvent?: (event: AutomationsRunEvent) => void
+    workspaceRoots?: string[]
+  } = {},
+): HandlerMap {
   const handlers: HandlerMap = new Map()
   registerAutomationsIpc(
     {
@@ -49,7 +51,7 @@ function createFakeHost(options: {
         handlers.set(channel, handler)
       },
     },
-    testDeps(options)
+    testDeps(options),
   )
   return handlers
 }
@@ -57,16 +59,19 @@ function createFakeHost(options: {
 let currentNow = Date.parse('2026-06-18T00:00:00.000Z')
 let runCount = 0
 
-function testDeps(options: {
-  onDefinitionsChanged?: (workspaceRoot: string) => void | Promise<void>
-  onRunEvent?: (event: AutomationsRunEvent) => void
-  workspaceRoots?: string[]
-} = {}) {
+function testDeps(
+  options: {
+    onDefinitionsChanged?: (workspaceRoot: string) => void | Promise<void>
+    onRunEvent?: (event: AutomationsRunEvent) => void
+    workspaceRoots?: string[]
+  } = {},
+) {
   const workspaceRoots = options.workspaceRoots ?? []
   const providerRegistry = createBuiltInAutomationProviderRegistry()
   const engine = createAutomationsEngine({
     createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
-    getProjectFolders: () => workspaceRoots.map((folderPath, index) => ({ workspaceId: `ws-${index + 1}`, folderPath })),
+    getProjectFolders: () =>
+      workspaceRoots.map((folderPath, index) => ({ workspaceId: `ws-${index + 1}`, folderPath })),
     runAutomation: async () => {
       runCount += 1
       return { status: 'completed', summary: 'Manual run completed.' }
@@ -88,7 +93,7 @@ function testDeps(options: {
 async function invoke<T>(handlers: HandlerMap, channel: string, input?: unknown): Promise<T> {
   const handler = handlers.get(channel)
   assert.ok(handler, `expected handler for ${channel}`)
-  return await handler({} as never, input) as T
+  return (await handler({} as never, input)) as T
 }
 
 async function withWorkspaceRoot(): Promise<string> {
@@ -135,154 +140,163 @@ async function testProviderList(): Promise<void> {
   const providers = await invoke<AutomationsProvidersResult>(createFakeHost(), AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
   assert.equal(providers.ok, true)
   if (!providers.ok) return
-  assert.equal(JSON.stringify(providers.value), JSON.stringify({
-    triggers: [
-      {
-        kind: 'schedule',
-        moduleId: 'automations',
-        label: 'Schedule',
-        glyph: 'clock',
-        summary: 'On a repeating cadence',
-        configSchema: {
-          type: 'object',
-          required: ['kind', 'cadence', 'timezone'],
-          properties: {
-            kind: { const: 'schedule' },
-            timezone: { type: 'string', minLength: 1 },
-            cadence: {
-              oneOf: [
-                {
-                  type: 'object',
-                  required: ['type', 'everyMinutes'],
-                  properties: {
-                    type: { const: 'interval' },
-                    everyMinutes: { type: 'integer', minimum: 5 },
-                  },
-                },
-                {
-                  type: 'object',
-                  required: ['type', 'timeLocal'],
-                  properties: {
-                    type: { const: 'daily' },
-                    timeLocal: { type: 'string', pattern: '^([01]\\d|2[0-3]):([0-5]\\d)$' },
-                  },
-                },
-                {
-                  type: 'object',
-                  required: ['type', 'timeLocal', 'daysOfWeek'],
-                  properties: {
-                    type: { const: 'weekly' },
-                    timeLocal: { type: 'string', pattern: '^([01]\\d|2[0-3]):([0-5]\\d)$' },
-                    daysOfWeek: {
-                      type: 'array',
-                      minItems: 1,
-                      uniqueItems: true,
-                      items: { type: 'integer', minimum: 0, maximum: 6 },
+  assert.equal(
+    JSON.stringify(providers.value),
+    JSON.stringify({
+      triggers: [
+        {
+          kind: 'schedule',
+          moduleId: 'automations',
+          label: 'Schedule',
+          glyph: 'clock',
+          summary: 'On a repeating cadence',
+          configSchema: {
+            type: 'object',
+            required: ['kind', 'cadence', 'timezone'],
+            properties: {
+              kind: { const: 'schedule' },
+              timezone: { type: 'string', minLength: 1 },
+              cadence: {
+                oneOf: [
+                  {
+                    type: 'object',
+                    required: ['type', 'everyMinutes'],
+                    properties: {
+                      type: { const: 'interval' },
+                      everyMinutes: { type: 'integer', minimum: 5 },
                     },
                   },
-                },
-                {
-                  type: 'object',
-                  required: ['type', 'datetime'],
-                  properties: {
-                    type: { const: 'at' },
-                    datetime: { type: 'string', pattern: '^(\\d{4})-(\\d{2})-(\\d{2})T([01]\\d|2[0-3]):([0-5]\\d)(?::[0-5]\\d)?$' },
+                  {
+                    type: 'object',
+                    required: ['type', 'timeLocal'],
+                    properties: {
+                      type: { const: 'daily' },
+                      timeLocal: { type: 'string', pattern: '^([01]\\d|2[0-3]):([0-5]\\d)$' },
+                    },
                   },
-                },
-              ],
+                  {
+                    type: 'object',
+                    required: ['type', 'timeLocal', 'daysOfWeek'],
+                    properties: {
+                      type: { const: 'weekly' },
+                      timeLocal: { type: 'string', pattern: '^([01]\\d|2[0-3]):([0-5]\\d)$' },
+                      daysOfWeek: {
+                        type: 'array',
+                        minItems: 1,
+                        uniqueItems: true,
+                        items: { type: 'integer', minimum: 0, maximum: 6 },
+                      },
+                    },
+                  },
+                  {
+                    type: 'object',
+                    required: ['type', 'datetime'],
+                    properties: {
+                      type: { const: 'at' },
+                      datetime: {
+                        type: 'string',
+                        pattern: '^(\\d{4})-(\\d{2})-(\\d{2})T([01]\\d|2[0-3]):([0-5]\\d)(?::[0-5]\\d)?$',
+                      },
+                    },
+                  },
+                ],
+              },
             },
           },
+          requiredIntegrations: [],
+          missingIntegrations: [],
         },
-        requiredIntegrations: [],
-        missingIntegrations: [],
-      },
-      {
-        kind: WEBHOOK_TRIGGER_KIND,
-        moduleId: 'automations',
-        label: 'Webhook',
-        glyph: 'clock',
-        summary: 'On webhook',
-        configSchema: {
-          type: 'object',
-          required: ['kind'],
-          properties: {
-            kind: { const: WEBHOOK_TRIGGER_KIND },
-            enabled: { type: 'boolean', default: false },
-            port: { type: 'integer', minimum: 0, maximum: 65535 },
-            path: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' },
-            secret: { type: 'string', minLength: 16 },
-            eventType: { type: 'string', minLength: 1 },
-            label: { type: 'string', minLength: 1 },
-          },
-        },
-        requiredIntegrations: [],
-        missingIntegrations: [],
-      },
-    ],
-    actions: [
-      {
-        kind: 'spawn-agent',
-        moduleId: 'automations',
-        label: 'Spawn an agent',
-        glyph: 'agent',
-        summary: 'Launch a CLI agent in a workspace',
-        configSchema: {
-          type: 'object',
-          required: ['prompt'],
-          properties: {
-            folderPath: { type: 'string', minLength: 1 },
-            workspaceId: { type: 'string', minLength: 1 },
-            cli: { type: 'string', minLength: 1 },
-            cliModel: { type: 'string', minLength: 1 },
-            // Canonical presets first, then the pre-MC-2210 spellings the schema
-            // still accepts so a definition saved before the rename validates.
-            permissionPreset: {
-              type: 'string',
-              enum: ['none', 'manual', 'auto', 'bypass', 'default', 'auto_workspace', 'bypass_all'],
-            },
-            name: { type: 'string', minLength: 1 },
-            prompt: { type: 'string', minLength: 1 },
-            connectorId: { type: 'string', minLength: 1 },
-            spawnSkillId: { type: 'string', minLength: 1 },
-            includeTriggerContext: { type: 'boolean' },
-            requiredIntegrations: {
-              type: 'array',
-              items: { type: 'string', minLength: 1 },
+        {
+          kind: WEBHOOK_TRIGGER_KIND,
+          moduleId: 'automations',
+          label: 'Webhook',
+          glyph: 'clock',
+          summary: 'On webhook',
+          configSchema: {
+            type: 'object',
+            required: ['kind'],
+            properties: {
+              kind: { const: WEBHOOK_TRIGGER_KIND },
+              enabled: { type: 'boolean', default: false },
+              port: { type: 'integer', minimum: 0, maximum: 65535 },
+              path: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$' },
+              secret: { type: 'string', minLength: 16 },
+              eventType: { type: 'string', minLength: 1 },
+              label: { type: 'string', minLength: 1 },
             },
           },
+          requiredIntegrations: [],
+          missingIntegrations: [],
         },
-        requiredIntegrations: [],
-        missingIntegrations: [],
-      },
-      {
-        kind: 'run-skill-loop',
-        moduleId: 'automations',
-        label: 'Run a skill loop',
-        glyph: 'loop',
-        summary: 'Run a skill in a repeating agent loop',
-        configSchema: {
-          type: 'object',
-          required: ['prompt'],
-          properties: {
-            folderPath: { type: 'string', minLength: 1 },
-            workspaceId: { type: 'string', minLength: 1 },
-            cli: { type: 'string', minLength: 1 },
-            name: { type: 'string', minLength: 1 },
-            prompt: { type: 'string', minLength: 1 },
-            skill: { type: 'string', minLength: 1 },
-            includeTriggerContext: { type: 'boolean' },
-            requiredIntegrations: {
-              type: 'array',
-              items: { type: 'string', minLength: 1 },
+      ],
+      actions: [
+        {
+          kind: 'spawn-agent',
+          moduleId: 'automations',
+          label: 'Spawn an agent',
+          glyph: 'agent',
+          summary: 'Launch a CLI agent in a workspace',
+          configSchema: {
+            type: 'object',
+            required: ['prompt'],
+            properties: {
+              folderPath: { type: 'string', minLength: 1 },
+              workspaceId: { type: 'string', minLength: 1 },
+              cli: { type: 'string', minLength: 1 },
+              cliModel: { type: 'string', minLength: 1 },
+              // Canonical presets first, then the pre-MC-2210 spellings the schema
+              // still accepts so a definition saved before the rename validates.
+              permissionPreset: {
+                type: 'string',
+                enum: ['none', 'manual', 'auto', 'bypass', 'default', 'auto_workspace', 'bypass_all'],
+              },
+              name: { type: 'string', minLength: 1 },
+              prompt: { type: 'string', minLength: 1 },
+              connectorId: { type: 'string', minLength: 1 },
+              spawnSkillId: { type: 'string', minLength: 1 },
+              includeTriggerContext: { type: 'boolean' },
+              requiredIntegrations: {
+                type: 'array',
+                items: { type: 'string', minLength: 1 },
+              },
             },
           },
+          requiredIntegrations: [],
+          missingIntegrations: [],
         },
-        requiredIntegrations: [],
-        missingIntegrations: [],
-      },
-    ],
-  }))
-  assert.equal(providers.value.actions.some((provider) => provider.kind === 'run-command'), false)
+        {
+          kind: 'run-skill-loop',
+          moduleId: 'automations',
+          label: 'Run a skill loop',
+          glyph: 'loop',
+          summary: 'Run a skill in a repeating agent loop',
+          configSchema: {
+            type: 'object',
+            required: ['prompt'],
+            properties: {
+              folderPath: { type: 'string', minLength: 1 },
+              workspaceId: { type: 'string', minLength: 1 },
+              cli: { type: 'string', minLength: 1 },
+              name: { type: 'string', minLength: 1 },
+              prompt: { type: 'string', minLength: 1 },
+              skill: { type: 'string', minLength: 1 },
+              includeTriggerContext: { type: 'boolean' },
+              requiredIntegrations: {
+                type: 'array',
+                items: { type: 'string', minLength: 1 },
+              },
+            },
+          },
+          requiredIntegrations: [],
+          missingIntegrations: [],
+        },
+      ],
+    }),
+  )
+  assert.equal(
+    providers.value.actions.some((provider) => provider.kind === 'run-command'),
+    false,
+  )
 }
 
 async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations(): Promise<void> {
@@ -314,7 +328,7 @@ async function testProviderListIncludesFirstPartyActionsAndMissingIntegrations()
       actionProviders: providerRegistry.listActionProviders(),
       isIntegrationAvailable: (id) => id !== ISSUE_INTEGRATION_ID,
       now: () => currentNow,
-    }
+    },
   )
 
   const providers = await invoke<AutomationsProvidersResult>(handlers, AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
@@ -346,7 +360,10 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   const listed = await invoke<AutomationsListResult>(handlers, AUTOMATIONS_LIST_CHANNEL, { workspaceRoot })
   assert.equal(listed.ok, true)
   if (!listed.ok) return
-  assert.deepEqual(listed.value.map((definition) => definition.id), ['nightly-review'])
+  assert.deepEqual(
+    listed.value.map((definition) => definition.id),
+    ['nightly-review'],
+  )
 
   const fetched = listed.value.find((definition) => definition.id === 'nightly-review')
   assert.ok(fetched, 'the created automation is readable back from the list')
@@ -407,7 +424,10 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   })
   assert.equal(runs.ok, true)
   if (!runs.ok) return
-  assert.deepEqual(runs.value.map((run) => run.status), ['completed'])
+  assert.deepEqual(
+    runs.value.map((run) => run.status),
+    ['completed'],
+  )
 
   const store = new AutomationsStore(workspaceRoot)
   const stateBeforeDelete = await store.readState()
@@ -577,13 +597,13 @@ async function testDefinitionWriteSurfacesRefreshHookFailure(): Promise<void> {
 async function testCatalogueInstallTargetsOnlyAnOpenProject(): Promise<void> {
   const knownRoot = await withWorkspaceRoot()
   const outsideRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-ipc-outside-'))
-  const frontDoor = registerAutomationsIpc(
-    { registerIpc: () => undefined },
-    testDeps({ workspaceRoots: [knownRoot] })
-  )
+  const frontDoor = registerAutomationsIpc({ registerIpc: () => undefined }, testDeps({ workspaceRoots: [knownRoot] }))
   const payload = {
     name: 'Nightly dependency sweep',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'interval', everyMinutes: 10 } } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'interval', everyMinutes: 10 } },
+    },
     action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
   }
 
@@ -592,7 +612,8 @@ async function testCatalogueInstallTargetsOnlyAnOpenProject(): Promise<void> {
     sourceCatalogueId: 'multicode.nightly-sweep',
   })
   assert.equal(noProject.ok, false)
-  if (!noProject.ok) assert.equal(noProject.code, 'invalid_input', 'an install with no project refuses rather than picking one')
+  if (!noProject.ok)
+    assert.equal(noProject.code, 'invalid_input', 'an install with no project refuses rather than picking one')
 
   const wrongProject = await frontDoor.installCatalogueDefinition({
     workspaceRoot: outsideRoot,
@@ -602,7 +623,11 @@ async function testCatalogueInstallTargetsOnlyAnOpenProject(): Promise<void> {
   assert.equal(wrongProject.ok, false)
   if (!wrongProject.ok) assert.equal(wrongProject.code, 'workspace_root_untrusted')
   const outsideDefinitions = await new AutomationsStore(outsideRoot).listDefinitions()
-  assert.equal(outsideDefinitions.ok && outsideDefinitions.values.length, 0, 'a project the app does not have open is never written to')
+  assert.equal(
+    outsideDefinitions.ok && outsideDefinitions.values.length,
+    0,
+    'a project the app does not have open is never written to',
+  )
 
   const added = await frontDoor.installCatalogueDefinition({
     workspaceRoot: knownRoot,
@@ -653,7 +678,7 @@ async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<vo
       actionProviders: providerRegistry.listActionProviders(),
       getWorkspaceSyncSnapshot: () => workspaceSnapshot([knownRoot]),
       now: () => currentNow,
-    }
+    },
   )
 
   const listed = await invoke<AutomationsListResult>(handlers, AUTOMATIONS_LIST_CHANNEL, { workspaceRoot: outsideRoot })
@@ -671,7 +696,9 @@ async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<vo
 }
 
 async function testEngineStatusChannelReflectsSidecar(): Promise<void> {
-  const engineStatusHandlers = (status: (() => { id: string; moduleId: string; kind: string; state: string; error?: string } | undefined)): HandlerMap => {
+  const engineStatusHandlers = (
+    status: () => { id: string; moduleId: string; kind: string; state: string; error?: string } | undefined,
+  ): HandlerMap => {
     const handlers: HandlerMap = new Map()
     registerAutomationsIpc(
       {
@@ -686,14 +713,19 @@ async function testEngineStatusChannelReflectsSidecar(): Promise<void> {
         },
         getEngineSidecarStatus: status as never,
         now: () => currentNow,
-      }
+      },
     )
     return handlers
   }
 
   const running = await invoke<AutomationsEngineStatusResult>(
-    engineStatusHandlers(() => ({ id: 'automations-engine', moduleId: 'automations', kind: 'scheduler', state: 'running' })),
-    AUTOMATIONS_ENGINE_STATUS_CHANNEL
+    engineStatusHandlers(() => ({
+      id: 'automations-engine',
+      moduleId: 'automations',
+      kind: 'scheduler',
+      state: 'running',
+    })),
+    AUTOMATIONS_ENGINE_STATUS_CHANNEL,
   )
   assert.equal(running.ok, true)
   if (!running.ok) return
@@ -707,7 +739,7 @@ async function testEngineStatusChannelReflectsSidecar(): Promise<void> {
       state: 'failed',
       error: 'Webhook receiver: port 8787 already in use',
     })),
-    AUTOMATIONS_ENGINE_STATUS_CHANNEL
+    AUTOMATIONS_ENGINE_STATUS_CHANNEL,
   )
   assert.equal(failed.ok, true)
   if (!failed.ok) return
@@ -715,7 +747,7 @@ async function testEngineStatusChannelReflectsSidecar(): Promise<void> {
 
   const absent = await invoke<AutomationsEngineStatusResult>(
     engineStatusHandlers(() => undefined),
-    AUTOMATIONS_ENGINE_STATUS_CHANNEL
+    AUTOMATIONS_ENGINE_STATUS_CHANNEL,
   )
   assert.equal(absent.ok, true)
   if (!absent.ok) return

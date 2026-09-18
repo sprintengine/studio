@@ -44,7 +44,15 @@ const SOURCE: SkillSource = {
 }
 
 function skill(id: string): ScannedSkill {
-  return { id, name: id.split('/').pop() ?? id, description: '', group: '', files: [], allowedTools: [], hasExecutables: false }
+  return {
+    id,
+    name: id.split('/').pop() ?? id,
+    description: '',
+    group: '',
+    files: [],
+    allowedTools: [],
+    hasExecutables: false,
+  }
 }
 
 function plugin(id: string, over: Partial<ScannedPlugin> = {}): ScannedPlugin {
@@ -101,34 +109,77 @@ run('rows say what a plugin ships, and unread linked plugins say so', () => {
   const rows = derivePluginRows({
     source: SOURCE,
     scan: scanOf([
-      plugin('frontend-design', { components: { ...emptyPluginComponents(), skills: [skill('plugins/frontend-design/skills/frontend-design')] } }),
-      plugin('security-guidance', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } }),
-      plugin('42crunch', { origin: { kind: 'linked', repo: '42Crunch-AI/claude-plugins', ref: 'v1', sha: 'abc', path: 'plugins/x', url: 'https://github.com/42Crunch-AI/claude-plugins.git' }, componentsKnown: false }),
+      plugin('frontend-design', {
+        components: { ...emptyPluginComponents(), skills: [skill('plugins/frontend-design/skills/frontend-design')] },
+      }),
+      plugin('security-guidance', {
+        components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] },
+      }),
+      plugin('42crunch', {
+        origin: {
+          kind: 'linked',
+          repo: '42Crunch-AI/claude-plugins',
+          ref: 'v1',
+          sha: 'abc',
+          path: 'plugins/x',
+          url: 'https://github.com/42Crunch-AI/claude-plugins.git',
+        },
+        componentsKnown: false,
+      }),
     ]),
     installed: [],
     query: '',
   })
-  assert.deepEqual(rows.map((row) => row.components), ['1 skill', '1 hook', 'Read when opened'])
-  assert.deepEqual(rows.map((row) => row.hasHooks), [false, true, false])
-  assert.deepEqual(rows.map((row) => row.linked), [false, false, true])
+  assert.deepEqual(
+    rows.map((row) => row.components),
+    ['1 skill', '1 hook', 'Read when opened'],
+  )
+  assert.deepEqual(
+    rows.map((row) => row.hasHooks),
+    [false, true, false],
+  )
+  assert.deepEqual(
+    rows.map((row) => row.linked),
+    [false, false, true],
+  )
   assert.ok(rows.every((row) => row.install.kind === 'not-installed'))
 
-  const filtered = derivePluginRows({ source: SOURCE, scan: scanOf([plugin('alpha'), plugin('beta')]), installed: [], query: 'BET' })
-  assert.deepEqual(filtered.map((row) => row.pluginId), ['beta'])
+  const filtered = derivePluginRows({
+    source: SOURCE,
+    scan: scanOf([plugin('alpha'), plugin('beta')]),
+    installed: [],
+    query: 'BET',
+  })
+  assert.deepEqual(
+    filtered.map((row) => row.pluginId),
+    ['beta'],
+  )
 })
 
 run('installed state comes from our receipt, or from a hand-enabled Claude key', () => {
   const p = plugin('code-review')
-  assert.equal(derivePluginInstallState([], SOURCE.id, p, 'claude-plugins-official', SOURCE.commitSha).kind, 'not-installed')
-  assert.equal(derivePluginInstallState([record()], SOURCE.id, p, 'claude-plugins-official', SOURCE.commitSha).kind, 'installed')
+  assert.equal(
+    derivePluginInstallState([], SOURCE.id, p, 'claude-plugins-official', SOURCE.commitSha).kind,
+    'not-installed',
+  )
+  assert.equal(
+    derivePluginInstallState([record()], SOURCE.id, p, 'claude-plugins-official', SOURCE.commitSha).kind,
+    'installed',
+  )
   // The source moved on since the install: an update, from our own receipt only.
-  assert.equal(derivePluginInstallState([record()], SOURCE.id, p, 'claude-plugins-official', 'ffffff').kind, 'update-available')
+  assert.equal(
+    derivePluginInstallState([record()], SOURCE.id, p, 'claude-plugins-official', 'ffffff').kind,
+    'update-available',
+  )
   // Enabled by hand in .claude/settings.json: installed, never "update available".
   const foreign = record({ sourceId: '', commitSha: '', installedAt: '' })
   assert.equal(derivePluginInstallState([foreign], SOURCE.id, p, 'claude-plugins-official', 'ffffff').kind, 'installed')
   // A receipt from another source for a same-named plugin is not this one.
   const elsewhere = record({ sourceId: 'github:o/r', claudePluginKey: 'code-review@other' })
-  assert.equal(derivePluginInstallState([elsewhere], SOURCE.id, p, 'claude-plugins-official', SOURCE.commitSha).kind, 'not-installed')
+  assert.equal(
+    derivePluginInstallState([elsewhere], SOURCE.id, p, 'claude-plugins-official', SOURCE.commitSha).kind,
+    'not-installed',
+  )
 })
 
 run('a plugin the marketplace renamed is still the one you installed', () => {
@@ -159,7 +210,10 @@ run('a plugin the marketplace renamed is still the one you installed', () => {
   // Without the map, nothing is guessed: two plugins with unrelated names stay
   // unrelated.
   const unmapped = scanOf([plugin('agentforce-adlc')])
-  assert.equal(derivePluginRows({ source: SOURCE, scan: unmapped, installed: [before], query: '' })[0].install.kind, 'not-installed')
+  assert.equal(
+    derivePluginRows({ source: SOURCE, scan: unmapped, installed: [before], query: '' })[0].install.kind,
+    'not-installed',
+  )
 })
 
 run('an exact id beats an alias, whichever receipt comes first', () => {
@@ -168,7 +222,11 @@ run('an exact id beats an alias, whichever receipt comes first', () => {
   // uninstalling one then deletes the other's.
   const aliasFirst = [
     record({ pluginId: 'adlc', pluginName: 'adlc', claudePluginKey: 'adlc@claude-plugins-official' }),
-    record({ pluginId: 'agentforce-adlc', pluginName: 'agentforce-adlc', claudePluginKey: 'agentforce-adlc@claude-plugins-official' }),
+    record({
+      pluginId: 'agentforce-adlc',
+      pluginName: 'agentforce-adlc',
+      claudePluginKey: 'agentforce-adlc@claude-plugins-official',
+    }),
   ]
   const found = findInstalledRecord(aliasFirst, SOURCE.id, { id: 'agentforce-adlc' }, 'claude-plugins-official', [
     'agentforce-adlc',
@@ -179,17 +237,28 @@ run('an exact id beats an alias, whichever receipt comes first', () => {
   // The alias is still the fallback when the plugin has no receipt of its own.
   const aliasOnly = [record({ pluginId: 'adlc', pluginName: 'adlc', claudePluginKey: 'adlc@claude-plugins-official' })]
   assert.equal(
-    findInstalledRecord(aliasOnly, SOURCE.id, { id: 'agentforce-adlc' }, 'claude-plugins-official', ['agentforce-adlc', 'adlc'])?.pluginId,
+    findInstalledRecord(aliasOnly, SOURCE.id, { id: 'agentforce-adlc' }, 'claude-plugins-official', [
+      'agentforce-adlc',
+      'adlc',
+    ])?.pluginId,
     'adlc',
   )
 
   // The same order rule for a hand-enabled Claude key.
   const keys = [
     record({ sourceId: '', commitSha: '', pluginId: 'adlc', claudePluginKey: 'adlc@claude-plugins-official' }),
-    record({ sourceId: '', commitSha: '', pluginId: 'agentforce-adlc', claudePluginKey: 'agentforce-adlc@claude-plugins-official' }),
+    record({
+      sourceId: '',
+      commitSha: '',
+      pluginId: 'agentforce-adlc',
+      claudePluginKey: 'agentforce-adlc@claude-plugins-official',
+    }),
   ]
   assert.equal(
-    findInstalledRecord(keys, SOURCE.id, { id: 'agentforce-adlc' }, 'claude-plugins-official', ['agentforce-adlc', 'adlc'])?.claudePluginKey,
+    findInstalledRecord(keys, SOURCE.id, { id: 'agentforce-adlc' }, 'claude-plugins-official', [
+      'agentforce-adlc',
+      'adlc',
+    ])?.claudePluginKey,
     'agentforce-adlc@claude-plugins-official',
   )
 })
@@ -207,7 +276,11 @@ run('a plugin past the scan’s limit says so, rather than promising a read', ()
     origin: { kind: 'linked', repo: 'o/r', ref: '', sha: 'abc', path: '', url: 'https://github.com/o/r' },
   })
   assert.equal(unreadPluginReason(linked), 'unopened')
-  assert.equal(describePluginComponents(linked), 'Read when opened', 'a linked plugin still promises the read it can do')
+  assert.equal(
+    describePluginComponents(linked),
+    'Read when opened',
+    'a linked plugin still promises the read it can do',
+  )
   assert.equal(unreadPluginReason(plugin('read')), 'read')
 })
 
@@ -239,13 +312,20 @@ run('the install plan says per harness what will land, before it does', () => {
   assert.equal(plan[2].label, 'Shared agents directory')
 
   // No marketplace: the copy is the same.
-  const noMarket = describeInstallPlan({ plugin: p, marketplaceName: '', marketplaceRepo: SOURCE.repo, harnesses: ['claude'] })
+  const noMarket = describeInstallPlan({
+    plugin: p,
+    marketplaceName: '',
+    marketplaceRepo: SOURCE.repo,
+    harnesses: ['claude'],
+  })
   assert.match(noMarket[0].line, /copied into \.claude\/skills/)
   assert.equal(/settings\.json/.test(noMarket[0].line), false)
 
   // Claude Code with nothing to copy says so.
   const claudeNothing = describeInstallPlan({
-    plugin: plugin('h', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } }),
+    plugin: plugin('h', {
+      components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] },
+    }),
     marketplaceName: 'claude-plugins-official',
     marketplaceRepo: SOURCE.repo,
     harnesses: ['claude'],
@@ -253,7 +333,9 @@ run('the install plan says per harness what will land, before it does', () => {
   assert.match(claudeNothing[0].line, /Nothing is copied\. Its hooks are not installed/)
   assert.equal(/settings\.json/.test(claudeNothing[0].line), false)
   const hooksOnly = describeInstallPlan({
-    plugin: plugin('h', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } }),
+    plugin: plugin('h', {
+      components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] },
+    }),
     marketplaceName: '',
     marketplaceRepo: '',
     harnesses: ['codex'],
@@ -283,17 +365,27 @@ run('the install plan says per harness what will land, before it does', () => {
     harnesses: ['codex'],
   })
   assert.match(lspOnly[0].line, /Nothing to install\. Its LSP servers are Claude Code-format/)
-  const unread = describeInstallPlan({ plugin: plugin('u', { componentsKnown: false }), marketplaceName: 'm', marketplaceRepo: 'o/r', harnesses: ['claude'] })
+  const unread = describeInstallPlan({
+    plugin: plugin('u', { componentsKnown: false }),
+    marketplaceName: 'm',
+    marketplaceRepo: 'o/r',
+    harnesses: ['claude'],
+  })
   assert.match(unread[0].line, /Known once the plugin has been read/)
 })
 
 run('install availability states its reason instead of doing nothing', () => {
-  const hooked = plugin('h', { components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } })
+  const hooked = plugin('h', {
+    components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] },
+  })
   assert.match(derivePluginInstallAvailability(null, hooked, ['claude']).reason ?? '', /Open a workspace/)
   assert.match(derivePluginInstallAvailability('/ws', hooked, []).reason ?? '', /No agent CLI/)
   assert.equal(derivePluginInstallAvailability('/ws', hooked, ['claude']).enabled, true)
   assert.equal(derivePluginInstallAvailability('/ws', plugin('p'), ['claude']).enabled, true)
-  assert.equal(derivePluginInstallAvailability('/ws', plugin('u', { componentsKnown: false }), ['claude']).enabled, false)
+  assert.equal(
+    derivePluginInstallAvailability('/ws', plugin('u', { componentsKnown: false }), ['claude']).enabled,
+    false,
+  )
 })
 
 run('what an install did is one line in the installer’s words', () => {
@@ -319,7 +411,12 @@ run('a plugin opens where a person can read it', () => {
     `https://github.com/anthropics/claude-plugins-official/tree/${SOURCE.commitSha}/plugins/a`,
   )
   assert.equal(
-    pluginExternalUrl(plugin('a', { origin: { kind: 'linked', repo: 'o/r', ref: '', sha: '', path: '', url: 'https://github.com/o/r.git' } }), SOURCE),
+    pluginExternalUrl(
+      plugin('a', {
+        origin: { kind: 'linked', repo: 'o/r', ref: '', sha: '', path: '', url: 'https://github.com/o/r.git' },
+      }),
+      SOURCE,
+    ),
     'https://github.com/o/r.git',
   )
 })

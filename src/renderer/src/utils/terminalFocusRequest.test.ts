@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 import type { IJsonModel } from 'flexlayout-react'
 import { visibleTerminalTabInLayout } from './modelRegistry'
-import {
-  focusRequestWouldInterrupt,
-  terminalFocusRequestMatches,
-} from './terminalFocusRequest'
+import { focusRequestWouldInterrupt, terminalFocusRequestMatches } from './terminalFocusRequest'
 
 function run(name: string, body: () => void): void {
   try {

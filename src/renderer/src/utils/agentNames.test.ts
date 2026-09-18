@@ -1,11 +1,6 @@
 import assert from 'node:assert/strict'
 
-import {
-  AGENT_FIRST_NAMES,
-  AGENT_SURNAMES,
-  isPlaceholderAgentName,
-  pickRandomAgentName,
-} from './agentNames'
+import { AGENT_FIRST_NAMES, AGENT_SURNAMES, isPlaceholderAgentName, pickRandomAgentName } from './agentNames'
 
 const originalRandom = Math.random
 
@@ -63,7 +58,7 @@ function testPlaceholderNamesAreDetectedAndRealNamesSurvive(): void {
 
 function testFallsBackToNumberedNameAfterCombinationPoolIsExhausted(): void {
   const takenNames = AGENT_SURNAMES.flatMap((surname) =>
-    AGENT_FIRST_NAMES.map((firstName) => `${firstName} ${surname}`)
+    AGENT_FIRST_NAMES.map((firstName) => `${firstName} ${surname}`),
   )
 
   withRandom(0, () => {

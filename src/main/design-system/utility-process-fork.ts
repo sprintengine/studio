@@ -71,9 +71,8 @@ export const forkBundleScriptInUtilityProcess: BundleScriptFork = (scriptPath, a
       if (settled) return
       settled = true
       clearTimeout(timeout)
-      void Promise.race([
-        drained,
-        new Promise((graceOver) => setTimeout(graceOver, STREAM_DRAIN_GRACE_MS)),
-      ]).then(() => resolve({ exitCode, stdout, stderr }))
+      void Promise.race([drained, new Promise((graceOver) => setTimeout(graceOver, STREAM_DRAIN_GRACE_MS))]).then(() =>
+        resolve({ exitCode, stdout, stderr }),
+      )
     })
   })

@@ -11,10 +11,7 @@ import {
   type PullRequestRecordChange,
   type PullRequestRecordSession,
 } from './pull-request-record'
-import type {
-  BranchPullRequestsRead,
-  PullRequestStateRead,
-} from './github/branch-pull-request'
+import type { BranchPullRequestsRead, PullRequestStateRead } from './github/branch-pull-request'
 import type { BranchPullRequest } from '../shared/git/pull-request'
 
 // No `gh`, no network, no git remote, no pty: the two GitHub reads and the
@@ -167,7 +164,7 @@ async function main(): Promise<void> {
 
     const captured = record.forSession('session-a')
     assert.equal(captured.length, 1)
-    assert.equal(captured[0].repoKey, WEBSITE, 'filed under the repository the URL names, not the session\'s')
+    assert.equal(captured[0].repoKey, WEBSITE, "filed under the repository the URL names, not the session's")
     assert.equal(captured[0].repoName, 'website', 'and it can say which repo, for a row that spans two')
     assert.equal(captured[0].url, 'https://github.com/acme/website/pull/9', 'the URL is canonicalised on the way in')
     assert.equal(captured[0].number, 9)
@@ -197,8 +194,11 @@ async function main(): Promise<void> {
     assert.equal(new Set(union.map((entry) => entry.url)).size, union.length, 'de-duplicated by URL')
     assert.deepEqual(
       union.map((entry) => [entry.repoName, entry.onSessionBranch === true]),
-      [['website', false], ['app', true]],
-      'only the entry on the session\'s own repository and branch is stamped on-branch',
+      [
+        ['website', false],
+        ['app', true],
+      ],
+      "only the entry on the session's own repository and branch is stamped on-branch",
     )
 
     // A different session on the same checkout sees the branch's pull request
@@ -237,16 +237,28 @@ async function main(): Promise<void> {
 
     record.noteCaptured({ url: 'https://github.com/acme/app/pull/12', sessionId: 'session-a' })
     await record.flush()
-    assert.deepEqual(record.forBranch(APP, '').map((entry) => entry.number), [12], 'no branch known yet')
+    assert.deepEqual(
+      record.forBranch(APP, '').map((entry) => entry.number),
+      [12],
+      'no branch known yet',
+    )
 
     await record.ensureLookedUp({ gitRoot: '/repo', branch: 'feature' })
     await record.flush()
     const merged = record.forBranch(APP, 'feature')
     assert.equal(merged.length, 1, 'merged by URL, not filed twice')
     assert.equal(merged[0].title, 'Marks', "GitHub's truth wins for everything it knows")
-    assert.equal(merged[0].openedBySessionId, 'session-a', 'except the session that opened it, which is never clobbered')
+    assert.equal(
+      merged[0].openedBySessionId,
+      'session-a',
+      'except the session that opened it, which is never clobbered',
+    )
     assert.deepEqual(record.forBranch(APP, ''), [], 'and it left the unknown bucket')
-    assert.deepEqual(record.forSession('session-a').map((entry) => entry.number), [12], 'still the session\'s own')
+    assert.deepEqual(
+      record.forSession('session-a').map((entry) => entry.number),
+      [12],
+      "still the session's own",
+    )
 
     // On disk, and read back by a fresh record.
     const stored = JSON.parse(await readFile(pullRequestStorePath(userDataDir, APP), 'utf-8'))
@@ -343,11 +355,7 @@ async function main(): Promise<void> {
     now += 10_001
     await settledRecord.ensureLookedUp({ gitRoot: '/repo-d', branch: 'feature' })
     assert.equal(settledAsks, 1, 'a settled answer is held')
-    assert.deepEqual(
-      settledRecord.forBranch(APP, 'nothing-here'),
-      [],
-      'a branch with no pull request draws nothing',
-    )
+    assert.deepEqual(settledRecord.forBranch(APP, 'nothing-here'), [], 'a branch with no pull request draws nothing')
     holdRecord.dispose()
     settledRecord.dispose()
     record.dispose()
@@ -361,8 +369,14 @@ async function main(): Promise<void> {
     userDataDir = await freshUserDataDir()
     const clock = makeClock()
     const states = new Map<string, PullRequestStateRead>([
-      ['https://github.com/acme/app/pull/1', { settled: true, state: 'open', isDraft: false, stateAt: NOW, headRefName: 'feature' }],
-      ['https://github.com/acme/app/pull/2', { settled: true, state: 'open', isDraft: false, stateAt: NOW, headRefName: 'feature' }],
+      [
+        'https://github.com/acme/app/pull/1',
+        { settled: true, state: 'open', isDraft: false, stateAt: NOW, headRefName: 'feature' },
+      ],
+      [
+        'https://github.com/acme/app/pull/2',
+        { settled: true, state: 'open', isDraft: false, stateAt: NOW, headRefName: 'feature' },
+      ],
     ])
     const probes: string[] = []
     const record = createPullRequestRecord({
@@ -492,7 +506,11 @@ async function main(): Promise<void> {
     record.refreshForSession('live')
     await record.flush()
     assert.equal(lookups, 2, 'past the hold, a hover really asks again')
-    assert.deepEqual(probes, ['https://github.com/acme/app/pull/5'], 'and a state reading older than a minute is re-read')
+    assert.deepEqual(
+      probes,
+      ['https://github.com/acme/app/pull/5'],
+      'and a state reading older than a minute is re-read',
+    )
     assert.equal(record.forBranch(APP, 'feature')[0].state, 'merged')
 
     // A session main does not know asks GitHub nothing.
@@ -505,7 +523,11 @@ async function main(): Promise<void> {
     record.refreshOnFocus()
     await record.flush()
     assert.equal(lookups, 3, 'coming back to the app re-asks for the sessions that have a branch')
-    assert.deepEqual(probes, ['https://github.com/acme/app/pull/5'], 'a merged one is terminal: focus never probes it again')
+    assert.deepEqual(
+      probes,
+      ['https://github.com/acme/app/pull/5'],
+      'a merged one is terminal: focus never probes it again',
+    )
     record.dispose()
   }
 
@@ -533,7 +555,10 @@ async function main(): Promise<void> {
     record.listForSession(onFeature) // kicks off the resolution
     await record.flush()
 
-    assert.equal(record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [], workspaceIds: [] }, onFeature), true)
+    assert.equal(
+      record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [], workspaceIds: [] }, onFeature),
+      true,
+    )
     assert.equal(
       record.changeAffectsSession({ repoKey: APP, branch: 'other', sessionIds: [], workspaceIds: [] }, onFeature),
       false,
@@ -550,12 +575,21 @@ async function main(): Promise<void> {
       'a repository-wide change (a checkout just resolved) reaches everything on it',
     )
     assert.equal(
-      record.changeAffectsSession({ repoKey: WEBSITE, branch: 'site/banner', sessionIds: ['live'], workspaceIds: [] }, onFeature),
+      record.changeAffectsSession(
+        { repoKey: WEBSITE, branch: 'site/banner', sessionIds: ['live'], workspaceIds: [] },
+        onFeature,
+      ),
       true,
       'and the conversation that opened one hears about it in any repository',
     )
-    assert.equal(record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [], workspaceIds: [] }, elsewhere), false)
-    assert.equal(record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [], workspaceIds: [] }, {}), false)
+    assert.equal(
+      record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [], workspaceIds: [] }, elsewhere),
+      false,
+    )
+    assert.equal(
+      record.changeAffectsSession({ repoKey: APP, branch: 'feature', sessionIds: [], workspaceIds: [] }, {}),
+      false,
+    )
     record.dispose()
   }
 
@@ -627,7 +661,11 @@ async function main(): Promise<void> {
     record.forBranch(junkRepo, 'feature')
     await record.flush()
     const entries = record.forBranch(junkRepo, 'feature')
-    assert.deepEqual(entries.map((entry) => entry.number), [3], 'only well-formed rows survive the read')
+    assert.deepEqual(
+      entries.map((entry) => entry.number),
+      [3],
+      'only well-formed rows survive the read',
+    )
     assert.equal(entries[0].isDraft, false, 'a draft flag on a merged one is dropped')
     assert.equal(
       entries[0].repoKey,
@@ -666,7 +704,11 @@ async function main(): Promise<void> {
     await record.flush()
 
     const listed = record.listForSession(alias)
-    assert.deepEqual(listed.map((entry) => entry.number), [12], 'the checkout that asked can read the answer back')
+    assert.deepEqual(
+      listed.map((entry) => entry.number),
+      [12],
+      'the checkout that asked can read the answer back',
+    )
     assert.equal(listed[0].repoKey, APP, 'and the row still says which repository it is really in')
     assert.deepEqual(
       record.watchedUrls(),
@@ -823,11 +865,7 @@ async function main(): Promise<void> {
     await record.refresh(url)
     const settledReads = reads
     await record.refresh(url)
-    assert.equal(
-      reads,
-      settledReads + 1,
-      'a settled reading leaves nothing standing in the way of the next probe',
-    )
+    assert.equal(reads, settledReads + 1, 'a settled reading leaves nothing standing in the way of the next probe')
     record.dispose()
   }
 
@@ -850,7 +888,10 @@ async function main(): Promise<void> {
     await record.ensureLookedUp({ gitRoot: '/repo', branch: 'feature' })
     await record.flush()
     assert.deepEqual(
-      record.forBranch(APP, 'feature').map((entry) => entry.number).sort((a, b) => a - b),
+      record
+        .forBranch(APP, 'feature')
+        .map((entry) => entry.number)
+        .sort((a, b) => a - b),
       [40, 41],
       'both are still on the record and still drawn',
     )
@@ -945,10 +986,17 @@ async function main(): Promise<void> {
       `a truncated store is reported, not swallowed: ${JSON.stringify(warnings)}`,
     )
     const names = await readdir(dir)
-    assert.ok(names.some((name) => name.endsWith('.corrupt')), 'the unreadable file is kept, not overwritten')
+    assert.ok(
+      names.some((name) => name.endsWith('.corrupt')),
+      'the unreadable file is kept, not overwritten',
+    )
     assert.ok(!names.includes(basename(stale)), 'a stale temp file is swept')
     assert.ok(names.includes(basename(fresh)), 'a temp file young enough to be in flight is left alone')
-    assert.deepEqual(record.forBranch(APP, 'feature').map((entry) => entry.number), [60], 'and the record refills')
+    assert.deepEqual(
+      record.forBranch(APP, 'feature').map((entry) => entry.number),
+      [60],
+      'and the record refills',
+    )
     record.dispose()
   }
 
@@ -964,7 +1012,9 @@ async function main(): Promise<void> {
       JSON.stringify({
         version: 99,
         repoKey: APP,
-        branches: { feature: [{ url: 'https://github.com/acme/app/pull/70', state: 'open', number: 70, openedAt: 1, stateAt: 1 }] },
+        branches: {
+          feature: [{ url: 'https://github.com/acme/app/pull/70', state: 'open', number: 70, openedAt: 1, stateAt: 1 }],
+        },
       }),
       'utf-8',
     )
@@ -973,7 +1023,10 @@ async function main(): Promise<void> {
     await record.flush()
     assert.deepEqual(record.forBranch(APP, 'feature'), [], 'a version this build does not know reads as nothing')
     const names = await readdir(join(userDataDir, 'pull-requests'))
-    assert.ok(names.some((name) => name.endsWith('.corrupt')), 'and the file is kept aside')
+    assert.ok(
+      names.some((name) => name.endsWith('.corrupt')),
+      'and the file is kept aside',
+    )
     record.dispose()
   }
 
@@ -1080,9 +1133,12 @@ async function main(): Promise<void> {
     })
     await record.flush()
     assert.deepEqual(
-      record.forWorkspace('chat-1').map((entry) => entry.number).sort((a, b) => a - b),
+      record
+        .forWorkspace('chat-1')
+        .map((entry) => entry.number)
+        .sort((a, b) => a - b),
       [93, 94],
-      'both agents\' pull requests hang off the one conversation',
+      "both agents' pull requests hang off the one conversation",
     )
     record.dispose()
   }

@@ -111,9 +111,7 @@ export function Toast({
       <div className="min-w-0 flex-1">
         <div className="font-medium leading-tight text-[color:var(--text-strong)]">{title}</div>
         {description ? (
-          <div className="mt-0.5 break-words text-micro leading-snug text-[color:var(--text-muted)]">
-            {description}
-          </div>
+          <div className="mt-0.5 break-words text-micro leading-snug text-[color:var(--text-muted)]">{description}</div>
         ) : null}
         {content}
         {actions && actions.length > 0 ? (
@@ -149,12 +147,7 @@ export function Toast({
           ].join(' ')}
         >
           <svg width="10" height="10" viewBox="0 0 10 10" fill="none" aria-hidden="true">
-            <path
-              d="M2 2L8 8M8 2L2 8"
-              stroke="currentColor"
-              strokeWidth="1.4"
-              strokeLinecap="round"
-            />
+            <path d="M2 2L8 8M8 2L2 8" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
         </button>
       ) : null}

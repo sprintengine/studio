@@ -94,7 +94,11 @@ async function startMachine(name: string, options: { reachabilityIntervalMs?: nu
     mintReverseDevice: (input) => {
       const bound = server.isRunning() ? server.address() : null
       if (!bound) return null
-      const minted = devices.mintDevice({ name: input.machineName, scopes: input.scopes, origin: { kind: 'reverse', by: input.machineName } })
+      const minted = devices.mintDevice({
+        name: input.machineName,
+        scopes: input.scopes,
+        origin: { kind: 'reverse', by: input.machineName },
+      })
       return { ...minted, endpoint: `${bound.address}:${bound.port}` }
     },
     revokeReverseDevice: (deviceId) => {
@@ -154,7 +158,7 @@ check('a paired machine is checked on start and after every change: reachable, a
     laptop.fleet.start()
     await waitFor(
       () => laptop.events.filter((event) => event.kind === 'machine-reachability' && !event.checking).length >= 2,
-      'the start check'
+      'the start check',
     )
     assert.equal(reachabilityOf(laptop, connectionId)?.reachable, true)
 
@@ -201,11 +205,16 @@ check('the interval keeps checking while a window is open, and one probe per mac
     assert.ok(paired.ok)
     laptop.fleet.start()
     laptop.fleet.start()
-    const completed = () => laptop.events.filter((event) => event.kind === 'machine-reachability' && !event.checking).length
+    const completed = () =>
+      laptop.events.filter((event) => event.kind === 'machine-reachability' && !event.checking).length
     await waitFor(() => completed() >= 4, 'several interval checks')
     // Hammer the manual check while the interval runs: every completion pairs
     // with exactly one "checking" announcement — never two probes for one machine.
-    await Promise.all([laptop.fleet.checkReachability(), laptop.fleet.checkReachability(), laptop.fleet.checkReachability()])
+    await Promise.all([
+      laptop.fleet.checkReachability(),
+      laptop.fleet.checkReachability(),
+      laptop.fleet.checkReachability(),
+    ])
     const checking = laptop.events.filter((event) => event.kind === 'machine-reachability' && event.checking).length
     assert.ok(checking <= completed(), `at most one checking per completion (${checking} vs ${completed()})`)
   } finally {
@@ -214,96 +223,117 @@ check('the interval keeps checking while a window is open, and one probe per mac
   }
 })
 
-check('the scopes an asker asks for reach the machine being asked, and nothing named is the structured set', async () => {
-  const laptop = await startMachine('laptop')
-  const mini = await startMachine('mini')
-  try {
-    // Both halves of a both-ways pairing, each with its own set: `scopes` is
-    // what the laptop asks to do on the mini, `reverseScopes` what the mini may
-    // do on the laptop. They are deliberately different here — one field
-    // standing in for both is the bug this closes.
-    const asked = await laptop.fleet.requestPairing({
-      endpoint: `127.0.0.1:${mini.port}`,
-      scopes: ['workspace:read', 'terminal:observe', 'terminal:control'],
-      reverseScopes: ['workspace:read'],
-    })
-    assert.ok(asked.ok, asked.ok ? '' : asked.message)
-    const pending = mini.devices.listPairRequests()
-    assert.equal(pending.length, 1)
-    // Normalised into vocabulary order, so the answering card can compare it to
-    // a preset without caring what order the asker listed them in.
-    assert.deepEqual(pending[0].requestedScopes, ['workspace:read', 'terminal:observe', 'terminal:control'])
-    // A request is not a grant: nothing has been given yet.
-    assert.equal(mini.devices.listDevices().length, 0)
-    laptop.fleet.cancelPairing(asked.request.requestId)
-  } finally {
-    await laptop.close()
-    await mini.close()
-  }
+check(
+  'the scopes an asker asks for reach the machine being asked, and nothing named is the structured set',
+  async () => {
+    const laptop = await startMachine('laptop')
+    const mini = await startMachine('mini')
+    try {
+      // Both halves of a both-ways pairing, each with its own set: `scopes` is
+      // what the laptop asks to do on the mini, `reverseScopes` what the mini may
+      // do on the laptop. They are deliberately different here — one field
+      // standing in for both is the bug this closes.
+      const asked = await laptop.fleet.requestPairing({
+        endpoint: `127.0.0.1:${mini.port}`,
+        scopes: ['workspace:read', 'terminal:observe', 'terminal:control'],
+        reverseScopes: ['workspace:read'],
+      })
+      assert.ok(asked.ok, asked.ok ? '' : asked.message)
+      const pending = mini.devices.listPairRequests()
+      assert.equal(pending.length, 1)
+      // Normalised into vocabulary order, so the answering card can compare it to
+      // a preset without caring what order the asker listed them in.
+      assert.deepEqual(pending[0].requestedScopes, ['workspace:read', 'terminal:observe', 'terminal:control'])
+      // A request is not a grant: nothing has been given yet.
+      assert.equal(mini.devices.listDevices().length, 0)
+      laptop.fleet.cancelPairing(asked.request.requestId)
+    } finally {
+      await laptop.close()
+      await mini.close()
+    }
 
-  const laptop2 = await startMachine('laptop2')
-  const mini2 = await startMachine('mini2')
-  try {
-    // An asker that names nothing — an older build, or a client with no opinion
-    // — is recorded as the set every pairing path defaulted to before askers
-    // could ask, not as a request for no access at all.
-    const asked = await laptop2.fleet.requestPairing({ endpoint: `127.0.0.1:${mini2.port}` })
-    assert.ok(asked.ok, asked.ok ? '' : asked.message)
-    const pending = mini2.devices.listPairRequests()
-    assert.deepEqual(pending[0]?.requestedScopes, [...TAILNET_STRUCTURED_SCOPES])
-    laptop2.fleet.cancelPairing(asked.request.requestId)
-  } finally {
-    await laptop2.close()
-    await mini2.close()
-  }
-})
+    const laptop2 = await startMachine('laptop2')
+    const mini2 = await startMachine('mini2')
+    try {
+      // An asker that names nothing — an older build, or a client with no opinion
+      // — is recorded as the set every pairing path defaulted to before askers
+      // could ask, not as a request for no access at all.
+      const asked = await laptop2.fleet.requestPairing({ endpoint: `127.0.0.1:${mini2.port}` })
+      assert.ok(asked.ok, asked.ok ? '' : asked.message)
+      const pending = mini2.devices.listPairRequests()
+      assert.deepEqual(pending[0]?.requestedScopes, [...TAILNET_STRUCTURED_SCOPES])
+      laptop2.fleet.cancelPairing(asked.request.requestId)
+    } finally {
+      await laptop2.close()
+      await mini2.close()
+    }
+  },
+)
 
-check('main owns the wait: a request polls on its own, and its phases are broadcast until the answer lands', async () => {
-  const laptop = await startMachine('laptop')
-  const mini = await startMachine('mini')
-  try {
-    const asked = await laptop.fleet.requestPairing({ endpoint: `127.0.0.1:${mini.port}` })
-    assert.ok(asked.ok, asked.ok ? '' : asked.message)
-    assert.equal(asked.request.reverseOffered, false)
-    const waiting = laptop.events.find((event) => event.kind === 'pair-request' && event.phase === 'waiting')
-    assert.ok(waiting, 'waiting is announced the moment the ask is accepted')
-    assert.deepEqual(laptop.fleet.getLiveState().requests.map((request) => request.requestId), [asked.request.requestId], 'the snapshot lists it')
+check(
+  'main owns the wait: a request polls on its own, and its phases are broadcast until the answer lands',
+  async () => {
+    const laptop = await startMachine('laptop')
+    const mini = await startMachine('mini')
+    try {
+      const asked = await laptop.fleet.requestPairing({ endpoint: `127.0.0.1:${mini.port}` })
+      assert.ok(asked.ok, asked.ok ? '' : asked.message)
+      assert.equal(asked.request.reverseOffered, false)
+      const waiting = laptop.events.find((event) => event.kind === 'pair-request' && event.phase === 'waiting')
+      assert.ok(waiting, 'waiting is announced the moment the ask is accepted')
+      assert.deepEqual(
+        laptop.fleet.getLiveState().requests.map((request) => request.requestId),
+        [asked.request.requestId],
+        'the snapshot lists it',
+      )
 
-    // Nobody here is polling. The request is still pending over there.
-    await new Promise((resolve) => setTimeout(resolve, 200))
-    const pending = mini.devices.listPairRequests()
-    assert.equal(pending.length, 1)
-    assert.equal(pending[0].comparisonCode, asked.request.comparisonCode, 'the code shown here is the one typed there')
+      // Nobody here is polling. The request is still pending over there.
+      await new Promise((resolve) => setTimeout(resolve, 200))
+      const pending = mini.devices.listPairRequests()
+      assert.equal(pending.length, 1)
+      assert.equal(
+        pending[0].comparisonCode,
+        asked.request.comparisonCode,
+        'the code shown here is the one typed there',
+      )
 
-    // A wrong code over there is refused; the right one approves.
-    const wrong = mini.devices.approvePairRequest({ id: pending[0].id, scopes: ['workspace:read'], code: '000000' })
-    assert.equal(wrong.ok, false)
-    const approved = mini.devices.approvePairRequest({
-      id: pending[0].id,
-      scopes: ['workspace:read'],
-      code: pending[0].comparisonCode === '000000' ? '000000' : asked.request.comparisonCode,
-    })
-    assert.ok(approved.ok)
+      // A wrong code over there is refused; the right one approves.
+      const wrong = mini.devices.approvePairRequest({ id: pending[0].id, scopes: ['workspace:read'], code: '000000' })
+      assert.equal(wrong.ok, false)
+      const approved = mini.devices.approvePairRequest({
+        id: pending[0].id,
+        scopes: ['workspace:read'],
+        code: pending[0].comparisonCode === '000000' ? '000000' : asked.request.comparisonCode,
+      })
+      assert.ok(approved.ok)
 
-    // The timer collects it with nobody asking.
-    const landed = await waitFor(
-      () => laptop.events.find((event) => event.kind === 'pair-request' && event.phase === 'approved'),
-      'approved'
-    )
-    assert.ok(landed.kind === 'pair-request' && landed.connection, 'approved carries the connection')
-    assert.equal(landed.connection?.pairedVia, 'request')
-    assert.ok(laptop.events.some((event) => event.kind === 'machine-paired'), 'and the fleet announces the machine')
-    assert.deepEqual(laptop.fleet.getLiveState().requests, [], 'nothing is waiting any more')
-    assert.equal(laptop.fleet.listConnections().length, 1)
-    assert.equal(reachabilityOf(laptop, landed.connection?.id ?? '')?.reachable, true, 'a machine that just approved is reachable')
-    // A late collect from a panel reports what landed, not "expired".
-    const late = await laptop.fleet.collectPairing(asked.request.requestId)
-    assert.equal(late.ok && late.status, 'approved')
-  } finally {
-    await laptop.close()
-    await mini.close()
-  }
-})
+      // The timer collects it with nobody asking.
+      const landed = await waitFor(
+        () => laptop.events.find((event) => event.kind === 'pair-request' && event.phase === 'approved'),
+        'approved',
+      )
+      assert.ok(landed.kind === 'pair-request' && landed.connection, 'approved carries the connection')
+      assert.equal(landed.connection?.pairedVia, 'request')
+      assert.ok(
+        laptop.events.some((event) => event.kind === 'machine-paired'),
+        'and the fleet announces the machine',
+      )
+      assert.deepEqual(laptop.fleet.getLiveState().requests, [], 'nothing is waiting any more')
+      assert.equal(laptop.fleet.listConnections().length, 1)
+      assert.equal(
+        reachabilityOf(laptop, landed.connection?.id ?? '')?.reachable,
+        true,
+        'a machine that just approved is reachable',
+      )
+      // A late collect from a panel reports what landed, not "expired".
+      const late = await laptop.fleet.collectPairing(asked.request.requestId)
+      assert.equal(late.ok && late.status, 'approved')
+    } finally {
+      await laptop.close()
+      await mini.close()
+    }
+  },
+)
 
 check('a declined request, a lapsed one, and a cancelled one each end the wait with their own phase', async () => {
   const laptop = await startMachine('laptop')
@@ -314,7 +344,7 @@ check('a declined request, a lapsed one, and a cancelled one each end the wait w
     mini.devices.denyPairRequest(mini.devices.listPairRequests()[0].id)
     const denied = await waitFor(
       () => laptop.events.find((event) => event.kind === 'pair-request' && event.phase === 'denied'),
-      'denied'
+      'denied',
     )
     assert.ok(denied.kind === 'pair-request' && /declined/u.test(denied.detail ?? ''))
     assert.deepEqual(laptop.fleet.getLiveState().requests, [])
@@ -346,102 +376,140 @@ check('a declined request, a lapsed one, and a cancelled one each end the wait w
   }
 })
 
-check('a request may carry the reverse half: approving on one side pairs both, and cancelling takes the reverse device back', async () => {
-  const laptop = await startMachine('laptop')
-  const mini = await startMachine('mini')
-  try {
-    const asked = await laptop.fleet.requestPairing({
-      endpoint: `127.0.0.1:${mini.port}`,
-      reverseScopes: ['workspace:read', 'backlog:read'],
-    })
-    assert.ok(asked.ok, asked.ok ? '' : asked.message)
-    assert.equal(asked.request.reverseOffered, true)
-    const reverseDevices = laptop.devices.listDevices()
-    assert.equal(reverseDevices.length, 1, 'the reverse device is minted here at the ask')
-    assert.deepEqual(reverseDevices[0].origin, { kind: 'reverse', by: '127.0.0.1' })
-    assert.deepEqual(reverseDevices[0].scopes, ['workspace:read', 'backlog:read'], 'with the scopes the asker chose for its own machine')
+check(
+  'a request may carry the reverse half: approving on one side pairs both, and cancelling takes the reverse device back',
+  async () => {
+    const laptop = await startMachine('laptop')
+    const mini = await startMachine('mini')
+    try {
+      const asked = await laptop.fleet.requestPairing({
+        endpoint: `127.0.0.1:${mini.port}`,
+        reverseScopes: ['workspace:read', 'backlog:read'],
+      })
+      assert.ok(asked.ok, asked.ok ? '' : asked.message)
+      assert.equal(asked.request.reverseOffered, true)
+      const reverseDevices = laptop.devices.listDevices()
+      assert.equal(reverseDevices.length, 1, 'the reverse device is minted here at the ask')
+      assert.deepEqual(reverseDevices[0].origin, { kind: 'reverse', by: '127.0.0.1' })
+      assert.deepEqual(
+        reverseDevices[0].scopes,
+        ['workspace:read', 'backlog:read'],
+        'with the scopes the asker chose for its own machine',
+      )
 
-    const pending = mini.devices.listPairRequests()[0]
-    assert.ok(mini.devices.approvePairRequest({ id: pending.id, scopes: ['workspace:read'], code: pending.comparisonCode }).ok)
-    await waitFor(() => laptop.events.find((event) => event.kind === 'pair-request' && event.phase === 'approved'), 'approved')
+      const pending = mini.devices.listPairRequests()[0]
+      assert.ok(
+        mini.devices.approvePairRequest({ id: pending.id, scopes: ['workspace:read'], code: pending.comparisonCode })
+          .ok,
+      )
+      await waitFor(
+        () => laptop.events.find((event) => event.kind === 'pair-request' && event.phase === 'approved'),
+        'approved',
+      )
 
-    // The mini now lists the laptop as a machine it can drive, with the grant
-    // the laptop chose — and it answers, so the reverse pairing is live.
-    const reverse = await waitFor(() => mini.fleet.listConnections()[0], 'the reverse connection on the mini')
-    assert.equal(reverse.pairedVia, 'reverse')
-    assert.equal(reverse.endpoint, `127.0.0.1:${laptop.port}`)
-    assert.deepEqual(reverse.scopes, ['workspace:read', 'backlog:read'])
-    assert.ok(mini.events.some((event) => event.kind === 'machine-paired'), 'the mini announces it without anyone there pressing anything')
-    const browse = await mini.fleet.browse(reverse.id)
-    assert.equal(browse.reachable, true, 'the mini can drive the laptop with the reverse token')
-    assert.equal(browse.unauthorized, false)
-    assert.equal(laptop.devices.listDevices().length, 1, 'the reverse device stays, revocable by name on the laptop')
-  } finally {
-    await laptop.close()
-    await mini.close()
-  }
+      // The mini now lists the laptop as a machine it can drive, with the grant
+      // the laptop chose — and it answers, so the reverse pairing is live.
+      const reverse = await waitFor(() => mini.fleet.listConnections()[0], 'the reverse connection on the mini')
+      assert.equal(reverse.pairedVia, 'reverse')
+      assert.equal(reverse.endpoint, `127.0.0.1:${laptop.port}`)
+      assert.deepEqual(reverse.scopes, ['workspace:read', 'backlog:read'])
+      assert.ok(
+        mini.events.some((event) => event.kind === 'machine-paired'),
+        'the mini announces it without anyone there pressing anything',
+      )
+      const browse = await mini.fleet.browse(reverse.id)
+      assert.equal(browse.reachable, true, 'the mini can drive the laptop with the reverse token')
+      assert.equal(browse.unauthorized, false)
+      assert.equal(laptop.devices.listDevices().length, 1, 'the reverse device stays, revocable by name on the laptop')
+    } finally {
+      await laptop.close()
+      await mini.close()
+    }
 
-  // Cancelling before an answer takes the reverse device back.
-  const laptop2 = await startMachine('laptop2')
-  const mini2 = await startMachine('mini2')
-  try {
-    const asked = await laptop2.fleet.requestPairing({ endpoint: `127.0.0.1:${mini2.port}`, reverseScopes: ['workspace:read'] })
-    assert.ok(asked.ok)
-    assert.equal(laptop2.devices.listDevices().length, 1)
-    laptop2.fleet.cancelPairing(asked.request.requestId)
-    assert.equal(laptop2.devices.listDevices().length, 0, 'no orphan grant is left on the asker')
-  } finally {
-    await laptop2.close()
-    await mini2.close()
-  }
-})
+    // Cancelling before an answer takes the reverse device back.
+    const laptop2 = await startMachine('laptop2')
+    const mini2 = await startMachine('mini2')
+    try {
+      const asked = await laptop2.fleet.requestPairing({
+        endpoint: `127.0.0.1:${mini2.port}`,
+        reverseScopes: ['workspace:read'],
+      })
+      assert.ok(asked.ok)
+      assert.equal(laptop2.devices.listDevices().length, 1)
+      laptop2.fleet.cancelPairing(asked.request.requestId)
+      assert.equal(laptop2.devices.listDevices().length, 0, 'no orphan grant is left on the asker')
+    } finally {
+      await laptop2.close()
+      await mini2.close()
+    }
+  },
+)
 
-check('a reverse grant is refused when the asker has no listener, and ignored when its endpoint is not the asker’s own address', async () => {
-  const laptop = await startMachine('laptop')
-  const mini = await startMachine('mini')
-  try {
-    await laptop.stop()
-    const asked = await laptop.fleet.requestPairing({ endpoint: `127.0.0.1:${mini.port}`, reverseScopes: ['workspace:read'] })
-    assert.equal(asked.ok, false)
-    assert.equal(asked.ok === false ? asked.code : '', 'reverse_unavailable')
-    assert.equal(mini.devices.listPairRequests().length, 0, 'nothing was asked over there')
-    assert.equal(laptop.devices.listDevices().length, 0, 'and nothing was minted here')
-    await laptop.restart()
+check(
+  'a reverse grant is refused when the asker has no listener, and ignored when its endpoint is not the asker’s own address',
+  async () => {
+    const laptop = await startMachine('laptop')
+    const mini = await startMachine('mini')
+    try {
+      await laptop.stop()
+      const asked = await laptop.fleet.requestPairing({
+        endpoint: `127.0.0.1:${mini.port}`,
+        reverseScopes: ['workspace:read'],
+      })
+      assert.equal(asked.ok, false)
+      assert.equal(asked.ok === false ? asked.code : '', 'reverse_unavailable')
+      assert.equal(mini.devices.listPairRequests().length, 0, 'nothing was asked over there')
+      assert.equal(laptop.devices.listDevices().length, 0, 'and nothing was minted here')
+      await laptop.restart()
 
-    // A forged grant pointing somewhere else: the approval completes, the
-    // grant does not land.
-    const { hashSecret } = await import('../mobile/bridge/crypto')
-    const { requestTailnetJson } = await import('./tailnet/tailnet-remote-client')
-    const { TAILNET_PAIR_COLLECT_PATH, TAILNET_PAIR_REQUEST_PATH } = await import('./tailnet/tailnet-routes')
-    const secret = 'forged-collect-secret'
-    const askedRaw = await requestTailnetJson({
-      endpoint: { host: '127.0.0.1', port: mini.port },
-      method: 'POST',
-      path: TAILNET_PAIR_REQUEST_PATH,
-      body: { deviceName: 'forger', collectHash: hashSecret(secret) },
-    })
-    const requestId = (askedRaw.body as { requestId: string }).requestId
-    const pending = mini.devices.listPairRequests().find((request) => request.id === requestId)
-    assert.ok(pending)
-    assert.ok(mini.devices.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code: pending.comparisonCode }).ok)
-    const collected = await requestTailnetJson({
-      endpoint: { host: '127.0.0.1', port: mini.port },
-      method: 'POST',
-      path: TAILNET_PAIR_COLLECT_PATH,
-      body: {
-        id: requestId,
-        secret,
-        reverse: { endpoint: '100.64.0.99:8471', machineName: 'elsewhere', deviceId: 'tnd_x', deviceName: 'x', deviceToken: 'mctn_x', scopes: ['workspace:read'] },
-      },
-    })
-    assert.equal((collected.body as { status: string }).status, 'approved', 'the approved pairing still completes')
-    assert.equal('asker' in (collected.body as Record<string, unknown>), false, 'the store’s bookkeeping never reaches the wire')
-    assert.equal(mini.fleet.listConnections().length, 0, 'a grant that does not dial the asker is not kept')
-  } finally {
-    await laptop.close()
-    await mini.close()
-  }
-})
+      // A forged grant pointing somewhere else: the approval completes, the
+      // grant does not land.
+      const { hashSecret } = await import('../mobile/bridge/crypto')
+      const { requestTailnetJson } = await import('./tailnet/tailnet-remote-client')
+      const { TAILNET_PAIR_COLLECT_PATH, TAILNET_PAIR_REQUEST_PATH } = await import('./tailnet/tailnet-routes')
+      const secret = 'forged-collect-secret'
+      const askedRaw = await requestTailnetJson({
+        endpoint: { host: '127.0.0.1', port: mini.port },
+        method: 'POST',
+        path: TAILNET_PAIR_REQUEST_PATH,
+        body: { deviceName: 'forger', collectHash: hashSecret(secret) },
+      })
+      const requestId = (askedRaw.body as { requestId: string }).requestId
+      const pending = mini.devices.listPairRequests().find((request) => request.id === requestId)
+      assert.ok(pending)
+      assert.ok(
+        mini.devices.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code: pending.comparisonCode }).ok,
+      )
+      const collected = await requestTailnetJson({
+        endpoint: { host: '127.0.0.1', port: mini.port },
+        method: 'POST',
+        path: TAILNET_PAIR_COLLECT_PATH,
+        body: {
+          id: requestId,
+          secret,
+          reverse: {
+            endpoint: '100.64.0.99:8471',
+            machineName: 'elsewhere',
+            deviceId: 'tnd_x',
+            deviceName: 'x',
+            deviceToken: 'mctn_x',
+            scopes: ['workspace:read'],
+          },
+        },
+      })
+      assert.equal((collected.body as { status: string }).status, 'approved', 'the approved pairing still completes')
+      assert.equal(
+        'asker' in (collected.body as Record<string, unknown>),
+        false,
+        'the store’s bookkeeping never reaches the wire',
+      )
+      assert.equal(mini.fleet.listConnections().length, 0, 'a grant that does not dial the asker is not kept')
+    } finally {
+      await laptop.close()
+      await mini.close()
+    }
+  },
+)
 
 check('waking re-dials a pane that was waiting out its backoff', async () => {
   const laptop = await startMachine('laptop')
@@ -464,7 +532,11 @@ check('waking re-dials a pane that was waiting out its backoff', async () => {
     const dialsBefore = states.filter((state) => state === 'reconnecting').length
     // Wake: the backoff timer is not waited out; a dial happens now.
     laptop.fleet.onWake()
-    await waitFor(() => states.filter((state) => state === 'reconnecting').length > dialsBefore, 'an immediate re-dial', 400)
+    await waitFor(
+      () => states.filter((state) => state === 'reconnecting').length > dialsBefore,
+      'an immediate re-dial',
+      400,
+    )
   } finally {
     await laptop.close()
     await mini.close()

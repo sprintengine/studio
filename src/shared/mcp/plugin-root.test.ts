@@ -46,7 +46,7 @@ function theSpellingsAreExact(): void {
   assert.equal(
     textReferencesPluginRoot('$CLAUDE_PLUGIN_ROOTS'),
     false,
-    'a longer variable name is a different variable, not this one with a suffix'
+    'a longer variable name is a different variable, not this one with a suffix',
   )
   assert.equal(textReferencesPluginRoot('${CONTEXT7_API_KEY:-}'), false, "somebody's secret is not the plugin root")
   assert.equal(textReferencesPluginRoot('npx'), false)
@@ -67,13 +67,21 @@ function everyFieldIsSearched(): void {
   assert.equal(referencesPluginRoot(server({ args: [], env: { CONFIG: '$CLAUDE_PLUGIN_ROOT/config.json' } })), true)
   assert.equal(
     referencesPluginRoot(
-      server({ args: [], transport: 'http', command: '', url: 'http://localhost/${CLAUDE_PLUGIN_ROOT}' })
+      server({ args: [], transport: 'http', command: '', url: 'http://localhost/${CLAUDE_PLUGIN_ROOT}' }),
     ),
-    true
+    true,
   )
   assert.equal(
-    referencesPluginRoot(server({ args: [], headers: { 'X-Root': '${CLAUDE_PLUGIN_ROOT}' }, transport: 'http', command: '', url: 'http://x' })),
-    true
+    referencesPluginRoot(
+      server({
+        args: [],
+        headers: { 'X-Root': '${CLAUDE_PLUGIN_ROOT}' },
+        transport: 'http',
+        command: '',
+        url: 'http://x',
+      }),
+    ),
+    true,
   )
   assert.equal(referencesPluginRoot(server({ args: ['run', 'start'], envVarNames: [] })), false)
 }
@@ -96,7 +104,7 @@ function resolvingSubstitutesExportsAndStopsAsking(): void {
   assert.equal(
     resolved.env[PLUGIN_ROOT_VARIABLE],
     '/w/.multicode/claude-plugins/telegram',
-    'exported too, so a package.json script that reads it gets the right answer'
+    'exported too, so a package.json script that reads it gets the right answer',
   )
   assert.deepEqual(resolved.envVarNames, [], 'nothing is still waiting for a value it has been given')
 }
@@ -109,7 +117,7 @@ function somebodyElsesVariablesAreLeftAlone(): void {
       env: { TOKEN: '${TELEGRAM_TOKEN}' },
       envVarNames: ['CLAUDE_PLUGIN_ROOT', 'TELEGRAM_TOKEN'],
     }),
-    '/w/p'
+    '/w/p',
   )
   assert.deepEqual(resolved.args, ['--cwd', '/w/p'])
   assert.equal(resolved.env.TOKEN, '${TELEGRAM_TOKEN}')

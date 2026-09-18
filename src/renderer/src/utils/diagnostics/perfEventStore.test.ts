@@ -1,9 +1,5 @@
 import assert from 'node:assert/strict'
-import {
-  aggregatePerfEvents,
-  percentile,
-  type PerfEventSample,
-} from './perfEventStore'
+import { aggregatePerfEvents, percentile, type PerfEventSample } from './perfEventStore'
 
 function run(name: string, body: () => void): void {
   try {
@@ -38,7 +34,7 @@ run('groups by scope·event and computes p50/p95/max/count', () => {
       sample('BacklogScan', 'refresh', 120, NOW - 2),
       sample('AutomationsScheduler', 'tick-end', 8, NOW - 1),
     ],
-    { now: NOW }
+    { now: NOW },
   )
   const projection = rows.find((row) => row.scope === 'BacklogScan' && row.event === 'refresh')!
   assert.equal(projection.count, 4)
@@ -51,13 +47,9 @@ run('groups by scope·event and computes p50/p95/max/count', () => {
 })
 
 run('events without elapsedMs still count but contribute no duration', () => {
-  const rows = aggregatePerfEvents(
-    [
-      sample('Scope', 'evt', null, NOW - 2),
-      sample('Scope', 'evt', null, NOW - 1),
-    ],
-    { now: NOW }
-  )
+  const rows = aggregatePerfEvents([sample('Scope', 'evt', null, NOW - 2), sample('Scope', 'evt', null, NOW - 1)], {
+    now: NOW,
+  })
   assert.equal(rows.length, 1)
   assert.equal(rows[0].count, 2)
   assert.equal(rows[0].p50Ms, null)
@@ -65,13 +57,10 @@ run('events without elapsedMs still count but contribute no duration', () => {
 })
 
 run('windowMs drops samples older than the window', () => {
-  const rows = aggregatePerfEvents(
-    [
-      sample('Scope', 'evt', 5, NOW - 90_000),
-      sample('Scope', 'evt', 9, NOW - 1_000),
-    ],
-    { now: NOW, windowMs: 60_000 }
-  )
+  const rows = aggregatePerfEvents([sample('Scope', 'evt', 5, NOW - 90_000), sample('Scope', 'evt', 9, NOW - 1_000)], {
+    now: NOW,
+    windowMs: 60_000,
+  })
   assert.equal(rows.length, 1)
   assert.equal(rows[0].count, 1, 'only the in-window sample is counted')
   assert.equal(rows[0].maxMs, 9)
@@ -79,12 +68,8 @@ run('windowMs drops samples older than the window', () => {
 
 run('sorts worst p95 first, then by count', () => {
   const rows = aggregatePerfEvents(
-    [
-      sample('A', 'cheap', 1, NOW - 3),
-      sample('A', 'cheap', 1, NOW - 2),
-      sample('B', 'spiky', 500, NOW - 1),
-    ],
-    { now: NOW }
+    [sample('A', 'cheap', 1, NOW - 3), sample('A', 'cheap', 1, NOW - 2), sample('B', 'spiky', 500, NOW - 1)],
+    { now: NOW },
   )
   assert.equal(rows[0].scope, 'B', 'spiky p95 floats to the top')
 })

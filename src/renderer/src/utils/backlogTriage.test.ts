@@ -107,8 +107,14 @@ run('quick wins are XS/S with high or critical priority', () => {
   assert.equal(matchesBacklogView(mk({ difficulty: 'm', criticality: 'critical' }), 'quick_wins'), false)
   assert.equal(matchesBacklogView(mk({ difficulty: 's', criticality: 'normal' }), 'quick_wins'), false)
   // Neither terminal state leaks into a triage lens even when sizes/priority match.
-  assert.equal(matchesBacklogView(mk({ difficulty: 'xs', criticality: 'high', status: 'archived' }), 'quick_wins'), false)
-  assert.equal(matchesBacklogView(mk({ difficulty: 'xs', criticality: 'high', status: 'completed' }), 'quick_wins'), false)
+  assert.equal(
+    matchesBacklogView(mk({ difficulty: 'xs', criticality: 'high', status: 'archived' }), 'quick_wins'),
+    false,
+  )
+  assert.equal(
+    matchesBacklogView(mk({ difficulty: 'xs', criticality: 'high', status: 'completed' }), 'quick_wins'),
+    false,
+  )
 })
 
 run('strategic bets are L/XL with high or critical priority', () => {
@@ -130,7 +136,10 @@ run('unestimated view collects items missing either axis', () => {
 run('recent sort orders by newest modified first', () => {
   const items = [mk({ modifiedAt: 10 }), mk({ modifiedAt: 30 }), mk({ modifiedAt: 20 })]
   const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'recent'))
-  assert.deepEqual(ids(sorted, (item) => String(item.modifiedAt)), ['30', '20', '10'])
+  assert.deepEqual(
+    ids(sorted, (item) => String(item.modifiedAt)),
+    ['30', '20', '10'],
+  )
 })
 
 run('created sort orders by newest created first, independent of modified time', () => {
@@ -142,7 +151,10 @@ run('created sort orders by newest created first, independent of modified time',
     mk({ createdAtMs: 20, modifiedAt: 50 }),
   ]
   const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'created'))
-  assert.deepEqual(ids(sorted, (item) => String(item.createdAtMs)), ['30', '20', '10'])
+  assert.deepEqual(
+    ids(sorted, (item) => String(item.createdAtMs)),
+    ['30', '20', '10'],
+  )
 })
 
 run('isBacklogUnfiled is true only for a leaf item pointing at no epic', () => {
@@ -161,11 +173,10 @@ run('no_epic sort leads with unfiled items, newest first', () => {
     mk({ relativePath: 'loose-new.md', modifiedAt: 9 }),
   ]
   const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'no_epic'))
-  assert.deepEqual(ids(sorted, (item) => item.relativePath), [
-    'loose-new.md',
-    'loose-old.md',
-    'filed-old.md',
-  ])
+  assert.deepEqual(
+    ids(sorted, (item) => item.relativePath),
+    ['loose-new.md', 'loose-old.md', 'filed-old.md'],
+  )
 })
 
 run('no_epic sort keeps each epic members adjacent below the unfiled band', () => {
@@ -179,13 +190,10 @@ run('no_epic sort keeps each epic members adjacent below the unfiled band', () =
     mk({ relativePath: 'loose.md', modifiedAt: 1 }),
   ]
   const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'no_epic'))
-  assert.deepEqual(ids(sorted, (item) => item.relativePath), [
-    'loose.md',
-    'a1.md',
-    'a2.md',
-    'b1.md',
-    'b2.md',
-  ])
+  assert.deepEqual(
+    ids(sorted, (item) => item.relativePath),
+    ['loose.md', 'a1.md', 'a2.md', 'b1.md', 'b2.md'],
+  )
 })
 
 run('no_epic sort does not strand epic containers in the unfiled band', () => {
@@ -196,7 +204,10 @@ run('no_epic sort does not strand epic containers in the unfiled band', () => {
     mk({ relativePath: 'loose.md', modifiedAt: 1 }),
   ]
   const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'no_epic'))
-  assert.deepEqual(ids(sorted, (item) => item.relativePath), ['loose.md', 'epic.md'])
+  assert.deepEqual(
+    ids(sorted, (item) => item.relativePath),
+    ['loose.md', 'epic.md'],
+  )
 })
 
 run('epics view shows only epic containers, at any lifecycle stage', () => {
@@ -219,17 +230,16 @@ run('status sort bands needs_input → in_progress → ready → idea → comple
     mk({ status: 'needs_input', modifiedAt: 1 }),
   ]
   const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'status'))
-  assert.deepEqual(ids(sorted, (item) => item.status), [
-    'needs_input',
-    'in_progress',
-    'in_progress',
-    'ready',
-    'idea',
-    'completed',
-  ])
+  assert.deepEqual(
+    ids(sorted, (item) => item.status),
+    ['needs_input', 'in_progress', 'in_progress', 'ready', 'idea', 'completed'],
+  )
   // Within the in_progress band the newer item leads.
   assert.deepEqual(
-    ids(sorted.filter((item) => item.status === 'in_progress'), (item) => String(item.modifiedAt)),
+    ids(
+      sorted.filter((item) => item.status === 'in_progress'),
+      (item) => String(item.modifiedAt),
+    ),
     ['6', '5'],
   )
 })
@@ -239,15 +249,11 @@ run('priority sort puts critical first, small-before-large on ties, unset last',
   const largeCritical = mk({ difficulty: 'xl', criticality: 'critical', modifiedAt: 2 })
   const high = mk({ difficulty: 'm', criticality: 'high', modifiedAt: 3 })
   const unset = mk({ difficulty: 'm', modifiedAt: 4 })
-  const sorted = [unset, high, largeCritical, smallCritical].sort((a, b) =>
-    compareBacklogItems(a, b, 'priority'),
+  const sorted = [unset, high, largeCritical, smallCritical].sort((a, b) => compareBacklogItems(a, b, 'priority'))
+  assert.deepEqual(
+    ids(sorted, (item) => item.criticality ?? 'none'),
+    ['critical', 'critical', 'high', 'none'],
   )
-  assert.deepEqual(ids(sorted, (item) => item.criticality ?? 'none'), [
-    'critical',
-    'critical',
-    'high',
-    'none',
-  ])
   // Among the two criticals, the smaller difficulty (the quick win) wins.
   assert.equal(sorted[0]?.difficulty, 'xs')
 })
@@ -265,7 +271,10 @@ for (const { sort, expected } of sizeCases) {
       mk({ difficulty: 'xs', modifiedAt: 4 }),
     ]
     const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, sort))
-    assert.deepEqual(ids(sorted, (item) => item.difficulty ?? 'none'), expected)
+    assert.deepEqual(
+      ids(sorted, (item) => item.difficulty ?? 'none'),
+      expected,
+    )
   })
 }
 
@@ -276,13 +285,16 @@ run('best sort orders impact desc → risk asc → effort asc, unestimated last 
   const e = mk({ criticality: 'critical', difficulty: 'xs', relativePath: 'backlog/e.md' }) // risk unset
   const d = mk({ criticality: 'high', risk: 'low', difficulty: 'xs', relativePath: 'backlog/d.md' })
   const sorted = [e, d, c, b, a].sort((x, y) => compareBacklogItems(x, y, 'best'))
-  assert.deepEqual(ids(sorted, (item) => item.relativePath), [
-    'backlog/a.md', // critical, low risk, small effort — the best pick
-    'backlog/b.md', // critical, low risk, larger effort
-    'backlog/c.md', // critical, higher risk
-    'backlog/e.md', // critical, risk unestimated — after risk-estimated peers
-    'backlog/d.md', // lower impact sinks regardless of how easy/safe it is
-  ])
+  assert.deepEqual(
+    ids(sorted, (item) => item.relativePath),
+    [
+      'backlog/a.md', // critical, low risk, small effort — the best pick
+      'backlog/b.md', // critical, low risk, larger effort
+      'backlog/c.md', // critical, higher risk
+      'backlog/e.md', // critical, risk unestimated — after risk-estimated peers
+      'backlog/d.md', // lower impact sinks regardless of how easy/safe it is
+    ],
+  )
 })
 
 run('status sort demotes derived-blocked items below idea, above the terminal states', () => {
@@ -299,45 +311,74 @@ run('status sort demotes derived-blocked items below idea, above the terminal st
     mk({ status: 'ready', modifiedAt: 1, relativePath: 'backlog/r.md' }),
   ]
   const sorted = [...items].sort((a, b) => compareBacklogItems(a, b, 'status', isBlocked))
-  assert.deepEqual(ids(sorted, (item) => item.relativePath), [
-    'backlog/r.md', // genuinely ready
-    'backlog/i.md', // idea
-    'backlog/gated.md', // blocked: after every actionable band
-    'backlog/y.md', // completed
-    'backlog/x.md', // archived
-  ])
+  assert.deepEqual(
+    ids(sorted, (item) => item.relativePath),
+    [
+      'backlog/r.md', // genuinely ready
+      'backlog/i.md', // idea
+      'backlog/gated.md', // blocked: after every actionable band
+      'backlog/y.md', // completed
+      'backlog/x.md', // archived
+    ],
+  )
   // Without the accessor the stored-status bands are unchanged (graph-less surfaces).
   const plain = [...items].sort((a, b) => compareBacklogItems(a, b, 'status'))
-  assert.deepEqual(ids(plain, (item) => item.relativePath).slice(0, 2), [
-    'backlog/gated.md',
-    'backlog/r.md',
-  ])
+  assert.deepEqual(ids(plain, (item) => item.relativePath).slice(0, 2), ['backlog/gated.md', 'backlog/r.md'])
 })
 
 run('best sort sinks derived-blocked items below every unblocked item', () => {
   // The gated item is the best on the composite (critical/low/xs) but cannot be
   // picked up, so it sorts after every actionable item; within the blocked half
   // the composite still orders.
-  const isBlocked = (item: { relativePath: string }): boolean =>
-    item.relativePath.startsWith('backlog/blocked')
-  const bestButBlocked = mk({ criticality: 'critical', risk: 'low', difficulty: 'xs', status: 'ready', relativePath: 'backlog/blocked-a.md' })
-  const alsoBlocked = mk({ criticality: 'low', risk: 'low', difficulty: 'xs', status: 'ready', relativePath: 'backlog/blocked-b.md' })
-  const modest = mk({ criticality: 'normal', risk: 'normal', difficulty: 'l', status: 'ready', relativePath: 'backlog/free.md' })
-  const sorted = [alsoBlocked, bestButBlocked, modest].sort((a, b) =>
-    compareBacklogItems(a, b, 'best', isBlocked),
+  const isBlocked = (item: { relativePath: string }): boolean => item.relativePath.startsWith('backlog/blocked')
+  const bestButBlocked = mk({
+    criticality: 'critical',
+    risk: 'low',
+    difficulty: 'xs',
+    status: 'ready',
+    relativePath: 'backlog/blocked-a.md',
+  })
+  const alsoBlocked = mk({
+    criticality: 'low',
+    risk: 'low',
+    difficulty: 'xs',
+    status: 'ready',
+    relativePath: 'backlog/blocked-b.md',
+  })
+  const modest = mk({
+    criticality: 'normal',
+    risk: 'normal',
+    difficulty: 'l',
+    status: 'ready',
+    relativePath: 'backlog/free.md',
+  })
+  const sorted = [alsoBlocked, bestButBlocked, modest].sort((a, b) => compareBacklogItems(a, b, 'best', isBlocked))
+  assert.deepEqual(
+    ids(sorted, (item) => item.relativePath),
+    ['backlog/free.md', 'backlog/blocked-a.md', 'backlog/blocked-b.md'],
   )
-  assert.deepEqual(ids(sorted, (item) => item.relativePath), [
-    'backlog/free.md',
-    'backlog/blocked-a.md',
-    'backlog/blocked-b.md',
-  ])
 })
 
 run('best sort breaks exact ties by stable path order, not recency', () => {
-  const later = mk({ criticality: 'high', risk: 'normal', difficulty: 'm', modifiedAt: 100, relativePath: 'backlog/z-late.md' })
-  const earlier = mk({ criticality: 'high', risk: 'normal', difficulty: 'm', modifiedAt: 1, relativePath: 'backlog/a-early.md' })
+  const later = mk({
+    criticality: 'high',
+    risk: 'normal',
+    difficulty: 'm',
+    modifiedAt: 100,
+    relativePath: 'backlog/z-late.md',
+  })
+  const earlier = mk({
+    criticality: 'high',
+    risk: 'normal',
+    difficulty: 'm',
+    modifiedAt: 1,
+    relativePath: 'backlog/a-early.md',
+  })
   const sorted = [later, earlier].sort((x, y) => compareBacklogItems(x, y, 'best'))
-  assert.deepEqual(ids(sorted, (item) => item.relativePath), ['backlog/a-early.md', 'backlog/z-late.md'])
+  assert.deepEqual(
+    ids(sorted, (item) => item.relativePath),
+    ['backlog/a-early.md', 'backlog/z-late.md'],
+  )
 })
 
 run('deriveRiskColor pins the grid corners and stays null when an axis is unset', () => {
@@ -385,16 +426,13 @@ run('resolveBacklogRowColor ranks highlight over epic colour over derived heat',
   )
   // 2. No highlight → the epic identity colour fills the whole member row
   //    (option C), overriding what the risk heat would have shown.
-  assert.deepEqual(
-    resolveBacklogRowColor({ risk: 'high', difficulty: 'xl' }, 'purple'),
-    { color: 'purple', litFill: true },
-  )
+  assert.deepEqual(resolveBacklogRowColor({ risk: 'high', difficulty: 'xl' }, 'purple'), {
+    color: 'purple',
+    litFill: true,
+  })
   // 3. No highlight and no epic colour → derived risk heat tints the stripe only
   //    (no fill), exactly as before epics carried a colour.
-  assert.deepEqual(
-    resolveBacklogRowColor({ risk: 'high', difficulty: 'xl' }, null),
-    { color: 'red', litFill: false },
-  )
+  assert.deepEqual(resolveBacklogRowColor({ risk: 'high', difficulty: 'xl' }, null), { color: 'red', litFill: false })
   // 4. Nothing anywhere → no colour, no fill.
   assert.deepEqual(resolveBacklogRowColor({}, null), { color: null, litFill: false })
 })

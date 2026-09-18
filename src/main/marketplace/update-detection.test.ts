@@ -52,7 +52,7 @@ const unreachableRegistry: MarketplaceRegistryReadResult = {
 
 async function writeReceiptStore(
   path: string,
-  receipts: Array<{ id: string; version: number; components?: Array<{ kind: string; id: string }> }>
+  receipts: Array<{ id: string; version: number; components?: Array<{ kind: string; id: string }> }>,
 ): Promise<void> {
   const plugins = Object.fromEntries(
     receipts.map((receipt) => [
@@ -66,7 +66,7 @@ async function writeReceiptStore(
         installedAt: '2026-08-01T00:00:00.000Z',
         components: receipt.components ?? [],
       },
-    ])
+    ]),
   )
   await writeFile(path, JSON.stringify({ schemaVersion: 1, plugins }, null, 2), 'utf8')
 }
@@ -76,20 +76,24 @@ async function writeUserModule(root: string, id: string, version: number): Promi
   await mkdir(dir, { recursive: true })
   await writeFile(
     join(dir, 'manifest.json'),
-    JSON.stringify({
-      id,
-      displayName: `${id} Module`,
-      version,
-      defaultEnabled: true,
-      permissions: [],
-    }, null, 2),
-    'utf8'
+    JSON.stringify(
+      {
+        id,
+        displayName: `${id} Module`,
+        version,
+        defaultEnabled: true,
+        permissions: [],
+      },
+      null,
+      2,
+    ),
+    'utf8',
   )
 }
 
 function services(
   temp: string,
-  registry: MarketplaceRegistryReadResult
+  registry: MarketplaceRegistryReadResult,
 ): MarketplaceUpdateStatesServices & { reads: Array<{ forceRefresh?: boolean } | undefined> } {
   const reads: Array<{ forceRefresh?: boolean } | undefined> = []
   return {
@@ -125,10 +129,18 @@ async function testReceiptStatesAgainstRegistryLatest(): Promise<void> {
 
     const result = await readMarketplaceUpdateStates(svc, { forceRefresh: true })
     assert.equal(result.ok && result.checked, true)
-    assert.deepEqual(availabilityOf(result, 'behind'), { state: 'update-available', installedVersion: 1, latestVersion: 2 })
+    assert.deepEqual(availabilityOf(result, 'behind'), {
+      state: 'update-available',
+      installedVersion: 1,
+      latestVersion: 2,
+    })
     assert.deepEqual(availabilityOf(result, 'level'), { state: 'current', installedVersion: 2, latestVersion: 2 })
     // Registry reachable but the id is gone: not knowable, never "up to date".
-    assert.deepEqual(availabilityOf(result, 'delisted'), { state: 'unknown', installedVersion: 1, reason: 'not-in-registry' })
+    assert.deepEqual(availabilityOf(result, 'delisted'), {
+      state: 'unknown',
+      installedVersion: 1,
+      reason: 'not-in-registry',
+    })
     assert.deepEqual(svc.reads, [{ forceRefresh: true }])
   })
 }
@@ -158,7 +170,10 @@ async function testReceiptOwnedModuleFolderIsNotASecondEntry(): Promise<void> {
     const result = await readMarketplaceUpdateStates(svc)
     assert.equal(result.ok, true)
     if (!result.ok) return
-    assert.deepEqual(result.entries.map((entry) => entry.id), ['owner-plugin'])
+    assert.deepEqual(
+      result.entries.map((entry) => entry.id),
+      ['owner-plugin'],
+    )
   })
 }
 
@@ -177,8 +192,16 @@ async function testUnreachableRegistryReadsUnknownNeverCurrent(): Promise<void> 
     assert.equal(result.entries.length, 2)
     // The couldn't-check state is distinct from up-to-date on every entry.
     for (const entry of result.entries) assert.notEqual(entry.availability.state, 'current')
-    assert.deepEqual(availabilityOf(result, 'behind'), { state: 'unknown', installedVersion: 1, reason: 'registry-unreachable' })
-    assert.deepEqual(availabilityOf(result, 'dev-module'), { state: 'unknown', installedVersion: 3, reason: 'registry-unreachable' })
+    assert.deepEqual(availabilityOf(result, 'behind'), {
+      state: 'unknown',
+      installedVersion: 1,
+      reason: 'registry-unreachable',
+    })
+    assert.deepEqual(availabilityOf(result, 'dev-module'), {
+      state: 'unknown',
+      installedVersion: 3,
+      reason: 'registry-unreachable',
+    })
   })
 }
 

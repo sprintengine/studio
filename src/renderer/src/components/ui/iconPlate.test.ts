@@ -45,9 +45,17 @@ assert.equal(
 
 assert.equal(iconHasOwnPlate(toDataUri(APP_ICON)), true)
 assert.equal(iconHasOwnPlate(toDataUri(BRAND_MARK)), false)
-assert.equal(iconHasOwnPlate(`data:image/svg+xml,${encodeURIComponent(APP_ICON)}`), true, 'percent-encoded SVG decodes too')
+assert.equal(
+  iconHasOwnPlate(`data:image/svg+xml,${encodeURIComponent(APP_ICON)}`),
+  true,
+  'percent-encoded SVG decodes too',
+)
 assert.equal(iconHasOwnPlate('data:image/png;base64,iVBORw0KGgo='), true, 'a raster is an app icon')
-assert.equal(iconHasOwnPlate('https://cdn.simpleicons.org/github'), false, 'a remote URL cannot be inspected and keeps the chip')
+assert.equal(
+  iconHasOwnPlate('https://cdn.simpleicons.org/github'),
+  false,
+  'a remote URL cannot be inspected and keeps the chip',
+)
 assert.equal(iconHasOwnPlate(null), false)
 assert.equal(iconHasOwnPlate(''), false)
 

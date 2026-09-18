@@ -44,11 +44,21 @@ function entry(id: string, name: string, over: Partial<AutomationsInstanceEntry>
 
 const entries: AutomationsInstanceEntry[] = [
   entry('a', 'Nightly code review', {
-    lastRun: { id: 'r', automationId: 'a', status: 'completed', dueAt: '2026-07-19T10:00:00Z', startedAt: null, completedAt: '2026-07-19T10:00:00Z' } as unknown as AutomationsInstanceEntry['lastRun'],
+    lastRun: {
+      id: 'r',
+      automationId: 'a',
+      status: 'completed',
+      dueAt: '2026-07-19T10:00:00Z',
+      startedAt: null,
+      completedAt: '2026-07-19T10:00:00Z',
+    } as unknown as AutomationsInstanceEntry['lastRun'],
   }),
   entry('b', 'Backlog triage', { isRunningNow: true }),
   entry('c', 'Release notes draft', {
-    definition: definition('c', 'Release notes draft', { status: 'paused', action: { kind: 'atlas-chart', config: {} } }),
+    definition: definition('c', 'Release notes draft', {
+      status: 'paused',
+      action: { kind: 'atlas-chart', config: {} },
+    }),
   }),
 ]
 
@@ -141,10 +151,7 @@ run('the rail carries the search field and the filter glyph', () => {
 // five that ship inside the app, Extensions drawer ruling 2026-09-05.)
 run('with no built-ins to list, the rail is the one "Yours" list', () => {
   const html = render()
-  assert.ok(
-    html.includes('aria-label="Automations: Yours"'),
-    'the list is named for the one group it carries',
-  )
+  assert.ok(html.includes('aria-label="Automations: Yours"'), 'the list is named for the one group it carries')
   assert.ok(!/Starters/i.test(html), 'no Starters group — discovery lives on the Extensions shelf')
   // One list, not one per notional group.
   assert.equal((html.match(/role="list"/g) ?? []).length, 1, 'exactly one list in the rail')

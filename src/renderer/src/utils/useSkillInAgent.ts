@@ -13,11 +13,7 @@
 // trailing space and left at the prompt, like every other door in the app: the
 // person reads what would run and presses Enter themselves.
 
-import type {
-  AgentSkillTarget,
-  TerminalSessionSnapshot,
-  WorkspaceSkill,
-} from '../../../shared/electron-api'
+import type { AgentSkillTarget, TerminalSessionSnapshot, WorkspaceSkill } from '../../../shared/electron-api'
 import type { ShowToastInput } from '../store/toastStore'
 import {
   ensureSkillForAgent,
@@ -41,12 +37,10 @@ export type SkillCliEntry = {
 }
 
 /** No workspace folder, so nothing to install into and no harness dirs to write. */
-export const NO_WORKSPACE_FOLDER_MESSAGE =
-  'Open a folder in this workspace before using a skill in an agent.'
+export const NO_WORKSPACE_FOLDER_MESSAGE = 'Open a folder in this workspace before using a skill in an agent.'
 
 /** The skill row resolved to nothing in the workspace inventory. */
-export const SKILL_NOT_IN_WORKSPACE_MESSAGE =
-  'This skill is missing from the workspace inventory.'
+export const SKILL_NOT_IN_WORKSPACE_MESSAGE = 'This skill is missing from the workspace inventory.'
 
 /** No live agent to paste into. */
 export const NO_LIVE_AGENT_MESSAGE = 'No running agents'
@@ -127,9 +121,7 @@ export function selectLiveAgentSessions(
  * no scope to list every window's agents, which is what the Installed
  * inventory's menu has always shown.
  */
-export async function listLiveAgentSessions(scope?: {
-  workspaceId?: string | null
-}): Promise<LiveAgentSession[]> {
+export async function listLiveAgentSessions(scope?: { workspaceId?: string | null }): Promise<LiveAgentSession[]> {
   try {
     const all = await window.api.terminalList()
     return selectLiveAgentSessions(all, scope)
@@ -217,10 +209,8 @@ export async function useSkillInAgent(input: UseSkillInAgentInput): Promise<UseS
   if (!ensured.ok) return { ok: false, message: ensured.message }
 
   const integration =
-    input.integration
-    ?? (session.cli
-      ? (input.clis ?? []).find((plugin) => plugin.id === session.cli)?.skillIntegration
-      : undefined)
+    input.integration ??
+    (session.cli ? (input.clis ?? []).find((plugin) => plugin.id === session.cli)?.skillIntegration : undefined)
 
   // `skill.harnesses` is what the inventory knew BEFORE the attach above, so a
   // skill that has only just landed in this CLI's directory would render as the
@@ -316,10 +306,7 @@ export function describeHarnessWrites(
  *
  * Returns null when there is nothing to say — which is the common case.
  */
-export function skillRestartToast(
-  result: UseSkillInAgentResult,
-  skillName: string,
-): ShowToastInput | null {
+export function skillRestartToast(result: UseSkillInAgentResult, skillName: string): ShowToastInput | null {
   if (!result.ok || !result.restartRequired) return null
   const names = Array.from(
     new Set(result.harnesses.filter((harness) => harness.restartRequired).flatMap((harness) => harness.labels)),

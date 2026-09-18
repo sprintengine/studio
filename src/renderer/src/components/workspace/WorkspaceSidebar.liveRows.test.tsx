@@ -102,14 +102,27 @@ async function main(): Promise<void> {
     layout: {
       type: 'tabset',
       children: [
-        { type: 'tab', id: 'fleet-terminal:c1:s9', component: 'fleet-terminal', config: { machineName: 'Air', remoteSessionId: 's9', cli: 'codex' } },
+        {
+          type: 'tab',
+          id: 'fleet-terminal:c1:s9',
+          component: 'fleet-terminal',
+          config: { machineName: 'Air', remoteSessionId: 's9', cli: 'codex' },
+        },
       ],
     },
   }
   const live = new Map([['w1', [{ sessionId: 's1', cli: 'claude-code' }]]])
   assert.equal(rowHasOpenTerminals(workspace('w1', 'a', '/p'), live), true)
-  assert.equal(rowHasOpenTerminals(workspace('w2', 'b', '/p'), live), false, 'an exited session was filtered before the map was built')
-  assert.equal(rowHasOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: fleetLayout }), live), true, 'a mounted fleet pane is an open terminal')
+  assert.equal(
+    rowHasOpenTerminals(workspace('w2', 'b', '/p'), live),
+    false,
+    'an exited session was filtered before the map was built',
+  )
+  assert.equal(
+    rowHasOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: fleetLayout }), live),
+    true,
+    'a mounted fleet pane is an open terminal',
+  )
   assert.deepEqual(rowOpenTerminals(workspace('w3', 'c', '/p', { layoutModel: fleetLayout }), live), [
     { sessionId: 'fleet-terminal:c1:s9', cli: 'codex', remote: true },
   ])
@@ -188,12 +201,16 @@ async function main(): Promise<void> {
     assert.doesNotMatch(bravo, /\+37/, 'and never wears the checkout’s current numbers')
 
     const charlie = rowMarkup('Charlie')
-    assert.doesNotMatch(charlie, />main<|\+37|aria-label="[^"]*Claude Code"/, 'a row that never had a terminal is a one-liner')
+    assert.doesNotMatch(
+      charlie,
+      />main<|\+37|aria-label="[^"]*Claude Code"/,
+      'a row that never had a terminal is a one-liner',
+    )
 
     assert.deepEqual(
       [...new Set(summaryRequests)],
       ['/projA'],
-      'the poll asks only about checkouts a live row sits on — /projB is never read'
+      'the poll asks only about checkouts a live row sits on — /projB is never read',
     )
   } finally {
     // Unmount on every path: the git poll's interval and the store

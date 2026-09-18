@@ -45,7 +45,7 @@ export const fleetApi = {
     ipcRenderer.invoke(FLEET_PAIR_CHANNEL, { pairingUrl }) as Promise<FleetPairResult>,
   fleetRequestPairing: (
     endpoint: string,
-    options?: { scopes?: TailnetScope[]; reverseScopes?: TailnetScope[] }
+    options?: { scopes?: TailnetScope[]; reverseScopes?: TailnetScope[] },
   ): Promise<FleetRequestPairingResult> =>
     ipcRenderer.invoke(FLEET_REQUEST_PAIRING_CHANNEL, {
       endpoint,
@@ -74,7 +74,10 @@ export const fleetApi = {
   }): Promise<FleetCreateTerminalResult> =>
     ipcRenderer.invoke(FLEET_CREATE_TERMINAL_CHANNEL, input) as Promise<FleetCreateTerminalResult>,
   fleetWorkspaceCheckout: (connectionId: string, workspaceId: string): Promise<FleetWorkspaceCheckoutResult> =>
-    ipcRenderer.invoke(FLEET_WORKSPACE_CHECKOUT_CHANNEL, { connectionId, workspaceId }) as Promise<FleetWorkspaceCheckoutResult>,
+    ipcRenderer.invoke(FLEET_WORKSPACE_CHECKOUT_CHANNEL, {
+      connectionId,
+      workspaceId,
+    }) as Promise<FleetWorkspaceCheckoutResult>,
   fleetAttachTerminal: (input: {
     attachId: string
     connectionId: string

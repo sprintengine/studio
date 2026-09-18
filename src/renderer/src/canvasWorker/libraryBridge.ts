@@ -15,11 +15,7 @@
 //  - The diagram importer is a large graph of its own and needs a document, so
 //    it is fetched on the first import rather than with the page.
 
-import {
-  convertToExcalidrawElements,
-  exportToBlob,
-  restoreElements,
-} from '@excalidraw/excalidraw'
+import { convertToExcalidrawElements, exportToBlob, restoreElements } from '@excalidraw/excalidraw'
 import type { ExcalidrawElementSkeleton } from '@excalidraw/excalidraw/data/transform'
 import type { ExcalidrawElement, NonDeleted } from '@excalidraw/excalidraw/element/types'
 import type { AppState, BinaryFiles } from '@excalidraw/excalidraw/types'

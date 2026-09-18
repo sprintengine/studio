@@ -92,11 +92,7 @@ function normalize(path: string): string {
  * The walk stops at `rootPath` so a mark made in one workspace can never leak
  * into a sibling checkout that happens to share a parent directory.
  */
-export function resolveFolderRole(
-  roles: FolderRoleMap,
-  path: string,
-  rootPath: string
-): FolderRole | null {
+export function resolveFolderRole(roles: FolderRoleMap, path: string, rootPath: string): FolderRole | null {
   if (!roles || Object.keys(roles).length === 0) return null
 
   const root = normalize(rootPath)

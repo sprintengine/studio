@@ -58,7 +58,9 @@ async function main(): Promise<void> {
   const listeners = new Map<string, () => void>()
 
   const api = createModulesApi({
-    on(channel: string, listener: () => void) { listeners.set(channel, listener) },
+    on(channel: string, listener: () => void) {
+      listeners.set(channel, listener)
+    },
     removeListener(channel: string, listener: () => void) {
       if (listeners.get(channel) === listener) listeners.delete(channel)
     },
@@ -79,7 +81,9 @@ async function main(): Promise<void> {
   assert.deepEqual(await api.setModuleEnablement({ 'trusted-main': true }), enablementResponse)
   assert.deepEqual(await api.setModuleRegistrySnapshot(registrySnapshot), registryResponse)
   let changed = 0
-  const stop = api.onThirdPartyModulesChanged(() => { changed++ })
+  const stop = api.onThirdPartyModulesChanged(() => {
+    changed++
+  })
   listeners.get('modules:third-party:changed')!()
   assert.equal(changed, 1, 'module change events reach renderer subscribers')
   stop()

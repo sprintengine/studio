@@ -5,10 +5,7 @@ import type {
   MobileControlCommandAuditEntry,
   MobileControlCommandResult,
 } from '../control/command'
-import type {
-  MobileControlErrorCode,
-  RelayCommandEnvelope,
-} from './index'
+import type { MobileControlErrorCode, RelayCommandEnvelope } from './index'
 import { relayCommandTypeToMobile } from './relay-command'
 import { deepRedactLocalPaths } from '../control/relay-path-safety'
 import { mobileControlProtocolVersion } from '../../../../packages/mobile-control-protocol/src/index'
@@ -21,7 +18,7 @@ export function relaySummaryByteLength(value: unknown): number {
 
 export function acceptedBridgeCommand(
   command: MobileControlCommand,
-  data: unknown
+  data: unknown,
 ): Extract<MobileControlCommandResult, { ok: true }> {
   return {
     ok: true,
@@ -48,7 +45,7 @@ export function acceptedBridgeCommand(
 export function failedCommandResult(
   command: Pick<MobileControlCommand, 'commandId' | 'type' | 'idempotencyKey'> | RelayCommandEnvelope,
   code: MobileControlErrorCode,
-  message: string
+  message: string,
 ): Extract<MobileControlCommandResult, { ok: false }> {
   const commandType = 'type' in command ? command.type : relayCommandTypeToMobile(command.commandType)
   return {

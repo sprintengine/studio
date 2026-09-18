@@ -43,8 +43,10 @@ import {
  */
 function diffArgs(scope: GitHunkScope, relativePath: string): string[] {
   return [
-    '-c', 'diff.noprefix=false',
-    '-c', 'diff.mnemonicPrefix=false',
+    '-c',
+    'diff.noprefix=false',
+    '-c',
+    'diff.mnemonicPrefix=false',
     'diff',
     ...(scope === 'staged' ? ['--cached'] : []),
     '--no-ext-diff',
@@ -77,20 +79,14 @@ function diffArgs(scope: GitHunkScope, relativePath: string): string[] {
  * and a name that climbs out with `..` is refused rather than diffed.
  */
 function repoRelativePath(repoRoot: string, filePath: string): string | null {
-  const relativePath = isAbsolute(filePath)
-    ? getRelativeGitPath(repoRoot, filePath)
-    : toPosixPath(filePath)
+  const relativePath = isAbsolute(filePath) ? getRelativeGitPath(repoRoot, filePath) : toPosixPath(filePath)
   if (!relativePath || relativePath === '..' || relativePath.startsWith('../')) return null
   return relativePath
 }
 
 type FileDiffRead = { ok: true; file: ParsedFileDiff | null } | { ok: false; message: string }
 
-async function readFileDiff(
-  repoRoot: string,
-  relativePath: string,
-  scope: GitHunkScope
-): Promise<FileDiffRead> {
+async function readFileDiff(repoRoot: string, relativePath: string, scope: GitHunkScope): Promise<FileDiffRead> {
   const result = await runGitCommand(repoRoot, diffArgs(scope, relativePath))
   if (!result.ok) return { ok: false, message: result.message ?? result.stderr ?? 'Could not read the diff.' }
   const files = parseUnifiedDiff(result.stdout)
@@ -140,11 +136,11 @@ function toHunkViews(hunks: DiffHunk[], scope: GitHunkScope): GitHunkView[] {
 function unionHunkViews(staged: DiffHunk[], unstaged: DiffHunk[]): GitHunkView[] {
   return [...toHunkViews(staged, 'staged'), ...toHunkViews(unstaged, 'unstaged')].sort(
     (a, b) =>
-      a.newStart - b.newStart
-      || a.oldStart - b.oldStart
+      a.newStart - b.newStart ||
+      a.oldStart - b.oldStart ||
       // A tie is two hunks at the same line on opposite sides of the index. The
       // included one is drawn first, so the order is at least deterministic.
-      || Number(b.included) - Number(a.included)
+      Number(b.included) - Number(a.included),
   )
 }
 
@@ -162,7 +158,7 @@ function unionHunkViews(staged: DiffHunk[], unstaged: DiffHunk[]): GitHunkView[]
 export async function readFileHunks(
   repoRoot: string,
   filePath: string,
-  scope: GitHunkScope
+  scope: GitHunkScope,
 ): Promise<GitFileHunksResult> {
   const relativePath = repoRelativePath(repoRoot, filePath)
   if (!relativePath) return { ok: false, message: 'That file is not in this repository.' }
@@ -233,7 +229,7 @@ function applyPatch(repoRoot: string, args: string[], patch: string): Promise<Gi
           // most useful thing anyone can be told when a patch is refused.
           message: err || (error as Error).message || 'git apply failed.',
         })
-      }
+      },
     )
     // git exits before reading the whole patch when it rejects one; the EPIPE
     // that follows is not the failure and must not become an unhandled error.
@@ -244,7 +240,8 @@ function applyPatch(repoRoot: string, args: string[], patch: string): Promise<Gi
 
 const NOT_FOUND: Record<'gone' | 'ambiguous', string> = {
   gone: 'That change is no longer there — the file moved under the diff. It has been re-read.',
-  ambiguous: 'That change appears more than once in this file and could not be told apart. Include the whole file instead.',
+  ambiguous:
+    'That change appears more than once in this file and could not be told apart. Include the whole file instead.',
 }
 
 async function applyHunk(ref: GitHunkRef, reverse: boolean): Promise<GitCommandResult> {
@@ -273,11 +270,7 @@ async function applyHunk(ref: GitHunkRef, reverse: boolean): Promise<GitCommandR
   if (!located.ok) return { ok: false, stdout: '', stderr: '', message: NOT_FOUND[located.reason] }
 
   const patch = buildOneHunkPatch(file, located.hunk)
-  return applyPatch(
-    repoRoot,
-    ['apply', '--cached', ...(reverse ? ['--reverse'] : []), '--unidiff-zero', '-'],
-    patch
-  )
+  return applyPatch(repoRoot, ['apply', '--cached', ...(reverse ? ['--reverse'] : []), '--unidiff-zero', '-'], patch)
 }
 
 /**

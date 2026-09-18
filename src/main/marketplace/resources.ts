@@ -23,7 +23,7 @@ export type MarketplaceResourceResolutionOptions = {
 
 export function findMarketplaceResourcePath(
   relativePath: string,
-  options: MarketplaceResourceResolutionOptions = {}
+  options: MarketplaceResourceResolutionOptions = {},
 ): string | null {
   const exists = options.exists ?? existsSync
   return marketplaceResourceCandidates(relativePath, options).find((candidate) => exists(candidate)) ?? null
@@ -31,7 +31,7 @@ export function findMarketplaceResourcePath(
 
 function marketplaceResourceCandidates(
   relativePath: string,
-  options: MarketplaceResourceResolutionOptions = {}
+  options: MarketplaceResourceResolutionOptions = {},
 ): string[] {
   const safeRelativePath = normalizeMarketplaceRelativePath(relativePath)
   if (!safeRelativePath) return []
@@ -41,8 +41,8 @@ function marketplaceResourceCandidates(
   const isPackaged = options.isPackaged ?? app?.isPackaged ?? false
   const resourcesPath = options.resourcesPath ?? process.resourcesPath
   const appPath = Object.prototype.hasOwnProperty.call(options, 'appPath')
-    ? options.appPath ?? null
-    : app?.getAppPath?.() ?? null
+    ? (options.appPath ?? null)
+    : (app?.getAppPath?.() ?? null)
   const cwd = options.cwd ?? process.cwd()
   const dirname = options.dirname ?? __dirname
 

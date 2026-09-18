@@ -26,7 +26,10 @@ async function run() {
   try {
     const directory = join(root, 'doom')
     await mkdir(join(directory, 'runtime'), { recursive: true })
-    await writeFile(join(directory, 'manifest.json'), JSON.stringify({ id: 'doom', displayName: 'Doom', version: 1, defaultEnabled: true }))
+    await writeFile(
+      join(directory, 'manifest.json'),
+      JSON.stringify({ id: 'doom', displayName: 'Doom', version: 1, defaultEnabled: true }),
+    )
     await writeFile(join(directory, 'runtime', 'index.html'), '<script src="engine.js"></script>')
     await writeFile(join(directory, 'runtime', 'engine.wasm'), new Uint8Array([0, 97, 115, 109]))
     const initial = await discoverUserModules(root, { trustedModules: new Map() })
@@ -36,12 +39,23 @@ async function run() {
     assert.equal(assetOrigin('doom'), createModuleAssetOriginResolver(join(root, 'private-profile'))('doom'))
     assert.notEqual(assetOrigin('doom'), assetOrigin('other'))
     const asset = (id: string, path: string) => moduleAssetUrl(id, path, assetOrigin(id))
-    const handler = createModuleAssetHandler({ assetOrigin, discoverModules: () => discoverUserModules(root, { trustedModules }), isEnabled: () => enabled })
+    const handler = createModuleAssetHandler({
+      assetOrigin,
+      discoverModules: () => discoverUserModules(root, { trustedModules }),
+      isEnabled: () => enabled,
+    })
     const url = asset('doom', 'runtime/index.html')
     assert.equal(url, asset('doom', 'runtime/index.html'))
     assert.equal((await handler(new Request(moduleAssetUrl('doom', 'runtime/index.html')))).status, 403)
     assert.notEqual(new URL(url).hostname, new URL(moduleAssetUrl('other', 'runtime/index.html')).hostname)
-    for (const path of ['../secret', '/etc/passwd', 'runtime/../secret', 'runtime\\secret', 'runtime/%', 'runtime/file?query']) {
+    for (const path of [
+      '../secret',
+      '/etc/passwd',
+      'runtime/../secret',
+      'runtime\\secret',
+      'runtime/%',
+      'runtime/file?query',
+    ]) {
       if (path === 'runtime/%') continue
       assert.throws(() => moduleAssetUrl('doom', path))
     }
@@ -62,6 +76,8 @@ async function run() {
     assert.equal((await handler(new Request(`${url}/%2e%2e%2f%2e%2e%2fsecret`))).status, 400)
     trustedModules.clear()
     assert.equal((await handler(new Request(url))).status, 403)
-  } finally { await rm(root, { recursive: true, force: true }) }
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 }
 void run().then(() => console.log('module-assets tests passed'))

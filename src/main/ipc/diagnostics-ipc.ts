@@ -128,10 +128,7 @@ function collectAttributionRoots(): TerminalRootInfo[] {
   return [...listTerminalRoots(), ...conversationRoots]
 }
 
-export function registerDiagnosticsIpc(
-  ipcMain: IpcMain,
-  deps: DiagnosticsIpcDependencies
-): void {
+export function registerDiagnosticsIpc(ipcMain: IpcMain, deps: DiagnosticsIpcDependencies): void {
   listConversationRootsDep = deps.listConversationRoots
   ipcMain.handle('diagnostics:log', async (_, input: DiagnosticLogInput) => {
     return deps.writeDiagnosticLog(input)
@@ -157,7 +154,7 @@ export function registerDiagnosticsIpc(
       Date.now(),
       { pid: process.pid, heapUsedBytes: heap.heapUsed, heapTotalBytes: heap.heapTotal },
       threadCountCache,
-      childProcessMetricCache
+      childProcessMetricCache,
     )
     const electronPids = snapshot.processes
       .filter((metric) => metric.type !== 'Child')

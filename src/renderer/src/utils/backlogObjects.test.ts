@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 
 import { createBacklogItem } from './backlog'
-import {
-  hydrateBacklogScanResult,
-  type BacklogObjectStore,
-} from './backlogObjects'
+import { hydrateBacklogScanResult, type BacklogObjectStore } from './backlogObjects'
 
 const item = createBacklogItem({
   path: '/repo/backlog/checkout.md',
@@ -60,7 +57,8 @@ assert.deepEqual(hydrated.items[0]?.highlight, { starred: true, color: 'amber' }
 const frontmatterItem = createBacklogItem({
   path: '/repo/backlog/payments.md',
   relativePath: 'backlog/payments.md',
-  sourceContent: '---\nstatus: ready\ntype: feature\ndifficulty: s\ncriticality: low\nepic: payments-revamp\n---\n# Payments',
+  sourceContent:
+    '---\nstatus: ready\ntype: feature\ndifficulty: s\ncriticality: low\nepic: payments-revamp\n---\n# Payments',
   stats: { modifiedAtMs: 10, sizeBytes: 20 },
 })
 const staleStore: BacklogObjectStore = {

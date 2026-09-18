@@ -168,23 +168,13 @@ export async function resolveTrunk(cwd: string, currentBranch: string | null): P
     if (!candidates.some((candidate) => candidate.ref === ref)) candidates.push({ ref, name })
   }
 
-  const originHead = await runGitCommand(cwd, [
-    'symbolic-ref',
-    '--quiet',
-    '--short',
-    'refs/remotes/origin/HEAD',
-  ])
+  const originHead = await runGitCommand(cwd, ['symbolic-ref', '--quiet', '--short', 'refs/remotes/origin/HEAD'])
   if (originHead.ok) {
     const value = originHead.stdout.trim()
     if (value) push(value, branchNameOf(value))
   }
 
-  const upstream = await runGitCommand(cwd, [
-    'rev-parse',
-    '--abbrev-ref',
-    '--symbolic-full-name',
-    '@{upstream}',
-  ])
+  const upstream = await runGitCommand(cwd, ['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'])
   if (upstream.ok) {
     const value = upstream.stdout.trim()
     const name = value ? branchNameOf(value) : ''
@@ -203,11 +193,7 @@ export async function resolveTrunk(cwd: string, currentBranch: string | null): P
     if ((await resolveCommit(cwd, candidate.ref)) === null) continue
     const base = await runGitCommand(cwd, ['merge-base', 'HEAD', candidate.ref])
     if (!base.ok || !base.stdout.trim()) continue
-    const counted = await runGitCommand(cwd, [
-      'rev-list',
-      '--count',
-      `${base.stdout.trim()}..HEAD`,
-    ])
+    const counted = await runGitCommand(cwd, ['rev-list', '--count', `${base.stdout.trim()}..HEAD`])
     const distance = counted.ok ? Number.parseInt(counted.stdout.trim(), 10) : Number.NaN
     const safeDistance = Number.isFinite(distance) ? distance : Number.MAX_SAFE_INTEGER
     // Strictly less: ties keep the earlier, better-informed candidate.
@@ -264,11 +250,7 @@ export async function isLinkedWorktree(cwd: string): Promise<boolean> {
   if (!own) return false
 
   let common = ''
-  const absolute = await runGitCommand(cwd, [
-    'rev-parse',
-    '--path-format=absolute',
-    '--git-common-dir',
-  ])
+  const absolute = await runGitCommand(cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'])
   if (absolute.ok) {
     common = absolute.stdout.trim()
   } else {
@@ -399,10 +381,7 @@ export function scopeOfFacts(facts: BranchFacts | null): 'worktree' | 'branch' |
  * has no line counts to report. The changed-files surface lists them
  * separately; a row that summarises edits does not.
  */
-async function diffWorkingTreeFrom(
-  cwd: string,
-  fromRev: string
-): Promise<BranchSpanStat | null> {
+async function diffWorkingTreeFrom(cwd: string, fromRev: string): Promise<BranchSpanStat | null> {
   const [numstat, nameStatus] = await Promise.all([
     runGitCommand(cwd, [...diffFlags('--numstat'), fromRev]),
     runGitCommand(cwd, [...diffFlags('--name-status'), fromRev]),
@@ -429,16 +408,7 @@ async function diffWorkingTreeFrom(
  * splice away from a cross-call bug.
  */
 export function diffFlags(mode: '--numstat' | '--name-status'): string[] {
-  return [
-    'diff',
-    mode,
-    '-z',
-    '--no-color',
-    '--no-ext-diff',
-    '--no-textconv',
-    '--no-relative',
-    '--find-renames',
-  ]
+  return ['diff', mode, '-z', '--no-color', '--no-ext-diff', '--no-textconv', '--no-relative', '--find-renames']
 }
 
 /**
@@ -572,7 +542,7 @@ export function parseNameStatusZ(stdout: string): Map<string, ChangedFileKind> {
  */
 export function countFileStatuses(
   files: readonly { path: string }[],
-  statuses: ReadonlyMap<string, ChangedFileKind>
+  statuses: ReadonlyMap<string, ChangedFileKind>,
 ): ChangedFileCounts {
   const counts: ChangedFileCounts = { added: 0, updated: 0, removed: 0 }
   for (const file of files) counts[statuses.get(file.path) ?? 'updated'] += 1

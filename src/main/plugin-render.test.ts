@@ -463,12 +463,7 @@ function testPluginDirArgsSpread(): void {
     launchPlugins: { args: ['--plugin-dir', '{{pluginDir}}'] },
     launch: { argv: ['{{binary}}', { spreadIf: 'pluginDirArgs' }, '{{pluginDir}}'] },
   })
-  assert.deepEqual(renderPluginLaunch(leak, { pluginDirs: ['/app/a'] }).argv, [
-    'test',
-    '--plugin-dir',
-    '/app/a',
-    '',
-  ])
+  assert.deepEqual(renderPluginLaunch(leak, { pluginDirs: ['/app/a'] }).argv, ['test', '--plugin-dir', '/app/a', ''])
 }
 
 // `launchSettingsArgs`: one `--settings` document carrying the theme AND the
@@ -514,7 +509,7 @@ function testLaunchSettingsMergeIntoOneFlag(): void {
   })
   assert.deepEqual(
     renderPluginLaunch(themeOnlyManifest, { prompt: 'hi', colorScheme: 'dark', launchSettings: { statusLine } }).argv,
-    ['test', '--settings', '{"theme":"dark"}', 'hi']
+    ['test', '--settings', '{"theme":"dark"}', 'hi'],
   )
 }
 

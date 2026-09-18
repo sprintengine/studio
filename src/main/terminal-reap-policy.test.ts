@@ -61,11 +61,7 @@ run('each safety gate independently keeps the terminal alive', () => {
     ['interacted within the idle threshold', { lastInteractionAt: NOW - 1000, idleSince: NOW - 1000 }],
   ]
   for (const [label, override] of cases) {
-    assert.equal(
-      isSessionReapable(reapable(override), POLICY),
-      false,
-      `expected NOT reapable: ${label}`,
-    )
+    assert.equal(isSessionReapable(reapable(override), POLICY), false, `expected NOT reapable: ${label}`)
   }
 })
 
@@ -95,10 +91,7 @@ run('a working agent is never reaped, even when idle past the threshold by keyst
 })
 
 run('an agent awaiting user input is never reaped', () => {
-  assert.equal(
-    isSessionReapable(reapable({ agentPhase: 'awaiting_input', idleSince: null }), POLICY),
-    false,
-  )
+  assert.equal(isSessionReapable(reapable({ agentPhase: 'awaiting_input', idleSince: null }), POLICY), false)
 })
 
 run('a stalled agent expires: reapable only after resting past the threshold', () => {
@@ -107,20 +100,14 @@ run('a stalled agent expires: reapable only after resting past the threshold', (
   // (the 2026-07-07 parked-agents incident). It still rides the full idle
   // clock from the stall flag: freshly stalled (possibly a long silent tool
   // call) is kept…
-  assert.equal(
-    isSessionReapable(reapable({ agentPhase: 'stalled', idleSince: NOW - 1000 }), POLICY),
-    false,
-  )
+  assert.equal(isSessionReapable(reapable({ agentPhase: 'stalled', idleSince: NOW - 1000 }), POLICY), false)
   // …a recent keystroke also keeps it…
   assert.equal(
     isSessionReapable(reapable({ agentPhase: 'stalled', idleSince: STALE, lastInteractionAt: NOW - 1000 }), POLICY),
     false,
   )
   // …but stalled AND rested past the threshold is reclaimed.
-  assert.equal(
-    isSessionReapable(reapable({ agentPhase: 'stalled', idleSince: STALE }), POLICY),
-    true,
-  )
+  assert.equal(isSessionReapable(reapable({ agentPhase: 'stalled', idleSince: STALE }), POLICY), true)
   // Boundary: expiry uses the same strict > threshold clock as idle.
   assert.equal(
     isSessionReapable(
@@ -156,15 +143,9 @@ run('a freshly-idle agent is protected until it has been idle past the threshold
 
 run('the idle clock takes the most recent of interaction and idle-since', () => {
   // Recent keystroke after the agent went idle keeps it alive.
-  assert.equal(
-    isSessionReapable(reapable({ idleSince: STALE, lastInteractionAt: NOW - 5_000 }), POLICY),
-    false,
-  )
+  assert.equal(isSessionReapable(reapable({ idleSince: STALE, lastInteractionAt: NOW - 5_000 }), POLICY), false)
   // Both old → reapable.
-  assert.equal(
-    isSessionReapable(reapable({ idleSince: STALE, lastInteractionAt: STALE }), POLICY),
-    true,
-  )
+  assert.equal(isSessionReapable(reapable({ idleSince: STALE, lastInteractionAt: STALE }), POLICY), true)
 })
 
 run('a hookless agent (no phase) falls back to the keystroke-idle floor', () => {
@@ -232,7 +213,7 @@ run('recency floor spares the most recently used reapable agents', () => {
       workspaceId: `ws-${n}`,
       lastInteractionAt: STALE - n * 60_000,
       idleSince: STALE - n * 60_000,
-    })
+    }),
   )
   const decision = selectReapableSessions(candidates, { now: NOW, keepRecentAliveCount: 3 })
   assert.deepEqual(decision.reapableSessionIds.sort(), ['idle-4', 'idle-5'])
@@ -246,7 +227,12 @@ run('recency floor counts protected live agents toward the floor', () => {
   const candidates: ReapCandidate[] = [
     reapable({ sessionId: 'working-a', workspaceId: 'ws-a', agentPhase: 'thinking', idleSince: null }),
     reapable({ sessionId: 'working-b', workspaceId: 'ws-b', agentPhase: 'tool_use', idleSince: null }),
-    reapable({ sessionId: 'idle-old', workspaceId: 'ws-c', lastInteractionAt: STALE - 120_000, idleSince: STALE - 120_000 }),
+    reapable({
+      sessionId: 'idle-old',
+      workspaceId: 'ws-c',
+      lastInteractionAt: STALE - 120_000,
+      idleSince: STALE - 120_000,
+    }),
     reapable({ sessionId: 'idle-new', workspaceId: 'ws-d' }),
   ]
   const decision = selectReapableSessions(candidates, { now: NOW, keepRecentAliveCount: 3 })
@@ -263,7 +249,12 @@ run('recency floor neither protects nor is occupied by module-managed agents', (
   const candidates: ReapCandidate[] = [
     reapable({ sessionId: 'managed-a', workspaceId: 'ws-a', managed: true }),
     reapable({ sessionId: 'managed-b', workspaceId: 'ws-b', managed: true }),
-    reapable({ sessionId: 'user-idle', workspaceId: 'ws-c', lastInteractionAt: STALE - 60_000, idleSince: STALE - 60_000 }),
+    reapable({
+      sessionId: 'user-idle',
+      workspaceId: 'ws-c',
+      lastInteractionAt: STALE - 60_000,
+      idleSince: STALE - 60_000,
+    }),
   ]
   const decision = selectReapableSessions(candidates, { now: NOW, keepRecentAliveCount: 2 })
   assert.deepEqual(decision.reapableSessionIds.sort(), ['managed-a', 'managed-b'])

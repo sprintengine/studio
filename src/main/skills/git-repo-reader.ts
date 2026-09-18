@@ -58,7 +58,7 @@ export class GitRepoReadError extends Error {
     readonly kind: GitRepoReadErrorKind,
     message: string,
     /** What git said on stderr, kept for the log; never shown raw to a user. */
-    readonly stderr = ''
+    readonly stderr = '',
   ) {
     super(message)
     this.name = 'GitRepoReadError'
@@ -177,7 +177,7 @@ class GitProcessError extends Error {
     message: string,
     readonly stderr: string,
     readonly timedOut: boolean,
-    readonly overflow: boolean
+    readonly overflow: boolean,
   ) {
     super(message)
     this.name = 'GitProcessError'
@@ -307,8 +307,10 @@ const GIT_RATE_LIMITED = /returned error: 429|too many requests|rate limit|retur
 // private, or behind SSO — must never be reported as "offline", or the caller
 // retries forever. Checked before "offline", because git wraps several of these
 // in the same "unable to access" line that a genuinely unreachable host produces.
-const GIT_REFUSAL = /not found|returned error: [45]\d\d|authentication failed|access denied|permission denied|does not appear to be a git repository|invalid username or password/i
-const GIT_OFFLINE = /could not resolve host|could not resolve proxy|unable to access|connection refused|connection reset|network is unreachable|temporary failure in name resolution|failed to connect|operation timed out|could not read from remote repository|ssl/i
+const GIT_REFUSAL =
+  /not found|returned error: [45]\d\d|authentication failed|access denied|permission denied|does not appear to be a git repository|invalid username or password/i
+const GIT_OFFLINE =
+  /could not resolve host|could not resolve proxy|unable to access|connection refused|connection reset|network is unreachable|temporary failure in name resolution|failed to connect|operation timed out|could not read from remote repository|ssl/i
 
 function firstLine(text: string): string {
   const line = text
@@ -321,13 +323,16 @@ function firstLine(text: string): string {
 function classify(error: unknown, what: string): GitRepoReadError {
   if (error instanceof GitRepoReadError) return error
   const detail = error as
-    | { stderr?: unknown; message?: unknown; timedOut?: unknown; overflow?: unknown; killed?: unknown }
-    | undefined
+    { stderr?: unknown; message?: unknown; timedOut?: unknown; overflow?: unknown; killed?: unknown } | undefined
   const stderr = typeof detail?.stderr === 'string' ? detail.stderr : ''
   const message = typeof detail?.message === 'string' ? detail.message : String(error)
   const text = `${stderr}\n${message}`
   if (detail?.overflow === true) {
-    return new GitRepoReadError('unreadable', `This repository's file listing is larger than ${DEFAULT_SKILL_MAX_LISTING_BYTES} bytes.`, stderr)
+    return new GitRepoReadError(
+      'unreadable',
+      `This repository's file listing is larger than ${DEFAULT_SKILL_MAX_LISTING_BYTES} bytes.`,
+      stderr,
+    )
   }
   if (detail?.timedOut === true || detail?.killed === true || /ETIMEDOUT/i.test(text)) {
     return new GitRepoReadError('timeout', `${what} took too long and was stopped.`, stderr)
@@ -389,7 +394,7 @@ function createRepoLocks(): <T>(key: string, body: () => Promise<T>) => Promise<
     const run = previous.then(body, body)
     const tail = run.then(
       () => undefined,
-      () => undefined
+      () => undefined,
     )
     tails.set(key, tail)
     void tail.then(() => {
@@ -429,7 +434,7 @@ export async function touchGitRepoCache(cloneDir: string): Promise<void> {
  */
 export async function sweepGitRepoCache(
   cacheDir: string,
-  olderThanMs: number
+  olderThanMs: number,
 ): Promise<{ removed: string[]; keptBytes?: number }> {
   const removed: string[] = []
   let keptBytes = 0
@@ -547,8 +552,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
   // Keyed off the PARSED name, so `acme/widgets` and `acme/widgets.git` — which
   // already share one directory — share one cache entry as well.
   const repoKey = (parsed: ParsedRepo): string => `${host}/${parsed.owner}/${parsed.name}`
-  const cloneDir = (parsed: ParsedRepo): string =>
-    join(options.cacheDir, host, parsed.owner, `${parsed.name}.git`)
+  const cloneDir = (parsed: ParsedRepo): string => join(options.cacheDir, host, parsed.owner, `${parsed.name}.git`)
 
   /**
    * The environment every network command carries. The token goes here and NOT
@@ -577,7 +581,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
     args: string[],
     cwd: string | undefined,
     what: string,
-    stdin?: string
+    stdin?: string,
   ): Promise<GitRunResult> => {
     const env = await networkEnv()
     const release = await network.acquire()
@@ -705,14 +709,14 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
       throw new GitRepoReadError(
         'unreadable',
         `${host} does not support partial clone, so reading ${repo} would download the whole repository.`,
-        text
+        text,
       )
     }
     if (UNADVERTISED.test(text)) {
       throw new GitRepoReadError(
         'unreadable',
         `${host} will not serve ${repo} at a commit no branch or tag points at.`,
-        text
+        text,
       )
     }
   }
@@ -737,7 +741,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
     if (noPartialClone.has(host)) {
       throw new GitRepoReadError(
         'unreadable',
-        `${host} does not support partial clone, so reading ${repo} would download the whole repository.`
+        `${host} does not support partial clone, so reading ${repo} would download the whole repository.`,
       )
     }
     // GitHub serves an unadvertised commit by full SHA (`uploadpack.allowAnySHA1InWant`),
@@ -748,7 +752,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
       fetched = await runNetwork(
         ['fetch', '--filter=blob:none', '--no-tags', '--quiet', 'origin', sha],
         dir,
-        `Fetching ${repo} at ${sha.slice(0, 7)}`
+        `Fetching ${repo} at ${sha.slice(0, 7)}`,
       )
     } catch (error) {
       // A fetch that failed BECAUSE the host cannot serve us this way says so on
@@ -779,7 +783,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
       if (entries.length > DEFAULT_SKILL_MAX_TREE_ENTRIES) {
         throw new GitRepoReadError(
           'unreadable',
-          `${repo} lists more than ${DEFAULT_SKILL_MAX_TREE_ENTRIES} files, which is too large to scan.`
+          `${repo} lists more than ${DEFAULT_SKILL_MAX_TREE_ENTRIES} files, which is too large to scan.`,
         )
       }
     }
@@ -803,14 +807,12 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
       // line carries the commit the tag points at, which is what a scan pins to —
       // the tag object's own SHA is not a commit and would fail every later read.
       const patterns =
-        wanted === ''
-          ? ['HEAD']
-          : [`refs/heads/${wanted}`, `refs/tags/${wanted}`, `refs/tags/${wanted}^{}`, wanted]
+        wanted === '' ? ['HEAD'] : [`refs/heads/${wanted}`, `refs/tags/${wanted}`, `refs/tags/${wanted}^{}`, wanted]
       await mkdir(options.cacheDir, { recursive: true })
       const { stdout } = await runNetwork(
         ['ls-remote', url, ...patterns],
         options.cacheDir,
-        `Reading the current commit of ${repo}`
+        `Reading the current commit of ${repo}`,
       )
       const found = new Map<string, string>()
       for (const line of stdout.toString('utf8').split('\n')) {
@@ -819,18 +821,14 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
         if (/^[0-9a-f]{40}$/.test(sha.trim())) found.set(name.trim(), sha.trim())
       }
       const order =
-        wanted === ''
-          ? ['HEAD']
-          : [`refs/heads/${wanted}`, `refs/tags/${wanted}^{}`, `refs/tags/${wanted}`, wanted]
+        wanted === '' ? ['HEAD'] : [`refs/heads/${wanted}`, `refs/tags/${wanted}^{}`, `refs/tags/${wanted}`, wanted]
       for (const name of order) {
         const sha = found.get(name)
         if (sha) return sha
       }
       throw new GitRepoReadError(
         'unreadable',
-        wanted === ''
-          ? `${repo} has no default branch to read.`
-          : `${repo} has no branch or tag named "${wanted}".`
+        wanted === '' ? `${repo} has no default branch to read.` : `${repo} has no branch or tag named "${wanted}".`,
       )
     },
 
@@ -862,7 +860,7 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
       const { stdout } = await runLocal(
         ['ls-tree', '-r', '-t', '-z', commit],
         dir,
-        `Listing ${repo} at ${commit.slice(0, 7)}`
+        `Listing ${repo} at ${commit.slice(0, 7)}`,
       )
       const entries = parseListing(repo, stdout)
       rememberTree(key, entries)
@@ -912,7 +910,10 @@ export function createGitRepoReader(options: GitRepoReaderOptions): SkillRepoRea
       }
       const bytes = Number.parseInt(size, 10)
       if (Number.isFinite(bytes) && bytes > DEFAULT_SKILL_MAX_FILE_BYTES) {
-        throw new GitRepoReadError('unreadable', `A file in this repository is larger than ${DEFAULT_SKILL_MAX_FILE_BYTES} bytes.`)
+        throw new GitRepoReadError(
+          'unreadable',
+          `A file in this repository is larger than ${DEFAULT_SKILL_MAX_FILE_BYTES} bytes.`,
+        )
       }
       // By the object id, so this reads the blob `--batch-check` just measured
       // and cannot land on a different path. The blob is local by now, but the

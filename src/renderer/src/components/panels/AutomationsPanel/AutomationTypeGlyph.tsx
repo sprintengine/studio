@@ -47,8 +47,19 @@ const BOARD_SHAPE = glyphSvg(
 
 const LOOP_SHAPE = glyphSvg(
   <>
-    <path d="M3 6.5A5 5 0 0 1 12.4 5M13 9.5A5 5 0 0 1 3.6 11" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
-    <path d="M12.4 2.6V5h-2.4M3.6 13.4V11h2.4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M3 6.5A5 5 0 0 1 12.4 5M13 9.5A5 5 0 0 1 3.6 11"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+    />
+    <path
+      d="M12.4 2.6V5h-2.4M3.6 13.4V11h2.4"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </>,
 )
 

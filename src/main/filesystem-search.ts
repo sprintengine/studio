@@ -133,7 +133,7 @@ async function searchFilesWithRipgrep(
   senderId: number,
   rootPath: string,
   query: string,
-  limit: number
+  limit: number,
 ): Promise<FileSearchEngineResult> {
   const normalizedQuery = normalizeSearchPath(query)
   const results: FileSearchEntry[] = []
@@ -144,13 +144,7 @@ async function searchFilesWithRipgrep(
 
   return new Promise<FileSearchEngineResult>((resolve) => {
     let settled = false
-    const child = spawn(rgPath, [
-      '--files',
-      '--color',
-      'never',
-      '--no-messages',
-      ...excludeArgs,
-    ], {
+    const child = spawn(rgPath, ['--files', '--color', 'never', '--no-messages', ...excludeArgs], {
       cwd: rootPath,
       windowsHide: true,
     })
@@ -256,15 +250,10 @@ function toContentSearchEntry(rootPath: string, message: unknown): ContentSearch
   }
 
   if (envelope.type !== 'match') return null
-  const relativePath = typeof envelope.data?.path?.text === 'string'
-    ? envelope.data.path.text.replace(/^\.[\\/]/u, '')
-    : ''
-  const lineText = typeof envelope.data?.lines?.text === 'string'
-    ? envelope.data.lines.text.replace(/\r?\n$/u, '')
-    : ''
-  const lineNumber = typeof envelope.data?.line_number === 'number'
-    ? envelope.data.line_number
-    : 0
+  const relativePath =
+    typeof envelope.data?.path?.text === 'string' ? envelope.data.path.text.replace(/^\.[\\/]/u, '') : ''
+  const lineText = typeof envelope.data?.lines?.text === 'string' ? envelope.data.lines.text.replace(/\r?\n$/u, '') : ''
+  const lineNumber = typeof envelope.data?.line_number === 'number' ? envelope.data.line_number : 0
   const firstMatch = envelope.data?.submatches?.[0]
   const column = typeof firstMatch?.start === 'number' ? firstMatch.start + 1 : 1
   const matchText = typeof firstMatch?.match?.text === 'string' ? firstMatch.match.text : ''
@@ -298,22 +287,26 @@ async function searchContentWithRipgrep(
 
   return new Promise<ContentSearchEngineResult>((resolve) => {
     let settled = false
-    const child = spawn(rgPath, [
-      '--json',
-      '--color',
-      'never',
-      '--no-messages',
-      '--line-number',
-      '--column',
-      '--fixed-strings',
-      ...builtinExcludeArgs(),
-      '--',
-      query,
-      '.',
-    ], {
-      cwd: rootPath,
-      windowsHide: true,
-    })
+    const child = spawn(
+      rgPath,
+      [
+        '--json',
+        '--color',
+        'never',
+        '--no-messages',
+        '--line-number',
+        '--column',
+        '--fixed-strings',
+        ...builtinExcludeArgs(),
+        '--',
+        query,
+        '.',
+      ],
+      {
+        cwd: rootPath,
+        windowsHide: true,
+      },
+    )
 
     activeContentSearches.set(senderId, child)
 
@@ -399,10 +392,7 @@ async function searchContentWithRipgrep(
   })
 }
 
-function withContentSearchDiagnostics(
-  result: ContentSearchEngineResult,
-  startedAt: number
-): ContentSearchResult {
+function withContentSearchDiagnostics(result: ContentSearchEngineResult, startedAt: number): ContentSearchResult {
   if (!result.ok) return result
   return {
     ...result,
@@ -462,8 +452,5 @@ export async function searchContent(senderId: number, input: ContentSearchReques
   }
 
   cancelActiveContentSearch(senderId)
-  return withContentSearchDiagnostics(
-    await searchContentWithRipgrep(senderId, rootPath, query, limit),
-    startedAt
-  )
+  return withContentSearchDiagnostics(await searchContentWithRipgrep(senderId, rootPath, query, limit), startedAt)
 }

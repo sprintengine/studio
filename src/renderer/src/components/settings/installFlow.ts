@@ -204,9 +204,26 @@ export type InstallFlowView = {
 export function deriveInstallView(state: InstallFlowState): InstallFlowView {
   switch (state.status) {
     case 'idle':
-      return { action: { kind: 'install', label: 'Install' }, busy: false, trustPrompt: false, permissions: null, files: null, pinnedRef: null, notice: null }
+      return {
+        action: { kind: 'install', label: 'Install' },
+        busy: false,
+        trustPrompt: false,
+        permissions: null,
+        files: null,
+        pinnedRef: null,
+        notice: null,
+      }
     case 'verifying':
-      return { action: null, busy: true, busyLabel: 'Verifying…', trustPrompt: false, permissions: null, files: null, pinnedRef: null, notice: null }
+      return {
+        action: null,
+        busy: true,
+        busyLabel: 'Verifying…',
+        trustPrompt: false,
+        permissions: null,
+        files: null,
+        pinnedRef: null,
+        notice: null,
+      }
     case 'needs-trust':
       return {
         action: { kind: 'trust-install', label: 'Trust and install' },
@@ -218,7 +235,16 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         notice: null,
       }
     case 'installing':
-      return { action: null, busy: true, busyLabel: 'Installing…', trustPrompt: false, permissions: null, files: null, pinnedRef: null, notice: null }
+      return {
+        action: null,
+        busy: true,
+        busyLabel: 'Installing…',
+        trustPrompt: false,
+        permissions: null,
+        files: null,
+        pinnedRef: null,
+        notice: null,
+      }
     case 'installed': {
       // A module's code loads at app launch, so an install that landed one is
       // on disk and not yet in the app. The sentence says the whole state —
@@ -236,9 +262,7 @@ export function deriveInstallView(state: InstallFlowState): InstallFlowView {
         // A skill that shipped without bundled content installs nothing; the
         // notice tone warns so the user sees which listed skills they did not
         // get, rather than the flat "Installed." hiding the gap.
-        notice: state.notices?.length
-          ? { tone: 'warn', message, issues: state.notices }
-          : { tone: 'good', message },
+        notice: state.notices?.length ? { tone: 'warn', message, issues: state.notices } : { tone: 'good', message },
       }
     }
     case 'blocked':

@@ -60,9 +60,10 @@ async function accessWithTimeout(targetPath: string, timeoutMs = 5000): Promise<
       status: result.code === 'EACCES' || result.code === 'EPERM' ? 'inaccessible' : 'missing',
       path: targetPath,
       checkedPath: targetPath,
-      message: result.code === 'EACCES' || result.code === 'EPERM'
-        ? `Workspace folder is not accessible: ${targetPath}`
-        : `Workspace folder does not exist: ${targetPath}`,
+      message:
+        result.code === 'EACCES' || result.code === 'EPERM'
+          ? `Workspace folder is not accessible: ${targetPath}`
+          : `Workspace folder does not exist: ${targetPath}`,
       code: result.code,
     }
   } finally {
@@ -103,8 +104,6 @@ export async function checkWorkspaceFolder(targetPath: string): Promise<Workspac
     ...normalized,
     path: trimmedPath,
     checkedPath: windowsPath,
-    message: normalized.ok
-      ? `Workspace folder is ready: ${trimmedPath}`
-      : normalized.message,
+    message: normalized.ok ? `Workspace folder is ready: ${trimmedPath}` : normalized.message,
   }
 }

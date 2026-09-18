@@ -169,13 +169,7 @@ export type ScanResult = {
 // from its `.claude-plugin/marketplace.json` when it has one (a marketplace),
 // else from every plugin manifest in its tree.
 
-export type SourceShape =
-  | 'claude-marketplace'
-  | 'claude-plugin'
-  | 'mcp-server'
-  | 'skills'
-  | 'mixed'
-  | 'empty'
+export type SourceShape = 'claude-marketplace' | 'claude-plugin' | 'mcp-server' | 'skills' | 'mixed' | 'empty'
 
 export const SOURCE_SHAPE_LABEL: Record<SourceShape, string> = {
   'claude-marketplace': 'Claude Code plugin marketplace',
@@ -523,7 +517,7 @@ export function linkedPluginShortfall(
   summary: LinkedPluginSummary,
   tokenConfigured: boolean,
   transport: SkillRepoTransport = 'api',
-  gitInstalled = true
+  gitInstalled = true,
 ): LinkedPluginShortfallPart[] {
   const parts: LinkedPluginShortfallPart[] = []
   if (summary.pending > 0) {
@@ -585,16 +579,16 @@ function isCompleteScannedPlugin(plugin: ScannedPlugin): boolean {
   const components = plugin.components as Partial<ScannedPluginComponents> | undefined
   if (!components) return false
   return (
-    typeof plugin.strict === 'boolean'
-    && Array.isArray(plugin.tags)
-    && Array.isArray(plugin.keywords)
-    && Array.isArray(components.skills)
-    && Array.isArray(components.commands)
-    && Array.isArray(components.agents)
-    && Array.isArray(components.hooks)
-    && Array.isArray(components.mcpServers)
-    && Array.isArray(components.lspServers)
-    && Array.isArray(components.missingSkills)
+    typeof plugin.strict === 'boolean' &&
+    Array.isArray(plugin.tags) &&
+    Array.isArray(plugin.keywords) &&
+    Array.isArray(components.skills) &&
+    Array.isArray(components.commands) &&
+    Array.isArray(components.agents) &&
+    Array.isArray(components.hooks) &&
+    Array.isArray(components.mcpServers) &&
+    Array.isArray(components.lspServers) &&
+    Array.isArray(components.missingSkills)
   )
 }
 
@@ -607,7 +601,7 @@ function isCompleteScannedPlugin(plugin: ScannedPlugin): boolean {
 function completeScannedPlugin(plugin: ScannedPlugin): ScannedPlugin {
   const stored = (plugin.components ?? {}) as Partial<ScannedPluginComponents>
   const empty = emptyPluginComponents()
-  const list = <T,>(value: T[] | undefined, fallback: T[]): T[] => (Array.isArray(value) ? value : fallback)
+  const list = <T>(value: T[] | undefined, fallback: T[]): T[] => (Array.isArray(value) ? value : fallback)
   return {
     ...plugin,
     strict: typeof plugin.strict === 'boolean' ? plugin.strict : true,
@@ -1199,11 +1193,7 @@ function foldedBlockValue(lines: readonly string[], start: number): string {
  * or a flow map on the field's own line. Values are strings, which is all the
  * specification defines the map to hold.
  */
-function readMetadataMap(
-  lines: readonly string[],
-  index: number,
-  inline: string
-): Record<string, string> {
+function readMetadataMap(lines: readonly string[], index: number, inline: string): Record<string, string> {
   const found: Record<string, string> = {}
   if (inline.startsWith('{') && inline.endsWith('}')) {
     for (const pair of inline.slice(1, -1).split(',')) {
@@ -1334,9 +1324,8 @@ function stripByteOrderMark(raw: string): string {
 function unquoteYamlScalar(value: string): string {
   const trimmed = value.trim()
   if (
-    trimmed.length >= 2
-    && ((trimmed.startsWith('"') && trimmed.endsWith('"'))
-      || (trimmed.startsWith("'") && trimmed.endsWith("'")))
+    trimmed.length >= 2 &&
+    ((trimmed.startsWith('"') && trimmed.endsWith('"')) || (trimmed.startsWith("'") && trimmed.endsWith("'")))
   ) {
     return trimmed.slice(1, -1).trim()
   }
@@ -1386,10 +1375,7 @@ export const SOURCE_UPDATE_INTERVAL_WITH_TOKEN_MS = HOUR_MS
 /** Without one: 60 an hour for the whole machine, so once a day per source. */
 export const SOURCE_UPDATE_INTERVAL_ANONYMOUS_MS = 24 * HOUR_MS
 
-export function sourceUpdateIntervalMs(
-  hasToken: boolean,
-  transport: SkillRepoTransport = 'api'
-): number {
+export function sourceUpdateIntervalMs(hasToken: boolean, transport: SkillRepoTransport = 'api'): number {
   // `ls-remote` costs the REST limit nothing, so the token stops deciding.
   if (transport === 'git') return SOURCE_UPDATE_INTERVAL_WITH_TOKEN_MS
   return hasToken ? SOURCE_UPDATE_INTERVAL_WITH_TOKEN_MS : SOURCE_UPDATE_INTERVAL_ANONYMOUS_MS
@@ -1413,7 +1399,7 @@ export function describeCheckAge(ageMs: number): string {
 export function sourceUpdateSkipMessage(
   ageMs: number,
   hasToken: boolean,
-  transport: SkillRepoTransport = 'api'
+  transport: SkillRepoTransport = 'api',
 ): string {
   const age = describeCheckAge(ageMs)
   if (transport === 'git') return `Checked ${age}; the studio checks each source once an hour over git.`
@@ -1423,10 +1409,7 @@ export function sourceUpdateSkipMessage(
 }
 
 /** The cadence in force, for the line beside the token field in Settings. */
-export function sourceUpdateCadenceLine(
-  hasToken: boolean,
-  transport: SkillRepoTransport = 'api'
-): string {
+export function sourceUpdateCadenceLine(hasToken: boolean, transport: SkillRepoTransport = 'api'): string {
   if (transport === 'git') {
     return "Plugin sources are checked for updates once an hour, over git. A head check is one git ls-remote, which GitHub's API rate limit does not count, so a GitHub token is not what decides the cadence."
   }

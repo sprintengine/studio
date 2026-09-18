@@ -59,11 +59,7 @@ import {
 import { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
 import { commandOnPath } from '../command-on-path'
 import { installSkill, uninstallSkill, type SkillInstallProvenance } from './install'
-import {
-  installPluginDirectory,
-  uninstallPluginDirectory,
-  type PluginDirectoryFile,
-} from './plugin-directory'
+import { installPluginDirectory, uninstallPluginDirectory, type PluginDirectoryFile } from './plugin-directory'
 import { isRecord } from '../../shared/records'
 
 // The mapping is shared with the renderer's own "Add this server" row, so both
@@ -217,7 +213,10 @@ export async function installPlugin(options: PluginInstallOptions): Promise<Plug
     // spell its own two cases, and once `incomplete` joined them a plugin whose
     // files could not be fetched was told the source "lists more plugins than
     // one scan reads" — a reason that had nothing to do with what happened.
-    return { ok: false, message: `${plugin.name} has not been read whole, so it cannot be installed. ${describeUnreadPlugin(plugin)}` }
+    return {
+      ok: false,
+      message: `${plugin.name} has not been read whole, so it cannot be installed. ${describeUnreadPlugin(plugin)}`,
+    }
   }
   if (plugin.id === STUDIO_PLUGIN_ID) {
     // The app installs its own plugin itself, by materialising the bundled
@@ -350,10 +349,7 @@ export async function installPlugin(options: PluginInstallOptions): Promise<Plug
   // catalogue.
   let nativeKey = ''
   const nativeEligible =
-    !filtered
-    && options.marketplaceName !== ''
-    && options.marketplaceRepo !== ''
-    && plugin.origin.kind !== 'registry'
+    !filtered && options.marketplaceName !== '' && options.marketplaceRepo !== '' && plugin.origin.kind !== 'registry'
   if (nativeEligible && options.harnesses.includes('claude')) {
     const key = claudePluginKey(plugin.id, options.marketplaceName)
     const enabled = await enableClaudePlugin({
@@ -413,16 +409,15 @@ export async function installPlugin(options: PluginInstallOptions): Promise<Plug
  * rewrite — a relative command like `./server`, or a runtime like `uvx` or
  * `docker` that simply is not installed — because they fail the same probe.
  */
-function missingRuntimeWarnings(
-  servers: readonly McpServerConfig[],
-  exists: (command: string) => boolean
-): string[] {
+function missingRuntimeWarnings(servers: readonly McpServerConfig[], exists: (command: string) => boolean): string[] {
   const warnings: string[] = []
   for (const server of servers) {
     const command = server.command?.trim() ?? ''
     if (server.transport !== 'stdio' || command === '') continue
     if (exists(command)) continue
-    warnings.push(`${server.name} runs \`${command}\`, which is not on this machine's PATH, so it will not start until that is installed.`)
+    warnings.push(
+      `${server.name} runs \`${command}\`, which is not on this machine's PATH, so it will not start until that is installed.`,
+    )
   }
   return warnings
 }
@@ -569,12 +564,12 @@ export async function readEnabledClaudePlugins(workspaceRoot: string): Promise<S
   return new Set(
     Object.entries(read.settings.enabledPlugins)
       .filter(([, value]) => value === true)
-      .map(([key]) => key)
+      .map(([key]) => key),
   )
 }
 
 async function readClaudeSettings(
-  path: string
+  path: string,
 ): Promise<{ ok: true; settings: ClaudeSettings } | { ok: false; message: string }> {
   let raw: string
   try {
@@ -593,11 +588,17 @@ async function readClaudeSettings(
   } catch (error) {
     // A file that does not parse is someone's work in progress; writing over
     // it would destroy whatever they were typing.
-    return { ok: false, message: `${CLAUDE_SETTINGS_RELATIVE_PATH} is not valid JSON, so it was left alone: ${describe(error)}` }
+    return {
+      ok: false,
+      message: `${CLAUDE_SETTINGS_RELATIVE_PATH} is not valid JSON, so it was left alone: ${describe(error)}`,
+    }
   }
 }
 
-async function writeClaudeSettings(path: string, settings: ClaudeSettings): Promise<{ ok: true } | { ok: false; message: string }> {
+async function writeClaudeSettings(
+  path: string,
+  settings: ClaudeSettings,
+): Promise<{ ok: true } | { ok: false; message: string }> {
   try {
     await mkdir(dirname(path), { recursive: true })
     const temp = `${path}.${process.pid}.tmp`

@@ -282,10 +282,7 @@ async function main(): Promise<void> {
           'selection reaches the accent only as an edge, and only through ' +
             `--selection-edge so the resting tier can drop it, found \`${token}\``,
         )
-        assert.ok(
-          !/^-?border-l(-|$)/.test(token),
-          `selection must not draw a left bar, found \`${token}\``,
-        )
+        assert.ok(!/^-?border-l(-|$)/.test(token), `selection must not draw a left bar, found \`${token}\``)
       }
     }
   })
@@ -296,9 +293,7 @@ async function main(): Promise<void> {
     for (const tab of tabs) {
       const classes = classesOf(tab)
       assert.ok(
-        classes.some((token) =>
-          /^focus-visible:(focus-ring|ring|outline|shadow|border)/.test(token),
-        ),
+        classes.some((token) => /^focus-visible:(focus-ring|ring|outline|shadow|border)/.test(token)),
         `tab "${tab.textContent}" declares a focus-visible indicator`,
       )
       assert.ok(
@@ -317,9 +312,7 @@ async function main(): Promise<void> {
       )
       if (!classes.includes('focus:outline-none')) continue
       assert.ok(
-        classes.some((token) =>
-          /^focus-visible:(focus-ring|ring|outline|shadow|border)/.test(token),
-        ),
+        classes.some((token) => /^focus-visible:(focus-ring|ring|outline|shadow|border)/.test(token)),
         'focus:outline-none is only allowed alongside a focus-visible replacement',
       )
     }
@@ -426,8 +419,7 @@ async function main(): Promise<void> {
   })
 
   await run('T10 every spacing utility in the composed tree lands on the 2px grid', () => {
-    const SPACING_UTILITY =
-      /^-?(?:px|py|pt|pr|pb|pl|p|mx|my|mt|mr|mb|ml|m|gap-x|gap-y|gap|space-x|space-y)-(.+)$/
+    const SPACING_UTILITY = /^-?(?:px|py|pt|pr|pb|pl|p|mx|my|mt|mr|mb|ml|m|gap-x|gap-y|gap|space-x|space-y)-(.+)$/
     for (const element of subtree(container.firstElementChild as Element)) {
       for (const token of classesOf(element)) {
         const match = token.match(SPACING_UTILITY)
@@ -436,10 +428,7 @@ async function main(): Promise<void> {
         // `gap-0.5` style fractions resolve; anything else (`auto`, `full`) is
         // not a grid value at all and is left alone.
         if (px === null) continue
-        assert.ok(
-          px % 2 === 0,
-          `\`${token}\` resolves to ${px}px, off the 2px grid`,
-        )
+        assert.ok(px % 2 === 0, `\`${token}\` resolves to ${px}px, off the 2px grid`)
       }
     }
   })
@@ -530,9 +519,7 @@ async function main(): Promise<void> {
               truncatedChars: 0,
             },
           ],
-          images: [
-            { kind: 'image', id: 'img-0', label: 'shot.png', thumbnailDataUrl: 'data:image/png;base64,AA' },
-          ],
+          images: [{ kind: 'image', id: 'img-0', label: 'shot.png', thumbnailDataUrl: 'data:image/png;base64,AA' }],
         },
         loading: false,
         now: peekNow,
@@ -547,10 +534,7 @@ async function main(): Promise<void> {
   await run('the peek card composes: a corner, a ring, a file row, a thumbnail and a thread', () => {
     assert.ok(peekContainer.querySelector('.agent-working-dots'), 'the corner drew the sidebar’s mark')
     assert.ok(peekContainer.querySelector('[aria-label="Context 38% used"]'), 'the ring drew')
-    assert.ok(
-      peekContainer.querySelector('[aria-label^="Open the diff for"]'),
-      'the changed file drew as a link',
-    )
+    assert.ok(peekContainer.querySelector('[aria-label^="Open the diff for"]'), 'the changed file drew as a link')
     assert.ok(peekContainer.querySelector('[aria-label="Open shot.png"]'), 'the image strip drew')
     assert.equal(peekContainer.querySelectorAll('li').length, 2, 'and the thread is one list of two rows')
   })
@@ -632,7 +616,10 @@ async function main(): Promise<void> {
     const row = peekContainer.querySelector('[aria-label^="Open the diff for"]') as Element
     assert.equal(row.tagName, 'BUTTON', 'a control, so it has a focus ring and a role')
     const classes = classesOf(row)
-    assert.ok(classes.some((token) => token.includes('focus-ring')), 'wearing the shared ring')
+    assert.ok(
+      classes.some((token) => token.includes('focus-ring')),
+      'wearing the shared ring',
+    )
     assert.ok(
       !classes.some((token) => /^h-\d|^min-h-control/.test(token)),
       'and no control height: six of these have to read as a list, not as six buttons',
@@ -654,9 +641,7 @@ async function main(): Promise<void> {
   // likely to drift into borrowing the previewed system's idioms. Mounted with a
   // fixture view and read as markup, like everything else here.
 
-  const { DesignCanvas } = await import(
-    '../workspace/globalSurface/design/DesignCanvas'
-  )
+  const { DesignCanvas } = await import('../workspace/globalSurface/design/DesignCanvas')
   const designContainer = dom.window.document.createElement('div')
   dom.window.document.body.appendChild(designContainer)
   const designRoot = createRoot(designContainer)
@@ -800,10 +785,7 @@ async function main(): Promise<void> {
     assert.ok(!text.includes('Anatomy'), 'and none of its headings')
     const frames = Array.from(designContainer.querySelectorAll('iframe')) as Element[]
     assert.equal(frames.length, 1, 'one live document per specimen on the page')
-    assert.ok(
-      (frames[0].getAttribute('srcdoc') ?? '').includes('ds-button'),
-      'and it is the component, composed',
-    )
+    assert.ok((frames[0].getAttribute('srcdoc') ?? '').includes('ds-button'), 'and it is the component, composed')
   })
 
   await run('2003 the door sets one face — no monospace anywhere in its chrome', () => {
@@ -840,10 +822,7 @@ async function main(): Promise<void> {
       }
     }
     for (const token of radii) {
-      assert.ok(
-        !/^rounded-(2xl|3xl|full)$/.test(token),
-        `marketing radii are reject-on-sight, found \`${token}\``,
-      )
+      assert.ok(!/^rounded-(2xl|3xl|full)$/.test(token), `marketing radii are reject-on-sight, found \`${token}\``)
     }
     assert.ok(radii.size <= 2, `two radii per view; found ${[...radii].join(', ')}`)
   })
@@ -920,9 +899,7 @@ async function main(): Promise<void> {
   // clone-from-GitHub, a DTCG token-file import, a marketplace shelf. Each was
   // rejected for its own reason, and each would be easy to re-add by accident.
 
-  const { NewDesignSystemScreen } = await import(
-    '../workspace/globalSurface/design/NewDesignSystemScreen'
-  )
+  const { NewDesignSystemScreen } = await import('../workspace/globalSurface/design/NewDesignSystemScreen')
   const newRoot = createRoot(designContainer)
   act(() => {
     newRoot.render(
@@ -941,8 +918,8 @@ async function main(): Promise<void> {
   })
 
   await run('2005 Point at a folder is the ONE accent-filled action on the screen', () => {
-    const primaries = (Array.from(designContainer.querySelectorAll('button')) as Element[]).filter(
-      (button) => classesOf(button).some((token) => token.startsWith('bg-[color:var(--accent-primary')),
+    const primaries = (Array.from(designContainer.querySelectorAll('button')) as Element[]).filter((button) =>
+      classesOf(button).some((token) => token.startsWith('bg-[color:var(--accent-primary')),
     )
     // The one accent-filled control rides the door bar (`DesignGlobalSurface`'s
     // `bar.actions`, audit 2026-09-02); the screen itself paints none.
@@ -969,8 +946,8 @@ async function main(): Promise<void> {
   await run('2005 a card names its system once, in the specimen — never again beneath', () => {
     // The specimen lives inside a sandboxed iframe (srcdoc), so the app-side
     // markup must carry the name only as the accessible label of the card.
-    const cards = (Array.from(designContainer.querySelectorAll('button')) as Element[]).filter(
-      (button) => (button.getAttribute('aria-label') ?? '').startsWith('Start from'),
+    const cards = (Array.from(designContainer.querySelectorAll('button')) as Element[]).filter((button) =>
+      (button.getAttribute('aria-label') ?? '').startsWith('Start from'),
     )
     assert.equal(cards.length, 2, 'one per source, plus Empty')
     const seeded = cards[0]
@@ -987,16 +964,7 @@ async function main(): Promise<void> {
 
   await run('2005 nothing clones, imports a token file, or names a marketplace', () => {
     const text = (designContainer.textContent ?? '').toLowerCase()
-    for (const forbidden of [
-      'github',
-      'clone',
-      'pull',
-      'fetch',
-      'marketplace',
-      'import',
-      'browse',
-      'url',
-    ]) {
+    for (const forbidden of ['github', 'clone', 'pull', 'fetch', 'marketplace', 'import', 'browse', 'url']) {
       assert.ok(!text.includes(forbidden), `the create screen must not offer "${forbidden}"`)
     }
   })
@@ -1027,24 +995,34 @@ async function main(): Promise<void> {
     trapRoot.render(
       // JSX for the same TS2769 reason as the Field block below.
       <Modal open onClose={() => {}}>
-        <button id="first" key="a">First</button>
-        <button id="last" key="b">Last</button>
+        <button id="first" key="a">
+          First
+        </button>
+        <button id="last" key="b">
+          Last
+        </button>
       </Modal>,
     )
   })
 
-  const sentinels = Array.from(
-    trapContainer.querySelectorAll('[data-focus-sentinel="true"]'),
-  ) as HTMLElement[]
+  const sentinels = Array.from(trapContainer.querySelectorAll('[data-focus-sentinel="true"]')) as HTMLElement[]
 
   await run('MC-2109 a Modal mounts one sentinel each side of the dialog it declares modal', () => {
     assert.equal(sentinels.length, 2, 'the dialog is guarded on both edges')
     const dialog = trapContainer.querySelector('[role="dialog"]')
     assert.ok(dialog, 'the dialog mounted')
-    assert.equal(sentinels[0].nextElementSibling, dialog, 'nothing tabbable sits between the opening sentinel and the dialog')
+    assert.equal(
+      sentinels[0].nextElementSibling,
+      dialog,
+      'nothing tabbable sits between the opening sentinel and the dialog',
+    )
     assert.equal(sentinels[1].previousElementSibling, dialog, 'nor between the dialog and the closing one')
     for (const sentinel of sentinels) {
-      assert.equal(sentinel.getAttribute('tabindex'), '0', 'a sentinel has to be in the tab order to catch the Tab that would leave')
+      assert.equal(
+        sentinel.getAttribute('tabindex'),
+        '0',
+        'a sentinel has to be in the tab order to catch the Tab that would leave',
+      )
     }
   })
 
@@ -1109,24 +1087,20 @@ async function main(): Promise<void> {
             <button id="inside">Inside</button>
           </div>
         </FocusTrap>
-        <button key="sibling" id="sibling">Sibling</button>
+        <button key="sibling" id="sibling">
+          Sibling
+        </button>
       </div>,
     )
   })
 
   await run('MC-2109 the trapped region is what the trap wraps, never a sibling beside it', () => {
-    const edges = Array.from(
-      trapContainer.querySelectorAll('[data-focus-sentinel="true"]'),
-    ) as HTMLElement[]
+    const edges = Array.from(trapContainer.querySelectorAll('[data-focus-sentinel="true"]')) as HTMLElement[]
     assert.equal(edges.length, 2, 'the trap mounted its sentinels')
     act(() => {
       edges[1].focus()
     })
-    assert.equal(
-      dom.window.document.activeElement?.id,
-      'inside',
-      'a control outside the trap is not part of its cycle',
-    )
+    assert.equal(dom.window.document.activeElement?.id, 'inside', 'a control outside the trap is not part of its cycle')
   })
 
   act(() => {
@@ -1281,9 +1255,7 @@ async function main(): Promise<void> {
           if (BORROWED.has(token)) borrowed.add(token)
         }
         if (borrowed.size === 0) return
-        const window = codeOnly
-          .slice(Math.max(0, index - NEARBY_LINES), index + NEARBY_LINES + 1)
-          .join('\n')
+        const window = codeOnly.slice(Math.max(0, index - NEARBY_LINES), index + NEARBY_LINES + 1).join('\n')
         if (!SELECTION_STATE.test(window)) return
         // The keyboard cursor's own branch, which the scope note above already
         // exempts in principle: `active` names the cursor, and the hover fill IS
@@ -1583,11 +1555,7 @@ async function main(): Promise<void> {
     // the thing it retired, and prose is not a class string.
     const modal = withoutComments(join(process.cwd(), 'src/renderer/src/components/ui/Modal.tsx'))
     for (const primitive of ['PrimaryButton', 'GhostButton', 'DangerButton']) {
-      assert.match(
-        modal,
-        new RegExp(`\\b${primitive}\\b`),
-        `the ${primitive} variant is the kit primitive`,
-      )
+      assert.match(modal, new RegExp(`\\b${primitive}\\b`), `the ${primitive} variant is the kit primitive`)
     }
     assert.ok(
       !/rounded-md px-3\.5 py-2/.test(modal),
@@ -1690,10 +1658,7 @@ async function main(): Promise<void> {
     // still measures what it did. This is the anatomy the whole item is phrased
     // against, asserted on the primitive's own source so a change to it has to
     // be deliberate rather than a silent re-scatter of every panel.
-    const header = readFileSync(
-      join(process.cwd(), 'src/renderer/src/components/ui/PanelHeader.tsx'),
-      'utf8',
-    )
+    const header = readFileSync(join(process.cwd(), 'src/renderer/src/components/ui/PanelHeader.tsx'), 'utf8')
     assert.match(header, /px-3 py-2/, 'the identity row is `px-3 py-2` — that inset IS the shared height')
     assert.match(
       header,
@@ -1812,9 +1777,7 @@ async function main(): Promise<void> {
         found.push({ line, tag: '', name: 'unresolved', allowed: false, canon: false })
         continue
       }
-      const allowed = raw
-        .slice(Math.max(0, line - 3), line)
-        .some((text) => ALLOW_MARKER.test(text))
+      const allowed = raw.slice(Math.max(0, line - 3), line).some((text) => ALLOW_MARKER.test(text))
       found.push({ line, tag: sliced.tag, name: sliced.name, allowed, canon: canon.test(sliced.tag) })
     }
     return found
@@ -1999,10 +1962,7 @@ async function main(): Promise<void> {
   })
 
   await run('MC-2114 exactly one Field is exported from the kit, and nobody imports a second', () => {
-    const barrel = readFileSync(
-      join(process.cwd(), 'src/renderer/src/components/ui/index.ts'),
-      'utf8',
-    )
+    const barrel = readFileSync(join(process.cwd(), 'src/renderer/src/components/ui/index.ts'), 'utf8')
     const exportsField = barrel
       .split('\n')
       .filter((line) => /^export\b/.test(line) && /(?:^|[{,\s])Field(?=[},\s])/.test(line))

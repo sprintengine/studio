@@ -20,9 +20,7 @@ export function isAutomationsHostWorkspace(workspace: WorkspaceModeInput): boole
 function moduleEnabledFromOverrides(
   moduleOverrides?: ModuleEnablementOverrides,
 ): ((moduleId: string) => boolean) | undefined {
-  return moduleOverrides
-    ? (moduleId) => selectModuleEnabled(moduleOverrides, moduleId)
-    : undefined
+  return moduleOverrides ? (moduleId) => selectModuleEnabled(moduleOverrides, moduleId) : undefined
 }
 
 // True for a workspace whose registered type set `hiddenFromRail` and whose
@@ -55,10 +53,7 @@ export function isRailHiddenModuleWorkspace(
 // renders its own layout, header, and tabs exactly like any other. What they
 // never do is render as a Projects-list row, a keyboard switch target, or a
 // command-palette result.
-export function isHiddenFromRail(
-  workspace: WorkspaceModeInput,
-  moduleOverrides?: ModuleEnablementOverrides,
-): boolean {
+export function isHiddenFromRail(workspace: WorkspaceModeInput, moduleOverrides?: ModuleEnablementOverrides): boolean {
   if (isModeHiddenFromRail(workspace.mode)) return true
   return isRailHiddenModuleWorkspace(workspace, moduleOverrides)
 }

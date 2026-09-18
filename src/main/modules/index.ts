@@ -14,8 +14,5 @@ export type BundledMainModuleOptions = {
 // (knowledge graph, filesystem) are foundational, always registered in
 // register-core-ipc; only their renderer panels are capability modules.
 export function createBundledMainModules(options: BundledMainModuleOptions): CapabilityModule[] {
-  return [
-    createAutomationsModule(options.automations),
-    mobileRelayModule,
-  ]
+  return [createAutomationsModule(options.automations), mobileRelayModule]
 }

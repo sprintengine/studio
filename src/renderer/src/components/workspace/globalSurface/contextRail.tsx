@@ -77,8 +77,7 @@ export function useContextRailSlot(): ContextRailSlot | null {
 export function escapeLeavesSurface(active: Element | null, surfaceRegion: HTMLElement | null): boolean {
   if (!(active instanceof HTMLElement)) return false
   const insideSurface =
-    (surfaceRegion !== null && surfaceRegion.contains(active))
-    || active.closest('[data-context-rail]') !== null
+    (surfaceRegion !== null && surfaceRegion.contains(active)) || active.closest('[data-context-rail]') !== null
   if (!insideSurface) return false
   return active.closest('[role="dialog"],[role="alertdialog"],[role="menu"],[role="listbox"]') === null
 }
@@ -169,9 +168,7 @@ export function ContextRailColumn({
       //
       // The Tailwind `hidden` class, not the `hidden` attribute: a `flex`
       // utility outranks the attribute rule and would leave it visible.
-      className={`context-rail-swap min-h-0 flex-1 flex-col outline-none ${
-        active ? 'flex' : 'hidden'
-      }`}
+      className={`context-rail-swap min-h-0 flex-1 flex-col outline-none ${active ? 'flex' : 'hidden'}`}
     >
       <div
         ref={railRef}

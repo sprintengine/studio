@@ -35,10 +35,7 @@ function handler(): Handler {
       if (channel === 'cards:run') registered = fn
     },
   }
-  registerCardsIpc(
-    ipcMain as unknown as Parameters<typeof registerCardsIpc>[0],
-    {} as unknown as CardsIpcServices,
-  )
+  registerCardsIpc(ipcMain as unknown as Parameters<typeof registerCardsIpc>[0], {} as unknown as CardsIpcServices)
   assert.ok(registered, 'the channel is registered under the name the preload calls')
   return registered as unknown as Handler
 }
@@ -64,11 +61,14 @@ async function main(): Promise<void> {
 
   // ── The chosen row travels, and comes back on the chat ───────────────────────
   {
-    const result = await run(null, envelope({
-      model: 'claude-opus-5',
-      reasoning: 'high',
-      permissionPreset: 'auto',
-    }))
+    const result = await run(
+      null,
+      envelope({
+        model: 'claude-opus-5',
+        reasoning: 'high',
+        permissionPreset: 'auto',
+      }),
+    )
     assert.equal(result.ok, true)
     assert.equal(result.chat?.model, 'claude-opus-5')
     assert.equal(result.chat?.reasoning, 'high')
@@ -80,11 +80,14 @@ async function main(): Promise<void> {
   // neither is a reason to refuse the installs, and neither may reach the far
   // side as a launch axis nobody can honour.
   {
-    const result = await run(null, envelope({
-      model: 7,
-      reasoning: { level: 'high' },
-      permissionPreset: 'bypass-everything-forever',
-    }))
+    const result = await run(
+      null,
+      envelope({
+        model: 7,
+        reasoning: { level: 'high' },
+        permissionPreset: 'bypass-everything-forever',
+      }),
+    )
     assert.equal(result.ok, true, 'a malformed launch axis does not stop the card')
     assert.equal(result.chat?.model, null, 'a model that is not a string is absent, not cast')
     assert.equal(result.chat?.reasoning, null)

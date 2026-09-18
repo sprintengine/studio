@@ -1,5 +1,10 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react'
-import type { ProcessMetricKind, ProcessMetricsSnapshot, TerminalReapEvent, WorkspaceMemorySample } from '../../../../shared/electron-api'
+import type {
+  ProcessMetricKind,
+  ProcessMetricsSnapshot,
+  TerminalReapEvent,
+  WorkspaceMemorySample,
+} from '../../../../shared/electron-api'
 import { Badge, GhostButton, StatusDot } from '../ui'
 import { Select } from '../ui/Select'
 import { Table } from '../ui/Table'
@@ -20,20 +25,9 @@ import {
   type ReplayProfileEntry,
 } from '../../utils/diagnostics/replayProfileStore'
 import { formatBytes, formatDiagnosticsReport } from '../../utils/diagnostics/formatDiagnosticsReport'
-import {
-  aggregatePerfEvents,
-  getPerfEventSamples,
-} from '../../utils/diagnostics/perfEventStore'
-import {
-  getLongTaskSamples,
-  startLongTaskObserver,
-  summarizeLongTasks,
-} from '../../utils/diagnostics/longTaskStore'
-import {
-  getFrameSamples,
-  startFrameMonitor,
-  summarizeFrameStats,
-} from '../../utils/diagnostics/frameStatsStore'
+import { aggregatePerfEvents, getPerfEventSamples } from '../../utils/diagnostics/perfEventStore'
+import { getLongTaskSamples, startLongTaskObserver, summarizeLongTasks } from '../../utils/diagnostics/longTaskStore'
+import { getFrameSamples, startFrameMonitor, summarizeFrameStats } from '../../utils/diagnostics/frameStatsStore'
 import { Sparkline } from './Sparkline'
 import {
   appendMetricsSample,
@@ -46,13 +40,8 @@ import {
   setMetricsBaseline,
 } from '../../utils/diagnostics/metricsHistoryStore'
 import { diffIpcSnapshots, type IpcThroughput } from '../../utils/diagnostics/ipcThroughputStore'
-import {
-  getTerminalWriteSamples,
-  summarizeTerminalThroughput,
-} from '../../utils/diagnostics/terminalThroughputStore'
-import {
-  collectScrollbackFootprint,
-} from '../../utils/diagnostics/terminalInstanceRegistry'
+import { getTerminalWriteSamples, summarizeTerminalThroughput } from '../../utils/diagnostics/terminalThroughputStore'
+import { collectScrollbackFootprint } from '../../utils/diagnostics/terminalInstanceRegistry'
 import type { IpcStatsSnapshot } from '../../../../shared/electron-api'
 
 // Poll process metrics once a second while the panel is mounted. Both surfaces
@@ -81,14 +70,14 @@ const WARNING_LABEL: Record<TerminalDiagnosticsWarning, string> = {
   'hidden-but-visible': 'Hidden workspace, runtime-visible',
   'large-replay': `Replay > ${formatBytes(LARGE_REPLAY_WARNING_BYTES)}`,
   'long-idle': 'Live > 6h and idle',
-  'stale': 'Not seen > 24h',
+  stale: 'Not seen > 24h',
 }
 
 const WARNING_SHORT: Record<TerminalDiagnosticsWarning, string> = {
   'hidden-but-visible': 'HIDDEN-VISIBLE',
   'large-replay': 'BIG-REPLAY',
   'long-idle': 'IDLE-6H',
-  'stale': 'STALE-24H',
+  stale: 'STALE-24H',
 }
 
 const SORT_OPTIONS: { key: TerminalDiagnosticsSortKey; label: string }[] = [
@@ -408,7 +397,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
 
   const aggregation = useMemo(
     () => aggregateDiagnostics({ sessions, activeWorkspaceIds, workspaceNames, now }),
-    [sessions, activeWorkspaceIds, workspaceNames, now]
+    [sessions, activeWorkspaceIds, workspaceNames, now],
   )
 
   // Real per-workspace process RSS, attributed in main from the pty subtrees.
@@ -426,21 +415,16 @@ export default function DiagnosticsContent({ headerActions }: Props) {
     return [...aggregation.workspaces].sort(
       (a, b) =>
         (workspaceMemoryById.get(b.workspaceId)?.totalMemoryBytes ?? 0) -
-        (workspaceMemoryById.get(a.workspaceId)?.totalMemoryBytes ?? 0)
+        (workspaceMemoryById.get(a.workspaceId)?.totalMemoryBytes ?? 0),
     )
   }, [aggregation.workspaces, workspaceMemoryById])
 
-  const sortedRows = useMemo(
-    () => sortTerminalDiagnosticsRows(aggregation.rows, sortKey),
-    [aggregation.rows, sortKey]
-  )
+  const sortedRows = useMemo(() => sortTerminalDiagnosticsRows(aggregation.rows, sortKey), [aggregation.rows, sortKey])
 
   // Terminals that are runtime-visible while their workspace is off-screen — the
   // set whose write throughput is "wasted" rendering work.
   const terminalThroughput = useMemo(() => {
-    const hiddenSessionIds = new Set(
-      aggregation.rows.filter((row) => row.hiddenButVisible).map((row) => row.sessionId)
-    )
+    const hiddenSessionIds = new Set(aggregation.rows.filter((row) => row.hiddenButVisible).map((row) => row.sessionId))
     return summarizeTerminalThroughput(getTerminalWriteSamples(), { hiddenSessionIds, now })
   }, [aggregation.rows, now])
 
@@ -610,148 +594,143 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           active={activeTab === 'memory'}
           className="flex flex-col gap-4"
         >
-        {/* Process metrics */}
-        <section>
-          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">Processes</h2>
-          {metrics && metrics.processes.length > 0 ? (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Kind</Th>
-                  <Th numeric>PID</Th>
-                  <Th>Type / name</Th>
-                  <Th numeric>CPU %</Th>
-                  <Th numeric>Reported memory</Th>
-                  <Th numeric>Threads</Th>
-                  <Th numeric>FDs</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {metrics.processes.map((process) => (
-                  <tr key={process.pid} className="border-b border-[color:var(--border-subtle)]">
-                    <Td>{PROCESS_KIND_LABEL[process.kind]}</Td>
-                    <Td numeric>{process.pid}</Td>
-                    <Td title={process.name}>{process.name ? `${process.type} · ${process.name}` : process.type}</Td>
-                    <Td numeric>{process.cpuPercent.toFixed(1)}</Td>
-                    <Td numeric>{formatBytes(process.memoryBytes)}</Td>
-                    <Td numeric>{process.threads ?? '—'}</Td>
-                    <Td numeric>{process.fileDescriptors ?? '—'}</Td>
+          {/* Process metrics */}
+          <section>
+            <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">Processes</h2>
+            {metrics && metrics.processes.length > 0 ? (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Kind</Th>
+                    <Th numeric>PID</Th>
+                    <Th>Type / name</Th>
+                    <Th numeric>CPU %</Th>
+                    <Th numeric>Reported memory</Th>
+                    <Th numeric>Threads</Th>
+                    <Th numeric>FDs</Th>
                   </tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : (
-            <p className="text-[color:var(--text-muted)]">Process metrics unavailable.</p>
-          )}
-          <p className="mt-1 text-micro text-[color:var(--text-subtle)]">
-            Electron rows use Electron working set; child rows use OS RSS. Their sum is reported process memory,
-            not macOS physical footprint or pressure attribution. Activity Monitor Memory can differ, especially
-            for GPU-owned IOSurfaces. CPU % is the rolling share since the previous sample. Thread counts are
-            sampled from the OS off the poll path (refreshed every few seconds); FD counts are not collected.
-          </p>
-        </section>
+                </thead>
+                <tbody>
+                  {metrics.processes.map((process) => (
+                    <tr key={process.pid} className="border-b border-[color:var(--border-subtle)]">
+                      <Td>{PROCESS_KIND_LABEL[process.kind]}</Td>
+                      <Td numeric>{process.pid}</Td>
+                      <Td title={process.name}>{process.name ? `${process.type} · ${process.name}` : process.type}</Td>
+                      <Td numeric>{process.cpuPercent.toFixed(1)}</Td>
+                      <Td numeric>{formatBytes(process.memoryBytes)}</Td>
+                      <Td numeric>{process.threads ?? '—'}</Td>
+                      <Td numeric>{process.fileDescriptors ?? '—'}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            ) : (
+              <p className="text-[color:var(--text-muted)]">Process metrics unavailable.</p>
+            )}
+            <p className="mt-1 text-micro text-[color:var(--text-subtle)]">
+              Electron rows use Electron working set; child rows use OS RSS. Their sum is reported process memory, not
+              macOS physical footprint or pressure attribution. Activity Monitor Memory can differ, especially for
+              GPU-owned IOSurfaces. CPU % is the rolling share since the previous sample. Thread counts are sampled from
+              the OS off the poll path (refreshed every few seconds); FD counts are not collected.
+            </p>
+          </section>
 
-        {/* Memory trend + baseline diff */}
-        <section>
-          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">Memory trend</h2>
-          {metricsTrend.current ? (
-            <div className="flex flex-col gap-1 text-micro text-[color:var(--text-default)]">
-              <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
-                <span>Reported process memory <strong>{formatBytes(metricsTrend.current.totalRssBytes)}</strong></span>
-                <span>renderer {formatBytes(metricsTrend.current.rendererRssBytes)}</span>
-                <span>main {formatBytes(metricsTrend.current.mainRssBytes)}</span>
-                <span>gpu {formatBytes(metricsTrend.current.gpuRssBytes)}</span>
-                <span>children {formatBytes(metricsTrend.current.childRssBytes)}</span>
-                {metricsTrend.current.rendererHeapUsedBytes !== null && (
-                  <span>renderer JS heap {formatBytes(metricsTrend.current.rendererHeapUsedBytes)}</span>
-                )}
-              </div>
-              {metricsTrend.current.systemMemory && (
+          {/* Memory trend + baseline diff */}
+          <section>
+            <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">Memory trend</h2>
+            {metricsTrend.current ? (
+              <div className="flex flex-col gap-1 text-micro text-[color:var(--text-default)]">
                 <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
                   <span>
-                    Estimated system utilization{' '}
-                    <strong>
-                      {Math.round(metricsTrend.current.systemMemory.utilizationRatio * 100)}%
-                    </strong>{' '}
-                    (
-                      {formatBytes(metricsTrend.current.systemMemory.usedBytes)} /{' '}
-                      {formatBytes(metricsTrend.current.systemMemory.totalBytes)}
-                    {' '}estimated non-reclaimable)
+                    Reported process memory <strong>{formatBytes(metricsTrend.current.totalRssBytes)}</strong>
                   </span>
-                  <span>estimated available {formatBytes(metricsTrend.current.systemMemory.availableBytes)}</span>
-                  {metricsTrend.current.systemMemory.compressedBytes > 0 && (
-                    <span>compressed {formatBytes(metricsTrend.current.systemMemory.compressedBytes)}</span>
-                  )}
-                  {metricsTrend.current.systemMemory.swapUsedBytes > 0 && (
-                    <span>swap {formatBytes(metricsTrend.current.systemMemory.swapUsedBytes)}</span>
+                  <span>renderer {formatBytes(metricsTrend.current.rendererRssBytes)}</span>
+                  <span>main {formatBytes(metricsTrend.current.mainRssBytes)}</span>
+                  <span>gpu {formatBytes(metricsTrend.current.gpuRssBytes)}</span>
+                  <span>children {formatBytes(metricsTrend.current.childRssBytes)}</span>
+                  {metricsTrend.current.rendererHeapUsedBytes !== null && (
+                    <span>renderer JS heap {formatBytes(metricsTrend.current.rendererHeapUsedBytes)}</span>
                   )}
                 </div>
-              )}
-              <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-micro text-[color:var(--text-subtle)]">
-                <span className="flex items-center gap-1 text-[color:var(--text-muted)]">
-                  renderer
-                  <Sparkline values={memorySparklines.rendererRss} title="Renderer RSS over recent samples" />
-                </span>
-                <span className="flex items-center gap-1 text-[color:var(--text-muted)]">
-                  gpu
-                  <Sparkline values={memorySparklines.gpuRss} title="GPU RSS over recent samples" />
-                </span>
-                {metricsTrend.current.rendererHeapUsedBytes !== null && (
-                  <span className="flex items-center gap-1 text-[color:var(--text-muted)]">
-                    heap
-                    <Sparkline values={memorySparklines.heap} title="Renderer JS heap over recent samples" />
-                  </span>
-                )}
-              </div>
-              <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-muted)]">
-                <span>
-                  Growth ({Math.round(metricsTrend.growth.windowMs / 1000)}s): RSS{' '}
-                  <WarnMetric flagged={(metricsTrend.growth.rssBytesPerMin ?? 0) > 0} label="RSS is growing">
-                    {formatPerMin(metricsTrend.growth.rssBytesPerMin)}
-                  </WarnMetric>
-                </span>
-                <span>heap {formatPerMin(metricsTrend.growth.heapBytesPerMin)}</span>
-                <span className="text-[color:var(--text-subtle)]">{metricsTrend.growth.sampleCount} samples</span>
-              </div>
-              {metricsTrend.peaks && metricsTrend.peaks.totalRssBytes > 0 && (
-                <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-muted)]">
-                  <span>Peak this session: reported memory {formatBytes(metricsTrend.peaks.totalRssBytes)}</span>
-                  <span>children {formatBytes(metricsTrend.peaks.childRssBytes)}</span>
-                  {metricsTrend.peaks.systemUtilizationRatio !== null && (
+                {metricsTrend.current.systemMemory && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums">
                     <span>
-                      estimated utilization {Math.round(metricsTrend.peaks.systemUtilizationRatio * 100)}%
+                      Estimated system utilization{' '}
+                      <strong>{Math.round(metricsTrend.current.systemMemory.utilizationRatio * 100)}%</strong> (
+                      {formatBytes(metricsTrend.current.systemMemory.usedBytes)} /{' '}
+                      {formatBytes(metricsTrend.current.systemMemory.totalBytes)} estimated non-reclaimable)
+                    </span>
+                    <span>estimated available {formatBytes(metricsTrend.current.systemMemory.availableBytes)}</span>
+                    {metricsTrend.current.systemMemory.compressedBytes > 0 && (
+                      <span>compressed {formatBytes(metricsTrend.current.systemMemory.compressedBytes)}</span>
+                    )}
+                    {metricsTrend.current.systemMemory.swapUsedBytes > 0 && (
+                      <span>swap {formatBytes(metricsTrend.current.systemMemory.swapUsedBytes)}</span>
+                    )}
+                  </div>
+                )}
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-micro text-[color:var(--text-subtle)]">
+                  <span className="flex items-center gap-1 text-[color:var(--text-muted)]">
+                    renderer
+                    <Sparkline values={memorySparklines.rendererRss} title="Renderer RSS over recent samples" />
+                  </span>
+                  <span className="flex items-center gap-1 text-[color:var(--text-muted)]">
+                    gpu
+                    <Sparkline values={memorySparklines.gpuRss} title="GPU RSS over recent samples" />
+                  </span>
+                  {metricsTrend.current.rendererHeapUsedBytes !== null && (
+                    <span className="flex items-center gap-1 text-[color:var(--text-muted)]">
+                      heap
+                      <Sparkline values={memorySparklines.heap} title="Renderer JS heap over recent samples" />
                     </span>
                   )}
                 </div>
-              )}
-              {metricsTrend.baseline && (
-                <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-strong)]">
-                  {(() => {
-                    const b = metricsTrend.baseline
-                    const c = metricsTrend.current
-                    const dTotal = c.totalRssBytes - b.totalRssBytes
-                    const dRenderer = c.rendererRssBytes - b.rendererRssBytes
-                    const dHeap =
-                      c.rendererHeapUsedBytes !== null && b.rendererHeapUsedBytes !== null
-                        ? c.rendererHeapUsedBytes - b.rendererHeapUsedBytes
-                        : null
-                    return (
-                      <>
-                        <span>vs baseline ({formatRelativeMsAgo(b.sampledAt, now) || 'just now'}):</span>
-                        <span>Δ total {formatSignedBytes(dTotal)}</span>
-                        <span>Δ renderer {formatSignedBytes(dRenderer)}</span>
-                        <span>Δ heap {dHeap === null ? '—' : formatSignedBytes(dHeap)}</span>
-                      </>
-                    )
-                  })()}
+                <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-muted)]">
+                  <span>
+                    Growth ({Math.round(metricsTrend.growth.windowMs / 1000)}s): RSS{' '}
+                    <WarnMetric flagged={(metricsTrend.growth.rssBytesPerMin ?? 0) > 0} label="RSS is growing">
+                      {formatPerMin(metricsTrend.growth.rssBytesPerMin)}
+                    </WarnMetric>
+                  </span>
+                  <span>heap {formatPerMin(metricsTrend.growth.heapBytesPerMin)}</span>
+                  <span className="text-[color:var(--text-subtle)]">{metricsTrend.growth.sampleCount} samples</span>
                 </div>
-              )}
-            </div>
-          ) : (
-            <p className="text-[color:var(--text-muted)]">Collecting samples…</p>
-          )}
-        </section>
-
+                {metricsTrend.peaks && metricsTrend.peaks.totalRssBytes > 0 && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-muted)]">
+                    <span>Peak this session: reported memory {formatBytes(metricsTrend.peaks.totalRssBytes)}</span>
+                    <span>children {formatBytes(metricsTrend.peaks.childRssBytes)}</span>
+                    {metricsTrend.peaks.systemUtilizationRatio !== null && (
+                      <span>estimated utilization {Math.round(metricsTrend.peaks.systemUtilizationRatio * 100)}%</span>
+                    )}
+                  </div>
+                )}
+                {metricsTrend.baseline && (
+                  <div className="flex flex-wrap gap-x-4 gap-y-1 tabular-nums text-[color:var(--text-strong)]">
+                    {(() => {
+                      const b = metricsTrend.baseline
+                      const c = metricsTrend.current
+                      const dTotal = c.totalRssBytes - b.totalRssBytes
+                      const dRenderer = c.rendererRssBytes - b.rendererRssBytes
+                      const dHeap =
+                        c.rendererHeapUsedBytes !== null && b.rendererHeapUsedBytes !== null
+                          ? c.rendererHeapUsedBytes - b.rendererHeapUsedBytes
+                          : null
+                      return (
+                        <>
+                          <span>vs baseline ({formatRelativeMsAgo(b.sampledAt, now) || 'just now'}):</span>
+                          <span>Δ total {formatSignedBytes(dTotal)}</span>
+                          <span>Δ renderer {formatSignedBytes(dRenderer)}</span>
+                          <span>Δ heap {dHeap === null ? '—' : formatSignedBytes(dHeap)}</span>
+                        </>
+                      )
+                    })()}
+                  </div>
+                )}
+              </div>
+            ) : (
+              <p className="text-[color:var(--text-muted)]">Collecting samples…</p>
+            )}
+          </section>
         </TabPanel>
 
         {/* Rendering */}
@@ -761,88 +740,87 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           active={activeTab === 'rendering'}
           className="flex flex-col gap-4"
         >
-        {/* Long tasks */}
-        <section>
-          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
-            Long tasks (main-thread stalls &gt; 50ms, last {Math.round(longTaskSummary.windowMs / 1000)}s)
-          </h2>
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-micro tabular-nums text-[color:var(--text-default)]">
-            <WarnMetric flagged={longTaskSummary.count > 0} label="Long tasks recorded">
-              Count <strong>{longTaskSummary.count}</strong>
-            </WarnMetric>
-            <span>Blocking {longTaskSummary.totalBlockingMs} ms</span>
-            <span>Max {msOrDash(longTaskSummary.maxMs)} ms</span>
-            <span>p95 {msOrDash(longTaskSummary.p95Ms)} ms</span>
-            <span className="text-[color:var(--text-subtle)]">
-              {longTaskSummary.lastAt ? `last ${formatRelativeMsAgo(longTaskSummary.lastAt, now)}` : 'none'}
-            </span>
-          </div>
-        </section>
+          {/* Long tasks */}
+          <section>
+            <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
+              Long tasks (main-thread stalls &gt; 50ms, last {Math.round(longTaskSummary.windowMs / 1000)}s)
+            </h2>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-micro tabular-nums text-[color:var(--text-default)]">
+              <WarnMetric flagged={longTaskSummary.count > 0} label="Long tasks recorded">
+                Count <strong>{longTaskSummary.count}</strong>
+              </WarnMetric>
+              <span>Blocking {longTaskSummary.totalBlockingMs} ms</span>
+              <span>Max {msOrDash(longTaskSummary.maxMs)} ms</span>
+              <span>p95 {msOrDash(longTaskSummary.p95Ms)} ms</span>
+              <span className="text-[color:var(--text-subtle)]">
+                {longTaskSummary.lastAt ? `last ${formatRelativeMsAgo(longTaskSummary.lastAt, now)}` : 'none'}
+              </span>
+            </div>
+          </section>
 
-        {/* Frame cadence (rAF) — per-frame jank the longtask observer misses */}
-        <section>
-          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
-            Rendering cadence (frames, last {Math.round(frameStats.windowMs / 1000)}s)
-          </h2>
-          <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-micro tabular-nums text-[color:var(--text-default)]">
-            <WarnMetric flagged={frameStats.fps !== null && frameStats.fps < 50} label="Frame rate below 50">
-              FPS <strong>{frameStats.fps ?? '—'}</strong>
-            </WarnMetric>
-            <WarnMetric flagged={frameStats.longFrameCount > 0} label="Long frames recorded">
-              Long frames {frameStats.longFrameCount} ({frameStats.longFramePercent}%)
-            </WarnMetric>
-            <span>p95 {msOrDash(frameStats.p95Ms)} ms</span>
-            <span>worst {msOrDash(frameStats.maxMs)} ms</span>
-            <span className="text-[color:var(--text-subtle)]">{frameStats.frameCount} frames</span>
-            <span className="text-[color:var(--text-muted)]">
-              <Sparkline values={frameDurations} title="Frame durations (ms) — spikes are stutters" />
-            </span>
-          </div>
-          <p className="mt-0.5 text-micro text-[color:var(--text-subtle)]">
-            Catches per-frame jank (style/layout/compositing) that no single &gt;50ms task shows. Main-thread
-            cadence — pure GPU draw stalls can read low here; confirm those in DevTools.
-          </p>
-        </section>
-
-        {/* Perf events rollup */}
-        <section>
-          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
-            Perf events ({perfRollup.length})
-          </h2>
-          {perfRollup.length > 0 ? (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Scope</Th>
-                  <Th>Event</Th>
-                  <Th numeric>Count</Th>
-                  <Th numeric>p50 ms</Th>
-                  <Th numeric>p95 ms</Th>
-                  <Th numeric>Max ms</Th>
-                  <Th numeric>Last ms</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {perfRollup.map((row) => (
-                  <tr key={`${row.scope}-${row.event}`} className="border-b border-[color:var(--border-subtle)]">
-                    <Td>{row.scope}</Td>
-                    <Td>{row.event}</Td>
-                    <Td numeric>{row.count}</Td>
-                    <Td numeric>{msOrDash(row.p50Ms)}</Td>
-                    <Td numeric>{msOrDash(row.p95Ms)}</Td>
-                    <Td numeric>{msOrDash(row.maxMs)}</Td>
-                    <Td numeric>{msOrDash(row.lastMs)}</Td>
-                  </tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : (
-            <p className="text-[color:var(--text-muted)]">
-              No perf events captured yet. They accrue as instrumented paths run.
+          {/* Frame cadence (rAF) — per-frame jank the longtask observer misses */}
+          <section>
+            <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
+              Rendering cadence (frames, last {Math.round(frameStats.windowMs / 1000)}s)
+            </h2>
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-1 text-micro tabular-nums text-[color:var(--text-default)]">
+              <WarnMetric flagged={frameStats.fps !== null && frameStats.fps < 50} label="Frame rate below 50">
+                FPS <strong>{frameStats.fps ?? '—'}</strong>
+              </WarnMetric>
+              <WarnMetric flagged={frameStats.longFrameCount > 0} label="Long frames recorded">
+                Long frames {frameStats.longFrameCount} ({frameStats.longFramePercent}%)
+              </WarnMetric>
+              <span>p95 {msOrDash(frameStats.p95Ms)} ms</span>
+              <span>worst {msOrDash(frameStats.maxMs)} ms</span>
+              <span className="text-[color:var(--text-subtle)]">{frameStats.frameCount} frames</span>
+              <span className="text-[color:var(--text-muted)]">
+                <Sparkline values={frameDurations} title="Frame durations (ms) — spikes are stutters" />
+              </span>
+            </div>
+            <p className="mt-0.5 text-micro text-[color:var(--text-subtle)]">
+              Catches per-frame jank (style/layout/compositing) that no single &gt;50ms task shows. Main-thread cadence
+              — pure GPU draw stalls can read low here; confirm those in DevTools.
             </p>
-          )}
-        </section>
+          </section>
 
+          {/* Perf events rollup */}
+          <section>
+            <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
+              Perf events ({perfRollup.length})
+            </h2>
+            {perfRollup.length > 0 ? (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Scope</Th>
+                    <Th>Event</Th>
+                    <Th numeric>Count</Th>
+                    <Th numeric>p50 ms</Th>
+                    <Th numeric>p95 ms</Th>
+                    <Th numeric>Max ms</Th>
+                    <Th numeric>Last ms</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {perfRollup.map((row) => (
+                    <tr key={`${row.scope}-${row.event}`} className="border-b border-[color:var(--border-subtle)]">
+                      <Td>{row.scope}</Td>
+                      <Td>{row.event}</Td>
+                      <Td numeric>{row.count}</Td>
+                      <Td numeric>{msOrDash(row.p50Ms)}</Td>
+                      <Td numeric>{msOrDash(row.p95Ms)}</Td>
+                      <Td numeric>{msOrDash(row.maxMs)}</Td>
+                      <Td numeric>{msOrDash(row.lastMs)}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            ) : (
+              <p className="text-[color:var(--text-muted)]">
+                No perf events captured yet. They accrue as instrumented paths run.
+              </p>
+            )}
+          </section>
         </TabPanel>
 
         {/* Terminals */}
@@ -852,144 +830,140 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           active={activeTab === 'terminals'}
           className="flex flex-col gap-4"
         >
-
-        {/* Terminal table */}
-        <section>
-          <div className="mb-1 flex items-center justify-between">
-            <h2 className="text-micro font-semibold text-[color:var(--text-muted)]">
-              Terminals ({aggregation.rows.length})
-            </h2>
-            <div className="flex items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
-              <span>Sort</span>
-              <Select<TerminalDiagnosticsSortKey>
-                ariaLabel="Sort terminals by"
-                items={SORT_OPTIONS.map((option) => ({ value: option.key, label: option.label }))}
-                value={sortKey}
-                onChange={setSortKey}
-              />
+          {/* Terminal table */}
+          <section>
+            <div className="mb-1 flex items-center justify-between">
+              <h2 className="text-micro font-semibold text-[color:var(--text-muted)]">
+                Terminals ({aggregation.rows.length})
+              </h2>
+              <div className="flex items-center gap-1.5 text-micro text-[color:var(--text-muted)]">
+                <span>Sort</span>
+                <Select<TerminalDiagnosticsSortKey>
+                  ariaLabel="Sort terminals by"
+                  items={SORT_OPTIONS.map((option) => ({ value: option.key, label: option.label }))}
+                  value={sortKey}
+                  onChange={setSortKey}
+                />
+              </div>
             </div>
-          </div>
-          {sortedRows.length > 0 ? (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Workspace</Th>
-                  <Th>Agent / term</Th>
-                  <Th>Kind</Th>
-                  <Th>Alive</Th>
-                  <Th>Activity</Th>
-                  <Th>Vis</Th>
-                  <Th numeric>Retained</Th>
-                  <Th numeric>Limit</Th>
-                  <Th>Tier</Th>
-                  <Th numeric>Last output</Th>
-                  <Th>Warnings</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {sortedRows.map((row) => (
-                  <tr
-                    key={row.sessionId}
-                    // The warning badges in the last cell carry the row's
-                    // state; a tinted row ground said it a second time.
-                    className="border-b border-[color:var(--border-subtle)]"
-                  >
-                    <Td title={row.workspaceId ?? undefined}>{row.workspaceName ?? row.workspaceId ?? '—'}</Td>
-                    <Td title={row.sessionId}>{row.agentId ?? row.terminalId ?? row.sessionId}</Td>
-                    <Td>{row.cli ? `${row.kind}·${row.cli}` : row.kind}</Td>
-                    <Td>{row.processAlive ? 'yes' : 'no'}</Td>
-                    <Td>{activityLabel(row.activity)}</Td>
-                    <Td>
-                      {row.hiddenButVisible ? (
-                        <WarnMetric flagged label="Runtime-visible but workspace is hidden">
-                          hidden
-                        </WarnMetric>
-                      ) : row.visible ? (
-                        'yes'
-                      ) : (
-                        'no'
-                      )}
-                    </Td>
-                    <Td numeric>{formatBytes(row.retainedOutputBytes)}</Td>
-                    <Td numeric>{row.replayLimitBytes !== null ? formatBytes(row.replayLimitBytes) : '—'}</Td>
-                    <Td>{row.historyTier ?? '—'}</Td>
-                    <Td numeric>{formatRelativeMsAgo(row.lastOutputAt, now) || '—'}</Td>
-                    <Td>
-                      {row.warnings.length > 0 ? (
-                        <span className="flex flex-wrap gap-1">
-                          {row.warnings.map((warning) => (
-                            <Badge key={warning} tone="warn" ariaLabel={WARNING_LABEL[warning]}>
-                              {WARNING_SHORT[warning]}
-                            </Badge>
-                          ))}
-                        </span>
-                      ) : (
-                        <span className="text-[color:var(--text-subtle)]">—</span>
-                      )}
-                    </Td>
+            {sortedRows.length > 0 ? (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Workspace</Th>
+                    <Th>Agent / term</Th>
+                    <Th>Kind</Th>
+                    <Th>Alive</Th>
+                    <Th>Activity</Th>
+                    <Th>Vis</Th>
+                    <Th numeric>Retained</Th>
+                    <Th numeric>Limit</Th>
+                    <Th>Tier</Th>
+                    <Th numeric>Last output</Th>
+                    <Th>Warnings</Th>
                   </tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : (
-            <p className="text-[color:var(--text-muted)]">No terminal sessions.</p>
-          )}
-        </section>
+                </thead>
+                <tbody>
+                  {sortedRows.map((row) => (
+                    <tr
+                      key={row.sessionId}
+                      // The warning badges in the last cell carry the row's
+                      // state; a tinted row ground said it a second time.
+                      className="border-b border-[color:var(--border-subtle)]"
+                    >
+                      <Td title={row.workspaceId ?? undefined}>{row.workspaceName ?? row.workspaceId ?? '—'}</Td>
+                      <Td title={row.sessionId}>{row.agentId ?? row.terminalId ?? row.sessionId}</Td>
+                      <Td>{row.cli ? `${row.kind}·${row.cli}` : row.kind}</Td>
+                      <Td>{row.processAlive ? 'yes' : 'no'}</Td>
+                      <Td>{activityLabel(row.activity)}</Td>
+                      <Td>
+                        {row.hiddenButVisible ? (
+                          <WarnMetric flagged label="Runtime-visible but workspace is hidden">
+                            hidden
+                          </WarnMetric>
+                        ) : row.visible ? (
+                          'yes'
+                        ) : (
+                          'no'
+                        )}
+                      </Td>
+                      <Td numeric>{formatBytes(row.retainedOutputBytes)}</Td>
+                      <Td numeric>{row.replayLimitBytes !== null ? formatBytes(row.replayLimitBytes) : '—'}</Td>
+                      <Td>{row.historyTier ?? '—'}</Td>
+                      <Td numeric>{formatRelativeMsAgo(row.lastOutputAt, now) || '—'}</Td>
+                      <Td>
+                        {row.warnings.length > 0 ? (
+                          <span className="flex flex-wrap gap-1">
+                            {row.warnings.map((warning) => (
+                              <Badge key={warning} tone="warn" ariaLabel={WARNING_LABEL[warning]}>
+                                {WARNING_SHORT[warning]}
+                              </Badge>
+                            ))}
+                          </span>
+                        ) : (
+                          <span className="text-[color:var(--text-subtle)]">—</span>
+                        )}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            ) : (
+              <p className="text-[color:var(--text-muted)]">No terminal sessions.</p>
+            )}
+          </section>
 
-        {/* Reaped terminals — audit trail of what the main-process reaper
+          {/* Reaped terminals — audit trail of what the main-process reaper
             suspended/disposed this session, and from which workspace. */}
-        <section>
-          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
-            Reaped terminals ({metrics?.reapEvents?.length ?? 0})
-          </h2>
-          <p className="mb-2 text-micro text-[color:var(--text-subtle)]">
-            Idle agents the reaper suspended (outside the hot set, past the idle threshold) or the 24h
-            stale backstop disposed. Most recent first; bounded ring buffer, cleared on app restart. A
-            reaped agent keeps its resume flags and relaunches with --resume on reopen.
-          </p>
-          {metrics?.reapEvents && metrics.reapEvents.length > 0 ? (
-            <Table>
-              <thead>
-                <tr>
-                  <Th numeric>Reaped</Th>
-                  <Th>Workspace</Th>
-                  <Th>Agent / term</Th>
-                  <Th>Kind</Th>
-                  <Th>Reason</Th>
-                  <Th numeric>Idle / unseen</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {metrics.reapEvents.map((event: TerminalReapEvent) => (
-                  <tr
-                    key={`${event.sessionId}-${event.reapedAt}`}
-                    className="border-b border-[color:var(--border-subtle)]"
-                  >
-                    <Td numeric>{formatRelativeMsAgo(event.reapedAt, now) || 'just now'}</Td>
-                    <Td title={event.workspaceId ?? undefined}>
-                      {(event.workspaceId ? workspaceNames.get(event.workspaceId) : null) ??
-                        event.workspaceId ??
-                        '—'}
-                    </Td>
-                    <Td title={event.sessionId}>{event.agentId ?? event.terminalId ?? event.sessionId}</Td>
-                    <Td>{event.cli ? `${event.kind}·${event.cli}` : event.kind}</Td>
-                    <Td>{REAP_REASON_LABEL[event.reason]}</Td>
-                    <Td numeric>
-                      {event.idleMs !== undefined
-                        ? formatDurationMs(event.idleMs)
-                        : event.unseenMs !== undefined
-                          ? formatDurationMs(event.unseenMs)
-                          : '—'}
-                    </Td>
+          <section>
+            <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
+              Reaped terminals ({metrics?.reapEvents?.length ?? 0})
+            </h2>
+            <p className="mb-2 text-micro text-[color:var(--text-subtle)]">
+              Idle agents the reaper suspended (outside the hot set, past the idle threshold) or the 24h stale backstop
+              disposed. Most recent first; bounded ring buffer, cleared on app restart. A reaped agent keeps its resume
+              flags and relaunches with --resume on reopen.
+            </p>
+            {metrics?.reapEvents && metrics.reapEvents.length > 0 ? (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th numeric>Reaped</Th>
+                    <Th>Workspace</Th>
+                    <Th>Agent / term</Th>
+                    <Th>Kind</Th>
+                    <Th>Reason</Th>
+                    <Th numeric>Idle / unseen</Th>
                   </tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : (
-            <p className="text-[color:var(--text-muted)]">Nothing reaped yet this session.</p>
-          )}
-        </section>
-
+                </thead>
+                <tbody>
+                  {metrics.reapEvents.map((event: TerminalReapEvent) => (
+                    <tr
+                      key={`${event.sessionId}-${event.reapedAt}`}
+                      className="border-b border-[color:var(--border-subtle)]"
+                    >
+                      <Td numeric>{formatRelativeMsAgo(event.reapedAt, now) || 'just now'}</Td>
+                      <Td title={event.workspaceId ?? undefined}>
+                        {(event.workspaceId ? workspaceNames.get(event.workspaceId) : null) ?? event.workspaceId ?? '—'}
+                      </Td>
+                      <Td title={event.sessionId}>{event.agentId ?? event.terminalId ?? event.sessionId}</Td>
+                      <Td>{event.cli ? `${event.kind}·${event.cli}` : event.kind}</Td>
+                      <Td>{REAP_REASON_LABEL[event.reason]}</Td>
+                      <Td numeric>
+                        {event.idleMs !== undefined
+                          ? formatDurationMs(event.idleMs)
+                          : event.unseenMs !== undefined
+                            ? formatDurationMs(event.unseenMs)
+                            : '—'}
+                      </Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            ) : (
+              <p className="text-[color:var(--text-muted)]">Nothing reaped yet this session.</p>
+            )}
+          </section>
         </TabPanel>
 
         {/* Workspaces — per-workspace resident memory + terminal rollup */}
@@ -999,65 +973,64 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           active={activeTab === 'workspaces'}
           className="flex flex-col gap-4"
         >
-        <section>
-          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
-            Workspaces ({workspacesByMemory.length})
-          </h2>
-          <p className="mb-2 text-micro text-[color:var(--text-subtle)]">
-            Memory is the real RSS of each workspace's agent/terminal subtrees (the CLI plus its MCP/dev-server
-            children), summed in the main process. Shared app overhead (main, renderer, GPU) is not attributed here,
-            so these sum to less than the app total. &quot;Live for&quot; is since the oldest live terminal started.
-          </p>
-          {workspacesByMemory.length > 0 ? (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Workspace</Th>
-                  <Th numeric>Memory</Th>
-                  <Th numeric>Live</Th>
-                  <Th numeric>Active</Th>
-                  <Th numeric>Idle</Th>
-                  <Th numeric>Hidden+vis</Th>
-                  <Th numeric>Retained</Th>
-                  <Th numeric>Live for</Th>
-                  <Th numeric>Last output</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {workspacesByMemory.map((workspace) => {
-                  const mem = workspaceMemoryById.get(workspace.workspaceId)
-                  return (
-                    <tr key={workspace.workspaceId} className="border-b border-[color:var(--border-subtle)]">
-                      <Td title={workspace.workspaceId}>
-                        {mem?.resident ? <span aria-hidden="true">● </span> : null}
-                        {workspace.workspaceName ?? workspace.workspaceId}
-                      </Td>
-                      <Td numeric>{mem ? formatBytes(mem.totalMemoryBytes) : '—'}</Td>
-                      <Td numeric>{workspace.liveTerminalCount}</Td>
-                      <Td numeric>{workspace.activeCount}</Td>
-                      <Td numeric>{workspace.idleCount}</Td>
-                      <Td numeric>
-                        {workspace.hiddenButVisibleCount > 0 ? (
-                          <WarnMetric flagged label="Terminals visible while the workspace is hidden">
-                            {workspace.hiddenButVisibleCount}
-                          </WarnMetric>
-                        ) : (
-                          0
-                        )}
-                      </Td>
-                      <Td numeric>{formatBytes(workspace.totalRetainedReplayBytes)}</Td>
-                      <Td numeric>{mem?.becameLiveAt ? formatRelativeMsAgo(mem.becameLiveAt, now) || '—' : '—'}</Td>
-                      <Td numeric>{formatRelativeMsAgo(workspace.lastOutputAt, now) || '—'}</Td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </Table>
-          ) : (
-            <p className="text-[color:var(--text-muted)]">No workspace terminals.</p>
-          )}
-        </section>
-
+          <section>
+            <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
+              Workspaces ({workspacesByMemory.length})
+            </h2>
+            <p className="mb-2 text-micro text-[color:var(--text-subtle)]">
+              Memory is the real RSS of each workspace's agent/terminal subtrees (the CLI plus its MCP/dev-server
+              children), summed in the main process. Shared app overhead (main, renderer, GPU) is not attributed here,
+              so these sum to less than the app total. &quot;Live for&quot; is since the oldest live terminal started.
+            </p>
+            {workspacesByMemory.length > 0 ? (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Workspace</Th>
+                    <Th numeric>Memory</Th>
+                    <Th numeric>Live</Th>
+                    <Th numeric>Active</Th>
+                    <Th numeric>Idle</Th>
+                    <Th numeric>Hidden+vis</Th>
+                    <Th numeric>Retained</Th>
+                    <Th numeric>Live for</Th>
+                    <Th numeric>Last output</Th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {workspacesByMemory.map((workspace) => {
+                    const mem = workspaceMemoryById.get(workspace.workspaceId)
+                    return (
+                      <tr key={workspace.workspaceId} className="border-b border-[color:var(--border-subtle)]">
+                        <Td title={workspace.workspaceId}>
+                          {mem?.resident ? <span aria-hidden="true">● </span> : null}
+                          {workspace.workspaceName ?? workspace.workspaceId}
+                        </Td>
+                        <Td numeric>{mem ? formatBytes(mem.totalMemoryBytes) : '—'}</Td>
+                        <Td numeric>{workspace.liveTerminalCount}</Td>
+                        <Td numeric>{workspace.activeCount}</Td>
+                        <Td numeric>{workspace.idleCount}</Td>
+                        <Td numeric>
+                          {workspace.hiddenButVisibleCount > 0 ? (
+                            <WarnMetric flagged label="Terminals visible while the workspace is hidden">
+                              {workspace.hiddenButVisibleCount}
+                            </WarnMetric>
+                          ) : (
+                            0
+                          )}
+                        </Td>
+                        <Td numeric>{formatBytes(workspace.totalRetainedReplayBytes)}</Td>
+                        <Td numeric>{mem?.becameLiveAt ? formatRelativeMsAgo(mem.becameLiveAt, now) || '—' : '—'}</Td>
+                        <Td numeric>{formatRelativeMsAgo(workspace.lastOutputAt, now) || '—'}</Td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </Table>
+            ) : (
+              <p className="text-[color:var(--text-muted)]">No workspace terminals.</p>
+            )}
+          </section>
         </TabPanel>
 
         {/* Subsystems */}
@@ -1067,103 +1040,103 @@ export default function DiagnosticsContent({ headerActions }: Props) {
           active={activeTab === 'subsystems'}
           className="flex flex-col gap-4"
         >
-        {/* Terminal scrollback + write throughput */}
-        <section>
-          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">Terminal subsystem</h2>
-          <div className="flex flex-wrap gap-x-6 gap-y-1 text-micro tabular-nums text-[color:var(--text-default)]">
-            <span>
-              Scrollback: <strong>{scrollback.instanceCount}</strong> instances ·{' '}
-              {scrollback.totalLines.toLocaleString()} lines · ~{formatBytes(scrollback.estimatedBytes)} est.
-            </span>
-            <span>Write total {formatBytes(terminalThroughput.totalBytesPerSec)}/s</span>
-            <WarnMetric flagged={terminalThroughput.hiddenBytesPerSec > 0} label="Hidden terminals are writing">
-              hidden {formatBytes(terminalThroughput.hiddenBytesPerSec)}/s
-            </WarnMetric>
-            <span>visible {formatBytes(terminalThroughput.visibleBytesPerSec)}/s</span>
-          </div>
-        </section>
+          {/* Terminal scrollback + write throughput */}
+          <section>
+            <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">Terminal subsystem</h2>
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-micro tabular-nums text-[color:var(--text-default)]">
+              <span>
+                Scrollback: <strong>{scrollback.instanceCount}</strong> instances ·{' '}
+                {scrollback.totalLines.toLocaleString()} lines · ~{formatBytes(scrollback.estimatedBytes)} est.
+              </span>
+              <span>Write total {formatBytes(terminalThroughput.totalBytesPerSec)}/s</span>
+              <WarnMetric flagged={terminalThroughput.hiddenBytesPerSec > 0} label="Hidden terminals are writing">
+                hidden {formatBytes(terminalThroughput.hiddenBytesPerSec)}/s
+              </WarnMetric>
+              <span>visible {formatBytes(terminalThroughput.visibleBytesPerSec)}/s</span>
+            </div>
+          </section>
 
-        {/* IPC throughput */}
-        <section>
-          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
-            IPC throughput {ipcThroughput ? `(${ipcThroughput.channels.length} channels)` : ''}
-          </h2>
-          {ipcThroughput && ipcThroughput.channels.length > 0 ? (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>Channel</Th>
-                  <Th numeric>Calls/s</Th>
-                  <Th numeric>Out/s</Th>
-                  <Th numeric>Events/s</Th>
-                  <Th numeric>In/s</Th>
-                  <Th numeric>Total calls</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {ipcThroughput.channels.slice(0, 12).map((channel) => (
-                  <tr key={channel.name} className="border-b border-[color:var(--border-subtle)]">
-                    <Td title={channel.name}>{channel.name}</Td>
-                    <Td numeric>{channel.callsPerSec}</Td>
-                    <Td numeric>{formatBytes(channel.outBytesPerSec)}</Td>
-                    <Td numeric>{channel.inEventsPerSec}</Td>
-                    <Td numeric>{formatBytes(channel.inBytesPerSec)}</Td>
-                    <Td numeric>{channel.totalCalls}</Td>
+          {/* IPC throughput */}
+          <section>
+            <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
+              IPC throughput {ipcThroughput ? `(${ipcThroughput.channels.length} channels)` : ''}
+            </h2>
+            {ipcThroughput && ipcThroughput.channels.length > 0 ? (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>Channel</Th>
+                    <Th numeric>Calls/s</Th>
+                    <Th numeric>Out/s</Th>
+                    <Th numeric>Events/s</Th>
+                    <Th numeric>In/s</Th>
+                    <Th numeric>Total calls</Th>
                   </tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : (
-            <p className="text-[color:var(--text-muted)]">
-              IPC accounting is active only when diagnostics is enabled (dev or SPRINTENGINE_DIAGNOSTICS=1).
-            </p>
-          )}
-        </section>
+                </thead>
+                <tbody>
+                  {ipcThroughput.channels.slice(0, 12).map((channel) => (
+                    <tr key={channel.name} className="border-b border-[color:var(--border-subtle)]">
+                      <Td title={channel.name}>{channel.name}</Td>
+                      <Td numeric>{channel.callsPerSec}</Td>
+                      <Td numeric>{formatBytes(channel.outBytesPerSec)}</Td>
+                      <Td numeric>{channel.inEventsPerSec}</Td>
+                      <Td numeric>{formatBytes(channel.inBytesPerSec)}</Td>
+                      <Td numeric>{channel.totalCalls}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            ) : (
+              <p className="text-[color:var(--text-muted)]">
+                IPC accounting is active only when diagnostics is enabled (dev or SPRINTENGINE_DIAGNOSTICS=1).
+              </p>
+            )}
+          </section>
 
-        {/* Replay profiles */}
-        <section>
-          <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
-            Recent replay profiles ({profiles.length})
-          </h2>
-          {profiles.length > 0 ? (
-            <Table>
-              <thead>
-                <tr>
-                  <Th>When</Th>
-                  <Th>Session</Th>
-                  <Th>Kind</Th>
-                  <Th numeric>Payload</Th>
-                  <Th numeric>Writes</Th>
-                  <Th numeric>Total ms</Th>
-                  <Th numeric>Max write ms</Th>
-                  <Th numeric>Live buffered</Th>
-                </tr>
-              </thead>
-              <tbody>
-                {profiles.map((profile, index) => (
-                  <tr
-                    key={`${profile.sessionId}-${profile.recordedAt}-${index}`}
-                    className="border-b border-[color:var(--border-subtle)]"
-                  >
-                    <Td numeric>{formatRelativeMsAgo(profile.recordedAt, now) || 'now'}</Td>
-                    <Td title={profile.sessionId}>{profile.agentId ?? profile.terminalId ?? profile.sessionId}</Td>
-                    <Td>{profile.kind}</Td>
-                    <Td numeric>{formatBytes(profile.payloadBytes)}</Td>
-                    <Td numeric>{profile.writeCount}</Td>
-                    <Td numeric>{profile.totalReplayMs}</Td>
-                    <Td numeric>{profile.maxWriteMs}</Td>
-                    <Td numeric>{profile.liveBufferedCount}</Td>
+          {/* Replay profiles */}
+          <section>
+            <h2 className="mb-1 text-micro font-semibold text-[color:var(--text-muted)]">
+              Recent replay profiles ({profiles.length})
+            </h2>
+            {profiles.length > 0 ? (
+              <Table>
+                <thead>
+                  <tr>
+                    <Th>When</Th>
+                    <Th>Session</Th>
+                    <Th>Kind</Th>
+                    <Th numeric>Payload</Th>
+                    <Th numeric>Writes</Th>
+                    <Th numeric>Total ms</Th>
+                    <Th numeric>Max write ms</Th>
+                    <Th numeric>Live buffered</Th>
                   </tr>
-                ))}
-              </tbody>
-            </Table>
-          ) : (
-            <p className="text-[color:var(--text-muted)]">
-              No replay profiles captured in this window. Profiles are recorded in the window that owns the terminals
-              (reattach a terminal there to record one).
-            </p>
-          )}
-        </section>
+                </thead>
+                <tbody>
+                  {profiles.map((profile, index) => (
+                    <tr
+                      key={`${profile.sessionId}-${profile.recordedAt}-${index}`}
+                      className="border-b border-[color:var(--border-subtle)]"
+                    >
+                      <Td numeric>{formatRelativeMsAgo(profile.recordedAt, now) || 'now'}</Td>
+                      <Td title={profile.sessionId}>{profile.agentId ?? profile.terminalId ?? profile.sessionId}</Td>
+                      <Td>{profile.kind}</Td>
+                      <Td numeric>{formatBytes(profile.payloadBytes)}</Td>
+                      <Td numeric>{profile.writeCount}</Td>
+                      <Td numeric>{profile.totalReplayMs}</Td>
+                      <Td numeric>{profile.maxWriteMs}</Td>
+                      <Td numeric>{profile.liveBufferedCount}</Td>
+                    </tr>
+                  ))}
+                </tbody>
+              </Table>
+            ) : (
+              <p className="text-[color:var(--text-muted)]">
+                No replay profiles captured in this window. Profiles are recorded in the window that owns the terminals
+                (reattach a terminal there to record one).
+              </p>
+            )}
+          </section>
         </TabPanel>
       </div>
     </div>

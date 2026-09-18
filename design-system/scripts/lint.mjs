@@ -246,8 +246,7 @@ function main() {
     if (typeof $description !== 'string' || $description.trim().length === 0) {
       tokenFindings.push({ path: token.path, rule: 'missing-token-description', text: 'no $description' })
     }
-    const vendor =
-      typeof $extensions === 'object' && $extensions !== null ? $extensions[VENDOR_NAMESPACE] : undefined
+    const vendor = typeof $extensions === 'object' && $extensions !== null ? $extensions[VENDOR_NAMESPACE] : undefined
     if (token.path.startsWith('sem.')) {
       const role = typeof vendor === 'object' && vendor !== null ? vendor.role : undefined
       const use = typeof vendor === 'object' && vendor !== null ? vendor.use : undefined

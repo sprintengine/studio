@@ -126,13 +126,7 @@ export function BacklogFilterMenu({
         </IconButton>
       )}
     >
-      <FilterGroup
-        label="View"
-        items={viewItems}
-        current={view}
-        onSelect={onViewChange}
-        onOptionKey={onOptionKey}
-      />
+      <FilterGroup label="View" items={viewItems} current={view} onSelect={onViewChange} onOptionKey={onOptionKey} />
       <FilterGroup
         label="Sort by"
         items={sortItems}
@@ -212,12 +206,7 @@ function FilterGroup<T extends string>({
 function FilterGlyph(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-      <path
-        d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-      />
+      <path d="M2.5 4.5h11M4.5 8h7M6.5 11.5h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   )
 }
@@ -225,13 +214,7 @@ function FilterGlyph(): JSX.Element {
 function CheckGlyph(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-      <path
-        d="M3.5 8.5l3 3 6-7"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
+      <path d="M3.5 8.5l3 3 6-7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   )
 }

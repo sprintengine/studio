@@ -58,7 +58,7 @@ function resolveIsPackaged(options: TrustedPublisherReadOptions): boolean {
 }
 
 export function readTrustedMarketplacePublisherFingerprintsSync(
-  options: TrustedPublisherReadOptions = {}
+  options: TrustedPublisherReadOptions = {},
 ): Set<string> {
   const resolve = options.resolveResourcePath ?? ((relative: string) => findMarketplaceResourcePath(relative))
   const fingerprints = new Set(readFingerprintsFile(resolve('trusted-publishers.json')))

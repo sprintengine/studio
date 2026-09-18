@@ -115,9 +115,7 @@ export function ConnectorRow({
   // list-row, not a card of its own: no border box — the standard fills carry
   // hover (--bg-hover) and selection (--bg-selected). Loose, the grid's gaps
   // separate rows; in a card, the card's hairlines do.
-  const rowClass = selected
-    ? 'bg-[color:var(--bg-selected)]'
-    : 'hover:bg-[color:var(--bg-hover)]'
+  const rowClass = selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]'
   // The content branches keep the kit's `flush` inset (8/6px). The card form
   // adds the remainder on the wrapper — 8px more at the left, 6px more above
   // and below — so the row lands on the machine row's 16/12px without

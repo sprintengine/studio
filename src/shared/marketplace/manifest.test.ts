@@ -41,7 +41,10 @@ const VALID_PLUGIN = {
 const VALID_AUTOMATION_PAYLOAD = {
   name: 'Nightly dependency sweep',
   status: 'paused',
-  trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' } },
+  trigger: {
+    kind: 'schedule',
+    config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
+  },
   action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
 }
 
@@ -116,7 +119,9 @@ function issuePaths(issues: Array<{ path: string }>): string[] {
 function assertRejectsAt(
   value: unknown,
   path: string,
-  validator: (value: unknown) => { ok: true } | { ok: false; issues: Array<{ path: string }> } = validateMarketplacePluginManifest
+  validator: (
+    value: unknown,
+  ) => { ok: true } | { ok: false; issues: Array<{ path: string }> } = validateMarketplacePluginManifest,
 ): void {
   const result = validator(value)
   assert.equal(result.ok, false, `${path} should be rejected`)
@@ -151,16 +156,22 @@ function testPluginRejectsInvalidComponentCases(): void {
   assertRejectsAt({ ...VALID_PLUGIN, components: { theme: { path: 'theme.json' } } }, 'components.theme')
   assertRejectsAt({ ...VALID_PLUGIN, components: { mcp: { path: 'mcp/server.json' } } }, 'components.mcp.files')
   assertRejectsAt(
-    { ...VALID_PLUGIN, components: { mcp: { path: 'mcp/server.json', files: [{ path: 'other/server.json', sha256: VALID_DIGEST }] } } },
-    'components.mcp.files[0].path'
+    {
+      ...VALID_PLUGIN,
+      components: { mcp: { path: 'mcp/server.json', files: [{ path: 'other/server.json', sha256: VALID_DIGEST }] } },
+    },
+    'components.mcp.files[0].path',
   )
   assertRejectsAt(
-    { ...VALID_PLUGIN, components: { mcp: { path: 'mcp/server.json', files: [{ path: 'mcp/server.json', sha256: 'BAD' }] } } },
-    'components.mcp.files[0].sha256'
+    {
+      ...VALID_PLUGIN,
+      components: { mcp: { path: 'mcp/server.json', files: [{ path: 'mcp/server.json', sha256: 'BAD' }] } },
+    },
+    'components.mcp.files[0].sha256',
   )
   assertRejectsAt(
     { ...VALID_PLUGIN, components: { mcp: { path: 'mcp/server.json', extra: true } } },
-    'components.mcp.extra'
+    'components.mcp.extra',
   )
 }
 
@@ -303,17 +314,17 @@ function testBundledSkillsValidateAndSurvive(): void {
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...generated, skills: 'not-an-array' }] },
     'plugins[0].skills',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...generated, skills: [{ description: 'nameless' }] }] },
     'plugins[0].skills[0]',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...generated, skills: [{ name: 'x', description: 'y', path: '' }] }] },
     'plugins[0].skills[0].path',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   // A traversal or backslash path would escape the payload root when the
   // install derives the folder — rejected even for metadata-only skills.
@@ -321,7 +332,7 @@ function testBundledSkillsValidateAndSurvive(): void {
     assertRejectsAt(
       { ...VALID_MARKETPLACE, plugins: [{ ...generated, skills: [{ name: 'x', description: 'y', path: evil }] }] },
       'plugins[0].skills[0].path',
-      validateMarketplaceIndex
+      validateMarketplaceIndex,
     )
   }
 }
@@ -365,29 +376,33 @@ function testBundledSkillContentDigestsValidateAndSurvive(): void {
   assertRejectsAt(
     withSkill({ name: 'vercel', description: 'Deploy.', files, contentDigest: digest }),
     'plugins[0].skills[0].path',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   // Malformed digests, traversal paths, and duplicates all fail the index.
   assertRejectsAt(
     withSkill({ ...base, files: [{ path: 'SKILL.md', sha256: 'nope', size: 1 }], contentDigest: digest }),
     'plugins[0].skills[0].files[0]',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     withSkill({ ...base, files: [{ path: '../escape.md', sha256: digest, size: 1 }], contentDigest: digest }),
     'plugins[0].skills[0].files[0]',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     withSkill({ ...base, files: [files[0], files[0]], contentDigest: digest }),
     'plugins[0].skills[0].files[1].path',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
-  assertRejectsAt(withSkill({ ...base, files: [], contentDigest: digest }), 'plugins[0].skills[0].files', validateMarketplaceIndex)
+  assertRejectsAt(
+    withSkill({ ...base, files: [], contentDigest: digest }),
+    'plugins[0].skills[0].files',
+    validateMarketplaceIndex,
+  )
   assertRejectsAt(
     withSkill({ ...base, files, contentDigest: 'not-hex' }),
     'plugins[0].skills[0].contentDigest',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
 }
 
@@ -414,29 +429,32 @@ function testInlineCliEntryValidates(): void {
 
 function testInlineCliRejectsOtherShapesAndBadPluginId(): void {
   assertRejectsAt(
-    { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, source: 'https://github.com/sprintengine/studio-releases' }] },
+    {
+      ...VALID_MARKETPLACE,
+      plugins: [{ ...VALID_INLINE_CLI_ENTRY, source: 'https://github.com/sprintengine/studio-releases' }],
+    },
     'plugins[0]',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, mcp: VALID_INLINE_MCP_ENTRY.mcp }] },
     'plugins[0]',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, provides: ['cli', 'skills'] }] },
     'plugins[0].provides',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, cli: {} }] },
     'plugins[0].cli.pluginId',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_CLI_ENTRY, cli: { pluginId: 'Not A Plugin Id' } }] },
     'plugins[0].cli.pluginId',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
 }
 
@@ -449,12 +467,12 @@ function testInlineMcpRejectsInvalidAndEmptyServers(): void {
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_MCP_ENTRY, mcp: { servers: [{ id: 'broken' }] } }] },
     'plugins[0].mcp.servers[0]',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_MCP_ENTRY, mcp: { servers: [] } }] },
     'plugins[0].mcp.servers',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
 }
 
@@ -462,12 +480,12 @@ function testCategoriesAndTagsMustBeStringArrays(): void {
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_MCP_ENTRY, categories: 'Search' }] },
     'plugins[0].categories',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_INLINE_MCP_ENTRY, tags: [''] }] },
     'plugins[0].tags[0]',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
 }
 
@@ -495,22 +513,22 @@ function testMarketplaceRejectsNestedInvalidFields(): void {
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_MARKETPLACE.plugins[0], publisher: { verified: true } }] },
     'plugins[0].publisher.name',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_MARKETPLACE.plugins[0], publisher: { name: 'Multicode Labs' } }] },
     'plugins[0].publisher.verified',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_MARKETPLACE.plugins[0], provides: ['mcp', 'theme'] }] },
     'plugins[0].provides[1]',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
   assertRejectsAt(
     { ...VALID_MARKETPLACE, plugins: [{ ...VALID_MARKETPLACE.plugins[0], signature: { algorithm: 'rsa' } }] },
     'plugins[0].signature.algorithm',
-    validateMarketplaceIndex
+    validateMarketplaceIndex,
   )
 }
 
@@ -544,7 +562,7 @@ function testAutomationPayloadStructure(): void {
   }
 
   const untypedTrigger = marketplaceAutomationPayloadIssues(
-    JSON.stringify({ ...VALID_AUTOMATION_PAYLOAD, trigger: { config: {} } })
+    JSON.stringify({ ...VALID_AUTOMATION_PAYLOAD, trigger: { config: {} } }),
   )
   assert.deepEqual(issuePaths(untypedTrigger), ['components.automation.trigger.kind'])
 }

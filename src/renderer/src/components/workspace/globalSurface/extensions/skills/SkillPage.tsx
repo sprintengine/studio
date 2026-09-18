@@ -102,8 +102,8 @@ export function SkillPage({
       <div className="border-t border-[color:var(--border-subtle)]">
         <ModalFooter>
           <p className="mr-auto min-w-0 text-meta leading-5 text-[color:var(--text-subtle)]">
-            Installing copies this skill&apos;s files into the skills directory of every agent CLI on this
-            machine, inside the open workspace.
+            Installing copies this skill&apos;s files into the skills directory of every agent CLI on this machine,
+            inside the open workspace.
           </p>
           {installed ? (
             <span className="text-meta font-medium text-[color:var(--accent-primary)]">Installed</span>
@@ -134,7 +134,7 @@ export function SkillPage({
               size="md"
               emphasis={installed ? 'primary' : 'outline'}
               disabled={installing || (!installed && !availability.enabled)}
-              onInstallFirst={installed ? null : onInstallForUse ?? null}
+              onInstallFirst={installed ? null : (onInstallForUse ?? null)}
             />
           ) : null}
         </ModalFooter>

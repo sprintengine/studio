@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { WorkspaceStore } from '../workspaceStore'
-import {
-  __workspaceStorePartializeForTests,
-  useWorkspaceStore,
-} from '../workspaceStore'
+import { __workspaceStorePartializeForTests, useWorkspaceStore } from '../workspaceStore'
 import type { PluginCatalogEntry } from '../../types/workspace'
 import {
   createPluginsSlice,
@@ -30,8 +27,26 @@ const okApi = {
   pluginsList: async () => ({
     ok: true as const,
     plugins: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled' as const, version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
-      { id: 'opencode', displayName: 'OpenCode', source: 'user' as const, version: 1, binary: 'opencode', resumeSession: false, sessionIdFromCaller: false, agentStateCapable: true },
+      {
+        id: 'codex',
+        displayName: 'Codex',
+        source: 'bundled' as const,
+        version: 1,
+        binary: 'codex',
+        resumeSession: true,
+        sessionIdFromCaller: false,
+        agentStateCapable: true,
+      },
+      {
+        id: 'opencode',
+        displayName: 'OpenCode',
+        source: 'user' as const,
+        version: 1,
+        binary: 'opencode',
+        resumeSession: false,
+        sessionIdFromCaller: false,
+        agentStateCapable: true,
+      },
     ],
   }),
 }
@@ -47,7 +62,10 @@ async function main(): Promise<void> {
   await slice.refreshPluginCatalog()
   assert.equal(carrier.pluginCatalogStatus, 'ready')
   assert.equal(carrier.pluginCatalogError, null)
-  assert.deepEqual(carrier.pluginCatalogEntries.map((entry) => entry.id), ['codex', 'opencode'])
+  assert.deepEqual(
+    carrier.pluginCatalogEntries.map((entry) => entry.id),
+    ['codex', 'opencode'],
+  )
 
   const failed = createPluginsSlice((mutator) => mutator(carrier), {
     getApi: () => ({
@@ -67,25 +85,41 @@ async function main(): Promise<void> {
   useWorkspaceStore.setState((state) => ({
     ...state,
     pluginCatalogEntries: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
+      {
+        id: 'codex',
+        displayName: 'Codex',
+        source: 'bundled',
+        version: 1,
+        binary: 'codex',
+        resumeSession: true,
+        sessionIdFromCaller: false,
+        agentStateCapable: true,
+      },
     ],
     pluginCatalogStatus: 'ready',
     pluginCatalogError: null,
   }))
-  const persisted = __workspaceStorePartializeForTests(useWorkspaceStore.getState() as WorkspaceStore) as Record<string, unknown>
+  const persisted = __workspaceStorePartializeForTests(useWorkspaceStore.getState() as WorkspaceStore) as Record<
+    string,
+    unknown
+  >
   assert.equal('pluginCatalogEntries' in persisted, false)
   assert.equal('pluginCatalogStatus' in persisted, false)
   assert.equal('pluginCatalogError' in persisted, false)
 
   // The workspace aside column's open/width flags are transient — never
   // written, even when something has put them on live state.
-  useWorkspaceStore.setState((state) => ({
-    ...state,
-    workspaceAsideOpen: true,
-  }) as unknown as WorkspaceStore)
-  const withAsideFlags = __workspaceStorePartializeForTests(
-    useWorkspaceStore.getState() as WorkspaceStore,
-  ) as Record<string, unknown>
+  useWorkspaceStore.setState(
+    (state) =>
+      ({
+        ...state,
+        workspaceAsideOpen: true,
+      }) as unknown as WorkspaceStore,
+  )
+  const withAsideFlags = __workspaceStorePartializeForTests(useWorkspaceStore.getState() as WorkspaceStore) as Record<
+    string,
+    unknown
+  >
   for (const key of ['workspaceAsideOpen', 'workspaceAsideWidth']) {
     assert.equal(key in withAsideFlags, false, `${key} must never be persisted`)
   }
@@ -95,7 +129,16 @@ async function main(): Promise<void> {
   // catalog on a transient failure.
   const bgCarrier: PluginsSliceState = {
     pluginCatalogEntries: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
+      {
+        id: 'codex',
+        displayName: 'Codex',
+        source: 'bundled',
+        version: 1,
+        binary: 'codex',
+        resumeSession: true,
+        sessionIdFromCaller: false,
+        agentStateCapable: true,
+      },
     ],
     pluginCatalogStatus: 'ready',
     pluginCatalogError: null,
@@ -157,7 +200,16 @@ async function main(): Promise<void> {
   const modeResolvers: Array<(value: { ok: false; message: string }) => void> = []
   const modeCarrier: PluginsSliceState = {
     pluginCatalogEntries: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
+      {
+        id: 'codex',
+        displayName: 'Codex',
+        source: 'bundled',
+        version: 1,
+        binary: 'codex',
+        resumeSession: true,
+        sessionIdFromCaller: false,
+        agentStateCapable: true,
+      },
     ],
     pluginCatalogStatus: 'ready',
     pluginCatalogError: null,
@@ -227,13 +279,43 @@ async function main(): Promise<void> {
   // resumeCapabilitiesForCli resolves a cli to its projected caps (cli id ==
   // plugin id). Unknown or undefined cli → undefined (predicates then read off).
   const catalog: PluginCatalogEntry[] = [
-    { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude', resumeSession: true, sessionIdFromCaller: true, agentStateCapable: true },
-    { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
-    { id: 'generic-shell', displayName: 'Shell', source: 'bundled', version: 1, binary: 'sh', resumeSession: false, sessionIdFromCaller: false, agentStateCapable: true },
+    {
+      id: 'claude-code',
+      displayName: 'Claude Code',
+      source: 'bundled',
+      version: 1,
+      binary: 'claude',
+      resumeSession: true,
+      sessionIdFromCaller: true,
+      agentStateCapable: true,
+    },
+    {
+      id: 'codex',
+      displayName: 'Codex',
+      source: 'bundled',
+      version: 1,
+      binary: 'codex',
+      resumeSession: true,
+      sessionIdFromCaller: false,
+      agentStateCapable: true,
+    },
+    {
+      id: 'generic-shell',
+      displayName: 'Shell',
+      source: 'bundled',
+      version: 1,
+      binary: 'sh',
+      resumeSession: false,
+      sessionIdFromCaller: false,
+      agentStateCapable: true,
+    },
   ]
   assert.deepEqual(resumeCapabilitiesForCli('claude-code', catalog), { resumeSession: true, sessionIdFromCaller: true })
   assert.deepEqual(resumeCapabilitiesForCli('codex', catalog), { resumeSession: true, sessionIdFromCaller: false })
-  assert.deepEqual(resumeCapabilitiesForCli('generic-shell', catalog), { resumeSession: false, sessionIdFromCaller: false })
+  assert.deepEqual(resumeCapabilitiesForCli('generic-shell', catalog), {
+    resumeSession: false,
+    sessionIdFromCaller: false,
+  })
   assert.equal(resumeCapabilitiesForCli('unknown-cli', catalog), undefined, 'absent cli → undefined')
   assert.equal(resumeCapabilitiesForCli(undefined, catalog), undefined, 'no cli → undefined')
 

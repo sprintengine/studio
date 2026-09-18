@@ -84,10 +84,7 @@ function declaredEntries(manifest: DesignSystemManifest): Array<{ group: string;
  * to birthtime for everything, empty means git had nothing to say about these
  * paths (an untracked bundle inside a repo), which falls through per entry.
  */
-async function gitAddDates(
-  bundleDir: string,
-  groups: readonly string[],
-): Promise<Map<string, number> | null> {
+async function gitAddDates(bundleDir: string, groups: readonly string[]): Promise<Map<string, number> | null> {
   const root = await getGitRepoRoot(bundleDir)
   if (!root) return null
   if (groups.length === 0) return new Map()

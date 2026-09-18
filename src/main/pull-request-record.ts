@@ -245,7 +245,11 @@ export function pullRequestSessionCheckout(
 export function pullRequestStorePath(userDataDir: string, repoKey: string): string {
   const hash = createHash('sha1').update(repoKey).digest('hex').slice(0, 16)
   const name = repoKey.split('/').filter(Boolean).pop() ?? 'repo'
-  const slug = name.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 40) || 'repo'
+  const slug =
+    name
+      .replace(/[^A-Za-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 40) || 'repo'
   return join(userDataDir, STORE_DIR, `${slug}-${hash}.json`)
 }
 
@@ -274,8 +278,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   const readState = options.reads?.readPullRequestState ?? readPullRequestStateDefault
   const resolveRepoKey = options.resolveRepoKey ?? defaultResolveRepoKey
   const warn =
-    options.logWarning
-    ?? ((message: string, error: unknown) => console.warn(`[pull-request-record] ${message}`, error))
+    options.logWarning ?? ((message: string, error: unknown) => console.warn(`[pull-request-record] ${message}`, error))
 
   const repos = new Map<string, RepoState>()
   /** Every entry, by URL — the index behind `forSession` and every relocation. */
@@ -411,19 +414,15 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     // One writer per repository, chained: two branches settling a frame apart
     // must not both read-modify-write the same file.
     state.writes = state.writes.then(
-      () => writeStoreFile(options.userDataDir, state.repoKey, snapshot).catch((error) => {
-        warn('could not write a pull request record', error)
-      }),
+      () =>
+        writeStoreFile(options.userDataDir, state.repoKey, snapshot).catch((error) => {
+          warn('could not write a pull request record', error)
+        }),
       () => undefined,
     )
   }
 
-  function emitChanged(
-    repoKey: string,
-    branch: string | null,
-    sessionIds: string[],
-    workspaceIds: string[],
-  ): void {
+  function emitChanged(repoKey: string, branch: string | null, sessionIds: string[], workspaceIds: string[]): void {
     if (!options.onRecordChanged || disposed) return
     try {
       options.onRecordChanged({ repoKey, branch, sessionIds, workspaceIds })
@@ -444,7 +443,8 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
 
   function workspaceIdsOf(...lists: readonly (readonly BranchPullRequest[])[]): string[] {
     const ids = new Set<string>()
-    for (const list of lists) for (const entry of list) if (entry.openedByWorkspaceId) ids.add(entry.openedByWorkspaceId)
+    for (const list of lists)
+      for (const entry of list) if (entry.openedByWorkspaceId) ids.add(entry.openedByWorkspaceId)
     return [...ids]
   }
 
@@ -496,12 +496,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     persist(state)
     if (!learnedSomething) return
     reconcileWatch(state, branch)
-    emitChanged(
-      state.repoKey,
-      branch,
-      sessionIdsOf(previous, sorted),
-      workspaceIdsOf(previous, sorted),
-    )
+    emitChanged(state.repoKey, branch, sessionIdsOf(previous, sorted), workspaceIdsOf(previous, sorted))
   }
 
   function isEntryWatchable(entry: BranchPullRequest): boolean {
@@ -561,21 +556,27 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
       ...(typeof next.openedAt === 'number' && next.openedAt > 0 ? { openedAt: next.openedAt } : {}),
       // Only when the URL did not name one: the number in the URL is the number,
       // and a read that disagreed with it would be about a different pull request.
-      ...(at.entry.number === 0 && typeof next.number === 'number' && next.number > 0
-        ? { number: next.number }
-        : {}),
+      ...(at.entry.number === 0 && typeof next.number === 'number' && next.number > 0 ? { number: next.number } : {}),
       state: next.state,
       isDraft: next.isDraft,
       stateAt: next.stateAt,
     }
     const target = at.branch === UNKNOWN_BRANCH && next.headRefName ? next.headRefName : at.branch
     if (target === at.branch) {
-      commit(state, at.branch, entriesOf(state, at.branch).map((entry) => (entry.url === url ? updated : entry)))
+      commit(
+        state,
+        at.branch,
+        entriesOf(state, at.branch).map((entry) => (entry.url === url ? updated : entry)),
+      )
       return
     }
     // Learned its branch: out of the unknown bucket and in beside whatever the
     // branch lookup has already found there.
-    commit(state, at.branch, entriesOf(state, at.branch).filter((entry) => entry.url !== url))
+    commit(
+      state,
+      at.branch,
+      entriesOf(state, at.branch).filter((entry) => entry.url !== url),
+    )
     commit(state, target, mergeByUrl(entriesOf(state, target), [updated]))
   }
 
@@ -593,9 +594,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
     if (hold && !hold.settled && now() - hold.at < LOOKUP_RETRY_AFTER_FAILURE_MS) return
     const read = (async () => {
       const outcome = await withReadSlot(() =>
-        disposed
-          ? Promise.resolve({ settled: false, reason: 'bad-request' } as const)
-          : readState(url, { now }),
+        disposed ? Promise.resolve({ settled: false, reason: 'bad-request' } as const) : readState(url, { now }),
       )
       if (disposed) return
       // Unsettled: the state stays as last read. Nothing is written, nothing is
@@ -678,7 +677,11 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
   function detachFromOtherBranch(state: RepoState, url: string, keepBranch: string): void {
     const at = located.get(url)
     if (!at || at.repoKey !== state.repoKey || at.branch === keepBranch) return
-    commit(state, at.branch, entriesOf(state, at.branch).filter((entry) => entry.url !== url))
+    commit(
+      state,
+      at.branch,
+      entriesOf(state, at.branch).filter((entry) => entry.url !== url),
+    )
   }
 
   /** Everything we hold about a URL, wherever it sits — the merge's memory. */
@@ -746,7 +749,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
    */
   function checkoutRepoKeys(gitRoot: string, resolve: boolean): string[] {
     const keys: string[] = []
-    const own = resolve ? repoKeyFor(gitRoot) : repoKeyByCheckout.get(normalizeComparablePath(gitRoot)) ?? null
+    const own = resolve ? repoKeyFor(gitRoot) : (repoKeyByCheckout.get(normalizeComparablePath(gitRoot)) ?? null)
     if (own) keys.push(own)
     for (const key of lookupRepoKeys.get(normalizeComparablePath(gitRoot)) ?? []) {
       if (!keys.includes(key)) keys.push(key)
@@ -1014,7 +1017,7 @@ export function createPullRequestRecord(options: PullRequestRecordOptions): Pull
 async function defaultResolveRepoKey(gitRoot: string): Promise<string | null> {
   const read = await readRepositoryIdentityRead(gitRoot)
   // An unsettled read is "could not ask": no key, and the next ask asks again.
-  return read.settled ? read.identity?.canonicalKey ?? null : null
+  return read.settled ? (read.identity?.canonicalKey ?? null) : null
 }
 
 function normalizeCheckout(input: PullRequestCheckout): PullRequestCheckout | null {
@@ -1033,11 +1036,7 @@ function groupByRepo(entries: readonly BranchPullRequest[]): Map<string, BranchP
   return grouped
 }
 
-function sameList(
-  a: readonly BranchPullRequest[],
-  b: readonly BranchPullRequest[],
-  includeStateAt: boolean,
-): boolean {
+function sameList(a: readonly BranchPullRequest[], b: readonly BranchPullRequest[], includeStateAt: boolean): boolean {
   if (a.length !== b.length) return false
   return a.every((entry, index) => sameEntry(entry, b[index], includeStateAt))
 }
@@ -1050,16 +1049,16 @@ function sameList(
  */
 function sameEntry(a: BranchPullRequest, b: BranchPullRequest, includeStateAt: boolean): boolean {
   return (
-    a.url === b.url
-    && a.repoKey === b.repoKey
-    && a.repoName === b.repoName
-    && a.number === b.number
-    && a.title === b.title
-    && a.state === b.state
-    && a.isDraft === b.isDraft
-    && a.openedAt === b.openedAt
-    && (!includeStateAt || a.stateAt === b.stateAt)
-    && a.openedBySessionId === b.openedBySessionId
+    a.url === b.url &&
+    a.repoKey === b.repoKey &&
+    a.repoName === b.repoName &&
+    a.number === b.number &&
+    a.title === b.title &&
+    a.state === b.state &&
+    a.isDraft === b.isDraft &&
+    a.openedAt === b.openedAt &&
+    (!includeStateAt || a.stateAt === b.stateAt) &&
+    a.openedBySessionId === b.openedBySessionId
   )
 }
 

@@ -13,13 +13,17 @@ import { createFileMcpConfigReader, type McpConfigReader } from './reader'
 import { MCP_CONFIG_READERS } from './registry'
 import { createMcpServerResolver, type McpConfigTarget } from './resolve-servers'
 
-const CLAUDE_CONFIG = JSON.stringify({
-  mcpServers: {
-    linear: { type: 'stdio', command: 'npx', args: ['-y', 'linear-mcp'], env: { TOKEN: 'x' } },
-    docs: { type: 'http', url: 'https://example.test/mcp' },
-    'no-command': { type: 'stdio' },
+const CLAUDE_CONFIG = JSON.stringify(
+  {
+    mcpServers: {
+      linear: { type: 'stdio', command: 'npx', args: ['-y', 'linear-mcp'], env: { TOKEN: 'x' } },
+      docs: { type: 'http', url: 'https://example.test/mcp' },
+      'no-command': { type: 'stdio' },
+    },
   },
-}, null, 2)
+  null,
+  2,
+)
 
 const CODEX_CONFIG = [
   'model = "gpt-5.6-sol"',
@@ -37,13 +41,17 @@ const CODEX_CONFIG = [
   '',
 ].join('\n')
 
-const OPENCODE_CONFIG = JSON.stringify({
-  mcp: {
-    linear: { type: 'local', command: ['npx', '-y', 'linear-mcp'], environment: { TOKEN: 'x' } },
-    docs: { type: 'remote', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer {env:T}' } },
-    empty: { type: 'local', command: [] },
+const OPENCODE_CONFIG = JSON.stringify(
+  {
+    mcp: {
+      linear: { type: 'local', command: ['npx', '-y', 'linear-mcp'], environment: { TOKEN: 'x' } },
+      docs: { type: 'remote', url: 'https://example.test/mcp', headers: { Authorization: 'Bearer {env:T}' } },
+      empty: { type: 'local', command: [] },
+    },
   },
-}, null, 2)
+  null,
+  2,
+)
 
 function bundledManifests(): Map<string, PluginManifest> {
   const registry = createPluginRegistry(
@@ -55,7 +63,8 @@ function bundledManifests(): Map<string, PluginManifest> {
   )
   registry.loadSync()
   return new Map(
-    registry.list()
+    registry
+      .list()
       .map((entry) => [entry.id, registry.get(entry.id)?.manifest])
       .filter((pair): pair is [string, PluginManifest] => Boolean(pair[1])),
   )
@@ -65,7 +74,10 @@ function testParsers(): void {
   const claude = parseClaudeCodeMcpServers(CLAUDE_CONFIG)
   assert.deepEqual(
     claude.map((server) => [server.id, server.transport, server.command ?? server.url]),
-    [['linear', 'stdio', 'npx'], ['docs', 'http', 'https://example.test/mcp']],
+    [
+      ['linear', 'stdio', 'npx'],
+      ['docs', 'http', 'https://example.test/mcp'],
+    ],
     'an entry naming neither command nor url is not a server the CLI can reach',
   )
   assert.deepEqual(claude[0].args, ['-y', 'linear-mcp'])
@@ -74,7 +86,10 @@ function testParsers(): void {
   const codex = parseCodexMcpServers(CODEX_CONFIG)
   assert.deepEqual(
     codex.map((server) => [server.id, server.transport, server.command ?? server.url]),
-    [['linear', 'stdio', 'npx'], ['docs', 'http', 'https://example.test/mcp']],
+    [
+      ['linear', 'stdio', 'npx'],
+      ['docs', 'http', 'https://example.test/mcp'],
+    ],
   )
   assert.deepEqual(codex[1].envVarNames, ['DOCS_TOKEN'])
   // A table that is not ours ends the server it follows: `enabled = false` under
@@ -84,7 +99,10 @@ function testParsers(): void {
   const opencode = parseOpencodeMcpServers(OPENCODE_CONFIG)
   assert.deepEqual(
     opencode.map((server) => [server.id, server.transport, server.command ?? server.url]),
-    [['linear', 'stdio', 'npx'], ['docs', 'http', 'https://example.test/mcp']],
+    [
+      ['linear', 'stdio', 'npx'],
+      ['docs', 'http', 'https://example.test/mcp'],
+    ],
   )
   assert.deepEqual(opencode[0].args, ['-y', 'linear-mcp'], 'the argv tail is the arguments')
   assert.deepEqual(opencode[0].env, { TOKEN: 'x' })
@@ -169,11 +187,15 @@ async function testSharedConfigIsReadOnce(temp: string, manifests: Map<string, P
   for (const pluginId of sharing) {
     const entry = resolved.get(pluginId)
     assert.ok(entry)
-    assert.deepEqual(entry.servers.map((server) => server.id), ['docs', 'linear'])
+    assert.deepEqual(
+      entry.servers.map((server) => server.id),
+      ['docs', 'linear'],
+    )
     assert.deepEqual(entry.diagnostics, [])
     assert.ok(
-      entry.servers.every((server) => server.scope === 'workspace'
-        && server.configPath === join(workspaceRoot, '.mcp.json')),
+      entry.servers.every(
+        (server) => server.scope === 'workspace' && server.configPath === join(workspaceRoot, '.mcp.json'),
+      ),
     )
     assert.ok(
       entry.servers.every((server) => !('toolCount' in server)),
@@ -227,14 +249,20 @@ async function testWorkspaceOverridesUser(temp: string, manifests: Map<string, P
     const spec = manifests.get(scenario.pluginId)?.mcpConfig
     assert.ok(spec?.userPath, `${scenario.pluginId} declares both scopes`)
 
-    const resolved = await createMcpServerResolver({ homeDir: () => home })
-      .resolve({ workspaceRoot, targets: [{ pluginId: scenario.pluginId, spec }] })
+    const resolved = await createMcpServerResolver({ homeDir: () => home }).resolve({
+      workspaceRoot,
+      targets: [{ pluginId: scenario.pluginId, spec }],
+    })
     const entry = resolved.get(scenario.pluginId)
     assert.ok(entry)
     assert.deepEqual(entry.diagnostics, [])
     assert.deepEqual(
       entry.servers.map((server) => [server.id, server.scope]),
-      [['shared', 'workspace'], ['user_only', 'user'], ['ws_only', 'workspace']],
+      [
+        ['shared', 'workspace'],
+        ['user_only', 'user'],
+        ['ws_only', 'workspace'],
+      ],
       `${scenario.pluginId}: workspace wins the shared id, both scopes contribute their own`,
     )
     assert.equal(
@@ -255,8 +283,10 @@ async function testMalformedIsNamed(temp: string, manifests: Map<string, PluginM
 
   const spec = manifests.get('claude-code')?.mcpConfig
   assert.ok(spec)
-  const resolved = await createMcpServerResolver({ homeDir: () => join(temp, 'home') })
-    .resolve({ workspaceRoot, targets: [{ pluginId: 'claude-code', spec }] })
+  const resolved = await createMcpServerResolver({ homeDir: () => join(temp, 'home') }).resolve({
+    workspaceRoot,
+    targets: [{ pluginId: 'claude-code', spec }],
+  })
   const entry = resolved.get('claude-code')
   assert.ok(entry)
   assert.deepEqual(entry.servers, [], 'a file that would not parse contributes nothing')
@@ -268,8 +298,10 @@ async function testMalformedIsNamed(temp: string, manifests: Map<string, PluginM
   // A workspace with no config at all is normal: no servers, and no fault.
   const emptyRoot = join(temp, 'no-config')
   await mkdir(emptyRoot, { recursive: true })
-  const quiet = await createMcpServerResolver({ homeDir: () => join(temp, 'home') })
-    .resolve({ workspaceRoot: emptyRoot, targets: [{ pluginId: 'claude-code', spec }] })
+  const quiet = await createMcpServerResolver({ homeDir: () => join(temp, 'home') }).resolve({
+    workspaceRoot: emptyRoot,
+    targets: [{ pluginId: 'claude-code', spec }],
+  })
   assert.deepEqual(quiet.get('claude-code'), { servers: [], diagnostics: [] })
 }
 
@@ -279,8 +311,10 @@ async function testUnregisteredFormat(temp: string): Promise<void> {
   await writeFile(join(workspaceRoot, 'agent.conf'), 'servers = 1\n', 'utf-8')
 
   const spec = { path: '{{workspaceRoot}}/agent.conf', format: 'generic' as PluginMcpConfigFormat }
-  const resolved = await createMcpServerResolver({ homeDir: () => join(temp, 'home') })
-    .resolve({ workspaceRoot, targets: [{ pluginId: 'fixture-cli', spec }] })
+  const resolved = await createMcpServerResolver({ homeDir: () => join(temp, 'home') }).resolve({
+    workspaceRoot,
+    targets: [{ pluginId: 'fixture-cli', spec }],
+  })
   const entry = resolved.get('fixture-cli')
   assert.ok(entry, 'a format with no adapter is still an answer, not a crash')
   assert.deepEqual(entry.servers, [])
@@ -294,15 +328,21 @@ async function testUnregisteredFormat(temp: string): Promise<void> {
   const withAdapter = createMcpServerResolver({
     readers: new Map([
       ...MCP_CONFIG_READERS,
-      ['generic', createFileMcpConfigReader('generic', (raw) => raw.trim()
-        ? [{ id: raw.split('=')[0]!.trim(), transport: 'stdio', command: 'fixture' }]
-        : [])],
+      [
+        'generic',
+        createFileMcpConfigReader('generic', (raw) =>
+          raw.trim() ? [{ id: raw.split('=')[0]!.trim(), transport: 'stdio', command: 'fixture' }] : [],
+        ),
+      ],
     ]),
     homeDir: () => join(temp, 'home'),
   })
   const registered = await withAdapter.resolve({ workspaceRoot, targets: [{ pluginId: 'fixture-cli', spec }] })
   assert.deepEqual(registered.get('fixture-cli')?.diagnostics, [])
-  assert.deepEqual(registered.get('fixture-cli')?.servers.map((server) => server.id), ['servers'])
+  assert.deepEqual(
+    registered.get('fixture-cli')?.servers.map((server) => server.id),
+    ['servers'],
+  )
 }
 
 function testEveryDeclaredFormatHasAnAdapter(manifests: Map<string, PluginManifest>): void {

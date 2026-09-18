@@ -23,9 +23,7 @@ const run = (command, cwd) => {
 
 run('npx tsc -p tsconfig.json', sdkDir)
 
-const packOutput = execSync('npm pack --pack-destination test-fixtures', { cwd: sdkDir })
-  .toString('utf8')
-  .trim()
+const packOutput = execSync('npm pack --pack-destination test-fixtures', { cwd: sdkDir }).toString('utf8').trim()
 const tarball = packOutput.split('\n').at(-1)
 if (!tarball?.endsWith('.tgz')) {
   throw new Error(`npm pack did not report a tarball (got "${tarball}").`)
@@ -57,7 +55,9 @@ for (const subpath of ['./ui', './surface']) {
   }
   for (const relative of [entry.types, entry.default]) {
     if (!existsSync(join(installedDir, relative))) {
-      throw new Error(`packed @sprintengine/module-sdk exports "${subpath}" → ${relative}, which the tarball does not ship.`)
+      throw new Error(
+        `packed @sprintengine/module-sdk exports "${subpath}" → ${relative}, which the tarball does not ship.`,
+      )
     }
   }
 }
@@ -86,7 +86,7 @@ run(
   `npx esbuild src/ui-bridge.ts --bundle --format=esm --platform=browser ` +
     `${HOST_EXTERNALS.map((specifier) => `--external:${specifier}`).join(' ')} ` +
     `--outfile=${bundlePath}`,
-  fixtureDir
+  fixtureDir,
 )
 const bundle = readFileSync(bundlePath, 'utf8')
 rmSync(bundlePath, { force: true })

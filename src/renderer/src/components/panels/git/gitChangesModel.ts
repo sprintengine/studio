@@ -217,15 +217,11 @@ export function groupCheckedState(rows: Array<Pick<GitChangeRow, 'checked'>>): C
  * person asked for; one that put them in `paths` would stage more, which is the
  * failure that matters.
  */
-export function groupToggleAction<
-  Row extends Pick<GitChangeRow, 'path' | 'checked' | 'partial'>,
->(
+export function groupToggleAction<Row extends Pick<GitChangeRow, 'path' | 'checked' | 'partial'>>(
   rows: Row[],
   next: boolean,
 ): { action: 'stage' | 'unstage'; rows: Row[]; paths: string[]; partialRows: Row[] } {
-  const wanted = next
-    ? rows.filter((row) => row.checked !== true)
-    : rows.filter((row) => row.checked !== false)
+  const wanted = next ? rows.filter((row) => row.checked !== true) : rows.filter((row) => row.checked !== false)
   return {
     action: next ? 'stage' : 'unstage',
     // Every row the click acts on, whole files and guests together — what a
@@ -326,7 +322,11 @@ function cappedRowGroup(base: GroupBase, allRows: GitChangeRow[], limit: number)
 }
 
 function cappedGroup(base: GroupBase, entries: GitStatusEntry[], limit: number): GitChangeGroup {
-  return cappedRowGroup(base, entries.map((entry) => toGitChangeRow(entry)), limit)
+  return cappedRowGroup(
+    base,
+    entries.map((entry) => toGitChangeRow(entry)),
+    limit,
+  )
 }
 
 /**
@@ -368,12 +368,8 @@ export function buildGitChangeGroups(
   }
   const drawsInOwnedList = (entry: GitStatusEntry): boolean =>
     isUntrackedEntry(entry) && ownedHomes.has(entry.relativePath)
-  const untracked = rest
-    .filter((entry) => isUntrackedEntry(entry) && !drawsInOwnedList(entry))
-    .sort(byRelativePath)
-  const tracked = rest
-    .filter((entry) => !isUntrackedEntry(entry) || drawsInOwnedList(entry))
-    .sort(byRelativePath)
+  const untracked = rest.filter((entry) => isUntrackedEntry(entry) && !drawsInOwnedList(entry)).sort(byRelativePath)
+  const tracked = rest.filter((entry) => !isUntrackedEntry(entry) || drawsInOwnedList(entry)).sort(byRelativePath)
 
   const groups: GitChangeGroup[] = []
   if (conflicts.length > 0) {
@@ -458,9 +454,7 @@ export function buildGitChangeGroups(
   }
 
   if (untracked.length > 0) {
-    groups.push(
-      cappedGroup({ id: 'untracked', kind: 'untracked', title: 'Untracked files' }, untracked, limit),
-    )
+    groups.push(cappedGroup({ id: 'untracked', kind: 'untracked', title: 'Untracked files' }, untracked, limit))
   }
   return groups
 }
@@ -500,10 +494,7 @@ export function changeRowDomId(listId: string, rowKey: string): string {
 /** Every tickable row on screen, in visual order, from the groups that are open.
  *  This is the keyboard walk, the marquee's geometry, and the shift-range's
  *  ordering — a collapsed group is not on screen, so it is not in any of them. */
-export function visibleChangeRows(
-  groups: GitChangeGroup[],
-  isExpanded: (groupId: string) => boolean,
-): GitChangeRow[] {
+export function visibleChangeRows(groups: GitChangeGroup[], isExpanded: (groupId: string) => boolean): GitChangeRow[] {
   const out: GitChangeRow[] = []
   for (const group of groups) {
     if (group.checked === null) continue
@@ -522,11 +513,7 @@ export function visibleChangeRows(
  * The three arguments are ROW KEYS (`changeRowKey`), not paths: a file that has
  * a guest row as well as a home row occupies two places in the walk.
  */
-export function nextCursorPath(
-  previousOrder: string[],
-  nextOrder: string[],
-  cursor: string | null,
-): string | null {
+export function nextCursorPath(previousOrder: string[], nextOrder: string[], cursor: string | null): string | null {
   if (cursor && nextOrder.includes(cursor)) return cursor
   if (nextOrder.length === 0) return null
   if (!cursor) return null

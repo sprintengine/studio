@@ -33,11 +33,7 @@ export function TicketTrackerSection(): JSX.Element {
         title="Trackers are plugins."
         body="Jira, Linear, GitHub and GitLab install from the plugin catalogue."
         action={
-          <GhostButton
-            size="md"
-            onClick={() => openExtensionsSurface({ view: 'plugins' })}
-            className="h-control-md"
-          >
+          <GhostButton size="md" onClick={() => openExtensionsSurface({ view: 'plugins' })} className="h-control-md">
             Browse plugins
           </GhostButton>
         }

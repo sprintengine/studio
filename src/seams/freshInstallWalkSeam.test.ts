@@ -47,7 +47,7 @@ import type { AgentCliCatalogOption } from '../renderer/src/components/workspace
 // spawn IPC are all the real code. No claim below is about an unverified
 // first-run walk on real hardware.
 
-type SentEvent = { channel: string, payload: unknown }
+type SentEvent = { channel: string; payload: unknown }
 
 type MockPtyProcess = {
   pid: number
@@ -55,12 +55,12 @@ type MockPtyProcess = {
   resize(cols: number, rows: number): void
   kill(): void
   onData(callback: (data: string) => void): { dispose(): void }
-  onExit(callback: (event: { exitCode: number, signal?: number }) => void): { dispose(): void }
+  onExit(callback: (event: { exitCode: number; signal?: number }) => void): { dispose(): void }
   writes: string[]
   killed: boolean
 }
 
-type SpawnCall = { command: string, args: string[], options: Record<string, unknown> }
+type SpawnCall = { command: string; args: string[]; options: Record<string, unknown> }
 
 const mockPty = {
   spawnCalls: [] as SpawnCall[],
@@ -179,10 +179,7 @@ function probeAgainst(
 
 // Main's real probe aggregation over the machine — the map the renderer receives
 // from `plugins:detect-availability`.
-async function detectOn(
-  machine: Machine,
-  entries: PluginRegistryListEntry[],
-): Promise<AgentCliAvailabilityMap> {
+async function detectOn(machine: Machine, entries: PluginRegistryListEntry[]): Promise<AgentCliAvailabilityMap> {
   const { clearCliAvailabilityCache, detectAgentCliAvailability } = await import('../main/cli-availability')
   clearCliAvailabilityCache()
   return detectAgentCliAvailability(
@@ -206,19 +203,11 @@ async function rendererSurfacesFor(input: {
   status?: 'loading' | 'ready' | 'error'
   workspaceCount?: number
 }): Promise<RendererSurfaces> {
-  const { resolveLaunchableAgentCli, selectAgentCliCatalog } = await import(
-    '../renderer/src/components/workspace/newWorkspace/cliRuntimeOptions'
-  )
-  const { shouldAutoOpenNewChat, shouldShowFirstRunCliCard } = await import(
-    '../renderer/src/store/onboardingState'
-  )
+  const { resolveLaunchableAgentCli, selectAgentCliCatalog } =
+    await import('../renderer/src/components/workspace/newWorkspace/cliRuntimeOptions')
+  const { shouldAutoOpenNewChat, shouldShowFirstRunCliCard } = await import('../renderer/src/store/onboardingState')
   const status = input.status ?? 'ready'
-  const catalog = selectAgentCliCatalog(
-    'ready',
-    input.entries,
-    {},
-    { map: input.availability, status },
-  )
+  const catalog = selectAgentCliCatalog('ready', input.entries, {}, { map: input.availability, status })
   const onboarding = {
     cliAvailabilityStatus: status,
     cliAvailability: input.availability,
@@ -245,7 +234,7 @@ async function spawnAgentOn(input: {
   entries: PluginRegistryListEntry[]
   cli: AgentCli
   sessionId: string
-}): Promise<{ result: TerminalSpawnResult, spawnCalls: SpawnCall[], startupScript: string | null }> {
+}): Promise<{ result: TerminalSpawnResult; spawnCalls: SpawnCall[]; startupScript: string | null }> {
   const runtimeModule = (await import('../main/terminal-runtime')) as TerminalRuntimeModule
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-fresh-install-seam-'))
   const runtime = runtimeModule.createTerminalRuntime({
@@ -395,7 +384,11 @@ async function testZshrcOnlyCliIsOfferedAndLaunchesThroughItsProbedPath(): Promi
   assert.ok(/exit 127; fi;/.test(script), `the guard must exit rather than fall through: ${script}`)
 }
 
-function createMockWebContents(): { isDestroyed(): boolean, send(channel: string, payload: unknown): void, sent: SentEvent[] } {
+function createMockWebContents(): {
+  isDestroyed(): boolean
+  send(channel: string, payload: unknown): void
+  sent: SentEvent[]
+} {
   return {
     sent: [],
     isDestroyed: () => false,
@@ -409,7 +402,7 @@ let nextMockPtyPid = 70_000
 
 function createMockPtyProcess(): MockPtyProcess {
   const dataCallbacks = new Set<(data: string) => void>()
-  const exitCallbacks = new Set<(event: { exitCode: number, signal?: number }) => void>()
+  const exitCallbacks = new Set<(event: { exitCode: number; signal?: number }) => void>()
   return {
     pid: nextMockPtyPid++,
     writes: [],

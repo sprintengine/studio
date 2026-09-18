@@ -34,9 +34,7 @@ const REPLAY_SKELETON_ROWS: ReadonlyArray<{ prompt: string; lines: string[] }> =
 ]
 
 function GhostLine({ widthClass }: { widthClass: string }) {
-  return (
-    <div className={`h-[10px] ${widthClass} rounded-sm bg-[color:var(--skeleton-shimmer-high)]`} />
-  )
+  return <div className={`h-[10px] ${widthClass} rounded-sm bg-[color:var(--skeleton-shimmer-high)]`} />
 }
 
 export function TerminalReplaySkeleton() {

@@ -103,7 +103,10 @@ const rejects = (go: unknown, match: RegExp) => {
     ]),
   )
   assert.ok(parsed.ok)
-  assert.deepEqual(parsed.feed.cards.map((c) => c.slug), ['keeps', 'also-keeps'])
+  assert.deepEqual(
+    parsed.feed.cards.map((c) => c.slug),
+    ['keeps', 'also-keeps'],
+  )
   assert.equal(parsed.dropped, 8)
   assert.equal(parsed.dropReasons.length, 8)
   assert.match(parsed.dropReasons.join('\n'), /"retired-kind" has kind "workflow", which is not one this build knows/)
@@ -151,7 +154,11 @@ const rejects = (go: unknown, match: RegExp) => {
     rejects({ verb, id: 'debug' }, new RegExp(`${verb.replace('.', '\\.')} needs a source and an id`))
     // The executor resolves marketplaceName / marketplaceRepo / commitSha from
     // the scan; a card that carried them would carry facts that go stale.
-    assert.deepEqual(one({ verb, source: 's', id: 'i', commitSha: 'deadbeef', marketplaceName: 'x' }), { verb, source: 's', id: 'i' })
+    assert.deepEqual(one({ verb, source: 's', id: 'i', commitSha: 'deadbeef', marketplaceName: 'x' }), {
+      verb,
+      source: 's',
+      id: 'i',
+    })
   }
 
   // open.chat keeps skills and MCP servers apart, and must say whether Go sends.
@@ -163,7 +170,13 @@ const rejects = (go: unknown, match: RegExp) => {
         card({
           go: [
             { verb: 'install.mcp', id: 'net-todoist-mcp' },
-            { verb: 'open.chat', prompt: 'Do the thing.', skills: ['frontend-design'], mcpServers: ['net-todoist-mcp'], send: true },
+            {
+              verb: 'open.chat',
+              prompt: 'Do the thing.',
+              skills: ['frontend-design'],
+              mcpServers: ['net-todoist-mcp'],
+              send: true,
+            },
           ],
         }),
       ]),
@@ -177,7 +190,11 @@ const rejects = (go: unknown, match: RegExp) => {
       mcpServers: ['net-todoist-mcp'],
     })
   }
-  assert.deepEqual(one({ verb: 'open.chat', prompt: 'Park it.', send: false }), { verb: 'open.chat', prompt: 'Park it.', send: false })
+  assert.deepEqual(one({ verb: 'open.chat', prompt: 'Park it.', send: false }), {
+    verb: 'open.chat',
+    prompt: 'Park it.',
+    send: false,
+  })
   rejects({ verb: 'open.chat', prompt: 'Do the thing.' }, /open\.chat needs send: true or false/)
   rejects({ verb: 'open.chat', prompt: 'Do the thing.', send: 'yes' }, /open\.chat needs send: true or false/)
   rejects({ verb: 'open.chat', send: true }, /open\.chat needs a prompt/)
@@ -196,16 +213,30 @@ const rejects = (go: unknown, match: RegExp) => {
   })
   // The old single `attach` list is not a field any more, and naming it does
   // not smuggle anything through.
-  assert.deepEqual(one({ verb: 'open.chat', prompt: 'p', send: true, attach: ['playwright'] }), { verb: 'open.chat', prompt: 'p', send: true })
+  assert.deepEqual(one({ verb: 'open.chat', prompt: 'p', send: true, attach: ['playwright'] }), {
+    verb: 'open.chat',
+    prompt: 'p',
+    send: true,
+  })
 
   // open.surface mirrors ExtensionsSurfaceTarget: a view, optionally Installed.
   for (const view of ['home', 'plugins', 'skills', 'agent-clis']) {
     assert.deepEqual(one({ verb: 'open.surface', view }), { verb: 'open.surface', view })
   }
-  assert.deepEqual(one({ verb: 'open.surface', view: 'skills', installed: true }), { verb: 'open.surface', view: 'skills', installed: true })
-  assert.deepEqual(one({ verb: 'open.surface', view: 'skills', installed: 'yes' }), { verb: 'open.surface', view: 'skills' })
+  assert.deepEqual(one({ verb: 'open.surface', view: 'skills', installed: true }), {
+    verb: 'open.surface',
+    view: 'skills',
+    installed: true,
+  })
+  assert.deepEqual(one({ verb: 'open.surface', view: 'skills', installed: 'yes' }), {
+    verb: 'open.surface',
+    view: 'skills',
+  })
   rejects({ verb: 'open.surface', view: 'browse' }, /open\.surface view "browse" is not one this build knows/)
-  rejects({ verb: 'open.surface', surface: 'extensions', tab: 'installed' }, /open\.surface view undefined is not one this build knows/)
+  rejects(
+    { verb: 'open.surface', surface: 'extensions', tab: 'installed' },
+    /open\.surface view undefined is not one this build knows/,
+  )
 
   // clone.repo takes owner/name and a folder name; there is no ref, because
   // cloneGitHubRepo has no branch support to honour one with.
@@ -231,7 +262,10 @@ const rejects = (go: unknown, match: RegExp) => {
     verb: 'clone.repo',
     repo: 'SprintEngine/studio-releases',
   })
-  rejects({ verb: 'clone.repo', repo: 'sprintengine/x', folderName: '../elsewhere' }, /folderName must be a single folder name/)
+  rejects(
+    { verb: 'clone.repo', repo: 'sprintengine/x', folderName: '../elsewhere' },
+    /folderName must be a single folder name/,
+  )
   rejects({ verb: 'clone.repo', repo: 'sprintengine/x', folderName: '..' }, /folderName must be a single folder name/)
 
   // The verbs the review found unexecutable are gone from the union, and a
@@ -268,7 +302,15 @@ const rejects = (go: unknown, match: RegExp) => {
 // never just the step.
 {
   const parsed = parseHostedCardFeed(
-    feed([card({ slug: 'half', go: [{ verb: 'require.cli', cli: 'claude-code' }, { verb: 'design.import', mode: 'extract' }] })]),
+    feed([
+      card({
+        slug: 'half',
+        go: [
+          { verb: 'require.cli', cli: 'claude-code' },
+          { verb: 'design.import', mode: 'extract' },
+        ],
+      }),
+    ]),
   )
   assert.ok(parsed.ok)
   assert.equal(parsed.feed.cards.length, 0)
@@ -334,7 +376,10 @@ const rejects = (go: unknown, match: RegExp) => {
     ]),
   )
   assert.ok(fine.ok)
-  assert.deepEqual(fine.feed.cards.map((c) => c.slug), ['clone-first', 'no-chat'])
+  assert.deepEqual(
+    fine.feed.cards.map((c) => c.slug),
+    ['clone-first', 'no-chat'],
+  )
 }
 
 // The result shares no object or array with the body it was parsed from, so a
@@ -350,7 +395,7 @@ const rejects = (go: unknown, match: RegExp) => {
   if (action.verb === 'open.chat') action.skills?.push('b')
   assert.equal((body.cards[0] as { slug: string }).slug, 'drives-your-browser')
   assert.equal((body.cards[0] as { go: unknown[] }).go.length, 1)
-  assert.deepEqual(((body.cards[0] as { go: { skills: string[] }[] }).go[0]).skills, ['a'])
+  assert.deepEqual((body.cards[0] as { go: { skills: string[] }[] }).go[0].skills, ['a'])
 }
 
 // An undated copy loses every tie-break.

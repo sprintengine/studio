@@ -24,9 +24,7 @@ import {
 } from '../../../packages/module-sdk/src/plugin-manifest'
 import { isRecord } from '../records'
 
-export {
-  canonicalManifestPayload,
-} from '../../../packages/module-sdk/src/manifest-validate'
+export { canonicalManifestPayload } from '../../../packages/module-sdk/src/manifest-validate'
 
 export {
   MARKETPLACE_COMPONENT_KINDS,
@@ -139,8 +137,7 @@ export function isClaudeCodePluginEntry(entry: Pick<MarketplacePluginEntry, 'tag
 }
 
 export type MarketplaceIndexResult =
-  | { ok: true; marketplace: MarketplaceIndex }
-  | { ok: false; issues: MarketplaceManifestIssue[] }
+  { ok: true; marketplace: MarketplaceIndex } | { ok: false; issues: MarketplaceManifestIssue[] }
 
 const COMPONENT_KIND_SET = new Set<string>(MARKETPLACE_COMPONENT_KINDS)
 
@@ -152,7 +149,7 @@ function pushSdkIssues(
   issues: MarketplaceManifestIssue[],
   sdkIssues: ThirdPartyManifestIssue[],
   pathPrefix = '',
-  remap: Record<string, string> = {}
+  remap: Record<string, string> = {},
 ): void {
   for (const issue of sdkIssues) {
     const mappedPath = remap[issue.path] ?? issue.path
@@ -177,7 +174,7 @@ function isSafeSkillFilePath(value: unknown): value is string {
 function validateSkillFiles(
   value: unknown,
   path: string,
-  issues: MarketplaceManifestIssue[]
+  issues: MarketplaceManifestIssue[],
 ): MarketplacePluginSkillFile[] | undefined {
   if (!Array.isArray(value) || value.length === 0) {
     issues.push({ path, message: 'skill files, when present, must be a non-empty array.' })
@@ -198,7 +195,8 @@ function validateSkillFiles(
     ) {
       issues.push({
         path: `${path}[${index}]`,
-        message: 'each skill file must carry a safe relative path, a lowercase 64-hex sha256, and a non-negative integer size.',
+        message:
+          'each skill file must carry a safe relative path, a lowercase 64-hex sha256, and a non-negative integer size.',
       })
       ok = false
       return
@@ -218,7 +216,7 @@ function validateSkillFiles(
 function validateSkills(
   value: unknown,
   path: string,
-  issues: MarketplaceManifestIssue[]
+  issues: MarketplaceManifestIssue[],
 ): MarketplacePluginSkill[] | undefined {
   if (!Array.isArray(value)) {
     issues.push({ path, message: 'skills must be an array.' })
@@ -241,7 +239,10 @@ function validateSkills(
     // be a safe relative path even for metadata-only skills — a backslash or
     // traversal segment would escape the payload root on the install side.
     if (skill.path !== undefined && !isSafeSkillFilePath(skill.path)) {
-      issues.push({ path: `${path}[${index}].path`, message: 'skill path must be a safe relative path (no traversal, absolute, or backslash segments).' })
+      issues.push({
+        path: `${path}[${index}].path`,
+        message: 'skill path must be a safe relative path (no traversal, absolute, or backslash segments).',
+      })
       return
     }
     // Payload digests come as a unit: files + contentDigest + the folder path
@@ -260,7 +261,10 @@ function validateSkills(
     let contentDigest: string | undefined
     if (hasFiles) {
       if (!isNonEmptyString(skill.path)) {
-        issues.push({ path: `${path}[${index}].path`, message: 'a skill with bundled content digests requires a path.' })
+        issues.push({
+          path: `${path}[${index}].path`,
+          message: 'a skill with bundled content digests requires a path.',
+        })
         return
       }
       if (typeof skill.contentDigest !== 'string' || !SHA256_HEX_PATTERN.test(skill.contentDigest)) {
@@ -284,7 +288,11 @@ function validateSkills(
   return skills
 }
 
-function validatePublisher(value: unknown, path: string, issues: MarketplaceManifestIssue[]): MarketplacePublisher | undefined {
+function validatePublisher(
+  value: unknown,
+  path: string,
+  issues: MarketplaceManifestIssue[],
+): MarketplacePublisher | undefined {
   if (!isRecord(value)) {
     issues.push({ path, message: 'publisher must be an object.' })
     return undefined
@@ -299,7 +307,11 @@ function validatePublisher(value: unknown, path: string, issues: MarketplaceMani
   return { name: value.name.trim(), verified: value.verified }
 }
 
-function validateProvides(value: unknown, path: string, issues: MarketplaceManifestIssue[]): MarketplaceComponentKind[] | undefined {
+function validateProvides(
+  value: unknown,
+  path: string,
+  issues: MarketplaceManifestIssue[],
+): MarketplaceComponentKind[] | undefined {
   if (!Array.isArray(value)) {
     issues.push({ path, message: 'provides must be an array.' })
     return undefined
@@ -311,7 +323,10 @@ function validateProvides(value: unknown, path: string, issues: MarketplaceManif
   const seen = new Set<MarketplaceComponentKind>()
   value.forEach((entry, index) => {
     if (typeof entry !== 'string' || !COMPONENT_KIND_SET.has(entry)) {
-      issues.push({ path: `${path}[${index}]`, message: `provides entries must be one of: ${MARKETPLACE_COMPONENT_KINDS.join(', ')}.` })
+      issues.push({
+        path: `${path}[${index}]`,
+        message: `provides entries must be one of: ${MARKETPLACE_COMPONENT_KINDS.join(', ')}.`,
+      })
       return
     }
     seen.add(entry as MarketplaceComponentKind)
@@ -319,7 +334,12 @@ function validateProvides(value: unknown, path: string, issues: MarketplaceManif
   return seen.size > 0 ? Array.from(seen) : undefined
 }
 
-function validateStringArray(value: unknown, path: string, field: string, issues: MarketplaceManifestIssue[]): string[] | undefined {
+function validateStringArray(
+  value: unknown,
+  path: string,
+  field: string,
+  issues: MarketplaceManifestIssue[],
+): string[] | undefined {
   if (!Array.isArray(value)) {
     issues.push({ path, message: `${field} must be an array of strings.` })
     return undefined
@@ -335,7 +355,11 @@ function validateStringArray(value: unknown, path: string, field: string, issues
   return items.length === value.length ? items : undefined
 }
 
-function validateInlineMcp(value: unknown, path: string, issues: MarketplaceManifestIssue[]): MarketplaceInlineMcp | undefined {
+function validateInlineMcp(
+  value: unknown,
+  path: string,
+  issues: MarketplaceManifestIssue[],
+): MarketplaceInlineMcp | undefined {
   if (!isRecord(value)) {
     issues.push({ path, message: 'mcp must be an object.' })
     return undefined
@@ -353,7 +377,10 @@ function validateInlineMcp(value: unknown, path: string, issues: MarketplaceMani
       source: 'custom',
     })
     if (!normalized) {
-      issues.push({ path: `${path}.servers[${index}]`, message: 'mcp server must normalize through the app MCP parser.' })
+      issues.push({
+        path: `${path}.servers[${index}]`,
+        message: 'mcp server must normalize through the app MCP parser.',
+      })
       return
     }
     servers.push(normalized)
@@ -366,19 +393,30 @@ function validateInlineMcp(value: unknown, path: string, issues: MarketplaceMani
 // lowercase id grammar.
 const INLINE_CLI_PLUGIN_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/
 
-function validateInlineCli(value: unknown, path: string, issues: MarketplaceManifestIssue[]): MarketplaceInlineCli | undefined {
+function validateInlineCli(
+  value: unknown,
+  path: string,
+  issues: MarketplaceManifestIssue[],
+): MarketplaceInlineCli | undefined {
   if (!isRecord(value)) {
     issues.push({ path, message: 'cli must be an object.' })
     return undefined
   }
   if (typeof value.pluginId !== 'string' || !INLINE_CLI_PLUGIN_ID_PATTERN.test(value.pluginId)) {
-    issues.push({ path: `${path}.pluginId`, message: 'cli.pluginId must be a lowercase plugin id (a–z, 0–9, hyphen), 1–63 chars.' })
+    issues.push({
+      path: `${path}.pluginId`,
+      message: 'cli.pluginId must be a lowercase plugin id (a–z, 0–9, hyphen), 1–63 chars.',
+    })
     return undefined
   }
   return { pluginId: value.pluginId }
 }
 
-function validateMarketplaceEntry(value: unknown, index: number, issues: MarketplaceManifestIssue[]): MarketplacePluginEntry | undefined {
+function validateMarketplaceEntry(
+  value: unknown,
+  index: number,
+  issues: MarketplaceManifestIssue[],
+): MarketplacePluginEntry | undefined {
   const path = `plugins[${index}]`
   if (!isRecord(value)) {
     issues.push({ path, message: 'marketplace plugin entry must be an object.' })
@@ -408,12 +446,11 @@ function validateMarketplaceEntry(value: unknown, index: number, issues: Marketp
 
   // Categories: accept the legacy singular `category` and/or a `categories[]`
   // array, and keep `category` populated (from categories[0]) for back-compat.
-  const categories = value.categories !== undefined
-    ? validateStringArray(value.categories, `${path}.categories`, 'categories', issues)
-    : undefined
-  const tags = value.tags !== undefined
-    ? validateStringArray(value.tags, `${path}.tags`, 'tags', issues)
-    : undefined
+  const categories =
+    value.categories !== undefined
+      ? validateStringArray(value.categories, `${path}.categories`, 'categories', issues)
+      : undefined
+  const tags = value.tags !== undefined ? validateStringArray(value.tags, `${path}.tags`, 'tags', issues) : undefined
   let category: string | undefined
   if (value.category !== undefined && !isNonEmptyString(value.category)) {
     issues.push({ path: `${path}.category`, message: 'category must be a non-empty string.' })
@@ -504,8 +541,8 @@ export function validateMarketplaceIndex(value: unknown): MarketplaceIndexResult
 
   const plugins = Array.isArray(value.plugins)
     ? value.plugins
-      .map((entry, index) => validateMarketplaceEntry(entry, index, issues))
-      .filter((entry): entry is MarketplacePluginEntry => entry !== undefined)
+        .map((entry, index) => validateMarketplaceEntry(entry, index, issues))
+        .filter((entry): entry is MarketplacePluginEntry => entry !== undefined)
     : []
 
   if (issues.length > 0) return { ok: false, issues }

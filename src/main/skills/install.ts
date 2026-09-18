@@ -93,9 +93,7 @@ type SkillInstallPlan = {
   files: SkillFileRef[]
 }
 
-export type SkillInstallPlanResult =
-  | { ok: true; plan: SkillInstallPlan }
-  | { ok: false; message: string }
+export type SkillInstallPlanResult = { ok: true; plan: SkillInstallPlan } | { ok: false; message: string }
 
 export type SkillInstallResult =
   | { ok: true; dirName: string; harnesses: SkillHarness[]; paths: string[]; fileCount: number }
@@ -110,7 +108,7 @@ export type SkillInstallResult =
 export function planSkillInstall(
   workspaceRoot: string,
   skill: ScannedSkill,
-  harnesses: readonly SkillHarness[]
+  harnesses: readonly SkillHarness[],
 ): SkillInstallPlanResult {
   const root = resolve(workspaceRoot)
   const dirName = skillDirName(skill.id)
@@ -306,8 +304,7 @@ export async function installSkillDirectory(options: {
 }
 
 export type SkillUninstallResult =
-  | { ok: true; dirName: string; removedPaths: string[] }
-  | { ok: false; message: string }
+  { ok: true; dirName: string; removedPaths: string[] } | { ok: false; message: string }
 
 /**
  * Take an installed skill back out of a workspace. Removal is by directory

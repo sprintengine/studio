@@ -24,8 +24,7 @@ export function hasCodeBearingComponent(components: MarketplacePluginComponents)
 }
 
 export type OptionallySignedManifestResult =
-  | { ok: true; manifest: MarketplacePluginAuthoringManifest }
-  | { ok: false; issues: MarketplaceManifestIssue[] }
+  { ok: true; manifest: MarketplacePluginAuthoringManifest } | { ok: false; issues: MarketplaceManifestIssue[] }
 
 // Resolve a plugin.json under the optionally-signed contract: a signed manifest
 // is validated strictly; a manifest whose only defect is a missing signature is

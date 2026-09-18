@@ -19,9 +19,7 @@ import {
  * installed. The folder path is always appended as the final argv element, so
  * no path text is ever interpreted as a flag or shell syntax.
  */
-export type FolderOpenLauncher =
-  | { kind: 'reveal' }
-  | { kind: 'command'; command: string; args: string[] }
+export type FolderOpenLauncher = { kind: 'reveal' } | { kind: 'command'; command: string; args: string[] }
 
 export type LauncherProbe = {
   platform: NodeJS.Platform
@@ -92,7 +90,7 @@ const LAUNCH_SETTLE_MS = 5_000
  * ask Spotlight once (cached, see `locateAppByBundleIdHere`).
  */
 export function listFolderOpenTargetAvailability(
-  resolveLauncher: (target: FolderOpenTargetId) => FolderOpenLauncher | null
+  resolveLauncher: (target: FolderOpenTargetId) => FolderOpenLauncher | null,
 ): FolderOpenTargetAvailability[] {
   return FOLDER_OPEN_TARGET_IDS.map((id) => ({ id, available: resolveLauncher(id) !== null }))
 }
@@ -216,7 +214,7 @@ export function registerFolderOpenIpc(ipcMain: IpcMain, deps: FolderOpenIpcDepen
 }
 
 export function createFolderOpenIpcDependencies(
-  showItemInFolder: (targetPath: string) => Promise<void>
+  showItemInFolder: (targetPath: string) => Promise<void>,
 ): FolderOpenIpcDependencies {
   return {
     showItemInFolder,

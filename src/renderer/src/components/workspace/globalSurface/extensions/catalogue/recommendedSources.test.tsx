@@ -76,12 +76,18 @@ run('a source the person added themselves is not offered again', () => {
     source(OFFICIAL_PLUGINS_SKILL_SOURCE_ID),
     source('github:wshobson/agents'),
   ])
-  assert.deepEqual(offered.map((entry) => entry.repo), ['anthropics/skills'])
+  assert.deepEqual(
+    offered.map((entry) => entry.repo),
+    ['anthropics/skills'],
+  )
 })
 
 run('the match is case-folded, because GitHub owners are', () => {
   const offered = offerableRecommendations(FEED, [source('github:WsHobson/Agents')])
-  assert.equal(offered.some((entry) => entry.repo === 'wshobson/agents'), false)
+  assert.equal(
+    offered.some((entry) => entry.repo === 'wshobson/agents'),
+    false,
+  )
 })
 
 run('a local folder source suppresses nothing', () => {

@@ -72,7 +72,7 @@ function percentile(sortedAsc: readonly number[], p: number): number | null {
 
 export function summarizeLongTasks(
   input: readonly LongTaskSample[],
-  options: { windowMs?: number; now?: number } = {}
+  options: { windowMs?: number; now?: number } = {},
 ): LongTaskSummary {
   const now = options.now ?? Date.now()
   const windowMs = options.windowMs ?? 60_000

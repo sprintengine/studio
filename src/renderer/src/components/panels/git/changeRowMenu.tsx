@@ -47,11 +47,7 @@ import {
   ShowDiffGlyph,
   StashGlyph,
 } from '../../ui'
-import {
-  DEFAULT_CHANGELIST_ID,
-  orderedChangelists,
-  type Changelist,
-} from '../../../../../shared/git/changelists'
+import { DEFAULT_CHANGELIST_ID, orderedChangelists, type Changelist } from '../../../../../shared/git/changelists'
 import type { GitChangeGroup, GitChangeRow } from './gitChangesModel'
 
 export type ChangeRowMenuEntry =
@@ -240,12 +236,7 @@ export const PARTIAL_ROW_REASON = 'use the file’s own row'
  *  than hidden (menu spec → Disabled), and the reason is in the LABEL rather
  *  than in a tooltip: a `disabled` control receives no pointer events, so a
  *  tooltip on one is a sentence nobody can read. */
-function moveEntry(
-  context: ChangelistActions,
-  busy: boolean,
-  label: string,
-  unavailable = false,
-): ChangeRowMenuEntry {
+function moveEntry(context: ChangelistActions, busy: boolean, label: string, unavailable = false): ChangeRowMenuEntry {
   const lists = orderedChangelists(context.changelists)
   if (unavailable) {
     return {
@@ -303,8 +294,8 @@ export function buildChangeRowMenu(context: ChangeRowMenuContext): ChangeRowMenu
       label: context.partialOnly
         ? `Discard changes — ${PARTIAL_ROW_REASON}`
         : many
-        ? `Discard changes in ${context.selectedCount} selected files…`
-        : 'Discard changes…',
+          ? `Discard changes in ${context.selectedCount} selected files…`
+          : 'Discard changes…',
       icon: <RollbackGlyph className="icon-xs" />,
       ...(context.partialOnly ? {} : { shortcut: '⌥⌘Z' }),
       danger: !context.partialOnly,
@@ -369,8 +360,8 @@ export function buildChangeRowMenu(context: ChangeRowMenuContext): ChangeRowMenu
       label: context.partialOnly
         ? `Delete — ${PARTIAL_ROW_REASON}`
         : many
-        ? `Delete ${context.selectedCount} selected files…`
-        : 'Delete…',
+          ? `Delete ${context.selectedCount} selected files…`
+          : 'Delete…',
       icon: menuIconSlot(),
       ...(context.partialOnly ? {} : { shortcut: '⌫' }),
       danger: !context.partialOnly,

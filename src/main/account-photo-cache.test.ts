@@ -14,7 +14,10 @@ const PNG_DATA_URL = `data:image/png;base64,${PNG.toString('base64')}`
 
 type FetchCall = { url: string }
 
-function fetchStub(handler: (url: string) => Response | Promise<Response>): { fetchImpl: typeof fetch; calls: FetchCall[] } {
+function fetchStub(handler: (url: string) => Response | Promise<Response>): {
+  fetchImpl: typeof fetch
+  calls: FetchCall[]
+} {
   const calls: FetchCall[] = []
   const fetchImpl = (async (input: string | URL | Request) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
@@ -92,7 +95,11 @@ async function main(): Promise<void> {
   // A null source is no photo, and never a fetch.
   await withDir(async (dir) => {
     const stub = fetchStub(() => image())
-    const cache = new AccountPhotoCache({ cachePath: () => join(dir, 'photo.json'), fetchImpl: stub.fetchImpl, log: quiet })
+    const cache = new AccountPhotoCache({
+      cachePath: () => join(dir, 'photo.json'),
+      fetchImpl: stub.fetchImpl,
+      log: quiet,
+    })
     assert.equal(await cache.resolve(null), null)
     assert.equal(stub.calls.length, 0)
   })
@@ -102,13 +109,29 @@ async function main(): Promise<void> {
   await withDir(async (dir) => {
     let fail = false
     const stub = fetchStub(() => (fail ? new Response('nope', { status: 404 }) : image()))
-    const cache = new AccountPhotoCache({ cachePath: () => join(dir, 'photo.json'), fetchImpl: stub.fetchImpl, log: quiet })
+    const cache = new AccountPhotoCache({
+      cachePath: () => join(dir, 'photo.json'),
+      fetchImpl: stub.fetchImpl,
+      log: quiet,
+    })
     assert.equal(await cache.resolve(SOURCE), PNG_DATA_URL)
 
     fail = true
-    assert.equal(await cache.resolve('https://example.com/changed.png'), null, 'a failed fetch of a new photo is no photo')
-    assert.equal(await cache.resolve('https://example.com/changed.png', { allowNetwork: false }), null, 'offline, a new photo is no photo')
-    assert.equal(await cache.resolve(SOURCE, { allowNetwork: false }), PNG_DATA_URL, 'the old source still resolves from disk')
+    assert.equal(
+      await cache.resolve('https://example.com/changed.png'),
+      null,
+      'a failed fetch of a new photo is no photo',
+    )
+    assert.equal(
+      await cache.resolve('https://example.com/changed.png', { allowNetwork: false }),
+      null,
+      'offline, a new photo is no photo',
+    )
+    assert.equal(
+      await cache.resolve(SOURCE, { allowNetwork: false }),
+      PNG_DATA_URL,
+      'the old source still resolves from disk',
+    )
   })
 
   // Stale entries are refreshed; a failed refresh keeps the cached bytes.
@@ -125,13 +148,19 @@ async function main(): Promise<void> {
     })
     assert.equal(await cache.resolve(SOURCE), PNG_DATA_URL)
     now += 5000
-    response = () => { throw new Error('offline') }
+    response = () => {
+      throw new Error('offline')
+    }
     assert.equal(await cache.resolve(SOURCE), PNG_DATA_URL, 'a failed refresh keeps the stale photo')
     assert.equal(stub.calls.length, 2, 'the stale entry was refreshed once')
 
     const JPEG = Buffer.from([0xff, 0xd8, 0xff])
     response = () => image(JPEG, 'image/jpeg')
-    assert.equal(await cache.resolve(SOURCE), `data:image/jpeg;base64,${JPEG.toString('base64')}`, 'a successful refresh replaces the bytes')
+    assert.equal(
+      await cache.resolve(SOURCE),
+      `data:image/jpeg;base64,${JPEG.toString('base64')}`,
+      'a successful refresh replaces the bytes',
+    )
   })
 
   // Anything that is not a small https raster image is refused.
@@ -161,16 +190,27 @@ async function main(): Promise<void> {
       return redirected
     }
     assert.equal(await cache.resolve('https://example.com/f.png'), null, 'a redirect off https is refused')
-    response = () => new Response(body(PNG), { status: 200, headers: { 'content-type': 'image/png', 'content-length': '99999' } })
-    assert.equal(await cache.resolve('https://example.com/e.png'), null, 'a declared oversize body is refused before download')
+    response = () =>
+      new Response(body(PNG), { status: 200, headers: { 'content-type': 'image/png', 'content-length': '99999' } })
+    assert.equal(
+      await cache.resolve('https://example.com/e.png'),
+      null,
+      'a declared oversize body is refused before download',
+    )
   })
 
   // A fetch that never answers is cut off at the timeout.
   await withDir(async (dir) => {
-    const fetchImpl = ((_input: unknown, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {
-      init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
-    })) as typeof fetch
-    const cache = new AccountPhotoCache({ cachePath: () => join(dir, 'photo.json'), fetchImpl, timeoutMs: 20, log: quiet })
+    const fetchImpl = ((_input: unknown, init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        init?.signal?.addEventListener('abort', () => reject(new Error('aborted')))
+      })) as typeof fetch
+    const cache = new AccountPhotoCache({
+      cachePath: () => join(dir, 'photo.json'),
+      fetchImpl,
+      timeoutMs: 20,
+      log: quiet,
+    })
     assert.equal(await cache.resolve(SOURCE), null)
   })
 

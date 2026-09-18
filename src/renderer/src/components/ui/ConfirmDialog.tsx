@@ -109,17 +109,23 @@ export function ConfirmDialogProvider({ children }: { children: React.ReactNode 
     })
   }, [])
 
-  const confirm = useCallback((options: ConfirmDialogOptions) => {
-    return new Promise<boolean>((resolve) => {
-      replaceRequest({ kind: 'confirm', options, resolve })
-    })
-  }, [replaceRequest])
+  const confirm = useCallback(
+    (options: ConfirmDialogOptions) => {
+      return new Promise<boolean>((resolve) => {
+        replaceRequest({ kind: 'confirm', options, resolve })
+      })
+    },
+    [replaceRequest],
+  )
 
-  const prompt = useCallback((options: PromptDialogOptions) => {
-    return new Promise<string | null>((resolve) => {
-      replaceRequest({ kind: 'prompt', options, resolve })
-    })
-  }, [replaceRequest])
+  const prompt = useCallback(
+    (options: PromptDialogOptions) => {
+      return new Promise<string | null>((resolve) => {
+        replaceRequest({ kind: 'prompt', options, resolve })
+      })
+    },
+    [replaceRequest],
+  )
 
   const api = useMemo(() => ({ confirm, prompt }), [confirm, prompt])
 
@@ -246,11 +252,7 @@ function PromptDialog({
           <ModalButton type="button" onClick={onCancel}>
             {options.cancelLabel ?? 'Cancel'}
           </ModalButton>
-          <ModalButton
-            type="submit"
-            variant={options.tone === 'danger' ? 'danger' : 'primary'}
-            disabled={!canSubmit}
-          >
+          <ModalButton type="submit" variant={options.tone === 'danger' ? 'danger' : 'primary'} disabled={!canSubmit}>
             {options.confirmLabel ?? 'Continue'}
           </ModalButton>
         </ModalFooter>

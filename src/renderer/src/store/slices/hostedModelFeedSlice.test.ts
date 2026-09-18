@@ -13,7 +13,11 @@ const feed = (ids: string[]) => ({
   clis: { 'claude-code': { models: ids.map((id) => ({ id, label: id })) } },
 })
 
-const okResult = (ids: string[], source: 'network' | 'cache' | 'seed', changed: boolean): HostedModelFeedReadResult => ({
+const okResult = (
+  ids: string[],
+  source: 'network' | 'cache' | 'seed',
+  changed: boolean,
+): HostedModelFeedReadResult => ({
   ok: true,
   state: 'ok',
   feedUrl: 'https://example.com/model-feed.json',
@@ -42,18 +46,27 @@ async function main(): Promise<void> {
   // Boot serves the disk copy and splits it per CLI for the merge.
   await slice.loadHostedModelFeed()
   assert.deepEqual(calls, ['get'])
-  assert.deepEqual(carrier.hostedModelCatalogs['claude-code']?.map((m) => m.id), ['seeded'])
+  assert.deepEqual(
+    carrier.hostedModelCatalogs['claude-code']?.map((m) => m.id),
+    ['seeded'],
+  )
   assert.equal(carrier.hostedModelFeed?.ok && carrier.hostedModelFeed.source, 'seed')
 
   // Check now forces; the result is applied here without waiting for the push.
   const refreshed = await slice.refreshHostedModelFeed({ force: true })
   assert.equal(refreshed?.ok, true)
   assert.deepEqual(calls, ['get', 'refresh:force'])
-  assert.deepEqual(carrier.hostedModelCatalogs['claude-code']?.map((m) => m.id), ['seeded', 'claude-fable-5-1'])
+  assert.deepEqual(
+    carrier.hostedModelCatalogs['claude-code']?.map((m) => m.id),
+    ['seeded', 'claude-fable-5-1'],
+  )
 
   // A failure keeps the rows that were showing and records the failure.
   slice.applyHostedModelFeedResult({ ok: false, state: 'offline', feedUrl: 'x', message: "Couldn't reach GitHub." })
-  assert.deepEqual(carrier.hostedModelCatalogs['claude-code']?.map((m) => m.id), ['seeded', 'claude-fable-5-1'])
+  assert.deepEqual(
+    carrier.hostedModelCatalogs['claude-code']?.map((m) => m.id),
+    ['seeded', 'claude-fable-5-1'],
+  )
   assert.equal(carrier.hostedModelFeed?.ok, false)
 
   // The push subscription applies whatever main sends.
@@ -71,7 +84,10 @@ async function main(): Promise<void> {
   })
   assert.ok(push.fn)
   push.fn(okResult(['only-this'], 'network', true))
-  assert.deepEqual(carrier.hostedModelCatalogs['claude-code']?.map((m) => m.id), ['only-this'])
+  assert.deepEqual(
+    carrier.hostedModelCatalogs['claude-code']?.map((m) => m.id),
+    ['only-this'],
+  )
   unsubscribe()
   assert.equal(push.fn, null)
 

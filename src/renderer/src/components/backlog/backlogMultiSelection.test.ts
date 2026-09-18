@@ -26,11 +26,7 @@ function keys(state: BacklogMultiSelection): string[] {
   const state = collapseBacklogSelectionTo('a2')
   assert.equal(state.keys, null, 'plain click leaves multi mode')
   assert.equal(state.anchorKey, 'a2', 'plain click anchors the clicked row')
-  assert.deepEqual(
-    [...effectiveBacklogSelection(state, 'a2')],
-    ['a2'],
-    'single mode selects the cursor row alone',
-  )
+  assert.deepEqual([...effectiveBacklogSelection(state, 'a2')], ['a2'], 'single mode selects the cursor row alone')
   assert.equal(isBacklogMultiSelectionActive(state), false)
 }
 

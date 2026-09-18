@@ -78,10 +78,7 @@ assert.equal(carrier.workspaces[1].memory?.relativeRoot, 'docs')
 
 memorySlice.setProjectKnowledgeRoot('/Users/example/project', null)
 assert.equal(
-  Object.prototype.hasOwnProperty.call(
-    carrier.appSettings.projectKnowledgeRoots,
-    '/Users/example/project',
-  ),
+  Object.prototype.hasOwnProperty.call(carrier.appSettings.projectKnowledgeRoots, '/Users/example/project'),
   false,
 )
 

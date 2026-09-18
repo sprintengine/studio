@@ -10,15 +10,7 @@
 // and a re-render cannot reshuffle what someone is reading.
 
 /** Grouping used to keep one draw from being four flavours of the same idea. */
-type SuggestionCategory =
-  | 'review'
-  | 'design'
-  | 'performance'
-  | 'security'
-  | 'tests'
-  | 'backlog'
-  | 'docs'
-  | 'deps'
+type SuggestionCategory = 'review' | 'design' | 'performance' | 'security' | 'tests' | 'backlog' | 'docs' | 'deps'
 
 export type SuggestionEntry = {
   id: string
@@ -84,9 +76,9 @@ export const SUGGESTION_BANK: readonly SuggestionEntry[] = [
     description: 'Find where surfaces drift from the design system — tokens, spacing, states.',
     outcome: 'Files backlog items',
     prompt: [
-      'Audit this app\'s UI against its design system.',
+      "Audit this app's UI against its design system.",
       'Read the design system bundle first (its usage contract, tokens, and component specs), then',
-      'the app\'s surfaces. Report where the app drifts: hard-coded colours, spacing off the scale,',
+      "the app's surfaces. Report where the app drifts: hard-coded colours, spacing off the scale,",
       'a component rebuilt instead of reused, a state (hover, focus-visible, disabled, empty, error)',
       'the spec requires and the surface does not draw.',
       FILE_DONT_FIX,
@@ -99,7 +91,7 @@ export const SUGGESTION_BANK: readonly SuggestionEntry[] = [
     description: 'Every user-visible string in one surface, judged against the voice guide.',
     outcome: 'Files backlog items',
     prompt: [
-      'Check this app\'s user-visible copy against its documented voice rules.',
+      "Check this app's user-visible copy against its documented voice rules.",
       'Find the voice guide in the repo and follow it exactly rather than your own preferences.',
       'Collect the strings a person actually sees — labels, empty states, errors, tooltips — and',
       'report the ones that break a rule, quoting the string, its file, and the rule it breaks.',
@@ -113,7 +105,7 @@ export const SUGGESTION_BANK: readonly SuggestionEntry[] = [
     description: 'Profile the slow paths — render, IPC, startup — and name the cost of each.',
     outcome: 'Files backlog items',
     prompt: [
-      'Find this application\'s real performance problems.',
+      "Find this application's real performance problems.",
       'Start from what a user waits for: startup, the first paint of each main surface, and any',
       'interaction that blocks. Read the hot paths rather than guessing — repeated work per render,',
       'unbounded lists, synchronous I/O on the UI thread, chatty IPC, work done on every keystroke.',
@@ -186,7 +178,7 @@ export const SUGGESTION_BANK: readonly SuggestionEntry[] = [
     description: 'Read every open item, merge duplicates, and rank what to pick up next.',
     outcome: 'Updates backlog items',
     prompt: [
-      'Triage this project\'s backlog.',
+      "Triage this project's backlog.",
       'Read every non-archived item and judge it against the code as it is today: still worth doing,',
       'already built, overtaken by another change, or simply mis-statused. Duplicates should be',
       'merged into the better-written item rather than both left open.',
@@ -202,7 +194,7 @@ export const SUGGESTION_BANK: readonly SuggestionEntry[] = [
     description: 'Where the written record and the repo disagree.',
     outcome: 'Files backlog items',
     prompt: [
-      'Check this project\'s documentation against the code it describes.',
+      "Check this project's documentation against the code it describes.",
       'Read the docs and knowledge files, then verify their claims: named files that moved, flags',
       'that were renamed, flows that now work differently, and instructions that would fail if',
       'followed today. Quote the passage and name what is actually true.',
@@ -216,7 +208,7 @@ export const SUGGESTION_BANK: readonly SuggestionEntry[] = [
     description: 'What is outdated, unused, or duplicated across the tree.',
     outcome: 'Files backlog items',
     prompt: [
-      'Audit this project\'s dependencies.',
+      "Audit this project's dependencies.",
       'Report what is unused, what is duplicated at conflicting versions, what is badly out of date,',
       'and what is a heavyweight dependency doing a job the platform now does. For each, say what',
       'upgrading or removing it would take and what it would risk breaking.',

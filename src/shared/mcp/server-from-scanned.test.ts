@@ -66,7 +66,7 @@ run('a remote server is scored by what it reaches, and keeps its url', () => {
   const http = mcpServerConfigFromScanned(
     scanned({ transport: 'http', command: '', url: 'https://mcp.example.com/mcp', envVarNames: ['EXAMPLE_TOKEN'] }),
     ['codex'],
-    REF
+    REF,
   )
   assert.equal(http.transport, 'http')
   assert.equal(http.url, 'https://mcp.example.com/mcp')

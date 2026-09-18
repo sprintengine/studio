@@ -1,9 +1,6 @@
 import { useMemo } from 'react'
 
-import {
-  composePreviewSrcDoc,
-  type PreviewMode,
-} from '../../../../../../shared/design-system/preview-doc'
+import { composePreviewSrcDoc, type PreviewMode } from '../../../../../../shared/design-system/preview-doc'
 import { representativeStage } from '../../../../../../shared/design-system/bundle-parse'
 import type {
   DesignSystemBundleView,
@@ -55,13 +52,7 @@ import { PreviewFrame } from './PreviewFrame'
 // hover is a background change — never a scale, shadow, or appearing border.
 
 /** The canvas's tabs, in the order the band draws them. */
-export type DesignCanvasTabId =
-  | 'colour'
-  | 'type'
-  | 'spacing'
-  | 'components'
-  | 'patterns'
-  | 'glyphs'
+export type DesignCanvasTabId = 'colour' | 'type' | 'spacing' | 'components' | 'patterns' | 'glyphs'
 
 /**
  * How many specimens a page of Components or Patterns holds.
@@ -150,17 +141,10 @@ export function DesignCanvas({
         </p>
       ) : null}
       {view.assetBudgetExhausted ? (
-        <p className="px-3 pt-2 text-meta text-[color:var(--text-muted)]">
-          Some assets were too large to preview
-        </p>
+        <p className="px-3 pt-2 text-meta text-[color:var(--text-muted)]">Some assets were too large to preview</p>
       ) : null}
       {active ? (
-        <TabPanel
-          idPrefix={idPrefix}
-          tabId={active}
-          active
-          className="min-h-0 flex-1 overflow-y-auto"
-        >
+        <TabPanel idPrefix={idPrefix} tabId={active} active className="min-h-0 flex-1 overflow-y-auto">
           <CanvasPanel
             tab={active}
             view={view}
@@ -173,9 +157,7 @@ export function DesignCanvas({
       ) : (
         // A readable bundle that declares nothing this door can draw. Said
         // plainly rather than as six empty tabs.
-        <p className="px-3 pt-3 text-meta text-[color:var(--text-muted)]">
-          This system declares nothing to show yet.
-        </p>
+        <p className="px-3 pt-3 text-meta text-[color:var(--text-muted)]">This system declares nothing to show yet.</p>
       )}
     </div>
   )
@@ -200,8 +182,7 @@ export function designCanvasTabs(view: DesignSystemBundleView): TabItem<DesignCa
   push(
     'type',
     'Type',
-    tokens.fontSize.length + tokens.fontWeight.length + tokens.fontLine.length +
-      tokens.fontTracking.length,
+    tokens.fontSize.length + tokens.fontWeight.length + tokens.fontLine.length + tokens.fontTracking.length,
   )
   push('spacing', 'Spacing', tokens.space.length + tokens.size.length + tokens.radius.length + tokens.shadow.length)
   push('components', 'Components', groupOf(view, 'components')?.count ?? 0)
@@ -252,26 +233,10 @@ function CanvasPanel({
     case 'glyphs':
       return <GlyphStrip view={view} mode={mode} />
     case 'patterns':
-      return (
-        <PatternsPanel
-          view={view}
-          mode={mode}
-          newEntries={newEntries}
-          page={page}
-          onPageChange={onPageChange}
-        />
-      )
+      return <PatternsPanel view={view} mode={mode} newEntries={newEntries} page={page} onPageChange={onPageChange} />
     case 'components':
     default:
-      return (
-        <ComponentsPanel
-          view={view}
-          mode={mode}
-          newEntries={newEntries}
-          page={page}
-          onPageChange={onPageChange}
-        />
-      )
+      return <ComponentsPanel view={view} mode={mode} newEntries={newEntries} page={page} onPageChange={onPageChange} />
   }
 }
 
@@ -293,9 +258,7 @@ function ComponentsPanel({
   const group = groupOf(view, 'components')
   const rendered = useMemo(
     () =>
-      group
-        ? view.components.filter((component) => matchesEntry(group.entries, component.name))
-        : view.components,
+      group ? view.components.filter((component) => matchesEntry(group.entries, component.name)) : view.components,
     [group, view.components],
   )
   const range = pageWindow(rendered.length, page)
@@ -311,10 +274,7 @@ function ComponentsPanel({
         />
       ))}
       {/* Declared but not on disk: named, never silently missing. */}
-      <MissingEntries
-        declared={group?.entries ?? []}
-        present={rendered.map((component) => component.name)}
-      />
+      <MissingEntries declared={group?.entries ?? []} present={rendered.map((component) => component.name)} />
       <SpecimenPager
         tab="components"
         noun="Components"
@@ -355,11 +315,7 @@ function ComponentSpecimen({
     [tokensCss, component.css, component.inlineStyles, stage?.html, mode],
   )
   return (
-    <Section
-      title={component.name}
-      action={isNew ? <NewChip /> : undefined}
-      inset={false}
-    >
+    <Section title={component.name} action={isNew ? <NewChip /> : undefined} inset={false}>
       {stage ? (
         <PreviewFrame
           height={COMPONENT_STAGE_RESERVE}
@@ -398,8 +354,7 @@ function PatternsPanel({
 }): JSX.Element {
   const group = groupOf(view, 'patterns')
   const rendered = useMemo(
-    () =>
-      group ? view.patterns.filter((pattern) => matchesEntry(group.entries, pattern.name)) : view.patterns,
+    () => (group ? view.patterns.filter((pattern) => matchesEntry(group.entries, pattern.name)) : view.patterns),
     [group, view.patterns],
   )
   const range = pageWindow(rendered.length, page)
@@ -409,9 +364,7 @@ function PatternsPanel({
         <Section
           key={pattern.name}
           title={pattern.name}
-          action={
-            isNewEntry(newEntries, 'patterns', group?.entries ?? [], pattern.name) ? <NewChip /> : undefined
-          }
+          action={isNewEntry(newEntries, 'patterns', group?.entries ?? [], pattern.name) ? <NewChip /> : undefined}
           inset={false}
         >
           <PreviewFrame
@@ -430,10 +383,7 @@ function PatternsPanel({
           />
         </Section>
       ))}
-      <MissingEntries
-        declared={group?.entries ?? []}
-        present={rendered.map((pattern) => pattern.name)}
-      />
+      <MissingEntries declared={group?.entries ?? []} present={rendered.map((pattern) => pattern.name)} />
       <SpecimenPager
         tab="patterns"
         noun="Patterns"
@@ -477,10 +427,7 @@ function SpecimenPager({
 }
 
 /** The slice one page shows, with the page clamped to what exists. */
-export function pageWindow(
-  total: number,
-  page: number,
-): { page: number; pageCount: number; from: number; to: number } {
+export function pageWindow(total: number, page: number): { page: number; pageCount: number; from: number; to: number } {
   const pageCount = Math.max(1, Math.ceil(total / DESIGN_CANVAS_PAGE_SIZE))
   // A page number outlives the list it was taken on — a search, a reload, a
   // bundle that lost a component — so it is clamped rather than trusted.
@@ -508,8 +455,7 @@ export function pageWindow(
 function GlyphStrip({ view, mode }: { view: DesignSystemBundleView; mode: PreviewMode }): JSX.Element {
   const group = groupOf(view, 'glyphs')
   const rendered = useMemo(
-    () =>
-      group ? view.glyphs.filter((glyph) => matchesEntry(group.entries, glyph.name)) : view.glyphs,
+    () => (group ? view.glyphs.filter((glyph) => matchesEntry(group.entries, glyph.name)) : view.glyphs),
     [group, view.glyphs],
   )
   const srcDoc = useMemo(() => {
@@ -647,11 +593,7 @@ function TypePanel({ view }: { view: DesignSystemBundleView }): JSX.Element {
         {(token, value) => (
           // Leading only exists BETWEEN lines, so the specimen has to be more
           // than one: the name three times, wrapped, and nothing else.
-          <span
-            title={token.path}
-            className="block max-w-[24ch] whitespace-normal"
-            style={{ lineHeight: value }}
-          >
+          <span title={token.path} className="block max-w-[24ch] whitespace-normal" style={{ lineHeight: value }}>
             {`${token.path} ${token.path} ${token.path}`}
           </span>
         )}

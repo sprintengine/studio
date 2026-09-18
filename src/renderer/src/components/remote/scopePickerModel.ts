@@ -80,7 +80,7 @@ export type ScopePreset = 'read-only' | 'standard'
  * at, which is the bug this rebuild exists to fix.
  */
 export const READ_ONLY_SCOPES: readonly TailnetScope[] = TAILNET_SCOPES.filter(
-  (scope) => scope.endsWith(':read') || scope === 'terminal:observe'
+  (scope) => scope.endsWith(':read') || scope === 'terminal:observe',
 )
 
 /**
@@ -132,11 +132,7 @@ export function presetFor(scopes: readonly TailnetScope[]): ScopePreset | null {
  * drawn in array order and a person who ticked the last row first should not see
  * their scopes listed backwards.
  */
-export function toggleScope(
-  scopes: readonly TailnetScope[],
-  scope: TailnetScope,
-  next: boolean
-): TailnetScope[] {
+export function toggleScope(scopes: readonly TailnetScope[], scope: TailnetScope, next: boolean): TailnetScope[] {
   const chosen = new Set(scopes)
   if (next) chosen.add(scope)
   else chosen.delete(scope)

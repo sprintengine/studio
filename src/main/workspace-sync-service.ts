@@ -92,7 +92,10 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
 
   function getEventsAfter(sequence: unknown): WorkspaceSyncEvent[] {
     if (!Number.isInteger(sequence) || typeof sequence !== 'number' || sequence < 0) return []
-    return events.filter((event) => event.sequence > sequence).slice(-maxReplayEvents).map(clone)
+    return events
+      .filter((event) => event.sequence > sequence)
+      .slice(-maxReplayEvents)
+      .map(clone)
   }
 
   function dispatch(input: DispatchInput): WorkspaceSyncCommandResult {
@@ -119,15 +122,16 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     // committed. This is how a record composed in a window — the one shape whose
     // creation logic still lives in the renderer — stays compatible with
     // single-writer authority: the window proposed the payload, main wrote it.
-    const command = validation.command.type === 'workspace.created'
-      ? {
-          ...validation.command,
-          payload: {
-            ...validation.command.payload,
-            workspace: registry.adoptRecord(validation.command.payload.workspace),
-          },
-        } satisfies WorkspaceSyncCommand
-      : validation.command
+    const command =
+      validation.command.type === 'workspace.created'
+        ? ({
+            ...validation.command,
+            payload: {
+              ...validation.command.payload,
+              workspace: registry.adoptRecord(validation.command.payload.workspace),
+            },
+          } satisfies WorkspaceSyncCommand)
+        : validation.command
 
     // `announce: false` — the IPC handler broadcasts this one itself so it can
     // skip the window that sent it. That window learns the authoritative
@@ -161,17 +165,17 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
     const emitted = prepared.reused
       ? reuseExisting(prepared, actor)
       : emit(
-        {
-          type: 'workspace.created',
-          payload: {
-            workspace: prepared.workspace,
-            windowId: prepared.windowId,
-            insert: { kind: 'folder_head', folderPath: prepared.folderPath },
+          {
+            type: 'workspace.created',
+            payload: {
+              workspace: prepared.workspace,
+              windowId: prepared.windowId,
+              insert: { kind: 'folder_head', folderPath: prepared.folderPath },
+            },
           },
-        },
-        prepared.windowId,
-        actor,
-      )
+          prepared.windowId,
+          actor,
+        )
     if (!emitted.ok) return { ok: false, reason: emitted.reason, message: emitted.message }
     const committed = registry.getRecord(prepared.workspace.id)
     if (!committed) {
@@ -284,10 +288,7 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
    * assign the workspace to the requesting window when it is not already there.
    * Both are no-ops when nothing changed, so a repeated reuse is silent.
    */
-  function reuseExisting(
-    prepared: WorkspaceCreateResult,
-    actor: WorkspaceMutationActor,
-  ): WorkspaceSyncCommandResult {
+  function reuseExisting(prepared: WorkspaceCreateResult, actor: WorkspaceMutationActor): WorkspaceSyncCommandResult {
     const existing = registry.getRecord(prepared.workspace.id)
     if (!existing) {
       return failure('unknown_workspace', `Workspace "${prepared.workspace.id}" vanished during reuse.`)
@@ -297,7 +298,10 @@ export function createWorkspaceSyncService(options: WorkspaceSyncServiceOptions)
       .workspaceWindows.some((windowState) => windowState.workspaceIds.includes(existing.id))
     if (existing.folderMissing) {
       const cleared = emit(
-        { type: 'workspace.update_fields', payload: { workspaceId: existing.id, patch: { folderMissing: false }, editedAt: now() } },
+        {
+          type: 'workspace.update_fields',
+          payload: { workspaceId: existing.id, patch: { folderMissing: false }, editedAt: now() },
+        },
         prepared.windowId,
         actor,
       )
@@ -372,9 +376,7 @@ function stateToSnapshot(state: WorkspaceSyncState): WorkspaceSyncSnapshot {
   }
 }
 
-type ValidationResult =
-  | { ok: true; command: WorkspaceSyncCommand }
-  | { ok: false; reason: string; message: string }
+type ValidationResult = { ok: true; command: WorkspaceSyncCommand } | { ok: false; reason: string; message: string }
 
 function validateCommand(input: unknown, state: WorkspaceSyncState, sourceWindowId: string): ValidationResult {
   if (!isRecord(input) || typeof input.type !== 'string' || !isRecord(input.payload)) {
@@ -414,12 +416,15 @@ function validateCommand(input: unknown, state: WorkspaceSyncState, sourceWindow
 function validateSetActive(
   payload: Record<string, unknown>,
   state: WorkspaceSyncState,
-  sourceWindowId: string
+  sourceWindowId: string,
 ): ValidationResult {
   const windowId = normalizeId(payload.windowId)
   if (!windowId) return reject('invalid_window_id', 'Active workspace commands require a window id.')
   if (windowId !== sourceWindowId) {
-    return reject('window_authority_mismatch', `Window "${sourceWindowId}" cannot change active workspace for window "${windowId}".`)
+    return reject(
+      'window_authority_mismatch',
+      `Window "${sourceWindowId}" cannot change active workspace for window "${windowId}".`,
+    )
   }
   const windowState = state.workspaceWindows.find((candidate) => candidate.id === windowId)
   if (!windowState) return reject('unknown_window', `Window "${windowId}" is not known to workspace sync.`)
@@ -436,7 +441,7 @@ function validateSetActive(
 function validateMoveToWindow(
   payload: Record<string, unknown>,
   state: WorkspaceSyncState,
-  sourceWindowId: string
+  sourceWindowId: string,
 ): ValidationResult {
   const workspaceId = normalizeId(payload.workspaceId)
   const toWindowId = normalizeId(payload.toWindowId)
@@ -448,18 +453,29 @@ function validateMoveToWindow(
     return reject('unknown_workspace', `Workspace "${workspaceId}" is not known to workspace sync.`)
   }
   const sourceWindow = state.workspaceWindows.find((windowState) => windowState.id === sourceWindowId)
-  if (!sourceWindow) return reject('unknown_source_window', `Source window "${sourceWindowId}" is not known to workspace sync.`)
+  if (!sourceWindow)
+    return reject('unknown_source_window', `Source window "${sourceWindowId}" is not known to workspace sync.`)
   if (fromWindowId && fromWindowId !== sourceWindowId) {
-    return reject('window_authority_mismatch', `Window "${sourceWindowId}" cannot move workspace from window "${fromWindowId}".`)
+    return reject(
+      'window_authority_mismatch',
+      `Window "${sourceWindowId}" cannot move workspace from window "${fromWindowId}".`,
+    )
   }
   if (!sourceWindow.workspaceIds.includes(workspaceId)) {
-    return reject('workspace_not_in_source_window', `Workspace "${workspaceId}" is not assigned to source window "${sourceWindowId}".`)
+    return reject(
+      'workspace_not_in_source_window',
+      `Workspace "${workspaceId}" is not assigned to source window "${sourceWindowId}".`,
+    )
   }
   if (fromWindowId) {
     const source = state.workspaceWindows.find((windowState) => windowState.id === fromWindowId)
-    if (!source) return reject('unknown_source_window', `Source window "${fromWindowId}" is not known to workspace sync.`)
+    if (!source)
+      return reject('unknown_source_window', `Source window "${fromWindowId}" is not known to workspace sync.`)
     if (!source.workspaceIds.includes(workspaceId)) {
-      return reject('workspace_not_in_source_window', `Workspace "${workspaceId}" is not assigned to source window "${fromWindowId}".`)
+      return reject(
+        'workspace_not_in_source_window',
+        `Workspace "${workspaceId}" is not assigned to source window "${fromWindowId}".`,
+      )
     }
   }
   return {
@@ -474,12 +490,15 @@ function validateMoveToWindow(
 function validatePlacement(
   payload: Record<string, unknown>,
   state: WorkspaceSyncState,
-  sourceWindowId: string
+  sourceWindowId: string,
 ): ValidationResult {
   const windowId = normalizeId(payload.windowId)
   if (!windowId) return reject('invalid_window_id', 'Placement commands require a window id.')
   if (windowId !== sourceWindowId) {
-    return reject('window_authority_mismatch', `Window "${sourceWindowId}" cannot update placement for window "${windowId}".`)
+    return reject(
+      'window_authority_mismatch',
+      `Window "${sourceWindowId}" cannot update placement for window "${windowId}".`,
+    )
   }
   if (!state.workspaceWindows.some((candidate) => candidate.id === windowId)) {
     return reject('unknown_window', `Window "${windowId}" is not known to workspace sync.`)
@@ -508,7 +527,7 @@ function validatePlacement(
 function validateWindowClose(
   payload: Record<string, unknown>,
   state: WorkspaceSyncState,
-  sourceWindowId: string
+  sourceWindowId: string,
 ): ValidationResult {
   const windowId = normalizeId(payload.windowId)
   const fallbackWindowId = normalizeId(payload.fallbackWindowId)
@@ -533,7 +552,7 @@ function validateWindowClose(
 function validateWorkspaceCreated(
   payload: Record<string, unknown>,
   state: WorkspaceSyncState,
-  sourceWindowId: string
+  sourceWindowId: string,
 ): ValidationResult {
   if (!isRecord(payload.workspace)) {
     return reject('invalid_workspace', 'Workspace creation commands require a workspace object.')
@@ -544,7 +563,10 @@ function validateWorkspaceCreated(
     return reject('invalid_workspace_created_payload', 'Workspace creation commands require workspace and window ids.')
   }
   if (windowId !== sourceWindowId) {
-    return reject('window_authority_mismatch', `Window "${sourceWindowId}" cannot create a workspace in window "${windowId}".`)
+    return reject(
+      'window_authority_mismatch',
+      `Window "${sourceWindowId}" cannot create a workspace in window "${windowId}".`,
+    )
   }
   if (!state.workspaceWindows.some((candidate) => candidate.id === windowId)) {
     return reject('unknown_window', `Window "${windowId}" is not known to workspace sync.`)
@@ -562,7 +584,11 @@ function validateWorkspaceCreated(
   if (!isRecord(payload.insert) || payload.insert.kind !== 'folder_head') {
     return reject('invalid_insert', 'Workspace creation commands require a folder_head insert descriptor.')
   }
-  if (payload.insert.folderPath !== null && payload.insert.folderPath !== undefined && typeof payload.insert.folderPath !== 'string') {
+  if (
+    payload.insert.folderPath !== null &&
+    payload.insert.folderPath !== undefined &&
+    typeof payload.insert.folderPath !== 'string'
+  ) {
     return reject('invalid_insert', 'Workspace creation folder path must be a string or null.')
   }
   const folderPath = payload.insert.folderPath === null ? null : normalizeOptionalString(payload.insert.folderPath)
@@ -720,14 +746,17 @@ function validateRemove(payload: Record<string, unknown>): ValidationResult {
 function validateAssignSession(
   payload: Record<string, unknown>,
   state: WorkspaceSyncState,
-  sourceWindowId: string
+  sourceWindowId: string,
 ): ValidationResult {
   const workspaceId = normalizeId(payload.workspaceId)
   const agentId = normalizeId(payload.agentId)
   const sessionId = normalizeId(payload.sessionId)
   const cli = normalizeId(payload.cli)
   if (!workspaceId || !agentId || !sessionId || !cli) {
-    return reject('invalid_terminal_session_payload', 'Terminal session commands require workspace, agent, session, and cli ids.')
+    return reject(
+      'invalid_terminal_session_payload',
+      'Terminal session commands require workspace, agent, session, and cli ids.',
+    )
   }
   const ownership = validateSourceWindowOwnsWorkspace(state, sourceWindowId, workspaceId)
   if (!ownership.ok) return ownership
@@ -740,7 +769,7 @@ function validateAssignSession(
 function validateLaunchState(
   payload: Record<string, unknown>,
   state: WorkspaceSyncState,
-  sourceWindowId: string
+  sourceWindowId: string,
 ): ValidationResult {
   const workspaceId = normalizeId(payload.workspaceId)
   const agentId = normalizeId(payload.agentId)
@@ -755,14 +784,20 @@ function validateLaunchState(
   }
   if (payload.cliSessionId !== undefined) {
     if (payload.cliSessionId !== null && !normalizeId(payload.cliSessionId)) {
-      return reject('invalid_terminal_launch_payload', 'Terminal launch state field "cliSessionId" must be a non-empty string or null when provided.')
+      return reject(
+        'invalid_terminal_launch_payload',
+        'Terminal launch state field "cliSessionId" must be a non-empty string or null when provided.',
+      )
     }
     commandPayload.cliSessionId = payload.cliSessionId === null ? null : normalizeId(payload.cliSessionId)
   }
   for (const key of ['cliStartRequested', 'cliHasLaunched', 'cliOnboardingPromptSent', 'cliResumeAvailable'] as const) {
     if (payload[key] !== undefined) {
       if (typeof payload[key] !== 'boolean') {
-        return reject('invalid_terminal_launch_payload', `Terminal launch state field "${key}" must be boolean when provided.`)
+        return reject(
+          'invalid_terminal_launch_payload',
+          `Terminal launch state field "${key}" must be boolean when provided.`,
+        )
       }
       commandPayload[key] = payload[key]
     }
@@ -773,17 +808,24 @@ function validateLaunchState(
 function validateSourceWindowOwnsWorkspace(
   state: WorkspaceSyncState,
   sourceWindowId: string,
-  workspaceId: string
+  workspaceId: string,
 ): ValidationResult {
   if (!state.workspaces.some((workspace) => workspace.id === workspaceId)) {
     return reject('unknown_workspace', `Workspace "${workspaceId}" is not known to workspace sync.`)
   }
   const sourceWindow = state.workspaceWindows.find((windowState) => windowState.id === sourceWindowId)
-  if (!sourceWindow) return reject('unknown_source_window', `Source window "${sourceWindowId}" is not known to workspace sync.`)
+  if (!sourceWindow)
+    return reject('unknown_source_window', `Source window "${sourceWindowId}" is not known to workspace sync.`)
   if (!sourceWindow.workspaceIds.includes(workspaceId)) {
-    return reject('workspace_not_in_source_window', `Workspace "${workspaceId}" is not assigned to source window "${sourceWindowId}".`)
+    return reject(
+      'workspace_not_in_source_window',
+      `Workspace "${workspaceId}" is not assigned to source window "${sourceWindowId}".`,
+    )
   }
-  return { ok: true, command: { type: 'workspace_window.set_active', payload: { windowId: sourceWindowId, workspaceId } } }
+  return {
+    ok: true,
+    command: { type: 'workspace_window.set_active', payload: { windowId: sourceWindowId, workspaceId } },
+  }
 }
 
 // Most accepted events carry the validated command payload verbatim. The close
@@ -794,7 +836,7 @@ function eventPayloadForCommand(
   command: WorkspaceSyncCommand,
   state: WorkspaceSyncState,
   resolveResumeCapabilities: (cli: string) => { resumeSession: boolean; sessionIdFromCaller: boolean },
-  now: () => number
+  now: () => number,
 ): unknown {
   if (command.type === 'workspace_window.close') {
     const closing = state.workspaceWindows.find((windowState) => windowState.id === command.payload.windowId)
@@ -872,14 +914,11 @@ function isFiniteNumber(value: unknown): value is number {
 
 function isBounds(value: unknown): value is { x: number; y: number; width: number; height: number } {
   if (!isRecord(value)) return false
-  return isFiniteNumber(value.x)
-    && isFiniteNumber(value.y)
-    && isFiniteNumber(value.width)
-    && isFiniteNumber(value.height)
+  return (
+    isFiniteNumber(value.x) && isFiniteNumber(value.y) && isFiniteNumber(value.width) && isFiniteNumber(value.height)
+  )
 }
 
 function clone<T>(value: T): T {
-  return globalThis.structuredClone
-    ? globalThis.structuredClone(value)
-    : JSON.parse(JSON.stringify(value))
+  return globalThis.structuredClone ? globalThis.structuredClone(value) : JSON.parse(JSON.stringify(value))
 }

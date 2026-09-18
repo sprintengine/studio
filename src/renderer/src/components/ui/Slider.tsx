@@ -159,9 +159,7 @@ export function Slider({
             // past the thumb. One colour reads as a defect on half the ramp.
             className={[
               'slider-tick absolute top-1/2 rounded-full',
-              i <= index
-                ? 'bg-[color:var(--text-on-accent)] opacity-50'
-                : 'bg-[color:var(--text-disabled)]',
+              i <= index ? 'bg-[color:var(--text-on-accent)] opacity-50' : 'bg-[color:var(--text-disabled)]',
             ].join(' ')}
             style={{ ['--slider-tick' as string]: max === 0 ? '0' : String(i / max) }}
           />

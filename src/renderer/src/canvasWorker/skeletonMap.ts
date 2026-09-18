@@ -130,11 +130,7 @@ const LINT_LABEL_PADDING = 16
  * The bigger of the two wins. The editor grows the shape further still if the
  * measured glyphs need more room than either estimate allowed.
  */
-export function labelFitBox(
-  text: string,
-  fontSize: number,
-  containerType: string,
-): { width: number; height: number } {
+export function labelFitBox(text: string, fontSize: number, containerType: string): { width: number; height: number } {
   const lines = text.split('\n')
   const longest = lines.reduce((max, line) => Math.max(max, line.length), 0)
   const textWidth = longest * fontSize * CHAR_WIDTH_RATIO
@@ -375,15 +371,13 @@ export function carryFrom(element: CanvasElement): SkeletonCarry {
     index: element.index ?? null,
     angle: typeof element.angle === 'number' ? element.angle : undefined,
     link: typeof element.link === 'string' ? element.link : null,
-    groupIds: Array.isArray(element.groupIds) ? (element.groupIds.filter((id) => typeof id === 'string') as string[]) : [],
+    groupIds: Array.isArray(element.groupIds)
+      ? (element.groupIds.filter((id) => typeof id === 'string') as string[])
+      : [],
     frameId: typeof element.frameId === 'string' ? element.frameId : null,
     boundElements: Array.isArray(element.boundElements) ? element.boundElements : null,
   }
 }
 
 /** The skeleton types the agent format and the converter both understand. */
-export const CANVAS_CONTAINER_TYPES: ReadonlySet<CanvasSkeletonType> = new Set([
-  'rectangle',
-  'ellipse',
-  'diamond',
-])
+export const CANVAS_CONTAINER_TYPES: ReadonlySet<CanvasSkeletonType> = new Set(['rectangle', 'ellipse', 'diamond'])

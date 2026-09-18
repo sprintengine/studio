@@ -1,8 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type {
-  VersionControlProviderId,
-  VersionControlProviderProbe,
-} from '../../../../shared/version-control'
+import type { VersionControlProviderId, VersionControlProviderProbe } from '../../../../shared/version-control'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
 import type { RegisteredSettingsSection } from '../../modules/renderer-host'
@@ -188,19 +185,19 @@ function moduleSectionTabId(sectionId: string): string {
 
 function isSettingsTabId(value: unknown): value is SettingsTabId {
   return (
-    value === 'general'
-    || value === 'profile'
-    || value === 'appearance'
-    || value === 'shortcuts'
-    || value === 'modules'
-    || value === 'github'
-    || value === 'trackers'
-    || value === 'agents'
-    || value === 'providers'
-    || value === 'knowledge-graph'
-    || value === 'design-system'
-    || value === 'mobile'
-    || value === 'remote'
+    value === 'general' ||
+    value === 'profile' ||
+    value === 'appearance' ||
+    value === 'shortcuts' ||
+    value === 'modules' ||
+    value === 'github' ||
+    value === 'trackers' ||
+    value === 'agents' ||
+    value === 'providers' ||
+    value === 'knowledge-graph' ||
+    value === 'design-system' ||
+    value === 'mobile' ||
+    value === 'remote'
   )
 }
 
@@ -254,15 +251,7 @@ type SettingsActionMessage = ActionResult | null
 // writes through the shared credential store via the generic `credentialSecret*`
 // IPC — the same store the chat Providers tab uses. Mirrors the Providers tab's
 // masked/save/remove pattern; the value is write-only and never read back.
-function CliCredentialRow({
-  pluginId,
-  displayName,
-  label,
-}: {
-  pluginId: string
-  displayName: string
-  label: string
-}) {
+function CliCredentialRow({ pluginId, displayName, label }: { pluginId: string; displayName: string; label: string }) {
   const [status, setStatus] = useState<Awaited<ReturnType<typeof window.api.credentialSecretStatus>> | null>(null)
   const [draft, setDraft] = useState('')
   const [busy, setBusy] = useState(false)
@@ -416,7 +405,10 @@ function PluginModelSettings({
               className="invisible focus-visible:visible group-focus-within:visible group-hover:visible"
             >
               Remove
-              <span className="sr-only"> {model} from {displayName} models</span>
+              <span className="sr-only">
+                {' '}
+                {model} from {displayName} models
+              </span>
             </GhostButton>
           </div>
         ))}
@@ -665,11 +657,7 @@ function VersionControlStateLine({ view }: { view: VersionControlRowView }) {
 // state passes no switch rather than rendering a dead one, and a switch that
 // only looks like it does something is worse than the absence of one. The dot
 // and the state line carry health; nothing here pretends to carry enablement.
-export function VersionControlSections({
-  githubToken,
-}: {
-  githubToken: React.ReactNode
-}) {
+export function VersionControlSections({ githubToken }: { githubToken: React.ReactNode }) {
   const [probes, setProbes] = useState<Partial<Record<VersionControlProviderId, VersionControlProviderProbe>>>({})
   const [probeStatus, setProbeStatus] = useState<VersionControlProbeStatus>('loading')
   const [probeError, setProbeError] = useState<string | null>(null)
@@ -723,11 +711,7 @@ export function VersionControlSections({
             action={
               index === 0 ? (
                 <Tooltip content="Re-check now">
-                  <IconButton
-                    aria-label="Re-check now"
-                    disabled={checking}
-                    onClick={() => void runProbe()}
-                  >
+                  <IconButton aria-label="Re-check now" disabled={checking} onClick={() => void runProbe()}>
                     {checking ? <Spinner className="icon-sm" /> : <RefreshIcon />}
                   </IconButton>
                 </Tooltip>
@@ -743,11 +727,7 @@ export function VersionControlSections({
               control that would retry it sits in this section's own band, two
               lines up. */}
           {index === 0 && probeStatus === 'error' ? (
-            <InlineNotice
-              tone="warn"
-              title="Version control could not be checked."
-              detail={probeError ?? undefined}
-            />
+            <InlineNotice tone="warn" title="Version control could not be checked." detail={probeError ?? undefined} />
           ) : null}
 
           {/* The list card (setting-row → The list card, 2026-09-15): the band
@@ -813,7 +793,6 @@ function HostedFeedRow({ now }: { now: number }) {
   )
 }
 
-
 export default function SettingsPanel({
   onClose,
   checkForUpdatesOnOpen = false,
@@ -821,8 +800,8 @@ export default function SettingsPanel({
   initialTab = null,
   chrome = 'panel',
 }: Props) {
-  const activeWorkspace = useWorkspaceStore((s) =>
-    s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null
+  const activeWorkspace = useWorkspaceStore(
+    (s) => s.workspaces.find((workspace) => workspace.id === s.activeWorkspaceId) ?? null,
   )
   // The door chrome's back chevron. Closes by Settings' own route — the generic
   // one clears the active surface but not the request that opened this door, so
@@ -854,11 +833,10 @@ export default function SettingsPanel({
   const refreshCliVersionAdvisories = useWorkspaceStore((s) => s.refreshCliVersionAdvisories)
   const checkCliVersions = useWorkspaceStore((s) => s.checkCliVersions)
   const setCheckCliVersions = useWorkspaceStore((s) => s.setCheckCliVersions)
-  const installedPluginRows = useMemo(
-    () => orderInstalledPlugins(pluginCatalogEntries),
-    [pluginCatalogEntries],
+  const installedPluginRows = useMemo(() => orderInstalledPlugins(pluginCatalogEntries), [pluginCatalogEntries])
+  const projectKnowledgeRoots = useWorkspaceStore(
+    (s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS,
   )
-  const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots ?? EMPTY_PROJECT_KNOWLEDGE_ROOTS)
   // Profile tab reads the shared auth projection and drives the same auth IPC as
   // the sidebar account popover — no new state, just a fuller management surface.
   const authState = useWorkspaceStore((s) => s.authState)
@@ -885,13 +863,11 @@ export default function SettingsPanel({
         moduleSection: section,
       })),
     ],
-    [mobileRelayEnabled, moduleSections]
+    [mobileRelayEnabled, moduleSections],
   )
   const appearanceTheme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
   const setAppearanceTheme = useWorkspaceStore((s) => s.setAppearanceTheme)
-  const appearanceWindowMaterial = useWorkspaceStore(
-    (s) => s.appSettings.appearance.windowMaterial
-  )
+  const appearanceWindowMaterial = useWorkspaceStore((s) => s.appSettings.appearance.windowMaterial)
   const setAppearanceWindowMaterial = useWorkspaceStore((s) => s.setAppearanceWindowMaterial)
   const chatListView = useWorkspaceStore((s) => s.chatListView)
   const setChatListView = useWorkspaceStore((s) => s.setChatListView)
@@ -904,7 +880,7 @@ export default function SettingsPanel({
   const activeKnowledgeConfig = resolveProjectKnowledgeConfig(
     activeWorkspace?.folderPath,
     projectKnowledgeRoots,
-    activeWorkspace?.memory.relativeRoot
+    activeWorkspace?.memory.relativeRoot,
   )
   const activeProjectRoot = activeKnowledgeConfig?.projectRoot ?? activeWorkspace?.folderPath ?? null
   const activeDesignSystemRoot = activeWorkspace?.folderPath ?? null
@@ -984,10 +960,7 @@ export default function SettingsPanel({
 
   useEffect(() => {
     const resolved = resolveInitialSettingsTab(initialTab)
-    if (
-      isSettingsTabId(resolved) ||
-      (typeof resolved === 'string' && resolved.startsWith(MODULE_SECTION_TAB_PREFIX))
-    ) {
+    if (isSettingsTabId(resolved) || (typeof resolved === 'string' && resolved.startsWith(MODULE_SECTION_TAB_PREFIX))) {
       setActiveSettingsTab(resolved)
       window.requestAnimationFrame(() => tabRefs.current[resolved]?.focus())
     }
@@ -1036,11 +1009,9 @@ export default function SettingsPanel({
       setActivityInstalled(false)
       return
     }
-    void window.api
-      .memoryActivityIsInstalled({ workspaceRoot: activeProjectRoot })
-      .then((installed) => {
-        if (!cancelled) setActivityInstalled(installed)
-      })
+    void window.api.memoryActivityIsInstalled({ workspaceRoot: activeProjectRoot }).then((installed) => {
+      if (!cancelled) setActivityInstalled(installed)
+    })
     return () => {
       cancelled = true
     }
@@ -1061,11 +1032,20 @@ export default function SettingsPanel({
             <>
               <div>What happens:</div>
               <ul className="mt-1 list-disc pl-5">
-                <li>Add a hook to <span className="font-mono">.claude/settings.local.json</span> in the project folder</li>
-                <li>Copy a hook script to <span className="font-mono">.multicode/hooks/</span></li>
-                <li>Record knowledge file touches to <span className="font-mono">.multicode/knowledge-trace/</span></li>
+                <li>
+                  Add a hook to <span className="font-mono">.claude/settings.local.json</span> in the project folder
+                </li>
+                <li>
+                  Copy a hook script to <span className="font-mono">.multicode/hooks/</span>
+                </li>
+                <li>
+                  Record knowledge file touches to <span className="font-mono">.multicode/knowledge-trace/</span>
+                </li>
               </ul>
-              <div className="mt-2">Only files under your knowledge folder are recorded. Add <span className="font-mono">.multicode/</span> to <span className="font-mono">.gitignore</span>.</div>
+              <div className="mt-2">
+                Only files under your knowledge folder are recorded. Add <span className="font-mono">.multicode/</span>{' '}
+                to <span className="font-mono">.gitignore</span>.
+              </div>
             </>
           ),
           confirmLabel: 'Enable tracking',
@@ -1096,14 +1076,12 @@ export default function SettingsPanel({
           }
         }
       } catch (error) {
-        setActivityMessage(
-          error instanceof Error ? error.message : 'Failed to update activity tracking.'
-        )
+        setActivityMessage(error instanceof Error ? error.message : 'Failed to update activity tracking.')
       } finally {
         setActivityPending(false)
       }
     },
-    [activeKnowledgeConfig?.relativeRoot, activeProjectRoot]
+    [activeKnowledgeConfig?.relativeRoot, activeProjectRoot],
   )
 
   useEffect(() => {
@@ -1252,9 +1230,11 @@ export default function SettingsPanel({
       setGithubTokenStatus(status)
       setGithubTokenDraft('')
       setGithubTokenEditing(false)
-      setGithubTokenMessage(status.configured && status.source === 'environment'
-        ? 'Saved token cleared. GitHub imports are still using a token from the environment.'
-        : 'GitHub token cleared.')
+      setGithubTokenMessage(
+        status.configured && status.source === 'environment'
+          ? 'Saved token cleared. GitHub imports are still using a token from the environment.'
+          : 'GitHub token cleared.',
+      )
     } catch (error) {
       setGithubTokenMessage(error instanceof Error ? error.message : 'Could not clear the GitHub token.')
     } finally {
@@ -1270,8 +1250,7 @@ export default function SettingsPanel({
 
   // Write-only token entry: render the input only when nothing is saved or the
   // user is replacing; a saved token reads as meta text plus Replace/Clear.
-  const githubTokenInputVisible =
-    githubTokenStatus !== null && (githubTokenEditing || !githubTokenStatus.configured)
+  const githubTokenInputVisible = githubTokenStatus !== null && (githubTokenEditing || !githubTokenStatus.configured)
 
   const activeTab = visibleSettingsTabs.find((tab) => tab.id === activeSettingsTab) ?? visibleSettingsTabs[0]
 
@@ -1295,9 +1274,7 @@ export default function SettingsPanel({
       }
       const result = await window.api.installPluginFolder(folder)
       if (!result.ok) {
-        const detail = result.issues?.length
-          ? ` (${result.issues.map((issue) => issue.message).join('; ')})`
-          : ''
+        const detail = result.issues?.length ? ` (${result.issues.map((issue) => issue.message).join('; ')})` : ''
         setCliInstallMessage({ tone: 'error', text: `${result.message}${detail}` })
         return
       }
@@ -1320,22 +1297,25 @@ export default function SettingsPanel({
     setActiveSettingsTab(tabId)
   }, [])
 
-  const onSettingsTabKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
-    const keyToIndex: Record<string, number> = {
-      ArrowDown: (index + 1) % visibleSettingsTabs.length,
-      ArrowRight: (index + 1) % visibleSettingsTabs.length,
-      ArrowUp: (index - 1 + visibleSettingsTabs.length) % visibleSettingsTabs.length,
-      ArrowLeft: (index - 1 + visibleSettingsTabs.length) % visibleSettingsTabs.length,
-      Home: 0,
-      End: visibleSettingsTabs.length - 1,
-    }
-    const nextIndex = keyToIndex[event.key]
-    if (nextIndex === undefined) return
-    event.preventDefault()
-    const nextTab = visibleSettingsTabs[nextIndex]
-    setActiveSettingsTab(nextTab.id)
-    window.requestAnimationFrame(() => tabRefs.current[nextTab.id]?.focus())
-  }, [visibleSettingsTabs])
+  const onSettingsTabKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLButtonElement>, index: number) => {
+      const keyToIndex: Record<string, number> = {
+        ArrowDown: (index + 1) % visibleSettingsTabs.length,
+        ArrowRight: (index + 1) % visibleSettingsTabs.length,
+        ArrowUp: (index - 1 + visibleSettingsTabs.length) % visibleSettingsTabs.length,
+        ArrowLeft: (index - 1 + visibleSettingsTabs.length) % visibleSettingsTabs.length,
+        Home: 0,
+        End: visibleSettingsTabs.length - 1,
+      }
+      const nextIndex = keyToIndex[event.key]
+      if (nextIndex === undefined) return
+      event.preventDefault()
+      const nextTab = visibleSettingsTabs[nextIndex]
+      setActiveSettingsTab(nextTab.id)
+      window.requestAnimationFrame(() => tabRefs.current[nextTab.id]?.focus())
+    },
+    [visibleSettingsTabs],
+  )
 
   // Flat index into visibleSettingsTabs for roving focus; the grouped rail
   // renders in the same order, so arrow keys move in visual order.
@@ -1464,11 +1444,7 @@ export default function SettingsPanel({
       ) : null}
 
       {activeSettingsTab === 'profile' ? (
-        <div
-          role="tabpanel"
-          id="settings-panel-profile"
-          aria-labelledby="settings-tab-profile"
-        >
+        <div role="tabpanel" id="settings-panel-profile" aria-labelledby="settings-tab-profile">
           <SettingsPageHeader title="Profile" />
           <ProfileSection
             authState={authState}
@@ -1483,11 +1459,7 @@ export default function SettingsPanel({
       ) : null}
 
       {activeSettingsTab === 'general' ? (
-        <div
-          role="tabpanel"
-          id="settings-panel-general"
-          aria-labelledby="settings-tab-general"
-        >
+        <div role="tabpanel" id="settings-panel-general" aria-labelledby="settings-tab-general">
           <SettingsPageHeader title="General" />
           {/* The version row: identity on the left, the one state-driven action
               on the right. The update flow is a line (check → download →
@@ -1539,7 +1511,9 @@ export default function SettingsPanel({
                   <IconButton
                     aria-label={updateState?.status === 'error' ? 'Retry the update check' : 'Check for updates'}
                     onClick={() => void checkForUpdates()}
-                    disabled={updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'}
+                    disabled={
+                      updateActionPending || updateState?.status === 'checking' || updateState?.status === 'downloading'
+                    }
                   >
                     {updateState?.status === 'checking' ? <Spinner className="icon-sm" /> : <RefreshIcon />}
                   </IconButton>
@@ -1576,11 +1550,7 @@ export default function SettingsPanel({
       ) : null}
 
       {activeSettingsTab === 'github' ? (
-        <div
-          role="tabpanel"
-          id="settings-panel-github"
-          aria-labelledby="settings-tab-github"
-        >
+        <div role="tabpanel" id="settings-panel-github" aria-labelledby="settings-tab-github">
           <VersionControlSections
             githubToken={
               <div className="space-y-2">
@@ -1688,12 +1658,7 @@ export default function SettingsPanel({
       {activeSettingsTab === 'trackers' ? <TicketTrackersTab /> : null}
 
       {activeSettingsTab === 'agents' ? (
-        <div
-          role="tabpanel"
-          id="settings-panel-agents"
-          aria-labelledby="settings-tab-agents"
-          className="space-y-3"
-        >
+        <div role="tabpanel" id="settings-panel-agents" aria-labelledby="settings-tab-agents" className="space-y-3">
           <AgentCliBand
             checkedAt={cliAvailabilityCheckedAt}
             now={agentsFreshnessNow}
@@ -1760,220 +1725,226 @@ export default function SettingsPanel({
             <section className="space-y-2">
               <SettingsSectionTitle count={installedPluginRows.length}>Agent CLIs</SettingsSectionTitle>
               <SettingCard as="ul" ariaLabel="Agent CLIs">
-              {installedPluginRows.map((plugin) => {
-                const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
-                const declaredModels = plugin.modelSelection?.options ?? []
-                const allowCustomModels = Boolean(plugin.modelSelection?.allowCustomId)
-                const userModels = cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS
-                const state = resolveCliProviderState(cliAvailability[plugin.id], cliAvailabilityStatus)
-                const advisory = checkCliVersions ? cliVersionAdvisories[plugin.id] : undefined
-                const behind = state.installed && advisory?.status === 'behind_latest' && !!advisory.latestVersion
-                const updateRun = cliUpdateRuns[plugin.id]
-                return (
-                  <ProviderRow
-                    key={plugin.id}
-                    as="li"
-                    surface="card"
-                    icon={
-                      <CliIcon
-                        cli={plugin.id}
-                        className="size-icon-lg text-[color:var(--text-default)]"
-                      />
-                    }
-                    // No health dot here either, and for the same reason it
-                    // left the Agent CLIs catalogue (owner, 2026-09-10): this
-                    // is the same list of CLIs, and nine identical green dots
-                    // down a column is a status idiom spent on a fact nobody
-                    // is scanning for. What a person is scanning for is the
-                    // one row that is behind — so that is what the mark says.
-                    badge={
-                      behind
-                        ? {
-                            count: 1,
-                            label: `${plugin.displayName} — update available: ${advisory.latestVersion}`,
-                          }
-                        : null
-                    }
-                    // A CLI this machine does not have recedes a step, so the
-                    // list reads as what is here first. Only a DEFINITIVE
-                    // absence: a probe that never answered is not absence, and
-                    // must not push a likely-installed CLI into the background.
-                    recessed={state.health === 'missing'}
-                    name={plugin.displayName}
-                    version={state.version}
-                    stateLine={
-                      <>
-                        <CliProviderStateLine
-                          state={state}
-                          binary={plugin.binary}
-                          useWsl={override.useWsl}
-                          // Deliberately not the reason: a failed batch probe
-                          // wipes every entry, so the reason is one fact for the
-                          // whole list and the section states it once below the
-                          // band rather than nine times down the rows.
-                          probeError={null}
-                        />
-                        {/* Provenance, only where it distinguishes: the retired
+                {installedPluginRows.map((plugin) => {
+                  const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
+                  const declaredModels = plugin.modelSelection?.options ?? []
+                  const allowCustomModels = Boolean(plugin.modelSelection?.allowCustomId)
+                  const userModels = cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS
+                  const state = resolveCliProviderState(cliAvailability[plugin.id], cliAvailabilityStatus)
+                  const advisory = checkCliVersions ? cliVersionAdvisories[plugin.id] : undefined
+                  const behind = state.installed && advisory?.status === 'behind_latest' && !!advisory.latestVersion
+                  const updateRun = cliUpdateRuns[plugin.id]
+                  return (
+                    <ProviderRow
+                      key={plugin.id}
+                      as="li"
+                      surface="card"
+                      icon={<CliIcon cli={plugin.id} className="size-icon-lg text-[color:var(--text-default)]" />}
+                      // No health dot here either, and for the same reason it
+                      // left the Agent CLIs catalogue (owner, 2026-09-10): this
+                      // is the same list of CLIs, and nine identical green dots
+                      // down a column is a status idiom spent on a fact nobody
+                      // is scanning for. What a person is scanning for is the
+                      // one row that is behind — so that is what the mark says.
+                      badge={
+                        behind
+                          ? {
+                              count: 1,
+                              label: `${plugin.displayName} — update available: ${advisory.latestVersion}`,
+                            }
+                          : null
+                      }
+                      // A CLI this machine does not have recedes a step, so the
+                      // list reads as what is here first. Only a DEFINITIVE
+                      // absence: a probe that never answered is not absence, and
+                      // must not push a likely-installed CLI into the background.
+                      recessed={state.health === 'missing'}
+                      name={plugin.displayName}
+                      version={state.version}
+                      stateLine={
+                        <>
+                          <CliProviderStateLine
+                            state={state}
+                            binary={plugin.binary}
+                            useWsl={override.useWsl}
+                            // Deliberately not the reason: a failed batch probe
+                            // wipes every entry, so the reason is one fact for the
+                            // whole list and the section states it once below the
+                            // band rather than nine times down the rows.
+                            probeError={null}
+                          />
+                          {/* Provenance, only where it distinguishes: the retired
                             card stamped "Built-in" on all nine bundled rows,
                             which said nothing. A plugin the user installed from
                             a folder is the one this list cannot otherwise
                             explain. */}
-                        {plugin.source === 'bundled' ? null : ' · installed from a folder'}
-                        {/* The version advisory: the newest the
+                          {plugin.source === 'bundled' ? null : ' · installed from a folder'}
+                          {/* The version advisory: the newest the
                             registry publishes, and the command Update runs.
                             Nothing here for a CLI that is current or unknown. */}
-                        {behind ? (
-                          <>
-                            {' · '}
-                            <span className="font-mono text-[color:var(--text-default)]">{advisory.latestVersion}</span>
-                            {updateRun?.running ? ' installing…' : ' available'}
-                          </>
-                        ) : null}
-                      </>
-                    }
-                    expanded={selectedCliId === plugin.id}
-                    onExpandedChange={(next) => {
-                      setInstallIntentId(null)
-                      setSelectedCliId(next ? plugin.id : null)
-                    }}
-                    // Install is offered only on a definitive negative probe. A
-                    // CLI whose probe never completed may well be installed, so
-                    // offering to install it would be a fake affordance — those
-                    // rows say so on their state line and route to Re-check.
-                    actions={
-                      state.health === 'missing' ? (
-                        <PrimaryButton
-                          size="xs"
-                          onClick={() => {
-                            setInstallIntentId(plugin.id)
-                            setSelectedCliId(plugin.id)
-                          }}
-                        >
-                          Install
-                        </PrimaryButton>
-                      ) : behind ? (
-                        <PrimaryButton
-                          size="xs"
-                          disabled={updateRun?.running === true}
-                          onClick={() => void runCliUpdate(plugin.id)}
-                        >
-                          {updateRun?.running ? <Spinner className="icon-sm" /> : null}
-                          Update
-                        </PrimaryButton>
-                      ) : null
-                    }
-                  >
-                    {/* The per-instance form, in place: the install/detect
+                          {behind ? (
+                            <>
+                              {' · '}
+                              <span className="font-mono text-[color:var(--text-default)]">
+                                {advisory.latestVersion}
+                              </span>
+                              {updateRun?.running ? ' installing…' : ' available'}
+                            </>
+                          ) : null}
+                        </>
+                      }
+                      expanded={selectedCliId === plugin.id}
+                      onExpandedChange={(next) => {
+                        setInstallIntentId(null)
+                        setSelectedCliId(next ? plugin.id : null)
+                      }}
+                      // Install is offered only on a definitive negative probe. A
+                      // CLI whose probe never completed may well be installed, so
+                      // offering to install it would be a fake affordance — those
+                      // rows say so on their state line and route to Re-check.
+                      actions={
+                        state.health === 'missing' ? (
+                          <PrimaryButton
+                            size="xs"
+                            onClick={() => {
+                              setInstallIntentId(plugin.id)
+                              setSelectedCliId(plugin.id)
+                            }}
+                          >
+                            Install
+                          </PrimaryButton>
+                        ) : behind ? (
+                          <PrimaryButton
+                            size="xs"
+                            disabled={updateRun?.running === true}
+                            onClick={() => void runCliUpdate(plugin.id)}
+                          >
+                            {updateRun?.running ? <Spinner className="icon-sm" /> : null}
+                            Update
+                          </PrimaryButton>
+                        ) : null
+                      }
+                    >
+                      {/* The per-instance form, in place: the install/detect
                         control, then how this CLI runs. The row above already
                         carries name, version, and state, so the control drops
                         its own name and status line rather than saying it
                         twice. */}
-                    {updateRun?.notice ? (
-                      <InlineNotice tone={updateRun.notice.tone} title={`${plugin.displayName} did not update.`} hint={updateRun.notice.text}>
-                        {advisory?.updateCommand ? (
-                          <span className="font-mono text-[color:var(--text-default)]">{advisory.updateCommand.command}</span>
+                      {updateRun?.notice ? (
+                        <InlineNotice
+                          tone={updateRun.notice.tone}
+                          title={`${plugin.displayName} did not update.`}
+                          hint={updateRun.notice.text}
+                        >
+                          {advisory?.updateCommand ? (
+                            <span className="font-mono text-[color:var(--text-default)]">
+                              {advisory.updateCommand.command}
+                            </span>
+                          ) : null}
+                        </InlineNotice>
+                      ) : null}
+                      <CliInstallControl
+                        cli={plugin.id}
+                        displayName={plugin.displayName}
+                        binary={plugin.binary}
+                        command={override.command}
+                        useWsl={override.useWsl}
+                        showName={false}
+                        showStatus={false}
+                        autoOpenInstall={installIntentId === plugin.id}
+                        onInstalled={(result) => {
+                          if (result.resolvedPath && !override.command) {
+                            setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
+                          }
+                          void refreshPluginCatalog()
+                          // Force-refresh availability so the freshly installed CLI
+                          // shows as detected on its row and in deployment pickers.
+                          void refreshCliAvailability({ force: true, cliRuntimes })
+                        }}
+                      />
+
+                      {declaredModels.length > 0 ? (
+                        <div className="flex gap-2 text-body leading-5">
+                          <span className="shrink-0 text-[color:var(--text-muted)]">Models</span>
+                          <span className="min-w-0 font-mono text-[color:var(--text-default)]">
+                            {declaredModels.map((model) => model.label ?? model.id).join(' · ')}
+                          </span>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-2 divide-y divide-[color:var(--border-subtle)]">
+                        <SettingsRow
+                          label="Command override"
+                          help={
+                            <>
+                              Runs <span className="font-mono text-[color:var(--text-default)]">{plugin.binary}</span>{' '}
+                              when blank.
+                            </>
+                          }
+                          htmlFor={`cli-command-${plugin.id}`}
+                        >
+                          <Input
+                            id={`cli-command-${plugin.id}`}
+                            // Per-plugin accessible name so screen readers don't announce an
+                            // identical "Command override" for every CLI.
+                            aria-label={`${plugin.displayName} command override`}
+                            value={override.command}
+                            onChange={(event) =>
+                              setCliRuntime(plugin.id, { command: event.target.value, useWsl: override.useWsl })
+                            }
+                            placeholder={plugin.binary}
+                            size="md"
+                            variant="well"
+                            fullWidth={false}
+                            className={ROW_FIELD}
+                          />
+                        </SettingsRow>
+
+                        {isWindows && (
+                          <SettingToggle
+                            label={`Run ${plugin.displayName} through WSL`}
+                            enabled={override.useWsl}
+                            onChange={(enabled) =>
+                              setCliRuntime(plugin.id, { command: override.command, useWsl: enabled })
+                            }
+                          />
+                        )}
+
+                        {allowCustomModels ? (
+                          <PluginModelSettings
+                            displayName={plugin.displayName}
+                            userModels={userModels}
+                            onUserModelsChange={(models) => {
+                              setCliRuntime(plugin.id, { models })
+                              // Retiring an id must also retire it as a remembered
+                              // launch default, or every spawn surface that named
+                              // it keeps passing `--model <deleted id>` and the
+                              // agent dies on a model nothing offers. Only ids no
+                              // layer still supplies are forgotten: an id the
+                              // manifest seeds or the CLI reported is still a real
+                              // model, and the user only removed their own copy.
+                              const remaining = new Set(models)
+                              const stillOffered = new Set([
+                                ...declaredModels.map((option) => option.id),
+                                ...(cliModelCatalog?.[plugin.id]?.models ?? []).map((model) => model.id),
+                              ])
+                              const retired = userModels.filter((id) => !remaining.has(id) && !stillOffered.has(id))
+                              if (retired.length > 0) forgetCliModels(plugin.id, retired)
+                            }}
+                          />
                         ) : null}
-                      </InlineNotice>
-                    ) : null}
-                    <CliInstallControl
-                      cli={plugin.id}
-                      displayName={plugin.displayName}
-                      binary={plugin.binary}
-                      command={override.command}
-                      useWsl={override.useWsl}
-                      showName={false}
-                      showStatus={false}
-                      autoOpenInstall={installIntentId === plugin.id}
-                      onInstalled={(result) => {
-                        if (result.resolvedPath && !override.command) {
-                          setCliRuntime(plugin.id, { command: result.resolvedPath, useWsl: override.useWsl })
-                        }
-                        void refreshPluginCatalog()
-                        // Force-refresh availability so the freshly installed CLI
-                        // shows as detected on its row and in deployment pickers.
-                        void refreshCliAvailability({ force: true, cliRuntimes })
-                      }}
-                    />
 
-                    {declaredModels.length > 0 ? (
-                      <div className="flex gap-2 text-body leading-5">
-                        <span className="shrink-0 text-[color:var(--text-muted)]">Models</span>
-                        <span className="min-w-0 font-mono text-[color:var(--text-default)]">
-                          {declaredModels.map((model) => model.label ?? model.id).join(' · ')}
-                        </span>
+                        {plugin.auth ? (
+                          <CliCredentialRow
+                            pluginId={plugin.id}
+                            displayName={plugin.displayName}
+                            label={plugin.auth.label}
+                          />
+                        ) : null}
                       </div>
-                    ) : null}
-
-                    <div className="mt-2 divide-y divide-[color:var(--border-subtle)]">
-                      <SettingsRow
-                        label="Command override"
-                        help={
-                          <>
-                            Runs <span className="font-mono text-[color:var(--text-default)]">{plugin.binary}</span> when blank.
-                          </>
-                        }
-                        htmlFor={`cli-command-${plugin.id}`}
-                      >
-                        <Input
-                          id={`cli-command-${plugin.id}`}
-                          // Per-plugin accessible name so screen readers don't announce an
-                          // identical "Command override" for every CLI.
-                          aria-label={`${plugin.displayName} command override`}
-                          value={override.command}
-                          onChange={(event) => setCliRuntime(plugin.id, { command: event.target.value, useWsl: override.useWsl })}
-                          placeholder={plugin.binary}
-                          size="md"
-                          variant="well"
-                          fullWidth={false}
-                          className={ROW_FIELD}
-                        />
-                      </SettingsRow>
-
-                      {isWindows && (
-                        <SettingToggle
-                          label={`Run ${plugin.displayName} through WSL`}
-                          enabled={override.useWsl}
-                          onChange={(enabled) => setCliRuntime(plugin.id, { command: override.command, useWsl: enabled })}
-                        />
-                      )}
-
-                      {allowCustomModels ? (
-                        <PluginModelSettings
-                          displayName={plugin.displayName}
-                          userModels={userModels}
-                          onUserModelsChange={(models) => {
-                            setCliRuntime(plugin.id, { models })
-                            // Retiring an id must also retire it as a remembered
-                            // launch default, or every spawn surface that named
-                            // it keeps passing `--model <deleted id>` and the
-                            // agent dies on a model nothing offers. Only ids no
-                            // layer still supplies are forgotten: an id the
-                            // manifest seeds or the CLI reported is still a real
-                            // model, and the user only removed their own copy.
-                            const remaining = new Set(models)
-                            const stillOffered = new Set([
-                              ...declaredModels.map((option) => option.id),
-                              ...(cliModelCatalog?.[plugin.id]?.models ?? []).map((model) => model.id),
-                            ])
-                            const retired = userModels.filter(
-                              (id) => !remaining.has(id) && !stillOffered.has(id),
-                            )
-                            if (retired.length > 0) forgetCliModels(plugin.id, retired)
-                          }}
-                        />
-                      ) : null}
-
-                      {plugin.auth ? (
-                        <CliCredentialRow
-                          pluginId={plugin.id}
-                          displayName={plugin.displayName}
-                          label={plugin.auth.label}
-                        />
-                      ) : null}
-                    </div>
-                  </ProviderRow>
-                )
-              })}
+                    </ProviderRow>
+                  )
+                })}
               </SettingCard>
             </section>
           )}
@@ -1987,9 +1958,7 @@ export default function SettingsPanel({
               <SettingsSectionTitle>Memory</SettingsSectionTitle>
               <SettingCard>
                 <IdleSuspendField descriptor={idleSuspendDescriptor} />
-                {keepRecentAliveDescriptor ? (
-                  <KeepRecentAliveField descriptor={keepRecentAliveDescriptor} />
-                ) : null}
+                {keepRecentAliveDescriptor ? <KeepRecentAliveField descriptor={keepRecentAliveDescriptor} /> : null}
               </SettingCard>
             </section>
           ) : null}
@@ -2057,7 +2026,10 @@ export default function SettingsPanel({
             title="Design system"
             meta={
               activeDesignSystemRoot ? (
-                <span className="inline-block max-w-[260px] truncate align-bottom font-mono" title={activeDesignSystemRoot}>
+                <span
+                  className="inline-block max-w-[260px] truncate align-bottom font-mono"
+                  title={activeDesignSystemRoot}
+                >
                   {basename(activeDesignSystemRoot)}
                 </span>
               ) : undefined
@@ -2225,11 +2197,7 @@ function ProfileSection({
             Upgrade to Pro
           </PrimaryButton>
         ) : null}
-        <OutlineButton
-          size="md"
-          onClick={onRefresh}
-          disabled={pending}
-        >
+        <OutlineButton size="md" onClick={onRefresh} disabled={pending}>
           {accessStale ? 'Check access again' : 'Refresh access'}
         </OutlineButton>
         <GhostButton size="md" onClick={onSignOut} disabled={pending} className="ml-auto">
@@ -2243,12 +2211,15 @@ function ProfileSection({
 // Single-line rail item — a leading glyph + label, no subtitle. The rail
 // orients; tab bodies carry their own section headings. Built-in tabs pass an
 // `icon`; module sections fall back to their contributed `moduleSection.icon`.
-const SettingsTabButton = React.forwardRef<HTMLButtonElement, {
-  tab: SettingsTabDescriptor
-  active: boolean
-  onClick: () => void
-  onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
-}>(function SettingsTabButton({ tab, active, onClick, onKeyDown }, ref) {
+const SettingsTabButton = React.forwardRef<
+  HTMLButtonElement,
+  {
+    tab: SettingsTabDescriptor
+    active: boolean
+    onClick: () => void
+    onKeyDown: (event: React.KeyboardEvent<HTMLButtonElement>) => void
+  }
+>(function SettingsTabButton({ tab, active, onClick, onKeyDown }, ref) {
   const Icon = tab.icon ?? tab.moduleSection?.icon
   return (
     <RowButton

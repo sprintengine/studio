@@ -34,7 +34,15 @@ function provider(
 {
   let ran = false
   const providers = [
-    provider('automations', () => [{ id: 'automations.open-run', label: 'Open', run: () => { ran = true } }]),
+    provider('automations', () => [
+      {
+        id: 'automations.open-run',
+        label: 'Open',
+        run: () => {
+          ran = true
+        },
+      },
+    ]),
   ]
   const actions = resolveNotificationActions({
     notification: notification({ source: 'automations', workspaceId: undefined }),
@@ -42,7 +50,11 @@ function provider(
     revealWorkspace: () => assert.fail('must not use the workspace-reveal fallback when a provider action exists'),
     workspaceExists: () => true,
   })
-  assert.deepEqual(actions.map((a) => a.id), ['automations.open-run'], 'provider action survives a missing workspaceId')
+  assert.deepEqual(
+    actions.map((a) => a.id),
+    ['automations.open-run'],
+    'provider action survives a missing workspaceId',
+  )
   actions[0].run()
   assert.equal(ran, true, 'the provider action runs')
 }
@@ -53,10 +65,16 @@ function provider(
   const actions = resolveNotificationActions({
     notification: notification({ source: 'terminal', workspaceId: 'ws-1' }),
     providers: [],
-    revealWorkspace: (id) => { revealed = id },
+    revealWorkspace: (id) => {
+      revealed = id
+    },
     workspaceExists: () => true,
   })
-  assert.deepEqual(actions.map((a) => a.id), ['reveal-workspace'], 'falls back to a generic Open')
+  assert.deepEqual(
+    actions.map((a) => a.id),
+    ['reveal-workspace'],
+    'falls back to a generic Open',
+  )
   assert.equal(actions[0].label, 'Open')
   actions[0].run()
   assert.equal(revealed, 'ws-1', 'generic Open reveals the named workspace')
@@ -75,16 +93,18 @@ function provider(
 
 // --- Provider actions present do NOT also add the generic fallback. -----------
 {
-  const providers = [
-    provider('automations', () => [{ id: 'automations.open-run', label: 'Open', run: () => {} }]),
-  ]
+  const providers = [provider('automations', () => [{ id: 'automations.open-run', label: 'Open', run: () => {} }])]
   const actions = resolveNotificationActions({
     notification: notification({ source: 'automations', workspaceId: 'ws-1' }),
     providers,
     revealWorkspace: () => assert.fail('provider action replaces the generic fallback'),
     workspaceExists: () => true,
   })
-  assert.deepEqual(actions.map((a) => a.id), ['automations.open-run'], 'provider actions replace the generic reveal')
+  assert.deepEqual(
+    actions.map((a) => a.id),
+    ['automations.open-run'],
+    'provider actions replace the generic reveal',
+  )
 }
 
 // --- Only providers matching the notification source are consulted. -----------
@@ -99,7 +119,11 @@ function provider(
     revealWorkspace: () => {},
     workspaceExists: () => true,
   })
-  assert.deepEqual(actions.map((a) => a.id), ['automations.open-run'], 'cross-source providers are ignored')
+  assert.deepEqual(
+    actions.map((a) => a.id),
+    ['automations.open-run'],
+    'cross-source providers are ignored',
+  )
 }
 
 // --- isVisible:false actions are filtered out (and can fall through). ---------
@@ -116,7 +140,11 @@ function provider(
     revealWorkspace: () => {},
     workspaceExists: () => true,
   })
-  assert.deepEqual(actions.map((a) => a.id), ['shown'], 'isVisible:false actions are dropped')
+  assert.deepEqual(
+    actions.map((a) => a.id),
+    ['shown'],
+    'isVisible:false actions are dropped',
+  )
 }
 
 // --- All provider actions hidden + workspaceId -> generic reveal returns. -----
@@ -128,10 +156,16 @@ function provider(
   const actions = resolveNotificationActions({
     notification: notification({ source: 'automations', workspaceId: 'ws-1' }),
     providers,
-    revealWorkspace: (id) => { revealed = id },
+    revealWorkspace: (id) => {
+      revealed = id
+    },
     workspaceExists: () => true,
   })
-  assert.deepEqual(actions.map((a) => a.id), ['reveal-workspace'], 'all-hidden provider actions fall back to reveal')
+  assert.deepEqual(
+    actions.map((a) => a.id),
+    ['reveal-workspace'],
+    'all-hidden provider actions fall back to reveal',
+  )
   actions[0].run()
   assert.equal(revealed, 'ws-1')
 }
@@ -152,16 +186,18 @@ function provider(
 
 // --- A provider action is still offered when the named workspace is gone. -----
 {
-  const providers = [
-    provider('automations', () => [{ id: 'automations.open-run', label: 'Open', run: () => {} }]),
-  ]
+  const providers = [provider('automations', () => [{ id: 'automations.open-run', label: 'Open', run: () => {} }])]
   const actions = resolveNotificationActions({
     notification: notification({ source: 'automations', workspaceId: 'ws-gone' }),
     providers,
     revealWorkspace: () => {},
     workspaceExists: () => false,
   })
-  assert.deepEqual(actions.map((a) => a.id), ['automations.open-run'], 'provider deep-links do not depend on the workspace')
+  assert.deepEqual(
+    actions.map((a) => a.id),
+    ['automations.open-run'],
+    'provider deep-links do not depend on the workspace',
+  )
 }
 
 console.log('notificationActions.test.ts: ok')

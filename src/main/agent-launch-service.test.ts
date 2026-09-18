@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 
-import type {
-  McpServerConfig,
-  TerminalSessionSnapshot,
-  TerminalSpawnResult,
-} from '../shared/electron-api'
+import type { McpServerConfig, TerminalSessionSnapshot, TerminalSpawnResult } from '../shared/electron-api'
 import type { AgentLaunchSettings } from '../shared/launch-settings'
 import { emptyAgentLaunchSettings } from '../shared/launch-settings'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
@@ -55,14 +51,16 @@ function liveSession(overrides: Partial<TerminalSessionSnapshot> = {}): Terminal
  * anywhere in this harness — which is the whole point of the item: composing a
  * launch must not need any of them.
  */
-function harness(options: {
-  workspaces?: AgentLaunchWorkspace[]
-  settings?: AgentLaunchSettings
-  sessions?: TerminalSessionSnapshot[]
-  spawnResult?: TerminalSpawnResult
-  resolveKnowledgeRoot?: AgentLaunchServiceDeps['resolveKnowledgeRoot']
-  isAgentSelectableCli?: AgentLaunchServiceDeps['isAgentSelectableCli']
-} = {}) {
+function harness(
+  options: {
+    workspaces?: AgentLaunchWorkspace[]
+    settings?: AgentLaunchSettings
+    sessions?: TerminalSessionSnapshot[]
+    spawnResult?: TerminalSpawnResult
+    resolveKnowledgeRoot?: AgentLaunchServiceDeps['resolveKnowledgeRoot']
+    isAgentSelectableCli?: AgentLaunchServiceDeps['isAgentSelectableCli']
+  } = {},
+) {
   const spawns: TerminalSpawnPayload[] = []
   const kills: string[] = []
   const sessions = options.sessions ?? []
@@ -392,7 +390,7 @@ run('a caller that owns its agent id keeps it, and the session id is still minte
   assert.equal(
     app.spawns[0]!.sessionId,
     'session-minted',
-    'the agent id is never reused as the session id — a Claude-harness CLI refuses one it has seen'
+    'the agent id is never reused as the session id — a Claude-harness CLI refuses one it has seen',
   )
 })
 
@@ -410,7 +408,7 @@ run('an explicit cwd wins over the workspace folder, which still owns the reside
   assert.equal(
     app.spawns[0]!.agentSession?.workspaceRoot,
     '/repo/a',
-    'the execution identity still names the project root'
+    'the execution identity still names the project root',
   )
 })
 
@@ -440,7 +438,7 @@ run('the result names the CLI main resolved and the execution id the exit will c
   assert.equal(app.spawns[0]!.agentSession?.executionId, launched.executionId)
 })
 
-run('dispose kills the agent\'s live sessions and is idempotent', () => {
+run("dispose kills the agent's live sessions and is idempotent", () => {
   const app = harness({
     sessions: [
       liveSession({ sessionId: 'session-a', workspaceId: 'ws-1', agentId: 'agent-1' }),

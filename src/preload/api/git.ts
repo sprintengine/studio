@@ -35,20 +35,15 @@ import type {
 } from '../../shared/electron-api'
 
 export const gitApi = {
-  getGitRepoRoot: (folderPath: string): Promise<string | null> =>
-    ipcRenderer.invoke('git:get-repo-root', folderPath),
-  getGitStatus: (repoRoot: string): Promise<GitStatusSnapshot> =>
-    ipcRenderer.invoke('git:get-status', repoRoot),
+  getGitRepoRoot: (folderPath: string): Promise<string | null> => ipcRenderer.invoke('git:get-repo-root', folderPath),
+  getGitStatus: (repoRoot: string): Promise<GitStatusSnapshot> => ipcRenderer.invoke('git:get-status', repoRoot),
   checkIgnored: (repoRoot: string, relativePaths: string[]): Promise<string[]> =>
     ipcRenderer.invoke('git:check-ignored', repoRoot, relativePaths),
   getWorkspaceChangeSummary: (checkoutPath: string): Promise<WorkspaceChangeSummary> =>
     ipcRenderer.invoke('git:get-workspace-change-summary', checkoutPath),
   getBranchSteps: (checkoutPath: string): Promise<BranchStepsSnapshot> =>
     ipcRenderer.invoke('git:get-branch-steps', checkoutPath),
-  getBranchStepDiff: (
-    checkoutPath: string,
-    selection: BranchStepSelection
-  ): Promise<BranchStepDiff> =>
+  getBranchStepDiff: (checkoutPath: string, selection: BranchStepSelection): Promise<BranchStepDiff> =>
     ipcRenderer.invoke('git:get-branch-step-diff', checkoutPath, selection),
   getGitFileAtRev: (repoRoot: string, rev: string, filePath: string): Promise<RevFileResult> =>
     ipcRenderer.invoke('git:get-file-at-rev', repoRoot, rev, filePath),
@@ -56,8 +51,7 @@ export const gitApi = {
     ipcRenderer.invoke('git:get-file-base', repoRoot, filePath),
   getGitFileAtStage: (repoRoot: string, filePath: string, stage: GitFileStage): Promise<GitFileStageResult> =>
     ipcRenderer.invoke('git:get-file-at-stage', repoRoot, filePath, stage),
-  getGitBranches: (repoRoot: string): Promise<GitBranchSnapshot> =>
-    ipcRenderer.invoke('git:get-branches', repoRoot),
+  getGitBranches: (repoRoot: string): Promise<GitBranchSnapshot> => ipcRenderer.invoke('git:get-branches', repoRoot),
   getGitRepositoryIdentity: (folderPath: string): Promise<RepositoryIdentityRead> =>
     ipcRenderer.invoke('git:get-repository-identity', folderPath),
   getGitCommitGraph: (repoRoot: string, options?: GitGraphOptions): Promise<GitGraphSnapshot> =>
@@ -68,10 +62,8 @@ export const gitApi = {
     ipcRenderer.invoke('git:resolve-conflict', repoRoot, filePath, content),
   getGitFileHunks: (repoRoot: string, filePath: string, scope: GitHunkScope): Promise<GitFileHunksResult> =>
     ipcRenderer.invoke('git:get-file-hunks', repoRoot, filePath, scope),
-  stageGitHunk: (ref: GitHunkRef): Promise<GitCommandResult> =>
-    ipcRenderer.invoke('git:stage-hunk', ref),
-  unstageGitHunk: (ref: GitHunkRef): Promise<GitCommandResult> =>
-    ipcRenderer.invoke('git:unstage-hunk', ref),
+  stageGitHunk: (ref: GitHunkRef): Promise<GitCommandResult> => ipcRenderer.invoke('git:stage-hunk', ref),
+  unstageGitHunk: (ref: GitHunkRef): Promise<GitCommandResult> => ipcRenderer.invoke('git:unstage-hunk', ref),
   stageGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:stage', repoRoot, paths),
   unstageGitPaths: (repoRoot: string, paths: string[]): Promise<GitCommandResult> =>
@@ -80,10 +72,8 @@ export const gitApi = {
     ipcRenderer.invoke('git:revert', repoRoot, paths),
   commitGitChanges: (repoRoot: string, message: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:commit', repoRoot, message),
-  pushGitBranch: (repoRoot: string): Promise<GitCommandResult> =>
-    ipcRenderer.invoke('git:push', repoRoot),
-  fetchGitRemotes: (repoRoot: string): Promise<GitCommandResult> =>
-    ipcRenderer.invoke('git:fetch', repoRoot),
+  pushGitBranch: (repoRoot: string): Promise<GitCommandResult> => ipcRenderer.invoke('git:push', repoRoot),
+  fetchGitRemotes: (repoRoot: string): Promise<GitCommandResult> => ipcRenderer.invoke('git:fetch', repoRoot),
   pullGitBranchWithStash: (repoRoot: string): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:pull-with-stash', repoRoot),
   switchGitBranch: (repoRoot: string, branchName: string): Promise<GitCommandResult> =>
@@ -106,8 +96,7 @@ export const gitApi = {
     ipcRenderer.invoke('git:operation-continue', repoRoot, operation),
   abortGitOperation: (repoRoot: string, operation: GitRepoOperation): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:operation-abort', repoRoot, operation),
-  listGitStashes: (repoRoot: string): Promise<GitStashListSnapshot> =>
-    ipcRenderer.invoke('git:stash-list', repoRoot),
+  listGitStashes: (repoRoot: string): Promise<GitStashListSnapshot> => ipcRenderer.invoke('git:stash-list', repoRoot),
   pushGitStash: (repoRoot: string, message: string, includeUntracked?: boolean): Promise<GitCommandResult> =>
     ipcRenderer.invoke('git:stash-push', repoRoot, message, includeUntracked),
   applyGitStash: (repoRoot: string, index: number, expectedHash: string, pop?: boolean): Promise<GitCommandResult> =>
@@ -131,18 +120,17 @@ export const gitApi = {
   // Changelists and patches (git-commit-window T6). Every changelist call
   // answers with the whole reconciled set, so the panel re-renders from one
   // value instead of patching its own copy.
-  getGitChangelists: (repoRoot: string): Promise<Changelist[]> =>
-    ipcRenderer.invoke('git:changelists:get', repoRoot),
+  getGitChangelists: (repoRoot: string): Promise<Changelist[]> => ipcRenderer.invoke('git:changelists:get', repoRoot),
   setActiveGitChangelist: (repoRoot: string, id: string): Promise<Changelist[]> =>
     ipcRenderer.invoke('git:changelists:set-active', repoRoot, id),
   createGitChangelist: (
     repoRoot: string,
-    input: { name: string; comment?: string; activate?: boolean; paths?: string[] }
+    input: { name: string; comment?: string; activate?: boolean; paths?: string[] },
   ): Promise<Changelist[]> => ipcRenderer.invoke('git:changelists:create', repoRoot, input),
   renameGitChangelist: (
     repoRoot: string,
     id: string,
-    input: { name: string; comment?: string }
+    input: { name: string; comment?: string },
   ): Promise<Changelist[]> => ipcRenderer.invoke('git:changelists:rename', repoRoot, id, input),
   deleteGitChangelist: (repoRoot: string, id: string): Promise<Changelist[]> =>
     ipcRenderer.invoke('git:changelists:delete', repoRoot, id),
@@ -163,16 +151,11 @@ export const gitApi = {
     ipcRenderer.invoke('git:create-patch', repoRoot, paths, cached),
   saveGitPatch: (repoRoot: string, patch: string, defaultFileName?: string): Promise<GitPatchSaveResult> =>
     ipcRenderer.invoke('git:save-patch', repoRoot, patch, defaultFileName),
-  getGitHubTokenStatus: (): Promise<GitHubTokenStatus> =>
-    ipcRenderer.invoke('github:token-status'),
-  setGitHubToken: (token: string): Promise<GitHubTokenStatus> =>
-    ipcRenderer.invoke('github:set-token', token),
-  clearGitHubToken: (): Promise<GitHubTokenStatus> =>
-    ipcRenderer.invoke('github:clear-token'),
-  listGitHubRepos: (): Promise<GitHubRepoListResult> =>
-    ipcRenderer.invoke('github:list-repos'),
-  cloneGitHubRepo: (input: GitHubCloneInput): Promise<GitHubCloneResult> =>
-    ipcRenderer.invoke('github:clone', input),
+  getGitHubTokenStatus: (): Promise<GitHubTokenStatus> => ipcRenderer.invoke('github:token-status'),
+  setGitHubToken: (token: string): Promise<GitHubTokenStatus> => ipcRenderer.invoke('github:set-token', token),
+  clearGitHubToken: (): Promise<GitHubTokenStatus> => ipcRenderer.invoke('github:clear-token'),
+  listGitHubRepos: (): Promise<GitHubRepoListResult> => ipcRenderer.invoke('github:list-repos'),
+  cloneGitHubRepo: (input: GitHubCloneInput): Promise<GitHubCloneResult> => ipcRenderer.invoke('github:clone', input),
 } satisfies Pick<
   ElectronApi,
   | 'getGitRepoRoot'

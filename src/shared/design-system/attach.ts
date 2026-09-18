@@ -21,12 +21,7 @@ export type DesignSystemAttachSource =
  * failure: `source` is an unreadable/invalid bundle, `target` a missing
  * workspace root, `conflict` an existing design-system/ in the workspace.
  */
-type DesignSystemAttachFailureStage =
-  | 'request'
-  | 'source'
-  | 'target'
-  | 'conflict'
-  | 'copy'
+type DesignSystemAttachFailureStage = 'request' | 'source' | 'target' | 'conflict' | 'copy'
 
 /**
  * The one dedicated agent-launch prompt line for consuming workspaces.
@@ -56,6 +51,4 @@ export type DesignSystemAttachResult =
  * Result of removing `<workspace>/design-system/`. `removed: false` means
  * there was nothing to remove — detach is idempotent, so that is still ok.
  */
-export type DesignSystemDetachResult =
-  | { ok: true; removed: boolean }
-  | { ok: false; message: string }
+export type DesignSystemDetachResult = { ok: true; removed: boolean } | { ok: false; message: string }

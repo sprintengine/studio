@@ -28,11 +28,7 @@
 import React from 'react'
 
 import { CheckboxBox } from './Checkbox'
-import {
-  FOCUS_RING_INSET_CLASS,
-  FOCUS_RING_WITHIN_CHECKBOX_CLASS,
-  LIST_CURSOR_MARK_CLASS,
-} from './tokens'
+import { FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_CHECKBOX_CLASS, LIST_CURSOR_MARK_CLASS } from './tokens'
 
 export type CheckRowCheckedState = boolean | 'mixed'
 
@@ -78,10 +74,7 @@ export type CheckRowProps = {
   /** Picking the row (which is not ticking it). */
   onSelect?: () => void
   className?: string
-} & Omit<
-  React.HTMLAttributes<HTMLDivElement>,
-  'role' | 'onSelect' | 'children' | 'aria-checked' | 'aria-selected'
->
+} & Omit<React.HTMLAttributes<HTMLDivElement>, 'role' | 'onSelect' | 'children' | 'aria-checked' | 'aria-selected'>
 
 /**
  * The row forwards its ref and every remaining DOM attribute — `id`,
@@ -171,8 +164,8 @@ export const CheckRow = React.forwardRef<HTMLDivElement, CheckRowProps>(function
             // row with every other one (InboxRow's ruling, 2026-09-05).
             'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ring-2 ring-inset ring-[color:var(--selection-edge)]'
           : resting
-          ? 'bg-[color:var(--bg-selected-resting)] text-[color:var(--text-default)]'
-          : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]',
+            ? 'bg-[color:var(--bg-selected-resting)] text-[color:var(--text-default)]'
+            : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)]',
         className ?? '',
       ].join(' ')}
     >
@@ -219,9 +212,7 @@ export const CheckRow = React.forwardRef<HTMLDivElement, CheckRowProps>(function
         <span
           className={[
             'min-w-0 flex-1 truncate',
-            selected || resting
-              ? 'text-[color:var(--text-default)]'
-              : 'text-[color:var(--text-muted)]',
+            selected || resting ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]',
           ].join(' ')}
         >
           {directory}
@@ -230,9 +221,7 @@ export const CheckRow = React.forwardRef<HTMLDivElement, CheckRowProps>(function
         <span className="min-w-0 flex-1" />
       )}
       {trailing ? (
-        <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-muted)]">
-          {trailing}
-        </span>
+        <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-muted)]">{trailing}</span>
       ) : null}
     </div>
   )
@@ -344,9 +333,7 @@ export function DescribedCheckRow({
           // person is operating. Inward, because the row is full-bleed against
           // a surface that clips an outset ring.
           FOCUS_RING_WITHIN_CHECKBOX_CLASS,
-          disabled
-            ? 'cursor-not-allowed opacity-50'
-            : 'cursor-pointer hover:bg-[color:var(--bg-hover)]',
+          disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer hover:bg-[color:var(--bg-hover)]',
           className ?? '',
         ].join(' ')}
       >

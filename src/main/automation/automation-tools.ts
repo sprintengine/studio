@@ -1,10 +1,7 @@
 import { isAbsolute } from 'path'
 import type { RepositoryIdentity } from '../../shared/repository-identity'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import type {
-  CliPermissionPreset,
-  TerminalSessionSnapshot,
-} from '../../shared/electron-api'
+import type { CliPermissionPreset, TerminalSessionSnapshot } from '../../shared/electron-api'
 import { projectColorKey, projectHue } from '../../shared/project-hue'
 import { normalizeCliPermissionPreset } from '../../shared/cli-permission-preset'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
@@ -35,10 +32,7 @@ import type {
 import type { AutomationStoreListResult } from '../automations/store'
 import type { AutomationsAppFrontDoor } from '../ipc/automations-ipc'
 import type { LoadedPlugin } from '../../shared/plugin-manifest'
-import type {
-  MarketplaceRegistryReadInput,
-  MarketplaceRegistryReadResult,
-} from '../../shared/electron-api'
+import type { MarketplaceRegistryReadInput, MarketplaceRegistryReadResult } from '../../shared/electron-api'
 import {
   MARKETPLACE_COMPONENT_KINDS,
   type MarketplaceComponentKind,
@@ -51,10 +45,7 @@ import {
   type ThirdPartyModuleView,
 } from '../../shared/modules/manifest'
 import { isDevOnlyModule } from '../../shared/modules/dev-only'
-import type {
-  ModuleRegistryEntry,
-  ModuleRegistrySnapshot,
-} from '../../shared/modules/registry-snapshot'
+import type { ModuleRegistryEntry, ModuleRegistrySnapshot } from '../../shared/modules/registry-snapshot'
 import { buildAgentBacklogLink } from '../../shared/backlog/agent-links'
 // The built-in Backlog skill id backlog.work installs and invokes, and the
 // plain-language handoff it falls back to. Both come from the shared module the
@@ -220,9 +211,10 @@ export type AutomationBackends = {
    * two transports cannot drift in behaviour.
    */
   mobileControl: {
-    readSnapshot(input: { include?: string[]; knownSnapshotVersion?: string }): Promise<
-      { unchanged: true; snapshotVersion: string } | { unchanged: false; snapshot: Record<string, unknown> }
-    >
+    readSnapshot(input: {
+      include?: string[]
+      knownSnapshotVersion?: string
+    }): Promise<{ unchanged: true; snapshotVersion: string } | { unchanged: false; snapshot: Record<string, unknown> }>
     dispatchCommand(input: {
       type: string
       payload: Record<string, unknown>
@@ -263,7 +255,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   }
 
   function findWorkspace(workspaceId: string): Workspace | null {
-    return backends.getWorkspaceSyncSnapshot().state.workspaces.find((candidate) => candidate.id === workspaceId) ?? null
+    return (
+      backends.getWorkspaceSyncSnapshot().state.workspaces.find((candidate) => candidate.id === workspaceId) ?? null
+    )
   }
 
   // Backlog and Automations services speak absolute workspace roots; tools
@@ -278,7 +272,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (!workspace.folderPath) {
       return failure(
         'workspace_without_folder',
-        `Workspace "${workspaceId}" has no usable folder path in this app session; open it in the app first.`
+        `Workspace "${workspaceId}" has no usable folder path in this app session; open it in the app first.`,
       )
     }
     return { root: workspace.folderPath }
@@ -292,7 +286,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // backlog-service validates the folder itself.
   function resolveBacklogRoot(
     args: Record<string, unknown>,
-    context: McpConnectionContext | undefined
+    context: McpConnectionContext | undefined,
   ): { root: string } | McpToolResult {
     if (args.projectRoot !== undefined) {
       if (typeof args.projectRoot !== 'string' || !isAbsolute(args.projectRoot)) {
@@ -304,7 +298,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (workspace?.folderPath) return { root: workspace.folderPath }
     return failure(
       'project_root_required',
-      'This connection has no resolvable workspace to default from; pass "projectRoot" (the absolute path to the project folder).'
+      'This connection has no resolvable workspace to default from; pass "projectRoot" (the absolute path to the project folder).',
     )
   }
 
@@ -319,19 +313,19 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // folder matches an explicit projectRoot.
   function resolveBacklogWorkspace(
     args: Record<string, unknown>,
-    context: McpConnectionContext | undefined
+    context: McpConnectionContext | undefined,
   ): { workspace: Workspace; root: string } | McpToolResult {
     if (args.projectRoot !== undefined) {
       const resolved = resolveBacklogRoot(args, context)
       if (!('root' in resolved)) return resolved
       const workspace =
-        backends.getWorkspaceSyncSnapshot().state.workspaces.find(
-          (candidate) => candidate.folderPath === resolved.root
-        ) ?? null
+        backends
+          .getWorkspaceSyncSnapshot()
+          .state.workspaces.find((candidate) => candidate.folderPath === resolved.root) ?? null
       if (!workspace?.folderPath) {
         return failure(
           'workspace_not_open',
-          `No open workspace uses the folder "${resolved.root}"; this tool needs that project open in the app.`
+          `No open workspace uses the folder "${resolved.root}"; this tool needs that project open in the app.`,
         )
       }
       return { workspace, root: workspace.folderPath }
@@ -340,7 +334,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (workspace?.folderPath) return { workspace, root: workspace.folderPath }
     return failure(
       'project_root_required',
-      'This connection has no resolvable workspace to default from; pass "projectRoot" (the absolute path to the project folder).'
+      'This connection has no resolvable workspace to default from; pass "projectRoot" (the absolute path to the project folder).',
     )
   }
 
@@ -349,14 +343,20 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     return workspaceWindows.find((windowState) => windowState.workspaceIds.includes(workspaceId))?.id ?? null
   }
 
-  function agentTerminalSession(workspaceId: string, agentId: string, cliSessionId?: string): TerminalSessionSnapshot | null {
+  function agentTerminalSession(
+    workspaceId: string,
+    agentId: string,
+    cliSessionId?: string,
+  ): TerminalSessionSnapshot | null {
     return (
-      backends.listTerminalSessions().find(
-        (session) =>
-          session.kind === 'agent'
-          && session.workspaceId === workspaceId
-          && (session.agentId === agentId || (cliSessionId !== undefined && session.sessionId === cliSessionId))
-      ) ?? null
+      backends
+        .listTerminalSessions()
+        .find(
+          (session) =>
+            session.kind === 'agent' &&
+            session.workspaceId === workspaceId &&
+            (session.agentId === agentId || (cliSessionId !== undefined && session.sessionId === cliSessionId)),
+        ) ?? null
     )
   }
 
@@ -399,9 +399,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // than folded into invalid_arguments, because "you may not ask for that here"
   // and "that is not a preset" are different answers to the caller. Returns the
   // named preset, `undefined` when the caller named none, or the failure.
-  function validatePermissionPreset(
-    args: Record<string, unknown>
-  ): CliPermissionPreset | undefined | McpToolResult {
+  function validatePermissionPreset(args: Record<string, unknown>): CliPermissionPreset | undefined | McpToolResult {
     if (args.permissionPreset === undefined) return undefined
     if (typeof args.permissionPreset !== 'string') {
       return failure('invalid_arguments', '"permissionPreset" must be a string when provided.')
@@ -414,8 +412,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (requested === 'bypass') {
       return failure(
         'permission_preset_not_allowed',
-        'Agents launched over the automation surface may not use permissionPreset "bypass". '
-          + 'A person can set that preset in the app if it is genuinely needed.'
+        'Agents launched over the automation surface may not use permissionPreset "bypass". ' +
+          'A person can set that preset in the app if it is genuinely needed.',
       )
     }
     if (!LAUNCH_PERMISSION_PRESETS.includes(args.permissionPreset as (typeof LAUNCH_PERMISSION_PRESETS)[number])) {
@@ -428,9 +426,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // `permissionPreset` (`bypass` refused with its own code, epic decision 4)
   // and `worktree` (an object with an optional name — never a bare cwd). Returns
   // the resolved options or a failure McpToolResult.
-  function resolveLaunchOptions(
-    args: Record<string, unknown>
-  ): { permissionPreset?: CliPermissionPreset; worktreeRequested: boolean; worktreeName?: string; worktreeBaseRef?: string } | McpToolResult {
+  function resolveLaunchOptions(args: Record<string, unknown>):
+    | {
+        permissionPreset?: CliPermissionPreset
+        worktreeRequested: boolean
+        worktreeName?: string
+        worktreeBaseRef?: string
+      }
+    | McpToolResult {
     const preset = validatePermissionPreset(args)
     if (preset !== undefined && typeof preset !== 'string') return preset
     let worktreeRequested = false
@@ -458,8 +461,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // `bypass` — so omitting the key reached the preset this surface
       // refuses. An external caller that names none gets the most restrictive
       // allowed value.
-      permissionPreset: (optionalString(args.permissionPreset) as CliPermissionPreset | undefined)
-        ?? LAUNCH_PERMISSION_PRESETS[0],
+      permissionPreset:
+        (optionalString(args.permissionPreset) as CliPermissionPreset | undefined) ?? LAUNCH_PERMISSION_PRESETS[0],
       worktreeRequested,
       worktreeName,
       worktreeBaseRef,
@@ -484,7 +487,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     worktreeName?: string
     worktreeBaseRef?: string
   }): Promise<
-    | { workspace: Workspace; agentId: string; session: TerminalSessionSnapshot; worktreePath?: string; worktreeBranch?: string }
+    | {
+        workspace: Workspace
+        agentId: string
+        session: TerminalSessionSnapshot
+        worktreePath?: string
+        worktreeBranch?: string
+      }
     | McpToolResult
   > {
     // A connector launch forces a worktree even when none was requested — the
@@ -505,7 +514,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if ('error' in created) {
         return failure(
           'worktree_unavailable',
-          `Could not create an isolated worktree for the launch (${created.error}). The folder must be a git repository.`
+          `Could not create an isolated worktree for the launch (${created.error}). The folder must be a git repository.`,
         )
       }
       worktreePath = created.worktreePath
@@ -540,7 +549,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (!live) {
       return failure(
         'launch_confirmation_timeout',
-        `Agent "${agentId}" was launched in workspace "${plan.workspaceId}" but no live terminal session registered within ${LAUNCH_CONFIRM_TIMEOUT_MS}ms; treat the launch as unverified. Read agent.status for the current state.`
+        `Agent "${agentId}" was launched in workspace "${plan.workspaceId}" but no live terminal session registered within ${LAUNCH_CONFIRM_TIMEOUT_MS}ms; treat the launch as unverified. Read agent.status for the current state.`,
       )
     }
     // The workspace record is only the shape callers project; main has held it
@@ -566,9 +575,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceList: McpToolRegistration = {
     name: 'workspace.list',
     description:
-      'List the workspaces visible to the user in the running Multicode instance, with window assignment and agent ids. '
-      + 'Workspaces that survived a restart are listed like any other: main owns the registry, so their name, '
-      + 'folder, mode, and agents are real whether or not a window is open.',
+      'List the workspaces visible to the user in the running Multicode instance, with window assignment and agent ids. ' +
+      'Workspaces that survived a restart are listed like any other: main owns the registry, so their name, ' +
+      'folder, mode, and agents are real whether or not a window is open.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
       const { state } = backends.getWorkspaceSyncSnapshot()
@@ -579,7 +588,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         state.workspaces.map(async (workspace) => ({
           ...workspaceProjection(workspace),
           repository: workspace.folderPath ? await backends.readRepositoryIdentity(workspace.folderPath) : null,
-        }))
+        })),
       )
       return success({
         workspaces,
@@ -599,18 +608,17 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceSnapshot: McpToolRegistration = {
     name: 'workspace.snapshot',
     description:
-      'The mobile companion snapshot: backlog, automations and the dev servers published on the tailnet as one '
-      + 'versioned document, in the same path-token form the relay serves (ws_ tokens round-trip; local paths never leave '
-      + 'the desktop). Pass knownSnapshotVersion from the previous read to get an {unchanged: true} marker '
-      + 'instead of the full document when nothing moved.',
+      'The mobile companion snapshot: backlog, automations and the dev servers published on the tailnet as one ' +
+      'versioned document, in the same path-token form the relay serves (ws_ tokens round-trip; local paths never leave ' +
+      'the desktop). Pass knownSnapshotVersion from the previous read to get an {unchanged: true} marker ' +
+      'instead of the full document when nothing moved.',
     inputSchema: {
       type: 'object',
       properties: {
         include: {
           type: 'array',
           items: { type: 'string', enum: [...mobileSnapshotCollections] },
-          description:
-            `Collections to include (${mobileSnapshotCollections.join(', ')}). Defaults to all of them.`,
+          description: `Collections to include (${mobileSnapshotCollections.join(', ')}). Defaults to all of them.`,
         },
         knownSnapshotVersion: { type: 'string', description: 'The snapshotVersion returned by the previous read.' },
       },
@@ -627,8 +635,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (unknownCollection !== undefined) {
         return failure(
           'invalid_arguments',
-          `"include" names "${unknownCollection}", which is not a snapshot collection. `
-            + `Collections: ${mobileSnapshotCollections.join(', ')}.`
+          `"include" names "${unknownCollection}", which is not a snapshot collection. ` +
+            `Collections: ${mobileSnapshotCollections.join(', ')}.`,
         )
       }
       const invalidString = firstInvalidOptionalString(args, ['knownSnapshotVersion'])
@@ -644,14 +652,17 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceMobileCommand: McpToolRegistration = {
     name: 'workspace.mobile_command',
     description:
-      'Dispatch one mobile-control command envelope from a paired companion device — the same commands the phone '
-      + `sends over the relay, over this transport instead. Served types: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}. `
-      + 'The device identity comes from the transport, never from the arguments.',
+      'Dispatch one mobile-control command envelope from a paired companion device — the same commands the phone ' +
+      `sends over the relay, over this transport instead. Served types: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}. ` +
+      'The device identity comes from the transport, never from the arguments.',
     inputSchema: {
       type: 'object',
       properties: {
         type: { type: 'string', description: `One of: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}.` },
-        payload: { type: 'object', description: 'The command payload, exactly as the mobile-control protocol defines it.' },
+        payload: {
+          type: 'object',
+          description: 'The command payload, exactly as the mobile-control protocol defines it.',
+        },
         idempotencyKey: { type: 'string', description: 'Client-chosen key; replays return the recorded result.' },
         expectedSnapshotVersion: { type: 'string' },
       },
@@ -668,7 +679,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (!(MOBILE_GATEWAY_COMMAND_TYPES as readonly string[]).includes(type)) {
         return failure(
           'command_not_supported',
-          `Mobile command "${type}" is not served over the gateway (served: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}).`
+          `Mobile command "${type}" is not served over the gateway (served: ${MOBILE_GATEWAY_COMMAND_TYPES.join(', ')}).`,
         )
       }
       const payload = args.payload
@@ -680,7 +691,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // machine and is labelled as such rather than trusted to name a device.
       const metadata = context?.metadata
       const deviceId =
-        metadata?.kind === 'remote-tailnet' && metadata.deviceId ? metadata.deviceId : `local:${metadata?.kind ?? 'unknown'}`
+        metadata?.kind === 'remote-tailnet' && metadata.deviceId
+          ? metadata.deviceId
+          : `local:${metadata?.kind ?? 'unknown'}`
       const result = await backends.mobileControl.dispatchCommand({
         type,
         payload: payload as Record<string, unknown>,
@@ -704,7 +717,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     description: 'Read one workspace from the main process store, including its agents and their terminal liveness.',
     inputSchema: {
       type: 'object',
-      properties: { workspaceId: { type: 'string', description: 'Workspace id from workspace.list or workspace.create.' } },
+      properties: {
+        workspaceId: { type: 'string', description: 'Workspace id from workspace.list or workspace.create.' },
+      },
       required: ['workspaceId'],
       additionalProperties: false,
     },
@@ -723,8 +738,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceCreate: McpToolRegistration = {
     name: 'workspace.create',
     description:
-      'Create a workspace in the running Multicode instance. The main process owns the registry, so this '
-      + 'succeeds with no window open and the returned workspace is immediately addressable by every other tool.',
+      'Create a workspace in the running Multicode instance. The main process owns the registry, so this ' +
+      'succeeds with no window open and the returned workspace is immediately addressable by every other tool.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -756,9 +771,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const agentLaunch: McpToolRegistration = {
     name: 'agent.launch',
     description:
-      'Add a fully-configured agent to a workspace and start its CLI through the same renderer flow the UI uses. '
-      + 'Optionally selects the model, permission preset and connector, and isolates the agent in a '
-      + 'git worktree. Success is confirmed by the agent terminal session registering with the main process.',
+      'Add a fully-configured agent to a workspace and start its CLI through the same renderer flow the UI uses. ' +
+      'Optionally selects the model, permission preset and connector, and isolates the agent in a ' +
+      'git worktree. Success is confirmed by the agent terminal session registering with the main process.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -766,31 +781,31 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         cli: {
           type: 'string',
           description:
-            'Agent CLI plugin id; defaults to the last selected CLI. cli.runtime.list enumerates the ids this '
-            + 'app actually holds — do not guess one.',
+            'Agent CLI plugin id; defaults to the last selected CLI. cli.runtime.list enumerates the ids this ' +
+            'app actually holds — do not guess one.',
         },
         name: { type: 'string', description: 'Agent display name.' },
         prompt: { type: 'string', description: 'Startup prompt sent to the CLI after launch.' },
         cliModel: {
           type: 'string',
           description:
-            'Model id for CLIs that support model selection; forwarded verbatim (the app does not validate it '
-            + 'against the CLI). cli.runtime.list reports each CLI\'s declared model ids and whether it accepts '
-            + 'ids outside that list.',
+            'Model id for CLIs that support model selection; forwarded verbatim (the app does not validate it ' +
+            "against the CLI). cli.runtime.list reports each CLI's declared model ids and whether it accepts " +
+            'ids outside that list.',
         },
         permissionPreset: {
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this '
-            + 'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings '
-            + '("default", "auto_workspace") are not accepted here at all.',
+            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
+            'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings ' +
+            '("default", "auto_workspace") are not accepted here at all.',
         },
         connectorId: {
           type: 'string',
           description:
-            "Connector id from the installed connectors. Attaches the connector's single-server MCP and forces "
-            + 'worktree isolation (the connector .mcp.json never lands in the checkout), even without "worktree".',
+            "Connector id from the installed connectors. Attaches the connector's single-server MCP and forces " +
+            'worktree isolation (the connector .mcp.json never lands in the checkout), even without "worktree".',
         },
         worktree: {
           type: 'object',
@@ -799,12 +814,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             baseRef: {
               type: 'string',
               description:
-                'The ref the new worktree branches from (a branch name from workspace.checkout, e.g. "main"). '
-                + "Defaults to the workspace checkout's HEAD.",
+                'The ref the new worktree branches from (a branch name from workspace.checkout, e.g. "main"). ' +
+                "Defaults to the workspace checkout's HEAD.",
             },
           },
           additionalProperties: false,
-          description: 'Isolate the agent in a git worktree on an "agent/<name>" branch instead of the workspace checkout.',
+          description:
+            'Isolate the agent in a git worktree on an "agent/<name>" branch instead of the workspace checkout.',
         },
       },
       required: ['workspaceId'],
@@ -852,9 +868,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceCheckout: McpToolRegistration = {
     name: 'workspace.checkout',
     description:
-      "Read a workspace's git checkout: whether its folder is a repository, the branch it is on, the trunk, "
-      + 'every local branch, and the worktrees the repository holds. Pair it with agent.launch\'s '
-      + '"worktree.baseRef" to start an agent on a fresh worktree branched from one of the listed branches.',
+      "Read a workspace's git checkout: whether its folder is a repository, the branch it is on, the trunk, " +
+      "every local branch, and the worktrees the repository holds. Pair it with agent.launch's " +
+      '"worktree.baseRef" to start an agent on a fresh worktree branched from one of the listed branches.',
     inputSchema: {
       type: 'object',
       properties: { workspaceId: { type: 'string', description: 'Workspace id from workspace.list.' } },
@@ -880,17 +896,20 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const cliRuntimeList: McpToolRegistration = {
     name: 'cli.runtime.list',
     description:
-      'List the agent CLIs this app can launch, with the model ids and reasoning-effort levels each one '
-      + 'declares. Read it before passing `cli`/`cliModel` to agent.launch — those are otherwise blind strings. Only rows with `agentSelectable: '
-      + 'true` may be launched as agents (the CLI reports agent state via lifecycle hooks); '
-      + 'a false row is registry-held for install/detect only and every launch door refuses it. A CLI whose '
-      + '`allowCustomModelId` is true accepts model ids outside its listed options (the list is a seed, not a '
-      + 'closed set); a level outside `reasoningLevels` is refused by the CLI itself. This reports what the '
-      + 'registry HOLDS, not what is installed on this machine — it never probes for binaries.',
+      'List the agent CLIs this app can launch, with the model ids and reasoning-effort levels each one ' +
+      'declares. Read it before passing `cli`/`cliModel` to agent.launch — those are otherwise blind strings. Only rows with `agentSelectable: ' +
+      'true` may be launched as agents (the CLI reports agent state via lifecycle hooks); ' +
+      'a false row is registry-held for install/detect only and every launch door refuses it. A CLI whose ' +
+      '`allowCustomModelId` is true accepts model ids outside its listed options (the list is a seed, not a ' +
+      'closed set); a level outside `reasoningLevels` is refused by the CLI itself. This reports what the ' +
+      'registry HOLDS, not what is installed on this machine — it never probes for binaries.',
     inputSchema: {
       type: 'object',
       properties: {
-        cli: { type: 'string', description: 'Report only this CLI plugin id. Unknown ids fail rather than returning an empty list.' },
+        cli: {
+          type: 'string',
+          description: 'Report only this CLI plugin id. Unknown ids fail rather than returning an empty list.',
+        },
       },
       required: [],
       additionalProperties: false,
@@ -903,7 +922,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (wanted && !plugins.some((plugin) => plugin.manifest.id === wanted)) {
         return failure(
           'unknown_cli',
-          `No agent CLI "${wanted}" is registered in this app. Call cli.runtime.list with no arguments for the ids it holds.`
+          `No agent CLI "${wanted}" is registered in this app. Call cli.runtime.list with no arguments for the ids it holds.`,
         )
       }
       const clis = plugins
@@ -949,10 +968,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const terminalList: McpToolRegistration = {
     name: 'terminal.list',
     description:
-      'List the terminal sessions open in this app: session id, agent name, CLI, working directory, '
-      + 'workspace, whether the process is live or the session is paused, and the agent phase when the CLI '
-      + "reports one. Use the session id to attach to a session's live output. Reads the terminal runtime; "
-      + 'never writes.',
+      'List the terminal sessions open in this app: session id, agent name, CLI, working directory, ' +
+      'workspace, whether the process is live or the session is paused, and the agent phase when the CLI ' +
+      "reports one. Use the session id to attach to a session's live output. Reads the terminal runtime; " +
+      'never writes.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -979,14 +998,16 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // a fresh snapshot — a whole-registry clone per row, every 30 seconds
       // per paired machine, which was the main-thread stall of 2026-09-05.
       const workspaceRows = new Map(
-        backends.getWorkspaceSyncSnapshot().state.workspaces.map((workspace) => [workspace.id, workspace])
+        backends.getWorkspaceSyncSnapshot().state.workspaces.map((workspace) => [workspace.id, workspace]),
       )
       // The project hue, resolved once per DISTINCT workspace rather than per
       // row: `readRepositoryIdentity` holds its answers behind a timed cache
       // and de-duplicates in flight, but a dozen rows in one project would
       // still be a dozen awaits on the 30-second poll each paired device runs.
       const projectHues = new Map<string, number | null>()
-      const projectHueFor = async (workspace: { id: string; folderPath?: string | null } | undefined): Promise<number | null> => {
+      const projectHueFor = async (
+        workspace: { id: string; folderPath?: string | null } | undefined,
+      ): Promise<number | null> => {
         if (!workspace) return null
         const cached = projectHues.get(workspace.id)
         if (cached !== undefined) return cached
@@ -1023,9 +1044,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             // for the same reason the sidebar does: a snoozed chat that still
             // claims to be running is the bug the desktop fixed on 2026-09-10,
             // and the wire kept it.
-            snoozedUntil:
-              (session.workspaceId ? workspaceRows.get(session.workspaceId)?.snoozedUntil : null) || null,
-          }))
+            snoozedUntil: (session.workspaceId ? workspaceRows.get(session.workspaceId)?.snoozedUntil : null) || null,
+          })),
       )
       return success({ terminals: sessions })
     },
@@ -1056,7 +1076,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (!workspaceName) {
       return failure(
         'invalid_arguments',
-        'Name the workspace to open the terminal in: pass "workspaceId" or "workspaceName".'
+        'Name the workspace to open the terminal in: pass "workspaceId" or "workspaceName".',
       )
     }
     const wanted = workspaceName.toLowerCase()
@@ -1071,7 +1091,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         'ambiguous_workspace_name',
         `${matches.length} workspaces are named "${workspaceName}". Name one by id instead: ${matches
           .map((candidate) => candidate.id)
-          .join(', ')}.`
+          .join(', ')}.`,
       )
     }
     return { workspace: matches[0] }
@@ -1095,11 +1115,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const terminalCreate: McpToolRegistration = {
     name: 'terminal.create',
     description:
-      'Open a new agent terminal on the machine running this app and return its session id, ready to attach. '
-      + 'Works with no window open: the session exists in the main process, and a window opened later shows it as '
-      + 'a pane with its scrollback intact. Name the workspace by "workspaceId" or by "workspaceName". The CLI and '
-      + "permission preset default to this machine's own launch settings unless you name them; `bypass` is "
-      + 'refused here as everywhere on this surface. Use cli.runtime.list for the CLI ids this app holds.',
+      'Open a new agent terminal on the machine running this app and return its session id, ready to attach. ' +
+      'Works with no window open: the session exists in the main process, and a window opened later shows it as ' +
+      'a pane with its scrollback intact. Name the workspace by "workspaceId" or by "workspaceName". The CLI and ' +
+      "permission preset default to this machine's own launch settings unless you name them; `bypass` is " +
+      'refused here as everywhere on this surface. Use cli.runtime.list for the CLI ids this app holds.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1107,14 +1127,14 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         workspaceName: {
           type: 'string',
           description:
-            'Target workspace by display name instead of id (case-insensitive). Refused when more than one '
-            + 'workspace carries the name.',
+            'Target workspace by display name instead of id (case-insensitive). Refused when more than one ' +
+            'workspace carries the name.',
         },
         cli: {
           type: 'string',
           description:
-            "Agent CLI plugin id; defaults to this machine's last-selected CLI. cli.runtime.list enumerates the "
-            + 'ids this app actually holds — do not guess one.',
+            "Agent CLI plugin id; defaults to this machine's last-selected CLI. cli.runtime.list enumerates the " +
+            'ids this app actually holds — do not guess one.',
         },
         name: { type: 'string', description: 'Agent display name; defaults to an unused name from the shared pool.' },
         prompt: { type: 'string', description: 'Startup prompt sent to the CLI after launch.' },
@@ -1126,10 +1146,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this '
-            + 'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings '
-            + '("default", "auto_workspace") are not accepted here at all. '
-            + "Omit to take this machine's own spawn default.",
+            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
+            'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings ' +
+            '("default", "auto_workspace") are not accepted here at all. ' +
+            "Omit to take this machine's own spawn default.",
         },
       },
       required: [],
@@ -1160,8 +1180,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // for. Falling to the most restrictive preset is the surface's ceiling,
       // and the answer reports which preset actually applied.
       const machineDefault = backends.getAgentSpawnPermissionDefault()
-      const permissionPreset = requestedPreset
-        ?? (machineDefault && machineDefault !== 'bypass' ? machineDefault : LAUNCH_PERMISSION_PRESETS[0])
+      const permissionPreset =
+        requestedPreset ??
+        (machineDefault && machineDefault !== 'bypass' ? machineDefault : LAUNCH_PERMISSION_PRESETS[0])
 
       const launched = await launchConfiguredAgent({
         workspaceId: resolved.workspace.id,
@@ -1192,15 +1213,15 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const PROJECT_ROOT_PROPERTY = {
     type: 'string',
     description:
-      'Absolute path to the project folder. Optional — when omitted, the tool targets the project this agent '
-      + 'connection was launched from. Only needed when calling from outside a Studio-launched agent.',
+      'Absolute path to the project folder. Optional — when omitted, the tool targets the project this agent ' +
+      'connection was launched from. Only needed when calling from outside a Studio-launched agent.',
   }
 
   const backlogList: McpToolRegistration = {
     name: 'backlog.list',
     description:
-      "List the project's Backlog items and epics (title, display id, status, type, triage axes, epic "
-      + 'membership). Reads item files and frontmatter only — never writes. Archived items are omitted.',
+      "List the project's Backlog items and epics (title, display id, status, type, triage axes, epic " +
+      'membership). Reads item files and frontmatter only — never writes. Archived items are omitted.',
     inputSchema: {
       type: 'object',
       properties: { projectRoot: PROJECT_ROOT_PROPERTY },
@@ -1218,12 +1239,16 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const backlogRead: McpToolRegistration = {
     name: 'backlog.read',
     description:
-      'Read one Backlog item: parsed frontmatter fields plus the markdown body. '
-      + 'The path must be a project-relative markdown path under backlog/.',
+      'Read one Backlog item: parsed frontmatter fields plus the markdown body. ' +
+      'The path must be a project-relative markdown path under backlog/.',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".' },
+        path: {
+          type: 'string',
+          description:
+            'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".',
+        },
         projectRoot: PROJECT_ROOT_PROPERTY,
       },
       required: ['path'],
@@ -1265,8 +1290,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
 
   const automationRuns: McpToolRegistration = {
     name: 'automation.runs',
-    description:
-      "One automation's run history, newest first (the store keeps the most recent 50). Read-only.",
+    description: "One automation's run history, newest first (the store keeps the most recent 50). Read-only.",
     inputSchema: {
       type: 'object',
       properties: {
@@ -1309,8 +1333,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (!snapshot) {
       return failure(
         'module_registry_unavailable',
-        'The running app has not reported its module registry yet (no window has finished starting). '
-          + 'Retry once the app window is up.'
+        'The running app has not reported its module registry yet (no window has finished starting). ' +
+          'Retry once the app window is up.',
       )
     }
     let installed: ThirdPartyModuleListResult | null = null
@@ -1322,9 +1346,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // rather than pretending no third-party module is installed.
       thirdPartyUnavailable = error instanceof Error ? error.message : 'The installed module folder could not be read.'
     }
-    const installedById = new Map(
-      (installed?.modules ?? []).map((module) => [module.manifest.id, module] as const)
-    )
+    const installedById = new Map((installed?.modules ?? []).map((module) => [module.manifest.id, module] as const))
     const records: ModuleRecord[] = snapshot.modules.map((entry) => {
       const view = installedById.get(entry.id)
       installedById.delete(entry.id)
@@ -1353,11 +1375,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const moduleList: McpToolRegistration = {
     name: 'module.list',
     description:
-      'List the capability modules this app has, as the user sees them: bundled and third-party, each with its '
-      + 'source, version, whether it is enabled, and why it is not when it is off. Modules that ship only in '
-      + 'development builds are absent from a packaged build entirely — never reported as present-but-disabled. '
-      + 'A third-party module that is installed but untrusted appears here (installed) even though it loads nowhere. '
-      + 'Read-only: enabling, installing, and trusting are not on this surface.',
+      'List the capability modules this app has, as the user sees them: bundled and third-party, each with its ' +
+      'source, version, whether it is enabled, and why it is not when it is off. Modules that ship only in ' +
+      'development builds are absent from a packaged build entirely — never reported as present-but-disabled. ' +
+      'A third-party module that is installed but untrusted appears here (installed) even though it loads nowhere. ' +
+      'Read-only: enabling, installing, and trusting are not on this surface.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1391,10 +1413,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const moduleStatus: McpToolRegistration = {
     name: 'module.status',
     description:
-      'Read one capability module: its manifest, the permissions it declares, the surfaces it contributes '
-      + '(workspace types, doors, settings sections, commands, …), the gateway tools it adds, and — when it is '
-      + 'not active — why. A module that ships only in development builds reports module_not_in_build on a '
-      + 'packaged build rather than appearing disabled.',
+      'Read one capability module: its manifest, the permissions it declares, the surfaces it contributes ' +
+      '(workspace types, doors, settings sections, commands, …), the gateway tools it adds, and — when it is ' +
+      'not active — why. A module that ships only in development builds reports module_not_in_build on a ' +
+      'packaged build rather than appearing disabled.',
     inputSchema: {
       type: 'object',
       properties: { id: { type: 'string', description: 'Module id from module.list, e.g. "automations".' } },
@@ -1413,7 +1435,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
             'module_not_in_build',
             isDevOnlyModule(id) && collected.snapshot.channel === 'production'
               ? `Module "${id}" ships only in development builds; this build does not contain it, so it is absent rather than disabled.`
-              : `Module "${id}" is a known module id but is not part of this ${collected.snapshot.channel} build.`
+              : `Module "${id}" is a known module id but is not part of this ${collected.snapshot.channel} build.`,
           )
         }
         return failure('unknown_module', `Module "${id}" is not installed in the running app.`)
@@ -1441,11 +1463,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const marketplaceList: McpToolRegistration = {
     name: 'marketplace.list',
     description:
-      'Browse the extension marketplace index the app itself reads (same registry client, cache, and '
-      + 'bundled-first policy as the Plugins marketplace) — modules, MCP servers, skill packs, agent CLIs and '
-      + 'automations. Filter by what an entry provides to get the module-first facet. Read-only: installing is '
-      + 'a trust decision and is not on this surface. The result discloses where the index came from and '
-      + 'whether it is a stale offline cache.',
+      'Browse the extension marketplace index the app itself reads (same registry client, cache, and ' +
+      'bundled-first policy as the Plugins marketplace) — modules, MCP servers, skill packs, agent CLIs and ' +
+      'automations. Filter by what an entry provides to get the module-first facet. Read-only: installing is ' +
+      'a trust decision and is not on this surface. The result discloses where the index came from and ' +
+      'whether it is a stale offline cache.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1454,7 +1476,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           enum: [...MARKETPLACE_COMPONENT_KINDS],
           description: 'Only entries that bundle this component kind; "module" is the module-first facet.',
         },
-        query: { type: 'string', description: 'Case-insensitive match over name, summary, category, publisher, and tags.' },
+        query: {
+          type: 'string',
+          description: 'Case-insensitive match over name, summary, category, publisher, and tags.',
+        },
         forceRefresh: { type: 'boolean', description: 'Re-fetch the index instead of answering from the cache.' },
       },
       additionalProperties: false,
@@ -1462,14 +1487,17 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     handler: async (args) => {
       const invalid = firstInvalidOptionalString(args, ['provides', 'query'])
       if (invalid) return invalid
-      if (args.provides !== undefined && !MARKETPLACE_COMPONENT_KINDS.includes(args.provides as MarketplaceComponentKind)) {
+      if (
+        args.provides !== undefined &&
+        !MARKETPLACE_COMPONENT_KINDS.includes(args.provides as MarketplaceComponentKind)
+      ) {
         return failure('invalid_arguments', `"provides" must be one of: ${MARKETPLACE_COMPONENT_KINDS.join(', ')}.`)
       }
       if (args.forceRefresh !== undefined && typeof args.forceRefresh !== 'boolean') {
         return failure('invalid_arguments', '"forceRefresh" must be a boolean when provided.')
       }
       const read = await backends.readMarketplaceRegistry(
-        args.forceRefresh === true ? { forceRefresh: true } : undefined
+        args.forceRefresh === true ? { forceRefresh: true } : undefined,
       )
       if (!read.ok) {
         return failure('marketplace_unavailable', `${read.message} (registry ${read.registryUrl}, state ${read.state})`)
@@ -1503,16 +1531,20 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const backlogUpdate: McpToolRegistration = {
     name: 'backlog.update',
     description:
-      "Update one Backlog item's lifecycle or triage frontmatter: status, type, difficulty, criticality, risk, "
-      + 'epic membership, or (on an epic) the dependenciesPlanned ordering mark. Pass null to clear a field '
-      + '(status cannot be cleared). Only supplied fields change; '
-      + 'the item body is never touched and a real change gets a server-owned precise updated timestamp. '
-      + 'Fields apply in a fixed order (status, type, triage, epic, dependenciesPlanned) and the first '
-      + 'invalid field stops the write — fields earlier in the order stay applied.',
+      "Update one Backlog item's lifecycle or triage frontmatter: status, type, difficulty, criticality, risk, " +
+      'epic membership, or (on an epic) the dependenciesPlanned ordering mark. Pass null to clear a field ' +
+      '(status cannot be cleared). Only supplied fields change; ' +
+      'the item body is never touched and a real change gets a server-owned precise updated timestamp. ' +
+      'Fields apply in a fixed order (status, type, triage, epic, dependenciesPlanned) and the first ' +
+      'invalid field stops the write — fields earlier in the order stay applied.',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".' },
+        path: {
+          type: 'string',
+          description:
+            'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".',
+        },
         projectRoot: PROJECT_ROOT_PROPERTY,
         status: { type: 'string', enum: [...BACKLOG_STATUSES] },
         type: { type: ['string', 'null'], enum: [...BACKLOG_TYPES, null] },
@@ -1523,10 +1555,10 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         dependenciesPlanned: {
           type: 'boolean',
           description:
-            "On an EPIC: the ordering pass over its children is finished — their dependsOn edges are authored, "
-            + 'and no edges at all means deliberately parallel. Set it as the LAST act of planning an epic. '
-            + 'Nothing recomputes it: editing the epic\'s membership is your cue to re-check it. '
-            + 'false removes the mark.',
+            'On an EPIC: the ordering pass over its children is finished — their dependsOn edges are authored, ' +
+            'and no edges at all means deliberately parallel. Set it as the LAST act of planning an epic. ' +
+            "Nothing recomputes it: editing the epic's membership is your cue to re-check it. " +
+            'false removes the mark.',
         },
       },
       required: ['path'],
@@ -1560,11 +1592,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       const base = { workspaceRoot: resolved.root, relativePath: path }
       const writes: Array<() => Promise<BacklogMutationResult>> = []
       if (typeof args.status === 'string') {
-        writes.push(() => backends.backlogWrite.updateStatus({ ...base, status: args.status as BacklogItemStatusPayload }))
+        writes.push(() =>
+          backends.backlogWrite.updateStatus({ ...base, status: args.status as BacklogItemStatusPayload }),
+        )
       }
       if ('type' in args) {
         writes.push(() =>
-          backends.backlogWrite.updateType({ ...base, type: (args.type ?? null) as BacklogTypePayload | null })
+          backends.backlogWrite.updateType({ ...base, type: (args.type ?? null) as BacklogTypePayload | null }),
         )
       }
       if ('difficulty' in args || 'criticality' in args || 'risk' in args) {
@@ -1578,7 +1612,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
               ? { criticality: (args.criticality ?? null) as BacklogCriticalityPayload | null }
               : {}),
             ...('risk' in args ? { risk: (args.risk ?? null) as BacklogRiskPayload | null } : {}),
-          })
+          }),
         )
       }
       if ('epic' in args) {
@@ -1589,7 +1623,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           backends.backlogWrite.updateDependenciesPlanned({
             ...base,
             dependenciesPlanned: args.dependenciesPlanned as boolean,
-          })
+          }),
         )
       }
       for (const write of writes) {
@@ -1603,9 +1637,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const backlogRepair: McpToolRegistration = {
     name: 'backlog.repair',
     description:
-      'Repair one diagnosed Backlog integrity defect. This is deliberately narrow: replace embedded NUL bytes '
-      + 'with the visible \\0 escape, or reallocate one side of a proven duplicate numeric id to the next free id. '
-      + 'The operation refuses files that do not currently have the named defect.',
+      'Repair one diagnosed Backlog integrity defect. This is deliberately narrow: replace embedded NUL bytes ' +
+      'with the visible \\0 escape, or reallocate one side of a proven duplicate numeric id to the next free id. ' +
+      'The operation refuses files that do not currently have the named defect.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1639,14 +1673,18 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const backlogAssign: McpToolRegistration = {
     name: 'backlog.assign',
     description:
-      'Record which agent is working a Backlog item (the working-agent link shown in the Backlog panel). '
-      + 'Idempotent — assigning again replaces the previous agent link. Never changes item status. '
-      + "The panel's file watcher observes backlog/ item files, so a bare assignment appears on the panel's "
-      + 'next refresh rather than instantly.',
+      'Record which agent is working a Backlog item (the working-agent link shown in the Backlog panel). ' +
+      'Idempotent — assigning again replaces the previous agent link. Never changes item status. ' +
+      "The panel's file watcher observes backlog/ item files, so a bare assignment appears on the panel's " +
+      'next refresh rather than instantly.',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".' },
+        path: {
+          type: 'string',
+          description:
+            'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".',
+        },
         agentId: { type: 'string', description: 'Agent id within the workspace (see workspace.status).' },
         projectRoot: PROJECT_ROOT_PROPERTY,
       },
@@ -1685,7 +1723,11 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     const plugin = cli ? backends.listPlugins().find((candidate) => candidate.manifest.id === cli) : undefined
     const template = plugin?.manifest.skillIntegration?.invocation?.fileDropTemplate
     if (template) {
-      return renderSkillInvocationTemplate(template, { skillId: BACKLOG_SKILL_ID, skillName: 'Backlog', path: relativePath })
+      return renderSkillInvocationTemplate(template, {
+        skillId: BACKLOG_SKILL_ID,
+        skillName: 'Backlog',
+        path: relativePath,
+      })
     }
     return backlogLifecycleHandoffPrompt(relativePath)
   }
@@ -1693,35 +1735,51 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const backlogWork: McpToolRegistration = {
     name: 'backlog.work',
     description:
-      'Hand a Backlog item to a freshly launched agent in one call: launches a configured agent whose first input '
-      + "is the target CLI's Backlog skill invocation (e.g. \"/backlog <path>\" for Claude, a plain-language "
-      + 'lifecycle block for CLIs without skill integration), then records the working-agent link. Never changes '
-      + 'item status — the Backlog skill contract owns lifecycle, exactly like dragging the item onto a terminal. '
-      + 'Refuses completed or archived items. Same launch fields as agent.launch (bypass refused), minus '
-      + 'the connector.',
+      'Hand a Backlog item to a freshly launched agent in one call: launches a configured agent whose first input ' +
+      'is the target CLI\'s Backlog skill invocation (e.g. "/backlog <path>" for Claude, a plain-language ' +
+      'lifecycle block for CLIs without skill integration), then records the working-agent link. Never changes ' +
+      'item status — the Backlog skill contract owns lifecycle, exactly like dragging the item onto a terminal. ' +
+      'Refuses completed or archived items. Same launch fields as agent.launch (bypass refused), minus ' +
+      'the connector.',
     inputSchema: {
       type: 'object',
       properties: {
-        path: { type: 'string', description: 'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".' },
+        path: {
+          type: 'string',
+          description:
+            'Item path relative to the project root. Items live in the folder of the epic they belong to, or backlog/unfiled/ when they have none — e.g. "backlog/auth-revamp/2026-09-01-token-rotation.md".',
+        },
         projectRoot: PROJECT_ROOT_PROPERTY,
-        cli: { type: 'string', description: 'Agent CLI plugin id; defaults to the last selected CLI. cli.runtime.list enumerates the registered ids.' },
+        cli: {
+          type: 'string',
+          description:
+            'Agent CLI plugin id; defaults to the last selected CLI. cli.runtime.list enumerates the registered ids.',
+        },
         name: { type: 'string', description: 'Agent display name.' },
-        cliModel: { type: 'string', description: 'Model id for CLIs that support model selection; forwarded verbatim. cli.runtime.list reports each CLI\'s ids.' },
+        cliModel: {
+          type: 'string',
+          description:
+            "Model id for CLIs that support model selection; forwarded verbatim. cli.runtime.list reports each CLI's ids.",
+        },
         permissionPreset: {
           type: 'string',
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
-            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this '
-            + 'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings '
-            + '("default", "auto_workspace") are not accepted here at all.',
+            'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
+            'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings ' +
+            '("default", "auto_workspace") are not accepted here at all.',
         },
         worktree: {
           type: 'object',
           properties: { name: { type: 'string', description: 'Worktree/branch name; defaults to the agent name.' } },
           additionalProperties: false,
-          description: 'Isolate the agent in a git worktree on an "agent/<name>" branch instead of the workspace checkout.',
+          description:
+            'Isolate the agent in a git worktree on an "agent/<name>" branch instead of the workspace checkout.',
         },
-        instructions: { type: 'string', description: 'Extra context appended after the skill invocation in the startup prompt.' },
+        instructions: {
+          type: 'string',
+          description: 'Extra context appended after the skill invocation in the startup prompt.',
+        },
       },
       required: ['path'],
       additionalProperties: false,
@@ -1747,7 +1805,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         const reason = read.item.status === 'completed' ? 'completed' : 'archived'
         return failure(
           'backlog_item_not_workable',
-          `Backlog item ${read.item.relativePath} is ${reason} and cannot be handed to an agent.`
+          `Backlog item ${read.item.relativePath} is ${reason} and cannot be handed to an agent.`,
         )
       }
 
@@ -1795,7 +1853,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           invocation,
           skillEnsured,
           assigned: written.ok,
-          ...(written.ok ? {} : { warning: `Agent launched but the working-agent link was not recorded: ${written.message}` }),
+          ...(written.ok
+            ? {}
+            : { warning: `Agent launched but the working-agent link was not recorded: ${written.message}` }),
           ...(launched.worktreePath ? { worktreePath: launched.worktreePath } : {}),
         },
       })
@@ -1807,7 +1867,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     if (!frontDoor) {
       return failure(
         'automations_module_unavailable',
-        'The Automations module is disabled or not loaded in this app session; enable it in Settings → Modules.'
+        'The Automations module is disabled or not loaded in this app session; enable it in Settings → Modules.',
       )
     }
     return frontDoor
@@ -1816,13 +1876,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const automationCreate: McpToolRegistration = {
     name: 'automation.create',
     description:
-      'Create an Automation definition through the same validated pipeline the UI uses (provider/permission '
-      + 'checks, schedule validation, workspace-root trust). The definition object carries name, trigger '
-      + '{kind, config}, action {kind, config}, and an optional status. An agent-backed action must name '
-      + 'permissionPreset "auto": naming none runs the agent unattended on "bypass", which is refused on '
-      + 'this surface — that preset can only be set by a person in the app. "manual" is accepted but is '
-      + 'rarely what you want here: an automation agent has nobody at its terminal, so it stops at the '
-      + 'first approval prompt and hangs the run until the idle reaper fails it.',
+      'Create an Automation definition through the same validated pipeline the UI uses (provider/permission ' +
+      'checks, schedule validation, workspace-root trust). The definition object carries name, trigger ' +
+      '{kind, config}, action {kind, config}, and an optional status. An agent-backed action must name ' +
+      'permissionPreset "auto": naming none runs the agent unattended on "bypass", which is refused on ' +
+      'this surface — that preset can only be set by a person in the app. "manual" is accepted but is ' +
+      'rarely what you want here: an automation agent has nobody at its terminal, so it stops at the ' +
+      'first approval prompt and hangs the run until the idle reaper fails it.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1830,8 +1890,8 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
         definition: {
           type: 'object',
           description:
-            'Automation definition draft: { name, trigger: { kind, config }, action: { kind, config }, '
-            + 'status? }. See automation.list output for the shape of existing definitions.',
+            'Automation definition draft: { name, trigger: { kind, config }, action: { kind, config }, ' +
+            'status? }. See automation.list output for the shape of existing definitions.',
         },
       },
       required: ['workspaceId', 'definition'],
@@ -1855,9 +1915,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       if (preset !== null && normalizeCliPermissionPreset(preset as CliPermissionPreset) === 'bypass') {
         return failure(
           'permission_preset_not_allowed',
-          'Automations created over the automation surface may not run on permissionPreset "bypass", which is '
-            + 'what an agent-backed automation runs on when it names no preset — name "auto" explicitly. '
-            + 'A person can set that preset in the Automations panel if it is genuinely needed.'
+          'Automations created over the automation surface may not run on permissionPreset "bypass", which is ' +
+            'what an agent-backed automation runs on when it names no preset — name "auto" explicitly. ' +
+            'A person can set that preset in the Automations panel if it is genuinely needed.',
         )
       }
       const resolved = resolveWorkspaceRoot(workspaceId)
@@ -1873,9 +1933,9 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const automationRun: McpToolRegistration = {
     name: 'automation.run',
     description:
-      'Run an existing schedule-triggered Automation now (the same "Run now" the panel offers). The run record '
-      + 'is confirmed in the store before success. Agent-backed actions launch in the main process, so the run '
-      + 'works with no app window open.',
+      'Run an existing schedule-triggered Automation now (the same "Run now" the panel offers). The run record ' +
+      'is confirmed in the store before success. Agent-backed actions launch in the main process, so the run ' +
+      'works with no app window open.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1942,9 +2002,13 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
  * what is uncommitted). Null when the session has no directory or the read
  * fails; never a confident zero for a span that was not measured.
  */
-async function terminalGitSummary(
-  session: TerminalSessionSnapshot
-): Promise<{ branch: string | null; additions: number; deletions: number; changedFiles: number; scope: string } | null> {
+async function terminalGitSummary(session: TerminalSessionSnapshot): Promise<{
+  branch: string | null
+  additions: number
+  deletions: number
+  changedFiles: number
+  scope: string
+} | null> {
   // Only a running session is asked about — the sidebar's own rule (owner
   // ruling 2026-09-04, the-diff-an-agent-made decision 9): a parked or exited
   // chat's numbers would be the checkout's present state, not anything the
@@ -2077,7 +2141,7 @@ type ModuleRecord = {
 
 function registeredModuleReport(
   entry: ModuleRegistryEntry,
-  view: ThirdPartyModuleView | undefined
+  view: ThirdPartyModuleView | undefined,
 ): Record<string, unknown> {
   return {
     id: entry.id,
@@ -2107,8 +2171,8 @@ function installedOnlyModuleReport(view: ThirdPartyModuleView): Record<string, u
         ? {
             reason: 'not_loaded',
             message:
-              view.launch.message
-              ?? `Module "${id}" is installed and trusted but registered nothing in the running app.`,
+              view.launch.message ??
+              `Module "${id}" is installed and trusted but registered nothing in the running app.`,
           }
         : { reason: 'untrusted', message: `Module "${id}" is installed but not trusted yet (Settings → Modules).` }
   return {
@@ -2185,9 +2249,10 @@ function resolvedActionPermissionPreset(definition: object): string | null {
   const kind = (action as { kind?: unknown }).kind
   const agentBacked = typeof kind === 'string' && AGENT_BACKED_ACTION_KINDS.includes(kind)
   const config = (action as { config?: unknown }).config
-  const preset = typeof config === 'object' && config !== null
-    ? (config as { permissionPreset?: unknown }).permissionPreset
-    : undefined
+  const preset =
+    typeof config === 'object' && config !== null
+      ? (config as { permissionPreset?: unknown }).permissionPreset
+      : undefined
   if (typeof preset === 'string') return preset
   return agentBacked ? AUTOMATION_DEFAULT_PERMISSION_PRESET : null
 }

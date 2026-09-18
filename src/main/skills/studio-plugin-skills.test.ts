@@ -28,12 +28,7 @@ const MAX_DESCRIPTION_LENGTH = 1024
 const MAX_BODY_LINES = 500
 
 /** The areas the item names. One more is fine; a missing one is not. */
-const REQUIRED_AREAS = [
-  'studio-backlog',
-  'studio-automations',
-  'studio-canvas',
-  'studio-workspaces',
-]
+const REQUIRED_AREAS = ['studio-backlog', 'studio-automations', 'studio-canvas', 'studio-workspaces']
 
 /**
  * Backticked snake_case words the skills use that are NOT tool names — statuses,
@@ -107,8 +102,8 @@ async function everyToolASkillNamesIsRegistered(dirs: string[]): Promise<void> {
       assert.equal(
         registered.has(name),
         true,
-        `${dirName}/${SKILL_ENTRY_FILE} names \`${name}\`, which the Studio MCP server does not register. `
-          + 'Fix the skill, or add the word to NON_TOOL_TOKENS if it is not a tool.'
+        `${dirName}/${SKILL_ENTRY_FILE} names \`${name}\`, which the Studio MCP server does not register. ` +
+          'Fix the skill, or add the word to NON_TOOL_TOKENS if it is not a tool.',
       )
     }
   }
@@ -133,13 +128,13 @@ async function main(): Promise<void> {
     assert.equal(
       parsed.name,
       dirName,
-      `${dirName}/${SKILL_ENTRY_FILE}: "name" must equal its directory, and reads "${parsed.name}"`
+      `${dirName}/${SKILL_ENTRY_FILE}: "name" must equal its directory, and reads "${parsed.name}"`,
     )
     assert.notEqual(parsed.description, '', `${dirName}: a skill with no description is never loaded`)
     assert.equal(
       parsed.description.length <= MAX_DESCRIPTION_LENGTH,
       true,
-      `${dirName}: description is ${parsed.description.length} characters, over the ${MAX_DESCRIPTION_LENGTH} limit`
+      `${dirName}: description is ${parsed.description.length} characters, over the ${MAX_DESCRIPTION_LENGTH} limit`,
     )
     // "Use when …" is the sentence that makes a description an invocation
     // trigger rather than a summary of what the skill contains.
@@ -159,7 +154,7 @@ async function main(): Promise<void> {
     assert.equal(
       descriptionLine.slice('description:'.length).trim().length > 0,
       true,
-      `${dirName}: "description" must be an inline scalar, not a folded block`
+      `${dirName}: "description" must be an inline scalar, not a folded block`,
     )
   }
 

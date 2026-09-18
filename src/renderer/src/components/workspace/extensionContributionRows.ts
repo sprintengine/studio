@@ -1,9 +1,7 @@
 import type { RegisteredGlobalSurface } from '../../modules/renderer-host'
 import { DRAWER_ROWS, EXTENSIONS_HOME_SURFACE_ID } from './extensionsDrawer'
 
-const FIXED_SURFACE_IDS = new Set(
-  DRAWER_ROWS.map((row) => (row.kind === 'nav' ? row.entryId : row.surfaceId)),
-)
+const FIXED_SURFACE_IDS = new Set(DRAWER_ROWS.map((row) => (row.kind === 'nav' ? row.entryId : row.surfaceId)))
 
 // Automations has its own app-rail square. The home is shell-owned. Everything
 // else that was not claimed by a fixed product row is an installed extension's
@@ -55,18 +53,20 @@ export function extensionContributionRows({
     }
 
     if (!surface.label || !surface.Icon) return []
-    return [{
-      key: `contribution-surface:${surface.id}`,
-      rowId: null,
-      surfaceId: surface.id,
-      label: surface.label,
-      Icon: surface.Icon,
-      active: activeGlobalSurface === surface.id,
-      open: () => {
-        surface.onOpen?.()
-        enterExtensions()
-        openGlobalSurface(surface.id)
+    return [
+      {
+        key: `contribution-surface:${surface.id}`,
+        rowId: null,
+        surfaceId: surface.id,
+        label: surface.label,
+        Icon: surface.Icon,
+        active: activeGlobalSurface === surface.id,
+        open: () => {
+          surface.onOpen?.()
+          enterExtensions()
+          openGlobalSurface(surface.id)
+        },
       },
-    }]
+    ]
   })
 }

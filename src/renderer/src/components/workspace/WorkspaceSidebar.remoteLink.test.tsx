@@ -116,7 +116,9 @@ domWindow.api = {
     unauthorized: false,
     scopes: connection.scopes,
     terminalAccess: 'control',
-    workspaces: [{ id: 'rw1', name: 'multicode', mode: 'standard', folderPath: '/Users/mini/multicode', repository: null }],
+    workspaces: [
+      { id: 'rw1', name: 'multicode', mode: 'standard', folderPath: '/Users/mini/multicode', repository: null },
+    ],
     terminals: [remoteTerminal('s1', 'Tara Boyle'), remoteTerminal('s2', 'Gael Corry', { phase: 'awaiting_input' })],
     gaps: [],
   }),
@@ -248,8 +250,14 @@ async function main(): Promise<void> {
     const agentMarks = remoteRow.querySelectorAll('[aria-label*="Claude Code"]')
     assert.equal(agentMarks.length, 2, 'both agents standing in the chat get a line')
     const markLabels = [...agentMarks].map((mark) => mark.getAttribute('aria-label') ?? '')
-    assert.ok(markLabels.some((label) => label.startsWith('Tara Boyle ·')), `Tara's line: ${markLabels.join(' | ')}`)
-    assert.ok(markLabels.some((label) => label.startsWith('Gael Corry ·')), `Gael's line: ${markLabels.join(' | ')}`)
+    assert.ok(
+      markLabels.some((label) => label.startsWith('Tara Boyle ·')),
+      `Tara's line: ${markLabels.join(' | ')}`,
+    )
+    assert.ok(
+      markLabels.some((label) => label.startsWith('Gael Corry ·')),
+      `Gael's line: ${markLabels.join(' | ')}`,
+    )
 
     // ── Off the tailnet ────────────────────────────────────────────────────
     tailnetAddress = null
@@ -267,7 +275,6 @@ async function main(): Promise<void> {
     tailnetAddress = '100.64.0.5'
     await render()
     assert.deepEqual(rowsFor('w2'), ['starred-w2'], 'and it returns, in Starred, with the link')
-
   } finally {
     act(() => {
       for (const mounted of roots) mounted.unmount()

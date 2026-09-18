@@ -62,7 +62,10 @@ function writeModuleFixture(manifest: Record<string, unknown>): string {
     manifest.entry !== null &&
     typeof (manifest.entry as Record<string, unknown>).main === 'string'
   ) {
-    writeFileSync(join(dir, (manifest.entry as Record<string, string>).main), 'module.exports.registerMain = () => {}\n')
+    writeFileSync(
+      join(dir, (manifest.entry as Record<string, string>).main),
+      'module.exports.registerMain = () => {}\n',
+    )
   }
   return dir
 }
@@ -164,7 +167,11 @@ function testPackRejectsInvalidManifests(): void {
   // Publisher-locked, not absolutely blocked: the first-party publish
   // pipeline packs a reserved id with the explicit opt-in flag (the app
   // still verifies the first-party signature at install).
-  const allowed = runCli(['pack', writeModuleFixture({ ...validFixtureManifest(), id: reservedId }), '--allow-reserved-id'])
+  const allowed = runCli([
+    'pack',
+    writeModuleFixture({ ...validFixtureManifest(), id: reservedId }),
+    '--allow-reserved-id',
+  ])
   assert.equal(allowed.status, 0, allowed.stderr)
 
   const badPermissions = runCli(['pack', writeModuleFixture({ ...validFixtureManifest(), permissions: 'network' })])
@@ -257,7 +264,11 @@ function testPluginComponentTamperRejectedByCliVerify(signedPluginDir: string): 
   const parsed = parseMarketplacePluginManifest(readFileSync(join(signedPluginDir, 'plugin.json'), 'utf8'))
   assert.ok(parsed.ok)
   if (!parsed.ok) return
-  assert.equal(verifyModuleSignature(parsed.manifest).valid, true, 'component-byte tampering does not mutate plugin.json')
+  assert.equal(
+    verifyModuleSignature(parsed.manifest).valid,
+    true,
+    'component-byte tampering does not mutate plugin.json',
+  )
   assert.equal(classifySignedManifestTrust(parsed.manifest, { trustedModules: new Map() }).status, 'signed')
 }
 
@@ -280,7 +291,10 @@ function testPluginTamperRejectedByBothPaths(signedPluginDir: string): void {
 
 function testPluginVerifyRejectsUnsigned(): void {
   const pluginDir = join(workDir, 'unsigned-plugin-fixture')
-  assert.equal(runCli(['plugin', 'scaffold', 'unsigned-plugin-fixture', '--out', pluginDir, '--component', 'mcp']).status, 0)
+  assert.equal(
+    runCli(['plugin', 'scaffold', 'unsigned-plugin-fixture', '--out', pluginDir, '--component', 'mcp']).status,
+    0,
+  )
   const unsignedVerify = runCli(['plugin', 'verify', pluginDir])
   assert.equal(unsignedVerify.status, 1)
   assert.match(unsignedVerify.stderr, /unsigned/)
@@ -288,7 +302,10 @@ function testPluginVerifyRejectsUnsigned(): void {
 
 function testPluginPackRejectsMissingComponent(): void {
   const pluginDir = join(workDir, 'missing-component-plugin-fixture')
-  assert.equal(runCli(['plugin', 'scaffold', 'missing-component-plugin-fixture', '--out', pluginDir, '--component', 'mcp']).status, 0)
+  assert.equal(
+    runCli(['plugin', 'scaffold', 'missing-component-plugin-fixture', '--out', pluginDir, '--component', 'mcp']).status,
+    0,
+  )
   assert.equal(runCli(['plugin', 'sign', pluginDir, '--key', keyPath]).status, 0)
   rmSync(join(pluginDir, 'mcp', 'server.json'))
   const packed = runCli(['plugin', 'pack', pluginDir])
@@ -309,12 +326,19 @@ function testPluginComponentOrderIsCanonical(): void {
 
   // Flags in a deliberately scrambled order.
   const scaffolded = runCli([
-    'plugin', 'scaffold', 'component-order-plugin-fixture',
-    '--out', pluginDir,
-    '--component', 'cli',
-    '--component', 'skills',
-    '--component', 'mcp',
-    '--component', 'module',
+    'plugin',
+    'scaffold',
+    'component-order-plugin-fixture',
+    '--out',
+    pluginDir,
+    '--component',
+    'cli',
+    '--component',
+    'skills',
+    '--component',
+    'mcp',
+    '--component',
+    'module',
   ])
   assert.equal(scaffolded.status, 0, scaffolded.stderr)
   const canonical = ['mcp', 'skills', 'module', 'cli']

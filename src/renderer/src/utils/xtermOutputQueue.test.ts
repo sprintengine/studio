@@ -390,20 +390,16 @@ function assertModalPauseWithholdsEveryChunkAndFlushesInOrder(): void {
   assert.equal(writes.length, 1, 'no write — and therefore no repaint — while the dialog is open')
 
   release()
-  assert.equal(
-    writes.join(''),
-    `before-modal\n${during.join('')}`,
-    'every withheld chunk lands on close, in order'
-  )
+  assert.equal(writes.join(''), `before-modal\n${during.join('')}`, 'every withheld chunk lands on close, in order')
 
   const withheld = events.find((entry) => entry.event === 'output-withheld')
   assert.ok(withheld, 'the pause window is reported, not assumed')
   assert.equal(withheld?.payload.writesAvoided, during.length)
   assert.equal(withheld?.payload.droppedChars, 0)
   console.log(
-    `ok - modal pause avoided ${String(withheld?.payload.writesAvoided)} terminal writes `
-    + `(${String(withheld?.payload.heldChars)} chars withheld, `
-    + `${String(withheld?.payload.droppedChars)} dropped)`
+    `ok - modal pause avoided ${String(withheld?.payload.writesAvoided)} terminal writes ` +
+      `(${String(withheld?.payload.heldChars)} chars withheld, ` +
+      `${String(withheld?.payload.droppedChars)} dropped)`,
   )
 
   queue.dispose()
@@ -526,11 +522,7 @@ function assertDisposeWhilePausedDropsBufferAndSubscription(): void {
   const release = acquireTerminalRepaintPause({ label: 'test-modal' })
   queue.enqueue('withheld\n')
   queue.dispose()
-  assert.equal(
-    terminalRepaintPauseDebugState().listenerCount,
-    before,
-    'dispose unsubscribes from the pause signal'
-  )
+  assert.equal(terminalRepaintPauseDebugState().listenerCount, before, 'dispose unsubscribes from the pause signal')
 
   release()
   assert.equal(writes.length, 0, 'a disposed terminal writes nothing on resume')

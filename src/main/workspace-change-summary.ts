@@ -46,7 +46,7 @@ import type { WorkspaceChangeSummary } from '../shared/electron-api'
  */
 export async function getWorkspaceChangeSummary(
   input: { checkoutPath: string },
-  deps: { summaries?: CheckoutSummaryShare } = {}
+  deps: { summaries?: CheckoutSummaryShare } = {},
 ): Promise<WorkspaceChangeSummary> {
   return (deps.summaries ?? defaultCheckoutSummaries).read(input.checkoutPath)
 }
@@ -55,10 +55,7 @@ export async function getWorkspaceChangeSummary(
  * The pure half: a span becomes a summary. Separated so the scope rule — the one
  * thing a reviewer needs to check — tests without a repo.
  */
-export function summaryFromSpan(
-  span: BranchSpan | null,
-  untracked: readonly string[] = []
-): WorkspaceChangeSummary {
+export function summaryFromSpan(span: BranchSpan | null, untracked: readonly string[] = []): WorkspaceChangeSummary {
   if (!span) {
     return { branch: null, additions: 0, deletions: 0, changedFiles: 0, scope: 'folder' }
   }
@@ -82,9 +79,7 @@ export function summaryFromSpan(
     // Absent rather than zeros when the status pass failed: the line draws
     // nothing for a breakdown it does not have, and must not be told the branch
     // touched no files when it merely could not be asked.
-    ...(span.stat.counts
-      ? { files: { ...span.stat.counts, added: span.stat.counts.added + added } }
-      : {}),
+    ...(span.stat.counts ? { files: { ...span.stat.counts, added: span.stat.counts.added + added } } : {}),
   }
 }
 
@@ -108,19 +103,14 @@ async function readCheckoutSummary(checkoutPath: string): Promise<WorkspaceChang
   // uncommitted reading counts them AND reads their lines.
   const listing = listUntracked(checkoutPath)
   const uncommitted = await readUncommitted(checkoutPath, listing)
-  const base = span.readable
-    ? summaryFromSpan(span, (await listing) ?? [])
-    : await folderFallback(checkoutPath, span)
+  const base = span.readable ? summaryFromSpan(span, (await listing) ?? []) : await folderFallback(checkoutPath, span)
   // Absent, never zeros: a reading we could not take must not tell the line
   // "nothing is uncommitted here", which for a landed branch is the whole
   // number it draws.
   return uncommitted ? { ...base, uncommitted } : base
 }
 
-async function folderFallback(
-  checkoutPath: string,
-  span: BranchSpan
-): Promise<WorkspaceChangeSummary> {
+async function folderFallback(checkoutPath: string, span: BranchSpan): Promise<WorkspaceChangeSummary> {
   const folder = await getGitRowSummary(checkoutPath)
   return {
     branch: span.branch ?? folder.branch,
@@ -162,13 +152,7 @@ async function listUntracked(cwd: string): Promise<string[] | null> {
   // Never rejects: the promise is handed to two callers and one of them (an
   // unreadable span) may never await it, where a rejection would surface as an
   // unhandled one in main.
-  const listed = await runGitCommand(cwd, [
-    'ls-files',
-    '--others',
-    '--exclude-standard',
-    '--full-name',
-    '-z',
-  ])
+  const listed = await runGitCommand(cwd, ['ls-files', '--others', '--exclude-standard', '--full-name', '-z'])
   if (!listed.ok) return null
   return listed.stdout.split('\0').filter((path) => path.length > 0)
 }
@@ -209,7 +193,7 @@ async function readUncommitted(
    * below instead of following them — and so one listing serves both this
    * reading and the span's.
    */
-  untracked: Promise<string[] | null>
+  untracked: Promise<string[] | null>,
 ): Promise<UncommittedReading | null> {
   // Literally the span's own flags (`diffFlags`), not a copy of them:
   // `--no-relative` because a workspace can be opened on a SUBDIRECTORY of its
@@ -357,7 +341,7 @@ const CHECKOUT_SUMMARY_IN_FLIGHT_MAX_MS = 60_000
 
 export function createCheckoutSummaryShare(
   read: (checkoutPath: string) => Promise<WorkspaceChangeSummary>,
-  options: { holdMs?: number; inFlightMaxMs?: number; concurrency?: number; now?: () => number } = {}
+  options: { holdMs?: number; inFlightMaxMs?: number; concurrency?: number; now?: () => number } = {},
 ): CheckoutSummaryShare {
   const holdMs = options.holdMs ?? CHECKOUT_SUMMARY_HOLD_MS
   const inFlightMaxMs = options.inFlightMaxMs ?? CHECKOUT_SUMMARY_IN_FLIGHT_MAX_MS
@@ -397,9 +381,7 @@ export function createCheckoutSummaryShare(
   }
 
   function shareable(entry: Entry, at: number): boolean {
-    return entry.settledAt === null
-      ? at - entry.startedAt < inFlightMaxMs
-      : at - entry.settledAt < holdMs
+    return entry.settledAt === null ? at - entry.startedAt < inFlightMaxMs : at - entry.settledAt < holdMs
   }
 
   return {
@@ -424,7 +406,7 @@ export function createCheckoutSummaryShare(
         },
         () => {
           if (reads.get(key) === entry) reads.delete(key)
-        }
+        },
       )
       reads.set(key, entry)
       return entry.promise

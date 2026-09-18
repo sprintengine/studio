@@ -62,7 +62,11 @@ run('active: pressed=true with the error-tone fill', () => {
   assert.equal(button.props.tone, 'error', 'a thrown DEBUG keeps its own tint rather than going neutral')
   const markup = renderToStaticMarkup(<SpawnDebugToggle active onChange={() => {}} />)
   assert.match(markup, /bg-\[color:var\(--tone-error-soft\)\]/, 'active uses the error-tone soft fill')
-  assert.match(markup, /text-\[color:var\(--tone-error-on-tint\)\]/, 'active label uses the deeper on-tint error ink that clears AA on the soft fill')
+  assert.match(
+    markup,
+    /text-\[color:var\(--tone-error-on-tint\)\]/,
+    'active label uses the deeper on-tint error ink that clears AA on the soft fill',
+  )
 })
 
 run('carries a visible focus ring and a tooltip noting Auto/Bypass work best', () => {
@@ -78,11 +82,19 @@ run('carries a visible focus ring and a tooltip noting Auto/Bypass work best', (
 
 run('clicking toggles by calling onChange with the negated value', () => {
   let received: boolean | null = null
-  buttonOf(tooltipElement(false, (next) => { received = next })).props.onClick()
+  buttonOf(
+    tooltipElement(false, (next) => {
+      received = next
+    }),
+  ).props.onClick()
   assert.equal(received, true, 'an off toggle turns on')
 
   received = null
-  buttonOf(tooltipElement(true, (next) => { received = next })).props.onClick()
+  buttonOf(
+    tooltipElement(true, (next) => {
+      received = next
+    }),
+  ).props.onClick()
   assert.equal(received, false, 'an on toggle turns off')
 })
 
@@ -106,10 +118,7 @@ const managerSource = readFileSync(
   join(process.cwd(), 'src/renderer/src/components/workspace/WorkspaceManager.tsx'),
   'utf8',
 )
-const terminalSource = readFileSync(
-  join(process.cwd(), 'src/renderer/src/components/panels/TerminalView.tsx'),
-  'utf8',
-)
+const terminalSource = readFileSync(join(process.cwd(), 'src/renderer/src/components/panels/TerminalView.tsx'), 'utf8')
 
 run('DEBUG stays out of the permission options', () => {
   assert.ok(
@@ -118,24 +127,27 @@ run('DEBUG stays out of the permission options', () => {
   )
 })
 
-run('WorkspaceManager carries the toggle into the spawn payload, resets it, and threads it to the New Chat panel', () => {
-  assert.ok(
-    (managerSource.match(/debugMode: agentSpawnDebugMode/g) ?? []).length >= 2,
-    'the transient toggle becomes the agent record debugMode on the CLI spawn paths',
-  )
-  assert.match(
-    managerSource,
-    /if \(agentSpawnDebugMode\) setAgentSpawnDebugMode\(false\)/,
-    'the toggle resets off after a spawn so the next unrelated spawn is not silently debugged',
-  )
-  // The top bar's spawn popover is gone (MC-2222); the New Chat panel and the
-  // launcher's picker are the hosts that remain.
-  assert.match(
-    managerSource,
-    /debugMode=\{agentSpawnDebugMode\}\n\s*onChangeDebugMode=\{setAgentSpawnDebugMode\}/,
-    'the toggle + setter thread to the New Chat panel via the composer debugMode/onChangeDebugMode props',
-  )
-})
+run(
+  'WorkspaceManager carries the toggle into the spawn payload, resets it, and threads it to the New Chat panel',
+  () => {
+    assert.ok(
+      (managerSource.match(/debugMode: agentSpawnDebugMode/g) ?? []).length >= 2,
+      'the transient toggle becomes the agent record debugMode on the CLI spawn paths',
+    )
+    assert.match(
+      managerSource,
+      /if \(agentSpawnDebugMode\) setAgentSpawnDebugMode\(false\)/,
+      'the toggle resets off after a spawn so the next unrelated spawn is not silently debugged',
+    )
+    // The top bar's spawn popover is gone (MC-2222); the New Chat panel and the
+    // launcher's picker are the hosts that remain.
+    assert.match(
+      managerSource,
+      /debugMode=\{agentSpawnDebugMode\}\n\s*onChangeDebugMode=\{setAgentSpawnDebugMode\}/,
+      'the toggle + setter thread to the New Chat panel via the composer debugMode/onChangeDebugMode props',
+    )
+  },
+)
 
 run('every CLI spawn path seeds the picked row’s permission preset onto the agent record', () => {
   // The Default/Auto/Bypass pick must reach the launched agent on every CLI

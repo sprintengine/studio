@@ -1,9 +1,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 
-import type {
-  CanvasBoardState,
-  CanvasPresence,
-} from '../../../../../../shared/canvas/types'
+import type { CanvasBoardState, CanvasPresence } from '../../../../../../shared/canvas/types'
 import { canvasBoardName } from '../../../../../../shared/canvas/paths'
 import { useResolvedColorScheme } from '../../../../hooks/useAppTheme'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
@@ -36,10 +33,7 @@ type CanvasTabProps = {
   active: boolean
 }
 
-type BoardState =
-  | { kind: 'loading' }
-  | { kind: 'ready'; board: CanvasBoardState }
-  | { kind: 'error'; message: string }
+type BoardState = { kind: 'loading' } | { kind: 'ready'; board: CanvasBoardState } | { kind: 'error'; message: string }
 
 /**
  * The board's absolute path, for the one thing that needs one: revealing it in
@@ -72,13 +66,8 @@ export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
       .map((candidate) => candidate.canvas!.path)
       .join('\u0000')
   })
-  const openPaths = useMemo(
-    () => (openBoardPaths ? openBoardPaths.split('\u0000') : []),
-    [openBoardPaths],
-  )
-  const workspaceRoot = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null,
-  )
+  const openPaths = useMemo(() => (openBoardPaths ? openBoardPaths.split('\u0000') : []), [openBoardPaths])
+  const workspaceRoot = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
   const theme = useResolvedColorScheme()
   const [state, setState] = useState<BoardState>({ kind: 'loading' })
   const [presence, setPresence] = useState<CanvasPresence | null>(null)
@@ -122,11 +111,7 @@ export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
       try {
         const result = await window.api.canvasOpenBoard({ workspaceId, path, create: true })
         if (cancelled) return
-        setState(
-          result.ok
-            ? { kind: 'ready', board: result.value }
-            : { kind: 'error', message: result.error.message },
-        )
+        setState(result.ok ? { kind: 'ready', board: result.value } : { kind: 'error', message: result.error.message })
       } catch {
         if (!cancelled) setState({ kind: 'error', message: 'This board could not be opened.' })
       }
@@ -216,13 +201,7 @@ export function CanvasTab({ workspaceId, tab, active }: CanvasTabProps) {
   }, [path])
 
   if (!path) {
-    return (
-      <CanvasBoardPicker
-        workspaceId={workspaceId}
-        onPick={pickBoard}
-        openPaths={openPaths}
-      />
-    )
+    return <CanvasBoardPicker workspaceId={workspaceId} onPick={pickBoard} openPaths={openPaths} />
   }
 
   const name = canvasBoardName(path)

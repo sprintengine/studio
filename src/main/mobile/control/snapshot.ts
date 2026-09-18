@@ -58,10 +58,7 @@ export type MobileControlSnapshotRequest = {
 }
 
 // The unscoped default: every collection the wire declares.
-const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set([
-  'backlog',
-  'automations',
-])
+const defaultSnapshotCollections: ReadonlySet<MobileSnapshotCollection> = new Set(['backlog', 'automations'])
 
 type MobileControlSnapshotListener = (snapshot: MobileControlSnapshot) => void
 
@@ -133,14 +130,16 @@ export class MobileControlSnapshotService {
     const generatedAt = request.generatedAt ?? new Date().toISOString()
     const collections = request.include ? new Set(request.include) : defaultSnapshotCollections
     const workspaceRoots = uniqueResolved(request.workspaceRoots ?? [])
-    const backlog = collections.has('backlog')
-      ? await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt)
-      : []
+    const backlog = collections.has('backlog') ? await readBacklogWorkspaceSnapshots(workspaceRoots, generatedAt) : []
     // Item 47: the automations monitor. One projection per workspace root, joined to
     // the other collections on `projectKey` (stamped by the producer, from the same
     // deriveWorkspaceId the sanitize pass stamps backlog workspaces with).
     const automations = collections.has('automations')
-      ? (await Promise.all(workspaceRoots.map((workspaceRoot) => readMobileAutomationSnapshots(workspaceRoot, generatedAt)))).flat()
+      ? (
+          await Promise.all(
+            workspaceRoots.map((workspaceRoot) => readMobileAutomationSnapshots(workspaceRoot, generatedAt)),
+          )
+        ).flat()
       : []
     // A share is machine state that can change without any workspace changing,
     // so it is read on every snapshot and folded into the version below —
@@ -225,10 +224,10 @@ export class MobileControlSnapshotService {
 
 async function readBacklogWorkspaceSnapshots(
   workspaceRoots: string[],
-  generatedAt: string
+  generatedAt: string,
 ): Promise<MobileControlBacklogWorkspaceSnapshot[]> {
   const settled = await Promise.allSettled(
-    workspaceRoots.map((workspaceRoot) => readMobileBacklogWorkspaceSnapshot(workspaceRoot, generatedAt))
+    workspaceRoots.map((workspaceRoot) => readMobileBacklogWorkspaceSnapshot(workspaceRoot, generatedAt)),
   )
   return settled
     .flatMap((result) => (result.status === 'fulfilled' && result.value ? [result.value] : []))
@@ -246,10 +245,7 @@ function normalizeMobileControlCommands(commands: readonly MobileControlCommandT
 }
 
 function buildSnapshotVersion(value: unknown): string {
-  const digest = createHash('sha256')
-    .update(JSON.stringify(value))
-    .digest('hex')
-    .slice(0, 24)
+  const digest = createHash('sha256').update(JSON.stringify(value)).digest('hex').slice(0, 24)
   return `snap_${digest}`
 }
 

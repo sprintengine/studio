@@ -47,8 +47,7 @@ export type PullRequestReadFailure =
   | 'timeout'
 
 export type BranchPullRequestsRead =
-  | { settled: true; pullRequests: BranchPullRequest[] }
-  | { settled: false; reason: PullRequestReadFailure }
+  { settled: true; pullRequests: BranchPullRequest[] } | { settled: false; reason: PullRequestReadFailure }
 
 /**
  * What a state re-read learned. `stateAt` is the moment GitHub was asked, and
@@ -290,7 +289,8 @@ function toBranchPullRequest(row: unknown, now: number): BranchPullRequest | nul
   if (!parsed || 'unsupported' in parsed) return null
   const state = readState(row)
   if (!state) return null
-  const number = typeof row.number === 'number' && Number.isInteger(row.number) && row.number > 0 ? row.number : parsed.number
+  const number =
+    typeof row.number === 'number' && Number.isInteger(row.number) && row.number > 0 ? row.number : parsed.number
   const repository = pullRequestRepository(row.url as string)
   if (!repository) return null
   return {

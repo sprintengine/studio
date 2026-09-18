@@ -12,7 +12,10 @@ import type {
 import type { MarketplacePluginEntry } from '../../shared/marketplace'
 import type { AppServices } from '../app-services'
 import { writeDiagnosticLog } from '../diagnostics-service'
-import { createMarketplacePluginLifecycleService, defaultMarketplacePluginInstallStorePath } from '../marketplace/plugin-lifecycle'
+import {
+  createMarketplacePluginLifecycleService,
+  defaultMarketplacePluginInstallStorePath,
+} from '../marketplace/plugin-lifecycle'
 import { readMarketplaceUpdateStates } from '../marketplace/update-detection'
 import { defaultUserModuleRoot } from '../modules/user-module-registry'
 import { createDefaultMarketplaceRegistryClient } from './marketplace-registry-ipc'
@@ -90,10 +93,7 @@ export function createMarketplacePluginPipeline(services: MarketplacePluginPipel
   return { trustContext, log: marketplaceLog, verifier, lifecycle }
 }
 
-export function registerMarketplacePluginIpc(
-  ipcMain: IpcMain,
-  services: MarketplacePluginPipelineServices
-): void {
+export function registerMarketplacePluginIpc(ipcMain: IpcMain, services: MarketplacePluginPipelineServices): void {
   const { trustContext, verifier, lifecycle } = createMarketplacePluginPipeline(services)
 
   ipcMain.handle(
@@ -110,7 +110,7 @@ export function registerMarketplacePluginIpc(
           message: error instanceof Error ? error.message : String(error),
         }
       }
-    }
+    },
   )
 
   ipcMain.handle(
@@ -123,7 +123,7 @@ export function registerMarketplacePluginIpc(
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
-    }
+    },
   )
 
   ipcMain.handle(
@@ -134,7 +134,7 @@ export function registerMarketplacePluginIpc(
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
-    }
+    },
   )
 
   // The other end of install (G3). The lifecycle has been able to uninstall a
@@ -151,7 +151,7 @@ export function registerMarketplacePluginIpc(
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
-    }
+    },
   )
 
   // Per-installed-entry update detection (MC-1873). Constructed lazily so the
@@ -169,11 +169,11 @@ export function registerMarketplacePluginIpc(
             moduleRoot: defaultUserModuleRoot,
             trustContext,
           },
-          input ?? {}
+          input ?? {},
         )
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : String(error) }
       }
-    }
+    },
   )
 }

@@ -10,37 +10,27 @@ import type {
 } from '../../shared/electron-api'
 
 export const memoryActivityApi = {
-  memoryActivityInstall: (
-    input: { workspaceRoot: string | null; memoryRelativeRoot: string | null }
-  ): Promise<MemoryActivityInstallResult> =>
-    ipcRenderer.invoke('memory-activity:install', input),
+  memoryActivityInstall: (input: {
+    workspaceRoot: string | null
+    memoryRelativeRoot: string | null
+  }): Promise<MemoryActivityInstallResult> => ipcRenderer.invoke('memory-activity:install', input),
 
-  memoryActivityUninstall: (
-    input: { workspaceRoot: string | null }
-  ): Promise<MemoryActivityUninstallResult> =>
+  memoryActivityUninstall: (input: { workspaceRoot: string | null }): Promise<MemoryActivityUninstallResult> =>
     ipcRenderer.invoke('memory-activity:uninstall', input),
 
-  memoryActivityStartWatching: (
-    input: { workspaceRoot: string | null; memoryRelativeRoot: string | null }
-  ): Promise<{ ok: true }> =>
-    ipcRenderer.invoke('memory-activity:start-watching', input),
+  memoryActivityStartWatching: (input: {
+    workspaceRoot: string | null
+    memoryRelativeRoot: string | null
+  }): Promise<{ ok: true }> => ipcRenderer.invoke('memory-activity:start-watching', input),
 
-
-  memoryActivityGetStatus: (
-    input: { workspaceRoot: string | null }
-  ): Promise<MemoryActivityStatus> =>
+  memoryActivityGetStatus: (input: { workspaceRoot: string | null }): Promise<MemoryActivityStatus> =>
     ipcRenderer.invoke('memory-activity:get-status', input),
 
-  memoryActivityGetSynapses: (
-    input: { workspaceRoot: string | null }
-  ): Promise<MemoryActivitySynapse[]> =>
+  memoryActivityGetSynapses: (input: { workspaceRoot: string | null }): Promise<MemoryActivitySynapse[]> =>
     ipcRenderer.invoke('memory-activity:get-synapses', input),
 
-  memoryActivityIsInstalled: (
-    input: { workspaceRoot: string | null }
-  ): Promise<boolean> =>
+  memoryActivityIsInstalled: (input: { workspaceRoot: string | null }): Promise<boolean> =>
     ipcRenderer.invoke('memory-activity:is-installed', input),
-
 
   onMemoryActivityEvent: (cb: (event: MemoryActivityEvent) => void) => {
     const handler = (_: IpcRendererEvent, event: MemoryActivityEvent) => cb(event)

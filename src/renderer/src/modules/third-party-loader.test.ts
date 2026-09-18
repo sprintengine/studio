@@ -22,7 +22,7 @@ function manifest(id: string): CapabilityManifest {
 
 function served(
   entries: Array<{ id: string; manifest?: CapabilityManifest; code?: string; assetOrigin?: string }>,
-  failures: Record<string, string> = {}
+  failures: Record<string, string> = {},
 ): ThirdPartyRendererEntriesResult {
   return {
     entries: entries.map((entry) => ({
@@ -53,13 +53,19 @@ async function testLoadsAndRegistersUnderOwnModuleId(): Promise<void> {
     importerFor({
       'loader-demo': {
         registerRenderer: (host: RendererHost) => {
-          assert.equal(host.getAssetUrl('runtime/index.html'), 'studio-module://' + 'a'.repeat(64) + '/runtime/index.html')
+          assert.equal(
+            host.getAssetUrl('runtime/index.html'),
+            'studio-module://' + 'a'.repeat(64) + '/runtime/index.html',
+          )
           host.registerPanel('loader-demo.panel', () => null)
         },
       },
-    })
+    }),
   )
-  assert.deepEqual(loaded.map((entry) => entry.id), ['loader-demo'])
+  assert.deepEqual(
+    loaded.map((entry) => entry.id),
+    ['loader-demo'],
+  )
   assert.equal(kernel.getPanelModule('loader-demo.panel'), 'loader-demo')
   assert.deepEqual(getThirdPartyRendererLoadState('loader-demo'), { status: 'loaded' })
 }
@@ -94,9 +100,12 @@ async function testReservedIdWithFirstPartyStampLoads(): Promise<void> {
           host.registerPanel('memory-graph.reserved-proof-panel', () => null)
         },
       },
-    })
+    }),
   )
-  assert.deepEqual(loaded.map((entry) => entry.id), ['memory-graph'])
+  assert.deepEqual(
+    loaded.map((entry) => entry.id),
+    ['memory-graph'],
+  )
   assert.deepEqual(getThirdPartyRendererLoadState('memory-graph'), { status: 'loaded' })
 }
 
@@ -105,7 +114,7 @@ async function testManifestIdMismatchIsRejected(): Promise<void> {
   const loaded = await loadThirdPartyRendererEntries(
     kernel,
     served([{ id: 'loader-mismatch', manifest: manifest('something-else') }]),
-    async () => ({ registerRenderer: () => {} })
+    async () => ({ registerRenderer: () => {} }),
   )
   assert.deepEqual(loaded, [])
   const state = getThirdPartyRendererLoadState('loader-mismatch')
@@ -118,7 +127,7 @@ async function testMissingRegisterRendererExportIsAnError(): Promise<void> {
   const loaded = await loadThirdPartyRendererEntries(
     kernel,
     served([{ id: 'loader-no-export' }]),
-    importerFor({ 'loader-no-export': { somethingElse: true } })
+    importerFor({ 'loader-no-export': { somethingElse: true } }),
   )
   assert.deepEqual(loaded, [])
   const state = getThirdPartyRendererLoadState('loader-no-export')
@@ -138,9 +147,12 @@ async function testBrokenBundleIsIsolatedFromNeighbors(): Promise<void> {
           host.registerPanel('loader-healthy.panel', () => null)
         },
       },
-    })
+    }),
   )
-  assert.deepEqual(loaded.map((entry) => entry.id), ['loader-healthy'])
+  assert.deepEqual(
+    loaded.map((entry) => entry.id),
+    ['loader-healthy'],
+  )
   assert.deepEqual(getThirdPartyRendererLoadState('loader-broken'), {
     status: 'error',
     message: 'boom at import time',
@@ -160,7 +172,7 @@ async function testRegistrationFailureExcludesModuleFromUniverse(): Promise<void
           throw new Error('registration exploded')
         },
       },
-    })
+    }),
   )
   // The first panel registered, but the module failed: it must not join the
   // enablement universe, so its partial contributions stay gated off.
@@ -196,11 +208,14 @@ async function testClaimedGlobalSurfaceIdIsALoadError(): Promise<void> {
           host.registerPanel('atlas-bystander.panel', () => null)
         },
       },
-    })
+    }),
   )
   // The impostor is a load error; its neighbors — including one registered
   // AFTER the failure — load cleanly.
-  assert.deepEqual(loaded.map((entry) => entry.id), ['atlas-owner', 'atlas-bystander'])
+  assert.deepEqual(
+    loaded.map((entry) => entry.id),
+    ['atlas-owner', 'atlas-bystander'],
+  )
   const state = getThirdPartyRendererLoadState('atlas-impostor')
   assert.equal(state?.status, 'error')
   assert.match(state.message, /Global surface "atlas" is already registered by module "atlas-owner"/)
@@ -212,7 +227,7 @@ async function testClaimedGlobalSurfaceIdIsALoadError(): Promise<void> {
   const loadedIds = new Set(loaded.map((entry) => entry.id))
   assert.ok(
     !kernel.getSidebarNavEntries((moduleId) => loadedIds.has(moduleId)).some((entry) => entry.id === 'atlas-impostor'),
-    'a failed module’s nav entry must not survive enablement filtering'
+    'a failed module’s nav entry must not survive enablement filtering',
   )
 }
 
@@ -221,7 +236,7 @@ async function testAbsolutePathInErrorIsSanitized(): Promise<void> {
   await loadThirdPartyRendererEntries(
     kernel,
     served([{ id: 'loader-leaky' }]),
-    importerFor({ 'loader-leaky': new Error('ENOENT: /Users/someone/.multicode/modules/x.js') })
+    importerFor({ 'loader-leaky': new Error('ENOENT: /Users/someone/.multicode/modules/x.js') }),
   )
   const state = getThirdPartyRendererLoadState('loader-leaky')
   assert.equal(state?.status, 'error')
@@ -234,7 +249,7 @@ async function testServingFailuresAreRecorded(): Promise<void> {
   const loaded = await loadThirdPartyRendererEntries(
     kernel,
     served([], { 'loader-unservable': 'entry.renderer bundle file is missing.' }),
-    async () => ({})
+    async () => ({}),
   )
   assert.deepEqual(loaded, [])
   assert.deepEqual(getThirdPartyRendererLoadState('loader-unservable'), {
@@ -258,9 +273,12 @@ async function testDuplicateIdKeepsFirstDefinition(): Promise<void> {
               host.registerPanel('loader-dupe.panel', () => null)
             },
           }
-        : { registerRenderer: () => {} }
+        : { registerRenderer: () => {} },
   )
-  assert.deepEqual(loaded.map((entry) => entry.id), ['loader-dupe'])
+  assert.deepEqual(
+    loaded.map((entry) => entry.id),
+    ['loader-dupe'],
+  )
   assert.deepEqual(getThirdPartyRendererLoadState('loader-dupe'), { status: 'loaded' })
 }
 
@@ -280,12 +298,18 @@ async function main(): Promise<void> {
   const newlyInstalled = served([
     { id: 'refresh-game', manifest: { ...manifest('refresh-game'), entry: { renderer: 'game.js' } } },
     { id: 'refresh-main', manifest: { ...manifest('refresh-main'), entry: { main: 'main.cjs', renderer: 'ui.js' } } },
-    { id: 'refresh-preload', manifest: { ...manifest('refresh-preload'), entry: { preload: 'preload.js', renderer: 'ui.js' } } },
+    {
+      id: 'refresh-preload',
+      manifest: { ...manifest('refresh-preload'), entry: { preload: 'preload.js', renderer: 'ui.js' } },
+    },
     { id: 'refresh-broken' },
   ])
   const eligible = rendererEntriesForRefresh(newlyInstalled)
-  assert.deepEqual(eligible.entries.map((entry) => entry.id), ['refresh-game', 'refresh-broken'],
-    'hot activation excludes main/preload modules until restart')
+  assert.deepEqual(
+    eligible.entries.map((entry) => entry.id),
+    ['refresh-game', 'refresh-broken'],
+    'hot activation excludes main/preload modules until restart',
+  )
   let evaluations = 0
   const importFresh: ThirdPartyEntryImporter = async (code) => {
     evaluations++
@@ -293,12 +317,19 @@ async function main(): Promise<void> {
     return { registerRenderer: (host: RendererHost) => host.registerPanel('refresh-game.panel', () => null) }
   }
   const fresh = await loadThirdPartyRendererEntries(refreshKernel, eligible, importFresh)
-  assert.deepEqual(fresh.map((entry) => entry.id), ['refresh-game'], 'failure isolation also holds during refresh')
+  assert.deepEqual(
+    fresh.map((entry) => entry.id),
+    ['refresh-game'],
+    'failure isolation also holds during refresh',
+  )
   assert.equal(refreshKernel.getPanelModule('refresh-game.panel'), 'refresh-game')
   await loadThirdPartyRendererEntries(refreshKernel, rendererEntriesForRefresh(newlyInstalled), importFresh)
   assert.equal(evaluations, 2, 'neither loaded nor failed entries are ever reevaluated on refresh')
-  assert.deepEqual(rendererEntriesForRefresh({ entries: [], failures: { 'refresh-game': 'updated file missing' } }).failures, {},
-    'an update failure cannot overwrite the state of already running code')
+  assert.deepEqual(
+    rendererEntriesForRefresh({ entries: [], failures: { 'refresh-game': 'updated file missing' } }).failures,
+    {},
+    'an update failure cannot overwrite the state of already running code',
+  )
   console.log('third-party-loader tests passed')
 }
 

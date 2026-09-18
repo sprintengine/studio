@@ -86,24 +86,24 @@ function summariesEqual(a: Record<string, WorkspaceChangeSummary>, b: Record<str
     // span sits still while the checkout keeps being edited — must commit, or
     // the line freezes on the reading it had when the pull request merged.
     if (
-      left.branch !== right.branch
-      || left.additions !== right.additions
-      || left.deletions !== right.deletions
-      || left.changedFiles !== right.changedFiles
-      || left.scope !== right.scope
-      || left.uncommitted?.additions !== right.uncommitted?.additions
-      || left.uncommitted?.deletions !== right.uncommitted?.deletions
-      || left.uncommitted?.changedFiles !== right.uncommitted?.changedFiles
+      left.branch !== right.branch ||
+      left.additions !== right.additions ||
+      left.deletions !== right.deletions ||
+      left.changedFiles !== right.changedFiles ||
+      left.scope !== right.scope ||
+      left.uncommitted?.additions !== right.uncommitted?.additions ||
+      left.uncommitted?.deletions !== right.uncommitted?.deletions ||
+      left.uncommitted?.changedFiles !== right.uncommitted?.changedFiles ||
       // The FILE breakdown is what the line actually draws (owner decision
       // 2026-09-09), so it is a rendered field like any other: a sweep where a
       // file moved from added to updated changes the tooltip's words — and can
       // change the drawn numbers — with `changedFiles` sitting still.
-      || left.files?.added !== right.files?.added
-      || left.files?.updated !== right.files?.updated
-      || left.files?.removed !== right.files?.removed
-      || left.uncommitted?.files?.added !== right.uncommitted?.files?.added
-      || left.uncommitted?.files?.updated !== right.uncommitted?.files?.updated
-      || left.uncommitted?.files?.removed !== right.uncommitted?.files?.removed
+      left.files?.added !== right.files?.added ||
+      left.files?.updated !== right.files?.updated ||
+      left.files?.removed !== right.files?.removed ||
+      left.uncommitted?.files?.added !== right.uncommitted?.files?.added ||
+      left.uncommitted?.files?.updated !== right.uncommitted?.files?.updated ||
+      left.uncommitted?.files?.removed !== right.uncommitted?.files?.removed
     ) {
       return false
     }
@@ -150,13 +150,11 @@ export function sweepEntriesFrom(membership: string): Array<{ id: string; checko
             ? -1
             : a.id > b.id
               ? 1
-              : 0
+              : 0,
     )
 }
 
-export function useSidebarGitSummaries(
-  entries: ReadonlyArray<SummaryEntry>
-): Record<string, WorkspaceChangeSummary> {
+export function useSidebarGitSummaries(entries: ReadonlyArray<SummaryEntry>): Record<string, WorkspaceChangeSummary> {
   const [summaries, setSummaries] = useState<Record<string, WorkspaceChangeSummary>>({})
   // The identity the poll keys on: which (id, checkout) pairs exist, as one
   // string, so the string round-trips exactly and the effect re-runs only on
@@ -185,15 +183,12 @@ export function useSidebarGitSummaries(
               const entry = queue.shift()
               if (!entry || cancelled) return
               try {
-                fetched.set(
-                  entry.id,
-                  await window.api.getWorkspaceChangeSummary(entry.checkoutPath)
-                )
+                fetched.set(entry.id, await window.api.getWorkspaceChangeSummary(entry.checkoutPath))
               } catch {
                 // Quiet: the previously known facts for this row stand.
               }
             }
-          })
+          }),
         )
         if (cancelled || membershipRef.current !== membership) return
         setSummaries((previous) => {

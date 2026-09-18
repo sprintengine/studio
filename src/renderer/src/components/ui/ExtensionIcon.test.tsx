@@ -116,7 +116,9 @@ async function main(): Promise<void> {
   })
 
   run('a plated picture fills the slot; an unplated one sits inset in the chip', () => {
-    const plated = mount(<ExtensionIcon name="anthropics" icon="https://github.com/anthropics.png?size=72" iconPlated size={36} />)
+    const plated = mount(
+      <ExtensionIcon name="anthropics" icon="https://github.com/anthropics.png?size=72" iconPlated size={36} />,
+    )
     const platedImg = plated.container.querySelector('img') as HTMLImageElement
     assert.equal(platedImg.getAttribute('width'), '36', 'an avatar brings its own ground: no chip, no inset')
     assert.equal(plated.root.tagName, 'IMG')
@@ -163,7 +165,11 @@ async function main(): Promise<void> {
     assert.equal(retried?.getAttribute('src'), here)
 
     view.rerender(<ExtensionIcon name="access" icon={gone} iconPlated size={36} />)
-    assert.equal(view.container.querySelectorAll('img').length, 0, 'the one that failed is still remembered, not fetched again')
+    assert.equal(
+      view.container.querySelectorAll('img').length,
+      0,
+      'the one that failed is still remembered, not fetched again',
+    )
     view.unmount()
   })
 
@@ -175,7 +181,11 @@ async function main(): Promise<void> {
     const monogram = mount(<ExtensionIcon name="access" size={36} />)
     const sizeOf = (view: { root: HTMLElement }): number =>
       parseFloat((view.root.querySelector('span') as HTMLElement).style.fontSize)
-    assert.equal(sizeOf(two), sizeOf(monogram), 'two emoji are as wide as two letters, and take their size or spill the chip')
+    assert.equal(
+      sizeOf(two),
+      sizeOf(monogram),
+      'two emoji are as wide as two letters, and take their size or spill the chip',
+    )
     assert.equal(sizeOf(letters), sizeOf(monogram))
     assert.ok(sizeOf(one) > sizeOf(two))
     assert.equal(sizeOf(family), sizeOf(one), 'a family is seven code points and one thing to see')

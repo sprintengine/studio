@@ -121,9 +121,7 @@ export type MockAdapterPermissionInput = MockAdapterSessionInput & {
 // the user, so it must say what the provider refused rather than a generic error.
 // `notice` accompanies a preset the adapter recorded but could not apply to the
 // turn already running; it is shown as information, never as a failure.
-export type ConversationProviderPermissionResult =
-  | { ok: true; notice?: string }
-  | { ok: false; message: string }
+export type ConversationProviderPermissionResult = { ok: true; notice?: string } | { ok: false; message: string }
 
 export type MockAdapterApprovalInput = MockAdapterSessionInput & {
   turnId: string
@@ -138,10 +136,7 @@ export function createMockConversationProvider(): ConversationProviderAdapter {
     id: 'mock-provider',
     listModels: () => ['mock-model'],
     startSession(input) {
-      return [
-        event(input, 'session_started'),
-        event(input, 'session_ready'),
-      ]
+      return [event(input, 'session_started'), event(input, 'session_ready')]
     },
     sendTurn(input) {
       return [
@@ -180,7 +175,7 @@ export function createMockConversationProvider(): ConversationProviderAdapter {
 function event(
   input: MockAdapterSessionInput,
   type: ConversationEvent['type'],
-  payload?: Record<string, unknown>
+  payload?: Record<string, unknown>,
 ): ConversationEvent {
   return {
     id: '',

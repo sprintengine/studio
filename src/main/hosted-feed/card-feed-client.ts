@@ -242,7 +242,13 @@ export class HostedCardFeedClient {
     if (response.status === 304) {
       if (!cache) {
         this.lastFailureAtMs = nowMs
-        return { ok: false, state: 'fetch-error', feedUrl, statusCode: 304, message: 'GitHub answered 304 Not Modified, but there is no cached copy.' }
+        return {
+          ok: false,
+          state: 'fetch-error',
+          feedUrl,
+          statusCode: 304,
+          message: 'GitHub answered 304 Not Modified, but there is no cached copy.',
+        }
       }
       const touched: CacheFile = { ...cache.file, fetchedAt: this.now().toISOString() }
       await this.writeCache(touched)
@@ -330,7 +336,9 @@ export class HostedCardFeedClient {
   // fetches, so its `updatedAt` never leads the remote, and it is read by a
   // background poller that can afford a wasted round trip. This one is read
   // every time the home page opens.
-  private async readLocal(feedUrl: string): Promise<{ cache: LocalCopy | null; seed: SeedCopy | null; fromSeed: boolean }> {
+  private async readLocal(
+    feedUrl: string,
+  ): Promise<{ cache: LocalCopy | null; seed: SeedCopy | null; fromSeed: boolean }> {
     const seed = await this.readSeed()
     const cache = await this.readCache(feedUrl)
     if (cache && seed && hostedCardFeedUpdatedAtMs(seed.feed) > hostedCardFeedUpdatedAtMs(cache.feed)) {
@@ -392,7 +400,13 @@ export class HostedCardFeedClient {
         ...(message ? { message } : {}),
       }
     }
-    return { ok: false, state: failureState, feedUrl, ...(statusCode ? { statusCode } : {}), message: message ?? 'No card feed is available.' }
+    return {
+      ok: false,
+      state: failureState,
+      feedUrl,
+      ...(statusCode ? { statusCode } : {}),
+      message: message ?? 'No card feed is available.',
+    }
   }
 
   private async fetchWithTimeout(url: URL, cache: LocalCopy | null, forceRefresh: boolean): Promise<Response> {
@@ -400,7 +414,9 @@ export class HostedCardFeedClient {
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs)
     const headers: Record<string, string> = { accept: 'application/json' }
     if (!forceRefresh && cache?.file.etag) headers['if-none-match'] = cache.file.etag
-    return this.fetcher(url.toString(), { method: 'GET', headers, signal: controller.signal }).finally(() => clearTimeout(timeout))
+    return this.fetcher(url.toString(), { method: 'GET', headers, signal: controller.signal }).finally(() =>
+      clearTimeout(timeout),
+    )
   }
 
   // Re-parsed on every read, never on the way in: see `CacheFile`.

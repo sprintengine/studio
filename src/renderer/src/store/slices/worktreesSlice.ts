@@ -1,9 +1,4 @@
-import type {
-  Workspace,
-  WorkspaceId,
-  WorkspaceWorktreeState,
-  WorktreeEntry,
-} from '../../types/workspace'
+import type { Workspace, WorkspaceId, WorkspaceWorktreeState, WorktreeEntry } from '../../types/workspace'
 
 export const defaultWorkspaceWorktreeState = (): WorkspaceWorktreeState => ({
   containerPath: null,
@@ -15,51 +10,36 @@ export function normalizeWorktreeEntry(input: Partial<WorktreeEntry> | null | un
   if (!input || typeof input.id !== 'string' || !input.id.trim()) return null
   if (typeof input.path !== 'string' || !input.path.trim()) return null
 
-  const status = (
-    input.status === 'assigned'
-    || input.status === 'missing'
-    || input.status === 'removing'
-    || input.status === 'error'
-  )
-    ? input.status
-    : 'available'
+  const status =
+    input.status === 'assigned' || input.status === 'missing' || input.status === 'removing' || input.status === 'error'
+      ? input.status
+      : 'available'
   const now = Date.now()
 
   return {
     id: input.id.trim(),
     path: input.path,
     branch: typeof input.branch === 'string' && input.branch.trim() ? input.branch : null,
-    ownerAgentId:
-      typeof input.ownerAgentId === 'string' && input.ownerAgentId.trim()
-        ? input.ownerAgentId
-        : null,
+    ownerAgentId: typeof input.ownerAgentId === 'string' && input.ownerAgentId.trim() ? input.ownerAgentId : null,
     status,
     createdAt: typeof input.createdAt === 'number' ? input.createdAt : now,
     updatedAt: typeof input.updatedAt === 'number' ? input.updatedAt : now,
-    missingAt:
-      status === 'missing'
-        ? typeof input.missingAt === 'number'
-          ? input.missingAt
-          : now
-        : null,
+    missingAt: status === 'missing' ? (typeof input.missingAt === 'number' ? input.missingAt : now) : null,
   }
 }
 
 export function normalizeWorkspaceWorktreeState(
-  input: Partial<WorkspaceWorktreeState> | null | undefined
+  input: Partial<WorkspaceWorktreeState> | null | undefined,
 ): WorkspaceWorktreeState {
   const entries = Object.fromEntries(
     Object.values(input?.entries ?? {})
       .map((entry) => normalizeWorktreeEntry(entry))
       .filter((entry): entry is WorktreeEntry => Boolean(entry))
-      .map((entry) => [entry.id, entry])
+      .map((entry) => [entry.id, entry]),
   )
 
   return {
-    containerPath:
-      typeof input?.containerPath === 'string' && input.containerPath.trim()
-        ? input.containerPath
-        : null,
+    containerPath: typeof input?.containerPath === 'string' && input.containerPath.trim() ? input.containerPath : null,
     entries,
     updatedAt: typeof input?.updatedAt === 'number' ? input.updatedAt : null,
   }
@@ -68,10 +48,7 @@ export function normalizeWorkspaceWorktreeState(
 interface WorktreesSliceState {}
 
 interface WorktreesSliceActions {
-  setWorkspaceWorktreeState: (
-    workspaceId: WorkspaceId,
-    worktreeState: Partial<WorkspaceWorktreeState> | null
-  ) => void
+  setWorkspaceWorktreeState: (workspaceId: WorkspaceId, worktreeState: Partial<WorkspaceWorktreeState> | null) => void
   upsertWorktreeEntry: (workspaceId: WorkspaceId, entry: WorktreeEntry) => void
   markWorktreeMissing: (workspaceId: WorkspaceId, worktreeId: string, missingAt?: number) => void
   removeWorktreeEntry: (workspaceId: WorkspaceId, worktreeId: string) => void
@@ -92,11 +69,11 @@ export function createWorktreesSlice(set: WorktreesSliceSet): WorktreesSlice {
         ws.worktreeState = normalizeWorkspaceWorktreeState(
           worktreeState
             ? {
-              ...current,
-              ...worktreeState,
-              entries: worktreeState.entries ?? current.entries,
-            }
-            : null
+                ...current,
+                ...worktreeState,
+                entries: worktreeState.entries ?? current.entries,
+              }
+            : null,
         )
       }),
 

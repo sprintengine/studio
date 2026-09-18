@@ -6,13 +6,14 @@ import { Popover } from './Popover'
 import { StarGlyph } from './StarGlyph'
 import { Tooltip } from './Tooltip'
 import { FOCUS_RING_CLASS, FOCUS_RING_WITHIN_INPUT_CLASS } from './tokens'
-import { ReasoningSelector, hasContextWindows, hasReasoningAxes, hasReasoningLevels, reasoningTriggerLabel } from './ReasoningSelector'
 import {
-  isLegacyCompositionKey,
-  modelFavouriteKey,
-  toggleModelFavourite,
-  useModelFavourites,
-} from './modelFavourites'
+  ReasoningSelector,
+  hasContextWindows,
+  hasReasoningAxes,
+  hasReasoningLevels,
+  reasoningTriggerLabel,
+} from './ReasoningSelector'
+import { isLegacyCompositionKey, modelFavouriteKey, toggleModelFavourite, useModelFavourites } from './modelFavourites'
 import {
   buildModelFamilies,
   familyForModel,
@@ -200,7 +201,7 @@ export function CliModelPopoverSurface({
   const favouriteSet = React.useMemo(() => new Set(favourites), [favourites])
   const [query, setQuery] = React.useState('')
   const [filter, setFilter] = React.useState<RailFilter>(() =>
-    options.some((option) => option.value === currentCli) ? currentCli : options[0]?.value ?? currentCli,
+    options.some((option) => option.value === currentCli) ? currentCli : (options[0]?.value ?? currentCli),
   )
   const railRef = React.useRef<HTMLDivElement | null>(null)
   const searchRef = React.useRef<HTMLInputElement | null>(null)
@@ -398,10 +399,7 @@ export function CliModelPopoverSurface({
 
   const reasoningWired = Boolean(onSelectReasoning && effectiveReasoningFor)
   const currentOption = options.find((option) => option.value === currentCli)
-  const currentFamily = familyForModel(
-    buildModelFamilies(currentOption?.modelSelection?.options),
-    effectiveModel,
-  )
+  const currentFamily = familyForModel(buildModelFamilies(currentOption?.modelSelection?.options), effectiveModel)
   const reasoningAxes = {
     reasoningSelection: currentOption?.reasoningSelection,
     family: currentFamily,
@@ -673,9 +671,7 @@ function ModelRowView({
   onLeaveStar: () => void
   onSelect: () => void
 }): JSX.Element {
-  const detail = [showProvider && row.model !== null ? row.provider : null, row.monoId]
-    .filter(Boolean)
-    .join(' · ')
+  const detail = [showProvider && row.model !== null ? row.provider : null, row.monoId].filter(Boolean).join(' · ')
   return (
     <div
       id={id}
@@ -887,10 +883,7 @@ export function CliModelPickerButton({
         className="min-w-0 shrink-0"
         surfaceClassName="overflow-hidden"
         renderTrigger={({ ref, triggerProps, togglePopover }) => (
-          <Tooltip
-            content={`Agent runtime: ${runtimeLabel}`}
-            wrapperClassName="inline-flex min-w-0"
-          >
+          <Tooltip content={`Agent runtime: ${runtimeLabel}`} wrapperClassName="inline-flex min-w-0">
             <button
               ref={ref}
               type="button"
@@ -912,7 +905,9 @@ export function CliModelPickerButton({
               <span className="min-w-0 flex-1 truncate">{modelLabel}</span>
               <ChevronGlyph
                 className={`shrink-0 text-[color:var(--text-disabled)] ${
-                  quiet ? 'opacity-0 transition-opacity group-hover/pill:opacity-100 group-focus-visible/pill:opacity-100' : ''
+                  quiet
+                    ? 'opacity-0 transition-opacity group-hover/pill:opacity-100 group-focus-visible/pill:opacity-100'
+                    : ''
                 }`}
               />
             </button>
@@ -945,7 +940,13 @@ export function CliModelPickerButton({
 function ChevronGlyph({ className }: { className?: string }): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className={`size-icon-xs ${className ?? ''}`}>
-      <path d="M4.5 6.5L8 10l3.5-3.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M4.5 6.5L8 10l3.5-3.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }

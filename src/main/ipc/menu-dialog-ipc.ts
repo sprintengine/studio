@@ -61,11 +61,7 @@ export function registerMenuDialogIpc(ipcMain: IpcMain): void {
     }
   })
 
-  ipcMain.handle('app:show-menubar-menu', async (
-    event,
-    menuLabel: string,
-    position?: { x?: number; y?: number }
-  ) => {
+  ipcMain.handle('app:show-menubar-menu', async (event, menuLabel: string, position?: { x?: number; y?: number }) => {
     const win = BrowserWindow.fromWebContents(event.sender)
     const appMenu = Menu.getApplicationMenu()
     if (!win || !appMenu) return false

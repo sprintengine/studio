@@ -58,10 +58,7 @@ async function assertReportSymlinkContainment(): Promise<void> {
     writeFileSync(join(outsideDir, 'leak.md'), 'top secret dir\n', 'utf8')
     const escapingDirLink = join(reportsDir, 'subdir')
     symlinkSync(join('..', 'outside'), escapingDirLink)
-    await assert.rejects(
-      () => handlers.readTextFile(join(escapingDirLink, 'leak.md')),
-      /outside reports\//u
-    )
+    await assert.rejects(() => handlers.readTextFile(join(escapingDirLink, 'leak.md')), /outside reports\//u)
 
     // A symlinked DIRECTORY that stays within reports/ still reads through.
     const innerDir = join(reportsDir, 'inner')
@@ -69,10 +66,7 @@ async function assertReportSymlinkContainment(): Promise<void> {
     writeFileSync(join(innerDir, 'nested.md'), '# Nested report\n', 'utf8')
     const containedDirLink = join(reportsDir, 'inner-alias')
     symlinkSync('inner', containedDirLink)
-    assert.equal(
-      await handlers.readTextFile(join(containedDirLink, 'nested.md')),
-      '# Nested report\n'
-    )
+    assert.equal(await handlers.readTextFile(join(containedDirLink, 'nested.md')), '# Nested report\n')
 
     // A symlink that escapes but lives outside any reports/ tree is not a report
     // read and keeps its existing behavior (no regression for general reads).
@@ -95,17 +89,11 @@ async function assertTextReadLimits(): Promise<void> {
 
     const largePath = join(root, 'large.txt')
     writeFileSync(largePath, Buffer.alloc(MAX_TEXT_FILE_READ_BYTES + 1, 0x61))
-    await assert.rejects(
-      () => handlers.readTextFile(largePath),
-      /too large/u
-    )
+    await assert.rejects(() => handlers.readTextFile(largePath), /too large/u)
 
     const binaryPath = join(root, 'binary.dat')
     writeFileSync(binaryPath, Buffer.from([0x68, 0x69, 0x00, 0xff]))
-    await assert.rejects(
-      () => handlers.readTextFile(binaryPath),
-      /binary/u
-    )
+    await assert.rejects(() => handlers.readTextFile(binaryPath), /binary/u)
   } finally {
     rmSync(root, { force: true, recursive: true })
   }
@@ -123,10 +111,7 @@ async function assertImageReadLimits(): Promise<void> {
 
     const largeImagePath = join(root, 'large.png')
     writeFileSync(largeImagePath, Buffer.alloc(MAX_IMAGE_DATA_URL_BYTES + 1, 0x89))
-    await assert.rejects(
-      () => handlers.readImageDataUrl(largeImagePath),
-      /too large/u
-    )
+    await assert.rejects(() => handlers.readImageDataUrl(largeImagePath), /too large/u)
   } finally {
     rmSync(root, { force: true, recursive: true })
   }

@@ -19,5 +19,4 @@ export type ModuleBridgeRefusalCode = 'unknown_channel' | 'not_bridgeable' | 'pe
 // thrown errors into opaque "Error invoking remote method" strings. Handler
 // results and handler throws keep their normal invoke semantics.
 export type ModuleBridgeInvokeResult =
-  | { ok: true; result: unknown }
-  | { ok: false; code: ModuleBridgeRefusalCode; message: string }
+  { ok: true; result: unknown } | { ok: false; code: ModuleBridgeRefusalCode; message: string }

@@ -58,11 +58,7 @@ export const MAX_LIVE_PEEK_PROMPTS = MAX_PEEK_MESSAGES + 1
  * one with no first message at all — so the trim eats the second-oldest and
  * leaves the head alone.
  */
-export function appendLivePeekPrompt(
-  prompts: SessionPrompt[] | undefined,
-  text: string,
-  at: number,
-): SessionPrompt[] {
+export function appendLivePeekPrompt(prompts: SessionPrompt[] | undefined, text: string, at: number): SessionPrompt[] {
   const next = [...(prompts ?? []), { text, at }]
   if (next.length <= MAX_LIVE_PEEK_PROMPTS) return next
   const [first] = next
@@ -144,13 +140,9 @@ export type ConversationPeekService = {
  */
 const OPENABLE_SESSIONS = 8
 
-type Openable =
-  | { kind: 'image'; image: PeekImagePayload }
-  | { kind: 'file'; path: string }
+type Openable = { kind: 'image'; image: PeekImagePayload } | { kind: 'file'; path: string }
 
-export function createConversationPeekService(
-  deps: ConversationPeekDependencies,
-): ConversationPeekService {
+export function createConversationPeekService(deps: ConversationPeekDependencies): ConversationPeekService {
   // Attachment id → what to open, per session. Rebuilt by every read, so an id
   // from a stale card cannot resolve to a file a later read did not offer.
   const openable = new Map<string, Map<string, Openable>>()
@@ -193,10 +185,10 @@ export function createConversationPeekService(
       // Codex chat therefore claimed to have no messages while its own title was
       // its first one.
       const transcriptPath = state.claudeHarness
-        ? state.transcriptPath
-          ?? (state.cliSessionId
+        ? (state.transcriptPath ??
+          (state.cliSessionId
             ? await deps.locateTranscript({ cliSessionId: state.cliSessionId, launchCwd: state.launchCwd ?? null })
-            : null)
+            : null))
         : null
 
       if (transcriptPath) {
@@ -337,11 +329,7 @@ function livePeek(sessionId: string, prompts: SessionPrompt[]): ConversationPeek
   return { sessionId, source: 'live', first, since: rest.slice(-MAX_PEEK_MESSAGES), images: [] }
 }
 
-function livePeekMessage(
-  prompt: SessionPrompt,
-  index: number,
-  isFirst: boolean,
-): ConversationPeekMessage | null {
+function livePeekMessage(prompt: SessionPrompt, index: number, isFirst: boolean): ConversationPeekMessage | null {
   if (!prompt || typeof prompt.text !== 'string') return null
   const collapsed = collapsePeekText(prompt.text)
   if (!collapsed.text.trim()) return null

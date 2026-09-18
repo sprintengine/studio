@@ -82,13 +82,25 @@ async function retiredSprintLinksAreIgnoredOnRead(): Promise<void> {
 
   const mixed: BacklogItem = { ...baseItem, links: [retiredSprintLink, executionLink] }
   const cleaned = backlogItemWithoutRetiredLinks(mixed)
-  assert.deepEqual(cleaned.links.map((link) => link.id), ['atlas:run'], 'the sprint link is dropped, the rest kept')
-  assert.deepEqual(mixed.links.map((link) => link.id), ['sprint-engine:run-1', 'atlas:run'], 'the input is not mutated')
+  assert.deepEqual(
+    cleaned.links.map((link) => link.id),
+    ['atlas:run'],
+    'the sprint link is dropped, the rest kept',
+  )
+  assert.deepEqual(
+    mixed.links.map((link) => link.id),
+    ['sprint-engine:run-1', 'atlas:run'],
+    'the input is not mutated',
+  )
   const clean: BacklogItem = { ...baseItem, links: [executionLink] }
   assert.equal(backlogItemWithoutRetiredLinks(clean), clean, 'an item with no retired link keeps its identity')
 
   // It never makes an item look in progress, on its own or on an epic.
-  assert.equal(nextBacklogItemStatusFromLinks('ready', [retiredSprintLink]), 'ready', 'an "active" sprint link does not drive in_progress')
+  assert.equal(
+    nextBacklogItemStatusFromLinks('ready', [retiredSprintLink]),
+    'ready',
+    'an "active" sprint link does not drive in_progress',
+  )
   assert.equal(
     nextBacklogItemStatusFromLinks('ready', [retiredSprintLink], ['completed']),
     'completed',
@@ -202,10 +214,7 @@ async function main(): Promise<void> {
   assert.equal(resolved[1]?.status, 'active')
 
   assert.equal(nextBacklogItemStatusFromLinks('idea', resolved), 'completed')
-  assert.equal(
-    nextBacklogItemStatusFromLinks('idea', [{ ...executionLink, status: 'active' }]),
-    'in_progress',
-  )
+  assert.equal(nextBacklogItemStatusFromLinks('idea', [{ ...executionLink, status: 'active' }]), 'in_progress')
   assert.equal(
     nextBacklogItemStatusFromLinks('ready', [{ ...executionLink, status: 'unknown' }]),
     'ready',
@@ -346,9 +355,7 @@ async function main(): Promise<void> {
   // refreshes the stored chip and is as lifecycle-neutral as an `unknown` one —
   // the item is left alone.
   const pendingHost = createRendererHost()
-  pendingHost.hostFor('atlas').registerBacklogLinkProvider(
-    provider('atlas', ['atlas.run'], 'pending'),
-  )
+  pendingHost.hostFor('atlas').registerBacklogLinkProvider(provider('atlas', ['atlas.run'], 'pending'))
   const persistedPending: BacklogItemLink[] = []
   const pendingSync = await syncBacklogItemLinks({
     workspaceId: 'ws',
@@ -441,7 +448,11 @@ async function main(): Promise<void> {
       return { ok: true }
     },
   })
-  assert.equal(epicSync.itemStatus, 'in_progress', 'an epic with an open child derives in_progress off a completed run link')
+  assert.equal(
+    epicSync.itemStatus,
+    'in_progress',
+    'an epic with an open child derives in_progress off a completed run link',
+  )
   assert.deepEqual(persistedEpic, [], 'an epic status is never written back to frontmatter by the sync tick')
 
   // An epic whose run-link chip is stale still refreshes the chip (link status

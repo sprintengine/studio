@@ -84,7 +84,7 @@ function makeHarness(
     skillInvocation?: (cli: string, skillId: string) => string | undefined
     prefixes?: (moduleId: string) => readonly string[] | undefined
     isAgentSelectableCli?: (cli: string) => boolean
-  } = {}
+  } = {},
 ): Harness {
   const spawns: TerminalSpawnPayload[] = []
   const writes: Array<{ sessionId: string; data: string }> = []
@@ -92,12 +92,9 @@ function makeHarness(
   const reapExempt: Array<{ sessionId: string; exempt: boolean }> = []
   const sessions = options.sessions ?? []
   const exitListeners: Array<(event: AgentSessionExitEvent) => void> = []
-  const workspaces = options.workspaces ?? [
-    { id: WORKSPACE_ID, folderPath: PROJECT_ROOT, mode: 'standard' },
-  ]
+  const workspaces = options.workspaces ?? [{ id: WORKSPACE_ID, folderPath: PROJECT_ROOT, mode: 'standard' }]
   const settings =
-    options.settings
-    ?? ({ ...emptyAgentLaunchSettings(), lastSelectedCli: 'claude-code' } as AgentLaunchSettings)
+    options.settings ?? ({ ...emptyAgentLaunchSettings(), lastSelectedCli: 'claude-code' } as AgentLaunchSettings)
   const knownSkills = options.knownSkills ?? ['review-guide']
   let nextSpawn: TerminalSpawnResult | null = null
   let minted = 0
@@ -108,8 +105,7 @@ function makeHarness(
     terminal: {
       list: () => sessions,
       write: (sessionId, data) => writes.push({ sessionId, data }),
-      read: (sessionId) =>
-        sessions.some((entry) => entry.sessionId === sessionId) ? '' : undefined,
+      read: (sessionId) => (sessions.some((entry) => entry.sessionId === sessionId) ? '' : undefined),
     },
     delay: async () => {},
   })
@@ -134,7 +130,7 @@ function makeHarness(
               ...(payload.agentSession
                 ? { agentSession: { ...payload.agentSession, sessionId: payload.sessionId } }
                 : {}),
-            })
+            }),
           )
         }
         return result
@@ -168,8 +164,7 @@ function makeHarness(
     hasWorkspace: (workspaceId) => workspaces.some((workspace) => workspace.id === workspaceId),
     resolveSkill: (skillId) => (knownSkills.includes(skillId) ? { id: skillId } : null),
     resolveSkillInvocation: options.skillInvocation ?? ((_cli, skillId) => `/${skillId}`),
-    getModulePermissions: (moduleId) =>
-      (options.permissions ?? { [MODULE_ID]: ['agents:session'] })[moduleId],
+    getModulePermissions: (moduleId) => (options.permissions ?? { [MODULE_ID]: ['agents:session'] })[moduleId],
     ...(options.prefixes ? { getModuleAgentIdPrefixes: options.prefixes } : {}),
   }
 
@@ -204,7 +199,7 @@ function spawnInput(overrides: Partial<ModuleAgentSpawnRequest> = {}): ModuleAge
   }
 }
 
-run('a fresh spawn is an ordinary agent terminal with the module\'s own identity', async () => {
+run("a fresh spawn is an ordinary agent terminal with the module's own identity", async () => {
   const harness = makeHarness()
   const result = await harness.registry.spawn(MODULE_ID, spawnInput())
 
@@ -225,19 +220,19 @@ run('a fresh spawn is an ordinary agent terminal with the module\'s own identity
   assert.equal(payload.workspaceId, WORKSPACE_ID)
   assert.equal(payload.agentId, AGENT_ID)
   assert.equal(payload.agentName, 'Review guide')
-  assert.equal(payload.cliPermissionPreset, 'bypass', 'the caller\'s preset is honoured')
+  assert.equal(payload.cliPermissionPreset, 'bypass', "the caller's preset is honoured")
   assert.equal(payload.spawnSkillId, 'review-guide', 'the skill is installed before the CLI starts')
   assert.equal(payload.visible, false)
   assert.equal(payload.initialPrompt, 'Build the walkthrough.')
   assert.equal(
     payload.agentSession?.executionId,
     result.executionId,
-    'without an execution identity the runtime reports no exit for this session at all'
+    'without an execution identity the runtime reports no exit for this session at all',
   )
   assert.equal(payload.agentSession?.workspaceRoot, PROJECT_ROOT)
 })
 
-run('a spawn with no preset takes the user\'s default, never an escalation', async () => {
+run("a spawn with no preset takes the user's default, never an escalation", async () => {
   const harness = makeHarness({
     settings: {
       ...emptyAgentLaunchSettings(),
@@ -262,11 +257,11 @@ run('a live session under the same agent id takes the prompt instead of being tw
   assert.ok(harness.writes.length > 0, 'the prompt reached the pty through the control plane')
   assert.ok(
     harness.writes.some((write) => write.data.includes('Refresh step 3.')),
-    'the prompt text itself was written'
+    'the prompt text itself was written',
   )
   assert.ok(
     harness.writes.some((write) => write.data.includes('\r')),
-    'the turn was submitted, not left at the prompt'
+    'the turn was submitted, not left at the prompt',
   )
   assert.ok(result.ok && result.sessionId === 'session-existing')
 })
@@ -373,7 +368,7 @@ run('a CLI that cannot report agent state is refused, never substituted', async 
   assert.equal(!result.ok && result.code, 'cli_not_agent_selectable')
 })
 
-run('send goes through the control plane, and only for the module\'s own sessions', async () => {
+run("send goes through the control plane, and only for the module's own sessions", async () => {
   const harness = makeHarness({
     sessions: [session(), session({ sessionId: 'session-theirs', agentId: 'agent-claude-xyz' })],
     prefixes: () => [PREFIX],
@@ -398,7 +393,7 @@ run('kill and setReapExempt pass through for owned sessions and no-op for others
   assert.deepEqual(harness.reapExempt, [{ sessionId: 'session-existing', exempt: true }])
 
   harness.registry.setReapExempt(MODULE_ID, 'session-theirs', true)
-  assert.equal(harness.reapExempt.length, 1, 'another module\'s session is not touched')
+  assert.equal(harness.reapExempt.length, 1, "another module's session is not touched")
 
   harness.registry.kill(MODULE_ID, 'session-theirs')
   assert.deepEqual(harness.kills, [])
@@ -428,11 +423,11 @@ run('the host clears a reap exemption when the session it protects exits', async
       { sessionId: spawned.sessionId, exempt: true },
       { sessionId: spawned.sessionId, exempt: false },
     ],
-    'a module that never balances its own exemption cannot leave an unsuspendable pty behind'
+    'a module that never balances its own exemption cannot leave an unsuspendable pty behind',
   )
 })
 
-run('onExit fans the runtime\'s exit out to the module that owns the agent, and no other', async () => {
+run("onExit fans the runtime's exit out to the module that owns the agent, and no other", async () => {
   const harness = makeHarness({
     permissions: { [MODULE_ID]: ['agents:session'], [OTHER_MODULE_ID]: ['agents:session'] },
     prefixes: (moduleId) => (moduleId === MODULE_ID ? [PREFIX] : ['notes-']),
@@ -451,9 +446,7 @@ run('onExit fans the runtime\'s exit out to the module that owns the agent, and 
     exitCode: 3,
   })
 
-  assert.deepEqual(mine, [
-    { agentId: AGENT_ID, executionId: 'exec-1', workspaceId: WORKSPACE_ID, exitCode: 3 },
-  ])
+  assert.deepEqual(mine, [{ agentId: AGENT_ID, executionId: 'exec-1', workspaceId: WORKSPACE_ID, exitCode: 3 }])
   assert.deepEqual(theirs, [], 'another module hears nothing about an agent it does not own')
 
   stop()
@@ -482,11 +475,11 @@ run('list answers only for the agent-id prefixes the module owns', async () => {
 
   assert.deepEqual(
     harness.registry.list(MODULE_ID).map((record) => record.sessionId),
-    ['session-existing']
+    ['session-existing'],
   )
   assert.deepEqual(
     harness.registry.list(OTHER_MODULE_ID).map((record) => record.sessionId),
-    ['session-notes']
+    ['session-notes'],
   )
 
   const record = harness.registry.list(MODULE_ID)[0]
@@ -514,7 +507,7 @@ run('with no main-side namespace mirror, list falls back to what this module spa
   assert.ok(spawned.ok)
   assert.deepEqual(
     harness.registry.list(MODULE_ID).map((record) => record.agentId),
-    [AGENT_ID]
+    [AGENT_ID],
   )
   assert.deepEqual(harness.registry.list(OTHER_MODULE_ID), [], 'the prefix is not shared')
 })

@@ -83,9 +83,8 @@ async function main(): Promise<void> {
   const { createRoot } = await import('react-dom/client')
   const { CliModelPopoverSurface, CliModelPickerButton, buildModelRows } = await import('./CliModelPicker')
   const { ReasoningSelector, reasoningTriggerLabel, hasReasoningAxes } = await import('./ReasoningSelector')
-  const { buildModelFamilies, familyForModel, meaningfulModelId, parseModelWindow } = await import(
-    './cliRuntimeCatalog'
-  )
+  const { buildModelFamilies, familyForModel, meaningfulModelId, parseModelWindow } =
+    await import('./cliRuntimeCatalog')
   const { __resetModelFavouritesForTest, modelFavouriteKey } = await import('./modelFavourites')
 
   type SurfaceProps = Parameters<typeof CliModelPopoverSurface>[0]
@@ -164,10 +163,7 @@ async function main(): Promise<void> {
       type: async (value) => {
         const input = view.search()
         await act(async () => {
-          const setter = Object.getOwnPropertyDescriptor(
-            dom.window.HTMLInputElement.prototype,
-            'value',
-          )?.set
+          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')?.set
           setter?.call(input, value)
           input.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
         })
@@ -634,9 +630,7 @@ async function main(): Promise<void> {
 
     const noWindows = await openMenu(familyForModel(families, 'claude-fable-5'), 'claude-fable-5')
     assert.deepEqual(
-      [...dom.window.document.body.querySelectorAll('[role="group"]')].map((group) =>
-        group.getAttribute('aria-label'),
-      ),
+      [...dom.window.document.body.querySelectorAll('[role="group"]')].map((group) => group.getAttribute('aria-label')),
       [null],
       'one group is its own label — a heading must separate something from something else',
     )
@@ -791,11 +785,7 @@ async function main(): Promise<void> {
         new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
       )
     })
-    assert.equal(
-      dom.window.document.body.querySelector('input[type="search"]'),
-      null,
-      'Escape closed the surface',
-    )
+    assert.equal(dom.window.document.body.querySelector('input[type="search"]'), null, 'Escape closed the surface')
     assert.equal(dom.window.document.activeElement, trigger, 'Escape hands focus back to the trigger')
     view.unmount()
   })

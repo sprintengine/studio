@@ -20,11 +20,9 @@ export type WorkspaceFolderStatus = {
 }
 
 export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderStatus {
-  const folderPath = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null
-  )
+  const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
   const persistedMissing = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderMissing ?? false
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderMissing ?? false,
   )
   const setFolderMissing = useWorkspaceStore((s) => s.setFolderMissing)
   const [checkState, setCheckState] = useState<FolderCheckState>({
@@ -42,7 +40,7 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
       })
       setFolderMissing(workspaceId, !result.ok)
     },
-    [setFolderMissing, workspaceId]
+    [setFolderMissing, workspaceId],
   )
 
   const recheckFolder = useCallback(async () => {
@@ -79,7 +77,8 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
     }
 
     setCheckState({ path: folderPath, status: 'checking' })
-    window.api.checkWorkspaceFolder(folderPath)
+    window.api
+      .checkWorkspaceFolder(folderPath)
       .then((result) => {
         if (!cancelled) applyCheckResult(folderPath, result)
       })
@@ -103,12 +102,11 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
   return useMemo(() => {
     const checkedCurrentPath = checkState.path === folderPath
     const status = checkedCurrentPath ? checkState.status : folderPath ? 'checking' : 'idle'
-    const folderMissing = Boolean(folderPath)
-      && (status === 'missing' || status === 'inaccessible' || status === 'timeout' || persistedMissing)
+    const folderMissing =
+      Boolean(folderPath) &&
+      (status === 'missing' || status === 'inaccessible' || status === 'timeout' || persistedMissing)
     const checkingFolder = Boolean(folderPath) && status === 'checking'
-    const folderReadyPath = Boolean(folderPath) && status === 'ready' && !folderMissing
-      ? folderPath
-      : null
+    const folderReadyPath = Boolean(folderPath) && status === 'ready' && !folderMissing ? folderPath : null
 
     return {
       folderPath,
@@ -116,8 +114,8 @@ export function useWorkspaceFolderStatus(workspaceId: string): WorkspaceFolderSt
       folderMissing,
       checkingFolder,
       status,
-      message: checkedCurrentPath ? checkState.message ?? null : null,
-      checkedPath: checkedCurrentPath ? checkState.checkedPath ?? null : null,
+      message: checkedCurrentPath ? (checkState.message ?? null) : null,
+      checkedPath: checkedCurrentPath ? (checkState.checkedPath ?? null) : null,
       recheckFolder,
     }
   }, [checkState, folderPath, persistedMissing, recheckFolder])

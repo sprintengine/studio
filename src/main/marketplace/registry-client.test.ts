@@ -59,7 +59,9 @@ function validMarketplace(plugins: MarketplaceIndex['plugins'] = [validPlugin()]
   return { schemaVersion: 1, plugins }
 }
 
-function validPlugin(overrides: Partial<MarketplaceIndex['plugins'][number]> = {}): MarketplaceIndex['plugins'][number] {
+function validPlugin(
+  overrides: Partial<MarketplaceIndex['plugins'][number]> = {},
+): MarketplaceIndex['plugins'][number] {
   return {
     id: 'dev-helper',
     name: 'Dev Helper',
@@ -130,10 +132,7 @@ async function testFetchesValidRegistryAndCachesEtag(): Promise<void> {
 async function testEtagNotModifiedServesCache(): Promise<void> {
   await withTempDir(async (dir) => {
     const requests: FetchRequest[] = []
-    const responses = [
-      jsonResponse(validMarketplace(), { headers: { etag: '"v1"' } }),
-      notModifiedResponse('"v1"'),
-    ]
+    const responses = [jsonResponse(validMarketplace(), { headers: { etag: '"v1"' } }), notModifiedResponse('"v1"')]
     const fetcher: MarketplaceRegistryFetch = async (url, init) => {
       requests.push({ url, init })
       const response = responses.shift()
@@ -172,11 +171,7 @@ async function testFreshResponseWithoutEtagClearsCachedEtag(): Promise<void> {
         source: 'https://github.com/sprintengine/studio-releases/plugins/second-helper',
       },
     ])
-    const responses = [
-      jsonResponse(v1, { headers: { etag: '"v1"' } }),
-      jsonResponse(v2),
-      jsonResponse(v2),
-    ]
+    const responses = [jsonResponse(v1, { headers: { etag: '"v1"' } }), jsonResponse(v2), jsonResponse(v2)]
     const fetcher: MarketplaceRegistryFetch = async (url, init) => {
       requests.push({ url, init })
       const response = responses.shift()
@@ -275,7 +270,7 @@ async function testOfflineWithoutCacheIsExplicitFailure(): Promise<void> {
 
     assert.deepEqual(
       { ok: result.ok, state: result.state, stale: result.stale },
-      { ok: false, state: 'offline', stale: false }
+      { ok: false, state: 'offline', stale: false },
     )
     if (result.ok) return
     assert.match(result.message, /dns lookup failed/)
@@ -366,7 +361,7 @@ async function testHttp404WithoutCacheFallsBackToPackagedSeed(): Promise<void> {
         id: `seed-${id}`,
         name: `Seed ${id.toUpperCase()}`,
         source: `https://github.com/sprintengine/studio-releases/plugins/seed-${id}`,
-      })
+      }),
     )
     const seedPath = join(dir, 'seed', 'marketplace.json')
     await writeMarketplace(seedPath, validMarketplace(seedPlugins))
@@ -397,7 +392,10 @@ async function testHttp404WithoutCacheFallsBackToPackagedSeed(): Promise<void> {
 async function testBundledDefaultServesPackagedSeedWithoutFetching(): Promise<void> {
   await withTempDir(async (dir) => {
     const seedPath = join(dir, 'seed', 'marketplace.json')
-    await writeMarketplace(seedPath, validMarketplace([validPlugin({ id: 'bundled-a' }), validPlugin({ id: 'bundled-b' })]))
+    await writeMarketplace(
+      seedPath,
+      validMarketplace([validPlugin({ id: 'bundled-a' }), validPlugin({ id: 'bundled-b' })]),
+    )
     const client = new MarketplaceRegistryClient({
       cachePath: join(dir, 'cache.json'),
       packagedSeedPath: seedPath,
@@ -457,26 +455,28 @@ async function testBundledDefaultTracksEnvOverrideDetection(): Promise<void> {
   assert.equal(isMarketplaceRegistryOverrideConfigured({}), false)
   assert.equal(isMarketplaceRegistryOverrideConfigured({ MULTICODE_MARKETPLACE_REGISTRY_URL: '  ' }), false)
   assert.equal(
-    isMarketplaceRegistryOverrideConfigured({ MULTICODE_MARKETPLACE_REGISTRY_URL: 'https://catalogue.example.com/v1/registry' }),
-    true
+    isMarketplaceRegistryOverrideConfigured({
+      MULTICODE_MARKETPLACE_REGISTRY_URL: 'https://catalogue.example.com/v1/registry',
+    }),
+    true,
   )
 }
 
 async function testEnvOverrideConfiguresRegistryUrl(): Promise<void> {
   assert.equal(
     DEFAULT_MARKETPLACE_REGISTRY_URL,
-    'https://raw.githubusercontent.com/sprintengine/studio-releases/main/marketplace.json'
+    'https://raw.githubusercontent.com/sprintengine/studio-releases/main/marketplace.json',
   )
   assert.equal(configuredMarketplaceRegistryUrl({}), DEFAULT_MARKETPLACE_REGISTRY_URL)
   assert.equal(
     configuredMarketplaceRegistryUrl({ MULTICODE_MARKETPLACE_REGISTRY_URL: '   ' }),
-    DEFAULT_MARKETPLACE_REGISTRY_URL
+    DEFAULT_MARKETPLACE_REGISTRY_URL,
   )
   assert.equal(
     configuredMarketplaceRegistryUrl({
       MULTICODE_MARKETPLACE_REGISTRY_URL: ' https://catalogue.example.com/v1/registry ',
     }),
-    'https://catalogue.example.com/v1/registry'
+    'https://catalogue.example.com/v1/registry',
   )
 }
 
@@ -530,7 +530,30 @@ async function testCatalogueAndGithubRawYieldEquivalentEntries(): Promise<void> 
   // that parses under one URL and not the other would be a real parity break).
   const payload = validMarketplace([
     validPlugin({ id: 'dev-helper', provides: ['mcp', 'skills'] }),
-    validPlugin({ id: 'inline-weather', name: 'Weather', category: 'data', source: undefined, signature: undefined, provides: ['mcp'], mcp: { servers: [{ id: 'weather', name: 'Weather', transport: 'stdio', command: 'npx', args: ['weather-mcp'], enabled: true, clients: ['claude-code'], scope: 'workspace', source: 'custom', riskLevel: 'low' }] } }),
+    validPlugin({
+      id: 'inline-weather',
+      name: 'Weather',
+      category: 'data',
+      source: undefined,
+      signature: undefined,
+      provides: ['mcp'],
+      mcp: {
+        servers: [
+          {
+            id: 'weather',
+            name: 'Weather',
+            transport: 'stdio',
+            command: 'npx',
+            args: ['weather-mcp'],
+            enabled: true,
+            clients: ['claude-code'],
+            scope: 'workspace',
+            source: 'custom',
+            riskLevel: 'low',
+          },
+        ],
+      },
+    }),
   ])
 
   async function readVia(registryUrl: string): Promise<MarketplaceRegistryReadResult> {
@@ -567,7 +590,9 @@ async function testCatalogueAndGithubRawYieldEquivalentEntries(): Promise<void> 
     })
   }
 
-  const catalogueUrl = configuredMarketplaceRegistryUrl({ MULTICODE_MARKETPLACE_REGISTRY_URL: 'https://catalogue.example.com/v1/registry' })
+  const catalogueUrl = configuredMarketplaceRegistryUrl({
+    MULTICODE_MARKETPLACE_REGISTRY_URL: 'https://catalogue.example.com/v1/registry',
+  })
   const githubRawUrl = configuredMarketplaceRegistryUrl({})
   assert.notEqual(catalogueUrl, githubRawUrl, 'the two transports must be distinct URLs')
   assert.equal(githubRawUrl, DEFAULT_MARKETPLACE_REGISTRY_URL)
@@ -621,7 +646,7 @@ async function testMarketplaceResourceResolutionOrder(): Promise<void> {
         appPath: join(dir, 'app'),
         exists: (candidate) => candidate === packagedCandidate,
       }),
-      packagedCandidate
+      packagedCandidate,
     )
 
     const appPath = join(dir, 'app')
@@ -633,7 +658,7 @@ async function testMarketplaceResourceResolutionOrder(): Promise<void> {
         appPath,
         exists: (candidate) => candidate === appCandidate,
       }),
-      appCandidate
+      appCandidate,
     )
 
     const cwd = join(dir, 'repo')
@@ -646,7 +671,7 @@ async function testMarketplaceResourceResolutionOrder(): Promise<void> {
         dirname: join(cwd, 'out', 'main'),
         exists: (candidate) => candidate === cwdCandidate,
       }),
-      cwdCandidate
+      cwdCandidate,
     )
 
     const dirname = join(cwd, 'out', 'main')
@@ -659,7 +684,7 @@ async function testMarketplaceResourceResolutionOrder(): Promise<void> {
         dirname,
         exists: (candidate) => candidate === dirnameCandidate,
       }),
-      dirnameCandidate
+      dirnameCandidate,
     )
 
     assert.equal(
@@ -670,17 +695,14 @@ async function testMarketplaceResourceResolutionOrder(): Promise<void> {
         dirname,
         exists: () => true,
       }),
-      null
+      null,
     )
   })
 }
 
 async function testInvalidSchemaDoesNotSilentlyUseCache(): Promise<void> {
   await withTempDir(async (dir) => {
-    const responses = [
-      jsonResponse(validMarketplace()),
-      jsonResponse({ schemaVersion: 1, plugins: [{ id: '' }] }),
-    ]
+    const responses = [jsonResponse(validMarketplace()), jsonResponse({ schemaVersion: 1, plugins: [{ id: '' }] })]
     const fetcher: MarketplaceRegistryFetch = async () => {
       const response = responses.shift()
       assert.ok(response, 'test fetcher exhausted')

@@ -2,10 +2,7 @@ import type { BuiltinSkillTargetState } from '../../../shared/electron-api'
 import type { PluginRegistryListEntry } from '../../../shared/plugin-manifest'
 import type { AgentSkill } from '../../../shared/skills'
 import { plainSkillInvocation } from '../../../shared/skill-invocation'
-import {
-  hasInstalledNativeSkillTarget,
-  renderSkillInvocationTemplate,
-} from './skillInvocation'
+import { hasInstalledNativeSkillTarget, renderSkillInvocationTemplate } from './skillInvocation'
 
 export const MULTICODE_FILE_DROP_MIME = 'application/x-multicode-file-drop'
 const MULTICODE_COMMIT_DROP_MIME = 'application/x-multicode-commit-drop'
@@ -45,13 +42,9 @@ export type BacklogDropDescriptor = {
 }
 
 export type TerminalDropResult =
-  | { ok: true; text: string; backlog?: BacklogDropDescriptor }
-  | { ok: false; message: string }
+  { ok: true; text: string; backlog?: BacklogDropDescriptor } | { ok: false; message: string }
 
-export function setFileDropData(
-  dataTransfer: DataTransfer,
-  payload: FileDropPayload
-): void {
+export function setFileDropData(dataTransfer: DataTransfer, payload: FileDropPayload): void {
   const fileText = payload.files.map((file) => file.path).join('\n')
   dataTransfer.effectAllowed = 'copy'
   dataTransfer.setData(MULTICODE_FILE_DROP_MIME, JSON.stringify(payload))
@@ -81,9 +74,7 @@ export async function pasteDroppedCommitIntoTerminal(input: {
   if (!hash) return { ok: false, message: 'No commit hash was dropped.' }
 
   const sessions = await window.api.terminalList()
-  const session = sessions.find(
-    (candidate) => candidate.sessionId === input.sessionId && candidate.processAlive
-  )
+  const session = sessions.find((candidate) => candidate.sessionId === input.sessionId && candidate.processAlive)
   if (!session) return { ok: false, message: 'Terminal session is no longer running.' }
 
   await window.api.terminalWrite(input.sessionId, bracketedPaste(hash))
@@ -168,9 +159,7 @@ export async function sendSkillToTerminal(input: {
   workspaceRoot: string
 }): Promise<TerminalDropResult> {
   const sessions = await window.api.terminalList()
-  const session = sessions.find(
-    (candidate) => candidate.sessionId === input.sessionId && candidate.processAlive
-  )
+  const session = sessions.find((candidate) => candidate.sessionId === input.sessionId && candidate.processAlive)
   if (!session) return { ok: false, message: 'Terminal session is no longer running.' }
   // A shell has no agent to read a skill, and which CLI is running is what
   // decides the form — a session that cannot answer that gets neither.
@@ -248,9 +237,7 @@ export async function sendFileDropToTerminal(input: {
   }
 
   const sessions = await window.api.terminalList()
-  const session = sessions.find(
-    (candidate) => candidate.sessionId === input.sessionId && candidate.processAlive
-  )
+  const session = sessions.find((candidate) => candidate.sessionId === input.sessionId && candidate.processAlive)
   if (!session) return { ok: false, message: 'Terminal session is no longer running.' }
 
   // Same gating as the skill invocation, but recorded even when the paste falls
@@ -275,10 +262,7 @@ export async function sendFileDropToTerminal(input: {
 // Excludes non-agent sessions, worktree agents (they keep plain-path pastes and
 // must not fork the object store), multi-file drops, directories, and
 // non-backlog paths.
-function backlogDropRelativePath(
-  payload: FileDropPayload,
-  session: TerminalSessionSnapshot,
-): string | null {
+function backlogDropRelativePath(payload: FileDropPayload, session: TerminalSessionSnapshot): string | null {
   if (session.kind !== 'agent') return null
   if (session.executionMode === 'worktree' || session.worktreePath) return null
   if (payload.files.length !== 1) return null
@@ -307,7 +291,7 @@ export function backlogSkillInvocationForDrop(
   payload: FileDropPayload,
   session: TerminalSessionSnapshot,
   plugins: readonly PluginRegistryListEntry[],
-  installedTargets: readonly BuiltinSkillTargetState[]
+  installedTargets: readonly BuiltinSkillTargetState[],
 ): string | null {
   if (session.kind !== 'agent') return null
   // Worktree agents would mutate the worktree's copy of the backlog object
@@ -325,7 +309,10 @@ export function backlogSkillInvocationForDrop(
   if (relativePath.includes("'")) return null
   const template = integration.invocation?.fileDropTemplate
   if (!template) return null
-  if (integration.support === 'native' && !hasInstalledNativeSkillTarget(integration.harnessId, plugin.id, installedTargets)) {
+  if (
+    integration.support === 'native' &&
+    !hasInstalledNativeSkillTarget(integration.harnessId, plugin.id, installedTargets)
+  ) {
     return null
   }
 
@@ -338,7 +325,7 @@ export function backlogSkillInvocationForDrop(
 
 async function resolveBacklogSkillInvocation(
   payload: FileDropPayload,
-  session: TerminalSessionSnapshot
+  session: TerminalSessionSnapshot,
 ): Promise<string | null> {
   // Cheap shape check first; only ask the skill manager when the drop matches.
   if (!isBacklogSkillDropCandidate(payload, session)) return null
@@ -399,9 +386,9 @@ function parseFileDropJson(raw: string): FileDropPayload | null {
   try {
     const value = JSON.parse(raw) as Partial<FileDropPayload>
     if (
-      value.version !== 1
-      || (value.workspaceId !== null && typeof value.workspaceId !== 'string')
-      || typeof value.rootPath !== 'string'
+      value.version !== 1 ||
+      (value.workspaceId !== null && typeof value.workspaceId !== 'string') ||
+      typeof value.rootPath !== 'string'
     ) {
       return null
     }
@@ -413,11 +400,11 @@ function parseFileDropJson(raw: string): FileDropPayload | null {
     const files: FileDropPayload['files'] = []
     for (const file of value.files) {
       if (
-        !file
-        || typeof file.path !== 'string'
-        || file.path.trim().length === 0
-        || typeof file.name !== 'string'
-        || (file.isDir !== undefined && typeof file.isDir !== 'boolean')
+        !file ||
+        typeof file.path !== 'string' ||
+        file.path.trim().length === 0 ||
+        typeof file.name !== 'string' ||
+        (file.isDir !== undefined && typeof file.isDir !== 'boolean')
       ) {
         continue
       }
@@ -463,10 +450,7 @@ function getNativeFilePath(file: File): string | null {
   return typeof path === 'string' && path.trim() ? path : null
 }
 
-export function formatDroppedPathsForTerminal(
-  payload: FileDropPayload,
-  session: TerminalSessionSnapshot
-): string {
+export function formatDroppedPathsForTerminal(payload: FileDropPayload, session: TerminalSessionSnapshot): string {
   const style = session.pathStyle ?? inferPathStyle(session.cwd ?? payload.rootPath)
   return payload.files
     .map((file) => {
@@ -478,11 +462,7 @@ export function formatDroppedPathsForTerminal(
     .join(' ')
 }
 
-function formatDroppedPath(
-  filePath: string,
-  cwd: string,
-  style: TerminalPathStyle
-): string {
+function formatDroppedPath(filePath: string, cwd: string, style: TerminalPathStyle): string {
   if (!isSafeDroppedPath(filePath)) return ''
   const relative = getRelativePath(cwd, filePath, style)
   if (relative) return normalizeSeparatorsForStyle(relative, style)
@@ -520,9 +500,7 @@ function getRelativePath(parentPath: string, childPath: string, style: TerminalP
 function toComparablePath(pathValue: string, style: TerminalPathStyle): string {
   const runtimePath = toRuntimePath(pathValue, style)
   const normalized = normalizeComparableShape(runtimePath)
-  return style === 'windows' || style === 'wsl'
-    ? normalized.toLowerCase()
-    : normalized
+  return style === 'windows' || style === 'wsl' ? normalized.toLowerCase() : normalized
 }
 
 function normalizeComparableShape(pathValue: string): string {
@@ -536,9 +514,7 @@ function toRuntimePath(pathValue: string, style: TerminalPathStyle): string {
 }
 
 function normalizeSeparatorsForStyle(pathValue: string, style: TerminalPathStyle): string {
-  return style === 'windows'
-    ? pathValue.replace(/\//g, '\\')
-    : pathValue.replace(/\\/g, '/')
+  return style === 'windows' ? pathValue.replace(/\//g, '\\') : pathValue.replace(/\\/g, '/')
 }
 
 function inferPathStyle(pathValue: string): TerminalPathStyle {

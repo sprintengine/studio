@@ -2,10 +2,7 @@ import { Terminal } from '@xterm/headless'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 
-import {
-  TERMINAL_CELL_GEOMETRY_OPTIONS,
-  TERMINAL_UNICODE_VERSION,
-} from '../shared/terminal-options'
+import { TERMINAL_CELL_GEOMETRY_OPTIONS, TERMINAL_UNICODE_VERSION } from '../shared/terminal-options'
 
 // Blank-screen fix for suspended agent terminals.
 //
@@ -45,16 +42,11 @@ const SNAPSHOT_RENDER_TIMEOUT_PER_MB_MS = 4_000
 const SNAPSHOT_RENDER_MAX_TIMEOUT_MS = 30_000
 
 function snapshotRenderTimeoutMs(dataLength: number): number {
-  const scaled = SNAPSHOT_RENDER_BASE_TIMEOUT_MS
-    + (dataLength / 1_048_576) * SNAPSHOT_RENDER_TIMEOUT_PER_MB_MS
+  const scaled = SNAPSHOT_RENDER_BASE_TIMEOUT_MS + (dataLength / 1_048_576) * SNAPSHOT_RENDER_TIMEOUT_PER_MB_MS
   return Math.min(SNAPSHOT_RENDER_MAX_TIMEOUT_MS, Math.round(scaled))
 }
 
-export async function buildReplaySnapshot(
-  data: string,
-  cols: number,
-  rows: number
-): Promise<string | null> {
+export async function buildReplaySnapshot(data: string, cols: number, rows: number): Promise<string | null> {
   if (!data) return null
   const safeCols = Math.max(Number.isFinite(cols) ? Math.floor(cols) : 80, 20)
   const safeRows = Math.max(Number.isFinite(rows) ? Math.floor(rows) : 24, 8)

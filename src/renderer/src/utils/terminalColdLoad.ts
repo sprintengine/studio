@@ -54,9 +54,7 @@ export interface AgentLaunchIntentInput {
  */
 export function hasLiveAgentLaunchIntent(agent: AgentLaunchIntentInput | null | undefined): boolean {
   if (!agent) return false
-  return Boolean(agent.cliStartRequested)
-    || Boolean(agent.cliStartupPrompt)
-    || (agent.cliRestartNonce ?? 0) > 0
+  return Boolean(agent.cliStartRequested) || Boolean(agent.cliStartupPrompt) || (agent.cliRestartNonce ?? 0) > 0
 }
 
 export interface AgentColdLoadInput {

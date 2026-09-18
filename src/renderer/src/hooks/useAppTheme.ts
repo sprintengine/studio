@@ -37,10 +37,7 @@ function resolveTheme(theme: AppTheme): ResolvedAppTheme {
 function applyThemeAttributes(resolved: ResolvedAppTheme): void {
   if (typeof document === 'undefined') return
   document.documentElement.setAttribute('data-theme', resolved)
-  document.documentElement.setAttribute(
-    'data-mode',
-    LIGHT_SURFACE_THEMES.includes(resolved) ? 'light' : 'dark',
-  )
+  document.documentElement.setAttribute('data-mode', LIGHT_SURFACE_THEMES.includes(resolved) ? 'light' : 'dark')
 }
 
 function applyTheme(resolved: ResolvedAppTheme): void {
@@ -132,9 +129,7 @@ export function subscribeSystemColorScheme(onChange: () => void): () => void {
 // must pick a matching base theme read this instead of the raw preference.
 export function useResolvedColorScheme(): ColorScheme {
   const theme = useWorkspaceStore((s) => s.appSettings.appearance.theme)
-  const [scheme, setScheme] = useState<ColorScheme>(() =>
-    colorSchemeForResolvedTheme(resolveTheme(theme))
-  )
+  const [scheme, setScheme] = useState<ColorScheme>(() => colorSchemeForResolvedTheme(resolveTheme(theme)))
 
   useEffect(() => {
     setScheme(colorSchemeForResolvedTheme(resolveTheme(theme)))

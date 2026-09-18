@@ -70,7 +70,10 @@ async function main(): Promise<void> {
     // first read writes the file the second one will find.
     writeFileSync(join(repo, 'a.ts'), 'changed\n')
     const first = await getGitChangelists(userData, repo)
-    assert.deepEqual(first.map((list) => list.id), [DEFAULT_CHANGELIST_ID])
+    assert.deepEqual(
+      first.map((list) => list.id),
+      [DEFAULT_CHANGELIST_ID],
+    )
     assert.deepEqual(pathsOf(first, DEFAULT_CHANGELIST_ID), ['a.ts'], 'the change is adopted into the active list')
     assert.equal(
       changelistsStorePath(userData, repo).startsWith(join(userData, 'git-changelists')),
@@ -113,13 +116,19 @@ async function main(): Promise<void> {
     assert.deepEqual(pathsOf(moved, feature.id), ['a.ts', 'b.ts'])
 
     // Rename round-trips, and the default is renameable without losing its id.
-    const renamed = await renameGitChangelist(userData, repo, feature.id, { name: 'Modal header', comment: 'chip on the band' })
+    const renamed = await renameGitChangelist(userData, repo, feature.id, {
+      name: 'Modal header',
+      comment: 'chip on the band',
+    })
     assert.equal(byName(renamed, 'Modal header').id, feature.id)
     assert.deepEqual(pathsOf(renamed, feature.id), ['a.ts', 'b.ts'], 'a rename does not disturb the paths')
 
     // Set-active round-trips and stays exclusive.
     const activeDefault = await setActiveGitChangelist(userData, repo, DEFAULT_CHANGELIST_ID)
-    assert.deepEqual(activeDefault.filter((list) => list.active).map((list) => list.id), [DEFAULT_CHANGELIST_ID])
+    assert.deepEqual(
+      activeDefault.filter((list) => list.active).map((list) => list.id),
+      [DEFAULT_CHANGELIST_ID],
+    )
 
     // A file that leaves git's status leaves the list, so a collapsed group can
     // never show a count of files that are no longer changed.
@@ -134,7 +143,10 @@ async function main(): Promise<void> {
       [DEFAULT_CHANGELIST_ID, feature.id].sort(),
     )
     const afterDelete = await deleteGitChangelist(userData, repo, feature.id)
-    assert.deepEqual(afterDelete.map((list) => list.id), [DEFAULT_CHANGELIST_ID])
+    assert.deepEqual(
+      afterDelete.map((list) => list.id),
+      [DEFAULT_CHANGELIST_ID],
+    )
     assert.deepEqual(pathsOf(afterDelete, DEFAULT_CHANGELIST_ID), ['a.ts'])
 
     // Concurrency: two creates fired without awaiting the first must both land.
@@ -145,10 +157,11 @@ async function main(): Promise<void> {
       createGitChangelist(userData, repo, { name: 'Race two' }),
     ])
     assert.equal(second.length, 3, 'both concurrent creates survive')
-    assert.deepEqual(
-      (await getGitChangelists(userData, repo)).map((list) => list.name).sort(),
-      ['Changes', 'Race one', 'Race two'],
-    )
+    assert.deepEqual((await getGitChangelists(userData, repo)).map((list) => list.name).sort(), [
+      'Changes',
+      'Race one',
+      'Race two',
+    ])
     assert.equal(
       (await getGitChangelists(userData, repo)).filter((list) => list.active).length,
       1,
@@ -188,7 +201,10 @@ async function assertAgentChangelists(userData: string, root: string): Promise<v
   // without moving anything: launch calls it, and so does every edit frame.
   const launched = await ensureOwnedChangelist(userData, repo, nadia, { activate: true })
   assert.equal(byName(launched, 'Nadia').id, nadiaId)
-  assert.deepEqual(launched.filter((list) => list.active).map((list) => list.id), [nadiaId])
+  assert.deepEqual(
+    launched.filter((list) => list.active).map((list) => list.id),
+    [nadiaId],
+  )
   const relaunched = await ensureOwnedChangelist(userData, repo, nadia, { activate: true })
   assert.equal(relaunched.length, launched.length, 'the second launch makes no second list')
 
@@ -237,7 +253,10 @@ async function assertAgentChangelists(userData: string, root: string): Promise<v
     'a span that overlaps no current hunk is dropped',
   )
   assert.deepEqual(pathsOf(reread, nadiaId), ['shared.ts'], 'and the home keeps the file it owns whole')
-  assert.ok(reread.some((list) => list.id === ivoId), 'the list itself stays while its agent is still running')
+  assert.ok(
+    reread.some((list) => list.id === ivoId),
+    'the list itself stays while its agent is still running',
+  )
 
   // The agent leaves with nothing left to show: the list goes.
   const afterIvoExit = await markOwnerExited(userData, repo, ivo.agentId)

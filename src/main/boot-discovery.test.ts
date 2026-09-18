@@ -33,25 +33,37 @@ async function main(): Promise<void> {
       onProgress: (update) => seen.push({ ...update }),
     })
 
-    assert.deepEqual(seen[0], { status: 'Finding your agents…', progress: 0 },
-      'the first push names the slow leg, at an empty hairline')
+    assert.deepEqual(
+      seen[0],
+      { status: 'Finding your agents…', progress: 0 },
+      'the first push names the slow leg, at an empty hairline',
+    )
 
     // Editors finishes first (it is a synchronous existsSync sweep), but the CLI
     // leg is still running, so the line must NOT advance to a resolved leg.
     editors.resolve()
     await editors.promise
-    assert.deepEqual(seen[seen.length - 1], { status: 'Finding your agents…', progress: 1 / 3 },
-      'a leg resolving out of order advances the hairline but not past an in-flight leg')
+    assert.deepEqual(
+      seen[seen.length - 1],
+      { status: 'Finding your agents…', progress: 1 / 3 },
+      'a leg resolving out of order advances the hairline but not past an in-flight leg',
+    )
 
     cli.resolve()
     await cli.promise
-    assert.deepEqual(seen[seen.length - 1], { status: 'Checking for updates…', progress: 2 / 3 },
-      'the line advances to the next leg that is actually still running')
+    assert.deepEqual(
+      seen[seen.length - 1],
+      { status: 'Checking for updates…', progress: 2 / 3 },
+      'the line advances to the next leg that is actually still running',
+    )
 
     updates.resolve()
     await done
-    assert.deepEqual(seen[seen.length - 1], { status: '', progress: 1 },
-      'the hairline reaches full and the line clears rather than holding a stale leg')
+    assert.deepEqual(
+      seen[seen.length - 1],
+      { status: '', progress: 1 },
+      'the hairline reaches full and the line clears rather than holding a stale leg',
+    )
 
     // Never a percentage: the copy is what the user reads, and the legs cannot
     // honestly promise one.
@@ -79,8 +91,7 @@ async function main(): Promise<void> {
 
     assert.equal(errors.length, 1, 'the failure is reported, not swallowed')
     assert.equal(errors[0]?.leg, 'cli')
-    assert.deepEqual(seen[seen.length - 1], { status: '', progress: 1 },
-      'a failed leg still lets the pass complete')
+    assert.deepEqual(seen[seen.length - 1], { status: '', progress: 1 }, 'a failed leg still lets the pass complete')
   }
 
   // The update leg defaults to a no-op: boot-discovery must not need to know

@@ -20,7 +20,11 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type { InstalledPluginRecord, McpServerConfig, StudioPluginStatus } from '../../../../../../../shared/electron-api'
+import type {
+  InstalledPluginRecord,
+  McpServerConfig,
+  StudioPluginStatus,
+} from '../../../../../../../shared/electron-api'
 import {
   deriveStudioPluginRow,
   studioPluginRowMatches,
@@ -63,7 +67,12 @@ import type { AgentComposerConnector } from '../../../agentComposer/useAgentComp
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
 import { bundledScanLine, sourceDisplayName, summarizeSyncRun } from '../skills/skillsSurfaceModel'
 import type { SkillSourcesState } from '../skills/useSkillSources'
-import { CatalogueHead, CatalogueSurface, type CatalogueAddMenu, type CatalogueSection } from '../catalogue/CatalogueSurface'
+import {
+  CatalogueHead,
+  CatalogueSurface,
+  type CatalogueAddMenu,
+  type CatalogueSection,
+} from '../catalogue/CatalogueSurface'
 import { SourceAvatar } from '../catalogue/SourceAvatar'
 import { extensionIconProps, pluginArtwork, sourceArtwork, type ExtensionArtwork } from '../catalogue/pluginArtwork'
 import {
@@ -220,10 +229,7 @@ export function PluginsCatalogue({
 
   // The app's own catalogue holds the registry's plugins. Its tab count is what
   // the tab actually lists.
-  const appEntries = useMemo(
-    () => buildConnectorEntries(registry),
-    [registry],
-  )
+  const appEntries = useMemo(() => buildConnectorEntries(registry), [registry])
   const appCount = useMemo<CatalogueCount>(() => {
     if (connectors.registryLoad.status === 'loading') {
       return { status: 'loading' }
@@ -251,8 +257,8 @@ export function PluginsCatalogue({
             : {
                 status: 'ready',
                 count:
-                  scanPlugins(load.scan).length
-                  + scanMcpServers(load.scan).filter((server) => server.declaredBy !== hiddenMcpFor(source.id)).length,
+                  scanPlugins(load.scan).length +
+                  scanMcpServers(load.scan).filter((server) => server.declaredBy !== hiddenMcpFor(source.id)).length,
               }
       // Our own tab holds two populations, and the number on it has to be the
       // number of rows under it: the marketplace repository's plugins and
@@ -586,8 +592,8 @@ export function PluginsCatalogue({
       const servers = scanMcpServers(sourceScan)
         .filter(
           (server) =>
-            server.declaredBy !== hiddenMcp
-            && (lower === '' || `${server.name} ${server.description} ${server.id}`.toLowerCase().includes(lower)),
+            server.declaredBy !== hiddenMcp &&
+            (lower === '' || `${server.name} ${server.description} ${server.id}`.toLowerCase().includes(lower)),
         )
         .map((server) => ({ kind: 'server' as const, sourceId: source.id, server }))
       return { plugins, servers }
@@ -747,8 +753,7 @@ export function PluginsCatalogue({
       }
       if (item.kind === 'plugin') {
         const row = item.item
-        const selected =
-          openRow?.kind === 'plugin' && openRow.sourceId === item.sourceId && openRow.id === row.pluginId
+        const selected = openRow?.kind === 'plugin' && openRow.sourceId === item.sourceId && openRow.id === row.pluginId
         return (
           <ConnectorRow
             surface="card"
@@ -764,9 +769,7 @@ export function PluginsCatalogue({
             // page of thirty rows for the one the notification meant (owner,
             // 2026-09-10).
             badge={
-              row.install.kind === 'update-available'
-                ? { count: 1, label: `${row.name} — update available` }
-                : null
+              row.install.kind === 'update-available' ? { count: 1, label: `${row.name} — update available` } : null
             }
             name={row.name}
             summary={row.description || row.components}
@@ -846,8 +849,8 @@ export function PluginsCatalogue({
               // declared at the repository's root has no plugin to borrow
               // from and wears the account's face.
               {...extensionIconProps(
-                artworkByPlugin.get(pluginKey(item.sourceId, server.declaredBy))
-                  ?? sourceArtwork(rowSource, server.name, ROW_ICON_SIZE),
+                artworkByPlugin.get(pluginKey(item.sourceId, server.declaredBy)) ??
+                  sourceArtwork(rowSource, server.name, ROW_ICON_SIZE),
               )}
             />
           }
@@ -894,59 +897,53 @@ export function PluginsCatalogue({
   // A report belongs to the source it happened on. Under a search the rows of
   // every source are on screen, so every source's report is too.
   const thisReport = report && (searching || report.sourceId === activeSource?.id) ? report : null
-  const head =
-    crossSearch ? (
-      <CatalogueHead name="All sources" stateLine={crossSourceStateLine(crossSearch)} />
-    ) : tabId === INSTALLED_TAB_ID ? (
-      <CatalogueHead
-        name="Installed"
-        stateLine={
-          workspaceRoot
-            ? 'The MCP servers configured on this machine, grouped by where they came from.'
-            : 'The MCP servers configured on this machine. Open a workspace to install into one.'
-        }
-      />
-    ) : activeSource ? (
-      <CatalogueHead
-        monogram={<SourceAvatar source={activeSource} monogram={catalogueMonogram(activeSource)} />}
-        name={catalogueTabLabel(activeSource)}
-        // Where it comes from, and nothing else. What it holds is on the tab
-        // and the section headings; what happened to it last, and whether the
-        // scan read everything, are notices under the head (extensions
-        // review, 2026-09-08 — this line had grown to four).
-        stateLine={activeSource.path || sourceDisplayName(activeSource)}
-        actions={
-          <SourceTabActions
-            source={activeSource}
-            onSynced={(source, result) => {
-              sources.applySync(source, result.scan)
-              sources.refreshInstalled()
-              setReport({ sourceId: source.id, outcome: summarizeSyncRun(result), error: null })
-            }}
-            // The manual update check reports into the same head line a sync
-            // reports into: one place the source says what just happened to it.
-            onCheckReport={(source, message) =>
-              setReport({ sourceId: source.id, outcome: message, error: null })
-            }
-            onSyncFailed={(source, message) => setReport({ sourceId: source.id, outcome: null, error: message })}
-            onRemoved={() => {
-              sources.refreshSources()
-              onSelectTab(STUDIO_SKILL_SOURCE_ID)
-            }}
-            workspaceRoot={workspaceRoot}
-          />
-        }
-      />
-    ) : null
+  const head = crossSearch ? (
+    <CatalogueHead name="All sources" stateLine={crossSourceStateLine(crossSearch)} />
+  ) : tabId === INSTALLED_TAB_ID ? (
+    <CatalogueHead
+      name="Installed"
+      stateLine={
+        workspaceRoot
+          ? 'The MCP servers configured on this machine, grouped by where they came from.'
+          : 'The MCP servers configured on this machine. Open a workspace to install into one.'
+      }
+    />
+  ) : activeSource ? (
+    <CatalogueHead
+      monogram={<SourceAvatar source={activeSource} monogram={catalogueMonogram(activeSource)} />}
+      name={catalogueTabLabel(activeSource)}
+      // Where it comes from, and nothing else. What it holds is on the tab
+      // and the section headings; what happened to it last, and whether the
+      // scan read everything, are notices under the head (extensions
+      // review, 2026-09-08 — this line had grown to four).
+      stateLine={activeSource.path || sourceDisplayName(activeSource)}
+      actions={
+        <SourceTabActions
+          source={activeSource}
+          onSynced={(source, result) => {
+            sources.applySync(source, result.scan)
+            sources.refreshInstalled()
+            setReport({ sourceId: source.id, outcome: summarizeSyncRun(result), error: null })
+          }}
+          // The manual update check reports into the same head line a sync
+          // reports into: one place the source says what just happened to it.
+          onCheckReport={(source, message) => setReport({ sourceId: source.id, outcome: message, error: null })}
+          onSyncFailed={(source, message) => setReport({ sourceId: source.id, outcome: null, error: message })}
+          onRemoved={() => {
+            sources.refreshSources()
+            onSelectTab(STUDIO_SKILL_SOURCE_ID)
+          }}
+          workspaceRoot={workspaceRoot}
+        />
+      }
+    />
+  ) : null
 
   const unreadLine = crossSearch ? unreadSourcesLine(crossSearch.unread) : null
   const notices = (
     <>
       {landingNotice ? (
-        <InlineNotice
-          tone="warn"
-          action={<GhostButton onClick={() => setLandingNotice(null)}>Dismiss</GhostButton>}
-        >
+        <InlineNotice tone="warn" action={<GhostButton onClick={() => setLandingNotice(null)}>Dismiss</GhostButton>}>
           {landingNotice}
         </InlineNotice>
       ) : null}
@@ -1032,11 +1029,7 @@ export function PluginsCatalogue({
             tone="error"
             title="The marketplace is unavailable."
             hint="Its plugins and MCP servers are not listed below — this is not an empty catalogue."
-            action={
-              <GhostButton onClick={() => void connectors.loadRegistry(true)}>
-                Try again
-              </GhostButton>
-            }
+            action={<GhostButton onClick={() => void connectors.loadRegistry(true)}>Try again</GhostButton>}
           />
         )
       }
@@ -1060,10 +1053,10 @@ export function PluginsCatalogue({
   })()
 
   const openConnector =
-    openRow?.kind === 'connector' ? appEntries.find((entry) => entry.key === openRow.key) ?? null : null
+    openRow?.kind === 'connector' ? (appEntries.find((entry) => entry.key === openRow.key) ?? null) : null
   // The open plugin's OWN source and scan — the row's, which under a search
   // need not be the tab's.
-  const openSource = openRow?.kind === 'plugin' ? sourceById.get(openRow.sourceId) ?? null : null
+  const openSource = openRow?.kind === 'plugin' ? (sourceById.get(openRow.sourceId) ?? null) : null
   const openScan = openRow?.kind === 'plugin' ? readyScan(openRow.sourceId) : null
   const openPlugin = openScan && openRow?.kind === 'plugin' ? findPlugin(openScan, openRow.id) : null
   const marketplaceName = openScan?.marketplaceName ?? ''
@@ -1108,9 +1101,13 @@ export function PluginsCatalogue({
       installedDirNames={sources.installedDirNames}
       installedMcpIds={connectors.installedServerIds}
       busyItem={busyItem}
-      onInstallSkill={(skillId) => void installPluginItems(openSource, openPlugin, { skillIds: [skillId] }, `skill:${skillId}`)}
+      onInstallSkill={(skillId) =>
+        void installPluginItems(openSource, openPlugin, { skillIds: [skillId] }, `skill:${skillId}`)
+      }
       onRemoveSkill={(skillId) => void removePluginSkill(openSource, skillId)}
-      onInstallMcp={(serverId) => void installPluginItems(openSource, openPlugin, { mcpServerIds: [serverId] }, `mcp:${serverId}`)}
+      onInstallMcp={(serverId) =>
+        void installPluginItems(openSource, openPlugin, { mcpServerIds: [serverId] }, `mcp:${serverId}`)
+      }
       onRemoveMcp={(serverId) => void removePluginMcp(openSource, openInstallRecord, serverId)}
       onUpdateInstalled={() => {
         if (!openInstallRecord) return

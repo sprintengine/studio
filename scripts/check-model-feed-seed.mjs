@@ -26,7 +26,8 @@ try {
   process.exit(1)
 }
 if (feed.schemaVersion !== 1) errors.push(`schemaVersion must be 1, got ${JSON.stringify(feed.schemaVersion)}`)
-if (typeof feed.updatedAt !== 'string' || Number.isNaN(Date.parse(feed.updatedAt))) errors.push('updatedAt must be an ISO date-time')
+if (typeof feed.updatedAt !== 'string' || Number.isNaN(Date.parse(feed.updatedAt)))
+  errors.push('updatedAt must be an ISO date-time')
 if (!feed.clis || typeof feed.clis !== 'object') errors.push('clis must be an object')
 
 const manifests = new Map()
@@ -59,8 +60,16 @@ for (const [cli, entry] of Object.entries(feed.clis ?? {})) {
   }
   const manifestIds = new Set((manifest.modelSelection?.options ?? []).map((option) => option.id))
   const liveIds = new Set(rows.filter((row) => row.retired !== true).map((row) => row.id))
-  for (const id of manifestIds) if (!liveIds.has(id)) errors.push(`${cli}: manifest lists "${id}" but the feed does not (run npm run sync:model-feed, or add it to the feed)`)
-  for (const id of liveIds) if (!manifestIds.has(id)) errors.push(`${cli}: feed lists "${id}" but resources/plugins/${cli}/plugin.json does not (add it to modelSelection.options)`)
+  for (const id of manifestIds)
+    if (!liveIds.has(id))
+      errors.push(
+        `${cli}: manifest lists "${id}" but the feed does not (run npm run sync:model-feed, or add it to the feed)`,
+      )
+  for (const id of liveIds)
+    if (!manifestIds.has(id))
+      errors.push(
+        `${cli}: feed lists "${id}" but resources/plugins/${cli}/plugin.json does not (add it to modelSelection.options)`,
+      )
 }
 
 if (errors.length) {
@@ -69,4 +78,6 @@ if (errors.length) {
   process.exit(1)
 }
 const total = Object.values(feed.clis).reduce((n, cli) => n + cli.models.length, 0)
-console.log(`model feed seed ok: ${Object.keys(feed.clis).length} CLIs, ${total} models, matches the manifests, updated ${feed.updatedAt}`)
+console.log(
+  `model feed seed ok: ${Object.keys(feed.clis).length} CLIs, ${total} models, matches the manifests, updated ${feed.updatedAt}`,
+)

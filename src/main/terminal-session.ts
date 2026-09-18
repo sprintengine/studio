@@ -327,11 +327,7 @@ export function recordTerminalInput(session: TerminalSession, at = Date.now()): 
 // Visibility recency feeds the stale-terminal sweep. Both transitions count as
 // "the user looked at this": becoming visible marks the view starting, and
 // becoming hidden marks the moment the user navigated away.
-export function recordTerminalVisibility(
-  session: TerminalSession,
-  visible: boolean,
-  at = Date.now()
-): void {
+export function recordTerminalVisibility(session: TerminalSession, visible: boolean, at = Date.now()): void {
   session.visible = visible
   session.lastVisibleAt = at
 }
@@ -348,17 +344,13 @@ export const STALE_TERMINAL_MAX_UNSEEN_MS = 24 * 60 * 60 * 1000
 // lastVisibleAt is still recorded for the snapshot/diagnostics, and the
 // currently-on-screen guard lives separately in isTerminalSessionStale.
 export function getTerminalLastSeenAt(session: TerminalSession): number {
-  return Math.max(
-    session.startedAt,
-    session.lastInputAt ?? 0,
-    session.lastOutputAt ?? 0
-  )
+  return Math.max(session.startedAt, session.lastInputAt ?? 0, session.lastOutputAt ?? 0)
 }
 
 export function isTerminalSessionStale(
   session: TerminalSession,
   now = Date.now(),
-  maxUnseenMs = STALE_TERMINAL_MAX_UNSEEN_MS
+  maxUnseenMs = STALE_TERMINAL_MAX_UNSEEN_MS,
 ): boolean {
   if (session.isDisposed) return false
   // A session with a mounted TerminalView is on screen somewhere; only treat
@@ -375,11 +367,12 @@ export function markTerminalFailed(
   session: TerminalSession,
   exitCode: number,
   message: string | undefined,
-  at = Date.now()
+  at = Date.now(),
 ): void {
-  transitionTerminalActivity(session, message
-    ? { kind: 'failed', at, exitCode, message }
-    : { kind: 'failed', at, exitCode })
+  transitionTerminalActivity(
+    session,
+    message ? { kind: 'failed', at, exitCode, message } : { kind: 'failed', at, exitCode },
+  )
 }
 
 export function createFailedTerminalSession(input: FailedTerminalSessionInput): TerminalSession {
@@ -470,9 +463,7 @@ type SuspendedPlaceholderSessionInput = {
 // false, `suspended` true, painted content preferred from `replaySnapshot`.
 // There is no pty behind it; resume disposes it and re-spawns under the same
 // session id.
-export function createSuspendedPlaceholderSession(
-  input: SuspendedPlaceholderSessionInput
-): TerminalSession {
+export function createSuspendedPlaceholderSession(input: SuspendedPlaceholderSessionInput): TerminalSession {
   const at = input.at ?? Date.now()
   const session: TerminalSession = {
     sessionId: input.sessionId,
@@ -492,7 +483,13 @@ export function createSuspendedPlaceholderSession(
     // output timing (an in-process suspend keeps the live phase; this is the
     // restart-rehydration path, where no phase survived).
     ...((input.kind ?? 'agent') === 'agent'
-      ? { agentState: { phase: 'idle' as const, since: input.lastTurnEndedAt ?? input.savedAt, source: 'lifecycle' as const } }
+      ? {
+          agentState: {
+            phase: 'idle' as const,
+            since: input.lastTurnEndedAt ?? input.savedAt,
+            source: 'lifecycle' as const,
+          },
+        }
       : {}),
     lastTurnEndedAt: input.lastTurnEndedAt ?? null,
     outputChunks: [],
@@ -543,7 +540,7 @@ export function appendTerminalOutput(
   session: TerminalSession,
   data: string,
   at = Date.now(),
-  markAsRealOutput = true
+  markAsRealOutput = true,
 ): void {
   const replayLimitBytes = getTerminalReplayLimitBytes({ ...session, lastOutputAt: at }, at)
   const chunk = trimTerminalChunkToReplayLimit(data, replayLimitBytes)
@@ -555,10 +552,7 @@ export function appendTerminalOutput(
 
   if (chunk.bytes !== Buffer.byteLength(data)) session.replayTruncated = true
 
-  while (
-    session.outputBytes > replayLimitBytes
-    && session.outputChunkStart < session.outputChunks.length
-  ) {
+  while (session.outputBytes > replayLimitBytes && session.outputChunkStart < session.outputChunks.length) {
     const removed = session.outputChunks[session.outputChunkStart]
     const removedBytes = session.outputChunkBytes[session.outputChunkStart] ?? 0
     session.outputChunkStart += 1
@@ -568,8 +562,8 @@ export function appendTerminalOutput(
   }
 
   if (
-    session.outputChunkStart >= TERMINAL_REPLAY_COMPACT_THRESHOLD
-    && session.outputChunkStart > session.outputChunks.length / 2
+    session.outputChunkStart >= TERMINAL_REPLAY_COMPACT_THRESHOLD &&
+    session.outputChunkStart > session.outputChunks.length / 2
   ) {
     session.outputChunks.splice(0, session.outputChunkStart)
     session.outputChunkBytes.splice(0, session.outputChunkStart)
@@ -702,7 +696,7 @@ export function noteFoldedFileChange(
   session: TerminalSession,
   change: { path: string; additions: number; deletions: number; edits?: unknown },
   toolUseId: string | undefined,
-  at: number
+  at: number,
 ): boolean {
   const ring = (session.foldedFileChanges ??= new Map<string, FoldedFileChange>())
   // BOTH keys, always. The two registrations of one edit need not agree on
@@ -738,7 +732,7 @@ export function noteFoldedFileChange(
 export function recordSessionFileChange(
   session: TerminalSession,
   change: { path: string; additions: number; deletions: number },
-  at: number
+  at: number,
 ): boolean {
   const ledger = (session.fileChanges ??= new Map<string, SessionFileChange>())
   const existing = ledger.get(change.path)
@@ -818,8 +812,7 @@ export function listSessionFileChanges(session: TerminalSession): SessionFileCha
 export function parseSessionFileChanges(raw: unknown): Map<string, SessionFileChange> | undefined {
   if (!Array.isArray(raw)) return undefined
   const ledger = new Map<string, SessionFileChange>()
-  const isCount = (value: unknown): value is number =>
-    typeof value === 'number' && Number.isFinite(value) && value >= 0
+  const isCount = (value: unknown): value is number => typeof value === 'number' && Number.isFinite(value) && value >= 0
   // Read the head of the list — it is newest-first — rather than reversing the
   // whole thing: a corrupt file naming a million entries must not buy itself a
   // million iterations on the main thread during rehydration. Inserted in
@@ -918,7 +911,7 @@ export type SessionStatusLine = {
 export function recordSessionStatusLine(
   session: TerminalSession,
   reading: AgentStateFrameStatusLine,
-  at: number
+  at: number,
 ): boolean {
   const previous = session.statusLine
   // Out of order: a status-line process is spawned per refresh and they can
@@ -1009,10 +1002,7 @@ export function getTerminalSnapshot(session: TerminalSession): TerminalSessionSn
 
 function compactTerminalReplayToLimit(session: TerminalSession, now = Date.now()): void {
   const replayLimitBytes = getTerminalReplayLimitBytes(session, now)
-  while (
-    session.outputBytes > replayLimitBytes
-    && session.outputChunks.length - session.outputChunkStart > 1
-  ) {
+  while (session.outputBytes > replayLimitBytes && session.outputChunks.length - session.outputChunkStart > 1) {
     const removed = session.outputChunks[session.outputChunkStart]
     const removedBytes = session.outputChunkBytes[session.outputChunkStart] ?? 0
     session.outputChunkStart += 1
@@ -1021,10 +1011,7 @@ function compactTerminalReplayToLimit(session: TerminalSession, now = Date.now()
     session.replayTruncated = true
   }
 
-  if (
-    session.outputBytes > replayLimitBytes
-    && session.outputChunks.length - session.outputChunkStart === 1
-  ) {
+  if (session.outputBytes > replayLimitBytes && session.outputChunks.length - session.outputChunkStart === 1) {
     const index = session.outputChunkStart
     const chunk = session.outputChunks[index] ?? ''
     const trimmed = trimTerminalChunkToReplayLimit(chunk, replayLimitBytes)
@@ -1036,8 +1023,8 @@ function compactTerminalReplayToLimit(session: TerminalSession, now = Date.now()
   }
 
   if (
-    session.outputChunkStart >= TERMINAL_REPLAY_COMPACT_THRESHOLD
-    && session.outputChunkStart > session.outputChunks.length / 2
+    session.outputChunkStart >= TERMINAL_REPLAY_COMPACT_THRESHOLD &&
+    session.outputChunkStart > session.outputChunks.length / 2
   ) {
     session.outputChunks.splice(0, session.outputChunkStart)
     session.outputChunkBytes.splice(0, session.outputChunkStart)
@@ -1045,7 +1032,10 @@ function compactTerminalReplayToLimit(session: TerminalSession, now = Date.now()
   }
 }
 
-function trimTerminalChunkToReplayLimit(data: string, replayLimitBytes = TERMINAL_STANDARD_REPLAY_BYTES): { data: string; bytes: number } {
+function trimTerminalChunkToReplayLimit(
+  data: string,
+  replayLimitBytes = TERMINAL_STANDARD_REPLAY_BYTES,
+): { data: string; bytes: number } {
   const bytes = Buffer.byteLength(data)
   if (bytes <= replayLimitBytes) return { data, bytes }
 

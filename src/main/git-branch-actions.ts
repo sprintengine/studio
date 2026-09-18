@@ -24,7 +24,7 @@ type CurrentBranchGuard = { branch: string; error: null } | { branch: null; erro
 async function requireCleanCurrentBranch(
   repoRoot: string,
   verb: string,
-  dirtyPhrase: string | null
+  dirtyPhrase: string | null,
 ): Promise<CurrentBranchGuard> {
   const branch = await getCurrentBranchName(repoRoot)
   if (!branch) {
@@ -176,7 +176,12 @@ function validateRefName(name: string, kind: 'branch' | 'tag'): GitCommandResult
   const trimmed = name.trim()
   if (!trimmed) return { ok: false, stdout: '', stderr: '', message: `Enter a ${kind} name.` }
   if (trimmed.startsWith('-')) {
-    return { ok: false, stdout: '', stderr: '', message: `${kind === 'branch' ? 'Branch' : 'Tag'} names cannot start with a dash.` }
+    return {
+      ok: false,
+      stdout: '',
+      stderr: '',
+      message: `${kind === 'branch' ? 'Branch' : 'Tag'} names cannot start with a dash.`,
+    }
   }
   return null
 }
@@ -251,7 +256,9 @@ export async function cherryPickGitCommit(repoRoot: string, commitHash: string):
   if (guard.error) return guard.error
 
   if (await isMergeCommit(repoRoot, hash)) {
-    return fail('This is a merge commit; cherry-picking it needs a mainline parent (git cherry-pick -m). Use the Git terminal.')
+    return fail(
+      'This is a merge commit; cherry-picking it needs a mainline parent (git cherry-pick -m). Use the Git terminal.',
+    )
   }
 
   return runGitCommand(repoRoot, ['cherry-pick', hash], NO_EDITOR_ENV)
@@ -276,7 +283,7 @@ const GIT_RESET_MODES: GitResetMode[] = ['soft', 'mixed', 'hard']
 export async function resetGitBranchToCommit(
   repoRoot: string,
   commitHash: string,
-  mode: GitResetMode
+  mode: GitResetMode,
 ): Promise<GitCommandResult> {
   const hash = commitHash.trim()
   if (!COMMIT_HASH_PATTERN.test(hash)) return invalidCommit()
@@ -292,11 +299,7 @@ export async function resetGitBranchToCommit(
   return runGitCommand(repoRoot, ['reset', `--${mode}`, hash])
 }
 
-export async function deleteGitBranch(
-  repoRoot: string,
-  branchName: string,
-  force = false
-): Promise<GitCommandResult> {
+export async function deleteGitBranch(repoRoot: string, branchName: string, force = false): Promise<GitCommandResult> {
   const invalid = validateRefName(branchName, 'branch')
   if (invalid) return invalid
 
@@ -312,7 +315,7 @@ export async function deleteGitBranch(
 export async function renameGitBranch(
   repoRoot: string,
   branchName: string,
-  newName: string
+  newName: string,
 ): Promise<GitCommandResult> {
   const invalidOld = validateRefName(branchName, 'branch')
   if (invalidOld) return invalidOld
@@ -357,7 +360,7 @@ export async function checkoutGitCommit(repoRoot: string, commitHash: string): P
 export async function createGitBranchFromCommit(
   repoRoot: string,
   branchName: string,
-  commitHash: string
+  commitHash: string,
 ): Promise<GitCommandResult> {
   const hash = commitHash.trim()
   if (!COMMIT_HASH_PATTERN.test(hash)) return invalidCommit()
@@ -369,7 +372,7 @@ export async function createGitBranchFromCommit(
 export async function checkoutGitCommitAsBranch(
   repoRoot: string,
   branchName: string,
-  commitHash: string
+  commitHash: string,
 ): Promise<GitCommandResult> {
   const hash = commitHash.trim()
   if (!COMMIT_HASH_PATTERN.test(hash)) return invalidCommit()
@@ -389,7 +392,7 @@ export async function checkoutGitCommitAsBranch(
 export async function createGitTagFromCommit(
   repoRoot: string,
   tagName: string,
-  commitHash: string
+  commitHash: string,
 ): Promise<GitCommandResult> {
   const hash = commitHash.trim()
   if (!COMMIT_HASH_PATTERN.test(hash)) return invalidCommit()

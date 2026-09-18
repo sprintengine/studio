@@ -21,10 +21,7 @@ type PullRequestIpcRenderer = {
     workspaceIds: readonly string[],
   ): Promise<Record<string, BranchPullRequest[]>>
   on(channel: 'pullRequest:workspaces-changed', listener: (event: unknown, ids: string[]) => void): void
-  removeListener(
-    channel: 'pullRequest:workspaces-changed',
-    listener: (event: unknown, ids: string[]) => void,
-  ): void
+  removeListener(channel: 'pullRequest:workspaces-changed', listener: (event: unknown, ids: string[]) => void): void
 }
 
 export function createPullRequestApi(renderer: PullRequestIpcRenderer) {
@@ -41,9 +38,7 @@ export function createPullRequestApi(renderer: PullRequestIpcRenderer) {
      * present with an empty array, so a window asking about two hundred rows
      * gets back only the handful that have news.
      */
-    listPullRequestsForWorkspaces: (
-      workspaceIds: readonly string[],
-    ): Promise<Record<string, BranchPullRequest[]>> =>
+    listPullRequestsForWorkspaces: (workspaceIds: readonly string[]): Promise<Record<string, BranchPullRequest[]>> =>
       renderer.invoke('pullRequest:listForWorkspaces', workspaceIds),
 
     /**

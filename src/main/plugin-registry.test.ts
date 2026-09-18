@@ -6,14 +6,8 @@ import { dirname, join } from 'node:path'
 
 import type { ConversationProviderManifest } from '../shared/plugin-manifest'
 import { canonicalManifestPayload } from '../shared/modules/third-party-manifest'
-import {
-  agentCliSupportsConversationResume,
-  agentCliUsesStableSessionIdForResume,
-} from '../shared/agent-cli-resume'
-import {
-  createPluginRegistry,
-  validateManifestSource,
-} from './plugin-registry'
+import { agentCliSupportsConversationResume, agentCliUsesStableSessionIdForResume } from '../shared/agent-cli-resume'
+import { createPluginRegistry, validateManifestSource } from './plugin-registry'
 import { renderPluginLaunch } from './plugin-render'
 import { manifestFingerprint, verifyModuleSignature } from './modules/module-signature'
 import { createAppPluginRegistryOptions } from './plugin-registry-instance'
@@ -66,10 +60,13 @@ async function testBundledManifestsLoad(): Promise<void> {
   assert.deepEqual(
     report.rejected,
     [],
-    `bundled manifests should validate cleanly: ${JSON.stringify(report.rejected, null, 2)}`
+    `bundled manifests should validate cleanly: ${JSON.stringify(report.rejected, null, 2)}`,
   )
 
-  const ids = registry.list().map((p) => p.id).sort()
+  const ids = registry
+    .list()
+    .map((p) => p.id)
+    .sort()
   assert.deepEqual(ids, [
     'claude-code',
     'codex',
@@ -84,11 +81,11 @@ async function testBundledManifestsLoad(): Promise<void> {
   ])
   assert.equal(
     registry.listConversationProviders().some((provider) => provider.id === 'openrouter'),
-    true
+    true,
   )
   assert.equal(
     registry.listConversationProviders().some((provider) => provider.id === 'xai'),
-    true
+    true,
   )
   // CLI `auth` surfaces only its label to the renderer (gates the key-entry row);
   // CLIs without auth omit the field entirely.
@@ -148,7 +145,7 @@ async function testBundledManifestsLoad(): Promise<void> {
   assert.equal(
     registry.list().some((entry) => entry.id === 'openrouter'),
     false,
-    'bundled provider manifests must not appear in the terminal CLI catalog'
+    'bundled provider manifests must not appear in the terminal CLI catalog',
   )
 
   for (const id of ids) {
@@ -226,12 +223,12 @@ async function testResumeCapabilitiesProjectedAndConsistent(): Promise<void> {
     assert.equal(
       entry.agentStateCapable,
       Boolean(plugin!.manifest.agentStateSpec),
-      `${entry.id} projected agentStateCapable`
+      `${entry.id} projected agentStateCapable`,
     )
     assert.equal(
       entry.agentStateCapable,
       expectedAgentStateCapable[entry.id],
-      `${entry.id}: agentStateCapable pin (update the pin AND the epic's gate rationale together)`
+      `${entry.id}: agentStateCapable pin (update the pin AND the epic's gate rationale together)`,
     )
 
     // Predicate ⟺ declared capability (resolved from the projected entry).
@@ -239,17 +236,21 @@ async function testResumeCapabilitiesProjectedAndConsistent(): Promise<void> {
     assert.equal(
       agentCliSupportsConversationResume(resolved),
       caps.resumeSession,
-      `${entry.id}: resume predicate must equal capabilities.resumeSession`
+      `${entry.id}: resume predicate must equal capabilities.resumeSession`,
     )
     assert.equal(
       agentCliUsesStableSessionIdForResume(resolved),
       caps.sessionIdFromCaller,
-      `${entry.id}: stable-session predicate must equal capabilities.sessionIdFromCaller`
+      `${entry.id}: stable-session predicate must equal capabilities.sessionIdFromCaller`,
     )
 
     const pin = expected[entry.id]
     assert.ok(pin, `unexpected bundled CLI ${entry.id} — update the resume-capability guardrail`)
-    assert.deepEqual({ resumeSession: entry.resumeSession, sessionIdFromCaller: entry.sessionIdFromCaller }, pin, entry.id)
+    assert.deepEqual(
+      { resumeSession: entry.resumeSession, sessionIdFromCaller: entry.sessionIdFromCaller },
+      pin,
+      entry.id,
+    )
   }
 }
 
@@ -284,13 +285,7 @@ async function testClaudeBundledRenderMatchesExpected(): Promise<void> {
   const launchedNoPreset = renderPluginLaunch(plugin!.manifest, {
     sessionId: 'sid_demo',
   })
-  assert.deepEqual(launchedNoPreset.argv, [
-    'claude',
-    '--permission-mode',
-    'default',
-    '--session-id',
-    'sid_demo',
-  ])
+  assert.deepEqual(launchedNoPreset.argv, ['claude', '--permission-mode', 'default', '--session-id', 'sid_demo'])
 
   const launchedNone = renderPluginLaunch(plugin!.manifest, {
     sessionId: 'sid_demo',
@@ -306,13 +301,7 @@ async function testClaudeBundledRenderMatchesExpected(): Promise<void> {
     sessionId: 'sid_demo',
     permissionPreset: 'manual',
   })
-  assert.deepEqual(launchedManual.argv, [
-    'claude',
-    '--permission-mode',
-    'default',
-    '--session-id',
-    'sid_demo',
-  ])
+  assert.deepEqual(launchedManual.argv, ['claude', '--permission-mode', 'default', '--session-id', 'sid_demo'])
 }
 
 async function testCodexBundledRenderMatchesExpected(): Promise<void> {
@@ -372,7 +361,7 @@ async function testGrokBundledRenderMatchesExpected(): Promise<void> {
   assert.deepEqual(
     launchedManual.argv,
     ['grok', '--permission-mode', 'default', '--session-id', 'sid_demo'],
-    'the safe default preset must not grant --trust'
+    'the safe default preset must not grant --trust',
   )
 
   // MC-2211: Grok ships the whole Claude Code mode set, so it gets a real auto
@@ -384,14 +373,7 @@ async function testGrokBundledRenderMatchesExpected(): Promise<void> {
     sessionId: 'sid_demo',
     permissionPreset: 'auto',
   })
-  assert.deepEqual(launchedAuto.argv, [
-    'grok',
-    '--permission-mode',
-    'auto',
-    '--trust',
-    '--session-id',
-    'sid_demo',
-  ])
+  assert.deepEqual(launchedAuto.argv, ['grok', '--permission-mode', 'auto', '--trust', '--session-id', 'sid_demo'])
 
   // `none` is the only preset that grants neither a mode nor trust.
   const launchedNone = renderPluginLaunch(plugin!.manifest, {
@@ -447,14 +429,8 @@ async function testKimiCodeBundledRenderMatchesExpected(): Promise<void> {
   assert.deepEqual(presets.auto?.args, ['--yolo'], 'the rung that may still ask is auto')
   assert.deepEqual(presets.bypass?.args, ['--auto'], 'the rung that never asks is bypass')
 
-  assert.deepEqual(
-    renderPluginLaunch(plugin!.manifest, { permissionPreset: 'auto' }).argv,
-    ['kimi', '--yolo'],
-  )
-  assert.deepEqual(
-    renderPluginLaunch(plugin!.manifest, { permissionPreset: 'bypass' }).argv,
-    ['kimi', '--auto'],
-  )
+  assert.deepEqual(renderPluginLaunch(plugin!.manifest, { permissionPreset: 'auto' }).argv, ['kimi', '--yolo'])
+  assert.deepEqual(renderPluginLaunch(plugin!.manifest, { permissionPreset: 'bypass' }).argv, ['kimi', '--auto'])
 }
 
 // The ladder's whole reason to exist is that a missing rung fails SAFE. Assert
@@ -511,12 +487,7 @@ async function testCursorBundledRenderMatchesExpected(): Promise<void> {
     prompt: 'fix the tests',
     model: 'composer-2.5',
   })
-  assert.deepEqual(withModel.argv, [
-    'cursor-agent',
-    '--model',
-    'composer-2.5',
-    'fix the tests',
-  ])
+  assert.deepEqual(withModel.argv, ['cursor-agent', '--model', 'composer-2.5', 'fix the tests'])
   const withoutModel = renderPluginLaunch(plugin!.manifest, {
     sessionId: 'sid_cursor',
     prompt: 'fix the tests',
@@ -537,9 +508,12 @@ async function testFixtureManifestsValidate(): Promise<void> {
   assert.deepEqual(
     report.rejected,
     [],
-    `fixture manifests should validate cleanly: ${JSON.stringify(report.rejected, null, 2)}`
+    `fixture manifests should validate cleanly: ${JSON.stringify(report.rejected, null, 2)}`,
   )
-  const ids = registry.list().map((p) => p.id).sort()
+  const ids = registry
+    .list()
+    .map((p) => p.id)
+    .sort()
   assert.deepEqual(ids, ['aider', 'opencode', 'pi'])
 }
 
@@ -567,11 +541,7 @@ async function testUserPluginOverridesBundled(): Promise<void> {
       mcpServers: false,
     },
   }
-  await writeFile(
-    join(overrideRoot, 'plugin.json'),
-    JSON.stringify(overrideManifest, null, 2),
-    'utf-8'
-  )
+  await writeFile(join(overrideRoot, 'plugin.json'), JSON.stringify(overrideManifest, null, 2), 'utf-8')
 
   const registry = createPluginRegistry({ bundledRoot: BUNDLED_ROOT, userRoot })
   await registry.load()
@@ -624,7 +594,7 @@ async function testSkillIntegrationValidated(): Promise<void> {
           fileDropTemplate: 'pi skill {{skillId}} {{path}}',
         },
       },
-    })
+    }),
   )
   assert.equal(result.ok, true)
   if (!result.ok) return
@@ -663,7 +633,7 @@ async function testInvalidSkillIntegrationRejected(): Promise<void> {
           fileDropTemplate: 'bad {{unknown}}',
         },
       },
-    })
+    }),
   )
   assert.equal(result.ok, false)
   if (result.ok) return
@@ -694,7 +664,7 @@ async function testIdDirectoryMismatchRejected(): Promise<void> {
         mcpServers: false,
       },
     }),
-    'utf-8'
+    'utf-8',
   )
   const registry = createPluginRegistry({ bundledRoot: BUNDLED_ROOT, userRoot })
   const report = await registry.load()
@@ -720,7 +690,7 @@ async function testMissingPermissionPresetsRejected(): Promise<void> {
         toolUse: false,
         mcpServers: false,
       },
-    })
+    }),
   )
   assert.equal(result.ok, false)
   if (result.ok) return
@@ -744,7 +714,7 @@ async function testInvalidArgvTokenRejected(): Promise<void> {
         toolUse: false,
         mcpServers: false,
       },
-    })
+    }),
   )
   assert.equal(result.ok, false)
   if (result.ok) return
@@ -768,7 +738,7 @@ async function testSendAfterReadyRequiresReadiness(): Promise<void> {
         toolUse: false,
         mcpServers: false,
       },
-    })
+    }),
   )
   assert.equal(result.ok, false)
   if (result.ok) return
@@ -796,13 +766,13 @@ async function testCompletionFallbackValidated(): Promise<void> {
         toolUse: false,
         mcpServers: false,
       },
-    })
+    }),
   )
   assert.equal(result.ok, false)
   if (result.ok) return
   assert.ok(
     result.issues.some((i) => i.path.startsWith('completion.fallback.')),
-    'fallback completion validation should surface issues with fallback fields'
+    'fallback completion validation should surface issues with fallback fields',
   )
 }
 
@@ -819,13 +789,10 @@ async function testProviderManifestLoadsThroughProviderListOnly(): Promise<void>
       displayName: 'OpenAI Compatible',
       version: 1,
       providerType: 'model-provider',
-      models: [
-        { id: 'gpt-5', displayName: 'GPT-5' },
-        { id: 'gpt-5-mini' },
-      ],
+      models: [{ id: 'gpt-5', displayName: 'GPT-5' }, { id: 'gpt-5-mini' }],
       auth: { type: 'api-key', label: 'API key', env: 'OPENAI_API_KEY' },
     }),
-    'utf-8'
+    'utf-8',
   )
 
   const registry = createPluginRegistry({ bundledRoot: BUNDLED_ROOT, userRoot })
@@ -835,27 +802,27 @@ async function testProviderManifestLoadsThroughProviderListOnly(): Promise<void>
   assert.ok(registry.getConversationProvider('openai-compatible'))
   assert.ok(
     !registry.list().some((entry) => entry.id === 'openai-compatible'),
-    'provider manifests must not appear in the terminal CLI catalog'
+    'provider manifests must not appear in the terminal CLI catalog',
   )
-  assert.deepEqual(registry.listConversationProviders().filter((entry) => entry.id === 'openai-compatible'), [
-    {
-      id: 'openai-compatible',
-      displayName: 'OpenAI Compatible',
-      source: 'user',
-      version: 1,
-      providerType: 'model-provider',
-      models: [
-        { id: 'gpt-5', displayName: 'GPT-5' },
-        { id: 'gpt-5-mini' },
-      ],
-      supportsDynamicModels: false,
-      adapter: {
-        kind: 'declarative',
-        execution: 'declarative',
-        trust: 'not_required',
+  assert.deepEqual(
+    registry.listConversationProviders().filter((entry) => entry.id === 'openai-compatible'),
+    [
+      {
+        id: 'openai-compatible',
+        displayName: 'OpenAI Compatible',
+        source: 'user',
+        version: 1,
+        providerType: 'model-provider',
+        models: [{ id: 'gpt-5', displayName: 'GPT-5' }, { id: 'gpt-5-mini' }],
+        supportsDynamicModels: false,
+        adapter: {
+          kind: 'declarative',
+          execution: 'declarative',
+          trust: 'not_required',
+        },
       },
-    },
-  ])
+    ],
+  )
 }
 
 async function testProviderCliFieldMixingRejected(): Promise<void> {
@@ -868,7 +835,7 @@ async function testProviderCliFieldMixingRejected(): Promise<void> {
       providerType: 'model-provider',
       models: [{ id: 'demo' }],
       binary: 'demo',
-    })
+    }),
   )
   assert.equal(result.ok, false)
   if (result.ok) return
@@ -885,7 +852,7 @@ async function testOpenAiCompatibleProviderConfigValidated(): Promise<void> {
       providerType: 'model-provider',
       models: [{ id: 'demo' }],
       openaiCompatible: { baseUrl: 'file:///tmp/provider', chatCompletionsPath: '/v1/chat/completions' },
-    })
+    }),
   )
   assert.equal(invalidBase.ok, false)
   if (!invalidBase.ok) {
@@ -901,7 +868,7 @@ async function testOpenAiCompatibleProviderConfigValidated(): Promise<void> {
       providerType: 'model-provider',
       models: [{ id: 'demo' }],
       openaiCompatible: { baseUrl: 'https://api.example.test', chatCompletionsPath: '../chat' },
-    })
+    }),
   )
   assert.equal(invalidPath.ok, false)
   if (!invalidPath.ok) {
@@ -917,7 +884,7 @@ async function testOpenAiCompatibleProviderConfigValidated(): Promise<void> {
       providerType: 'model-provider',
       models: [{ id: 'demo' }],
       openaiCompatible: { baseUrl: 'https://openrouter.ai', modelsPath: 'api/v1/models' },
-    })
+    }),
   )
   assert.equal(invalidModelsPath.ok, false)
   if (!invalidModelsPath.ok) {
@@ -938,7 +905,7 @@ async function testOpenAiCompatibleProviderConfigValidated(): Promise<void> {
         chatCompletionsPath: '/api/v1/chat/completions',
         modelsPath: '/api/v1/models',
       },
-    })
+    }),
   )
   assert.equal(validDynamic.ok, true, 'a valid OpenRouter manifest with modelsPath passes validation')
 }
@@ -962,7 +929,7 @@ async function testCliProviderFieldMixingRejected(): Promise<void> {
         mcpServers: false,
       },
       providerType: 'model-provider',
-    })
+    }),
   )
   assert.equal(result.ok, false)
   if (result.ok) return
@@ -1161,7 +1128,7 @@ async function testUnsafeExecutableProviderEntryRejected(): Promise<void> {
       providerType: 'model-provider',
       models: [{ id: 'demo' }],
       adapter: { kind: 'trusted-executable', entry: '../provider.js', sha256: adapterSha256() },
-    })
+    }),
   )
   assert.equal(result.ok, false)
   if (result.ok) return

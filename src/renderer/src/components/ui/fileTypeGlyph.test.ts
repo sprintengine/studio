@@ -1,13 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import {
-  FILE_TYPE_LABEL,
-  fileTypeKind,
-  isTestBasename,
-  isTestPath,
-  type FileTypeKind,
-} from './FileTypeGlyph'
+import { FILE_TYPE_LABEL, fileTypeKind, isTestBasename, isTestPath, type FileTypeKind } from './FileTypeGlyph'
 
 // The mapping is the contract: a file kind that resolves differently in the
 // File Explorer and the Git changes list would put two marks on one file.
@@ -91,9 +85,30 @@ test('a path resolves by its last segment, case-insensitively', () => {
 
 test('every kind carries a label', () => {
   const kinds: FileTypeKind[] = [
-    'typescript', 'typescript-test', 'javascript', 'javascript-test', 'react', 'react-test', 'json', 'markdown',
-    'yaml', 'html', 'css', 'shell', 'python', 'python-test', 'rust', 'rust-test', 'go', 'go-test', 'java',
-    'image', 'lock', 'config', 'text', 'generic',
+    'typescript',
+    'typescript-test',
+    'javascript',
+    'javascript-test',
+    'react',
+    'react-test',
+    'json',
+    'markdown',
+    'yaml',
+    'html',
+    'css',
+    'shell',
+    'python',
+    'python-test',
+    'rust',
+    'rust-test',
+    'go',
+    'go-test',
+    'java',
+    'image',
+    'lock',
+    'config',
+    'text',
+    'generic',
   ]
   for (const kind of kinds) assert.ok(FILE_TYPE_LABEL[kind].length > 0, kind)
 })

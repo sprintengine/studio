@@ -83,9 +83,7 @@ export function CliInstallCta() {
     <RowButton density="row" onClick={openInstall} className="mt-5">
       <CliInstallIcon className="size-icon-md shrink-0 text-[color:var(--accent-primary)]" />
       <span className="min-w-0">
-        <span className="block text-body font-semibold text-[color:var(--text-strong)]">
-          Install an agent CLI
-        </span>
+        <span className="block text-body font-semibold text-[color:var(--text-strong)]">Install an agent CLI</span>
         {summary ? (
           <span className="mt-0.5 block truncate text-meta text-[color:var(--text-muted)]">{summary}</span>
         ) : null}

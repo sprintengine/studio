@@ -24,11 +24,7 @@ import {
 } from './tailnet/tailnet-gateway-server'
 import { TAILNET_EVENTS_PATH, TAILNET_UPLOAD_PATH } from './tailnet/tailnet-routes'
 import { resolveUploadDestination, sanitizeUploadName, uniqueName } from './tailnet/tailnet-uploads'
-import {
-  isAllowedTailnetBindAddress,
-  isTailnetAddress,
-  resolveTailnetInterface,
-} from './tailnet/tailnet-interface'
+import { isAllowedTailnetBindAddress, isTailnetAddress, resolveTailnetInterface } from './tailnet/tailnet-interface'
 import { createTailnetPeerResolver, normalizeAddress, peerNameFromWhois } from './tailnet/tailnet-peer-identity'
 import { isLocalOnlyGatewayTool, requiredScopeForTool } from './tailnet/tailnet-scopes'
 import { isStudioGatewayMutation } from './studio-gateway-tools'
@@ -105,7 +101,7 @@ async function startHarness(
     changePushIntervalMs?: number
     /** The working directory the stub's sessions report — where an upload lands. */
     terminalCwd?: string
-  } = {}
+  } = {},
 ): Promise<Harness> {
   const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-'))
   const calls: string[] = []
@@ -162,7 +158,7 @@ function call(
   port: number,
   method: string,
   path: string,
-  options: { token?: string; body?: unknown; headers?: Record<string, string> } = {}
+  options: { token?: string; body?: unknown; headers?: Record<string, string> } = {},
 ): Promise<HttpAnswer> {
   return new Promise((resolve, reject) => {
     const payload = options.body === undefined ? undefined : JSON.stringify(options.body)
@@ -194,7 +190,7 @@ function call(
           }
           resolve({ status: response.statusCode ?? 0, headers: response.headers, body })
         })
-      }
+      },
     )
     request.on('error', reject)
     if (payload) request.write(payload)
@@ -210,7 +206,7 @@ function call(
 function callRaw(
   port: number,
   path: string,
-  options: { token?: string; body: Buffer; chunked?: boolean; headers?: Record<string, string> }
+  options: { token?: string; body: Buffer; chunked?: boolean; headers?: Record<string, string> },
 ): Promise<HttpAnswer> {
   return new Promise((resolve, reject) => {
     let answered = false
@@ -249,7 +245,7 @@ function callRaw(
         // answer is already whole by then, so this settles rather than hangs.
         response.on('close', settle)
         response.on('aborted', settle)
-      }
+      },
     )
     // The server answers an oversized body before reading all of it and then
     // hangs up, so the write legitimately fails under us. A reset AFTER the
@@ -274,7 +270,7 @@ function uploadPath(sessionId: string, name: string): string {
 
 async function pairDevice(
   harness: Harness,
-  options: { scopes?: TailnetScope[]; name?: string } = {}
+  options: { scopes?: TailnetScope[]; name?: string } = {},
 ): Promise<{ deviceId: string; deviceToken: string }> {
   const offer = harness.devices.offerPairing({ scopes: options.scopes ?? [...TAILNET_STRUCTURED_SCOPES] })
   const answer = await call(harness.port, 'POST', TAILNET_PAIR_PATH, {
@@ -359,8 +355,11 @@ function createStubTerminalHost(cwd = '/tmp/project'): StubTerminalHost {
       }
       attached.set(transport.viewerId, { sessionId, transport })
       transport.send({ type: 'replay', data: replay.get(sessionId) ?? '', reason: 'attach' })
-      const refuse = (verb: string) =>
-        ({ ok: false as const, code: 'terminal_control_required', message: `Watch-only: cannot ${verb}.` })
+      const refuse = (verb: string) => ({
+        ok: false as const,
+        code: 'terminal_control_required',
+        message: `Watch-only: cannot ${verb}.`,
+      })
       return {
         ok: true,
         attachment: {
@@ -421,7 +420,7 @@ function maskedTextFrame(text: string): Buffer {
 async function openWebSocket(
   port: number,
   ticket: string,
-  route: { path?: string; query?: Record<string, string> } = {}
+  route: { path?: string; query?: Record<string, string> } = {},
 ): Promise<TestWebSocket> {
   const key = randomBytes(16).toString('base64')
   const socket = connect({ host: '127.0.0.1', port })
@@ -442,7 +441,7 @@ async function openWebSocket(
       'Sec-WebSocket-Version: 13',
       '',
       '',
-    ].join('\r\n')
+    ].join('\r\n'),
   )
 
   const messages: Record<string, unknown>[] = []
@@ -479,7 +478,7 @@ async function openWebSocket(
   if (handshake.startsWith('HTTP/1.1 101')) {
     assert.ok(
       handshake.includes(`Sec-WebSocket-Accept: ${computeWebSocketAcceptKey(key)}`),
-      'the server computes the RFC 6455 accept key'
+      'the server computes the RFC 6455 accept key',
     )
   }
 
@@ -543,7 +542,17 @@ export async function testBindAddressAllowsOnlyTailnetOrLoopback(): Promise<void
   for (const allowed of ['100.64.0.1', '100.101.102.103', '100.127.255.254', '127.0.0.1', '::1', 'fd7a:115c:a1e0::1']) {
     assert.equal(isAllowedTailnetBindAddress(allowed), true, `${allowed} is a legal bind address`)
   }
-  for (const refused of ['0.0.0.0', '::', '', '192.168.1.20', '10.0.0.4', '172.16.3.9', '100.63.255.255', '100.128.0.1', '8.8.8.8']) {
+  for (const refused of [
+    '0.0.0.0',
+    '::',
+    '',
+    '192.168.1.20',
+    '10.0.0.4',
+    '172.16.3.9',
+    '100.63.255.255',
+    '100.128.0.1',
+    '8.8.8.8',
+  ]) {
     assert.equal(isAllowedTailnetBindAddress(refused), false, `${refused} must never be bound`)
   }
   // 100.64.0.0/10 boundaries, stated separately from the bind allowlist so a
@@ -578,7 +587,7 @@ export async function testBindAddressAllowsOnlyTailnetOrLoopback(): Promise<void
   assert.equal(
     resolveTailnetInterface({ en0: [{ address: '192.168.1.5', family: 'IPv4', internal: false } as never] }),
     null,
-    'a LAN-only machine has no tailnet interface'
+    'a LAN-only machine has no tailnet interface',
   )
 }
 
@@ -662,7 +671,7 @@ export async function testTheListenerBindsWhenTailscaleComesUpAfterTheApp(): Pro
     const port = await freePort()
     writeFileSync(
       join(userDataDir, 'tailnet-remote-settings.json'),
-      JSON.stringify({ enabled: false, port, notifications: true })
+      JSON.stringify({ enabled: false, port, notifications: true }),
     )
 
     let tailscaleIsUp = false
@@ -705,7 +714,7 @@ export async function testTheListenerStandsDownWhenTailscaleGoesAway(): Promise<
     const port = await freePort()
     writeFileSync(
       join(userDataDir, 'tailnet-remote-settings.json'),
-      JSON.stringify({ enabled: false, port, notifications: true })
+      JSON.stringify({ enabled: false, port, notifications: true }),
     )
     let tailscaleIsUp = true
     const events: Array<{ running: boolean; error: string | null }> = []
@@ -735,7 +744,7 @@ export async function testTheListenerStandsDownWhenTailscaleGoesAway(): Promise<
     assert.match(down.lastError ?? '', /Tailscale is no longer up/u, 'the reason is said, not left blank')
     assert.ok(
       events.some((event) => !event.running && /no longer up/u.test(event.error ?? '')),
-      'every window is told over the push channel, not on next open'
+      'every window is told over the push channel, not on next open',
     )
 
     // And the same beat brings it back: standing down is not a verdict either.
@@ -821,7 +830,7 @@ export async function testUploadDestinationsCannotEscapeTheThreadsFolder(): Prom
     if (attempt.ok) {
       assert.ok(
         attempt.path.startsWith('/Users/someone/repo/.sprintengine/uploads/sess_1/'),
-        `${name} escaped to ${attempt.path}`
+        `${name} escaped to ${attempt.path}`,
       )
       assert.doesNotMatch(attempt.path.split('/uploads/sess_1/')[1] ?? '', /[\\/]/u, `${name} kept a separator`)
     }
@@ -831,7 +840,10 @@ export async function testUploadDestinationsCannotEscapeTheThreadsFolder(): Prom
   const forgedSession = resolveUploadDestination({ cwd, sessionId: '../../..', name: 'shot.png' })
   assert.equal(forgedSession.ok, true)
   if (forgedSession.ok) {
-    assert.ok(forgedSession.path.startsWith('/Users/someone/repo/.sprintengine/uploads/'), 'a forged session id escaped')
+    assert.ok(
+      forgedSession.path.startsWith('/Users/someone/repo/.sprintengine/uploads/'),
+      'a forged session id escaped',
+    )
   }
 
   // No working directory is a refusal, not a fallback to somewhere convenient:
@@ -872,19 +884,30 @@ export async function testUnpairedClientsGet401AndPairedClientsDriveTheGateway()
     assert.match(String(unauthorized.headers['www-authenticate']), /^Bearer /u)
 
     assert.equal(
-      (await call(harness.port, 'POST', TAILNET_MCP_PATH, { token: 'mctn_not-a-real-token', body: rpc(1, 'tools/list') })).status,
+      (
+        await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+          token: 'mctn_not-a-real-token',
+          body: rpc(1, 'tools/list'),
+        })
+      ).status,
       401,
-      'a fabricated token is not a credential'
+      'a fabricated token is not a credential',
     )
 
     const device = await pairDevice(harness)
-    const listed = await call(harness.port, 'POST', TAILNET_MCP_PATH, { token: device.deviceToken, body: rpc(2, 'tools/list') })
+    const listed = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+      token: device.deviceToken,
+      body: rpc(2, 'tools/list'),
+    })
     assert.equal(listed.status, 200)
     const tools = (listed.body as { result: { tools: Array<{ name: string }>; ttlMs: number } }).result
-    assert.deepEqual(
-      tools.tools.map((tool) => tool.name).sort(),
-      ['agent.launch', 'backlog.list', 'backlog.update', 'workspace.checkout', 'workspace.list']
-    )
+    assert.deepEqual(tools.tools.map((tool) => tool.name).sort(), [
+      'agent.launch',
+      'backlog.list',
+      'backlog.update',
+      'workspace.checkout',
+      'workspace.list',
+    ])
     assert.equal(tools.ttlMs, 300_000, 'the tailnet transport carries the same tools/list TTL as the socket')
 
     const called = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
@@ -895,7 +918,7 @@ export async function testUnpairedClientsGet401AndPairedClientsDriveTheGateway()
     assert.deepEqual(harness.calls, ['workspace.list'])
     assert.equal(
       (called.body as { result: { structuredContent: { workspaceId: string } } }).result.structuredContent.workspaceId,
-      'w1'
+      'w1',
     )
 
     const identity = await call(harness.port, 'GET', TAILNET_IDENTITY_PATH, { token: device.deviceToken })
@@ -959,7 +982,7 @@ export async function testOversizedAndMalformedBodiesAreRefusedExplicitly(): Pro
     assert.equal(
       (malformed.body as { error: { code: number } }).error.code,
       -32600,
-      'a non-JSON-RPC body is a JSON-RPC invalid-request, not a transport error'
+      'a non-JSON-RPC body is a JSON-RPC invalid-request, not a transport error',
     )
 
     // The listener still answers after both refusals.
@@ -1006,24 +1029,33 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
   // The mobile companion lane (tailnet-mobile-transport): the snapshot is a
   // plain read; the command envelope is classified a mutation, so a paired
   // phone needs workspace:operate to drive it and every dispatch is audited.
-  assert.equal(requiredScopeForTool('workspace.snapshot', isStudioGatewayMutation('workspace.snapshot')), 'workspace:read')
+  assert.equal(
+    requiredScopeForTool('workspace.snapshot', isStudioGatewayMutation('workspace.snapshot')),
+    'workspace:read',
+  )
   // checkout-and-branch-on-remote-create: the checkout facts are a plain
   // read; minting the worktree stays agent.launch's, on workspace:operate.
-  assert.equal(requiredScopeForTool('workspace.checkout', isStudioGatewayMutation('workspace.checkout')), 'workspace:read')
+  assert.equal(
+    requiredScopeForTool('workspace.checkout', isStudioGatewayMutation('workspace.checkout')),
+    'workspace:read',
+  )
   assert.equal(requiredScopeForTool('agent.launch', isStudioGatewayMutation('agent.launch')), 'workspace:operate')
   assert.equal(
     requiredScopeForTool('workspace.mobile_command', isStudioGatewayMutation('workspace.mobile_command')),
-    'workspace:operate'
+    'workspace:operate',
   )
 
   const harness = await startHarness()
   try {
     // Read-only on the backlog, nothing else.
     const device = await pairDevice(harness, { scopes: ['backlog:read'] })
-    const listed = await call(harness.port, 'POST', TAILNET_MCP_PATH, { token: device.deviceToken, body: rpc(1, 'tools/list') })
+    const listed = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
+      token: device.deviceToken,
+      body: rpc(1, 'tools/list'),
+    })
     assert.deepEqual(
       (listed.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name),
-      ['backlog.list']
+      ['backlog.list'],
     )
 
     const refused = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
@@ -1031,7 +1063,8 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
       body: rpc(2, 'tools/call', { name: 'backlog.update', arguments: {} }),
     })
     assert.equal(refused.status, 200, 'an authorization refusal is a tool result, not a transport failure')
-    const result = (refused.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } }).result
+    const result = (refused.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } })
+      .result
     assert.equal(result.isError, true)
     assert.equal(result.structuredContent.error.code, 'tailnet_scope_required')
     assert.deepEqual(harness.calls, [], 'the refused handler never ran')
@@ -1049,7 +1082,10 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
     const worktreeMaker = await pairDevice(harness, { scopes: ['workspace:operate', 'terminal:control'], name: 'air' })
     const minted = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
       token: worktreeMaker.deviceToken,
-      body: rpc(3, 'tools/call', { name: 'agent.launch', arguments: { workspaceId: 'w1', worktree: { baseRef: 'main' } } }),
+      body: rpc(3, 'tools/call', {
+        name: 'agent.launch',
+        arguments: { workspaceId: 'w1', worktree: { baseRef: 'main' } },
+      }),
     })
     assert.equal(minted.status, 200)
     await call(harness.port, 'POST', TAILNET_MCP_PATH, {
@@ -1069,7 +1105,10 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
     assert.equal(worktreeAudit[1].outcome, 'failure')
     assert.equal(worktreeAudit[1].errorCode, 'tailnet_scope_required')
     assert.equal(worktreeAudit[1].connection.deviceId, terminalsOnly.deviceId)
-    assert.ok(!harness.auditRecords().some((record) => record.tool === 'workspace.checkout'), 'the checkout read is not a mutation and is not audited')
+    assert.ok(
+      !harness.auditRecords().some((record) => record.tool === 'workspace.checkout'),
+      'the checkout read is not a mutation and is not audited',
+    )
 
     // operate implies read within its family, and never across families.
     const operator = await pairDevice(harness, { scopes: ['backlog:operate'], name: 'operator' })
@@ -1078,8 +1117,10 @@ export async function testScopesNarrowWhatADeviceSeesAndMayCall(): Promise<void>
       body: rpc(3, 'tools/list'),
     })
     assert.deepEqual(
-      (operatorTools.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name).sort(),
-      ['backlog.list', 'backlog.update']
+      (operatorTools.body as { result: { tools: Array<{ name: string }> } }).result.tools
+        .map((tool) => tool.name)
+        .sort(),
+      ['backlog.list', 'backlog.update'],
     )
   } finally {
     await harness.close()
@@ -1093,7 +1134,10 @@ export async function testTailnetConfigurationToolsAreNeverServedOverTheTailnet(
   // it — a tool added later that did not would be served remotely by default.
   const names = createTailnetTools({ resolveTailnet: () => null }).map((tool) => tool.name)
   assert.ok(names.length > 0)
-  assert.deepEqual(names.filter((name) => !isLocalOnlyGatewayTool(name)), [])
+  assert.deepEqual(
+    names.filter((name) => !isLocalOnlyGatewayTool(name)),
+    [],
+  )
   assert.equal(isLocalOnlyGatewayTool('backlog.list'), false)
 
   const calls: string[] = []
@@ -1116,7 +1160,11 @@ export async function testTailnetConfigurationToolsAreNeverServedOverTheTailnet(
       body: rpc(1, 'tools/list'),
     })
     const served = (listed.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name)
-    assert.deepEqual(served.filter((name) => name.startsWith('tailnet.')), [], 'the family is invisible to a paired device')
+    assert.deepEqual(
+      served.filter((name) => name.startsWith('tailnet.')),
+      [],
+      'the family is invisible to a paired device',
+    )
     assert.ok(served.includes('backlog.update'), 'everything else a full grant covers is still served')
 
     const refused = await call(harness.port, 'POST', TAILNET_MCP_PATH, {
@@ -1124,7 +1172,8 @@ export async function testTailnetConfigurationToolsAreNeverServedOverTheTailnet(
       body: rpc(2, 'tools/call', { name: 'tailnet.offer_pairing', arguments: {} }),
     })
     assert.equal(refused.status, 200, 'a local-only refusal is a tool result, not a transport failure')
-    const result = (refused.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } }).result
+    const result = (refused.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } })
+      .result
     assert.equal(result.isError, true)
     assert.equal(result.structuredContent.error.code, 'tailnet_local_only')
     assert.deepEqual(calls, [], 'the refused handler never ran, so no code was minted')
@@ -1159,7 +1208,12 @@ export async function testTailnetToolsRefuseRatherThanMintACodeThatPointsAtNothi
   const front: TailnetToolsFrontDoor = {
     getTailnetStatus: () => status,
     setTailnetEnabled: async (enabled) => {
-      status = { ...status, enabled, running: false, lastError: enabled ? 'Tailscale is not running on this machine.' : null }
+      status = {
+        ...status,
+        enabled,
+        running: false,
+        lastError: enabled ? 'Tailscale is not running on this machine.' : null,
+      }
       return status
     },
     offerTailnetPairing: (input) => {
@@ -1309,7 +1363,10 @@ export async function testTheChangeFeedPushesOncePerBurstAndFollowsRevocation():
       ticket: string
     }
     const feed = await openWebSocket(harness.port, ticket.ticket, { path: TAILNET_EVENTS_PATH })
-    assert.ok(feed.handshake.startsWith('HTTP/1.1 101'), `the events route upgrades: ${feed.handshake.split('\r\n')[0]}`)
+    assert.ok(
+      feed.handshake.startsWith('HTTP/1.1 101'),
+      `the events route upgrades: ${feed.handshake.split('\r\n')[0]}`,
+    )
     const hello = await feed.nextMessage()
     assert.equal(hello.type, 'hello')
     assert.deepEqual(hello.revisions, { terminals: 0, workspaces: 0 })
@@ -1324,10 +1381,7 @@ export async function testTheChangeFeedPushesOncePerBurstAndFollowsRevocation():
     harness.server.notifyTerminalsChanged()
     harness.server.notifyWorkspacesChanged()
     const pushed = [await feed.nextMessage(), await feed.nextMessage()]
-    assert.deepEqual(
-      pushed.map((frame) => `${frame.what}:${frame.revision}`).sort(),
-      ['terminals:3', 'workspaces:1']
-    )
+    assert.deepEqual(pushed.map((frame) => `${frame.what}:${frame.revision}`).sort(), ['terminals:3', 'workspaces:1'])
 
     assert.equal(harness.devices.revokeDevice(device.deviceId), true)
     assert.equal(await feed.closed, 4401, 'a revocation closes the feed with the revoked code')
@@ -1348,11 +1402,13 @@ export async function testADeclaredIdentityCannotOverwriteTheProvenDeviceIdentit
 
     // The WebSocket DOES hold connection state, so the declaration is accepted
     // — and this is where the spoof guard has to hold.
-    stream.send(rpc(1, 'sprintengine.studio/connect', {
-      agentId: 'developer-1',
-      agentName: 'Trusted Local Agent',
-      workspaceId: 'w9',
-    }))
+    stream.send(
+      rpc(1, 'sprintengine.studio/connect', {
+        agentId: 'developer-1',
+        agentName: 'Trusted Local Agent',
+        workspaceId: 'w9',
+      }),
+    )
     assert.equal((await stream.nextMessage()).id, 1)
 
     stream.send(rpc(2, 'tools/call', { name: 'backlog.update', arguments: { workspaceId: 'w9' } }))
@@ -1430,8 +1486,8 @@ export async function testWebSocketTicketsAreSingleUseAndTokensNeverRideTheUrl()
     const answer = await stream.nextMessage()
     assert.equal((answer as { id: number }).id, 1)
     assert.equal(
-      ((answer as { result: { structuredContent: { workspaceId: string } } }).result.structuredContent.workspaceId),
-      'ws'
+      (answer as { result: { structuredContent: { workspaceId: string } } }).result.structuredContent.workspaceId,
+      'ws',
     )
 
     // Single use: the same ticket cannot open a second stream.
@@ -1471,9 +1527,7 @@ export async function testRevocationLandsOnTheNextRequestAndKillsLiveStreams(): 
     assert.equal(refused.status, 401)
 
     // A ticket minted before the revoke cannot be spent afterwards.
-    const staleTicket = (
-      await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: device.deviceToken })
-    ).status
+    const staleTicket = (await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: device.deviceToken })).status
     assert.equal(staleTicket, 401)
     assert.equal(harness.devices.listDevices().length, 0)
   } finally {
@@ -1526,18 +1580,18 @@ export async function testWebSocketCodecRefusesWhatItDoesNotImplement(): Promise
   const oversize = tooBig.push(header)
   assert.equal(oversize.kind, 'error')
 
-  assert.equal(computeWebSocketAcceptKey('dGhlIHNhbXBsZSBub25jZQ=='), 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=', 'RFC 6455 §1.3 vector')
+  assert.equal(
+    computeWebSocketAcceptKey('dGhlIHNhbXBsZSBub25jZQ=='),
+    's3pPLMBiTxaQ9kYGzzhZRbK+xOo=',
+    'RFC 6455 §1.3 vector',
+  )
   assert.ok(encodeTextFrame('a').equals(Buffer.from([0x81, 0x01, 0x61])), 'server frames are unmasked')
 }
 
 // ── Terminal attach (MC-2165) ────────────────────────────────────────────────
 
 /** Request a ticket and open a terminal socket for one session. */
-async function attachTerminal(
-  harness: Harness,
-  deviceToken: string,
-  sessionId: string
-): Promise<TestWebSocket> {
+async function attachTerminal(harness: Harness, deviceToken: string, sessionId: string): Promise<TestWebSocket> {
   const ticket = await call(harness.port, 'POST', TAILNET_WS_TICKET_PATH, { token: deviceToken })
   assert.equal(ticket.status, 200)
   return openWebSocket(harness.port, (ticket.body as { ticket: string }).ticket, {
@@ -1708,7 +1762,7 @@ export async function testTerminalToolsSitBehindTheTerminalScope(): Promise<void
       body: rpc(1, 'tools/list'),
     })
     const structuredNames = (structuredTools.body as { result: { tools: Array<{ name: string }> } }).result.tools.map(
-      (tool) => tool.name
+      (tool) => tool.name,
     )
     assert.equal(structuredNames.includes('terminal.list'), false)
     // Nor the tool that OPENS one: control is never implied by the structured
@@ -1720,7 +1774,8 @@ export async function testTerminalToolsSitBehindTheTerminalScope(): Promise<void
       token: structured.deviceToken,
       body: rpc(2, 'tools/call', { name: 'terminal.list', arguments: {} }),
     })
-    const result = (refused.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } }).result
+    const result = (refused.body as { result: { isError: boolean; structuredContent: { error: { code: string } } } })
+      .result
     assert.equal(result.isError, true)
     assert.equal(result.structuredContent.error.code, 'tailnet_scope_required')
     assert.equal(harness.calls.length, 0, 'the refused handler never ran')
@@ -1733,7 +1788,7 @@ export async function testTerminalToolsSitBehindTheTerminalScope(): Promise<void
     // A watch-only device is not even shown the tool that opens a terminal.
     assert.deepEqual(
       (watcherTools.body as { result: { tools: Array<{ name: string }> } }).result.tools.map((tool) => tool.name),
-      ['terminal.list']
+      ['terminal.list'],
     )
 
     // …and calling it anyway is refused, with the attempt audited: a device
@@ -1743,9 +1798,11 @@ export async function testTerminalToolsSitBehindTheTerminalScope(): Promise<void
       token: watcher.deviceToken,
       body: rpc(4, 'tools/call', { name: 'terminal.create', arguments: { workspaceId: 'ws-1' } }),
     })
-    const deniedResult = (denied.body as {
-      result: { isError: boolean; structuredContent: { error: { code: string } } }
-    }).result
+    const deniedResult = (
+      denied.body as {
+        result: { isError: boolean; structuredContent: { error: { code: string } } }
+      }
+    ).result
     assert.equal(deniedResult.isError, true)
     assert.equal(deniedResult.structuredContent.error.code, 'tailnet_scope_required')
     assert.equal(harness.calls.includes('terminal.create'), false, 'the refused handler never ran')
@@ -1837,9 +1894,11 @@ export async function testARemoteClientOpensATerminalHereAttachesAndDrivesIt(): 
       token: laptop.deviceToken,
       body: rpc(1, 'tools/call', { name: 'terminal.create', arguments: { workspaceName: 'Mac Mini' } }),
     })
-    const payload = (created.body as {
-      result: { isError?: boolean; structuredContent: { sessionId: string; permissionPreset: string } }
-    }).result
+    const payload = (
+      created.body as {
+        result: { isError?: boolean; structuredContent: { sessionId: string; permissionPreset: string } }
+      }
+    ).result
     assert.equal(payload.isError, undefined, JSON.stringify(payload.structuredContent))
     const sessionId = payload.structuredContent.sessionId
     assert.equal(sessionId, 'spawned-1')
@@ -1875,10 +1934,15 @@ export async function testARemoteClientOpensATerminalHereAttachesAndDrivesIt(): 
       token: laptop.deviceToken,
       body: rpc(2, 'tools/call', { name: 'terminal.list', arguments: {} }),
     })
-    const terminalsListed = (listed.body as {
-      result: { structuredContent: { terminals: Array<{ sessionId: string }> } }
-    }).result.structuredContent.terminals
-    assert.equal(terminalsListed.some((entry) => entry.sessionId === sessionId), true)
+    const terminalsListed = (
+      listed.body as {
+        result: { structuredContent: { terminals: Array<{ sessionId: string }> } }
+      }
+    ).result.structuredContent.terminals
+    assert.equal(
+      terminalsListed.some((entry) => entry.sessionId === sessionId),
+      true,
+    )
   } finally {
     await harness.close()
   }
@@ -1965,7 +2029,10 @@ function osVisibleCommandLine(pid: number): string | null {
   }
 }
 
-async function pairViaBridge(harness: Harness, tokenFilePath: string): Promise<{ run: BridgeRun; deviceToken: string }> {
+async function pairViaBridge(
+  harness: Harness,
+  tokenFilePath: string,
+): Promise<{ run: BridgeRun; deviceToken: string }> {
   const offer = harness.devices.offerPairing({ scopes: [...TAILNET_STRUCTURED_SCOPES] })
   const run = await runBridge([
     'pair',
@@ -2017,7 +2084,7 @@ export async function testTheBridgePairsThenDrivesTheGatewayFromAnotherMachine()
       assert.deepEqual(
         listed.result.tools.map((tool) => tool.name).sort(),
         ['agent.launch', 'backlog.list', 'backlog.update', 'workspace.checkout', 'workspace.list'],
-        'the remote client sees the same tool surface a local one does'
+        'the remote client sees the same tool surface a local one does',
       )
       const read = byId.get(3) as { result: { structuredContent: { tool: string } } }
       assert.equal(read.result.structuredContent.tool, 'backlog.list')
@@ -2112,7 +2179,13 @@ export async function testTheBridgeRefusesIncompleteOrConflictingRemoteInvocatio
     assert.match(pairFlagWhileServing.stderr, /--device-name does not apply/)
 
     // A pairing link that is not one.
-    const badUrl = await runBridge(['pair', '--pairing-url', 'https://example.invalid/pair', '--token-file', tokenFilePath])
+    const badUrl = await runBridge([
+      'pair',
+      '--pairing-url',
+      'https://example.invalid/pair',
+      '--token-file',
+      tokenFilePath,
+    ])
     assert.equal(badUrl.code, 1)
     assert.match(badUrl.stderr, /multicode-tailnet:/)
   } finally {
@@ -2291,7 +2364,7 @@ export async function testAnOversizedUploadIsCutOffAndLeavesNothingBehind(): Pro
     assert.equal(
       existsSync(join(projectDir, '.sprintengine', 'uploads', 'session_one', 'sneaky.bin')),
       false,
-      'nothing partial is left where an agent would read it'
+      'nothing partial is left where an agent would read it',
     )
   } finally {
     await harness.close()
@@ -2333,16 +2406,11 @@ async function testWideningADevicesScopesPersistsAndAnUnknownIdThrows(): Promise
     // It replaces rather than merges, so the same call takes access away — and
     // normalises, so a duplicate or a scope outside the vocabulary is dropped
     // rather than stored.
-    const narrowed = reloaded.updateDeviceScopes(minted.device.id, [
-      'workspace:read',
-      'workspace:read',
-      'not:a:scope',
-    ])
+    const narrowed = reloaded.updateDeviceScopes(minted.device.id, ['workspace:read', 'workspace:read', 'not:a:scope'])
     assert.deepEqual(narrowed.scopes, ['workspace:read'])
-    assert.deepEqual(
-      createTailnetDeviceStore({ resolveUserDataDir: () => dir }).listDevices()[0]?.scopes,
-      ['workspace:read']
-    )
+    assert.deepEqual(createTailnetDeviceStore({ resolveUserDataDir: () => dir }).listDevices()[0]?.scopes, [
+      'workspace:read',
+    ])
 
     assert.throws(() => reloaded.updateDeviceScopes('tnd_never_existed', [...TAILNET_SCOPES]), /tnd_never_existed/)
     // And the throw changed nothing.

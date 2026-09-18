@@ -162,17 +162,19 @@ export function collapsePeekText(input: string): CollapsedPeekText {
   const lines = withoutBulk.split('\n').map((line) => {
     const wholeLine = WHOLE_LINE_PATH_PATTERN.exec(line)
     if (wholeLine?.[1]) return take(wholeLine[1], line, 'drop')
-    return line
-      // Inline code is where a dropped path most often lands ("read `USAGE.md`"),
-      // so its contents are inspected rather than deleted wholesale: a path is
-      // promoted, and anything else keeps its place in the sentence unquoted.
-      .replace(patterns.inlineCode, (match) => {
-        const inner = match.slice(1, -1).trim()
-        return take(inner, ` ${inner} `)
-      })
-      .replace(patterns.mention, (match) => take(match.trim().slice(1), match))
-      .replace(patterns.explicitPath, (match) => take(match.trim(), match))
-      .replace(patterns.barePath, (match) => take(match.trim(), match))
+    return (
+      line
+        // Inline code is where a dropped path most often lands ("read `USAGE.md`"),
+        // so its contents are inspected rather than deleted wholesale: a path is
+        // promoted, and anything else keeps its place in the sentence unquoted.
+        .replace(patterns.inlineCode, (match) => {
+          const inner = match.slice(1, -1).trim()
+          return take(inner, ` ${inner} `)
+        })
+        .replace(patterns.mention, (match) => take(match.trim().slice(1), match))
+        .replace(patterns.explicitPath, (match) => take(match.trim(), match))
+        .replace(patterns.barePath, (match) => take(match.trim(), match))
+    )
   })
 
   const text = lines
@@ -250,7 +252,10 @@ function isUrlFragment(token: string): boolean {
 }
 
 function normalisePathToken(token: string): string | null {
-  const cleaned = token.trim().replace(/^@/, '').replace(/[),.;:'"]+$/, '')
+  const cleaned = token
+    .trim()
+    .replace(/^@/, '')
+    .replace(/[),.;:'"]+$/, '')
   if (!cleaned || cleaned.length > MAX_PATH_TOKEN_LENGTH || cleaned.includes('\0')) return null
   return cleaned
 }

@@ -21,9 +21,7 @@ export type FileExplorerModuleActionGroup = {
   actions: FileExplorerModuleActionEntry[]
 }
 
-function sortByOrderThenLabel(
-  actions: readonly FileExplorerModuleActionEntry[],
-): FileExplorerModuleActionEntry[] {
+function sortByOrderThenLabel(actions: readonly FileExplorerModuleActionEntry[]): FileExplorerModuleActionEntry[] {
   return [...actions].sort((a, b) => {
     const order = (a.order ?? 100) - (b.order ?? 100)
     return order === 0 ? a.label.localeCompare(b.label) : order

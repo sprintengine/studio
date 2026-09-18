@@ -83,7 +83,13 @@ async function main(): Promise<void> {
 
   const providers = {
     triggers: [
-      { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+      {
+        kind: 'schedule',
+        moduleId: 'automations',
+        configSchema: { type: 'object' },
+        requiredIntegrations: [],
+        missingIntegrations: [],
+      },
     ],
     actions: [
       {
@@ -194,10 +200,14 @@ async function main(): Promise<void> {
   {
     updateCalls.length = 0
     const handWritten = await mount(baseDefinition)
-    await act(async () => { saveButton(handWritten.container).click() })
+    await act(async () => {
+      saveButton(handWritten.container).click()
+    })
     handWritten.unmount()
     const starter = await mount(starterDefinition)
-    await act(async () => { saveButton(starter.container).click() })
+    await act(async () => {
+      saveButton(starter.container).click()
+    })
     starter.unmount()
     run('a starter and a hand-written automation produce the same patch shape', () => {
       assert.equal(updateCalls.length, 2)

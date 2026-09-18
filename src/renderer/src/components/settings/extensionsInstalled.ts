@@ -176,10 +176,7 @@ export function modulesToInstalled(
     // showing an "enabled" state for them would overstate reality. The enabled
     // intent mirrors the main launch gate and ThirdPartyModuleList's
     // `resolveModuleEnabled`: an explicit override wins, else the manifest default.
-    enabled:
-      module.trust === 'trusted'
-        ? (overrides[module.manifest.id] ?? module.manifest.defaultEnabled)
-        : false,
+    enabled: module.trust === 'trusted' ? (overrides[module.manifest.id] ?? module.manifest.defaultEnabled) : false,
     summary: module.manifest.summary,
     // Only the non-default state earns a second chip: enabled-and-trusted is
     // the norm, and a trust-blocked module's real state is its trust label.

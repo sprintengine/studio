@@ -2,7 +2,12 @@ import assert from 'node:assert/strict'
 import { mkdtemp, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
-import type { MobileControlCapability, MobileRelayAuthenticatedDevice, MobileRelayScope, RelayCommandEnvelope } from './index'
+import type {
+  MobileControlCapability,
+  MobileRelayAuthenticatedDevice,
+  MobileRelayScope,
+  RelayCommandEnvelope,
+} from './index'
 import { isMobileControlCapability, isMobileControlDevice } from './validation'
 import {
   mobileControlMinSupportedProtocolVersion,
@@ -82,22 +87,21 @@ function assertAutomationsControlNeedsItsOwnScope(): void {
   assert.equal(
     authorize(['relay:backlog:update']),
     'unauthorized',
-    'no other granted scope may authorize automations.control'
+    'no other granted scope may authorize automations.control',
   )
   assert.equal(
     authorize(['relay:sprintengine:automation' as MobileRelayScope]),
     'unauthorized',
-    'the retired Sprint Engine run-mode scope is not merely unmapped, it grants nothing'
+    'the retired Sprint Engine run-mode scope is not merely unmapped, it grants nothing',
   )
   assert.deepEqual(
     relayDeviceCapabilities(relayAuthenticatedDevice(['relay:sprintengine:automation' as MobileRelayScope])),
     [],
-    'a retired scope derives no capability'
+    'a retired scope derives no capability',
   )
-  assert.deepEqual(
-    relayDeviceCapabilities(relayAuthenticatedDevice(['relay:automations:control'])),
-    ['automations.control']
-  )
+  assert.deepEqual(relayDeviceCapabilities(relayAuthenticatedDevice(['relay:automations:control'])), [
+    'automations.control',
+  ])
 }
 
 // The inverse of what this file asserted at v2, and the point of the change: a
@@ -108,12 +112,12 @@ function assertRetiredSprintCapabilitiesAreRefused(): void {
     assert.equal(
       isMobileControlCapability(capability),
       false,
-      `${capability} left the wire with the Sprint Engine and must no longer validate`
+      `${capability} left the wire with the Sprint Engine and must no longer validate`,
     )
     assert.equal(
       isMobileControlDevice(pairedDevice([capability as MobileControlCapability])),
       false,
-      `a device advertising ${capability} must not read back as valid`
+      `a device advertising ${capability} must not read back as valid`,
     )
   }
 }
@@ -150,7 +154,7 @@ function assertEveryGrantedCapabilityValidates(): void {
     assert.equal(
       isMobileControlCapability(capability),
       true,
-      `${capability} is requested at pairing but rejected by isMobileControlCapability`
+      `${capability} is requested at pairing but rejected by isMobileControlCapability`,
     )
   }
   assert.equal(isMobileControlCapability('automations.destroy'), false)
@@ -180,7 +184,7 @@ async function assertStoreKeepsDeviceGrantedAutomationsControl(): Promise<void> 
       pairedDevices: [pairedDevice(GRANTED_AT_PAIRING)],
       pushRegistrations: [],
     }),
-    'utf8'
+    'utf8',
   )
 
   const state = await readMobileBridgeStore(storePath)
@@ -199,7 +203,7 @@ function assertStoredDeviceSurvivesTheProtocolWindow(): void {
     assert.equal(
       isMobileControlDevice({ ...pairedDevice(GRANTED_AT_PAIRING), protocolVersion: version }),
       true,
-      `a device stamped at protocol version ${version} must still be readable`
+      `a device stamped at protocol version ${version} must still be readable`,
     )
   }
   // Outside the window it genuinely is a record this build cannot read, and
@@ -209,11 +213,11 @@ function assertStoredDeviceSurvivesTheProtocolWindow(): void {
       ...pairedDevice(GRANTED_AT_PAIRING),
       protocolVersion: mobileControlMinSupportedProtocolVersion - 1,
     }),
-    false
+    false,
   )
   assert.equal(
     isMobileControlDevice({ ...pairedDevice(GRANTED_AT_PAIRING), protocolVersion: mobileControlProtocolVersion + 1 }),
-    false
+    false,
   )
   assert.equal(isMobileControlDevice({ ...pairedDevice(GRANTED_AT_PAIRING), protocolVersion: undefined }), false)
 }
@@ -233,15 +237,11 @@ async function assertStoreKeepsDeviceStampedOneVersionBack(): Promise<void> {
       ],
       pushRegistrations: [],
     }),
-    'utf8'
+    'utf8',
   )
 
   const state = await readMobileBridgeStore(storePath)
-  assert.equal(
-    state.pairedDevices.length,
-    1,
-    'a device paired one protocol version back was dropped from the store'
-  )
+  assert.equal(state.pairedDevices.length, 1, 'a device paired one protocol version back was dropped from the store')
 }
 
 // The pairing link is the one thing an out-of-date phone has to be able to use,
@@ -249,22 +249,22 @@ async function assertStoreKeepsDeviceStampedOneVersionBack(): Promise<void> {
 // so a link is never accepted by the command gate and refused by the scanner.
 function assertPairingLinkFollowsTheSameWindow(): void {
   const link = (version: number): string =>
-    `multicode://mobile/pair?mobileControlProtocolVersion=${version}`
-    + '&pairingChallengeId=pc_1&relayUrl=https://relay.example.com&pairingSecret=s3cret'
-    + '&expiresAt=2026-09-14T10:00:30.000Z&desktopName=mac-mini&desktopInstanceId=mdi_test'
+    `multicode://mobile/pair?mobileControlProtocolVersion=${version}` +
+    '&pairingChallengeId=pc_1&relayUrl=https://relay.example.com&pairingSecret=s3cret' +
+    '&expiresAt=2026-09-14T10:00:30.000Z&desktopName=mac-mini&desktopInstanceId=mdi_test'
 
   for (const version of mobileControlSupportedProtocolVersions) {
     assert.equal(
       manualPairingValueFromRelayChallenge({ pairingUri: link(version) }),
       link(version),
-      `a pairing link at protocol version ${version} must be usable`
+      `a pairing link at protocol version ${version} must be usable`,
     )
   }
   for (const outside of [mobileControlMinSupportedProtocolVersion - 1, mobileControlProtocolVersion + 1]) {
     assert.throws(
       () => manualPairingValueFromRelayChallenge({ pairingUri: link(outside) }),
       /mobile-compatible pairing link/u,
-      `a pairing link at protocol version ${outside} must be refused`
+      `a pairing link at protocol version ${outside} must be refused`,
     )
   }
 }

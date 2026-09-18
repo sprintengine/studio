@@ -27,18 +27,11 @@ import type {
   VoiceDictationSettings,
   Workspace,
 } from '../../types/workspace'
-import type {
-  DiscoveredCliModel,
-  DiscoveredCliModelCatalog,
-} from '../../../../shared/cli-model-catalog'
-import {
-} from '../onboardingState'
+import type { DiscoveredCliModel, DiscoveredCliModelCatalog } from '../../../../shared/cli-model-catalog'
+import {} from '../onboardingState'
 import { SIDEBAR_DEFAULT_WIDTH, clampSidebarWidth } from '../../components/workspace/sidebarWidth'
 import { isSelectableAgentCli } from '../../components/workspace/newWorkspace/cliRuntimeOptions'
-import {
-  WORKSPACE_ASIDE_DEFAULT_WIDTH,
-  clampWorkspaceAsideWidth,
-} from '../../components/workspace/workspaceAsideWidth'
+import { WORKSPACE_ASIDE_DEFAULT_WIDTH, clampWorkspaceAsideWidth } from '../../components/workspace/workspaceAsideWidth'
 import {
   isAppTheme,
   isWindowMaterial,
@@ -72,9 +65,7 @@ export function normalizeAppearanceSettings(value: unknown): AppearanceSettings 
   const candidate = value as Partial<AppearanceSettings>
   return {
     theme: isAppTheme(candidate.theme) ? candidate.theme : defaults.theme,
-    windowMaterial: isWindowMaterial(candidate.windowMaterial)
-      ? candidate.windowMaterial
-      : defaults.windowMaterial,
+    windowMaterial: isWindowMaterial(candidate.windowMaterial) ? candidate.windowMaterial : defaults.windowMaterial,
   }
 }
 
@@ -87,7 +78,12 @@ export function defaultMcpSettings(): McpSettings {
 
 export function normalizeMcpId(value: unknown): string {
   return typeof value === 'string'
-    ? value.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '')
+    ? value
+        .trim()
+        .toLowerCase()
+        .replace(/[^a-z0-9_-]/g, '-')
+        .replace(/-+/g, '-')
+        .replace(/^-|-$/g, '')
     : ''
 }
 
@@ -113,9 +109,7 @@ export function normalizeMcpServer(value: unknown): McpServerConfig | null {
   const id = normalizeMcpId(candidate.id)
   const name = typeof candidate.name === 'string' && candidate.name.trim() ? candidate.name.trim() : id
   const transport = candidate.transport === 'http' || candidate.transport === 'sse' ? candidate.transport : 'stdio'
-  const clients = normalizeMcpStringList(candidate.clients)
-    .map(normalizeMcpId)
-    .filter(Boolean)
+  const clients = normalizeMcpStringList(candidate.clients).map(normalizeMcpId).filter(Boolean)
   const scope = candidate.scope === 'user' ? 'user' : 'workspace'
   // Provenance survives the round trip through the store, or Sync loses track
   // of every server a source installed the moment the app restarts. A 'source'
@@ -123,16 +117,21 @@ export function normalizeMcpServer(value: unknown): McpServerConfig | null {
   // which is also what keeps a sync off entries it never wrote
   // (backlog/2026-09-06-mcp-installs-carry-source-provenance.md).
   const sourceRef = normalizeMcpSourceRef(candidate.sourceRef)
-  const source = candidate.source === 'source' && sourceRef ? 'source' : candidate.source === 'custom' || candidate.source === 'source' ? 'custom' : 'bundled'
-  const riskLevel = (
-    candidate.riskLevel === 'network'
-    || candidate.riskLevel === 'local-command'
-    || candidate.riskLevel === 'secrets'
-  ) ? candidate.riskLevel : 'low'
+  const source =
+    candidate.source === 'source' && sourceRef
+      ? 'source'
+      : candidate.source === 'custom' || candidate.source === 'source'
+        ? 'custom'
+        : 'bundled'
+  const riskLevel =
+    candidate.riskLevel === 'network' || candidate.riskLevel === 'local-command' || candidate.riskLevel === 'secrets'
+      ? candidate.riskLevel
+      : 'low'
 
   if (!id || !name || clients.length === 0) return null
   if (transport === 'stdio' && !(typeof candidate.command === 'string' && candidate.command.trim())) return null
-  if ((transport === 'http' || transport === 'sse') && !(typeof candidate.url === 'string' && candidate.url.trim())) return null
+  if ((transport === 'http' || transport === 'sse') && !(typeof candidate.url === 'string' && candidate.url.trim()))
+    return null
 
   return {
     id,
@@ -252,10 +251,7 @@ export function normalizeKeybindingSettings(value: unknown): KeybindingSettings 
   return { overrides, disabled }
 }
 
-export function normalizeRecentWorkspaceFolders(
-  folders: unknown,
-  additionalFolders: unknown = []
-): string[] {
+export function normalizeRecentWorkspaceFolders(folders: unknown, additionalFolders: unknown = []): string[] {
   const candidates = [
     ...(Array.isArray(folders) ? folders : []),
     ...(Array.isArray(additionalFolders) ? additionalFolders : []),
@@ -378,7 +374,7 @@ export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: CliPermissionPreset = 'bypas
 // normalizeCliPermissionPreset for why `default` lands on `manual` rather than
 // on the argv-identical `none`.
 export function normalizeAgentSpawnPermissionPreset(
-  input: CliPermissionPreset | null | undefined
+  input: CliPermissionPreset | null | undefined,
 ): CliPermissionPreset {
   if (input === undefined || input === null) return DEFAULT_AGENT_SPAWN_PERMISSION_PRESET
   return normalizeCliPermissionPreset(input)
@@ -391,7 +387,7 @@ export function normalizeAgentSpawnPermissionPreset(
 // default model at high effort" is a real selection — so `model` may normalize
 // to an empty string while `reasoning` survives.
 export function normalizeCliModelSelection(
-  input: AgentCliModelSelection | null | undefined
+  input: AgentCliModelSelection | null | undefined,
 ): AgentCliModelSelection | null {
   if (!input || typeof input !== 'object') return null
   const selection = input as Partial<AgentCliModelSelection>
@@ -480,13 +476,15 @@ function normalizeDiscoveredModel(input: unknown): DiscoveredCliModel | null {
   if (description) model.description = description
   const resolvedModel = text(candidate.resolvedModel)
   if (resolvedModel) model.resolvedModel = resolvedModel
-  if (typeof candidate.contextWindow === 'number' && Number.isFinite(candidate.contextWindow) && candidate.contextWindow > 0) {
+  if (
+    typeof candidate.contextWindow === 'number' &&
+    Number.isFinite(candidate.contextWindow) &&
+    candidate.contextWindow > 0
+  ) {
     model.contextWindow = candidate.contextWindow
   }
   if (Array.isArray(candidate.effortLevels)) {
-    const levels = candidate.effortLevels
-      .map((level) => text(level))
-      .filter((level): level is string => Boolean(level))
+    const levels = candidate.effortLevels.map((level) => text(level)).filter((level): level is string => Boolean(level))
     if (levels.length > 0) model.effortLevels = levels
   }
   const defaultEffort = text(candidate.defaultEffort)
@@ -638,10 +636,7 @@ export function normalizeTerminalIdleSuspendMinutes(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES
   }
-  return Math.max(
-    MIN_TERMINAL_IDLE_SUSPEND_MINUTES,
-    Math.min(MAX_TERMINAL_IDLE_SUSPEND_MINUTES, Math.round(value))
-  )
+  return Math.max(MIN_TERMINAL_IDLE_SUSPEND_MINUTES, Math.min(MAX_TERMINAL_IDLE_SUSPEND_MINUTES, Math.round(value)))
 }
 
 // Recency floor for the idle-terminal pauser: the N most recently used agent
@@ -655,10 +650,7 @@ export function normalizeTerminalKeepRecentAlive(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) {
     return DEFAULT_TERMINAL_KEEP_RECENT_ALIVE
   }
-  return Math.max(
-    MIN_TERMINAL_KEEP_RECENT_ALIVE,
-    Math.min(MAX_TERMINAL_KEEP_RECENT_ALIVE, Math.round(value))
-  )
+  return Math.max(MIN_TERMINAL_KEEP_RECENT_ALIVE, Math.min(MAX_TERMINAL_KEEP_RECENT_ALIVE, Math.round(value)))
 }
 
 export const defaultAppSettings = (): AppSettings => ({
@@ -735,9 +727,7 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     lastSelectedConversationModel: normalizeConversationModel(settings?.lastSelectedConversationModel),
     textGeneration: normalizeTextGenerationSettings(settings?.textGeneration),
     lastNewChatAgent: normalizeNewChatAgentChoice(settings?.lastNewChatAgent),
-    lastFolderOpenTarget: isFolderOpenTargetId(settings?.lastFolderOpenTarget)
-      ? settings.lastFolderOpenTarget
-      : null,
+    lastFolderOpenTarget: isFolderOpenTargetId(settings?.lastFolderOpenTarget) ? settings.lastFolderOpenTarget : null,
     lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(settings?.lastAgentSpawnPermissionPreset),
     // Every field here is built explicitly and `settings` is never spread, so a
     // key an older build persisted drops on every hydration — the same
@@ -751,17 +741,14 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     projectColors: normalizeProjectColors(settings?.projectColors),
     recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
       settings?.recentWorkspaceFolders,
-      workspaces.map((ws) => ws.folderPath)
+      workspaces.map((ws) => ws.folderPath),
     ),
     designProjectScopePath: normalizeFolderPathSetting(settings?.designProjectScopePath),
     designSystemSeen: normalizeDesignSystemSeen(settings?.designSystemSeen),
     appearance: normalizeAppearanceSettings(settings?.appearance),
     voiceDictation: normalizeVoiceDictationSettings(settings?.voiceDictation),
     modules: normalizeModuleOverrides(settings?.modules),
-    moduleSettings: liftRetiredModuleSettings(
-      normalizeModuleSettings(settings?.moduleSettings),
-      settings,
-    ),
+    moduleSettings: liftRetiredModuleSettings(normalizeModuleSettings(settings?.moduleSettings), settings),
     // Existing installs (already have workspaces) are treated as chosen so the
     // first-run chooser only appears for a genuinely fresh install.
     modulesChosen: settings?.modulesChosen ?? workspaces.length > 0,
@@ -775,10 +762,8 @@ export function normalizeAppSettings(settings: Partial<AppSettings> | undefined,
     // upgraded — which makes it exactly the fresh user this card is for. Anything
     // past 'welcome' is someone who was already using the app.
     firstRunCliCardDismissed:
-      settings?.firstRunCliCardDismissed
-      ?? (workspaces.length > 0
-        || settings?.modulesChosen === true
-        || isPostWelcomeLegacyOnboarding(settings)),
+      settings?.firstRunCliCardDismissed ??
+      (workspaces.length > 0 || settings?.modulesChosen === true || isPostWelcomeLegacyOnboarding(settings)),
     // An existing install already had its chance to adopt through the wizard's
     // card, so it is not re-offered; a fresh profile adopts on its first
     // workspace creation.
@@ -1172,9 +1157,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
       if (isConnectorsFoldedSettingsTab(opts?.initialTab)) {
         dispatchExtensionsSurfaceTarget({
           view:
-            opts?.initialTab === SKILLS_SETTINGS_TAB
-              ? EXTENSIONS_DRAWER_VIEWS.skills
-              : EXTENSIONS_DRAWER_VIEWS.plugins,
+            opts?.initialTab === SKILLS_SETTINGS_TAB ? EXTENSIONS_DRAWER_VIEWS.skills : EXTENSIONS_DRAWER_VIEWS.plugins,
         })
         // Plugins is a door again (Extensions drawer ruling, 2026-09-05), so
         // opening it from inside Settings routes the card region and leaves
@@ -1204,7 +1187,6 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         }
         clearSettingsRequest(state)
       }),
-
 
     openExtensionsSurface: (opts) => {
       // Latch the deep-link first (the surface drains it on mount or live),

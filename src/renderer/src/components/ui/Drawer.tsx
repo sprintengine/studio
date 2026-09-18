@@ -154,9 +154,7 @@ function DrawerRoot({ open, onClose, title, ariaLabel, closeLabel, width = 360, 
       if (event.key === 'Escape') {
         if (event.defaultPrevented) return
         const panel = panelRef.current
-        const surfaceAbove = Array.from(
-          document.querySelectorAll(MODAL_SURFACE_SELECTOR),
-        ).some(
+        const surfaceAbove = Array.from(document.querySelectorAll(MODAL_SURFACE_SELECTOR)).some(
           (node) =>
             node !== panel &&
             panel !== null &&
@@ -219,13 +217,7 @@ function DrawerRoot({ open, onClose, title, ariaLabel, closeLabel, width = 360, 
   )
 }
 
-function DrawerBody({
-  children,
-  className,
-}: {
-  children: React.ReactNode
-  className?: string
-}) {
+function DrawerBody({ children, className }: { children: React.ReactNode; className?: string }) {
   return (
     <div
       className={[

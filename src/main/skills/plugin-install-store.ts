@@ -62,7 +62,7 @@ export function createPluginInstallStore(userDataDir: string): PluginInstallStor
     async put(record) {
       await update((state) => {
         const index = state.plugins.findIndex((existing) =>
-          same(existing, record.workspaceRoot, record.sourceId, record.pluginId)
+          same(existing, record.workspaceRoot, record.sourceId, record.pluginId),
         )
         if (index === -1) state.plugins.push(record)
         else state.plugins[index] = record
@@ -99,10 +99,10 @@ function isRecord(value: unknown): value is InstalledPluginRecord {
   if (!value || typeof value !== 'object') return false
   const record = value as Record<string, unknown>
   return (
-    typeof record.workspaceRoot === 'string'
-    && typeof record.sourceId === 'string'
-    && typeof record.pluginId === 'string'
-    && Array.isArray(record.skillDirNames)
+    typeof record.workspaceRoot === 'string' &&
+    typeof record.sourceId === 'string' &&
+    typeof record.pluginId === 'string' &&
+    Array.isArray(record.skillDirNames)
   )
 }
 

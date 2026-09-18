@@ -24,21 +24,19 @@ export type McpServerNormalizationOptions = {
 }
 
 export function normalizeMcpClients(value: McpClientTarget[] | undefined): McpClientTarget[] {
-  const clients = (value ?? ['codex', 'claude-code'])
-    .map((client) => sanitizeId(client))
-    .filter(Boolean)
+  const clients = (value ?? ['codex', 'claude-code']).map((client) => sanitizeId(client)).filter(Boolean)
   return Array.from(new Set(clients))
 }
 
 export function normalizeMcpServerConfig(
   value: unknown,
-  options: McpServerNormalizationOptions = {}
+  options: McpServerNormalizationOptions = {},
 ): McpServerConfig | null {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return null
   const candidate = value as Partial<McpServerConfig>
   return normalizeServer({
     ...candidate,
-    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : options.enabled ?? true,
+    enabled: typeof candidate.enabled === 'boolean' ? candidate.enabled : (options.enabled ?? true),
     clients: Array.isArray(candidate.clients) ? candidate.clients : options.clients,
     scope: candidate.scope ?? options.scope ?? 'workspace',
     source: candidate.source ?? options.source ?? 'custom',
@@ -64,7 +62,9 @@ export function normalizeServer(server: McpServerConfig): McpServerConfig | null
     args: Array.isArray(server.args) ? server.args.filter((arg) => typeof arg === 'string') : [],
     url: server.url?.trim(),
     env: normalizeStringRecord(server.env),
-    envVarNames: Array.isArray(server.envVarNames) ? server.envVarNames.filter((name) => typeof name === 'string' && name.trim()).map((name) => name.trim()) : [],
+    envVarNames: Array.isArray(server.envVarNames)
+      ? server.envVarNames.filter((name) => typeof name === 'string' && name.trim()).map((name) => name.trim())
+      : [],
     headers: normalizeStringRecord(server.headers),
     clients,
     scope: server.scope === 'user' ? 'user' : 'workspace',
@@ -75,7 +75,10 @@ export function normalizeServer(server: McpServerConfig): McpServerConfig | null
     // source names, and stops a hand-typed entry from being taken over.
     source: sourceOf(server.source, sourceRef),
     sourceRef: server.source === 'source' ? sourceRef : undefined,
-    riskLevel: server.riskLevel === 'network' || server.riskLevel === 'local-command' || server.riskLevel === 'secrets' ? server.riskLevel : 'low',
+    riskLevel:
+      server.riskLevel === 'network' || server.riskLevel === 'local-command' || server.riskLevel === 'secrets'
+        ? server.riskLevel
+        : 'low',
     category: normalizeOptionalString(server.category),
     auth: normalizeOptionalString(server.auth),
     capabilities: normalizeStringArray(server.capabilities),

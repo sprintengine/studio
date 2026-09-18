@@ -15,7 +15,10 @@ import { AutomationsAppFrontDoorToken } from './module-host/service-tokens'
 import { AGENT_RUNTIME_MANIFEST, createAgentRuntimeModule } from './modules/agent-runtime-module'
 import { LIVE_ENABLED_MODULE_IDS, type CapabilityManifest } from '../shared/modules/manifest'
 import { createBundledMainModules } from './modules'
-import { isFirstPartyAutomationProviderModule, type AutomationProviderPermissionChecker } from './automations/provider-registry'
+import {
+  isFirstPartyAutomationProviderModule,
+  type AutomationProviderPermissionChecker,
+} from './automations/provider-registry'
 import { isLoadEligible, type ModuleTrustContext } from './modules/module-signature'
 import { readTrustedModulesSync } from './modules/trust-store'
 import { planThirdPartyMainModules, recordThirdPartyMainLaunchReport } from './modules/third-party-main-loader'
@@ -35,10 +38,12 @@ import { readStudioEnv } from '../shared/studio-env'
 // Boot measurement (MC-2075), off unless SPRINTENGINE_STARTUP_TIMELINE=1 or the
 // diagnostics flag is set. Attached before anything else registers so the
 // renderer's marks have somewhere to land the moment it starts sending them.
-protocol.registerSchemesAsPrivileged([{
-  scheme: MODULE_ASSET_SCHEME,
-  privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
-}])
+protocol.registerSchemesAsPrivileged([
+  {
+    scheme: MODULE_ASSET_SCHEME,
+    privileges: { standard: true, secure: true, supportFetchAPI: true, stream: true, corsEnabled: true },
+  },
+])
 attachStartupTimeline(ipcMain)
 
 // Build-identity check (MC-2182). Registered next to the startup marks and for
@@ -80,7 +85,7 @@ registerCoreIpc(ipcMain, services, DIAGNOSTICS_ENABLED, {
 // `dependsOn: ['agent-runtime']`. See docs/module-authors/drop-in-extensions.md.
 const moduleOverrides = readModuleEnablementOverrides()
 const thirdPartyMainLoad = planThirdPartyMainModules(
-  discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext())
+  discoverUserModulesSync(defaultUserModuleRoot(), readModuleTrustContext()),
 )
 // Live-resolved main enablement, kept in step with the renderer's overrides (see
 // recomputeMainEnablement below). A module with no main runtime of its own — one
@@ -96,14 +101,16 @@ const activeMainModules = activeForChannel(
     },
   }),
   (module) => module.manifest.id,
-  includeDevModules
+  includeDevModules,
 )
 // Resolves any module id to the permissions it declared in its manifest, across
 // every module the app assembled. The companion registry gates attach on it.
 const moduleManifestsById = new Map<string, CapabilityManifest>(
-  [AGENT_RUNTIME_MANIFEST, ...activeMainModules.map((module) => module.manifest), ...thirdPartyMainLoad.modules.map((module) => module.manifest)].map(
-    (manifest) => [manifest.id, manifest]
-  )
+  [
+    AGENT_RUNTIME_MANIFEST,
+    ...activeMainModules.map((module) => module.manifest),
+    ...thirdPartyMainLoad.modules.map((module) => module.manifest),
+  ].map((manifest) => [manifest.id, manifest]),
 )
 const getModulePermissions = (moduleId: string): readonly string[] | undefined =>
   moduleManifestsById.get(moduleId)?.permissions
@@ -162,7 +169,7 @@ applyModuleEnablementLive = async (overrides) => {
 // module disable/enable cycle is reflected immediately (token absent ⇒ tools
 // report automations_module_unavailable).
 services.setAutomationsAppFrontDoorResolver(
-  () => moduleLoad.kernel.hostFor('@host').getService(AutomationsAppFrontDoorToken) ?? null
+  () => moduleLoad.kernel.hostFor('@host').getService(AutomationsAppFrontDoorToken) ?? null,
 )
 // Module enablement for gateway tools that belong to a capability module: the
 // resolved set is recomputed on every override the renderer pushes, so a module
@@ -175,14 +182,13 @@ services.setModuleEnabledResolver((moduleId) => enabledMainModuleIds.has(moduleI
 services.setModuleMcpToolsResolver(() => moduleLoad.kernel.mcpToolRegistrations())
 recordThirdPartyMainLaunchReport(
   thirdPartyMainLoad.modules.map((module) => module.manifest.id),
-  moduleLoad.report
+  moduleLoad.report,
 )
 const moduleAssetOrigin = createModuleAssetOriginResolver(app.getPath('userData'))
 // Trusted third-party entry.renderer bundles are served on demand (the trust
 // store is re-read per request, so revoking trust takes effect immediately).
 registerThirdPartyRendererEntryIpc(moduleLoad.kernel.hostFor('@host'), {
-  discoverModules: () =>
-    discoverUserModules(defaultUserModuleRoot(), readModuleTrustContext()),
+  discoverModules: () => discoverUserModules(defaultUserModuleRoot(), readModuleTrustContext()),
   trustContext: readModuleTrustContext,
   assetOrigin: moduleAssetOrigin,
 })
@@ -191,18 +197,21 @@ void app.whenReady().then(() => {
   session.defaultSession.webRequest.onBeforeRequest({ urls: [`${MODULE_ASSET_SCHEME}://*/*`] }, (details, callback) => {
     callback({ cancel: !isAllowedModuleAssetRequest(details, shellUrl) })
   })
-  protocol.handle(MODULE_ASSET_SCHEME, createModuleAssetHandler({
-    assetOrigin: moduleAssetOrigin,
-    discoverModules: () => discoverUserModules(defaultUserModuleRoot(), readModuleTrustContext()),
-    isEnabled: (installed, modules) => {
-      const trusted = modules.filter((module) => isLoadEligible(module.trust.status))
-      const manifests = [
-        ...mainModuleManifests.filter((manifest) => !modules.some((module) => module.manifest.id === manifest.id)),
-        ...trusted.map((module) => module.manifest),
-      ]
-      return resolveModuleEnablement(manifests, readModuleEnablementOverrides()).order.includes(installed.manifest.id)
-    },
-  }))
+  protocol.handle(
+    MODULE_ASSET_SCHEME,
+    createModuleAssetHandler({
+      assetOrigin: moduleAssetOrigin,
+      discoverModules: () => discoverUserModules(defaultUserModuleRoot(), readModuleTrustContext()),
+      isEnabled: (installed, modules) => {
+        const trusted = modules.filter((module) => isLoadEligible(module.trust.status))
+        const manifests = [
+          ...mainModuleManifests.filter((manifest) => !modules.some((module) => module.manifest.id === manifest.id)),
+          ...trusted.map((module) => module.manifest),
+        ]
+        return resolveModuleEnablement(manifests, readModuleEnablementOverrides()).order.includes(installed.manifest.id)
+      },
+    }),
+  )
 })
 if (DIAGNOSTICS_ENABLED) {
   console.info('[modules] extension roots:', extensionFolders.moduleRoot, extensionFolders.pluginRoot)
@@ -210,10 +219,14 @@ if (DIAGNOSTICS_ENABLED) {
     console.warn('[modules] extension folder setup errors:', extensionFolders.errors)
   }
   console.info(
-    '[modules] loaded:', moduleLoad.report.loaded,
-    'manifest-only:', moduleLoad.report.manifestOnly,
-    'disabled:', moduleLoad.report.disabled,
-    'sidecars:', moduleLoad.report.sidecars.map((s) => s.id)
+    '[modules] loaded:',
+    moduleLoad.report.loaded,
+    'manifest-only:',
+    moduleLoad.report.manifestOnly,
+    'disabled:',
+    moduleLoad.report.disabled,
+    'sidecars:',
+    moduleLoad.report.sidecars.map((s) => s.id),
   )
   if (moduleLoad.report.errors.length > 0) {
     console.warn('[modules] load errors:', moduleLoad.report.errors)
@@ -239,7 +252,7 @@ function readModuleTrustContext(): ModuleTrustContext {
 }
 
 function checkAutomationProviderPermission(
-  registration: Parameters<AutomationProviderPermissionChecker>[0]
+  registration: Parameters<AutomationProviderPermissionChecker>[0],
 ): ReturnType<AutomationProviderPermissionChecker> {
   if (isFirstPartyAutomationProviderModule(registration.moduleId)) return { ok: true }
 

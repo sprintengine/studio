@@ -89,13 +89,22 @@ run('a box is drawn per hunk, on the modified side, named by its line', () => {
   assert.equal(boxes.length, 2)
   assert.deepEqual(
     boxes.map((box) => [box.line, box.checked, box.busy]),
-    [[4, false, false], [12, false, false]],
+    [
+      [4, false, false],
+      [12, false, false],
+    ],
   )
   assert.equal(boxes[0].label, 'Include the change at line 4 of src/a.ts')
   // Two names per box: the identity that survives a re-read, and the short one
   // Monaco's widget map and the layout signature use.
-  assert.deepEqual(boxes.map((box) => box.key), ['unstaged\none', 'unstaged\ntwo'])
-  assert.deepEqual(boxes.map((box) => box.widgetId), ['unstaged.0', 'unstaged.1'])
+  assert.deepEqual(
+    boxes.map((box) => box.key),
+    ['unstaged\none', 'unstaged\ntwo'],
+  )
+  assert.deepEqual(
+    boxes.map((box) => box.widgetId),
+    ['unstaged.0', 'unstaged.1'],
+  )
 })
 
 run('both sides of the index are drawn, and each box knows which side it is on', () => {
@@ -111,11 +120,20 @@ run('both sides of the index are drawn, and each box knows which side it is on',
     relativePath: 'src/a.ts',
   })
   assert.equal(boxes.length, 2)
-  assert.deepEqual(boxes.map((box) => box.checked), [false, true])
+  assert.deepEqual(
+    boxes.map((box) => box.checked),
+    [false, true],
+  )
   // The two hunks share an index — they come from different diffs — so nothing
   // may key on it.
-  assert.deepEqual(boxes.map((box) => box.key), ['unstaged\nstill-out', 'staged\nnow-in'])
-  assert.deepEqual(boxes.map((box) => box.widgetId), ['unstaged.0', 'staged.0'])
+  assert.deepEqual(
+    boxes.map((box) => box.key),
+    ['unstaged\nstill-out', 'staged\nnow-in'],
+  )
+  assert.deepEqual(
+    boxes.map((box) => box.widgetId),
+    ['unstaged.0', 'staged.0'],
+  )
   assert.equal(hunkAction(boxes[1]), 'unstage')
 })
 
@@ -146,16 +164,19 @@ function override(patch: Partial<HunkOverride> = {}): HunkOverride {
 
 run('the pending click is shown as though it had happened, and refuses a second', () => {
   const boxes = hunkBoxes({
-    hunks: [
-      hunk({ index: 0, fingerprint: 'one' }),
-      hunk({ index: 1, newStart: 9, fingerprint: 'two' }),
-    ],
+    hunks: [hunk({ index: 0, fingerprint: 'one' }), hunk({ index: 1, newStart: 9, fingerprint: 'two' })],
     key: 'unstaged:/repo/src/a.ts',
     override: override(),
     relativePath: 'src/a.ts',
   })
-  assert.deepEqual(boxes.map((box) => box.checked), [false, true])
-  assert.deepEqual(boxes.map((box) => box.busy), [false, true])
+  assert.deepEqual(
+    boxes.map((box) => box.checked),
+    [false, true],
+  )
+  assert.deepEqual(
+    boxes.map((box) => box.busy),
+    [false, true],
+  )
   // The label follows the optimistic state, so the name a screen reader reads
   // is the same claim the picture is making.
   assert.match(boxes[1].label, /^Exclude/)
@@ -168,8 +189,14 @@ run('a prediction about another file is never shown on this one', () => {
     override: override(),
     relativePath: 'src/a.ts',
   })
-  assert.deepEqual(boxes.map((box) => box.checked), [false, false])
-  assert.deepEqual(boxes.map((box) => box.busy), [false, false])
+  assert.deepEqual(
+    boxes.map((box) => box.checked),
+    [false, false],
+  )
+  assert.deepEqual(
+    boxes.map((box) => box.busy),
+    [false, false],
+  )
 })
 
 run('a prediction follows the hunk, not the slot it was read in', () => {
@@ -182,7 +209,10 @@ run('a prediction follows the hunk, not the slot it was read in', () => {
     override: override(),
     relativePath: 'src/a.ts',
   })
-  assert.deepEqual(renumbered.map((box) => [box.checked, box.busy]), [[true, true]])
+  assert.deepEqual(
+    renumbered.map((box) => [box.checked, box.busy]),
+    [[true, true]],
+  )
 })
 
 run('a prediction dies with the read that supersedes it, right or wrong', () => {
@@ -228,8 +258,14 @@ run('the counter carries the pending click too, or it contradicts the box', () =
   assert.equal(predictedSummary(null, override(), key), null)
   assert.deepEqual(predictedSummary(summary, null, key), summary)
   // And it can never step outside the count it is describing.
-  assert.deepEqual(predictedSummary({ total: 1, included: 1 }, override({ checked: true }), key), { total: 1, included: 1 })
-  assert.deepEqual(predictedSummary({ total: 1, included: 0 }, override({ checked: false }), key), { total: 1, included: 0 })
+  assert.deepEqual(predictedSummary({ total: 1, included: 1 }, override({ checked: true }), key), {
+    total: 1,
+    included: 1,
+  })
+  assert.deepEqual(predictedSummary({ total: 1, included: 0 }, override({ checked: false }), key), {
+    total: 1,
+    included: 0,
+  })
 })
 
 if (failures > 0) {

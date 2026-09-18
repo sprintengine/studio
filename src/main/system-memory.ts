@@ -25,11 +25,7 @@ export type SystemMemoryDeps = {
 // 1 - available/total; it is not macOS memory pressure. Compressor + swap are
 // carried raw as separate context. Returns null when the output is unparseable
 // so the caller falls back to the os-module reading.
-export function parseDarwinVmStat(
-  vmStat: string,
-  swapUsage: string,
-  totalBytes: number
-): SystemMemorySample | null {
+export function parseDarwinVmStat(vmStat: string, swapUsage: string, totalBytes: number): SystemMemorySample | null {
   const pageSizeMatch = vmStat.match(/page size of (\d+) bytes/)
   const pageSize = pageSizeMatch ? Number(pageSizeMatch[1]) : 4096
   const pages = (label: string): number => {
@@ -110,11 +106,15 @@ function clamp01(value: number): number {
 
 function scaleSuffix(value: number, suffix: string): number {
   const factor =
-    suffix === 'K' || suffix === 'k' ? 1024
-    : suffix === 'M' || suffix === 'm' ? 1024 ** 2
-    : suffix === 'G' || suffix === 'g' ? 1024 ** 3
-    : suffix === 'T' || suffix === 't' ? 1024 ** 4
-    : 1
+    suffix === 'K' || suffix === 'k'
+      ? 1024
+      : suffix === 'M' || suffix === 'm'
+        ? 1024 ** 2
+        : suffix === 'G' || suffix === 'g'
+          ? 1024 ** 3
+          : suffix === 'T' || suffix === 't'
+            ? 1024 ** 4
+            : 1
   return Math.round(value * factor)
 }
 
@@ -141,8 +141,6 @@ export async function sampleSystemMemory(deps: SystemMemoryDeps = {}): Promise<S
 
 function execFileText(command: string, args: string[]): Promise<string> {
   return new Promise((resolve) => {
-    execFile(command, args, { timeout: 2_000, maxBuffer: 1024 * 1024 }, (error, stdout) =>
-      resolve(error ? '' : stdout)
-    )
+    execFile(command, args, { timeout: 2_000, maxBuffer: 1024 * 1024 }, (error, stdout) => resolve(error ? '' : stdout))
   })
 }

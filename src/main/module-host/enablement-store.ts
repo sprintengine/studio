@@ -43,7 +43,7 @@ export type ModuleEnablementWriteResult = { ok: boolean; message?: string }
 
 export async function writeModuleOverrides(
   userDataDir: string,
-  overrides: ModuleEnablementOverrides
+  overrides: ModuleEnablementOverrides,
 ): Promise<ModuleEnablementWriteResult> {
   const normalized = normalizeModuleOverrides(overrides)
   const path = moduleEnablementPath(userDataDir)

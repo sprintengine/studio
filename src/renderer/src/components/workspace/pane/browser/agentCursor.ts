@@ -9,7 +9,10 @@ export const AGENT_CURSOR_LINGER_MS = 700
 export type AgentCursorEvent = BrowserPointerEvent & { at: number }
 
 /** Frame-relative position: the guest's CSS px scaled by the frame's fit. */
-export function cursorPlacement(event: Pick<BrowserPointerEvent, 'x' | 'y'>, scale: number): { left: number; top: number } {
+export function cursorPlacement(
+  event: Pick<BrowserPointerEvent, 'x' | 'y'>,
+  scale: number,
+): { left: number; top: number } {
   const factor = Number.isFinite(scale) && scale > 0 ? scale : 1
   return { left: Math.round(event.x * factor), top: Math.round(event.y * factor) }
 }

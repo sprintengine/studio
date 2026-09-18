@@ -1,8 +1,5 @@
 import type { LayoutTemplate, PreviewSlot } from '../../renderer/src/types/workspace'
-import {
-  AUTOMATIONS_HOST_WORKSPACE_MODE,
-  type WorkspaceMode,
-} from '../workspace-mode'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE, type WorkspaceMode } from '../workspace-mode'
 
 // Layout templates live in `shared` (MC-2158) because main mints workspaces
 // now: a headless `workspace.create` — the gateway, an automation, the
@@ -14,8 +11,22 @@ import {
 
 // Helpers to keep preview slot definitions readable.
 // Previews are rendered in a 300×110 viewBox.
-const agent = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'agent', label })
-const editor = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({ x, y, w, h, type: 'editor', label })
+const agent = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({
+  x,
+  y,
+  w,
+  h,
+  type: 'agent',
+  label,
+})
+const editor = (label: string, x: number, y: number, w: number, h: number): PreviewSlot => ({
+  x,
+  y,
+  w,
+  h,
+  type: 'editor',
+  label,
+})
 
 // flexlayout shortcuts
 const agentTab = (id: string, name = id) => ({
@@ -57,9 +68,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
       borders: [],
       layout: {
         type: 'row',
-        children: [
-          { type: 'tabset', weight: 100, children: [agentTab('agent-1', 'Agent')] },
-        ],
+        children: [{ type: 'tabset', weight: 100, children: [agentTab('agent-1', 'Agent')] }],
       },
     },
   },
@@ -67,10 +76,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     id: 'duo',
     name: 'Duo',
     description: 'Two AI terminals side by side.',
-    previewSlots: [
-      agent('Agent 1', 4, 4, 144, 102),
-      agent('Agent 2', 152, 4, 144, 102),
-    ],
+    previewSlots: [agent('Agent 1', 4, 4, 144, 102), agent('Agent 2', 152, 4, 144, 102)],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
       borders: [],
@@ -87,10 +93,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     id: 'solo-dev',
     name: 'Solo Dev',
     description: 'Editor and one AI terminal.',
-    previewSlots: [
-      editor('Editor', 4, 4, 196, 102),
-      agent('Agent', 204, 4, 92, 102),
-    ],
+    previewSlots: [editor('Editor', 4, 4, 196, 102), agent('Agent', 204, 4, 92, 102)],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
       borders: [],
@@ -180,9 +183,15 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
     name: 'Command Center',
     description: 'Nine tiled AI terminals in a dense grid.',
     previewSlots: [
-      agent('A1', 4, 4, 94, 32),     agent('A2', 104, 4, 94, 32),    agent('A3', 204, 4, 92, 32),
-      agent('A4', 4, 40, 94, 32),    agent('A5', 104, 40, 94, 32),   agent('A6', 204, 40, 92, 32),
-      agent('A7', 4, 76, 94, 30),    agent('A8', 104, 76, 94, 30),   agent('A9', 204, 76, 92, 30),
+      agent('A1', 4, 4, 94, 32),
+      agent('A2', 104, 4, 94, 32),
+      agent('A3', 204, 4, 92, 32),
+      agent('A4', 4, 40, 94, 32),
+      agent('A5', 104, 40, 94, 32),
+      agent('A6', 204, 40, 92, 32),
+      agent('A7', 4, 76, 94, 30),
+      agent('A8', 104, 76, 94, 30),
+      agent('A9', 204, 76, 92, 30),
     ],
     layout: {
       global: { tabSetEnableDrop: true, tabEnableClose: true },
@@ -246,7 +255,8 @@ const singleSurfaceLayout = (tab: Record<string, unknown>): LayoutTemplate['layo
 export const AUTOMATIONS_HOST_TEMPLATE: LayoutTemplate = {
   id: 'automations-mode',
   name: 'Automations Mode',
-  description: 'Schedule agents on this project, watch run history, and manage triggers — with runs hosted as live terminals beside the control panel.',
+  description:
+    'Schedule agents on this project, watch run history, and manage triggers — with runs hosted as live terminals beside the control panel.',
   previewSlots: [editor('Automations', 4, 4, 292, 102)],
   layout: singleSurfaceLayout({
     type: 'tab',
@@ -285,8 +295,9 @@ export function resolveHeadlessLayoutTemplate(input: {
   if (byMode) return byMode
   const templateId = input.templateId?.trim()
   if (templateId) {
-    const named = [...LAYOUT_TEMPLATES, EMPTY_CHAT_TEMPLATE, AUTOMATIONS_HOST_TEMPLATE]
-      .find((template) => template.id === templateId)
+    const named = [...LAYOUT_TEMPLATES, EMPTY_CHAT_TEMPLATE, AUTOMATIONS_HOST_TEMPLATE].find(
+      (template) => template.id === templateId,
+    )
     if (named) return named
   }
   return DEFAULT_LAYOUT_TEMPLATE

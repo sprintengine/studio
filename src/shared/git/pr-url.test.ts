@@ -27,8 +27,20 @@ run('a non-github host resolves to github-enterprise', () => {
 })
 
 run('trailing /files and /commits segments are ignored', () => {
-  assert.deepEqual(parsePullRequestUrl('https://github.com/acme/app/pull/7/files'), { provider: 'github', host: 'github.com', owner: 'acme', repo: 'app', number: 7 })
-  assert.deepEqual(parsePullRequestUrl('https://github.com/acme/app/pull/7/commits'), { provider: 'github', host: 'github.com', owner: 'acme', repo: 'app', number: 7 })
+  assert.deepEqual(parsePullRequestUrl('https://github.com/acme/app/pull/7/files'), {
+    provider: 'github',
+    host: 'github.com',
+    owner: 'acme',
+    repo: 'app',
+    number: 7,
+  })
+  assert.deepEqual(parsePullRequestUrl('https://github.com/acme/app/pull/7/commits'), {
+    provider: 'github',
+    host: 'github.com',
+    owner: 'acme',
+    repo: 'app',
+    number: 7,
+  })
 })
 
 run('query-string noise does not defeat the match', () => {

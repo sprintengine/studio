@@ -19,10 +19,7 @@ import { reloadDesignArrivals, reportDesignArrivals } from './designArrivalsStor
 import { DesignCanvas, type DesignCanvasTabId } from './DesignCanvas'
 import { NewDesignSystemScreen, type NewDesignSystemSource } from './NewDesignSystemScreen'
 import { DesignRail } from './DesignRail'
-import {
-  ProjectScopePicker,
-  type ProjectScopeOption,
-} from '../../agentComposer/ProjectScopePicker'
+import { ProjectScopePicker, type ProjectScopeOption } from '../../agentComposer/ProjectScopePicker'
 import {
   designFailureLine,
   libraryRowId,
@@ -196,9 +193,7 @@ export default function DesignGlobalSurface(): JSX.Element {
     // Only folders the registry says are readable are worth a full read; a
     // broken one already carries its state from the probe, and re-reading it
     // would just repeat the same failure on every render.
-    const paths = registered
-      .filter((entry) => entry.sourceState === 'ok')
-      .map((entry) => entry.path)
+    const paths = registered.filter((entry) => entry.sourceState === 'ok').map((entry) => entry.path)
     if (projectBundlePath) paths.unshift(projectBundlePath)
     return [...new Set(paths)]
   }, [registered, projectBundlePath])
@@ -268,10 +263,7 @@ export default function DesignGlobalSurface(): JSX.Element {
     return rows
   }, [projectBundlePath, projectHasBundle, registered, reads])
 
-  const selectedEntry = useMemo(
-    () => entries.find((entry) => entry.id === selectedId) ?? null,
-    [entries, selectedId],
-  )
+  const selectedEntry = useMemo(() => entries.find((entry) => entry.id === selectedId) ?? null, [entries, selectedId])
 
   // Keep the selection valid without stealing it: a rail whose rows changed
   // under a live selection falls back to the first row, and the New affordance
@@ -446,42 +438,45 @@ export default function DesignGlobalSurface(): JSX.Element {
    * select it. Cancelling the picker leaves nothing on disk and nothing in the
    * registry — the seed is not attempted until there is a folder to write to.
    */
-  const seedFrom = useCallback(async (source: NewDesignSystemSource) => {
-    setPointError(null)
-    const target = await window.api.openDir()
-    if (!target || !mounted.current) return
-    setCreatingFrom(source.name)
-    try {
-      const name = basenameOfPath(target)
-      const seeded = await window.api.seedDesignSystemBundle(
-        source.path,
-        target,
-        name,
-        source.path ? `Seeded from ${source.name}.` : 'A new design system.',
-      )
-      if (!mounted.current) return
-      if (!seeded.ok) {
-        setPointError(seeded.message ?? 'Could not create the design system.')
-        return
+  const seedFrom = useCallback(
+    async (source: NewDesignSystemSource) => {
+      setPointError(null)
+      const target = await window.api.openDir()
+      if (!target || !mounted.current) return
+      setCreatingFrom(source.name)
+      try {
+        const name = basenameOfPath(target)
+        const seeded = await window.api.seedDesignSystemBundle(
+          source.path,
+          target,
+          name,
+          source.path ? `Seeded from ${source.name}.` : 'A new design system.',
+        )
+        if (!mounted.current) return
+        if (!seeded.ok) {
+          setPointError(seeded.message ?? 'Could not create the design system.')
+          return
+        }
+        const bundleDir = seeded.bundleDir ?? target
+        const registered = await window.api.registerDesignSystemFolder(bundleDir)
+        if (!mounted.current) return
+        if (!registered.ok) {
+          setPointError(registered.message)
+          return
+        }
+        reloadDesignArrivals()
+        await loadLibrary()
+        if (!mounted.current) return
+        setNewSelected(false)
+        setCanvasTab(null)
+        setCanvasPages({})
+        setSelectedId(libraryRowId(registered.entry.path))
+      } finally {
+        if (mounted.current) setCreatingFrom(null)
       }
-      const bundleDir = seeded.bundleDir ?? target
-      const registered = await window.api.registerDesignSystemFolder(bundleDir)
-      if (!mounted.current) return
-      if (!registered.ok) {
-        setPointError(registered.message)
-        return
-      }
-      reloadDesignArrivals()
-      await loadLibrary()
-      if (!mounted.current) return
-      setNewSelected(false)
-      setCanvasTab(null)
-      setCanvasPages({})
-      setSelectedId(libraryRowId(registered.entry.path))
-    } finally {
-      if (mounted.current) setCreatingFrom(null)
-    }
-  }, [loadLibrary])
+    },
+    [loadLibrary],
+  )
 
   /**
    * Re-point a broken registration at wherever the folder went.
@@ -490,35 +485,41 @@ export default function DesignGlobalSurface(): JSX.Element {
    * id IS the path, so a moved folder is genuinely a different registration, and
    * pretending otherwise would leave the id lying about where it points.
    */
-  const repointEntry = useCallback(async (entry: DesignRailEntry) => {
-    const picked = await window.api.openDir()
-    if (!picked || !mounted.current) return
-    const result = await window.api.registerDesignSystemFolder(picked)
-    if (!mounted.current) return
-    if (!result.ok) {
-      setPointError(result.message)
-      return
-    }
-    if (entry.registrationId) await window.api.forgetDesignSystemFolder(entry.registrationId)
-    reloadDesignArrivals()
-    if (!mounted.current) return
-    await loadLibrary()
-    if (!mounted.current) return
-    setSelectedId(libraryRowId(result.entry.path))
-  }, [loadLibrary])
+  const repointEntry = useCallback(
+    async (entry: DesignRailEntry) => {
+      const picked = await window.api.openDir()
+      if (!picked || !mounted.current) return
+      const result = await window.api.registerDesignSystemFolder(picked)
+      if (!mounted.current) return
+      if (!result.ok) {
+        setPointError(result.message)
+        return
+      }
+      if (entry.registrationId) await window.api.forgetDesignSystemFolder(entry.registrationId)
+      reloadDesignArrivals()
+      if (!mounted.current) return
+      await loadLibrary()
+      if (!mounted.current) return
+      setSelectedId(libraryRowId(result.entry.path))
+    },
+    [loadLibrary],
+  )
 
   /**
    * Forget a registration: the reference goes, the user's folder does not.
    */
-  const forgetEntry = useCallback(async (entry: DesignRailEntry) => {
-    if (!entry.registrationId) return
-    await window.api.forgetDesignSystemFolder(entry.registrationId)
-    // The forgotten system's entries must stop counting on the Design row too.
-    reloadDesignArrivals()
-    if (!mounted.current) return
-    setSelectedId(null)
-    await loadLibrary()
-  }, [loadLibrary])
+  const forgetEntry = useCallback(
+    async (entry: DesignRailEntry) => {
+      if (!entry.registrationId) return
+      await window.api.forgetDesignSystemFolder(entry.registrationId)
+      // The forgotten system's entries must stop counting on the Design row too.
+      reloadDesignArrivals()
+      if (!mounted.current) return
+      setSelectedId(null)
+      await loadLibrary()
+    },
+    [loadLibrary],
+  )
 
   /**
    * The create screen's cards: one per readable library system, then Empty.
@@ -637,24 +638,24 @@ export default function DesignGlobalSurface(): JSX.Element {
           onSeedFrom={(source) => void seedFrom(source)}
         />
       ) : (
-      <DesignSurfaceBody
-        loadState={loadState}
-        loadError={loadError}
-        onRetry={() => void loadLibrary()}
-        hasEntries={entries.length > 0}
-        selectedEntry={selectedEntry}
-        selectedView={selectedView}
-        newEntries={newEntries}
-        mode={scheme === 'light' ? 'light' : 'dark'}
-        canvasTab={canvasTab}
-        onCanvasTab={setCanvasTab}
-        canvasPages={canvasPages}
-        onCanvasPage={(tab, page) => setCanvasPages((current) => ({ ...current, [tab]: page }))}
-        onRepoint={() => selectedEntry && void repointEntry(selectedEntry)}
-        onForget={() => selectedEntry && void forgetEntry(selectedEntry)}
-        pointError={pointError}
-        onPointAtFolder={() => void pointAtFolder()}
-      />
+        <DesignSurfaceBody
+          loadState={loadState}
+          loadError={loadError}
+          onRetry={() => void loadLibrary()}
+          hasEntries={entries.length > 0}
+          selectedEntry={selectedEntry}
+          selectedView={selectedView}
+          newEntries={newEntries}
+          mode={scheme === 'light' ? 'light' : 'dark'}
+          canvasTab={canvasTab}
+          onCanvasTab={setCanvasTab}
+          canvasPages={canvasPages}
+          onCanvasPage={(tab, page) => setCanvasPages((current) => ({ ...current, [tab]: page }))}
+          onRepoint={() => selectedEntry && void repointEntry(selectedEntry)}
+          onForget={() => selectedEntry && void forgetEntry(selectedEntry)}
+          pointError={pointError}
+          onPointAtFolder={() => void pointAtFolder()}
+        />
       )}
     </GlobalSurfaceShell>
   )

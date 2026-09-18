@@ -40,7 +40,7 @@ async function testStartupAndShutdownOrder(): Promise<void> {
     [
       ['alpha-daemon', 'alpha', 'running'],
       ['beta-daemon', 'beta', 'running'],
-    ]
+    ],
   )
 
   log.length = 0
@@ -48,7 +48,7 @@ async function testStartupAndShutdownOrder(): Promise<void> {
   assert.deepEqual(log, ['stop:beta-daemon', 'stop:alpha-daemon'], 'shutdown stops in reverse registration order')
   assert.deepEqual(
     kernel.sidecarStatuses().map((status) => status.state),
-    ['stopped', 'stopped']
+    ['stopped', 'stopped'],
   )
 }
 
@@ -89,7 +89,7 @@ async function testSpawnFailure(): Promise<void> {
         throw new Error('daemon binary missing')
       },
       stop: async () => undefined,
-    }
+    },
   )
 
   await assert.rejects(() => handle.start(), /daemon binary missing/)
@@ -111,12 +111,12 @@ async function testSpawnFailure(): Promise<void> {
         throw new Error('spawn exploded')
       },
       stop: async () => undefined,
-    }
+    },
   )
   await startupKernel.runStartup()
   assert.deepEqual(
     startupKernel.sidecarStatuses().map((status) => [status.state, status.error]),
-    [['failed', 'spawn exploded']]
+    [['failed', 'spawn exploded']],
   )
   assert.equal(startupDelivered.length, 1, 'the startup-spawned failure is notified on its own kernel')
 }
@@ -132,7 +132,10 @@ async function testDeclarativeSidecar(): Promise<void> {
   await assert.rejects(() => handle.start(), /without a lifecycle/)
   await kernel.runShutdown()
   assert.equal(handle.status().state, 'declared')
-  assert.deepEqual(kernel.sidecars().map((spec) => spec.id), ['sprint-engine-core'])
+  assert.deepEqual(
+    kernel.sidecars().map((spec) => spec.id),
+    ['sprint-engine-core'],
+  )
 }
 
 // Status delegation: an externally-triggered daemon's own state is the truth
@@ -151,7 +154,7 @@ async function testStatusDelegation(): Promise<void> {
         externalState = 'stopped'
       },
       status: () => ({ state: externalState, error: externalError }),
-    }
+    },
   )
 
   assert.equal(handle.status().state, 'stopped')
@@ -184,7 +187,7 @@ async function testConcurrentStartsShareOneSpawn(): Promise<void> {
         })
       },
       stop: async () => undefined,
-    }
+    },
   )
 
   const first = handle.start()
@@ -201,7 +204,7 @@ function testDuplicateSidecarIdRejected(): void {
   kernel.hostFor('alpha').registerSidecar({ id: 'daemon', kind: 'process' })
   assert.throws(
     () => kernel.hostFor('beta').registerSidecar({ id: 'daemon', kind: 'process' }),
-    /already registered by module "alpha"/
+    /already registered by module "alpha"/,
   )
 }
 

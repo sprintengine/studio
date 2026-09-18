@@ -76,9 +76,7 @@ export function registerFilesystemWatchSearchIpc(ipcMain: IpcMain, deps: Filesys
     const fileWatcher = fileWatchers.get(watchId)
     if (!fileWatcher) return
 
-    fileWatcher.pendingEvent = fileWatcher.pendingEvent
-      ? { eventType: 'change', path: null }
-      : watchEvent
+    fileWatcher.pendingEvent = fileWatcher.pendingEvent ? { eventType: 'change', path: null } : watchEvent
 
     if (fileWatcher.flushTimer) clearTimeout(fileWatcher.flushTimer)
     fileWatcher.flushTimer = setTimeout(() => flushFileWatchEvent(watchId), FILE_WATCH_EVENT_COALESCE_MS)

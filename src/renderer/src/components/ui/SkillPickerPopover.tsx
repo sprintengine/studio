@@ -94,9 +94,7 @@ async function loadInventory(workspaceRoot: string, pluginId: string | null): Pr
   const reachableIds = new Set(reachable.map((skill) => skill.id))
   const bundled = await window.api.builtinSkillsList()
   const available = bundled
-    .filter(
-      (skill) => !reachableIds.has(skill.id) && builtinInstallsIntoHarness(skill, capabilities.harnessId),
-    )
+    .filter((skill) => !reachableIds.has(skill.id) && builtinInstallsIntoHarness(skill, capabilities.harnessId))
     .map((skill): WorkspaceSkill => ({
       id: skill.id,
       name: skill.name,
@@ -149,9 +147,9 @@ export function useWorkspaceSkills(
 function matchesQuery(skill: WorkspaceSkill, normalized: string): boolean {
   if (!normalized) return true
   return (
-    skill.id.toLowerCase().includes(normalized)
-    || skill.name.toLowerCase().includes(normalized)
-    || (skill.description?.toLowerCase().includes(normalized) ?? false)
+    skill.id.toLowerCase().includes(normalized) ||
+    skill.name.toLowerCase().includes(normalized) ||
+    (skill.description?.toLowerCase().includes(normalized) ?? false)
   )
 }
 
@@ -172,11 +170,7 @@ function groupSkills(skills: WorkspaceSkill[], query: string): SkillGroups {
 function SkillGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path
-        d="M3 2.5h8.5A1.5 1.5 0 0 1 13 4v9.5H4.5A1.5 1.5 0 0 1 3 12V2.5z"
-        stroke="currentColor"
-        strokeWidth="1.3"
-      />
+      <path d="M3 2.5h8.5A1.5 1.5 0 0 1 13 4v9.5H4.5A1.5 1.5 0 0 1 3 12V2.5z" stroke="currentColor" strokeWidth="1.3" />
       <path d="M3 11.5A1.5 1.5 0 0 1 4.5 10H13" stroke="currentColor" strokeWidth="1.3" />
     </svg>
   )
@@ -228,11 +222,7 @@ function SkillRow({
           className="max-w-[60%] shrink-0 font-medium text-[color:var(--text-strong)]"
         />
         {skill.description ? (
-          <TruncatedText
-            as="span"
-            text={skill.description}
-            className="min-w-0 flex-1 text-[color:var(--text-muted)]"
-          />
+          <TruncatedText as="span" text={skill.description} className="min-w-0 flex-1 text-[color:var(--text-muted)]" />
         ) : null}
       </span>
       {installing ? (
@@ -308,9 +298,7 @@ function SkillList({
   const renderGroup = (label: string, skills: WorkspaceSkill[], offset: number) =>
     skills.length > 0 ? (
       <div className="py-0.5">
-        <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>
-          {label}
-        </div>
+        <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>{label}</div>
         {skills.map((skill, index) => (
           <SkillRow
             key={skill.id}
@@ -453,8 +441,8 @@ export function SkillPickerPopover({
       popupRole="menu"
       placement={placement}
       renderTrigger={
-        renderTrigger
-        ?? (({ ref, triggerProps, togglePopover }) => (
+        renderTrigger ??
+        (({ ref, triggerProps, togglePopover }) => (
           <button
             ref={ref}
             type="button"
@@ -470,7 +458,12 @@ export function SkillPickerPopover({
     >
       <div className="flex max-h-[400px] w-[340px] flex-col overflow-hidden">
         <div className="flex items-center gap-1 border-b border-[color:var(--border-subtle)] p-1 pl-2.5">
-          <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <svg
+            className="icon-xs shrink-0 text-[color:var(--text-disabled)]"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
             <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
             <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
@@ -566,10 +559,7 @@ export const InlineSkillPicker = forwardRef<
     // the trigger dismissed so the typed character stays literal.
     onDismiss?: () => void
   }
->(function InlineSkillPicker(
-  { workspaceRoot, pluginId = null, query, onPick, onMatchCountChange, onDismiss },
-  ref,
-) {
+>(function InlineSkillPicker({ workspaceRoot, pluginId = null, query, onPick, onMatchCountChange, onDismiss }, ref) {
   const [activeIndex, setActiveIndex] = useState(0)
   const [actionError, setActionError] = useState<string | null>(null)
   const inventory = useWorkspaceSkills(workspaceRoot, pluginId, true)

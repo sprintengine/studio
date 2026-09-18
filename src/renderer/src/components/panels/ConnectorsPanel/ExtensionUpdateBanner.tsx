@@ -11,11 +11,7 @@ import type { ReactNode } from 'react'
 import type { CapabilityPermission } from '../../../../../shared/modules/permissions'
 import { GhostButton, InlineNotice, OutlineButton, PrimaryButton, Spinner, StatusDot } from '../../ui'
 import { TrustPrompt, type PluginTrust } from '../../settings/BrowseStorefront'
-import {
-  COULDNT_CHECK_COPY,
-  manageUpdateBannerCopy,
-  type ManageUpdateBanner,
-} from './extensionUpdates'
+import { COULDNT_CHECK_COPY, manageUpdateBannerCopy, type ManageUpdateBanner } from './extensionUpdates'
 
 // The in-flight state of the banner's update run. `busy` covers both the
 // pre-update verify and the update itself; `needs-trust` pauses the run on the
@@ -76,9 +72,7 @@ export function ModuleUpdateBanner({
           />
         </svg>
         <span className="min-w-0 truncate">
-          {copy.strong ? (
-            <b className="font-medium text-[color:var(--text-strong)]">{copy.strong}</b>
-          ) : null}
+          {copy.strong ? <b className="font-medium text-[color:var(--text-strong)]">{copy.strong}</b> : null}
           {copy.text}
         </span>
         {flow.status === 'busy' ? (
@@ -105,12 +99,7 @@ export function ModuleUpdateBanner({
       {line}
       {flow.status === 'needs-trust' ? (
         <div className="space-y-2">
-          <TrustPrompt
-            tier={flow.tier}
-            permissions={flow.permissions}
-            inlineServers={[]}
-            files={flow.files}
-          />
+          <TrustPrompt tier={flow.tier} permissions={flow.permissions} inlineServers={[]} files={flow.files} />
           <div className="flex gap-2">
             <PrimaryButton size="sm" onClick={onTrustConfirm}>
               Trust and update

@@ -11,7 +11,9 @@ const model = (id: string, label = id, extra: Record<string, unknown> = {}) => (
 // ids the person added by hand.
 assert.deepEqual(
   newModelsNotice({
-    additions: { 'claude-code': [model('claude-opus-5-2', 'Opus 5.2'), model('claude-opus-5-2[1m]', 'Opus 5.2 (1M context)')] },
+    additions: {
+      'claude-code': [model('claude-opus-5-2', 'Opus 5.2'), model('claude-opus-5-2[1m]', 'Opus 5.2 (1M context)')],
+    },
     installed: new Set(['claude-code']),
     userModels: () => [],
     displayName,
@@ -20,7 +22,10 @@ assert.deepEqual(
 )
 assert.deepEqual(
   newModelsNotice({
-    additions: { 'claude-code': [model('a', 'A')], codex: [model('b', 'B'), model('c', 'C'), model('d', 'D'), model('e', 'E')] },
+    additions: {
+      'claude-code': [model('a', 'A')],
+      codex: [model('b', 'B'), model('c', 'C'), model('d', 'D'), model('e', 'E')],
+    },
     installed: new Set(['claude-code', 'codex']),
     userModels: () => [],
     displayName,
@@ -28,16 +33,31 @@ assert.deepEqual(
   { title: 'New models for Claude Code and Codex', description: 'A, B, C, and 2 more are in the picker.' },
 )
 assert.deepEqual(
-  newModelsNotice({ additions: { codex: [model('b', 'B')] }, installed: new Set(['codex']), userModels: () => [], displayName }),
+  newModelsNotice({
+    additions: { codex: [model('b', 'B')] },
+    installed: new Set(['codex']),
+    userModels: () => [],
+    displayName,
+  }),
   { title: 'New model for Codex', description: 'B is in the picker.' },
 )
 assert.equal(
-  newModelsNotice({ additions: { grok: [model('g', 'G')] }, installed: new Set(['codex']), userModels: () => [], displayName }),
+  newModelsNotice({
+    additions: { grok: [model('g', 'G')] },
+    installed: new Set(['codex']),
+    userModels: () => [],
+    displayName,
+  }),
   null,
   'a CLI that is not installed makes no notice',
 )
 assert.equal(
-  newModelsNotice({ additions: { codex: [model('mine', 'Mine')] }, installed: new Set(['codex']), userModels: () => ['mine'], displayName }),
+  newModelsNotice({
+    additions: { codex: [model('mine', 'Mine')] },
+    installed: new Set(['codex']),
+    userModels: () => ['mine'],
+    displayName,
+  }),
   null,
   'an id the person already added by hand is not news',
 )
@@ -57,10 +77,20 @@ assert.deepEqual(
     remembered: [{ who: 'Codex Reviewer', cli: 'claude-code', model: 'claude-opus-4-8' }],
     displayName,
   }),
-  [{ title: 'Opus 4.8 has been retired', description: "Codex Reviewer used it. It launches with Claude Code's default until you pick another." }],
+  [
+    {
+      title: 'Opus 4.8 has been retired',
+      description: "Codex Reviewer used it. It launches with Claude Code's default until you pick another.",
+    },
+  ],
 )
 assert.deepEqual(
-  retiredModelNotices({ previous: feed([model('claude-opus-4-8', 'Opus 4.8')]), next: retired, remembered: [], displayName }),
+  retiredModelNotices({
+    previous: feed([model('claude-opus-4-8', 'Opus 4.8')]),
+    next: retired,
+    remembered: [],
+    displayName,
+  }),
   [],
   'a retired id nobody selected leaves quietly',
 )
@@ -78,16 +108,32 @@ assert.deepEqual(
   retiredModelNotices({
     previous: null,
     next: retired,
-    remembered: [{ who: 'Planner', cli: 'claude-code', model: 'claude-opus-4-8' }, { who: 'Reviewer', cli: 'claude-code', model: 'claude-opus-4-8' }],
+    remembered: [
+      { who: 'Planner', cli: 'claude-code', model: 'claude-opus-4-8' },
+      { who: 'Reviewer', cli: 'claude-code', model: 'claude-opus-4-8' },
+    ],
     displayName,
   })[0].description,
   "Planner and Reviewer used it. They launch with Claude Code's default until you pick another.",
 )
 
 assert.deepEqual(
-  cliUpdateNotice({ cli: 'codex', status: 'behind_latest', currentVersion: '0.153.2', latestVersion: '0.153.3', updateCommand: null, checkedAt: '' }, displayName),
+  cliUpdateNotice(
+    {
+      cli: 'codex',
+      status: 'behind_latest',
+      currentVersion: '0.153.2',
+      latestVersion: '0.153.3',
+      updateCommand: null,
+      checkedAt: '',
+    },
+    displayName,
+  ),
   { title: 'Update available: Codex 0.153.3' },
 )
-assert.deepEqual(updateReadyNotice('Sprint Engine Studio', '0.4.0'), { title: 'Sprint Engine Studio 0.4.0 is ready', description: 'Installs the next time you quit.' })
+assert.deepEqual(updateReadyNotice('Sprint Engine Studio', '0.4.0'), {
+  title: 'Sprint Engine Studio 0.4.0 is ready',
+  description: 'Installs the next time you quit.',
+})
 
 console.log('feedNotifications: ok')

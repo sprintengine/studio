@@ -106,11 +106,7 @@ export type WorkspaceSyncCommand =
  * paths both keep the later value, and an older reading from a lagging window
  * can never roll a persisted clock back.
  */
-export const MONOTONIC_WORKSPACE_CLOCKS = [
-  'lastTerminalActivityAt',
-  'lastUserMessageAt',
-  'lastTurnEndedAt',
-] as const
+export const MONOTONIC_WORKSPACE_CLOCKS = ['lastTerminalActivityAt', 'lastUserMessageAt', 'lastTurnEndedAt'] as const
 
 /** True unless writing `value` into `key` would roll an activity clock back. */
 export function workspaceFieldMayApply(record: Record<string, unknown>, key: string, value: unknown): boolean {
@@ -186,23 +182,41 @@ type AgentTerminalSessionAssignedEventPayload = Extract<
 >['payload'] & { cliResumeAvailable: boolean; cliUsesStableSessionId: boolean }
 
 export type WorkspaceSyncEvent =
-  | WorkspaceSyncBaseEvent<'workspace_window.active_changed', Extract<WorkspaceSyncCommand, { type: 'workspace_window.set_active' }>['payload']>
-  | WorkspaceSyncBaseEvent<'workspace.moved_to_window', Extract<WorkspaceSyncCommand, { type: 'workspace.move_to_window' }>['payload']>
-  | WorkspaceSyncBaseEvent<'workspace_window.placement_updated', Extract<WorkspaceSyncCommand, { type: 'workspace_window.update_placement' }>['payload']>
+  | WorkspaceSyncBaseEvent<
+      'workspace_window.active_changed',
+      Extract<WorkspaceSyncCommand, { type: 'workspace_window.set_active' }>['payload']
+    >
+  | WorkspaceSyncBaseEvent<
+      'workspace.moved_to_window',
+      Extract<WorkspaceSyncCommand, { type: 'workspace.move_to_window' }>['payload']
+    >
+  | WorkspaceSyncBaseEvent<
+      'workspace_window.placement_updated',
+      Extract<WorkspaceSyncCommand, { type: 'workspace_window.update_placement' }>['payload']
+    >
   | WorkspaceSyncBaseEvent<'workspace_window.closed', WorkspaceWindowClosedEventPayload>
   | WorkspaceSyncBaseEvent<'workspace.created', Extract<WorkspaceSyncCommand, { type: 'workspace.created' }>['payload']>
   | WorkspaceSyncBaseEvent<'agent_terminal.session_assigned', AgentTerminalSessionAssignedEventPayload>
-  | WorkspaceSyncBaseEvent<'agent_terminal.launch_state_updated', Extract<WorkspaceSyncCommand, { type: 'agent_terminal.update_launch_state' }>['payload']>
+  | WorkspaceSyncBaseEvent<
+      'agent_terminal.launch_state_updated',
+      Extract<WorkspaceSyncCommand, { type: 'agent_terminal.update_launch_state' }>['payload']
+    >
   | WorkspaceSyncBaseEvent<'workspace.renamed', Extract<WorkspaceSyncCommand, { type: 'workspace.rename' }>['payload']>
-  | WorkspaceSyncBaseEvent<'workspace.layout_updated', Extract<WorkspaceSyncCommand, { type: 'workspace.update_layout' }>['payload']>
-  | WorkspaceSyncBaseEvent<'workspace.fields_updated', Extract<WorkspaceSyncCommand, { type: 'workspace.update_fields' }>['payload']>
-  | WorkspaceSyncBaseEvent<'workspace.agents_updated', Extract<WorkspaceSyncCommand, { type: 'workspace.update_agent' }>['payload']>
+  | WorkspaceSyncBaseEvent<
+      'workspace.layout_updated',
+      Extract<WorkspaceSyncCommand, { type: 'workspace.update_layout' }>['payload']
+    >
+  | WorkspaceSyncBaseEvent<
+      'workspace.fields_updated',
+      Extract<WorkspaceSyncCommand, { type: 'workspace.update_fields' }>['payload']
+    >
+  | WorkspaceSyncBaseEvent<
+      'workspace.agents_updated',
+      Extract<WorkspaceSyncCommand, { type: 'workspace.update_agent' }>['payload']
+    >
   | WorkspaceSyncBaseEvent<'workspace.removed', { workspaceId: WorkspaceId; removedAt: number }>
 
-type WorkspaceSyncBaseEvent<
-  Type extends WorkspaceSyncEventType,
-  Payload,
-> = {
+type WorkspaceSyncBaseEvent<Type extends WorkspaceSyncEventType, Payload> = {
   id: string
   type: Type
   sourceWindowId: WorkspaceWindowId
@@ -241,7 +255,7 @@ export type WorkspaceSyncApplyResult =
 
 export function applyWorkspaceSyncEvent(
   state: WorkspaceSyncState,
-  event: WorkspaceSyncEvent
+  event: WorkspaceSyncEvent,
 ): WorkspaceSyncApplyResult {
   const expectedSequence = state.lastAppliedWorkspaceSyncSequence + 1
   if (event.sequence <= state.lastAppliedWorkspaceSyncSequence) {
@@ -265,7 +279,7 @@ export function applyWorkspaceSyncEvent(
 
 export function applyWorkspaceSyncSnapshot(
   state: WorkspaceSyncState,
-  snapshot: WorkspaceSyncSnapshot
+  snapshot: WorkspaceSyncSnapshot,
 ): WorkspaceSyncState {
   if (snapshot.sequence <= state.lastAppliedWorkspaceSyncSequence) return state
   return {
@@ -296,7 +310,7 @@ function applyWorkspaceSyncEventInPlace(state: WorkspaceSyncState, event: Worksp
         event.payload.workspace,
         event.payload.windowId,
         event.payload.insert.folderPath,
-        event.createdAt
+        event.createdAt,
       )
       break
     case 'agent_terminal.session_assigned':
@@ -329,7 +343,7 @@ function findWorkspace(state: WorkspaceSyncState, workspaceId: WorkspaceId): Wor
 
 function applyWorkspaceRename(
   state: WorkspaceSyncState,
-  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.rename' }>['payload']
+  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.rename' }>['payload'],
 ): void {
   const workspace = findWorkspace(state, payload.workspaceId)
   if (!workspace) return
@@ -342,7 +356,7 @@ function applyWorkspaceRename(
 
 function applyWorkspaceLayout(
   state: WorkspaceSyncState,
-  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.update_layout' }>['payload']
+  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.update_layout' }>['payload'],
 ): void {
   const workspace = findWorkspace(state, payload.workspaceId)
   if (!workspace) return
@@ -351,7 +365,7 @@ function applyWorkspaceLayout(
 
 function applyWorkspaceFields(
   state: WorkspaceSyncState,
-  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.update_fields' }>['payload']
+  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.update_fields' }>['payload'],
 ): void {
   const workspace = findWorkspace(state, payload.workspaceId)
   if (!workspace) return
@@ -360,7 +374,7 @@ function applyWorkspaceFields(
 
 function applyWorkspaceAgentPatch(
   state: WorkspaceSyncState,
-  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.update_agent' }>['payload']
+  payload: Extract<WorkspaceSyncCommand, { type: 'workspace.update_agent' }>['payload'],
 ): void {
   const workspace = findWorkspace(state, payload.workspaceId)
   if (!workspace) return
@@ -374,11 +388,7 @@ function applyWorkspaceAgentPatch(
   Object.assign(agent, payload.patch, { configEditedAt: payload.configEditedAt })
 }
 
-function removeWorkspaceFromState(
-  state: WorkspaceSyncState,
-  workspaceId: WorkspaceId,
-  timestamp: number
-): void {
+function removeWorkspaceFromState(state: WorkspaceSyncState, workspaceId: WorkspaceId, timestamp: number): void {
   state.workspaces = state.workspaces.filter((candidate) => candidate.id !== workspaceId)
   for (const windowState of state.workspaceWindows) {
     windowState.workspaceIds = windowState.workspaceIds.filter((id) => id !== workspaceId)
@@ -407,9 +417,7 @@ function cloneSyncState(state: WorkspaceSyncState): WorkspaceSyncState {
 function cloneWorkspace(workspace: Workspace): Workspace {
   return {
     ...workspace,
-    agents: Object.fromEntries(
-      Object.entries(workspace.agents).map(([agentId, agent]) => [agentId, { ...agent }])
-    ),
+    agents: Object.fromEntries(Object.entries(workspace.agents).map(([agentId, agent]) => [agentId, { ...agent }])),
   }
 }
 
@@ -417,7 +425,7 @@ function ensureWorkspaceWindow(
   state: WorkspaceSyncState,
   windowId: WorkspaceWindowId,
   kind: WorkspaceWindowState['kind'] = windowId === state.primaryWorkspaceWindowId ? 'primary' : 'detached',
-  timestamp = 0
+  timestamp = 0,
 ): WorkspaceWindowState {
   const existing = state.workspaceWindows.find((windowState) => windowState.id === windowId)
   if (existing) return existing
@@ -469,8 +477,8 @@ function normalizeWorkspaceAssignments(state: WorkspaceSyncState, timestamp: num
   if (primaryWindow.activeWorkspaceId && !primaryWindow.workspaceIds.includes(primaryWindow.activeWorkspaceId)) {
     primaryWindow.activeWorkspaceId = primaryWindow.workspaceIds[0] ?? null
   }
-  state.workspaceWindows = state.workspaceWindows.filter((windowState) =>
-    windowState.kind === 'primary' || windowState.workspaceIds.length > 0
+  state.workspaceWindows = state.workspaceWindows.filter(
+    (windowState) => windowState.kind === 'primary' || windowState.workspaceIds.length > 0,
   )
 }
 
@@ -478,7 +486,7 @@ function setActiveWorkspaceForWindow(
   state: WorkspaceSyncState,
   windowId: WorkspaceWindowId,
   workspaceId: WorkspaceId | null,
-  timestamp: number
+  timestamp: number,
 ): void {
   const windowState = state.workspaceWindows.find((candidate) => candidate.id === windowId)
   if (!windowState) return
@@ -491,14 +499,14 @@ function setActiveWorkspaceForWindow(
 function moveWorkspaceToWindow(
   state: WorkspaceSyncState,
   payload: Extract<WorkspaceSyncCommand, { type: 'workspace.move_to_window' }>['payload'],
-  timestamp: number
+  timestamp: number,
 ): void {
   if (!state.workspaces.some((workspace) => workspace.id === payload.workspaceId)) return
   const target = ensureWorkspaceWindow(
     state,
     payload.toWindowId,
     payload.toWindowId === state.primaryWorkspaceWindowId ? 'primary' : 'detached',
-    timestamp
+    timestamp,
   )
   for (const windowState of state.workspaceWindows) {
     if (windowState.id === payload.toWindowId) continue
@@ -530,7 +538,7 @@ function moveWorkspaceToWindow(
 function updateWorkspaceWindowPlacement(
   state: WorkspaceSyncState,
   placement: Extract<WorkspaceSyncCommand, { type: 'workspace_window.update_placement' }>['payload'],
-  timestamp: number
+  timestamp: number,
 ): void {
   const windowState = ensureWorkspaceWindow(state, placement.windowId, undefined, timestamp)
   windowState.bounds = placement.bounds ? { ...placement.bounds } : null
@@ -543,7 +551,7 @@ function closeWorkspaceWindow(
   state: WorkspaceSyncState,
   windowId: WorkspaceWindowId,
   fallbackWindowId: WorkspaceWindowId,
-  timestamp: number
+  timestamp: number,
 ): void {
   if (windowId === state.primaryWorkspaceWindowId) return
   const closing = state.workspaceWindows.find((windowState) => windowState.id === windowId)
@@ -552,14 +560,15 @@ function closeWorkspaceWindow(
     state,
     fallbackWindowId,
     fallbackWindowId === state.primaryWorkspaceWindowId ? 'primary' : 'detached',
-    timestamp
+    timestamp,
   )
   for (const workspaceId of closing.workspaceIds) {
     if (!fallback.workspaceIds.includes(workspaceId)) fallback.workspaceIds.push(workspaceId)
   }
-  fallback.activeWorkspaceId = closing.activeWorkspaceId && fallback.workspaceIds.includes(closing.activeWorkspaceId)
-    ? closing.activeWorkspaceId
-    : fallback.workspaceIds[0] ?? null
+  fallback.activeWorkspaceId =
+    closing.activeWorkspaceId && fallback.workspaceIds.includes(closing.activeWorkspaceId)
+      ? closing.activeWorkspaceId
+      : (fallback.workspaceIds[0] ?? null)
   state.workspaceWindows = state.workspaceWindows.filter((windowState) => windowState.id !== windowId)
   if (fallback.activeWorkspaceId) state.activeWorkspaceId = fallback.activeWorkspaceId
   normalizeWorkspaceAssignments(state, timestamp)
@@ -570,7 +579,7 @@ function addCreatedWorkspace(
   workspace: Workspace,
   windowId: WorkspaceWindowId,
   folderPath: string | null,
-  timestamp: number
+  timestamp: number,
 ): void {
   state.workspaces = state.workspaces.filter((candidate) => candidate.id !== workspace.id)
   // The block is the workspace's PROJECT, not its own folder: a worktree chat's
@@ -580,7 +589,7 @@ function addCreatedWorkspace(
   // the record itself carries the marker this reads.
   const insertFolderKey = workspaceFolderKey(workspaceProjectRootOf(workspace) ?? folderPath)
   const blockStart = state.workspaces.findIndex(
-    (candidate) => workspaceFolderKey(workspaceProjectRootOf(candidate)) === insertFolderKey
+    (candidate) => workspaceFolderKey(workspaceProjectRootOf(candidate)) === insertFolderKey,
   )
   if (blockStart === -1) {
     state.workspaces.unshift(cloneWorkspace(workspace))
@@ -600,7 +609,7 @@ function addCreatedWorkspace(
 
 function assignAgentTerminalSession(
   state: WorkspaceSyncState,
-  payload: AgentTerminalSessionAssignedEventPayload
+  payload: AgentTerminalSessionAssignedEventPayload,
 ): void {
   const agent = findOrCreateAgent(state, payload.workspaceId, payload.agentId)
   if (!agent) return
@@ -614,7 +623,7 @@ function assignAgentTerminalSession(
 
 function updateAgentTerminalLaunchState(
   state: WorkspaceSyncState,
-  payload: Extract<WorkspaceSyncCommand, { type: 'agent_terminal.update_launch_state' }>['payload']
+  payload: Extract<WorkspaceSyncCommand, { type: 'agent_terminal.update_launch_state' }>['payload'],
 ): void {
   const agent = findOrCreateAgent(state, payload.workspaceId, payload.agentId)
   if (!agent) return
@@ -627,11 +636,7 @@ function updateAgentTerminalLaunchState(
   if (payload.cliResumeAvailable !== undefined) agent.cliResumeAvailable = payload.cliResumeAvailable
 }
 
-function findOrCreateAgent(
-  state: WorkspaceSyncState,
-  workspaceId: WorkspaceId,
-  agentId: AgentId
-): AgentState | null {
+function findOrCreateAgent(state: WorkspaceSyncState, workspaceId: WorkspaceId, agentId: AgentId): AgentState | null {
   const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
   if (!workspace) return null
   if (!workspace.agents[agentId]) {

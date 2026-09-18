@@ -16,8 +16,14 @@ function window(id: string, destroyed = false, fails = false) {
   }
 }
 notifyRendererModulesChanged([
-  window('closing', false, true), window('primary'), window('detached'), window('destroyed', true),
+  window('closing', false, true),
+  window('primary'),
+  window('detached'),
+  window('destroyed', true),
 ] as unknown as BrowserWindow[])
-assert.deepEqual(sent, ['primary:modules:third-party:changed', 'detached:modules:third-party:changed'],
-  'installation/trust changes reach every live window despite one closing')
+assert.deepEqual(
+  sent,
+  ['primary:modules:third-party:changed', 'detached:modules:third-party:changed'],
+  'installation/trust changes reach every live window despite one closing',
+)
 console.log('renderer module change notification tests passed')

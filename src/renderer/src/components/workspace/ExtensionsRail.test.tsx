@@ -35,15 +35,25 @@ anyGlobal.CustomEvent = dom.window.CustomEvent
 anyGlobal.getComputedStyle = dom.window.getComputedStyle
 anyGlobal.localStorage = dom.window.localStorage
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
-class FakeResizeObserver { observe() {} unobserve() {} disconnect() {} }
+class FakeResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 anyGlobal.ResizeObserver = FakeResizeObserver
 domWindow.ResizeObserver = FakeResizeObserver
-dom.window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} })) as unknown as typeof dom.window.matchMedia
+dom.window.matchMedia = ((q: string) => ({
+  matches: false,
+  media: q,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  addListener: () => {},
+  removeListener: () => {},
+})) as unknown as typeof dom.window.matchMedia
 // The run index store subscribes to main as soon as anything reads it — the
 // drawer does now, for the counts its run-door rows wear — so the stubs answer
 // with no runs rather than throwing on a missing bridge.
-domWindow.api = {
-}
+domWindow.api = {}
 
 import React from 'react'
 import { createRoot } from 'react-dom/client'
@@ -60,7 +70,6 @@ import {
   consumePendingExtensionsSurfaceTarget,
   dispatchExtensionsSurfaceTarget,
 } from './globalSurface/extensions/extensionsSurfaceTarget'
-
 
 // Every root, so the end of the file can unmount them all: the drawer's rows
 // now subscribe to the run index and the design arrivals store, whose hourly
@@ -154,9 +163,7 @@ assert.equal(
 // Every module on, explicitly: the resolver filters nav entries by live
 // enablement, and a test store that has never been written to is not the same
 // thing as a machine with the modules turned on.
-const allModulesOn = Object.fromEntries(
-  ACTIVE_RENDERER_MODULE_MANIFESTS.map((manifest) => [manifest.id, true]),
-)
+const allModulesOn = Object.fromEntries(ACTIVE_RENDERER_MODULE_MANIFESTS.map((manifest) => [manifest.id, true]))
 act(() => {
   useWorkspaceStore.setState((state) => ({
     appSettings: { ...state.appSettings, modules: { ...state.appSettings.modules, ...allModulesOn } },
@@ -219,7 +226,11 @@ act(() => {
   surfaceRoot.render(React.createElement(ExtensionsGlobalSurface))
 })
 assert.equal(row('Skills')?.getAttribute('aria-current'), 'true', 'the row the surface is standing on reads selected')
-assert.equal(row('Plugins')?.getAttribute('aria-current'), null, 'and its siblings do not — one open surface lights one row')
+assert.equal(
+  row('Plugins')?.getAttribute('aria-current'),
+  null,
+  'and its siblings do not — one open surface lights one row',
+)
 assert.equal(row('Agent CLIs')?.getAttribute('aria-current'), null)
 
 // Moving WITH THE SURFACE (a live deep-link, the same seam its own rail uses)
@@ -241,14 +252,21 @@ act(() => {
   useWorkspaceStore.getState().closeGlobalSurface()
 })
 assert.equal(publishes.at(-1), null, 'the surface publishes null as it leaves')
-assert.ok(rows().every((r) => r.getAttribute('aria-current') === null), 'a closed surface lights nothing')
+assert.ok(
+  rows().every((r) => r.getAttribute('aria-current') === null),
+  'a closed surface lights nothing',
+)
 stopWatching()
 
 // ── A whole-surface row still opens plainly ──────────────────────────────────
 act(() => {
   row('Design')?.click()
 })
-assert.equal(useWorkspaceStore.getState().activeGlobalSurface, 'design', 'the Design row opens the design module’s door')
+assert.equal(
+  useWorkspaceStore.getState().activeGlobalSurface,
+  'design',
+  'the Design row opens the design module’s door',
+)
 assert.equal(row('Design')?.getAttribute('aria-current'), 'true', 'and reads selected while it is open')
 act(() => {
   useWorkspaceStore.getState().closeGlobalSurface()
@@ -291,12 +309,22 @@ const notice = (id: string, over: Record<string, unknown>) => ({
 })
 act(() => {
   useNotificationStore.getState().addNotification(notice('drift', { source: 'marketplace', extensionsRow: 'plugins' }))
-  useNotificationStore.getState().addNotification(notice('skill-news', { source: 'marketplace', extensionsRow: 'skills' }))
+  useNotificationStore
+    .getState()
+    .addNotification(notice('skill-news', { source: 'marketplace', extensionsRow: 'skills' }))
   useNotificationStore.getState().addNotification(notice('crash', { source: 'terminal', level: 'error' }))
 })
 assert.equal(badgeOf('Plugins')?.textContent, '1', 'the drift notice counts on the Plugins row')
-assert.equal(badgeOf('Plugins')?.getAttribute('aria-label'), '1 new', 'what is counted; the row beside it already names the place')
-assert.equal(badgeOf('Skills')?.textContent, '1', 'and the skill notice counts on its own row, not on the one beside it')
+assert.equal(
+  badgeOf('Plugins')?.getAttribute('aria-label'),
+  '1 new',
+  'what is counted; the row beside it already names the place',
+)
+assert.equal(
+  badgeOf('Skills')?.textContent,
+  '1',
+  'and the skill notice counts on its own row, not on the one beside it',
+)
 assert.equal(badgeOf('Design'), null, 'a row with no news wears no count')
 assert.equal(badgeOf('Agent CLIs'), null)
 assert.equal(squareCount(), 2, 'the square is the sum of its rows — the terminal crash counts nowhere')
@@ -323,7 +351,11 @@ act(() => {
 })
 assert.equal(badgeOf('Plugins'), null, 'the row on screen has read its news')
 assert.equal(useNotificationStore.getState().notifications.find((n) => n.id === 'drift')?.read, true)
-assert.equal(useNotificationStore.getState().notifications.find((n) => n.id === 'skill-news')?.read, false, 'another row’s news is untouched')
+assert.equal(
+  useNotificationStore.getState().notifications.find((n) => n.id === 'skill-news')?.read,
+  false,
+  'another row’s news is untouched',
+)
 assert.equal(squareCount(), 1, 'the square drops by exactly what was read')
 act(() => {
   readingRoot.unmount()
@@ -341,7 +373,11 @@ act(() => {
 })
 assert.equal(badgeOf('Plugins')?.textContent, '1')
 assert.equal(badgeOf('Skills')?.textContent, '1')
-assert.equal(badgeOf('Skills')?.getAttribute('aria-label'), '1 new', 'the row names the place; its badge says only what is counted')
+assert.equal(
+  badgeOf('Skills')?.getAttribute('aria-label'),
+  '1 new',
+  'the row names the place; its badge says only what is counted',
+)
 act(() => {
   row('Skills')?.click()
 })

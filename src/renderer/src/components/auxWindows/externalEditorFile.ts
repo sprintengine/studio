@@ -35,11 +35,7 @@ function classifyExternalFile(path: string, name: string): ExternalFileKind {
   return isImageFile(path || name) ? 'image' : 'text'
 }
 
-export function createExternalFileTab(input: {
-  path: string
-  name: string
-  workspaceId: string
-}): ExternalFileTab {
+export function createExternalFileTab(input: { path: string; name: string; workspaceId: string }): ExternalFileTab {
   return {
     ...input,
     kind: classifyExternalFile(input.path, input.name),
@@ -60,7 +56,7 @@ export function isExternalFileBufferDirty(buffer: ExternalFileBuffer | undefined
 export async function loadExternalFileBuffer(
   path: string,
   kind: ExternalFileKind,
-  api: ExternalFileLoaderApi
+  api: ExternalFileLoaderApi,
 ): Promise<ExternalFileBuffer> {
   try {
     if (kind === 'image') {

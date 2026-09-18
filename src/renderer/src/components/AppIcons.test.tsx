@@ -33,10 +33,7 @@ const automationsOffIcon = renderToStaticMarkup(
   <WorkspaceTypeIcon mode="automations-host" moduleOverrides={{ automations: false }} className="icon-sm" />,
 )
 assert.ok(automationsOffIcon.includes(EXPECTED_ICON_PATH.standard), 'a disabled module renders the generic glyph')
-assert.ok(
-  !automationsOffIcon.includes(EXPECTED_ICON_PATH['automations-host']),
-  'a disabled module drops its own glyph',
-)
+assert.ok(!automationsOffIcon.includes(EXPECTED_ICON_PATH['automations-host']), 'a disabled module drops its own glyph')
 const automationsOnIcon = renderToStaticMarkup(
   <WorkspaceTypeIcon mode="automations-host" moduleOverrides={{}} className="icon-sm" />,
 )
@@ -49,7 +46,11 @@ const allEnabled: ModuleEnablementOverrides = {}
 assert.equal(resolveEnabledWorkspaceType('automations-host', allEnabled)?.id, 'automations-host')
 assert.equal(resolveEnabledWorkspaceType('automations-host', allEnabled)?.accentToken, '--accent-primary')
 assert.equal(resolveEnabledWorkspaceType('standard', allEnabled), undefined, 'standard is shell-owned, not registered')
-assert.equal(resolveEnabledWorkspaceType('future-x' as Workspace['mode'], allEnabled), undefined, 'unknown id resolves to undefined')
+assert.equal(
+  resolveEnabledWorkspaceType('future-x' as Workspace['mode'], allEnabled),
+  undefined,
+  'unknown id resolves to undefined',
+)
 
 assert.equal(
   resolveEnabledWorkspaceType('automations-host', { automations: false }),
@@ -70,7 +71,8 @@ assert.equal(
 // that lands back on the plain folder glyph. Workspace rows carry no logo — and
 // since that change, no icon at all.
 const LOGO_SRC = 'data:image/svg+xml;base64,PHN2Zy8+'
-const FOLDER_GLYPH_PATH = 'M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z'
+const FOLDER_GLYPH_PATH =
+  'M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z'
 const withLogo = renderToStaticMarkup(<FolderTypeIcon className="icon-sm" logoSrc={LOGO_SRC} />)
 assert.ok(withLogo.includes(`src="${LOGO_SRC}"`), 'a detected logo renders in the folder icon slot')
 assert.ok(withLogo.includes('icon-sm'), 'the logo keeps the slot geometry the glyph would have had')

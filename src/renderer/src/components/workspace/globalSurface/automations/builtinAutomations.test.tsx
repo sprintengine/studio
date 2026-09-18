@@ -99,9 +99,8 @@ function run(name: string, body: () => void): void {
 }
 
 function findButton(scope: ParentNode, label: RegExp): HTMLButtonElement | null {
-  return ([...scope.querySelectorAll('button')].find((candidate) =>
-    label.test(candidate.textContent ?? ''),
-  ) ?? null) as HTMLButtonElement | null
+  return ([...scope.querySelectorAll('button')].find((candidate) => label.test(candidate.textContent ?? '')) ??
+    null) as HTMLButtonElement | null
 }
 
 async function main(): Promise<void> {
@@ -121,13 +120,15 @@ async function main(): Promise<void> {
             isRunningNow: false,
           },
           ...(storeHasAdded
-            ? [{
-                workspaceRoot: WORKSPACE_ROOT,
-                workspaceId: 'ws-1',
-                definition: addedDefinition,
-                lastRun: null,
-                isRunningNow: false,
-              }]
+            ? [
+                {
+                  workspaceRoot: WORKSPACE_ROOT,
+                  workspaceId: 'ws-1',
+                  definition: addedDefinition,
+                  lastRun: null,
+                  isRunningNow: false,
+                },
+              ]
             : []),
         ],
         problems: [],
@@ -165,15 +166,17 @@ async function main(): Promise<void> {
 
   // One project open, and active: that is what "Add to <project>" names.
   useWorkspaceStore.setState({
-    workspaces: [{
-      id: 'ws-1',
-      name: 'demo-repo',
-      mode: 'standard',
-      folderPath: WORKSPACE_ROOT,
-      agents: {},
-      openFiles: [],
-      createdAt: 1,
-    }],
+    workspaces: [
+      {
+        id: 'ws-1',
+        name: 'demo-repo',
+        mode: 'standard',
+        folderPath: WORKSPACE_ROOT,
+        agents: {},
+        openFiles: [],
+        createdAt: 1,
+      },
+    ],
     activeWorkspaceId: 'ws-1',
   } as never)
 
@@ -181,11 +184,11 @@ async function main(): Promise<void> {
   dom.window.document.body.append(host)
   const root = createRoot(host)
   await act(async () => {
-    root.render(
-      React.createElement(ConfirmDialogProvider, null, React.createElement(AutomationsGlobalSurface)),
-    )
+    root.render(React.createElement(ConfirmDialogProvider, null, React.createElement(AutomationsGlobalSurface)))
   })
-  await act(async () => { await Promise.resolve() })
+  await act(async () => {
+    await Promise.resolve()
+  })
 
   run('the rail lists Yours, then Built in with the five that ship', () => {
     const lists = [...host.querySelectorAll('ul[role="list"]')].map((list) => list.getAttribute('aria-label'))
@@ -197,7 +200,13 @@ async function main(): Promise<void> {
     const builtinList = host.querySelector('ul[aria-label="Automations: Built in"]')!
     assert.equal(builtinList.querySelectorAll('li').length, 5, 'five built-in rows')
     const text = builtinList.textContent ?? ''
-    for (const name of ['Dead code sweep', 'Duplication review', 'Unit test coverage', 'UI & UX review', 'Merged-PR seam review']) {
+    for (const name of [
+      'Dead code sweep',
+      'Duplication review',
+      'Unit test coverage',
+      'UI & UX review',
+      'Merged-PR seam review',
+    ]) {
       assert.match(text, new RegExp(name.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')), `lists ${name}`)
     }
   })
@@ -211,7 +220,9 @@ async function main(): Promise<void> {
   })
 
   const deadCodeRow = findButton(host, /Dead code sweep/)
-  await act(async () => { deadCodeRow!.click() })
+  await act(async () => {
+    deadCodeRow!.click()
+  })
 
   const bar = () => host.querySelector('section[aria-label="Automations"] > div')!
 
@@ -239,8 +250,12 @@ async function main(): Promise<void> {
     assert.equal(host.querySelector('textarea'), null, 'and nothing on this card is editable')
   })
 
-  await act(async () => { findButton(bar(), /^Add to demo-repo$/)!.click() })
-  await act(async () => { await Promise.resolve() })
+  await act(async () => {
+    findButton(bar(), /^Add to demo-repo$/)!.click()
+  })
+  await act(async () => {
+    await Promise.resolve()
+  })
 
   run('Add writes the built-in into the active project, by id', () => {
     assert.deepEqual(addCalls, [{ workspaceRoot: WORKSPACE_ROOT, builtinId: 'dead-code-sweep-automation' }])
@@ -260,13 +275,21 @@ async function main(): Promise<void> {
   // the selection and reported itself against four automations that never
   // failed.
   addFails = true
-  await act(async () => { findButton(host, /Duplication review/)!.click() })
-  await act(async () => { findButton(bar(), /^Add to demo-repo$/)!.click() })
-  await act(async () => { await Promise.resolve() })
+  await act(async () => {
+    findButton(host, /Duplication review/)!.click()
+  })
+  await act(async () => {
+    findButton(bar(), /^Add to demo-repo$/)!.click()
+  })
+  await act(async () => {
+    await Promise.resolve()
+  })
   run('a failed add is reported on the automation it was attempted for', () => {
     assert.match(host.textContent ?? '', /The automations store could not be written\./)
   })
-  await act(async () => { findButton(host, /Unit test coverage/)!.click() })
+  await act(async () => {
+    findButton(host, /Unit test coverage/)!.click()
+  })
   run('and does not follow the selection to the next automation', () => {
     assert.doesNotMatch(host.textContent ?? '', /The automations store could not be written\./)
   })
@@ -285,12 +308,14 @@ async function main(): Promise<void> {
   dom.window.document.body.append(bareHost)
   const bareRoot = createRoot(bareHost)
   await act(async () => {
-    bareRoot.render(
-      React.createElement(ConfirmDialogProvider, null, React.createElement(AutomationsGlobalSurface)),
-    )
+    bareRoot.render(React.createElement(ConfirmDialogProvider, null, React.createElement(AutomationsGlobalSurface)))
   })
-  await act(async () => { await Promise.resolve() })
-  await act(async () => { findButton(bareHost, /Dead code sweep/)!.click() })
+  await act(async () => {
+    await Promise.resolve()
+  })
+  await act(async () => {
+    findButton(bareHost, /Dead code sweep/)!.click()
+  })
 
   run('with no project open the add is inert and says what is missing', () => {
     const barText = bareHost.querySelector('section[aria-label="Automations"] > div')!

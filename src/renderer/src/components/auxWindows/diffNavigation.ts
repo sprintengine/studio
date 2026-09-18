@@ -20,7 +20,7 @@ export function nextDiffPosition(
   state: DiffNavState,
   direction: 'next' | 'prev',
   currentHunkCount: number,
-  fileCount: number
+  fileCount: number,
 ): DiffNavMove {
   const { fileIndex, hunkIndex } = state
 
@@ -70,11 +70,7 @@ export function resolveEdgeHunkIndex(edge: 'first' | 'last', hunkCount: number):
  *   in both directions; only a hunk walk that fell off the top of a file wants
  *   the previous file's last hunk.
  */
-export function navigateFile(
-  fileIndex: number,
-  direction: 'next' | 'prev',
-  fileCount: number
-): DiffNavMove {
+export function navigateFile(fileIndex: number, direction: 'next' | 'prev', fileCount: number): DiffNavMove {
   if (fileCount <= 0 || fileIndex < 0) return { type: 'none' }
   const target = direction === 'next' ? fileIndex + 1 : fileIndex - 1
   if (target < 0 || target > fileCount - 1) return { type: 'none' }

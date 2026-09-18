@@ -25,9 +25,7 @@ function recorded(name: string): RecordedTree {
 function scan(name: string, manifestName?: string): ScanResult {
   const tree = recorded(name)
   assert.equal(tree.truncated, false, `${name} fixture must be a complete tree`)
-  const manifest = manifestName
-    ? readFileSync(join(FIXTURES, `${manifestName}.marketplace.json`), 'utf8')
-    : null
+  const manifest = manifestName ? readFileSync(join(FIXTURES, `${manifestName}.marketplace.json`), 'utf8') : null
   return scanSkillTree({ entries: tree.tree, commitSha: tree.commitSha, marketplaceManifest: manifest })
 }
 
@@ -45,14 +43,7 @@ function mattpocock(): void {
   assert.equal(result.skills.length, 41)
   assert.equal(result.fileCount, 107)
   assert.equal(result.groupingSignal, 'folders')
-  assert.deepEqual(result.groups, [
-    'deprecated',
-    'engineering',
-    'in-progress',
-    'misc',
-    'personal',
-    'productivity',
-  ])
+  assert.deepEqual(result.groups, ['deprecated', 'engineering', 'in-progress', 'misc', 'personal', 'productivity'])
 
   // The repository ships a `.claude-plugin/marketplace.json`, but its single
   // plugin enumerates no skills, so it says nothing about grouping and the
@@ -77,7 +68,7 @@ function anthropics(): void {
   // repository's `template/` — is still a skill, and lists under "Everything
   // else" rather than vanishing because a plugin list omitted it.
   const entryFiles = recorded('anthropics-skills').tree.filter(
-    (entry) => entry.type === 'blob' && entry.path.endsWith('SKILL.md')
+    (entry) => entry.type === 'blob' && entry.path.endsWith('SKILL.md'),
   )
   assert.equal(entryFiles.length, 20)
   assert.equal(result.skills.length, 20)
@@ -99,13 +90,14 @@ function anthropics(): void {
   // The manifest groups skills that are flat on disk — every listed one sits in
   // `skills/`, so folder grouping could never have produced these five.
   assert.ok(
-    result.skills
-      .filter((skill) => skill.group !== 'Everything else')
-      .every((skill) => skill.id.startsWith('skills/'))
+    result.skills.filter((skill) => skill.group !== 'Everything else').every((skill) => skill.id.startsWith('skills/')),
   )
   // Every file in the tree that belongs to a skill is still counted, the
   // unlisted one included.
-  assert.equal(result.fileCount, result.skills.reduce((total, skill) => total + skill.files.length, 0))
+  assert.equal(
+    result.fileCount,
+    result.skills.reduce((total, skill) => total + skill.files.length, 0),
+  )
 }
 
 /**
@@ -131,7 +123,7 @@ function manifestGroupingIsAdditive(): void {
       ['skills/alpha', 'pack'],
       ['skills/beta', 'Everything else'],
       ['template', 'Everything else'],
-    ]
+    ],
   )
   assert.equal(result.fileCount, 3)
 
@@ -153,10 +145,13 @@ function browserAct(): void {
   assert.equal(result.groups.length, 6)
   const rootBucket = result.skills.filter((skill) => skill.group === '(repo root)')
   assert.equal(rootBucket.length, 2)
-  assert.deepEqual(
-    result.groups.filter((group) => group !== '(repo root)').sort(),
-    ['ecommerce', 'lead-generation', 'search-research', 'social-listening', 'video-platforms']
-  )
+  assert.deepEqual(result.groups.filter((group) => group !== '(repo root)').sort(), [
+    'ecommerce',
+    'lead-generation',
+    'search-research',
+    'social-listening',
+    'video-platforms',
+  ])
 
   // Two of these entries share a byte-identical SKILL.md across two categories.
   // They are two entries the source itself lists twice, so a blob-SHA dedupe
@@ -168,9 +163,7 @@ function browserAct(): void {
 
 function impeccable(): void {
   const tree = recorded('pbakaus-impeccable')
-  const mirrors = tree.tree.filter(
-    (entry) => entry.type === 'blob' && entry.path.endsWith('/SKILL.md')
-  )
+  const mirrors = tree.tree.filter((entry) => entry.type === 'blob' && entry.path.endsWith('/SKILL.md'))
   assert.equal(mirrors.length, 15, 'the repository publishes one skill for fifteen harnesses')
   // Byte identity cannot collapse them: each mirror rewrites its own harness
   // path into the prose, so fifteen copies carry fourteen distinct blob SHAs.
@@ -207,7 +200,7 @@ function nonSkillDocuments(): void {
   const result = scanSkillTree({ entries, commitSha: 'sha' })
   assert.deepEqual(
     result.skills.map((skill) => skill.id),
-    ['skills/alpha', 'skills/beta']
+    ['skills/alpha', 'skills/beta'],
   )
   // The loose document is neither a skill nor claimed by one.
   assert.equal(result.fileCount, 5)
@@ -224,7 +217,7 @@ function noNestedSkills(): void {
   assert.deepEqual(
     result.skills.map((skill) => skill.id),
     ['prototype'],
-    'the walk stops at the first hit — a skill cannot nest a skill'
+    'the walk stops at the first hit — a skill cannot nest a skill',
   )
   assert.equal(result.skills[0].files.length, 3)
 }
@@ -238,7 +231,7 @@ function symlinksAreNotSkillFiles(): void {
   const result = scanSkillTree({ entries, commitSha: 'sha' })
   assert.deepEqual(
     result.skills[0].files.map((file) => file.path),
-    ['SKILL.md', 'run.sh']
+    ['SKILL.md', 'run.sh'],
   )
   assert.equal(result.skills[0].hasExecutables, true)
 }
@@ -266,7 +259,7 @@ function mirrorsCollapseOntoTheCopyOutsideAHarnessRoot(): void {
   assert.deepEqual(
     result.skills.map((skill) => skill.id),
     ['skills/alpha', 'skills/beta'],
-    'the copy outside a harness root is the canonical one'
+    'the copy outside a harness root is the canonical one',
   )
   assert.equal(result.skills[0].files.length, 2)
 }
@@ -277,7 +270,10 @@ function repoRootSkill(): void {
     { path: 'reference/notes.md', mode: '100644', type: 'blob', sha: 'b', size: 1 },
   ]
   const result = scanSkillTree({ entries, commitSha: 'sha' })
-  assert.deepEqual(result.skills.map((skill) => skill.id), [''])
+  assert.deepEqual(
+    result.skills.map((skill) => skill.id),
+    [''],
+  )
   assert.equal(result.skills[0].files.length, 2)
   assert.equal(result.skills[0].group, '')
 }

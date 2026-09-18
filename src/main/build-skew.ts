@@ -51,7 +51,7 @@ export function createBuildSkewWatch({
         indeterminateLogged = true
         log(
           `${BUILD_SKEW_LOG_PREFIX} build_skew_check_unavailable missing=${verdict.missing} ` +
-            'reason=no_commit_identity'
+            'reason=no_commit_identity',
         )
       }
       return verdict

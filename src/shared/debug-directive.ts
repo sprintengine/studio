@@ -12,9 +12,11 @@ import { knownSidecarDirName } from './workspace-sidecar'
 // scratch file in the directory that is actually there — a stray `.sprintengine/`
 // next to a live `.multi-code/` is how a workspace loses track of its own state.
 export function debugDirectiveFor(workspaceRoot = ''): string {
-  return 'You are in DEBUG MODE. Follow the `debug` skill\'s state machine. '
-    + `Treat \`${knownSidecarDirName(workspaceRoot)}/debug/<SPRINTENGINE_AGENT_ID>.json\` as your source of truth. `
-    + 'Do not finish until all tagged instrumentation is removed.'
+  return (
+    "You are in DEBUG MODE. Follow the `debug` skill's state machine. " +
+    `Treat \`${knownSidecarDirName(workspaceRoot)}/debug/<SPRINTENGINE_AGENT_ID>.json\` as your source of truth. ` +
+    'Do not finish until all tagged instrumentation is removed.'
+  )
 }
 
 // Pure helper shared by main and renderer. Returns the prompt untouched when
@@ -29,7 +31,7 @@ export function applyDebugDirective(
   initialPrompt: string,
   debugMode: boolean,
   nativeInvocation?: string,
-  workspaceRoot?: string
+  workspaceRoot?: string,
 ): string {
   if (!debugMode) return initialPrompt
   const directive = debugDirectiveFor(workspaceRoot)

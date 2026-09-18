@@ -51,7 +51,7 @@ type RunEventWindow = {
 
 export function broadcastAutomationsRunEvent(
   event: AutomationsRunEvent,
-  windows: readonly RunEventWindow[] = BrowserWindow.getAllWindows()
+  windows: readonly RunEventWindow[] = BrowserWindow.getAllWindows(),
 ): void {
   for (const window of windows) {
     if (window.isDestroyed() || window.webContents.isDestroyed()) continue
@@ -65,7 +65,7 @@ export function broadcastAutomationsRunEvent(
 
 function broadcastAutomationsDefinitionsChanged(
   event: AutomationsDefinitionsChangedEvent,
-  windows: readonly RunEventWindow[] = BrowserWindow.getAllWindows()
+  windows: readonly RunEventWindow[] = BrowserWindow.getAllWindows(),
 ): void {
   for (const window of windows) {
     if (window.isDestroyed() || window.webContents.isDestroyed()) continue
@@ -144,7 +144,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
           },
           getLiveAgentExecutionIds: () =>
             terminalRuntime.getLiveAgentExecutionIds().map((execution) => execution.executionId),
-        })
+        }),
       )
 
       // Agent-lifecycle finalize triggers. The engine owns the match-vs-ignore
@@ -157,7 +157,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       // live disable→enable cycle never leaks a listener pointed at a stopped
       // engine.
       const unregisterAgentPhaseListener = terminalRuntime.registerAgentPhaseListener((event) =>
-        engine.noteAgentPhase(event)
+        engine.noteAgentPhase(event),
       )
       const unregisterAgentExitListener = terminalRuntime.registerAgentSessionExitListener((event) =>
         engine.finalizeRunOnAgentExit({
@@ -165,7 +165,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
           workspaceId: event.workspaceId,
           agentId: event.agentId,
           exitCode: event.exitCode,
-        })
+        }),
       )
       host.onShutdown(() => {
         unregisterAgentPhaseListener()
@@ -198,7 +198,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
           now: Date.now,
           onDefinitionsChanged,
           getWorkspaceSyncSnapshot: () => workspaceSyncService.getSnapshot(),
-        })
+        }),
       )
       const moduleAutomationsRegistry = moduleAutomations
       host.onShutdown(() => moduleAutomationsRegistry.dispose())
@@ -226,7 +226,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
               ...(receiverStatus.error ? { error: `Webhook receiver: ${receiverStatus.error}` } : {}),
             }
           },
-        }
+        },
       )
 
       const appFrontDoor = registerAutomationsIpc(host, {
@@ -244,5 +244,3 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
     },
   }
 }
-
-

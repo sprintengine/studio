@@ -7,10 +7,7 @@ import {
   MAX_ATTACHMENT_BYTES,
 } from '../../shared/conversation-attachments'
 import type { ConversationIpcHandlers } from './conversation-ipc'
-import type {
-  ConversationProviderListResult,
-  ConversationSecretStatusResult,
-} from '../../shared/electron-api'
+import type { ConversationProviderListResult, ConversationSecretStatusResult } from '../../shared/electron-api'
 import type {
   ConversationEvent,
   ConversationSendTurnInput,
@@ -105,15 +102,21 @@ async function testRegistersSecretChannels(): Promise<void> {
     ...runtimeHandlerStubs(),
   })
 
-  assert.deepEqual(await ipcMain.handlers.get('conversation:secrets:status')?.(null, { providerId: 'openai-compatible' }), response)
+  assert.deepEqual(
+    await ipcMain.handlers.get('conversation:secrets:status')?.(null, { providerId: 'openai-compatible' }),
+    response,
+  )
   assert.deepEqual(
     await ipcMain.handlers.get('conversation:secrets:set')?.(null, {
       providerId: 'openai-compatible',
       value: 'sk-test-secret',
     }),
-    response
+    response,
   )
-  assert.deepEqual(await ipcMain.handlers.get('conversation:secrets:clear')?.(null, { providerId: 'openai-compatible' }), response)
+  assert.deepEqual(
+    await ipcMain.handlers.get('conversation:secrets:clear')?.(null, { providerId: 'openai-compatible' }),
+    response,
+  )
   assert.deepEqual(calls, [
     'status:openai-compatible',
     'set:openai-compatible:sk-test-secret',
@@ -227,7 +230,7 @@ async function testRegistersSessionChannelsAndEventSubscription(): Promise<void>
     await ipcMain.handlers.get('conversation:events:unsubscribe')?.(null, {
       subscriptionId: 'conversation-subscription-1',
     }),
-    { ok: true }
+    { ok: true },
   )
   assert.equal(runtimeListeners.length, 0)
   assert.equal(unsubscribed, 1)
@@ -241,7 +244,7 @@ async function testRegistersSessionChannelsAndEventSubscription(): Promise<void>
     await ipcMain.handlers.get('conversation:events:unsubscribe')?.(null, {
       subscriptionId: 'conversation-subscription-2',
     }),
-    { ok: true }
+    { ok: true },
   )
   assert.equal(runtimeListeners.length, 0)
   assert.equal(unsubscribed, 2)
@@ -341,7 +344,10 @@ async function testSendTurnValidatesImageAttachments(): Promise<void> {
     ['bad media type', [{ id: 'x', mediaType: 'image/tiff', dataBase64: 'Zm9v' }]],
     ['non-base64 data', [{ id: 'x', mediaType: 'image/png', dataBase64: 'not base64!!' }]],
     ['oversized image', [{ id: 'x', mediaType: 'image/png', dataBase64: 'A'.repeat(8 * 1024 * 1024) }]],
-    ['too many attachments', Array.from({ length: 17 }, (_, i) => ({ id: `x${i}`, mediaType: 'image/png', dataBase64: 'Zm9v' }))],
+    [
+      'too many attachments',
+      Array.from({ length: 17 }, (_, i) => ({ id: `x${i}`, mediaType: 'image/png', dataBase64: 'Zm9v' })),
+    ],
     ['non-array attachments', { id: 'x', mediaType: 'image/png', dataBase64: 'Zm9v' }],
   ]
   for (const [label, attachments] of rejects) {
@@ -376,30 +382,30 @@ async function testAttachmentLimitsAreTheSharedOnes(): Promise<void> {
   assert.equal(
     await send([{ id: 'x', mediaType: 'image/svg+xml', dataBase64: 'Zm9v' }]),
     false,
-    'a type outside the shared set is refused, so the composer must not offer it'
+    'a type outside the shared set is refused, so the composer must not offer it',
   )
 
   const image = (i: number) => ({ id: `x${i}`, mediaType: 'image/png', dataBase64: 'Zm9v' })
   assert.equal(
     await send(Array.from({ length: MAX_ATTACHMENTS_PER_TURN }, (_, i) => image(i))),
     true,
-    'a turn filled exactly to the shared cap passes'
+    'a turn filled exactly to the shared cap passes',
   )
   assert.equal(
     await send(Array.from({ length: MAX_ATTACHMENTS_PER_TURN + 1 }, (_, i) => image(i))),
     false,
-    'one past the shared cap is refused'
+    'one past the shared cap is refused',
   )
 
   assert.equal(
     await send([{ id: 'x', mediaType: 'image/png', dataBase64: base64OfBytes(MAX_ATTACHMENT_BYTES) }]),
     true,
-    'an image exactly at the shared ceiling fits'
+    'an image exactly at the shared ceiling fits',
   )
   assert.equal(
     await send([{ id: 'x', mediaType: 'image/png', dataBase64: base64OfBytes(MAX_ATTACHMENT_BYTES + 1) }]),
     false,
-    'one byte past the shared ceiling is refused'
+    'one byte past the shared ceiling is refused',
   )
 }
 
@@ -470,7 +476,16 @@ async function testFailureIsExplicit(): Promise<void> {
 
 function runtimeHandlerStubs(): Pick<
   ConversationIpcHandlers,
-  'listProviderModels' | 'startSession' | 'sendTurn' | 'interrupt' | 'respondToRequest' | 'setPermission' | 'stopSession' | 'listSessions' | 'readTranscript' | 'onEvent'
+  | 'listProviderModels'
+  | 'startSession'
+  | 'sendTurn'
+  | 'interrupt'
+  | 'respondToRequest'
+  | 'setPermission'
+  | 'stopSession'
+  | 'listSessions'
+  | 'readTranscript'
+  | 'onEvent'
 > {
   return {
     listProviderModels: async () => ({ ok: true, models: [] }),

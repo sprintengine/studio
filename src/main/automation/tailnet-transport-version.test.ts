@@ -75,7 +75,10 @@ check('a refusal names the version seen and the versions supported', () => {
   // Both numbers, because either alone is undiagnosable: one says a version is
   // wrong without saying which install to update.
   assert.match(refusal?.message ?? '', /\b99\b/u)
-  assert.match(refusal?.message ?? '', new RegExp(`${TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION}.${TAILNET_TRANSPORT_VERSION}`, 'u'))
+  assert.match(
+    refusal?.message ?? '',
+    new RegExp(`${TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION}.${TAILNET_TRANSPORT_VERSION}`, 'u'),
+  )
 })
 
 check('a peer that says nothing readable is refused rather than read as a version', () => {
@@ -137,15 +140,12 @@ function identityBody(overrides: Record<string, unknown> = {}): Record<string, u
 }
 
 check('a peer inside the window completes the handshake', async () => {
-  await withIdentity(
-    identityBody({ transportVersion: TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION }),
-    async (port) => {
-      const identity = await readRemoteIdentity({ endpoint: { host: '127.0.0.1', port }, token: 'tok' })
-      assert.equal(identity.ok, true)
-      assert.equal(identity.ok && identity.value.deviceName, 'mac-mini')
-      assert.equal(identity.ok && identity.value.transportVersion, TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION)
-    }
-  )
+  await withIdentity(identityBody({ transportVersion: TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION }), async (port) => {
+    const identity = await readRemoteIdentity({ endpoint: { host: '127.0.0.1', port }, token: 'tok' })
+    assert.equal(identity.ok, true)
+    assert.equal(identity.ok && identity.value.deviceName, 'mac-mini')
+    assert.equal(identity.ok && identity.value.transportVersion, TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION)
+  })
 })
 
 check('a peer outside the window is refused at the handshake, by name', async () => {
@@ -157,7 +157,7 @@ check('a peer outside the window is refused at the handshake, by name', async ()
     assert.match(identity.ok === false ? identity.message : '', new RegExp(`${TAILNET_TRANSPORT_VERSION + 3}`, 'u'))
     assert.match(
       identity.ok === false ? identity.message : '',
-      new RegExp(`${TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION}.${TAILNET_TRANSPORT_VERSION}`, 'u')
+      new RegExp(`${TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION}.${TAILNET_TRANSPORT_VERSION}`, 'u'),
     )
   })
 })
@@ -198,7 +198,7 @@ check('the capability list crosses the handshake, and a malformed one does not t
  */
 async function withFakeMachine(
   capabilities: string[] | null,
-  run: (input: { port: number; paths: string[] }) => Promise<void>
+  run: (input: { port: number; paths: string[] }) => Promise<void>,
 ): Promise<void> {
   const paths: string[] = []
   const server: Server = createServer((request, response) => {
@@ -272,7 +272,11 @@ check('a machine that does not advertise the change feed stops being dialled for
       // At most one: `start` opens the watch before the first handshake has
       // come back, by design, so that dial may race through. What must not
       // happen is a second one, after the machine has said it has no feed.
-      assert.equal(dials <= 1, true, `the change feed was re-dialled ${dials} times on a machine that does not serve it`)
+      assert.equal(
+        dials <= 1,
+        true,
+        `the change feed was re-dialled ${dials} times on a machine that does not serve it`,
+      )
       // And the machine is still a perfectly good machine otherwise.
       assert.equal(paths.includes('/tailnet/v1/identity'), true)
     } finally {

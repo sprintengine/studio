@@ -64,15 +64,9 @@ function BacklogModuleActionMenuItems({
     <>
       {groupBacklogModuleActions(itemActions).map((group, index) => (
         <Fragment key={group.heading ?? `module-actions-${index}`}>
-          {group.heading ? (
-            <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>{group.heading}</div>
-          ) : null}
+          {group.heading ? <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>{group.heading}</div> : null}
           {group.actions.map((itemAction) => (
-            <MenuItem
-              key={itemAction.id}
-              disabled={itemAction.disabled}
-              onClick={() => onPick(itemAction)}
-            >
+            <MenuItem key={itemAction.id} disabled={itemAction.disabled} onClick={() => onPick(itemAction)}>
               {itemAction.label}
             </MenuItem>
           ))}
@@ -106,9 +100,7 @@ export function AgentTargetMenuItems({
   return (
     <>
       {agentTargets.map((agent) => {
-        const session = agentSessions?.find(
-          (candidate) => candidate.sessionId === agent.cliSessionId,
-        )
+        const session = agentSessions?.find((candidate) => candidate.sessionId === agent.cliSessionId)
         // Unknown liveness (list not fetched / fetch failed) keeps the row
         // enabled — the send core re-verifies before writing, so a dead
         // session still fails loudly instead of being mislabeled here.
@@ -213,13 +205,7 @@ export const RISK_EDIT_ITEMS: SelectItem<RiskChoice>[] = [
 // Status submenu choices: lifecycle states the user sets directly. Archived is
 // deliberately absent — archiving is a file move owned by the top-level
 // Archive action, not a status flip.
-export const STATUS_MENU_CHOICES: BacklogItemStatus[] = [
-  'idea',
-  'ready',
-  'in_progress',
-  'needs_input',
-  'completed',
-]
+export const STATUS_MENU_CHOICES: BacklogItemStatus[] = ['idea', 'ready', 'in_progress', 'needs_input', 'completed']
 
 // Leading slot for submenu choice rows: a check on the current value, an
 // equal-width spacer on the rest so labels align into one column. Exported so
@@ -228,7 +214,13 @@ export function MenuCheckGlyph({ visible }: { visible: boolean }): JSX.Element {
   if (!visible) return <span className="icon-xs shrink-0" aria-hidden="true" />
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
-      <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M3.5 8.5L6.5 11.5L12.5 5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }

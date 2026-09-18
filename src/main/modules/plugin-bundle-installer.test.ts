@@ -39,12 +39,19 @@ type BundleComponents = {
   automation?: { path: string; source?: string }
 }
 
-const AUTOMATION_PAYLOAD = `${JSON.stringify({
-  name: 'Nightly dependency sweep',
-  status: 'paused',
-  trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' } },
-  action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
-}, null, 2)}\n`
+const AUTOMATION_PAYLOAD = `${JSON.stringify(
+  {
+    name: 'Nightly dependency sweep',
+    status: 'paused',
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
+    },
+    action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
+  },
+  null,
+  2,
+)}\n`
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   const dir = await mkdtemp(join(tmpdir(), 'mc-marketplace-install-'))
@@ -71,11 +78,7 @@ function createMockWebContents(): WebContents & { sent: SentEvent[] } {
   return sender as unknown as WebContents & { sent: SentEvent[] }
 }
 
-async function withElectronMock<T>(
-  userDataDir: string,
-  sender: WebContents,
-  fn: () => Promise<T>
-): Promise<T> {
+async function withElectronMock<T>(userDataDir: string, sender: WebContents, fn: () => Promise<T>): Promise<T> {
   const moduleWithLoad = Module as typeof Module & {
     _load(request: string, parent: NodeModule | null, isMain: boolean): unknown
   }
@@ -83,7 +86,7 @@ async function withElectronMock<T>(
   moduleWithLoad._load = function loadWithElectronMock(
     request: string,
     parent: NodeModule | null,
-    isMain: boolean
+    isMain: boolean,
   ): unknown {
     if (request === 'electron') {
       return {
@@ -119,14 +122,14 @@ function componentsWithDigests(components: BundleComponents, files: Map<string, 
         .map(([path, source]) => ({ path, sha256: sha256Hex(source) }))
         .sort((a, b) => a.path.localeCompare(b.path))
       return [kind, { path: component.path, files: componentFiles }]
-    })
+    }),
   ) as BundleComponents
 }
 
 function signedBundleManifest(
   components: BundleComponents,
   files: Map<string, string>,
-  overrides: Record<string, unknown> = {}
+  overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
   const unsigned = {
     id: 'bundle-plugin',
@@ -156,7 +159,7 @@ function signedBundleManifest(
 function unsignedBundleManifest(
   components: BundleComponents,
   files: Map<string, string>,
-  overrides: Record<string, unknown> = {}
+  overrides: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
     id: 'bundle-plugin',
@@ -226,31 +229,38 @@ function moduleSigner(): ModuleSigner {
 async function createBundle(
   root: string,
   components: BundleComponents,
-  options: { signed?: boolean } = {}
+  options: { signed?: boolean } = {},
 ): Promise<string> {
   const bundle = join(root, 'bundle')
   await mkdir(bundle, { recursive: true })
   const files = new Map<string, string>()
   if (components.mcp) {
-    files.set(components.mcp.path, `${JSON.stringify({
-      servers: [
+    files.set(
+      components.mcp.path,
+      `${JSON.stringify(
         {
-          id: 'bundle-mcp',
-          name: 'Bundle MCP',
-          transport: 'stdio',
-          command: 'node',
-          args: ['-e', 'console.log("bundle mcp")'],
-          clients: components.mcp.clients ?? ['codex'],
-          scope: 'workspace',
-          riskLevel: 'local-command',
+          servers: [
+            {
+              id: 'bundle-mcp',
+              name: 'Bundle MCP',
+              transport: 'stdio',
+              command: 'node',
+              args: ['-e', 'console.log("bundle mcp")'],
+              clients: components.mcp.clients ?? ['codex'],
+              scope: 'workspace',
+              riskLevel: 'local-command',
+            },
+          ],
         },
-      ],
-    }, null, 2)}\n`)
+        null,
+        2,
+      )}\n`,
+    )
   }
   if (components.skills) {
     files.set(
       `${components.skills.path}/SKILL.md`,
-      '---\nname: local-skill\ndescription: Local test skill.\n---\n# Local Skill\n\nInstall me.\n'
+      '---\nname: local-skill\ndescription: Local test skill.\n---\n# Local Skill\n\nInstall me.\n',
     )
   }
   if (components.module) {
@@ -266,31 +276,37 @@ async function createBundle(
     files.set(`${components.module.path}/manifest.json`, `${JSON.stringify(signed, null, 2)}\n`)
   }
   if (components.cli) {
-    files.set(`${components.cli.path}/plugin.json`, `${JSON.stringify({
-      id: 'bundle-cli',
-      displayName: 'Bundle CLI',
-      version: 1,
-      binary: 'node',
-      permissionPresets: {
-        default: { label: 'Default', args: [] },
-      },
-      launch: { argv: ['{{binary}}'] },
-      promptInjection: { mode: 'stdin-pipe' },
-      completion: { mode: 'process-exit' },
-      capabilities: {
-        resumeSession: false,
-        sessionIdFromCaller: false,
-        toolUse: false,
-        mcpServers: false,
-      },
-    }, null, 2)}\n`)
+    files.set(
+      `${components.cli.path}/plugin.json`,
+      `${JSON.stringify(
+        {
+          id: 'bundle-cli',
+          displayName: 'Bundle CLI',
+          version: 1,
+          binary: 'node',
+          permissionPresets: {
+            default: { label: 'Default', args: [] },
+          },
+          launch: { argv: ['{{binary}}'] },
+          promptInjection: { mode: 'stdin-pipe' },
+          completion: { mode: 'process-exit' },
+          capabilities: {
+            resumeSession: false,
+            sessionIdFromCaller: false,
+            toolUse: false,
+            mcpServers: false,
+          },
+        },
+        null,
+        2,
+      )}\n`,
+    )
   }
   if (components.automation) {
     files.set(components.automation.path, components.automation.source ?? AUTOMATION_PAYLOAD)
   }
-  const manifest = options.signed === false
-    ? unsignedBundleManifest(components, files)
-    : signedBundleManifest(components, files)
+  const manifest =
+    options.signed === false ? unsignedBundleManifest(components, files) : signedBundleManifest(components, files)
   files.set('plugin.json', `${JSON.stringify(manifest, null, 2)}\n`)
   for (const [path, source] of files) {
     const destination = join(bundle, path)
@@ -310,22 +326,29 @@ function automationInstaller(workspaceRoot: string): MarketplaceAutomationInstal
     { registerIpc: () => undefined },
     {
       engine: {
-        runNow: async () => ({ ok: false as const, problem: { code: 'not_stubbed', message: 'Installing never runs an automation.' } }),
-        finalizeRun: async () => ({ ok: false as const, problem: { code: 'not_stubbed', message: 'Installing never finalizes a run.' } }),
+        runNow: async () => ({
+          ok: false as const,
+          problem: { code: 'not_stubbed', message: 'Installing never runs an automation.' },
+        }),
+        finalizeRun: async () => ({
+          ok: false as const,
+          problem: { code: 'not_stubbed', message: 'Installing never finalizes a run.' },
+        }),
       },
       triggerProviders: registry.listTriggerProviders(),
       actionProviders: registry.listActionProviders(),
-      getWorkspaceSyncSnapshot: () => ({
-        sequence: 1,
-        state: {
-          activeWorkspaceId: 'ws-1',
-          primaryWorkspaceWindowId: 'primary',
-          workspaceWindows: [],
-          workspaces: [{ id: 'ws-1', folderPath: workspaceRoot }],
-        },
-      } as unknown as WorkspaceSyncSnapshot),
+      getWorkspaceSyncSnapshot: () =>
+        ({
+          sequence: 1,
+          state: {
+            activeWorkspaceId: 'ws-1',
+            primaryWorkspaceWindowId: 'primary',
+            workspaceWindows: [],
+            workspaces: [{ id: 'ws-1', folderPath: workspaceRoot }],
+          },
+        }) as unknown as WorkspaceSyncSnapshot,
       now: () => Date.parse('2026-07-30T12:00:00.000Z'),
-    }
+    },
   )
   return async (input) => {
     const result = await frontDoor.installCatalogueDefinition(input)
@@ -340,12 +363,16 @@ async function installedAutomations(workspaceRoot: string): Promise<AutomationDe
   return definitions.ok ? definitions.values : []
 }
 
-async function installInput(temp: string, bundle: string, options: {
-  lookupPlugin?: PluginLookup
-  mcpClients?: McpClientTarget[]
-  automationDefaultCli?: string | null
-  automations?: MarketplaceAutomationInstaller | null
-} = {}): Promise<{
+async function installInput(
+  temp: string,
+  bundle: string,
+  options: {
+    lookupPlugin?: PluginLookup
+    mcpClients?: McpClientTarget[]
+    automationDefaultCli?: string | null
+    automations?: MarketplaceAutomationInstaller | null
+  } = {},
+): Promise<{
   input: MarketplacePluginInstallInput
   services: Parameters<typeof installMarketplacePlugin>[1]
   workspaceRoot: string
@@ -357,17 +384,21 @@ async function installInput(temp: string, bundle: string, options: {
   const pluginRoot = join(temp, 'plugins')
   await mkdir(workspaceRoot, { recursive: true })
 
-  const lookupPlugin: PluginLookup = options.lookupPlugin ?? ((id) => {
-    if (id === 'codex') return { manifest: mcpPluginManifest(id, 'codex') }
-    return undefined
-  })
+  const lookupPlugin: PluginLookup =
+    options.lookupPlugin ??
+    ((id) => {
+      if (id === 'codex') return { manifest: mcpPluginManifest(id, 'codex') }
+      return undefined
+    })
   const mcpConfigService = createMcpConfigService({
     lookupPlugin,
     homeDir: () => join(temp, 'home'),
   })
   const mcpSettings: McpSettings = { syncEnabled: false, servers: {} }
-  const automationDefaultCli = options.automationDefaultCli === null ? undefined : options.automationDefaultCli ?? 'claude-code'
-  const installAutomationDefinition = options.automations === null ? undefined : options.automations ?? automationInstaller(workspaceRoot)
+  const automationDefaultCli =
+    options.automationDefaultCli === null ? undefined : (options.automationDefaultCli ?? 'claude-code')
+  const installAutomationDefinition =
+    options.automations === null ? undefined : (options.automations ?? automationInstaller(workspaceRoot))
   return {
     input: {
       localFolder: bundle,
@@ -408,7 +439,10 @@ async function testInstallsEveryComponentThroughRealPaths(): Promise<void> {
     if (!result.ok) return
     assert.equal(result.trust, 'signed')
     assert.equal(result.loadEligible, false, 'signed but untrusted bundle is not auto-trusted')
-    assert.deepEqual(result.installed.map((component) => component.kind), ['mcp', 'skills', 'module', 'cli'])
+    assert.deepEqual(
+      result.installed.map((component) => component.kind),
+      ['mcp', 'skills', 'module', 'cli'],
+    )
     // G7: the bundle landed a module, and no module outside
     // LIVE_ENABLED_MODULE_IDS loads until the app is launched again.
     assert.equal(result.restartRequired, true)
@@ -446,12 +480,16 @@ async function testMcpFanOutWarningDoesNotReportCleanSuccess(): Promise<void> {
     if (result.ok) return
     assert.equal(result.component, 'mcp')
     assert.match(result.message, /opencode \(bundle-mcp\)/)
-    assert.deepEqual(result.installed?.map((component) => component.kind), ['mcp'])
+    assert.deepEqual(
+      result.installed?.map((component) => component.kind),
+      ['mcp'],
+    )
     assert.ok(
-      result.issues?.some((issue) =>
-        issue.path === 'clients.opencode' && /writer for format "generic" is not implemented/.test(issue.message)
+      result.issues?.some(
+        (issue) =>
+          issue.path === 'clients.opencode' && /writer for format "generic" is not implemented/.test(issue.message),
       ),
-      `expected opencode warning in install issues, got ${JSON.stringify(result.issues)}`
+      `expected opencode warning in install issues, got ${JSON.stringify(result.issues)}`,
     )
 
     const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
@@ -506,7 +544,10 @@ async function testMcpSkillBundleIsVisibleAndLaunchesTerminalWithInstalledMcp():
     if (!result.ok) return
 
     const activeServers = Object.values(result.mcpSettings?.servers ?? {}).filter((server) => server.enabled)
-    assert.deepEqual(activeServers.map((server) => server.id), ['bundle-mcp'])
+    assert.deepEqual(
+      activeServers.map((server) => server.id),
+      ['bundle-mcp'],
+    )
     assert.equal(activeServers[0]?.clients.includes('codex'), true)
 
     const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
@@ -590,7 +631,10 @@ async function testPartialFailureReportsInstalledComponents(): Promise<void> {
     assert.equal(result.ok, false)
     if (result.ok) return
     assert.equal(result.component, 'skills')
-    assert.deepEqual(result.installed?.map((component) => component.kind), ['mcp'])
+    assert.deepEqual(
+      result.installed?.map((component) => component.kind),
+      ['mcp'],
+    )
   })
 }
 
@@ -606,7 +650,10 @@ async function testInstallsUnsignedMcpSkillsBundle(): Promise<void> {
     if (!result.ok) return
     assert.equal(result.trust, 'unsigned')
     assert.equal(result.loadEligible, false, 'unsigned bundle is never load-eligible')
-    assert.deepEqual(result.installed.map((component) => component.kind), ['mcp', 'skills'])
+    assert.deepEqual(
+      result.installed.map((component) => component.kind),
+      ['mcp', 'skills'],
+    )
     // An mcp/skills bundle is in effect the moment it lands: nothing to relaunch.
     assert.equal(result.restartRequired, false)
 
@@ -665,9 +712,13 @@ async function testRejectsAutomationPayloadThatIsNotADefinition(): Promise<void>
     assert.equal(result.component, 'automation')
     assert.deepEqual(
       result.issues?.map((issue) => issue.path),
-      ['components.automation.trigger', 'components.automation.action']
+      ['components.automation.trigger', 'components.automation.action'],
     )
-    assert.equal(existsSync(join(workspaceRoot, '.codex', 'config.toml')), false, 'preflight refuses before any component is written')
+    assert.equal(
+      existsSync(join(workspaceRoot, '.codex', 'config.toml')),
+      false,
+      'preflight refuses before any component is written',
+    )
   })
 }
 
@@ -687,7 +738,10 @@ async function testAutomationAndSkillBundleInstallsBoth(): Promise<void> {
 
     assert.equal(result.ok, true, result.ok ? '' : result.message)
     if (!result.ok) return
-    assert.deepEqual(result.installed.map((component) => component.kind), ['skills', 'automation'])
+    assert.deepEqual(
+      result.installed.map((component) => component.kind),
+      ['skills', 'automation'],
+    )
     assert.equal(existsSync(join(workspaceRoot, '.agents', 'skills', 'local-skill', 'SKILL.md')), true)
 
     const automations = await installedAutomations(workspaceRoot)
@@ -702,7 +756,7 @@ async function testAutomationAndSkillBundleInstallsBoth(): Promise<void> {
     assert.equal(
       result.installed.find((component) => component.kind === 'automation')?.id,
       automation.id,
-      'the receipt names the store-issued id, which is what update and uninstall have to work from'
+      'the receipt names the store-issued id, which is what update and uninstall have to work from',
     )
   })
 }
@@ -787,12 +841,19 @@ async function testAutomationNamingItsOwnCliNeedsNoFallback(): Promise<void> {
     const components: BundleComponents = {
       automation: {
         path: 'automation/automation.json',
-        source: `${JSON.stringify({
-          name: 'Nightly dependency sweep',
-          status: 'enabled',
-          trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' } },
-          action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.', cli: 'codex' } },
-        }, null, 2)}\n`,
+        source: `${JSON.stringify(
+          {
+            name: 'Nightly dependency sweep',
+            status: 'enabled',
+            trigger: {
+              kind: 'schedule',
+              config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
+            },
+            action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.', cli: 'codex' } },
+          },
+          null,
+          2,
+        )}\n`,
       },
     }
     const bundle = await createBundle(temp, components, { signed: false })
@@ -825,7 +886,7 @@ async function testRejectsModuleDeclaringUndisclosedPermissionsBeforeWrites(): P
     assert.match(result.message, /does not disclose: process:spawn/)
     assert.ok(
       result.issues?.some((issue) => issue.path === 'permissions' && /"process:spawn"/.test(issue.message)),
-      `expected an undisclosed-permission issue, got ${JSON.stringify(result.issues)}`
+      `expected an undisclosed-permission issue, got ${JSON.stringify(result.issues)}`,
     )
     // Preflight refusal: the mcp component that sorts before the module in the
     // plan must not have been written either.

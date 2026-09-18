@@ -13,11 +13,9 @@ export const TERMINAL_STANDARD_REPLAY_BYTES = 512 * 1024
 export const TERMINAL_RECENT_REPLAY_BYTES = TERMINAL_STANDARD_REPLAY_BYTES * 5
 
 function getTerminalLastActivityAt(activity: TerminalHistoryActivity): number | null {
-  const candidates = [
-    activity.startedAt,
-    activity.lastOutputAt,
-    activity.lastInputAt,
-  ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value))
+  const candidates = [activity.startedAt, activity.lastOutputAt, activity.lastInputAt].filter(
+    (value): value is number => typeof value === 'number' && Number.isFinite(value),
+  )
 
   if (candidates.length === 0) return null
   return Math.max(...candidates)

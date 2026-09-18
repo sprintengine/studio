@@ -33,7 +33,7 @@ function makeWorkspace(
     lastTerminalActivityAt?: number | null
     lastUserMessageAt?: number | null
     lastTurnEndedAt?: number | null
-  }
+  },
 ): Workspace {
   return {
     id,
@@ -64,21 +64,25 @@ run('workspaceLastWorkedAt prefers the most recent of createdAt and last termina
 run('workspaceLastUserMessageAt is the message clock, and falls back to work only without one', () => {
   // The message wins outright, even against a keystroke that landed since.
   assert.equal(
-    workspaceLastUserMessageAt(makeWorkspace('spoken', {
-      createdAt: NOW - 10 * DAY,
-      lastTerminalActivityAt: NOW - MINUTE,
-      lastUserMessageAt: NOW - 2 * DAY,
-    })),
+    workspaceLastUserMessageAt(
+      makeWorkspace('spoken', {
+        createdAt: NOW - 10 * DAY,
+        lastTerminalActivityAt: NOW - MINUTE,
+        lastUserMessageAt: NOW - 2 * DAY,
+      }),
+    ),
     NOW - 2 * DAY,
     'a keystroke after the last message does not move the row',
   )
   // A chat nobody has spoken in — a plain shell, a hookless CLI — keeps the
   // only clock it can have.
   assert.equal(
-    workspaceLastUserMessageAt(makeWorkspace('shell', {
-      createdAt: NOW - 10 * DAY,
-      lastTerminalActivityAt: NOW - HOUR,
-    })),
+    workspaceLastUserMessageAt(
+      makeWorkspace('shell', {
+        createdAt: NOW - 10 * DAY,
+        lastTerminalActivityAt: NOW - HOUR,
+      }),
+    ),
     NOW - HOUR,
   )
   // And one with neither falls all the way back to creation.
@@ -130,10 +134,16 @@ run('sortWorkspacesByUserMessage is stable for exact ties and does not mutate in
 
   const sorted = sortWorkspacesByUserMessage(input)
 
-  assert.deepEqual(sorted.map((w) => w.id), ['a', 'b', 'c'])
+  assert.deepEqual(
+    sorted.map((w) => w.id),
+    ['a', 'b', 'c'],
+  )
   // Pure: the caller's array is untouched.
   assert.notEqual(sorted, input)
-  assert.deepEqual(input.map((w) => w.id), ['a', 'b', 'c'])
+  assert.deepEqual(
+    input.map((w) => w.id),
+    ['a', 'b', 'c'],
+  )
 })
 
 // The banding that used to sit on top of this order is gone (owner ruling
@@ -234,7 +244,7 @@ run('a newer last message moves the row to the top of its group', () => {
 // The rest rule's clock is a different question from the order, and stays the
 // one it was: an agent that spoke a minute ago means the chat is not quiet,
 // even though the person has not messaged it since yesterday.
-run('workspaceLastActiveAt counts the agent\'s turn and the person\'s message', () => {
+run("workspaceLastActiveAt counts the agent's turn and the person's message", () => {
   const finished = makeWorkspace('finished', {
     createdAt: NOW - DAY,
     lastTerminalActivityAt: NOW - 26 * HOUR,

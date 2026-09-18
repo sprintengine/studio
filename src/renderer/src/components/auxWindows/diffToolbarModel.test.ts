@@ -74,8 +74,7 @@ run('every preference is applied through updateOptions, so none needs a remount'
   const live = new Set(Object.keys(liveDiffEditorOptions(prefs())))
   const changed = Object.keys(a).filter(
     (key) =>
-      JSON.stringify((a as Record<string, unknown>)[key])
-      !== JSON.stringify((b as Record<string, unknown>)[key]),
+      JSON.stringify((a as Record<string, unknown>)[key]) !== JSON.stringify((b as Record<string, unknown>)[key]),
   )
   assert.ok(changed.length > 0, 'the preferences must change something')
   for (const key of changed) {
@@ -142,23 +141,17 @@ run('the counter claims only what it knows', () => {
   const item = working()
   assert.equal(differenceCounterLabel({ item, differenceCount: 2, fileInclude: empty }), '2 differences')
   assert.equal(differenceCounterLabel({ item, differenceCount: 1, fileInclude: empty }), '1 difference')
-  assert.equal(
-    differenceCounterLabel({ item, differenceCount: 2, fileInclude: full }),
-    '2 differences, all included',
-  )
+  assert.equal(differenceCounterLabel({ item, differenceCount: 2, fileInclude: full }), '2 differences, all included')
   // Half a file staged is NOT "all included" — the very claim the mixed state exists to deny.
   assert.equal(differenceCounterLabel({ item, differenceCount: 2, fileInclude: mixed }), '2 differences')
   // A binary or mode-only change has no hunks, and says so rather than "0 differences, all included".
   assert.equal(differenceCounterLabel({ item, differenceCount: 0, fileInclude: full }), 'No differences')
   // A branch step has no index behind it: the working tree's flags say nothing
   // about a diff between two commits.
-  assert.equal(
-    differenceCounterLabel({ item: branch(), differenceCount: 2, fileInclude: full }),
-    '2 differences',
-  )
+  assert.equal(differenceCounterLabel({ item: branch(), differenceCount: 2, fileInclude: full }), '2 differences')
 })
 
-run('the counter fills in once git has counted the file\'s hunks', () => {
+run("the counter fills in once git has counted the file's hunks", () => {
   const item = working()
   const empty = { checked: false, indeterminate: false }
   const mixed = { checked: false, indeterminate: true }
@@ -176,7 +169,10 @@ run('the counter fills in once git has counted the file\'s hunks', () => {
     differenceCounterLabel({ item, differenceCount: 1, fileInclude: empty, hunkSummary: { total: 1, included: 1 } }),
     '1 difference, 1 included',
   )
-  assert.equal(differenceTotal({ item, differenceCount: 9, fileInclude: empty, hunkSummary: { total: 2, included: 1 } }), 2)
+  assert.equal(
+    differenceTotal({ item, differenceCount: 9, fileInclude: empty, hunkSummary: { total: 2, included: 1 } }),
+    2,
+  )
 })
 
 run('the mixed box and the counter can never contradict each other', () => {
@@ -210,7 +206,10 @@ run('a summary of zero is no answer, not an answer of nothing', () => {
   // screen of diff is worse than saying nothing, so the summary is ignored.
   const item = working()
   const empty = { checked: false, indeterminate: false }
-  assert.equal(includedHunkCount({ item, differenceCount: 3, fileInclude: empty, hunkSummary: { total: 0, included: 0 } }), null)
+  assert.equal(
+    includedHunkCount({ item, differenceCount: 3, fileInclude: empty, hunkSummary: { total: 0, included: 0 } }),
+    null,
+  )
   assert.equal(
     differenceCounterLabel({ item, differenceCount: 3, fileInclude: empty, hunkSummary: { total: 0, included: 0 } }),
     '3 differences',
@@ -242,7 +241,11 @@ run('a branch step is never told how much of it is included', () => {
 
 run('the glyph margin is on, because that is where the hunk boxes hang', () => {
   assert.equal(diffEditorOptions(prefs(), 'mono').glyphMargin, true)
-  assert.equal(diffEditorOptions(prefs({ diffView: 'unified' }), 'mono').glyphMargin, true, 'both views draw the margin')
+  assert.equal(
+    diffEditorOptions(prefs({ diffView: 'unified' }), 'mono').glyphMargin,
+    true,
+    'both views draw the margin',
+  )
 })
 
 /* ── The header strip ─────────────────────────────────────────────────────── */
@@ -285,7 +288,9 @@ run('a side that was never there is said in words, not given a revision', () => 
 })
 
 run('a branch step shows its own two revisions, short', () => {
-  const model = headerStripModel(branch({ originalRev: 'cccccccccccccccccccc3^', modifiedRev: 'cccccccccccccccccccc3' }))
+  const model = headerStripModel(
+    branch({ originalRev: 'cccccccccccccccccccc3^', modifiedRev: 'cccccccccccccccccccc3' }),
+  )
   assert.deepEqual(model?.base, { text: 'cccccccc^', mono: true })
   assert.deepEqual(model?.current, { text: 'cccccccc', mono: true })
   assert.equal(model?.includable, false)

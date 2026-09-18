@@ -220,10 +220,7 @@ export function homeCardCount(cards: readonly HostedCard[]): number {
  * square saying "2 new" over a page wearing three chips is the badge lying —
  * so that counter delegates to this function rather than restating the rule.
  */
-export function newHomeCardSlugs(
-  cards: readonly HostedCard[],
-  seenAt: string | null | undefined,
-): ReadonlySet<string> {
+export function newHomeCardSlugs(cards: readonly HostedCard[], seenAt: string | null | undefined): ReadonlySet<string> {
   const slugs = new Set<string>()
   if (!seenAt) return slugs
   const seenMs = Date.parse(seenAt)

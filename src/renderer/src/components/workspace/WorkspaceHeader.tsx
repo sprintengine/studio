@@ -163,7 +163,9 @@ export function WorkspaceHeader<MenuItem extends string>({
     <div className="chrome-bar app-drag flex h-[36px] shrink-0 items-center bg-[color:var(--bg-chrome-bar)]">
       {/* Left: (collapsed) window launcher, then panel switches + identity. */}
       <div ref={foldRef} className="flex min-w-0 flex-1 items-center">
-        {trafficLightInset > 0 ? <div aria-hidden="true" className="shrink-0" style={{ width: trafficLightInset }} /> : null}
+        {trafficLightInset > 0 ? (
+          <div aria-hidden="true" className="shrink-0" style={{ width: trafficLightInset }} />
+        ) : null}
         {sidebarCollapsed ? (
           <div className="flex shrink-0 items-center gap-0.5 pl-1.5">
             {!isMac ? <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} /> : null}
@@ -182,10 +184,7 @@ export function WorkspaceHeader<MenuItem extends string>({
           // body), so the title and the page it names share one vertical line.
           // At the panel-switch inset (6px) it read as hanging off the left edge
           // of its own page.
-          <div
-            ref={surfaceBarSlotRef}
-            className="app-no-drag flex min-w-0 flex-1 items-center gap-2.5 pl-5 pr-2"
-          />
+          <div ref={surfaceBarSlotRef} className="app-no-drag flex min-w-0 flex-1 items-center gap-2.5 pl-5 pr-2" />
         ) : (
           <>
             <div className={`flex shrink-0 items-center gap-0.5 ${sidebarCollapsed ? '' : 'pl-1.5'}`}>
@@ -211,19 +210,13 @@ export function WorkspaceHeader<MenuItem extends string>({
             empty labelled toolbar carrying only its own padding: on a release
             build (no diagnostics) with a door open, both are absent. */}
         {onOpenDiagnostics || !globalSurfaceActive ? (
-          <div
-            role="toolbar"
-            aria-label="Workspace surfaces"
-            className="flex items-center gap-0.5 px-1.5"
-          >
+          <div role="toolbar" aria-label="Workspace surfaces" className="flex items-center gap-0.5 px-1.5">
             {onOpenDiagnostics ? <DiagnosticsButton onOpen={onOpenDiagnostics} /> : null}
             {/* Workspace-scoped, so it goes with the left cluster while a door
                 paints over the card: diagnostics stays useful on a door, but
                 toggling a pane in a layout nobody can see would be a control that
                 visibly does nothing. */}
-            {globalSurfaceActive ? null : (
-              <PanelSwitches activeWorkspaceId={activeWorkspaceId} cluster="right" />
-            )}
+            {globalSurfaceActive ? null : <PanelSwitches activeWorkspaceId={activeWorkspaceId} cluster="right" />}
           </div>
         ) : null}
         {/* Win/linux: the caption buttons float over this corner, so the

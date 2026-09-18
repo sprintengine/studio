@@ -8,11 +8,7 @@ import type { PluginRegistryListEntry } from '../shared/plugin-manifest'
 import { hashSkillDirectory } from './builtin-skills'
 import { createPluginRegistry, type PluginRegistry } from './plugin-registry'
 import { createAppPluginRegistryOptions } from './plugin-registry-instance'
-import {
-  createAgentSkillInstaller,
-  createFsSkillCopyIo,
-  type SkillCopyIo,
-} from './agent-skill-installer'
+import { createAgentSkillInstaller, createFsSkillCopyIo, type SkillCopyIo } from './agent-skill-installer'
 
 function bundledRegistry(): PluginRegistry {
   const registry = createPluginRegistry(
@@ -50,13 +46,18 @@ async function main(): Promise<void> {
   const plugins = registry.list()
   const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-skill-installer-'))
   const builtinRoot = join(temp, 'builtin-skills')
-  await writeSkillSource(join(builtinRoot, 'backlog'), '---\nname: Backlog\ndescription: Work an item.\n---\n\n# Backlog\n')
+  await writeSkillSource(
+    join(builtinRoot, 'backlog'),
+    '---\nname: Backlog\ndescription: Work an item.\n---\n\n# Backlog\n',
+  )
 
-  const installer = (overrides: {
-    availability?: AgentCliAvailabilityMap
-    io?: SkillCopyIo
-    invalidate?: (root: string, harnessId: string) => void
-  } = {}) =>
+  const installer = (
+    overrides: {
+      availability?: AgentCliAvailabilityMap
+      io?: SkillCopyIo
+      invalidate?: (root: string, harnessId: string) => void
+    } = {},
+  ) =>
     createAgentSkillInstaller({
       listPlugins: () => plugins,
       detectAvailability: async () => overrides.availability ?? allInstalled(plugins),
@@ -131,7 +132,10 @@ async function main(): Promise<void> {
     availability: { 'claude-code': { cli: 'claude-code', installed: true, resolvedPath: '/bin/claude', version: '1' } },
   }).attach({ workspaceRoot: partialRoot, skillId: 'backlog' })
   assert.ok(claudeOnly.ok)
-  assert.deepEqual(claudeOnly.targets.map((target) => target.path), ['.claude/skills/backlog'])
+  assert.deepEqual(
+    claudeOnly.targets.map((target) => target.path),
+    ['.claude/skills/backlog'],
+  )
   assert.deepEqual(claudeOnly.targets[0].pluginIds, ['claude-code'])
   assert.deepEqual(await readdir(partialRoot), ['.claude'], 'no .opencode in a workspace without OpenCode')
 
@@ -217,7 +221,10 @@ async function main(): Promise<void> {
     availability: { 'claude-code': { cli: 'claude-code', installed: true, resolvedPath: '/bin/claude', version: '1' } },
   }).attach({ workspaceRoot: strandedRoot, skillId: 'stranded' })
   assert.ok(stranded.ok)
-  assert.deepEqual(stranded.targets.map((target) => target.path), ['.claude/skills/stranded'])
+  assert.deepEqual(
+    stranded.targets.map((target) => target.path),
+    ['.claude/skills/stranded'],
+  )
   assert.equal(stranded.targets[0].status, 'written')
   await readFile(join(strandedRoot, '.claude', 'skills', 'stranded', 'SKILL.md'), 'utf-8')
 

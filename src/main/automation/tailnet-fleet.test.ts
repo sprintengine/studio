@@ -147,7 +147,11 @@ function remoteTools(): McpToolRegistration[] {
           name: 'Atlas',
           mode: 'code',
           folderPath: '/repos/atlas',
-          repository: { canonicalKey: 'github.com/acme/atlas', remoteUrl: 'git@github.com:acme/atlas.git', name: 'atlas' },
+          repository: {
+            canonicalKey: 'github.com/acme/atlas',
+            remoteUrl: 'git@github.com:acme/atlas.git',
+            name: 'atlas',
+          },
         },
         // An older build, or a folder with no remote: no identity, still a workspace.
         { id: 'ws-2', name: 'Scratch', mode: 'code', folderPath: '/repos/scratch' },
@@ -173,7 +177,10 @@ function remoteTools(): McpToolRegistration[] {
       git: true,
       branch: 'main',
       defaultBranch: 'main',
-      branches: [{ name: 'feat/x', current: false }, { name: 'main', current: true }],
+      branches: [
+        { name: 'feat/x', current: false },
+        { name: 'main', current: true },
+      ],
       worktrees: [{ path: '/repos/atlas', branch: 'main', isMain: true }],
     }),
     {
@@ -265,8 +272,11 @@ function createStubTerminalHost(): StubTerminalHost {
       }
       attached.set(transport.viewerId, { sessionId, transport })
       transport.send({ type: 'replay', data: replay.get(sessionId) ?? '', reason: 'attach' })
-      const refuse = (verb: string) =>
-        ({ ok: false as const, code: 'terminal_control_required', message: `Watch-only: cannot ${verb}.` })
+      const refuse = (verb: string) => ({
+        ok: false as const,
+        code: 'terminal_control_required',
+        message: `Watch-only: cannot ${verb}.`,
+      })
       return {
         ok: true,
         attachment: {
@@ -295,7 +305,10 @@ function createStubTerminalHost(): StubTerminalHost {
 /** A pane's event sink, with the waiting a real pane does implicitly. */
 function createRecorder() {
   const events: FleetTerminalEvent[] = []
-  const waiters: Array<{ match: (event: FleetTerminalEvent) => boolean; resolve: (event: FleetTerminalEvent) => void }> = []
+  const waiters: Array<{
+    match: (event: FleetTerminalEvent) => boolean
+    resolve: (event: FleetTerminalEvent) => void
+  }> = []
   return {
     events,
     emit(event: FleetTerminalEvent): void {
@@ -390,7 +403,7 @@ test('browsing a machine reads its workspaces and terminals', async () => {
     assert.equal(browse.terminalAccess, 'control')
     assert.deepEqual(
       browse.workspaces.map((workspace) => workspace.name),
-      ['Atlas', 'Scratch']
+      ['Atlas', 'Scratch'],
     )
     assert.equal(browse.terminals.length, 1)
     assert.equal(browse.terminals[0].sessionId, 'session_one')
@@ -400,7 +413,10 @@ test('browsing a machine reads its workspaces and terminals', async () => {
 
     // one-project-across-machines: the identity the remote served is kept,
     // and its absence is kept as null rather than invented.
-    assert.equal(browse.workspaces.find((entry) => entry.id === 'ws-1')?.repository?.canonicalKey, 'github.com/acme/atlas')
+    assert.equal(
+      browse.workspaces.find((entry) => entry.id === 'ws-1')?.repository?.canonicalKey,
+      'github.com/acme/atlas',
+    )
     assert.equal(browse.workspaces.find((entry) => entry.id === 'ws-2')?.repository, null)
   } finally {
     await harness.close()
@@ -411,7 +427,7 @@ test('browsing a machine reads its workspaces and terminals', async () => {
 // machine saying "terminals changed" lands here as a fleet event a surface
 // re-reads on — no timer, no browse in between. Forgetting the machine closes
 // the watch, so a forgotten machine cannot keep pushing.
-test('a paired machine\'s change feed lands as a remote-changed event, and forgetting closes it', async () => {
+test("a paired machine's change feed lands as a remote-changed event, and forgetting closes it", async () => {
   const harness = await startHarness()
   try {
     const connectionId = await harness.pair(['workspace:read', 'terminal:observe'])
@@ -471,7 +487,7 @@ test('a revoked pairing is reported as revoked, not as an unreachable machine', 
 // checkout-and-branch-on-remote-create: the checkout facts behind the launch
 // panel's checkout · branch segments, read over the wire and parsed as the
 // panel consumes them; a pairing without workspace:read gets the refusal.
-test('a remote workspace\'s checkout is read over workspace.checkout, and refused without workspace:read', async () => {
+test("a remote workspace's checkout is read over workspace.checkout, and refused without workspace:read", async () => {
   const harness = await startHarness()
   try {
     const connectionId = await harness.pair(['workspace:read'])
@@ -479,7 +495,10 @@ test('a remote workspace\'s checkout is read over workspace.checkout, and refuse
     assert.ok(read.ok, read.ok ? '' : read.message)
     assert.equal(read.checkout.branch, 'main')
     assert.equal(read.checkout.defaultBranch, 'main')
-    assert.deepEqual(read.checkout.branches.map((entry) => entry.name), ['feat/x', 'main'])
+    assert.deepEqual(
+      read.checkout.branches.map((entry) => entry.name),
+      ['feat/x', 'main'],
+    )
     assert.equal(read.checkout.worktrees[0]?.isMain, true)
 
     const terminalsOnly = await harness.pair(['terminal:control'])
@@ -516,7 +535,11 @@ test('a create on a new worktree rides agent.launch with its base ref, and a ter
     assert.ok(created.ok, created.ok ? '' : created.message)
     assert.equal(created.sessionId, 'session_three', 'the session comes from the agent projection')
     assert.equal(created.title, 'Bishop')
-    assert.deepEqual(created.checkout, { mode: 'worktree', branch: 'agent/fix', worktreePath: '/repos/.multicode-worktrees/atlas/fix' })
+    assert.deepEqual(created.checkout, {
+      mode: 'worktree',
+      branch: 'agent/fix',
+      worktreePath: '/repos/.multicode-worktrees/atlas/fix',
+    })
     const wire = agentLaunchArgs[agentLaunchArgs.length - 1]
     assert.deepEqual(wire?.worktree, { name: 'fix', baseRef: 'feat/x' })
     assert.equal(wire?.cli, 'claude-code')
@@ -525,7 +548,11 @@ test('a create on a new worktree rides agent.launch with its base ref, and a ter
     assert.equal(terminalCreateArgs.length, before, 'terminal.create was not asked')
 
     // The current checkout is still terminal.create, and says so.
-    const current = await harness.fleet.createTerminal({ connectionId, workspaceId: 'ws-1', checkout: { mode: 'current' } })
+    const current = await harness.fleet.createTerminal({
+      connectionId,
+      workspaceId: 'ws-1',
+      checkout: { mode: 'current' },
+    })
     assert.ok(current.ok, current.ok ? '' : current.message)
     assert.deepEqual(current.checkout, { mode: 'current', branch: null, worktreePath: null })
     assert.equal(terminalCreateArgs.length, before + 1)
@@ -671,13 +698,13 @@ test('a pairing without a terminal grant is refused at the upgrade, once', async
     })
     const error = await recorder.waitFor((event) => event.type === 'error', 'the refusal')
     assert.ok(error.type === 'error' && error.code === 'terminal_scope_required')
-    await recorder.waitFor((event) => event.type === 'status' && event.state === 'closed', 'the pane to be told it ended')
+    await recorder.waitFor(
+      (event) => event.type === 'status' && event.state === 'closed',
+      'the pane to be told it ended',
+    )
     // Not a retry loop against a door that will not open.
     await delay(300)
-    assert.equal(
-      recorder.events.filter((event) => event.type === 'status' && event.state === 'reconnecting').length,
-      0
-    )
+    assert.equal(recorder.events.filter((event) => event.type === 'status' && event.state === 'reconnecting').length, 0)
   } finally {
     await harness.close()
   }
@@ -704,7 +731,7 @@ test('an attach the far end refuses ends the pane instead of retrying', async ()
     assert.equal(
       recorder.events.filter((event) => event.type === 'status' && event.state === 'reconnecting').length,
       0,
-      'a session that is not there is not dialled again'
+      'a session that is not there is not dialled again',
     )
   } finally {
     await harness.close()
@@ -732,7 +759,7 @@ test('a dropped link reconnects and resyncs from the remote replay', async () =>
     await harness.stopServer()
     await recorder.waitFor(
       (event) => event.type === 'status' && (event.state === 'reconnecting' || event.state === 'offline'),
-      'the pane to report the drop'
+      'the pane to report the drop',
     )
 
     // Output it missed while disconnected. The replay is a superset, so the
@@ -744,7 +771,7 @@ test('a dropped link reconnects and resyncs from the remote replay', async () =>
     // live status is the one this test just took away.
     await waitUntil(
       () => recorder.events.filter((event) => event.type === 'status' && event.state === 'live').length >= 2,
-      'the link to come back'
+      'the link to come back',
     )
     const replays = recorder.events.filter((event) => event.type === 'replay')
     assert.ok(replays.length >= 2, 'the reconnect brought a fresh replay')
@@ -781,14 +808,14 @@ test('a revocation mid-stream ends the pane instead of reconnecting', async () =
     harness.devices.revokeDevice(harness.devices.listDevices()[0].id)
     const closed = await recorder.waitFor(
       (event) => event.type === 'status' && event.state === 'closed',
-      'the pane to be closed'
+      'the pane to be closed',
     )
     assert.ok(closed.type === 'status' && /revoked/u.test(closed.detail))
     await delay(300)
     assert.equal(
       recorder.events.filter((event) => event.type === 'status' && event.state === 'reconnecting').length,
       0,
-      'a revoked device is not retried'
+      'a revoked device is not retried',
     )
   } finally {
     await harness.close()
@@ -815,7 +842,7 @@ test('forgetting a machine ends its open panes', async () => {
     assert.equal(remaining.length, 0)
     const closed = await recorder.waitFor(
       (event) => event.type === 'status' && event.state === 'closed',
-      'the pane to be closed'
+      'the pane to be closed',
     )
     assert.ok(closed.type === 'status' && /removed from your fleet/u.test(closed.detail))
     await waitUntil(() => harness.terminals.attachedCount() === 0, 'the remote attachment to be released')
@@ -851,7 +878,7 @@ test('the fleet broadcasts machine paired/forgotten and attachment link state, k
     assert.deepEqual(
       harness.fleet.getLiveState(),
       { revision: 0, attachments: [], requests: [], reachability: [] },
-      'nothing attached, revision 0'
+      'nothing attached, revision 0',
     )
     const connectionId = await harness.pair(['terminal:control'])
     const paired = harness.events.find((event) => event.kind === 'machine-paired')
@@ -861,19 +888,26 @@ test('the fleet broadcasts machine paired/forgotten and attachment link state, k
     assert.equal(
       'deviceToken' in paired.connection,
       false,
-      'the broadcast carries the public view, never the credential'
+      'the broadcast carries the public view, never the credential',
     )
 
     // Two panes on ONE session: two links, announced separately.
     const first = createRecorder()
     const second = createRecorder()
     await harness.fleet.attachTerminal({ attachId: 'pane-a', connectionId, sessionId: 'session_one', emit: first.emit })
-    await harness.fleet.attachTerminal({ attachId: 'pane-b', connectionId, sessionId: 'session_one', emit: second.emit })
+    await harness.fleet.attachTerminal({
+      attachId: 'pane-b',
+      connectionId,
+      sessionId: 'session_one',
+      emit: second.emit,
+    })
     await first.waitFor((event) => event.type === 'status' && event.state === 'live', 'pane-a live')
     await second.waitFor((event) => event.type === 'status' && event.state === 'live', 'pane-b live')
     const attachmentEvents = harness.events.filter((event) => event.kind === 'attachment')
     const states = (attachId: string) =>
-      attachmentEvents.filter((event) => event.kind === 'attachment' && event.attachId === attachId).map((event) => event.kind === 'attachment' && event.state)
+      attachmentEvents
+        .filter((event) => event.kind === 'attachment' && event.attachId === attachId)
+        .map((event) => event.kind === 'attachment' && event.state)
     assert.deepEqual(states('pane-a'), ['connecting', 'live'], 'pane-a narrated connecting → live')
     assert.deepEqual(states('pane-b'), ['connecting', 'live'], 'pane-b narrated the same, under its own id')
     for (const event of attachmentEvents) {
@@ -881,14 +915,18 @@ test('the fleet broadcasts machine paired/forgotten and attachment link state, k
     }
 
     const snapshot = harness.fleet.getLiveState()
-    assert.equal(snapshot.revision, harness.events[harness.events.length - 1].revision, 'the snapshot carries the latest revision')
+    assert.equal(
+      snapshot.revision,
+      harness.events[harness.events.length - 1].revision,
+      'the snapshot carries the latest revision',
+    )
     assert.deepEqual(
       snapshot.attachments.map((attachment) => [attachment.attachId, attachment.state]).sort(),
       [
         ['pane-a', 'live'],
         ['pane-b', 'live'],
       ],
-      'the snapshot lists both panes as live'
+      'the snapshot lists both panes as live',
     )
 
     // Closing one pane retracts ONLY that pane's link.
@@ -898,7 +936,7 @@ test('the fleet broadcasts machine paired/forgotten and attachment link state, k
     assert.deepEqual(
       harness.fleet.getLiveState().attachments.map((attachment) => attachment.attachId),
       ['pane-b'],
-      'the other pane is still held'
+      'the other pane is still held',
     )
 
     // Forgetting the machine ends the remaining pane and announces the forget.
@@ -906,8 +944,10 @@ test('the fleet broadcasts machine paired/forgotten and attachment link state, k
     const forgotten = harness.events.find((event) => event.kind === 'machine-forgotten')
     assert.ok(forgotten && forgotten.kind === 'machine-forgotten' && forgotten.connectionId === connectionId)
     assert.ok(
-      harness.events.some((event) => event.kind === 'attachment' && event.attachId === 'pane-b' && event.state === 'closed'),
-      'the pane on a forgotten machine is closed, and said to be'
+      harness.events.some(
+        (event) => event.kind === 'attachment' && event.attachId === 'pane-b' && event.state === 'closed',
+      ),
+      'the pane on a forgotten machine is closed, and said to be',
     )
     assert.deepEqual(harness.fleet.getLiveState().attachments, [])
 
@@ -928,12 +968,17 @@ test('a peer going away is broadcast as reconnecting then offline, and coming ba
   try {
     const connectionId = await harness.pair(['terminal:observe'])
     const recorder = createRecorder()
-    await harness.fleet.attachTerminal({ attachId: 'pane-x', connectionId, sessionId: 'session_one', emit: recorder.emit })
+    await harness.fleet.attachTerminal({
+      attachId: 'pane-x',
+      connectionId,
+      sessionId: 'session_one',
+      emit: recorder.emit,
+    })
     await recorder.waitFor((event) => event.type === 'status' && event.state === 'live', 'live')
     await harness.stopServer()
     await waitUntil(
       () => harness.events.some((event) => event.kind === 'attachment' && event.state === 'offline'),
-      'the broadcast to report offline'
+      'the broadcast to report offline',
     )
     const sequence = harness.events
       .filter((event) => event.kind === 'attachment' && event.attachId === 'pane-x')
@@ -942,13 +987,10 @@ test('a peer going away is broadcast as reconnecting then offline, and coming ba
     assert.ok(sequence.indexOf('reconnecting') < sequence.indexOf('offline'))
     assert.equal(harness.fleet.getLiveState().attachments[0]?.state, 'offline', 'the snapshot agrees')
     await harness.restartServer()
-    await waitUntil(
-      () => {
-        const last = harness.events[harness.events.length - 1]
-        return last.kind === 'attachment' && last.state === 'live'
-      },
-      'the link to come back live'
-    )
+    await waitUntil(() => {
+      const last = harness.events[harness.events.length - 1]
+      return last.kind === 'attachment' && last.state === 'live'
+    }, 'the link to come back live')
     harness.fleet.detachTerminal('pane-x')
   } finally {
     await harness.close()

@@ -1,9 +1,5 @@
 import assert from 'node:assert/strict'
-import {
-  computeScrollbackFootprint,
-  ESTIMATED_BYTES_PER_CELL,
-  type ScrollbackEntry,
-} from './terminalInstanceRegistry'
+import { computeScrollbackFootprint, ESTIMATED_BYTES_PER_CELL, type ScrollbackEntry } from './terminalInstanceRegistry'
 
 function run(name: string, body: () => void): void {
   try {

@@ -13,26 +13,32 @@ const TERMINAL_INPUT_DIAGNOSTIC_INTERVAL_MS = 1_000
 const TERMINAL_SLOW_INPUT_WRITE_MS = 50
 
 export function createTerminalDiagnostics({ enabled, logMainPerfEvent }: TerminalDiagnosticsOptions) {
-  const terminalBatchDiagnostics = new Map<string, {
-    batches: number
-    chunks: number
-    bytes: number
-    lastLogAt: number
-  }>()
-  const terminalInputDiagnostics = new Map<string, {
-    writes: number
-    bytes: number
-    totalMs: number
-    maxMs: number
-    errors: number
-    lastLogAt: number
-  }>()
+  const terminalBatchDiagnostics = new Map<
+    string,
+    {
+      batches: number
+      chunks: number
+      bytes: number
+      lastLogAt: number
+    }
+  >()
+  const terminalInputDiagnostics = new Map<
+    string,
+    {
+      writes: number
+      bytes: number
+      totalMs: number
+      maxMs: number
+      errors: number
+      lastLogAt: number
+    }
+  >()
 
   function recordDataBatch(
     session: TerminalSession | undefined,
     cause: TerminalDiagnosticCause,
     chunkCount: number,
-    byteCount: number
+    byteCount: number,
   ): void {
     if (!session || !enabled || chunkCount === 0) return
 
@@ -72,7 +78,7 @@ export function createTerminalDiagnostics({ enabled, logMainPerfEvent }: Termina
     session: TerminalSession | undefined,
     byteCount: number,
     elapsedMs: number,
-    ok: boolean
+    ok: boolean,
   ): void {
     if (!session || !enabled) return
 
@@ -92,7 +98,11 @@ export function createTerminalDiagnostics({ enabled, logMainPerfEvent }: Termina
     stats.maxMs = Math.max(stats.maxMs, elapsedMs)
     if (!ok) stats.errors += 1
 
-    if (now - stats.lastLogAt >= TERMINAL_INPUT_DIAGNOSTIC_INTERVAL_MS || elapsedMs >= TERMINAL_SLOW_INPUT_WRITE_MS || !ok) {
+    if (
+      now - stats.lastLogAt >= TERMINAL_INPUT_DIAGNOSTIC_INTERVAL_MS ||
+      elapsedMs >= TERMINAL_SLOW_INPUT_WRITE_MS ||
+      !ok
+    ) {
       logMainPerfEvent('Terminal', 'input-writes', {
         sessionId: session.sessionId,
         kind: session.kind,
@@ -119,7 +129,7 @@ export function createTerminalDiagnostics({ enabled, logMainPerfEvent }: Termina
   function recordActivityTransition(
     session: TerminalSession | undefined,
     previousActivity: SessionActivity,
-    nextActivity: SessionActivity
+    nextActivity: SessionActivity,
   ): void {
     if (!session || !enabled) return
 

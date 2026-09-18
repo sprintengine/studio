@@ -1,8 +1,5 @@
 import { ipcRenderer, type IpcRendererEvent } from 'electron'
-import {
-  AUTOMATION_GET_STATUS_CHANNEL,
-  type AutomationServerStatus,
-} from '../../shared/automation'
+import { AUTOMATION_GET_STATUS_CHANNEL, type AutomationServerStatus } from '../../shared/automation'
 import {
   TAILNET_CANCEL_PAIRING_CHANNEL,
   TAILNET_EVENT_CHANNEL,
@@ -56,13 +53,19 @@ export const automationApi = {
     ipcRenderer.invoke(TAILNET_REVOKE_DEVICE_CHANNEL, deviceId) as Promise<TailnetRemoteStatus>,
   tailnetUpdateDeviceScopes: (deviceId: string, scopes: TailnetScope[]): Promise<TailnetRemoteStatus> =>
     ipcRenderer.invoke(TAILNET_UPDATE_DEVICE_SCOPES_CHANNEL, deviceId, scopes) as Promise<TailnetRemoteStatus>,
-  tailnetForgetMachine: (input: {
-    deviceId?: string
-    connectionId?: string
-  }): Promise<TailnetForgetMachineResult> =>
+  tailnetForgetMachine: (input: { deviceId?: string; connectionId?: string }): Promise<TailnetForgetMachineResult> =>
     ipcRenderer.invoke(TAILNET_FORGET_MACHINE_CHANNEL, input) as Promise<TailnetForgetMachineResult>,
-  tailnetApprovePairRequest: (id: string, scopes: TailnetScope[], code: string): Promise<TailnetApprovePairRequestView> =>
-    ipcRenderer.invoke(TAILNET_APPROVE_PAIR_REQUEST_CHANNEL, id, scopes, code) as Promise<TailnetApprovePairRequestView>,
+  tailnetApprovePairRequest: (
+    id: string,
+    scopes: TailnetScope[],
+    code: string,
+  ): Promise<TailnetApprovePairRequestView> =>
+    ipcRenderer.invoke(
+      TAILNET_APPROVE_PAIR_REQUEST_CHANNEL,
+      id,
+      scopes,
+      code,
+    ) as Promise<TailnetApprovePairRequestView>,
   tailnetDenyPairRequest: (id: string): Promise<TailnetRemoteStatus> =>
     ipcRenderer.invoke(TAILNET_DENY_PAIR_REQUEST_CHANNEL, id) as Promise<TailnetRemoteStatus>,
   onRemoteOpenRequested: (cb: () => void): (() => void) => {

@@ -69,7 +69,9 @@ function readAnswerOf(value: unknown): RepositoryIdentityRead {
   return { identity: (value as RepositoryIdentity | null) ?? null, settled: true }
 }
 
-export function useFolderRepositoryIdentities(folderPaths: ReadonlyArray<string | null | undefined>): FolderIdentityMap {
+export function useFolderRepositoryIdentities(
+  folderPaths: ReadonlyArray<string | null | undefined>,
+): FolderIdentityMap {
   const [identities, setIdentities] = useState<Map<string, RepositoryIdentity | null>>(() => new Map())
   // How many times each folder has been asked and not answered. A ref, not
   // state: it must not itself cause a render, and the timer below is what
@@ -103,7 +105,7 @@ export function useFolderRepositoryIdentities(folderPaths: ReadonlyArray<string 
         // is asked again, rather than being written down as "no remote".
         const answer = await read(path).then(readAnswerOf, () => ({ identity: null, settled: false }))
         return [folderIdentityKey(path), answer] as const
-      })
+      }),
     ).then((entries) => {
       if (cancelled) return
       const settled = entries.filter(([, answer]) => answer.settled)
@@ -118,9 +120,7 @@ export function useFolderRepositoryIdentities(folderPaths: ReadonlyArray<string 
           return next
         })
       }
-      const worthRetrying = unsettled.some(
-        ([key]) => (unsettledAsks.current.get(key) ?? 0) < MAX_UNSETTLED_ASKS
-      )
+      const worthRetrying = unsettled.some(([key]) => (unsettledAsks.current.get(key) ?? 0) < MAX_UNSETTLED_ASKS)
       if (worthRetrying) {
         retryTimer = setTimeout(() => setRetryRound((round) => round + 1), RETRY_UNSETTLED_AFTER_MS)
       }

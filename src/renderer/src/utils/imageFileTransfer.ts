@@ -38,9 +38,7 @@ export function filesFromDataTransfer(data: DataTransfer | null): File[] {
 
 /** The image files in a paste or drop, filtered to the types agents accept. */
 export function imageFilesFromDataTransfer(data: DataTransfer | null): File[] {
-  return filesFromDataTransfer(data).filter((file) =>
-    (ATTACHABLE_IMAGE_TYPES as readonly string[]).includes(file.type)
-  )
+  return filesFromDataTransfer(data).filter((file) => (ATTACHABLE_IMAGE_TYPES as readonly string[]).includes(file.type))
 }
 
 /** One file's bytes as base64, with the media type the browser reports. */

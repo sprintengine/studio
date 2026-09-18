@@ -16,9 +16,9 @@ export const BACKLOG_SKILL_ID = 'backlog'
  */
 export function backlogLifecycleHandoffPrompt(relativePath: string): string {
   return (
-    `Work the Backlog item at ${relativePath}. `
-    + 'Use the SprintEngine Studio MCP backlog.update tool for every lifecycle change: set `in_progress` when '
-    + 'you start, `needs_input` (and state the blocking question) if you stop for input, and `completed` only '
-    + 'after the work is real and verified — the tool stamps the update timestamp for you.'
+    `Work the Backlog item at ${relativePath}. ` +
+    'Use the SprintEngine Studio MCP backlog.update tool for every lifecycle change: set `in_progress` when ' +
+    'you start, `needs_input` (and state the blocking question) if you stop for input, and `completed` only ' +
+    'after the work is real and verified — the tool stamps the update timestamp for you.'
   )
 }

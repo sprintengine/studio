@@ -45,7 +45,10 @@ export function readTailnetSettings(userDataDir: string): TailnetSettingsReadRes
   try {
     const parsed: unknown = JSON.parse(raw)
     if (typeof parsed !== 'object' || parsed === null) {
-      return { settings: defaults, error: `${TAILNET_SETTINGS_FILENAME} is malformed; tailnet remote control stays off.` }
+      return {
+        settings: defaults,
+        error: `${TAILNET_SETTINGS_FILENAME} is malformed; tailnet remote control stays off.`,
+      }
     }
     const record = parsed as { enabled?: unknown; port?: unknown; notifications?: unknown }
     return {
@@ -72,7 +75,7 @@ export function writeTailnetSettings(userDataDir: string, settings: TailnetSetti
       notifications: settings.notifications !== false,
     },
     null,
-    2
+    2,
   )}\n`
   writeFileSync(join(userDataDir, TAILNET_SETTINGS_FILENAME), body, { mode: 0o600 })
 }

@@ -55,10 +55,7 @@ export function parseBacklogFrontmatter(content: string): ParsedBacklogFrontmatt
   return { body: content.slice(match[0].length), fields }
 }
 
-export function serializeBacklogFrontmatterFields(
-  content: string,
-  updates: BacklogFrontmatterUpdates,
-): string {
+export function serializeBacklogFrontmatterFields(content: string, updates: BacklogFrontmatterUpdates): string {
   const { sets, clears, spellings } = normalizeUpdates(updates)
   if (sets.size === 0 && clears.size === 0) return content
 
@@ -199,7 +196,12 @@ export function extractBacklogTitle(body: string, relativePath: string): string 
 
 export function backlogTitleFromPath(relativePath: string): string {
   const stem = (relativePath.split(/[\\/]/).pop() ?? relativePath).replace(/\.md$/i, '')
-  return stem.replace(/^\d{4}-\d{2}-\d{2}-/, '').replace(/[-_]+/g, ' ').trim() || stem
+  return (
+    stem
+      .replace(/^\d{4}-\d{2}-\d{2}-/, '')
+      .replace(/[-_]+/g, ' ')
+      .trim() || stem
+  )
 }
 
 function normalizeUpdates(updates: BacklogFrontmatterUpdates): {

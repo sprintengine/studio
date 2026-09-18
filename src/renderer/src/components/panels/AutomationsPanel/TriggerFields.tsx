@@ -1,7 +1,11 @@
 import { useState } from 'react'
 
 import { ChipButton, Field, GhostButton, InlineNotice, Input, Select, type SelectItem, Switch } from '../../ui'
-import type { AutomationDefinition, AutomationsProviders, TriggerKind } from '../../../../../shared/automations/contracts'
+import type {
+  AutomationDefinition,
+  AutomationsProviders,
+  TriggerKind,
+} from '../../../../../shared/automations/contracts'
 import { foreignScheduleTimeZone } from '../../../../../shared/automations/cadence'
 import {
   SCHEDULE_TRIGGER_KIND,
@@ -25,10 +29,7 @@ import {
 
 // The trigger families the picker always offers, in priority order. Each is shown
 // even when unavailable (disabled + reason) so a control boundary is never hidden.
-const CANONICAL_FAMILIES: TriggerKind[] = [
-  SCHEDULE_TRIGGER_KIND,
-  WEBHOOK_TRIGGER_KIND,
-]
+const CANONICAL_FAMILIES: TriggerKind[] = [SCHEDULE_TRIGGER_KIND, WEBHOOK_TRIGGER_KIND]
 
 // The picker's family label is the one canonical TRIGGER_FAMILY_LABEL map (shared
 // with the list's supporting line, so the two can't drift), falling back to the
@@ -81,7 +82,10 @@ export function selectedFamilyUnavailableReason(
 }
 
 export function TriggerFields({
-  editor, providers, value, onChange,
+  editor,
+  providers,
+  value,
+  onChange,
 }: {
   editor: EditorState
   providers: AutomationsProviders | null
@@ -164,7 +168,9 @@ function loadedScheduleForeignZone(loaded: AutomationDefinition['trigger'] | nul
 }
 
 function ScheduleFields({
-  value, onChange, writtenTimeZone,
+  value,
+  onChange,
+  writtenTimeZone,
 }: {
   value: TriggerFieldsValue
   onChange: (patch: Partial<TriggerFieldsValue>) => void
@@ -244,7 +250,11 @@ function ScheduleFields({
                   key={day}
                   variant="outline"
                   pressed={checked}
-                  onClick={() => onChange({ daysOfWeek: checked ? value.daysOfWeek.filter((d) => d !== day) : [...value.daysOfWeek, day] })}
+                  onClick={() =>
+                    onChange({
+                      daysOfWeek: checked ? value.daysOfWeek.filter((d) => d !== day) : [...value.daysOfWeek, day],
+                    })
+                  }
                   className="min-w-9 justify-center"
                 >
                   {label}
@@ -258,12 +268,7 @@ function ScheduleFields({
   )
 }
 
-function WebhookFields({
-  value, onChange,
-}: {
-  value: WebhookForm
-  onChange: (next: WebhookForm) => void
-}) {
+function WebhookFields({ value, onChange }: { value: WebhookForm; onChange: (next: WebhookForm) => void }) {
   const [copied, setCopied] = useState(false)
 
   const copySecret = async () => {
@@ -291,7 +296,9 @@ function WebhookFields({
           ariaLabel="Enable inbound webhook delivery"
         />
         Listen for deliveries
-        <span className="text-micro text-[color:var(--text-subtle)]">{value.enabled ? '(receiver active)' : '(paused)'}</span>
+        <span className="text-micro text-[color:var(--text-subtle)]">
+          {value.enabled ? '(receiver active)' : '(paused)'}
+        </span>
       </label>
       <Field label="Port" htmlFor="automation-webhook-port" help="Local port the receiver listens on.">
         <Input
@@ -315,7 +322,10 @@ function WebhookFields({
       </Field>
       <div className="text-micro text-[color:var(--text-subtle)]">
         Delivery URL{' '}
-        <code className="font-mono text-[color:var(--text-muted)]">{WEBHOOK_ROUTE_PREFIX}{deliveryPath || '<path>'}</code>
+        <code className="font-mono text-[color:var(--text-muted)]">
+          {WEBHOOK_ROUTE_PREFIX}
+          {deliveryPath || '<path>'}
+        </code>
       </div>
 
       {/* No `htmlFor`: both branches are composites. With one, the cloned id

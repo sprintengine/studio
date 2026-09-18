@@ -29,28 +29,31 @@ function testIneligibleUntrusted(): void {
   const result = resolveModuleEnablement(
     [manifest('thirdparty', { source: 'third-party', defaultEnabled: true })],
     {},
-    { ineligible: { thirdparty: 'untrusted' } }
+    { ineligible: { thirdparty: 'untrusted' } },
   )
   assert.deepEqual(result.order, [], 'an untrusted module does not load')
-  assert.equal(result.errors.some((e) => e.id === 'thirdparty' && e.code === 'untrusted'), true)
+  assert.equal(
+    result.errors.some((e) => e.id === 'thirdparty' && e.code === 'untrusted'),
+    true,
+  )
 }
 
 function testIneligibleCascadesToDependents(): void {
   // A dependent of an ineligible module must also be excluded.
   const result = resolveModuleEnablement(
-    [
-      manifest('base', { source: 'third-party' }),
-      manifest('dependent', { dependsOn: ['base'] }),
-    ],
+    [manifest('base', { source: 'third-party' }), manifest('dependent', { dependsOn: ['base'] })],
     {},
-    { ineligible: { base: 'untrusted' } }
+    { ineligible: { base: 'untrusted' } },
   )
   assert.deepEqual(result.order, [])
-  assert.equal(result.errors.some((e) => e.id === 'base' && e.code === 'untrusted'), true)
+  assert.equal(
+    result.errors.some((e) => e.id === 'base' && e.code === 'untrusted'),
+    true,
+  )
   assert.equal(
     result.errors.some((e) => e.id === 'dependent' && e.code === 'disabled_dependency'),
     true,
-    'dependent cascades to disabled_dependency'
+    'dependent cascades to disabled_dependency',
   )
 }
 
@@ -58,10 +61,13 @@ function testIneligibleInvalidSignature(): void {
   const result = resolveModuleEnablement(
     [manifest('tampered', { source: 'third-party' })],
     {},
-    { ineligible: { tampered: 'invalid_signature' } }
+    { ineligible: { tampered: 'invalid_signature' } },
   )
   assert.deepEqual(result.order, [])
-  assert.equal(result.errors.some((e) => e.id === 'tampered' && e.code === 'invalid_signature'), true)
+  assert.equal(
+    result.errors.some((e) => e.id === 'tampered' && e.code === 'invalid_signature'),
+    true,
+  )
 }
 
 function testDefaultsAndExplicitDisable(): void {
@@ -75,10 +81,9 @@ function testDefaultsAndExplicitDisable(): void {
 }
 
 function testCoreIgnoresOverride(): void {
-  const result = resolveModuleEnablement(
-    [manifest('agent-runtime', { core: true, defaultEnabled: false })],
-    { 'agent-runtime': false }
-  )
+  const result = resolveModuleEnablement([manifest('agent-runtime', { core: true, defaultEnabled: false })], {
+    'agent-runtime': false,
+  })
   assert.deepEqual(result.order, ['agent-runtime'], 'core modules cannot be disabled')
 }
 
@@ -124,10 +129,7 @@ function testCascadingExclusion(): void {
 }
 
 function testDependencyOrder(): void {
-  const result = resolveModuleEnablement([
-    manifest('app', { dependsOn: ['runtime'] }),
-    manifest('runtime'),
-  ])
+  const result = resolveModuleEnablement([manifest('app', { dependsOn: ['runtime'] }), manifest('runtime')])
   assert.deepEqual(result.order, ['runtime', 'app'], 'dependencies load before dependents')
 }
 
@@ -154,13 +156,10 @@ function testDuplicateId(): void {
 }
 
 function testCycle(): void {
-  const result = resolveModuleEnablement([
-    manifest('a', { dependsOn: ['b'] }),
-    manifest('b', { dependsOn: ['a'] }),
-  ])
+  const result = resolveModuleEnablement([manifest('a', { dependsOn: ['b'] }), manifest('b', { dependsOn: ['a'] })])
   assert.ok(
     result.errors.some((error) => error.code === 'dependency_cycle'),
-    'a cycle must be reported'
+    'a cycle must be reported',
   )
 }
 

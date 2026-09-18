@@ -71,7 +71,10 @@ run('a draft keeps order, keeps untouched elements identical, and appends the ne
   draft.put(element('c'))
 
   const out = draft.all()
-  assert.deepEqual(out.map((e) => e.id), ['a', 'b', 'c'])
+  assert.deepEqual(
+    out.map((e) => e.id),
+    ['a', 'b', 'c'],
+  )
   // Untouched: the very same object, so main's merge sees no write at all.
   assert.equal(out[0], a)
   assert.equal(out[1].x, 50)
@@ -106,7 +109,10 @@ run('the original is still readable after a patch', () => {
 
 run('a duplicate id is kept once, at the position it first appeared', () => {
   const draft = new SceneDraft([element('a', { x: 1 }), element('b'), element('a', { x: 2 })])
-  assert.deepEqual(draft.all().map((e) => e.id), ['a', 'b'])
+  assert.deepEqual(
+    draft.all().map((e) => e.id),
+    ['a', 'b'],
+  )
   assert.equal(draft.get('a')!.x, 1)
 })
 

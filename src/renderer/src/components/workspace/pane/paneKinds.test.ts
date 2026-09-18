@@ -11,12 +11,7 @@ import type { RegisteredModalSurfaceLauncher } from '../../../modules/renderer-h
 
 const Glyph = (): null => null
 
-function launcher(
-  surfaceId: string,
-  moduleId: string,
-  label: string,
-  letter: string,
-): RegisteredModalSurfaceLauncher {
+function launcher(surfaceId: string, moduleId: string, label: string, letter: string): RegisteredModalSurfaceLauncher {
   return { surfaceId, moduleId, label, letter, Glyph }
 }
 
@@ -54,14 +49,8 @@ const allEnabled = (): boolean => true
 // --- A disabled module drops its row -----------------------------------------
 // Absent, never greyed — for a contributed row exactly as for a built-in one.
 {
-  const kinds = composePaneKinds(
-    [launcher('reviews', 'review', 'Reviews', 'R')],
-    (moduleId) => moduleId !== 'review',
-  )
-  assert.ok(
-    !kinds.some((kind) => kind.kind === 'reviews'),
-    'a disabled module’s row is gone from the list',
-  )
+  const kinds = composePaneKinds([launcher('reviews', 'review', 'Reviews', 'R')], (moduleId) => moduleId !== 'review')
+  assert.ok(!kinds.some((kind) => kind.kind === 'reviews'), 'a disabled module’s row is gone from the list')
   assert.ok(
     kinds.some((kind) => kind.kind === 'browser'),
     'while the shell’s own kinds are untouched',

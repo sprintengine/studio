@@ -9,12 +9,7 @@ import {
   type SkillSource,
 } from '../../../../../../../shared/skills'
 import type { SkillScanLoad } from '../skills/skillsSurfaceModel'
-import {
-  crossSourceStateLine,
-  isCrossSourceQuery,
-  searchAcrossSources,
-  unreadSourcesLine,
-} from './catalogueSearch'
+import { crossSourceStateLine, isCrossSourceQuery, searchAcrossSources, unreadSourcesLine } from './catalogueSearch'
 
 // One search over every source (skills-everywhere, 2026-09-10). What the
 // model owes: results grouped by source in TAB order, only the sources whose
@@ -33,7 +28,17 @@ function run(name: string, body: () => void): void {
 }
 
 function source(id: string, repo: string, over: Partial<SkillSource> = {}): SkillSource {
-  return { id, kind: 'github', name: repo.split('/')[1], repo, monogram: 'XX', blurb: '', commitSha: 'abc', scannedAt: '2026-09-01T00:00:00Z', ...over }
+  return {
+    id,
+    kind: 'github',
+    name: repo.split('/')[1],
+    repo,
+    monogram: 'XX',
+    blurb: '',
+    commitSha: 'abc',
+    scannedAt: '2026-09-01T00:00:00Z',
+    ...over,
+  }
 }
 
 function scan(skillNames: readonly string[]): ScanResult {
@@ -106,7 +111,10 @@ run('a source whose scan is not in hand is not read for the search — it is nam
     [BROKEN.id]: { status: 'error', message: 'rate limited' },
   }
   const result = searchAcrossSources({ query: 'pdf', sources: [STUDIO, ACME, LATE, BROKEN], scans, match: byName })
-  assert.deepEqual(result.sections.map((section) => section.label), [STUDIO_SKILL_SOURCE_NAME])
+  assert.deepEqual(
+    result.sections.map((section) => section.label),
+    [STUDIO_SKILL_SOURCE_NAME],
+  )
   assert.equal(result.searched, 1)
   assert.deepEqual(
     result.unread.map((entry) => [entry.label, entry.state]),
@@ -119,9 +127,9 @@ run('a source whose scan is not in hand is not read for the search — it is nam
   assert.equal(crossSourceStateLine(result), `Searched 1 of 4 sources for “pdf”`)
   assert.equal(
     unreadSourcesLine(result.unread),
-    "1 source not yet read: late/skills. Open a source's tab to read it. "
-      + '1 source still being read: acme/skills. '
-      + '1 source could not be read: broken/skills.',
+    "1 source not yet read: late/skills. Open a source's tab to read it. " +
+      '1 source still being read: acme/skills. ' +
+      '1 source could not be read: broken/skills.',
     'each kind of absence is said in its own words, and the sources are named',
   )
 })

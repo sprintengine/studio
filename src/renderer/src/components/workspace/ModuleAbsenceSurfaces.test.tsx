@@ -26,12 +26,12 @@ function testMarketplaceMappingRequiresModuleKindAndPrefix(): void {
   assert.deepEqual(
     marketplaceModuleForComponent('calendar.board', PLUGINS),
     { id: 'calendar', name: 'Calendar' },
-    'a namespaced component id maps through its module prefix'
+    'a namespaced component id maps through its module prefix',
   )
   assert.equal(
     marketplaceModuleForComponent('current-docs-mcp.panel', PLUGINS),
     null,
-    'a marketplace entry that does not provide a module never claims a tab'
+    'a marketplace entry that does not provide a module never claims a tab',
   )
   assert.equal(marketplaceModuleForComponent('calendar', PLUGINS), null, 'un-namespaced ids stay generic')
   assert.equal(marketplaceModuleForComponent('.hidden', PLUGINS), null)
@@ -39,19 +39,17 @@ function testMarketplaceMappingRequiresModuleKindAndPrefix(): void {
   assert.equal(
     marketplaceModuleForComponent('calendar.board', PLUGINS, () => true),
     null,
-    'a stale panel id of a PRESENT module never claims the module is missing'
+    'a stale panel id of a PRESENT module never claims the module is missing',
   )
   assert.deepEqual(
     marketplaceModuleForComponent('calendar.board', PLUGINS, () => false),
     { id: 'calendar', name: 'Calendar' },
-    'an absent module still maps'
+    'an absent module still maps',
   )
 }
 
 function testNotInstalledSurfaceNamesTheModuleAndOffersInstall(): void {
-  const html = renderToStaticMarkup(
-    <ModuleNotInstalledSurface label="Calendar" onOpenMarketplace={() => {}} />
-  )
+  const html = renderToStaticMarkup(<ModuleNotInstalledSurface label="Calendar" onOpenMarketplace={() => {}} />)
   assert.match(html, /Calendar isn’t installed/)
   assert.match(html, /safe on disk/, 'the surface says the data is untouched')
   assert.match(html, /Find it in Plugins/, 'the install affordance is present')
@@ -67,7 +65,7 @@ function testMissingPanelSurfaceFallsBackUntilResolved(): void {
       componentId="calendar.board"
       fallback={<div aria-label="Panel unavailable" />}
       onOpenMarketplace={() => {}}
-    />
+    />,
   )
   assert.match(html, /aria-label="Panel unavailable"/)
   assert.doesNotMatch(html, /isn’t installed/)
@@ -81,16 +79,14 @@ function testModeLabelFallsBackToCapitalizedId(): void {
 // into Extensions — with copy that stays honest between "not installed" and
 // "installed but disabled".
 function testDoorNotInstalledSurfaceNamesTheDoorAndOffersExtensions(): void {
-  const html = renderToStaticMarkup(
-    <DoorModuleNotInstalledSurface label="Reviews" onOpenExtensions={() => {}} />
-  )
+  const html = renderToStaticMarkup(<DoorModuleNotInstalledSurface label="Reviews" onOpenExtensions={() => {}} />)
   assert.match(html, /Reviews/)
   assert.match(html, /The Reviews module isn’t installed\./)
   assert.match(html, /Find it in Plugins/, 'the single CTA is present')
   assert.match(html, /aria-label="Door module not installed"/)
 
   const disabled = renderToStaticMarkup(
-    <DoorModuleNotInstalledSurface label="Reviews" installed onOpenExtensions={() => {}} />
+    <DoorModuleNotInstalledSurface label="Reviews" installed onOpenExtensions={() => {}} />,
   )
   assert.match(disabled, /The Reviews module is turned off\./)
   assert.doesNotMatch(disabled, /isn’t installed\./, 'a disabled module is never called uninstalled')
@@ -113,7 +109,7 @@ function testMarketplaceModuleEntryRequiresAModuleComponent(): void {
 // which is also what a machine with no marketplace gets.
 function testDoorSurfaceKeepsTheSignpostUntilTheRegistryAnswers(): void {
   const html = renderToStaticMarkup(
-    <DoorModuleNotInstalledSurface label="Reviews" moduleId="review" onOpenExtensions={() => {}} />
+    <DoorModuleNotInstalledSurface label="Reviews" moduleId="review" onOpenExtensions={() => {}} />,
   )
   assert.match(html, /Find it in Plugins/)
   assert.doesNotMatch(html, /Install Reviews/, 'no button is drawn on a registry that has not answered')
@@ -124,7 +120,7 @@ function testDoorSurfaceKeepsTheSignpostUntilTheRegistryAnswers(): void {
 // door for a disabled module keeps exactly one CTA.
 function testDisabledDoorNeverOffersInstall(): void {
   const html = renderToStaticMarkup(
-    <DoorModuleNotInstalledSurface label="Reviews" moduleId="review" installed onOpenExtensions={() => {}} />
+    <DoorModuleNotInstalledSurface label="Reviews" moduleId="review" installed onOpenExtensions={() => {}} />,
   )
   assert.match(html, /The Reviews module is turned off\./)
   assert.doesNotMatch(html, /Install Reviews/)
@@ -142,7 +138,7 @@ function testTurnedOffWorkspaceSurfaceSaysSoAndLeadsToTheToggle(): void {
       installed
       actionLabel="Open module settings"
       onOpenMarketplace={() => {}}
-    />
+    />,
   )
   assert.match(html, /Automations is turned off/)
   assert.match(html, /turn the module back on/, 'the body names the remedy')
@@ -165,8 +161,7 @@ function testModuleIdLabelNamesTheBundledModule(): void {
 function testWorkspaceAbsenceAnswersInstalledAbsentAndDisabled(): void {
   const deps = (enabled: boolean, registered = true) => ({
     isBundledHiddenMode: (mode: string) => mode === 'automations-host',
-    workspaceTypeModuleId: (mode: string) =>
-      registered && mode === 'tide-tables' ? 'tide-tables' : undefined,
+    workspaceTypeModuleId: (mode: string) => (registered && mode === 'tide-tables' ? 'tide-tables' : undefined),
     isModuleEnabled: () => enabled,
   })
 
@@ -174,22 +169,22 @@ function testWorkspaceAbsenceAnswersInstalledAbsentAndDisabled(): void {
   assert.equal(
     workspaceModuleAbsence('automations-host', deps(false)),
     null,
-    'a bundled hidden host is a background container, not a surface that can be absent'
+    'a bundled hidden host is a background container, not a surface that can be absent',
   )
   assert.equal(
     workspaceModuleAbsence('tide-tables', deps(true)),
     null,
-    'with the module on, the workspace renders its own layout'
+    'with the module on, the workspace renders its own layout',
   )
   assert.deepEqual(
     workspaceModuleAbsence('tide-tables', deps(false)),
     { kind: 'disabled', label: 'tide-tables', moduleId: 'tide-tables' },
-    'a persisted workspace whose module is switched off opens on the turned-off surface'
+    'a persisted workspace whose module is switched off opens on the turned-off surface',
   )
   assert.deepEqual(
     workspaceModuleAbsence('tide-tables', deps(true, false)),
     { kind: 'not-installed', label: 'Tide-tables' },
-    'with nothing registering the type, the same workspace offers an install'
+    'with nothing registering the type, the same workspace offers an install',
   )
 }
 

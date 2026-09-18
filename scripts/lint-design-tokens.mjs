@@ -440,9 +440,7 @@ for (const entry of PATH_EXEMPTIONS) {
   // considered, and it protects nothing. It is also the state two of these
   // entries were found in.
   if (!existsSync(resolve(process.cwd(), entry.path))) {
-    process.stderr.write(
-      `PATH_EXEMPTIONS names ${entry.path}, which does not exist. Delete the entry.\n`,
-    )
+    process.stderr.write(`PATH_EXEMPTIONS names ${entry.path}, which does not exist. Delete the entry.\n`)
     process.exit(2)
   }
   const caps = new Map()
@@ -480,7 +478,10 @@ function walkComponents(absoluteRoot, repoRoot) {
       if (dot < 0) continue
       const ext = entry.name.slice(dot)
       if (!ALLOWED_EXT.has(ext)) continue
-      const relative = full.slice(repoRoot.length + 1).split(sep).join('/')
+      const relative = full
+        .slice(repoRoot.length + 1)
+        .split(sep)
+        .join('/')
       out.push(relative)
     }
   }
@@ -644,13 +645,9 @@ for (const relativePath of TARGET_FILES) {
       const lastNewline = upTo.lastIndexOf('\n')
       const column = svgMatch.index - lastNewline
       const lineText = lines[lineNumber - 1] ?? ''
-      const prev1 = lineNumber >= 2 ? lines[lineNumber - 2] ?? '' : ''
-      const prev2 = lineNumber >= 3 ? lines[lineNumber - 3] ?? '' : ''
-      if (
-        lineText.includes(ALLOW_MARKER) ||
-        prev1.includes(ALLOW_MARKER) ||
-        prev2.includes(ALLOW_MARKER)
-      ) {
+      const prev1 = lineNumber >= 2 ? (lines[lineNumber - 2] ?? '') : ''
+      const prev2 = lineNumber >= 3 ? (lines[lineNumber - 3] ?? '') : ''
+      if (lineText.includes(ALLOW_MARKER) || prev1.includes(ALLOW_MARKER) || prev2.includes(ALLOW_MARKER)) {
         continue
       }
       if (exemptAbsorbs('no-ad-hoc-icon-size')) continue
@@ -678,13 +675,9 @@ for (const relativePath of TARGET_FILES) {
       const lastNewline = upTo.lastIndexOf('\n')
       const column = titleIndex - lastNewline
       const lineText = lines[lineNumber - 1] ?? ''
-      const prev1 = lineNumber >= 2 ? lines[lineNumber - 2] ?? '' : ''
-      const prev2 = lineNumber >= 3 ? lines[lineNumber - 3] ?? '' : ''
-      if (
-        lineText.includes(ALLOW_MARKER) ||
-        prev1.includes(ALLOW_MARKER) ||
-        prev2.includes(ALLOW_MARKER)
-      ) {
+      const prev1 = lineNumber >= 2 ? (lines[lineNumber - 2] ?? '') : ''
+      const prev2 = lineNumber >= 3 ? (lines[lineNumber - 3] ?? '') : ''
+      if (lineText.includes(ALLOW_MARKER) || prev1.includes(ALLOW_MARKER) || prev2.includes(ALLOW_MARKER)) {
         continue
       }
       if (exemptAbsorbs('no-native-tooltip-on-control')) continue
@@ -793,9 +786,7 @@ for (const relativePath of TARGET_FILES) {
     visibleFindings.sort((a, b) => a.line - b.line || a.column - b.column)
     process.stdout.write(`\n${relativePath}\n`)
     for (const finding of visibleFindings) {
-      process.stdout.write(
-        `  ${finding.line}:${finding.column}  ${finding.rule}  ${finding.text}\n`,
-      )
+      process.stdout.write(`  ${finding.line}:${finding.column}  ${finding.rule}  ${finding.text}\n`)
     }
   }
 }
@@ -898,13 +889,9 @@ if (existsSync(cssAbsPath)) {
     const upTo = cssSource.slice(0, hexMatch.index)
     const lineNumber = upTo.split('\n').length
     const lineText = cssLines[lineNumber - 1] ?? ''
-    const prev1 = lineNumber >= 2 ? cssLines[lineNumber - 2] ?? '' : ''
-    const prev2 = lineNumber >= 3 ? cssLines[lineNumber - 3] ?? '' : ''
-    if (
-      lineText.includes(ALLOW_MARKER) ||
-      prev1.includes(ALLOW_MARKER) ||
-      prev2.includes(ALLOW_MARKER)
-    ) {
+    const prev1 = lineNumber >= 2 ? (cssLines[lineNumber - 2] ?? '') : ''
+    const prev2 = lineNumber >= 3 ? (cssLines[lineNumber - 3] ?? '') : ''
+    if (lineText.includes(ALLOW_MARKER) || prev1.includes(ALLOW_MARKER) || prev2.includes(ALLOW_MARKER)) {
       continue
     }
     const lastNewline = upTo.lastIndexOf('\n')
@@ -921,9 +908,7 @@ if (existsSync(cssAbsPath)) {
     cssFindings.sort((a, b) => a.line - b.line || a.column - b.column)
     process.stdout.write(`\n${THEME_CSS_PATH}\n`)
     for (const finding of cssFindings) {
-      process.stdout.write(
-        `  ${finding.line}:${finding.column}  ${finding.rule}  ${finding.text}\n`,
-      )
+      process.stdout.write(`  ${finding.line}:${finding.column}  ${finding.rule}  ${finding.text}\n`)
     }
   }
   totalViolations += cssViolations
@@ -931,9 +916,7 @@ if (existsSync(cssAbsPath)) {
 
 process.stdout.write('\nDesign-token guard summary\n')
 process.stdout.write(`  scope: ${SCAN_ROOT} (recursive, .tsx/.ts, ${TARGET_FILES.length} files)\n`)
-process.stdout.write(
-  `  allow-list: ${PATH_EXEMPTIONS.length}/${ALLOW_LIST_CEILING} file-level exemptions\n`,
-)
+process.stdout.write(`  allow-list: ${PATH_EXEMPTIONS.length}/${ALLOW_LIST_CEILING} file-level exemptions\n`)
 const dirty = perFile.filter((entry) => entry.total > 0)
 if (!QUIET) {
   for (const entry of dirty) {

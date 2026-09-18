@@ -43,34 +43,26 @@ assert.equal(hasSnooze(ws({ snoozedUntil: Number.NaN })), false, 'a NaN stamp is
 // Asleep, awake, and the wake that nothing schedules
 // ---------------------------------------------------------------------------
 
-assert.equal(
-  isSnoozedWorkspace(ws({ snoozedUntil: NOW + HOUR }), NOW),
-  true,
-  'a wake time in the future is asleep'
-)
+assert.equal(isSnoozedWorkspace(ws({ snoozedUntil: NOW + HOUR }), NOW), true, 'a wake time in the future is asleep')
 assert.equal(
   isSnoozedWorkspace(ws({ snoozedUntil: NOW - 1 }), NOW),
   false,
-  'the wake needs no event: a stamp in the past simply stops reading as asleep'
+  'the wake needs no event: a stamp in the past simply stops reading as asleep',
 )
 assert.equal(
   isSnoozedWorkspace(ws({ snoozedUntil: NOW }), NOW),
   false,
-  'the wake instant itself is awake, so a countdown never sits at zero while hidden'
+  'the wake instant itself is awake, so a countdown never sits at zero while hidden',
 )
 assert.equal(isSnoozedWorkspace(ws({}), NOW), false, 'no stamp, never asleep')
-assert.equal(
-  isSnoozedWorkspace(ws({ snoozedUntil: Number.NaN }), NOW),
-  false,
-  'malformed data never hides a row'
-)
+assert.equal(isSnoozedWorkspace(ws({ snoozedUntil: Number.NaN }), NOW), false, 'malformed data never hides a row')
 
 // A machine asleep past the wake time has nothing to recover: the row is simply
 // awake when it comes back, however long "past" was.
 assert.equal(
   isSnoozedWorkspace(ws({ snoozedUntil: NOW - 90 * DAY }), NOW),
   false,
-  'a wake missed while the app was closed is not a wake owed'
+  'a wake missed while the app was closed is not a wake owed',
 )
 
 // ---------------------------------------------------------------------------
@@ -80,7 +72,7 @@ assert.equal(
 assert.equal(
   isSnoozeUnexpired(ws({ snoozedUntil: NOW + HOUR }), NOW),
   true,
-  'a running snooze holds the settle sweep off'
+  'a running snooze holds the settle sweep off',
 )
 assert.equal(isSnoozeUnexpired(ws({ snoozedUntil: NOW - 1 }), NOW), false, 'a spent snooze holds nothing off')
 
@@ -96,17 +88,17 @@ assert.equal(isSnoozeUnexpired(ws({ snoozedUntil: NOW - 1 }), NOW), false, 'a sp
 assert.equal(
   isSnoozedWorkspace(ws({ snoozedUntil: NOW + HOUR, lastTurnEndedAt: NOW }), NOW),
   true,
-  'a turn ending while the row sleeps does not wake it'
+  'a turn ending while the row sleeps does not wake it',
 )
 assert.equal(
   isSnoozedWorkspace(ws({ snoozedUntil: NOW + HOUR, lastTurnEndedAt: NOW + MINUTE }), NOW),
   true,
-  'nor does one stamped after the read'
+  'nor does one stamped after the read',
 )
 assert.equal(
   workspaceWokeAt(ws({ snoozedUntil: NOW + HOUR, lastTurnEndedAt: NOW }), NOW),
   null,
-  'and none of it counts as a wake'
+  'and none of it counts as a wake',
 )
 
 // The state that used to be BOTH a blocker and an early wake. A chat asking a
@@ -133,12 +125,12 @@ assert.equal(snoozeWakeLabel(NOW, NOW), 'now', 'and so does the instant itself')
 assert.deepEqual(
   snoozeWorkspacePatch(NOW + HOUR),
   { snoozedUntil: NOW + HOUR },
-  'a snooze is one field: the wake time is the whole of it'
+  'a snooze is one field: the wake time is the whole of it',
 )
 assert.deepEqual(
   wakeSnoozedWorkspacePatch(),
   { snoozedUntil: null },
-  'and a wake tombstones it, so an absent key never reads as "no opinion"'
+  'and a wake tombstones it, so an absent key never reads as "no opinion"',
 )
 
 // ---------------------------------------------------------------------------
@@ -158,7 +150,7 @@ function localTime(year: number, month: number, day: number, hour: number, minut
   assert.deepEqual(
     ids,
     ['hour', 'three-hours', 'evening', 'tomorrow', 'next-week'],
-    'a mid-morning weekday offers the whole ladder, nearest first'
+    'a mid-morning weekday offers the whole ladder, nearest first',
   )
   const by = new Map(presets.map((preset) => [preset.id, preset.wakeAt]))
   assert.equal(by.get('hour'), now + HOUR, 'an hour is an hour')
@@ -168,11 +160,18 @@ function localTime(year: number, month: number, day: number, hour: number, minut
   assert.equal(by.get('next-week'), localTime(2026, 9, 14, 9), 'next week is 09:00 the coming Monday')
   // Every wake time is in the future, and the list is sorted by it.
   const times = presets.map((preset) => preset.wakeAt)
-  assert.deepEqual(times, [...times].sort((a, b) => a - b), 'the ladder climbs')
-  assert.ok(times.every((at) => at > now), 'no preset is already in the past')
+  assert.deepEqual(
+    times,
+    [...times].sort((a, b) => a - b),
+    'the ladder climbs',
+  )
+  assert.ok(
+    times.every((at) => at > now),
+    'no preset is already in the past',
+  )
   assert.ok(
     presets.every((preset) => preset.label.length > 0 && preset.whenLabel.length > 0),
-    'every row says both what it is and when it lands'
+    'every row says both what it is and when it lands',
   )
 }
 
@@ -181,11 +180,17 @@ function localTime(year: number, month: number, day: number, hour: number, minut
 {
   const presets = resolveSnoozePresets(localTime(2026, 9, 9, 17, 30))
   assert.ok(!presets.some((preset) => preset.id === 'evening'), 'no evening once evening is within the hour')
-  assert.ok(presets.some((preset) => preset.id === 'tomorrow'), 'the calendar choices carry on')
+  assert.ok(
+    presets.some((preset) => preset.id === 'tomorrow'),
+    'the calendar choices carry on',
+  )
 }
 {
   const presets = resolveSnoozePresets(localTime(2026, 9, 9, 16, 30))
-  assert.ok(presets.some((preset) => preset.id === 'evening'), 'still offered while it is more than an hour off')
+  assert.ok(
+    presets.some((preset) => preset.id === 'evening'),
+    'still offered while it is more than an hour off',
+  )
 }
 {
   const presets = resolveSnoozePresets(localTime(2026, 9, 9, 21, 0))
@@ -197,7 +202,10 @@ function localTime(year: number, month: number, day: number, hour: number, minut
 {
   const presets = resolveSnoozePresets(localTime(2026, 9, 13, 10, 0))
   assert.equal(new Date(localTime(2026, 9, 13, 10, 0)).getDay(), 0, 'the fixture really is a Sunday')
-  assert.ok(presets.some((preset) => preset.id === 'tomorrow'), 'Tomorrow survives')
+  assert.ok(
+    presets.some((preset) => preset.id === 'tomorrow'),
+    'Tomorrow survives',
+  )
   assert.ok(!presets.some((preset) => preset.id === 'next-week'), 'Next week collapses into it')
   const wakes = presets.map((preset) => preset.wakeAt)
   assert.equal(new Set(wakes).size, wakes.length, 'no two rows share a wake time')

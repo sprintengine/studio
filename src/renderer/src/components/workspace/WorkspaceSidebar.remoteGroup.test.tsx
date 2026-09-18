@@ -110,7 +110,11 @@ async function main(): Promise<void> {
         workspaceId: 'rw3',
         workspaceName: 'multicode',
         workspaceRoot: '/Users/air/multicode',
-        repository: { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' },
+        repository: {
+          canonicalKey: 'github.com/acme/multicode',
+          remoteUrl: 'git@github.com:acme/multicode.git',
+          name: 'multicode',
+        },
       },
       layoutModel: { layout: { type: 'row', children: [] } },
     }),
@@ -119,7 +123,10 @@ async function main(): Promise<void> {
     // Born on the Air; its pane is open — on a worktree the create minted
     // there (checkout-and-branch-on-remote-create), so its branch is known.
     workspace('w3', 'Charlie', null, {
-      remoteOrigin: { ...remoteOrigin, checkout: { mode: 'worktree', branch: 'agent/fix', worktreePath: '/Users/me/wt/fix' } },
+      remoteOrigin: {
+        ...remoteOrigin,
+        checkout: { mode: 'worktree', branch: 'agent/fix', worktreePath: '/Users/me/wt/fix' },
+      },
       layoutModel: fleetLayout,
     }),
     // Born on the Air; its pane has since closed — the mark must survive.
@@ -134,7 +141,11 @@ async function main(): Promise<void> {
         workspaceId: 'rw2',
         workspaceName: 'multicode',
         workspaceRoot: '/Users/air/multicode',
-        repository: { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' },
+        repository: {
+          canonicalKey: 'github.com/acme/multicode',
+          remoteUrl: 'git@github.com:acme/multicode.git',
+          name: 'multicode',
+        },
       },
       layoutModel: { layout: { type: 'row', children: [] } },
     }),
@@ -195,7 +206,7 @@ async function main(): Promise<void> {
   assert.deepEqual(
     headerText,
     ['projA', 'relay', 'No folder'],
-    'no Remote band: the projects, one of them living only on the Air, named after its folder there'
+    'no Remote band: the projects, one of them living only on the Air, named after its folder there',
   )
   assert.ok(
     !headerText.some((text) => text.includes('MacBook Air')),
@@ -211,12 +222,16 @@ async function main(): Promise<void> {
   const localRows = textOf('projA')
   assert.equal(localRows.length, 4, 'the two local chats and the Air’s two chats in the same repository')
   for (const name of ['Alpha', 'Bravo', 'Zulu', 'Foxtrot']) {
-    assert.ok(localRows.some((text) => text.includes(name)), `${name} is a row of projA`)
+    assert.ok(
+      localRows.some((text) => text.includes(name)),
+      `${name} is a row of projA`,
+    )
   }
 
   // The remote rows under that header wear the machine glyph; the local ones
   // do not, which is the whole of what tells them apart.
-  const glyphOf = (row: Element) => row.querySelector('[data-remote-row-glyph]')?.getAttribute('data-remote-row-glyph') ?? null
+  const glyphOf = (row: Element) =>
+    row.querySelector('[data-remote-row-glyph]')?.getAttribute('data-remote-row-glyph') ?? null
   const byName = (name: string) => rowsOf('projA').find((row) => (row.textContent ?? '').includes(name))!
   assert.equal(glyphOf(byName('Zulu')), 'MacBook Air', 'a remote row names its device on its glyph')
   assert.equal(glyphOf(byName('Foxtrot')), 'MacBook Air')
@@ -227,10 +242,14 @@ async function main(): Promise<void> {
   const relayRows = textOf('relay')
   assert.equal(relayRows.length, 2, 'both chats born in /Users/me/relay')
   assert.ok(relayRows.some((text) => text.includes('Charlie')) && relayRows.some((text) => text.includes('Delta')))
-  assert.ok(relayRows.find((text) => text.includes('Charlie'))!.includes('agent/fix'),
-    'the live remote row names the branch its create landed on')
-  assert.ok(!relayRows.find((text) => text.includes('Delta'))!.includes('agent/fix'),
-    'a parked remote row carries no branch')
+  assert.ok(
+    relayRows.find((text) => text.includes('Charlie'))!.includes('agent/fix'),
+    'the live remote row names the branch its create landed on',
+  )
+  assert.ok(
+    !relayRows.find((text) => text.includes('Delta'))!.includes('agent/fix'),
+    'a parked remote row carries no branch',
+  )
 
   assert.ok(!detected.includes('/Users/me/relay'), 'the remote root is never looked up on the local disk')
   assert.ok(identityReads.includes('/projA'), 'the local folder is still asked which repository it is')

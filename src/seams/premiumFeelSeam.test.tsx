@@ -121,11 +121,7 @@ function evaluateLength(expression: string, what: string): number {
     .replace(/(-?[\d.]+)rem\b/g, (_, n: string) => String(Number(n) * 16))
     .replace(/(-?[\d.]+)px\b/g, '$1')
     .trim()
-  assert.match(
-    numeric,
-    /^[-+*/(). \d]+$/,
-    `${what} must resolve to arithmetic over lengths, got ${expression}`,
-  )
+  assert.match(numeric, /^[-+*/(). \d]+$/, `${what} must resolve to arithmetic over lengths, got ${expression}`)
   // The string is asserted to be arithmetic above.
   const value = Number(new Function(`return (${numeric})`)())
   assert.ok(Number.isFinite(value), `${what} did not evaluate to a number: ${expression}`)
@@ -150,19 +146,13 @@ function resolveChain(
   // A self- or mutually-referential alias would recurse until the stack blew,
   // which reads as a crashed suite rather than as the broken chain it is. No
   // real chain here is more than four hops deep.
-  assert.ok(
-    hops.length < 12,
-    `${what}: the alias chain does not terminate — ${hops.join(' → ')}`,
-  )
+  assert.ok(hops.length < 12, `${what}: the alias chain does not terminate — ${hops.join(' → ')}`)
   const reference = /var\((--[\w-]+)(?:\s*,\s*([^)]+))?\)/.exec(expression)
   if (!reference) return { pixels: evaluateLength(expression, what), hops }
   const [, name, fallback] = reference
   const values = declarations.get(name)
   if (!values) {
-    assert.ok(
-      fallback,
-      `${what}: ${name} is referenced but never defined — the alias chain is broken`,
-    )
+    assert.ok(fallback, `${what}: ${name} is referenced but never defined — the alias chain is broken`)
     return resolveChain(expression.replace(reference[0], fallback as string), declarations, what, [
       ...hops,
       `${name}(fallback)`,
@@ -209,11 +199,7 @@ async function main(): Promise<void> {
   // ONE `@theme` block is the seam invariant the plan states for this file. A
   // second one would silently win for whichever names it repeats, so the
   // resolver below would be reading a block the browser overrides.
-  assert.equal(
-    (indexCss.match(/@theme\s*\{/g) ?? []).length,
-    1,
-    'index.css must carry exactly one @theme block',
-  )
+  assert.equal((indexCss.match(/@theme\s*\{/g) ?? []).length, 1, 'index.css must carry exactly one @theme block')
   const themeBlock = extractBlock(indexCss, '@theme')
 
   // The renderer's whole custom-property universe, in cascade order: the bundle
@@ -228,10 +214,7 @@ async function main(): Promise<void> {
   // reads the CSS that compiler emitted for the class names the components
   // actually rendered.
   const { compile } = require_('tailwindcss') as {
-    compile: (
-      css: string,
-      options: Record<string, unknown>,
-    ) => Promise<{ build: (candidates: string[]) => string }>
+    compile: (css: string, options: Record<string, unknown>) => Promise<{ build: (candidates: string[]) => string }>
   }
   const compiler = await compile(`@import "tailwindcss";\n@theme {${themeBlock}}`, {
     base: REPO,
@@ -276,11 +259,7 @@ async function main(): Promise<void> {
    * is the number the element renders at, arrived at the way the browser
    * arrives at it, so a break anywhere in the six hops lands here.
    */
-  function geometry(
-    element: Element,
-    property: string,
-    utilities: Map<string, Map<string, string>>,
-  ): Chain {
+  function geometry(element: Element, property: string, utilities: Map<string, Map<string, string>>): Chain {
     const classes = new Set((element.getAttribute('class') ?? '').split(/\s+/).filter(Boolean))
     let expression: string | undefined
     let source = ''
@@ -361,11 +340,7 @@ async function main(): Promise<void> {
     )
     assert.ok(rest && end, 'the thumb declares a resting and an end position')
     assert.equal(Number(rest[1]), 2, 'the thumb rests 2px in')
-    assert.equal(
-      Number(end[1]),
-      32 - 12 - 2,
-      'and travels to width − thumb − inset, so both ends inset equally',
-    )
+    assert.equal(Number(end[1]), 32 - 12 - 2, 'and travels to width − thumb − inset, so both ends inset equally')
     assert.doesNotMatch(
       /\.switch-track\s*\{[^}]*\}/.exec(indexCss)?.[0] ?? '',
       /border-width|border:/,
@@ -385,9 +360,7 @@ async function main(): Promise<void> {
     assert.ok(mark && dot && name && version && stateLine && chevronButton && chevronGlyph)
 
     const utilities = compileUtilities(
-      [...row.querySelectorAll('*')].flatMap((node) =>
-        (node.getAttribute('class') ?? '').split(/\s+/).filter(Boolean),
-      ),
+      [...row.querySelectorAll('*')].flatMap((node) => (node.getAttribute('class') ?? '').split(/\s+/).filter(Boolean)),
     )
 
     // The numbers the epic ruled on, at the end of the chain that produces them.
@@ -404,8 +377,7 @@ async function main(): Promise<void> {
       'and its target pads out to the hit-target floor rather than shrinking to the glyph',
     )
     assert.ok(
-      geometry(chevronButton, 'width', utilities).pixels
-        > geometry(chevronGlyph, 'width', utilities).pixels,
+      geometry(chevronButton, 'width', utilities).pixels > geometry(chevronGlyph, 'width', utilities).pixels,
       'drawn size and target size are different numbers, per foundations/principles.md',
     )
   })
@@ -413,9 +385,7 @@ async function main(): Promise<void> {
   await check('every ramp utility reaches a design-system token, hop by hop', () => {
     const row = renderProviderRow()
     const utilities = compileUtilities(
-      [...row.querySelectorAll('*')].flatMap((node) =>
-        (node.getAttribute('class') ?? '').split(/\s+/).filter(Boolean),
-      ),
+      [...row.querySelectorAll('*')].flatMap((node) => (node.getAttribute('class') ?? '').split(/\s+/).filter(Boolean)),
     )
     const name = row.querySelector('.text-body') as Element
     const mark = row.querySelector('span.relative') as Element
@@ -463,17 +433,16 @@ async function main(): Promise<void> {
   const { registerVersionControlIpc } = await import('../main/ipc/version-control-ipc')
   const { VERSION_CONTROL_PROVIDER_IDS } = await import('../shared/version-control')
   const { filesystemApi } = await import('../preload/api/filesystem')
-  const { VersionControlSections } = await import(
-    '../renderer/src/components/settings/SettingsPanel'
-  )
+  const { VersionControlSections } = await import('../renderer/src/components/settings/SettingsPanel')
 
   type BinaryVersionProbe = import('../main/cli-runtime-install').BinaryVersionProbe
   type VersionControlProviderId = import('../shared/version-control').VersionControlProviderId
 
   /** What the two binaries answer for one scenario. */
-  let binaryProbe: (binary: VersionControlProviderId) => BinaryVersionProbe = () => ({
-    outcome: 'not_installed',
-  }) as BinaryVersionProbe
+  let binaryProbe: (binary: VersionControlProviderId) => BinaryVersionProbe = () =>
+    ({
+      outcome: 'not_installed',
+    }) as BinaryVersionProbe
   let ghLogin: string | null = null
 
   registerVersionControlIpc(ipcMain, {
@@ -550,7 +519,10 @@ async function main(): Promise<void> {
 
   await check('a resolved git and an unauthenticated gh reach the rows as different states', async () => {
     binaryProbe = (binary) =>
-      ({ outcome: 'resolved', version: binary === 'git' ? 'git version 2.45.1' : 'gh version 2.62.0' }) as BinaryVersionProbe
+      ({
+        outcome: 'resolved',
+        version: binary === 'git' ? 'git version 2.45.1' : 'gh version 2.62.0',
+      }) as BinaryVersionProbe
     ghLogin = null
 
     const rendered = await renderVersionControlRows()
@@ -607,8 +579,7 @@ async function main(): Promise<void> {
   })
 
   await check('"not installed" and "we could not ask" render as different rows', async () => {
-    binaryProbe = (binary) =>
-      ({ outcome: binary === 'git' ? 'not_installed' : 'probe_failed' }) as BinaryVersionProbe
+    binaryProbe = (binary) => ({ outcome: binary === 'git' ? 'not_installed' : 'probe_failed' }) as BinaryVersionProbe
     ghLogin = null
 
     const rendered = await renderVersionControlRows()
@@ -642,10 +613,7 @@ async function main(): Promise<void> {
       assert.match(rendered.text, /probe exploded/, 'with the real reason behind it')
       // Every row with no answer reads unknown — never "not installed", and
       // never a silently empty list.
-      assert.equal(
-        (rendered.text.match(/Availability unknown — the check did not complete/g) ?? []).length,
-        2,
-      )
+      assert.equal((rendered.text.match(/Availability unknown — the check did not complete/g) ?? []).length, 2)
     } finally {
       await rendered.unmount()
     }
@@ -657,9 +625,7 @@ async function main(): Promise<void> {
   // workspace-bar control. The fixture is the machine (which editors exist),
   // never the contract between the halves.
 
-  const { registerFolderOpenIpc, resolveFolderOpenLauncher } = await import(
-    '../main/ipc/folder-open-ipc'
-  )
+  const { registerFolderOpenIpc, resolveFolderOpenLauncher } = await import('../main/ipc/folder-open-ipc')
   const { FOLDER_OPEN_TARGET_IDS } = await import('../shared/folder-open-targets')
   // 2026-09-04 (bc02a70db) split this control in two: `useFolderOpenTargets`
   // owns the probe, the launch and the remembered primary, and the button is a
@@ -671,9 +637,8 @@ async function main(): Promise<void> {
   // the shipped pair, called exactly the way `WorkspaceIdentity` calls it —
   // one hook instance, handed to the button — so the seam still runs the real
   // probe into the real menu rather than a copy of either.
-  const { OpenWorkspaceFolderButton, useFolderOpenTargets } = await import(
-    '../renderer/src/components/workspace/WorkspaceIdentity'
-  )
+  const { OpenWorkspaceFolderButton, useFolderOpenTargets } =
+    await import('../renderer/src/components/workspace/WorkspaceIdentity')
   const { useWorkspaceStore } = await import('../renderer/src/store/workspaceStore')
 
   /** Which launchers this fixture machine resolves. */
@@ -753,9 +718,7 @@ async function main(): Promise<void> {
   }
 
   const openMenu = async (container: HTMLElement): Promise<HTMLElement[]> => {
-    const chevron = container.querySelector<HTMLButtonElement>(
-      'button[aria-label="Open workspace folder in…"]',
-    )
+    const chevron = container.querySelector<HTMLButtonElement>('button[aria-label="Open workspace folder in…"]')
     assert.ok(chevron, 'the split button renders a menu half')
     await act(async () => {
       chevron.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -769,9 +732,12 @@ async function main(): Promise<void> {
   await check('an editor the probe cannot resolve is absent from the menu, not disabled', async () => {
     // One editor on PATH, the other nowhere: one editor installed, one not.
     installedPaths = new Set(['/usr/local/bin/code'])
-    useWorkspaceStore.setState((state) => ({
-      appSettings: { ...state.appSettings, lastFolderOpenTarget: null },
-    }) as never)
+    useWorkspaceStore.setState(
+      (state) =>
+        ({
+          appSettings: { ...state.appSettings, lastFolderOpenTarget: null },
+        }) as never,
+    )
 
     const mounted = await mountOpenButton()
     try {
@@ -836,24 +802,27 @@ async function main(): Promise<void> {
   await check('a remembered target that no longer resolves falls back rather than arming a failure', async () => {
     // The remembered editor has since been uninstalled.
     installedPaths = new Set(['/usr/local/bin/code'])
-    useWorkspaceStore.setState((state) => ({
-      appSettings: { ...state.appSettings, lastFolderOpenTarget: 'intellij' },
-    }) as never)
+    useWorkspaceStore.setState(
+      (state) =>
+        ({
+          appSettings: { ...state.appSettings, lastFolderOpenTarget: 'intellij' },
+        }) as never,
+    )
     const mounted = await mountOpenButton()
     try {
       assert.ok(
         mounted.container.querySelector('button[aria-label="Open workspace folder in VS Code"]'),
         'the primary falls back to the first target that resolves',
       )
-      assert.equal(
-        mounted.container.querySelector('button[aria-label="Open workspace folder in IntelliJ IDEA"]'),
-        null,
-      )
+      assert.equal(mounted.container.querySelector('button[aria-label="Open workspace folder in IntelliJ IDEA"]'), null)
     } finally {
       await mounted.unmount()
-      useWorkspaceStore.setState((state) => ({
-        appSettings: { ...state.appSettings, lastFolderOpenTarget: null },
-      }) as never)
+      useWorkspaceStore.setState(
+        (state) =>
+          ({
+            appSettings: { ...state.appSettings, lastFolderOpenTarget: null },
+          }) as never,
+      )
     }
   })
 
@@ -889,9 +858,12 @@ async function main(): Promise<void> {
 
   await check('a launch that failed is surfaced and does not re-point the primary', async () => {
     installedPaths = new Set(['/usr/local/bin/code'])
-    useWorkspaceStore.setState((state) => ({
-      appSettings: { ...state.appSettings, lastFolderOpenTarget: 'finder' },
-    }) as never)
+    useWorkspaceStore.setState(
+      (state) =>
+        ({
+          appSettings: { ...state.appSettings, lastFolderOpenTarget: 'finder' },
+        }) as never,
+    )
     launchOutcome = { ok: false, message: 'code exited with code 1.' }
     const mounted = await mountOpenButton()
     try {
@@ -917,9 +889,12 @@ async function main(): Promise<void> {
     } finally {
       await mounted.unmount()
       launchOutcome = { ok: true }
-      useWorkspaceStore.setState((state) => ({
-        appSettings: { ...state.appSettings, lastFolderOpenTarget: null },
-      }) as never)
+      useWorkspaceStore.setState(
+        (state) =>
+          ({
+            appSettings: { ...state.appSettings, lastFolderOpenTarget: null },
+          }) as never,
+      )
     }
   })
 
@@ -939,11 +914,7 @@ async function main(): Promise<void> {
     )
     for (const entry of availability) {
       const result = await api.openFolderInTarget({ target: entry.id, path: OPEN_PATH })
-      assert.equal(
-        result.ok,
-        entry.available,
-        `${entry.id}: availability and launchability must be one answer`,
-      )
+      assert.equal(result.ok, entry.available, `${entry.id}: availability and launchability must be one answer`)
       if (!result.ok) assert.equal(result.reason, 'target_unavailable')
     }
     // And an unreachable folder is refused before anything is spawned.
@@ -971,9 +942,7 @@ async function main(): Promise<void> {
 
       chevron.focus()
       await act(async () => {
-        chevron.dispatchEvent(
-          new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
-        )
+        chevron.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
       })
       // Popover measures itself before it can take focus, so the first row is
       // focused on the next frame rather than in this one.
@@ -993,9 +962,7 @@ async function main(): Promise<void> {
       assert.equal(checked.length, 1, 'a one-of set, not a row of toggles')
 
       await act(async () => {
-        rows[0].dispatchEvent(
-          new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }),
-        )
+        rows[0].dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'ArrowDown', bubbles: true }))
       })
       assert.equal(dom.window.document.activeElement, rows[1], 'ArrowDown roves to the next row')
 
@@ -1032,7 +999,12 @@ async function main(): Promise<void> {
           ],
           allowCustomId: true,
         },
-        reasoningSelection: { levels: [{ id: 'low', label: 'Low' }, { id: 'high', label: 'High' }] },
+        reasoningSelection: {
+          levels: [
+            { id: 'low', label: 'Low' },
+            { id: 'high', label: 'High' },
+          ],
+        },
       },
     ] as unknown as PickerProps['options']
 
@@ -1112,9 +1084,7 @@ async function main(): Promise<void> {
       // dialog's window listener, so the popover consumes Escape first). A
       // window-targeted event never reaches it.
       await act(async () => {
-        dom.window.document.dispatchEvent(
-          new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-        )
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       })
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 20))
@@ -1198,23 +1168,15 @@ async function main(): Promise<void> {
   // ═══ 5. Drill-in replaces the rail, and gives it back ════════════════════
 
   await check('opening a door replaces the projects rail, and its bar carries the way back', async () => {
-    const { default: WorkspaceSidebar } = await import(
-      '../renderer/src/components/workspace/WorkspaceSidebar'
-    )
-    const { ContextRailColumn, ContextRailSlotContext } = await import(
-      '../renderer/src/components/workspace/globalSurface/contextRail'
-    )
-    const { GlobalSurfaceShell } = await import(
-      '../renderer/src/components/workspace/globalSurface/GlobalSurfaceShell'
-    )
+    const { default: WorkspaceSidebar } = await import('../renderer/src/components/workspace/WorkspaceSidebar')
+    const { ContextRailColumn, ContextRailSlotContext } =
+      await import('../renderer/src/components/workspace/globalSurface/contextRail')
+    const { GlobalSurfaceShell } = await import('../renderer/src/components/workspace/globalSurface/GlobalSurfaceShell')
 
     // The manager's own derivation, modelled here because the manager itself
     // pulls in FlexLayout and the terminal runtime. Asserted against its source
     // below so this model cannot drift from it unnoticed.
-    const manager = readFileSync(
-      join(REPO, 'src/renderer/src/components/workspace/WorkspaceManager.tsx'),
-      'utf8',
-    )
+    const manager = readFileSync(join(REPO, 'src/renderer/src/components/workspace/WorkspaceManager.tsx'), 'utf8')
     assert.match(
       manager,
       /const contextRailActive = activeGlobalSurfaceEntry !== null && surfaceHasRail/,
@@ -1283,7 +1245,11 @@ async function main(): Promise<void> {
               <GlobalSurfaceShell
                 ariaLabel="Backlog"
                 bar={{ title: 'Backlog' }}
-                rail={<button type="button" data-door-rail-row="">An item</button>}
+                rail={
+                  <button type="button" data-door-rail-row="">
+                    An item
+                  </button>
+                }
                 onBack={onBack}
                 canGoBack
               >
@@ -1302,7 +1268,7 @@ async function main(): Promise<void> {
     const navigationColumns = (): string[] => {
       const columns: string[] = []
       const tree = container.querySelector('nav[role="tree"]')
-      if (tree && (tree.closest('.hidden') === null)) columns.push('projects')
+      if (tree && tree.closest('.hidden') === null) columns.push('projects')
       const rail = container.querySelector('[data-context-rail][data-context-rail-active="true"]')
       if (rail) columns.push('door-rail')
       const inlineAside = container.querySelector('aside[aria-label="Backlog list"]')
@@ -1350,11 +1316,7 @@ async function main(): Promise<void> {
 
       doorOpen = false
       await render()
-      assert.deepEqual(
-        navigationColumns(),
-        ['projects'],
-        'and leaving restores the projects rail in the same column',
-      )
+      assert.deepEqual(navigationColumns(), ['projects'], 'and leaving restores the projects rail in the same column')
       assert.equal(
         container.querySelector('[data-context-rail]'),
         null,

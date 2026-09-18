@@ -545,8 +545,7 @@ type BacklogListedItem = {
 }
 
 export type BacklogListItemsResult =
-  | { ok: true; key: string | null; items: BacklogListedItem[] }
-  | { ok: false; message: string }
+  { ok: true; key: string | null; items: BacklogListedItem[] } | { ok: false; message: string }
 
 export async function listBacklogItems(workspaceRoot: string): Promise<BacklogListItemsResult> {
   try {
@@ -598,9 +597,7 @@ export async function listBacklogItems(workspaceRoot: string): Promise<BacklogLi
   }
 }
 
-export type BacklogReadItemResult =
-  | { ok: true; item: BacklogListedItem; body: string }
-  | { ok: false; message: string }
+export type BacklogReadItemResult = { ok: true; item: BacklogListedItem; body: string } | { ok: false; message: string }
 
 /**
  * Where this workspace's backlog lives, and whether it is actually there.
@@ -775,8 +772,7 @@ export type BacklogCreateInput = {
 }
 
 export type BacklogCreateResult =
-  | { ok: true; id: string; relativePath: string; store: BacklogObjectStorePayload }
-  | { ok: false; message: string }
+  { ok: true; id: string; relativePath: string; store: BacklogObjectStorePayload } | { ok: false; message: string }
 
 export type BacklogIntegrityRepairInput = {
   workspaceRoot: string
@@ -865,7 +861,7 @@ export async function createBacklogItem(input: BacklogCreateInput): Promise<Back
 // named defect still exists; it is therefore safe to retry and cannot be used as
 // a general-purpose Markdown or id editor.
 export async function repairBacklogIntegrity(
-  input: BacklogIntegrityRepairInput
+  input: BacklogIntegrityRepairInput,
 ): Promise<BacklogIntegrityRepairResult> {
   try {
     const workspace = await validateWorkspaceRoot(input.workspaceRoot)
@@ -959,29 +955,33 @@ export async function ensureBacklogObjectRecords(
   workspaceRoot: string,
   items: BacklogItemRecordInput[],
 ): Promise<BacklogReadResult> {
-  return mutateStore(workspaceRoot, () => null, (store, now) => {
-    const nextItems = [...store.items]
-    let changed = false
-    for (const item of items) {
-      const relativePath = validateBacklogRelativePath(item.relativePath)
-      const pathKey = relativePath.toLowerCase()
-      if (nextItems.some((record) => record.source.relativePath.toLowerCase() === pathKey)) continue
-      // v2: the sidecar record carries only app-owned churn (id/source, metadata,
-      // links, highlight, timestamps). Lifecycle/triage live in frontmatter, so a
-      // freshly registered record seeds none of them — otherwise the lazy migrator
-      // would later write those seeded defaults back into the item's frontmatter.
-      nextItems.push({
-        id: stableBacklogObjectId(relativePath),
-        source: { type: 'file', relativePath },
-        metadata: {},
-        links: [],
-        createdAt: now,
-        updatedAt: now,
-      })
-      changed = true
-    }
-    return changed ? { schemaVersion: 1, items: nextItems } : store
-  })
+  return mutateStore(
+    workspaceRoot,
+    () => null,
+    (store, now) => {
+      const nextItems = [...store.items]
+      let changed = false
+      for (const item of items) {
+        const relativePath = validateBacklogRelativePath(item.relativePath)
+        const pathKey = relativePath.toLowerCase()
+        if (nextItems.some((record) => record.source.relativePath.toLowerCase() === pathKey)) continue
+        // v2: the sidecar record carries only app-owned churn (id/source, metadata,
+        // links, highlight, timestamps). Lifecycle/triage live in frontmatter, so a
+        // freshly registered record seeds none of them — otherwise the lazy migrator
+        // would later write those seeded defaults back into the item's frontmatter.
+        nextItems.push({
+          id: stableBacklogObjectId(relativePath),
+          source: { type: 'file', relativePath },
+          metadata: {},
+          links: [],
+          createdAt: now,
+          updatedAt: now,
+        })
+        changed = true
+      }
+      return changed ? { schemaVersion: 1, items: nextItems } : store
+    },
+  )
 }
 
 // Lifecycle, type, and triage (difficulty/criticality/risk) are frontmatter-
@@ -1000,7 +1000,8 @@ export async function updateBacklogStatus(input: BacklogStatusInput): Promise<Ba
 }
 
 export async function updateBacklogType(input: BacklogTypeInput): Promise<BacklogMutationResult> {
-  if (input.type !== null && !isBacklogType(input.type)) return { ok: false, message: 'Enter a valid Backlog item type.' }
+  if (input.type !== null && !isBacklogType(input.type))
+    return { ok: false, message: 'Enter a valid Backlog item type.' }
   return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { type: input.type })
 }
 
@@ -1229,10 +1230,7 @@ export async function removeBacklogLink(input: BacklogRemoveLinkInput): Promise<
 // An item's durable links as its own file currently declares them. Reading the
 // file rather than the cache is the point: the file is the source of truth, and a
 // cache wiped between two writes must not silently drop the other links.
-async function readDurableBacklogLinks(
-  workspaceRoot: string,
-  relativePath: string,
-): Promise<BacklogItemLinkPayload[]> {
+async function readDurableBacklogLinks(workspaceRoot: string, relativePath: string): Promise<BacklogItemLinkPayload[]> {
   try {
     const workspace = await validateWorkspaceRoot(workspaceRoot)
     const normalizedPath = validateBacklogRelativePath(relativePath)
@@ -1247,10 +1245,7 @@ async function readDurableBacklogLinks(
   }
 }
 
-async function clearBacklogSidecarStatus(
-  workspaceRoot: string,
-  relativePath: string,
-): Promise<BacklogMutationResult> {
+async function clearBacklogSidecarStatus(workspaceRoot: string, relativePath: string): Promise<BacklogMutationResult> {
   try {
     validateBacklogRelativePath(relativePath)
     const workspace = await validateWorkspaceRoot(workspaceRoot)
@@ -1307,13 +1302,17 @@ export async function moveBacklogObjectSource(input: BacklogMoveSourceInput): Pr
 }
 
 export async function removeBacklogObjectRecord(input: BacklogRemoveRecordInput): Promise<BacklogMutationResult> {
-  return mutateStore(input.workspaceRoot, () => validateBacklogRelativePath(input.relativePath), (store) => {
-    const pathKey = normalizeRelativePath(input.relativePath).toLowerCase()
-    return {
-      schemaVersion: 1,
-      items: store.items.filter((record) => record.source.relativePath.toLowerCase() !== pathKey),
-    }
-  })
+  return mutateStore(
+    input.workspaceRoot,
+    () => validateBacklogRelativePath(input.relativePath),
+    (store) => {
+      const pathKey = normalizeRelativePath(input.relativePath).toLowerCase()
+      return {
+        schemaVersion: 1,
+        items: store.items.filter((record) => record.source.relativePath.toLowerCase() !== pathKey),
+      }
+    },
+  )
 }
 
 // Read/modify/write the item's markdown frontmatter through the shared
@@ -1372,41 +1371,43 @@ async function mutateItem(
   relativePath: string,
   update: (record: BacklogObjectRecord, now: string) => BacklogObjectRecord,
 ): Promise<BacklogMutationResult> {
-  return mutateStore(workspaceRoot, () => validateBacklogRelativePath(relativePath), (store, now) => {
-    const normalizedPath = normalizeRelativePath(relativePath)
-    const pathKey = normalizedPath.toLowerCase()
-    const index = store.items.findIndex((record) => record.source.relativePath.toLowerCase() === pathKey)
-    const base: BacklogObjectRecord = index >= 0
-      ? store.items[index]
-      // v2: a record materialized by a highlight/link/metadata mutation carries
-      // only app-owned churn. Seeding a default `status` here would let the lazy
-      // migrator later overwrite the item's real frontmatter status with 'idea'.
-      : {
-          id: stableBacklogObjectId(normalizedPath),
-          source: { type: 'file', relativePath: normalizedPath },
-          metadata: {},
-          links: [],
-          createdAt: now,
-          updatedAt: now,
-        }
-    const items = [...store.items]
-    const candidate = update(base, now)
-    // Every updater stamps `updatedAt: now` unconditionally, so a write that
-    // changed nothing else still dirtied the record — and with it a tracked file.
-    // Link status re-resolution ticks against live PRs and re-persists what is
-    // already stored, which is what churned the sidecar all day. Keep the prior instant when the payload is otherwise identical, so a
-    // confirming re-resolve is a true no-op and saveStore can skip the write.
-    const next =
-      index >= 0 && sameBacklogRecord({ ...candidate, updatedAt: base.updatedAt }, base)
-        ? base
-        : candidate
-    if (index >= 0) {
-      items[index] = next
-    } else {
-      items.push(next)
-    }
-    return { schemaVersion: 1, items }
-  })
+  return mutateStore(
+    workspaceRoot,
+    () => validateBacklogRelativePath(relativePath),
+    (store, now) => {
+      const normalizedPath = normalizeRelativePath(relativePath)
+      const pathKey = normalizedPath.toLowerCase()
+      const index = store.items.findIndex((record) => record.source.relativePath.toLowerCase() === pathKey)
+      const base: BacklogObjectRecord =
+        index >= 0
+          ? store.items[index]
+          : // v2: a record materialized by a highlight/link/metadata mutation carries
+            // only app-owned churn. Seeding a default `status` here would let the lazy
+            // migrator later overwrite the item's real frontmatter status with 'idea'.
+            {
+              id: stableBacklogObjectId(normalizedPath),
+              source: { type: 'file', relativePath: normalizedPath },
+              metadata: {},
+              links: [],
+              createdAt: now,
+              updatedAt: now,
+            }
+      const items = [...store.items]
+      const candidate = update(base, now)
+      // Every updater stamps `updatedAt: now` unconditionally, so a write that
+      // changed nothing else still dirtied the record — and with it a tracked file.
+      // Link status re-resolution ticks against live PRs and re-persists what is
+      // already stored, which is what churned the sidecar all day. Keep the prior instant when the payload is otherwise identical, so a
+      // confirming re-resolve is a true no-op and saveStore can skip the write.
+      const next = index >= 0 && sameBacklogRecord({ ...candidate, updatedAt: base.updatedAt }, base) ? base : candidate
+      if (index >= 0) {
+        items[index] = next
+      } else {
+        items.push(next)
+      }
+      return { schemaVersion: 1, items }
+    },
+  )
 }
 
 async function mutateStore(
@@ -1602,7 +1603,13 @@ async function backlogFileExists(workspace: ValidWorkspace, relativePath: string
 }
 
 function slugifyBacklogTitle(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'untitled'
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 60) || 'untitled'
+  )
 }
 
 function backlogTodayPrefix(now: Date): string {
@@ -1648,7 +1655,9 @@ function normalizeRecord(value: unknown): BacklogObjectRecord | null {
     criticality: isBacklogCriticality(raw.criticality) ? raw.criticality : undefined,
     highlight: normalizeBacklogHighlight(raw.highlight),
     metadata: isPlainRecord(raw.metadata) ? raw.metadata : {},
-    links: Array.isArray(raw.links) ? raw.links.map(normalizeBacklogLink).filter((link): link is BacklogItemLinkPayload => Boolean(link)) : [],
+    links: Array.isArray(raw.links)
+      ? raw.links.map(normalizeBacklogLink).filter((link): link is BacklogItemLinkPayload => Boolean(link))
+      : [],
     createdAt: typeof raw.createdAt === 'string' ? raw.createdAt : undefined,
     updatedAt: typeof raw.updatedAt === 'string' ? raw.updatedAt : undefined,
   }
@@ -1666,13 +1675,13 @@ function normalizeBacklogLink(value: unknown): BacklogItemLinkPayload | null {
   if (!value || typeof value !== 'object') return null
   const raw = value as BacklogItemLinkPayload
   if (
-    typeof raw.id !== 'string'
-    || typeof raw.moduleId !== 'string'
-    || typeof raw.type !== 'string'
-    || typeof raw.label !== 'string'
-    || !raw.target
-    || typeof raw.target.kind !== 'string'
-    || typeof raw.target.id !== 'string'
+    typeof raw.id !== 'string' ||
+    typeof raw.moduleId !== 'string' ||
+    typeof raw.type !== 'string' ||
+    typeof raw.label !== 'string' ||
+    !raw.target ||
+    typeof raw.target.kind !== 'string' ||
+    typeof raw.target.id !== 'string'
   ) {
     return null
   }
@@ -1701,10 +1710,7 @@ function isUnsafeRelativePath(path: string): boolean {
 }
 
 function isAbsolutePathInput(path: string): boolean {
-  return isAbsolute(path)
-    || path.startsWith('/')
-    || path.startsWith('\\')
-    || /^[A-Za-z]:[\\/]/.test(path)
+  return isAbsolute(path) || path.startsWith('/') || path.startsWith('\\') || /^[A-Za-z]:[\\/]/.test(path)
 }
 
 function isBacklogStatus(value: unknown): value is BacklogObjectRecord['status'] {

@@ -95,7 +95,7 @@ let revision = 0
 function pairEvent(
   phase: 'received' | 'approved' | 'denied' | 'expired' | 'cancelled',
   requestId = 'req1',
-  peerNode: string | null = null
+  peerNode: string | null = null,
 ): unknown {
   // The push payload carries the status the event happened to, and the toast
   // reads the waiting request out of it — the body cannot be drawn from the
@@ -217,28 +217,35 @@ run('the toast names the transport-proven node, shortened, and says nothing else
   fireTailnet(pairEvent('received', 'req-named', 'sam-macbook-air.tailabc123.ts.net'))
   assert.match(mounted.innerHTML, /Pair request from sam-macbook-air<|Pair request from sam-macbook-air\b/)
   assert.doesNotMatch(mounted.innerHTML, /tailabc123/, 'the tailnet tail is the same on every machine — not a name')
-  assert.doesNotMatch(mounted.innerHTML, /Calls itself/, 'the second identity belongs on the card, not the announcement')
-  unmount()
-})
-
-runAsync('typing the code and pressing Allow answers from the toast, granting the defaults — never terminal control', async () => {
-  reset()
-  bridge.approveCalls.length = 0
-  const mounted = mount()
-  fireTailnet(pairEvent('received', 'req-answer', 'sam-macbook-air'))
-  await typeInto(mounted.querySelector('input[inputmode="numeric"]'), '48 19 72')
-  click(buttonNamed(mounted, /^Allow/))
-  await flush()
-  assert.equal(bridge.approveCalls.length, 1, 'one approval')
-  assert.equal(bridge.approveCalls[0]?.id, 'req-answer')
-  assert.equal(bridge.approveCalls[0]?.code, '481972', 'digits only, six at most')
-  assert.ok(bridge.approveCalls[0]?.scopes.includes('workspace:operate'), 'the default families are granted')
-  assert.ok(
-    !bridge.approveCalls[0]?.scopes.includes('terminal:control'),
-    'arbitrary shell is never granted by a surface that did not show the words'
+  assert.doesNotMatch(
+    mounted.innerHTML,
+    /Calls itself/,
+    'the second identity belongs on the card, not the announcement',
   )
   unmount()
 })
+
+runAsync(
+  'typing the code and pressing Allow answers from the toast, granting the defaults — never terminal control',
+  async () => {
+    reset()
+    bridge.approveCalls.length = 0
+    const mounted = mount()
+    fireTailnet(pairEvent('received', 'req-answer', 'sam-macbook-air'))
+    await typeInto(mounted.querySelector('input[inputmode="numeric"]'), '48 19 72')
+    click(buttonNamed(mounted, /^Allow/))
+    await flush()
+    assert.equal(bridge.approveCalls.length, 1, 'one approval')
+    assert.equal(bridge.approveCalls[0]?.id, 'req-answer')
+    assert.equal(bridge.approveCalls[0]?.code, '481972', 'digits only, six at most')
+    assert.ok(bridge.approveCalls[0]?.scopes.includes('workspace:operate'), 'the default families are granted')
+    assert.ok(
+      !bridge.approveCalls[0]?.scopes.includes('terminal:control'),
+      'arbitrary shell is never granted by a surface that did not show the words',
+    )
+    unmount()
+  },
+)
 
 runAsync('Decline from the toast refuses the request main is holding', async () => {
   reset()
@@ -269,7 +276,7 @@ run('the toast’s id is the request’s, so a retraction can never orphan', () 
   fireTailnet(pairEvent('received', 'req-id'))
   assert.deepEqual(
     useToastStore.getState().toasts.map((toast) => toast.id),
-    ['pair-request:req-id']
+    ['pair-request:req-id'],
   )
   unmount()
 })
@@ -345,7 +352,11 @@ run('a lost connection is one warn toast per MACHINE, however many panes it has'
   fireFleet(attachment('pane-b', 'offline'))
   fireFleet(attachment('pane-c', 'offline'))
   assert.deepEqual(titles(), ['Connection to Air lost'], 'three panes, one loss')
-  assert.deepEqual(useToastStore.getState().toasts.map((toast) => toast.id), ['fleet:c1'], 'keyed by the connection')
+  assert.deepEqual(
+    useToastStore.getState().toasts.map((toast) => toast.id),
+    ['fleet:c1'],
+    'keyed by the connection',
+  )
   assert.ok(mounted.querySelector('[role="alert"]'), 'warn persists')
   // A second machine losing its link is a second toast, not a replacement.
   fireFleet(attachment('pane-z', 'offline', 'c2', 'Mini'))

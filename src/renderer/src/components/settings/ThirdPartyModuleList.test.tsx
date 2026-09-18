@@ -28,7 +28,7 @@ function launch(overrides: Partial<ThirdPartyModuleLaunchView>): ThirdPartyModul
 function moduleView(
   trust: ModuleTrustStatus,
   launchView: ThirdPartyModuleLaunchView,
-  manifest: Partial<CapabilityManifest> = {}
+  manifest: Partial<CapabilityManifest> = {},
 ): ThirdPartyModuleView {
   return {
     manifest: { id: 'demo', displayName: 'Demo Module', defaultEnabled: false, ...manifest } as CapabilityManifest,
@@ -44,7 +44,7 @@ function renderRow(
     enabled?: boolean
     rendererLoadState?: ThirdPartyRendererLoadState
     onUninstall?: () => void
-  } = {}
+  } = {},
 ): string {
   return renderToStaticMarkup(
     <ThirdPartyModuleRow
@@ -55,7 +55,7 @@ function renderRow(
       onTrustChange={() => {}}
       onEnabledChange={() => {}}
       {...(opts.onUninstall ? { onUninstall: opts.onUninstall } : {})}
-    />
+    />,
   )
 }
 
@@ -75,10 +75,7 @@ function testDescribeLaunchMapsEveryStatus(): void {
   assert.match(disabled.detail, /enable it to load on the next app launch/i)
 
   // Manifest-only is a healthy terminal state: not failed, not running.
-  const manifestOnly = describeModuleLaunch(
-    launch({ status: 'trusted_manifest_only', hasMainEntry: false }),
-    false
-  )
+  const manifestOnly = describeModuleLaunch(launch({ status: 'trusted_manifest_only', hasMainEntry: false }), false)
   assert.equal(manifestOnly.label, 'Manifest only')
   assert.match(manifestOnly.detail, /no code to run/i)
   assert.doesNotMatch(manifestOnly.detail, /error|failed|running/i)
@@ -147,10 +144,9 @@ function testTrustedExecutableDisabledRowIsNotADeadEnd(): void {
 }
 
 function testManifestOnlyRowHasNoEnableControl(): void {
-  const html = renderRow(
-    moduleView('trusted', launch({ status: 'trusted_manifest_only', hasMainEntry: false })),
-    { enabled: false }
-  )
+  const html = renderRow(moduleView('trusted', launch({ status: 'trusted_manifest_only', hasMainEntry: false })), {
+    enabled: false,
+  })
   assert.match(html, /Manifest only/)
   assert.ok(!html.includes('Load on the next app launch'), 'no enable control when there is no code to run')
   assert.equal(countSwitches(html), 1, 'only the trust switch')
@@ -184,7 +180,7 @@ function testPermissionChipsDiscloseTiersAndFlagBroadAndUnknown(): void {
     moduleView('trusted', launch({}), {
       permissions: ['ipc:agents', 'ipc:invoke', 'totally-made-up'],
     }),
-    { enabled: true }
+    { enabled: true },
   )
   // Tiered scope renders its consent description without a warning tint.
   assert.ok(html.includes('Launch and control agents and terminals'), 'tier description shown')
@@ -202,7 +198,7 @@ function testPermissionChipsDiscloseTiersAndFlagBroadAndUnknown(): void {
 function testLaunchErrorRowSurfacesTheRealError(): void {
   const html = renderRow(
     moduleView('trusted', launch({ status: 'launch_error', message: 'entry escaped module root' })),
-    { enabled: true }
+    { enabled: true },
   )
   assert.match(html, /Launch error/)
   assert.ok(html.includes('entry escaped module root'), 'real startup error is surfaced')
@@ -220,7 +216,7 @@ function testDescribeRendererEntryMapsSourcesAndSession(): void {
   const serving = describeRendererEntry(
     { availability: 'error', message: 'entry.renderer bundle file is missing.' },
     undefined,
-    'trusted'
+    'trusted',
   )
   assert.equal(serving?.label, 'Renderer entry error')
   assert.equal(serving.detail, 'entry.renderer bundle file is missing.')
@@ -240,7 +236,7 @@ function testDescribeRendererEntryMapsSourcesAndSession(): void {
   const failed = describeRendererEntry(
     { availability: 'available' },
     { status: 'error', message: 'registerRenderer threw: boom' },
-    'trusted'
+    'trusted',
   )
   assert.equal(failed?.label, 'Renderer entry failed')
   assert.equal(failed.detail, 'registerRenderer threw: boom')
@@ -254,7 +250,7 @@ function testRendererOnlyModuleRowIsNotManifestOnly(): void {
       expectedToLoad: false,
       rendererEntry: { availability: 'available' },
     }),
-    { enabled: true, rendererLoadState: { status: 'loaded' } }
+    { enabled: true, rendererLoadState: { status: 'loaded' } },
   )
   // "Manifest only — no code to run" would be false for this shape.
   assert.doesNotMatch(html, /Manifest only/)
@@ -272,7 +268,7 @@ function testRendererEntryFailureRowIsolatesTheError(): void {
       expectedToLoad: false,
       rendererEntry: { availability: 'available' },
     }),
-    { enabled: true, rendererLoadState: { status: 'error', message: 'boom at import time' } }
+    { enabled: true, rendererLoadState: { status: 'error', message: 'boom at import time' } },
   )
   assert.match(html, /Renderer entry failed/)
   assert.ok(html.includes('boom at import time'), 'renderer load error is surfaced verbatim (sanitized upstream)')
@@ -286,7 +282,7 @@ function testDualEntryRowNamesBothHalves(): void {
       expectedToLoad: true,
       rendererEntry: { availability: 'available' },
     }),
-    { enabled: true, rendererLoadState: { status: 'loaded' } }
+    { enabled: true, rendererLoadState: { status: 'loaded' } },
   )
   // Both execution surfaces visible, each named, plus one enable control.
   assert.match(html, /Main entry ready/)
@@ -302,7 +298,7 @@ function testBlockedRendererOnlyModuleStaysBlockedTextOnly(): void {
       hasMainEntry: false,
       expectedToLoad: false,
       rendererEntry: { availability: 'blocked', message: 'Renderer entry is blocked until the module is trusted.' },
-    })
+    }),
   )
   assert.match(html, /Blocked until trusted/)
   // Exactly one blocked signal: no second renderer-entry line, no enable toggle.
@@ -333,7 +329,10 @@ function testUninstallControlAppearsOnlyWithAHandler(): void {
   assert.match(invalid, /Uninstall/, 'an invalid module is the one you most need to remove')
 
   const pending = renderRow(view, { pending: true, onUninstall: () => {} })
-  assert.match(pending, /aria-label="Uninstall Demo Module"[^>]*disabled|disabled[^>]*aria-label="Uninstall Demo Module"/)
+  assert.match(
+    pending,
+    /aria-label="Uninstall Demo Module"[^>]*disabled|disabled[^>]*aria-label="Uninstall Demo Module"/,
+  )
 }
 
 const tests = [

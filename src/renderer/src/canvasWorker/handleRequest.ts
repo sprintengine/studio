@@ -127,9 +127,7 @@ function framedElements(elements: CanvasElement[], elementIds: string[] | undefi
   if (!elementIds || elementIds.length === 0) return live
   const wanted = new Set(elementIds)
   const out = live.filter(
-    (element) =>
-      wanted.has(element.id) ||
-      (typeof element.containerId === 'string' && wanted.has(element.containerId)),
+    (element) => wanted.has(element.id) || (typeof element.containerId === 'string' && wanted.has(element.containerId)),
   )
   if (out.length === 0) {
     throw new CanvasWorkerError('invalid_scene', 'None of those elements are on this board.')

@@ -85,22 +85,12 @@ export function ModulesSettingsTab() {
   })).filter((group) => group.manifests.length > 0)
 
   return (
-    <div
-      role="tabpanel"
-      id="settings-panel-modules"
-      aria-labelledby="settings-tab-modules"
-      className="space-y-5"
-    >
+    <div role="tabpanel" id="settings-panel-modules" aria-labelledby="settings-tab-modules" className="space-y-5">
       <SettingsPageHeader
         title="Modules"
         actions={
           <div className="flex w-52 max-w-full">
-            <InboxSearchInput
-              value={query}
-              onChange={setQuery}
-              ariaLabel="Search modules"
-              placeholder="Search"
-            />
+            <InboxSearchInput value={query} onChange={setQuery} ariaLabel="Search modules" placeholder="Search" />
           </div>
         }
       />

@@ -40,11 +40,7 @@ export type CliPermissionPreset = {
  * - `{ spreadIf }` — splice a variable only when it is set.
  * - `{ valueIf, value }` — emit `value` only when the named variable is set.
  */
-export type CliArgvToken =
-  | string
-  | { spread: string }
-  | { spreadIf: string }
-  | { valueIf: string; value: string }
+export type CliArgvToken = string | { spread: string } | { spreadIf: string } | { valueIf: string; value: string }
 
 export type CliLaunchSpec = {
   argv: CliArgvToken[]
@@ -216,13 +212,7 @@ export type CliSkillIntegration = {
  * phase vocabulary. A manifest without this spec declares that the CLI cannot
  * report authoritative agent state. Mirrors the app's `PluginAgentStateSpec`.
  */
-type CliAgentStatePhase =
-  | 'starting'
-  | 'thinking'
-  | 'tool_use'
-  | 'awaiting_input'
-  | 'idle'
-  | 'exited'
+type CliAgentStatePhase = 'starting' | 'thinking' | 'tool_use' | 'awaiting_input' | 'idle' | 'exited'
 
 /** Payload fields the reporter forwards for discriminators to consult. */
 type CliAgentStateDiscriminatorField = 'notificationType' | 'status'
@@ -353,9 +343,7 @@ export type CliLaunchSettingsSpec = {
 
 export type CliManifestIssue = { path: string; message: string }
 
-export type CliManifestResult =
-  | { ok: true; manifest: CliPluginManifest }
-  | { ok: false; issues: CliManifestIssue[] }
+export type CliManifestResult = { ok: true; manifest: CliPluginManifest } | { ok: false; issues: CliManifestIssue[] }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/
 const INJECTION_MODES: CliPromptInjectionMode[] = ['positional-arg', 'stdin-pipe', 'send-after-ready', 'file']
@@ -393,7 +381,10 @@ export function validateCliPluginManifest(value: unknown): CliManifestResult {
   }
 
   if (value.kind !== undefined && value.kind !== 'cli') {
-    issues.push({ path: 'kind', message: "kind must be 'cli' when present (provider manifests are validated separately)." })
+    issues.push({
+      path: 'kind',
+      message: "kind must be 'cli' when present (provider manifests are validated separately).",
+    })
   }
   for (const field of PROVIDER_ONLY_FIELDS) {
     if (field in value) {
@@ -488,10 +479,15 @@ function validateArgv(value: unknown, path: string, issues: CliManifestIssue[]):
       return
     }
     if (directives[0] === 'valueIf') {
-      if (typeof token.valueIf !== 'string') issues.push({ path: `${tokenPath}.valueIf`, message: 'valueIf must be a string variable name.' })
-      if (typeof token.value !== 'string') issues.push({ path: `${tokenPath}.value`, message: 'value must be a string template.' })
+      if (typeof token.valueIf !== 'string')
+        issues.push({ path: `${tokenPath}.valueIf`, message: 'valueIf must be a string variable name.' })
+      if (typeof token.value !== 'string')
+        issues.push({ path: `${tokenPath}.value`, message: 'value must be a string template.' })
     } else if (typeof token[directives[0]] !== 'string') {
-      issues.push({ path: `${tokenPath}.${directives[0]}`, message: `${directives[0]} must be a string variable name.` })
+      issues.push({
+        path: `${tokenPath}.${directives[0]}`,
+        message: `${directives[0]} must be a string variable name.`,
+      })
     }
   })
 }
@@ -539,10 +535,16 @@ function validatePromptInjection(value: unknown, issues: CliManifestIssue[]): vo
         issues.push({ path: 'promptInjection.readiness.type', message: 'Only "output-match" readiness is supported.' })
       }
       if (typeof value.readiness.pattern !== 'string' || value.readiness.pattern.length === 0) {
-        issues.push({ path: 'promptInjection.readiness.pattern', message: 'readiness.pattern must be a non-empty string.' })
+        issues.push({
+          path: 'promptInjection.readiness.pattern',
+          message: 'readiness.pattern must be a non-empty string.',
+        })
       }
       if (typeof value.readiness.timeoutMs !== 'number' || value.readiness.timeoutMs <= 0) {
-        issues.push({ path: 'promptInjection.readiness.timeoutMs', message: 'readiness.timeoutMs must be a positive number.' })
+        issues.push({
+          path: 'promptInjection.readiness.timeoutMs',
+          message: 'readiness.timeoutMs must be a positive number.',
+        })
       }
     }
   }
@@ -564,7 +566,10 @@ function validateContextInjection(value: unknown, issues: CliManifestIssue[]): v
   const hasArgs = Array.isArray(value.args) && value.args.length > 0
   if (value.args !== undefined) {
     if (!Array.isArray(value.args) || value.args.some((arg) => typeof arg !== 'string')) {
-      issues.push({ path: 'contextInjection.args', message: 'contextInjection.args must be an array of string templates.' })
+      issues.push({
+        path: 'contextInjection.args',
+        message: 'contextInjection.args must be an array of string templates.',
+      })
     } else {
       value.args.forEach((template, index) => {
         validateTemplateVariables(
@@ -580,10 +585,18 @@ function validateContextInjection(value: unknown, issues: CliManifestIssue[]): v
   const hasEnv = isObject(value.env) && Object.keys(value.env).length > 0
   if (value.env !== undefined) {
     if (!isObject(value.env) || Object.values(value.env).some((entry) => typeof entry !== 'string')) {
-      issues.push({ path: 'contextInjection.env', message: 'contextInjection.env must be an object of string templates.' })
+      issues.push({
+        path: 'contextInjection.env',
+        message: 'contextInjection.env must be an object of string templates.',
+      })
     } else {
       for (const [name, template] of Object.entries(value.env)) {
-        validateTemplateVariables(template as string, `contextInjection.env.${name}`, CONTEXT_TEMPLATE_VARIABLES, issues)
+        validateTemplateVariables(
+          template as string,
+          `contextInjection.env.${name}`,
+          CONTEXT_TEMPLATE_VARIABLES,
+          issues,
+        )
       }
     }
   }
@@ -657,7 +670,14 @@ const AGENT_STATE_PHASES: CliAgentStatePhase[] = [
   'idle',
   'exited',
 ]
-const AGENT_STATE_REGISTRATION_KINDS = ['settings-json', 'flat-hooks-json', 'toml-block', 'toml-array-block', 'owned-json', 'plugin-file'] as const
+const AGENT_STATE_REGISTRATION_KINDS = [
+  'settings-json',
+  'flat-hooks-json',
+  'toml-block',
+  'toml-array-block',
+  'owned-json',
+  'plugin-file',
+] as const
 const AGENT_STATE_REGISTRATION_SCOPES = ['workspace', 'user'] as const
 const AGENT_STATE_DISCRIMINATOR_FIELDS = ['notificationType', 'status'] as const
 
@@ -683,8 +703,8 @@ function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): voi
     issues.push({ path: 'agentStateSpec.registration', message: 'agentStateSpec.registration must be an object.' })
   } else {
     if (
-      typeof registration.kind !== 'string'
-      || !(AGENT_STATE_REGISTRATION_KINDS as readonly string[]).includes(registration.kind)
+      typeof registration.kind !== 'string' ||
+      !(AGENT_STATE_REGISTRATION_KINDS as readonly string[]).includes(registration.kind)
     ) {
       issues.push({
         path: 'agentStateSpec.registration.kind',
@@ -711,8 +731,8 @@ function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): voi
       })
     }
     if (
-      registration.scope !== undefined
-      && !(AGENT_STATE_REGISTRATION_SCOPES as readonly string[]).includes(registration.scope as string)
+      registration.scope !== undefined &&
+      !(AGENT_STATE_REGISTRATION_SCOPES as readonly string[]).includes(registration.scope as string)
     ) {
       issues.push({
         path: 'agentStateSpec.registration.scope',
@@ -776,19 +796,22 @@ function validateAgentStateSpec(value: unknown, issues: CliManifestIssue[]): voi
       const value = entry[clause]
       if (value === undefined) continue
       if (
-        !isObject(value)
-        || !(AGENT_STATE_DISCRIMINATOR_FIELDS as readonly string[]).includes(value.field as string)
+        !isObject(value) ||
+        !(AGENT_STATE_DISCRIMINATOR_FIELDS as readonly string[]).includes(value.field as string)
       ) {
         issues.push({
           path: `${path}.${clause}.field`,
           message: `${clause}.field must be one of: ${AGENT_STATE_DISCRIMINATOR_FIELDS.join(', ')}.`,
         })
       } else if (
-        !Array.isArray(value.oneOf)
-        || value.oneOf.length === 0
-        || value.oneOf.some((v: unknown) => typeof v !== 'string' || v.length === 0)
+        !Array.isArray(value.oneOf) ||
+        value.oneOf.length === 0 ||
+        value.oneOf.some((v: unknown) => typeof v !== 'string' || v.length === 0)
       ) {
-        issues.push({ path: `${path}.${clause}.oneOf`, message: `${clause}.oneOf must be a non-empty array of strings.` })
+        issues.push({
+          path: `${path}.${clause}.oneOf`,
+          message: `${clause}.oneOf must be a non-empty array of strings.`,
+        })
       }
     }
   })
@@ -821,11 +844,17 @@ function validateLaunchPlugins(value: unknown, issues: CliManifestIssue[]): void
     return
   }
   if (!Array.isArray(value.args) || value.args.length === 0 || value.args.some((arg) => typeof arg !== 'string')) {
-    issues.push({ path: 'launchPlugins.args', message: 'launchPlugins.args must be a non-empty array of string templates.' })
+    issues.push({
+      path: 'launchPlugins.args',
+      message: 'launchPlugins.args must be a non-empty array of string templates.',
+    })
     return
   }
   if (!value.args.some((arg) => typeof arg === 'string' && arg.includes('{{pluginDir}}'))) {
-    issues.push({ path: 'launchPlugins.args', message: 'launchPlugins.args must reference {{pluginDir}} — it is rendered once per directory.' })
+    issues.push({
+      path: 'launchPlugins.args',
+      message: 'launchPlugins.args must reference {{pluginDir}} — it is rendered once per directory.',
+    })
   }
 }
 
@@ -839,11 +868,17 @@ function validateLaunchSettings(value: unknown, issues: CliManifestIssue[]): voi
     return
   }
   if (!Array.isArray(value.args) || value.args.length === 0 || value.args.some((arg) => typeof arg !== 'string')) {
-    issues.push({ path: 'launchSettings.args', message: 'launchSettings.args must be a non-empty array of string templates.' })
+    issues.push({
+      path: 'launchSettings.args',
+      message: 'launchSettings.args must be a non-empty array of string templates.',
+    })
     return
   }
   if (!value.args.some((arg) => typeof arg === 'string' && arg.includes('{{launchSettingsJson}}'))) {
-    issues.push({ path: 'launchSettings.args', message: 'launchSettings.args must reference {{launchSettingsJson}} — it carries the merged settings document.' })
+    issues.push({
+      path: 'launchSettings.args',
+      message: 'launchSettings.args must reference {{launchSettingsJson}} — it carries the merged settings document.',
+    })
   }
 }
 
@@ -853,16 +888,25 @@ function validateThemeSelection(value: unknown, issues: CliManifestIssue[]): voi
     return
   }
   if (!Array.isArray(value.args) || value.args.length === 0 || value.args.some((arg) => typeof arg !== 'string')) {
-    issues.push({ path: 'themeSelection.args', message: 'themeSelection.args must be a non-empty array of string templates.' })
+    issues.push({
+      path: 'themeSelection.args',
+      message: 'themeSelection.args must be a non-empty array of string templates.',
+    })
   }
   if (value.schemes !== undefined) {
     if (!isObject(value.schemes)) {
-      issues.push({ path: 'themeSelection.schemes', message: 'themeSelection.schemes must be an object mapping "light" and "dark" to theme names.' })
+      issues.push({
+        path: 'themeSelection.schemes',
+        message: 'themeSelection.schemes must be an object mapping "light" and "dark" to theme names.',
+      })
     } else {
       for (const scheme of ['light', 'dark'] as const) {
         const name = (value.schemes as Record<string, unknown>)[scheme]
         if (typeof name !== 'string' || name.length === 0) {
-          issues.push({ path: `themeSelection.schemes.${scheme}`, message: `themeSelection.schemes.${scheme} must be a non-empty string when schemes is present.` })
+          issues.push({
+            path: `themeSelection.schemes.${scheme}`,
+            message: `themeSelection.schemes.${scheme} must be a non-empty string when schemes is present.`,
+          })
         }
       }
     }
@@ -875,11 +919,17 @@ function validateReasoningSelection(value: unknown, issues: CliManifestIssue[]):
     return
   }
   if (!Array.isArray(value.args) || value.args.length === 0 || value.args.some((arg) => typeof arg !== 'string')) {
-    issues.push({ path: 'reasoningSelection.args', message: 'reasoningSelection.args must be a non-empty array of string templates.' })
+    issues.push({
+      path: 'reasoningSelection.args',
+      message: 'reasoningSelection.args must be a non-empty array of string templates.',
+    })
   }
   const levelIds: string[] = []
   if (!Array.isArray(value.levels) || value.levels.length === 0) {
-    issues.push({ path: 'reasoningSelection.levels', message: 'reasoningSelection.levels must be a non-empty array of level options.' })
+    issues.push({
+      path: 'reasoningSelection.levels',
+      message: 'reasoningSelection.levels must be a non-empty array of level options.',
+    })
   } else {
     value.levels.forEach((level, index) => {
       const path = `reasoningSelection.levels[${index}]`
@@ -895,9 +945,15 @@ function validateReasoningSelection(value: unknown, issues: CliManifestIssue[]):
   }
   if (value.default !== undefined) {
     if (typeof value.default !== 'string' || value.default.length === 0) {
-      issues.push({ path: 'reasoningSelection.default', message: 'reasoningSelection.default must be a non-empty string when present.' })
+      issues.push({
+        path: 'reasoningSelection.default',
+        message: 'reasoningSelection.default must be a non-empty string when present.',
+      })
     } else if (levelIds.length > 0 && !levelIds.includes(value.default)) {
-      issues.push({ path: 'reasoningSelection.default', message: 'reasoningSelection.default must be one of the declared level ids.' })
+      issues.push({
+        path: 'reasoningSelection.default',
+        message: 'reasoningSelection.default must be one of the declared level ids.',
+      })
     }
   }
 }
@@ -908,7 +964,10 @@ function validateModelSelection(value: unknown, issues: CliManifestIssue[]): voi
     return
   }
   if (!Array.isArray(value.args) || value.args.length === 0 || value.args.some((arg) => typeof arg !== 'string')) {
-    issues.push({ path: 'modelSelection.args', message: 'modelSelection.args must be a non-empty array of string templates.' })
+    issues.push({
+      path: 'modelSelection.args',
+      message: 'modelSelection.args must be a non-empty array of string templates.',
+    })
   }
   if (value.options !== undefined) {
     if (!Array.isArray(value.options)) {
@@ -927,7 +986,10 @@ function validateModelSelection(value: unknown, issues: CliManifestIssue[]): voi
     }
   }
   if (value.allowCustomId !== undefined && typeof value.allowCustomId !== 'boolean') {
-    issues.push({ path: 'modelSelection.allowCustomId', message: 'modelSelection.allowCustomId must be a boolean when present.' })
+    issues.push({
+      path: 'modelSelection.allowCustomId',
+      message: 'modelSelection.allowCustomId must be a boolean when present.',
+    })
   }
 }
 
@@ -976,20 +1038,29 @@ function validateSkillIntegration(value: unknown, issues: CliManifestIssue[]): v
     return
   }
   if (typeof value.support !== 'string' || !SKILL_SUPPORTS.includes(value.support as CliSkillSupport)) {
-    issues.push({ path: 'skillIntegration.support', message: `skillIntegration.support must be one of: ${SKILL_SUPPORTS.join(', ')}.` })
+    issues.push({
+      path: 'skillIntegration.support',
+      message: `skillIntegration.support must be one of: ${SKILL_SUPPORTS.join(', ')}.`,
+    })
   }
   requireString(value, 'harnessId', issues, ID_PATTERN, 'skillIntegration')
 
   if (value.support === 'native') {
     if (!Array.isArray(value.installTargets) || value.installTargets.length === 0) {
-      issues.push({ path: 'skillIntegration.installTargets', message: 'native skillIntegration requires at least one install target.' })
+      issues.push({
+        path: 'skillIntegration.installTargets',
+        message: 'native skillIntegration requires at least one install target.',
+      })
     } else {
       value.installTargets.forEach((target, index) =>
-        validateSkillInstallTarget(target, `skillIntegration.installTargets[${index}]`, issues)
+        validateSkillInstallTarget(target, `skillIntegration.installTargets[${index}]`, issues),
       )
     }
   } else if (value.installTargets !== undefined) {
-    issues.push({ path: 'skillIntegration.installTargets', message: 'installTargets are only valid when skillIntegration.support is "native".' })
+    issues.push({
+      path: 'skillIntegration.installTargets',
+      message: 'installTargets are only valid when skillIntegration.support is "native".',
+    })
   }
 
   if (value.invocation !== undefined) validateSkillInvocation(value.invocation, issues)
@@ -1021,7 +1092,10 @@ function validateSkillInstallTarget(value: unknown, path: string, issues: CliMan
     issues.push({ path: `${path}.path`, message: 'path must not contain NUL bytes.' })
   }
   if (value.scope === 'workspace' && !isWorkspaceSkillPathTemplate(value.path)) {
-    issues.push({ path: `${path}.path`, message: 'workspace skill paths must be relative or start with {{workspaceRoot}}/.' })
+    issues.push({
+      path: `${path}.path`,
+      message: 'workspace skill paths must be relative or start with {{workspaceRoot}}/.',
+    })
   }
   if (value.scope === 'user' && !value.path.startsWith('{{home}}/')) {
     issues.push({ path: `${path}.path`, message: 'user skill paths must start with {{home}}/.' })
@@ -1088,7 +1162,7 @@ function validateTemplateVariables(
   template: string,
   path: string,
   allowed: readonly string[],
-  issues: CliManifestIssue[]
+  issues: CliManifestIssue[],
 ): void {
   const variablePattern = /\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g
   let match: RegExpExecArray | null
@@ -1120,7 +1194,7 @@ function requireString(
   key: string,
   issues: CliManifestIssue[],
   pattern?: RegExp,
-  rootPath?: string
+  rootPath?: string,
 ): void {
   const path = rootPath ? `${rootPath}.${key}` : key
   const v = value[key]

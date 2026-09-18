@@ -5,15 +5,9 @@ import {
   mobileControlProtocolVersion,
   unsupportedMobileControlProtocolVersion,
 } from '../../../../packages/mobile-control-protocol/src/index'
-import type {
-  MobileControlCommand,
-  MobileControlCommandType,
-  MobileControlError,
-} from './command'
+import type { MobileControlCommand, MobileControlCommandType, MobileControlError } from './command'
 
-type ValidationResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; error: MobileControlError }
+type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: MobileControlError }
 
 // Every command type on the wire. The nine the Sprint Engine took with it
 // (MC-2575) were carried here for one release so a phone that still sent one got
@@ -45,7 +39,7 @@ export function validateMobileControlCommand(input: unknown): ValidationResult<M
       error: buildError(
         'unsupported_protocol_version',
         unsupportedMobileControlProtocolVersion(command.protocolVersion),
-        false
+        false,
       ),
     }
   }
@@ -62,7 +56,10 @@ export function validateMobileControlCommand(input: unknown): ValidationResult<M
   }
 
   if (!commandTypes.has(command.type as MobileControlCommandType)) {
-    return { ok: false, error: buildError('invalid_payload', 'command.type must be a supported mobile-control command', false) }
+    return {
+      ok: false,
+      error: buildError('invalid_payload', 'command.type must be a supported mobile-control command', false),
+    }
   }
 
   if (!command.payload || typeof command.payload !== 'object' || Array.isArray(command.payload)) {
@@ -86,7 +83,6 @@ export function buildError(code: MobileControlError['code'], message: string, re
     retryable,
   }
 }
-
 
 function validateCommandPayload(type: MobileControlCommandType, payload: Record<string, unknown>): string | null {
   switch (type) {
@@ -135,7 +131,9 @@ function optionalString(record: Record<string, unknown>, field: string): string 
 }
 
 function requireOneOf(record: Record<string, unknown>, field: string, allowed: Set<string>): string | null {
-  return typeof record[field] === 'string' && allowed.has(record[field]) ? null : `${field} must be one of: ${Array.from(allowed).join(', ')}`
+  return typeof record[field] === 'string' && allowed.has(record[field])
+    ? null
+    : `${field} must be one of: ${Array.from(allowed).join(', ')}`
 }
 
 function requireIsoDate(record: Record<string, unknown>, field: string): string | null {

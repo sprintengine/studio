@@ -25,11 +25,14 @@ import {
 } from '../../../shared/backlog/agent-links'
 
 export function agentLinkForItem(item: Pick<BacklogItem, 'links'>): BacklogItemLink | null {
-  return item.links.find((link) =>
-    link.moduleId === AGENT_RUNTIME_MODULE_ID
-    && link.type === 'agent'
-    && link.target.kind === AGENT_TERMINAL_TARGET_KIND,
-  ) ?? null
+  return (
+    item.links.find(
+      (link) =>
+        link.moduleId === AGENT_RUNTIME_MODULE_ID &&
+        link.type === 'agent' &&
+        link.target.kind === AGENT_TERMINAL_TARGET_KIND,
+    ) ?? null
+  )
 }
 
 export function hasAgentLink(item: Pick<BacklogItem, 'links'>): boolean {
@@ -71,11 +74,7 @@ export type AgentBacklogLinkOpenPorts = {
   // the agent is not open anywhere so the caller can surface a diagnostic. The
   // port owns the workspace lookup and the mounted-model vs persisted-layout
   // fallback.
-  focusAgent(input: {
-    agentId: string
-    agentName: string
-    preferredWorkspaceId?: string
-  }): boolean | Promise<boolean>
+  focusAgent(input: { agentId: string; agentName: string; preferredWorkspaceId?: string }): boolean | Promise<boolean>
   publishDiagnostic?(input: {
     level: 'info' | 'warning' | 'error'
     source: string
@@ -93,13 +92,17 @@ export type AgentBacklogLinkOpenPorts = {
 // "Open agent" control — this is a shell action, not a module contribution
 // (owner ruling 2026-09-15).
 export async function agentBacklogOpenPorts(): Promise<AgentBacklogLinkOpenPorts> {
-  const [{ useWorkspaceStore }, { publishDiagnostic }, { focusOrAddAgentTab, ensureAgentTabInLayoutModel, flashAgentTab }, { findWorkspaceForAgentPreferring: findAgentWorkspace }] =
-    await Promise.all([
-      import('../store/workspaceStore'),
-      import('./diagnostics'),
-      import('./modelRegistry'),
-      import('./agentLocation'),
-    ])
+  const [
+    { useWorkspaceStore },
+    { publishDiagnostic },
+    { focusOrAddAgentTab, ensureAgentTabInLayoutModel, flashAgentTab },
+    { findWorkspaceForAgentPreferring: findAgentWorkspace },
+  ] = await Promise.all([
+    import('../store/workspaceStore'),
+    import('./diagnostics'),
+    import('./modelRegistry'),
+    import('./agentLocation'),
+  ])
   return {
     focusAgent: ({ agentId, agentName, preferredWorkspaceId }) => {
       const store = useWorkspaceStore.getState()

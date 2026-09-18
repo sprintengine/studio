@@ -18,7 +18,11 @@ import type {
   AutomationTriggerProvider,
   AutomationsProvidersResult,
 } from '../../shared/automations/contracts'
-import type { AutomationsEngine, AutomationsEngineEvaluationResult, AutomationsEngineOptions } from '../automations/engine'
+import type {
+  AutomationsEngine,
+  AutomationsEngineEvaluationResult,
+  AutomationsEngineOptions,
+} from '../automations/engine'
 import { AutomationsStore } from '../automations/store'
 import { runGitCommand } from '../git-utils'
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
@@ -107,11 +111,13 @@ function createFakeTerminalRuntime(options: { liveExecutionIds?: string[] } = {}
   }
 }
 
-function fakeAgentRuntimeModule(options: {
-  launchAgent?: (request: AgentLaunchRequest) => Promise<AgentLaunchResult>
-  workspaceSnapshot?: unknown
-  terminalRuntime?: unknown
-} = {}): CapabilityModule {
+function fakeAgentRuntimeModule(
+  options: {
+    launchAgent?: (request: AgentLaunchRequest) => Promise<AgentLaunchResult>
+    workspaceSnapshot?: unknown
+    terminalRuntime?: unknown
+  } = {},
+): CapabilityModule {
   return {
     manifest: {
       id: 'agent-runtime',
@@ -121,28 +127,38 @@ function fakeAgentRuntimeModule(options: {
       core: true,
     },
     registerMain(host) {
-      host.provideService(WorkspaceSyncServiceToken, () => ({
-        getSnapshot: () => options.workspaceSnapshot ?? ({
-          sequence: 1,
-          state: {
-            workspaces: [],
-            layoutByWindow: {},
-            activeWorkspaceByWindow: {},
-            lastAppliedWorkspaceSyncSequence: 1,
-          },
-        }),
-      } as never))
+      host.provideService(
+        WorkspaceSyncServiceToken,
+        () =>
+          ({
+            getSnapshot: () =>
+              options.workspaceSnapshot ?? {
+                sequence: 1,
+                state: {
+                  workspaces: [],
+                  layoutByWindow: {},
+                  activeWorkspaceByWindow: {},
+                  lastAppliedWorkspaceSyncSequence: 1,
+                },
+              },
+          }) as never,
+      )
       host.provideService(
         TerminalRuntimeToken,
-        () => (options.terminalRuntime ?? createFakeTerminalRuntime().runtime) as never
+        () => (options.terminalRuntime ?? createFakeTerminalRuntime().runtime) as never,
       )
       // Agent launch is its own main-process service since MC-2159; the module
       // resolves it separately.
-      host.provideService(AgentLaunchServiceToken, () => ({
-        launch: options.launchAgent
-          ?? (async () => ({ ok: false, code: 'not_used', message: 'not used in module registration tests' })),
-        dispose: () => ({ ok: true, workspaceId: '', agentId: '' }),
-      } as never))
+      host.provideService(
+        AgentLaunchServiceToken,
+        () =>
+          ({
+            launch:
+              options.launchAgent ??
+              (async () => ({ ok: false, code: 'not_used', message: 'not used in module registration tests' })),
+            dispose: () => ({ ok: true, workspaceId: '', agentId: '' }),
+          }) as never,
+      )
     },
   }
 }
@@ -180,7 +196,10 @@ function fakeThirdPartyAutomationProviderModule(): CapabilityModule {
   }
 }
 
-function fakeThirdPartyThrowingActionProviderModule(counters: { getterCalls: number; runCalls: number }): CapabilityModule {
+function fakeThirdPartyThrowingActionProviderModule(counters: {
+  getterCalls: number
+  runCalls: number
+}): CapabilityModule {
   const actionProvider: AutomationActionProvider = {
     kind: 'weather-deck.throwing-getter-action',
     get configSchema(): Record<string, unknown> {
@@ -218,7 +237,10 @@ function automationDefinition(folderPath: string, overrides: Partial<AutomationD
     id: 'nightly-review',
     name: 'Nightly Review',
     status: 'enabled',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' },
+    },
     action: { kind: 'spawn-agent', config: { folderPath, prompt: 'Write a file named injected.txt.' } },
     nextRunAt: '2026-06-18T00:30:00.000Z',
     lastRunAt: null,
@@ -381,25 +403,22 @@ async function testEnabledModuleRegistersStartupSidecarAndIpc(): Promise<void> {
         description: 'App-active Automations scheduler; starts only while the Automations module is enabled.',
         startOn: 'startup',
       },
-    ]
+    ],
   )
-  assert.deepEqual(
-    handled.filter((channel) => channel.startsWith('automations:')).sort(),
-    [
-      'automations:create',
-      'automations:delete',
-      'automations:engine-status',
-      'automations:install-builtin',
-      'automations:instance:list',
-      'automations:list',
-      'automations:list-builtin',
-      'automations:providers:list',
-      'automations:run-now',
-      'automations:run:finalize',
-      'automations:runs:list',
-      'automations:update',
-    ]
-  )
+  assert.deepEqual(handled.filter((channel) => channel.startsWith('automations:')).sort(), [
+    'automations:create',
+    'automations:delete',
+    'automations:engine-status',
+    'automations:install-builtin',
+    'automations:instance:list',
+    'automations:list',
+    'automations:list-builtin',
+    'automations:providers:list',
+    'automations:run-now',
+    'automations:run:finalize',
+    'automations:runs:list',
+    'automations:update',
+  ])
   assert.equal(kernel.sidecarStatuses().find((status) => status.id === 'automations-engine')?.state, 'stopped')
 
   await kernel.runStartup()
@@ -412,21 +431,28 @@ async function testWebhookReceiverFailureIsVisibleInSidecarStatus(): Promise<voi
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-module-webhook-'))
   const occupied = await listenOnEphemeralPort()
   const store = new AutomationsStore(workspaceRoot)
-  assert.equal((await store.createDefinition(automationDefinition(workspaceRoot, {
-    id: 'webhook-status-error',
-    name: 'Webhook status error',
-    trigger: {
-      kind: WEBHOOK_TRIGGER_KIND,
-      config: {
-        kind: WEBHOOK_TRIGGER_KIND,
-        enabled: true,
-        port: occupied.port,
-        path: 'status-error',
-        secret: 'test-webhook-secret-status',
-      },
-    },
-    nextRunAt: null,
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        automationDefinition(workspaceRoot, {
+          id: 'webhook-status-error',
+          name: 'Webhook status error',
+          trigger: {
+            kind: WEBHOOK_TRIGGER_KIND,
+            config: {
+              kind: WEBHOOK_TRIGGER_KIND,
+              enabled: true,
+              port: occupied.port,
+              path: 'status-error',
+              secret: 'test-webhook-secret-status',
+            },
+          },
+          nextRunAt: null,
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   const { ipcMain } = createFakeIpcMain()
   const { kernel } = loadMainModules({
@@ -458,10 +484,19 @@ async function testDisabledModuleRegistersNoSidecarOrIpc(): Promise<void> {
 
   assert.equal(report.loaded.includes('automations'), false)
   assert.ok(report.disabled.includes('automations'))
-  assert.equal(report.sidecars.some((sidecar) => sidecar.id === 'automations-engine'), false)
-  assert.equal(handled.some((channel) => channel.startsWith('automations:')), false)
+  assert.equal(
+    report.sidecars.some((sidecar) => sidecar.id === 'automations-engine'),
+    false,
+  )
+  assert.equal(
+    handled.some((channel) => channel.startsWith('automations:')),
+    false,
+  )
   await kernel.runStartup()
-  assert.equal(kernel.sidecarStatuses().some((status) => status.id === 'automations-engine'), false)
+  assert.equal(
+    kernel.sidecarStatuses().some((status) => status.id === 'automations-engine'),
+    false,
+  )
 
   const enabledAgain = createFakeIpcMain()
   const reenabled = loadMainModules({
@@ -472,9 +507,15 @@ async function testDisabledModuleRegistersNoSidecarOrIpc(): Promise<void> {
   assert.ok(reenabled.report.loaded.includes('automations'))
   assert.ok(enabledAgain.handled.some((channel) => channel === 'automations:list'))
   await reenabled.kernel.runStartup()
-  assert.equal(reenabled.kernel.sidecarStatuses().find((status) => status.id === 'automations-engine')?.state, 'running')
+  assert.equal(
+    reenabled.kernel.sidecarStatuses().find((status) => status.id === 'automations-engine')?.state,
+    'running',
+  )
   await reenabled.kernel.runShutdown()
-  assert.equal(reenabled.kernel.sidecarStatuses().find((status) => status.id === 'automations-engine')?.state, 'stopped')
+  assert.equal(
+    reenabled.kernel.sidecarStatuses().find((status) => status.id === 'automations-engine')?.state,
+    'stopped',
+  )
 }
 
 async function testLiveEnablementToggleStopsUnregistersAndRestarts(): Promise<void> {
@@ -506,9 +547,18 @@ async function testLiveEnablementToggleStopsUnregistersAndRestarts(): Promise<vo
   assert.ok(disabled.disabled.includes('automations'))
   assert.equal(engines[0].isRunning(), false)
   assert.equal(engines[0].stopCount, 1)
-  assert.equal([...activeHandlers].some((channel) => channel.startsWith('automations:')), false)
-  assert.equal([...moduleLoad.kernel.ownedChannels().keys()].some((channel) => channel.startsWith('automations:')), false)
-  assert.equal(moduleLoad.kernel.sidecarStatuses().some((status) => status.id === 'automations-engine'), false)
+  assert.equal(
+    [...activeHandlers].some((channel) => channel.startsWith('automations:')),
+    false,
+  )
+  assert.equal(
+    [...moduleLoad.kernel.ownedChannels().keys()].some((channel) => channel.startsWith('automations:')),
+    false,
+  )
+  assert.equal(
+    moduleLoad.kernel.sidecarStatuses().some((status) => status.id === 'automations-engine'),
+    false,
+  )
 
   const enabled = await moduleLoad.applyEnablement({ automations: true }, { liveModuleIds: ['automations'] })
   assert.deepEqual(enabled.errors, [])
@@ -519,7 +569,7 @@ async function testLiveEnablementToggleStopsUnregistersAndRestarts(): Promise<vo
   assert.ok(activeHandlers.has(AUTOMATIONS_LIST_CHANNEL))
   assert.equal(
     moduleLoad.kernel.sidecarStatuses().find((status) => status.id === 'automations-engine')?.state,
-    'running'
+    'running',
   )
 
   await moduleLoad.kernel.runShutdown()
@@ -605,8 +655,8 @@ async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<v
   // the module wires the real `defaultCreateRunWorktree`.
   const folderPath = await initDirtyTestRepo('multicode-automations-module-dirty-')
   const launchRequests: Array<{ kind: 'agent.launch' } & AgentLaunchRequest> = []
-  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
-    null as AutomationsEngineOptions['runAutomation'] | null
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null as
+    AutomationsEngineOptions['runAutomation'] | null
 
   loadMainModules({
     ipcMain: createFakeIpcMain().ipcMain,
@@ -652,8 +702,8 @@ async function testModuleExecutorDoesNotGateOnDirtyTreeBeforeLaunch(): Promise<v
 async function testModuleExecutorBlocksWhenTheRunCannotGetAWorktree(): Promise<void> {
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-non-git-'))
   const launchRequests: Array<{ kind: 'agent.launch' } & AgentLaunchRequest> = []
-  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
-    null as AutomationsEngineOptions['runAutomation'] | null
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null as
+    AutomationsEngineOptions['runAutomation'] | null
 
   loadMainModules({
     ipcMain: createFakeIpcMain().ipcMain,
@@ -709,10 +759,7 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
   const { ipcMain, handlers } = createFakeIpcMain()
   const moduleLoad = loadMainModules({
     ipcMain,
-    modules: [
-      fakeAgentRuntimeModule(),
-      createAutomationsModule(),
-    ],
+    modules: [fakeAgentRuntimeModule(), createAutomationsModule()],
   })
 
   assert.ok(moduleLoad.report.loaded.includes('automations'))
@@ -721,36 +768,32 @@ async function testModuleRegistersFirstPartyActionProviders(): Promise<void> {
 
   const providerHandler = handlers.get(AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
   assert.ok(providerHandler)
-  const providers = await providerHandler({} as never) as AutomationsProvidersResult
+  const providers = (await providerHandler({} as never)) as AutomationsProvidersResult
   assert.equal(providers.ok, true)
   if (!providers.ok) return
   assert.deepEqual(
     providers.value.triggers.map((provider) => provider.kind),
-    [
-      'schedule',
-      WEBHOOK_TRIGGER_KIND,
-    ]
+    ['schedule', WEBHOOK_TRIGGER_KIND],
   )
   assert.deepEqual(
     providers.value.triggers.flatMap((provider) => provider.missingIntegrations),
-    []
+    [],
   )
   assert.deepEqual(
     providers.value.actions.map((provider) => provider.kind),
-    ['spawn-agent', 'run-skill-loop']
+    ['spawn-agent', 'run-skill-loop'],
   )
   assert.deepEqual(
     providers.value.actions.flatMap((provider) => provider.missingIntegrations),
-    []
+    [],
   )
 }
 
 async function testThirdPartyAutomationProviderRegistrationUsesLiveRegistry(): Promise<void> {
   const { ipcMain, handlers } = createFakeIpcMain()
-  let capturedEngineOptions: AutomationsEngineOptions | null =
-    null as AutomationsEngineOptions | null
-  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
-    null as AutomationsEngineOptions['runAutomation'] | null
+  let capturedEngineOptions: AutomationsEngineOptions | null = null as AutomationsEngineOptions | null
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null as
+    AutomationsEngineOptions['runAutomation'] | null
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-'))
 
   const moduleLoad = loadMainModules({
@@ -771,12 +814,12 @@ async function testThirdPartyAutomationProviderRegistrationUsesLiveRegistry(): P
   assert.deepEqual(moduleLoad.report.errors, [])
   assert.ok(moduleLoad.report.loaded.includes('weather-deck'))
   assert.ok(
-    capturedEngineOptions?.getTriggerProviders?.().some((provider) => provider.kind === 'weather-deck.forecast-ready')
+    capturedEngineOptions?.getTriggerProviders?.().some((provider) => provider.kind === 'weather-deck.forecast-ready'),
   )
 
   const providerHandler = handlers.get(AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
   assert.ok(providerHandler)
-  const providers = await providerHandler({} as never) as AutomationsProvidersResult
+  const providers = (await providerHandler({} as never)) as AutomationsProvidersResult
   assert.equal(providers.ok, true)
   if (!providers.ok) return
   assert.ok(providers.value.triggers.some((provider) => provider.kind === 'weather-deck.forecast-ready'))
@@ -797,10 +840,9 @@ async function testThirdPartyAutomationProviderRegistrationUsesLiveRegistry(): P
 
 async function testThirdPartyAutomationProviderTrustGateBlocksListingAndExecution(): Promise<void> {
   const { ipcMain, handlers } = createFakeIpcMain()
-  let capturedEngineOptions: AutomationsEngineOptions | null =
-    null as AutomationsEngineOptions | null
-  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
-    null as AutomationsEngineOptions['runAutomation'] | null
+  let capturedEngineOptions: AutomationsEngineOptions | null = null as AutomationsEngineOptions | null
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null as
+    AutomationsEngineOptions['runAutomation'] | null
   let weatherDeckTrusted = true
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-blocked-'))
   const checkProviderPermission: AutomationProviderPermissionChecker = (registration) => {
@@ -832,20 +874,21 @@ async function testThirdPartyAutomationProviderTrustGateBlocksListingAndExecutio
   weatherDeckTrusted = false
   const providerHandler = handlers.get(AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
   assert.ok(providerHandler)
-  const providers = await providerHandler({} as never) as AutomationsProvidersResult
+  const providers = (await providerHandler({} as never)) as AutomationsProvidersResult
   assert.equal(providers.ok, true)
   if (!providers.ok) return
   assert.equal(providers.value.triggers.find((provider) => provider.kind === 'schedule')?.blockedReason, undefined)
   assert.match(
     providers.value.triggers.find((provider) => provider.kind === 'weather-deck.forecast-ready')?.blockedReason ?? '',
-    /not trusted/
+    /not trusted/,
   )
   assert.match(
     providers.value.actions.find((provider) => provider.kind === 'weather-deck.refresh-forecast')?.blockedReason ?? '',
-    /not trusted/
+    /not trusted/,
   )
 
-  const triggerProvider = capturedEngineOptions?.getTriggerProviders?.()
+  const triggerProvider = capturedEngineOptions
+    ?.getTriggerProviders?.()
     .find((provider) => provider.kind === 'weather-deck.forecast-ready')
   assert.ok(triggerProvider)
   assert.ok(triggerProvider.poll)
@@ -872,8 +915,8 @@ async function testThirdPartyAutomationProviderTrustGateBlocksListingAndExecutio
 
 async function testDeniedThirdPartyActionProviderIsInertAfterRevocation(): Promise<void> {
   const { ipcMain, handlers } = createFakeIpcMain()
-  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null =
-    null as AutomationsEngineOptions['runAutomation'] | null
+  let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null as
+    AutomationsEngineOptions['runAutomation'] | null
   let weatherDeckTrusted = true
   const counters = { getterCalls: 0, runCalls: 0 }
   const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-getters-'))
@@ -906,7 +949,7 @@ async function testDeniedThirdPartyActionProviderIsInertAfterRevocation(): Promi
   weatherDeckTrusted = false
   const providerHandler = handlers.get(AUTOMATIONS_PROVIDERS_LIST_CHANNEL)
   assert.ok(providerHandler)
-  const providers = await providerHandler({} as never) as AutomationsProvidersResult
+  const providers = (await providerHandler({} as never)) as AutomationsProvidersResult
   assert.equal(providers.ok, true)
   if (!providers.ok) return
   const actionView = providers.value.actions.find((provider) => provider.kind === 'weather-deck.throwing-getter-action')
@@ -969,7 +1012,7 @@ function testBroadcastRunEventUsesAutomationsChannelAndSkipsFailedWindows(): voi
           send: (channel, payload) => sent.push({ channel, payload }),
         },
       },
-    ]
+    ],
   )
 
   assert.equal(failedDeliveryAttempts, 1)

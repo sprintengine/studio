@@ -50,9 +50,8 @@ backing.set(
 )
 
 async function main(): Promise<void> {
-  const { useNotificationStore, dropRetiredNotifications, mergePersistedNotificationState } = await import(
-    './notificationStore'
-  )
+  const { useNotificationStore, dropRetiredNotifications, mergePersistedNotificationState } =
+    await import('./notificationStore')
 
   // --- the real rehydrate drops the retired source, keeps everything else ---
   await useNotificationStore.persist.rehydrate()

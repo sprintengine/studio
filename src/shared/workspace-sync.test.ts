@@ -8,7 +8,10 @@ import {
 } from './workspace-sync'
 import type { Workspace, WorkspaceWindowState } from '../renderer/src/types/workspace'
 
-const workspaceCompatibilityCheck: Workspace extends Extract<WorkspaceSyncEvent, { type: 'workspace.created' }>['payload']['workspace']
+const workspaceCompatibilityCheck: Workspace extends Extract<
+  WorkspaceSyncEvent,
+  { type: 'workspace.created' }
+>['payload']['workspace']
   ? true
   : false = true
 void workspaceCompatibilityCheck
@@ -33,7 +36,7 @@ function windowState(
   id: string,
   workspaceIds: string[],
   activeWorkspaceId: string | null,
-  kind: WorkspaceWindowState['kind'] = id === 'primary' ? 'primary' : 'detached'
+  kind: WorkspaceWindowState['kind'] = id === 'primary' ? 'primary' : 'detached',
 ): WorkspaceWindowState {
   return {
     id,
@@ -66,11 +69,7 @@ function baseState(): WorkspaceSyncState {
   }
 
   return {
-    workspaces: [
-      workspace('ws-two', '/repo/a'),
-      wsOne,
-      workspace('ws-three', '/repo/b'),
-    ],
+    workspaces: [workspace('ws-two', '/repo/a'), wsOne, workspace('ws-three', '/repo/b')],
     activeWorkspaceId: 'ws-one',
     workspaceWindows: [
       windowState('primary', ['ws-one', 'ws-two'], 'ws-one'),
@@ -116,26 +115,17 @@ const moveEvent = event<Extract<WorkspaceSyncEvent, { type: 'workspace.moved_to_
 })
 const moved = applyWorkspaceSyncEvent(state, moveEvent)
 assert.equal(moved.status, 'applied')
-assert.deepEqual(
-  moved.state.workspaceWindows.find((candidate) => candidate.id === 'primary')?.workspaceIds,
-  ['ws-two'],
-)
-assert.equal(
-  moved.state.workspaceWindows.find((candidate) => candidate.id === 'primary')?.activeWorkspaceId,
-  'ws-two',
-)
-assert.deepEqual(
-  moved.state.workspaceWindows.find((candidate) => candidate.id === 'detached-a')?.workspaceIds,
-  ['ws-three', 'ws-one'],
-)
+assert.deepEqual(moved.state.workspaceWindows.find((candidate) => candidate.id === 'primary')?.workspaceIds, ['ws-two'])
+assert.equal(moved.state.workspaceWindows.find((candidate) => candidate.id === 'primary')?.activeWorkspaceId, 'ws-two')
+assert.deepEqual(moved.state.workspaceWindows.find((candidate) => candidate.id === 'detached-a')?.workspaceIds, [
+  'ws-three',
+  'ws-one',
+])
 assert.equal(
   moved.state.workspaceWindows.find((candidate) => candidate.id === 'detached-a')?.activeWorkspaceId,
   'ws-one',
 )
-assert.equal(
-  moved.state.workspaceWindows.find((candidate) => candidate.id === 'detached-a')?.lastFocusedAt,
-  11,
-)
+assert.equal(moved.state.workspaceWindows.find((candidate) => candidate.id === 'detached-a')?.lastFocusedAt, 11)
 state = moved.state
 
 const duplicate = applyWorkspaceSyncEvent(state, moveEvent)
@@ -152,7 +142,7 @@ const gap = applyWorkspaceSyncEvent(
     type: 'workspace_window.active_changed',
     sequence: 13,
     payload: { windowId: 'primary', workspaceId: 'ws-two' },
-  })
+  }),
 )
 assert.equal(gap.status, 'sequence_gap')
 assert.equal(gap.expectedSequence, 12)
@@ -170,17 +160,16 @@ const placement = applyWorkspaceSyncEvent(
       isMaximized: true,
       displayId: 2,
     },
-  })
+  }),
 )
 assert.equal(placement.status, 'applied')
-assert.deepEqual(
-  placement.state.workspaceWindows.find((candidate) => candidate.id === 'detached-a')?.bounds,
-  { x: 10, y: 20, width: 900, height: 700 },
-)
-assert.equal(
-  placement.state.workspaceWindows.find((candidate) => candidate.id === 'detached-a')?.lastFocusedAt,
-  12,
-)
+assert.deepEqual(placement.state.workspaceWindows.find((candidate) => candidate.id === 'detached-a')?.bounds, {
+  x: 10,
+  y: 20,
+  width: 900,
+  height: 700,
+})
+assert.equal(placement.state.workspaceWindows.find((candidate) => candidate.id === 'detached-a')?.lastFocusedAt, 12)
 assert.deepEqual(
   placement.state.workspaces.map((candidate) => candidate.id),
   ['ws-two', 'ws-one', 'ws-three'],
@@ -194,10 +183,13 @@ const close = applyWorkspaceSyncEvent(
     type: 'workspace_window.closed',
     sequence: 13,
     payload: { windowId: 'detached-a', fallbackWindowId: 'primary', movedWorkspaceIds: ['ws-three', 'ws-one'] },
-  })
+  }),
 )
 assert.equal(close.status, 'applied')
-assert.equal(close.state.workspaceWindows.find((candidate) => candidate.id === 'detached-a'), undefined)
+assert.equal(
+  close.state.workspaceWindows.find((candidate) => candidate.id === 'detached-a'),
+  undefined,
+)
 assert.deepEqual(close.state.workspaceWindows[0]?.workspaceIds, ['ws-two', 'ws-three', 'ws-one'])
 assert.equal(close.state.workspaceWindows[0]?.activeWorkspaceId, 'ws-one')
 state = close.state
@@ -213,7 +205,7 @@ const createResult = applyWorkspaceSyncEvent(
       windowId: 'primary',
       insert: { kind: 'folder_head', folderPath: '/repo/a' },
     },
-  })
+  }),
 )
 assert.equal(createResult.status, 'applied')
 assert.deepEqual(
@@ -221,12 +213,7 @@ assert.deepEqual(
   ['ws-new', 'ws-two', 'ws-one', 'ws-three'],
   'created workspaces insert at the head of their folder block',
 )
-assert.deepEqual(createResult.state.workspaceWindows[0]?.workspaceIds, [
-  'ws-new',
-  'ws-two',
-  'ws-three',
-  'ws-one',
-])
+assert.deepEqual(createResult.state.workspaceWindows[0]?.workspaceIds, ['ws-new', 'ws-two', 'ws-three', 'ws-one'])
 assert.equal(createResult.state.workspaceWindows[0]?.activeWorkspaceId, 'ws-new')
 assert.equal(createResult.state.workspaceWindows[0]?.lastFocusedAt, 14)
 state = createResult.state
@@ -248,7 +235,7 @@ const worktreeCreateResult = applyWorkspaceSyncEvent(
       windowId: 'primary',
       insert: { kind: 'folder_head', folderPath: '/repo/.multicode-worktrees/b/chat-a1b2' },
     },
-  })
+  }),
 )
 assert.equal(worktreeCreateResult.status, 'applied')
 assert.deepEqual(
@@ -263,7 +250,7 @@ const activeScoped = applyWorkspaceSyncEvent(
     type: 'workspace_window.active_changed',
     sequence: 15,
     payload: { windowId: 'missing-window', workspaceId: 'ws-three' },
-  })
+  }),
 )
 assert.equal(activeScoped.status, 'applied')
 assert.equal(activeScoped.state.activeWorkspaceId, 'ws-new')
@@ -284,7 +271,7 @@ const assignSession = applyWorkspaceSyncEvent(
       cliResumeAvailable: true,
       cliUsesStableSessionId: true,
     },
-  })
+  }),
 )
 assert.equal(assignSession.status, 'applied')
 const assignedAgent = assignSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-one']
@@ -308,10 +295,11 @@ const assignClaudeCodeSession = applyWorkspaceSyncEvent(
       cliResumeAvailable: true,
       cliUsesStableSessionId: true,
     },
-  })
+  }),
 )
 assert.equal(assignClaudeCodeSession.status, 'applied')
-const assignedClaudeCodeAgent = assignClaudeCodeSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-claude-code']
+const assignedClaudeCodeAgent = assignClaudeCodeSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')
+  ?.agents['agent-claude-code']
 assert.equal(assignedClaudeCodeAgent?.cliResumeAvailable, true)
 assert.equal(assignedClaudeCodeAgent?.cliUsesStableSessionId, true)
 
@@ -328,10 +316,12 @@ const assignZaiSession = applyWorkspaceSyncEvent(
       cliResumeAvailable: true,
       cliUsesStableSessionId: true,
     },
-  })
+  }),
 )
 assert.equal(assignZaiSession.status, 'applied')
-const assignedZaiAgent = assignZaiSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-zai']
+const assignedZaiAgent = assignZaiSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents[
+  'agent-zai'
+]
 assert.equal(assignedZaiAgent?.cliResumeAvailable, true)
 assert.equal(assignedZaiAgent?.cliUsesStableSessionId, true)
 
@@ -351,10 +341,12 @@ const assignCodexSession = applyWorkspaceSyncEvent(
       cliResumeAvailable: true,
       cliUsesStableSessionId: false,
     },
-  })
+  }),
 )
 assert.equal(assignCodexSession.status, 'applied')
-const assignedCodexAgent = assignCodexSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-codex']
+const assignedCodexAgent = assignCodexSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents[
+  'agent-codex'
+]
 assert.equal(assignedCodexAgent?.cliResumeAvailable, true)
 assert.equal(assignedCodexAgent?.cliUsesStableSessionId, false)
 
@@ -371,10 +363,12 @@ const assignShellSession = applyWorkspaceSyncEvent(
       cliResumeAvailable: false,
       cliUsesStableSessionId: false,
     },
-  })
+  }),
 )
 assert.equal(assignShellSession.status, 'applied')
-const assignedShellAgent = assignShellSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-shell']
+const assignedShellAgent = assignShellSession.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents[
+  'agent-shell'
+]
 assert.equal(assignedShellAgent?.cliResumeAvailable, false)
 assert.equal(assignedShellAgent?.cliUsesStableSessionId, false)
 
@@ -390,7 +384,7 @@ const launchUpdate = applyWorkspaceSyncEvent(
       cliStartRequested: false,
       cliOnboardingPromptSent: false,
     },
-  })
+  }),
 )
 assert.equal(launchUpdate.status, 'applied')
 const launchAgent = launchUpdate.state.workspaces.find((candidate) => candidate.id === 'ws-one')?.agents['agent-one']
@@ -484,11 +478,7 @@ assert.deepEqual(
   { providerId: 'openai-compatible', modelId: 'gpt-4o' },
   'sync snapshot preserves the provider/model selection',
 )
-assert.equal(
-  runtimeWs?.agents['term-agent']?.runtimeKind,
-  'terminal',
-  'sync snapshot keeps terminal agents terminal',
-)
+assert.equal(runtimeWs?.agents['term-agent']?.runtimeKind, 'terminal', 'sync snapshot keeps terminal agents terminal')
 assert.equal(
   runtimeWs?.agents['term-agent']?.conversation,
   undefined,

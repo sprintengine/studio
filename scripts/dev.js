@@ -73,7 +73,7 @@ async function configureParallelDevInstance() {
     env.SPRINTENGINE_USER_DATA_DIR = devProfileDir(rendererPort)
     env.SPRINTENGINE_ALLOW_MULTI_INSTANCE = '1'
     console.info(
-      `Starting parallel Multicode dev instance on port ${rendererPort} with userData ${env.SPRINTENGINE_USER_DATA_DIR}`
+      `Starting parallel Multicode dev instance on port ${rendererPort} with userData ${env.SPRINTENGINE_USER_DATA_DIR}`,
     )
   }
 }

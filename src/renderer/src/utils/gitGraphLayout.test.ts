@@ -1,9 +1,5 @@
 import assert from 'node:assert/strict'
-import {
-  computeGitGraphLayout,
-  type GitGraphInputCommit,
-  type GitGraphLine,
-} from './gitGraphLayout'
+import { computeGitGraphLayout, type GitGraphInputCommit, type GitGraphLine } from './gitGraphLayout'
 
 function run(name: string, body: () => void): void {
   try {
@@ -30,14 +26,13 @@ run('empty history produces no rows', () => {
 })
 
 run('linear history stays in a single column', () => {
-  const layout = computeGitGraphLayout([
-    commit('A', ['B']),
-    commit('B', ['C']),
-    commit('C', []),
-  ])
+  const layout = computeGitGraphLayout([commit('A', ['B']), commit('B', ['C']), commit('C', [])])
 
   assert.equal(layout.columns, 1)
-  assert.deepEqual(layout.rows.map((row) => row.column), [0, 0, 0])
+  assert.deepEqual(
+    layout.rows.map((row) => row.column),
+    [0, 0, 0],
+  )
 
   // A is a tip: only an outgoing edge down to its parent's lane.
   assert.ok(hasLine(layout.rows[0].lines, 'out', 0, 0))
@@ -52,11 +47,7 @@ run('linear history stays in a single column', () => {
 
 run('branch point: two tips share a parent and converge', () => {
   // X and Y are independent tips that both have P as their only parent.
-  const layout = computeGitGraphLayout([
-    commit('X', ['P']),
-    commit('Y', ['P']),
-    commit('P', []),
-  ])
+  const layout = computeGitGraphLayout([commit('X', ['P']), commit('Y', ['P']), commit('P', [])])
 
   assert.equal(layout.columns, 2)
   const [rowX, rowY, rowP] = layout.rows
@@ -119,25 +110,24 @@ run('octopus merge forks one lane per parent', () => {
 })
 
 run('independent roots stack without phantom connectors', () => {
-  const layout = computeGitGraphLayout([
-    commit('A', []),
-    commit('B', []),
-  ])
+  const layout = computeGitGraphLayout([commit('A', []), commit('B', [])])
 
   assert.equal(layout.columns, 1)
-  assert.deepEqual(layout.rows.map((row) => row.column), [0, 0])
+  assert.deepEqual(
+    layout.rows.map((row) => row.column),
+    [0, 0],
+  )
   assert.deepEqual(layout.rows[0].lines, [])
   assert.deepEqual(layout.rows[1].lines, [])
 })
 
 run('linear history keeps a single branch-line colour', () => {
-  const layout = computeGitGraphLayout([
-    commit('A', ['B']),
-    commit('B', ['C']),
-    commit('C', []),
-  ])
+  const layout = computeGitGraphLayout([commit('A', ['B']), commit('B', ['C']), commit('C', [])])
 
-  assert.deepEqual(layout.rows.map((row) => row.colorIndex), [0, 0, 0])
+  assert.deepEqual(
+    layout.rows.map((row) => row.colorIndex),
+    [0, 0, 0],
+  )
   for (const row of layout.rows) {
     for (const line of row.lines) assert.equal(line.colorIndex, 0)
   }
@@ -145,11 +135,7 @@ run('linear history keeps a single branch-line colour', () => {
 
 run('second tip opens a new branch-line colour and keeps it to the join', () => {
   // X and Y are independent tips converging on P.
-  const layout = computeGitGraphLayout([
-    commit('X', ['P']),
-    commit('Y', ['P']),
-    commit('P', []),
-  ])
+  const layout = computeGitGraphLayout([commit('X', ['P']), commit('Y', ['P']), commit('P', [])])
   const [rowX, rowY, rowP] = layout.rows
 
   assert.equal(rowX.colorIndex, 0)
@@ -186,11 +172,7 @@ run('merge parent opens a new branch-line colour', () => {
 run('headHash pins the checked-out branch line to colour slot 0', () => {
   // Newest commit X is a side tip; HEAD sits on Y's line, which would
   // otherwise take colour 1.
-  const commits = [
-    commit('X', ['P']),
-    commit('Y', ['P']),
-    commit('P', []),
-  ]
+  const commits = [commit('X', ['P']), commit('Y', ['P']), commit('P', [])]
   const layout = computeGitGraphLayout(commits, { headHash: 'Y' })
   const [rowX, rowY, rowP] = layout.rows
 
@@ -201,11 +183,7 @@ run('headHash pins the checked-out branch line to colour slot 0', () => {
 
 run('orphan branch alongside mainline keeps a parallel lane', () => {
   // mainline: M1 -> M2 ; orphan tip O with no shared ancestry.
-  const layout = computeGitGraphLayout([
-    commit('M1', ['M2']),
-    commit('O', []),
-    commit('M2', []),
-  ])
+  const layout = computeGitGraphLayout([commit('M1', ['M2']), commit('O', []), commit('M2', [])])
 
   // O occupies its own lane while the mainline lane passes through.
   const rowO = layout.rows[1]

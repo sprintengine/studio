@@ -3,11 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import {
-  parseCliPluginManifest,
-  validateCliPluginManifest,
-  type CliPluginManifest,
-} from '../src/cli-manifest.js'
+import { parseCliPluginManifest, validateCliPluginManifest, type CliPluginManifest } from '../src/cli-manifest.js'
 
 // A minimal-but-complete valid CLI plugin manifest.
 const VALID: CliPluginManifest = {
@@ -91,10 +87,7 @@ test('rejects a themeSelection schemes map missing a scheme', () => {
 
 test('accepts the bundled codex plugin.json (app and SDK agree)', () => {
   // The validator must accept manifests the running app ships and loads.
-  const source = readFileSync(
-    join(process.cwd(), 'resources', 'plugins', 'codex', 'plugin.json'),
-    'utf8'
-  )
+  const source = readFileSync(join(process.cwd(), 'resources', 'plugins', 'codex', 'plugin.json'), 'utf8')
   const result = parseCliPluginManifest(source)
   assert.equal(result.ok, true, result.ok ? '' : JSON.stringify(result.issues))
 })
@@ -107,7 +100,11 @@ test('accepts a valid agentStateSpec (hooks and plugin-file registrations)', () 
       events: [
         { event: 'SessionStart', phase: 'starting' },
         { event: 'PostToolUse', matcher: '*', phase: 'thinking' },
-        { event: 'Notification', phase: 'awaiting_input', when: { field: 'notificationType', oneOf: ['permission_prompt'] } },
+        {
+          event: 'Notification',
+          phase: 'awaiting_input',
+          when: { field: 'notificationType', oneOf: ['permission_prompt'] },
+        },
         { event: 'PreToolUse', phase: 'tool_use', register: false },
         { event: 'Stop', phase: 'idle', turnEnd: true },
         { event: 'SubagentStart', phase: 'tool_use', background: 'start' },

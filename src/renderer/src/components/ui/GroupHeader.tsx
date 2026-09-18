@@ -173,7 +173,7 @@ export function GroupHeaderAction({
       type="button"
       aria-label={ariaLabel}
       aria-haspopup={menu ? 'menu' : undefined}
-      aria-expanded={menu ? expanded ?? false : undefined}
+      aria-expanded={menu ? (expanded ?? false) : undefined}
       onClick={onClick}
       className={`grid size-[var(--hit-target-min)] place-items-center rounded-xs text-[color:var(--text-subtle)] hover:bg-[color:var(--bg-active)] hover:text-[color:var(--text-strong)] ${FOCUS_RING_INSET_CLASS}`}
     >

@@ -68,9 +68,10 @@ async function main(): Promise<void> {
   })
 
   registerWorkspaceSyncIpc(ipcMain as unknown as Parameters<typeof registerWorkspaceSyncIpc>[0], service, {
-    listWindows: () => [source.window, target.window, destroyed] as unknown as ReturnType<
-      NonNullable<NonNullable<Parameters<typeof registerWorkspaceSyncIpc>[2]>['listWindows']>
-    >,
+    listWindows: () =>
+      [source.window, target.window, destroyed] as unknown as ReturnType<
+        NonNullable<NonNullable<Parameters<typeof registerWorkspaceSyncIpc>[2]>['listWindows']>
+      >,
     getSourceWindowId: () => 'primary',
   })
 

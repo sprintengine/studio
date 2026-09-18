@@ -235,9 +235,7 @@ async function main() {
       if (result.ok) {
         progress(`  ${done}/${selected.length} passing…`)
       } else {
-        const detail = result.hung
-          ? `hung: ${testPath}`
-          : `${result.stdout}\n${result.stderr}`.trim()
+        const detail = result.hung ? `hung: ${testPath}` : `${result.stdout}\n${result.stderr}`.trim()
         failures.push({ testPath, detail })
         progress(''.padEnd(60))
         console.log(`  FAIL ${testPath}`)

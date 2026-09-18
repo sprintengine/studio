@@ -56,9 +56,7 @@ domWindow.api = {
   platform: 'darwin',
   detectProjectLogo: async (folderPath: string) => {
     detected.push(folderPath)
-    return folderPath === '/projA'
-      ? { path: '/projA/logo.svg', mtimeMs: 1, dataUrl: LOGO_DATA_URL }
-      : null
+    return folderPath === '/projA' ? { path: '/projA/logo.svg', mtimeMs: 1, dataUrl: LOGO_DATA_URL } : null
   },
 }
 
@@ -66,7 +64,8 @@ domWindow.api = {
 // mark rather than to "some svg is present". The standard glyph is the terminal
 // mark the chat rows used to wear; it must not come back.
 const STANDARD_GLYPH_PATH = 'M7.25 10L10 12.5L7.25 15'
-const FOLDER_GLYPH_PATH = 'M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z'
+const FOLDER_GLYPH_PATH =
+  'M2 4.5C2 3.67 2.67 3 3.5 3H6.5L8 4.5H12.5C13.33 4.5 14 5.17 14 6V11.5C14 12.33 13.33 13 12.5 13H3.5C2.67 13 2 12.33 2 11.5V4.5Z'
 
 async function main(): Promise<void> {
   const React = await import('react')
@@ -149,10 +148,7 @@ async function main(): Promise<void> {
     // The row opens on its title, not on an icon slot. (The trailing action
     // cluster still holds glyphs — close, activity — so this pins the LEADING
     // edge rather than asserting the row is svg-free.)
-    assert.ok(
-      row.firstElementChild?.textContent?.includes(name),
-      `${name}'s row opens on its title, not an icon slot`,
-    )
+    assert.ok(row.firstElementChild?.textContent?.includes(name), `${name}'s row opens on its title, not an icon slot`)
   }
 
   // The folder headers: the slot, both halves of it.

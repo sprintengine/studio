@@ -42,11 +42,7 @@ import { access, cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'nod
 import { tmpdir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
-import {
-  DEFAULT_SKILL_INSTALL_MAX_FILES,
-  DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES,
-  resolveSkillFilePath,
-} from './install'
+import { DEFAULT_SKILL_INSTALL_MAX_FILES, DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES, resolveSkillFilePath } from './install'
 import { isPathStrictlyInside } from '../path-containment'
 
 /** Where a source's plugins land inside a workspace. */
@@ -132,8 +128,7 @@ export type PluginDirectoryInstallOptions = {
 }
 
 export type PluginDirectoryInstallResult =
-  | { ok: true; dirName: string; root: string; fileCount: number }
-  | { ok: false; message: string }
+  { ok: true; dirName: string; root: string; fileCount: number } | { ok: false; message: string }
 
 /**
  * Stage the whole directory, then swap it into place.
@@ -144,7 +139,7 @@ export type PluginDirectoryInstallResult =
  * `materialiseStudioPlugin` does with the app's own plugin.
  */
 export async function installPluginDirectory(
-  options: PluginDirectoryInstallOptions
+  options: PluginDirectoryInstallOptions,
 ): Promise<PluginDirectoryInstallResult> {
   const dirName = pluginDirectoryName(options.pluginId)
   if (dirName === '') {
@@ -175,7 +170,10 @@ export async function installPluginDirectory(
   // made — is left standing and the install says so, because overwriting it
   // would be this app deleting files it did not write.
   const standing = await readPluginDirectoryProvenance(destination)
-  if (standing && (standing.sourceId !== options.provenance.sourceId || standing.pluginId !== options.provenance.pluginId)) {
+  if (
+    standing &&
+    (standing.sourceId !== options.provenance.sourceId || standing.pluginId !== options.provenance.pluginId)
+  ) {
     return {
       ok: false,
       message: `${destination} already holds ${standing.pluginId} from another source, so ${options.pluginId} was not installed. Remove that plugin first.`,
@@ -233,8 +231,7 @@ export async function installPluginDirectory(
 }
 
 export type PluginDirectoryUninstallResult =
-  | { ok: true; removedPaths: string[]; warnings: string[] }
-  | { ok: false; message: string }
+  { ok: true; removedPaths: string[]; warnings: string[] } | { ok: false; message: string }
 
 /**
  * Take a plugin's copied directory back out, by the name the install receipt
@@ -275,7 +272,6 @@ export async function uninstallPluginDirectory(options: {
 async function exists(path: string): Promise<boolean> {
   return access(path).then(
     () => true,
-    () => false
+    () => false,
   )
 }
-

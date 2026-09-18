@@ -1,4 +1,9 @@
-import type { AutomationActionProvider, AutomationProviderGlyph, AutomationTriggerProvider, JsonSchema } from '../../shared/automations/contracts'
+import type {
+  AutomationActionProvider,
+  AutomationProviderGlyph,
+  AutomationTriggerProvider,
+  JsonSchema,
+} from '../../shared/automations/contracts'
 import { BUNDLED_MODULE_IDS } from '../../shared/modules/manifest'
 import { createRunSkillLoopActionProvider } from './actions/run-skill-loop'
 import { createSpawnAgentActionProvider } from './actions/spawn-agent'
@@ -22,12 +27,10 @@ export type RegisteredAutomationProvider<T extends AutomationTriggerProvider | A
   provider: T
 }
 
-export type AutomationProviderPermission =
-  | { ok: true }
-  | { ok: false; reason: string }
+export type AutomationProviderPermission = { ok: true } | { ok: false; reason: string }
 
 export type AutomationProviderPermissionChecker = (
-  registration: RegisteredAutomationProvider<AutomationTriggerProvider | AutomationActionProvider>
+  registration: RegisteredAutomationProvider<AutomationTriggerProvider | AutomationActionProvider>,
 ) => AutomationProviderPermission
 
 export type AutomationProviderRegistryService = Pick<
@@ -36,7 +39,10 @@ export type AutomationProviderRegistryService = Pick<
 >
 
 export class AutomationProviderRegistrationError extends Error {
-  constructor(message: string, readonly providerId: string) {
+  constructor(
+    message: string,
+    readonly providerId: string,
+  ) {
     super(message)
     this.name = 'AutomationProviderRegistrationError'
   }
@@ -91,7 +97,7 @@ export class AutomationProviderRegistry {
     if (this.registeredProviderIds.has(providerId)) {
       throw new AutomationProviderRegistrationError(
         `Duplicate automation ${providerType} provider registration for "${providerId}".`,
-        providerId
+        providerId,
       )
     }
     this.registeredProviderIds.add(providerId)
@@ -133,7 +139,7 @@ export function isFirstPartyAutomationProviderModule(moduleId: string): boolean 
 
 export function automationProviderBlockedReason(
   registration: RegisteredAutomationProvider<AutomationTriggerProvider | AutomationActionProvider>,
-  permission: AutomationProviderPermission
+  permission: AutomationProviderPermission,
 ): string | undefined {
   if (permission.ok) return undefined
   return `Automation ${registration.providerType} provider "${registration.kind}" from module "${registration.moduleId}" is blocked: ${permission.reason}`
@@ -141,7 +147,7 @@ export function automationProviderBlockedReason(
 
 export function executableTriggerProviders(
   registrations: RegisteredAutomationProvider<AutomationTriggerProvider>[],
-  checkPermission: AutomationProviderPermissionChecker
+  checkPermission: AutomationProviderPermissionChecker,
 ): AutomationTriggerProvider[] {
   return registrations.map((registration) => {
     const permission = checkPermission(registration)
@@ -152,7 +158,7 @@ export function executableTriggerProviders(
 
 export function executableActionProviders(
   registrations: RegisteredAutomationProvider<AutomationActionProvider>[],
-  checkPermission: AutomationProviderPermissionChecker
+  checkPermission: AutomationProviderPermissionChecker,
 ): AutomationActionProvider[] {
   return registrations.map((registration) => {
     const permission = checkPermission(registration)
@@ -163,10 +169,11 @@ export function executableActionProviders(
 
 function blockedTriggerProvider(
   registration: RegisteredAutomationProvider<AutomationTriggerProvider>,
-  permission: AutomationProviderPermission
+  permission: AutomationProviderPermission,
 ): AutomationTriggerProvider {
-  const blockedReason = automationProviderBlockedReason(registration, permission)
-    ?? `Automation trigger provider "${registration.kind}" is blocked.`
+  const blockedReason =
+    automationProviderBlockedReason(registration, permission) ??
+    `Automation trigger provider "${registration.kind}" is blocked.`
   return {
     kind: registration.kind,
     ...(registration.label ? { label: registration.label } : {}),
@@ -181,10 +188,11 @@ function blockedTriggerProvider(
 
 function blockedActionProvider(
   registration: RegisteredAutomationProvider<AutomationActionProvider>,
-  permission: AutomationProviderPermission
+  permission: AutomationProviderPermission,
 ): AutomationActionProvider {
-  const blockedReason = automationProviderBlockedReason(registration, permission)
-    ?? `Automation action provider "${registration.kind}" is blocked.`
+  const blockedReason =
+    automationProviderBlockedReason(registration, permission) ??
+    `Automation action provider "${registration.kind}" is blocked.`
   return {
     kind: registration.kind,
     ...(registration.label ? { label: registration.label } : {}),
@@ -230,11 +238,7 @@ function snapshotRequiredIntegrations(provider: AutomationTriggerProvider | Auto
   return value.filter((integration): integration is string => typeof integration === 'string')
 }
 
-function ownDataProperty<T>(
-  target: object,
-  key: string,
-  fallback: T
-): T {
+function ownDataProperty<T>(target: object, key: string, fallback: T): T {
   const descriptor = Object.getOwnPropertyDescriptor(target, key)
   if (!descriptor || !('value' in descriptor)) return fallback
   return descriptor.value as T

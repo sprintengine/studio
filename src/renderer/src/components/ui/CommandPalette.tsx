@@ -290,9 +290,7 @@ export default function CommandPalette({
         // two palette rows running the same skill.
         setInstalledSkills(
           result.ok
-            ? result.skills.filter(
-                (skill) => skill.installState !== 'available' && skill.source !== 'builtin',
-              )
+            ? result.skills.filter((skill) => skill.installState !== 'available' && skill.source !== 'builtin')
             : [],
         )
       })
@@ -379,8 +377,7 @@ export default function CommandPalette({
     // the palette and the shortcut path always agree on availability. The panel
     // that owns the command still performs the final precondition check and
     // surfaces a real diagnostic if state changed between open and run.
-    const panelCommandEnabled = (id: string): boolean =>
-      isCommandIdEnabled(id, activeScopes, commandAvailability)
+    const panelCommandEnabled = (id: string): boolean => isCommandIdEnabled(id, activeScopes, commandAvailability)
     // Git refresh/fetch/commit run the Git panel's real handlers; the shared
     // availability context (gitPanelActive) keeps them listed only while the Git
     // panel is open, so a selection cannot land on an unmounted handler. They are
@@ -390,12 +387,42 @@ export default function CommandPalette({
       onClose()
     }
     const gitCommands: UngroupedCommand[] = [
-      { id: 'git.refresh', label: 'Git: Refresh status', shortcut: shortcutFor('git.refresh'), run: runGitPanel('git.refresh') },
-      { id: 'git.fetch', label: 'Git: Fetch remotes', shortcut: shortcutFor('git.fetch'), run: runGitPanel('git.fetch') },
-      { id: 'git.commit', label: 'Git: Commit staged changes', shortcut: shortcutFor('git.commit'), run: runGitPanel('git.commit') },
-      { id: 'git.changes.showDiff', label: 'Git: Show diff for the selected file', shortcut: shortcutFor('git.changes.showDiff'), run: runGitPanel('git.changes.showDiff') },
-      { id: 'git.changes.discard', label: 'Git: Discard changes in the selected files', shortcut: shortcutFor('git.changes.discard'), run: runGitPanel('git.changes.discard') },
-      { id: 'git.changes.moveToChangelist', label: 'Git: Move the selected files to another changelist', shortcut: shortcutFor('git.changes.moveToChangelist'), run: runGitPanel('git.changes.moveToChangelist') },
+      {
+        id: 'git.refresh',
+        label: 'Git: Refresh status',
+        shortcut: shortcutFor('git.refresh'),
+        run: runGitPanel('git.refresh'),
+      },
+      {
+        id: 'git.fetch',
+        label: 'Git: Fetch remotes',
+        shortcut: shortcutFor('git.fetch'),
+        run: runGitPanel('git.fetch'),
+      },
+      {
+        id: 'git.commit',
+        label: 'Git: Commit staged changes',
+        shortcut: shortcutFor('git.commit'),
+        run: runGitPanel('git.commit'),
+      },
+      {
+        id: 'git.changes.showDiff',
+        label: 'Git: Show diff for the selected file',
+        shortcut: shortcutFor('git.changes.showDiff'),
+        run: runGitPanel('git.changes.showDiff'),
+      },
+      {
+        id: 'git.changes.discard',
+        label: 'Git: Discard changes in the selected files',
+        shortcut: shortcutFor('git.changes.discard'),
+        run: runGitPanel('git.changes.discard'),
+      },
+      {
+        id: 'git.changes.moveToChangelist',
+        label: 'Git: Move the selected files to another changelist',
+        shortcut: shortcutFor('git.changes.moveToChangelist'),
+        run: runGitPanel('git.changes.moveToChangelist'),
+      },
     ].filter((command) => panelCommandEnabled(command.id))
     const panelToggleCommands: UngroupedCommand[] = activeWorkspace
       ? [
@@ -476,13 +503,15 @@ export default function CommandPalette({
     // groups; the handler is the module's own callback.
     const moduleCommands: UngroupedCommand[] = getRendererHost()
       .getModuleCommands((moduleId) => selectModuleEnabled(moduleEnablement, moduleId))
-      .filter((moduleCommand) => isCommandEnabled(moduleCommand, activeScopes, commandAvailability, moduleCommandContext))
+      .filter((moduleCommand) =>
+        isCommandEnabled(moduleCommand, activeScopes, commandAvailability, moduleCommandContext),
+      )
       .map((moduleCommand) => ({
         id: moduleCommand.id,
         label: `${moduleCommand.category}: ${moduleCommand.title}`,
         shortcut:
-          getEffectiveKeybindingLabel(moduleCommand.id, keybindingSettings, keybindingPlatform, moduleCommand)
-          ?? undefined,
+          getEffectiveKeybindingLabel(moduleCommand.id, keybindingSettings, keybindingPlatform, moduleCommand) ??
+          undefined,
         run: () => {
           void moduleCommand.run()
           onClose()
@@ -491,11 +520,10 @@ export default function CommandPalette({
 
     // Registry- and panel-backed commands are all one source group; stamp it
     // once here rather than on every literal above.
-    const registryCommands: Command[] = [
-      ...panelToggleCommands,
-      ...gitCommands,
-      ...moduleCommands,
-    ].map((command) => ({ ...command, group: 'commands' as const }))
+    const registryCommands: Command[] = [...panelToggleCommands, ...gitCommands, ...moduleCommands].map((command) => ({
+      ...command,
+      group: 'commands' as const,
+    }))
 
     // Skills are a provider now (see below): they are one of three sources that
     // fetch, and the group also carries every skill the configured SOURCES hold.
@@ -518,8 +546,7 @@ export default function CommandPalette({
           // in front of every one of them was the verb said eight times.
           // "switch" still finds them, through the keywords.
           label: workspace.name,
-          description:
-            workspace.folderPath ?? (workspace.id === activeWorkspaceId ? 'active workspace' : undefined),
+          description: workspace.folderPath ?? (workspace.id === activeWorkspaceId ? 'active workspace' : undefined),
           keywords: `switch to ${workspaceSearchKeywords(workspace.mode)}`,
           mark: { kind: 'chat', workspaceId: workspace.id, mode: workspace.mode },
           group: 'agents',
@@ -621,7 +648,25 @@ export default function CommandPalette({
           }))
         : []),
     ]
-  }, [workspaces, activeWorkspace, activeWorkspaceId, activeFolderPath, openFiles, setActiveWorkspaceForWindow, setActiveFile, onClose, onRunCommand, onOpenRemoteConnections, workspaceWindowId, keybindingPlatform, keybindingSettings, activeScopes, commandAvailability, moduleCommandContext, moduleEnablement])
+  }, [
+    workspaces,
+    activeWorkspace,
+    activeWorkspaceId,
+    activeFolderPath,
+    openFiles,
+    setActiveWorkspaceForWindow,
+    setActiveFile,
+    onClose,
+    onRunCommand,
+    onOpenRemoteConnections,
+    workspaceWindowId,
+    keybindingPlatform,
+    keybindingSettings,
+    activeScopes,
+    commandAvailability,
+    moduleCommandContext,
+    moduleEnablement,
+  ])
 
   // ── Handing a result to an agent ────────────────────────────────────────
   //
@@ -672,9 +717,7 @@ export default function CommandPalette({
       // The invocation is at that agent's prompt, unsubmitted; the keyboard
       // goes there with it (see the focus-restore effect).
       focusAfterCloseRef.current =
-        session.workspaceId && session.agentId
-          ? { workspaceId: session.workspaceId, agentId: session.agentId }
-          : null
+        session.workspaceId && session.agentId ? { workspaceId: session.workspaceId, agentId: session.agentId } : null
       onClose()
     }
     const useIn = async (session: LiveAgentSession) => {
@@ -755,9 +798,7 @@ export default function CommandPalette({
 
   // A skill the workspace already has: nothing to install, just resolve it.
   const useInstalledSkill = (skillId: string, skillName: string) =>
-    runSkillFlow(skillName, () =>
-      resolveWorkspaceSkill({ workspaceRoot: activeFolderPath, skillId }),
-    )
+    runSkillFlow(skillName, () => resolveWorkspaceSkill({ workspaceRoot: activeFolderPath, skillId }))
 
   // A skill a source holds: installed first when it is not in yet.
   const onSelectSkill = (row: ExtensionSkillRow) =>
@@ -870,8 +911,7 @@ export default function CommandPalette({
         // reads every file's bytes for rows it hides, and the Text tab never
         // lists file names.
         const wantsFiles = groupInScope('files', context.scope)
-        const wantsContent =
-          groupInScope('content', context.scope) && searchQuery.length >= CONTENT_SEARCH_MIN_QUERY
+        const wantsContent = groupInScope('content', context.scope) && searchQuery.length >= CONTENT_SEARCH_MIN_QUERY
         const [fileResult, contentResult] = await Promise.all([
           wantsFiles
             ? window.api
@@ -886,11 +926,12 @@ export default function CommandPalette({
         ])
         // Only a failure the user would otherwise read as "no matches" is worth
         // surfacing; a cancelled run resolves ok with an empty list.
-        const failure = fileResult && !fileResult.ok
-          ? fileResult.message
-          : contentResult && !contentResult.ok
-            ? contentResult.message
-            : null
+        const failure =
+          fileResult && !fileResult.ok
+            ? fileResult.message
+            : contentResult && !contentResult.ok
+              ? contentResult.message
+              : null
         if (failure) throw new Error(failure)
         // Disk results are already matched — ripgrep did the matching in the
         // main process — so they carry no keywords and are never re-filtered
@@ -963,17 +1004,15 @@ export default function CommandPalette({
       id: 'installed-skills',
       group: 'skills',
       respondsToEmptyQuery: true,
-      load: (searchQuery) => orderPaletteCommands(rows, searchQuery).filter((row) => commandMatchesQuery(row, searchQuery)),
+      load: (searchQuery) =>
+        orderPaletteCommands(rows, searchQuery).filter((row) => commandMatchesQuery(row, searchQuery)),
     }
   }, [builtinSkills, installedSkills])
 
   // Every skill and plugin every configured source holds, from the cached scans
   // the Extensions door reads — plus the first-party registry. This is the one
   // that makes the palette a search for things you have NOT installed.
-  const installedDirNames = useMemo(
-    () => new Set(installedSkills.map((skill) => skill.id)),
-    [installedSkills],
-  )
+  const installedDirNames = useMemo(() => new Set(installedSkills.map((skill) => skill.id)), [installedSkills])
   // Constructed once, deliberately: it warms by reading every source's cached
   // scan, and a provider re-created because the inventory landed or the scope
   // chip was popped would throw that warm away and read them all again. The two
@@ -1075,9 +1114,9 @@ export default function CommandPalette({
       const current = map.get(session.workspaceId)
       // A living process outranks a parked one; among peers, the latest.
       if (
-        !current
-        || (session.processAlive && !current.alive)
-        || (session.processAlive === current.alive && at > current.at)
+        !current ||
+        (session.processAlive && !current.alive) ||
+        (session.processAlive === current.alive && at > current.at)
       ) {
         map.set(session.workspaceId, { cli: session.cli, at, alive: session.processAlive })
       }
@@ -1270,12 +1309,7 @@ export default function CommandPalette({
             </div>
           </div>
 
-          <div
-            id={resultsId}
-            role="listbox"
-            aria-label="Search results"
-            className="max-h-[360px] overflow-y-auto py-1"
-          >
+          <div id={resultsId} role="listbox" aria-label="Search results" className="max-h-[360px] overflow-y-auto py-1">
             {/* An action that failed says so where the person is looking, and
                 the list stays up: a skill whose install was refused must not
                 also make the palette vanish. */}
@@ -1412,11 +1446,7 @@ export default function CommandPalette({
                         ) : command.mark ? (
                           renderMark(command.mark)
                         ) : command.icon ? (
-                          <ExtensionIcon
-                            name={command.label}
-                            size={PALETTE_ROW_ICON_SIZE}
-                            {...command.icon}
-                          />
+                          <ExtensionIcon name={command.label} size={PALETTE_ROW_ICON_SIZE} {...command.icon} />
                         ) : null}
                         <div className="min-w-0 flex-1">
                           <div className="flex min-w-0 items-center gap-2">
@@ -1458,7 +1488,6 @@ export default function CommandPalette({
               ))
             )}
           </div>
-
         </div>
       </FocusTrap>
     </div>

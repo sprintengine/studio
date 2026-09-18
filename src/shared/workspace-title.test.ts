@@ -61,9 +61,7 @@ run('preserves identifier casing and lifts only the first character', () => {
 })
 
 run('caps at the word and character limits on a word boundary', () => {
-  const title = deriveWorkspaceTitle(
-    'refactor the authentication middleware configuration loader immediately',
-  )
+  const title = deriveWorkspaceTitle('refactor the authentication middleware configuration loader immediately')
   assert.ok(title)
   assert.ok(title.length <= MAX_WORKSPACE_TITLE_LENGTH, `too long: ${title}`)
   assert.ok(!title.endsWith(' '), 'trailing space survived')
@@ -131,10 +129,7 @@ run('rejects non-string input rather than throwing', () => {
 })
 
 run('stripInjectedFragments leaves ordinary prose untouched', () => {
-  assert.equal(
-    stripInjectedFragments('fix the retry loop in the uploader'),
-    'fix the retry loop in the uploader',
-  )
+  assert.equal(stripInjectedFragments('fix the retry loop in the uploader'), 'fix the retry loop in the uploader')
 })
 
 run('stripInjectedFragments collapses whitespace left by removals', () => {

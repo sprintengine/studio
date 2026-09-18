@@ -16,13 +16,7 @@ type Props = {
   workspaceId: string | null
 }
 
-export default function DiffViewerWindow({
-  repoRoot,
-  focusPath,
-  focusKind,
-  changelistId = null,
-  workspaceId,
-}: Props) {
+export default function DiffViewerWindow({ repoRoot, focusPath, focusKind, changelistId = null, workspaceId }: Props) {
   return (
     <DiffViewer
       repoRoot={repoRoot}

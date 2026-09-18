@@ -9,13 +9,7 @@
 import assert from 'node:assert/strict'
 
 import type { ScannedPlugin, SkillSource } from '../../../../../../../shared/skills'
-import {
-  extensionIconProps,
-  pluginArtwork,
-  pluginsByFolder,
-  skillArtwork,
-  sourceArtwork,
-} from './pluginArtwork'
+import { extensionIconProps, pluginArtwork, pluginsByFolder, skillArtwork, sourceArtwork } from './pluginArtwork'
 
 const SIZE = 36
 
@@ -89,7 +83,14 @@ run('an in-tree plugin borrows the source repository’s owner', () => {
 
 run('a linked plugin borrows ITS OWN repository’s owner, not the marketplace’s', () => {
   const linked = plugin({
-    origin: { kind: 'linked', repo: 'pbakaus/impeccable', ref: '', sha: '', path: '', url: 'https://github.com/pbakaus/impeccable' },
+    origin: {
+      kind: 'linked',
+      repo: 'pbakaus/impeccable',
+      ref: '',
+      sha: '',
+      path: '',
+      url: 'https://github.com/pbakaus/impeccable',
+    },
   })
   assert.deepEqual(
     pluginArtwork(linked, source(), SIZE),

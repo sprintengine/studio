@@ -48,7 +48,10 @@ function createService(): { service: CanvasServiceInternal; recorded: Recorded[]
     }
   const service = {
     listBoards: record('listBoards', Promise.resolve(canvasOk([]))),
-    openBoard: record('openBoard', Promise.resolve(canvasOk({ path: 'diagrams/a.excalidraw', revision: 1, elements: [], appState: {}, files: {} }))),
+    openBoard: record(
+      'openBoard',
+      Promise.resolve(canvasOk({ path: 'diagrams/a.excalidraw', revision: 1, elements: [], appState: {}, files: {} })),
+    ),
     closeBoard: record('closeBoard', undefined),
     commitScene: record('commitScene', Promise.resolve(canvasOk({ revision: 2, elements: null }))),
     noteHumanInput: record('noteHumanInput', undefined),
@@ -57,7 +60,11 @@ function createService(): { service: CanvasServiceInternal; recorded: Recorded[]
   return { service, recorded }
 }
 
-function createSubscribers(): { registry: CanvasSubscriberRegistry; added: number[]; gone: Array<(id: number) => void> } {
+function createSubscribers(): {
+  registry: CanvasSubscriberRegistry
+  added: number[]
+  gone: Array<(id: number) => void>
+} {
   const added: number[] = []
   const gone: Array<(id: number) => void> = []
   const registry = {
@@ -88,11 +95,7 @@ async function main(): Promise<void> {
   const ipcMain = createIpcMain()
   const { service, recorded } = createService()
   const subscribers = createSubscribers()
-  registerCanvasIpc(
-    ipcMain as unknown as Parameters<typeof registerCanvasIpc>[0],
-    service,
-    subscribers.registry,
-  )
+  registerCanvasIpc(ipcMain as unknown as Parameters<typeof registerCanvasIpc>[0], service, subscribers.registry)
 
   for (const channel of ['canvas:list-boards', 'canvas:open-board', 'canvas:close-board', 'canvas:commit-scene']) {
     assert.ok(ipcMain.handlers.has(channel), `${channel} is registered`)

@@ -1,8 +1,5 @@
 import type { LifecycleState } from '../../ui'
-import {
-  isAgentCliAvailable,
-  type AgentCliCatalogOption,
-} from '../../workspace/newWorkspace/cliRuntimeOptions'
+import { isAgentCliAvailable, type AgentCliCatalogOption } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import {
   SCHEDULE_TRIGGER_KIND,
   WEBHOOK_TRIGGER_KIND,
@@ -34,9 +31,7 @@ export { WEEKDAY_SHORT }
 // Shared async + editor state used across the control-center modules.
 export type AsyncState = 'idle' | 'loading' | 'ready' | 'error'
 
-export type EditorState =
-  | { mode: 'create' }
-  | { mode: 'edit'; definition: AutomationDefinition }
+export type EditorState = { mode: 'create' } | { mode: 'edit'; definition: AutomationDefinition }
 
 // ---------------------------------------------------------------------------
 // Status mapping — status reads by glyph shape + text label, never colour alone
@@ -245,7 +240,13 @@ export type WebhookForm = {
 }
 
 export const EMPTY_WEBHOOK_FORM: WebhookForm = {
-  enabled: false, port: '', path: '', secret: '', hasSecret: false, eventType: '', label: '',
+  enabled: false,
+  port: '',
+  path: '',
+  secret: '',
+  hasSecret: false,
+  eventType: '',
+  label: '',
 }
 
 // The full trigger sub-state resolveSubmitTrigger reads. EditorFormState extends
@@ -427,8 +428,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
     const aKeys = Object.keys(a as Record<string, unknown>)
     const bKeys = Object.keys(b as Record<string, unknown>)
     if (aKeys.length !== bKeys.length) return false
-    return aKeys.every((key) =>
-      deepEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
+    return aKeys.every((key) => deepEqual((a as Record<string, unknown>)[key], (b as Record<string, unknown>)[key]))
   }
   return false
 }
@@ -498,10 +498,7 @@ export function sortDefinitions(defs: AutomationDefinition[], now: number): Auto
 // codex/claude-code options, and never surfaces hidden ids like generic-shell).
 // So a stale unlaunchable value is rejected in every registry state, not just
 // once the registry reaches `ready`.
-export function automationCliFieldError(
-  cli: string | undefined,
-  catalog: AgentCliCatalogOption[],
-): string | null {
+export function automationCliFieldError(cli: string | undefined, catalog: AgentCliCatalogOption[]): string | null {
   const value = cli?.trim()
   if (!value) return null
   if (!isAgentCliAvailable(value, catalog)) {
@@ -572,18 +569,26 @@ export async function aggregateFeedRuns(
   timeoutMs = RUNS_FEED_LOAD_TIMEOUT_MS,
 ): Promise<{ runs: AutomationFeedRun[]; partialCount: number }> {
   let partial = 0
-  const perDefinition = await Promise.all(definitions.map(async (def): Promise<AutomationFeedRun[]> => {
-    try {
-      const result = await settleWithTimeout(loadRuns(def), timeoutMs)
-      if (result === FEED_LOAD_TIMEOUT || !result.ok) { partial += 1; return [] }
-      return result.value.map((run) => ({
-        run, definitionId: def.id, definitionName: def.name, triggerKind: def.trigger.kind,
-      }))
-    } catch {
-      partial += 1
-      return []
-    }
-  }))
+  const perDefinition = await Promise.all(
+    definitions.map(async (def): Promise<AutomationFeedRun[]> => {
+      try {
+        const result = await settleWithTimeout(loadRuns(def), timeoutMs)
+        if (result === FEED_LOAD_TIMEOUT || !result.ok) {
+          partial += 1
+          return []
+        }
+        return result.value.map((run) => ({
+          run,
+          definitionId: def.id,
+          definitionName: def.name,
+          triggerKind: def.trigger.kind,
+        }))
+      } catch {
+        partial += 1
+        return []
+      }
+    }),
+  )
   return { runs: mergeFeedRuns(perDefinition), partialCount: partial }
 }
 

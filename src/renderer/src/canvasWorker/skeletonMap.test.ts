@@ -121,13 +121,23 @@ run('an arrow carries its resolved ends and its routed points', () => {
   const skeleton = toLibrarySkeleton({
     id: 'arrow1',
     skeleton: { type: 'arrow', x: 0, y: 0, text: 'next' },
-    linear: { x: 100, y: 50, points: [[0, 0], [80, 0]] },
+    linear: {
+      x: 100,
+      y: 50,
+      points: [
+        [0, 0],
+        [80, 0],
+      ],
+    },
     startId: 'a',
     endId: 'b',
   })
   assert.equal(skeleton.x, 100)
   assert.equal(skeleton.y, 50)
-  assert.deepEqual(skeleton.points, [[0, 0], [80, 0]])
+  assert.deepEqual(skeleton.points, [
+    [0, 0],
+    [80, 0],
+  ])
   assert.equal(skeleton.width, 80)
   assert.deepEqual(skeleton.start, { id: 'a' })
   assert.deepEqual(skeleton.end, { id: 'b' })

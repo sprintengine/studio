@@ -12,7 +12,16 @@ import {
 } from './cli-availability'
 
 function entry(id: string, displayName = id): PluginRegistryListEntry {
-  return { id, displayName, source: 'bundled', version: 1, binary: id, resumeSession: false, sessionIdFromCaller: false, agentStateCapable: true }
+  return {
+    id,
+    displayName,
+    source: 'bundled',
+    version: 1,
+    binary: id,
+    resumeSession: false,
+    sessionIdFromCaller: false,
+    agentStateCapable: true,
+  }
 }
 
 function detected(cli: AgentCli, installed: boolean, error: string | null = null): CliDetectResult {

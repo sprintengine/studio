@@ -56,11 +56,21 @@ run('formatBytes renders binary units', () => {
 run('report carries every section and key totals', () => {
   const aggregation = aggregateDiagnostics({
     sessions: [
-      session({ sessionId: 'a', workspaceId: 'ws-hidden', visible: true, retainedOutputBytes: 2 * MIB, agentId: 'Nova', cli: 'codex' }),
+      session({
+        sessionId: 'a',
+        workspaceId: 'ws-hidden',
+        visible: true,
+        retainedOutputBytes: 2 * MIB,
+        agentId: 'Nova',
+        cli: 'codex',
+      }),
       session({ sessionId: 'b', workspaceId: 'ws-active', visible: true, retainedOutputBytes: 10 }),
     ],
     activeWorkspaceIds: new Set(['ws-active']),
-    workspaceNames: new Map([['ws-hidden', 'Hidden WS'], ['ws-active', 'Active WS']]),
+    workspaceNames: new Map([
+      ['ws-hidden', 'Hidden WS'],
+      ['ws-active', 'Active WS'],
+    ]),
     now: NOW,
   })
   const metrics: ProcessMetricsSnapshot = {

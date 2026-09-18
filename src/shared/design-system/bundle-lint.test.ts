@@ -60,11 +60,7 @@ run('the example bundle carries the templates verbatim (stamping is a copy)', ()
 
 run('USAGE.md names the lint and regeneration scripts as runnable commands', () => {
   const usage = readFileSync(join(templatesRoot, 'USAGE.md'), 'utf8')
-  for (const command of [
-    'node scripts/lint.mjs',
-    'node scripts/build-tokens.mjs',
-    'node scripts/build-catalog.mjs',
-  ]) {
+  for (const command of ['node scripts/lint.mjs', 'node scripts/build-tokens.mjs', 'node scripts/build-catalog.mjs']) {
     assert.ok(usage.includes(command), `USAGE.md does not name the command: ${command}`)
   }
 })

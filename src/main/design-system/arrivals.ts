@@ -1,14 +1,8 @@
 import { readFile } from 'fs/promises'
 import { join } from 'path'
 
-import {
-  DESIGN_SYSTEM_MANIFEST_FILENAME,
-  parseDesignSystemManifest,
-} from '../../shared/design-system/manifest'
-import type {
-  DesignSystemArrivalsResult,
-  DesignSystemBundleArrivals,
-} from '../../shared/design-system/arrivals'
+import { DESIGN_SYSTEM_MANIFEST_FILENAME, parseDesignSystemManifest } from '../../shared/design-system/manifest'
+import type { DesignSystemArrivalsResult, DesignSystemBundleArrivals } from '../../shared/design-system/arrivals'
 import { resolveDesignSystemAddedAt } from './entry-added-at'
 import { listDesignSystemLibrary, type LibraryPaths } from './library-registry'
 
@@ -32,9 +26,7 @@ import { listDesignSystemLibrary, type LibraryPaths } from './library-registry'
  * repair. A count is not that surface — one unreadable folder must not delete
  * the number the other three systems earned.
  */
-export async function listDesignSystemArrivals(
-  paths: LibraryPaths,
-): Promise<DesignSystemArrivalsResult> {
+export async function listDesignSystemArrivals(paths: LibraryPaths): Promise<DesignSystemArrivalsResult> {
   const listed = await listDesignSystemLibrary(paths)
   const bundles: DesignSystemBundleArrivals[] = []
   for (const entry of listed.entries) {

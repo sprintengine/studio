@@ -91,14 +91,14 @@ export function canonicalEventName(event: string): string {
 // widened field enum can't silently misread.
 function discriminatorValue(
   field: 'notificationType' | 'status',
-  frame: Pick<AgentStateFrame, 'notificationType' | 'status'>
+  frame: Pick<AgentStateFrame, 'notificationType' | 'status'>,
 ): string | undefined {
   return field === 'notificationType' ? frame.notificationType : frame.status
 }
 
 export function resolveAgentStateEvent(
   spec: PluginAgentStateSpec | null | undefined,
-  frame: Pick<AgentStateFrame, 'event' | 'phase' | 'notificationType' | 'status'>
+  frame: Pick<AgentStateFrame, 'event' | 'phase' | 'notificationType' | 'status'>,
 ): AgentStateEventResolution {
   if (spec && frame.event) {
     // Canonical, not exact: the frame carries the CLI's PAYLOAD spelling, which
@@ -115,8 +115,8 @@ export function resolveAgentStateEvent(
     // finalized as completed opens a PR from failed work.
     const failureValue = entry.failureWhen ? discriminatorValue(entry.failureWhen.field, frame) : undefined
     const turnFailure =
-      entry.failure === true
-      || Boolean(entry.failureWhen && failureValue && entry.failureWhen.oneOf.includes(failureValue))
+      entry.failure === true ||
+      Boolean(entry.failureWhen && failureValue && entry.failureWhen.oneOf.includes(failureValue))
     if (entry.when) {
       // Discriminator: the phase applies only for allow-listed payload values.
       // Claude's `Notification` is the canonical case — it fires for real
@@ -190,7 +190,7 @@ export function applyBackgroundWork(outstanding: number, background: 'start' | '
 
 export function holdTurnEndForBackgroundWork(
   resolution: AppliedAgentStateEvent,
-  outstanding: number
+  outstanding: number,
 ): AppliedAgentStateEvent {
   if (!resolution.turnEnd || resolution.turnFailure || outstanding <= 0) return resolution
   return { ...resolution, phase: 'tool_use', turnEnd: false }
@@ -215,7 +215,7 @@ export function holdTurnEndForBackgroundWork(
  * `UserPromptSubmit`, and this question must not turn on the spelling.
  */
 const PROMPT_REPORTING_EVENTS: ReadonlySet<string> = new Set(
-  ['UserPromptSubmit', 'beforeSubmitPrompt'].map(canonicalEventName)
+  ['UserPromptSubmit', 'beforeSubmitPrompt'].map(canonicalEventName),
 )
 
 /**
@@ -224,14 +224,12 @@ const PROMPT_REPORTING_EVENTS: ReadonlySet<string> = new Set(
  * from "cannot report at all" — OpenCode has an agentStateSpec and still
  * forwards no prompt, so the presence of a spec is not the same question.
  */
-export function agentStateSpecReportsPrompts(
-  spec: Pick<PluginAgentStateSpec, 'events'> | null | undefined
-): boolean {
+export function agentStateSpecReportsPrompts(spec: Pick<PluginAgentStateSpec, 'events'> | null | undefined): boolean {
   return Boolean(spec?.events.some((entry) => PROMPT_REPORTING_EVENTS.has(canonicalEventName(entry.event))))
 }
 
 export function registeredAgentStateEvents(
-  spec: Pick<PluginAgentStateSpec, 'events'>
+  spec: Pick<PluginAgentStateSpec, 'events'>,
 ): Array<{ event: string; matcher?: string }> {
   return spec.events
     .filter((entry) => entry.register !== false)
@@ -288,10 +286,7 @@ export function deriveActivityFromPhase(phase: AgentPhase, since: number): Sessi
 // reap policy's stalled expiry, instead of parking as "working" forever.
 // =============================================================================
 
-export type StallEvaluation =
-  | { action: 'stalled' }
-  | { action: 'recheck'; afterMs: number }
-  | { action: 'clear' }
+export type StallEvaluation = { action: 'stalled' } | { action: 'recheck'; afterMs: number } | { action: 'clear' }
 
 export function evaluateAgentStall(input: {
   phase: AgentPhase
@@ -538,9 +533,7 @@ export function parseAgentStateFrame(raw: unknown, now: number): AgentStateFrame
   // stale reporter copies), or both. Neither ⇒ nothing to apply.
   const event = optionalString(raw.event)
   const phase =
-    typeof raw.phase === 'string' && VALID_PHASES.has(raw.phase as AgentPhase)
-      ? (raw.phase as AgentPhase)
-      : null
+    typeof raw.phase === 'string' && VALID_PHASES.has(raw.phase as AgentPhase) ? (raw.phase as AgentPhase) : null
   if (!event && !phase) return null
   // Clamp to server arrival time: raw.ts is reporter-supplied and compared
   // cross-clock against the main-process clock (terminal-runtime drops frames
@@ -623,7 +616,12 @@ function parseFrameStatusLine(raw: unknown): AgentStateFrameStatusLine | null {
   // clamped: a forwarder that reports 900% has read the wrong field, and
   // clamping it to 100 would paint a full context ring on an empty session.
   const usedPercentage = raw.usedPercentage
-  if (typeof usedPercentage === 'number' && Number.isFinite(usedPercentage) && usedPercentage >= 0 && usedPercentage <= 100) {
+  if (
+    typeof usedPercentage === 'number' &&
+    Number.isFinite(usedPercentage) &&
+    usedPercentage >= 0 &&
+    usedPercentage <= 100
+  ) {
     statusLine.usedPercentage = Math.round(usedPercentage)
   }
   const contextWindowSize = parseStatusLineCount(raw.contextWindowSize)
@@ -802,7 +800,7 @@ function candidateMatchesAgent<T>(candidate: AgentStateCandidate<T>, agentId: st
 
 export function selectAgentStateTarget<T>(
   candidates: ReadonlyArray<AgentStateCandidate<T>>,
-  frame: { agentId: string; workspaceId: string | null }
+  frame: { agentId: string; workspaceId: string | null },
 ): T | undefined {
   const matches = candidates.filter((candidate) => candidateMatchesAgent(candidate, frame.agentId))
   if (matches.length <= 1) return matches[0]?.value
@@ -921,7 +919,7 @@ export async function mergeAgentStateHooks(
   // itself, which rewrites it whenever a person answers "allow always", so a
   // second write cycle here is a window in which their permission is silently
   // clobbered.
-  statusLine?: StatusLineForwarderInstall | null
+  statusLine?: StatusLineForwarderInstall | null,
 ): Promise<void> {
   const existing = (await readJsonIfExists<ClaudeSettings>(settingsPath)) ?? {}
   const settings: ClaudeSettings = { ...existing }
@@ -1030,14 +1028,9 @@ export type WrappedStatusLine = {
 // What the settings write does about the status line: put ours in (wrapping the
 // status line it displaced, null when it displaced nothing), or take ours out.
 export type StatusLineForwarderInstall =
-  | { action: 'write'; command: string; wrapped: WrappedStatusLine | null }
-  | { action: 'remove' }
+  { action: 'write'; command: string; wrapped: WrappedStatusLine | null } | { action: 'remove' }
 
-const WRAPPED_STATUS_LINE_ORIGINS: ReadonlySet<string> = new Set<WrappedStatusLineOrigin>([
-  'local',
-  'project',
-  'user',
-])
+const WRAPPED_STATUS_LINE_ORIGINS: ReadonlySet<string> = new Set<WrappedStatusLineOrigin>(['local', 'project', 'user'])
 
 // `scriptPath` is forward-slashed and `socketPath` verbatim for exactly the
 // reasons buildAgentStateReporterCommand documents. The wrap envelope is
@@ -1047,7 +1040,7 @@ const WRAPPED_STATUS_LINE_ORIGINS: ReadonlySet<string> = new Set<WrappedStatusLi
 export function buildStatusLineForwarderCommand(
   scriptPath: string,
   socketPath: string,
-  wrapped: WrappedStatusLine | null
+  wrapped: WrappedStatusLine | null,
 ): string {
   const base = `node "${scriptPath.split(sep).join('/')}" --socket "${socketPath}"`
   const command = typeof wrapped?.statusLine.command === 'string' ? wrapped.statusLine.command : null
@@ -1102,9 +1095,7 @@ async function readSettingsLeniently(path: string): Promise<Record<string, unkno
 //            for them, and ours is the only thing standing in front of it
 //   leave  — touch the setting at all and something is lost
 export type StatusLineResolution =
-  | { kind: 'write'; wrapped: WrappedStatusLine | null }
-  | { kind: 'remove' }
-  | { kind: 'leave' }
+  { kind: 'write'; wrapped: WrappedStatusLine | null } | { kind: 'remove' } | { kind: 'leave' }
 
 /**
  * What one of our own entries displaced, as far as it can still be told.
@@ -1202,22 +1193,20 @@ function displacedStatusLine(ours: Record<string, unknown>): DisplacedStatusLine
  */
 export async function resolveWrappedStatusLine(
   settingsPath: string,
-  options: { homeDir: string; env: NodeJS.ProcessEnv }
+  options: { homeDir: string; env: NodeJS.ProcessEnv },
 ): Promise<StatusLineResolution> {
   const projectPath = resolve(settingsPath, '..', 'settings.json')
   const userPath = resolve(resolveClaudeConfigDir(options.homeDir, options.env), 'settings.json')
   // Derived from the registration's own path rather than hardcoded, and
   // de-duplicated: a manifest is only validated to register a settings-JSON
   // kind, not which of Claude's settings files it names.
-  const candidates: Array<{ path: string; origin: WrappedStatusLineOrigin }> = [
-    { path: settingsPath, origin: 'local' },
-  ]
+  const candidates: Array<{ path: string; origin: WrappedStatusLineOrigin }> = [{ path: settingsPath, origin: 'local' }]
   if (projectPath !== settingsPath) candidates.push({ path: projectPath, origin: 'project' })
   if (userPath !== settingsPath && userPath !== projectPath) candidates.push({ path: userPath, origin: 'user' })
 
   const read = await Promise.all(candidates.map((candidate) => readSettingsLeniently(candidate.path)))
   return resolveWrappedStatusLineFrom(
-    candidates.map((candidate, index) => ({ ...candidate, settings: read[index] ?? null }))
+    candidates.map((candidate, index) => ({ ...candidate, settings: read[index] ?? null })),
   )
 }
 
@@ -1232,7 +1221,7 @@ export async function resolveWrappedStatusLine(
  * status line silently" is the whole contract and two copies of it would drift.
  */
 function resolveWrappedStatusLineFrom(
-  candidates: Array<{ path: string; origin: WrappedStatusLineOrigin; settings: Record<string, unknown> | null }>
+  candidates: Array<{ path: string; origin: WrappedStatusLineOrigin; settings: Record<string, unknown> | null }>,
 ): StatusLineResolution {
   let oursIsInstalled = false
   for (const { origin, settings } of candidates) {
@@ -1298,14 +1287,12 @@ export function buildLaunchStatusLineSetting(input: {
   const localPath = resolve(input.workspaceRoot, '.claude', 'settings.local.json')
   const projectPath = resolve(input.workspaceRoot, '.claude', 'settings.json')
   const userPath = resolve(resolveClaudeConfigDir(input.homeDir, input.env), 'settings.json')
-  const candidates: Array<{ path: string; origin: WrappedStatusLineOrigin }> = [
-    { path: localPath, origin: 'local' },
-  ]
+  const candidates: Array<{ path: string; origin: WrappedStatusLineOrigin }> = [{ path: localPath, origin: 'local' }]
   if (projectPath !== localPath) candidates.push({ path: projectPath, origin: 'project' })
   if (userPath !== localPath && userPath !== projectPath) candidates.push({ path: userPath, origin: 'user' })
 
   const resolved = resolveWrappedStatusLineFrom(
-    candidates.map((candidate) => ({ ...candidate, settings: readSettingsLenientlySync(candidate.path) }))
+    candidates.map((candidate) => ({ ...candidate, settings: readSettingsLenientlySync(candidate.path) })),
   )
   if (resolved.kind !== 'write') return null
 
@@ -1359,9 +1346,9 @@ function applyStatusLineForwarder(settings: ClaudeSettings, install: StatusLineF
   // restore. Leave it; the next install wraps it properly.
   const current = settings.statusLine
   if (
-    isRecord(current)
-    && !isOurStatusLine(current)
-    && JSON.stringify(current) !== JSON.stringify(install.wrapped?.statusLine ?? null)
+    isRecord(current) &&
+    !isOurStatusLine(current) &&
+    JSON.stringify(current) !== JSON.stringify(install.wrapped?.statusLine ?? null)
   ) {
     return
   }
@@ -1430,7 +1417,7 @@ function removeStatusLineForwarder(settings: ClaudeSettings): void {
 async function prepareStatusLineForwarder(
   workspaceRoot: string,
   settingsPath: string,
-  options: { statusLineScriptPath: string; socketPath: string; homeDir: string; env: NodeJS.ProcessEnv }
+  options: { statusLineScriptPath: string; socketPath: string; homeDir: string; env: NodeJS.ProcessEnv },
 ): Promise<StatusLineForwarderInstall | null> {
   try {
     const resolved = await resolveWrappedStatusLine(settingsPath, {
@@ -1514,7 +1501,7 @@ function stripFlatAgentStateEntries(hooks: Record<string, FlatHooksEntry[]>): vo
 async function mergeFlatAgentStateHooks(
   hooksPath: string,
   command: string,
-  events: ReadonlyArray<{ event: string; matcher?: string }>
+  events: ReadonlyArray<{ event: string; matcher?: string }>,
 ): Promise<void> {
   const existing = (await readJsonIfExists<FlatHooksFile>(hooksPath)) ?? {}
   const file: FlatHooksFile = { ...existing }
@@ -1564,7 +1551,7 @@ function escapeRegExp(value: string): string {
 
 export function renderTomlAgentStateHooksBlock(
   command: string,
-  events: ReadonlyArray<{ event: string; matcher?: string }>
+  events: ReadonlyArray<{ event: string; matcher?: string }>,
 ): string {
   const lines: string[] = [
     AGENT_STATE_TOML_START,
@@ -1582,7 +1569,10 @@ export function renderTomlAgentStateHooksBlock(
 // Replace our managed hooks block, preserving
 // everything else in the file. Mirrors the MCP writer's replaceManagedBlock.
 function replaceTomlAgentStateBlock(previous: string, block: string): string {
-  const pattern = new RegExp(`${escapeRegExp(AGENT_STATE_TOML_START)}[\\s\\S]*?${escapeRegExp(AGENT_STATE_TOML_END)}\\n?`, 'm')
+  const pattern = new RegExp(
+    `${escapeRegExp(AGENT_STATE_TOML_START)}[\\s\\S]*?${escapeRegExp(AGENT_STATE_TOML_END)}\\n?`,
+    'm',
+  )
   const trimmed = previous.replace(pattern, '').trimEnd()
   if (!block) return trimmed ? `${trimmed}\n` : ''
   return `${trimmed}${trimmed ? '\n\n' : ''}${block}\n`
@@ -1591,7 +1581,7 @@ function replaceTomlAgentStateBlock(previous: string, block: string): string {
 export function mergeTomlAgentStateHooks(
   previous: string,
   command: string,
-  events: ReadonlyArray<{ event: string; matcher?: string }>
+  events: ReadonlyArray<{ event: string; matcher?: string }>,
 ): string {
   return replaceTomlAgentStateBlock(previous, renderTomlAgentStateHooksBlock(command, events))
 }
@@ -1603,7 +1593,7 @@ export function mergeTomlAgentStateHooks(
 // own config path).
 export function renderTomlArrayAgentStateHooksBlock(
   command: string,
-  events: ReadonlyArray<{ event: string; matcher?: string }>
+  events: ReadonlyArray<{ event: string; matcher?: string }>,
 ): string {
   const lines: string[] = [
     AGENT_STATE_TOML_START,
@@ -1621,7 +1611,7 @@ export function renderTomlArrayAgentStateHooksBlock(
 export function mergeTomlArrayAgentStateHooks(
   previous: string,
   command: string,
-  events: ReadonlyArray<{ event: string; matcher?: string }>
+  events: ReadonlyArray<{ event: string; matcher?: string }>,
 ): string {
   return replaceTomlAgentStateBlock(previous, renderTomlArrayAgentStateHooksBlock(command, events))
 }
@@ -1667,7 +1657,7 @@ async function readTextIfExists(path: string): Promise<string | null> {
 
 export function renderOwnedJsonAgentStateHooksConfig(
   command: string,
-  events: ReadonlyArray<{ event: string; matcher?: string }>
+  events: ReadonlyArray<{ event: string; matcher?: string }>,
 ): string {
   const hooks: Record<string, Array<Record<string, unknown>>> = {}
   for (const { event, matcher } of events) {
@@ -1720,8 +1710,7 @@ export function renderAgentStatePluginTemplate(template: string, socketPath: str
 // =============================================================================
 
 export type AgentStateInstallResult =
-  | { ok: true; settingsPath: string; hookScriptPath: string }
-  | { ok: false; message: string }
+  { ok: true; settingsPath: string; hookScriptPath: string } | { ok: false; message: string }
 
 // A user-scoped registration (Kimi Code's user-global config.toml) resolves
 // against the home directory instead of the workspace. `homeDir` is injectable
@@ -1729,7 +1718,7 @@ export type AgentStateInstallResult =
 function resolveRegistrationPath(
   workspaceRoot: string,
   registration: PluginAgentStateSpec['registration'],
-  homeDir: string
+  homeDir: string,
 ): string {
   const base = registration.scope === 'user' ? homeDir : workspaceRoot
   return resolve(base, ...registration.path.split('/'))
@@ -1750,7 +1739,7 @@ export async function installAgentStateReporter(
     // Environment the Claude settings precedence is read against
     // (CLAUDE_CONFIG_DIR). Injected so tests never read the real one.
     env?: NodeJS.ProcessEnv
-  }
+  },
 ): Promise<AgentStateInstallResult> {
   if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
   if (!options.socketPath?.trim()) return { ok: false, message: 'Agent-state socket path is required.' }

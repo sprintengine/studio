@@ -67,11 +67,7 @@ function AppThemePicker({ value, onChange }: AppThemePickerProps) {
   )
 
   return (
-    <div
-      role="radiogroup"
-      aria-label="Theme"
-      className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4"
-    >
+    <div role="radiogroup" aria-label="Theme" className="grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
       {themes.map((theme, index) => {
         const isSelected = value === theme.id
         const scheme = theme.resolved ? colorSchemeForResolvedTheme(theme.resolved) : null
@@ -97,11 +93,7 @@ function AppThemePicker({ value, onChange }: AppThemePickerProps) {
             onKeyDown={(event) => handleKeyDown(event, index)}
             className="items-center gap-2.5 px-3 pb-3 pt-4"
           >
-            {theme.swatches ? (
-              <ThemeSwatch swatches={theme.swatches} scheme={scheme ?? 'dark'} />
-            ) : (
-              <SystemSwatch />
-            )}
+            {theme.swatches ? <ThemeSwatch swatches={theme.swatches} scheme={scheme ?? 'dark'} /> : <SystemSwatch />}
             <TruncatedText
               as="span"
               text={theme.label}
@@ -135,9 +127,7 @@ function ThemeSwatch({ swatches, scheme }: { swatches: ThemeSwatches; scheme: 'l
         className="absolute bottom-2 right-2 block size-2.5 rounded-full"
         style={{ backgroundColor: swatches.accent }}
       />
-      <span
-        className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)]"
-      >
+      <span className="absolute -bottom-0.5 -right-0.5 flex size-5 items-center justify-center rounded-full border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] text-[color:var(--text-muted)]">
         {scheme === 'light' ? <SunGlyph /> : <MoonGlyph />}
       </span>
     </span>

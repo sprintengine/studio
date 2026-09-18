@@ -47,7 +47,7 @@ export function collectProcessMetrics(
   // IPC handler (getAppMetrics does not carry them). Optional so this stays
   // unit-testable and so the panel degrades to "—" when unavailable.
   threadCounts?: ReadonlyMap<number, number>,
-  childProcesses: readonly ProcessMetricSample[] = []
+  childProcesses: readonly ProcessMetricSample[] = [],
 ): ProcessMetricsSnapshot {
   let raw: RawProcessMetric[]
   try {
@@ -63,9 +63,7 @@ export function collectProcessMetrics(
     const cpuPercent = Number.isFinite(metric.cpu?.percentCPUUsage)
       ? Math.max(0, Math.round((metric.cpu!.percentCPUUsage as number) * 10) / 10)
       : 0
-    const workingSetKb = Number.isFinite(metric.memory?.workingSetSize)
-      ? (metric.memory!.workingSetSize as number)
-      : 0
+    const workingSetKb = Number.isFinite(metric.memory?.workingSetSize) ? (metric.memory!.workingSetSize as number) : 0
     const heap = mainHeap && mainHeap.pid === metric.pid ? mainHeap : undefined
     const threads = threadCounts?.get(metric.pid)
     return {
@@ -96,10 +94,8 @@ export function collectProcessMetrics(
     helper: 6,
     other: 7,
   }
-  processes.sort((a, b) =>
-    kindOrder[a.kind] - kindOrder[b.kind]
-    || b.cpuPercent - a.cpuPercent
-    || b.memoryBytes - a.memoryBytes
+  processes.sort(
+    (a, b) => kindOrder[a.kind] - kindOrder[b.kind] || b.cpuPercent - a.cpuPercent || b.memoryBytes - a.memoryBytes,
   )
 
   return { sampledAt: now, processes }

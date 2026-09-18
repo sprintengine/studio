@@ -2,15 +2,8 @@ import assert from 'node:assert/strict'
 import { Terminal } from '@xterm/headless'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import type { Terminal as XtermTerminal } from '@xterm/xterm'
-import {
-  TERMINAL_CELL_GEOMETRY_OPTIONS,
-  TERMINAL_UNICODE_VERSION,
-} from '../../../shared/terminal-options'
-import {
-  findTerminalFileReferences,
-  rangeForTerminalFileReference,
-  readWrappedLogicalLine,
-} from './terminalFileLinks'
+import { TERMINAL_CELL_GEOMETRY_OPTIONS, TERMINAL_UNICODE_VERSION } from '../../../shared/terminal-options'
+import { findTerminalFileReferences, rangeForTerminalFileReference, readWrappedLogicalLine } from './terminalFileLinks'
 
 // Wide characters against the file-link provider.
 //
@@ -104,7 +97,7 @@ async function main(): Promise<void> {
       assert.equal(
         logical?.text,
         line.translateToString(true),
-        `logical line diverged from translateToString for ${JSON.stringify(text)}`
+        `logical line diverged from translateToString for ${JSON.stringify(text)}`,
       )
       terminal.dispose()
     }

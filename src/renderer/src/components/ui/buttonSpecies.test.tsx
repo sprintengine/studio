@@ -71,13 +71,7 @@ async function main(): Promise<void> {
   const { act } = React
   const { createRoot } = await import('react-dom/client')
 
-  const {
-    CaptionButton,
-    GhostButton,
-    IconButton,
-    MediaButton,
-    OutlineButton,
-  } = await import('./Buttons')
+  const { CaptionButton, GhostButton, IconButton, MediaButton, OutlineButton } = await import('./Buttons')
   const { RowButton } = await import('./RowButton')
   const { MenuOption } = await import('./MenuOption')
   const { TriggerButton } = await import('./TriggerButton')
@@ -253,16 +247,10 @@ async function main(): Promise<void> {
   })
 
   run('aria-disabled keeps the tab stop and still reads as off', () => {
-    const view = mount(
-      <GhostButton aria-disabled="true">Annotate</GhostButton>,
-    )
+    const view = mount(<GhostButton aria-disabled="true">Annotate</GhostButton>)
     const button = view.container.querySelector('button')
     assert.equal(button?.hasAttribute('disabled'), false, 'still focusable, so its tooltip is reachable')
-    assert.match(
-      button?.getAttribute('class') ?? '',
-      /aria-disabled:opacity-45/,
-      'and still drawn as unavailable',
-    )
+    assert.match(button?.getAttribute('class') ?? '', /aria-disabled:opacity-45/, 'and still drawn as unavailable')
     view.unmount()
   })
 
@@ -381,18 +369,54 @@ async function main(): Promise<void> {
   // ── MenuOption ────────────────────────────────────────────────────────────
 
   run('the option emits the state attribute its ROLE actually takes', () => {
-    assert.equal(attrOf(<MenuOption role="option" selected>A</MenuOption>, 'aria-selected'), 'true')
+    assert.equal(
+      attrOf(
+        <MenuOption role="option" selected>
+          A
+        </MenuOption>,
+        'aria-selected',
+      ),
+      'true',
+    )
     assert.equal(attrOf(<MenuOption role="option">A</MenuOption>, 'aria-selected'), 'false')
-    assert.equal(attrOf(<MenuOption role="option" selected>A</MenuOption>, 'aria-checked'), null)
+    assert.equal(
+      attrOf(
+        <MenuOption role="option" selected>
+          A
+        </MenuOption>,
+        'aria-checked',
+      ),
+      null,
+    )
     for (const role of ['radio', 'menuitemradio', 'menuitemcheckbox'] as const) {
-      assert.equal(attrOf(<MenuOption role={role} selected>A</MenuOption>, 'aria-checked'), 'true')
+      assert.equal(
+        attrOf(
+          <MenuOption role={role} selected>
+            A
+          </MenuOption>,
+          'aria-checked',
+        ),
+        'true',
+      )
       assert.equal(attrOf(<MenuOption role={role}>A</MenuOption>, 'aria-checked'), 'false')
-      assert.equal(attrOf(<MenuOption role={role} selected>A</MenuOption>, 'aria-selected'), null)
+      assert.equal(
+        attrOf(
+          <MenuOption role={role} selected>
+            A
+          </MenuOption>,
+          'aria-selected',
+        ),
+        null,
+      )
     }
   })
 
   run('a selected option suppresses hover instead of fighting it', () => {
-    const selected = classesOf(<MenuOption role="option" selected>A</MenuOption>)
+    const selected = classesOf(
+      <MenuOption role="option" selected>
+        A
+      </MenuOption>,
+    )
     assert.match(selected, /bg-\[color:var\(--bg-selected\)\]/)
     assert.ok(
       !/(?:^|\s)hover:bg-/.test(selected),
@@ -506,18 +530,30 @@ async function main(): Promise<void> {
 
   run('the tone tints keep their hue when thrown; the neutral tones go neutral', () => {
     assert.match(
-      classesOf(<ChipButton tone="warn" pressed>Bypass</ChipButton>),
+      classesOf(
+        <ChipButton tone="warn" pressed>
+          Bypass
+        </ChipButton>,
+      ),
       /bg-\[color:var\(--tone-warn-soft\)\].*text-\[color:var\(--tone-warn-on-tint\)\]/,
     )
     assert.match(
-      classesOf(<ChipButton tone="neutral" pressed>List</ChipButton>),
+      classesOf(
+        <ChipButton tone="neutral" pressed>
+          List
+        </ChipButton>,
+      ),
       /bg-\[color:var\(--bg-selected\)\]/,
     )
   })
 
   run('an outline chip keeps its edge through every state', () => {
     const resting = classesOf(<ChipButton variant="outline">Step</ChipButton>)
-    const thrown = classesOf(<ChipButton variant="outline" pressed>Step</ChipButton>)
+    const thrown = classesOf(
+      <ChipButton variant="outline" pressed>
+        Step
+      </ChipButton>,
+    )
     assert.match(resting, /border-\[color:var\(--border-default\)\]/)
     assert.match(thrown, /border-\[color:var\(--border-default\)\]/, 'a border that appeared would resize the row')
     assert.deepEqual(duplicateUtilities(thrown), [])
@@ -532,7 +568,11 @@ async function main(): Promise<void> {
     assert.match(style, /(?:^|;)\s*color: ?(?:#7a5cff|rgb\(122, 92, 255\))/, 'and the ink is the identity hue itself')
     view.unmount()
     // design-tokens-allow: the same caller-supplied hue, now outranked by the thrown state
-    const thrownView = mount(<ChipButton tint="#7a5cff" selected>MC-2118</ChipButton>)
+    const thrownView = mount(
+      <ChipButton tint="#7a5cff" selected>
+        MC-2118
+      </ChipButton>,
+    )
     const thrownStyle = thrownView.container.querySelector('button')?.getAttribute('style') ?? ''
     assert.ok(!/color-mix/.test(thrownStyle), 'a state outranks an identity')
     thrownView.unmount()
@@ -589,10 +629,17 @@ async function main(): Promise<void> {
       assert.ok(!/rounded-|border/.test(classes), `${variant}: the wrapper owns the box`)
       assert.ok(!/focus-visible:focus-ring/.test(classes), `${variant}: the wrapper owns the ring`)
       assert.ok(!/h-control-|px-3/.test(classes), `${variant}: and the inset`)
-      assert.match(classes, /outline-none/, 'the UA outline is replaced in every focus state, not just the keyboard one')
+      assert.match(
+        classes,
+        /outline-none/,
+        'the UA outline is replaced in every focus state, not just the keyboard one',
+      )
     }
     assert.match(classesOf(<Textarea variant="composer" />), /field-sizing-content/)
-    assert.ok(!/field-sizing/.test(classesOf(<Textarea variant="seamless" />)), 'a single-line field must not grow sideways')
+    assert.ok(
+      !/field-sizing/.test(classesOf(<Textarea variant="seamless" />)),
+      'a single-line field must not grow sideways',
+    )
   })
 
   run('the in-place title edit is reachable as a variant, and is the same string', async () => {

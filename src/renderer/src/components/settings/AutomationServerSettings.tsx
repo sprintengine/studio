@@ -66,9 +66,7 @@ export function AutomationServerSettings() {
           </SettingsRow>
         ) : null}
       </SettingCard>
-      {status.lastError ? (
-        <InlineNotice tone="error">{status.lastError}</InlineNotice>
-      ) : null}
+      {status.lastError ? <InlineNotice tone="error">{status.lastError}</InlineNotice> : null}
     </section>
   )
 }

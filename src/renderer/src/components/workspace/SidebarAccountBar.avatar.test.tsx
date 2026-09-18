@@ -23,10 +23,21 @@ anyGlobal.Event = dom.window.Event
 anyGlobal.getComputedStyle = dom.window.getComputedStyle
 anyGlobal.localStorage = dom.window.localStorage
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
-class FakeResizeObserver { observe() {} unobserve() {} disconnect() {} }
+class FakeResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 anyGlobal.ResizeObserver = FakeResizeObserver
 domWindow.ResizeObserver = FakeResizeObserver
-dom.window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} })) as unknown as typeof dom.window.matchMedia
+dom.window.matchMedia = ((q: string) => ({
+  matches: false,
+  media: q,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  addListener: () => {},
+  removeListener: () => {},
+})) as unknown as typeof dom.window.matchMedia
 domWindow.api = { authOpenUpgrade: async () => ({ opened: true, url: '' }) }
 
 import React from 'react'
@@ -44,15 +55,24 @@ function state(user: SessionUser | null, authenticated = true): MulticodeAuthSta
     selectedOrganization: null,
     entitlements: authenticated
       ? {
-          userId: 'u1', organizationId: 'o1', product: 'multicode', roles: [],
-          features: { 'multicode.sprintengine': true }, limits: {}, sources: {},
+          userId: 'u1',
+          organizationId: 'o1',
+          product: 'multicode',
+          roles: [],
+          features: { 'multicode.sprintengine': true },
+          limits: {},
+          sources: {},
           plan: { code: 'free', status: 'active' },
-          issuedAt: '2026-08-01T00:00:00.000Z', expiresAt: '2026-08-04T00:00:00.000Z', schemaVersion: 1,
+          issuedAt: '2026-08-01T00:00:00.000Z',
+          expiresAt: '2026-08-04T00:00:00.000Z',
+          schemaVersion: 1,
         }
       : null,
     status: authenticated ? 'signed_in' : 'signed_out',
     entitlementStatus: authenticated ? 'fresh' : 'missing',
-    message: null, lastRefreshAt: null, graceExpiresAt: null,
+    message: null,
+    lastRefreshAt: null,
+    graceExpiresAt: null,
   }
 }
 
@@ -63,9 +83,16 @@ function render(authState: MulticodeAuthState, accountOpen = true): void {
   act(() => {
     root.render(
       React.createElement(SidebarAccountBar, {
-        collapsed: false, authState, authMessage: null, accountOpen,
-        setAccountOpen: () => {}, startLogin: () => {}, refreshAuthState: () => {},
-        logout: () => {}, openSettings: () => {}, settingsOpen: false,
+        collapsed: false,
+        authState,
+        authMessage: null,
+        accountOpen,
+        setAccountOpen: () => {},
+        startLogin: () => {},
+        refreshAuthState: () => {},
+        logout: () => {},
+        openSettings: () => {},
+        settingsOpen: false,
       }),
     )
   })
@@ -93,7 +120,10 @@ render(state({ id: 'u1', email: 'dev@example.com', displayName: 'Dev', photoUrl:
     }
     return false
   }
-  assert.ok(optedOut(settings), 'the Settings gear sits inside an app-no-drag element, so the rail’s drag region does not eat its clicks')
+  assert.ok(
+    optedOut(settings),
+    'the Settings gear sits inside an app-no-drag element, so the rail’s drag region does not eat its clicks',
+  )
   const account = dom.window.document.querySelector('button[aria-label^="Account"]') as HTMLElement | null
   assert.ok(account, 'the account badge renders')
   assert.ok(optedOut(account), 'the account badge sits inside an app-no-drag element too')

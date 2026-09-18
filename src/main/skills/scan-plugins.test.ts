@@ -83,9 +83,21 @@ async function pluginArtworkFields(): Promise<void> {
   assert.equal(byId.get('lettered-glyph')?.icon, 'AI', 'a glyph is short text, not only an emoji')
   assert.equal(byId.get('logo')?.logo, 'https://cdn.example.com/logo.png')
   assert.equal(byId.get('both')?.icon, '⚙️')
-  assert.equal(byId.get('both')?.logo, 'https://cdn.example.com/both.png', 'both are kept; the ladder is the renderer’s')
+  assert.equal(
+    byId.get('both')?.logo,
+    'https://cdn.example.com/both.png',
+    'both are kept; the ladder is the renderer’s',
+  )
 
-  for (const id of ['wordy-icon', 'path-icon', 'data-uri-icon', 'typed-wrong', 'bidi-icon', 'invisible-icon', 'crowded-icon']) {
+  for (const id of [
+    'wordy-icon',
+    'path-icon',
+    'data-uri-icon',
+    'typed-wrong',
+    'bidi-icon',
+    'invisible-icon',
+    'crowded-icon',
+  ]) {
     assert.equal(byId.get(id)?.icon, undefined, `${id} declares no glyph this app may print`)
   }
   for (const id of ['http-logo', 'data-logo', 'nonsense-logo', 'typed-wrong']) {
@@ -103,7 +115,10 @@ async function pluginArtworkFields(): Promise<void> {
   // A plugin's own manifest, which no schema documents either, fills what the
   // entry left blank — and never outranks it.
   const files = new Map([
-    ['plugins/from-manifest/.claude-plugin/plugin.json', JSON.stringify({ name: 'from-manifest', icon: '📦', logo: 'https://cdn.example.com/m.png' })],
+    [
+      'plugins/from-manifest/.claude-plugin/plugin.json',
+      JSON.stringify({ name: 'from-manifest', icon: '📦', logo: 'https://cdn.example.com/m.png' }),
+    ],
     ['plugins/entry-wins/.claude-plugin/plugin.json', JSON.stringify({ name: 'entry-wins', icon: '📦' })],
   ])
   const withManifests = await scanPluginTree({
@@ -147,7 +162,11 @@ async function pluginArtworkFields(): Promise<void> {
   assert.equal(pluginIconGlyph(null), '')
   assert.equal(pluginIconGlyph(['🦀']), '')
   assert.equal(pluginLogoUrl('https://example.com/a.png?v=2'), 'https://example.com/a.png?v=2')
-  assert.equal(pluginLogoUrl('HTTPS://example.com/a.png'), 'HTTPS://example.com/a.png', 'the scheme is not case sensitive')
+  assert.equal(
+    pluginLogoUrl('HTTPS://example.com/a.png'),
+    'HTTPS://example.com/a.png',
+    'the scheme is not case sensitive',
+  )
   assert.equal(pluginLogoUrl('file:///etc/passwd'), '')
   assert.equal(pluginLogoUrl(''), '')
   assert.equal(pluginLogoUrl(7), '')
@@ -178,7 +197,15 @@ function cachedScansPredatingPluginArtwork(): void {
         tags: [],
         keywords: [],
         componentsKnown: true,
-        components: { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], lspServers: [], missingSkills: [] },
+        components: {
+          skills: [],
+          commands: [],
+          agents: [],
+          hooks: [],
+          mcpServers: [],
+          lspServers: [],
+          missingSkills: [],
+        },
       },
     ],
   } as unknown as ScanResult
@@ -437,7 +464,13 @@ async function rootServers(): Promise<void> {
   const registryManifest = JSON.stringify({
     name: 'io.github.exa-labs/exa-mcp-server',
     description: 'Exa search',
-    remotes: [{ type: 'streamable-http', url: 'https://mcp.exa.ai/mcp', headers: [{ name: 'x-api-key', value: '${EXA_API_KEY}' }] }],
+    remotes: [
+      {
+        type: 'streamable-http',
+        url: 'https://mcp.exa.ai/mcp',
+        headers: [{ name: 'x-api-key', value: '${EXA_API_KEY}' }],
+      },
+    ],
   })
   const scan = await scanPluginTree({
     entries,
@@ -455,8 +488,13 @@ async function rootServers(): Promise<void> {
 
   // A stdio package: the registry's runtime hint becomes the command.
   const npm = parseMcpRegistryManifest(
-    { name: 'io.github.acme/thing', packages: [{ registryType: 'npm', identifier: '@acme/thing-mcp', environmentVariables: [{ name: 'ACME_TOKEN' }] }] },
-    'server.json'
+    {
+      name: 'io.github.acme/thing',
+      packages: [
+        { registryType: 'npm', identifier: '@acme/thing-mcp', environmentVariables: [{ name: 'ACME_TOKEN' }] },
+      ],
+    },
+    'server.json',
   )
   assert.equal(npm.length, 1)
   assert.equal(npm[0].command, 'npx')
@@ -464,7 +502,11 @@ async function rootServers(): Promise<void> {
   assert.deepEqual(npm[0].envVarNames, ['ACME_TOKEN'])
 
   // A package with no runtime hint is not a server the app can start.
-  assert.equal(parseMcpRegistryManifest({ name: 'x', packages: [{ registryType: 'oci', identifier: 'ghcr.io/x' }] }, 'server.json').length, 0)
+  assert.equal(
+    parseMcpRegistryManifest({ name: 'x', packages: [{ registryType: 'oci', identifier: 'ghcr.io/x' }] }, 'server.json')
+      .length,
+    0,
+  )
 }
 
 /**
@@ -561,7 +603,12 @@ async function readBudget(): Promise<void> {
     type: 'blob' as const,
     sha: `s${index}`,
   }))
-  const capped = await scanPluginTree({ entries: many, skills: [], marketplaceManifest: null, readFile: async () => '{}' })
+  const capped = await scanPluginTree({
+    entries: many,
+    skills: [],
+    marketplaceManifest: null,
+    readFile: async () => '{}',
+  })
   assert.equal(capped.plugins.length, MAX_SCANNED_PLUGINS + 1)
   assert.equal(capped.plugins[MAX_SCANNED_PLUGINS - 1].componentsKnown, true)
   assert.equal(capped.plugins[MAX_SCANNED_PLUGINS].componentsKnown, false, 'the one past the cap is unread, not empty')
@@ -590,7 +637,11 @@ function parsers(): void {
 
   // Hooks: wrapped and bare, matcher kept, entries without a command dropped.
   const wrapped = parseHooks({
-    hooks: { PreToolUse: [{ matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'node check.js' }, { type: 'prompt' }] }] },
+    hooks: {
+      PreToolUse: [
+        { matcher: 'Edit|Write', hooks: [{ type: 'command', command: 'node check.js' }, { type: 'prompt' }] },
+      ],
+    },
   })
   assert.deepEqual(wrapped, [{ event: 'PreToolUse', matcher: 'Edit|Write', command: 'node check.js' }])
   const bare = parseHooks({ Stop: [{ hooks: [{ command: 'echo done' }] }] })
@@ -608,7 +659,7 @@ function parsers(): void {
       },
     },
     '.mcp.json',
-    'p'
+    'p',
   )
   assert.equal(servers.length, 1)
   assert.equal(servers[0].id, 'good')
@@ -627,12 +678,22 @@ function parsers(): void {
         { name: 'a', source: './dup' },
         { source: './noname' },
       ],
-    })
+    }),
   )
   assert.ok(parsed)
-  assert.deepEqual(parsed.plugins.map((plugin) => plugin.name), ['a', 'c', 'd'])
+  assert.deepEqual(
+    parsed.plugins.map((plugin) => plugin.name),
+    ['a', 'c', 'd'],
+  )
   assert.deepEqual(parsed.plugins[0].source, { kind: 'in-tree', path: 'plugins/a' })
-  assert.deepEqual(parsed.plugins[1].source, { kind: 'linked', repo: 'o/r', ref: 'main', sha: '', path: '', url: 'https://github.com/o/r' })
+  assert.deepEqual(parsed.plugins[1].source, {
+    kind: 'linked',
+    repo: 'o/r',
+    ref: 'main',
+    sha: '',
+    path: '',
+    url: 'https://github.com/o/r',
+  })
   assert.equal((parsed.plugins[2].source as { repo: string }).repo, '')
   assert.equal(parseMarketplaceManifest('{"plugins": "no"}'), null)
   assert.equal(parseMarketplaceManifest(null), null)
@@ -667,9 +728,7 @@ type RecordedRepos = {
   repos: Record<string, { repo: string; commitSha: string; tree: SkillTreeEntry[]; files: Record<string, string> }>
 }
 
-const LINKED_REPOS = JSON.parse(
-  readFileSync(join(FIXTURES, 'linked-plugin-repos.json'), 'utf8')
-) as RecordedRepos
+const LINKED_REPOS = JSON.parse(readFileSync(join(FIXTURES, 'linked-plugin-repos.json'), 'utf8')) as RecordedRepos
 
 /** The four plugins the fixture repositories back, and one it deliberately does not. */
 const RECORDED_PLUGINS = [
@@ -702,7 +761,8 @@ function recordedReader(
     resolveCommit: async (repo, ref) => {
       commits.push(`${repo}#${ref}`)
       const resolved = options.resolvesTo?.[repo]
-      if (resolved === undefined) throw new LinkedPluginReadError(`No commit could be resolved for ${repo}.`, 'unreadable')
+      if (resolved === undefined)
+        throw new LinkedPluginReadError(`No commit could be resolved for ${repo}.`, 'unreadable')
       return resolved
     },
     readTree: async (repo, sha) => {
@@ -720,7 +780,8 @@ function recordedReader(
         )
       }
       const found = LINKED_REPOS.repos[`${repo}@${sha}`]
-      if (!found) throw new LinkedPluginReadError('That repository could not be found, or it is not public.', 'unreadable')
+      if (!found)
+        throw new LinkedPluginReadError('That repository could not be found, or it is not public.', 'unreadable')
       return found.tree
     },
     readFile: async (repo, sha, path) => LINKED_REPOS.repos[`${repo}@${sha}`]?.files[path] ?? null,
@@ -918,10 +979,7 @@ async function linkedPluginsPartial(): Promise<void> {
     unreadable: 0,
     pendingReasons: { budget: 238, rateLimited: 0, offline: 0 },
   })
-  assert.equal(
-    shortfallLine(summary, false),
-    '238 of 238 linked plugins not yet read — add a GitHub token',
-  )
+  assert.equal(shortfallLine(summary, false), '238 of 238 linked plugins not yet read — add a GitHub token')
   assert.equal(
     shortfallLine(summary, true),
     '238 of 238 linked plugins not yet read — Sync to read the rest',
@@ -933,7 +991,10 @@ async function linkedPluginsPartial(): Promise<void> {
     linkedPluginShortfall(summary, false).map((part) => part.action),
     ['github-settings'],
   )
-  assert.deepEqual(linkedPluginShortfall(summary, true).map((part) => part.action), [null])
+  assert.deepEqual(
+    linkedPluginShortfall(summary, true).map((part) => part.action),
+    [null],
+  )
   assert.equal(
     describePluginComponents(unread.plugins.find((plugin) => plugin.id === UNRECORDED_PLUGIN)!),
     'Not read yet — read when opened',
@@ -947,10 +1008,29 @@ async function linkedPluginsPartial(): Promise<void> {
   // The remedy is whatever is actually in the way. "Add a GitHub token" is
   // useless advice to a machine with no network, and a spent limit is not
   // cleared by pressing Sync again this minute (linked-plugins review).
-  const offlineSummary = { total: 10, read: 0, pending: 10, unreadable: 0, pendingReasons: { budget: 0, rateLimited: 0, offline: 10 } }
-  assert.equal(shortfallLine(offlineSummary, false), '10 of 10 linked plugins not yet read — GitHub could not be reached')
-  assert.deepEqual(linkedPluginShortfall(offlineSummary, false).map((part) => part.action), [null], 'and it offers no setting')
-  const limitedSummary = { total: 10, read: 0, pending: 10, unreadable: 0, pendingReasons: { budget: 0, rateLimited: 10, offline: 0 } }
+  const offlineSummary = {
+    total: 10,
+    read: 0,
+    pending: 10,
+    unreadable: 0,
+    pendingReasons: { budget: 0, rateLimited: 0, offline: 10 },
+  }
+  assert.equal(
+    shortfallLine(offlineSummary, false),
+    '10 of 10 linked plugins not yet read — GitHub could not be reached',
+  )
+  assert.deepEqual(
+    linkedPluginShortfall(offlineSummary, false).map((part) => part.action),
+    [null],
+    'and it offers no setting',
+  )
+  const limitedSummary = {
+    total: 10,
+    read: 0,
+    pending: 10,
+    unreadable: 0,
+    pendingReasons: { budget: 0, rateLimited: 10, offline: 0 },
+  }
   assert.equal(
     shortfallLine(limitedSummary, true),
     "10 of 10 linked plugins not yet read — Sync once GitHub's rate limit resets",
@@ -1128,8 +1208,14 @@ async function linkedPluginsPartial(): Promise<void> {
   const unpinnedManifest = JSON.stringify({
     name: 'm',
     plugins: [
-      { name: 'floating-a', source: { source: 'github', repo: 'carta/plugins', ref: 'main', path: 'plugins/carta-crm' } },
-      { name: 'floating-b', source: { source: 'github', repo: 'carta/plugins', ref: 'main', path: 'plugins/carta-investors' } },
+      {
+        name: 'floating-a',
+        source: { source: 'github', repo: 'carta/plugins', ref: 'main', path: 'plugins/carta-crm' },
+      },
+      {
+        name: 'floating-b',
+        source: { source: 'github', repo: 'carta/plugins', ref: 'main', path: 'plugins/carta-investors' },
+      },
     ],
   })
   const unpinned = await scanPluginTree({
@@ -1207,7 +1293,10 @@ async function linkedPluginsPartial(): Promise<void> {
       ],
     }),
   )
-  assert.deepEqual(traversal?.plugins.map((plugin) => plugin.name), ['fine'])
+  assert.deepEqual(
+    traversal?.plugins.map((plugin) => plugin.name),
+    ['fine'],
+  )
 }
 
 /**
@@ -1413,7 +1502,7 @@ async function aLostFileIsNotAnAbsentFile(): Promise<void> {
     dir: 'plugins/security-guidance',
     entries: tree.tree,
     skills: skills.skills,
-    readFile: async (path) => (path === hooksPath ? null : files.get(path) ?? null),
+    readFile: async (path) => (path === hooksPath ? null : (files.get(path) ?? null)),
   })
   assert.deepEqual(throttled.unreadFiles, [hooksPath], 'the tree listed it, so a null is a failure')
   assert.equal(throttled.components.hooks.length, 0)
@@ -1425,7 +1514,7 @@ async function aLostFileIsNotAnAbsentFile(): Promise<void> {
     entries: tree.tree,
     skills: skills.skills,
     marketplaceManifest,
-    readFile: async (path) => (path === hooksPath ? null : files.get(path) ?? null),
+    readFile: async (path) => (path === hooksPath ? null : (files.get(path) ?? null)),
   })
   const guidance = scanned.plugins.find((plugin) => plugin.id === 'security-guidance')!
   assert.equal(guidance.componentsKnown, false, 'not a complete plugin, so the install gate cannot be walked past')

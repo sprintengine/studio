@@ -20,9 +20,7 @@ export function parseClaudeCodeMcpServers(raw: string): RawMcpServer[] {
     const type = typeof config.type === 'string' ? config.type.trim() : ''
     const url = stringValue(config.url)
     const command = stringValue(config.command)
-    const transport: McpTransport = type === 'http' || type === 'sse'
-      ? type
-      : url ? 'http' : 'stdio'
+    const transport: McpTransport = type === 'http' || type === 'sse' ? type : url ? 'http' : 'stdio'
     // An entry that names neither a command nor a URL is not a server the CLI
     // can reach, whatever else it declares.
     if (transport === 'stdio' && !command) continue
@@ -42,7 +40,4 @@ export function parseClaudeCodeMcpServers(raw: string): RawMcpServer[] {
   return servers
 }
 
-export const claudeCodeMcpReader: McpConfigReader = createFileMcpConfigReader(
-  'claude-code',
-  parseClaudeCodeMcpServers,
-)
+export const claudeCodeMcpReader: McpConfigReader = createFileMcpConfigReader('claude-code', parseClaudeCodeMcpServers)

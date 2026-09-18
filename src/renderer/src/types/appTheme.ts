@@ -16,7 +16,6 @@
 //      code). LIGHT_SURFACE_THEMES below derives itself from the swatches.
 // Nothing else needs to change.
 
-
 export type AppTheme =
   | 'system'
   | 'dark'
@@ -226,9 +225,7 @@ const APP_THEME_IDS: readonly AppTheme[] = APP_THEMES.map((t) => t.id)
 
 export type ColorScheme = 'light' | 'dark'
 
-const APP_THEME_BY_ID: ReadonlyMap<AppTheme, AppThemeDescriptor> = new Map(
-  APP_THEMES.map((t) => [t.id, t]),
-)
+const APP_THEME_BY_ID: ReadonlyMap<AppTheme, AppThemeDescriptor> = new Map(APP_THEMES.map((t) => [t.id, t]))
 
 // Perceived luminance (Rec. 601) of a #rrggbb hex; ~0–1.
 function hexLuminance(hex: string): number {

@@ -71,9 +71,7 @@ async function writeTranscript(rows: Row[]): Promise<string> {
 // ── the collapsing rules ────────────────────────────────────────────────────
 
 function testCollapse(): void {
-  const fenced = collapsePeekText(
-    'Fix the reducer.\n\n```ts\nconst x = 1\nconst y = 2\n```\n\nThat is all.',
-  )
+  const fenced = collapsePeekText('Fix the reducer.\n\n```ts\nconst x = 1\nconst y = 2\n```\n\nThat is all.')
   assert.ok(!fenced.text.includes('const x'), `fenced block survived: ${fenced.text}`)
   assert.ok(fenced.text.startsWith('Fix the reducer.'), fenced.text)
   assert.ok(fenced.text.endsWith('That is all.'), fenced.text)
@@ -106,18 +104,21 @@ function testCollapse(): void {
   // rendered it as "attached at ; read USAGE.md + + and conform" — which reads
   // as though the app corrupted what the person wrote.
   const real = collapsePeekText(
-    'Take a look at the reference repo on GitHub first.\n\n'
-    + 'A design system is attached at `design-system/`; read `USAGE.md` + `foundations/tokens.css`'
-    + ' + `components/` and conform — do not invent styles.',
+    'Take a look at the reference repo on GitHub first.\n\n' +
+      'A design system is attached at `design-system/`; read `USAGE.md` + `foundations/tokens.css`' +
+      ' + `components/` and conform — do not invent styles.',
   )
   assert.equal(
     real.text,
-    'Take a look at the reference repo on GitHub first.\n\n'
-    + 'A design system is attached at design-system; read USAGE.md + tokens.css + components'
-    + ' and conform — do not invent styles.',
+    'Take a look at the reference repo on GitHub first.\n\n' +
+      'A design system is attached at design-system; read USAGE.md + tokens.css + components' +
+      ' and conform — do not invent styles.',
     real.text,
   )
-  assert.deepEqual(real.paths.map((path) => path.label), ['design-system', 'tokens.css', 'components'])
+  assert.deepEqual(
+    real.paths.map((path) => path.label),
+    ['design-system', 'tokens.css', 'components'],
+  )
 
   // Prose that merely contains a slash is not a file. A chip claiming otherwise
   // tells the reader something untrue, which is worse than showing no chip.
@@ -222,10 +223,10 @@ async function testTranscriptFilter(): Promise<void> {
   const peek = await readTranscriptPeek(path)
   assert.ok(peek, 'a transcript with three human messages must answer')
   assert.ok(peek.first?.text.startsWith('Right now we store'), String(peek.first?.text))
-  assert.deepEqual(peek.since.map((message) => message.text), [
-    'Check whether the prompt is persisted anywhere.',
-    'Use the design system for this.',
-  ])
+  assert.deepEqual(
+    peek.since.map((message) => message.text),
+    ['Check whether the prompt is persisted anywhere.', 'Use the design system for this.'],
+  )
   assert.equal(peek.first?.at, Date.parse('2026-09-06T10:00:00.000Z'))
 }
 
@@ -327,11 +328,14 @@ async function testTranscriptAttachments(): Promise<void> {
     (attachment): attachment is Extract<typeof attachment, { kind: 'file' }> => attachment.kind === 'file',
   )
   assert.equal(images.length, 2, JSON.stringify(first.attachments))
-  assert.deepEqual(images.map((image) => image.label), [
-    'Screenshot 2026-09-04 at 00.49.04.png',
-    'second.png',
-  ])
-  assert.deepEqual(files.map((file) => file.label), ['peek.html', 'tokens.css'])
+  assert.deepEqual(
+    images.map((image) => image.label),
+    ['Screenshot 2026-09-04 at 00.49.04.png', 'second.png'],
+  )
+  assert.deepEqual(
+    files.map((file) => file.label),
+    ['peek.html', 'tokens.css'],
+  )
   assert.equal(
     files[0]?.path,
     join(repo, 'backlog', 'mockups', 'peek.html'),
@@ -349,10 +353,7 @@ async function testTranscriptAttachments(): Promise<void> {
 
   // The sentence still reads: a promoted token leaves its label behind, and the
   // punctuation that followed it stays attached.
-  assert.ok(
-    first.text.startsWith('This is the card I mean — see peek.html, tokens.css and run-1877.log'),
-    first.text,
-  )
+  assert.ok(first.text.startsWith('This is the card I mean — see peek.html, tokens.css and run-1877.log'), first.text)
 
   // EVERY message retains its payloads now (2026-09-09): the card draws one
   // strip of every image in the chat, so an image pasted on the fortieth
@@ -413,15 +414,17 @@ async function testStreamingIsBounded(): Promise<void> {
   const bigImage = 'A'.repeat(512 * 1024)
   const rows: Row[] = []
   for (let index = 0; index < 200; index += 1) {
-    rows.push(humanRow('', {
-      message: {
-        role: 'user',
-        content: [
-          { type: 'text', text: `message ${index}` },
-          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: bigImage } },
-        ],
-      },
-    }))
+    rows.push(
+      humanRow('', {
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: `message ${index}` },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: bigImage } },
+          ],
+        },
+      }),
+    )
   }
   const path = await writeTranscript(rows)
 
@@ -441,16 +444,13 @@ async function testStreamingIsBounded(): Promise<void> {
   )
 
   const retained = [...peek.images.values()].reduce((total, image) => total + image.data.length, 0)
-  assert.ok(
-    retained <= MAX_PEEK_ATTACHMENTS * 512 * 1024,
-    `retained ${retained} bytes`,
-  )
+  assert.ok(retained <= MAX_PEEK_ATTACHMENTS * 512 * 1024, `retained ${retained} bytes`)
   // A smoke bound, not a precise one — GC timing makes the exact figure vary,
   // and it varies MORE now that the reader deliberately holds eight payloads
   // (~4MB here) rather than the head's alone. It is still set well below the
   // ~105MB of payload the file carries, which is the whole point: the reader
   // must not be proportional to the transcript.
-  if (process.env.PEEK_HEAP_REPORT) console.log('    heap grew', Math.round(grew/1024/1024), 'MB')
+  if (process.env.PEEK_HEAP_REPORT) console.log('    heap grew', Math.round(grew / 1024 / 1024), 'MB')
   assert.ok(grew < 48 * 1024 * 1024, `heap grew ${Math.round(grew / 1024 / 1024)}MB streaming a ~105MB transcript`)
 }
 
@@ -758,7 +758,11 @@ async function testSourceSelection(): Promise<void> {
           { text: 'Now do the other one', at: 3 },
         ],
       },
-      'stale-transcript': { transcriptPath: '/tmp/gone.jsonl', claudeHarness: true, prompts: [{ text: 'still said this', at: 9 }] },
+      'stale-transcript': {
+        transcriptPath: '/tmp/gone.jsonl',
+        claudeHarness: true,
+        prompts: [{ text: 'still said this', at: 9 }],
+      },
       silent: { prompts: [] },
     },
     { [transcriptPath]: transcript },
@@ -776,7 +780,10 @@ async function testSourceSelection(): Promise<void> {
   assert.equal(live.first?.text, 'Have a look at the reasoning picker')
   // The pasted-only prompt collapses to nothing and is dropped rather than
   // rendered as an empty row.
-  assert.deepEqual(live.since.map((message) => message.text), ['Now do the other one'])
+  assert.deepEqual(
+    live.since.map((message) => message.text),
+    ['Now do the other one'],
+  )
   assert.deepEqual(live.first?.attachments, [], 'a live prompt frame carries no attachments')
 
   const stale = await service.readConversationPeek('stale-transcript')
@@ -930,18 +937,19 @@ function testLivePromptWindow(): void {
 
 async function testImageStripAcrossMessages(): Promise<void> {
   const png = 'iVBORw0KGgo='
-  const image = (text: string, count: number) => humanRow('', {
-    message: {
-      role: 'user',
-      content: [
-        { type: 'text', text },
-        ...Array.from({ length: count }, () => ({
-          type: 'image',
-          source: { type: 'base64', media_type: 'image/png', data: png },
-        })),
-      ],
-    },
-  })
+  const image = (text: string, count: number) =>
+    humanRow('', {
+      message: {
+        role: 'user',
+        content: [
+          { type: 'text', text },
+          ...Array.from({ length: count }, () => ({
+            type: 'image',
+            source: { type: 'base64', media_type: 'image/png', data: png },
+          })),
+        ],
+      },
+    })
   // Ten images over four messages, two of them on the head. The strip caps at
   // MAX_PEEK_ATTACHMENTS; every entry in it must be openable, which is the half
   // that used to be false for anything but the first message.
@@ -979,7 +987,10 @@ async function testImageStripAcrossMessages(): Promise<void> {
   // Same ids either side, so a click on the strip opens what the row would.
   const fromRow = peek.since[2]?.attachments[0]
   assert.ok(fromRow)
-  assert.ok(peek.images.some((entry) => entry.id === fromRow.id), 'a later message reaches the strip')
+  assert.ok(
+    peek.images.some((entry) => entry.id === fromRow.id),
+    'a later message reaches the strip',
+  )
   await service.openConversationPeekAttachment('chat', fromRow.id)
   assert.deepEqual(opened, [fromRow.id], 'and opening it resolves, rather than silently doing nothing')
 
@@ -989,7 +1000,11 @@ async function testImageStripAcrossMessages(): Promise<void> {
   // were live-looking buttons that silently did nothing.
   opened.length = 0
   for (const entry of peek.images) await service.openConversationPeekAttachment('chat', entry.id)
-  assert.deepEqual(opened, peek.images.map((entry) => entry.id), 'no dead tile on the strip')
+  assert.deepEqual(
+    opened,
+    peek.images.map((entry) => entry.id),
+    'no dead tile on the strip',
+  )
 }
 
 /**
@@ -1001,16 +1016,18 @@ async function testImageStripPastTheWindow(): Promise<void> {
   const png = 'iVBORw0KGgo='
   const rows: Row[] = []
   for (let index = 0; index < MAX_PEEK_MESSAGES + 20; index += 1) {
-    rows.push(humanRow('', {
-      uuid: `msg-${index}`,
-      message: {
-        role: 'user',
-        content: [
-          { type: 'text', text: `message ${index}` },
-          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } },
-        ],
-      },
-    }))
+    rows.push(
+      humanRow('', {
+        uuid: `msg-${index}`,
+        message: {
+          role: 'user',
+          content: [
+            { type: 'text', text: `message ${index}` },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: png } },
+          ],
+        },
+      }),
+    )
   }
   clearTranscriptPeekCache()
   const transcriptPath = await writeTranscript(rows)
@@ -1033,8 +1050,10 @@ async function testImageStripPastTheWindow(): Promise<void> {
   // first ones the reader happened to meet.
   assert.deepEqual(
     peek.images.map((entry) => entry.id),
-    Array.from({ length: MAX_PEEK_ATTACHMENTS }, (_, index) =>
-      `msg-${MAX_PEEK_MESSAGES + 20 - MAX_PEEK_ATTACHMENTS + index}:image:0`),
+    Array.from(
+      { length: MAX_PEEK_ATTACHMENTS },
+      (_, index) => `msg-${MAX_PEEK_MESSAGES + 20 - MAX_PEEK_ATTACHMENTS + index}:image:0`,
+    ),
     'the newest images are the ones with bytes behind them',
   )
 }
@@ -1080,20 +1099,19 @@ async function testUnretainedImageStaysOffTheStrip(): Promise<void> {
 async function testDuplicateRowIdsDoNotCollide(): Promise<void> {
   const png = 'iVBORw0KGgo='
   const other = 'iVBORw0KGgoBBBB='
-  const withImage = (data: string, text: string) => humanRow('', {
-    uuid: 'same-uuid',
-    message: {
-      role: 'user',
-      content: [
-        { type: 'text', text },
-        { type: 'image', source: { type: 'base64', media_type: 'image/png', data } },
-      ],
-    },
-  })
+  const withImage = (data: string, text: string) =>
+    humanRow('', {
+      uuid: 'same-uuid',
+      message: {
+        role: 'user',
+        content: [
+          { type: 'text', text },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data } },
+        ],
+      },
+    })
   clearTranscriptPeekCache()
-  const peek = await readTranscriptPeek(
-    await writeTranscript([withImage(png, 'first'), withImage(other, 'second')]),
-  )
+  const peek = await readTranscriptPeek(await writeTranscript([withImage(png, 'first'), withImage(other, 'second')]))
   assert.ok(peek)
   const firstId = peek.first?.attachments[0]?.id
   const laterId = peek.since[0]?.attachments[0]?.id
@@ -1110,7 +1128,10 @@ async function testIpc(): Promise<void> {
   const handlers = new Map<string, (event: unknown, payload: unknown) => unknown>()
   const calls: string[] = []
   registerConversationPeekIpc(
-    { handle: (channel: string, handler: (event: unknown, payload: unknown) => unknown) => handlers.set(channel, handler) } as unknown as Parameters<typeof registerConversationPeekIpc>[0],
+    {
+      handle: (channel: string, handler: (event: unknown, payload: unknown) => unknown) =>
+        handlers.set(channel, handler),
+    } as unknown as Parameters<typeof registerConversationPeekIpc>[0],
     {
       readConversationPeek: async (sessionId) => {
         calls.push(`read:${sessionId}`)
@@ -1126,14 +1147,14 @@ async function testIpc(): Promise<void> {
   const open = handlers.get('conversation-peek:open-attachment')
   assert.ok(read && open)
 
-  assert.equal((await read({}, 'session-1') as ConversationPeek).sessionId, 'session-1')
+  assert.equal(((await read({}, 'session-1')) as ConversationPeek).sessionId, 'session-1')
   await open({}, { sessionId: 'session-1', attachmentId: 'a1' })
   assert.deepEqual(calls, ['read:session-1', 'open:session-1:a1'])
 
   // A malformed payload answers the empty peek rather than throwing: a hover
   // must never surface an error.
-  assert.equal((await read({}, 42) as ConversationPeek).source, 'unknown')
-  assert.equal((await read({}, 'a'.repeat(600)) as ConversationPeek).source, 'unknown')
+  assert.equal(((await read({}, 42)) as ConversationPeek).source, 'unknown')
+  assert.equal(((await read({}, 'a'.repeat(600))) as ConversationPeek).source, 'unknown')
   await open({}, null)
   await open({}, { sessionId: 'session-1' })
   await open({}, { sessionId: 'session-1', attachmentId: 'a\u00001' })

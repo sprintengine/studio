@@ -204,7 +204,11 @@ async function assertLinkedWorktreeWins(userData: string, repo: string, worktree
   }
   feed.onAgentFileEdit({ session: unresolved, path: join(repo, 'src/b.ts'), ts: Date.now() })
   await feed.flush()
-  assert.deepEqual(calls.map((call) => call.repoRoot), [repo], 'an unresolved observation falls back to intent')
+  assert.deepEqual(
+    calls.map((call) => call.repoRoot),
+    [repo],
+    'an unresolved observation falls back to intent',
+  )
   feed.dispose()
 }
 
@@ -254,7 +258,10 @@ async function assertLaunchAndExitOrder(userData: string, repo: string): Promise
   feed.onAgentSessionExit({ ...roaming, observedCheckout: { resolved: true, gitRoot: second } })
   await feed.flush()
   assert.deepEqual(
-    calls.filter((call) => call.kind === 'exit').map((call) => call.repoRoot).sort(),
+    calls
+      .filter((call) => call.kind === 'exit')
+      .map((call) => call.repoRoot)
+      .sort(),
     [repo, second].sort(),
     'both checkouts hear that the agent has gone',
   )

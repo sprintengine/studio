@@ -96,7 +96,7 @@ function pasteEvent(text = ''): ClipboardEvent {
   const event = new Event('paste', { bubbles: true, cancelable: true }) as ClipboardEvent
   Object.defineProperty(event, 'clipboardData', {
     value: {
-      getData: (type: string) => type === 'text/plain' ? text : '',
+      getData: (type: string) => (type === 'text/plain' ? text : ''),
     },
   })
   return event

@@ -93,10 +93,7 @@ export function compatStudioEnvEntry(name: string, value: string | null | undefi
  * clearing only the new name leaves that inherited value to be read as if the
  * caller had asked for it.
  */
-export function withoutStudioEnv(
-  env: Record<string, string>,
-  names: readonly string[],
-): Record<string, string> {
+export function withoutStudioEnv(env: Record<string, string>, names: readonly string[]): Record<string, string> {
   const next = { ...env }
   for (const name of names) {
     for (const candidate of studioEnvNames(name)) delete next[candidate]

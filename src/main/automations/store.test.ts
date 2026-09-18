@@ -142,15 +142,19 @@ async function assertLegacyAutonomyDefinitionLoadsAndIsNotWrittenBack(): Promise
   assert.deepEqual(
     loaded.value,
     { ...definition(), legacyWriteUpOnly: true },
-    'the retired key is dropped on read and its review-only intent kept as the runtime marker'
+    'the retired key is dropped on read and its review-only intent kept as the runtime marker',
   )
 
-  const saved = await store.updateDefinition({ ...loaded.value, name: 'Renamed', updatedAt: '2026-06-17T12:05:00.000Z' })
+  const saved = await store.updateDefinition({
+    ...loaded.value,
+    name: 'Renamed',
+    updatedAt: '2026-06-17T12:05:00.000Z',
+  })
   assert.equal(saved.ok, true)
   assert.equal(
     saved.ok && Object.hasOwn(saved.value, 'legacyWriteUpOnly'),
     false,
-    'the saved record is the one that reached disk: no marker'
+    'the saved record is the one that reached disk: no marker',
   )
   const onDisk = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>
   assert.equal(Object.hasOwn(onDisk, 'autonomyDefault'), false, 'saving does not write the retired key back')
@@ -169,7 +173,7 @@ async function assertRunHistoryIsBounded(): Promise<void> {
         dueAt: new Date(Date.UTC(2026, 5, 17, 0, index)).toISOString(),
         startedAt: new Date(Date.UTC(2026, 5, 17, 0, index, 1)).toISOString(),
         completedAt: new Date(Date.UTC(2026, 5, 17, 0, index, 2)).toISOString(),
-      })
+      }),
     )
     assert.equal(recorded.ok, true)
   }
@@ -218,7 +222,7 @@ async function assertMalformedDefinitionFailsClosed(): Promise<void> {
   assert.equal(listed.ok, false)
   assert.equal(!listed.ok && listed.errors.length, 1)
   assert.equal(!listed.ok && listed.errors[0]?.code, 'invalid_json')
-  assert.match(!listed.ok ? listed.errors[0]?.message ?? '' : '', /not valid JSON/)
+  assert.match(!listed.ok ? (listed.errors[0]?.message ?? '') : '', /not valid JSON/)
   assert.equal(await readFile(brokenPath, 'utf8'), '{not-json')
 }
 
@@ -254,7 +258,7 @@ async function assertMalformedRunListFailsClosedButWriteSkipsBadRun(): Promise<v
   assert.equal(listed.ok, false)
   assert.equal(!listed.ok && listed.errors.length, 1)
   assert.equal(!listed.ok && listed.errors[0]?.code, 'invalid_json')
-  assert.match(!listed.ok ? listed.errors[0]?.message ?? '' : '', /not valid JSON/)
+  assert.match(!listed.ok ? (listed.errors[0]?.message ?? '') : '', /not valid JSON/)
   assert.equal(await readFile(brokenPath, 'utf8'), '{not-json')
 
   const recorded = await store.recordRun(run(2))

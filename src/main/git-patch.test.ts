@@ -44,10 +44,13 @@ function makeRepo(): { root: string; repo: string } {
 }
 
 async function assertLiteralPathspecInArgv(): Promise<void> {
-  assert.deepEqual(
-    gitPatchArgs(['src/[id].tsx'], false),
-    ['diff', '--no-color', '--binary', '--', ':(literal)src/[id].tsx'],
-  )
+  assert.deepEqual(gitPatchArgs(['src/[id].tsx'], false), [
+    'diff',
+    '--no-color',
+    '--binary',
+    '--',
+    ':(literal)src/[id].tsx',
+  ])
 }
 
 async function assertGlobbyNameCopiesOnlyItself(): Promise<void> {

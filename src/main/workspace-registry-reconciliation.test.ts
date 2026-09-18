@@ -41,8 +41,7 @@ function harness() {
     announced,
     registry,
     sync,
-    dispatch: (command: WorkspaceSyncCommand, sourceWindowId: string) =>
-      sync.dispatch({ command, sourceWindowId }),
+    dispatch: (command: WorkspaceSyncCommand, sourceWindowId: string) => sync.dispatch({ command, sourceWindowId }),
     cleanup: () => rmSync(dir, { recursive: true, force: true }),
   }
 }
@@ -55,7 +54,10 @@ function seed(h: Harness): { workspaceId: string } {
   assert.ok(created.ok)
   // Open a second window by moving nothing — placement registers the window.
   const placement = h.dispatch(
-    { type: 'workspace_window.update_placement', payload: { windowId: WINDOW_B, bounds: null, isMaximized: false, displayId: null } },
+    {
+      type: 'workspace_window.update_placement',
+      payload: { windowId: WINDOW_B, bounds: null, isMaximized: false, displayId: null },
+    },
     WINDOW_B,
   )
   assert.equal(placement.ok, false, 'an unknown window cannot place itself before it holds a workspace')
@@ -70,7 +72,11 @@ test('case 1: a rename in A and a layout drag in B both land', () => {
       { type: 'workspace.rename', payload: { workspaceId, name: 'Renamed in A', titleLocked: true, editedAt: 5_000 } },
       WINDOW_A,
     )
-    const layoutModel = { global: {}, borders: [], layout: { type: 'row', children: [{ type: 'tabset', weight: 100, children: [] }] } }
+    const layoutModel = {
+      global: {},
+      borders: [],
+      layout: { type: 'row', children: [{ type: 'tabset', weight: 100, children: [] }] },
+    }
     const layout = h.dispatch(
       { type: 'workspace.update_layout', payload: { workspaceId, layoutModel, editedAt: 5_001 } },
       WINDOW_B,
@@ -95,11 +101,17 @@ test('case 2: two renames resolve by stamp regardless of arrival order', () => {
     const { workspaceId } = seed(h)
     // B typed LATER but arrives FIRST.
     const later = h.dispatch(
-      { type: 'workspace.rename', payload: { workspaceId, name: 'Typed later in B', titleLocked: true, editedAt: 9_000 } },
+      {
+        type: 'workspace.rename',
+        payload: { workspaceId, name: 'Typed later in B', titleLocked: true, editedAt: 9_000 },
+      },
       WINDOW_B,
     )
     const earlier = h.dispatch(
-      { type: 'workspace.rename', payload: { workspaceId, name: 'Typed earlier in A', titleLocked: true, editedAt: 8_000 } },
+      {
+        type: 'workspace.rename',
+        payload: { workspaceId, name: 'Typed earlier in A', titleLocked: true, editedAt: 8_000 },
+      },
       WINDOW_A,
     )
     assert.equal(later.ok, true)
@@ -138,7 +150,10 @@ test('case 4: two windows editing one agent resolve by configEditedAt', () => {
 
     // An explicit null is a tombstone: the user removed the agent.
     const removal = h.dispatch(
-      { type: 'workspace.update_agent', payload: { workspaceId, agentId: 'agent-1', patch: null, configEditedAt: 8_000 } },
+      {
+        type: 'workspace.update_agent',
+        payload: { workspaceId, agentId: 'agent-1', patch: null, configEditedAt: 8_000 },
+      },
       WINDOW_A,
     )
     assert.equal(removal.ok, true)
@@ -185,7 +200,10 @@ test('case 6: an edit against a workspace another window removed is rejected, no
     assert.equal(lateEdit.ok, false)
     assert.equal(lateEdit.ok === false && lateEdit.reason, 'unknown_workspace')
     assert.equal(h.registry.getRecord(workspaceId), null, 'without the tombstone this edit would re-create the record')
-    assert.equal(h.registry.getTombstones().some((entry) => entry.id === workspaceId), true)
+    assert.equal(
+      h.registry.getTombstones().some((entry) => entry.id === workspaceId),
+      true,
+    )
   } finally {
     h.cleanup()
   }
@@ -196,13 +214,19 @@ test('case 9: the second drag of one workspace to a different window is refused'
   try {
     const { workspaceId } = seed(h)
     const first = h.dispatch(
-      { type: 'workspace.move_to_window', payload: { workspaceId, fromWindowId: WINDOW_A, toWindowId: WINDOW_B, makeActive: true } },
+      {
+        type: 'workspace.move_to_window',
+        payload: { workspaceId, fromWindowId: WINDOW_A, toWindowId: WINDOW_B, makeActive: true },
+      },
       WINDOW_A,
     )
     assert.equal(first.ok, true)
     // A now no longer owns it, so its second attempt fails ownership validation.
     const second = h.dispatch(
-      { type: 'workspace.move_to_window', payload: { workspaceId, fromWindowId: WINDOW_A, toWindowId: 'window-c', makeActive: true } },
+      {
+        type: 'workspace.move_to_window',
+        payload: { workspaceId, fromWindowId: WINDOW_A, toWindowId: 'window-c', makeActive: true },
+      },
       WINDOW_A,
     )
     assert.equal(second.ok, false)
@@ -232,9 +256,11 @@ test('case 10: a headless create lands while a window is mid-edit, touching noth
     // Membership is main's: the workspace lands in a real window rather than
     // waiting for one to claim it.
     assert.equal(
-      h.sync.getSnapshot().state.workspaceWindows.some(
-        (windowState) => windowState.workspaceIds.includes(gatewayCreate.result.workspace.id),
-      ),
+      h.sync
+        .getSnapshot()
+        .state.workspaceWindows.some((windowState) =>
+          windowState.workspaceIds.includes(gatewayCreate.result.workspace.id),
+        ),
       true,
     )
     // Exactly one broadcast per headless create — the fan-out a window learns from.
@@ -325,10 +351,17 @@ test('a field patch honours absent-means-no-opinion and null-means-cleared', () 
       WINDOW_B,
     )
     assert.equal(behind.ok, true, 'accepted as a command')
-    assert.equal(h.registry.getRecord(workspaceId)!.lastTurnEndedAt, 9_000, 'but an older clock reading does not roll main back')
+    assert.equal(
+      h.registry.getRecord(workspaceId)!.lastTurnEndedAt,
+      9_000,
+      'but an older clock reading does not roll main back',
+    )
 
     const notEditable = h.dispatch(
-      { type: 'workspace.update_fields', payload: { workspaceId, patch: { mode: 'weather-deck' } as never, editedAt: 6_002 } },
+      {
+        type: 'workspace.update_fields',
+        payload: { workspaceId, patch: { mode: 'weather-deck' } as never, editedAt: 6_002 },
+      },
       WINDOW_A,
     )
     assert.equal(notEditable.ok, false, 'a field outside the editable set is refused, never silently dropped')

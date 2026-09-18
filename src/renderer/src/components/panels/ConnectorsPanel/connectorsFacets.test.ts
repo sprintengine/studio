@@ -96,7 +96,10 @@ assert.equal(connectorFacet(''), 'Other')
     plugin({ id: 'theme-pack', provides: ['module'] }),
     plugin({ id: 'cli-only', provides: ['cli'] }),
   ])
-  assert.deepEqual(entries.map((entry) => entry.id), ['theme-pack'])
+  assert.deepEqual(
+    entries.map((entry) => entry.id),
+    ['theme-pack'],
+  )
 }
 
 // --- installed settings servers present as listings for the launch rail -----
@@ -125,7 +128,10 @@ assert.equal(connectorCanLaunch(false), false)
   }
   const ready = launchableConnectors(installed)
   // Every installed, enabled server — and a disabled one never surfaces.
-  assert.deepEqual(ready.map((entry) => entry.id), ['github', 'my-custom'])
+  assert.deepEqual(
+    ready.map((entry) => entry.id),
+    ['github', 'my-custom'],
+  )
   assert.equal(ready.find((entry) => entry.id === 'github')!.category, 'Code Hosting')
   assert.equal(ready.find((entry) => entry.id === 'my-custom')!.name, 'My custom MCP')
   // Nothing installed → nothing to launch. There is no catalogue template left
@@ -137,13 +143,25 @@ assert.equal(connectorCanLaunch(false), false)
 // --- search ----------------------------------------------------------------
 
 {
-  const entries = buildConnectorEntries([plugin(), plugin({ id: 'railway-mcp', name: 'Railway', category: 'Deployments', summary: 'Deploys, services, logs' })])
+  const entries = buildConnectorEntries([
+    plugin(),
+    plugin({ id: 'railway-mcp', name: 'Railway', category: 'Deployments', summary: 'Deploys, services, logs' }),
+  ])
   // Name match.
-  assert.deepEqual(searchConnectors(entries, 'railway').map((e) => e.id), ['railway-mcp'])
+  assert.deepEqual(
+    searchConnectors(entries, 'railway').map((e) => e.id),
+    ['railway-mcp'],
+  )
   // Summary match.
-  assert.deepEqual(searchConnectors(entries, 'billing').map((e) => e.id), ['stripe-mcp'])
+  assert.deepEqual(
+    searchConnectors(entries, 'billing').map((e) => e.id),
+    ['stripe-mcp'],
+  )
   // Category match.
-  assert.deepEqual(searchConnectors(entries, 'payments').map((e) => e.id), ['stripe-mcp'])
+  assert.deepEqual(
+    searchConnectors(entries, 'payments').map((e) => e.id),
+    ['stripe-mcp'],
+  )
   // Empty query returns everything.
   assert.equal(searchConnectors(entries, '   ').length, 2)
   // No match.
@@ -177,7 +195,6 @@ assert.equal(connectorCanLaunch(false), false)
   )
 }
 
-
 // --- category sections ------------------------------------------------------
 
 // One section per non-empty bucket, in the declared order, with the unmapped
@@ -195,8 +212,14 @@ assert.equal(connectorCanLaunch(false), false)
     sections.map((section) => section.title),
     ['Infrastructure', 'Payments', 'More'],
   )
-  assert.deepEqual(sections[0].entries.map((entry) => entry.id), ['railway-mcp'])
-  assert.deepEqual(sections[2].entries.map((entry) => entry.id), ['weather-mcp'])
+  assert.deepEqual(
+    sections[0].entries.map((entry) => entry.id),
+    ['railway-mcp'],
+  )
+  assert.deepEqual(
+    sections[2].entries.map((entry) => entry.id),
+    ['weather-mcp'],
+  )
 }
 
 // No entries → no sections (the tab's empty/no-match sentence owns that copy).
@@ -209,7 +232,6 @@ assert.deepEqual(sectionConnectors([]), [])
   const [entry] = buildConnectorEntries([plugin({ id: 'railway-mcp', name: 'Railway' })])
   assert.deepEqual(connectorEntryAsComposerConnector(entry), { id: 'railway-mcp', name: 'Railway' })
 }
-
 
 // --- registry entries by kind (MC-1847 C2) ---------------------------------
 // The Plugins catalogue lists mcp, skills and module entries (D10); cli entries
@@ -263,7 +285,10 @@ assert.deepEqual(sectionConnectors([]), [])
   assert.equal(entry.canLaunch, false, 'a module-only plugin is never launchable')
   // Listed, never launchable: install still gates launch.
   const calendarRows = buildConnectorEntries([calendar])
-  assert.deepEqual(calendarRows.map((row) => row.id), ['multicode-calendar'])
+  assert.deepEqual(
+    calendarRows.map((row) => row.id),
+    ['multicode-calendar'],
+  )
   assert.equal(calendarRows[0].canLaunch, false)
   assert.deepEqual(calendarRows[0].componentLabels, ['Module'])
   // A cli-only plugin still keeps to its own canvas.
@@ -272,7 +297,10 @@ assert.deepEqual(sectionConnectors([]), [])
   // never launches from the registry side — install still gates launch.
   const mixed = plugin({ id: 'suite', name: 'Suite', provides: ['mcp', 'module'] })
   const gridRows = buildConnectorEntries([mixed])
-  assert.deepEqual(gridRows.map((row) => row.id), ['suite'])
+  assert.deepEqual(
+    gridRows.map((row) => row.id),
+    ['suite'],
+  )
   assert.equal(gridRows[0].canLaunch, false)
 }
 

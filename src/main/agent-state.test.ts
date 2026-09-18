@@ -53,7 +53,10 @@ async function unmergeClaudeSettings(settingsPath: string): Promise<{ ok: true }
 }
 
 type Settings = {
-  hooks?: Record<string, Array<{ matcher?: string; hooks?: Array<{ type: string; command: string; _multicode?: string }> }>>
+  hooks?: Record<
+    string,
+    Array<{ matcher?: string; hooks?: Array<{ type: string; command: string; _multicode?: string }> }>
+  >
 }
 
 async function readSettings(path: string): Promise<Settings> {
@@ -115,7 +118,12 @@ async function runReporter(event: string): Promise<Record<string, unknown> | nul
     // Every real payload for these events carries a transcript_path; forwarding
     // it is what the reporter must gate on the event, not on the field.
     child.stdin.end(
-      JSON.stringify({ hook_event_name: event, session_id: 's1', transcript_path: '/tmp/session.jsonl', notification_type: 'permission_prompt' })
+      JSON.stringify({
+        hook_event_name: event,
+        session_id: 's1',
+        transcript_path: '/tmp/session.jsonl',
+        notification_type: 'permission_prompt',
+      }),
     )
     await new Promise<void>((res) => child.on('close', () => res()))
     const line = received.join('').trim()
@@ -133,7 +141,14 @@ async function run(): Promise<void> {
   // Every bundled manifest that declares an agentStateSpec (the canonical-fold
   // collision sweep below must see all of them, not just the ones named above).
   const BUNDLED_AGENT_STATE_PLUGINS = [
-    'claude-code', 'codex', 'cursor', 'grok', 'kimi-claude', 'kimi-code', 'opencode', 'zai',
+    'claude-code',
+    'codex',
+    'cursor',
+    'grok',
+    'kimi-claude',
+    'kimi-code',
+    'opencode',
+    'zai',
   ] as const
 
   // zai and kimi-claude run the same `claude` binary; their operative spec
@@ -208,7 +223,7 @@ async function run(): Promise<void> {
   assert.deepEqual(
     resolveAgentStateEvent(claudeSpec, { event: 'Notification', phase: 'awaiting_input' }),
     { action: 'apply', phase: 'awaiting_input', turnEnd: false, turnFailure: false },
-    'a stale reporter’s pre-filtered Notification must still light awaiting_input'
+    'a stale reporter’s pre-filtered Notification must still light awaiting_input',
   )
   // A dumb-forwarder frame (no phase) with an untyped Notification still drops.
   assert.deepEqual(resolveAgentStateEvent(claudeSpec, { event: 'Notification' }), { action: 'drop' })
@@ -217,8 +232,12 @@ async function run(): Promise<void> {
   // A PRESENT-but-unlisted discriminator drops even when the phase matches:
   // the new reporter forwarded the type and the allow-list rejected it.
   assert.deepEqual(
-    resolveAgentStateEvent(claudeSpec, { event: 'Notification', phase: 'awaiting_input', notificationType: 'idle_prompt' }),
-    { action: 'drop' }
+    resolveAgentStateEvent(claudeSpec, {
+      event: 'Notification',
+      phase: 'awaiting_input',
+      notificationType: 'idle_prompt',
+    }),
+    { action: 'drop' },
   )
 
   // --- fallback for spec-less frames --------------------------------------
@@ -245,11 +264,7 @@ async function run(): Promise<void> {
   assert.equal(canonicalEventName('PreToolUse'), 'pretooluse')
   assert.equal(canonicalEventName('pre_tool_use'), 'pretooluse')
   assert.equal(canonicalEventName('pre-tool-use'), 'pretooluse')
-  assert.equal(
-    canonicalEventName('session.idle'),
-    'session.idle',
-    'dots are structure (OpenCode), never folded away'
-  )
+  assert.equal(canonicalEventName('session.idle'), 'session.idle', 'dots are structure (OpenCode), never folded away')
 
   // Both spellings of every Grok event resolve to the SAME phase.
   for (const entry of grokSpec.events) {
@@ -259,12 +274,12 @@ async function run(): Promise<void> {
     assert.equal(
       resolvePhase(grokSpec, snake, notificationType),
       resolvePhase(grokSpec, entry.event, notificationType),
-      `grok ${snake} must resolve like ${entry.event}`
+      `grok ${snake} must resolve like ${entry.event}`,
     )
     assert.equal(
       resolvePhase(grokSpec, entry.event, notificationType),
       entry.phase,
-      `grok ${entry.event} must still match its manifest phase exactly`
+      `grok ${entry.event} must still match its manifest phase exactly`,
     )
   }
   // The real bug, end to end: the payload spelling now carries turn end too.
@@ -315,7 +330,7 @@ async function run(): Promise<void> {
   // events that open and close such work, and the resolution carries the flag.
   const background = (spec: PluginAgentStateSpec, event: string) => {
     const r = resolveAgentStateEvent(spec, { event, notificationType: undefined })
-    return r.action === 'apply' ? r.background ?? null : null
+    return r.action === 'apply' ? (r.background ?? null) : null
   }
   assert.equal(background(claudeSpec, 'SubagentStart'), 'start')
   assert.equal(background(claudeSpec, 'SubagentStop'), 'stop')
@@ -330,11 +345,21 @@ async function run(): Promise<void> {
   assert.deepEqual(
     holdTurnEndForBackgroundWork(stop, 1),
     { ...stop, phase: 'tool_use', turnEnd: false },
-    'work outstanding: held as working, and no consumer may finalize'
+    'work outstanding: held as working, and no consumer may finalize',
   )
   const failedStop = { ...stop, turnFailure: true }
-  assert.deepEqual(holdTurnEndForBackgroundWork(failedStop, 1), failedStop, 'a failed turn is over whatever is outstanding')
-  const subagentStop = { action: 'apply' as const, phase: 'thinking' as const, turnEnd: false, turnFailure: false, background: 'stop' as const }
+  assert.deepEqual(
+    holdTurnEndForBackgroundWork(failedStop, 1),
+    failedStop,
+    'a failed turn is over whatever is outstanding',
+  )
+  const subagentStop = {
+    action: 'apply' as const,
+    phase: 'thinking' as const,
+    turnEnd: false,
+    turnFailure: false,
+    background: 'stop' as const,
+  }
   assert.deepEqual(holdTurnEndForBackgroundWork(subagentStop, 3), subagentStop, 'only a turn end is ever held')
 
   // --- OpenCode mapping (manifest-driven) ----------------------------------
@@ -355,14 +380,14 @@ async function run(): Promise<void> {
   // stale registration fires it, but never registered anew.
   const claudeRegistered = registeredAgentStateEvents(claudeSpec)
   assert.ok(!claudeRegistered.some((e) => e.event === 'PreToolUse'), 'PreToolUse must not be registered')
-  assert.ok(claudeRegistered.some((e) => e.event === 'PostToolUse' && e.matcher === '*'), 'PostToolUse * missing')
+  assert.ok(
+    claudeRegistered.some((e) => e.event === 'PostToolUse' && e.matcher === '*'),
+    'PostToolUse * missing',
+  )
   // FileChanged is the second map-only event (agent changelists): the reporter
   // reads it, but nothing arms its watch paths yet, so it is not written either.
   assert.ok(!claudeRegistered.some((e) => e.event === 'FileChanged'), 'FileChanged must not be registered')
-  assert.equal(
-    claudeRegistered.length,
-    claudeSpec.events.filter((e) => e.register !== false).length,
-  )
+  assert.equal(claudeRegistered.length, claudeSpec.events.filter((e) => e.register !== false).length)
   const codexRegistered = registeredAgentStateEvents(codexSpec)
   assert.ok(!codexRegistered.some((e) => e.event === 'PreToolUse'))
   assert.ok(codexRegistered.some((e) => e.event === 'PermissionRequest'))
@@ -380,8 +405,16 @@ async function run(): Promise<void> {
 
   // --- untrusted frame validation ----------------------------------------
   const valid = parseAgentStateFrame(
-    { type: 'agent_state', agentId: 'a1', workspaceId: 'w1', sessionId: 's1', phase: 'tool_use', event: 'PreToolUse', ts: 123 },
-    999
+    {
+      type: 'agent_state',
+      agentId: 'a1',
+      workspaceId: 'w1',
+      sessionId: 's1',
+      phase: 'tool_use',
+      event: 'PreToolUse',
+      ts: 123,
+    },
+    999,
   )
   assert.deepEqual(valid, {
     type: 'agent_state',
@@ -395,7 +428,7 @@ async function run(): Promise<void> {
   // A phase-less frame (the dumb-forwarder reporter) is valid with an event…
   const forwarded = parseAgentStateFrame(
     { type: 'agent_state', agentId: 'a1', event: 'Notification', notificationType: 'permission_prompt', ts: 5 },
-    999
+    999,
   )
   assert.equal(forwarded?.phase, undefined)
   assert.equal(forwarded?.event, 'Notification')
@@ -404,9 +437,9 @@ async function run(): Promise<void> {
   assert.equal(
     parseAgentStateFrame(
       { type: 'agent_state', agentId: 'a1', event: 'Notification', notificationType: 'x'.repeat(500), ts: 5 },
-      999
+      999,
     )?.notificationType,
-    undefined
+    undefined,
   )
   // …the observed cwd (MC-2440) must be absolute on some platform and capped;
   // a bad value drops the field, never the frame…
@@ -425,9 +458,10 @@ async function run(): Promise<void> {
   assert.equal(cwdOf(42), undefined)
   assert.equal(cwdOf('/' + 'x'.repeat(5000)), undefined, 'oversized cwd is dropped')
   assert.equal(
-    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, cwd: 'relative' }, 999)?.event,
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, cwd: 'relative' }, 999)
+      ?.event,
     'PostToolUse',
-    'a bad cwd never drops the frame'
+    'a bad cwd never drops the frame',
   )
   // …the file ledger's change rides the same rules: absolute path, bounded, and
   // counts that are real, whole and not negative. A bad one drops the FIELD —
@@ -435,19 +469,20 @@ async function run(): Promise<void> {
   const changeOf = (fileChange: unknown) =>
     parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, fileChange }, 999)
       ?.fileChange
-  assert.deepEqual(
-    changeOf({ path: '/repo/src/app.ts', additions: 12, deletions: 3 }),
-    { path: '/repo/src/app.ts', additions: 12, deletions: 3 }
-  )
+  assert.deepEqual(changeOf({ path: '/repo/src/app.ts', additions: 12, deletions: 3 }), {
+    path: '/repo/src/app.ts',
+    additions: 12,
+    deletions: 3,
+  })
   assert.deepEqual(
     changeOf({ path: '/repo/new.ts', additions: 0, deletions: 0 }),
     { path: '/repo/new.ts', additions: 0, deletions: 0 },
-    'a touched-but-uncounted file (an unverified MultiEdit shape) is still recorded'
+    'a touched-but-uncounted file (an unverified MultiEdit shape) is still recorded',
   )
   assert.deepEqual(
     changeOf({ path: 'src/app.ts', additions: 1, deletions: 0 }),
     undefined,
-    'a relative path is meaningless off the reporter’s own cwd'
+    'a relative path is meaningless off the reporter’s own cwd',
   )
   assert.equal(changeOf({ path: '/repo/a.ts', additions: -1, deletions: 0 }), undefined, 'negative additions')
   assert.equal(changeOf({ path: '/repo/a.ts', additions: 0, deletions: -4 }), undefined, 'negative deletions')
@@ -459,12 +494,12 @@ async function run(): Promise<void> {
   assert.deepEqual(
     changeOf({ path: '/' + 'x'.repeat(MAX_FILE_CHANGE_PATH_LENGTH - 1), additions: 1, deletions: 0 })?.path?.length,
     MAX_FILE_CHANGE_PATH_LENGTH,
-    'a path exactly at the cap is a path, not an anomaly'
+    'a path exactly at the cap is a path, not an anomaly',
   )
   assert.deepEqual(
     changeOf({ path: 'C:\\repo\\a.ts', additions: 1, deletions: 0 }),
     { path: 'C:\\repo\\a.ts', additions: 1, deletions: 0 },
-    'the ledger is cross-platform: a Windows drive path is absolute'
+    'the ledger is cross-platform: a Windows drive path is absolute',
   )
   // `isAbsoluteObservedPath` only reads a path's prefix, so what follows must be
   // refused here: this value is retained per session, written to a sidecar,
@@ -473,12 +508,12 @@ async function run(): Promise<void> {
   assert.equal(
     changeOf({ path: '/repo/\u001b[31mevil.ts', additions: 1, deletions: 0 }),
     undefined,
-    'an ANSI escape is not a path'
+    'an ANSI escape is not a path',
   )
   assert.equal(
     changeOf({ path: '/repo/two\nlines.ts', additions: 1, deletions: 0 }),
     undefined,
-    'an embedded newline is not a path'
+    'an embedded newline is not a path',
   )
   assert.equal(cwdOf('/repo/\u0000evil'), undefined, 'the observed cwd is held to the same rule')
   assert.equal(changeOf({ additions: 1, deletions: 0 }), undefined, 'a change with no path names nothing')
@@ -486,15 +521,15 @@ async function run(): Promise<void> {
   assert.deepEqual(
     changeOf({ path: '  /repo/a.ts  ', additions: 3.7, deletions: 1e12 }),
     { path: '/repo/a.ts', additions: 3, deletions: MAX_FILE_CHANGE_COUNT },
-    'the path is trimmed, a fractional count floors, an absurd one caps'
+    'the path is trimmed, a fractional count floors, an absurd one caps',
   )
   assert.equal(
     parseAgentStateFrame(
       { type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, fileChange: { path: 'nope' } },
-      999
+      999,
     )?.event,
     'PostToolUse',
-    'a bad file change never drops the frame'
+    'a bad file change never drops the frame',
   )
   // …and the changed REGIONS the agent's changelist is built from ride the same
   // rules one level down: four whole non-negative ints each (zero is legal on a
@@ -504,20 +539,23 @@ async function run(): Promise<void> {
   assert.deepEqual(
     editsOf([{ oldStart: 2, oldLines: 2, newStart: 2, newLines: 3 }]),
     [{ oldStart: 2, oldLines: 2, newStart: 2, newLines: 3 }],
-    'a well-formed region survives verbatim'
+    'a well-formed region survives verbatim',
   )
   assert.deepEqual(
     editsOf([{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 4 }]),
     [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 4 }],
-    'a whole-file creation anchors at 0, which is a start, not an anomaly'
+    'a whole-file creation anchors at 0, which is a start, not an anomaly',
   )
   assert.equal(editsOf(undefined), undefined, 'no regions is a file-level claim, not an error')
   assert.equal(editsOf([]), undefined, 'and neither is an empty list')
   assert.equal(editsOf('1,2,3,4'), undefined, 'the regions are a list')
   assert.equal(
-    editsOf([{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1 }, { oldStart: -1, oldLines: 0, newStart: 1, newLines: 1 }]),
+    editsOf([
+      { oldStart: 1, oldLines: 1, newStart: 1, newLines: 1 },
+      { oldStart: -1, oldLines: 0, newStart: 1, newLines: 1 },
+    ]),
     undefined,
-    'one malformed region drops every region: half a claim is a wrong claim'
+    'one malformed region drops every region: half a claim is a wrong claim',
   )
   assert.equal(editsOf([{ oldStart: 1, oldLines: 1, newStart: 1 }]), undefined, 'all four numbers are required')
   assert.equal(editsOf([{ oldStart: 1.5, oldLines: 1, newStart: 1, newLines: 1 }]), undefined, 'lines are whole')
@@ -535,7 +573,7 @@ async function run(): Promise<void> {
       })),
     })?.edits?.length,
     MAX_FILE_CHANGE_EDITS,
-    'a rewrite past the cap is truncated — the regions ascend, so the kept ones are still right'
+    'a rewrite past the cap is truncated — the regions ascend, so the kept ones are still right',
   )
   assert.deepEqual(
     parseAgentStateFrame(
@@ -546,10 +584,10 @@ async function run(): Promise<void> {
         ts: 5,
         fileChange: { path: '/repo/a.ts', additions: 1, deletions: 0, edits: [{ oldStart: 'x' }] },
       },
-      999
+      999,
     )?.fileChange,
     { path: '/repo/a.ts', additions: 1, deletions: 0 },
-    'a malformed region list drops the field, and the file is still reported'
+    'a malformed region list drops the field, and the file is still reported',
   )
   // …and the status line's reading rides its own: a percentage that IS one,
   // rounded to a whole percent; counts that are real, whole and not negative; a
@@ -579,7 +617,7 @@ async function run(): Promise<void> {
       model: 'Opus',
       sessionName: 'hook ledger',
     },
-    'the percentage rounds to a whole percent; the cost keeps its fraction'
+    'the percentage rounds to a whole percent; the cost keeps its fraction',
   )
   assert.equal(statusOf({ usedPercentage: 8.6 })?.usedPercentage, 9, 'rounds, not floors')
   assert.deepEqual(statusOf({ usedPercentage: 0 }), { usedPercentage: 0 }, 'zero is a reading, not an absence')
@@ -593,19 +631,19 @@ async function run(): Promise<void> {
   assert.deepEqual(
     statusOf({ usedPercentage: 12, totalCostUsd: -1, linesAdded: -2, model: 42 }),
     { usedPercentage: 12 },
-    'a bad field drops alone — the reading beside it survives'
+    'a bad field drops alone — the reading beside it survives',
   )
   assert.equal(statusOf({ totalCostUsd: 0 })?.totalCostUsd, 0, 'a free session costs zero, which is a fact')
   assert.equal(
     statusOf({ totalCostUsd: 1e300 })?.totalCostUsd,
     MAX_STATUS_LINE_COST_USD,
-    'money is bounded too — every number off this socket is'
+    'money is bounded too — every number off this socket is',
   )
   assert.equal(statusOf({ totalCostUsd: 0.5 })?.totalCostUsd, 0.5, 'but it keeps the fraction the counts floor away')
   assert.deepEqual(
     statusOf({ contextWindowSize: 200_000.7, linesAdded: 1e12 }),
     { contextWindowSize: 200_000, linesAdded: MAX_STATUS_LINE_COUNT },
-    'counts floor, an absurd one caps'
+    'counts floor, an absurd one caps',
   )
   assert.equal(statusOf({ model: '  Opus  ' })?.model, 'Opus', 'a name is trimmed')
   assert.equal(statusOf({ model: 'x'.repeat(MAX_STATUS_LINE_NAME_LENGTH) })?.model?.length, MAX_STATUS_LINE_NAME_LENGTH)
@@ -621,7 +659,7 @@ async function run(): Promise<void> {
   for (const bad of [{ sessionName: 'x'.repeat(9000) }, { usedPercentage: 900, model: 42 }]) {
     const frame = parseAgentStateFrame(
       { type: 'agent_state', agentId: 'a1', event: 'StatusLine', ts: 5, statusLine: bad },
-      999
+      999,
     )
     assert.equal(frame?.event, 'StatusLine', `the frame survives ${JSON.stringify(bad)}`)
     assert.equal(frame?.statusLine, undefined)
@@ -632,10 +670,10 @@ async function run(): Promise<void> {
   assert.equal(
     parseAgentStateFrame(
       { type: 'agent_state', agentId: 'a1', event: 'StatusLine', ts: 5, statusLine: { usedPercentage: 900 } },
-      999
+      999,
     )?.event,
     'StatusLine',
-    'a bad status line never drops the frame'
+    'a bad status line never drops the frame',
   )
   // …a captured pull request rides the app's ONE URL parser: the reporter's
   // regex is a wire-side twin, and this is where the two meet. What is not a
@@ -644,33 +682,30 @@ async function run(): Promise<void> {
   const prOf = (pullRequest: unknown) =>
     parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, pullRequest }, 999)
       ?.pullRequest
-  assert.deepEqual(
-    prOf({ url: 'https://github.com/acme/app/pull/12' }),
-    { url: 'https://github.com/acme/app/pull/12' }
-  )
+  assert.deepEqual(prOf({ url: 'https://github.com/acme/app/pull/12' }), { url: 'https://github.com/acme/app/pull/12' })
   assert.deepEqual(
     prOf({ url: 'https://github.example.com:8443/acme/app/pull/77' }),
     { url: 'https://github.example.com:8443/acme/app/pull/77' },
-    'a GitHub Enterprise host is a pull request host'
+    'a GitHub Enterprise host is a pull request host',
   )
   assert.deepEqual(
     prOf({ url: '  https://github.com/acme/app/pull/9/files?w=1  ' }),
     { url: 'https://github.com/acme/app/pull/9/files?w=1' },
-    'a trailing tab and query survive validation — the record canonicalises them on the way in'
+    'a trailing tab and query survive validation — the record canonicalises them on the way in',
   )
   assert.equal(prOf({ url: 'https://github.com/acme/app/issues/12' }), undefined, 'an issue is not a pull request')
   assert.equal(prOf({ url: 'https://github.com/acme/app/commit/9f2c1ab' }), undefined, 'a commit is not a pull request')
   assert.equal(
     prOf({ url: 'https://bitbucket.org/acme/app/pull-requests/4' }),
     undefined,
-    'a typed "unsupported" is not a capture either'
+    'a typed "unsupported" is not a capture either',
   )
   assert.equal(prOf({ url: 'not a url at all' }), undefined)
   assert.equal(prOf({ url: 'javascript:alert(1)' }), undefined, 'only http(s) is a pull request URL')
   assert.equal(
     prOf({ url: `https://github.com/acme/${'x'.repeat(3000)}/pull/1` }),
     undefined,
-    'an absurd URL is a broken reporter, not a pull request'
+    'an absurd URL is a broken reporter, not a pull request',
   )
   assert.equal(prOf({ url: 'https://github.com/acme/app/pull/12\u001b[31m' }), undefined, 'an ANSI escape is not a URL')
   assert.equal(prOf({ url: '' }), undefined)
@@ -688,7 +723,7 @@ async function run(): Promise<void> {
       cwd: '/repo',
       pullRequest: { url: 'https://github.com/acme/app/issues/12' },
     },
-    999
+    999,
   )
   assert.equal(badPrFrame?.cwd, '/repo', 'a malformed capture never costs the frame the rest of its truth')
   assert.equal(badPrFrame?.pullRequest, undefined)
@@ -697,12 +732,15 @@ async function run(): Promise<void> {
   // DROPPED rather than truncated: a truncated id could collide with a real
   // other call's, which would silently swallow a genuine edit…
   const idOf = (toolUseId: unknown) =>
-    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, toolUseId }, 999)
-      ?.toolUseId
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, toolUseId }, 999)?.toolUseId
   assert.equal(idOf('toolu_01PEv1LG8ZsV17KL86fXpeAx'), 'toolu_01PEv1LG8ZsV17KL86fXpeAx')
   assert.equal(idOf('  toolu_padded  '), 'toolu_padded', 'trimmed, like every other id off this socket')
   assert.equal(idOf('x'.repeat(MAX_TOOL_USE_ID_LENGTH)), 'x'.repeat(MAX_TOOL_USE_ID_LENGTH), 'exactly the cap is fine')
-  assert.equal(idOf('x'.repeat(MAX_TOOL_USE_ID_LENGTH + 1)), undefined, 'over the cap the id is dropped, never truncated')
+  assert.equal(
+    idOf('x'.repeat(MAX_TOOL_USE_ID_LENGTH + 1)),
+    undefined,
+    'over the cap the id is dropped, never truncated',
+  )
   assert.equal(idOf('toolu\u0000forged'), undefined, 'a control character would let one id forge another`s ring key')
   assert.equal(idOf('toolu\nnewline'), undefined)
   assert.equal(idOf(''), undefined)
@@ -712,19 +750,20 @@ async function run(): Promise<void> {
   assert.equal(
     parseAgentStateFrame(
       { type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, toolUseId: 'x'.repeat(9000), cwd: '/repo' },
-      999
+      999,
     )?.cwd,
     '/repo',
-    'a malformed id drops the FIELD and never the frame'
+    'a malformed id drops the FIELD and never the frame',
   )
   // …the status discriminator rides the same validation (capped, optional)…
   assert.equal(
     parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'stop', status: 'error', ts: 5 }, 999)?.status,
-    'error'
+    'error',
   )
   assert.equal(
-    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'stop', status: 'x'.repeat(500), ts: 5 }, 999)?.status,
-    undefined
+    parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'stop', status: 'x'.repeat(500), ts: 5 }, 999)
+      ?.status,
+    undefined,
   )
   // …and a frame with neither event nor a valid phase carries nothing to apply.
   assert.equal(parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', ts: 5 }, 999), null)
@@ -740,12 +779,14 @@ async function run(): Promise<void> {
   // --- self-scheduled wakeup (ScheduleWakeup PostToolUse frame) -----------
   const base = { type: 'agent_state', agentId: 'a1', phase: 'thinking', event: 'PostToolUse', ts: 123 }
   // A schedule and a stop both survive validation…
-  assert.deepEqual(parseAgentStateFrame({ ...base, wakeup: { delaySeconds: 1200 } }, 999)?.wakeup, { delaySeconds: 1200 })
+  assert.deepEqual(parseAgentStateFrame({ ...base, wakeup: { delaySeconds: 1200 } }, 999)?.wakeup, {
+    delaySeconds: 1200,
+  })
   assert.deepEqual(parseAgentStateFrame({ ...base, wakeup: { stop: true } }, 999)?.wakeup, { stop: true })
   // …an implausible delay is clamped (one bad frame must not park a session)…
   assert.deepEqual(
     parseAgentStateFrame({ ...base, wakeup: { delaySeconds: 10 * MAX_WAKEUP_DELAY_SECONDS } }, 999)?.wakeup,
-    { delaySeconds: MAX_WAKEUP_DELAY_SECONDS }
+    { delaySeconds: MAX_WAKEUP_DELAY_SECONDS },
   )
   // …and a malformed wakeup drops while the frame itself stands.
   for (const bad of [{ delaySeconds: -5 }, { delaySeconds: 'soon' }, { stop: false }, 'junk', 42, {}]) {
@@ -757,8 +798,9 @@ async function run(): Promise<void> {
   // --- transcript path (untrusted, optional, field-level drop) ------------
   // A valid path rides the frame…
   assert.equal(
-    parseAgentStateFrame({ ...base, event: 'Stop', phase: 'idle', transcriptPath: '/tmp/t.jsonl' }, 999)?.transcriptPath,
-    '/tmp/t.jsonl'
+    parseAgentStateFrame({ ...base, event: 'Stop', phase: 'idle', transcriptPath: '/tmp/t.jsonl' }, 999)
+      ?.transcriptPath,
+    '/tmp/t.jsonl',
   )
   // …and every invalid value drops ONLY the field: losing a summary is a
   // degradation, losing the frame would lose the turn end itself.
@@ -787,7 +829,11 @@ async function run(): Promise<void> {
     assert.equal(toolFrame?.transcriptPath, undefined, 'only a turn end forwards transcript_path')
 
     const notificationFrame = await runReporter('Notification')
-    assert.equal(notificationFrame?.notificationType, 'permission_prompt', 'Notification must forward notification_type')
+    assert.equal(
+      notificationFrame?.notificationType,
+      'permission_prompt',
+      'Notification must forward notification_type',
+    )
 
     // Even an event outside every manifest is forwarded — filtering is main's
     // job (the spec drops unknown events), not the reporter's.
@@ -804,7 +850,7 @@ async function run(): Promise<void> {
     const arrival = 1_000_000
     const future = parseAgentStateFrame(
       { type: 'agent_state', agentId: 'a1', phase: 'thinking', ts: arrival + 5_000_000 },
-      arrival
+      arrival,
     )
     // ts is capped at `now`, never the future raw value.
     assert.equal(future?.ts, arrival, 'future ts is clamped to now')
@@ -815,7 +861,7 @@ async function run(): Promise<void> {
     // future frame recorded since=arrival rather than the future raw value.
     const normal = parseAgentStateFrame(
       { type: 'agent_state', agentId: 'a1', phase: 'idle', ts: arrival + 1 },
-      arrival + 1
+      arrival + 1,
     )
     assert.ok(normal, 'normal frame parses')
     const recordedSince = future!.ts
@@ -824,23 +870,46 @@ async function run(): Promise<void> {
   }
 
   // --- frame → session resolution ----------------------------------------
-  type Sess = { id: string; agentId?: string; executionId?: string; sessionId?: string; workspaceId?: string; startedAt: number }
-  const cand = (s: Sess) => ({ value: s, agentId: s.agentId, executionId: s.executionId, sessionId: s.sessionId, workspaceId: s.workspaceId, startedAt: s.startedAt })
+  type Sess = {
+    id: string
+    agentId?: string
+    executionId?: string
+    sessionId?: string
+    workspaceId?: string
+    startedAt: number
+  }
+  const cand = (s: Sess) => ({
+    value: s,
+    agentId: s.agentId,
+    executionId: s.executionId,
+    sessionId: s.sessionId,
+    workspaceId: s.workspaceId,
+    startedAt: s.startedAt,
+  })
   // No match → undefined.
-  assert.equal(selectAgentStateTarget([cand({ id: 'x', agentId: 'a', startedAt: 1 })], { agentId: 'zzz', workspaceId: null }), undefined)
+  assert.equal(
+    selectAgentStateTarget([cand({ id: 'x', agentId: 'a', startedAt: 1 })], { agentId: 'zzz', workspaceId: null }),
+    undefined,
+  )
   // Match by agentId.
   assert.equal(
     selectAgentStateTarget([cand({ id: 'x', agentId: 'a', startedAt: 1 })], { agentId: 'a', workspaceId: null })?.id,
-    'x'
+    'x',
   )
   // Match by executionId and by sessionId.
   assert.equal(
-    selectAgentStateTarget([cand({ id: 'x', executionId: 'exec1', startedAt: 1 })], { agentId: 'exec1', workspaceId: null })?.id,
-    'x'
+    selectAgentStateTarget([cand({ id: 'x', executionId: 'exec1', startedAt: 1 })], {
+      agentId: 'exec1',
+      workspaceId: null,
+    })?.id,
+    'x',
   )
   assert.equal(
-    selectAgentStateTarget([cand({ id: 'x', sessionId: 'sess1', startedAt: 1 })], { agentId: 'sess1', workspaceId: null })?.id,
-    'x'
+    selectAgentStateTarget([cand({ id: 'x', sessionId: 'sess1', startedAt: 1 })], {
+      agentId: 'sess1',
+      workspaceId: null,
+    })?.id,
+    'x',
   )
   // Two live sessions share an agent id: workspace scoping wins.
   const dupA = cand({ id: 'old', agentId: 'a', workspaceId: 'w1', startedAt: 1 })
@@ -870,18 +939,39 @@ async function run(): Promise<void> {
   // no output-timing fallback any more) has no other path off "working".
   assert.deepEqual(evaluateAgentStall({ ...stallBase, phase: 'starting', source: 'lifecycle' }), { action: 'stalled' })
   assert.deepEqual(
-    evaluateAgentStall({ phase: 'starting', source: 'hook', phaseSince: 80_000, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }),
-    { action: 'recheck', afterMs: 70_000 }
+    evaluateAgentStall({
+      phase: 'starting',
+      source: 'hook',
+      phaseSince: 80_000,
+      lastOutputAt: null,
+      now: 100_000,
+      thresholdMs: 90_000,
+    }),
+    { action: 'recheck', afterMs: 70_000 },
   )
   // Recent output (streaming tool) keeps it alive — recheck after the remainder.
   assert.deepEqual(
-    evaluateAgentStall({ phase: 'tool_use', source: 'hook', phaseSince: 0, lastOutputAt: 70_000, now: 100_000, thresholdMs: 90_000 }),
-    { action: 'recheck', afterMs: 60_000 }
+    evaluateAgentStall({
+      phase: 'tool_use',
+      source: 'hook',
+      phaseSince: 0,
+      lastOutputAt: 70_000,
+      now: 100_000,
+      thresholdMs: 90_000,
+    }),
+    { action: 'recheck', afterMs: 60_000 },
   )
   // A recent frame (phaseSince) likewise defers.
   assert.deepEqual(
-    evaluateAgentStall({ phase: 'thinking', source: 'hook', phaseSince: 80_000, lastOutputAt: null, now: 100_000, thresholdMs: 90_000 }),
-    { action: 'recheck', afterMs: 70_000 }
+    evaluateAgentStall({
+      phase: 'thinking',
+      source: 'hook',
+      phaseSince: 80_000,
+      lastOutputAt: null,
+      now: 100_000,
+      thresholdMs: 90_000,
+    }),
+    { action: 'recheck', afterMs: 70_000 },
   )
 
   // --- at-rest vocabulary (reaper) ----------------------------------------
@@ -899,8 +989,14 @@ async function run(): Promise<void> {
   // The reporter is referenced by its ABSOLUTE path (hook cwd is not guaranteed),
   // double-quoted so spaces survive and forward-slashed so a Windows `C:\...` path
   // carries no unescaped backslashes into the JSON/TOML command string.
-  const cmd = buildAgentStateReporterCommand('/abs/multi code/.multicode/hooks/agent-state.mjs', '/tmp/multi code/agent.sock')
-  assert.match(cmd, /^node "\/abs\/multi code\/\.multicode\/hooks\/agent-state\.mjs" --socket "\/tmp\/multi code\/agent\.sock"$/)
+  const cmd = buildAgentStateReporterCommand(
+    '/abs/multi code/.multicode/hooks/agent-state.mjs',
+    '/tmp/multi code/agent.sock',
+  )
+  assert.match(
+    cmd,
+    /^node "\/abs\/multi code\/\.multicode\/hooks\/agent-state\.mjs" --socket "\/tmp\/multi code\/agent\.sock"$/,
+  )
   // The host path separator is rewritten to '/': on Windows `resolve()` yields
   // backslashes, which Node accepts as forward slashes and which avoids embedding
   // unescaped backslashes. Build the input with the host `sep` so this holds on
@@ -910,7 +1006,10 @@ async function run(): Promise<void> {
   assert.ok(!sepCmd.slice(0, sepCmd.indexOf('--socket')).includes('\\'), 'script path must not contain backslashes')
   // A Windows named-pipe SOCKET path must survive verbatim — a separator rewrite
   // would corrupt `\\.\pipe\...` into `//./pipe/...`, which connect() cannot open.
-  const winCmd = buildAgentStateReporterCommand('/abs/.multicode/hooks/agent-state.mjs', '\\\\.\\pipe\\multicode-agent-state-abc')
+  const winCmd = buildAgentStateReporterCommand(
+    '/abs/.multicode/hooks/agent-state.mjs',
+    '\\\\.\\pipe\\multicode-agent-state-abc',
+  )
   assert.ok(winCmd.includes('--socket "\\\\.\\pipe\\multicode-agent-state-abc"'), winCmd)
 
   // --- settings-json install / uninstall round-trip (claude spec) ---------
@@ -923,25 +1022,44 @@ async function run(): Promise<void> {
   await mkdir(join(root, '.claude'), { recursive: true })
   await writeFile(
     settingsPath,
-    JSON.stringify({ hooks: {
-      // The user's own hook — must survive install + uninstall untouched.
-      PostToolUse: [
-        { matcher: 'Read', hooks: [{ type: 'command', command: 'echo user' }] },
-        // An untagged stale reporter: an external writer (e.g. Claude Code
-        // rewriting settings.local.json) stripped the `_multicode` tag, then the
-        // workspace root moved so the absolute path dangles. Install must claim
-        // it by command shape and migrate it away, not strand it.
-        { matcher: '*', hooks: [{ type: 'command', command: 'node "/old/root/.multicode/hooks/agent-state.mjs" --socket "/old/agent.sock"' }] },
-      ],
-      // A stale studio-tagged hook from a prior release that registered the
-      // now-dropped PreToolUse event. Install must migrate it away (and uninstall
-      // must also clean it), not strand it.
-      PreToolUse: [{ matcher: '*', hooks: [{ type: 'command', command: 'old reporter', _multicode: AGENT_STATE_HOOK_TAG }] }],
-    } }, null, 2),
-    'utf8'
+    JSON.stringify(
+      {
+        hooks: {
+          // The user's own hook — must survive install + uninstall untouched.
+          PostToolUse: [
+            { matcher: 'Read', hooks: [{ type: 'command', command: 'echo user' }] },
+            // An untagged stale reporter: an external writer (e.g. Claude Code
+            // rewriting settings.local.json) stripped the `_multicode` tag, then the
+            // workspace root moved so the absolute path dangles. Install must claim
+            // it by command shape and migrate it away, not strand it.
+            {
+              matcher: '*',
+              hooks: [
+                {
+                  type: 'command',
+                  command: 'node "/old/root/.multicode/hooks/agent-state.mjs" --socket "/old/agent.sock"',
+                },
+              ],
+            },
+          ],
+          // A stale studio-tagged hook from a prior release that registered the
+          // now-dropped PreToolUse event. Install must migrate it away (and uninstall
+          // must also clean it), not strand it.
+          PreToolUse: [
+            { matcher: '*', hooks: [{ type: 'command', command: 'old reporter', _multicode: AGENT_STATE_HOOK_TAG }] },
+          ],
+        },
+      },
+      null,
+      2,
+    ),
+    'utf8',
   )
 
-  const installed = await installAgentStateReporter(root, claudeSpec, { sourceScriptPath, socketPath: join(root, 'agent.sock') })
+  const installed = await installAgentStateReporter(root, claudeSpec, {
+    sourceScriptPath,
+    socketPath: join(root, 'agent.sock'),
+  })
   assert.equal(installed.ok, true)
 
   const claudeRegisteredEvents = registeredAgentStateEvents(claudeSpec)
@@ -957,7 +1075,10 @@ async function run(): Promise<void> {
   // (2 blocks total), and never register PreToolUse.
   assert.equal(settings.hooks?.PreToolUse, undefined, 'PreToolUse must not be registered')
   assert.equal(settings.hooks?.PostToolUse?.length, 2, 'our PostToolUse block must coexist with the user block')
-  assert.ok(settings.hooks?.PostToolUse?.some((b) => b.matcher === '*'), 'our PostToolUse * block is missing')
+  assert.ok(
+    settings.hooks?.PostToolUse?.some((b) => b.matcher === '*'),
+    'our PostToolUse * block is missing',
+  )
   const userEntry = settings.hooks?.PostToolUse?.find((b) => b.matcher === 'Read')
   assert.ok(userEntry, 'user PostToolUse block dropped')
   assert.equal(userEntry?.hooks?.[0]?.command, 'echo user')
@@ -983,7 +1104,7 @@ async function run(): Promise<void> {
   await mergeAgentStateHooks(
     settingsPath,
     buildAgentStateReporterCommand(join(root, '.multicode', 'hooks', 'agent-state.mjs'), join(root, 'agent.sock')),
-    claudeRegisteredEvents
+    claudeRegisteredEvents,
   )
   settings = await readSettings(settingsPath)
   assert.equal(countOurEntries(settings), claudeRegisteredEvents.length)
@@ -993,7 +1114,10 @@ async function run(): Promise<void> {
   assert.equal(removed.ok, true)
   settings = await readSettings(settingsPath)
   assert.equal(countOurEntries(settings), 0)
-  assert.ok(settings.hooks?.PostToolUse?.some((b) => b.matcher === 'Read'), 'user hook lost on uninstall')
+  assert.ok(
+    settings.hooks?.PostToolUse?.some((b) => b.matcher === 'Read'),
+    'user hook lost on uninstall',
+  )
   // SessionStart had only our entry, so the event key is pruned entirely.
   assert.equal(settings.hooks?.SessionStart, undefined)
 
@@ -1002,7 +1126,10 @@ async function run(): Promise<void> {
   // command quoted as a TOML basic string, PostToolUse carrying a matcher, and
   // PermissionRequest (Codex's awaiting-input event) present rather than
   // Claude's Notification. PreToolUse is register:false, so its table is absent.
-  const codexBlock = renderTomlAgentStateHooksBlock('node "/abs/agent-state.mjs" --socket "/abs/agent-state.sock"', codexRegistered)
+  const codexBlock = renderTomlAgentStateHooksBlock(
+    'node "/abs/agent-state.mjs" --socket "/abs/agent-state.sock"',
+    codexRegistered,
+  )
   assert.ok(codexBlock.startsWith('# >>> multicode agent-state hooks managed'))
   assert.ok(codexBlock.trimEnd().endsWith('# <<< multicode agent-state hooks managed'))
   assert.ok(codexBlock.includes('[[hooks.PermissionRequest]]'))
@@ -1025,7 +1152,7 @@ async function run(): Promise<void> {
   assert.equal(
     (mergedTwice.match(/# >>> multicode agent-state hooks managed/gu) ?? []).length,
     1,
-    'agent-state block duplicated on re-merge'
+    'agent-state block duplicated on re-merge',
   )
 
   // Install round-trip on disk: writes .codex/config.toml, copies the reporter,
@@ -1066,7 +1193,10 @@ async function run(): Promise<void> {
   await writeFile(ocReporter, ocTemplate, 'utf8')
   const ocSocket = join(ocRoot, 'agent-state.sock')
 
-  const ocInstalled = await installAgentStateReporter(ocRoot, opencodeSpec, { sourceScriptPath: ocReporter, socketPath: ocSocket })
+  const ocInstalled = await installAgentStateReporter(ocRoot, opencodeSpec, {
+    sourceScriptPath: ocReporter,
+    socketPath: ocSocket,
+  })
   assert.equal(ocInstalled.ok, true)
   const ocPluginPath = join(ocRoot, '.opencode', 'plugin', 'multicode-agent-state.js')
   let ocPlugin = await readFile(ocPluginPath, 'utf8')
@@ -1074,7 +1204,10 @@ async function run(): Promise<void> {
   assert.ok(!ocPlugin.includes("'__SPRINTENGINE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
 
   // Re-install is idempotent (overwrites in place, no second copy).
-  const ocReinstall = await installAgentStateReporter(ocRoot, opencodeSpec, { sourceScriptPath: ocReporter, socketPath: ocSocket })
+  const ocReinstall = await installAgentStateReporter(ocRoot, opencodeSpec, {
+    sourceScriptPath: ocReporter,
+    socketPath: ocSocket,
+  })
   assert.equal(ocReinstall.ok, true)
   ocPlugin = await readFile(ocPluginPath, 'utf8')
   assert.equal((ocPlugin.match(/const BAKED_SOCKET =/gu) ?? []).length, 1, 'opencode plugin duplicated on re-install')
@@ -1115,9 +1248,12 @@ async function run(): Promise<void> {
   assert.ok(grokConfig.hooks?.SessionStart, 'grok config must spell SessionStart, not session_start')
   assert.equal(grokConfig.hooks?.session_start, undefined, 'grok config must not emit snake_case')
   assert.deepEqual(
-    Object.keys(JSON.parse(renderOwnedJsonAgentStateHooksConfig('cmd', [{ event: 'SessionStart' }, { event: 'session_end' }])).hooks),
+    Object.keys(
+      JSON.parse(renderOwnedJsonAgentStateHooksConfig('cmd', [{ event: 'SessionStart' }, { event: 'session_end' }]))
+        .hooks,
+    ),
     ['SessionStart', 'session_end'],
-    'the emitter writes each event exactly as given — no folding, no rewriting'
+    'the emitter writes each event exactly as given — no folding, no rewriting',
   )
 
   // --- owned-json install round-trip on disk (grok spec) -------------------
@@ -1178,7 +1314,7 @@ async function run(): Promise<void> {
   // analogue; see the manifest $comment) — no event may map to it.
   assert.ok(
     cursorSpec.events.every((entry) => entry.phase !== 'awaiting_input'),
-    'cursor must not claim an awaiting_input signal it cannot substantiate'
+    'cursor must not claim an awaiting_input signal it cannot substantiate',
   )
   // Permission-flow hooks must never be registered: they participate in
   // Cursor's approval decisions, and the reporter has no opinion to offer.
@@ -1197,16 +1333,20 @@ async function run(): Promise<void> {
   // reclaimed by command shape (no _multicode tag exists in this format).
   await writeFile(
     cursorHooksPath,
-    JSON.stringify({
-      version: 1,
-      hooks: {
-        stop: [
-          { command: 'notify-send done' },
-          { command: 'node "/old/root/.multicode/hooks/agent-state.mjs" --socket "/old/agent.sock"' },
-        ],
+    JSON.stringify(
+      {
+        version: 1,
+        hooks: {
+          stop: [
+            { command: 'notify-send done' },
+            { command: 'node "/old/root/.multicode/hooks/agent-state.mjs" --socket "/old/agent.sock"' },
+          ],
+        },
       },
-    }, null, 2),
-    'utf8'
+      null,
+      2,
+    ),
+    'utf8',
   )
 
   const cursorInstalled = await installAgentStateReporter(cursorRoot, cursorSpec, {
@@ -1220,13 +1360,17 @@ async function run(): Promise<void> {
   const cursorRegistered = registeredAgentStateEvents(cursorSpec)
   for (const { event } of cursorRegistered) {
     const entries = cursorFile.hooks?.[event] ?? []
-    assert.equal(entries.filter((e) => e.command?.includes('/.multicode/hooks/agent-state.mjs')).length, 1, `one reporter entry for ${event}`)
+    assert.equal(
+      entries.filter((e) => e.command?.includes('/.multicode/hooks/agent-state.mjs')).length,
+      1,
+      `one reporter entry for ${event}`,
+    )
   }
-  assert.ok(cursorFile.hooks?.stop?.some((e) => e.command === 'notify-send done'), 'user stop hook survived install')
   assert.ok(
-    !JSON.stringify(cursorFile).includes('/old/root/'),
-    'stale reporter entry reclaimed by command shape'
+    cursorFile.hooks?.stop?.some((e) => e.command === 'notify-send done'),
+    'user stop hook survived install',
   )
+  assert.ok(!JSON.stringify(cursorFile).includes('/old/root/'), 'stale reporter entry reclaimed by command shape')
   assert.ok(!JSON.stringify(cursorFile).includes('_multicode'), 'no vendor-foreign tag key may be written')
 
   // Idempotent re-install: no duplicates.
@@ -1239,7 +1383,7 @@ async function run(): Promise<void> {
   assert.equal(
     cursorFile.hooks?.stop?.filter((e) => e.command?.includes('/.multicode/hooks/agent-state.mjs')).length,
     1,
-    'reporter entry duplicated on re-install'
+    'reporter entry duplicated on re-install',
   )
 
   // --- Kimi Code: manifest-driven mapping ----------------------------------
@@ -1267,7 +1411,10 @@ async function run(): Promise<void> {
 
   // --- toml-array-block render / merge (kimi spec) -------------------------
   const kimiRegistered = registeredAgentStateEvents(kimiSpec)
-  const kimiBlock = renderTomlArrayAgentStateHooksBlock('node "/abs/agent-state.mjs" --socket "/s.sock"', kimiRegistered)
+  const kimiBlock = renderTomlArrayAgentStateHooksBlock(
+    'node "/abs/agent-state.mjs" --socket "/s.sock"',
+    kimiRegistered,
+  )
   assert.ok(kimiBlock.startsWith('# >>> multicode agent-state hooks managed'))
   assert.ok(kimiBlock.includes('[[hooks]]\nevent = "PermissionRequest"'), kimiBlock)
   assert.ok(!kimiBlock.includes('[[hooks.'), 'array-of-tables shape, never the Codex nesting')
@@ -1277,11 +1424,15 @@ async function run(): Promise<void> {
   const kimiMergedOnce = mergeTomlArrayAgentStateHooks(kimiUserToml, 'node "/x.mjs" --socket "/s.sock"', kimiRegistered)
   assert.ok(kimiMergedOnce.includes('default_model = "kimi-k3"'), 'user config dropped')
   assert.ok(kimiMergedOnce.includes('command = "prettier --write"'), 'user hook dropped')
-  const kimiMergedTwice = mergeTomlArrayAgentStateHooks(kimiMergedOnce, 'node "/x.mjs" --socket "/s.sock"', kimiRegistered)
+  const kimiMergedTwice = mergeTomlArrayAgentStateHooks(
+    kimiMergedOnce,
+    'node "/x.mjs" --socket "/s.sock"',
+    kimiRegistered,
+  )
   assert.equal(
     (kimiMergedTwice.match(/# >>> multicode agent-state hooks managed/gu) ?? []).length,
     1,
-    'kimi block duplicated on re-merge'
+    'kimi block duplicated on re-merge',
   )
 
   // --- user-scoped install resolves against homeDir, not the workspace -----
@@ -1311,10 +1462,7 @@ async function run(): Promise<void> {
   const kimiHomeScript = join(kimiHome, '.multicode', 'hooks', 'agent-state.mjs')
   assert.ok(existsSync(kimiHomeScript), 'user-scoped registration must copy the reporter under homeDir')
   assert.ok(kimiConfig.includes(kimiHomeScript.split('\\').join('/')), kimiConfig)
-  assert.ok(
-    !kimiConfig.includes(kimiWorkspace),
-    'a user-global config must not reference any workspace-lifetime path'
-  )
+  assert.ok(!kimiConfig.includes(kimiWorkspace), 'a user-global config must not reference any workspace-lifetime path')
 
   // --- status line: install, wrap, precedence, restore ---------------------
   // The forwarder is installed alongside the hooks for a Claude-family
@@ -1383,7 +1531,7 @@ async function run(): Promise<void> {
     const expectedScript = join(world.root, '.multicode', 'hooks', 'status-line.mjs').split('\\').join('/')
     assert.ok(
       settings.statusLine.command.startsWith(`node "${expectedScript}" --socket "${world.socket}"`),
-      settings.statusLine.command
+      settings.statusLine.command,
     )
     assert.ok(existsSync(join(world.root, '.multicode', 'hooks', 'status-line.mjs')), 'forwarder not copied')
 
@@ -1457,7 +1605,7 @@ async function run(): Promise<void> {
     await writeFile(
       join(altConfig, 'settings.json'),
       JSON.stringify({ statusLine: { type: 'command', command: 'alt-line.sh' } }),
-      'utf8'
+      'utf8',
     )
     assert.equal((await installStatusLine(world, { CLAUDE_CONFIG_DIR: `${altConfig},/other` })).ok, true)
     const settings = await readStatusLine(world)
@@ -1469,23 +1617,34 @@ async function run(): Promise<void> {
   {
     const world = await seedStatusLineWorld({})
     const optedOut: PluginAgentStateSpec = { ...claudeSpec, statusLine: false }
-    assert.equal((await installAgentStateReporter(world.root, optedOut, {
-      sourceScriptPath,
-      socketPath: world.socket,
-      statusLineScriptPath: statusLineScript,
-      homeDir: world.home,
-      env: {},
-    })).ok, true)
+    assert.equal(
+      (
+        await installAgentStateReporter(world.root, optedOut, {
+          sourceScriptPath,
+          socketPath: world.socket,
+          statusLineScriptPath: statusLineScript,
+          homeDir: world.home,
+          env: {},
+        })
+      ).ok,
+      true,
+    )
     assert.equal((await readStatusLine(world)).statusLine, undefined)
 
     const world2 = await seedStatusLineWorld({})
-    assert.equal((await installAgentStateReporter(world2.root, claudeSpec, {
-      sourceScriptPath,
-      socketPath: world2.socket,
-      statusLineScriptPath: join(world2.root, 'does-not-exist.mjs'),
-      homeDir: world2.home,
-      env: {},
-    })).ok, true, 'a missing forwarder must not fail the agent-state install')
+    assert.equal(
+      (
+        await installAgentStateReporter(world2.root, claudeSpec, {
+          sourceScriptPath,
+          socketPath: world2.socket,
+          statusLineScriptPath: join(world2.root, 'does-not-exist.mjs'),
+          homeDir: world2.home,
+          env: {},
+        })
+      ).ok,
+      true,
+      'a missing forwarder must not fail the agent-state install',
+    )
     const settings2 = await readStatusLine(world2)
     assert.equal(settings2.statusLine, undefined)
     assert.ok(settings2.hooks?.SessionStart, 'hooks must still be installed without the forwarder')
@@ -1516,7 +1675,11 @@ async function run(): Promise<void> {
       const world = await seedStatusLineWorld({ local: { statusLine: theirs, env: { KEEP: 'me' } } })
       assert.equal((await installStatusLine(world)).ok, true)
       const settings = await readStatusLine(world)
-      assert.deepEqual(settings.statusLine, theirs, `an unwrappable local status line survives: ${JSON.stringify(theirs)}`)
+      assert.deepEqual(
+        settings.statusLine,
+        theirs,
+        `an unwrappable local status line survives: ${JSON.stringify(theirs)}`,
+      )
       assert.deepEqual(settings.env, { KEEP: 'me' })
       assert.ok(settings.hooks?.SessionStart)
     }
@@ -1540,7 +1703,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       healed.statusLine._multicodeWrapped,
       theirs,
-      'the wrapped command is recovered from our own argv when the bookkeeping is gone'
+      'the wrapped command is recovered from our own argv when the bookkeeping is gone',
     )
     assert.deepEqual(wrapArgOf(healed.statusLine.command), { command: 'stripped-original.sh' })
     // Origin is genuinely unrecoverable, so it is treated as local — the
@@ -1554,7 +1717,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await readStatusLine(world)).statusLine,
       theirs,
-      'uninstall recovers a stripped original from our own argv rather than deleting it'
+      'uninstall recovers a stripped original from our own argv rather than deleting it',
     )
   }
   {
@@ -1572,13 +1735,13 @@ async function run(): Promise<void> {
     await writeFile(
       world.settingsPath,
       JSON.stringify({ ...installed, statusLine: { type: 'command', command: installed.statusLine.command } }, null, 2),
-      'utf8'
+      'utf8',
     )
     assert.equal((await installStatusLine(world)).ok, true)
     assert.deepEqual(
       wrapArgOf((await readStatusLine(world)).statusLine.command),
       { command: 'local-mine.sh' },
-      'the recovered local command outranks a live user one'
+      'the recovered local command outranks a live user one',
     )
   }
   {
@@ -1596,7 +1759,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await readStatusLine(world)).statusLine._multicodeWrapped,
       odd,
-      'a restore record we cannot re-wrap is never overwritten'
+      'a restore record we cannot re-wrap is never overwritten',
     )
     assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
     assert.deepEqual((await readStatusLine(world)).statusLine, odd, 'and it is still what comes back')
@@ -1611,13 +1774,13 @@ async function run(): Promise<void> {
     await writeFile(
       join(world.root, '.claude', 'settings.json'),
       JSON.stringify({ statusLine: { type: 'from-a-later-claude' } }),
-      'utf8'
+      'utf8',
     )
     assert.equal((await installStatusLine(world)).ok, true)
     assert.equal(
       (await readStatusLine(world)).statusLine,
       undefined,
-      'ours steps out of the way rather than shadow a status line it cannot run'
+      'ours steps out of the way rather than shadow a status line it cannot run',
     )
   }
   {
@@ -1630,7 +1793,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await readStatusLine(world)).statusLine,
       long,
-      'a command that would render past the platform limit is left exactly where it is'
+      'a command that would render past the platform limit is left exactly where it is',
     )
   }
 
@@ -1645,13 +1808,13 @@ async function run(): Promise<void> {
     await writeFile(
       join(world.root, '.claude', 'settings.json'),
       JSON.stringify({ statusLine: { type: 'command', command: 'v2.sh' } }),
-      'utf8'
+      'utf8',
     )
     assert.equal((await installStatusLine(world)).ok, true)
     assert.deepEqual(
       wrapArgOf((await readStatusLine(world)).statusLine.command),
       { command: 'v2.sh' },
-      'the live project settings win over the snapshot we displaced'
+      'the live project settings win over the snapshot we displaced',
     )
 
     // And deleting it there means they meant to delete it.
@@ -1724,7 +1887,7 @@ async function run(): Promise<void> {
     assert.equal(
       out,
       'quoted "and" $HOME',
-      'the settings command runs the person’s own command verbatim, and nothing of ours is interpreted'
+      'the settings command runs the person’s own command verbatim, and nothing of ours is interpreted',
     )
     assert.ok(!existsSync(marker), 'nothing in the wrapped command escaped into our own command line')
   }
@@ -1778,7 +1941,7 @@ async function run(): Promise<void> {
     await writeFile(
       join(launchRoot, '.claude', 'settings.json'),
       `${JSON.stringify({ statusLine: { type: 'command', command: 'theirs.sh', padding: 2 } })}\n`,
-      'utf8'
+      'utf8',
     )
     const wrappedSetting = buildLaunchSetting()
     assert.match(String(wrappedSetting?.command), /--wrap "/)
@@ -1789,7 +1952,7 @@ async function run(): Promise<void> {
     await writeFile(
       join(launchRoot, '.claude', 'settings.json'),
       `${JSON.stringify({ statusLine: { type: 'dynamic' } })}\n`,
-      'utf8'
+      'utf8',
     )
     assert.equal(buildLaunchSetting(), null, 'a status line we cannot wrap is never shadowed')
 

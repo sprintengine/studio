@@ -35,26 +35,42 @@ assert.equal(parseObservedCheckout({ cwd: '/repo', at: Number.NaN }), null)
 assert.deepEqual(
   parseObservedCheckout({ cwd: '/repo', at: 5 }),
   unresolvedObservedCheckout('/repo', 5),
-  'no resolved flag reads as unresolved'
+  'no resolved flag reads as unresolved',
 )
 assert.deepEqual(
-  parseObservedCheckout({ cwd: '/repo', at: 5, resolved: true, gitRoot: '/repo', repoRoot: '/repo', branch: 'main', isLinkedWorktree: false }),
-  { cwd: '/repo', at: 5, resolved: true, gitRoot: '/repo', repoRoot: '/repo', branch: 'main', isLinkedWorktree: false }
+  parseObservedCheckout({
+    cwd: '/repo',
+    at: 5,
+    resolved: true,
+    gitRoot: '/repo',
+    repoRoot: '/repo',
+    branch: 'main',
+    isLinkedWorktree: false,
+  }),
+  { cwd: '/repo', at: 5, resolved: true, gitRoot: '/repo', repoRoot: '/repo', branch: 'main', isLinkedWorktree: false },
 )
 assert.deepEqual(
-  parseObservedCheckout({ cwd: '/repo', at: 5, resolved: true, gitRoot: null, repoRoot: '/x', branch: 'main', isLinkedWorktree: true }),
+  parseObservedCheckout({
+    cwd: '/repo',
+    at: 5,
+    resolved: true,
+    gitRoot: null,
+    repoRoot: '/x',
+    branch: 'main',
+    isLinkedWorktree: true,
+  }),
   { cwd: '/repo', at: 5, resolved: true, gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false },
-  'without a git root there is no repo root, branch or worktree-ness'
+  'without a git root there is no repo root, branch or worktree-ness',
 )
 assert.equal(
   parseObservedCheckout({ cwd: '/repo', at: 5, resolved: true, gitRoot: 'relative', branch: 'main' })?.gitRoot,
   null,
-  'a relative git root is rejected'
+  'a relative git root is rejected',
 )
 assert.equal(
   parseObservedCheckout({ cwd: '/repo', at: 5, resolved: true, gitRoot: '/repo', branch: 'x'.repeat(600) })?.branch,
   null,
-  'an absurd branch is dropped'
+  'an absurd branch is dropped',
 )
 assert.equal(parseObservedCheckout({ cwd: '/' + 'x'.repeat(5000), at: 5 }), null, 'an oversized cwd is rejected')
 
@@ -71,9 +87,19 @@ assert.equal(observedCheckoutKind(undefined), 'unknown')
 assert.equal(observedCheckoutKind(a), 'unknown', 'unresolved is unknown — consumers fall back to launch intent')
 assert.equal(observedCheckoutKind({ ...a, resolved: true }), 'folder')
 assert.equal(observedCheckoutKind({ ...a, resolved: true, missing: true }), 'missing')
-assert.equal(observedCheckoutKind({ ...a, resolved: true, gitRoot: '/repo', missing: true }), 'main', 'missing only means something without a git root')
-assert.equal(parseObservedCheckout({ cwd: '/gone', at: 5, resolved: true, gitRoot: null, missing: true })?.missing, true)
-assert.equal(parseObservedCheckout({ cwd: '/repo', at: 5, resolved: true, gitRoot: '/repo', missing: true })?.missing, undefined)
+assert.equal(
+  observedCheckoutKind({ ...a, resolved: true, gitRoot: '/repo', missing: true }),
+  'main',
+  'missing only means something without a git root',
+)
+assert.equal(
+  parseObservedCheckout({ cwd: '/gone', at: 5, resolved: true, gitRoot: null, missing: true })?.missing,
+  true,
+)
+assert.equal(
+  parseObservedCheckout({ cwd: '/repo', at: 5, resolved: true, gitRoot: '/repo', missing: true })?.missing,
+  undefined,
+)
 assert.equal(sameObservedCheckout({ ...a, resolved: true }, { ...a, resolved: true, missing: true }), false)
 assert.equal(observedCheckoutKind({ ...a, resolved: true, gitRoot: '/repo' }), 'main')
 assert.equal(observedCheckoutKind({ ...a, resolved: true, gitRoot: '/wt', isLinkedWorktree: true }), 'worktree')

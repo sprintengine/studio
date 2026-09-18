@@ -19,8 +19,7 @@ function run(name: string, body: () => void | Promise<void>): void {
 }
 
 type FixtureEntry =
-  | { kind: 'dir'; children?: string[] }
-  | { kind: 'file'; content: string; size?: number; modifiedAtMs?: number }
+  { kind: 'dir'; children?: string[] } | { kind: 'file'; content: string; size?: number; modifiedAtMs?: number }
 
 class FixtureBacklogFs implements BacklogFilesystemAdapter {
   constructor(private readonly entries: Map<string, FixtureEntry>) {}
@@ -33,9 +32,11 @@ class FixtureBacklogFs implements BacklogFilesystemAdapter {
     const key = normalize(path)
     const entry = this.entries.get(key)
     if (!entry || entry.kind !== 'dir') throw new Error(`Missing directory: ${path}`)
-    const children = entry.children ?? Array.from(this.entries.keys())
-      .filter((candidate) => parent(candidate) === key)
-      .map((candidate) => basename(candidate))
+    const children =
+      entry.children ??
+      Array.from(this.entries.keys())
+        .filter((candidate) => parent(candidate) === key)
+        .map((candidate) => basename(candidate))
     return children.map((name) => {
       const child = this.entries.get(normalize(`${key}/${name}`))
       if (!child) throw new Error(`Missing entry: ${name}`)
@@ -90,33 +91,48 @@ run('missing backlog returns a typed missing-folder state', async () => {
 })
 
 run('empty backlog returns a typed empty-folder state', async () => {
-  const result = await scanBacklog('/repo', fixture({
-    '/repo': { kind: 'dir', children: ['backlog'] },
-    '/repo/backlog': { kind: 'dir', children: [] },
-  }))
+  const result = await scanBacklog(
+    '/repo',
+    fixture({
+      '/repo': { kind: 'dir', children: ['backlog'] },
+      '/repo/backlog': { kind: 'dir', children: [] },
+    }),
+  )
   assert.equal(result.state, 'empty-folder')
   assert.deepEqual(result.items, [])
 })
 
 run('scan returns only markdown and html files under backlog and skips ignored directories', async () => {
-  const result = await scanBacklog('/repo', fixture({
-    '/repo': { kind: 'dir', children: ['backlog', 'outside.md'] },
-    '/repo/outside.md': file('# Outside'),
-    '/repo/backlog': { kind: 'dir', children: ['idea.md', 'mockup.html', 'note.txt', 'node_modules', '.git', '.multicode-worktrees'] },
-    '/repo/backlog/idea.md': file('# Product Requirements\nShip it.'),
-    '/repo/backlog/mockup.html': file('<html><title>Checkout</title></html>'),
-    '/repo/backlog/note.txt': file('hidden'),
-    '/repo/backlog/node_modules': { kind: 'dir', children: ['dependency.md'] },
-    '/repo/backlog/node_modules/dependency.md': file('# Dependency'),
-    '/repo/backlog/.git': { kind: 'dir', children: ['config.md'] },
-    '/repo/backlog/.git/config.md': file('# Git'),
-    '/repo/backlog/.multicode-worktrees': { kind: 'dir', children: ['worktree.md'] },
-    '/repo/backlog/.multicode-worktrees/worktree.md': file('# Worktree'),
-  }))
+  const result = await scanBacklog(
+    '/repo',
+    fixture({
+      '/repo': { kind: 'dir', children: ['backlog', 'outside.md'] },
+      '/repo/outside.md': file('# Outside'),
+      '/repo/backlog': {
+        kind: 'dir',
+        children: ['idea.md', 'mockup.html', 'note.txt', 'node_modules', '.git', '.multicode-worktrees'],
+      },
+      '/repo/backlog/idea.md': file('# Product Requirements\nShip it.'),
+      '/repo/backlog/mockup.html': file('<html><title>Checkout</title></html>'),
+      '/repo/backlog/note.txt': file('hidden'),
+      '/repo/backlog/node_modules': { kind: 'dir', children: ['dependency.md'] },
+      '/repo/backlog/node_modules/dependency.md': file('# Dependency'),
+      '/repo/backlog/.git': { kind: 'dir', children: ['config.md'] },
+      '/repo/backlog/.git/config.md': file('# Git'),
+      '/repo/backlog/.multicode-worktrees': { kind: 'dir', children: ['worktree.md'] },
+      '/repo/backlog/.multicode-worktrees/worktree.md': file('# Worktree'),
+    }),
+  )
 
   assert.equal(result.state, 'ready')
-  assert.deepEqual(result.items.map((item) => item.relativePath), ['backlog/idea.md', 'backlog/mockup.html'])
-  assert.deepEqual(result.items.map((item) => item.type), [undefined, 'mockup'])
+  assert.deepEqual(
+    result.items.map((item) => item.relativePath),
+    ['backlog/idea.md', 'backlog/mockup.html'],
+  )
+  assert.deepEqual(
+    result.items.map((item) => item.type),
+    [undefined, 'mockup'],
+  )
 })
 
 run('frontmatter sets status when the value is valid', () => {
@@ -189,7 +205,12 @@ run('the sidecar object contributes identity, metadata, and highlight, never tri
     relativePath: 'backlog/checkout.md',
     sourceContent: '---\ntype: feature\ndifficulty: m\ncriticality: high\n---\n# Checkout',
     stats: { modifiedAtMs: 20, sizeBytes: 64 },
-    object: { objectId: 'obj_1', metadata: { jira: { key: 'P-1' } }, links: [], highlight: { starred: true, color: 'amber' } },
+    object: {
+      objectId: 'obj_1',
+      metadata: { jira: { key: 'P-1' } },
+      links: [],
+      highlight: { starred: true, color: 'amber' },
+    },
   })
 
   // App churn rides along from the sidecar object.
@@ -272,7 +293,7 @@ run('dependsOn parses a multi-slug CSV scalar, trimmed and deduped', () => {
   assert.deepEqual(item.dependsOn, ['auth-revamp', 'payments'])
 })
 
-run('dependsOn drops empties and the item\'s own slug (no self-dependency)', () => {
+run("dependsOn drops empties and the item's own slug (no self-dependency)", () => {
   const item = createBacklogItem({
     path: '/repo/backlog/checkout.md',
     relativePath: 'backlog/checkout.md',
@@ -503,11 +524,14 @@ run('archived paths are always marked archived', () => {
 })
 
 run('Windows-style path separators normalize to project-relative backlog paths', async () => {
-  const result = await scanBacklog('C:\\repo', fixture({
-    'C:/repo': { kind: 'dir', children: ['backlog'] },
-    'C:/repo/backlog': { kind: 'dir', children: ['implementation-plan.md'] },
-    'C:/repo/backlog/implementation-plan.md': file('# Roadmap'),
-  }))
+  const result = await scanBacklog(
+    'C:\\repo',
+    fixture({
+      'C:/repo': { kind: 'dir', children: ['backlog'] },
+      'C:/repo/backlog': { kind: 'dir', children: ['implementation-plan.md'] },
+      'C:/repo/backlog/implementation-plan.md': file('# Roadmap'),
+    }),
+  )
 
   assert.equal(result.state, 'ready')
   assert.equal(result.items[0]?.relativePath, 'backlog/implementation-plan.md')
@@ -522,17 +546,27 @@ run('read failures surface the failing project-relative path', async () => {
       return super.readfile(path)
     }
   }
-  const fs = new FailingReadFs(new Map(Object.entries({
-    '/repo': { kind: 'dir', children: ['backlog'] },
-    '/repo/backlog': { kind: 'dir', children: ['good.md', 'broken.md'] },
-    '/repo/backlog/good.md': file('# Good'),
-    '/repo/backlog/broken.md': file('# Broken'),
-  }).map(([key, value]) => [normalize(key), value as FixtureEntry])))
+  const fs = new FailingReadFs(
+    new Map(
+      Object.entries({
+        '/repo': { kind: 'dir', children: ['backlog'] },
+        '/repo/backlog': { kind: 'dir', children: ['good.md', 'broken.md'] },
+        '/repo/backlog/good.md': file('# Good'),
+        '/repo/backlog/broken.md': file('# Broken'),
+      }).map(([key, value]) => [normalize(key), value as FixtureEntry]),
+    ),
+  )
 
   const result = await scanBacklog('/repo', fs)
   assert.equal(result.state, 'partial')
-  assert.deepEqual(result.items.map((item) => item.relativePath), ['backlog/good.md'])
-  assert.deepEqual(result.errors.map((error) => error.relativePath), ['backlog/broken.md'])
+  assert.deepEqual(
+    result.items.map((item) => item.relativePath),
+    ['backlog/good.md'],
+  )
+  assert.deepEqual(
+    result.errors.map((error) => error.relativePath),
+    ['backlog/broken.md'],
+  )
 })
 
 run('scan reads files through a bounded-concurrency pool and preserves sorted order', async () => {
@@ -558,9 +592,7 @@ run('scan reads files through a bounded-concurrency pool and preserves sorted or
       return super.readfile(path)
     }
   }
-  const fs = new PoolFs(
-    new Map(Object.entries(entries).map(([key, value]) => [normalize(key), value as FixtureEntry])),
-  )
+  const fs = new PoolFs(new Map(Object.entries(entries).map(([key, value]) => [normalize(key), value as FixtureEntry])))
 
   const result = await scanBacklog('/repo', fs)
   assert.equal(result.state, 'ready')
@@ -596,7 +628,10 @@ run('a single unreadable file is isolated and does not fail the parallel scan', 
   assert.equal(result.state, 'partial')
   assert.equal(result.items.length, names.length - 1)
   assert.ok(!result.items.some((item) => item.relativePath === 'backlog/item-07.md'))
-  assert.deepEqual(result.errors.map((error) => error.relativePath), ['backlog/item-07.md'])
+  assert.deepEqual(
+    result.errors.map((error) => error.relativePath),
+    ['backlog/item-07.md'],
+  )
 })
 
 run('archive helper chooses collision-safe names', () => {
@@ -663,36 +698,70 @@ const linksSectionSource = readFileSync(
 )
 
 run('the link state machine and renderer are extracted out of BacklogPanel', () => {
-  assert.ok(!backlogPanelSource.includes('function BacklogLinkControl'), 'the link renderer no longer lives in the panel')
-  assert.ok(!backlogPanelSource.includes('syncBacklogItemLinks('), 'the resolution state machine no longer lives in the panel')
+  assert.ok(
+    !backlogPanelSource.includes('function BacklogLinkControl'),
+    'the link renderer no longer lives in the panel',
+  )
+  assert.ok(
+    !backlogPanelSource.includes('syncBacklogItemLinks('),
+    'the resolution state machine no longer lives in the panel',
+  )
   assert.match(backlogPanelSource, /<BacklogLinksSection/, 'the panel composes the focused link section')
-  assert.match(linksSectionSource, /export function BacklogLinksSection/, 'the focused section exists under components/backlog')
+  assert.match(
+    linksSectionSource,
+    /export function BacklogLinksSection/,
+    'the focused section exists under components/backlog',
+  )
 })
 
 run('openable Backlog links render as a focusable button, not an inert span', () => {
   // The kit's `RowButton` — still a real `<button>`, and now the same list row
   // every other navigable row in the product draws.
   assert.match(linksSectionSource, /<RowButton/, 'an openable link is a real button')
-  assert.match(linksSectionSource, /onClick=\{\(\) => onOpen\(link\)\}/, 'the button opens the link through the provider')
+  assert.match(
+    linksSectionSource,
+    /onClick=\{\(\) => onOpen\(link\)\}/,
+    'the button opens the link through the provider',
+  )
   // The pre-T4 inert link pill carried a native title and no interactivity.
   assert.ok(!linksSectionSource.includes('title={link.target.path'), 'inert title-only link pill is gone')
 })
 
 run('unknown or unavailable Backlog links render as a focusable, non-actionable note', () => {
   assert.match(linksSectionSource, /role="note"/, 'unavailable link is informational, not a button')
-  assert.match(linksSectionSource, /tabIndex=\{0\}/, 'unavailable link is keyboard-focusable so its reason is reachable')
+  assert.match(
+    linksSectionSource,
+    /tabIndex=\{0\}/,
+    'unavailable link is keyboard-focusable so its reason is reachable',
+  )
   assert.match(linksSectionSource, /model\.canOpen \?/, 'render branches on whether the link can open')
 })
 
 run('every Backlog link shows a visible status word and a Tooltip detail', () => {
   assert.match(linksSectionSource, /\{model\.statusText\}/, 'status word is rendered as visible text, not color alone')
-  assert.match(linksSectionSource, /<Tooltip content=\{model\.detail\}/, 'target/reason detail uses the Tooltip primitive')
+  assert.match(
+    linksSectionSource,
+    /<Tooltip content=\{model\.detail\}/,
+    'target/reason detail uses the Tooltip primitive',
+  )
 })
 
 run('Backlog links can be detached without deleting their targets', () => {
-  assert.match(linksSectionSource, /aria-label=\{`Unlink \$\{model\.label\}`\}/, 'each secondary link exposes an accessible unlink control')
-  assert.match(backlogPanelSource, /window\.api\.removeBacklogLink\(/, 'unlink persists through the dedicated Backlog IPC')
-  assert.match(backlogPanelSource, /The linked work itself is not deleted/, 'manual status override explains that unlinking preserves the linked work')
+  assert.match(
+    linksSectionSource,
+    /aria-label=\{`Unlink \$\{model\.label\}`\}/,
+    'each secondary link exposes an accessible unlink control',
+  )
+  assert.match(
+    backlogPanelSource,
+    /window\.api\.removeBacklogLink\(/,
+    'unlink persists through the dedicated Backlog IPC',
+  )
+  assert.match(
+    backlogPanelSource,
+    /The linked work itself is not deleted/,
+    'manual status override explains that unlinking preserves the linked work',
+  )
 })
 
 run('Backlog link resolve/open failures surface inline instead of being swallowed', () => {

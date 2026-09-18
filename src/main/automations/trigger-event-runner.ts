@@ -74,11 +74,15 @@ export async function enqueueTriggerEventRun(input: TriggerEventRunInput): Promi
       return await completeTriggerEventRun(input, event.id, finalRun, completedAt)
     } catch (error) {
       const failedAt = new Date(input.now()).toISOString()
-      const failedRun = completeRun(run, {
-        status: 'failed',
-        completedAt: failedAt,
-        summary: error instanceof Error ? error.message : 'Automation action failed.',
-      }, failedAt)
+      const failedRun = completeRun(
+        run,
+        {
+          status: 'failed',
+          completedAt: failedAt,
+          summary: error instanceof Error ? error.message : 'Automation action failed.',
+        },
+        failedAt,
+      )
       return await completeTriggerEventRun(input, event.id, failedRun, failedAt)
     }
   } finally {
@@ -99,7 +103,7 @@ async function completeTriggerEventRun(
   input: TriggerEventRunInput,
   eventId: string,
   finalRun: AutomationRun,
-  completedAt: string
+  completedAt: string,
 ): Promise<TriggerEventRunResult> {
   const { definition, projectFolder, store } = input
   const workspaceRoot = projectFolder.folderPath
@@ -136,7 +140,7 @@ async function updateDefinitionAfterTriggerRun(
   input: TriggerEventRunInput,
   run: AutomationRun,
   updatedAt: number,
-  mutateState: () => void
+  mutateState: () => void,
 ): Promise<boolean> {
   const { definition, projectFolder, state, store } = input
   const workspaceRoot = projectFolder.folderPath
@@ -173,7 +177,7 @@ async function updateDefinitionAfterTriggerRun(
 function runRecord(
   input: TriggerEventRunInput,
   dueAt: string,
-  fields: Pick<AutomationRun, 'status' | 'startedAt' | 'completedAt'> & Partial<AutomationRun>
+  fields: Pick<AutomationRun, 'status' | 'startedAt' | 'completedAt'> & Partial<AutomationRun>,
 ): AutomationRun {
   return {
     id: input.createRunId({ workspaceRoot: input.projectFolder.folderPath, automationId: input.definition.id, dueAt }),
@@ -187,7 +191,7 @@ function markTriggerEventSeen(
   state: AutomationStoreState,
   automationId: string,
   eventId: string,
-  seenAt: string
+  seenAt: string,
 ): void {
   state.triggerEventDedupByAutomationId = state.triggerEventDedupByAutomationId ?? {}
   state.triggerEventDedupByAutomationId[automationId] = state.triggerEventDedupByAutomationId[automationId] ?? {}
@@ -204,7 +208,7 @@ function pruneTriggerEventDedup(events: Record<string, string>): void {
     entries
       .sort(compareTriggerEventDedupEntriesNewestFirst)
       .slice(0, TRIGGER_EVENT_DEDUP_RETENTION_LIMIT)
-      .map(([eventId]) => eventId)
+      .map(([eventId]) => eventId),
   )
   for (const eventId of Object.keys(events)) {
     if (!retainedEventIds.has(eventId)) delete events[eventId]
@@ -213,7 +217,7 @@ function pruneTriggerEventDedup(events: Record<string, string>): void {
 
 function compareTriggerEventDedupEntriesNewestFirst(
   [leftEventId, leftSeenAt]: [string, string],
-  [rightEventId, rightSeenAt]: [string, string]
+  [rightEventId, rightSeenAt]: [string, string],
 ): number {
   const leftTimestamp = triggerEventDedupTimestamp(leftSeenAt)
   const rightTimestamp = triggerEventDedupTimestamp(rightSeenAt)
@@ -240,7 +244,11 @@ function pushProblem(input: TriggerEventRunInput, value: AutomationsEngineProble
   input.result?.problems.push(value)
 }
 
-function storeProblem(workspaceRoot: string, error: AutomationStoreProblem, automationId?: string): AutomationsEngineProblem {
+function storeProblem(
+  workspaceRoot: string,
+  error: AutomationStoreProblem,
+  automationId?: string,
+): AutomationsEngineProblem {
   return {
     workspaceRoot,
     automationId,

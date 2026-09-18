@@ -4,7 +4,16 @@ import { installAndActivateRendererModules } from '../../modules'
 import { isClaudeCodePluginEntry, type MarketplacePluginEntry } from '../../../../shared/marketplace/manifest'
 import type { CapabilityPermission } from '../../../../shared/modules/permissions'
 import type { McpServerConfig, McpSettings } from '../../types/workspace'
-import { Badge, FOCUS_RING_CLASS, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot, TruncatedText } from '../ui'
+import {
+  Badge,
+  FOCUS_RING_CLASS,
+  GhostButton,
+  InlineNotice,
+  PrimaryButton,
+  Spinner,
+  StatusDot,
+  TruncatedText,
+} from '../ui'
 import { Modal, ModalFooter, ModalHeader } from '../ui/Modal'
 import { mcpMonogram } from '../ui/mcpMonogram'
 import { iconHasOwnPlate } from '../ui/iconPlate'
@@ -82,15 +91,17 @@ export function PluginDetailPanel({
     async (trustGranted: boolean, claudePluginRef?: string) => {
       setFlow({ status: 'installing' })
       try {
-        const result = await installAndActivateRendererModules(() => window.api.installMarketplacePluginFromRegistry({
-          entry: plugin,
-          trustGranted,
-          workspaceRoot: workspaceRoot ?? undefined,
-          mcpSettings,
-          // Claude plugins: install exactly the commit the trust prompt
-          // disclosed, never whatever the source ref moved to since.
-          ...(claudePluginRef ? { claudePluginRef } : {}),
-        }))
+        const result = await installAndActivateRendererModules(() =>
+          window.api.installMarketplacePluginFromRegistry({
+            entry: plugin,
+            trustGranted,
+            workspaceRoot: workspaceRoot ?? undefined,
+            mcpSettings,
+            // Claude plugins: install exactly the commit the trust prompt
+            // disclosed, never whatever the source ref moved to since.
+            ...(claudePluginRef ? { claudePluginRef } : {}),
+          }),
+        )
         if (result.ok) {
           // Reflect installed MCP servers in the store so the Installed tab's
           // MCP rows update without a reload; re-list the other primitives.
@@ -133,7 +144,12 @@ export function PluginDetailPanel({
     }
     const outcome = classifyVerification(verify, plugin.provides)
     if (outcome.kind === 'blocked') {
-      setFlow({ status: 'blocked', classification: outcome.classification, message: outcome.message, issues: outcome.issues })
+      setFlow({
+        status: 'blocked',
+        classification: outcome.classification,
+        message: outcome.message,
+        issues: outcome.issues,
+      })
       return
     }
     if (outcome.kind === 'needs-trust') {
@@ -156,103 +172,104 @@ export function PluginDetailPanel({
     <Modal open onClose={onClose} labelledBy={titleId} size="wide" layout="panel">
       <ModalHeader
         title={plugin.name}
-        subtitle={[trust.label, plugin.publisher.name, `Version ${plugin.latest}`, plugin.category].filter(Boolean).join(' · ')}
+        subtitle={[trust.label, plugin.publisher.name, `Version ${plugin.latest}`, plugin.category]
+          .filter(Boolean)
+          .join(' · ')}
         titleId={titleId}
         onClose={onClose}
         leading={<PluginIcon iconUrl={resolveIconUrl(registryUrl, plugin.icon)} name={plugin.name} size={40} />}
       />
       <div className="mt-4 min-h-0 flex-1 overflow-y-auto border-t border-[color:var(--border-subtle)] px-6 pb-4">
-      <p className="mt-4 text-body leading-5 text-[color:var(--text-default)]">{plugin.summary}</p>
+        <p className="mt-4 text-body leading-5 text-[color:var(--text-default)]">{plugin.summary}</p>
 
-      {displayTags.length ? (
-        <p className="mt-2 text-meta leading-4 text-[color:var(--text-subtle)]">{displayTags.join(' · ')}</p>
-      ) : null}
+        {displayTags.length ? (
+          <p className="mt-2 text-meta leading-4 text-[color:var(--text-subtle)]">{displayTags.join(' · ')}</p>
+        ) : null}
 
-      <div className="mt-3">
-        <div className="text-meta font-semibold text-[color:var(--text-muted)]">Provides</div>
-        <ul className="mt-1 space-y-1 text-body text-[color:var(--text-muted)]">
-          {/* Inline-MCP entries name the actual servers the trust grant adds;
+        <div className="mt-3">
+          <div className="text-meta font-semibold text-[color:var(--text-muted)]">Provides</div>
+          <ul className="mt-1 space-y-1 text-body text-[color:var(--text-muted)]">
+            {/* Inline-MCP entries name the actual servers the trust grant adds;
               bundle entries list their component kinds (their bundled skills,
               when the catalogue enumerated them, get the section below). */}
-          {inlineServers.length > 0
-            ? inlineServers.map((server) => (
-                <li key={server.id} className="flex min-w-0 items-center gap-1.5">
-                  <TruncatedText as="span" text={server.name} className="min-w-0" />
-                  {/* Not decorative: the transport is stated once, here. The
+            {inlineServers.length > 0
+              ? inlineServers.map((server) => (
+                  <li key={server.id} className="flex min-w-0 items-center gap-1.5">
+                    <TruncatedText as="span" text={server.name} className="min-w-0" />
+                    {/* Not decorative: the transport is stated once, here. The
                       server's name says what it is, never how it is spoken to. */}
-                  <Badge className="shrink-0">
-                    {server.transport}
-                  </Badge>
-                </li>
-              ))
-            : components.map((label) => (
-                <li key={label} className="flex gap-1.5">
-                  <span aria-hidden className="text-[color:var(--text-subtle)]">·</span>
-                  <span>{label}</span>
-                </li>
-              ))}
-        </ul>
-      </div>
+                    <Badge className="shrink-0">{server.transport}</Badge>
+                  </li>
+                ))
+              : components.map((label) => (
+                  <li key={label} className="flex gap-1.5">
+                    <span aria-hidden className="text-[color:var(--text-subtle)]">
+                      ·
+                    </span>
+                    <span>{label}</span>
+                  </li>
+                ))}
+          </ul>
+        </div>
 
-      {plugin.skills?.length ? <PluginSkillsList skills={plugin.skills} /> : null}
+        {plugin.skills?.length ? <PluginSkillsList skills={plugin.skills} /> : null}
 
-      {/* Phase-3 trust-gate install flow. Permissions shown here come only from
+        {/* Phase-3 trust-gate install flow. Permissions shown here come only from
           the ed25519-verified signed manifest (via verifyMarketplacePlugin) and
           are never fabricated; unsigned/invalid never reach an install affordance;
           no purchase/Buy affordance anywhere (D4). */}
-      <div className="mt-4 space-y-2">
-        {installView.trustPrompt ? (
-          <TrustPrompt
-            tier={trust.tier}
-            permissions={installView.permissions ?? []}
-            inlineServers={inlineServers}
-            files={installView.files}
-          />
-        ) : null}
+        <div className="mt-4 space-y-2">
+          {installView.trustPrompt ? (
+            <TrustPrompt
+              tier={trust.tier}
+              permissions={installView.permissions ?? []}
+              inlineServers={inlineServers}
+              files={installView.files}
+            />
+          ) : null}
 
-        {installView.notice ? (
-          installView.notice.tone === 'good' ? (
-            // Success has no InlineNotice tone; mirror the Installed tab's
-            // StatusDot + text so the state is never colour-only.
+          {installView.notice ? (
+            installView.notice.tone === 'good' ? (
+              // Success has no InlineNotice tone; mirror the Installed tab's
+              // StatusDot + text so the state is never colour-only.
+              <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]" role="status">
+                <StatusDot tone="good" />
+                <span>{installView.notice.message}</span>
+              </div>
+            ) : (
+              <InlineNotice tone={installView.notice.tone}>
+                <div>{installView.notice.message}</div>
+                {installView.notice.issues?.length ? (
+                  <ul className="mt-1 list-disc pl-4">
+                    {installView.notice.issues.slice(0, 4).map((issue) => (
+                      <li key={issue}>{issue}</li>
+                    ))}
+                  </ul>
+                ) : null}
+              </InlineNotice>
+            )
+          ) : null}
+
+          {workspaceBlocked && !installView.busy ? (
+            <p className="text-meta leading-4 text-[color:var(--text-subtle)]">
+              Open a workspace to install this extension.
+            </p>
+          ) : null}
+
+          {installView.busy ? (
             <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]" role="status">
-              <StatusDot tone="good" />
-              <span>{installView.notice.message}</span>
+              <Spinner size={14} />
+              {installView.busyLabel}
             </div>
-          ) : (
-            <InlineNotice tone={installView.notice.tone}>
-              <div>{installView.notice.message}</div>
-              {installView.notice.issues?.length ? (
-                <ul className="mt-1 list-disc pl-4">
-                  {installView.notice.issues.slice(0, 4).map((issue) => (
-                    <li key={issue}>{issue}</li>
-                  ))}
-                </ul>
-              ) : null}
-            </InlineNotice>
-          )
-        ) : null}
+          ) : null}
 
-        {workspaceBlocked && !installView.busy ? (
-          <p className="text-meta leading-4 text-[color:var(--text-subtle)]">
-            Open a workspace to install this extension.
-          </p>
-        ) : null}
-
-        {installView.busy ? (
-          <div className="flex items-center gap-2 text-body text-[color:var(--text-muted)]" role="status">
-            <Spinner size={14} />
-            {installView.busyLabel}
-          </div>
-        ) : null}
-
-        {claudePlugin && installView.action?.kind === 'install' ? (
-          <p className="text-meta leading-4 text-[color:var(--text-subtle)]">
-            Installing adds this plugin’s skills to this workspace for your
-            installed agent CLIs. Its slash commands stay Claude-native.
-          </p>
-        ) : null}
-
-      </div>
+          {claudePlugin && installView.action?.kind === 'install' ? (
+            <p className="text-meta leading-4 text-[color:var(--text-subtle)]">
+              Installing adds this plugin’s skills to this workspace for your installed agent CLIs. Its slash commands
+              stay Claude-native.
+            </p>
+          ) : null}
+        </div>
       </div>
       <div className="border-t border-[color:var(--border-subtle)]">
         <ModalFooter>
@@ -368,7 +385,7 @@ export function TrustPrompt({
         : tier === 'unsigned'
           ? {
               heading: 'Unsigned extension — review before trusting',
-              body: "This extension isn’t signed, so its publisher and contents can’t be verified. Trusting it installs it with the app’s access — install-time disclosure, not a runtime sandbox.",
+              body: 'This extension isn’t signed, so its publisher and contents can’t be verified. Trusting it installs it with the app’s access — install-time disclosure, not a runtime sandbox.',
             }
           : {
               heading: 'Community extension — review the access it requests',
@@ -423,7 +440,11 @@ function TrustFileListing({ files }: { files: string[] }) {
       <ul className="mt-1 space-y-0.5">
         {visible.map((file) => (
           <li key={file} className="min-w-0">
-            <TruncatedText as="div" text={file} className="font-mono text-meta leading-4 text-[color:var(--text-muted)]" />
+            <TruncatedText
+              as="div"
+              text={file}
+              className="font-mono text-meta leading-4 text-[color:var(--text-muted)]"
+            />
           </li>
         ))}
       </ul>

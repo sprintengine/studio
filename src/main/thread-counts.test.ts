@@ -1,9 +1,5 @@
 import assert from 'node:assert/strict'
-import {
-  parsePsThreadCounts,
-  parseProcStatusThreads,
-  sampleThreadCounts,
-} from './thread-counts'
+import { parsePsThreadCounts, parseProcStatusThreads, sampleThreadCounts } from './thread-counts'
 
 function run(name: string, body: () => void): void {
   try {

@@ -61,8 +61,7 @@ function cssVariableName(tokenPath) {
 
 function tokenModes(token) {
   const extensions = token.node.$extensions
-  const vendor =
-    typeof extensions === 'object' && extensions !== null ? extensions[VENDOR_NAMESPACE] : undefined
+  const vendor = typeof extensions === 'object' && extensions !== null ? extensions[VENDOR_NAMESPACE] : undefined
   const modes = typeof vendor === 'object' && vendor !== null ? vendor.modes : undefined
   return typeof modes === 'object' && modes !== null ? modes : null
 }

@@ -18,8 +18,19 @@ function cliEntry(id: string, harnessId: string, support: PluginSkillSupport = '
     binary: id,
     resumeSession: false,
     sessionIdFromCaller: false,
-  agentStateCapable: true,
-    skillIntegration: { support, harnessId, installTargets: [{ scope: 'workspace', path: `{{workspaceRoot}}/.${harnessId}/skills/{{skillId}}`, format: 'generic', restartRequired: false }] },
+    agentStateCapable: true,
+    skillIntegration: {
+      support,
+      harnessId,
+      installTargets: [
+        {
+          scope: 'workspace',
+          path: `{{workspaceRoot}}/.${harnessId}/skills/{{skillId}}`,
+          format: 'generic',
+          restartRequired: false,
+        },
+      ],
+    },
   }
 }
 

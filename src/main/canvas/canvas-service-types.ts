@@ -28,8 +28,7 @@ export type { CanvasErrorCode, CanvasError, CanvasResult } from '../../shared/ca
  * what makes an agent action in flight give way.
  */
 export type CanvasActor =
-  | { kind: 'agent'; workspaceId: string; agentId?: string; agentName?: string }
-  | { kind: 'human' }
+  { kind: 'agent'; workspaceId: string; agentId?: string; agentName?: string } | { kind: 'human' }
 
 /**
  * The key a board's "what changed since you last looked" is tracked against.

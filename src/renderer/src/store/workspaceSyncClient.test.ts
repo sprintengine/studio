@@ -17,11 +17,7 @@ import {
   type WorkspaceSyncClientDependencies,
   type WorkspaceSyncDiagnostic,
 } from './workspaceSyncClient'
-import type {
-  WorkspaceSyncCommand,
-  WorkspaceSyncEvent,
-  WorkspaceSyncSnapshot,
-} from '../../../shared/workspace-sync'
+import type { WorkspaceSyncCommand, WorkspaceSyncEvent, WorkspaceSyncSnapshot } from '../../../shared/workspace-sync'
 import type { AgentState, Workspace, WorkspaceId, WorkspaceWindowState } from '../types/workspace'
 
 // A fake renderer store: it holds the per-window routing this renderer knows
@@ -69,7 +65,14 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
       if (Number.isFinite(createdAt)) windowState.lastFocusedAt = createdAt
       if (isCurrentWindow && workspaceId) state.activeWorkspaceId = workspaceId
     },
-    applyMoved({ workspaceId, fromWindowId, toWindowId, makeActive, createdAt, isCurrentWindowTarget }: WorkspaceMovedApply): void {
+    applyMoved({
+      workspaceId,
+      fromWindowId,
+      toWindowId,
+      makeActive,
+      createdAt,
+      isCurrentWindowTarget,
+    }: WorkspaceMovedApply): void {
       const target = ensureWindow(toWindowId)
       for (const windowState of state.workspaceWindows) {
         if (windowState.id === toWindowId) continue
@@ -95,16 +98,17 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
     },
     applyClosed({ windowId, fallbackWindowId, movedWorkspaceIds, createdAt }: WorkspaceClosedApply): void {
       const closing = findWindow(windowId)
-      const routed = movedWorkspaceIds.length > 0 ? movedWorkspaceIds : closing?.workspaceIds ?? []
+      const routed = movedWorkspaceIds.length > 0 ? movedWorkspaceIds : (closing?.workspaceIds ?? [])
       if (!closing && routed.length === 0) return
       const fallback = ensureWindow(fallbackWindowId)
       for (const id of routed) {
         if (!fallback.workspaceIds.includes(id)) fallback.workspaceIds.push(id)
       }
       if (!fallback.activeWorkspaceId && fallback.workspaceIds.length > 0) {
-        fallback.activeWorkspaceId = closing?.activeWorkspaceId && fallback.workspaceIds.includes(closing.activeWorkspaceId)
-          ? closing.activeWorkspaceId
-          : fallback.workspaceIds[0] ?? null
+        fallback.activeWorkspaceId =
+          closing?.activeWorkspaceId && fallback.workspaceIds.includes(closing.activeWorkspaceId)
+            ? closing.activeWorkspaceId
+            : (fallback.workspaceIds[0] ?? null)
       }
       if (Number.isFinite(createdAt)) fallback.lastFocusedAt = createdAt
       if (closing) {
@@ -131,7 +135,14 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
       if (Number.isFinite(createdAt)) target.lastFocusedAt = createdAt
       if (isCurrentWindowTarget) state.activeWorkspaceId = workspace.id
     },
-    applyTerminalSession({ workspaceId, agentId, sessionId, cli, cliResumeAvailable, cliUsesStableSessionId }: AgentTerminalSessionApply): void {
+    applyTerminalSession({
+      workspaceId,
+      agentId,
+      sessionId,
+      cli,
+      cliResumeAvailable,
+      cliUsesStableSessionId,
+    }: AgentTerminalSessionApply): void {
       const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
       if (!workspace) return
       workspace.agents[agentId] = {
@@ -166,7 +177,9 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
         ...(update.cliSessionId !== undefined ? { cliSessionId: update.cliSessionId ?? undefined } : {}),
         ...(update.cliStartRequested !== undefined ? { cliStartRequested: update.cliStartRequested } : {}),
         ...(update.cliHasLaunched !== undefined ? { cliHasLaunched: update.cliHasLaunched } : {}),
-        ...(update.cliOnboardingPromptSent !== undefined ? { cliOnboardingPromptSent: update.cliOnboardingPromptSent } : {}),
+        ...(update.cliOnboardingPromptSent !== undefined
+          ? { cliOnboardingPromptSent: update.cliOnboardingPromptSent }
+          : {}),
         ...(update.cliResumeAvailable !== undefined ? { cliResumeAvailable: update.cliResumeAvailable } : {}),
       } as AgentState
     },
@@ -181,7 +194,7 @@ function storeDeps(
   store: FakeStore,
   windowId: string,
   api: WorkspaceSyncClientApi | null,
-  logDiagnostic: (diagnostic: WorkspaceSyncDiagnostic) => void = () => {}
+  logDiagnostic: (diagnostic: WorkspaceSyncDiagnostic) => void = () => {},
 ): WorkspaceSyncClientDependencies {
   return {
     getApi: () => api,
@@ -226,7 +239,7 @@ function inertRegistryApplies(): Pick<
 // Handler set for tests that exercise only diagnostics/sequence behavior and do
 // not need a real store apply. Each handler can be overridden.
 function stubDeps(
-  partial: Partial<WorkspaceSyncClientDependencies> & Pick<WorkspaceSyncClientDependencies, 'getApi' | 'getWindowId'>
+  partial: Partial<WorkspaceSyncClientDependencies> & Pick<WorkspaceSyncClientDependencies, 'getApi' | 'getWindowId'>,
 ): WorkspaceSyncClientDependencies {
   const noop = () => {}
   return {
@@ -320,10 +333,7 @@ function seedSnapshot(): WorkspaceSyncSnapshot {
       workspaces: [workspace('wsA1'), workspace('wsA2'), workspace('wsB1')],
       activeWorkspaceId: 'wsA1',
       primaryWorkspaceWindowId: 'A',
-      workspaceWindows: [
-        windowState('A', ['wsA1', 'wsA2'], 'wsA1'),
-        windowState('B', ['wsB1'], 'wsB1'),
-      ],
+      workspaceWindows: [windowState('A', ['wsA1', 'wsA2'], 'wsA1'), windowState('B', ['wsB1'], 'wsB1')],
     },
   }
 }
@@ -340,11 +350,11 @@ async function twoWindowSelectionDoesNotFlipOther(): Promise<void> {
 
   const storeA = createFakeStore(
     [windowState('A', ['wsA1', 'wsA2'], 'wsA1'), windowState('B', ['wsB1'], 'wsB1')],
-    'wsA1'
+    'wsA1',
   )
   const storeB = createFakeStore(
     [windowState('A', ['wsA1', 'wsA2'], 'wsA1'), windowState('B', ['wsB1'], 'wsB1')],
-    'wsB1'
+    'wsB1',
   )
 
   const clientA = createWorkspaceSyncClient(storeDeps(storeA, 'A', bus.makeApi('A')))
@@ -376,8 +386,7 @@ async function ignoresDuplicateAndStaleEvents(): Promise<void> {
   const listenerRef: { emit?: (event: WorkspaceSyncEvent) => void } = {}
   const api: WorkspaceSyncClientApi = {
     workspaceSyncDispatch: () => Promise.resolve({ ok: false, reason: 'unused', message: 'unused' }),
-    workspaceSyncGetSnapshot: () =>
-      Promise.resolve({ sequence: 0, state: seedSnapshot().state }),
+    workspaceSyncGetSnapshot: () => Promise.resolve({ sequence: 0, state: seedSnapshot().state }),
     workspaceSyncGetEventsAfter: () => Promise.resolve([]),
     onWorkspaceSyncEvent: (cb) => {
       listenerRef.emit = cb
@@ -386,11 +395,13 @@ async function ignoresDuplicateAndStaleEvents(): Promise<void> {
       }
     },
   }
-  const client = createWorkspaceSyncClient(stubDeps({
-    getApi: () => api,
-    getWindowId: () => 'B',
-    applyActiveChanged: (apply) => applied.push(apply),
-  }))
+  const client = createWorkspaceSyncClient(
+    stubDeps({
+      getApi: () => api,
+      getWindowId: () => 'B',
+      applyActiveChanged: (apply) => applied.push(apply),
+    }),
+  )
   const stop = client.start()
   await flush()
   const emit = listenerRef.emit
@@ -415,7 +426,7 @@ async function ignoresDuplicateAndStaleEvents(): Promise<void> {
   assert.deepEqual(
     applied.map((a) => a.workspaceId),
     ['wsA1', 'wsA2'],
-    'duplicate and stale sequences are dropped'
+    'duplicate and stale sequences are dropped',
   )
   assert.equal(applied[0].isCurrentWindow, false, 'events targeting another window are not current-window')
 
@@ -449,11 +460,13 @@ async function recoversSequenceGapThroughReplay(): Promise<void> {
       }
     },
   }
-  const client = createWorkspaceSyncClient(stubDeps({
-    getApi: () => api,
-    getWindowId: () => 'A',
-    applyActiveChanged: (apply) => applied.push(apply),
-  }))
+  const client = createWorkspaceSyncClient(
+    stubDeps({
+      getApi: () => api,
+      getWindowId: () => 'A',
+      applyActiveChanged: (apply) => applied.push(apply),
+    }),
+  )
   const stop = client.start()
   await flush()
   assert.ok(listenerRef.emit)
@@ -499,12 +512,14 @@ async function incompleteReplayFallsBackToSnapshotBaseline(): Promise<void> {
       }
     },
   }
-  const client = createWorkspaceSyncClient(stubDeps({
-    getApi: () => api,
-    getWindowId: () => 'A',
-    applyActiveChanged: (apply) => applied.push(apply),
-    logDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
-  }))
+  const client = createWorkspaceSyncClient(
+    stubDeps({
+      getApi: () => api,
+      getWindowId: () => 'A',
+      applyActiveChanged: (apply) => applied.push(apply),
+      logDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    }),
+  )
   const stop = client.start()
   await flush()
   assert.ok(listenerRef.emit)
@@ -561,12 +576,14 @@ async function replayFailureFallsBackToSnapshotBaseline(): Promise<void> {
       }
     },
   }
-  const client = createWorkspaceSyncClient(stubDeps({
-    getApi: () => api,
-    getWindowId: () => 'A',
-    applyActiveChanged: (apply) => applied.push(apply),
-    logDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
-  }))
+  const client = createWorkspaceSyncClient(
+    stubDeps({
+      getApi: () => api,
+      getWindowId: () => 'A',
+      applyActiveChanged: (apply) => applied.push(apply),
+      logDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    }),
+  )
   const stop = client.start()
   await flush()
   assert.ok(listenerRef.emit)
@@ -594,14 +611,16 @@ async function rejectedDispatchLogsOnce(): Promise<void> {
     workspaceSyncGetEventsAfter: () => Promise.resolve([]),
     onWorkspaceSyncEvent: () => () => {},
   }
-  const client = createWorkspaceSyncClient(stubDeps({
-    getApi: () => api,
-    getWindowId: () => 'A',
-    applyActiveChanged: () => {
-      throw new Error('apply must not run on a rejected dispatch')
-    },
-    logDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
-  }))
+  const client = createWorkspaceSyncClient(
+    stubDeps({
+      getApi: () => api,
+      getWindowId: () => 'A',
+      applyActiveChanged: () => {
+        throw new Error('apply must not run on a rejected dispatch')
+      },
+      logDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    }),
+  )
 
   await client.dispatchSetActiveWorkspace('A', 'wsA1')
   await client.dispatchSetActiveWorkspace('A', 'wsA1')
@@ -615,20 +634,22 @@ async function rejectedDispatchLogsOnce(): Promise<void> {
 // AC4: missing sync API is a safe, logged no-op.
 async function unavailableApiIsSafe(): Promise<void> {
   const diagnostics: WorkspaceSyncDiagnostic[] = []
-  const client = createWorkspaceSyncClient(stubDeps({
-    getApi: () => null,
-    getWindowId: () => 'A',
-    applyActiveChanged: () => {
-      throw new Error('apply must not run when the api is unavailable')
-    },
-    logDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
-  }))
+  const client = createWorkspaceSyncClient(
+    stubDeps({
+      getApi: () => null,
+      getWindowId: () => 'A',
+      applyActiveChanged: () => {
+        throw new Error('apply must not run when the api is unavailable')
+      },
+      logDiagnostic: (diagnostic) => diagnostics.push(diagnostic),
+    }),
+  )
   const stop = client.start()
   await client.dispatchSetActiveWorkspace('A', 'wsA1')
   stop()
   assert.ok(
     diagnostics.some((diagnostic) => diagnostic.reason === 'api_unavailable'),
-    'an explicit diagnostic is surfaced when the sync api is unavailable'
+    'an explicit diagnostic is surfaced when the sync api is unavailable',
   )
   console.log('workspaceSyncClient.test.ts: unavailable api is safe — ok')
 }
@@ -651,11 +672,13 @@ async function startCleansUpAndResets(): Promise<void> {
     },
   }
   const applied: WorkspaceActiveChangedApply[] = []
-  const client = createWorkspaceSyncClient(stubDeps({
-    getApi: () => api,
-    getWindowId: () => 'A',
-    applyActiveChanged: (apply) => applied.push(apply),
-  }))
+  const client = createWorkspaceSyncClient(
+    stubDeps({
+      getApi: () => api,
+      getWindowId: () => 'A',
+      applyActiveChanged: (apply) => applied.push(apply),
+    }),
+  )
 
   const stop = client.start()
   await flush()
@@ -729,8 +752,16 @@ async function moveTransfersMembershipAcrossWindows(): Promise<void> {
   assert.deepEqual(storeB.windowWorkspaceIds('B'), ['wsB1', 'wsA2'], 'the other window mirrors the target membership')
   assert.equal(storeA.windowActive('B'), 'wsA2', 'the destination window focuses the moved workspace')
   assert.equal(storeB.windowActive('B'), 'wsA2')
-  assert.equal(storeB.state.activeWorkspaceId, 'wsA2', 'the window that now owns the moved workspace adopts it as global active')
-  assert.equal(storeA.state.activeWorkspaceId, 'wsA1', 'a move into another window does not flip this renderer global active')
+  assert.equal(
+    storeB.state.activeWorkspaceId,
+    'wsA2',
+    'the window that now owns the moved workspace adopts it as global active',
+  )
+  assert.equal(
+    storeA.state.activeWorkspaceId,
+    'wsA1',
+    'a move into another window does not flip this renderer global active',
+  )
 
   stop()
   console.log('workspaceSyncClient.test.ts: move transfers one-window membership — ok')
@@ -766,7 +797,11 @@ async function closeRoutesWorkspacesToFallback(): Promise<void> {
 
   assert.equal(storeA.hasWindow('B'), false, 'the closed window is dropped in the fallback renderer')
   assert.equal(storeB.hasWindow('B'), false, 'the closed window is dropped in its own renderer')
-  assert.deepEqual(storeA.windowWorkspaceIds('A'), ['wsA1', 'wsA2', 'wsB1'], 'closing-window workspaces route to the fallback window')
+  assert.deepEqual(
+    storeA.windowWorkspaceIds('A'),
+    ['wsA1', 'wsA2', 'wsB1'],
+    'closing-window workspaces route to the fallback window',
+  )
   assert.deepEqual(storeB.windowWorkspaceIds('A'), ['wsA1', 'wsA2', 'wsB1'])
   assert.equal(storeA.windowActive('A'), 'wsA1', 'closing a foreign window does not flip the fallback window active')
 
@@ -786,7 +821,11 @@ async function placementUpdatesPropagateWithoutTouchingMembership(): Promise<voi
 
   assert.deepEqual(storeA.windowBounds('B'), bounds, "window A records window B's placement from the broadcast")
   assert.deepEqual(storeB.windowBounds('B'), bounds)
-  assert.deepEqual(storeA.windowWorkspaceIds('A'), ['wsA1', 'wsA2'], 'placement updates do not touch workspace membership')
+  assert.deepEqual(
+    storeA.windowWorkspaceIds('A'),
+    ['wsA1', 'wsA2'],
+    'placement updates do not touch workspace membership',
+  )
   assert.deepEqual(storeA.windowWorkspaceIds('B'), ['wsB1'])
 
   stop()
@@ -805,7 +844,10 @@ async function simultaneousCreationsPreserveBothWorkspaces(): Promise<void> {
   await clientB.dispatchCreateWorkspace(workspace('wsB-new'), 'B', null)
   await flush()
 
-  for (const [label, store] of [['A', storeA], ['B', storeB]] as const) {
+  for (const [label, store] of [
+    ['A', storeA],
+    ['B', storeB],
+  ] as const) {
     assert.ok(store.windowWorkspaceIds('A')?.includes('wsA-new'), `store ${label} assigns wsA-new to window A`)
     assert.ok(store.windowWorkspaceIds('B')?.includes('wsB-new'), `store ${label} assigns wsB-new to window B`)
     assert.equal(store.windowWorkspaceIds('A')?.[0], 'wsA-new', `store ${label} inserts wsA-new at window A head`)
@@ -814,7 +856,11 @@ async function simultaneousCreationsPreserveBothWorkspaces(): Promise<void> {
     assert.equal(store.windowActive('B'), 'wsB-new', `store ${label} focuses wsB-new in window B`)
   }
   assert.equal(storeA.state.activeWorkspaceId, 'wsA-new', 'window A adopts its own creation as global active')
-  assert.equal(storeB.state.activeWorkspaceId, 'wsB-new', 'window B adopts its own creation as global active, not the foreign one')
+  assert.equal(
+    storeB.state.activeWorkspaceId,
+    'wsB-new',
+    'window B adopts its own creation as global active, not the foreign one',
+  )
 
   stop()
   console.log('workspaceSyncClient.test.ts: simultaneous creations preserve both workspaces — ok')
@@ -843,7 +889,7 @@ async function terminalMetadataEventsRespectWorkspaceOwnership(): Promise<void> 
   assert.equal(
     storeA.agent('wsA1', 'agent-one')?.cliSessionId,
     'session-a',
-    'foreign terminal events cannot overwrite the owning window metadata'
+    'foreign terminal events cannot overwrite the owning window metadata',
   )
   assert.equal(storeB.agent('wsA1', 'agent-one')?.cliSessionId, 'session-a')
 
@@ -864,7 +910,6 @@ async function terminalMetadataEventsRespectWorkspaceOwnership(): Promise<void> 
   console.log('workspaceSyncClient.test.ts: terminal metadata events respect workspace ownership — ok')
 }
 
-
 // A snapshot fetch is asynchronous, so a broadcast can land and advance the
 // baseline while it is in flight. Adopting the older snapshot afterwards would
 // silently undo the event that beat it — the mirror would show main's state
@@ -874,7 +919,9 @@ async function aStaleSnapshotNeverClobbersANewerAppliedEvent(): Promise<void> {
   const applied: WorkspaceActiveChangedApply[] = []
   const listenerRef: { emit?: (event: WorkspaceSyncEvent) => void } = {}
   let releaseSnapshot: (() => void) | undefined
-  const snapshotGate = new Promise<void>((resolve) => { releaseSnapshot = resolve })
+  const snapshotGate = new Promise<void>((resolve) => {
+    releaseSnapshot = resolve
+  })
 
   const api: WorkspaceSyncClientApi = {
     workspaceSyncDispatch: () => Promise.resolve({ ok: false, reason: 'unused', message: 'unused' }),
@@ -887,15 +934,19 @@ async function aStaleSnapshotNeverClobbersANewerAppliedEvent(): Promise<void> {
     workspaceSyncGetEventsAfter: () => Promise.resolve([]),
     onWorkspaceSyncEvent: (cb) => {
       listenerRef.emit = cb
-      return () => { listenerRef.emit = undefined }
+      return () => {
+        listenerRef.emit = undefined
+      }
     },
   }
-  const client = createWorkspaceSyncClient(stubDeps({
-    getApi: () => api,
-    getWindowId: () => 'A',
-    applyActiveChanged: (apply) => applied.push(apply),
-    applyRegistrySnapshot: (snapshot) => adopted.push(snapshot.sequence),
-  }))
+  const client = createWorkspaceSyncClient(
+    stubDeps({
+      getApi: () => api,
+      getWindowId: () => 'A',
+      applyActiveChanged: (apply) => applied.push(apply),
+      applyRegistrySnapshot: (snapshot) => adopted.push(snapshot.sequence),
+    }),
+  )
   const stop = client.start()
 
   // Event 1 arrives and applies while the snapshot request is still open.

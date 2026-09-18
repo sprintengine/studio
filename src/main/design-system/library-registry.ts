@@ -55,9 +55,7 @@ function emptyRegistry(): DesignSystemRegistryFile {
  * alternative is a door that cannot open at all; the next write rebuilds it.
  * Individual malformed entries are dropped, not the whole file.
  */
-export async function readDesignSystemRegistry(
-  registryPath: string,
-): Promise<DesignSystemRegistryFile> {
+export async function readDesignSystemRegistry(registryPath: string): Promise<DesignSystemRegistryFile> {
   let raw: string
   try {
     raw = await readFile(registryPath, 'utf8')
@@ -93,9 +91,7 @@ export async function readDesignSystemRegistry(
   }
   return {
     schemaVersion:
-      typeof parsed.schemaVersion === 'number'
-        ? parsed.schemaVersion
-        : DESIGN_SYSTEM_REGISTRY_SCHEMA_VERSION,
+      typeof parsed.schemaVersion === 'number' ? parsed.schemaVersion : DESIGN_SYSTEM_REGISTRY_SCHEMA_VERSION,
     entries,
     adoptedLegacyCopies: parsed.adoptedLegacyCopies === true,
   }
@@ -108,10 +104,7 @@ export async function readDesignSystemRegistry(
  * the previous registry intact rather than a truncated one — losing the list of
  * folders a user pointed at is not recoverable from anywhere else.
  */
-async function writeDesignSystemRegistry(
-  registryPath: string,
-  registry: DesignSystemRegistryFile,
-): Promise<void> {
+async function writeDesignSystemRegistry(registryPath: string, registry: DesignSystemRegistryFile): Promise<void> {
   await mkdir(dirname(registryPath), { recursive: true })
   const temporary = `${registryPath}.tmp`
   await writeFile(temporary, `${JSON.stringify(registry, null, 2)}\n`, 'utf8')
@@ -124,9 +117,7 @@ async function statKind(path: string): Promise<'dir' | 'file' | 'missing' | 'unr
     return stats.isDirectory() ? 'dir' : 'file'
   } catch (error) {
     const code =
-      error !== null && typeof error === 'object' && 'code' in error
-        ? String((error as { code: unknown }).code)
-        : null
+      error !== null && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : null
     return code === 'ENOENT' || code === 'ENOTDIR' ? 'missing' : 'unreadable'
   }
 }
@@ -159,9 +150,7 @@ async function probe(path: string): Promise<ProbeResult> {
     contents = await readFile(join(path, DESIGN_SYSTEM_MANIFEST_FILENAME), 'utf8')
   } catch (error) {
     const code =
-      error !== null && typeof error === 'object' && 'code' in error
-        ? String((error as { code: unknown }).code)
-        : null
+      error !== null && typeof error === 'object' && 'code' in error ? String((error as { code: unknown }).code) : null
     if (code === 'ENOENT') {
       return {
         sourceState: 'no-manifest',
@@ -186,10 +175,7 @@ async function probe(path: string): Promise<ProbeResult> {
   }
 }
 
-function toEntry(
-  registration: DesignSystemRegistration,
-  probed: ProbeResult,
-): DesignSystemLibraryEntry {
+function toEntry(registration: DesignSystemRegistration, probed: ProbeResult): DesignSystemLibraryEntry {
   const manifest = probed.manifest
   const releasedAt = manifest?.provenance.releasedAt
   return {
@@ -288,9 +274,7 @@ async function ensureAdopted(paths: LibraryPaths): Promise<DesignSystemRegistryF
  * failure state — dropping it would hide the fact that anything is wrong, and
  * the user needs the row in order to re-point or forget it.
  */
-export async function listDesignSystemLibrary(
-  paths: LibraryPaths,
-): Promise<DesignSystemLibraryListResult> {
+export async function listDesignSystemLibrary(paths: LibraryPaths): Promise<DesignSystemLibraryListResult> {
   const registry = await ensureAdopted(paths)
 
   const entries: DesignSystemLibraryEntry[] = []
@@ -310,9 +294,7 @@ export async function listDesignSystemLibrary(
     await writeDesignSystemRegistry(paths.registryPath, { ...registry, entries: refreshed })
   }
 
-  entries.sort(
-    (a, b) => (a.name ?? a.path).localeCompare(b.name ?? b.path) || a.path.localeCompare(b.path),
-  )
+  entries.sort((a, b) => (a.name ?? a.path).localeCompare(b.name ?? b.path) || a.path.localeCompare(b.path))
   return { entries }
 }
 

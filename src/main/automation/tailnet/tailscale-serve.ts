@@ -89,7 +89,10 @@ export type TailscaleShareResult = { ok: true; share: TailscaleShare } | Tailsca
  * the raw string.
  */
 const STDERR_PATTERNS: ReadonlyArray<readonly [RegExp, TailscaleServeDiagnostic]> = [
-  [/https:\/\/tailscale\.com\/s\/https|https is not enabled|enable https|certificate.*not.*enabled/i, 'https-not-enabled'],
+  [
+    /https:\/\/tailscale\.com\/s\/https|https is not enabled|enable https|certificate.*not.*enabled/i,
+    'https-not-enabled',
+  ],
   [/not logged in|logged out|needs? login|no valid node key/i, 'not-logged-in'],
   [/permission denied|access denied|must be root|operation not permitted|not permitted/i, 'permission-denied'],
   [/address already in use|port.*in use|already serving|conflict/i, 'port-unavailable'],
@@ -167,7 +170,7 @@ export function buildServeUrl(dnsName: string, servePort: number): string {
  */
 export async function shareLocalPort(
   input: { localPort: number; servePort: number; localHost?: string },
-  deps: TailscaleServeDeps = {}
+  deps: TailscaleServeDeps = {},
 ): Promise<TailscaleShareResult> {
   const run = deps.run ?? runTailscaleResult
   const localHost = input.localHost ?? '127.0.0.1'
@@ -177,7 +180,7 @@ export async function shareLocalPort(
   }
   const result = await run(
     ['serve', '--bg', `--https=${input.servePort}`, `http://${localHost}:${input.localPort}`],
-    SERVE_TIMEOUT_MS
+    SERVE_TIMEOUT_MS,
   )
   if (!result.ok) return failureFrom(result)
   return {
@@ -189,7 +192,7 @@ export async function shareLocalPort(
 /** Take a port back off the tailnet. */
 export async function unshareServePort(
   input: { servePort: number },
-  deps: TailscaleServeDeps = {}
+  deps: TailscaleServeDeps = {},
 ): Promise<{ ok: true } | TailscaleServeFailure> {
   const run = deps.run ?? runTailscaleResult
   const result = await run(['serve', `--https=${input.servePort}`, 'off'], SERVE_TIMEOUT_MS)

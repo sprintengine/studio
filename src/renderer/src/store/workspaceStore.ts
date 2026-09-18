@@ -50,11 +50,7 @@ import {
   type WorkspacePaneSliceActions,
 } from './slices/workspacePaneSlice'
 import { createFocusedAgentSlice, type FocusedAgentSlice } from './slices/focusedAgentSlice'
-import {
-  createWorkspacesSlice,
-  type SoloChatSeed,
-  type WorkspacesSliceDependencies,
-} from './slices/workspacesSlice'
+import { createWorkspacesSlice, type SoloChatSeed, type WorkspacesSliceDependencies } from './slices/workspacesSlice'
 import {
   createLayoutSlice,
   healRetiredRailLayout,
@@ -74,30 +70,12 @@ import {
   defaultWorkspaceWorktreeState,
   normalizeWorkspaceWorktreeState,
 } from './slices/worktreesSlice'
-import {
-  createMemorySlice,
-  defaultWorkspaceMemoryConfig,
-} from './slices/memorySlice'
-import {
-  createCliAvailabilitySlice,
-  type CliAvailabilitySlice,
-} from './slices/cliAvailabilitySlice'
-import {
-  createPluginsSlice,
-  type PluginsSlice,
-} from './slices/pluginsSlice'
-import {
-  createHostedModelFeedSlice,
-  type HostedModelFeedSlice,
-} from './slices/hostedModelFeedSlice'
-import {
-  createHostedCardFeedSlice,
-  type HostedCardFeedSlice,
-} from './slices/hostedCardFeedSlice'
-import {
-  createCliVersionAdvisorySlice,
-  type CliVersionAdvisorySlice,
-} from './slices/cliVersionAdvisorySlice'
+import { createMemorySlice, defaultWorkspaceMemoryConfig } from './slices/memorySlice'
+import { createCliAvailabilitySlice, type CliAvailabilitySlice } from './slices/cliAvailabilitySlice'
+import { createPluginsSlice, type PluginsSlice } from './slices/pluginsSlice'
+import { createHostedModelFeedSlice, type HostedModelFeedSlice } from './slices/hostedModelFeedSlice'
+import { createHostedCardFeedSlice, type HostedCardFeedSlice } from './slices/hostedCardFeedSlice'
+import { createCliVersionAdvisorySlice, type CliVersionAdvisorySlice } from './slices/cliVersionAdvisorySlice'
 import {
   dedupeAutomationsHostWorkspaces,
   dropRetiredModeWorkspaces,
@@ -133,10 +111,7 @@ import {
   migratePersistedWorkspaceState,
   normalizeWorkspaceWindows,
 } from './slices/persistenceSlice'
-import {
-  isLegacyV44WorkspaceEnvelope,
-  splitLegacyV44Envelope,
-} from './repositories/workspaceRegistry'
+import { isLegacyV44WorkspaceEnvelope, splitLegacyV44Envelope } from './repositories/workspaceRegistry'
 import type {
   ProjectColorSetting,
   WorkspaceFolderRole,
@@ -146,7 +121,15 @@ import type {
 
 migrateLegacyWorkspaceStorageKey()
 
-export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, HostedModelFeedSlice, HostedCardFeedSlice, CliVersionAdvisorySlice, WorkspacePaneSliceActions, FocusedAgentSlice {
+export interface WorkspaceStore
+  extends
+    PluginsSlice,
+    CliAvailabilitySlice,
+    HostedModelFeedSlice,
+    HostedCardFeedSlice,
+    CliVersionAdvisorySlice,
+    WorkspacePaneSliceActions,
+    FocusedAgentSlice {
   workspaces: Workspace[]
   activeWorkspaceId: WorkspaceId | null
   workspaceWindows: WorkspaceWindowState[]
@@ -218,13 +201,13 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
   updateWorkspaceWindowPlacement: (
     windowId: WorkspaceWindowId,
-    placement: Pick<WorkspaceWindowState, 'bounds' | 'isMaximized' | 'displayId'>
+    placement: Pick<WorkspaceWindowState, 'bounds' | 'isMaximized' | 'displayId'>,
   ) => void
   closeWorkspaceWindow: (windowId: WorkspaceWindowId, fallbackWindowId?: WorkspaceWindowId) => void
   moveWorkspaceToWindow: (
     workspaceId: WorkspaceId,
     targetWindowId: WorkspaceWindowId,
-    sourceWindowId?: WorkspaceWindowId | null
+    sourceWindowId?: WorkspaceWindowId | null,
   ) => void
   setActiveWorkspaceForWindow: (windowId: WorkspaceWindowId, workspaceId: WorkspaceId) => void
   applyWorkspaceActiveChangedEvent: (apply: WorkspaceActiveChangedApply) => void
@@ -322,7 +305,7 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
       // Executor-triggered creation: skip the door-surface clear (MC-1833).
       background?: boolean
       windowId?: WorkspaceWindowId | null
-    }
+    },
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
@@ -351,21 +334,14 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   removeAgent: (workspaceId: WorkspaceId, agentId: AgentId) => void
   applyAgentTerminalSessionEvent: (apply: AgentTerminalSessionApply) => void
   applyAgentTerminalLaunchStateEvent: (apply: AgentTerminalLaunchStateApply) => void
-  setAgentExecution: (
-    workspaceId: WorkspaceId,
-    agentId: AgentId,
-    execution: Partial<AgentExecution>
-  ) => void
-  setWorkspaceWorktreeState: (
-    workspaceId: WorkspaceId,
-    worktreeState: Partial<WorkspaceWorktreeState> | null
-  ) => void
+  setAgentExecution: (workspaceId: WorkspaceId, agentId: AgentId, execution: Partial<AgentExecution>) => void
+  setWorkspaceWorktreeState: (workspaceId: WorkspaceId, worktreeState: Partial<WorkspaceWorktreeState> | null) => void
   setWorkspaceMemoryRelativeRoot: (workspaceId: WorkspaceId, relativeRoot: string | null) => void
   updateMemoryGraphSettings: (
     workspaceId: WorkspaceId,
     update:
       | Partial<MemoryGraphSettings>
-      | ((current: MemoryGraphSettings) => Partial<MemoryGraphSettings> | MemoryGraphSettings)
+      | ((current: MemoryGraphSettings) => Partial<MemoryGraphSettings> | MemoryGraphSettings),
   ) => void
   upsertWorktreeEntry: (workspaceId: WorkspaceId, entry: WorktreeEntry) => void
   markWorktreeMissing: (workspaceId: WorkspaceId, worktreeId: string, missingAt?: number) => void
@@ -383,16 +359,8 @@ export interface WorkspaceStore extends PluginsSlice, CliAvailabilitySlice, Host
   remapOpenFiles: (workspaceId: WorkspaceId, fromPath: string, toPath: string) => void
   removeOpenFilesForPath: (workspaceId: WorkspaceId, path: string) => void
 
-  moveAgentToWorkspace: (
-    sourceWorkspaceId: WorkspaceId,
-    destWorkspaceId: WorkspaceId,
-    agentId: AgentId
-  ) => void
-  moveOpenFileToWorkspace: (
-    sourceWorkspaceId: WorkspaceId,
-    destWorkspaceId: WorkspaceId,
-    path: string
-  ) => void
+  moveAgentToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, agentId: AgentId) => void
+  moveOpenFileToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, path: string) => void
 }
 
 const workspacesSliceDeps: WorkspacesSliceDependencies = {
@@ -440,10 +408,7 @@ const BACKUP_WRITE_DEBOUNCE_MS = 250
 let backupWriteTimer: ReturnType<typeof setTimeout> | null = null
 let pendingBackupValue: { registry: string; settings: string } | null = null
 
-function scheduleBackupWrite(
-  serializedRegistryEnvelope: string,
-  serializedSettingsEnvelope: string,
-): void {
+function scheduleBackupWrite(serializedRegistryEnvelope: string, serializedSettingsEnvelope: string): void {
   if (typeof window === 'undefined') return
   const api = window.api
   if (!api || typeof api.workspaceBackupWrite !== 'function') return
@@ -505,18 +470,22 @@ type SettingsEnvelopeState = {
 let lastWrittenSettingsSerialized: string | null = null
 let suppressNextPersistWrite = false
 
-function preserveAgentTerminalMetadata(incomingWorkspace: Workspace, currentWorkspace: Workspace | undefined): Workspace {
+function preserveAgentTerminalMetadata(
+  incomingWorkspace: Workspace,
+  currentWorkspace: Workspace | undefined,
+): Workspace {
   if (!currentWorkspace) return incomingWorkspace
   let changed = false
   const nextAgents = { ...incomingWorkspace.agents }
   for (const [agentId, currentAgent] of Object.entries(currentWorkspace.agents)) {
     if (
-      !currentAgent.cliStartRequested
-      && !currentAgent.cliHasLaunched
-      && !currentAgent.cliSessionId
-      && !currentAgent.cliResumeAvailable
-      && !currentAgent.cliOnboardingPromptSent
-    ) continue
+      !currentAgent.cliStartRequested &&
+      !currentAgent.cliHasLaunched &&
+      !currentAgent.cliSessionId &&
+      !currentAgent.cliResumeAvailable &&
+      !currentAgent.cliOnboardingPromptSent
+    )
+      continue
     const incomingAgent = nextAgents[agentId] ?? defaultAgent(agentId)
     nextAgents[agentId] = {
       ...incomingAgent,
@@ -598,7 +567,9 @@ function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelope
   return fields as SettingsEnvelopeState
 }
 
-function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof partializeRegistryFields> & SettingsEnvelopeState {
+function partializeWorkspaceStoreState(
+  s: WorkspaceStore,
+): ReturnType<typeof partializeRegistryFields> & SettingsEnvelopeState {
   // s.workspaceRegistryEmptyState is the explicit intent record set by
   // workspacesSlice.removeWorkspace when the splice leaves workspaces=[]
   // and cleared by addWorkspace + importWorkspace. Its presence proves
@@ -642,8 +613,8 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
           retainedActiveId ?? retainedWorkspaces[0]?.id ?? s.activeWorkspaceId,
         ).windows,
         primaryWorkspaceWindowId:
-          (registry.envelope!.state.primaryWorkspaceWindowId as WorkspaceWindowId | undefined)
-          ?? PRIMARY_WORKSPACE_WINDOW_ID,
+          (registry.envelope!.state.primaryWorkspaceWindowId as WorkspaceWindowId | undefined) ??
+          PRIMARY_WORKSPACE_WINDOW_ID,
         workspaceRegistryEmptyState: null,
       }
     }
@@ -663,11 +634,16 @@ function partializeWorkspaceStoreState(s: WorkspaceStore): ReturnType<typeof par
   }
 }
 
-export function __workspaceStorePartializeForTests(s: WorkspaceStore): ReturnType<typeof partializeWorkspaceStoreState> {
+export function __workspaceStorePartializeForTests(
+  s: WorkspaceStore,
+): ReturnType<typeof partializeWorkspaceStoreState> {
   return partializeWorkspaceStoreState(s)
 }
 
-function readWorkspaceRegistryKey(): { raw: string | null; envelope: { state: RegistryEnvelopeState; version: number } | null } {
+function readWorkspaceRegistryKey(): {
+  raw: string | null
+  envelope: { state: RegistryEnvelopeState; version: number } | null
+} {
   if (typeof window === 'undefined') return { raw: null, envelope: null }
   let raw: string | null = null
   try {
@@ -864,10 +840,7 @@ const workspaceStateStorage: StateStorage = {
     const settingsEnvelopeSerialized = JSON.stringify({ state: settingsFields, version })
     if (settingsSerialized !== lastWrittenSettingsSerialized) {
       try {
-        window.localStorage.setItem(
-          APP_SETTINGS_STORAGE_KEY,
-          settingsEnvelopeSerialized,
-        )
+        window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, settingsEnvelopeSerialized)
       } catch (error) {
         console.warn('[workspaceStore] localStorage settings write failed', {
           message: error instanceof Error ? error.message : 'unknown',
@@ -942,7 +915,9 @@ async function attemptBackupRecovery(): Promise<void> {
   const currentIntent = useWorkspaceStore.getState().workspaceRegistryEmptyState
   let persistedIntent: WorkspaceRegistryEmptyState | null = null
   try {
-    const parsedRegistry = raw ? (JSON.parse(raw) as { state?: { workspaceRegistryEmptyState?: WorkspaceRegistryEmptyState | null } }) : null
+    const parsedRegistry = raw
+      ? (JSON.parse(raw) as { state?: { workspaceRegistryEmptyState?: WorkspaceRegistryEmptyState | null } })
+      : null
     persistedIntent = parsedRegistry?.state?.workspaceRegistryEmptyState ?? null
   } catch {
     persistedIntent = null
@@ -979,10 +954,10 @@ async function attemptBackupRecovery(): Promise<void> {
     const latestWorkspaceCount = getPersistedWorkspaceCount(latestRaw)
     const latestIntent = useWorkspaceStore.getState().workspaceRegistryEmptyState
     if (
-      useWorkspaceStore.getState().workspaces.length > 0
-      || latestWorkspaceCount > 0
-      || !isDangerousEmptyClassification(latestClassification)
-      || latestIntent != null
+      useWorkspaceStore.getState().workspaces.length > 0 ||
+      latestWorkspaceCount > 0 ||
+      !isDangerousEmptyClassification(latestClassification) ||
+      latestIntent != null
     ) {
       hydrationContext.classification = latestClassification
       hydrationContext.persistedWorkspaceCount = latestWorkspaceCount
@@ -1032,18 +1007,13 @@ async function attemptBackupRecovery(): Promise<void> {
     // Roadmap (store v65) and Multiloop (store v66) are retired workspace modes.
     // This backup-recovery path bypasses the migrate ladder too, so run the same
     // retired-mode filter here before we re-persist.
-    envelope.state.workspaces = dropRetiredModeWorkspaces(
-      envelope.state.workspaces as Workspace[],
-    )
+    envelope.state.workspaces = dropRetiredModeWorkspaces(envelope.state.workspaces as Workspace[])
     // Same bypass applies to the one-host-per-project invariant (store v64):
     // a recovered backup can carry one Automations host per automation run,
     // and once recovery writes it back the state is stamped current-version so
     // the migrate ladder never sees it again. Dedupe before adopting.
-    envelope.state.workspaces = dedupeAutomationsHostWorkspaces(
-      envelope.state.workspaces as Workspace[],
-    )
-    envelope.state.workspaces = (envelope.state.workspaces as Workspace[])
-      .map(healRetiredRailLayout)
+    envelope.state.workspaces = dedupeAutomationsHostWorkspaces(envelope.state.workspaces as Workspace[])
+    envelope.state.workspaces = (envelope.state.workspaces as Workspace[]).map(healRetiredRailLayout)
     if (envelope.state.workspaces.length === 0) {
       emitHydrationDiagnostic()
       return
@@ -1083,9 +1053,9 @@ async function attemptBackupRecovery(): Promise<void> {
           ? normalizeAppSettings(legacyAppSettings, recoveredWorkspaces as Workspace[])
           : recoveredSettingsState?.appSettings !== undefined
             ? normalizeAppSettings(
-              recoveredSettingsState.appSettings as Partial<AppSettings>,
-              recoveredWorkspaces as Workspace[],
-            )
+                recoveredSettingsState.appSettings as Partial<AppSettings>,
+                recoveredWorkspaces as Workspace[],
+              )
             : normalizeAppSettings(current.appSettings, recoveredWorkspaces as Workspace[])
       const normalizedWindows = normalizeWorkspaceWindows(
         recoveredWorkspaces as Workspace[],
@@ -1096,10 +1066,10 @@ async function attemptBackupRecovery(): Promise<void> {
       // Don't let the recovered active pointer dangle at a dropped automations
       // workspace; fall back to the first surviving (filtered) workspace.
       const recoveredActiveId =
-        envelope!.state!.activeWorkspaceId
-        && recoveredWorkspaces.some((workspace) => workspace.id === envelope!.state!.activeWorkspaceId)
+        envelope!.state!.activeWorkspaceId &&
+        recoveredWorkspaces.some((workspace) => workspace.id === envelope!.state!.activeWorkspaceId)
           ? envelope!.state!.activeWorkspaceId
-          : recoveredWorkspaces[0]?.id ?? current.activeWorkspaceId
+          : (recoveredWorkspaces[0]?.id ?? current.activeWorkspaceId)
       const next: WorkspaceStore = {
         ...current,
         workspaces: recoveredWorkspaces,
@@ -1121,9 +1091,9 @@ async function attemptBackupRecovery(): Promise<void> {
     // next persist write doesn't clobber projectKnowledgeRoots /
     // recentWorkspaceFolders with the current empty state.
     if (
-      legacyAppSettings !== undefined
-      || typeof legacySidebarCollapsed === 'boolean'
-      || recoveredSettingsState !== null
+      legacyAppSettings !== undefined ||
+      typeof legacySidebarCollapsed === 'boolean' ||
+      recoveredSettingsState !== null
     ) {
       try {
         const next = useWorkspaceStore.getState()
@@ -1194,7 +1164,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         }
       },
       merge: (persisted, current) => {
-        const state = persisted as Partial<WorkspaceMigrationState & { sidebarCollapsed?: boolean; chatListView?: string; sidebarWidth?: number; workspacePaneWidth?: number }> | undefined
+        const state = persisted as
+          | Partial<
+              WorkspaceMigrationState & {
+                sidebarCollapsed?: boolean
+                chatListView?: string
+                sidebarWidth?: number
+                workspacePaneWidth?: number
+              }
+            >
+          | undefined
         // Version-gated migrations cannot be the only enforcement of these
         // workspace-row invariants: a dev-HMR module swap (or any write path that
         // stamps WORKSPACE_STORE_VERSION onto un-migrated state) leaves the
@@ -1204,11 +1183,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // exactly how the v63 dedupe was bypassed in the wild. merge() runs on
         // every hydration regardless of version, so the invariants self-heal here.
         const rawWorkspaces = nameGenericWorkspaceAgents(
-          dropRetiredModeWorkspaces(
-            dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces),
-          ),
-        // Files/Git rail tabs → pane tabs (browser-pane epic, store v73): the
-        // enforcement half, for the same reason as the heals above.
+          dropRetiredModeWorkspaces(dedupeAutomationsHostWorkspaces(state?.workspaces ?? current.workspaces)),
+          // Files/Git rail tabs → pane tabs (browser-pane epic, store v73): the
+          // enforcement half, for the same reason as the heals above.
         ).map(healRetiredRailLayout)
         const workspaces = rawWorkspaces
         const normalizedWindows = normalizeWorkspaceWindows(
@@ -1221,8 +1198,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
         // The persisted active pointer can reference a host the dedupe just
         // dropped; fall back to a surviving workspace instead of dangling.
         const persistedActiveWorkspaceId =
-          state?.activeWorkspaceId
-          && workspaces.some((workspace) => workspace.id === state.activeWorkspaceId)
+          state?.activeWorkspaceId && workspaces.some((workspace) => workspace.id === state.activeWorkspaceId)
             ? state.activeWorkspaceId
             : null
         return {
@@ -1230,14 +1206,12 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
           ...state,
           workspaces,
           activeWorkspaceId:
-            persistedActiveWorkspaceId
-            ?? (state?.activeWorkspaceId ? workspaces[0]?.id ?? null : current.activeWorkspaceId),
+            persistedActiveWorkspaceId ??
+            (state?.activeWorkspaceId ? (workspaces[0]?.id ?? null) : current.activeWorkspaceId),
           workspaceWindows: normalizedWindows.windows,
           primaryWorkspaceWindowId: normalizedWindows.primaryWorkspaceWindowId,
           sidebarCollapsed:
-            typeof state?.sidebarCollapsed === 'boolean'
-              ? state.sidebarCollapsed
-              : current.sidebarCollapsed,
+            typeof state?.sidebarCollapsed === 'boolean' ? state.sidebarCollapsed : current.sidebarCollapsed,
           // A value this build does not know (an older or newer name for a
           // rail shape) falls back to the tree rather than leaving the rail
           // in a shape nothing renders.
@@ -1246,9 +1220,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
               ? state.chatListView
               : current.chatListView,
           sidebarWidth:
-            typeof state?.sidebarWidth === 'number'
-              ? clampSidebarWidth(state.sidebarWidth)
-              : current.sidebarWidth,
+            typeof state?.sidebarWidth === 'number' ? clampSidebarWidth(state.sidebarWidth) : current.sidebarWidth,
           workspacePaneWidth:
             typeof state?.workspacePaneWidth === 'number'
               ? clampWorkspaceAsideWidth(state.workspacePaneWidth)
@@ -1269,8 +1241,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
       onRehydrateStorage: () => (_state, error) => {
         if (error) {
           hydrationContext.parseError =
-            hydrationContext.parseError
-            ?? (error instanceof Error ? error.message : 'rehydrate_failed')
+            hydrationContext.parseError ?? (error instanceof Error ? error.message : 'rehydrate_failed')
         }
       },
     },
@@ -1370,10 +1341,12 @@ syncTerminalKeepRecentAliveToMain()
 // that carries no explicit "the user removed everything" record. The legacy key
 // is left untouched either way, so a refusal costs one boot and retries.
 async function offerRegistryHydration(): Promise<void> {
-  const api = window.api as {
-    workspaceRegistryNeedsHydration?: () => Promise<boolean>
-    workspaceRegistryHydrate?: (payload: unknown) => Promise<unknown>
-  } | undefined
+  const api = window.api as
+    | {
+        workspaceRegistryNeedsHydration?: () => Promise<boolean>
+        workspaceRegistryHydrate?: (payload: unknown) => Promise<unknown>
+      }
+    | undefined
   if (!api?.workspaceRegistryNeedsHydration || !api.workspaceRegistryHydrate) return
   let needsHydration = false
   try {
@@ -1400,7 +1373,9 @@ function withoutRetiredModeWorkspaces(
   snapshot: import('../../../shared/workspace-sync').WorkspaceSyncSnapshot,
 ): import('../../../shared/workspace-sync').WorkspaceSyncSnapshot {
   const retiredIds = new Set(
-    snapshot.state.workspaces.filter((workspace) => isRetiredWorkspaceMode(workspace.mode)).map((workspace) => workspace.id),
+    snapshot.state.workspaces
+      .filter((workspace) => isRetiredWorkspaceMode(workspace.mode))
+      .map((workspace) => workspace.id),
   )
   if (retiredIds.size === 0) return snapshot
   const keep = (workspaceId: WorkspaceId | null): WorkspaceId | null =>
@@ -1472,9 +1447,7 @@ function adoptRegistrySnapshot(rawSnapshot: import('../../../shared/workspace-sy
         // window already has a pane: the heal above seeded a pane from the
         // raw layout that the existing record would now discard, so adopt
         // the rail into the record we keep instead.
-        paneState: existing.paneState
-          ? adoptLegacyBacklogTab(raw.layoutModel, existing.paneState)
-          : incoming.paneState,
+        paneState: existing.paneState ? adoptLegacyBacklogTab(raw.layoutModel, existing.paneState) : incoming.paneState,
         // Live-only fields main never persists: a module's own cache in the
         // state bag, and in-flight terminal metadata for agents this window
         // owns.
@@ -1522,62 +1495,71 @@ function initWorkspaceSyncClient(): void {
   const patchWorkspace = (workspaceId: WorkspaceId, patch: (workspace: Workspace) => Workspace): void => {
     useWorkspaceStore.setState((current) => ({
       ...current,
-      workspaces: current.workspaces.map((workspace) =>
-        workspace.id === workspaceId ? patch(workspace) : workspace),
+      workspaces: current.workspaces.map((workspace) => (workspace.id === workspaceId ? patch(workspace) : workspace)),
     }))
   }
   configureWorkspaceSyncClient({
     applyRegistrySnapshot: (snapshot) => applyImportedSyncEvent(() => adoptRegistrySnapshot(snapshot)),
     applyWorkspaceRenamed: (apply) =>
-      applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => ({
-        ...workspace,
-        name: apply.name,
-        ...(apply.titleLocked !== undefined ? { titleLocked: apply.titleLocked } : {}),
-      }))),
-    applyWorkspaceLayoutUpdated: (apply) =>
-      applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => ({
-        ...workspace,
-        // A window on an older build can still broadcast a layout docking a
-        // retired rail tab; this window never renders one.
-        layoutModel: stripRetiredRailTabsFromLayout(apply.layoutModel) as Workspace['layoutModel'],
-      }))),
-    applyWorkspaceFieldsUpdated: (apply) =>
-      applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => {
-        // The shared patch contract: absent = no opinion, null = cleared, a
-        // clock only advances (`applyWorkspaceFieldsPatch`).
-        const next = { ...workspace } as Record<string, unknown>
-        applyWorkspaceFieldsPatch(next, apply.patch)
-        return next as Workspace
-      })),
-    applyWorkspaceAgentUpdated: (apply) =>
-      applyImportedSyncEvent(() => patchWorkspace(apply.workspaceId, (workspace) => {
-        if (apply.patch === null) {
-          const { [apply.agentId]: _removed, ...agents } = workspace.agents
-          return { ...workspace, agents }
-        }
-        const existing = workspace.agents[apply.agentId] ?? defaultAgent(apply.agentId)
-        return {
+      applyImportedSyncEvent(() =>
+        patchWorkspace(apply.workspaceId, (workspace) => ({
           ...workspace,
-          agents: {
-            ...workspace.agents,
-            [apply.agentId]: { ...existing, ...apply.patch, configEditedAt: apply.configEditedAt },
-          },
-        }
-      })),
+          name: apply.name,
+          ...(apply.titleLocked !== undefined ? { titleLocked: apply.titleLocked } : {}),
+        })),
+      ),
+    applyWorkspaceLayoutUpdated: (apply) =>
+      applyImportedSyncEvent(() =>
+        patchWorkspace(apply.workspaceId, (workspace) => ({
+          ...workspace,
+          // A window on an older build can still broadcast a layout docking a
+          // retired rail tab; this window never renders one.
+          layoutModel: stripRetiredRailTabsFromLayout(apply.layoutModel) as Workspace['layoutModel'],
+        })),
+      ),
+    applyWorkspaceFieldsUpdated: (apply) =>
+      applyImportedSyncEvent(() =>
+        patchWorkspace(apply.workspaceId, (workspace) => {
+          // The shared patch contract: absent = no opinion, null = cleared, a
+          // clock only advances (`applyWorkspaceFieldsPatch`).
+          const next = { ...workspace } as Record<string, unknown>
+          applyWorkspaceFieldsPatch(next, apply.patch)
+          return next as Workspace
+        }),
+      ),
+    applyWorkspaceAgentUpdated: (apply) =>
+      applyImportedSyncEvent(() =>
+        patchWorkspace(apply.workspaceId, (workspace) => {
+          if (apply.patch === null) {
+            const { [apply.agentId]: _removed, ...agents } = workspace.agents
+            return { ...workspace, agents }
+          }
+          const existing = workspace.agents[apply.agentId] ?? defaultAgent(apply.agentId)
+          return {
+            ...workspace,
+            agents: {
+              ...workspace.agents,
+              [apply.agentId]: { ...existing, ...apply.patch, configEditedAt: apply.configEditedAt },
+            },
+          }
+        }),
+      ),
     applyWorkspaceRemoved: (apply) =>
       applyImportedSyncEvent(() => {
         useWorkspaceStore.setState((current) => ({
           ...current,
           workspaces: current.workspaces.filter((workspace) => workspace.id !== apply.workspaceId),
-          activeWorkspaceId: current.activeWorkspaceId === apply.workspaceId
-            ? current.workspaces.filter((workspace) => workspace.id !== apply.workspaceId).at(-1)?.id ?? null
-            : current.activeWorkspaceId,
+          activeWorkspaceId:
+            current.activeWorkspaceId === apply.workspaceId
+              ? (current.workspaces.filter((workspace) => workspace.id !== apply.workspaceId).at(-1)?.id ?? null)
+              : current.activeWorkspaceId,
           workspaceWindows: current.workspaceWindows.map((windowState) => ({
             ...windowState,
             workspaceIds: windowState.workspaceIds.filter((id) => id !== apply.workspaceId),
-            activeWorkspaceId: windowState.activeWorkspaceId === apply.workspaceId
-              ? windowState.workspaceIds.filter((id) => id !== apply.workspaceId)[0] ?? null
-              : windowState.activeWorkspaceId,
+            activeWorkspaceId:
+              windowState.activeWorkspaceId === apply.workspaceId
+                ? (windowState.workspaceIds.filter((id) => id !== apply.workspaceId)[0] ?? null)
+                : windowState.activeWorkspaceId,
           })),
         }))
       }),

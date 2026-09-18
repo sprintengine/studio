@@ -173,7 +173,7 @@ export function createTerminalSessionsStore(apiProvider: () => TerminalSessionsA
 
   const notifySnapshot = (
     listener: (sessions: TerminalSessionSnapshot[]) => void,
-    sessions: TerminalSessionSnapshot[]
+    sessions: TerminalSessionSnapshot[],
   ) => {
     try {
       listener(sessions)
@@ -216,10 +216,13 @@ export function createTerminalSessionsStore(apiProvider: () => TerminalSessionsA
     connectionVersion += 1
     const version = connectionVersion
     unsubscribeIpc = api.onTerminalSessionsChanged(apply)
-    void api.terminalList().then((sessions) => {
-      if (subscriberCount === 0 || !unsubscribeIpc || version !== connectionVersion) return
-      apply(sessions)
-    }).catch(() => {})
+    void api
+      .terminalList()
+      .then((sessions) => {
+        if (subscriberCount === 0 || !unsubscribeIpc || version !== connectionVersion) return
+        apply(sessions)
+      })
+      .catch(() => {})
   }
 
   const disconnectIfIdle = () => {

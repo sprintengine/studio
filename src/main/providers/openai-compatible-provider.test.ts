@@ -4,10 +4,7 @@ import { once } from 'node:events'
 
 import type { ConversationEvent } from '../../shared/conversation-runtime'
 import type { LoadedConversationProvider } from '../../shared/plugin-manifest'
-import {
-  createOpenAiCompatibleProvider,
-  listOpenAiCompatibleModels,
-} from './openai-compatible-provider'
+import { createOpenAiCompatibleProvider, listOpenAiCompatibleModels } from './openai-compatible-provider'
 
 async function main(): Promise<void> {
   const server = createServer(handleRequest)
@@ -92,21 +89,26 @@ async function testStreamingTurnCancellationReportsInterrupted(baseUrl: string):
       throw new Error('unreachable')
     },
   })
-  const eventsPromise = collectEvents(adapter.sendTurn({
-    sessionId: 'conv_1',
-    workspaceId: 'workspace',
-    agentId: 'agent',
-    providerId: provider.manifest.id,
-    modelId: 'test-model',
-    turnId: 'turn_cancelled',
-    requestId: 'approval_cancelled',
-    message: 'hello',
-    signal: controller.signal,
-  }))
+  const eventsPromise = collectEvents(
+    adapter.sendTurn({
+      sessionId: 'conv_1',
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: provider.manifest.id,
+      modelId: 'test-model',
+      turnId: 'turn_cancelled',
+      requestId: 'approval_cancelled',
+      message: 'hello',
+      signal: controller.signal,
+    }),
+  )
   await new Promise((resolve) => setTimeout(resolve, 0))
   controller.abort()
   const events = await eventsPromise
-  assert.deepEqual(events.map((event) => event.type), ['turn_started', 'turn_failed'])
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['turn_started', 'turn_failed'],
+  )
   assert.equal(events.at(-1)?.payload?.reason, 'interrupted')
   assert.equal(JSON.stringify(events).includes('sk-test'), false)
 }
@@ -117,23 +119,22 @@ async function testStreamingTurnProducesCanonicalEvents(baseUrl: string): Promis
     getProviderById: () => provider,
     resolveSecret: async () => ({ ok: true, value: 'sk-test' }),
   })
-  const events = await collectEvents(adapter.sendTurn({
-    sessionId: 'conv_1',
-    workspaceId: 'workspace',
-    agentId: 'agent',
-    providerId: provider.manifest.id,
-    modelId: 'test-model',
-    turnId: 'turn_1',
-    requestId: 'approval_1',
-    message: 'hello',
-  }))
-  assert.deepEqual(events.map((event) => event.type), [
-    'turn_started',
-    'content_delta',
-    'content_delta',
-    'usage_updated',
-    'turn_completed',
-  ])
+  const events = await collectEvents(
+    adapter.sendTurn({
+      sessionId: 'conv_1',
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: provider.manifest.id,
+      modelId: 'test-model',
+      turnId: 'turn_1',
+      requestId: 'approval_1',
+      message: 'hello',
+    }),
+  )
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['turn_started', 'content_delta', 'content_delta', 'usage_updated', 'turn_completed'],
+  )
   assert.deepEqual(events.find((event) => event.type === 'usage_updated')?.payload, {
     turnId: 'turn_1',
     inputTokens: 3,
@@ -147,21 +148,25 @@ async function testStreamingTurnProducesCanonicalEvents(baseUrl: string): Promis
     getProviderById: () => malformedProvider,
     resolveSecret: async () => ({ ok: true, value: 'sk-test' }),
   })
-  const malformedEvents = await collectEvents(malformedAdapter.sendTurn({
-    sessionId: 'conv_1',
-    workspaceId: 'workspace',
-    agentId: 'agent',
-    providerId: malformedProvider.manifest.id,
-    modelId: 'test-model',
-    turnId: 'turn_2',
-    requestId: 'approval_2',
-    message: 'hello',
-  }))
+  const malformedEvents = await collectEvents(
+    malformedAdapter.sendTurn({
+      sessionId: 'conv_1',
+      workspaceId: 'workspace',
+      agentId: 'agent',
+      providerId: malformedProvider.manifest.id,
+      modelId: 'test-model',
+      turnId: 'turn_2',
+      requestId: 'approval_2',
+      message: 'hello',
+    }),
+  )
   assert.equal(malformedEvents.at(-1)?.type, 'turn_failed')
   assert.equal(malformedEvents.at(-1)?.payload?.reason, 'malformed_stream')
 }
 
-async function collectEvents(events: ReturnType<ReturnType<typeof createOpenAiCompatibleProvider>['sendTurn']>): Promise<ConversationEvent[]> {
+async function collectEvents(
+  events: ReturnType<ReturnType<typeof createOpenAiCompatibleProvider>['sendTurn']>,
+): Promise<ConversationEvent[]> {
   const resolved = await events
   if (Array.isArray(resolved)) return resolved
   const collected: ConversationEvent[] = []
@@ -246,10 +251,12 @@ function handleRequest(req: IncomingMessage, res: ServerResponse): void {
     const body = JSON.parse(Buffer.concat(chunks).toString('utf8')) as { stream?: boolean }
     if (!body.stream) {
       res.writeHead(200, { 'Content-Type': 'application/json' })
-      res.end(JSON.stringify({
-        choices: [{ message: { role: 'assistant', content: 'ok' } }],
-        usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
-      }))
+      res.end(
+        JSON.stringify({
+          choices: [{ message: { role: 'assistant', content: 'ok' } }],
+          usage: { prompt_tokens: 2, completion_tokens: 1, total_tokens: 3 },
+        }),
+      )
       return
     }
     res.writeHead(200, { 'Content-Type': 'text/event-stream' })

@@ -27,11 +27,13 @@
 // Pure but for the three IPC calls it is handed: the api is an argument, so the
 // arithmetic is testable without a `window`.
 
+import { hunkOwnerId, type Changelist } from '../../../../../shared/git/changelists'
 import {
-  hunkOwnerId,
-  type Changelist,
-} from '../../../../../shared/git/changelists'
-import { hunkToggleScope, type GitFileHunksResult, type GitHunkRef, type GitHunkScope } from '../../../../../shared/git/hunks'
+  hunkToggleScope,
+  type GitFileHunksResult,
+  type GitHunkRef,
+  type GitHunkScope,
+} from '../../../../../shared/git/hunks'
 import type { GitCommandResult } from '../../../../../shared/electron-api'
 import { changeRowKey } from './gitChangesModel'
 
@@ -117,8 +119,7 @@ export async function applyChangelistHunks(input: {
     }
     const owned = read.hunks.filter(
       (hunk) =>
-        hunk.included === wantIncluded
-        && hunkOwnerId(changelists, target.relativePath, hunk) === target.changelistId,
+        hunk.included === wantIncluded && hunkOwnerId(changelists, target.relativePath, hunk) === target.changelistId,
     )
     for (const hunk of owned) {
       attempted += 1

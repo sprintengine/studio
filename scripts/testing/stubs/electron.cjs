@@ -128,9 +128,10 @@ module.exports = {
     // because this stub cannot import the TypeScript seam that reconciles them.
     getPath(name) {
       const override = process.env.SPRINTENGINE_USER_DATA_DIR ?? process.env.MULTICODE_USER_DATA_DIR
-      const base = override && override.trim().length > 0
-        ? override.trim()
-        : require('node:path').join(require('node:os').tmpdir(), `multicode-electron-stub-${process.pid}`)
+      const base =
+        override && override.trim().length > 0
+          ? override.trim()
+          : require('node:path').join(require('node:os').tmpdir(), `multicode-electron-stub-${process.pid}`)
       require('node:fs').mkdirSync(base, { recursive: true })
       return name === 'userData' ? base : require('node:path').join(base, String(name))
     },

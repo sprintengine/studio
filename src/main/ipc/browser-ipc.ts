@@ -17,10 +17,10 @@ export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): v
 
   ipcMain.handle('browser:register', (event: IpcMainInvokeEvent, input: BrowserRegisterInput) => {
     if (
-      !input
-      || typeof input.tabId !== 'string'
-      || typeof input.workspaceId !== 'string'
-      || typeof input.webContentsId !== 'number'
+      !input ||
+      typeof input.tabId !== 'string' ||
+      typeof input.workspaceId !== 'string' ||
+      typeof input.webContentsId !== 'number'
     ) {
       return { ok: false, reason: 'unknown_webcontents' }
     }
@@ -35,17 +35,20 @@ export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): v
   // The renderer's word on which tab the person is looking at: what a
   // `browser.*` tool acts on when the agent names none. Sender-scoped: only a
   // window that hosts the tab may claim it.
-  ipcMain.handle('browser:note-active', (event: IpcMainInvokeEvent, input: { workspaceId: string; tabId: string | null }) => {
-    if (typeof input?.workspaceId !== 'string') return
-    const tabId = typeof input.tabId === 'string' ? input.tabId : null
-    // The note usually lands before the tab's guest has registered (the strip
-    // selects the tab the moment it is created); an unknown tab is accepted
-    // and only takes effect once a guest registers under it. A KNOWN tab must
-    // be this window's — `activeTab` also checks the workspace it belongs to.
-    const host = tabId ? manager.hostOf(tabId) : null
-    if (host && host !== event.sender) return
-    manager.noteActive(input.workspaceId, tabId)
-  })
+  ipcMain.handle(
+    'browser:note-active',
+    (event: IpcMainInvokeEvent, input: { workspaceId: string; tabId: string | null }) => {
+      if (typeof input?.workspaceId !== 'string') return
+      const tabId = typeof input.tabId === 'string' ? input.tabId : null
+      // The note usually lands before the tab's guest has registered (the strip
+      // selects the tab the moment it is created); an unknown tab is accepted
+      // and only takes effect once a guest registers under it. A KNOWN tab must
+      // be this window's — `activeTab` also checks the workspace it belongs to.
+      const host = tabId ? manager.hostOf(tabId) : null
+      if (host && host !== event.sender) return
+      manager.noteActive(input.workspaceId, tabId)
+    },
+  )
 
   ipcMain.handle('browser:navigate', (_event, input: { tabId: string; url: string }) => {
     const tabId = tabIdOf(input)
@@ -101,9 +104,9 @@ export function registerBrowserIpc(ipcMain: IpcMain, manager: BrowserManager): v
   ipcMain.handle('browser:capture', (_event, input: BrowserCaptureInput) => {
     if (!tabIdOf(input)) return { ok: false, message: 'The capture request was incomplete.' }
     const rect =
-      input.rect
-      && typeof input.rect === 'object'
-      && ['x', 'y', 'width', 'height'].every((key) => Number.isFinite((input.rect as Record<string, unknown>)[key]))
+      input.rect &&
+      typeof input.rect === 'object' &&
+      ['x', 'y', 'width', 'height'].every((key) => Number.isFinite((input.rect as Record<string, unknown>)[key]))
         ? input.rect
         : undefined
     return manager.captureScreenshot({

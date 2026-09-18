@@ -78,7 +78,9 @@ const workspace = (id: string, extra: Record<string, unknown>): Workspace =>
 const fleetLayout = (connectionId: string, remoteSessionId: string) => ({
   layout: {
     type: 'tabset',
-    children: [{ type: 'tab', component: 'fleet-terminal', config: { connectionId, machineName: 'x', remoteSessionId } }],
+    children: [
+      { type: 'tab', component: 'fleet-terminal', config: { connectionId, machineName: 'x', remoteSessionId } },
+    ],
   },
 })
 
@@ -101,12 +103,38 @@ assert.equal(shouldBrowse(reach({ reachable: false })), false, 'asleep is never 
 assert.equal(shouldBrowse(reach({ reachable: true, unauthorized: true })), false, 'revoked is never dialled')
 
 // ── attachedWorkspaceFor ─────────────────────────────────────────────────
-const stamped = workspace('w1', { remoteOrigin: { connectionId: 'c1', machineName: 'air', workspaceId: 'rw1', workspaceName: 'relay', workspaceRoot: null, sessionId: 's1' } })
-const legacy = workspace('w2', { remoteOrigin: { connectionId: 'c1', machineName: 'air', workspaceId: 'rw1', workspaceName: 'relay', workspaceRoot: null }, layoutModel: fleetLayout('c1', 's2') })
+const stamped = workspace('w1', {
+  remoteOrigin: {
+    connectionId: 'c1',
+    machineName: 'air',
+    workspaceId: 'rw1',
+    workspaceName: 'relay',
+    workspaceRoot: null,
+    sessionId: 's1',
+  },
+})
+const legacy = workspace('w2', {
+  remoteOrigin: {
+    connectionId: 'c1',
+    machineName: 'air',
+    workspaceId: 'rw1',
+    workspaceName: 'relay',
+    workspaceRoot: null,
+  },
+  layoutModel: fleetLayout('c1', 's2'),
+})
 const local = workspace('w3', { folderPath: '/proj' })
 assert.equal(attachedWorkspaceFor([local, legacy, stamped], 'c1', 's1')?.id, 'w1', 'matched by the stamped session id')
-assert.equal(attachedWorkspaceFor([local, legacy, stamped], 'c1', 's2')?.id, 'w2', 'a row born before the stamp is matched by its pane')
-assert.equal(attachedWorkspaceFor([local, legacy, stamped], 'c2', 's1'), null, 'the same session id on another machine is not a match')
+assert.equal(
+  attachedWorkspaceFor([local, legacy, stamped], 'c1', 's2')?.id,
+  'w2',
+  'a row born before the stamp is matched by its pane',
+)
+assert.equal(
+  attachedWorkspaceFor([local, legacy, stamped], 'c2', 's1'),
+  null,
+  'the same session id on another machine is not a match',
+)
 
 // ── buildRemoteBand ──────────────────────────────────────────────────────
 const attachments = new Map<string, FleetLiveAttachment>()
@@ -127,11 +155,19 @@ const band = buildRemoteBand({
   reachability,
   workspaces: [local, stamped],
 })
-assert.deepEqual(band.map((group) => group.machineName), ['sam-macbook-air', 'studio'], 'machines in name order')
+assert.deepEqual(
+  band.map((group) => group.machineName),
+  ['sam-macbook-air', 'studio'],
+  'machines in name order',
+)
 const airGroup = band[0]!
 // Conversations only (owner ruling 2026-09-05): a plain shell is not a row,
 // nor is an exited pty; a paused agent still is, last.
-assert.deepEqual(airGroup.rows.map((row) => row.sessionId), ['s1', 's3'], 'agents, working before paused; the shell and the exited pty are not rows')
+assert.deepEqual(
+  airGroup.rows.map((row) => row.sessionId),
+  ['s1', 's3'],
+  'agents, working before paused; the shell and the exited pty are not rows',
+)
 const ada = airGroup.rows[0]!
 assert.equal(ada.title, 'Ada')
 assert.equal(ada.activity, 'working')
@@ -141,7 +177,7 @@ assert.equal(ada.branch, 'agent/fix')
 assert.equal(ada.additions, 12)
 assert.equal(ada.diffScope, 'worktree')
 assert.equal(ada.workspaceName, 'relay')
-assert.equal(ada.workspaceRoot, '/Users/air/relay', 'the folder comes from the browse\'s workspace list')
+assert.equal(ada.workspaceRoot, '/Users/air/relay', "the folder comes from the browse's workspace list")
 assert.equal(ada.repository?.name, 'relay')
 assert.equal(ada.attachedWorkspaceId, 'w1', 'the stamped workspace is this row')
 assert.deepEqual(airGroup.parked, [], 'a remote-born row whose session is listed is not parked as well')
@@ -156,20 +192,55 @@ assert.equal(studioGroup.phase?.phase, 'paired', 'and no check yet: paired is al
 // whose session it no longer lists is parked under it.
 const quiet = buildRemoteBand({
   connections: [air],
-  browses: new Map([['c1', { browse: browse({ terminals: [terminal({ sessionId: 's9', agentName: 'Zed' })] }), loading: false, error: 'Not answering.', at: 2 }]]),
+  browses: new Map([
+    [
+      'c1',
+      {
+        browse: browse({ terminals: [terminal({ sessionId: 's9', agentName: 'Zed' })] }),
+        loading: false,
+        error: 'Not answering.',
+        at: 2,
+      },
+    ],
+  ]),
   attachments,
   reachability: new Map([['c1', reach({ reachable: false, detail: 'timed out' })]]),
   workspaces: [stamped],
 })
 assert.equal(quiet[0]!.stale, true, 'rows from an earlier read on a machine that is not answering are stale')
-assert.deepEqual(quiet[0]!.rows.map((row) => row.title), ['Zed'])
-assert.deepEqual(quiet[0]!.parked.map((entry) => entry.id), ['w1'], 'the row born there stays, parked')
+assert.deepEqual(
+  quiet[0]!.rows.map((row) => row.title),
+  ['Zed'],
+)
+assert.deepEqual(
+  quiet[0]!.parked.map((entry) => entry.id),
+  ['w1'],
+  'the row born there stays, parked',
+)
 assert.equal(quiet[0]!.phase?.phase, 'unreachable')
 // No notices (owner ruling 2026-09-05): a scope gap or a revocation is not a
 // sidebar sentence. The band lists conversations and nothing else.
 const gapped = buildRemoteBand({
   connections: [air],
-  browses: new Map([['c1', { browse: browse({ gaps: [{ part: 'terminals', code: 'scope_required', message: 'This pairing may not see that machine\'s terminals.' }] }), loading: false, error: null, at: 3 }]]),
+  browses: new Map([
+    [
+      'c1',
+      {
+        browse: browse({
+          gaps: [
+            {
+              part: 'terminals',
+              code: 'scope_required',
+              message: "This pairing may not see that machine's terminals.",
+            },
+          ],
+        }),
+        loading: false,
+        error: null,
+        at: 3,
+      },
+    ],
+  ]),
   attachments,
   reachability,
   workspaces: [],
@@ -190,7 +261,10 @@ assert.equal(orphaned.length, 1)
 assert.equal(orphaned[0]!.connectionId, null)
 assert.equal(orphaned[0]!.machineName, 'air')
 assert.equal(orphaned[0]!.phase, null)
-assert.deepEqual(orphaned[0]!.parked.map((entry) => entry.id), ['w1'])
+assert.deepEqual(
+  orphaned[0]!.parked.map((entry) => entry.id),
+  ['w1'],
+)
 
 // ── conversationsOf ──────────────────────────────────────────────────────
 // A row is a CONVERSATION, not a session (owner, 2026-09-11). Three agents in
@@ -222,8 +296,16 @@ const chats = conversationsOf(busy[0]!)
 assert.equal(chats.length, 1, 'three agents in one remote workspace are one row')
 const relay = chats[0]!
 assert.equal(relay.title, 'relay', 'titled with the CHAT, never with an agent’s name')
-assert.deepEqual(relay.agents.map((row) => row.sessionId), ['s1', 's2', 's3'], 'a line per agent, in activity order')
-assert.deepEqual(relay.agents.map((row) => row.title), ['Ada', 'Bea', 'Cy'], 'each line keeps its agent’s name')
+assert.deepEqual(
+  relay.agents.map((row) => row.sessionId),
+  ['s1', 's2', 's3'],
+  'a line per agent, in activity order',
+)
+assert.deepEqual(
+  relay.agents.map((row) => row.title),
+  ['Ada', 'Bea', 'Cy'],
+  'each line keeps its agent’s name',
+)
 assert.equal(relay.activity, 'working', 'the row reports the loudest of them')
 assert.equal(relay.workspaceRoot, '/Users/air/relay', 'and carries the folder it files under')
 assert.equal(relay.repository?.canonicalKey, 'github.com/acme/relay')
@@ -233,7 +315,15 @@ assert.equal(relay.repository?.canonicalKey, 'github.com/acme/relay')
 const nameless = buildRemoteBand({
   connections: [air],
   browses: new Map([
-    ['c1', { browse: browse({ terminals: [terminal({ workspaceName: null })], workspaces: [] }), loading: false, error: null, at: 1 }],
+    [
+      'c1',
+      {
+        browse: browse({ terminals: [terminal({ workspaceName: null })], workspaces: [] }),
+        loading: false,
+        error: null,
+        at: 1,
+      },
+    ],
   ]),
   attachments,
   reachability,
@@ -265,7 +355,12 @@ const loose = buildRemoteBand({
   reachability,
   workspaces: [],
 })
-assert.deepEqual(conversationsOf(loose[0]!).map((entry) => entry.title).sort(), ['One', 'Two'])
+assert.deepEqual(
+  conversationsOf(loose[0]!)
+    .map((entry) => entry.title)
+    .sort(),
+  ['One', 'Two'],
+)
 
 // ── unattachedConversations ──────────────────────────────────────────────
 // A chat a window here is already showing is NOT a row of its own: that window
@@ -280,8 +375,11 @@ assert.deepEqual(
   ['relay'],
   'with no window holding it, the conversation is a row',
 )
-assert.deepEqual(unattachedConversations(band, false, [local]), [], 'off the tailnet, nothing read from over there is drawn')
-
+assert.deepEqual(
+  unattachedConversations(band, false, [local]),
+  [],
+  'off the tailnet, nothing read from over there is drawn',
+)
 
 // ── attachedConversations ────────────────────────────────────────────────
 // The complement: the conversation each OPEN remote row is, so that row can
@@ -299,7 +397,13 @@ assert.equal(attachedConversations([], [local, stamped]).size, 0)
 // agents' lines are not the other machine's to replace.
 const visiting = workspace('w9', { folderPath: '/proj', layoutModel: fleetLayout('c1', 's1') })
 assert.equal(
-  buildRemoteBand({ connections: [air], browses: new Map([['c1', { browse: answered, loading: false, error: null, at: 1 }]]), attachments, reachability, workspaces: [visiting] })
+  buildRemoteBand({
+    connections: [air],
+    browses: new Map([['c1', { browse: answered, loading: false, error: null, at: 1 }]]),
+    attachments,
+    reachability,
+    workspaces: [visiting],
+  })
     .flatMap((group) => conversationsOf(group))
     .some((entry) => entry.attachedWorkspaceId === 'w9'),
   true,
@@ -307,7 +411,13 @@ assert.equal(
 )
 assert.equal(
   attachedConversations(
-    buildRemoteBand({ connections: [air], browses: new Map([['c1', { browse: answered, loading: false, error: null, at: 1 }]]), attachments, reachability, workspaces: [visiting] }),
+    buildRemoteBand({
+      connections: [air],
+      browses: new Map([['c1', { browse: answered, loading: false, error: null, at: 1 }]]),
+      attachments,
+      reachability,
+      workspaces: [visiting],
+    }),
     [visiting],
   ).size,
   0,
@@ -340,7 +450,9 @@ const crowd = buildRemoteBand({
   workspaces: [stamped],
 })
 assert.deepEqual(
-  attachedConversations(crowd, [stamped]).get('w1')!.agents.map((agent) => agent.title),
+  attachedConversations(crowd, [stamped])
+    .get('w1')!
+    .agents.map((agent) => agent.title),
   ['Ada', 'Grace', 'Alan'],
   'one pane onto one agent, but the row knows all three — in activity order',
 )
@@ -356,7 +468,11 @@ assert.equal(remoteLinkStateOf({ tailnetAddress: '100.64.0.5' }), 'up')
 // ── remoteWorkspaceName / remoteConversationTitle ────────────────────────
 // The CHAT's name, never the agent's (owner, 2026-09-13).
 assert.equal(remoteWorkspaceName('Tara Boyle', 'multicode'), 'multicode')
-assert.equal(remoteWorkspaceName('Tara Boyle', '  '), 'Tara Boyle', 'a remote with no name to give falls back to the agent')
+assert.equal(
+  remoteWorkspaceName('Tara Boyle', '  '),
+  'Tara Boyle',
+  'a remote with no name to give falls back to the agent',
+)
 assert.equal(remoteWorkspaceName('Tara Boyle', null), 'Tara Boyle')
 
 const titled = (name: string, workspaceName: string | undefined) =>
@@ -364,7 +480,11 @@ const titled = (name: string, workspaceName: string | undefined) =>
 assert.equal(titled('Tara Boyle · multicode', 'multicode'), 'multicode', 'a row stored under the old rule is rescued')
 assert.equal(titled('multicode', 'multicode'), 'multicode', 'a row already named for its chat is left alone')
 assert.equal(titled('Ship the release', 'multicode'), 'Ship the release', 'a name a person chose is theirs')
-assert.equal(titled(' · multicode', 'multicode'), ' · multicode', 'no agent in front of it: not the old rule, not rewritten')
+assert.equal(
+  titled(' · multicode', 'multicode'),
+  ' · multicode',
+  'no agent in front of it: not the old rule, not rewritten',
+)
 assert.equal(titled('Tara Boyle · multicode', undefined), 'Tara Boyle · multicode', 'a local row is never touched')
 assert.equal(titled('Tara Boyle', ''), 'Tara Boyle', 'a remote that never named its chat leaves the name as it is')
 

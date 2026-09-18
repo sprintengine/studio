@@ -8,14 +8,7 @@ import { ACTIVE_RENDERER_MODULE_MANIFESTS, COMING_SOON_MODULE_MANIFESTS } from '
 // ModulesSettingsTab but consumes the same groups so the two surfaces never
 // disagree about what exists or what it's called.
 
-const CATEGORY_ORDER: CapabilityCategory[] = [
-  'core',
-  'dev-tools',
-  'vcs',
-  'orchestration',
-  'insight',
-  'connectivity',
-]
+const CATEGORY_ORDER: CapabilityCategory[] = ['core', 'dev-tools', 'vcs', 'orchestration', 'insight', 'connectivity']
 
 // Plain-language section headers shown in both Settings → Modules and the
 // first-run chooser (kept here so the two surfaces stay identical). Prefer
@@ -52,16 +45,15 @@ export const COMING_SOON_IDS: ReadonlySet<string> = new Set(COMING_SOON_MODULE_M
 // modules together with any "Coming soon" feature-flagged modules, by category.
 // Active modules are listed before coming-soon ones within a category because
 // they are added first.
-export const MODULE_CATEGORY_GROUPS: Array<{ category: CapabilityCategory; manifests: CapabilityManifest[] }> =
-  (() => {
-    const groups = new Map<CapabilityCategory, CapabilityManifest[]>()
-    for (const manifest of [...ACTIVE_RENDERER_MODULE_MANIFESTS, ...COMING_SOON_MODULE_MANIFESTS]) {
-      const category = manifest.category ?? 'orchestration'
-      const list = groups.get(category) ?? []
-      list.push(manifest)
-      groups.set(category, list)
-    }
-    return [...groups.entries()]
-      .map(([category, manifests]) => ({ category, manifests }))
-      .sort((a, b) => categoryRank(a.category) - categoryRank(b.category))
-  })()
+export const MODULE_CATEGORY_GROUPS: Array<{ category: CapabilityCategory; manifests: CapabilityManifest[] }> = (() => {
+  const groups = new Map<CapabilityCategory, CapabilityManifest[]>()
+  for (const manifest of [...ACTIVE_RENDERER_MODULE_MANIFESTS, ...COMING_SOON_MODULE_MANIFESTS]) {
+    const category = manifest.category ?? 'orchestration'
+    const list = groups.get(category) ?? []
+    list.push(manifest)
+    groups.set(category, list)
+  }
+  return [...groups.entries()]
+    .map(([category, manifests]) => ({ category, manifests }))
+    .sort((a, b) => categoryRank(a.category) - categoryRank(b.category))
+})()

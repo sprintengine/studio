@@ -58,7 +58,7 @@ export function ScopePicker({
       { value: 'read-only' as PresetValue, label: 'Read only', disabled },
       { value: 'standard' as PresetValue, label: 'Standard', disabled },
     ],
-    [disabled]
+    [disabled],
   )
 
   return (

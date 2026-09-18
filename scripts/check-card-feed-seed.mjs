@@ -190,7 +190,10 @@ function inTreePluginDir(source) {
 function pluginHooks(dir) {
   if (!dir || !existsSync(dir)) return null
   const hooks = []
-  for (const [relative, inline] of [[['hooks', 'hooks.json'], false], [['.claude-plugin', 'plugin.json'], true]]) {
+  for (const [relative, inline] of [
+    [['hooks', 'hooks.json'], false],
+    [['.claude-plugin', 'plugin.json'], true],
+  ]) {
     const path = join(dir, ...relative)
     if (!existsSync(path)) continue
     let parsed
@@ -221,7 +224,8 @@ try {
 // the mirror by that same path. Rejects a traversal outright rather than
 // following it.
 function studioSkillDir(id) {
-  if (id.startsWith('/') || id.split('/').some((segment) => segment === '' || segment === '.' || segment === '..')) return null
+  if (id.startsWith('/') || id.split('/').some((segment) => segment === '' || segment === '.' || segment === '..'))
+    return null
   return join(STUDIO_MIRROR, ...id.split('/'))
 }
 
@@ -233,7 +237,9 @@ for (const card of cards) {
   }
   const where = `"${card.slug}"`
   if (!artNames.has(card.art)) {
-    errors.push(`${where}: art "${card.art}" is not artwork this build ships; the card would not render at all (one of: ${[...artNames].join(', ')})`)
+    errors.push(
+      `${where}: art "${card.art}" is not artwork this build ships; the card would not render at all (one of: ${[...artNames].join(', ')})`,
+    )
   }
   // Skills a card installs are named again by `open.chat`, by the directory
   // name they land under — the shape workspace-skills-service.ts gives a
@@ -268,7 +274,9 @@ for (const card of cards) {
           break
         }
         if (!entry.provides.includes('module')) {
-          errors.push(`${at}: "${action.id}" is in the registry but does not provide a module, so install.module cannot install it`)
+          errors.push(
+            `${at}: "${action.id}" is in the registry but does not provide a module, so install.module cannot install it`,
+          )
           break
         }
         // The executor honours this verb only for a VERIFIED entry (a publisher
@@ -276,13 +284,17 @@ for (const card of cards) {
         // prompt no card may answer. A seed card naming one is a Go that
         // reports an error to somebody who pressed a button on a poster.
         if (!entry.signature || entry.publisher?.verified !== true) {
-          errors.push(`${at}: "${action.id}" is not a verified first-party entry, so Go could only ever refuse it — such a card is installed from Extensions → Plugins instead`)
+          errors.push(
+            `${at}: "${action.id}" is not a verified first-party entry, so Go could only ever refuse it — such a card is installed from Extensions → Plugins instead`,
+          )
         }
         break
       }
       case 'install.skill': {
         if (action.source !== STUDIO_SOURCE_ID) {
-          errors.push(`${at}: source "${action.source}" is not one this repository mirrors, so its ids cannot be checked; a seed card may only name ${STUDIO_SOURCE_ID}`)
+          errors.push(
+            `${at}: source "${action.source}" is not one this repository mirrors, so its ids cannot be checked; a seed card may only name ${STUDIO_SOURCE_ID}`,
+          )
           break
         }
         const dir = studioSkillDir(action.id)
@@ -295,11 +307,15 @@ for (const card of cards) {
       }
       case 'install.plugin': {
         if (action.source !== STUDIO_SOURCE_ID) {
-          errors.push(`${at}: source "${action.source}" is not one this repository mirrors, so its ids cannot be checked; a seed card may only name ${STUDIO_SOURCE_ID}`)
+          errors.push(
+            `${at}: source "${action.source}" is not one this repository mirrors, so its ids cannot be checked; a seed card may only name ${STUDIO_SOURCE_ID}`,
+          )
           break
         }
         if (!studioPluginDirs.has(action.id)) {
-          errors.push(`${at}: "${action.id}" is not a plugin in resources/studio-plugin/.claude-plugin/marketplace.json`)
+          errors.push(
+            `${at}: "${action.id}" is not a plugin in resources/studio-plugin/.claude-plugin/marketplace.json`,
+          )
           break
         }
         // And the hooks rule (R4a). See the head of this file for why this is a
@@ -308,7 +324,9 @@ for (const card of cards) {
         // the ruling says the answer is that the card is never published.
         const hooks = pluginHooks(studioPluginDirs.get(action.id))
         if (hooks === null) {
-          errors.push(`${at}: "${action.id}" could not be read from resources/studio-plugin, so whether it declares hooks is unknown; a seed card may only install a plugin this repository carries whole`)
+          errors.push(
+            `${at}: "${action.id}" could not be read from resources/studio-plugin, so whether it declares hooks is unknown; a seed card may only install a plugin this repository carries whole`,
+          )
         } else if (hooks.length > 0) {
           const commands = [...new Set(hooks.map((hook) => hook.command))]
           errors.push(
@@ -374,4 +392,6 @@ if (errors.length) {
   process.exit(1)
 }
 const actions = cards.reduce((n, card) => n + card.go.length, 0)
-console.log(`card feed seed ok: ${cards.length} cards, ${actions} actions, every id and every plate resolves, updated ${parsed.feed.updatedAt}`)
+console.log(
+  `card feed seed ok: ${cards.length} cards, ${actions} actions, every id and every plate resolves, updated ${parsed.feed.updatedAt}`,
+)

@@ -32,10 +32,7 @@ export type InstallPluginResult = InstallPluginOk | InstallPluginError
  * declared id so the registry's folder-name==id check always passes, regardless
  * of the (arbitrary) source folder name.
  */
-export async function installPluginFolder(
-  srcDir: string,
-  root: string
-): Promise<InstallPluginResult> {
+export async function installPluginFolder(srcDir: string, root: string): Promise<InstallPluginResult> {
   const manifestPath = join(srcDir, 'plugin.json')
   let source: string
   try {

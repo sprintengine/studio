@@ -17,9 +17,7 @@ function readVersion(element: CanvasElement): number {
 }
 
 function readNonce(element: CanvasElement): number {
-  return typeof element.versionNonce === 'number' && Number.isFinite(element.versionNonce)
-    ? element.versionNonce
-    : 0
+  return typeof element.versionNonce === 'number' && Number.isFinite(element.versionNonce) ? element.versionNonce : 0
 }
 
 /**

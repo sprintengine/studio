@@ -1,8 +1,4 @@
-import type {
-  AgentSkillTarget,
-  BuiltinSkillTargetState,
-  WorkspaceSkill,
-} from '../../../shared/electron-api'
+import type { AgentSkillTarget, BuiltinSkillTargetState, WorkspaceSkill } from '../../../shared/electron-api'
 import type { PluginSkillInvocation, PluginSkillSupport } from '../../../shared/plugin-manifest'
 import {
   plainSkillInvocation,
@@ -67,8 +63,7 @@ export function skillInstalledForHarness(
   integration: SkillIntegrationLike | undefined,
 ): boolean {
   if (!integration) return false
-  return skill.installState !== 'available'
-    && skill.harnesses.some((harness) => harness === integration.harnessId)
+  return skill.installState !== 'available' && skill.harnesses.some((harness) => harness === integration.harnessId)
 }
 
 // Agent-spawn patch for a "+ Skill" attachment on a terminal-CLI agent:
@@ -121,13 +116,15 @@ export function hasInstalledNativeSkillTarget(
   pluginId: string,
   targets: readonly BuiltinSkillTargetState[],
 ): boolean {
-  return targets.some((target) => (
-    target.status === 'installed'
-    || target.status === 'update-available'
-    || target.status === 'modified'
-    || target.status === 'local'
-  ) && target.support !== 'unsupported'
-    && (target.pluginId === pluginId || target.harness === harnessId))
+  return targets.some(
+    (target) =>
+      (target.status === 'installed' ||
+        target.status === 'update-available' ||
+        target.status === 'modified' ||
+        target.status === 'local') &&
+      target.support !== 'unsupported' &&
+      (target.pluginId === pluginId || target.harness === harnessId),
+  )
 }
 
 // Makes a skill exist where the target agent can read it before an invocation

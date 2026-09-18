@@ -64,17 +64,18 @@ function assertMalformedReadsNull(): void {
   // A parseable file whose sessionId does not match its file name is rejected:
   // the id is the durable key and a mismatch means a copied/tampered file.
   store.write(sampleSidecar({ sessionId: 'session-other' }))
-  writeFileSync(
-    join(dir, 'session-mismatch.json'),
-    JSON.stringify(sampleSidecar({ sessionId: 'session-other' }))
-  )
+  writeFileSync(join(dir, 'session-mismatch.json'), JSON.stringify(sampleSidecar({ sessionId: 'session-other' })))
   assert.equal(store.read('session-mismatch'), null, 'sessionId/file-name mismatch reads as null')
 
   writeFileSync(
     join(dir, 'session-empty.json'),
-    JSON.stringify({ version: 1, sessionId: 'session-empty', savedAt: 1, cols: 80, rows: 24, kind: 'agent' })
+    JSON.stringify({ version: 1, sessionId: 'session-empty', savedAt: 1, cols: 80, rows: 24, kind: 'agent' }),
   )
-  assert.equal(store.read('session-empty'), null, 'a sidecar with neither snapshot nor rawReplay is useless and reads as null')
+  assert.equal(
+    store.read('session-empty'),
+    null,
+    'a sidecar with neither snapshot nor rawReplay is useless and reads as null',
+  )
 }
 
 function assertUnsafeSessionIdsAreInert(): void {
@@ -123,7 +124,11 @@ function assertSweepWithoutDirIsSilent(): void {
 
 async function assertRawReplayRoundTrip(): Promise<void> {
   const { store } = makeStore()
-  const sidecar = sampleSidecar({ sessionId: 'session-raw', snapshot: undefined, rawReplay: 'raw pty bytes [1mbold[0m' })
+  const sidecar = sampleSidecar({
+    sessionId: 'session-raw',
+    snapshot: undefined,
+    rawReplay: 'raw pty bytes [1mbold[0m',
+  })
   store.write(sidecar)
   // Read the disk copy, not the queued object, since the point is what
   // serialization kept.
@@ -133,7 +138,7 @@ async function assertRawReplayRoundTrip(): Promise<void> {
   assert.deepEqual(
     store.read('session-raw'),
     JSON.parse(JSON.stringify(sidecar)),
-    'quit-path raw-replay sidecars round-trip too'
+    'quit-path raw-replay sidecars round-trip too',
   )
 }
 

@@ -83,9 +83,7 @@ function functionMap(version: number): boolean[][] {
   for (let i = 0; i < centres.length; i++) {
     for (let j = 0; j < centres.length; j++) {
       const corner =
-        (i === 0 && j === 0)
-        || (i === 0 && j === centres.length - 1)
-        || (i === centres.length - 1 && j === 0)
+        (i === 0 && j === 0) || (i === 0 && j === centres.length - 1) || (i === centres.length - 1 && j === 0)
       if (corner) continue
       for (let dy = -2; dy <= 2; dy++) {
         for (let dx = -2; dx <= 2; dx++) reserve(centres[i] + dx, centres[j] + dy)
@@ -137,7 +135,7 @@ function readCodewords(modules: readonly boolean[][], version: number, mask: num
         const upward = ((right + 1) & 2) === 0
         const y = upward ? size - 1 - vertical : vertical
         if (reserved[y][x]) continue
-        bits.push((modules[y][x] !== maskBit(mask, x, y)) ? 1 : 0)
+        bits.push(modules[y][x] !== maskBit(mask, x, y) ? 1 : 0)
       }
     }
   }
@@ -233,8 +231,7 @@ check('byte capacities match the format’s published table', () => {
 check('a pairing URL round-trips through the symbol', () => {
   // The real payload shape: the custom scheme, an endpoint with an escaped
   // colon, and a pairing token of the length the device store mints.
-  const url =
-    'multicode-tailnet://pair?endpoint=100.101.102.103%3A8471&token=mcpair_5nJqT2xW9bK4mZpR7vY1cD8fH3aL0sGe'
+  const url = 'multicode-tailnet://pair?endpoint=100.101.102.103%3A8471&token=mcpair_5nJqT2xW9bK4mZpR7vY1cD8fH3aL0sGe'
   const matrix = encodeQrCode(url)
   assert.ok(matrix, 'a pairing URL must fit')
   assert.equal(decode(matrix), url)
@@ -242,8 +239,8 @@ check('a pairing URL round-trips through the symbol', () => {
 
 check('an IPv6 endpoint, the longest pairing URL we can produce, round-trips', () => {
   const url =
-    'multicode-tailnet://pair?endpoint=%5Bfd7a%3A115c%3Aa1e0%3Aab12%3A4843%3Acd96%3A6265%3A1a2b%5D%3A8471'
-    + '&token=mcpair_5nJqT2xW9bK4mZpR7vY1cD8fH3aL0sGe'
+    'multicode-tailnet://pair?endpoint=%5Bfd7a%3A115c%3Aa1e0%3Aab12%3A4843%3Acd96%3A6265%3A1a2b%5D%3A8471' +
+    '&token=mcpair_5nJqT2xW9bK4mZpR7vY1cD8fH3aL0sGe'
   const matrix = encodeQrCode(url)
   assert.ok(matrix, 'an IPv6 pairing URL must fit')
   assert.equal(decode(matrix), url)

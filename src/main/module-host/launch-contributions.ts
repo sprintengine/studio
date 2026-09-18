@@ -73,7 +73,7 @@ export function registeredLaunchContributionCount(): number {
 let failureReporter: ((failure: LaunchContributionFailure) => void) | null = null
 
 export function setLaunchContributionFailureReporter(
-  reporter: ((failure: LaunchContributionFailure) => void) | null
+  reporter: ((failure: LaunchContributionFailure) => void) | null,
 ): void {
   failureReporter = reporter
 }

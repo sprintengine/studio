@@ -22,10 +22,7 @@ import { EXTENSIONS_DRAWER_VIEWS, type ExtensionsDrawerView } from './extensions
  * label is preferred because the two genuinely differ: the `extensions` surface
  * is called Plugins everywhere a person can read it.
  */
-export function doorLabelForSurfaceId(
-  surfaceId: string,
-  registeredLabel?: string,
-): string {
+export function doorLabelForSurfaceId(surfaceId: string, registeredLabel?: string): string {
   const label = registeredLabel?.trim()
   if (label) return label
   return surfaceId.charAt(0).toUpperCase() + surfaceId.slice(1)
@@ -59,9 +56,7 @@ export function resolveActiveModalSurface(
           // A never-registered modal's id IS its module's id, which is what
           // lets the surface offer a real Install for it (G9).
           moduleId={entry?.moduleId ?? surfaceId}
-          onOpenExtensions={() =>
-            openExtensions({ view: EXTENSIONS_DRAWER_VIEWS.plugins, installed })
-          }
+          onOpenExtensions={() => openExtensions({ view: EXTENSIONS_DRAWER_VIEWS.plugins, installed })}
         />
       )
     },
@@ -98,9 +93,7 @@ export function resolveActiveDoorSurface(
           // Same rule as the modal above: a door that never registered is named
           // by its module's id, so the registry can be asked about it (G9).
           moduleId={entry?.moduleId ?? surfaceId}
-          onOpenExtensions={() =>
-            openExtensions({ view: EXTENSIONS_DRAWER_VIEWS.plugins, installed })
-          }
+          onOpenExtensions={() => openExtensions({ view: EXTENSIONS_DRAWER_VIEWS.plugins, installed })}
         />
       )
     },

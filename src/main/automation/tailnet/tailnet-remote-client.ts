@@ -151,7 +151,7 @@ export function requestTailnetJson(input: {
           resolve({ status: response.statusCode ?? 0, body })
         })
         response.on('error', reject)
-      }
+      },
     )
     call.on('error', reject)
     call.setTimeout(timeoutMs, () => {
@@ -251,8 +251,7 @@ export async function requestPairingFromMachine(input: {
       code: typeof error?.code === 'string' ? error.code : `http_${answer.status}`,
       // The other machine's own words again — "there is already a request
       // waiting there" is the one thing a person needs to hear verbatim.
-      message:
-        typeof error?.message === 'string' ? error.message : `The request was refused (HTTP ${answer.status}).`,
+      message: typeof error?.message === 'string' ? error.message : `The request was refused (HTTP ${answer.status}).`,
     }
   }
   return {
@@ -466,7 +465,11 @@ export async function callRemoteTool(input: {
   const result = asRecord(envelope.result)
   const structured = asRecord(result?.structuredContent)
   if (!structured) {
-    return { ok: false, code: 'unreadable_result', message: `"${input.tool}" answered in a shape this build cannot read.` }
+    return {
+      ok: false,
+      code: 'unreadable_result',
+      message: `"${input.tool}" answered in a shape this build cannot read.`,
+    }
   }
   if (result?.isError === true || structured.ok === false) {
     const failure = asRecord(structured.error)
@@ -584,7 +587,7 @@ function upgradeSocket(
   endpoint: TailnetEndpoint,
   ticket: string,
   path: string,
-  query: Record<string, string>
+  query: Record<string, string>,
 ): Promise<RemoteCallOutcome<{ socket: Socket; leftover: Buffer }>> {
   return new Promise((resolve) => {
     const key = randomBytes(16).toString('base64')
@@ -610,7 +613,8 @@ function upgradeSocket(
     const refuse = (code: string, text: string): void => settle({ ok: false, code, message: text })
     const onError = (error: Error): void => refuse('unreachable', describeUnreachable(endpoint, error))
     const onClose = (): void => refuse('unreachable', 'That machine closed the connection during the handshake.')
-    const onTimeout = (): void => refuse('unreachable', describeUnreachable(endpoint, new Error('the handshake got no answer')))
+    const onTimeout = (): void =>
+      refuse('unreachable', describeUnreachable(endpoint, new Error('the handshake got no answer')))
     const onData = (chunk: Buffer): void => {
       head = Buffer.concat([head, chunk])
       const boundary = head.indexOf('\r\n\r\n')
@@ -625,8 +629,10 @@ function upgradeSocket(
       const headers = new Map(
         headerLines.map((line): [string, string] => {
           const colon = line.indexOf(':')
-          return colon === -1 ? [line.toLowerCase(), ''] : [line.slice(0, colon).toLowerCase(), line.slice(colon + 1).trim()]
-        })
+          return colon === -1
+            ? [line.toLowerCase(), '']
+            : [line.slice(0, colon).toLowerCase(), line.slice(colon + 1).trim()]
+        }),
       )
       if (status !== 101) {
         // The listener names its refusals in a header; carrying that code
@@ -659,7 +665,7 @@ function upgradeSocket(
           'Sec-WebSocket-Version: 13',
           '',
           '',
-        ].join('\r\n')
+        ].join('\r\n'),
       )
     })
   })
@@ -669,7 +675,7 @@ function upgradeSocket(
 function driveTerminalSocket(
   socket: Socket,
   leftover: Buffer,
-  handlers: RemoteTerminalSocketHandlers
+  handlers: RemoteTerminalSocketHandlers,
 ): RemoteTerminalSocket {
   const decoder = createWebSocketFrameDecoder(MAX_WEBSOCKET_MESSAGE_BYTES, 'client')
   let closed = false

@@ -1,14 +1,7 @@
 import { createHash } from 'crypto'
-import type {
-  MobileControlDevice,
-  MobilePushRegistration,
-  MobilePushRegistrationInput,
-} from './index'
+import type { MobileControlDevice, MobilePushRegistration, MobilePushRegistrationInput } from './index'
 import { randomBase64Url } from './crypto'
-import {
-  isMobilePushProvider,
-  redactPushRegistration,
-} from './validation'
+import { isMobilePushProvider, redactPushRegistration } from './validation'
 import { mobileControlProtocolVersion } from '../../../../packages/mobile-control-protocol/src/index'
 
 /**
@@ -33,7 +26,7 @@ export function pushTokenHash(token: string): string {
 export function registerMobilePushToken(
   pairedDevices: MobileControlDevice[],
   pushRegistrations: MobilePushRegistration[],
-  input: MobilePushRegistrationInput
+  input: MobilePushRegistrationInput,
 ): MobilePushRegistration {
   const device = pairedDevices.find((candidate) => candidate.deviceId === input.deviceId)
   if (!device || device.revokedAt) {
@@ -49,10 +42,11 @@ export function registerMobilePushToken(
   }
 
   const tokenHash = pushTokenHash(token)
-  const existing = pushRegistrations.find((registration) =>
-    registration.deviceId === device.deviceId
-    && registration.provider === input.provider
-    && registration.tokenHash === tokenHash
+  const existing = pushRegistrations.find(
+    (registration) =>
+      registration.deviceId === device.deviceId &&
+      registration.provider === input.provider &&
+      registration.tokenHash === tokenHash,
   )
   const registeredAt = new Date().toISOString()
 
@@ -76,7 +70,7 @@ export function registerMobilePushToken(
 
 export function revokeMobilePushRegistration(
   pushRegistrations: MobilePushRegistration[],
-  registrationId: string
+  registrationId: string,
 ): MobilePushRegistration {
   const registration = pushRegistrations.find((candidate) => candidate.registrationId === registrationId)
   if (!registration) {
@@ -93,13 +87,9 @@ export function listMobilePushRegistrations(pushRegistrations: MobilePushRegistr
 
 export function listActiveMobilePushTargets(
   pairedDevices: MobileControlDevice[],
-  pushRegistrations: MobilePushRegistration[]
+  pushRegistrations: MobilePushRegistration[],
 ): MobilePushRegistrationTarget[] {
-  const activeDeviceIds = new Set(
-    pairedDevices
-      .filter((device) => !device.revokedAt)
-      .map((device) => device.deviceId)
-  )
+  const activeDeviceIds = new Set(pairedDevices.filter((device) => !device.revokedAt).map((device) => device.deviceId))
   return pushRegistrations
     .filter((registration) => activeDeviceIds.has(registration.deviceId) && !registration.revokedAt)
     .map((registration) => ({
@@ -111,7 +101,7 @@ export function listActiveMobilePushTargets(
 export function revokePushRegistrationsForDevice(
   pushRegistrations: MobilePushRegistration[],
   deviceId: string,
-  revokedAt: string
+  revokedAt: string,
 ): void {
   for (const registration of pushRegistrations) {
     if (registration.deviceId === deviceId && !registration.revokedAt) {

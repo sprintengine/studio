@@ -1,4 +1,8 @@
-import type { ChangedFileCounts, TerminalSessionSnapshot, WorkspaceChangeSummary } from '../../../../shared/electron-api'
+import type {
+  ChangedFileCounts,
+  TerminalSessionSnapshot,
+  WorkspaceChangeSummary,
+} from '../../../../shared/electron-api'
 import { primaryPullRequest, type BranchPullRequest } from '../../../../shared/git/pull-request'
 import { sessionRecencyOf } from '../../hooks/useTerminalSessions'
 import type { Workspace } from '../../types/workspace'
@@ -79,7 +83,7 @@ export type TerminalDiffScope = 'worktree' | 'branch' | 'folder' | 'landed'
  */
 export function lineDiffOf(
   summary: WorkspaceChangeSummary | undefined,
-  pullRequests: ReadonlyArray<BranchPullRequest>
+  pullRequests: ReadonlyArray<BranchPullRequest>,
 ): {
   additions: number
   deletions: number
@@ -150,7 +154,7 @@ export function changedFilesPhrase(files: ChangedFileCounts): string {
   if (present.length === 0) return 'No files changed'
   return present
     .map(([count, verb], index) =>
-      index === 0 ? `${count} file${count === 1 ? '' : 's'} ${verb}` : `${count} ${verb}`
+      index === 0 ? `${count} file${count === 1 ? '' : 's'} ${verb}` : `${count} ${verb}`,
     )
     .join(', ')
 }
@@ -172,13 +176,19 @@ export function changedFilesPhrase(files: ChangedFileCounts): string {
  * of the same numbers that could drift apart; the sentence reads correctly in
  * both places, so there is nothing left to drift.
  */
-export function diffScopeCopy(
-  line: Pick<TerminalLine, 'diffScope' | 'branch' | 'files' | 'pullRequests'>
-): { tooltip: string; srText: string; dim: boolean } {
+export function diffScopeCopy(line: Pick<TerminalLine, 'diffScope' | 'branch' | 'files' | 'pullRequests'>): {
+  tooltip: string
+  srText: string
+  dim: boolean
+} {
   // A line with no breakdown draws nothing, so these words are never seen; the
   // phrase still degrades to something true rather than to "undefined files".
   const claim = line.files ? changedFilesPhrase(line.files) : 'No files changed'
-  const said = (clause: string, dim: boolean) => ({ tooltip: `${claim} — ${clause}`, srText: `${claim} — ${clause}`, dim })
+  const said = (clause: string, dim: boolean) => ({
+    tooltip: `${claim} — ${clause}`,
+    srText: `${claim} — ${clause}`,
+    dim,
+  })
   if (line.diffScope === 'landed') {
     // The one scope whose second clause is not a caveat but the REASON the
     // number shrank: the branch's span would still read the whole feature
@@ -202,7 +212,7 @@ export function diffScopeCopy(
   if (line.diffScope === 'branch') {
     return said(
       `changed on ${line.branch ?? 'this branch'}; this terminal shares the checkout, so a person or another terminal may have made some of it`,
-      false
+      false,
     )
   }
   // A folder reading is the repo's state, not this terminal's work: the numbers
@@ -306,7 +316,10 @@ export type TerminalLine = {
   idleLabel: string
 }
 
-export type TerminalLinesWorkspace = Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState' | 'agents' | 'remoteOrigin'>
+export type TerminalLinesWorkspace = Pick<
+  Workspace,
+  'folderPath' | 'worktree' | 'moduleState' | 'agents' | 'remoteOrigin'
+>
 
 function launchIntentOf(workspace: TerminalLinesWorkspace, session: TerminalSessionSnapshot) {
   const worktree = resolveWorkspaceWorktree(workspace)
@@ -322,15 +335,24 @@ function launchIntentOf(workspace: TerminalLinesWorkspace, session: TerminalSess
  * session in, else its launch intent, else the workspace's own — or null when
  * it sits somewhere that is not a checkout at all.
  */
-export function sessionCheckoutPath(workspace: TerminalLinesWorkspace, session: TerminalSessionSnapshot): string | null {
-  return agentCheckoutProbePath(agentCheckoutOf(session, launchIntentOf(workspace, session)), checkoutPathFor(workspace))
+export function sessionCheckoutPath(
+  workspace: TerminalLinesWorkspace,
+  session: TerminalSessionSnapshot,
+): string | null {
+  return agentCheckoutProbePath(
+    agentCheckoutOf(session, launchIntentOf(workspace, session)),
+    checkoutPathFor(workspace),
+  )
 }
 
 /**
  * The distinct checkouts a row's live sessions sit on, for the git poll: two
  * agents on one checkout ask once, an agent in its own worktree asks for it.
  */
-export function checkoutPathsOf(workspace: TerminalLinesWorkspace, sessions: ReadonlyArray<TerminalSessionSnapshot>): string[] {
+export function checkoutPathsOf(
+  workspace: TerminalLinesWorkspace,
+  sessions: ReadonlyArray<TerminalSessionSnapshot>,
+): string[] {
   const paths = new Set<string>()
   for (const session of sessions) {
     const path = sessionCheckoutPath(workspace, session)
@@ -354,7 +376,7 @@ function recencyOf(session: TerminalSessionSnapshot) {
 function lineOfSession(
   workspace: TerminalLinesWorkspace,
   session: TerminalSessionSnapshot,
-  summaries: Record<string, WorkspaceChangeSummary>
+  summaries: Record<string, WorkspaceChangeSummary>,
 ): TerminalLine {
   const checkout = agentCheckoutOf(session, launchIntentOf(workspace, session))
   const probePath = agentCheckoutProbePath(checkout, checkoutPathFor(workspace))
@@ -388,7 +410,7 @@ function lineOfSession(
     key: session.sessionId,
     kind: isAgent ? 'agent' : 'shell',
     cli: session.cli ?? null,
-    name: isAgent ? agent?.name ?? session.agentName ?? 'Agent' : 'Terminal',
+    name: isAgent ? (agent?.name ?? session.agentName ?? 'Agent') : 'Terminal',
     machineName: null,
     branch: checkoutBranch ?? summary?.branch ?? null,
     worktree: checkout?.kind === 'worktree',
@@ -399,7 +421,7 @@ function lineOfSession(
     changedFiles: diff.changedFiles,
     files: diff.files,
     diffScope: diff.scope,
-    activeSubagents: isAgent ? session.activeSubagents ?? 0 : 0,
+    activeSubagents: isAgent ? (session.activeSubagents ?? 0) : 0,
     // Straight off the snapshot: main owns which pull requests a session has
     // and how they were learned, and the line only draws what it is handed.
     // Absent on a fixture-built snapshot, and an absent answer is not an empty
@@ -418,7 +440,7 @@ function lineOfSession(
  */
 function lineOfFleetPane(
   workspace: TerminalLinesWorkspace,
-  pane: { tabId: string; machineName: string; cli?: string }
+  pane: { tabId: string; machineName: string; cli?: string },
 ): TerminalLine {
   return {
     key: pane.tabId,
@@ -494,12 +516,7 @@ export function lineOfRemoteRow(row: RemoteSessionRow): TerminalLine {
 
 /** The moment a line last did anything, for ordering; a line that never said is oldest. */
 function activityAt(line: TerminalLine, session?: TerminalSessionSnapshot): number {
-  return Math.max(
-    line.workingSince ?? 0,
-    line.idleSince ?? 0,
-    session?.lastOutputAt ?? 0,
-    session?.lastInputAt ?? 0
-  )
+  return Math.max(line.workingSince ?? 0, line.idleSince ?? 0, session?.lastOutputAt ?? 0, session?.lastInputAt ?? 0)
 }
 
 /**

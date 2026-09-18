@@ -10,10 +10,7 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
-import type {
-  ConversationProviderListResult,
-  ConversationSecretStatusResult,
-} from '../../../../shared/electron-api'
+import type { ConversationProviderListResult, ConversationSecretStatusResult } from '../../../../shared/electron-api'
 import {
   type ActionResult,
   ActionResultMessage,
@@ -58,10 +55,7 @@ export function ProviderSettingsTab() {
   const [pending, setPending] = useState<Record<string, PendingKind | undefined>>({})
   const [messages, setMessages] = useState<Record<string, ProviderMessage>>({})
 
-  const tabState = useMemo(
-    () => deriveProviderTabState(listResult, ipcAvailable),
-    [listResult, ipcAvailable]
-  )
+  const tabState = useMemo(() => deriveProviderTabState(listResult, ipcAvailable), [listResult, ipcAvailable])
 
   const setMessage = useCallback((providerId: string, message: ProviderMessage) => {
     setMessages((current) => ({ ...current, [providerId]: message }))
@@ -85,7 +79,7 @@ export function ProviderSettingsTab() {
               { kind: 'error', message: errText(err, 'Key status unavailable.') } as ProviderSecretView,
             ] as const
           }
-        })
+        }),
       )
       setSecretViews(Object.fromEntries(entries))
     } catch (err) {
@@ -125,7 +119,7 @@ export function ProviderSettingsTab() {
         setPending((current) => ({ ...current, [provider.id]: undefined }))
       }
     },
-    [applyStatusResult, drafts, setMessage]
+    [applyStatusResult, drafts, setMessage],
   )
 
   const clearKey = useCallback(
@@ -152,16 +146,11 @@ export function ProviderSettingsTab() {
         setPending((current) => ({ ...current, [provider.id]: undefined }))
       }
     },
-    [applyStatusResult, dialog, setMessage]
+    [applyStatusResult, dialog, setMessage],
   )
 
   return (
-    <div
-      role="tabpanel"
-      id="settings-panel-providers"
-      aria-labelledby="settings-tab-providers"
-      className="space-y-5"
-    >
+    <div role="tabpanel" id="settings-panel-providers" aria-labelledby="settings-tab-providers" className="space-y-5">
       <SettingsPageHeader title="Providers" />
 
       {tabState.kind === 'unavailable' ? (
@@ -185,12 +174,7 @@ export function ProviderSettingsTab() {
         />
       ) : null}
 
-      {tabState.kind === 'empty' ? (
-        <EmptyState
-          density="list"
-          title="No providers installed."
-        />
-      ) : null}
+      {tabState.kind === 'empty' ? <EmptyState density="list" title="No providers installed." /> : null}
 
       {tabState.kind === 'ready'
         ? tabState.providers.map((provider) => (
@@ -201,9 +185,7 @@ export function ProviderSettingsTab() {
               draft={drafts[provider.id] ?? ''}
               pending={pending[provider.id]}
               message={messages[provider.id]}
-              onDraftChange={(value) =>
-                setDrafts((current) => ({ ...current, [provider.id]: value }))
-              }
+              onDraftChange={(value) => setDrafts((current) => ({ ...current, [provider.id]: value }))}
               onSave={() => void saveKey(provider)}
               onClear={() => void clearKey(provider)}
             />
@@ -264,24 +246,15 @@ function ProviderRow({
                   className="tracking-[0.3em] text-[color:var(--text-muted)]"
                 />
                 {canClear ? (
-                  <OutlineButton
-                    size="md"
-                    onClick={onClear}
-                    disabled={busy}
-                    className="shrink-0"
-                  >
+                  <OutlineButton size="md" onClick={onClear} disabled={busy} className="shrink-0">
                     {pending === 'clearing' ? 'Removing…' : 'Remove'}
                   </OutlineButton>
                 ) : null}
               </div>
               {!canClear ? (
-                <p className="text-meta leading-5 text-[color:var(--text-subtle)]">
-                  Set from the environment.
-                </p>
+                <p className="text-meta leading-5 text-[color:var(--text-subtle)]">Set from the environment.</p>
               ) : secretView.persistence === 'session' ? (
-                <p className="text-meta leading-5 text-[color:var(--tone-warn)]">
-                  Kept for this session only.
-                </p>
+                <p className="text-meta leading-5 text-[color:var(--tone-warn)]">Kept for this session only.</p>
               ) : null}
             </div>
           ) : (
@@ -305,12 +278,7 @@ function ProviderRow({
                   fullWidth={false}
                   className={`min-w-0 flex-1 ${MONO_FIELD}`}
                 />
-                <PrimaryButton
-                  size="md"
-                  onClick={onSave}
-                  disabled={busy || !draft.trim()}
-                  className="shrink-0"
-                >
+                <PrimaryButton size="md" onClick={onSave} disabled={busy || !draft.trim()} className="shrink-0">
                   {pending === 'saving' ? 'Saving…' : 'Save'}
                 </PrimaryButton>
               </div>

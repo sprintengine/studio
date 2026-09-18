@@ -57,10 +57,7 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
   const plugins = new Map<string, LoadedPlugin>()
   const providers = new Map<string, LoadedConversationProvider>()
 
-  async function loadFromRoot(
-    root: string,
-    source: 'bundled' | 'user'
-  ): Promise<PluginRegistryLoadReport> {
+  async function loadFromRoot(root: string, source: 'bundled' | 'user'): Promise<PluginRegistryLoadReport> {
     const loaded: LoadedPlugin[] = []
     const loadedConversationProviders: LoadedConversationProvider[] = []
     const rejected: PluginRegistryLoadReport['rejected'] = []
@@ -139,10 +136,7 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
     return { loaded, loadedConversationProviders, rejected }
   }
 
-  function loadFromRootSync(
-    root: string,
-    source: 'bundled' | 'user'
-  ): PluginRegistryLoadReport {
+  function loadFromRootSync(root: string, source: 'bundled' | 'user'): PluginRegistryLoadReport {
     const loaded: LoadedPlugin[] = []
     const loadedConversationProviders: LoadedConversationProvider[] = []
     const rejected: PluginRegistryLoadReport['rejected'] = []
@@ -222,7 +216,7 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
 
   function mergeBundledAndUser(
     bundled: PluginRegistryLoadReport,
-    user: PluginRegistryLoadReport
+    user: PluginRegistryLoadReport,
   ): PluginRegistryLoadReport {
     plugins.clear()
     providers.clear()
@@ -252,7 +246,7 @@ export function createPluginRegistry(options: PluginRegistryOptions): PluginRegi
       const previous = providers.get(provider.manifest.id)
       if (previous) {
         const replacedIndex = report.loadedConversationProviders.findIndex(
-          (p) => p.manifest.id === provider.manifest.id
+          (p) => p.manifest.id === provider.manifest.id,
         )
         if (replacedIndex >= 0) report.loadedConversationProviders.splice(replacedIndex, 1)
       }
@@ -333,13 +327,13 @@ async function classifyProviderAdapter(
   manifest: ConversationProviderManifest,
   source: PluginSource,
   pluginRoot: string,
-  options: PluginRegistryOptions
+  options: PluginRegistryOptions,
 ): Promise<ConversationProviderAdapterClassification> {
   return classifyProviderAdapterWithEntryHash(
     manifest,
     source,
     options,
-    await readExecutableAdapterEntryHash(manifest, pluginRoot)
+    await readExecutableAdapterEntryHash(manifest, pluginRoot),
   )
 }
 
@@ -347,13 +341,13 @@ function classifyProviderAdapterSync(
   manifest: ConversationProviderManifest,
   source: PluginSource,
   pluginRoot: string,
-  options: PluginRegistryOptions
+  options: PluginRegistryOptions,
 ): ConversationProviderAdapterClassification {
   return classifyProviderAdapterWithEntryHash(
     manifest,
     source,
     options,
-    readExecutableAdapterEntryHashSync(manifest, pluginRoot)
+    readExecutableAdapterEntryHashSync(manifest, pluginRoot),
   )
 }
 
@@ -361,7 +355,7 @@ function classifyProviderAdapterWithEntryHash(
   manifest: ConversationProviderManifest,
   source: PluginSource,
   options: PluginRegistryOptions,
-  entryHash: { ok: true; sha256: string } | { ok: false; message: string } | null
+  entryHash: { ok: true; sha256: string } | { ok: false; message: string } | null,
 ): ConversationProviderAdapterClassification {
   const adapter = manifest.adapter ?? { kind: 'declarative' as const }
   if (adapter.kind === 'declarative') {
@@ -416,10 +410,7 @@ function classifyProviderAdapterWithEntryHash(
     }
   }
 
-  const trust = classifySignedManifestTrust(
-    manifest,
-    options.providerTrustContext ?? { trustedModules: new Map() }
-  )
+  const trust = classifySignedManifestTrust(manifest, options.providerTrustContext ?? { trustedModules: new Map() })
   if (trust.status === 'trusted') {
     return {
       kind: 'trusted-executable',
@@ -453,7 +444,7 @@ function classifyProviderAdapterWithEntryHash(
 
 async function readExecutableAdapterEntryHash(
   manifest: ConversationProviderManifest,
-  pluginRoot: string
+  pluginRoot: string,
 ): Promise<{ ok: true; sha256: string } | { ok: false; message: string } | null> {
   if (manifest.adapter?.kind !== 'trusted-executable') return null
   try {
@@ -465,7 +456,7 @@ async function readExecutableAdapterEntryHash(
 
 function readExecutableAdapterEntryHashSync(
   manifest: ConversationProviderManifest,
-  pluginRoot: string
+  pluginRoot: string,
 ): { ok: true; sha256: string } | { ok: false; message: string } | null {
   if (manifest.adapter?.kind !== 'trusted-executable') return null
   try {
@@ -479,12 +470,16 @@ function sha256(value: Buffer): string {
   return createHash('sha256').update(value).digest('hex')
 }
 
-function providerTrustError(status: ConversationProviderAdapterClassification['trust'], productionMode: boolean): string {
+function providerTrustError(
+  status: ConversationProviderAdapterClassification['trust'],
+  productionMode: boolean,
+): string {
   if (status === 'invalid') return 'Executable provider adapter signature is invalid or the package was tampered with.'
   if (status === 'signed') return 'Executable provider adapter is signed but has not been trusted for execution.'
-  if (status === 'unsigned') return productionMode
-    ? 'Unsigned executable provider adapters cannot run in production mode.'
-    : 'Unsigned executable provider adapter is blocked without a development trust override.'
+  if (status === 'unsigned')
+    return productionMode
+      ? 'Unsigned executable provider adapters cannot run in production mode.'
+      : 'Unsigned executable provider adapter is blocked without a development trust override.'
   return 'Executable provider adapter is not trusted for execution.'
 }
 

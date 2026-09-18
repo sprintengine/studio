@@ -24,7 +24,7 @@ export type ModuleResolutionOptions = {
 export function resolveModuleEnablement(
   manifests: CapabilityManifest[],
   overrides: ModuleEnablementOverrides = {},
-  options: ModuleResolutionOptions = {}
+  options: ModuleResolutionOptions = {},
 ): ModuleResolution {
   const errors: ModuleResolutionError[] = []
   const ineligible = options.ineligible ?? {}
@@ -146,9 +146,7 @@ export function resolveModuleEnablement(
   }
 
   const erroredIds = new Set(errors.map((error) => error.id).filter((id) => id.length > 0))
-  const disabled = [...byId.keys()]
-    .filter((id) => !accepted.has(id) && !erroredIds.has(id))
-    .sort()
+  const disabled = [...byId.keys()].filter((id) => !accepted.has(id) && !erroredIds.has(id)).sort()
 
   return {
     order: order.filter((id) => accepted.has(id)),

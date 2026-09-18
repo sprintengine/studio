@@ -83,10 +83,7 @@ export function formatBuildSkewLogLine(main: BuildStamp, renderer: BuildStamp): 
 }
 
 /** Headline + helper line, for the one notice a person sees. */
-export function formatBuildSkewNotice(
-  main: BuildStamp,
-  renderer: BuildStamp
-): { headline: string; detail: string } {
+export function formatBuildSkewNotice(main: BuildStamp, renderer: BuildStamp): { headline: string; detail: string } {
   return {
     headline: 'Main and window are running different builds.',
     detail:

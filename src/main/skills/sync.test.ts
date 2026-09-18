@@ -39,7 +39,7 @@ function scanOf(skills: ScannedSkill[], commitSha = 'b81f77a'): ScanResult {
  * marker, which is what a bundled skill or a hand-made directory looks like.
  */
 async function workspaceWith(
-  installed: Record<string, { harnessDirs: string[]; sourceId: string | null }>
+  installed: Record<string, { harnessDirs: string[]; sourceId: string | null }>,
 ): Promise<string> {
   const root = await mkdtemp(join(tmpdir(), 'multicode-skill-sync-'))
   for (const [dirName, entry] of Object.entries(installed)) {
@@ -50,7 +50,7 @@ async function workspaceWith(
       if (entry.sourceId === null) continue
       await writeFile(
         join(dir, SKILL_PROVENANCE_FILE),
-        JSON.stringify({ sourceId: entry.sourceId, skillId: `skills/${dirName}`, commitSha: 'b81f77a' })
+        JSON.stringify({ sourceId: entry.sourceId, skillId: `skills/${dirName}`, commitSha: 'b81f77a' }),
       )
     }
   }
@@ -79,8 +79,14 @@ async function reportsWhatCameInAndWhatWent(): Promise<void> {
 async function reCopiesOnlyTheHarnessesThatHoldTheSkill(): Promise<void> {
   const workspace = await workspaceWith({ tdd: fromSource('.claude', '.agents'), triage: fromSource('.claude') })
   const installed = await installedSkillCopies(workspace)
-  assert.deepEqual(installed.get('tdd')?.map((copy) => copy.harness), ['claude', 'agents'])
-  assert.deepEqual(installed.get('triage')?.map((copy) => copy.harness), ['claude'])
+  assert.deepEqual(
+    installed.get('tdd')?.map((copy) => copy.harness),
+    ['claude', 'agents'],
+  )
+  assert.deepEqual(
+    installed.get('triage')?.map((copy) => copy.harness),
+    ['claude'],
+  )
 
   const scan = scanOf([skill('skills/tdd', ['SKILL.md', 'reference/deep.md']), skill('skills/unwanted')])
   const result = await refreshInstalledSkills({
@@ -143,9 +149,7 @@ async function reportsAFailedCopyWithoutStoppingTheRest(): Promise<void> {
   })
 
   assert.deepEqual(result.refreshed, ['skills/triage'])
-  assert.deepEqual(result.failures, [
-    { skillId: 'skills/tdd', message: 'GitHub rate-limited this request.' },
-  ])
+  assert.deepEqual(result.failures, [{ skillId: 'skills/tdd', message: 'GitHub rate-limited this request.' }])
   assert.equal(
     await readFile(join(workspace, '.claude', 'skills', 'tdd', 'SKILL.md'), 'utf8'),
     'the copy that was installed\n',
@@ -234,7 +238,11 @@ function installedFromSource(over: Partial<McpServerConfig> = {}): McpServerConf
 
 function syncsTheServersItInstalledAndOnlyThose(): void {
   // The same server, at a new command the source now declares.
-  const moved = server({ args: ['-y', '@upstash/context7-mcp@2'], description: 'Docs, faster', envVarNames: ['CONTEXT7_TOKEN'] })
+  const moved = server({
+    args: ['-y', '@upstash/context7-mcp@2'],
+    description: 'Docs, faster',
+    envVarNames: ['CONTEXT7_TOKEN'],
+  })
   const handTyped: McpServerConfig = {
     id: 'context7-mine',
     name: 'My own context7',
@@ -277,7 +285,11 @@ function syncsTheServersItInstalledAndOnlyThose(): void {
   // decisions, and never the token they typed.
   assert.equal(next.enabled, false)
   assert.deepEqual(next.clients, ['codex'])
-  assert.deepEqual(next.env, { CONTEXT7_TOKEN: 'typed-by-hand' }, 'the value they filled in for a name the source declares')
+  assert.deepEqual(
+    next.env,
+    { CONTEXT7_TOKEN: 'typed-by-hand' },
+    'the value they filled in for a name the source declares',
+  )
   console.log('ok - a sync rewrites the servers this source installed and leaves every other one alone')
 }
 
@@ -370,13 +382,16 @@ function envDefaultsFollowTheSourceAndFilledInValuesStay(): void {
   })
 
   assert.deepEqual(result.changed, ['context7'])
-  assert.deepEqual({ ...result.updated[0].env }, {
-    // The source corrected its own default, so the correction lands. Merging
-    // the stored map over the fresh one made every default un-updatable.
-    API_BASE: 'https://new.example.com',
-    // Named, unvalued, filled in by the person: theirs survives.
-    CONTEXT7_TOKEN: 'sk-live-typed-by-hand',
-  })
+  assert.deepEqual(
+    { ...result.updated[0].env },
+    {
+      // The source corrected its own default, so the correction lands. Merging
+      // the stored map over the fresh one made every default un-updatable.
+      API_BASE: 'https://new.example.com',
+      // Named, unvalued, filled in by the person: theirs survives.
+      CONTEXT7_TOKEN: 'sk-live-typed-by-hand',
+    },
+  )
   // The variable the source withdrew goes with it, rather than living on in
   // every CLI config this entry writes.
   assert.equal('OLD_SECRET' in (result.updated[0].env ?? {}), false)

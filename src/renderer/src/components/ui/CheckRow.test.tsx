@@ -160,7 +160,7 @@ async function main(): Promise<void> {
     const classes = mark.getAttribute('class') ?? ''
     assert.match(classes, /bg-\[color:var\(--text-strong\)\]/, 'never the accent — that reads as a slipped focus ring')
     assert.match(classes, /pointer-events-none/)
-    assert.match(view.row.getAttribute('class') ?? '', /relative/, 'the row is the mark\'s positioning context')
+    assert.match(view.row.getAttribute('class') ?? '', /relative/, "the row is the mark's positioning context")
 
     const without = mount(<CheckRow checked name="swap2-top.png" />)
     assert.equal(
@@ -184,7 +184,11 @@ async function main(): Promise<void> {
       />,
     )
     assert.equal(view.row.getAttribute('aria-disabled'), 'true')
-    assert.equal(view.row.hasAttribute('disabled'), false, 'aria-disabled, never the attribute: the row stays reachable')
+    assert.equal(
+      view.row.hasAttribute('disabled'),
+      false,
+      'aria-disabled, never the attribute: the row stays reachable',
+    )
     act(() => {
       view.row.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
@@ -210,17 +214,15 @@ async function main(): Promise<void> {
     assert.equal(
       leaf.row.getAttribute('style'),
       'padding-left: 20px;',
-      'one 12px level step off the row\'s own 8px inset',
+      "one 12px level step off the row's own 8px inset",
     )
 
     branch.unmount()
     leaf.unmount()
   })
 
-  run('the row is one tab stop\'s worth of DOM, and the list keeps its hooks', () => {
-    const view = mount(
-      <CheckRow checked={false} name="a.ts" id="row-a" tabIndex={-1} data-path="src/a.ts" />,
-    )
+  run("the row is one tab stop's worth of DOM, and the list keeps its hooks", () => {
+    const view = mount(<CheckRow checked={false} name="a.ts" id="row-a" tabIndex={-1} data-path="src/a.ts" />)
     assert.equal(view.row.getAttribute('id'), 'row-a', 'aria-activedescendant needs a stable id')
     assert.equal(view.row.getAttribute('tabindex'), '-1')
     assert.equal(view.row.getAttribute('data-path'), 'src/a.ts', 'the list drives roving focus by its own hook')

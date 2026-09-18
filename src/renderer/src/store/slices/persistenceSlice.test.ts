@@ -16,14 +16,8 @@ import type { Workspace } from '../../types/workspace'
 
 // classifyPersistedWorkspaceState ----------------------------------------------
 
-assert.equal(
-  classifyPersistedWorkspaceState({ rawLocalStorage: null }),
-  'dangerous_empty_missing_storage',
-)
-assert.equal(
-  classifyPersistedWorkspaceState({ rawLocalStorage: 'not json {' }),
-  'dangerous_empty_unreadable',
-)
+assert.equal(classifyPersistedWorkspaceState({ rawLocalStorage: null }), 'dangerous_empty_missing_storage')
+assert.equal(classifyPersistedWorkspaceState({ rawLocalStorage: 'not json {' }), 'dangerous_empty_unreadable')
 assert.equal(
   classifyPersistedWorkspaceState({
     rawLocalStorage: JSON.stringify({ state: 'not an object' }),
@@ -242,9 +236,30 @@ assert.equal(
 // host with the stable 'Automations' name.
 const v63BypassedState = {
   workspaces: [
-    { id: 'ws-host-run-a', mode: 'automations-host', name: 'Pillars of code reviewer', folderPath: '/repo/app', agents: {}, createdAt: 10 },
-    { id: 'ws-host-run-b', mode: 'automations-host', name: 'Nightly performance reviewer', folderPath: '/repo/app', agents: {}, createdAt: 20 },
-    { id: 'ws-host-run-c', mode: 'automations-host', name: 'fable5 calendar', folderPath: '/repo/app/', agents: {}, createdAt: 30 },
+    {
+      id: 'ws-host-run-a',
+      mode: 'automations-host',
+      name: 'Pillars of code reviewer',
+      folderPath: '/repo/app',
+      agents: {},
+      createdAt: 10,
+    },
+    {
+      id: 'ws-host-run-b',
+      mode: 'automations-host',
+      name: 'Nightly performance reviewer',
+      folderPath: '/repo/app',
+      agents: {},
+      createdAt: 20,
+    },
+    {
+      id: 'ws-host-run-c',
+      mode: 'automations-host',
+      name: 'fable5 calendar',
+      folderPath: '/repo/app/',
+      agents: {},
+      createdAt: 30,
+    },
     { id: 'ws-standard', mode: 'standard', name: 'Chat', folderPath: '/repo/app', agents: {}, createdAt: 1 },
   ],
   activeWorkspaceId: 'ws-host-run-c',
@@ -315,7 +330,6 @@ const migratedRoadmapOnly = migratePersistedWorkspaceState(v64RoadmapOnly, 64) a
 assert.equal(migratedRoadmapOnly.workspaces.length, 0, 'roadmap-only account migrates to an empty list')
 assert.equal(migratedRoadmapOnly.activeWorkspaceId, null, 'active pointer is cleared when nothing survives')
 
-
 // v67 reset a Design Wizard conversation-transport opt-in whose pre-flip
 // default had been written to every profile. The Design Wizard was deleted
 // 2026-09-08 and the setting with it, so the rung now only re-runs
@@ -334,11 +348,7 @@ assert.equal(
   false,
   'the retired Design Wizard transport key is dropped, not carried forward',
 )
-assert.equal(
-  migratedTransportReset.appSettings.lastSelectedCli,
-  'codex',
-  'v67 leaves other persisted settings alone',
-)
+assert.equal(migratedTransportReset.appSettings.lastSelectedCli, 'codex', 'v67 leaves other persisted settings alone')
 
 assert.equal(WORKSPACE_STORE_VERSION, 76, 'the Reviews extraction is the newest step, at store v76')
 
@@ -359,27 +369,48 @@ assert.equal(WORKSPACE_STORE_VERSION, 76, 'the Reviews extraction is the newest 
     },
   }
   const v73WithBacklogRail = {
-    workspaces: [{
-      id: 'ws-backlog',
-      mode: 'standard',
-      folderPath: '/repo/app',
-      agents: {},
-      layoutModel: railLayout,
-      paneState: { open: false, activeTabId: 'g', tabs: [{ id: 'g', kind: 'git' }] },
-    }],
+    workspaces: [
+      {
+        id: 'ws-backlog',
+        mode: 'standard',
+        folderPath: '/repo/app',
+        agents: {},
+        layoutModel: railLayout,
+        paneState: { open: false, activeTabId: 'g', tabs: [{ id: 'g', kind: 'git' }] },
+      },
+    ],
     activeWorkspaceId: 'ws-backlog',
     appSettings: {},
   }
   const migratedBacklog = migratePersistedWorkspaceState(v73WithBacklogRail, 73) as {
-    workspaces: Array<{ layoutModel: unknown; paneState?: { open: boolean; activeTabId: string | null; tabs: Array<{ id: string; kind: string }> } }>
+    workspaces: Array<{
+      layoutModel: unknown
+      paneState?: { open: boolean; activeTabId: string | null; tabs: Array<{ id: string; kind: string }> }
+    }>
   }
   const migratedWs = migratedBacklog.workspaces[0]
-  assert.equal(JSON.stringify(migratedWs.layoutModel).includes('"component":"backlog"'), false, 'v74 strips the backlog rail tab')
-  assert.deepEqual(migratedWs.paneState?.tabs.map((tab) => tab.kind), ['git', 'backlog'], 'v74 adopts the backlog into the existing pane record')
+  assert.equal(
+    JSON.stringify(migratedWs.layoutModel).includes('"component":"backlog"'),
+    false,
+    'v74 strips the backlog rail tab',
+  )
+  assert.deepEqual(
+    migratedWs.paneState?.tabs.map((tab) => tab.kind),
+    ['git', 'backlog'],
+    'v74 adopts the backlog into the existing pane record',
+  )
   assert.equal(migratedWs.paneState?.open, true)
-  assert.equal(migratedWs.paneState?.activeTabId, migratedWs.paneState?.tabs[1].id, 'a closed pane opens on the backlog the rail was showing')
+  assert.equal(
+    migratedWs.paneState?.activeTabId,
+    migratedWs.paneState?.tabs[1].id,
+    'a closed pane opens on the backlog the rail was showing',
+  )
   const migratedTwice = migratePersistedWorkspaceState(v73WithBacklogRail, 72) as typeof migratedBacklog
-  assert.deepEqual(migratedTwice.workspaces[0].paneState?.tabs.map((tab) => tab.kind), ['git', 'backlog'], 'a v72 profile passing both rungs adopts it once')
+  assert.deepEqual(
+    migratedTwice.workspaces[0].paneState?.tabs.map((tab) => tab.kind),
+    ['git', 'backlog'],
+    'a v72 profile passing both rungs adopts it once',
+  )
 }
 
 // v69: `cliModelCatalog` arrives — what each CLI reported about its own models,
@@ -415,10 +446,8 @@ assert.deepEqual(
 // enforcement half, so a malformed catalog cannot ride into the pickers inside
 // a current-version envelope the ladder never revisits.
 assert.equal(
-  normalizeAppSettings(
-    { cliModelCatalog: { grok: { models: [{ id: 'grok-4' }], source: 'argv-probe' } } } as never,
-    [],
-  ).cliModelCatalog,
+  normalizeAppSettings({ cliModelCatalog: { grok: { models: [{ id: 'grok-4' }], source: 'argv-probe' } } } as never, [])
+    .cliModelCatalog,
   undefined,
   'normalizeAppSettings drops a malformed discovered catalog regardless of store version',
 )
@@ -443,7 +472,7 @@ const migratedEffort = migratePersistedWorkspaceState(v69WithEffort, 69) as { ap
 assert.deepEqual(
   migratedEffort.appSettings.lastSelectedAgentModel,
   { cli: 'codex', model: '', reasoning: 'xhigh' },
-  'v70 keeps a level chosen without a model — the CLI\'s own default model at that effort',
+  "v70 keeps a level chosen without a model — the CLI's own default model at that effort",
 )
 assert.deepEqual(
   migratedEffort.appSettings.cliModelCatalog,
@@ -454,18 +483,14 @@ assert.deepEqual(
 // normalizeAppSettings on every hydration, so a blank or malformed level cannot
 // ride into a launch inside a current-version envelope the ladder never revisits.
 assert.deepEqual(
-  normalizeAppSettings(
-    { lastSelectedAgentModel: { cli: 'codex', model: 'gpt-5.5', reasoning: '   ' } } as never,
-    [],
-  ).lastSelectedAgentModel,
+  normalizeAppSettings({ lastSelectedAgentModel: { cli: 'codex', model: 'gpt-5.5', reasoning: '   ' } } as never, [])
+    .lastSelectedAgentModel,
   { cli: 'codex', model: 'gpt-5.5' },
   'normalizeAppSettings drops a blank level regardless of store version',
 )
 assert.equal(
-  normalizeAppSettings(
-    { lastSelectedAgentModel: { cli: '', model: '', reasoning: 'high' } } as never,
-    [],
-  ).lastSelectedAgentModel,
+  normalizeAppSettings({ lastSelectedAgentModel: { cli: '', model: '', reasoning: 'high' } } as never, [])
+    .lastSelectedAgentModel,
   null,
   'and drops a selection naming no CLI entirely',
 )
@@ -488,7 +513,7 @@ const migratedBag = migratePersistedWorkspaceState(v70WithModuleBag, 70) as { wo
 assert.deepEqual(
   migratedBag.workspaces[0].moduleState?.['weather-deck'],
   { lastCity: 'Dublin' },
-  'another module\'s bag entry rides the ladder untouched',
+  "another module's bag entry rides the ladder untouched",
 )
 // And the next write keeps it: the bag persists verbatim.
 assert.deepEqual(

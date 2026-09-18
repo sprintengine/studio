@@ -80,10 +80,7 @@ run('epicMetaBySlug carries the epic display id when the scan has allocated one'
 })
 
 run('items with no epic collapse into a single trailing No epic group', () => {
-  const groups = groupItemsByEpic([
-    mk('backlog/a.md', { status: 'idea' }),
-    mk('backlog/b.md', { status: 'completed' }),
-  ])
+  const groups = groupItemsByEpic([mk('backlog/a.md', { status: 'idea' }), mk('backlog/b.md', { status: 'completed' })])
   assert.equal(groups.length, 1)
   assert.equal(groups[0].kind, 'none')
   assert.equal(groups[0].slug, null)
@@ -115,24 +112,27 @@ run('a dangling epic slug becomes an Unknown epic group and never drops the item
   assert.deepEqual(groups[0].children, [orphan])
 })
 
-run('epicProgressBySlug rolls up the FULL scan: completed/total per slug, 0/0 for childless epics, dangling slugs included', () => {
-  const progress = epicProgressBySlug([
-    mk('backlog/epics/auth.md', { type: 'epic', title: 'Auth' }),
-    mk('backlog/epics/empty.md', { type: 'epic', title: 'Empty' }),
-    mk('backlog/c1.md', { epic: 'auth', status: 'completed' }),
-    mk('backlog/c2.md', { epic: 'auth', status: 'in_progress' }),
-    mk('backlog/c3.md', { epic: 'auth', status: 'completed' }),
-    mk('backlog/d1.md', { epic: 'ghost', status: 'completed' }),
-    mk('backlog/loose.md', { status: 'idea' }),
-  ])
-  assert.deepEqual(progress.get('auth'), { done: 2, total: 3 })
-  // A childless epic still resolves — an accurate 0/0, never a missing entry.
-  assert.deepEqual(progress.get('empty'), { done: 0, total: 0 })
-  // A dangling slug (Unknown-epic group) rolls up too.
-  assert.deepEqual(progress.get('ghost'), { done: 1, total: 1 })
-  // No-epic items belong to no slug.
-  assert.equal(progress.size, 3)
-})
+run(
+  'epicProgressBySlug rolls up the FULL scan: completed/total per slug, 0/0 for childless epics, dangling slugs included',
+  () => {
+    const progress = epicProgressBySlug([
+      mk('backlog/epics/auth.md', { type: 'epic', title: 'Auth' }),
+      mk('backlog/epics/empty.md', { type: 'epic', title: 'Empty' }),
+      mk('backlog/c1.md', { epic: 'auth', status: 'completed' }),
+      mk('backlog/c2.md', { epic: 'auth', status: 'in_progress' }),
+      mk('backlog/c3.md', { epic: 'auth', status: 'completed' }),
+      mk('backlog/d1.md', { epic: 'ghost', status: 'completed' }),
+      mk('backlog/loose.md', { status: 'idea' }),
+    ])
+    assert.deepEqual(progress.get('auth'), { done: 2, total: 3 })
+    // A childless epic still resolves — an accurate 0/0, never a missing entry.
+    assert.deepEqual(progress.get('empty'), { done: 0, total: 0 })
+    // A dangling slug (Unknown-epic group) rolls up too.
+    assert.deepEqual(progress.get('ghost'), { done: 1, total: 1 })
+    // No-epic items belong to no slug.
+    assert.equal(progress.size, 3)
+  },
+)
 
 run('progress counts completed children and aggregateSize rolls up difficulty', () => {
   const epic = mk('backlog/epics/auth.md', { type: 'epic', title: 'Auth' })
@@ -164,8 +164,14 @@ run('groups order by epic order then title, with Unknown epic then No epic last'
   ])
   // order 1 (Zeta) before order 2 (Alpha) — order beats alphabetical; Beta (no
   // order) sorts after both by title; then Unknown, then No epic last.
-  assert.deepEqual(groups.map((group) => group.title), ['Zeta', 'Alpha', 'Beta', 'Unknown epic', 'No epic'])
-  assert.deepEqual(groups.map((group) => group.kind), ['epic', 'epic', 'epic', 'unknown', 'none'])
+  assert.deepEqual(
+    groups.map((group) => group.title),
+    ['Zeta', 'Alpha', 'Beta', 'Unknown epic', 'No epic'],
+  )
+  assert.deepEqual(
+    groups.map((group) => group.kind),
+    ['epic', 'epic', 'epic', 'unknown', 'none'],
+  )
 })
 
 run('epic color comes from frontmatter; an invalid color falls back to null', () => {
@@ -264,8 +270,14 @@ run('planEpicArchive: no collision keeps the slug and re-points nothing', () => 
   assert.equal(plan.epicArchivedRel, 'backlog/archived/auth.md')
   assert.equal(plan.epicArchivedSlug, 'auth')
   assert.equal(plan.slugChanged, false)
-  assert.deepEqual(plan.children.map((move) => move.repointEpic), [null, null])
-  assert.deepEqual(plan.children.map((move) => move.archivedRel), ['backlog/archived/a.md', 'backlog/archived/b.md'])
+  assert.deepEqual(
+    plan.children.map((move) => move.repointEpic),
+    [null, null],
+  )
+  assert.deepEqual(
+    plan.children.map((move) => move.archivedRel),
+    ['backlog/archived/a.md', 'backlog/archived/b.md'],
+  )
 })
 
 run('planEpicArchive: an archived-name collision renames the epic and re-points every child to the new stem', () => {
@@ -277,7 +289,10 @@ run('planEpicArchive: an archived-name collision renames the epic and re-points 
   assert.equal(plan.epicArchivedSlug, 'auth-2')
   assert.equal(plan.slugChanged, true)
   // Both children are re-pointed to the renamed stem so they stay grouped.
-  assert.deepEqual(plan.children.map((move) => move.repointEpic), ['auth-2', 'auth-2'])
+  assert.deepEqual(
+    plan.children.map((move) => move.repointEpic),
+    ['auth-2', 'auth-2'],
+  )
 })
 
 run('after a collision-rename + re-point, the archived epic + children still group as one unit (AC2)', () => {

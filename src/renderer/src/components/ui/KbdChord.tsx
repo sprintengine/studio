@@ -31,11 +31,7 @@ export function KbdChord({ keys, chord, platform, separator, ariaLabel, classNam
   const label = ariaLabel ?? displayStrokes.map((stroke) => stroke.join(' ')).join(tapChord ? ' ' : ' then ')
   const sep = separator ?? '+'
   return (
-    <span
-      role="img"
-      aria-label={label}
-      className={['inline-flex items-center gap-1', className ?? ''].join(' ')}
-    >
+    <span role="img" aria-label={label} className={['inline-flex items-center gap-1', className ?? ''].join(' ')}>
       {displayStrokes.map((stroke, strokeIndex) => (
         <React.Fragment key={`stroke-${strokeIndex}`}>
           {strokeIndex > 0 && !tapChord ? (
@@ -46,10 +42,7 @@ export function KbdChord({ keys, chord, platform, separator, ariaLabel, classNam
           {stroke.map((key, index) => (
             <React.Fragment key={`${strokeIndex}-${index}-${key}`}>
               {index > 0 ? (
-                <span
-                  aria-hidden="true"
-                  className="font-mono text-micro text-[color:var(--text-disabled)]"
-                >
+                <span aria-hidden="true" className="font-mono text-micro text-[color:var(--text-disabled)]">
                   {sep}
                 </span>
               ) : null}

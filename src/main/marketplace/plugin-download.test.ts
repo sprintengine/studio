@@ -25,11 +25,16 @@ import { skillContentDigest } from './skill-content'
 
 const SOURCE_URL = 'https://github.com/sprintengine/studio-releases/tree/main/plugins/downloaded-plugin'
 const API_ROOT = 'https://api.github.com/repos/sprintengine/studio-releases/contents/plugins/downloaded-plugin?ref=main'
-const API_MCP = 'https://api.github.com/repos/sprintengine/studio-releases/contents/plugins/downloaded-plugin/mcp?ref=main'
-const RAW_PLUGIN = 'https://raw.githubusercontent.com/sprintengine/studio-releases/main/plugins/downloaded-plugin/plugin.json'
-const RAW_MCP = 'https://raw.githubusercontent.com/sprintengine/studio-releases/main/plugins/downloaded-plugin/mcp/server.json'
-const API_AUTOMATION = 'https://api.github.com/repos/sprintengine/studio-releases/contents/plugins/downloaded-plugin/automation?ref=main'
-const RAW_AUTOMATION = 'https://raw.githubusercontent.com/sprintengine/studio-releases/main/plugins/downloaded-plugin/automation/automation.json'
+const API_MCP =
+  'https://api.github.com/repos/sprintengine/studio-releases/contents/plugins/downloaded-plugin/mcp?ref=main'
+const RAW_PLUGIN =
+  'https://raw.githubusercontent.com/sprintengine/studio-releases/main/plugins/downloaded-plugin/plugin.json'
+const RAW_MCP =
+  'https://raw.githubusercontent.com/sprintengine/studio-releases/main/plugins/downloaded-plugin/mcp/server.json'
+const API_AUTOMATION =
+  'https://api.github.com/repos/sprintengine/studio-releases/contents/plugins/downloaded-plugin/automation?ref=main'
+const RAW_AUTOMATION =
+  'https://raw.githubusercontent.com/sprintengine/studio-releases/main/plugins/downloaded-plugin/automation/automation.json'
 const AUTOMATION_COMPONENT_PATH = 'automation/automation.json'
 
 type BundleFixture = {
@@ -65,28 +70,37 @@ function bytesResponse(value: Uint8Array, init: ResponseInit = {}): Response {
 }
 
 function mcpComponentSource(): string {
-  return `${JSON.stringify({
-    servers: [
-      {
-        id: 'downloaded-mcp',
-        name: 'Downloaded MCP',
-        transport: 'stdio',
-        command: 'node',
-        args: ['-e', 'console.log("downloaded mcp")'],
-        clients: ['codex'],
-        scope: 'workspace',
-        source: 'bundled',
-        riskLevel: 'local-command',
-      },
-    ],
-  }, null, 2)}\n`
+  return `${JSON.stringify(
+    {
+      servers: [
+        {
+          id: 'downloaded-mcp',
+          name: 'Downloaded MCP',
+          transport: 'stdio',
+          command: 'node',
+          args: ['-e', 'console.log("downloaded mcp")'],
+          clients: ['codex'],
+          scope: 'workspace',
+          source: 'bundled',
+          riskLevel: 'local-command',
+        },
+      ],
+    },
+    null,
+    2,
+  )}\n`
 }
 
 function sha256Hex(value: string | Uint8Array): string {
-  return createHash('sha256').update(typeof value === 'string' ? Buffer.from(value, 'utf8') : Buffer.from(value)).digest('hex')
+  return createHash('sha256')
+    .update(typeof value === 'string' ? Buffer.from(value, 'utf8') : Buffer.from(value))
+    .digest('hex')
 }
 
-function createFixture(overrides: Record<string, unknown> = {}, mcpJson: string | Uint8Array = mcpComponentSource()): BundleFixture {
+function createFixture(
+  overrides: Record<string, unknown> = {},
+  mcpJson: string | Uint8Array = mcpComponentSource(),
+): BundleFixture {
   const keyPair = generateModuleSigningKeyPair()
   const unsigned = {
     id: 'downloaded-plugin',
@@ -123,10 +137,12 @@ function createFixture(overrides: Record<string, unknown> = {}, mcpJson: string 
   }
 }
 
-function createUnsignedFixture(overrides: {
-  provides?: MarketplaceComponentKind[]
-  components?: Record<string, unknown>
-} = {}): { entry: MarketplacePluginEntry; manifest: Record<string, unknown> } {
+function createUnsignedFixture(
+  overrides: {
+    provides?: MarketplaceComponentKind[]
+    components?: Record<string, unknown>
+  } = {},
+): { entry: MarketplacePluginEntry; manifest: Record<string, unknown> } {
   const provides: MarketplaceComponentKind[] = overrides.provides ?? ['mcp']
   const components = overrides.components ?? {
     mcp: { path: 'mcp/server.json', files: [{ path: 'mcp/server.json', sha256: sha256Hex(mcpComponentSource()) }] },
@@ -159,12 +175,19 @@ function createUnsignedFixture(overrides: {
 }
 
 function automationComponentSource(): string {
-  return `${JSON.stringify({
-    name: 'Nightly dependency sweep',
-    status: 'paused',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' } },
-    action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
-  }, null, 2)}\n`
+  return `${JSON.stringify(
+    {
+      name: 'Nightly dependency sweep',
+      status: 'paused',
+      trigger: {
+        kind: 'schedule',
+        config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
+      },
+      action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
+    },
+    null,
+    2,
+  )}\n`
 }
 
 // Serves a bundle whose only component is the automation definition, so the
@@ -197,7 +220,10 @@ function automationComponents(automationJson: string): Record<string, unknown> {
   }
 }
 
-function createGithubFetcher(pluginJson: string, mcpJson: string | Uint8Array = mcpComponentSource()): {
+function createGithubFetcher(
+  pluginJson: string,
+  mcpJson: string | Uint8Array = mcpComponentSource(),
+): {
   fetcher: MarketplacePluginDownloadFetch
   requests: string[]
 } {
@@ -211,9 +237,7 @@ function createGithubFetcher(pluginJson: string, mcpJson: string | Uint8Array = 
       ])
     }
     if (url === API_MCP) {
-      return jsonResponse([
-        { type: 'file', path: 'plugins/downloaded-plugin/mcp/server.json', download_url: RAW_MCP },
-      ])
+      return jsonResponse([{ type: 'file', path: 'plugins/downloaded-plugin/mcp/server.json', download_url: RAW_MCP }])
     }
     if (url === RAW_PLUGIN) return textResponse(pluginJson)
     if (url === RAW_MCP) return typeof mcpJson === 'string' ? textResponse(mcpJson) : bytesResponse(mcpJson)
@@ -340,9 +364,7 @@ async function testGithubPathValidationDoesNotFallbackToPackagedSeedBundle(): Pr
       stagingRoot,
       fetcher: async (url) => {
         if (url === API_ROOT) {
-          return jsonResponse([
-            { type: 'file', path: 'plugins/other-plugin/plugin.json', download_url: RAW_PLUGIN },
-          ])
+          return jsonResponse([{ type: 'file', path: 'plugins/other-plugin/plugin.json', download_url: RAW_PLUGIN }])
         }
         if (url === RAW_PLUGIN) return textResponse(`${JSON.stringify(fixture.manifest, null, 2)}\n`)
         return new Response('not found', { status: 404 })
@@ -406,7 +428,7 @@ async function testDownloadedComponentDigestMismatchBlocksAndRemovesStage(): Pro
     const fixture = createFixture()
     const { fetcher } = createGithubFetcher(
       `${JSON.stringify(fixture.manifest, null, 2)}\n`,
-      `${JSON.stringify({ servers: [] })}\n`
+      `${JSON.stringify({ servers: [] })}\n`,
     )
     const stagingRoot = join(dir, 'staging')
 
@@ -580,7 +602,7 @@ async function testAutomationPayloadThatIsNotADefinitionRejected(): Promise<void
     assert.equal(result.classification, 'invalid')
     assert.deepEqual(
       result.issues?.map((issue) => issue.path),
-      ['components.automation.trigger', 'components.automation.action']
+      ['components.automation.trigger', 'components.automation.action'],
     )
     assert.deepEqual(await readdir(stagingRoot), [])
   })
@@ -733,16 +755,23 @@ function testCliAndAppRejectSameTamperedModuleBytes(): void {
     mkdirSync(moduleDir)
     writeFileSync(
       join(moduleDir, 'manifest.json'),
-      JSON.stringify({
-        id: 'marketplace-download-fixture',
-        displayName: 'Marketplace Download Fixture',
-        version: 1,
-        permissions: ['network'],
-      }, null, 2)
+      JSON.stringify(
+        {
+          id: 'marketplace-download-fixture',
+          displayName: 'Marketplace Download Fixture',
+          version: 1,
+          permissions: ['network'],
+        },
+        null,
+        2,
+      ),
     )
     const keyPath = join(workDir, 'signing.key')
     assert.equal(spawnSync(process.execPath, [cliBundle, 'keygen', '--out', keyPath], { encoding: 'utf8' }).status, 0)
-    assert.equal(spawnSync(process.execPath, [cliBundle, 'sign', moduleDir, '--key', keyPath], { encoding: 'utf8' }).status, 0)
+    assert.equal(
+      spawnSync(process.execPath, [cliBundle, 'sign', moduleDir, '--key', keyPath], { encoding: 'utf8' }).status,
+      0,
+    )
 
     const manifestPath = join(moduleDir, 'manifest.json')
     const manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as Record<string, unknown>
@@ -763,7 +792,6 @@ function testCliAndAppRejectSameTamperedModuleBytes(): void {
   }
 }
 
-
 // --- Claude Code plugin sources: bundled snapshot content (MC-1644) ---------
 
 type BundledSkillFixture = {
@@ -781,7 +809,7 @@ function createBundledSkillFixture(
   skillFolders: Record<string, Record<string, string>> = {
     alpha: { 'SKILL.md': '---\nname: alpha\n---\n', 'scripts/run.py': 'print("hi")\n' },
     beta: { 'SKILL.md': '---\nname: beta\n---\n' },
-  }
+  },
 ): BundledSkillFixture {
   const resourceDir = join(root, 'packaged', 'skills', 'acme-skills')
   const skills = Object.entries(skillFolders).map(([folder, files]) => {
@@ -841,11 +869,11 @@ async function testClaudePluginBundledContentStagesSkills(): Promise<void> {
       assert.match(download.resolvedRef, /^bundled:[a-f0-9]{16}$/)
       assert.equal(
         await readFile(join(download.stagedPath, 'skills', 'alpha', 'SKILL.md'), 'utf8'),
-        '---\nname: alpha\n---\n'
+        '---\nname: alpha\n---\n',
       )
       assert.equal(
         await readFile(join(download.stagedPath, 'skills', 'alpha', 'scripts', 'run.py'), 'utf8'),
-        'print("hi")\n'
+        'print("hi")\n',
       )
       assert.equal(events.includes('claude-plugin:staged'), true)
     } finally {
@@ -890,7 +918,10 @@ async function testClaudePluginMetadataOnlySkillsSurfaced(): Promise<void> {
     // The entry lists a third skill that shipped without content (capture cap).
     const entry: MarketplacePluginEntry = {
       ...fixture.entry,
-      skills: [...(fixture.entry.skills ?? []), { name: 'capped', description: 'Too big to bundle.', path: 'skills/capped' }],
+      skills: [
+        ...(fixture.entry.skills ?? []),
+        { name: 'capped', description: 'Too big to bundle.', path: 'skills/capped' },
+      ],
     }
     const download = await downloadClaudeCodePluginSource({
       entry,

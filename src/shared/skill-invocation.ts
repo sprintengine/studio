@@ -85,7 +85,5 @@ export function renderSkillMention(
   if (prefix === undefined) return undefined
   const template = integration?.invocation?.mentionTemplate
   if (!template) return `${prefix}${skillId}`
-  return template
-    .replace(/\{\{\s*mentionPrefix\s*\}\}/g, prefix)
-    .replace(/\{\{\s*skillId\s*\}\}/g, skillId)
+  return template.replace(/\{\{\s*mentionPrefix\s*\}\}/g, prefix).replace(/\{\{\s*skillId\s*\}\}/g, skillId)
 }

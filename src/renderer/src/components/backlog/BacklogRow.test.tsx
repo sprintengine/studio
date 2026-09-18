@@ -67,9 +67,7 @@ run('unstarred rows render no star element at all — the mark is earned', () =>
 })
 
 run('the shared row interior keeps its columns with the star present (panel + source picker)', () => {
-  const markup = renderToStaticMarkup(
-    <BacklogRowContent item={itemWith({ starred: true, color: 'pink' })} now={NOW} />,
-  )
+  const markup = renderToStaticMarkup(<BacklogRowContent item={itemWith({ starred: true, color: 'pink' })} now={NOW} />)
   // The same interior renders in the Backlog panel list and the new-workspace
   // source picker; every at-rest column must survive the trailing star.
   assert.match(markup, /Checkout flow/, 'title renders')
@@ -130,9 +128,7 @@ run('star and color never affect list order — comparator ignores highlight for
 // ---- Waiting badge + detail dependencies (T4) ------------------------------
 
 run('a waiting row renders the non-color-only "Waiting" badge with one accessible name', () => {
-  const markup = renderToStaticMarkup(
-    <BacklogRowContent item={itemWith()} now={NOW} dependencyState="waiting" />,
-  )
+  const markup = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} dependencyState="waiting" />)
   // The word — not color — carries the meaning, and the whole token reads as one
   // accessible name (so a screen reader announces it, not a bare glyph).
   assert.match(markup, /aria-label="Waiting on prerequisites"/, 'the badge carries one accessible name')
@@ -154,9 +150,7 @@ run('a blocked row presents as Blocked, never Ready: glyph, tooltip word, and ba
     sourceContent: '---\nstatus: ready\ndependsOn: other\n---\n# Gated item',
     stats: { modifiedAtMs: 1_000, sizeBytes: 64 },
   })
-  const markup = renderToStaticMarkup(
-    <BacklogRowContent item={ready} now={NOW} dependencyState="blocked" />,
-  )
+  const markup = renderToStaticMarkup(<BacklogRowContent item={ready} now={NOW} dependencyState="blocked" />)
   assert.match(markup, /aria-label="Blocked by prerequisites"/, 'the badge carries one accessible name')
   assert.match(markup, /Blocked/, 'the visible word "Blocked" is present')
   assert.ok(!markup.includes('>Ready<'), 'the status tooltip no longer claims Ready')
@@ -169,9 +163,7 @@ run('a blocked row presents as Blocked, never Ready: glyph, tooltip word, and ba
 
 run('a waiting dependency keeps the item\u2019s own status and adds the softer badge', () => {
   const ready = itemWith(undefined, 'backlog/gated.md')
-  const markup = renderToStaticMarkup(
-    <BacklogRowContent item={ready} now={NOW} dependencyState="waiting" />,
-  )
+  const markup = renderToStaticMarkup(<BacklogRowContent item={ready} now={NOW} dependencyState="waiting" />)
   assert.ok(!markup.includes('Blocked by prerequisites'), 'waiting is not blocked')
   assert.match(markup, /aria-label="Waiting on prerequisites"/, 'the softer waiting badge renders')
 })
@@ -329,7 +321,11 @@ function depSection(items: BacklogItem[], selectedPath: string): string {
     <BacklogDependenciesSection
       item={selected}
       node={graph.byItemId.get(selected.id) ?? null}
-      dependencyChoices={items.map((item) => ({ id: item.id, slug: item.relativePath.replace(/^.*\//, '').replace(/\.md$/, ''), title: item.title }))}
+      dependencyChoices={items.map((item) => ({
+        id: item.id,
+        slug: item.relativePath.replace(/^.*\//, '').replace(/\.md$/, ''),
+        title: item.title,
+      }))}
       actions={noopActions}
       onNavigate={() => {}}
     />,
@@ -376,10 +372,7 @@ run('detail cycle warning shows when the selected item is in a dependency cycle'
 })
 
 run('detail dependency editor offers a "Depends on…" control', () => {
-  const items = [
-    depItem('backlog/a.md', { status: 'idea' }),
-    depItem('backlog/b.md', { status: 'idea' }),
-  ]
+  const items = [depItem('backlog/a.md', { status: 'idea' }), depItem('backlog/b.md', { status: 'idea' })]
   const markup = depSection(items, 'backlog/b.md')
   assert.match(markup, /Depends on…/, 'the add/remove editor is reachable from the detail pane')
 })
@@ -404,12 +397,7 @@ function mockupItem(opts: { mockups?: string[]; body?: string } = {}): BacklogIt
 
 function mockupsSection(item: BacklogItem): string {
   return renderToStaticMarkup(
-    <BacklogMockupsSection
-      item={item}
-      folderPath="/repo"
-      onOpenMockup={() => {}}
-      onSetMockups={() => {}}
-    />,
+    <BacklogMockupsSection item={item} folderPath="/repo" onOpenMockup={() => {}} onSetMockups={() => {}} />,
   )
 }
 
@@ -475,9 +463,7 @@ run('panel rows resolve the row color (highlight ▸ epic ▸ derived risk) thro
   )
   // The row surface paints through the one seam, so the paint order below
   // cannot drift from it.
-  for (const [surface, source] of [
-    ['panel', backlogPanelSource],
-  ] as const) {
+  for (const [surface, source] of [['panel', backlogPanelSource]] as const) {
     assert.match(
       source,
       /backlogRowPaintClass\(\{\s*color(: \w+)?,\s*litFill,\s*selected,?\s*\}\)/,
@@ -530,7 +516,10 @@ run('paint order: an unselected lit row keeps the full identity tint', () => {
 
 run('paint order: derived risk heat never tints the row, and has no stripe to tint', () => {
   const heat = backlogRowPaintClass({ color: 'red', litFill: false, selected: false })
-  assert.ok(!heat.includes(getHighlightSwatch('red').border), 'derived heat paints no stripe; the priority glyph carries it')
+  assert.ok(
+    !heat.includes(getHighlightSwatch('red').border),
+    'derived heat paints no stripe; the priority glyph carries it',
+  )
   assert.ok(!heat.includes('highlight-bg'), 'an unearned fill never lights the row')
 })
 
@@ -576,7 +565,11 @@ run('the Group axis is wired to the filter menu and is project-scoped, defaultin
 
 run('grouped render and cross-group selection run through the flattened nav order', () => {
   // The list branches to the grouped render only when groupedRows is present.
-  assert.match(backlogPanelSource, /groupedRows\s*\n?\s*\?\s*groupedRows\.map/, 'grouped branch renders the flattened rows')
+  assert.match(
+    backlogPanelSource,
+    /groupedRows\s*\n?\s*\?\s*groupedRows\.map/,
+    'grouped branch renders the flattened rows',
+  )
   assert.match(backlogPanelSource, /<BacklogGroupHeaderRow/, 'group headers render as their own rows')
   assert.match(backlogPanelSource, /indented\b/, 'grouped children render the shared option row, indented')
   // One nav order drives both j/k and aria-activedescendant across groups.
@@ -619,8 +612,15 @@ run('epic completion derives from the FULL scan and threads to rows + group head
 
 run('panel rows wrap in the hover card and suppress the clipped-title tooltip', () => {
   assert.match(backlogPanelSource, /<BacklogRowHoverCard\s+item=\{item\}/, 'each list row carries the hover card')
-  assert.match(backlogPanelSource, /plainTitle/, 'the row content skips its own clipped-title tooltip (no stacked popovers)')
-  assert.ok(!backlogPanelSource.includes('title={item.relativePath}'), 'the native path title attribute is retired for rows')
+  assert.match(
+    backlogPanelSource,
+    /plainTitle/,
+    'the row content skips its own clipped-title tooltip (no stacked popovers)',
+  )
+  assert.ok(
+    !backlogPanelSource.includes('title={item.relativePath}'),
+    'the native path title attribute is retired for rows',
+  )
 })
 
 run('the detail More-actions menu carries the shared Send-to-agent flyout', () => {
@@ -630,8 +630,16 @@ run('the detail More-actions menu carries the shared Send-to-agent flyout', () =
   assert.match(backlogPanelSource, /id: 'send-to-agent'/, 'the detail menu has a Send to agent flyout')
   assert.match(backlogPanelSource, /<AgentTargetMenuItems/, 'it renders the shared agent choice list')
   assert.match(backlogPanelSource, /if \(open\) onAgentFlyoutOpen\(\)/, 'opening the flyout refreshes session liveness')
-  assert.match(backlogPanelSource, /onSendToAgent\(selected, sessionId\)/, 'a pick sends the SELECTED item through the shared send path')
-  assert.match(contextMenuSource, /<AgentTargetMenuItems/, 'the row context menu renders the same shared list (no drift)')
+  assert.match(
+    backlogPanelSource,
+    /onSendToAgent\(selected, sessionId\)/,
+    'a pick sends the SELECTED item through the shared send path',
+  )
+  assert.match(
+    contextMenuSource,
+    /<AgentTargetMenuItems/,
+    'the row context menu renders the same shared list (no drift)',
+  )
 })
 
 run('the Epics lens renders flat epic rows, never childless group headers', () => {
@@ -646,7 +654,11 @@ run('row context menu exposes search-first Move to epic — assign, create, and 
   assert.match(contextMenuSource, /label="Move to epic"/, 'context menu has a Move to epic flyout')
   assert.match(contextMenuSource, /!item\.isEpic \?/, 'the flyout is hidden on epic rows (no nesting)')
   assert.match(contextMenuSource, /ariaLabel="Search epics"/, 'the full epic catalogue is replaced by a search field')
-  assert.match(contextMenuSource, /actions\.setEpic\(item, epic\.value\)/, 'selecting a real search result assigns it by slug')
+  assert.match(
+    contextMenuSource,
+    /actions\.setEpic\(item, epic\.value\)/,
+    'selecting a real search result assigns it by slug',
+  )
   assert.match(contextMenuSource, /actions\.createEpic\(item\)/, 'New epic… routes through the create handler')
   assert.match(contextMenuSource, /actions\.setEpic\(item, null\)/, 'Remove from epic clears the field')
   assert.match(contextMenuSource, /item\.epic \?/, 'Remove from epic shows only when the item has an epic')
@@ -656,7 +668,11 @@ run('epic assignment mutates only the child frontmatter via update/create-epic, 
   // setEpic → backlog:update-epic (frontmatter only); create → create-epic writer
   // then assign. items.json is never written for epic membership.
   assert.match(backlogPanelSource, /window\.api\.updateBacklogEpic\(\{/, 'setEpic mutates through the update-epic IPC')
-  assert.match(backlogPanelSource, /window\.api\.createBacklogEpic\(\{ workspaceRoot: folderPath, title \}\)/, 'New epic uses the create-epic writer')
+  assert.match(
+    backlogPanelSource,
+    /window\.api\.createBacklogEpic\(\{ workspaceRoot: folderPath, title \}\)/,
+    'New epic uses the create-epic writer',
+  )
   assert.match(
     backlogPanelSource,
     /epic: created\.slug/,
@@ -671,7 +687,11 @@ run('epic assignment mutates only the child frontmatter via update/create-epic, 
 
 run('detail triage exposes the same search-first Epic control and handlers', () => {
   assert.match(backlogPanelSource, /ariaLabel="Move to epic"/, 'detail pane has an Epic select')
-  assert.match(backlogPanelSource, /ariaLabel="Search epics"/, 'the detail Epic control searches instead of listing every epic')
+  assert.match(
+    backlogPanelSource,
+    /ariaLabel="Search epics"/,
+    'the detail Epic control searches instead of listing every epic',
+  )
   assert.match(backlogPanelSource, /actions\.setEpic\(item, epic\.value\)/, 'a real result assigns the epic')
   assert.match(backlogPanelSource, /actions\.createEpic\(item\)/, 'New epic opens the create flow')
   assert.match(backlogPanelSource, /actions\.setEpic\(item, null\)/, 'Remove from epic clears the field')
@@ -684,10 +704,26 @@ run('the detail More-actions menu carries the Size/Priority/Risk/Status triage f
   assert.match(backlogPanelSource, /kind: 'flyout' as const,/, 'the triage editors are flyout submenus')
   // Each choice routes through the shared BacklogActions setters, then closes the
   // whole overflow menu — the same handlers the row right-click menu uses.
-  assert.match(backlogPanelSource, /actions\.setStatus\(selected, status\)\s*\n\s*close\(\)/, 'status choice applies + closes')
-  assert.match(backlogPanelSource, /actions\.setDifficulty\(selected, value\)\s*\n\s*close\(\)/, 'size choice applies + closes')
-  assert.match(backlogPanelSource, /actions\.setCriticality\(selected, value\)\s*\n\s*close\(\)/, 'priority choice applies + closes')
-  assert.match(backlogPanelSource, /actions\.setRisk\(selected, value\)\s*\n\s*close\(\)/, 'risk choice applies + closes')
+  assert.match(
+    backlogPanelSource,
+    /actions\.setStatus\(selected, status\)\s*\n\s*close\(\)/,
+    'status choice applies + closes',
+  )
+  assert.match(
+    backlogPanelSource,
+    /actions\.setDifficulty\(selected, value\)\s*\n\s*close\(\)/,
+    'size choice applies + closes',
+  )
+  assert.match(
+    backlogPanelSource,
+    /actions\.setCriticality\(selected, value\)\s*\n\s*close\(\)/,
+    'priority choice applies + closes',
+  )
+  assert.match(
+    backlogPanelSource,
+    /actions\.setRisk\(selected, value\)\s*\n\s*close\(\)/,
+    'risk choice applies + closes',
+  )
 })
 
 run('the triage editors no longer render as inline body Selects', () => {
@@ -710,44 +746,51 @@ run('archive epic rolls up children: menu + overflow swap Archive→Archive epic
   )
 })
 
-run('archiveEpicRollup archives children then the epic via the plan + shared archive-move, re-pointing on collision', () => {
-  // childrenOfEpic gives the rollup set; planEpicArchive resolves collision-safe
-  // targets + the re-point decision; each member moves through the one shared
-  // moveItemToArchive helper (no new archive mechanism).
-  assert.match(
-    backlogPanelSource,
-    /childrenOfEpic\(items, epicSlug\(epic\)\)\.filter\(\(child\) => child\.status !== 'archived'\)/,
-    'the rollup set is the epic’s active children',
-  )
-  assert.match(
-    backlogPanelSource,
-    /planEpicArchive\(epic, children, archivedRelativePaths\(\)\)/,
-    'the collision-safe targets + re-point plan come from the pure planner',
-  )
-  assert.match(
-    backlogPanelSource,
-    /if \(move\.repointEpic !== null\)/,
-    'on a collision rename, each child is re-pointed to the epic’s new stem before its move',
-  )
-  assert.match(
-    backlogPanelSource,
-    /await moveItemToArchive\(move\.item, move\.archivedRel\)/,
-    'each child uses the shared archive-move helper',
-  )
-  assert.match(
-    backlogPanelSource,
-    /await moveItemToArchive\(epic, plan\.epicArchivedRel\)/,
-    'the epic is archived last (children first → recoverable on mid-batch failure)',
-  )
-  assert.match(backlogPanelSource, /archiveEpic: \(item\) => void archiveEpicRollup\(item\)/, 'archiveEpic sits in shared BacklogActions')
-  // In a terminal lens (Completed or Archived) an epic group defaults collapsed
-  // so it reads as one rolled-up unit, not N loose finished child rows.
-  assert.match(
-    backlogPanelSource,
-    /\(view === 'archived' \|\| view === 'completed'\) && epicGroup\.kind === 'epic'/,
-    'terminal-lens epic groups roll up collapsed by default',
-  )
-})
+run(
+  'archiveEpicRollup archives children then the epic via the plan + shared archive-move, re-pointing on collision',
+  () => {
+    // childrenOfEpic gives the rollup set; planEpicArchive resolves collision-safe
+    // targets + the re-point decision; each member moves through the one shared
+    // moveItemToArchive helper (no new archive mechanism).
+    assert.match(
+      backlogPanelSource,
+      /childrenOfEpic\(items, epicSlug\(epic\)\)\.filter\(\(child\) => child\.status !== 'archived'\)/,
+      'the rollup set is the epic’s active children',
+    )
+    assert.match(
+      backlogPanelSource,
+      /planEpicArchive\(epic, children, archivedRelativePaths\(\)\)/,
+      'the collision-safe targets + re-point plan come from the pure planner',
+    )
+    assert.match(
+      backlogPanelSource,
+      /if \(move\.repointEpic !== null\)/,
+      'on a collision rename, each child is re-pointed to the epic’s new stem before its move',
+    )
+    assert.match(
+      backlogPanelSource,
+      /await moveItemToArchive\(move\.item, move\.archivedRel\)/,
+      'each child uses the shared archive-move helper',
+    )
+    assert.match(
+      backlogPanelSource,
+      /await moveItemToArchive\(epic, plan\.epicArchivedRel\)/,
+      'the epic is archived last (children first → recoverable on mid-batch failure)',
+    )
+    assert.match(
+      backlogPanelSource,
+      /archiveEpic: \(item\) => void archiveEpicRollup\(item\)/,
+      'archiveEpic sits in shared BacklogActions',
+    )
+    // In a terminal lens (Completed or Archived) an epic group defaults collapsed
+    // so it reads as one rolled-up unit, not N loose finished child rows.
+    assert.match(
+      backlogPanelSource,
+      /\(view === 'archived' \|\| view === 'completed'\) && epicGroup\.kind === 'epic'/,
+      'terminal-lens epic groups roll up collapsed by default',
+    )
+  },
+)
 
 run('detail overflow menu carries Star/Unstar through the persisted highlight handler', () => {
   assert.match(
@@ -770,8 +813,16 @@ run('detail overflow menu carries Star/Unstar through the persisted highlight ha
 run('Dependency order is a whole-list topo branch, not a pairwise comparator', () => {
   // The sort option exists and the filtered memo branches around
   // compareBacklogItems to the full-graph topo order, restricted to visible rows.
-  assert.match(backlogPanelSource, /value: 'dependency', label: 'Dependency order'/, 'the sort control gains Dependency order')
-  assert.match(backlogPanelSource, /deriveBacklogDependencies\(items\)/, 'the graph derives over the full scan, not the filtered view')
+  assert.match(
+    backlogPanelSource,
+    /value: 'dependency', label: 'Dependency order'/,
+    'the sort control gains Dependency order',
+  )
+  assert.match(
+    backlogPanelSource,
+    /deriveBacklogDependencies\(items\)/,
+    'the graph derives over the full scan, not the filtered view',
+  )
   assert.match(backlogPanelSource, /if \(sort === 'dependency'\)/, 'the panel branches on the dependency sort')
   assert.match(
     backlogPanelSource,
@@ -786,7 +837,11 @@ run('detail cross-navigation widens the lens so a filtered-out target never dead
   // target hidden by the active lens/search (always for a terminal item — the
   // default Active lens hides completed/archived) would be dropped by the
   // validity effect.
-  assert.match(backlogPanelSource, /onNavigate=\{navigateToBacklogItem\}/, 'the detail section navigates through the widening handler')
+  assert.match(
+    backlogPanelSource,
+    /onNavigate=\{navigateToBacklogItem\}/,
+    'the detail section navigates through the widening handler',
+  )
   assert.match(
     backlogPanelSource,
     /!filtered\.some\(\(item\) => item\.id === id\)/,
@@ -802,9 +857,20 @@ run('detail cross-navigation widens the lens so a filtered-out target never dead
   // Active lens (or the parent epic of a filtered row) sits outside `filtered`,
   // so both must route through the same widening handler — a plain row-select
   // dead-clicks back to the bare list.
-  assert.match(backlogPanelSource, /onClick=\{\(\) => onNavigate\(parentEpic\.id\)\}/, 'the child -> parent-epic crumb navigates through the widening handler')
-  assert.match(backlogPanelSource, /onClick=\{\(\) => onNavigate\(child\.id\)\}/, 'the epic -> child roll-up rows navigate through the widening handler')
-  assert.ok(!backlogPanelSource.includes('onSelectItem'), 'the detail pane has no plain-select escape hatch; all its cross-navigation widens')
+  assert.match(
+    backlogPanelSource,
+    /onClick=\{\(\) => onNavigate\(parentEpic\.id\)\}/,
+    'the child -> parent-epic crumb navigates through the widening handler',
+  )
+  assert.match(
+    backlogPanelSource,
+    /onClick=\{\(\) => onNavigate\(child\.id\)\}/,
+    'the epic -> child roll-up rows navigate through the widening handler',
+  )
+  assert.ok(
+    !backlogPanelSource.includes('onSelectItem'),
+    'the detail pane has no plain-select escape hatch; all its cross-navigation widens',
+  )
 })
 
 run('the row dependency markers are derived (never persisted) and wired through the list', () => {
@@ -831,7 +897,11 @@ run('the row dependency markers are derived (never persisted) and wired through 
 })
 
 run('prerequisites persist only through the dependsOn frontmatter IPC, never items.json', () => {
-  assert.match(backlogPanelSource, /window\.api\.updateBacklogDependencies\(\{/, 'setDependencies mutates through the update-dependencies IPC')
+  assert.match(
+    backlogPanelSource,
+    /window\.api\.updateBacklogDependencies\(\{/,
+    'setDependencies mutates through the update-dependencies IPC',
+  )
   assert.match(
     backlogPanelSource,
     /setDependencies: \(item, slugs\) => void setItemDependencies\(item, slugs\)/,
@@ -843,14 +913,22 @@ run('the detail pane renders the Mockups section above Links, exempting only typ
   // The section leads the metadata stack (above Links) and renders for epics +
   // leaf items alike; a `type: mockup` item is the mockup itself, so it is exempt.
   assert.match(backlogPanelSource, /<BacklogMockupsSection/, 'the detail pane renders the Mockups section')
-  assert.match(backlogPanelSource, /selected\.type !== 'mockup' \?/, 'only a type: mockup item is exempt from the section')
+  assert.match(
+    backlogPanelSource,
+    /selected\.type !== 'mockup' \?/,
+    'only a type: mockup item is exempt from the section',
+  )
   const mockupsAt = backlogPanelSource.indexOf('<BacklogMockupsSection')
   const linksAt = backlogPanelSource.indexOf('<BacklogLinksSection')
   assert.ok(mockupsAt >= 0 && linksAt > mockupsAt, 'Mockups renders above Links')
 })
 
 run('mockup attachments persist only through the mockups frontmatter IPC, never items.json', () => {
-  assert.match(backlogPanelSource, /window\.api\.updateBacklogMockups\(\{/, 'setMockups mutates through the update-mockups IPC')
+  assert.match(
+    backlogPanelSource,
+    /window\.api\.updateBacklogMockups\(\{/,
+    'setMockups mutates through the update-mockups IPC',
+  )
   assert.match(
     backlogPanelSource,
     /setMockups: \(item, mockups\) => void setItemMockups\(item, mockups\)/,
@@ -864,22 +942,46 @@ run('opening a mockup swaps the detail pane to the shared FilePreviewPane with t
   assert.match(backlogPanelSource, /<HtmlArtifactFrame/, 'HTML mockups render through the sandboxed frame')
   assert.match(backlogPanelSource, /enableSourceView/, 'the frame keeps its source toggle')
   // Selection change clears the preview so it never bleeds across items.
-  assert.match(backlogPanelSource, /setPreviewedMockup\(null\)\s*\n\s*\}, \[selectedId\]\)/, 'the preview clears on selection change')
+  assert.match(
+    backlogPanelSource,
+    /setPreviewedMockup\(null\)\s*\n\s*\}, \[selectedId\]\)/,
+    'the preview clears on selection change',
+  )
 })
 
 run('context menu exposes a search-first multi-select "Depends on…" flyout', () => {
   assert.match(contextMenuSource, /label="Depends on…"/, 'context menu has a Depends on… flyout')
   assert.match(contextMenuSource, /candidate\.id !== item\.id/, 'the item itself is excluded from candidates')
-  assert.match(contextMenuSource, /ariaLabel="Search prerequisite items"/, 'opening the flyout does not render the full Backlog')
-  assert.match(contextMenuSource, /toggleDependencySlug\(dependsOn, candidate\.value\)/, 'only a real search result can toggle one slug')
-  assert.match(contextMenuSource, /selectedValues=\{dependsOn\}/, 'current prerequisites are passed to the shared picker')
+  assert.match(
+    contextMenuSource,
+    /ariaLabel="Search prerequisite items"/,
+    'opening the flyout does not render the full Backlog',
+  )
+  assert.match(
+    contextMenuSource,
+    /toggleDependencySlug\(dependsOn, candidate\.value\)/,
+    'only a real search result can toggle one slug',
+  )
+  assert.match(
+    contextMenuSource,
+    /selectedValues=\{dependsOn\}/,
+    'current prerequisites are passed to the shared picker',
+  )
 })
 
 run('detail dependencies use the shared search picker and exclude self', () => {
   assert.match(dependenciesSectionSource, /Depends on…/, 'the detail editor mirrors the menu affordance')
   assert.match(dependenciesSectionSource, /candidate\.id !== item\.id/, 'the editor excludes the item itself')
-  assert.match(dependenciesSectionSource, /ariaLabel="Search prerequisite items"/, 'the detail editor is search-first too')
-  assert.match(dependenciesSectionSource, /selectedValues=\{dependsOn\}/, 'the editor reflects current prerequisites through the picker')
+  assert.match(
+    dependenciesSectionSource,
+    /ariaLabel="Search prerequisite items"/,
+    'the detail editor is search-first too',
+  )
+  assert.match(
+    dependenciesSectionSource,
+    /selectedValues=\{dependsOn\}/,
+    'the editor reflects current prerequisites through the picker',
+  )
   // The row is `ui/MenuOption` now, which emits the state attribute its ROLE
   // takes — `aria-selected` for a listbox option, `aria-checked` for the
   // checkable ones — so the picker states the role and the selection, not the
@@ -894,7 +996,11 @@ run('detail dependencies use the shared search picker and exclude self', () => {
     /selected=\{checked\}/,
     'dialog-hosted search results expose selected prerequisites accessibly',
   )
-  assert.match(dependenciesSectionSource, /const \{ prerequisites, blocks, inCycle \} = node/, 'the section renders the derived prerequisites, blocks, and cycle flag')
+  assert.match(
+    dependenciesSectionSource,
+    /const \{ prerequisites, blocks, inCycle \} = node/,
+    'the section renders the derived prerequisites, blocks, and cycle flag',
+  )
   assert.match(dependenciesSectionSource, /dependency cycle/, 'a non-fatal cycle warning is rendered from inCycle')
 })
 
@@ -904,15 +1010,29 @@ run('relationship search requires a query and matches human-facing Backlog IDs',
     { id: 'b', value: 'billing', title: 'Billing cleanup', displayId: 'MC-1435' },
   ]
   assert.deepEqual(filterBacklogItemSearchOptions(choices, ''), [], 'an empty query never dumps the full Backlog')
-  assert.deepEqual(filterBacklogItemSearchOptions(choices, 'mc-1434').map((choice) => choice.id), ['a'])
-  assert.deepEqual(filterBacklogItemSearchOptions(choices, 'billing').map((choice) => choice.id), ['b'])
-  assert.deepEqual(filterBacklogItemSearchOptions(choices, 'MC-9999'), [], 'an unknown code cannot create a free-form relationship')
+  assert.deepEqual(
+    filterBacklogItemSearchOptions(choices, 'mc-1434').map((choice) => choice.id),
+    ['a'],
+  )
+  assert.deepEqual(
+    filterBacklogItemSearchOptions(choices, 'billing').map((choice) => choice.id),
+    ['b'],
+  )
+  assert.deepEqual(
+    filterBacklogItemSearchOptions(choices, 'MC-9999'),
+    [],
+    'an unknown code cannot create a free-form relationship',
+  )
 })
 
 run('row context menu lists module-contributed actions through the shared grouping helper', () => {
   // The optional second argument is the whole multi-selection (MC-2060); the
   // single-row path still resolves through the same shared registry call.
-  assert.match(backlogPanelSource, /externalActionsForItem\(menuItem, menuSelectionItems \?\? undefined\)/, 'the exact row is resolved through the shared module action registry')
+  assert.match(
+    backlogPanelSource,
+    /externalActionsForItem\(menuItem, menuSelectionItems \?\? undefined\)/,
+    'the exact row is resolved through the shared module action registry',
+  )
   assert.match(contextMenuSource, /<BacklogModuleActionMenuItems/, 'visible module actions render in the row menu')
   assert.match(contextMenuSource, /itemAction\.run\(\)/, 'activation uses the existing action run path')
 })
@@ -955,10 +1075,12 @@ run('a row with no dangling mockups renders no Missing-mockup badge — the warn
 run('an unselected Backlog row title sits at --text-default, and selection lifts it to --text-strong', () => {
   for (const plain of [true, false]) {
     const idle = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} plainTitle={plain} />)
-    const picked = renderToStaticMarkup(
-      <BacklogRowContent item={itemWith()} now={NOW} plainTitle={plain} selected />,
+    const picked = renderToStaticMarkup(<BacklogRowContent item={itemWith()} now={NOW} plainTitle={plain} selected />)
+    assert.match(
+      idle,
+      /text-\[color:var\(--text-default\)\]/,
+      `unselected title is one rung down (plainTitle=${plain})`,
     )
-    assert.match(idle, /text-\[color:var\(--text-default\)\]/, `unselected title is one rung down (plainTitle=${plain})`)
     assert.ok(
       !idle.includes('text-[color:var(--text-strong)]'),
       `an unselected title never sits at the lifted ink (plainTitle=${plain})`,
@@ -968,9 +1090,7 @@ run('an unselected Backlog row title sits at --text-default, and selection lifts
 })
 
 run('the Backlog panel hands the row its selected flag, so fill and ink cannot drift apart', () => {
-  for (const [name, source] of [
-    ['the panel', backlogPanelSource],
-  ] as const) {
+  for (const [name, source] of [['the panel', backlogPanelSource]] as const) {
     assert.match(source, /<BacklogRowContent[\s\S]{0,600}?selected=\{selected\}/, `${name} passes it to the row`)
     assert.match(
       source,

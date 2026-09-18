@@ -1,8 +1,4 @@
-import type {
-  GitWorktreeEntry,
-  GitWorktreeListSnapshot,
-  GitWorktreeOperationResult,
-} from './git'
+import type { GitWorktreeEntry, GitWorktreeListSnapshot, GitWorktreeOperationResult } from './git'
 import { runGitCommand } from './git-utils'
 import { resolveRepoRoot } from './git-worktree-validation'
 
@@ -70,9 +66,7 @@ function parseGitWorktreePorcelain(output: string): GitWorktreeEntry[] {
   return worktrees
 }
 
-export async function listGitWorktrees(
-  repoRoot: string
-): Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>> {
+export async function listGitWorktrees(repoRoot: string): Promise<GitWorktreeOperationResult<GitWorktreeListSnapshot>> {
   const root = await resolveRepoRoot(repoRoot)
   if (!root.ok) return root
 

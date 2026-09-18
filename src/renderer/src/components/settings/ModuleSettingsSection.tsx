@@ -56,10 +56,7 @@ export class ModuleSectionErrorBoundary extends React.Component<BoundaryProps, B
   render(): React.ReactNode {
     if (this.state.failed) {
       return (
-        <ModuleSectionErrorFallback
-          section={this.props.section}
-          onRetry={() => this.setState({ failed: false })}
-        />
+        <ModuleSectionErrorFallback section={this.props.section} onRetry={() => this.setState({ failed: false })} />
       )
     }
     return this.props.children
@@ -68,9 +65,7 @@ export class ModuleSectionErrorBoundary extends React.Component<BoundaryProps, B
 
 export function ModuleSettingsSectionHost({ section }: { section: RegisteredSettingsSection }) {
   const namespace = moduleSettingsNamespace(section.moduleId)
-  const values = useWorkspaceStore(
-    (s) => s.appSettings.moduleSettings[namespace] ?? EMPTY_SECTION_VALUES,
-  )
+  const values = useWorkspaceStore((s) => s.appSettings.moduleSettings[namespace] ?? EMPTY_SECTION_VALUES)
   const setModuleSettingValue = useWorkspaceStore((s) => s.setModuleSettingValue)
   const setValue = useCallback(
     (key: string, value: unknown) => setModuleSettingValue(section.moduleId, key, value),

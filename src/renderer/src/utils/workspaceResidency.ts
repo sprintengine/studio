@@ -11,9 +11,7 @@
 // is by the session's recorded workspaceId, matching how workspace activity is
 // derived elsewhere.
 
-export function residentAgentWorkspaceIds(
-  terminalSessions: TerminalSessionSnapshot[],
-): Set<string> {
+export function residentAgentWorkspaceIds(terminalSessions: TerminalSessionSnapshot[]): Set<string> {
   const resident = new Set<string>()
   for (const session of terminalSessions) {
     if (session.kind !== 'agent') continue

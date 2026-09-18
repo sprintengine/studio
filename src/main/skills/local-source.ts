@@ -37,10 +37,7 @@ const ENTRY_READ_CONCURRENCY = 16
  * git blob identity, so `blobSha` stays empty rather than carrying an invented
  * digest — nothing downstream compares a local skill by blob.
  */
-export async function listLocalTree(
-  root: string,
-  maxEntries: number = MAX_LOCAL_ENTRIES,
-): Promise<SkillTreeEntry[]> {
+export async function listLocalTree(root: string, maxEntries: number = MAX_LOCAL_ENTRIES): Promise<SkillTreeEntry[]> {
   const entries: SkillTreeEntry[] = []
   const walk = async (dir: string, depth: number): Promise<void> => {
     if (depth > MAX_LOCAL_DEPTH) return
@@ -101,9 +98,7 @@ export async function scanLocalSkillSource(
 ): Promise<ScanResult> {
   const entries = await listLocalTree(root, options.maxEntries ?? MAX_LOCAL_ENTRIES)
   const manifest = entries.some((entry) => entry.path === SKILL_MARKETPLACE_MANIFEST_PATH)
-    ? await readFile(join(root, ...SKILL_MARKETPLACE_MANIFEST_PATH.split('/')), 'utf8').catch(
-        () => null
-      )
+    ? await readFile(join(root, ...SKILL_MARKETPLACE_MANIFEST_PATH.split('/')), 'utf8').catch(() => null)
     : null
   const scanned = scanSkillTree({ entries, commitSha: '', marketplaceManifest: manifest })
 

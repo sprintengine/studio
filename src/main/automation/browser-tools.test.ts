@@ -3,7 +3,12 @@ import assert from 'node:assert/strict'
 import type { BrowserTabState } from '../../shared/browser'
 import type { BrowserViewport } from '../../shared/browser-devices'
 import type { McpConnectionContext, McpToolRegistration } from '../../shared/modules/mcp-tools'
-import { BROWSER_MUTATION_TOOL_NAMES, createBrowserTools, type BrowserToolsDeps, type BrowserToolsManager } from './browser-tools'
+import {
+  BROWSER_MUTATION_TOOL_NAMES,
+  createBrowserTools,
+  type BrowserToolsDeps,
+  type BrowserToolsManager,
+} from './browser-tools'
 import { isStudioGatewayMutation } from './studio-gateway-tools'
 
 function run(name: string, body: () => Promise<void> | void): Promise<void> {
@@ -56,7 +61,8 @@ function harness(controlOverrides: Partial<BrowserToolsDeps['control']> = {}): H
   const viewports: Harness['viewports'] = []
   const openRequests: Harness['openRequests'] = []
   const manager: BrowserToolsManager = {
-    listTabs: (workspaceId) => [...tabs.values()].filter((tab) => tab.workspaceId === workspaceId).map((tab) => tab.state),
+    listTabs: (workspaceId) =>
+      [...tabs.values()].filter((tab) => tab.workspaceId === workspaceId).map((tab) => tab.state),
     state: (tabId) => tabs.get(tabId)?.state ?? null,
     activeTab: (workspaceId) => {
       const preferred = active.get(workspaceId)
@@ -104,7 +110,14 @@ function harness(controlOverrides: Partial<BrowserToolsDeps['control']> = {}): H
     },
   }
   const control: BrowserToolsDeps['control'] = {
-    snapshot: async () => ({ ok: true, text: '- button "Save" [ref=e1]', nodeCount: 1, truncated: false, url: 'http://localhost:5173/', title: 'App' }),
+    snapshot: async () => ({
+      ok: true,
+      text: '- button "Save" [ref=e1]',
+      nodeCount: 1,
+      truncated: false,
+      url: 'http://localhost:5173/',
+      title: 'App',
+    }),
     screenshot: async () => ({ ok: true, data: 'AAAA', mimeType: 'image/jpeg', width: 800, height: 600 }),
     click: async (_tabId, target) => {
       calls.push(`click:${target.ref ?? target.selector}`)
@@ -127,9 +140,31 @@ function harness(controlOverrides: Partial<BrowserToolsDeps['control']> = {}): H
     actionsOf: (tabId) =>
       tabId === 't1'
         ? [
-            { id: 'a1', action: 'click', args: 'ref e1', status: 'succeeded', startedAt: '2026-09-04T09:00:00.000Z', completedAt: '2026-09-04T09:00:00.100Z' },
-            { id: 'a2', action: 'human', args: '', status: 'succeeded', startedAt: '2026-09-04T09:00:01.000Z', completedAt: '2026-09-04T09:00:02.000Z' },
-            { id: 'a3', action: 'type', args: '5 chars', status: 'interrupted', startedAt: '2026-09-04T09:00:01.500Z', completedAt: '2026-09-04T09:00:01.600Z', error: 'The person took over the browser; the action was abandoned.' },
+            {
+              id: 'a1',
+              action: 'click',
+              args: 'ref e1',
+              status: 'succeeded',
+              startedAt: '2026-09-04T09:00:00.000Z',
+              completedAt: '2026-09-04T09:00:00.100Z',
+            },
+            {
+              id: 'a2',
+              action: 'human',
+              args: '',
+              status: 'succeeded',
+              startedAt: '2026-09-04T09:00:01.000Z',
+              completedAt: '2026-09-04T09:00:02.000Z',
+            },
+            {
+              id: 'a3',
+              action: 'type',
+              args: '5 chars',
+              status: 'interrupted',
+              startedAt: '2026-09-04T09:00:01.500Z',
+              completedAt: '2026-09-04T09:00:01.600Z',
+              error: 'The person took over the browser; the action was abandoned.',
+            },
           ]
         : [],
     ...controlOverrides,
@@ -140,7 +175,16 @@ function harness(controlOverrides: Partial<BrowserToolsDeps['control']> = {}): H
     hasWorkspace: (workspaceId) => workspaceId === 'ws-1' || workspaceId === 'ws-2',
     sleep: async () => {},
   })
-  return { tools: new Map(registrations.map((tool) => [tool.name, tool])), tabs, active, assignments, calls, viewports, openRequests, manager }
+  return {
+    tools: new Map(registrations.map((tool) => [tool.name, tool])),
+    tabs,
+    active,
+    assignments,
+    calls,
+    viewports,
+    openRequests,
+    manager,
+  }
 }
 
 const bound: McpConnectionContext = { metadata: { kind: 'studio-agent', workspaceId: 'ws-1' } }
@@ -156,7 +200,15 @@ function structured(result: { structuredContent?: Record<string, unknown> }): Re
 async function main(): Promise<void> {
   await run('every browser tool is classified: mutations in the set, the rest read-only', () => {
     const h = harness()
-    const readOnly = new Set(['browser.status', 'browser.snapshot', 'browser.screenshot', 'browser.wait_for', 'browser.console', 'browser.network', 'browser.actions'])
+    const readOnly = new Set([
+      'browser.status',
+      'browser.snapshot',
+      'browser.screenshot',
+      'browser.wait_for',
+      'browser.console',
+      'browser.network',
+      'browser.actions',
+    ])
     for (const name of h.tools.keys()) {
       const mutation = BROWSER_MUTATION_TOOL_NAMES.includes(name)
       assert.equal(mutation || readOnly.has(name), true, `${name} is neither a mutation nor listed read-only`)
@@ -165,21 +217,24 @@ async function main(): Promise<void> {
     for (const name of BROWSER_MUTATION_TOOL_NAMES) assert.ok(h.tools.has(name), `${name} registered`)
   })
 
-  await run('targeting: bound connections use their workspace; unbound need workspaceId; a mismatch is refused', async () => {
-    const h = harness()
-    h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'http://localhost:5173/') })
-    const status = h.tools.get('browser.status')!
-    assert.deepEqual(structured(await status.handler({}, bound)).activeTabId, 't1')
-    const noWorkspace = await status.handler({}, unbound)
-    assert.equal(noWorkspace.isError, true)
-    assert.equal((structured(noWorkspace).error as { code: string }).code, 'no_workspace')
-    const explicit = await status.handler({ workspaceId: 'ws-1' }, unbound)
-    assert.equal(explicit.isError, undefined)
-    const mismatch = await status.handler({ workspaceId: 'ws-2' }, bound)
-    assert.equal((structured(mismatch).error as { code: string }).code, 'forbidden')
-    const unknown = await status.handler({ workspaceId: 'ws-9' }, unbound)
-    assert.equal((structured(unknown).error as { code: string }).code, 'unknown_workspace')
-  })
+  await run(
+    'targeting: bound connections use their workspace; unbound need workspaceId; a mismatch is refused',
+    async () => {
+      const h = harness()
+      h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'http://localhost:5173/') })
+      const status = h.tools.get('browser.status')!
+      assert.deepEqual(structured(await status.handler({}, bound)).activeTabId, 't1')
+      const noWorkspace = await status.handler({}, unbound)
+      assert.equal(noWorkspace.isError, true)
+      assert.equal((structured(noWorkspace).error as { code: string }).code, 'no_workspace')
+      const explicit = await status.handler({ workspaceId: 'ws-1' }, unbound)
+      assert.equal(explicit.isError, undefined)
+      const mismatch = await status.handler({ workspaceId: 'ws-2' }, bound)
+      assert.equal((structured(mismatch).error as { code: string }).code, 'forbidden')
+      const unknown = await status.handler({ workspaceId: 'ws-9' }, unbound)
+      assert.equal((structured(unknown).error as { code: string }).code, 'unknown_workspace')
+    },
+  )
 
   await run('a named tab must belong to the workspace; none open says how to start one', async () => {
     const h = harness()
@@ -234,7 +289,12 @@ async function main(): Promise<void> {
     h.tabs.set('t1', { workspaceId: 'ws-1', state: tabState('t1', 'about:blank') })
     h.manager.navigate = (tabId, url) => {
       const tab = h.tabs.get(tabId)!
-      tab.state = { ...tab.state, url, loading: false, error: { code: -102, description: 'ERR_CONNECTION_REFUSED', url } }
+      tab.state = {
+        ...tab.state,
+        url,
+        loading: false,
+        error: { code: -102, description: 'ERR_CONNECTION_REFUSED', url },
+      }
       return true
     }
     const result = await h.tools.get('browser.navigate')!.handler({ url: 'http://localhost:9/' }, bound)
@@ -302,7 +362,12 @@ async function main(): Promise<void> {
 
   await run('console and network results are trimmed from the oldest to fit one socket line', async () => {
     const { boundedEntries } = await import('./browser-tools')
-    const entries = Array.from({ length: 200 }, (_, i) => ({ level: 'log', text: `${i}:${'x'.repeat(2000)}`, location: null, at: i }))
+    const entries = Array.from({ length: 200 }, (_, i) => ({
+      level: 'log',
+      text: `${i}:${'x'.repeat(2000)}`,
+      location: null,
+      at: i,
+    }))
     const bounded = boundedEntries(entries)
     assert.ok(bounded.dropped > 0, 'something was dropped')
     assert.ok(Buffer.byteLength(JSON.stringify(bounded.entries)) <= 200_000)
@@ -337,7 +402,11 @@ async function main(): Promise<void> {
       return true
     }
     const done = await h.tools.get('browser.navigate')!.handler({ tabId: 't1', url: 'http://localhost:5173/' }, bound)
-    assert.equal((structured(done).tab as { active: boolean }).active, false, 't1 is not the tab the person is looking at')
+    assert.equal(
+      (structured(done).tab as { active: boolean }).active,
+      false,
+      't1 is not the tab the person is looking at',
+    )
   })
 
   await run('history rides status, snapshot and browser.actions', async () => {
@@ -348,7 +417,10 @@ async function main(): Promise<void> {
     assert.equal(tab.controller, 'human')
     assert.equal((tab.lastAction as { status: string }).status, 'interrupted')
     const snap = structured(await h.tools.get('browser.snapshot')!.handler({}, bound))
-    assert.deepEqual((snap.actions as Array<{ action: string }>).map((entry) => entry.action), ['click', 'human', 'type'])
+    assert.deepEqual(
+      (snap.actions as Array<{ action: string }>).map((entry) => entry.action),
+      ['click', 'human', 'type'],
+    )
     const all = structured(await h.tools.get('browser.actions')!.handler({}, bound))
     assert.equal((all.actions as unknown[]).length, 3)
   })

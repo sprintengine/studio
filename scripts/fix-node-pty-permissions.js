@@ -13,7 +13,7 @@ const helperPath = path.join(
   'node-pty',
   'prebuilds',
   `${process.platform}-${process.arch}`,
-  'spawn-helper'
+  'spawn-helper',
 )
 
 try {

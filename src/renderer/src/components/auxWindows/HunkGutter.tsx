@@ -38,7 +38,11 @@ export type GlyphMarginHost = {
 export type GlyphMarginWidget = {
   getId(): string
   getDomNode(): HTMLElement
-  getPosition(): { lane: number; range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }; zIndex: number }
+  getPosition(): {
+    lane: number
+    range: { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number }
+    zIndex: number
+  }
 }
 
 /** Monaco's `GlyphMarginLane.Center`. Passed in rather than imported so this

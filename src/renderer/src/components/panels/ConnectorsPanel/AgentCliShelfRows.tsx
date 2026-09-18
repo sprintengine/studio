@@ -19,23 +19,13 @@ import type {
   CliVersionAdvisory,
   CliVersionAdvisoryMap,
 } from '../../../../../shared/electron-api'
-import {
-  CliProviderStateLine,
-  GhostButton,
-  PrimaryButton,
-  ProviderRow,
-  type MarkBadge,
-} from '../../ui'
+import { CliProviderStateLine, GhostButton, PrimaryButton, ProviderRow, type MarkBadge } from '../../ui'
 import type { CliProbeStatus } from '../../ui/cliProviderState'
 import { CliInstallControl } from '../../settings/CliInstallControl'
 import { PluginIcon, pluginTrust, resolveIconUrl } from '../../settings/BrowseStorefront'
 import { cliRuntimeForPlugin } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import type { PluginCatalogEntry, PluginCatalogStatus } from '../../../types/workspace'
-import {
-  agentCliShelfRowState,
-  cliUpdateAvailable,
-  type CliInstallMethodsLoad,
-} from './agentCliShelfState'
+import { agentCliShelfRowState, cliUpdateAvailable, type CliInstallMethodsLoad } from './agentCliShelfState'
 import type { ConnectorEntry } from './connectorsFacets'
 
 // An agent CLI in the marketplace, on the shared provider anatomy (item 1994).
@@ -78,11 +68,7 @@ export function AgentCliRegistryRow({
     <ProviderRow
       surface="card"
       icon={
-        <PluginIcon
-          iconUrl={plugin ? resolveIconUrl(registryUrl, plugin.icon) : null}
-          name={entry.name}
-          size={22}
-        />
+        <PluginIcon iconUrl={plugin ? resolveIconUrl(registryUrl, plugin.icon) : null} name={entry.name} size={22} />
       }
       name={entry.name}
       // No version on a marketplace row. `plugin.latest` is the registry's
@@ -298,11 +284,7 @@ export function AgentCliRuntimeRows({
                 size={22}
               />
             }
-            badge={agentCliUpdateBadge(
-              entry.name,
-              runtime.versionAdvisories[pluginId as AgentCli],
-              state.present,
-            )}
+            badge={agentCliUpdateBadge(entry.name, runtime.versionAdvisories[pluginId as AgentCli], state.present)}
             recessed={!state.present}
             name={entry.name}
             version={state.version}
@@ -363,4 +345,3 @@ export function AgentCliRuntimeRows({
     </div>
   )
 }
-

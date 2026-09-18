@@ -180,14 +180,17 @@ export function createCanvasWorkerHost(deps: CanvasWorkerHostDeps): CanvasWorker
     return new Promise((settle) => {
       let done = false
       const wasColdStart = coldStart
-      const timer = setTimer(() => {
-        finish(
-          canvasFail(
-            'timeout',
-            `The canvas worker did not answer a ${request.kind} request in time. The board is unchanged.`,
-          ),
-        )
-      }, deadlineFor(request.kind, wasColdStart))
+      const timer = setTimer(
+        () => {
+          finish(
+            canvasFail(
+              'timeout',
+              `The canvas worker did not answer a ${request.kind} request in time. The board is unchanged.`,
+            ),
+          )
+        },
+        deadlineFor(request.kind, wasColdStart),
+      )
 
       const finish = (answer: CanvasResult<CanvasWorkerSuccess> | 'crashed'): void => {
         if (done) return

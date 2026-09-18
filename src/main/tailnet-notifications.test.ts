@@ -36,15 +36,23 @@ function payload(event: TailnetPushPayload['event']): TailnetPushPayload {
 
 {
   const notice = tailnetNotice(
-    payload({ kind: 'pair-request', phase: 'received', requestId: 'r1', deviceName: 'MacBook Air', peerNode: 'sam-macbook-air' })
+    payload({
+      kind: 'pair-request',
+      phase: 'received',
+      requestId: 'r1',
+      deviceName: 'MacBook Air',
+      peerNode: 'sam-macbook-air',
+    }),
   )
   assert.ok(notice)
   assert.equal(notice.title, 'Pair request from sam-macbook-air')
   assert.doesNotMatch(notice.body, /\d{6}/u, 'the code never rides on a banner')
   assert.equal(
-    tailnetNotice(payload({ kind: 'pair-request', phase: 'approved', requestId: 'r1', deviceName: 'x', peerNode: null })),
+    tailnetNotice(
+      payload({ kind: 'pair-request', phase: 'approved', requestId: 'r1', deviceName: 'x', peerNode: null }),
+    ),
     null,
-    'only the arrival is banner-worthy on the inbound side'
+    'only the arrival is banner-worthy on the inbound side',
   )
   assert.equal(tailnetNotice(payload({ kind: 'listener', running: true })), null)
 }
@@ -52,13 +60,32 @@ function payload(event: TailnetPushPayload['event']): TailnetPushPayload {
 {
   const approved = fleetNotice({ kind: 'pair-request', revision: 1, phase: 'approved', request })
   assert.equal(approved?.title, 'Paired with sam-macbook-air')
-  const both = fleetNotice({ kind: 'pair-request', revision: 1, phase: 'approved', request: { ...request, reverseOffered: true } })
+  const both = fleetNotice({
+    kind: 'pair-request',
+    revision: 1,
+    phase: 'approved',
+    request: { ...request, reverseOffered: true },
+  })
   assert.match(both?.body ?? '', /Both ways/u)
-  assert.equal(fleetNotice({ kind: 'pair-request', revision: 1, phase: 'denied', request })?.title, 'sam-macbook-air declined')
-  assert.equal(fleetNotice({ kind: 'pair-request', revision: 1, phase: 'expired', request })?.title, 'sam-macbook-air did not answer in time')
-  assert.equal(fleetNotice({ kind: 'pair-request', revision: 1, phase: 'waiting', request }), null, 'waiting has the card')
+  assert.equal(
+    fleetNotice({ kind: 'pair-request', revision: 1, phase: 'denied', request })?.title,
+    'sam-macbook-air declined',
+  )
+  assert.equal(
+    fleetNotice({ kind: 'pair-request', revision: 1, phase: 'expired', request })?.title,
+    'sam-macbook-air did not answer in time',
+  )
+  assert.equal(
+    fleetNotice({ kind: 'pair-request', revision: 1, phase: 'waiting', request }),
+    null,
+    'waiting has the card',
+  )
   assert.equal(fleetNotice({ kind: 'pair-request', revision: 1, phase: 'cancelled', request }), null)
-  assert.equal(fleetNotice({ kind: 'machine-paired', revision: 1, connection: {} as never }), null, 'the pair-request approved banner covers it')
+  assert.equal(
+    fleetNotice({ kind: 'machine-paired', revision: 1, connection: {} as never }),
+    null,
+    'the pair-request approved banner covers it',
+  )
   const revoked = fleetNotice({
     kind: 'machine-reachability',
     revision: 1,
@@ -73,9 +100,20 @@ function payload(event: TailnetPushPayload['event']): TailnetPushPayload {
   })
   assert.equal(revoked?.title, 'Mini revoked this device')
   assert.equal(
-    fleetNotice({ kind: 'machine-reachability', revision: 1, connectionId: 'c1', machineName: 'Mini', checking: false, reachable: false, unauthorized: false, checkedAt: 1, lastReachedAt: null, detail: 'asleep' }),
+    fleetNotice({
+      kind: 'machine-reachability',
+      revision: 1,
+      connectionId: 'c1',
+      machineName: 'Mini',
+      checking: false,
+      reachable: false,
+      unauthorized: false,
+      checkedAt: 1,
+      lastReachedAt: null,
+      detail: 'asleep',
+    }),
     null,
-    'merely not answering is not a banner'
+    'merely not answering is not a banner',
   )
 }
 
@@ -97,7 +135,13 @@ function payload(event: TailnetPushPayload['event']): TailnetPushPayload {
       opened += 1
     },
   })
-  const arrival = payload({ kind: 'pair-request', phase: 'received', requestId: 'r1', deviceName: 'x', peerNode: 'air' })
+  const arrival = payload({
+    kind: 'pair-request',
+    phase: 'received',
+    requestId: 'r1',
+    deviceName: 'x',
+    peerNode: 'air',
+  })
   notifier.onTailnetEvent(arrival)
   assert.equal(shown.length, 0, 'a focused window is already looking')
   focused = false
@@ -124,10 +168,18 @@ function payload(event: TailnetPushPayload['event']): TailnetPushPayload {
   notifier.onFleetEvent(revokedEvent(false, true))
   notifier.onFleetEvent(revokedEvent(false, true))
   notifier.onFleetEvent(revokedEvent(false, true))
-  assert.equal(shown.filter((notice) => notice.key === 'revoked:c1').length, 1, 'a revocation is announced once, not per retry')
+  assert.equal(
+    shown.filter((notice) => notice.key === 'revoked:c1').length,
+    1,
+    'a revocation is announced once, not per retry',
+  )
   notifier.onFleetEvent(revokedEvent(true, false))
   notifier.onFleetEvent(revokedEvent(false, true))
-  assert.equal(shown.filter((notice) => notice.key === 'revoked:c1').length, 2, 'and again after it answered in between')
+  assert.equal(
+    shown.filter((notice) => notice.key === 'revoked:c1').length,
+    2,
+    'and again after it answered in between',
+  )
 }
 
 console.log('tailnet notification contracts ok')

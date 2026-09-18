@@ -79,7 +79,7 @@ function toRepoSummary(record: unknown): GitHubRepoSummary | null {
   const owner =
     repo.owner && typeof repo.owner === 'object' && typeof (repo.owner as { login?: unknown }).login === 'string'
       ? (repo.owner as { login: string }).login
-      : repo.full_name.split('/')[0] ?? ''
+      : (repo.full_name.split('/')[0] ?? '')
   return {
     fullName: repo.full_name,
     name: repo.name,

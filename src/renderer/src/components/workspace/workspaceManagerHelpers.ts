@@ -7,16 +7,10 @@ import { isStarred } from '../../utils/highlight'
 import { findWorkspaceForAgentPreferring } from '../../utils/agentLocation'
 import { sortWorkspacesByUserMessage } from '../../utils/workspaceRecency'
 import { workspaceProjectRoot } from '../../utils/workspaceWorktree'
-import {
-  deriveWorkspaceDisplayActivity,
-  isLiveTerminal,
-} from '../../hooks/useTerminalSessions'
+import { deriveWorkspaceDisplayActivity, isLiveTerminal } from '../../hooks/useTerminalSessions'
 import type { Workspace } from '../../types/workspace'
 import type { SessionGroup, SessionItem } from './WorkspaceActions'
-import type {
-  ConversationSessionStatus,
-  ConversationSessionSummary,
-} from '../../../../shared/conversation-runtime'
+import type { ConversationSessionStatus, ConversationSessionSummary } from '../../../../shared/conversation-runtime'
 
 export type WorkspaceActivity = 'needs-input' | 'working' | 'failed' | 'idle'
 type SessionStatus = 'needs-input' | 'working' | 'idle' | 'failed'
@@ -39,11 +33,7 @@ export type SessionStatusInfo = {
 }
 
 // Hook phases that mean the agent is actively doing work (not waiting, not done).
-const WORKING_AGENT_PHASES: ReadonlySet<AgentPhase> = new Set([
-  'starting',
-  'thinking',
-  'tool_use',
-])
+const WORKING_AGENT_PHASES: ReadonlySet<AgentPhase> = new Set(['starting', 'thinking', 'tool_use'])
 
 // Attention-first ordering for session rows: things that need the user come
 // first, idle last.
@@ -113,9 +103,8 @@ export function deriveSessionStatus(session: TerminalSessionSnapshot): SessionSt
   // is, and it is the same stale frame: a session suspended (or killed) mid-turn
   // keeps the working phase and activity it had when its pty died, and nothing
   // revisits them. A paused agent is not working — it is not running at all.
-  const working = session.processAlive && (hook
-    ? WORKING_AGENT_PHASES.has(hook.phase)
-    : session.activity.kind === 'working')
+  const working =
+    session.processAlive && (hook ? WORKING_AGENT_PHASES.has(hook.phase) : session.activity.kind === 'working')
   if (working) {
     return {
       status: 'working',
@@ -214,10 +203,7 @@ function workspaceSessionGroup(workspace: Workspace): SessionGroup {
 // The bucket for a session no workspace row claims. Keyed by LABEL rather than
 // by the unmatched id, so several orphaned reviews read as one "Reviews" group
 // instead of N identically-named ones.
-function detachedSessionGroup(
-  workspaceId: string | null,
-  options: SessionItemOptions,
-): SessionGroup {
+function detachedSessionGroup(workspaceId: string | null, options: SessionItemOptions): SessionGroup {
   const label = (workspaceId ? options.resolveDetachedLabel?.(workspaceId) : null) ?? DETACHED_SESSION_LABEL
   return { kind: 'detached', id: `detached:${label}`, label }
 }
@@ -237,18 +223,16 @@ export function getSessionItems(
     // under its review id) is NOT dropped — it lands in a detached bucket. An
     // agent the user cannot see is worse than an oddly-grouped one.
     const workspace =
-      findWorkspaceForAgentPreferring(workspaces, summary.agentId, summary.workspaceId)
-      ?? workspaces.find((candidate) => candidate.id === summary.workspaceId)
-      ?? null
+      findWorkspaceForAgentPreferring(workspaces, summary.agentId, summary.workspaceId) ??
+      workspaces.find((candidate) => candidate.id === summary.workspaceId) ??
+      null
     // A conversation session can outlive (or precede) its AgentState entry —
     // it must still be visible in the session manager, so the agent lookup is
     // a label source, not a gate.
     const agent = workspace?.agents[summary.agentId]
     return [
       {
-        group: workspace
-          ? workspaceSessionGroup(workspace)
-          : detachedSessionGroup(summary.workspaceId, options),
+        group: workspace ? workspaceSessionGroup(workspace) : detachedSessionGroup(summary.workspaceId, options),
         kind: 'agent',
         transport: 'conversation',
         agentId: summary.agentId,
@@ -274,9 +258,7 @@ export function getSessionItems(
   // the terminal twin instead of listing the agent twice. This is the one
   // remaining terminal-branch drop, and the agent it drops is still on screen:
   // its conversation row represents it.
-  const conversationAgentKeys = new Set(
-    conversationItems.map((item) => `${item.group.id} ${item.agentId}`),
-  )
+  const conversationAgentKeys = new Set(conversationItems.map((item) => `${item.group.id} ${item.agentId}`))
 
   return terminalSessions
     .filter(
@@ -284,9 +266,7 @@ export function getSessionItems(
       // demands attention instead of silently disappearing from the list. A
       // session with no usable workspaceId is NOT filtered here — it groups as
       // detached below.
-      (session) =>
-        isLiveTerminal(session)
-        || (session.kind === 'agent' && session.activity.kind === 'failed'),
+      (session) => isLiveTerminal(session) || (session.kind === 'agent' && session.activity.kind === 'failed'),
     )
     .flatMap((session): SessionItem[] => {
       const workspaceId = typeof session.workspaceId === 'string' ? session.workspaceId : null
@@ -299,14 +279,12 @@ export function getSessionItems(
       const workspace =
         (session.kind === 'agent' && session.agentId
           ? findWorkspaceForAgentPreferring(workspaces, session.agentId, workspaceId)
-          : null)
-        ?? (workspaceId ? workspaces.find((candidate) => candidate.id === workspaceId) : null)
-        ?? null
+          : null) ??
+        (workspaceId ? workspaces.find((candidate) => candidate.id === workspaceId) : null) ??
+        null
       // No workspace row claims this session (its workspace was closed, or it
       // was keyed to a door surface's id). It stays listed, under a bucket.
-      const group = workspace
-        ? workspaceSessionGroup(workspace)
-        : detachedSessionGroup(workspaceId, options)
+      const group = workspace ? workspaceSessionGroup(workspace) : detachedSessionGroup(workspaceId, options)
 
       if (session.kind === 'agent') {
         if (session.agentId && conversationAgentKeys.has(`${group.id} ${session.agentId}`)) return []
@@ -382,8 +360,8 @@ export function groupSessionItems(
     if (aDetached !== bDetached) return aDetached ? 1 : -1
     if (aDetached && bDetached) return a.group.label.localeCompare(b.group.label)
     return (
-      (workspaceOrder.get(a.group.id) ?? Number.MAX_SAFE_INTEGER)
-      - (workspaceOrder.get(b.group.id) ?? Number.MAX_SAFE_INTEGER)
+      (workspaceOrder.get(a.group.id) ?? Number.MAX_SAFE_INTEGER) -
+      (workspaceOrder.get(b.group.id) ?? Number.MAX_SAFE_INTEGER)
     )
   })
 }
@@ -405,9 +383,7 @@ export function groupSessionItems(
  * so the sidebar and this dropdown now deal exactly the same order from
  * exactly the same clock.
  */
-export function buildSidebarWorkspaceOrder(
-  workspaces: Workspace[],
-): Map<string, number> {
+export function buildSidebarWorkspaceOrder(workspaces: Workspace[]): Map<string, number> {
   const order = new Map<string, number>()
   let index = 0
 
@@ -422,9 +398,7 @@ export function buildSidebarWorkspaceOrder(
     // a worktree chat sits inside its parent's group here too instead of opening
     // a group of its own named after the worktree slug.
     const projectRoot = workspaceProjectRoot(workspace)
-    const key = projectRoot
-      ? projectRoot.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
-      : '__no_folder__'
+    const key = projectRoot ? projectRoot.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase() : '__no_folder__'
     if (!folderBuckets.has(key)) {
       seenFolders.push(key)
       folderBuckets.set(key, [])
@@ -442,4 +416,3 @@ export function buildSidebarWorkspaceOrder(
 
 // getTerminalSessionsSignature moved to ../../hooks/useTerminalSessions to avoid
 // an import cycle (the hook now uses it internally to dedupe no-op broadcasts).
-

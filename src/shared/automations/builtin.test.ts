@@ -2,11 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
-import {
-  BUILTIN_AUTOMATIONS,
-  builtinAutomationById,
-  builtinAutomationPayload,
-} from './builtin'
+import { BUILTIN_AUTOMATIONS, builtinAutomationById, builtinAutomationPayload } from './builtin'
 import { SCHEDULE_TRIGGER_KIND, SPAWN_AGENT_ACTION_KIND } from './contracts'
 import { automationScheduleWords } from './scheduleWords'
 
@@ -143,9 +139,10 @@ run('each record still matches the marketplace payload it was generated from', (
     assert.deepEqual(entry.trigger, source.trigger, `${entry.id} trigger`)
     assert.equal(entry.action.config.prompt, source.action.config.prompt, `${entry.id} prompt`)
 
-    const plugin = JSON.parse(
-      readFileSync(join(MARKETPLACE_PLUGINS, entry.id, 'plugin.json'), 'utf8'),
-    ) as { publisher: string; category: string }
+    const plugin = JSON.parse(readFileSync(join(MARKETPLACE_PLUGINS, entry.id, 'plugin.json'), 'utf8')) as {
+      publisher: string
+      category: string
+    }
     assert.equal(entry.publisher, plugin.publisher, `${entry.id} publisher`)
     assert.equal(entry.category, plugin.category, `${entry.id} category`)
   }

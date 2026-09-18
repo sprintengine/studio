@@ -72,9 +72,7 @@ async function main(): Promise<void> {
     }
   }
 
-  function scopeRow(
-    overrides: Partial<Parameters<typeof DescribedCheckRow>[0]> = {},
-  ): React.ReactElement {
+  function scopeRow(overrides: Partial<Parameters<typeof DescribedCheckRow>[0]> = {}): React.ReactElement {
     return (
       <DescribedCheckRowList ariaLabel="Permissions">
         <DescribedCheckRow
@@ -103,10 +101,7 @@ async function main(): Promise<void> {
     const label = view.container.querySelector('label')
     assert.ok(label, 'the row is a <label>')
     assert.equal(label.getAttribute('for'), 'scope-terminal-control', 'the WHOLE row is the label')
-    assert.ok(
-      label.contains(input),
-      'and the input is inside it, so a click anywhere on the row toggles',
-    )
+    assert.ok(label.contains(input), 'and the input is inside it, so a click anywhere on the row toggles')
     view.unmount()
   })
 
@@ -184,7 +179,7 @@ async function main(): Promise<void> {
     off.unmount()
   })
 
-  run('the focus ring is the ROW\'s, drawn inward on the input\'s focus', () => {
+  run("the focus ring is the ROW's, drawn inward on the input's focus", () => {
     const view = mount(scopeRow())
     const classes = view.container.querySelector('label')?.getAttribute('class') ?? ''
     assert.match(
@@ -199,8 +194,22 @@ async function main(): Promise<void> {
   run('the list surface is a plain <ul> with the hairline between rows', () => {
     const view = mount(
       <DescribedCheckRowList ariaLabel="Permissions">
-        <DescribedCheckRow id="a" title="View workspaces" code="workspace:read" description="Chats and files." checked onChange={() => {}} />
-        <DescribedCheckRow id="b" title="Operate workspaces" code="workspace:operate" description="Launch agents." checked={false} onChange={() => {}} />
+        <DescribedCheckRow
+          id="a"
+          title="View workspaces"
+          code="workspace:read"
+          description="Chats and files."
+          checked
+          onChange={() => {}}
+        />
+        <DescribedCheckRow
+          id="b"
+          title="Operate workspaces"
+          code="workspace:operate"
+          description="Launch agents."
+          checked={false}
+          onChange={() => {}}
+        />
       </DescribedCheckRowList>,
     )
     const list = view.container.firstElementChild as HTMLElement
@@ -214,7 +223,7 @@ async function main(): Promise<void> {
     assert.equal(list.querySelectorAll(':scope > li').length, 2, 'the row brings its own <li>')
     const classes = list.getAttribute('class') ?? ''
     assert.match(classes, /\[&>li\+li\]:border-t/, 'the rule goes BETWEEN rows, never around them')
-    assert.match(classes, /overflow-hidden/, 'the surface radius clips the first and last row\'s fill')
+    assert.match(classes, /overflow-hidden/, "the surface radius clips the first and last row's fill")
     view.unmount()
   })
 

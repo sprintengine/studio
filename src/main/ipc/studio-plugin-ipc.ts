@@ -29,6 +29,6 @@ export function registerStudioPluginIpc(ipcMain: IpcMain, service: StudioPluginS
         skillDirNames: record?.skillDirNames ?? [],
         claudePluginKey: record?.claudePluginKey ?? '',
       }
-    }
+    },
   )
 }

@@ -25,10 +25,19 @@ function def(status: AutomationStatus): AutomationDefinition {
 }
 
 function lastRun(status: AutomationRun['status'], completedAt: string | null): AutomationRun {
-  return { id: 'r', automationId: 'a', status, dueAt: completedAt ?? '2026-07-19T00:00:00Z', startedAt: completedAt, completedAt } as unknown as AutomationRun
+  return {
+    id: 'r',
+    automationId: 'a',
+    status,
+    dueAt: completedAt ?? '2026-07-19T00:00:00Z',
+    startedAt: completedAt,
+    completedAt,
+  } as unknown as AutomationRun
 }
 
-function entry(over: Partial<AutomationsInstanceEntry> & { definition: AutomationDefinition }): AutomationsInstanceEntry {
+function entry(
+  over: Partial<AutomationsInstanceEntry> & { definition: AutomationDefinition },
+): AutomationsInstanceEntry {
   return {
     workspaceRoot: '/proj/app',
     workspaceId: 'ws-1',
@@ -41,12 +50,18 @@ function entry(over: Partial<AutomationsInstanceEntry> & { definition: Automatio
 // The plain-language rail state line + tone (mockup §3), by salience.
 
 run('a live run leads over everything else', () => {
-  const state = automationRailState(entry({ definition: def('enabled'), isRunningNow: true, lastRun: lastRun('running', null) }), NOW)
+  const state = automationRailState(
+    entry({ definition: def('enabled'), isRunningNow: true, lastRun: lastRun('running', null) }),
+    NOW,
+  )
   assert.deepEqual(state, { text: 'Running now', tone: 'accent', running: true })
 })
 
 run('an unresolved failure surfaces even on a paused automation', () => {
-  const state = automationRailState(entry({ definition: def('paused'), lastRun: lastRun('failed', '2026-07-19T10:00:00Z') }), NOW)
+  const state = automationRailState(
+    entry({ definition: def('paused'), lastRun: lastRun('failed', '2026-07-19T10:00:00Z') }),
+    NOW,
+  )
   assert.equal(state.text, 'Last run failed')
   assert.equal(state.tone, 'warn')
   assert.equal(state.running, false)
@@ -59,7 +74,10 @@ run('a blocked last run reads as blocked, warn tone', () => {
 })
 
 run('a paused automation with no failure reads Paused, neutral tone', () => {
-  const state = automationRailState(entry({ definition: def('paused'), lastRun: lastRun('completed', '2026-07-19T10:00:00Z') }), NOW)
+  const state = automationRailState(
+    entry({ definition: def('paused'), lastRun: lastRun('completed', '2026-07-19T10:00:00Z') }),
+    NOW,
+  )
   assert.deepEqual(state, { text: 'Paused', tone: 'neutral', running: false })
 })
 
@@ -69,7 +87,10 @@ run('a blocked definition reads Blocked, warn tone', () => {
 })
 
 run('a passing last run reads "Ran <ago> · passed", good tone', () => {
-  const state = automationRailState(entry({ definition: def('enabled'), lastRun: lastRun('completed', '2026-07-19T10:00:00Z') }), NOW)
+  const state = automationRailState(
+    entry({ definition: def('enabled'), lastRun: lastRun('completed', '2026-07-19T10:00:00Z') }),
+    NOW,
+  )
   // Uses the real relative formatter ("2 hours ago"), not the mockup's stylized "2h".
   assert.equal(state.text, 'Ran 2 hours ago · passed')
   assert.equal(state.tone, 'good')
@@ -102,8 +123,14 @@ run('the scheduler-off notice is plain language with no raw error / code', () =>
 })
 
 run('the enumeration-failure notice pluralizes and never masks the readable rest', () => {
-  assert.equal(enumerationProblemsNotice(1), 'One project’s automations could not be read and are not listed. The rest are shown.')
-  assert.equal(enumerationProblemsNotice(3), '3 projects’ automations could not be read and are not listed. The rest are shown.')
+  assert.equal(
+    enumerationProblemsNotice(1),
+    'One project’s automations could not be read and are not listed. The rest are shown.',
+  )
+  assert.equal(
+    enumerationProblemsNotice(3),
+    '3 projects’ automations could not be read and are not listed. The rest are shown.',
+  )
   assert.ok(enumerationProblemsNotice(2).includes('The rest are shown'), 'a bad store never masks the readable ones')
 })
 

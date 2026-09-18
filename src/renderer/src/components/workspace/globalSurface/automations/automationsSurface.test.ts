@@ -4,10 +4,7 @@ import { getRendererHost } from '../../../../modules'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../../../types/workspace'
 import type { AppNotification } from '../../../../types/workspace'
 import { automationsDoorTarget } from '../../../automations/runTarget'
-import {
-  consumePendingAutomationSurfaceTarget,
-  dispatchAutomationSurfaceTarget,
-} from './automationSurfaceTarget'
+import { consumePendingAutomationSurfaceTarget, dispatchAutomationSurfaceTarget } from './automationSurfaceTarget'
 
 function run(name: string, body: () => void): void {
   try {
@@ -57,7 +54,7 @@ run('the run notification routes to the door for the door target and the legacy 
   assert.ok(provider, 'a source-automations notification provider is registered')
 
   const withTarget = (navigationTarget: AppNotification['navigationTarget']): AppNotification =>
-    ({ navigationTarget } as unknown as AppNotification)
+    ({ navigationTarget }) as unknown as AppNotification
 
   const doorActions = provider!.resolveActions({
     notification: withTarget(automationsDoorTarget('auto-1', 'run-9', '/repo/app')),

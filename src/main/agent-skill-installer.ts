@@ -423,9 +423,9 @@ async function isManagedCopy(dir: string): Promise<boolean> {
   if (typeof parsed !== 'object' || parsed === null) return false
   const marker = parsed as { source?: unknown; sourceId?: unknown }
   return (
-    marker.source === 'multicode-builtin'
-    || marker.source === ATTACHED_MARKER_SOURCE
-    || (typeof marker.sourceId === 'string' && marker.sourceId !== '')
+    marker.source === 'multicode-builtin' ||
+    marker.source === ATTACHED_MARKER_SOURCE ||
+    (typeof marker.sourceId === 'string' && marker.sourceId !== '')
   )
 }
 

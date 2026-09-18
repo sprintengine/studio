@@ -236,21 +236,30 @@ function assertIntervalDailyWeeklyNextRuns(): void {
   const after = Date.parse('2026-06-17T10:00:00.000Z')
 
   assert.equal(new Date(computeNextRun(intervalConfig(30), after) ?? 0).toISOString(), '2026-06-17T10:30:00.000Z')
-  assert.equal(new Date(computeNextRun(dailyConfig('12:15', 'UTC'), after) ?? 0).toISOString(), '2026-06-17T12:15:00.000Z')
-  assert.equal(new Date(computeNextRun(dailyConfig('09:15', 'UTC'), after) ?? 0).toISOString(), '2026-06-18T09:15:00.000Z')
-  assert.equal(new Date(computeNextRun(weeklyConfig('08:00', [3]), Date.parse('2026-06-15T12:00:00.000Z')) ?? 0).toISOString(), '2026-06-17T08:00:00.000Z')
+  assert.equal(
+    new Date(computeNextRun(dailyConfig('12:15', 'UTC'), after) ?? 0).toISOString(),
+    '2026-06-17T12:15:00.000Z',
+  )
+  assert.equal(
+    new Date(computeNextRun(dailyConfig('09:15', 'UTC'), after) ?? 0).toISOString(),
+    '2026-06-18T09:15:00.000Z',
+  )
+  assert.equal(
+    new Date(computeNextRun(weeklyConfig('08:00', [3]), Date.parse('2026-06-15T12:00:00.000Z')) ?? 0).toISOString(),
+    '2026-06-17T08:00:00.000Z',
+  )
 }
 
 function assertDstRules(): void {
   const nonexistentLocalTime = computeNextRun(
     dailyConfig('01:30', 'Europe/Dublin'),
-    Date.parse('2026-03-28T12:00:00.000Z')
+    Date.parse('2026-03-28T12:00:00.000Z'),
   )
   assert.equal(new Date(nonexistentLocalTime ?? 0).toISOString(), '2026-03-29T01:00:00.000Z')
 
   const ambiguousLocalTime = computeNextRun(
     dailyConfig('01:30', 'Europe/Dublin'),
-    Date.parse('2026-10-24T12:00:00.000Z')
+    Date.parse('2026-10-24T12:00:00.000Z'),
   )
   assert.equal(new Date(ambiguousLocalTime ?? 0).toISOString(), '2026-10-25T00:30:00.000Z')
 }
@@ -262,12 +271,12 @@ function assertAtCadenceNextRuns(): void {
   // timezone (UTC here; a zoned case follows).
   assert.equal(
     new Date(computeNextRun(atConfig('2026-06-17T10:30'), after) ?? 0).toISOString(),
-    '2026-06-17T10:30:00.000Z'
+    '2026-06-17T10:30:00.000Z',
   )
   // Seconds are accepted and truncated to the minute (engine granularity).
   assert.equal(
     new Date(computeNextRun(atConfig('2026-06-17T10:30:45'), after) ?? 0).toISOString(),
-    '2026-06-17T10:30:00.000Z'
+    '2026-06-17T10:30:00.000Z',
   )
   // Exactly `after` and anything earlier never fire again — a past datetime is
   // valid config that simply has no upcoming run.
@@ -279,7 +288,7 @@ function assertAtCadenceNextRuns(): void {
   // is 08:30 UTC.
   assert.equal(
     new Date(computeNextRun(atConfig('2026-07-09T09:30', 'Europe/Dublin'), after) ?? 0).toISOString(),
-    '2026-07-09T08:30:00.000Z'
+    '2026-07-09T08:30:00.000Z',
   )
 }
 
@@ -287,10 +296,7 @@ function assertAtCadenceDstGapRule(): void {
   // Dublin springs forward 2026-03-29 01:00 → 02:00: 01:30 does not exist that
   // day. Pin the same resolution the daily helper uses — the first instant
   // after the gap (02:00 IST == 01:00Z).
-  const resolved = computeNextRun(
-    atConfig('2026-03-29T01:30', 'Europe/Dublin'),
-    Date.parse('2026-03-28T12:00:00.000Z')
-  )
+  const resolved = computeNextRun(atConfig('2026-03-29T01:30', 'Europe/Dublin'), Date.parse('2026-03-28T12:00:00.000Z'))
   assert.equal(new Date(resolved ?? 0).toISOString(), '2026-03-29T01:00:00.000Z')
 }
 
@@ -331,10 +337,17 @@ async function assertAtCadenceFiresExactlyOnceThroughTheEngine(): Promise<void> 
   let now = fireAt + 30_000
   const root = await createWorkspace()
   const store = new AutomationsStore(root)
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'schedule', config: atConfig('2026-06-17T10:30') },
-    nextRunAt: new Date(fireAt).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: atConfig('2026-06-17T10:30') },
+          nextRunAt: new Date(fireAt).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   let runs = 0
   const engine = new AutomationsEngine({
@@ -422,10 +435,17 @@ async function assertPastAtCadenceNeverFiresAndStaysQuiet(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const root = await createWorkspace()
   const store = new AutomationsStore(root)
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'schedule', config: atConfig('2026-06-16T09:00') },
-    nextRunAt: null,
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: atConfig('2026-06-16T09:00') },
+          nextRunAt: null,
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   let runs = 0
   const engine = new AutomationsEngine({
@@ -448,11 +468,18 @@ async function assertDisableAfterRunPausesScheduleAfterOneFire(): Promise<void> 
   let now = firstDue
   const root = await createWorkspace()
   const store = new AutomationsStore(root)
-  assert.equal((await store.createDefinition(definition({
-    disableAfterRun: true,
-    trigger: { kind: 'schedule', config: intervalConfig(5) },
-    nextRunAt: new Date(firstDue).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          disableAfterRun: true,
+          trigger: { kind: 'schedule', config: intervalConfig(5) },
+          nextRunAt: new Date(firstDue).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   let runs = 0
   const engine = new AutomationsEngine({
@@ -489,11 +516,18 @@ async function assertManualRunNowDoesNotConsumeOnceOffShot(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const root = await createWorkspace()
   const store = new AutomationsStore(root)
-  assert.equal((await store.createDefinition(definition({
-    disableAfterRun: true,
-    trigger: { kind: 'schedule', config: intervalConfig(60) },
-    nextRunAt: new Date(now + 60 * 60_000).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          disableAfterRun: true,
+          trigger: { kind: 'schedule', config: intervalConfig(60) },
+          nextRunAt: new Date(now + 60 * 60_000).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   let runs = 0
   const engine = new AutomationsEngine({
@@ -524,22 +558,31 @@ async function assertDisableAfterRunPausesTriggerEventAutomationAndBlocksSecondE
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const root = await createWorkspace()
   const store = new AutomationsStore(root)
-  assert.equal((await store.createDefinition(definition({
-    disableAfterRun: true,
-    trigger: { kind: 'test-event', config: {} },
-    nextRunAt: null,
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          disableAfterRun: true,
+          trigger: { kind: 'test-event', config: {} },
+          nextRunAt: null,
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   let runs = 0
   const engine = new AutomationsEngine({
     getProjectFolders: () => [{ workspaceId: 'ws-once-event', folderPath: root }],
     now: () => now,
     createRunId: () => `run-once-event-${runs}`,
-    triggerProviders: [{
-      kind: 'test-event',
-      configSchema: {},
-      subscribe: () => () => undefined,
-    }],
+    triggerProviders: [
+      {
+        kind: 'test-event',
+        configSchema: {},
+        subscribe: () => () => undefined,
+      },
+    ],
     runAutomation: async () => {
       runs += 1
       return { status: 'completed', summary: 'Event run completed.' }
@@ -605,10 +648,17 @@ async function assertDueAutomationSkipsOverlappingTickAndPreservesSingleFlight()
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
   const now = Date.parse('2026-06-17T10:00:00.000Z')
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(5) },
-    nextRunAt: new Date(now).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: intervalConfig(5) },
+          nextRunAt: new Date(now).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   let releaseRun: () => void = () => undefined
   let startedRun: () => void = () => undefined
@@ -670,10 +720,17 @@ async function assertRunEventsEmitForTimerAndManualTerminalStatuses(): Promise<v
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const timerRoot = await createWorkspace()
   const timerStore = new AutomationsStore(timerRoot)
-  assert.equal((await timerStore.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(5) },
-    nextRunAt: new Date(now).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await timerStore.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: intervalConfig(5) },
+          nextRunAt: new Date(now).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   const events: AutomationsRunEvent[] = []
   const timerEngine = new AutomationsEngine({
@@ -702,10 +759,17 @@ async function assertRunEventsEmitForTimerAndManualTerminalStatuses(): Promise<v
 
   const manualRoot = await createWorkspace()
   const manualStore = new AutomationsStore(manualRoot)
-  assert.equal((await manualStore.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(10) },
-    nextRunAt: new Date(now).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await manualStore.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: intervalConfig(10) },
+          nextRunAt: new Date(now).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   const manualEngine = new AutomationsEngine({
     getProjectFolders: () => [{ workspaceId: 'ws-from-snapshot', folderPath: manualRoot }],
@@ -740,10 +804,17 @@ async function assertAgentBackedRunStaysRunningUntilFinalize(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(10) },
-    nextRunAt: new Date(now).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: intervalConfig(10) },
+          nextRunAt: new Date(now).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   const events: AutomationsRunEvent[] = []
   const removedWorktrees: string[] = []
@@ -770,7 +841,11 @@ async function assertAgentBackedRunStaysRunningUntilFinalize(): Promise<void> {
     },
   })
 
-  const dispatched = await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })
+  const dispatched = await engine.runNow({
+    workspaceRoot,
+    automationId: 'nightly-review',
+    workspaceId: 'ws-automations',
+  })
   assert.equal(dispatched.ok, true)
   if (!dispatched.ok) return
   // Agent-backed run stays in-progress and emits no terminal event yet.
@@ -819,14 +894,21 @@ type AgentEngineHarness = {
 
 async function setupAgentRun(
   now: number,
-  overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {}
+  overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {},
 ): Promise<{ workspaceRoot: string; store: AutomationsStore } & AgentEngineHarness> {
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(10) },
-    nextRunAt: new Date(now).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: intervalConfig(10) },
+          nextRunAt: new Date(now).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
   const harness = agentEngine(workspaceRoot, now, overrides)
   return { workspaceRoot, store, ...harness }
 }
@@ -834,7 +916,7 @@ async function setupAgentRun(
 function agentEngine(
   workspaceRoot: string,
   now: number,
-  overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {}
+  overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {},
 ): AgentEngineHarness {
   const events: AutomationsRunEvent[] = []
   const removedWorktrees: string[] = []
@@ -879,14 +961,21 @@ const TEST_SETTLE_MS = 30
 async function setupAgentRunWithExecutionId(
   now: number,
   executionId: string,
-  overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {}
+  overrides: Partial<ConstructorParameters<typeof AutomationsEngine>[0]> = {},
 ): Promise<{ workspaceRoot: string; store: AutomationsStore } & AgentEngineHarness> {
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(10) },
-    nextRunAt: new Date(now).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: intervalConfig(10) },
+          nextRunAt: new Date(now).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
   const worktreePath = `${workspaceRoot}/.sprintengine/automations/worktrees/run-agent`
   const harness = agentEngine(workspaceRoot, now, {
     runAutomation: async () => ({
@@ -934,7 +1023,7 @@ function turnEndFrame(overrides: Partial<AgentPhaseEvent> = {}): AgentPhaseEvent
 async function readRunStatus(
   store: AutomationsStore,
   automationId: string,
-  runId: string
+  runId: string,
 ): Promise<AutomationRun['status'] | undefined> {
   const result = await store.getRun(automationId, runId)
   return result.ok ? result.value.status : undefined
@@ -954,18 +1043,25 @@ async function settle(): Promise<void> {
 // A minimal Claude transcript: the last assistant message is the run summary.
 async function writeTranscript(workspaceRoot: string, text: string): Promise<string> {
   const transcriptPath = join(workspaceRoot, 'transcript.jsonl')
-  await writeFile(transcriptPath, [
-    JSON.stringify({ type: 'user', message: { content: 'do the thing' } }),
-    JSON.stringify({ type: 'assistant', message: { id: 'msg-1', content: [{ type: 'text', text: 'first pass' }] } }),
-    JSON.stringify({ type: 'assistant', message: { id: 'msg-2', content: [{ type: 'text', text }] } }),
-  ].join('\n'), 'utf8')
+  await writeFile(
+    transcriptPath,
+    [
+      JSON.stringify({ type: 'user', message: { content: 'do the thing' } }),
+      JSON.stringify({ type: 'assistant', message: { id: 'msg-1', content: [{ type: 'text', text: 'first pass' }] } }),
+      JSON.stringify({ type: 'assistant', message: { id: 'msg-2', content: [{ type: 'text', text }] } }),
+    ].join('\n'),
+    'utf8',
+  )
   return transcriptPath
 }
 
 async function assertTurnEndFinalizesRunWithTranscriptSummary(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, events, removedWorktrees, disposedAgents, counters } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
   const transcriptPath = await writeTranscript(workspaceRoot, 'Reviewed the repo and filed the report.')
 
   await engine.noteAgentPhase(workingFrame())
@@ -973,7 +1069,11 @@ async function assertTurnEndFinalizesRunWithTranscriptSummary(): Promise<void> {
 
   // The turn-end only ARMS the finalize: nothing is destroyed until the settle
   // window has passed with no further work.
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'no finalize inside the settle window')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'running',
+    'no finalize inside the settle window',
+  )
   assert.equal(counters.prCalls, 0, 'no PR opened inside the settle window')
 
   await settle()
@@ -983,7 +1083,7 @@ async function assertTurnEndFinalizesRunWithTranscriptSummary(): Promise<void> {
   assert.equal(
     finalized.ok && finalized.value.summary,
     'Reviewed the repo and filed the report. Opened pull request https://github.com/acme/repo/pull/9.',
-    'summary comes from the agent\'s last assistant message',
+    "summary comes from the agent's last assistant message",
   )
   assert.equal(counters.prCalls, 1, 'PR opened once')
   assert.equal(removedWorktrees.length, 1, 'worktree torn down')
@@ -1000,7 +1100,10 @@ async function assertTurnEndFinalizesRunWithTranscriptSummary(): Promise<void> {
 async function assertTurnEndWithoutTranscriptUsesGenericSummary(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // No transcript path on the frame (an OpenCode/codex turn end): the summary
   // degrades to a generic one and the finalize proceeds regardless.
@@ -1018,19 +1121,28 @@ async function assertTurnEndWithoutTranscriptUsesGenericSummary(): Promise<void>
 
   // An unreadable transcript path is equally non-fatal (it is untrusted input).
   const { engine: engine2, workspaceRoot: root2, store: store2 } = await setupAgentRun(now)
-  assert.equal((await engine2.runNow({ workspaceRoot: root2, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine2.runNow({ workspaceRoot: root2, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
   await engine2.noteAgentPhase(workingFrame())
   await engine2.noteAgentPhase(turnEndFrame({ transcriptPath: join(root2, 'missing.jsonl') }))
   await settle()
   const finalized2 = await store2.getRun('nightly-review', 'run-agent')
   assert.equal(finalized2.ok && finalized2.value.status, 'completed', 'a missing transcript never blocks finalize')
-  assert.equal(finalized2.ok && finalized2.value.summary?.startsWith('The agent finished, but left no summary of what it did.'), true)
+  assert.equal(
+    finalized2.ok && finalized2.value.summary?.startsWith('The agent finished, but left no summary of what it did.'),
+    true,
+  )
 }
 
 async function assertSubagentStopNeverFinalizes(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // A Task subagent finishing maps to the SAME idle phase as the session's own
   // turn end, and its manifest entry carries no turnEnd flag. Finalizing here
@@ -1039,7 +1151,11 @@ async function assertSubagentStopNeverFinalizes(): Promise<void> {
   await engine.noteAgentPhase(turnEndFrame({ event: 'SubagentStop', turnEnd: false }))
   await settle()
 
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'SubagentStop does not end the run')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'running',
+    'SubagentStop does not end the run',
+  )
   assert.equal(counters.prCalls, 0)
 
   // The parent's own Stop still finalizes it, proving the run stayed tracked.
@@ -1051,14 +1167,21 @@ async function assertSubagentStopNeverFinalizes(): Promise<void> {
 async function assertTurnEndBeforeAnyWorkingPhaseIsIgnored(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, counters, disposedAgents } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // An idle frame that arrives before the prompt lands (the agent is up but has
   // not started) must not instantly finalize and kill the agent.
   await engine.noteAgentPhase(turnEndFrame({ previousPhase: null }))
   await settle()
 
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'run with no observed work stays running')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'running',
+    'run with no observed work stays running',
+  )
   assert.equal(counters.prCalls, 0)
   assert.deepEqual(disposedAgents, [], 'the live agent is not disposed')
 
@@ -1072,7 +1195,10 @@ async function assertTurnEndBeforeAnyWorkingPhaseIsIgnored(): Promise<void> {
 async function assertPendingWakeupDefersFinalize(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // A self-paced (/loop) agent ends its turn intending to resume. pendingWakeupAt
   // is resolved from the SESSION — the reporter never puts a wakeup on a turn-end
@@ -1087,13 +1213,20 @@ async function assertPendingWakeupDefersFinalize(): Promise<void> {
   // A wakeup already in the past does not defer anything.
   await engine.noteAgentPhase(turnEndFrame({ pendingWakeupAt: now - 1 }))
   await settle()
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed', 'an elapsed wakeup does not block')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'completed',
+    'an elapsed wakeup does not block',
+  )
 }
 
 async function assertWorkingFrameCancelsArmedSettleTimer(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // The settle window is what covers everything an event-name check cannot: a
   // Stop-hook continuation, an agent pausing to ask, plan mode, ESC. Work
@@ -1103,7 +1236,11 @@ async function assertWorkingFrameCancelsArmedSettleTimer(): Promise<void> {
   await engine.noteAgentPhase(workingFrame({ phase: 'tool_use', event: 'PostToolUse' }))
   await settle()
 
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'resumed work cancels the armed finalize')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'running',
+    'resumed work cancels the armed finalize',
+  )
   assert.equal(counters.prCalls, 0, 'no PR from a cancelled turn end')
 
   // The next real turn end still finalizes.
@@ -1116,7 +1253,10 @@ async function assertWorkingFrameCancelsArmedSettleTimer(): Promise<void> {
 async function assertTurnFailureFinalizesRunAsFailed(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, events, removedWorktrees, counters } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // OpenCode maps session.error to the idle phase, exactly like session.idle — so
   // a phase-only signal would finalize a CRASHED session as completed and open a
@@ -1141,15 +1281,21 @@ async function assertRunWithoutWorktreeIsTrackedAndFinalizes(): Promise<void> {
   // had a worktree, so every runInWorktree:false run was never registered and had
   // no finalize path at all — the runs that hung forever. This must fail against
   // the pre-change engine.
-  const { engine, workspaceRoot, store, events, removedWorktrees, disposedAgents, counters } = await setupAgentRun(now, {
-    runAutomation: async () => ({
-      status: 'running',
-      workspaceId: 'ws-automations',
-      agentId: 'agent-1',
-      summary: 'Launched; working…',
-    }),
-  })
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  const { engine, workspaceRoot, store, events, removedWorktrees, disposedAgents, counters } = await setupAgentRun(
+    now,
+    {
+      runAutomation: async () => ({
+        status: 'running',
+        workspaceId: 'ws-automations',
+        agentId: 'agent-1',
+        summary: 'Launched; working…',
+      }),
+    },
+  )
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   await engine.noteAgentPhase(workingFrame())
   await engine.noteAgentPhase(turnEndFrame())
@@ -1160,14 +1306,21 @@ async function assertRunWithoutWorktreeIsTrackedAndFinalizes(): Promise<void> {
   assert.equal(finalized.ok && finalized.value.summary, 'The agent finished, but left no summary of what it did.')
   assert.equal(counters.prCalls, 0, 'no worktree and no branch → nothing to open a PR from')
   assert.deepEqual(removedWorktrees, [], 'no worktree to tear down')
-  assert.deepEqual(disposedAgents, [{ workspaceId: 'ws-automations', agentId: 'agent-1' }], 'its agent is still disposed')
+  assert.deepEqual(
+    disposedAgents,
+    [{ workspaceId: 'ws-automations', agentId: 'agent-1' }],
+    'its agent is still disposed',
+  )
   assert.equal(events.length, 0)
 }
 
 async function assertPhaseFramesForOtherAgentsAreInert(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // Every ordinary agent in the app emits these frames. Only the (workspaceId,
   // agentId) pair of a pending run may finalize one; a partial key matches nothing.
@@ -1179,7 +1332,11 @@ async function assertPhaseFramesForOtherAgentsAreInert(): Promise<void> {
   await engine.noteAgentPhase(turnEndFrame({ workspaceId: null }))
   await settle()
 
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'another agent going idle finalizes nothing')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'running',
+    'another agent going idle finalizes nothing',
+  )
   assert.equal(counters.prCalls, 0)
 }
 
@@ -1190,12 +1347,19 @@ async function assertMaxDurationSweepFailsOverlongRun(): Promise<void> {
     now: () => clock,
     maxAgentRunMs: 6 * 60 * 60 * 1000,
   })
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // A run still inside the cap is left alone for its frames.
   clock = startedAt + 5 * 60 * 60 * 1000
   await engine.tick()
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'a younger run is untouched by the sweep')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'running',
+    'a younger run is untouched by the sweep',
+  )
 
   // Past the cap it is failed rather than left Running forever — the backstop for
   // an agent whose CLI reports no frames at all, or whose turn end was lost.
@@ -1218,7 +1382,10 @@ async function assertStartupRebuildsRegistryFromStore(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   // Engine A dispatches the run and records it as `running` in the store.
   const { engine: engineA, workspaceRoot, store } = await setupAgentRun(now)
-  assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
   assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running')
 
   // Engine B is a fresh instance (empty in-memory registry) simulating a restart.
@@ -1230,14 +1397,21 @@ async function assertStartupRebuildsRegistryFromStore(): Promise<void> {
   await engineB.noteAgentPhase(turnEndFrame())
   await settle()
 
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed', 'restart-recovered run finalizes from its frames')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'completed',
+    'restart-recovered run finalizes from its frames',
+  )
   assert.equal(countersB.prCalls, 1)
 }
 
 async function assertManualFinalizeRemovesRunFromRegistry(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, events, counters } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // Manual finalize (IPC button) — emits even on completed, and clears the registry.
   const manual = await engine.finalizeRun({
@@ -1264,18 +1438,29 @@ async function assertConcurrentManualAndAutoFinalizeOnce(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(10) },
-    nextRunAt: new Date(now).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: intervalConfig(10) },
+          nextRunAt: new Date(now).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   const events: AutomationsRunEvent[] = []
   let prCalls = 0
   let removedWorktrees = 0
   let markPrStarted: () => void = () => undefined
-  const prStarted = new Promise<void>((resolve) => { markPrStarted = resolve })
+  const prStarted = new Promise<void>((resolve) => {
+    markPrStarted = resolve
+  })
   let releasePr: () => void = () => undefined
-  const prGate = new Promise<void>((resolve) => { releasePr = resolve })
+  const prGate = new Promise<void>((resolve) => {
+    releasePr = resolve
+  })
   const worktreePath = `${workspaceRoot}/.sprintengine/automations/worktrees/run-agent`
   const engine = new AutomationsEngine({
     getProjectFolders: () => [{ workspaceId: 'ws-automations', folderPath: workspaceRoot }],
@@ -1296,10 +1481,15 @@ async function assertConcurrentManualAndAutoFinalizeOnce(): Promise<void> {
       await prGate
       return { ok: true, url: 'https://github.com/acme/repo/pull/9', created: true }
     },
-    removeRunWorktree: async () => { removedWorktrees += 1 },
+    removeRunWorktree: async () => {
+      removedWorktrees += 1
+    },
   })
 
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // Manual IPC finalize wins the lock and blocks mid-flight inside the PR open.
   const manual = engine.finalizeRun({
@@ -1336,11 +1526,19 @@ async function assertConcurrentManualAndAutoFinalizeOnce(): Promise<void> {
 async function assertAgentExitBeforeAnyTurnEndFinalizesFailed(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, events, counters } = await setupAgentRunWithExecutionId(now, 'exec-1')
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // The pty died with no turn end behind it: the agent never finished.
   await engine.noteAgentPhase(workingFrame())
-  await engine.finalizeRunOnAgentExit({ executionId: 'exec-1', workspaceId: 'ws-automations', agentId: 'agent-1', exitCode: 3 })
+  await engine.finalizeRunOnAgentExit({
+    executionId: 'exec-1',
+    workspaceId: 'ws-automations',
+    agentId: 'agent-1',
+    exitCode: 3,
+  })
 
   const finalized = await store.getRun('nightly-review', 'run-agent')
   assert.equal(finalized.ok && finalized.value.status, 'failed')
@@ -1357,7 +1555,10 @@ async function assertAgentExitDuringSettleWindowUsesArmedOutcome(): Promise<void
   const { engine, workspaceRoot, store, counters, events } = await setupAgentRunWithExecutionId(now, 'exec-1', {
     turnSettleMs: 60_000,
   })
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
   const transcriptPath = await writeTranscript(workspaceRoot, 'All done.')
 
   // The agent finished its turn, then its pty exited inside the settle window.
@@ -1389,8 +1590,12 @@ function heldTranscriptRead(): {
 } {
   let release!: (summary: string | undefined) => void
   let started!: () => void
-  const readStarted = new Promise<void>((resolve) => { started = resolve })
-  const result = new Promise<string | undefined>((resolve) => { release = resolve })
+  const readStarted = new Promise<void>((resolve) => {
+    started = resolve
+  })
+  const result = new Promise<string | undefined>((resolve) => {
+    release = resolve
+  })
   return {
     readRunTranscriptSummary: () => {
       started()
@@ -1408,7 +1613,10 @@ async function assertAgentExitDuringTranscriptReadUsesArmedOutcome(): Promise<vo
     turnSettleMs: 0,
     readRunTranscriptSummary: read.readRunTranscriptSummary,
   })
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   await engine.noteAgentPhase(workingFrame())
   await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
@@ -1422,8 +1630,15 @@ async function assertAgentExitDuringTranscriptReadUsesArmedOutcome(): Promise<vo
   await flushMicrotasks(50)
 
   const finalized = await store.getRun('nightly-review', 'run-agent')
-  assert.equal(finalized.ok && finalized.value.status, 'completed', 'the armed outcome wins over an exit racing the transcript read')
-  assert.equal(finalized.ok && finalized.value.summary, 'All done. Opened pull request https://github.com/acme/repo/pull/9.')
+  assert.equal(
+    finalized.ok && finalized.value.status,
+    'completed',
+    'the armed outcome wins over an exit racing the transcript read',
+  )
+  assert.equal(
+    finalized.ok && finalized.value.summary,
+    'All done. Opened pull request https://github.com/acme/repo/pull/9.',
+  )
   assert.equal(counters.prCalls, 1, 'exactly one finalize, one PR')
   assert.equal(events.length, 0, 'no failed event recorded behind the completed run')
 }
@@ -1435,7 +1650,10 @@ async function assertWorkingFrameDuringTranscriptReadAbortsFinalize(): Promise<v
     turnSettleMs: 0,
     readRunTranscriptSummary: read.readRunTranscriptSummary,
   })
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   await engine.noteAgentPhase(workingFrame())
   await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
@@ -1453,7 +1671,11 @@ async function assertWorkingFrameDuringTranscriptReadAbortsFinalize(): Promise<v
   // The abort is not sticky: the agent's next real turn-end still finalizes.
   await engine.noteAgentPhase(turnEndFrame())
   await settle()
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed', 'the next turn-end finalizes normally')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'completed',
+    'the next turn-end finalizes normally',
+  )
   assert.equal(counters.prCalls, 1)
 }
 
@@ -1464,7 +1686,10 @@ async function assertExitAfterAbortedArmedFinalizeStillFails(): Promise<void> {
     turnSettleMs: 0,
     readRunTranscriptSummary: read.readRunTranscriptSummary,
   })
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   await engine.noteAgentPhase(workingFrame())
   await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
@@ -1480,7 +1705,11 @@ async function assertExitAfterAbortedArmedFinalizeStillFails(): Promise<void> {
   await flushMicrotasks(50)
 
   const finalized = await store.getRun('nightly-review', 'run-agent')
-  assert.equal(finalized.ok && finalized.value.status, 'failed', 'the exit outcome lands once the armed finalize aborts')
+  assert.equal(
+    finalized.ok && finalized.value.status,
+    'failed',
+    'the exit outcome lands once the armed finalize aborts',
+  )
   assert.equal(finalized.ok && finalized.value.summary, 'The agent stopped before it finished (exit code 7).')
   assert.equal(counters.prCalls, 0)
 }
@@ -1492,7 +1721,10 @@ async function assertStopDuringTranscriptReadAbortsFinalize(): Promise<void> {
     turnSettleMs: 0,
     readRunTranscriptSummary: read.readRunTranscriptSummary,
   })
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   await engine.noteAgentPhase(workingFrame())
   await engine.noteAgentPhase(turnEndFrame({ transcriptPath: join(workspaceRoot, 'transcript.jsonl') }))
@@ -1503,7 +1735,11 @@ async function assertStopDuringTranscriptReadAbortsFinalize(): Promise<void> {
   read.release('never recorded')
   await flushMicrotasks(50)
 
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'a stopped engine finalizes nothing')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'running',
+    'a stopped engine finalizes nothing',
+  )
   assert.equal(counters.prCalls, 0)
 }
 
@@ -1512,23 +1748,42 @@ async function assertAgentExitCorrelatesOnWorkspaceAndAgentId(): Promise<void> {
   // The run carries NO executionId — the launch probe missed it. The exit event's
   // (workspaceId, agentId) still finds the pending run.
   const { engine, workspaceRoot, store } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   await engine.finalizeRunOnAgentExit({ workspaceId: 'ws-automations', agentId: 'agent-1', exitCode: 1 })
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'failed', 'exit correlates without an executionId')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'failed',
+    'exit correlates without an executionId',
+  )
 }
 
 async function assertAgentExitForUnknownAgentIsNoOp(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, events, counters } = await setupAgentRunWithExecutionId(now, 'exec-1')
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // Every non-automation agent's exit arrives here. None of them may finalize.
-  await engine.finalizeRunOnAgentExit({ executionId: 'exec-other', workspaceId: 'ws-automations', agentId: 'agent-2', exitCode: 1 })
+  await engine.finalizeRunOnAgentExit({
+    executionId: 'exec-other',
+    workspaceId: 'ws-automations',
+    agentId: 'agent-2',
+    exitCode: 1,
+  })
   await engine.finalizeRunOnAgentExit({ executionId: '   ', exitCode: 1 })
   await engine.finalizeRunOnAgentExit({ exitCode: 1 })
 
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'unmatched exit leaves the run pending')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'running',
+    'unmatched exit leaves the run pending',
+  )
   assert.equal(counters.prCalls, 0)
   assert.equal(events.length, 0)
 }
@@ -1540,10 +1795,21 @@ async function assertFinalizeDisposesSpawnedAgentAndToleratesDisposeFailure(): P
   // it never outlives the torn-down worktree and loop-relaunches into the dead cwd.
   {
     const { engine, workspaceRoot, store, disposedAgents } = await setupAgentRunWithExecutionId(now, 'exec-1')
-    assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
-    assert.equal((await engine.finalizeRun({
-      workspaceRoot, automationId: 'nightly-review', runId: 'run-agent', outcome: 'completed',
-    })).ok, true)
+    assert.equal(
+      (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+      true,
+    )
+    assert.equal(
+      (
+        await engine.finalizeRun({
+          workspaceRoot,
+          automationId: 'nightly-review',
+          runId: 'run-agent',
+          outcome: 'completed',
+        })
+      ).ok,
+      true,
+    )
     assert.deepEqual(
       disposedAgents,
       [{ workspaceId: 'ws-automations', agentId: 'agent-1' }],
@@ -1556,11 +1822,19 @@ async function assertFinalizeDisposesSpawnedAgentAndToleratesDisposeFailure(): P
   // must not fail the finalize — the terminal run is still recorded.
   {
     const { engine, workspaceRoot } = await setupAgentRunWithExecutionId(now, 'exec-2', {
-      disposeRunAgent: async () => { throw new Error('renderer unavailable') },
+      disposeRunAgent: async () => {
+        throw new Error('renderer unavailable')
+      },
     })
-    assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+    assert.equal(
+      (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+      true,
+    )
     const result = await engine.finalizeRun({
-      workspaceRoot, automationId: 'nightly-review', runId: 'run-agent', outcome: 'completed',
+      workspaceRoot,
+      automationId: 'nightly-review',
+      runId: 'run-agent',
+      outcome: 'completed',
     })
     assert.equal(result.ok && result.run.status, 'completed', 'a failed dispose does not fail the finalize')
   }
@@ -1570,18 +1844,29 @@ async function assertStartupReconcileForceFailsOrphanedAgentRun(): Promise<void>
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   // Engine A dispatches a run that records `running` with executionId 'exec-orphan'.
   const { engine: engineA, workspaceRoot, store } = await setupAgentRunWithExecutionId(now, 'exec-orphan')
-  assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
   assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running')
 
   // Engine B restart: the agent is no longer live.
-  const { engine: engineB, events, counters, disposedAgents } = agentEngine(workspaceRoot, now, {
+  const {
+    engine: engineB,
+    events,
+    counters,
+    disposedAgents,
+  } = agentEngine(workspaceRoot, now, {
     getLiveAgentExecutionIds: () => [],
   })
   await engineB.handleStartup()
 
   const finalized = await store.getRun('nightly-review', 'run-agent')
   assert.equal(finalized.ok && finalized.value.status, 'failed', 'orphaned run is force-failed')
-  assert.equal(finalized.ok && finalized.value.summary, 'The agent stopped while the app was closed, so this run never finished.')
+  assert.equal(
+    finalized.ok && finalized.value.summary,
+    'The agent stopped while the app was closed, so this run never finished.',
+  )
   assert.deepEqual(
     disposedAgents,
     [{ workspaceId: 'ws-automations', agentId: 'agent-1' }],
@@ -1596,7 +1881,10 @@ async function assertStartupReconcileForceFailsOrphanedAgentRun(): Promise<void>
 async function assertStartupReconcileLeavesStillLiveRunPending(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine: engineA, workspaceRoot, store } = await setupAgentRunWithExecutionId(now, 'exec-live')
-  assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // Engine B restart, but the agent's executionId is still in the live inventory.
   const { engine: engineB, counters } = agentEngine(workspaceRoot, now, {
@@ -1612,7 +1900,10 @@ async function assertStartupReconcileNeverForceFailsExecutionlessRun(): Promise<
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   // setupAgentRun's default run carries NO executionId.
   const { engine: engineA, workspaceRoot, store } = await setupAgentRun(now)
-  assert.equal((await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engineA.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   // Engine B restart with an empty live inventory: nothing proves this run's agent
   // is gone, so it must not be force-failed — its frames (or the max-duration
@@ -1629,7 +1920,10 @@ async function assertStartupReconcileNeverForceFailsExecutionlessRun(): Promise<
 async function assertStopClearsArmedSettleTimers(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const { engine, workspaceRoot, store, counters } = await setupAgentRun(now)
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
 
   await engine.noteAgentPhase(workingFrame())
   await engine.noteAgentPhase(turnEndFrame())
@@ -1638,10 +1932,13 @@ async function assertStopClearsArmedSettleTimers(): Promise<void> {
   engine.stop()
   await settle()
 
-  assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'running', 'a stopped engine finalizes nothing')
+  assert.equal(
+    await readRunStatus(store, 'nightly-review', 'run-agent'),
+    'running',
+    'a stopped engine finalizes nothing',
+  )
   assert.equal(counters.prCalls, 0)
 }
-
 
 function recordingGitDeps(statusStdout: string): { deps: PullRequestDeps; calls: string[][] } {
   const calls: string[][] = []
@@ -1682,13 +1979,19 @@ function realOpenerEngine(input: {
       branch: 'automations/run-agent',
       summary: 'Launched; working…',
     }),
-    openRunPullRequest: (prInput) => openAutomationRunPullRequest({
-      worktreePath: prInput.worktreePath,
-      branch: prInput.branch,
-      title: prInput.title,
-      body: prInput.body,
-    }, input.deps),
-    removeRunWorktree: async () => { input.removed.count += 1 },
+    openRunPullRequest: (prInput) =>
+      openAutomationRunPullRequest(
+        {
+          worktreePath: prInput.worktreePath,
+          branch: prInput.branch,
+          title: prInput.title,
+          body: prInput.body,
+        },
+        input.deps,
+      ),
+    removeRunWorktree: async () => {
+      input.removed.count += 1
+    },
   })
 }
 
@@ -1699,10 +2002,17 @@ async function assertFinalizePublishesWorkingDiff(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(10) },
-    nextRunAt: new Date(now).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: intervalConfig(10) },
+          nextRunAt: new Date(now).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   const { deps, calls } = recordingGitDeps(' M src/feature.ts\n')
   const events: AutomationsRunEvent[] = []
@@ -1710,18 +2020,33 @@ async function assertFinalizePublishesWorkingDiff(): Promise<void> {
   const worktreePath = `${workspaceRoot}/.sprintengine/automations/worktrees/run-agent`
   const engine = realOpenerEngine({ workspaceRoot, worktreePath, now, deps, events, removed })
 
-  assert.equal((await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok, true)
+  assert.equal(
+    (await engine.runNow({ workspaceRoot, automationId: 'nightly-review', workspaceId: 'ws-automations' })).ok,
+    true,
+  )
   await engine.noteAgentPhase(workingFrame())
   await engine.noteAgentPhase(turnEndFrame())
   await settle()
 
   // The diff is staged, committed, and pushed; a PR is opened.
   assert.deepEqual(calls.filter((args) => args[0] === 'add')[0], ['add', '-A'], 'finalize stages the diff')
-  assert.equal(calls.some((args) => args[0] === 'commit'), true, 'finalize commits')
-  assert.equal(calls.some((args) => args[0] === 'push'), true, 'finalize pushes')
+  assert.equal(
+    calls.some((args) => args[0] === 'commit'),
+    true,
+    'finalize commits',
+  )
+  assert.equal(
+    calls.some((args) => args[0] === 'push'),
+    true,
+    'finalize pushes',
+  )
   const finalized = await store.getRun('nightly-review', 'run-agent')
   assert.equal(finalized.ok && finalized.value.status, 'completed')
-  assert.equal(finalized.ok && finalized.value.pullRequestUrl, 'https://github.com/acme/repo/pull/9', 'finalize links a PR')
+  assert.equal(
+    finalized.ok && finalized.value.pullRequestUrl,
+    'https://github.com/acme/repo/pull/9',
+    'finalize links a PR',
+  )
   assert.equal(finalized.ok && finalized.value.blockedReason, undefined, 'a published diff is not a blocked run')
   assert.equal(removed.count, 1, 'worktree torn down')
 }
@@ -1730,10 +2055,17 @@ async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   const manualRoot = await createWorkspace()
   const manualStore = new AutomationsStore(manualRoot)
-  assert.equal((await manualStore.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(10) },
-    nextRunAt: new Date(now).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await manualStore.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: intervalConfig(10) },
+          nextRunAt: new Date(now).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   let manualDeliveryAttempts = 0
   const manualEngine = new AutomationsEngine({
@@ -1768,10 +2100,17 @@ async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void
 
   const timerRoot = await createWorkspace()
   const timerStore = new AutomationsStore(timerRoot)
-  assert.equal((await timerStore.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(5) },
-    nextRunAt: new Date(now).toISOString(),
-  }))).ok, true)
+  assert.equal(
+    (
+      await timerStore.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: intervalConfig(5) },
+          nextRunAt: new Date(now).toISOString(),
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   let timerDeliveryAttempts = 0
   const timerEngine = new AutomationsEngine({
@@ -1791,12 +2130,14 @@ async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void
   const tick = await timerEngine.tick()
   assert.equal(timerDeliveryAttempts, 1)
   assert.deepEqual(tick.problems, [])
-  assert.deepEqual(tick.fired, [{
-    workspaceRoot: timerRoot,
-    automationId: 'nightly-review',
-    runId: 'run-timer-throw',
-    status: 'completed',
-  }])
+  assert.deepEqual(tick.fired, [
+    {
+      workspaceRoot: timerRoot,
+      automationId: 'nightly-review',
+      runId: 'run-timer-throw',
+      status: 'completed',
+    },
+  ])
 
   const timerRuns = await timerStore.listRuns('nightly-review')
   assert.equal(timerRuns.ok, true)
@@ -1812,11 +2153,18 @@ async function assertRunEventDeliveryFailuresDoNotMutateRunTruth(): Promise<void
 async function assertPollingTriggersUseProviderGetterAtEvaluationTime(): Promise<void> {
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'weather-deck.forecast-ready', config: { city: 'Dublin' } },
-    action: { kind: 'spawn-agent', config: {} },
-    nextRunAt: null,
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          trigger: { kind: 'weather-deck.forecast-ready', config: { city: 'Dublin' } },
+          action: { kind: 'spawn-agent', config: {} },
+          nextRunAt: null,
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   const now = Date.parse('2026-06-17T10:00:00.000Z')
   let pollCount = 0
@@ -1852,22 +2200,31 @@ async function assertPollingTriggersUseProviderGetterAtEvaluationTime(): Promise
   const tick = await engine.tick()
   assert.equal(pollCount, 1)
   assert.deepEqual(tick.problems, [])
-  assert.deepEqual(tick.fired, [{
-    workspaceRoot,
-    automationId: 'nightly-review',
-    runId: 'run-live-provider',
-    status: 'completed',
-  }])
+  assert.deepEqual(tick.fired, [
+    {
+      workspaceRoot,
+      automationId: 'nightly-review',
+      runId: 'run-live-provider',
+      status: 'completed',
+    },
+  ])
 }
 
 async function assertDeniedTriggerProviderIsInertBeforePolling(): Promise<void> {
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'weather-deck.forecast-ready', config: { city: 'Dublin' } },
-    action: { kind: 'spawn-agent', config: {} },
-    nextRunAt: null,
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          trigger: { kind: 'weather-deck.forecast-ready', config: { city: 'Dublin' } },
+          action: { kind: 'spawn-agent', config: {} },
+          nextRunAt: null,
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   let validateCalls = 0
   let pollCalls = 0
@@ -1887,16 +2244,18 @@ async function assertDeniedTriggerProviderIsInertBeforePolling(): Promise<void> 
     },
   }
   const triggerProviders = executableTriggerProviders(
-    [{
-      providerId: 'weather-deck.weather-deck.forecast-ready',
-      moduleId: 'weather-deck',
-      providerType: 'trigger',
-      kind: 'weather-deck.forecast-ready',
-      configSchema: { type: 'object' },
-      requiredIntegrations: ['module:weather-deck'],
-      provider: thirdPartyTrigger,
-    }],
-    () => ({ ok: false, reason: 'Module "weather-deck" is not trusted.' })
+    [
+      {
+        providerId: 'weather-deck.weather-deck.forecast-ready',
+        moduleId: 'weather-deck',
+        providerType: 'trigger',
+        kind: 'weather-deck.forecast-ready',
+        configSchema: { type: 'object' },
+        requiredIntegrations: ['module:weather-deck'],
+        provider: thirdPartyTrigger,
+      },
+    ],
+    () => ({ ok: false, reason: 'Module "weather-deck" is not trusted.' }),
   )
   const engine = new AutomationsEngine({
     getProjectFolders: () => [{ workspaceId: 'ws-denied-provider', folderPath: workspaceRoot }],
@@ -1915,18 +2274,20 @@ async function assertDeniedTriggerProviderIsInertBeforePolling(): Promise<void> 
   assert.equal(pollCalls, 0)
   assert.equal(runCount, 0)
   assert.deepEqual(tick.problems, [])
-  assert.deepEqual(tick.fired, [{
-    workspaceRoot,
-    automationId: 'nightly-review',
-    runId: 'run-denied-provider',
-    status: 'blocked',
-  }])
+  assert.deepEqual(tick.fired, [
+    {
+      workspaceRoot,
+      automationId: 'nightly-review',
+      runId: 'run-denied-provider',
+      status: 'blocked',
+    },
+  ])
 
   const runs = await store.listRuns('nightly-review')
   assert.equal(runs.ok, true)
   assert.equal(runs.ok && runs.values.length, 1)
   assert.equal(runs.ok && runs.values[0]?.status, 'blocked')
-  assert.match(runs.ok ? runs.values[0]?.blockedReason ?? '' : '', /not trusted/)
+  assert.match(runs.ok ? (runs.values[0]?.blockedReason ?? '') : '', /not trusted/)
 }
 
 async function assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents(): Promise<void> {
@@ -1951,7 +2312,7 @@ async function assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents(): Promis
     getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
     triggerProviders: [createWebhookTriggerProvider()],
     now: () => now,
-    createRunId: ({ automationId }) => `${automationId}-run-${runIndex += 1}`,
+    createRunId: ({ automationId }) => `${automationId}-run-${(runIndex += 1)}`,
     runAutomation: async (input) => {
       triggerPayloads.push(input.triggerPayload)
       return { status: 'completed', summary: 'Webhook handled.' }
@@ -1968,21 +2329,26 @@ async function assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents(): Promis
     assert.equal(disabledStatus.state, 'stopped')
     assert.equal(disabledStatus.targetCount, 0)
 
-    assert.equal((await store.updateDefinition({
-      ...webhookAutomation,
-      trigger: {
-        kind: WEBHOOK_TRIGGER_KIND,
-        config: {
-          kind: WEBHOOK_TRIGGER_KIND,
-          enabled: true,
-          port: 0,
-          path: 'incoming-review',
-          secret,
-          eventType: 'push',
-        },
-      },
-      updatedAt: '2026-06-17T10:00:00.000Z',
-    })).ok, true)
+    assert.equal(
+      (
+        await store.updateDefinition({
+          ...webhookAutomation,
+          trigger: {
+            kind: WEBHOOK_TRIGGER_KIND,
+            config: {
+              kind: WEBHOOK_TRIGGER_KIND,
+              enabled: true,
+              port: 0,
+              path: 'incoming-review',
+              secret,
+              eventType: 'push',
+            },
+          },
+          updatedAt: '2026-06-17T10:00:00.000Z',
+        })
+      ).ok,
+      true,
+    )
 
     const enabledStatus = await receiver.refresh()
     assert.equal(enabledStatus.state, 'running')
@@ -2084,8 +2450,9 @@ async function assertWebhookReceiverOptInAuthAndDedupesDeliveredEvents(): Promis
     const state = await store.readState()
     assert.equal(state.ok, true)
     assert.equal(
-      state.ok && state.value?.triggerEventDedupByAutomationId?.['webhook-review']?.['webhook:incoming-review:delivery-1'],
-      '2026-06-17T10:00:00.000Z'
+      state.ok &&
+        state.value?.triggerEventDedupByAutomationId?.['webhook-review']?.['webhook:incoming-review:delivery-1'],
+      '2026-06-17T10:00:00.000Z',
     )
   } finally {
     await receiver.stop()
@@ -2099,21 +2466,28 @@ async function assertWebhookDeliveryFailureRedactsProblemFromCaller(): Promise<v
   const secret = 'test-webhook-secret-redacted'
   const sensitiveMessage = `${workspaceRoot}/.sprintengine/automations/state.json: disk full`
   const loggedMessages: string[] = []
-  assert.equal((await store.createDefinition(definition({
-    id: 'webhook-redacted-failure',
-    name: 'Webhook redacted failure',
-    trigger: {
-      kind: WEBHOOK_TRIGGER_KIND,
-      config: {
-        kind: WEBHOOK_TRIGGER_KIND,
-        enabled: true,
-        port: 0,
-        path: 'redacted-failure',
-        secret,
-      },
-    },
-    nextRunAt: null,
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          id: 'webhook-redacted-failure',
+          name: 'Webhook redacted failure',
+          trigger: {
+            kind: WEBHOOK_TRIGGER_KIND,
+            config: {
+              kind: WEBHOOK_TRIGGER_KIND,
+              enabled: true,
+              port: 0,
+              path: 'redacted-failure',
+              secret,
+            },
+          },
+          nextRunAt: null,
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   const receiver = new AutomationWebhookReceiver({
     getProjectFolders: () => [{ workspaceId: 'ws-webhooks', folderPath: workspaceRoot }],
@@ -2189,33 +2563,46 @@ async function assertWebhookReceiverRefreshSerializesAndFailsClosed(): Promise<v
 
   try {
     const firstRefresh = receiver.refresh()
-    assert.equal((await store.updateDefinition({
-      ...enabled,
-      trigger: {
-        kind: WEBHOOK_TRIGGER_KIND,
-        config: {
-          kind: WEBHOOK_TRIGGER_KIND,
-          enabled: true,
-          port: 0,
-          path: 'second-route',
-          secret,
-        },
-      },
-      updatedAt: '2026-06-17T10:01:00.000Z',
-    })).ok, true)
+    assert.equal(
+      (
+        await store.updateDefinition({
+          ...enabled,
+          trigger: {
+            kind: WEBHOOK_TRIGGER_KIND,
+            config: {
+              kind: WEBHOOK_TRIGGER_KIND,
+              enabled: true,
+              port: 0,
+              path: 'second-route',
+              secret,
+            },
+          },
+          updatedAt: '2026-06-17T10:01:00.000Z',
+        })
+      ).ok,
+      true,
+    )
     const secondRefresh = receiver.refresh()
-    assert.equal((await store.updateDefinition({
-      ...enabled,
-      trigger: {
-        kind: WEBHOOK_TRIGGER_KIND,
-        config: { kind: WEBHOOK_TRIGGER_KIND, enabled: false },
-      },
-      updatedAt: '2026-06-17T10:02:00.000Z',
-    })).ok, true)
+    assert.equal(
+      (
+        await store.updateDefinition({
+          ...enabled,
+          trigger: {
+            kind: WEBHOOK_TRIGGER_KIND,
+            config: { kind: WEBHOOK_TRIGGER_KIND, enabled: false },
+          },
+          updatedAt: '2026-06-17T10:02:00.000Z',
+        })
+      ).ok,
+      true,
+    )
     const thirdRefresh = receiver.refresh()
 
     const refreshes = await Promise.allSettled([firstRefresh, secondRefresh, thirdRefresh])
-    assert.equal(refreshes.every((result) => result.status === 'fulfilled'), true)
+    assert.equal(
+      refreshes.every((result) => result.status === 'fulfilled'),
+      true,
+    )
     const finalStatus = receiver.status()
     assert.equal(finalStatus.state, 'stopped')
     assert.equal(finalStatus.targetCount, 0)
@@ -2237,20 +2624,25 @@ async function assertWebhookReceiverRefreshSerializesAndFailsClosed(): Promise<v
     },
   })
   try {
-    assert.equal((await store.updateDefinition({
-      ...enabled,
-      trigger: {
-        kind: WEBHOOK_TRIGGER_KIND,
-        config: {
-          kind: WEBHOOK_TRIGGER_KIND,
-          enabled: true,
-          port: occupied.port,
-          path: 'conflict-route',
-          secret,
-        },
-      },
-      updatedAt: '2026-06-17T10:03:00.000Z',
-    })).ok, true)
+    assert.equal(
+      (
+        await store.updateDefinition({
+          ...enabled,
+          trigger: {
+            kind: WEBHOOK_TRIGGER_KIND,
+            config: {
+              kind: WEBHOOK_TRIGGER_KIND,
+              enabled: true,
+              port: occupied.port,
+              path: 'conflict-route',
+              secret,
+            },
+          },
+          updatedAt: '2026-06-17T10:03:00.000Z',
+        })
+      ).ok,
+      true,
+    )
 
     await assert.rejects(() => conflictReceiver.refresh(), /EADDRINUSE|address already in use|listen/u)
     const failedStatus = conflictReceiver.status()
@@ -2275,10 +2667,17 @@ async function assertStartupOverdueIsSkippedWithoutCatchup(): Promise<void> {
   const workspaceRoot = await createWorkspace()
   const store = new AutomationsStore(workspaceRoot)
   const now = Date.parse('2026-06-17T10:00:00.000Z')
-  assert.equal((await store.createDefinition(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(15) },
-    nextRunAt: '2026-06-17T09:00:00.000Z',
-  }))).ok, true)
+  assert.equal(
+    (
+      await store.createDefinition(
+        definition({
+          trigger: { kind: 'schedule', config: intervalConfig(15) },
+          nextRunAt: '2026-06-17T09:00:00.000Z',
+        }),
+      )
+    ).ok,
+    true,
+  )
 
   let runCount = 0
   const engine = new AutomationsEngine({
@@ -2318,10 +2717,12 @@ async function assertStartupOverdueIsSkippedWithoutCatchup(): Promise<void> {
 
 async function assertTickWaitsForStartupOverdueSkip(): Promise<void> {
   const now = Date.parse('2026-06-17T10:00:00.000Z')
-  const store = new InMemoryAutomationsStore(definition({
-    trigger: { kind: 'schedule', config: intervalConfig(15) },
-    nextRunAt: '2026-06-17T09:00:00.000Z',
-  }))
+  const store = new InMemoryAutomationsStore(
+    definition({
+      trigger: { kind: 'schedule', config: intervalConfig(15) },
+      nextRunAt: '2026-06-17T09:00:00.000Z',
+    }),
+  )
 
   let releaseSkippedRun: () => void = () => undefined
   const skippedRunRelease = new Promise<void>((resolve) => {
@@ -2359,10 +2760,7 @@ async function assertTickWaitsForStartupOverdueSkip(): Promise<void> {
   await skippedRunStarted
 
   const tickDuringStartup = engine.tick()
-  const tickRace = await Promise.race([
-    runnerStarted,
-    flushMicrotasks(50).then(() => 'blocked' as const),
-  ])
+  const tickRace = await Promise.race([runnerStarted, flushMicrotasks(50).then(() => 'blocked' as const)])
   assert.equal(tickRace, 'blocked')
   assert.equal(runCount, 0)
 

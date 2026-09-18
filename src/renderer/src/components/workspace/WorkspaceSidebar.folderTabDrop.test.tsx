@@ -63,11 +63,7 @@ function tabDataTransfer(serialized: string, mime: string): DataTransfer {
   } as unknown as DataTransfer
 }
 
-function fireDrag(
-  target: HTMLElement,
-  type: 'dragover' | 'drop' | 'dragleave',
-  dataTransfer: DataTransfer,
-): void {
+function fireDrag(target: HTMLElement, type: 'dragover' | 'drop' | 'dragleave', dataTransfer: DataTransfer): void {
   const event = new dom.window.Event(type, { bubbles: true, cancelable: true })
   Object.defineProperty(event, 'dataTransfer', { value: dataTransfer })
   target.dispatchEvent(event)

@@ -31,7 +31,9 @@ export function relayDeviceCapabilities(device: MobileRelayAuthenticatedDevice):
   return [...capabilities]
 }
 
-function normalizeDevicePlatform(platform: MobileRelayAuthenticatedDevice['platform']): MobileControlDevice['platform'] {
+function normalizeDevicePlatform(
+  platform: MobileRelayAuthenticatedDevice['platform'],
+): MobileControlDevice['platform'] {
   if (platform === 'ios' || platform === 'android' || platform === 'web') return platform
   return 'web'
 }
@@ -39,7 +41,7 @@ function normalizeDevicePlatform(platform: MobileRelayAuthenticatedDevice['platf
 export function upsertRelayDevice(
   pairedDevices: MobileControlDevice[],
   device: MobileRelayAuthenticatedDevice,
-  protocolVersion: MobileControlDevice['protocolVersion']
+  protocolVersion: MobileControlDevice['protocolVersion'],
 ): { pairedDevice: MobileControlDevice; inserted: boolean } {
   const now = new Date().toISOString()
   const capabilities = relayDeviceCapabilities(device)

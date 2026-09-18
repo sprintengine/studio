@@ -16,12 +16,7 @@ import {
   type AutomationProviderPermissionChecker,
   type RegisteredAutomationProvider,
 } from './provider-registry'
-import {
-  computeNextRun,
-  isValidTimeZone,
-  scheduleCadenceCanExhaust,
-  validateScheduleTriggerConfig,
-} from './schedule'
+import { computeNextRun, isValidTimeZone, scheduleCadenceCanExhaust, validateScheduleTriggerConfig } from './schedule'
 import { AutomationsStore, type AutomationStoreProblem } from './store'
 import { isRecord } from '../../shared/records'
 
@@ -35,10 +30,12 @@ import { isRecord } from '../../shared/records'
 // Deliberately excludes `ownerModuleId` and the `sourceCatalogueId` /
 // `sourcePublisher` provenance pair: all three are stamped once at create and
 // are immutable, so no patch may carry them.
-export type ParsedDefinitionPatch = Partial<Pick<
-  AutomationDefinition,
-  'name' | 'status' | 'trigger' | 'condition' | 'action' | 'runInWorktree' | 'disableAfterRun'
->>
+export type ParsedDefinitionPatch = Partial<
+  Pick<
+    AutomationDefinition,
+    'name' | 'status' | 'trigger' | 'condition' | 'action' | 'runInWorktree' | 'disableAfterRun'
+  >
+>
 
 /**
  * A marketplace catalogue entry's automation payload, plus the provenance the
@@ -85,8 +82,7 @@ export type DefinitionWriteDeps = {
 type PostWriteFailure = { code: string; message: string }
 
 export type DefinitionWriteResult<T> =
-  | { ok: true; value: T; postWriteFailure?: PostWriteFailure }
-  | { ok: false; code: string; message: string }
+  { ok: true; value: T; postWriteFailure?: PostWriteFailure } | { ok: false; code: string; message: string }
 
 /**
  * Evaluated against the record read inside the same read→write sequence, so a
@@ -94,15 +90,12 @@ export type DefinitionWriteResult<T> =
  * concurrent delete-and-recreate between two separate reads.
  */
 export type DefinitionPrecondition = (
-  existing: AutomationDefinition
+  existing: AutomationDefinition,
 ) => { ok: true } | { ok: false; code: string; message: string }
 
 export type DefinitionWriteCore = {
   get(workspaceRoot: string, automationId: string): Promise<DefinitionWriteResult<AutomationDefinition>>
-  create(
-    workspaceRoot: string,
-    draft: AutomationDefinitionDraft
-  ): Promise<DefinitionWriteResult<AutomationDefinition>>
+  create(workspaceRoot: string, draft: AutomationDefinitionDraft): Promise<DefinitionWriteResult<AutomationDefinition>>
   /**
    * The marketplace install path: parse a catalogue payload, resolve the install
    * defaults, stamp provenance, and create — or report the entry as already
@@ -112,18 +105,18 @@ export type DefinitionWriteCore = {
    */
   installFromCatalogue(
     workspaceRoot: string,
-    input: CatalogueDefinitionInstallInput
+    input: CatalogueDefinitionInstallInput,
   ): Promise<DefinitionWriteResult<CatalogueDefinitionInstall>>
   update(
     workspaceRoot: string,
     automationId: string,
     patch: ParsedDefinitionPatch,
-    precondition?: DefinitionPrecondition
+    precondition?: DefinitionPrecondition,
   ): Promise<DefinitionWriteResult<AutomationDefinition>>
   remove(
     workspaceRoot: string,
     automationId: string,
-    precondition?: DefinitionPrecondition
+    precondition?: DefinitionPrecondition,
   ): Promise<DefinitionWriteResult<{ automationId: string }>>
 }
 
@@ -147,20 +140,17 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
 
   async function createDefinition(
     workspaceRoot: string,
-    draft: AutomationDefinitionDraft
+    draft: AutomationDefinitionDraft,
   ): Promise<DefinitionWriteResult<AutomationDefinition>> {
     const timestamp = new Date(deps.now()).toISOString()
-    const withPairDefaults = applyProviderPairDefaults(
-      draft,
-      deps.getTriggerProviderRegistrations()
-    )
+    const withPairDefaults = applyProviderPairDefaults(draft, deps.getTriggerProviderRegistrations())
     const definition = buildDefinitionForCreate(withPairDefaults, timestamp, deps.createAutomationId)
     const prepared = prepareDefinitionForWrite(
       definition,
       deps.getTriggerProviderRegistrations(),
       deps.getActionProviderRegistrations(),
       deps.checkProviderPermission,
-      deps.now()
+      deps.now(),
     )
     if (!prepared.ok) return prepared
 
@@ -230,7 +220,7 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
         deps.getTriggerProviderRegistrations(),
         deps.getActionProviderRegistrations(),
         deps.checkProviderPermission,
-        deps.now()
+        deps.now(),
       )
       if (!prepared.ok) return prepared
 
@@ -267,7 +257,7 @@ export function createDefinitionWriteCore(deps: DefinitionWriteDeps): Definition
  */
 export function validateKnownWorkspaceRoot(
   workspaceRoot: string,
-  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined
+  getWorkspaceSyncSnapshot: (() => WorkspaceSyncSnapshot) | undefined,
 ): AutomationsResult<string> {
   if (!isAbsolute(workspaceRoot)) {
     return fail('invalid_input', 'workspaceRoot must be an absolute path.')
@@ -278,8 +268,9 @@ export function validateKnownWorkspaceRoot(
 
   try {
     const workspaceRootKey = normalizeWorkspaceRoot(workspaceRoot)
-    const knownFolder = projectFoldersFromWorkspaceSyncSnapshot(getWorkspaceSyncSnapshot())
-      .find((folder) => normalizeWorkspaceRoot(folder.folderPath) === workspaceRootKey)
+    const knownFolder = projectFoldersFromWorkspaceSyncSnapshot(getWorkspaceSyncSnapshot()).find(
+      (folder) => normalizeWorkspaceRoot(folder.folderPath) === workspaceRootKey,
+    )
     if (!knownFolder) {
       return fail('workspace_root_untrusted', 'workspaceRoot must match an open workspace folder.')
     }
@@ -287,7 +278,7 @@ export function validateKnownWorkspaceRoot(
   } catch (error) {
     return fail(
       'workspace_snapshot_unavailable',
-      error instanceof Error ? error.message : 'Unable to verify workspaceRoot against the workspace snapshot.'
+      error instanceof Error ? error.message : 'Unable to verify workspaceRoot against the workspace snapshot.',
     )
   }
 }
@@ -299,10 +290,10 @@ function normalizeWorkspaceRoot(workspaceRoot: string): string {
 function buildDefinitionForCreate(
   draft: AutomationDefinitionDraft,
   timestamp: string,
-  createAutomationId?: (draft: AutomationDefinitionDraft) => string
+  createAutomationId?: (draft: AutomationDefinitionDraft) => string,
 ): AutomationDefinition {
   return {
-    id: (draft.id?.trim() || createAutomationId?.(draft) || defaultAutomationId(draft.name)),
+    id: draft.id?.trim() || createAutomationId?.(draft) || defaultAutomationId(draft.name),
     name: draft.name.trim(),
     status: draft.status,
     trigger: draft.trigger,
@@ -326,7 +317,7 @@ export function prepareDefinitionForWrite(
   triggerProviders: RegisteredAutomationProvider<AutomationTriggerProvider>[],
   actionProviders: RegisteredAutomationProvider<AutomationActionProvider>[],
   checkProviderPermission: AutomationProviderPermissionChecker,
-  after: number
+  after: number,
 ): AutomationsResult<AutomationDefinition> {
   const triggerRegistration = triggerProviders.find((registration) => registration.kind === definition.trigger.kind)
   if (!triggerRegistration) {
@@ -334,7 +325,7 @@ export function prepareDefinitionForWrite(
   }
   const triggerBlockedReason = automationProviderBlockedReason(
     triggerRegistration,
-    checkProviderPermission(triggerRegistration)
+    checkProviderPermission(triggerRegistration),
   )
   if (triggerBlockedReason) return fail('provider_blocked', triggerBlockedReason)
 
@@ -344,7 +335,7 @@ export function prepareDefinitionForWrite(
   }
   const actionBlockedReason = automationProviderBlockedReason(
     actionRegistration,
-    checkProviderPermission(actionRegistration)
+    checkProviderPermission(actionRegistration),
   )
   if (actionBlockedReason) return fail('provider_blocked', actionBlockedReason)
 
@@ -389,7 +380,7 @@ async function writeNextRunCache(
   store: AutomationsStore,
   automationId: string,
   nextRunAt: string | null,
-  remove = false
+  remove = false,
 ): Promise<{ ok: true } | { ok: false; error: AutomationStoreProblem }> {
   const stateResult = await store.readState()
   if (!stateResult.ok) return stateResult
@@ -572,7 +563,12 @@ export function parseDefinitionPatch(input: unknown): AutomationsResult<ParsedDe
 }
 
 function parseKindConfig(input: unknown, label: string): AutomationsResult<{ kind: string; config: unknown }> {
-  if (!isRecord(input) || typeof input.kind !== 'string' || input.kind.trim() === '' || !Object.hasOwn(input, 'config')) {
+  if (
+    !isRecord(input) ||
+    typeof input.kind !== 'string' ||
+    input.kind.trim() === '' ||
+    !Object.hasOwn(input, 'config')
+  ) {
     return fail('invalid_input', `Automation ${label} must include kind and config.`)
   }
   return ok({ kind: input.kind.trim(), config: input.config })
@@ -616,11 +612,10 @@ function fail<T = never>(code: string, message: string): AutomationsResult<T> {
  */
 export function applyProviderPairDefaults(
   draft: AutomationDefinitionDraft,
-  triggerProviders: RegisteredAutomationProvider<AutomationTriggerProvider>[]
+  triggerProviders: RegisteredAutomationProvider<AutomationTriggerProvider>[],
 ): AutomationDefinitionDraft {
   if (draft.disableAfterRun !== undefined) return draft
-  const pairing = triggerProviders.find((registration) => registration.kind === draft.trigger.kind)
-    ?.provider.pairsWith
+  const pairing = triggerProviders.find((registration) => registration.kind === draft.trigger.kind)?.provider.pairsWith
   if (!pairing || pairing.actionKind !== draft.action.kind) return draft
   if (pairing.defaultDisableAfterRun !== true) return draft
   return { ...draft, disableAfterRun: true }

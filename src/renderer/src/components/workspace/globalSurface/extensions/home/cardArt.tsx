@@ -129,10 +129,7 @@ const GLYPH_PATHS: Record<CardArtName, JSX.Element> = {
   ),
   plane: (
     <>
-      <path
-        d="M14 60h34a6 6 0 0 0 6-6V30a6 6 0 0 0-6-6H14a6 6 0 0 0-6 6v24a6 6 0 0 0 6 6z"
-        strokeOpacity=".5"
-      />
+      <path d="M14 60h34a6 6 0 0 0 6-6V30a6 6 0 0 0-6-6H14a6 6 0 0 0-6 6v24a6 6 0 0 0 6 6z" strokeOpacity=".5" />
       <path d="M20 74l-4 10 10-4" />
       <path d="M88 22L56 42l10 6 4 14 8-12 10 4z" fill="currentColor" fillOpacity=".14" />
       <path d="M88 22L66 48" />
@@ -285,10 +282,7 @@ function Scene({
     >
       <PlateWash tone={tone} />
       {horizon ? (
-        <span
-          aria-hidden="true"
-          className="absolute inset-x-0 bottom-[22%] h-px bg-[color:var(--border-default)]"
-        />
+        <span aria-hidden="true" className="absolute inset-x-0 bottom-[22%] h-px bg-[color:var(--border-default)]" />
       ) : null}
       {children}
     </div>

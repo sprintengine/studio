@@ -72,10 +72,7 @@ run('the bundle’s tokens come before the component’s styles', () => {
     bodyHtml: '<b>x</b>',
     mode: 'light',
   })
-  assert.ok(
-    html.indexOf('/*TOKENS*/') < html.indexOf('/*INLINE*/'),
-    'tokens precede the demo styles',
-  )
+  assert.ok(html.indexOf('/*TOKENS*/') < html.indexOf('/*INLINE*/'), 'tokens precede the demo styles')
   assert.ok(
     html.indexOf('/*INLINE*/') < html.indexOf('/*COMPONENT*/'),
     'and the component sheet is last, so it wins ties as it does in its own repo',
@@ -214,7 +211,10 @@ run('the body is extracted, and a fragment with no body still works', () => {
 run('stages are the top-level children, each with its declared mode', () => {
   const stages = extractStages(extractBodyHtml(DEMO))
   assert.equal(stages.length, 2, 'two stages, not the nested children')
-  assert.deepEqual(stages.map((stage) => stage.mode), ['light', 'dark'])
+  assert.deepEqual(
+    stages.map((stage) => stage.mode),
+    ['light', 'dark'],
+  )
   assert.ok(stages[0].html.includes('demo-label'), 'a stage carries its whole subtree')
   assert.ok(!stages[0].html.includes('data-mode="dark"'), 'and stops at its own close tag')
 })
@@ -225,7 +225,10 @@ run('nesting, void elements and single quotes do not confuse the scanner', () =>
       `<hr>` +
       `<section data-mode="dark"><div>b</div></section>`,
   )
-  assert.deepEqual(stages.map((stage) => stage.mode), ['light', null, 'dark'])
+  assert.deepEqual(
+    stages.map((stage) => stage.mode),
+    ['light', null, 'dark'],
+  )
   assert.equal(stages[1].html, '<hr>', 'a void element at the top level is its own stage')
 })
 

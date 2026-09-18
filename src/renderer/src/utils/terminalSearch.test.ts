@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict'
 import type { ISearchOptions } from '@xterm/addon-search'
 
-import {
-  createTerminalSearchHandle,
-  terminalSearchDecorations,
-  terminalSearchOptions,
-} from './terminalSearch'
+import { createTerminalSearchHandle, terminalSearchDecorations, terminalSearchOptions } from './terminalSearch'
 
 // No `window` is installed here on purpose: `terminalTheme.readVar` falls back
 // to the dark default when there is none, so this file exercises the dark pair
@@ -100,8 +96,14 @@ run('both directions run with the same options', () => {
   handle.findNext('error')
   handle.findPrevious('error')
 
-  assert.deepEqual(addon.next.map((entry) => entry.term), ['error'])
-  assert.deepEqual(addon.previous.map((entry) => entry.term), ['error'])
+  assert.deepEqual(
+    addon.next.map((entry) => entry.term),
+    ['error'],
+  )
+  assert.deepEqual(
+    addon.previous.map((entry) => entry.term),
+    ['error'],
+  )
   assert.deepEqual(addon.next[0].options, addon.previous[0].options)
   assert.equal(addon.next[0].options?.regex, false)
 })

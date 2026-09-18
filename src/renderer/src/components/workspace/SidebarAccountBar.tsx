@@ -1,5 +1,14 @@
 import React from 'react'
-import { IconButton, MenuItem, OutlineButton, Popover, TONE_COLOR_VAR, TONE_SOFT_VAR, Tooltip, TruncatedText } from '../ui'
+import {
+  IconButton,
+  MenuItem,
+  OutlineButton,
+  Popover,
+  TONE_COLOR_VAR,
+  TONE_SOFT_VAR,
+  Tooltip,
+  TruncatedText,
+} from '../ui'
 import type { MulticodeAuthState } from '../../../../shared/electron-api'
 import { AccountAvatar, AccountUserGlyph } from './AccountAvatar'
 import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './accountEntitlements'
@@ -93,11 +102,12 @@ function AccountMenuItem({ onSelect, children }: { onSelect: () => void; childre
     const items = Array.from(surface.querySelectorAll<HTMLButtonElement>('[data-account-item="true"]'))
     if (items.length === 0) return
     const idx = items.indexOf(event.currentTarget)
-    const next = event.key === 'Home'
-      ? items[0]
-      : event.key === 'End'
-        ? items[items.length - 1]
-        : items[(idx + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]
+    const next =
+      event.key === 'Home'
+        ? items[0]
+        : event.key === 'End'
+          ? items[items.length - 1]
+          : items[(idx + (event.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]
     next?.focus()
   }
   return (
@@ -123,9 +133,7 @@ function AccountPopover({
   onLogout: () => void
   onUpgrade: () => void
 }) {
-  const metaLine = [planLabel(authState), authState.selectedOrganization?.name]
-    .filter(Boolean)
-    .join(' · ')
+  const metaLine = [planLabel(authState), authState.selectedOrganization?.name].filter(Boolean).join(' · ')
   const primaryLine = authState.user?.displayName ?? authState.user?.email ?? 'Your account'
   const email = authState.user?.displayName ? authState.user?.email : null
   const accessStale = Boolean(message) || authState.entitlementStatus !== 'fresh'
@@ -153,18 +161,10 @@ function AccountPopover({
             className="text-heading font-medium text-[color:var(--text-strong)]"
           />
           {email ? (
-            <TruncatedText
-              as="div"
-              text={email}
-              className="mt-0.5 text-body text-[color:var(--text-muted)]"
-            />
+            <TruncatedText as="div" text={email} className="mt-0.5 text-body text-[color:var(--text-muted)]" />
           ) : null}
           {metaLine ? (
-            <TruncatedText
-              as="div"
-              text={metaLine}
-              className="mt-1 text-meta text-[color:var(--text-subtle)]"
-            />
+            <TruncatedText as="div" text={metaLine} className="mt-1 text-meta text-[color:var(--text-subtle)]" />
           ) : null}
         </div>
       </div>
@@ -177,12 +177,8 @@ function AccountPopover({
 
       {offerUpgrade || accessStale ? (
         <div className="border-t border-[color:var(--border-subtle)] py-1">
-          {offerUpgrade ? (
-            <AccountMenuItem onSelect={onUpgrade}>Upgrade to Pro</AccountMenuItem>
-          ) : null}
-          {accessStale ? (
-            <AccountMenuItem onSelect={onCheckAccess}>Check access again</AccountMenuItem>
-          ) : null}
+          {offerUpgrade ? <AccountMenuItem onSelect={onUpgrade}>Upgrade to Pro</AccountMenuItem> : null}
+          {accessStale ? <AccountMenuItem onSelect={onCheckAccess}>Check access again</AccountMenuItem> : null}
         </div>
       ) : null}
       <div className="border-t border-[color:var(--border-subtle)] py-1">
@@ -279,10 +275,7 @@ export default function SidebarAccountBar({
         surface.querySelector<HTMLButtonElement>('[data-account-item="true"]')?.focus()
       }}
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
-        <Tooltip
-          content={`${accountName} · ${accountPlanLabel(authState)}`}
-          placement={collapsed ? 'right' : 'top'}
-        >
+        <Tooltip content={`${accountName} · ${accountPlanLabel(authState)}`} placement={collapsed ? 'right' : 'top'}>
           <IconButton
             ref={ref}
             size={collapsed ? 'lg' : 'md'}

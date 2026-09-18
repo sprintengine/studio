@@ -49,9 +49,7 @@ export function summariseChanges(before: CanvasElement[], after: CanvasElement[]
     if (from.subjects.has(id)) continue
     const box = canvasElementBox(element)
     const label = canvasElementLabel(element, to.index)
-    added.push(
-      `Added ${element.type} ${label ? `"${label}"` : id} at (${Math.round(box.x)},${Math.round(box.y)})`,
-    )
+    added.push(`Added ${element.type} ${label ? `"${label}"` : id} at (${Math.round(box.x)},${Math.round(box.y)})`)
   }
 
   for (const [id, element] of from.subjects) {

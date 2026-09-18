@@ -188,13 +188,11 @@ async function main(): Promise<void> {
       .filter((name): name is string => name !== undefined)
 
   const rowFor = (name: string): HTMLElement | undefined =>
-    [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')].find((el) =>
-      el.textContent?.includes(name)
-    )
+    [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')].find((el) => el.textContent?.includes(name))
 
   const foldRow = (label: string): HTMLButtonElement | null =>
     [...container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')].find((button) =>
-      button.textContent?.startsWith(label)
+      button.textContent?.startsWith(label),
     ) ?? null
 
   const openMenuOn = async (name: string): Promise<string[]> => {
@@ -202,12 +200,12 @@ async function main(): Promise<void> {
     assert.ok(row, `row ${name} is rendered`)
     act(() => {
       row.dispatchEvent(
-        new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })
+        new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
       )
     })
     await settle()
     const items = [...dom.window.document.querySelectorAll('[role="menu"] [data-menu-item="true"]')].map(
-      (el) => el.textContent?.trim() ?? ''
+      (el) => el.textContent?.trim() ?? '',
     )
     act(() => {
       dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
@@ -220,11 +218,7 @@ async function main(): Promise<void> {
     await render(baseProps)
 
     // --- the shelf -------------------------------------------------------
-    assert.deepEqual(
-      rowNames(),
-      ['Alpha', 'Delta'],
-      'sleeping rows leave the active list; a woken one is back in it'
-    )
+    assert.deepEqual(rowNames(), ['Alpha', 'Delta'], 'sleeping rows leave the active list; a woken one is back in it')
     const shelf = foldRow('Snoozed')
     assert.ok(shelf, 'the folder shows its Snoozed shelf row')
     assert.equal(shelf.getAttribute('aria-expanded'), 'false', 'the shelf is closed by default')
@@ -242,27 +236,24 @@ async function main(): Promise<void> {
     assert.deepEqual(
       rowNames(),
       ['Alpha', 'Delta', 'Bravo', 'Charlie'],
-      'open, the shelf lists its rows by wake time, soonest first'
+      'open, the shelf lists its rows by wake time, soonest first',
     )
 
     // --- what a sleeping row says ---------------------------------------
     const bravo = rowFor('Bravo')
     assert.ok(bravo?.textContent?.includes('(snoozed)'), 'a sleeping row says so in words')
     assert.match(bravo!.textContent ?? '', /\b2h\b/, 'and wears the countdown to its wake')
-    assert.ok(
-      container.querySelector('button[aria-label="Wake Bravo"]'),
-      'its one-click seat is Wake, not Settle'
-    )
+    assert.ok(container.querySelector('button[aria-label="Wake Bravo"]'), 'its one-click seat is Wake, not Settle')
     assert.equal(
       container.querySelector('button[aria-label="Settle Bravo"]'),
       null,
-      'Settle does not take the seat on a row that is only waiting on a clock'
+      'Settle does not take the seat on a row that is only waiting on a clock',
     )
 
     assert.deepEqual(
       [...reportedSnoozed].sort(),
       ['w2', 'w3'],
-      'the sleeping rows are reported up so the rail badge skips them'
+      'the sleeping rows are reported up so the rail badge skips them',
     )
 
     // --- what a woken row says -------------------------------------------
@@ -278,7 +269,7 @@ async function main(): Promise<void> {
     const sleepingMenu = await openMenuOn('Bravo')
     assert.ok(
       sleepingMenu.includes('Wake now'),
-      `a sleeping row's menu offers Wake now (got ${sleepingMenu.join(' | ')})`
+      `a sleeping row's menu offers Wake now (got ${sleepingMenu.join(' | ')})`,
     )
     assert.equal(sleepingMenu.includes('Snooze'), false, 'and not a second Snooze')
 
@@ -287,12 +278,13 @@ async function main(): Promise<void> {
     const alphaRow = rowFor('Alpha')
     act(() => {
       alphaRow!.dispatchEvent(
-        new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })
+        new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
       )
     })
     await settle()
-    const snoozeItem = [...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"] [data-menu-item="true"]')]
-      .find((el) => el.textContent?.trim() === 'Snooze')
+    const snoozeItem = [
+      ...dom.window.document.querySelectorAll<HTMLElement>('[role="menu"] [data-menu-item="true"]'),
+    ].find((el) => el.textContent?.trim() === 'Snooze')
     assert.ok(snoozeItem, 'Snooze is a menu item')
     assert.equal(snoozeItem.getAttribute('aria-haspopup'), 'menu', 'and it opens a submenu of wake times')
     // Opened by click; hover opens it too, but a raw non-bubbling `mouseenter`
@@ -301,25 +293,28 @@ async function main(): Promise<void> {
       snoozeItem.click()
     })
     await settle()
-    const presetLabels = [...dom.window.document.querySelectorAll('[role="menu"][aria-label="Snooze chat"] [data-menu-item="true"]')]
-      .map((el) => el.textContent?.trim() ?? '')
+    const presetLabels = [
+      ...dom.window.document.querySelectorAll('[role="menu"][aria-label="Snooze chat"] [data-menu-item="true"]'),
+    ].map((el) => el.textContent?.trim() ?? '')
     assert.ok(presetLabels.length >= 3, `the flyout offers wake times (got ${presetLabels.join(' | ')})`)
     assert.ok(
       presetLabels.some((label) => label.startsWith('In 1 hour')),
-      `the nearest choice is first (got ${presetLabels.join(' | ')})`
+      `the nearest choice is first (got ${presetLabels.join(' | ')})`,
     )
     assert.ok(
       presetLabels.some((label) => label.startsWith('Tomorrow')),
-      `and the calendar choices follow (got ${presetLabels.join(' | ')})`
+      `and the calendar choices follow (got ${presetLabels.join(' | ')})`,
     )
     // Choosing one SUSPENDS the chat's terminals (owner ruling, 2026-09-10).
     // This is the behaviour the first cut got wrong: a snoozed chat that kept
     // its ptys running was the most expensive row in the tree, and the point of
     // the gesture is that the chat stops running until you come back to it.
     assert.deepEqual(suspended, [], 'nothing is suspended before the choice is made')
-    const anHour = [...dom.window.document.querySelectorAll<HTMLElement>(
-      '[role="menu"][aria-label="Snooze chat"] [data-menu-item="true"]'
-    )].find((el) => el.textContent?.trim().startsWith('In 1 hour'))
+    const anHour = [
+      ...dom.window.document.querySelectorAll<HTMLElement>(
+        '[role="menu"][aria-label="Snooze chat"] [data-menu-item="true"]',
+      ),
+    ].find((el) => el.textContent?.trim().startsWith('In 1 hour'))
     assert.ok(anHour, 'the 1-hour preset is clickable')
     act(() => {
       anHour.click()
@@ -341,14 +336,9 @@ async function main(): Promise<void> {
     // Asserted against the shelf CONTAINER, not the row list: this folder's
     // shelf was opened earlier in the file, so a row inside it is on screen —
     // what matters is which side of the fold it is on.
-    const openShelf = dom.window.document.getElementById(
-      foldRow('Snoozed')?.getAttribute('aria-controls') ?? ''
-    )
+    const openShelf = dom.window.document.getElementById(foldRow('Snoozed')?.getAttribute('aria-controls') ?? '')
     assert.ok(openShelf, 'the shelf is there to look inside')
-    assert.ok(
-      openShelf.textContent?.includes('Bravo'),
-      'a sleeping row whose agent is asking stays in the shelf'
-    )
+    assert.ok(openShelf.textContent?.includes('Bravo'), 'a sleeping row whose agent is asking stays in the shelf')
     assert.match(foldRow('Snoozed')?.textContent ?? '', /Snoozed\s*2/, 'and the shelf count does not move')
     assert.deepEqual([...reportedSnoozed].sort(), ['w2', 'w3'], 'the badge still skips it')
 
@@ -362,12 +352,13 @@ async function main(): Promise<void> {
     } as unknown as SidebarProps)
     act(() => {
       rowFor('Alpha')!.dispatchEvent(
-        new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 })
+        new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
       )
     })
     await settle()
-    const askingSnooze = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[role="menu"] [data-menu-item="true"]')]
-      .find((el) => el.textContent?.trim() === 'Snooze')
+    const askingSnooze = [
+      ...dom.window.document.querySelectorAll<HTMLButtonElement>('[role="menu"] [data-menu-item="true"]'),
+    ].find((el) => el.textContent?.trim() === 'Snooze')
     assert.ok(askingSnooze, 'Snooze is listed on a row whose agent is asking')
     assert.equal(askingSnooze.disabled, false, 'and it can be chosen')
     act(() => {
@@ -404,16 +395,12 @@ async function main(): Promise<void> {
     // It comes back with the chat, on the stamp alone — no gesture, no event.
     await render({
       ...sleeperProps,
-      workspaces: [
-        workspace('s1', 'Sleeper', { snoozedUntil: createdAt - HOUR }),
-        sleepers[1]!,
-      ],
+      workspaces: [workspace('s1', 'Sleeper', { snoozedUntil: createdAt - HOUR }), sleepers[1]!],
     } as unknown as SidebarProps)
     assert.ok(rowFor('Sleeper'), 'the woken chat brings its project back with it')
     // Counted off the fold row, not off the row list: this folder's shelf was
     // left open earlier in the file, so the sleeper still in it is on screen too.
     assert.match(foldRow('Snoozed')?.textContent ?? '', /Snoozed\s*1/, 'and the one still asleep is counted again')
-
   } finally {
     act(() => {
       root.unmount()

@@ -37,7 +37,7 @@ export function runTailscale(args: readonly string[], timeoutMs: number, maxBuff
       resolveTailscaleBinary(),
       [...args],
       { timeout: timeoutMs, windowsHide: true, ...(maxBuffer ? { maxBuffer } : {}) },
-      (error, stdout) => resolve(error ? null : stdout)
+      (error, stdout) => resolve(error ? null : stdout),
     )
   })
 }
@@ -56,9 +56,14 @@ export function runTailscale(args: readonly string[], timeoutMs: number, maxBuff
  * fixed label and drops the text. The field is here so that classification can
  * happen, not so the text can be shown.
  */
-export type TailscaleRun = { ok: true; stdout: string } | { ok: false; stdout: string; stderr: string; timedOut: boolean }
+export type TailscaleRun =
+  { ok: true; stdout: string } | { ok: false; stdout: string; stderr: string; timedOut: boolean }
 
-export function runTailscaleResult(args: readonly string[], timeoutMs: number, maxBuffer?: number): Promise<TailscaleRun> {
+export function runTailscaleResult(
+  args: readonly string[],
+  timeoutMs: number,
+  maxBuffer?: number,
+): Promise<TailscaleRun> {
   return new Promise((resolve) => {
     execFile(
       resolveTailscaleBinary(),
@@ -73,7 +78,7 @@ export function runTailscaleResult(args: readonly string[], timeoutMs: number, m
         // signal that separates "took too long" from "exited non-zero".
         const timedOut = (error as NodeJS.ErrnoException & { killed?: boolean }).killed === true
         resolve({ ok: false, stdout: stdout ?? '', stderr: stderr ?? '', timedOut })
-      }
+      },
     )
   })
 }

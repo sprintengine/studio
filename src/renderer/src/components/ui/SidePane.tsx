@@ -119,9 +119,7 @@ export function SidePaneHeader({ title, count, onClose, closeLabel, titleId }: S
         className="text-body font-semibold tracking-tight text-[color:var(--text-strong)]"
       />
       <div className="flex shrink-0 items-center gap-2 text-micro text-[color:var(--text-muted)]">
-        {count !== undefined && count !== null ? (
-          <span className="tabular-nums">{count}</span>
-        ) : null}
+        {count !== undefined && count !== null ? <span className="tabular-nums">{count}</span> : null}
         <CloseIconButton aria-label={closeLabel} onClick={onClose} />
       </div>
     </header>

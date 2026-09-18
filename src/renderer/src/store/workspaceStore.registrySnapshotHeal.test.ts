@@ -11,7 +11,6 @@ import type { WorkspaceSyncEvent, WorkspaceSyncSnapshot } from '../../../shared/
 // person's open Backlog would vanish instead of becoming a tab. The stripped
 // layout is written back to main once, so the heal converges.
 
-
 const stored: Record<string, string> = {}
 stored['multicode.workspaceStorageLiveSync'] = '1'
 const localStorageMock = {
@@ -33,8 +32,17 @@ const railLayout = {
   layout: {
     type: 'row',
     children: [
-      { type: 'tabset', weight: 18, enableTabStrip: false, children: [{ type: 'tab', name: 'Backlog', component: 'backlog' }] },
-      { type: 'tabset', weight: 82, children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } }] },
+      {
+        type: 'tabset',
+        weight: 18,
+        enableTabStrip: false,
+        children: [{ type: 'tab', name: 'Backlog', component: 'backlog' }],
+      },
+      {
+        type: 'tabset',
+        weight: 82,
+        children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } }],
+      },
     ],
   },
 }
@@ -97,10 +105,12 @@ await __workspaceStoreBackupRecoveryPromise
 // This window already renders the workspace with a pane of its own (closed, on
 // a Git tab) and a layout that never docked the rail.
 useWorkspaceStore.setState({
-  workspaces: [{
-    ...workspace('ws-heal', { global: {}, borders: [], layout: { type: 'row', children: [] } }),
-    paneState: { open: false, activeTabId: 'g', tabs: [{ id: 'g', kind: 'git' }] },
-  } as Workspace],
+  workspaces: [
+    {
+      ...workspace('ws-heal', { global: {}, borders: [], layout: { type: 'row', children: [] } }),
+      paneState: { open: false, activeTabId: 'g', tabs: [{ id: 'g', kind: 'git' }] },
+    } as Workspace,
+  ],
   activeWorkspaceId: 'ws-heal',
   primaryWorkspaceWindowId: 'A',
   workspaceWindows: [windowState('A', ['ws-heal'], 'ws-heal')],

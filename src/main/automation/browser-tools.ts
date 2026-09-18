@@ -1,6 +1,11 @@
 import type { BrowserTabState } from '../../shared/browser'
 import { normalizeBrowserUrlInput } from '../../shared/browser'
-import { BROWSER_DEVICE_PRESETS, normalizeBrowserViewport, presetViewport, type BrowserViewport } from '../../shared/browser-devices'
+import {
+  BROWSER_DEVICE_PRESETS,
+  normalizeBrowserViewport,
+  presetViewport,
+  type BrowserViewport,
+} from '../../shared/browser-devices'
 import type { McpConnectionContext, McpToolRegistration, McpToolResult } from '../../shared/modules/mcp-tools'
 import type { ActionEntry, BrowserControl, BrowserControlError } from '../browser/browser-control'
 
@@ -56,7 +61,18 @@ export type BrowserToolsDeps = {
   manager: BrowserToolsManager
   control: Pick<
     BrowserControl,
-    'snapshot' | 'screenshot' | 'click' | 'hover' | 'type' | 'press' | 'scroll' | 'evaluate' | 'waitFor' | 'console' | 'network' | 'actionsOf'
+    | 'snapshot'
+    | 'screenshot'
+    | 'click'
+    | 'hover'
+    | 'type'
+    | 'press'
+    | 'scroll'
+    | 'evaluate'
+    | 'waitFor'
+    | 'console'
+    | 'network'
+    | 'actionsOf'
   >
   /** Whether a workspace id names an open workspace. */
   hasWorkspace: (workspaceId: string) => boolean
@@ -125,7 +141,11 @@ const TARGET_PROPERTIES = {
 } as const
 
 /** What a tool result says about a tab: the fields an agent acts on, nothing internal. */
-function describeTab(tab: BrowserTabState, active: boolean, lastAction: ActionEntry | null = null): Record<string, unknown> {
+function describeTab(
+  tab: BrowserTabState,
+  active: boolean,
+  lastAction: ActionEntry | null = null,
+): Record<string, unknown> {
   return {
     tabId: tab.tabId,
     url: tab.url,
@@ -157,7 +177,8 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
     }
     const workspaceId = bound ?? explicit
     if (!workspaceId) return failure('no_workspace', 'This connection is not bound to a workspace; pass `workspaceId`.')
-    if (!deps.hasWorkspace(workspaceId)) return failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
+    if (!deps.hasWorkspace(workspaceId))
+      return failure('unknown_workspace', `Workspace "${workspaceId}" is not known to the running app.`)
     return workspaceId
   }
 
@@ -173,14 +194,21 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
    * A connection with no `agentId` (an external local client) keeps the old
    * behaviour exactly: the person's active tab, claimed by nobody.
    */
-  function resolveTab(args: Record<string, unknown>, context?: McpConnectionContext): { tabId: string; workspaceId: string } | McpToolResult {
+  function resolveTab(
+    args: Record<string, unknown>,
+    context?: McpConnectionContext,
+  ): { tabId: string; workspaceId: string } | McpToolResult {
     const workspaceId = resolveWorkspace(args, context)
     if (typeof workspaceId !== 'string') return workspaceId
     const agentId = context?.metadata.agentId
     const named = str(args, 'tabId')
     if (named) {
       const owned = manager.listTabs(workspaceId).some((tab) => tab.tabId === named)
-      if (!owned) return failure('no_tab', `Browser tab "${named}" is not open in this workspace. browser.status lists the open tabs.`)
+      if (!owned)
+        return failure(
+          'no_tab',
+          `Browser tab "${named}" is not open in this workspace. browser.status lists the open tabs.`,
+        )
       // Naming a tab is a deliberate move to it, and the agent stays there.
       if (agentId) manager.assignTab(workspaceId, agentId, named)
       return { tabId: named, workspaceId }
@@ -189,7 +217,10 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
     if (held) return { tabId: held.tabId, workspaceId }
     const active = manager.activeTab(workspaceId)
     if (!active) {
-      return failure('no_tab', 'No browser tab is open in this workspace. browser.open starts one (the workspace must be showing in a window).')
+      return failure(
+        'no_tab',
+        'No browser tab is open in this workspace. browser.open starts one (the workspace must be showing in a window).',
+      )
     }
     if (agentId) manager.assignTab(workspaceId, agentId, active.tabId)
     return { tabId: active.tabId, workspaceId }
@@ -242,7 +273,7 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
     {
       name: 'browser.open',
       description:
-        'Open a URL in the workspace pane\'s browser: navigates the active tab, or opens a new tab when the pane has none (or `newTab` is set). Waits for the page to load. Use localhost URLs for the dev server this workspace runs.',
+        "Open a URL in the workspace pane's browser: navigates the active tab, or opens a new tab when the pane has none (or `newTab` is set). Waits for the page to load. Use localhost URLs for the dev server this workspace runs.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -265,7 +296,8 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         const held = agentId ? manager.assignedTab(workspaceId, agentId) : null
         const reusable = held ?? manager.activeTab(workspaceId)
         if (reusable && !bool(args, 'newTab')) {
-          if (!manager.navigate(reusable.tabId, url)) return failure('no_tab', 'The active browser tab could not navigate.')
+          if (!manager.navigate(reusable.tabId, url))
+            return failure('no_tab', 'The active browser tab could not navigate.')
           manager.noteAgentActivity(reusable.tabId)
           if (agentId) manager.assignTab(workspaceId, agentId, reusable.tabId)
           // The person should see what the agent opened: a collapsed pane is
@@ -277,9 +309,14 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         manager.requestOpen(workspaceId, url)
         // The renderer creates the tab and attaches the guest; it registers with
         // the manager on dom-ready. Until then there is nothing to wait on.
-        const appeared = await waitUntil(OPEN_WAIT_MS, () => manager.listTabs(workspaceId).some((tab) => !before.has(tab.tabId)))
+        const appeared = await waitUntil(OPEN_WAIT_MS, () =>
+          manager.listTabs(workspaceId).some((tab) => !before.has(tab.tabId)),
+        )
         if (!appeared) {
-          return failure('pane_unavailable', 'No window is showing this workspace, so no browser tab could open. Switch to it in the app first.')
+          return failure(
+            'pane_unavailable',
+            'No window is showing this workspace, so no browser tab could open. Switch to it in the app first.',
+          )
         }
         const tab = manager.listTabs(workspaceId).find((candidate) => !before.has(candidate.tabId))!
         manager.noteAgentActivity(tab.tabId)
@@ -290,7 +327,8 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
     },
     {
       name: 'browser.navigate',
-      description: 'Navigate a browser tab: to a URL, or back / forward / reload / hard reload. Waits for the load to finish.',
+      description:
+        'Navigate a browser tab: to a URL, or back / forward / reload / hard reload. Waits for the load to finish.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -316,7 +354,11 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         else if (action === 'reload') ok = manager.reload(resolved.tabId, false)
         else if (action === 'hard_reload') ok = manager.reload(resolved.tabId, true)
         else return failure('invalid', 'Give `url` or one of the actions.')
-        if (!ok) return failure('unavailable', action === 'back' || action === 'forward' ? `Nothing to go ${action} to.` : 'The tab could not navigate.')
+        if (!ok)
+          return failure(
+            'unavailable',
+            action === 'back' || action === 'forward' ? `Nothing to go ${action} to.` : 'The tab could not navigate.',
+          )
         manager.noteAgentActivity(resolved.tabId)
         return settle(resolved.tabId, resolved.workspaceId)
       },
@@ -342,16 +384,26 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         // What happened to this tab lately — yours and the person's — so a model
         // that lost the thread (compaction, a second agent) sees it before acting.
         const actions = control.actionsOf(resolved.tabId).slice(-SNAPSHOT_ACTIONS)
-        const structured = { url: snap.url, title: snap.title, nodeCount: snap.nodeCount, truncated: snap.truncated, actions, snapshot: snap.text }
+        const structured = {
+          url: snap.url,
+          title: snap.title,
+          nodeCount: snap.nodeCount,
+          truncated: snap.truncated,
+          actions,
+          snapshot: snap.text,
+        }
         if (!bool(args, 'includeScreenshot')) return success(structured)
         const shot = await control.screenshot(resolved.tabId)
         if (!shot.ok) return success({ ...structured, screenshot: { error: shot.message } })
-        return success({ ...structured, screenshot: { width: shot.width, height: shot.height } }, { data: shot.data, mimeType: shot.mimeType })
+        return success(
+          { ...structured, screenshot: { width: shot.width, height: shot.height } },
+          { data: shot.data, mimeType: shot.mimeType },
+        )
       },
     },
     {
       name: 'browser.screenshot',
-      description: 'A JPEG of the tab\'s viewport as the person sees it (device frame scale excluded). Read-only.',
+      description: "A JPEG of the tab's viewport as the person sees it (device frame scale excluded). Read-only.",
       inputSchema: {
         type: 'object',
         properties: { tabId: TARGET_PROPERTIES.tabId, workspaceId: TARGET_PROPERTIES.workspaceId },
@@ -423,7 +475,10 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         if ('content' in resolved) return resolved
         const text = typeof args.text === 'string' ? args.text : null
         if (text === null) return failure('invalid', '`text` must be a string.')
-        const result = await control.type(resolved.tabId, target(args), text, { clear: bool(args, 'clear'), submit: bool(args, 'submit') })
+        const result = await control.type(resolved.tabId, target(args), text, {
+          clear: bool(args, 'clear'),
+          submit: bool(args, 'submit'),
+        })
         return result.ok ? success({ typed: text.length }) : controlFailure(result)
       },
     },
@@ -432,7 +487,11 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
       description: 'Press a key or chord on the focused element: Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a…',
       inputSchema: {
         type: 'object',
-        properties: { key: { type: 'string' }, tabId: TARGET_PROPERTIES.tabId, workspaceId: TARGET_PROPERTIES.workspaceId },
+        properties: {
+          key: { type: 'string' },
+          tabId: TARGET_PROPERTIES.tabId,
+          workspaceId: TARGET_PROPERTIES.workspaceId,
+        },
         required: ['key'],
         additionalProperties: false,
       },
@@ -447,7 +506,8 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
     },
     {
       name: 'browser.scroll',
-      description: 'Scroll the page (or a scrollable element by ref/selector) by a pixel delta. Positive deltaY scrolls down.',
+      description:
+        'Scroll the page (or a scrollable element by ref/selector) by a pixel delta. Positive deltaY scrolls down.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -472,7 +532,11 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         'Run a JavaScript expression in the page and return its JSON value (promises are awaited). For reading state the snapshot does not show; prefer the other tools for interaction.',
       inputSchema: {
         type: 'object',
-        properties: { expression: { type: 'string' }, tabId: TARGET_PROPERTIES.tabId, workspaceId: TARGET_PROPERTIES.workspaceId },
+        properties: {
+          expression: { type: 'string' },
+          tabId: TARGET_PROPERTIES.tabId,
+          workspaceId: TARGET_PROPERTIES.workspaceId,
+        },
         required: ['expression'],
         additionalProperties: false,
       },
@@ -487,7 +551,8 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
     },
     {
       name: 'browser.wait_for',
-      description: 'Wait until text or a CSS selector appears on the page (or disappears with `gone`). Up to 30s. Read-only.',
+      description:
+        'Wait until text or a CSS selector appears on the page (or disappears with `gone`). Up to 30s. Read-only.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -514,7 +579,8 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
     },
     {
       name: 'browser.console',
-      description: 'Console messages and uncaught errors since the page last loaded. `level` filters; `clear` empties the buffer after reading. Read-only.',
+      description:
+        'Console messages and uncaught errors since the page last loaded. `level` filters; `clear` empties the buffer after reading. Read-only.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -532,7 +598,10 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         const result = await control.console(resolved.tabId, { clear: bool(args, 'clear'), level: level ?? undefined })
         if (!result.ok) return controlFailure(result)
         const bounded = boundedEntries(result.entries)
-        return success({ entries: bounded.entries, ...(bounded.dropped > 0 ? { olderEntriesDropped: bounded.dropped } : {}) })
+        return success({
+          entries: bounded.entries,
+          ...(bounded.dropped > 0 ? { olderEntriesDropped: bounded.dropped } : {}),
+        })
       },
     },
     {
@@ -548,12 +617,16 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         const resolved = resolveTab(args, context)
         if ('content' in resolved) return resolved
         const bounded = boundedEntries(control.actionsOf(resolved.tabId))
-        return success({ actions: bounded.entries, ...(bounded.dropped > 0 ? { olderEntriesDropped: bounded.dropped } : {}) })
+        return success({
+          actions: bounded.entries,
+          ...(bounded.dropped > 0 ? { olderEntriesDropped: bounded.dropped } : {}),
+        })
       },
     },
     {
       name: 'browser.network',
-      description: 'Requests the page made since it last loaded, with status and failures. `failedOnly` keeps errors and 4xx/5xx. Read-only.',
+      description:
+        'Requests the page made since it last loaded, with status and failures. `failedOnly` keeps errors and 4xx/5xx. Read-only.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -567,10 +640,16 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
       handler: async (args, context) => {
         const resolved = resolveTab(args, context)
         if ('content' in resolved) return resolved
-        const result = await control.network(resolved.tabId, { clear: bool(args, 'clear'), failedOnly: bool(args, 'failedOnly') })
+        const result = await control.network(resolved.tabId, {
+          clear: bool(args, 'clear'),
+          failedOnly: bool(args, 'failedOnly'),
+        })
         if (!result.ok) return controlFailure(result)
         const bounded = boundedEntries(result.entries)
-        return success({ entries: bounded.entries, ...(bounded.dropped > 0 ? { olderEntriesDropped: bounded.dropped } : {}) })
+        return success({
+          entries: bounded.entries,
+          ...(bounded.dropped > 0 ? { olderEntriesDropped: bounded.dropped } : {}),
+        })
       },
     },
     {
@@ -580,7 +659,10 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
       inputSchema: {
         type: 'object',
         properties: {
-          preset: { type: 'string', description: `One of: ${BROWSER_DEVICE_PRESETS.map((p) => p.label).join(', ')}, responsive.` },
+          preset: {
+            type: 'string',
+            description: `One of: ${BROWSER_DEVICE_PRESETS.map((p) => p.label).join(', ')}, responsive.`,
+          },
           width: { type: 'number' },
           height: { type: 'number' },
           tabId: TARGET_PROPERTIES.tabId,
@@ -597,8 +679,14 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         let viewport: BrowserViewport
         if (preset && preset.toLowerCase() === 'responsive') viewport = { mode: 'fill' }
         else if (preset) {
-          const match = BROWSER_DEVICE_PRESETS.find((p) => p.label.toLowerCase() === preset.toLowerCase() || p.id === preset)
-          if (!match) return failure('invalid', `Unknown preset "${preset}". Known: ${BROWSER_DEVICE_PRESETS.map((p) => p.label).join(', ')}.`)
+          const match = BROWSER_DEVICE_PRESETS.find(
+            (p) => p.label.toLowerCase() === preset.toLowerCase() || p.id === preset,
+          )
+          if (!match)
+            return failure(
+              'invalid',
+              `Unknown preset "${preset}". Known: ${BROWSER_DEVICE_PRESETS.map((p) => p.label).join(', ')}.`,
+            )
           viewport = presetViewport(match.id)
         } else if (width !== null && height !== null) {
           viewport = normalizeBrowserViewport({ mode: 'freeform', width, height }) ?? { mode: 'fill' }
@@ -625,7 +713,8 @@ export function createBrowserTools(deps: BrowserToolsDeps): McpToolRegistration[
         const resolved = resolveTab(args, context)
         if ('content' in resolved) return resolved
         const scheme = str(args, 'scheme')
-        if (scheme !== 'system' && scheme !== 'light' && scheme !== 'dark') return failure('invalid', '`scheme` must be system, light or dark.')
+        if (scheme !== 'system' && scheme !== 'light' && scheme !== 'dark')
+          return failure('invalid', '`scheme` must be system, light or dark.')
         if (!manager.setColorScheme(resolved.tabId, scheme)) return failure('no_tab', 'The tab is gone.')
         manager.noteAgentActivity(resolved.tabId)
         return success({ scheme })

@@ -1,13 +1,8 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import MemoryPreviewPane from '../memory/MemoryPreviewPane'
-import MemoryGraphCanvas, {
-  MemoryGraphCanvasHandle,
-} from '../memory/MemoryGraphCanvas'
-import {
-  MemoryGraphLegend,
-  MemoryGraphTooltip,
-} from '../memory/MemoryGraphHud'
+import MemoryGraphCanvas, { MemoryGraphCanvasHandle } from '../memory/MemoryGraphCanvas'
+import { MemoryGraphLegend, MemoryGraphTooltip } from '../memory/MemoryGraphHud'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import {
   EmptyState,
@@ -26,20 +21,14 @@ import { KnowledgeGraphSettingsIcon } from '../AppIcons'
 type CursorPoint = { x: number; y: number }
 
 export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string }) {
-  const workspaceFolderPath = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.folderPath
-  )
-  const workspaceMemoryRelativeRoot = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.memory.relativeRoot
+  const workspaceFolderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath)
+  const workspaceMemoryRelativeRoot = useWorkspaceStore(
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.memory.relativeRoot,
   )
   const projectKnowledgeRoots = useWorkspaceStore((s) => s.appSettings.projectKnowledgeRoots)
   const knowledgeConfig = useMemo(
-    () => resolveProjectKnowledgeConfig(
-      workspaceFolderPath,
-      projectKnowledgeRoots,
-      workspaceMemoryRelativeRoot
-    ),
-    [workspaceFolderPath, projectKnowledgeRoots, workspaceMemoryRelativeRoot]
+    () => resolveProjectKnowledgeConfig(workspaceFolderPath, projectKnowledgeRoots, workspaceMemoryRelativeRoot),
+    [workspaceFolderPath, projectKnowledgeRoots, workspaceMemoryRelativeRoot],
   )
 
   const [indexResult, setIndexResult] = useState<MemoryGraphIndexResult | null>(null)
@@ -96,19 +85,15 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
     let cancelled = false
 
     const refreshStatus = () => {
-      void window.api
-        .memoryActivityGetStatus({ workspaceRoot })
-        .then((status) => {
-          if (!cancelled) setActivityStatus(status)
-        })
+      void window.api.memoryActivityGetStatus({ workspaceRoot }).then((status) => {
+        if (!cancelled) setActivityStatus(status)
+      })
     }
 
     const refreshSynapses = () => {
-      void window.api
-        .memoryActivityGetSynapses({ workspaceRoot })
-        .then((synapses) => {
-          if (!cancelled) setActivitySynapses(synapses)
-        })
+      void window.api.memoryActivityGetSynapses({ workspaceRoot }).then((synapses) => {
+        if (!cancelled) setActivitySynapses(synapses)
+      })
     }
 
     void window.api.memoryActivityStartWatching({ workspaceRoot, memoryRelativeRoot: memoryRoot })
@@ -125,9 +110,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
       setActivitySynapses((prev) => {
         if (!event.prevNodeId || event.prevNodeId === event.nodeId) return prev
         const next = prev.slice()
-        const idx = next.findIndex(
-          (s) => s.src === event.prevNodeId && s.dst === event.nodeId
-        )
+        const idx = next.findIndex((s) => s.src === event.prevNodeId && s.dst === event.nodeId)
         const synapse: MemoryActivitySynapse = {
           src: event.prevNodeId,
           dst: event.nodeId,
@@ -169,13 +152,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
     if (!trimmed) return null
     const ids = new Set<string>()
     for (const node of allNodes) {
-      const haystack = [
-        node.name,
-        node.relativePath,
-        node.title ?? '',
-        node.type ?? '',
-        ...(node.tags ?? []),
-      ]
+      const haystack = [node.name, node.relativePath, node.title ?? '', node.type ?? '', ...(node.tags ?? [])]
         .join(' ')
         .toLowerCase()
       if (haystack.includes(trimmed)) ids.add(node.id)
@@ -193,7 +170,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
       })
       setPreview(result)
     },
-    [knowledgeConfig?.projectRoot, knowledgeConfig?.relativeRoot]
+    [knowledgeConfig?.projectRoot, knowledgeConfig?.relativeRoot],
   )
 
   const openNode = useCallback(
@@ -201,7 +178,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
       setSelectedId(node.id)
       void fetchPreview(node)
     },
-    [fetchPreview]
+    [fetchPreview],
   )
 
   // Keyboard shortcuts.
@@ -210,9 +187,9 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
       if (selectedId) return
       const target = event.target as HTMLElement | null
       const isTextInput =
-        target instanceof HTMLInputElement
-        || target instanceof HTMLTextAreaElement
-        || (target?.isContentEditable ?? false)
+        target instanceof HTMLInputElement ||
+        target instanceof HTMLTextAreaElement ||
+        (target?.isContentEditable ?? false)
       if (event.key === '/' && !isTextInput) {
         event.preventDefault()
         searchInputRef.current?.querySelector('input')?.focus()
@@ -226,9 +203,8 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [selectedId])
 
-  const selectedNode = selectedId ? allNodes.find((n) => n.id === selectedId) ?? null : null
-  const showCanvas =
-    !!knowledgeConfig?.relativeRoot && !loading && indexResult?.ok && allNodes.length > 0
+  const selectedNode = selectedId ? (allNodes.find((n) => n.id === selectedId) ?? null) : null
+  const showCanvas = !!knowledgeConfig?.relativeRoot && !loading && indexResult?.ok && allNodes.length > 0
 
   return (
     <div
@@ -258,12 +234,7 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
             `<input outline-none>` with a `⌕` character for a glyph and a hand
             `<kbd>`. The wrapper carries the ref the `/` shortcut focuses. */}
         <div ref={searchInputRef} className="flex min-w-0 flex-1">
-          <InboxSearchInput
-            value={query}
-            onChange={setQuery}
-            ariaLabel="Search notes"
-            placeholder="Search notes…"
-          />
+          <InboxSearchInput value={query} onChange={setQuery} ariaLabel="Search notes" placeholder="Search notes…" />
         </div>
         <KbdChord keys={['/']} ariaLabel="Slash focuses search" className="shrink-0" />
       </div>
@@ -311,12 +282,8 @@ export default function MemoryGraphPanel({ workspaceId }: { workspaceId: string 
               eventNonce={activityNonce}
             />
             {showCanvas ? <MemoryGraphLegend nodes={allNodes} /> : null}
-            {showCanvas && activityStatus ? (
-              <MemoryActivityStatusBadge status={activityStatus} />
-            ) : null}
-            {hovered && hoverPoint ? (
-              <MemoryGraphTooltip node={hovered} x={hoverPoint.x} y={hoverPoint.y} />
-            ) : null}
+            {showCanvas && activityStatus ? <MemoryActivityStatusBadge status={activityStatus} /> : null}
+            {hovered && hoverPoint ? <MemoryGraphTooltip node={hovered} x={hoverPoint.x} y={hoverPoint.y} /> : null}
           </div>
         )}
       </div>
@@ -378,16 +345,10 @@ function MemoryActivityStatusBadge({ status }: { status: MemoryActivityStatus })
   //   - Tracking live: a recent event landed; pulse the indicator.
   const isLive = status.lastEventAt !== null && Date.now() - status.lastEventAt < 5000
   const dotTone = !status.isInstalled ? 'neutral' : isLive ? 'accent' : 'good'
-  const labelTone = status.isInstalled
-    ? 'text-[color:var(--text-default)]'
-    : 'text-[color:var(--text-muted)]'
+  const labelTone = status.isInstalled ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
 
   return (
-    <div
-      className="pointer-events-none absolute bottom-3 left-3 z-10 select-none"
-      role="status"
-      aria-live="polite"
-    >
+    <div className="pointer-events-none absolute bottom-3 left-3 z-10 select-none" role="status" aria-live="polite">
       {/* `StatusDot` + the words, on a quiet surface ground so it stays legible
           over the canvas — not a bordered pill (badge/component.md; 2026-09-02
           audit). */}
@@ -397,8 +358,8 @@ function MemoryActivityStatusBadge({ status }: { status: MemoryActivityStatus })
           <span className={labelTone}>Activity tracking off</span>
         ) : (
           <span className={labelTone}>
-            <span className="font-semibold text-[color:var(--text-strong)]">{status.sessionsRecorded}</span>{' '}
-            session{status.sessionsRecorded === 1 ? '' : 's'}
+            <span className="font-semibold text-[color:var(--text-strong)]">{status.sessionsRecorded}</span> session
+            {status.sessionsRecorded === 1 ? '' : 's'}
             <span className="mx-1.5 text-[color:var(--text-disabled)]">·</span>
             <span className="font-semibold text-[color:var(--text-strong)]">{status.eventsToday}</span> today
             <span className="mx-1.5 text-[color:var(--text-disabled)]">·</span>

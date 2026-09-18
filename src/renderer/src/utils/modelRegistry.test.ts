@@ -62,9 +62,7 @@ function freshModel(): Model {
         {
           type: 'tabset',
           weight: 100,
-          children: [
-            { type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } },
-          ],
+          children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'a-1' } }],
         },
       ],
     },
@@ -72,8 +70,21 @@ function freshModel(): Model {
   return Model.fromJson(json)
 }
 
-type TabsetJson = { type?: string; id?: string; component?: string; enableTabStrip?: boolean; minWidth?: number; children?: TabsetJson[] }
-type TabJson = TabsetJson & { name?: string; enableClose?: boolean; className?: string; contentClassName?: string; config?: { agentId?: string; filePath?: string } }
+type TabsetJson = {
+  type?: string
+  id?: string
+  component?: string
+  enableTabStrip?: boolean
+  minWidth?: number
+  children?: TabsetJson[]
+}
+type TabJson = TabsetJson & {
+  name?: string
+  enableClose?: boolean
+  className?: string
+  contentClassName?: string
+  config?: { agentId?: string; filePath?: string }
+}
 
 function tabsets(model: Model): TabsetJson[] {
   const out: TabsetJson[] = []
@@ -171,18 +182,26 @@ function navTabsets(model: Model): TabsetJson[] {
   const active: string[] = []
   let updatedLayout: IJsonModel | null = null
   registerModel(WS, model)
-  assert.equal(revealAgentTab({
-    workspaceId: WS,
-    agentId: 'a-1',
-  }, {
-    getWorkspace: () => ({
-      id: WS,
-      layoutModel: model.toJson(),
-      agents: { 'a-1': { name: 'Review agent' } },
-    }),
-    setActiveWorkspace: (workspaceId) => active.push(workspaceId),
-    updateLayout: (_workspaceId, layoutModel) => { updatedLayout = layoutModel },
-  }), true)
+  assert.equal(
+    revealAgentTab(
+      {
+        workspaceId: WS,
+        agentId: 'a-1',
+      },
+      {
+        getWorkspace: () => ({
+          id: WS,
+          layoutModel: model.toJson(),
+          agents: { 'a-1': { name: 'Review agent' } },
+        }),
+        setActiveWorkspace: (workspaceId) => active.push(workspaceId),
+        updateLayout: (_workspaceId, layoutModel) => {
+          updatedLayout = layoutModel
+        },
+      },
+    ),
+    true,
+  )
   assert.deepEqual(active, [WS])
   assert.equal(updatedLayout, null)
   assert.deepEqual(tabNames(model), ['Review agent'])
@@ -205,9 +224,7 @@ function navTabsets(model: Model): TabsetJson[] {
         {
           type: 'tabset',
           weight: 100,
-          children: [
-            { type: 'tab', name: 'agent', component: 'agent', config: { agentId: 'host-run-1' } },
-          ],
+          children: [{ type: 'tab', name: 'agent', component: 'agent', config: { agentId: 'host-run-1' } }],
         },
       ],
     },
@@ -217,19 +234,27 @@ function navTabsets(model: Model): TabsetJson[] {
   const active: string[] = []
   let updatedLayout: IJsonModel | null = null
   registerModel(HOST_WS, hostModel)
-  assert.equal(revealAgentTab({
-    workspaceId: HOST_WS,
-    agentId: 'host-run-1',
-    name: 'Nightly digest',
-  }, {
-    getWorkspace: () => ({
-      id: HOST_WS,
-      layoutModel: hostModel.toJson(),
-      agents: { 'host-run-1': { name: 'Nightly digest' } },
-    }),
-    setActiveWorkspace: (workspaceId) => active.push(workspaceId),
-    updateLayout: (_workspaceId, layoutModel) => { updatedLayout = layoutModel },
-  }), true)
+  assert.equal(
+    revealAgentTab(
+      {
+        workspaceId: HOST_WS,
+        agentId: 'host-run-1',
+        name: 'Nightly digest',
+      },
+      {
+        getWorkspace: () => ({
+          id: HOST_WS,
+          layoutModel: hostModel.toJson(),
+          agents: { 'host-run-1': { name: 'Nightly digest' } },
+        }),
+        setActiveWorkspace: (workspaceId) => active.push(workspaceId),
+        updateLayout: (_workspaceId, layoutModel) => {
+          updatedLayout = layoutModel
+        },
+      },
+    ),
+    true,
+  )
   // The host was activated, the live model was used (no persisted-layout fallback),
   // and the agent tab was renamed to the run's display name.
   assert.deepEqual(active, [HOST_WS])
@@ -248,24 +273,34 @@ function navTabsets(model: Model): TabsetJson[] {
   const active: string[] = []
   let updatedLayout: IJsonModel | null = null
   unregisterModel(WS)
-  assert.equal(revealAgentTab({
-    workspaceId: WS,
-    agentId: 'a-2',
-  }, {
-    getWorkspace: () => ({
-      id: WS,
-      layoutModel: base.toJson(),
-      agents: { 'a-2': { name: 'Spawned agent' } },
-    }),
-    setActiveWorkspace: (workspaceId) => active.push(workspaceId),
-    updateLayout: (_workspaceId, layoutModel) => { updatedLayout = layoutModel },
-  }), true)
+  assert.equal(
+    revealAgentTab(
+      {
+        workspaceId: WS,
+        agentId: 'a-2',
+      },
+      {
+        getWorkspace: () => ({
+          id: WS,
+          layoutModel: base.toJson(),
+          agents: { 'a-2': { name: 'Spawned agent' } },
+        }),
+        setActiveWorkspace: (workspaceId) => active.push(workspaceId),
+        updateLayout: (_workspaceId, layoutModel) => {
+          updatedLayout = layoutModel
+        },
+      },
+    ),
+    true,
+  )
   assert.deepEqual(active, [WS])
   assert.ok(updatedLayout)
   const updatedModel = Model.fromJson(updatedLayout)
   assert.deepEqual(
-    allTabs(updatedModel).filter((tab) => tab.component === 'agent').map((tab) => tab.config?.agentId),
-    ['a-1', 'a-2']
+    allTabs(updatedModel)
+      .filter((tab) => tab.component === 'agent')
+      .map((tab) => tab.config?.agentId),
+    ['a-1', 'a-2'],
   )
   assert.deepEqual(tabNames(updatedModel), ['Agent', 'Spawned agent'])
 }
@@ -324,9 +359,7 @@ function navTabsets(model: Model): TabsetJson[] {
         {
           type: 'tabset',
           weight: 100,
-          children: [
-            { type: 'tab', name: 'app.tsx', component: 'file-editor', config: { filePath: '/app.tsx' } },
-          ],
+          children: [{ type: 'tab', name: 'app.tsx', component: 'file-editor', config: { filePath: '/app.tsx' } }],
         },
       ],
     },
@@ -353,9 +386,7 @@ function navTabsets(model: Model): TabsetJson[] {
           type: 'tabset',
           weight: 100,
           enableTabStrip: false,
-          children: [
-            { type: 'tab', name: 'Board', component: 'notebook', enableClose: false },
-          ],
+          children: [{ type: 'tab', name: 'Board', component: 'notebook', enableClose: false }],
         },
       ],
     },
@@ -547,7 +578,13 @@ function tabsetWeight(model: Model, component: string): number {
           type: 'tabset',
           weight: 100,
           children: [
-            { type: 'tab', name: 'Agent', component: 'agent', className: 'tab-color-violet', config: { agentId: 'a-1' } },
+            {
+              type: 'tab',
+              name: 'Agent',
+              component: 'agent',
+              className: 'tab-color-violet',
+              config: { agentId: 'a-1' },
+            },
           ],
         },
       ],
@@ -701,11 +738,7 @@ function tabsetWeight(model: Model, component: string): number {
     allComponents(model).includes(NEW_AGENT_TAB_COMPONENT),
     'the tab holds the launch surface, not an agent panel',
   )
-  assert.equal(
-    tabsets(model).length,
-    1,
-    'the + adds a tab in the existing pane, not a split beside it',
-  )
+  assert.equal(tabsets(model).length, 1, 'the + adds a tab in the existing pane, not a split beside it')
   assert.deepEqual(
     componentsOf(tabsets(model)[0]!),
     ['agent', NEW_AGENT_TAB_COMPONENT],
@@ -796,17 +829,13 @@ function tabsetWeight(model: Model, component: string): number {
           type: 'tabset',
           id: 'pane-a',
           weight: 50,
-          children: [
-            { type: 'tab', name: 'Term A', component: 'terminal', config: { terminalId: 't-1' } },
-          ],
+          children: [{ type: 'tab', name: 'Term A', component: 'terminal', config: { terminalId: 't-1' } }],
         },
         {
           type: 'tabset',
           id: 'pane-b',
           weight: 50,
-          children: [
-            { type: 'tab', name: 'Term B', component: 'terminal', config: { terminalId: 't-2' } },
-          ],
+          children: [{ type: 'tab', name: 'Term B', component: 'terminal', config: { terminalId: 't-2' } }],
         },
       ],
     },

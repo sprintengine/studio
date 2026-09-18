@@ -220,7 +220,10 @@ function danglingBindings(index: CanvasSceneIndex, sink: Sink): void {
 function boundElementIds(element: CanvasElement): string[] {
   const bound = element.boundElements
   if (!Array.isArray(bound)) return []
-  return bound.filter(isRecord).map((entry) => entry.id).filter((id): id is string => typeof id === 'string')
+  return bound
+    .filter(isRecord)
+    .map((entry) => entry.id)
+    .filter((id): id is string => typeof id === 'string')
 }
 
 /**
@@ -542,8 +545,7 @@ function arrowRules(index: CanvasSceneIndex, sink: Sink): void {
   // a tip is one point, and one point falls in exactly one cell, so only the
   // shapes registered in that cell (plus the oversized ones) can hold it.
   const targets = index.live.filter(
-    (element) =>
-      !LINEAR_TYPES.has(element.type) && element.type !== 'frame' && !index.foldedTextIds.has(element.id),
+    (element) => !LINEAR_TYPES.has(element.type) && element.type !== 'frame' && !index.foldedTextIds.has(element.id),
   )
   const targetBoxes = targets.map((element) => {
     const box = canvasElementBox(element)
@@ -588,7 +590,12 @@ function arrowRules(index: CanvasSceneIndex, sink: Sink): void {
           outOfBudget(sink)
           return
         }
-        if (tip[0] > target.x && tip[0] < target.x + target.width && tip[1] > target.y && tip[1] < target.y + target.height) {
+        if (
+          tip[0] > target.x &&
+          tip[0] < target.x + target.width &&
+          tip[1] > target.y &&
+          tip[1] < target.y + target.height
+        ) {
           record(sink, {
             type: 'arrow_tip_inside_shape',
             severity: 'medium',

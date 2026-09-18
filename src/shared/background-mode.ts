@@ -21,13 +21,7 @@ export type BackgroundStatus = {
   gateway: { running: boolean }
 }
 
-export type BackgroundTrayItemId =
-  | 'header'
-  | 'sessions'
-  | 'gateway'
-  | 'separator'
-  | 'open'
-  | 'quit'
+export type BackgroundTrayItemId = 'header' | 'sessions' | 'gateway' | 'separator' | 'open' | 'quit'
 
 export type BackgroundTrayItem = {
   id: BackgroundTrayItemId
@@ -45,10 +39,7 @@ export type BackgroundTrayItem = {
  * names them, so the id→action mapping is testable without Electron — the
  * menu adapter only knows how to render and click.
  */
-export function runBackgroundTrayAction(
-  id: BackgroundTrayItemId,
-  actions: { open(): void; quit(): void },
-): void {
+export function runBackgroundTrayAction(id: BackgroundTrayItemId, actions: { open(): void; quit(): void }): void {
   if (id === 'open') actions.open()
   if (id === 'quit') actions.quit()
 }
@@ -83,9 +74,7 @@ export function describeBackgroundTooltip(status: BackgroundStatus): string {
  * actions the backlog names: open a window, and quit for real.
  */
 export function buildBackgroundTrayItems(status: BackgroundStatus): BackgroundTrayItem[] {
-  const items: BackgroundTrayItem[] = [
-    { id: 'header', label: 'Multicode is running in the background', kind: 'info' },
-  ]
+  const items: BackgroundTrayItem[] = [{ id: 'header', label: 'Multicode is running in the background', kind: 'info' }]
   items.push({ id: 'sessions', label: describeBackgroundSessions(status), kind: 'info' })
   items.push({ id: 'gateway', label: describeBackgroundGateway(status), kind: 'info' })
   items.push({ id: 'separator', kind: 'separator' })

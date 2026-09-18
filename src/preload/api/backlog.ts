@@ -27,7 +27,11 @@ import type {
 type BacklogIpcRenderer = {
   invoke(channel: 'backlog:resolve-location', workspaceRoot: string): Promise<BacklogLocationResult>
   invoke(channel: 'backlog:set-root', input: BacklogSetRootInput): Promise<BacklogLocationResult>
-  invoke(channel: 'backlog:ensure-object-records', workspaceRoot: string, items: BacklogItemRecordInput[]): Promise<BacklogReadResult>
+  invoke(
+    channel: 'backlog:ensure-object-records',
+    workspaceRoot: string,
+    items: BacklogItemRecordInput[],
+  ): Promise<BacklogReadResult>
   invoke(channel: 'backlog:ensure-item-ids', input: BacklogEnsureIdsInput): Promise<BacklogEnsureIdsResult>
   invoke(channel: 'backlog:update-status', input: BacklogStatusInput): Promise<BacklogMutationResult>
   invoke(channel: 'backlog:update-triage', input: BacklogTriageInput): Promise<BacklogMutationResult>

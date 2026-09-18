@@ -1,9 +1,6 @@
 import assert from 'node:assert/strict'
 
-import {
-  consumePendingBacklogReveal,
-  dispatchBacklogReveal,
-} from './backlogReveal'
+import { consumePendingBacklogReveal, dispatchBacklogReveal } from './backlogReveal'
 
 // Runs under node (no DOM): dispatch's window guard is a no-op, so these
 // exercise the latch — the part that covers the cold-panel mount race.

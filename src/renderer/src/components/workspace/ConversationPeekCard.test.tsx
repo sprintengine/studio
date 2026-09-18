@@ -171,8 +171,7 @@ run('an idle agent drops the dots and takes the quieter ink', () => {
   // Read the CORNER's own class attribute, not the whole card: `text.subtle`
   // is on half the markup — the ages, the file glyph, the notes — so a match
   // anywhere would pass whatever ink the corner actually took.
-  const cornerInk = (markup: string): string =>
-    markup.match(/<span class="(ml-auto[^"]*)"/)?.[1] ?? ''
+  const cornerInk = (markup: string): string => markup.match(/<span class="(ml-auto[^"]*)"/)?.[1] ?? ''
   assert.match(cornerInk(idle), /--text-subtle/, 'idle recedes')
   assert.match(
     cornerInk(card({ identity: { status: { kind: 'attention', label: 'Waiting' } } })),
@@ -272,11 +271,7 @@ run('the title is still the only thing on the head that yields width', () => {
   // when there is one pull request), so what must not shrink is the group and
   // the tooltip wrapper around it, not the inner button.
   const beforeTheMark = markup.slice(0, markIndex)
-  assert.match(
-    beforeTheMark.slice(-400),
-    /flex shrink-0 items-center/,
-    'the mark sits in a slot that holds its width',
-  )
+  assert.match(beforeTheMark.slice(-400), /flex shrink-0 items-center/, 'the mark sits in a slot that holds its width')
 })
 
 run('a conversation that opened nothing draws no mark at all', () => {
@@ -329,15 +324,13 @@ run('the file list scrolls rather than growing the card', () => {
 })
 
 run('past twenty files the rows are not drawn at all — one line opens the whole diff', () => {
-  const many = Array.from({ length: 24 }, (_, index) =>
-    change({ path: `/repo/src/file-${index}.ts` }))
+  const many = Array.from({ length: 24 }, (_, index) => change({ path: `/repo/src/file-${index}.ts` }))
   const markup = card({ agent: { fileChanges: many } })
   assert.match(markup, />24 files changed · open the diff</, 'says how many, and offers the diff')
   assert.equal(markup.includes('file-0.ts'), false, 'and lists none of them: a hover is a glance')
   assert.equal(markup.includes('Open the diff for'), false, 'no per-file links either')
 
-  const twenty = Array.from({ length: 20 }, (_, index) =>
-    change({ path: `/repo/src/file-${index}.ts` }))
+  const twenty = Array.from({ length: 20 }, (_, index) => change({ path: `/repo/src/file-${index}.ts` }))
   const atTheLimit = card({ agent: { fileChanges: twenty } })
   assert.match(atTheLimit, /Open the diff for \/repo\/src\/file-19\.ts/, 'twenty still lists')
   assert.equal(atTheLimit.includes('files changed · open the diff'), false)

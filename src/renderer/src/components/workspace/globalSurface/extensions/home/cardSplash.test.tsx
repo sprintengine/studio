@@ -28,13 +28,7 @@ import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 
 import { CARD_ART, CARD_ART_NAMES, CardArt } from './cardArt'
-import {
-  CardSplash,
-  CardSplashScrim,
-  CardSplashStamp,
-  CardSplashTitle,
-  SCRIM_CLEAR_STOP_FRACTION,
-} from './cardSplash'
+import { CardSplash, CardSplashScrim, CardSplashStamp, CardSplashTitle, SCRIM_CLEAR_STOP_FRACTION } from './cardSplash'
 
 const container = dom.window.document.createElement('div')
 dom.window.document.body.appendChild(container)
@@ -128,7 +122,7 @@ async function main(): Promise<void> {
     assert.equal(chrome.length, 1, 'the label is drawn')
     assert.ok(hiddenFromReaders(chrome[0] ?? null), 'and it is drawn for the eye only')
     const heading = container.querySelector('h3')
-    assert.equal(hiddenFromReaders(heading), false, 'while the card\'s own title is still read')
+    assert.equal(hiddenFromReaders(heading), false, "while the card's own title is still read")
   })
 
   // ── The furniture ──────────────────────────────────────────────────────────

@@ -20,14 +20,7 @@ import {
 // bundle pretends to be authored. Layout contract:
 // resources/design-system/templates/USAGE.md.
 
-const AUTHORED_CONTENT_DIRECTORIES = [
-  'foundations',
-  'components',
-  'patterns',
-  'glyphs',
-  'assets',
-  'catalog',
-] as const
+const AUTHORED_CONTENT_DIRECTORIES = ['foundations', 'components', 'patterns', 'glyphs', 'assets', 'catalog'] as const
 
 // v1 naming-grammar prose is part of the schema contract and identical for
 // every authored bundle (the reference example carries the same text).
@@ -36,8 +29,7 @@ const V1_NAMING_GRAMMAR: Record<string, string> = {
     "<tier>.<group...>.<name> — tier is 'ref' or 'sem'; every segment is lowercase kebab-case; nesting follows DTCG groups; aliases reference the full dotted path as {tier.group.name}",
   cssVariables:
     "'--' plus the token path with '.' replaced by '-' (sem.color.bg.app -> --sem-color-bg-app); components consume only the --sem-* set",
-  components:
-    'kebab-case directory under components/, containing component.html, component.css, and component.md',
+  components: 'kebab-case directory under components/, containing component.html, component.css, and component.md',
   glyphs: 'kebab-case concept name, one concept per SVG; strokes and fills use currentColor',
 }
 
@@ -147,9 +139,7 @@ async function stampBundleInto(
       }
     }
     const scriptsDir = join(input.templatesDir, 'scripts')
-    const scriptNames = (await readdir(scriptsDir).catch(() => [] as string[])).filter((name) =>
-      name.endsWith('.mjs'),
-    )
+    const scriptNames = (await readdir(scriptsDir).catch(() => [] as string[])).filter((name) => name.endsWith('.mjs'))
     if (scriptNames.length === 0) {
       return {
         ok: false,
@@ -184,7 +174,6 @@ async function stampBundleInto(
     }
   }
 }
-
 
 /**
  * Create a new bundle SEEDED from one the user already has (item 2005).

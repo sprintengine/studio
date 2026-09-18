@@ -55,11 +55,11 @@ export function useTailnetShares(active: boolean, pollMs: number): TailnetShares
 
   const urlFor = useCallback(
     (localPort: number) => status.shares.find((share) => share.localPort === localPort)?.url ?? null,
-    [status]
+    [status],
   )
   const servePortFor = useCallback(
     (localPort: number) => status.shares.find((share) => share.localPort === localPort)?.servePort ?? null,
-    [status]
+    [status],
   )
 
   const share = useCallback(async (localPort: number) => {
@@ -94,7 +94,7 @@ export function useTailnetShares(active: boolean, pollMs: number): TailnetShares
         setBusyPort(null)
       }
     },
-    [servePortFor]
+    [servePortFor],
   )
 
   return { status, urlFor, servePortFor, busyPort, share, unshare }

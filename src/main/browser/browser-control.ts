@@ -73,7 +73,14 @@ export type ActionEntry = {
   error?: string
 }
 
-export type SnapshotResult = { ok: true; text: string; nodeCount: number; truncated: boolean; url: string; title: string }
+export type SnapshotResult = {
+  ok: true
+  text: string
+  nodeCount: number
+  truncated: boolean
+  url: string
+  title: string
+}
 export type ScreenshotResult = { ok: true; data: string; mimeType: 'image/jpeg'; width: number; height: number }
 export type EvaluateResult = { ok: true; value: unknown; truncated: boolean }
 export type ActionResult = { ok: true }
@@ -241,7 +248,10 @@ const KEY_TABLE: Record<string, { key: string; code: string; keyCode: number }> 
 
 /** `Shift+Tab`, `Meta+a`, `Enter` → the CDP key descriptor plus a modifier mask. */
 export function parseKeyChord(chord: string): { key: string; code: string; keyCode: number; modifiers: number } | null {
-  const parts = chord.split('+').map((p) => p.trim()).filter(Boolean)
+  const parts = chord
+    .split('+')
+    .map((p) => p.trim())
+    .filter(Boolean)
   if (parts.length === 0) return null
   let modifiers = 0
   let main: string | null = null
@@ -256,7 +266,11 @@ export function parseKeyChord(chord: string): { key: string; code: string; keyCo
   }
   if (main === null) return null
   const capitalised = main.charAt(0).toUpperCase() + main.slice(1)
-  const named = Object.hasOwn(KEY_TABLE, main) ? KEY_TABLE[main] : Object.hasOwn(KEY_TABLE, capitalised) ? KEY_TABLE[capitalised] : undefined
+  const named = Object.hasOwn(KEY_TABLE, main)
+    ? KEY_TABLE[main]
+    : Object.hasOwn(KEY_TABLE, capitalised)
+      ? KEY_TABLE[capitalised]
+      : undefined
   if (named) return { ...named, modifiers }
   if (main.length === 1) {
     const upper = main.toUpperCase()
@@ -282,7 +296,12 @@ export function createBrowserControl(manager: BrowserControlManager) {
     if (!s) return
     const now = new Date()
     const last = s.actions[s.actions.length - 1]
-    if (last && last.action === 'human' && last.completedAt && now.getTime() - Date.parse(last.completedAt) <= HUMAN_ACTION_COALESCE_MS) {
+    if (
+      last &&
+      last.action === 'human' &&
+      last.completedAt &&
+      now.getTime() - Date.parse(last.completedAt) <= HUMAN_ACTION_COALESCE_MS
+    ) {
       last.completedAt = now.toISOString()
       return
     }
@@ -315,7 +334,8 @@ export function createBrowserControl(manager: BrowserControlManager) {
     }
     if (!existing) {
       const created: Session = { tabId, wc, console: [], network: [], actions: [], attached: false, dispose: () => {} }
-      const onMessage = (_event: unknown, method: string, params: Record<string, unknown>) => onCdpEvent(created, method, params)
+      const onMessage = (_event: unknown, method: string, params: Record<string, unknown>) =>
+        onCdpEvent(created, method, params)
       const onDetach = () => {
         created.attached = false
       }
@@ -357,7 +377,15 @@ export function createBrowserControl(manager: BrowserControlManager) {
     if (method === 'Runtime.consoleAPICalled') {
       const type = String(params.type ?? 'log')
       const level: ConsoleEntry['level'] =
-        type === 'error' || type === 'assert' ? 'error' : type === 'warning' ? 'warn' : type === 'info' ? 'info' : type === 'debug' ? 'debug' : 'log'
+        type === 'error' || type === 'assert'
+          ? 'error'
+          : type === 'warning'
+            ? 'warn'
+            : type === 'info'
+              ? 'info'
+              : type === 'debug'
+                ? 'debug'
+                : 'log'
       const args = Array.isArray(params.args) ? (params.args as Array<Record<string, unknown>>) : []
       const text = args.map(describeRemoteObject).join(' ')
       const trace = params.stackTrace as { callFrames?: Array<{ url?: string; lineNumber?: number }> } | undefined
@@ -370,9 +398,10 @@ export function createBrowserControl(manager: BrowserControlManager) {
       })
     } else if (method === 'Runtime.exceptionThrown') {
       const details = params.exceptionDetails as
-        | { text?: string; exception?: Record<string, unknown>; url?: string; lineNumber?: number }
-        | undefined
-      const text = details?.exception ? describeRemoteObject(details.exception) : details?.text ?? 'Uncaught exception'
+        { text?: string; exception?: Record<string, unknown>; url?: string; lineNumber?: number } | undefined
+      const text = details?.exception
+        ? describeRemoteObject(details.exception)
+        : (details?.text ?? 'Uncaught exception')
       pushBounded(s.console, CONSOLE_BUFFER_MAX, {
         level: 'error',
         text: `Uncaught ${text}`.slice(0, 2000),
@@ -380,9 +409,17 @@ export function createBrowserControl(manager: BrowserControlManager) {
         at,
       })
     } else if (method === 'Log.entryAdded') {
-      const entry = params.entry as { level?: string; text?: string; url?: string; lineNumber?: number; source?: string } | undefined
+      const entry = params.entry as
+        { level?: string; text?: string; url?: string; lineNumber?: number; source?: string } | undefined
       if (!entry) return
-      const level: ConsoleEntry['level'] = entry.level === 'error' ? 'error' : entry.level === 'warning' ? 'warn' : entry.level === 'verbose' ? 'debug' : 'info'
+      const level: ConsoleEntry['level'] =
+        entry.level === 'error'
+          ? 'error'
+          : entry.level === 'warning'
+            ? 'warn'
+            : entry.level === 'verbose'
+              ? 'debug'
+              : 'info'
       pushBounded(s.console, CONSOLE_BUFFER_MAX, {
         level,
         text: `[${entry.source ?? 'browser'}] ${entry.text ?? ''}`.slice(0, 2000),
@@ -443,10 +480,16 @@ export function createBrowserControl(manager: BrowserControlManager) {
       }),
       timeoutMs,
       `The page did not answer within ${timeoutMs}ms.`,
-    )) as { result: { value?: unknown; type?: string; description?: string }; exceptionDetails?: { text?: string; exception?: Record<string, unknown> } }
+    )) as {
+      result: { value?: unknown; type?: string; description?: string }
+      exceptionDetails?: { text?: string; exception?: Record<string, unknown> }
+    }
     if (result.exceptionDetails) {
       const ex = result.exceptionDetails
-      return { value: undefined, exception: ex.exception ? describeRemoteObject(ex.exception) : ex.text ?? 'Evaluation failed' }
+      return {
+        value: undefined,
+        exception: ex.exception ? describeRemoteObject(ex.exception) : (ex.text ?? 'Evaluation failed'),
+      }
     }
     return { value: result.result.value, exception: null }
   }
@@ -465,8 +508,16 @@ export function createBrowserControl(manager: BrowserControlManager) {
     if ('ok' in s) return s
     const epoch = manager.epochOf(tabId)
     const checkpoint = () =>
-      manager.epochOf(tabId) !== epoch ? fail('interrupted', 'The person took over the browser; the action was abandoned.') : null
-    const entry: ActionEntry = { id: nextActionId(), action, args: args.slice(0, 200), status: 'running', startedAt: new Date().toISOString() }
+      manager.epochOf(tabId) !== epoch
+        ? fail('interrupted', 'The person took over the browser; the action was abandoned.')
+        : null
+    const entry: ActionEntry = {
+      id: nextActionId(),
+      action,
+      args: args.slice(0, 200),
+      status: 'running',
+      startedAt: new Date().toISOString(),
+    }
     pushBounded(s.actions, ACTION_HISTORY_MAX, entry)
     const finish = (status: ActionEntry['status'], error?: string) => {
       entry.status = status
@@ -525,16 +576,29 @@ export function createBrowserControl(manager: BrowserControlManager) {
     if (exception) return fail('cdp', exception)
     const found = value as { missing?: boolean; hidden?: boolean; x?: number; y?: number }
     if (found.missing) {
-      return fail('not_found', target.ref ? `Ref "${target.ref}" is not in the last snapshot; take a new one.` : `No element matches "${target.selector}".`)
+      return fail(
+        'not_found',
+        target.ref
+          ? `Ref "${target.ref}" is not in the last snapshot; take a new one.`
+          : `No element matches "${target.selector}".`,
+      )
     }
-    if (found.hidden || typeof found.x !== 'number' || typeof found.y !== 'number') return fail('not_visible', 'The element is not visible.')
+    if (found.hidden || typeof found.x !== 'number' || typeof found.y !== 'number')
+      return fail('not_visible', 'The element is not visible.')
     return { x: found.x, y: found.y }
   }
 
-  async function mouse(s: Session, type: string, x: number, y: number, extra: Record<string, unknown> = {}): Promise<void> {
+  async function mouse(
+    s: Session,
+    type: string,
+    x: number,
+    y: number,
+    extra: Record<string, unknown> = {},
+  ): Promise<void> {
     // The overlay hears where the pointer is going BEFORE the page does, so the
     // cursor is already there when the click lands.
-    const kind = type === 'mousePressed' ? 'click' : type === 'mouseWheel' ? 'wheel' : type === 'mouseMoved' ? 'move' : null
+    const kind =
+      type === 'mousePressed' ? 'click' : type === 'mouseWheel' ? 'wheel' : type === 'mouseMoved' ? 'move' : null
     if (kind) manager.notePointer({ tabId: s.tabId, x, y, kind })
     await input(s, 'Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1, ...extra })
   }
@@ -557,31 +621,53 @@ export function createBrowserControl(manager: BrowserControlManager) {
 
     async screenshot(tabId: string): Promise<ScreenshotResult | BrowserControlError> {
       return act(tabId, 'screenshot', '', async (s) => {
-        const image = await withDeadline(s.wc.capturePage(), CAPTURE_TIMEOUT_MS, 'The page did not render a capture in time.')
+        const image = await withDeadline(
+          s.wc.capturePage(),
+          CAPTURE_TIMEOUT_MS,
+          'The page did not render a capture in time.',
+        )
         const size = image.getSize()
         if (size.width === 0 || size.height === 0) return fail('cdp', 'The page has no visible area to capture.')
         const scale = Math.min(1, SCREENSHOT_MAX_EDGE / Math.max(size.width, size.height))
-        const resized = scale < 1 ? image.resize({ width: Math.round(size.width * scale), height: Math.round(size.height * scale) }) : image
+        const resized =
+          scale < 1
+            ? image.resize({ width: Math.round(size.width * scale), height: Math.round(size.height * scale) })
+            : image
         const final = resized.getSize()
-        return { ok: true, data: resized.toJPEG(SCREENSHOT_JPEG_QUALITY).toString('base64'), mimeType: 'image/jpeg', width: final.width, height: final.height }
+        return {
+          ok: true,
+          data: resized.toJPEG(SCREENSHOT_JPEG_QUALITY).toString('base64'),
+          mimeType: 'image/jpeg',
+          width: final.width,
+          height: final.height,
+        }
       })
     },
 
-    async click(tabId: string, target: Target, options: { button?: 'left' | 'right'; double?: boolean } = {}): Promise<ActionResult | BrowserControlError> {
-      return act(tabId, 'click', describeTarget(target) + (options.double ? ' double' : '') + (options.button === 'right' ? ' right' : ''), async (s, checkpoint) => {
-        const point = await locate(s, target)
-        if ('ok' in point) return point
-        const interrupted = checkpoint()
-        if (interrupted) return interrupted
-        const button = options.button ?? 'left'
-        const clicks = options.double ? 2 : 1
-        await mouse(s, 'mouseMoved', point.x, point.y, { button: 'none' })
-        for (let i = 1; i <= clicks; i += 1) {
-          await mouse(s, 'mousePressed', point.x, point.y, { button, clickCount: i })
-          await mouse(s, 'mouseReleased', point.x, point.y, { button, clickCount: i })
-        }
-        return { ok: true }
-      })
+    async click(
+      tabId: string,
+      target: Target,
+      options: { button?: 'left' | 'right'; double?: boolean } = {},
+    ): Promise<ActionResult | BrowserControlError> {
+      return act(
+        tabId,
+        'click',
+        describeTarget(target) + (options.double ? ' double' : '') + (options.button === 'right' ? ' right' : ''),
+        async (s, checkpoint) => {
+          const point = await locate(s, target)
+          if ('ok' in point) return point
+          const interrupted = checkpoint()
+          if (interrupted) return interrupted
+          const button = options.button ?? 'left'
+          const clicks = options.double ? 2 : 1
+          await mouse(s, 'mouseMoved', point.x, point.y, { button: 'none' })
+          for (let i = 1; i <= clicks; i += 1) {
+            await mouse(s, 'mousePressed', point.x, point.y, { button, clickCount: i })
+            await mouse(s, 'mouseReleased', point.x, point.y, { button, clickCount: i })
+          }
+          return { ok: true }
+        },
+      )
     },
 
     async hover(tabId: string, target: Target): Promise<ActionResult | BrowserControlError> {
@@ -601,51 +687,86 @@ export function createBrowserControl(manager: BrowserControlManager) {
       text: string,
       options: { clear?: boolean; submit?: boolean } = {},
     ): Promise<ActionResult | BrowserControlError> {
-      return act(tabId, 'type', `${target ? describeTarget(target) + ' ' : ''}${text.length} chars${options.clear ? ' clear' : ''}${options.submit ? ' submit' : ''}`, async (s, checkpoint) => {
-        let point: { x: number; y: number } | null = null
-        if (target) {
-          const located = await locate(s, target)
-          if ('ok' in located) return located
-          point = located
-        }
-        // Nothing has changed on the page yet: this is the last moment an
-        // interruption still means "abandoned" rather than "half done".
-        const interrupted = checkpoint()
-        if (interrupted) return interrupted
-        if (point) {
-          await mouse(s, 'mouseMoved', point.x, point.y, { button: 'none' })
-          await mouse(s, 'mousePressed', point.x, point.y)
-          await mouse(s, 'mouseReleased', point.x, point.y)
-          if (options.clear) {
-            const { exception } = await evaluateRaw(
-              s,
-              `(() => { const el = document.activeElement; if (el && ('value' in el)) { el.select && el.select(); } })()`,
-              false,
-            )
-            if (exception) return fail('cdp', exception)
-            await input(s, 'Input.dispatchKeyEvent', { type: 'keyDown', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 })
-            await input(s, 'Input.dispatchKeyEvent', { type: 'keyUp', key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 })
+      return act(
+        tabId,
+        'type',
+        `${target ? describeTarget(target) + ' ' : ''}${text.length} chars${options.clear ? ' clear' : ''}${options.submit ? ' submit' : ''}`,
+        async (s, checkpoint) => {
+          let point: { x: number; y: number } | null = null
+          if (target) {
+            const located = await locate(s, target)
+            if ('ok' in located) return located
+            point = located
           }
-        }
-        // insertText is what an IME commit does: the page's input events fire,
-        // React's controlled inputs update, and there is no per-character race.
-        if (text) await input(s, 'Input.insertText', { text })
-        if (options.submit) {
-          const enter = KEY_TABLE.Enter
-          await input(s, 'Input.dispatchKeyEvent', { type: 'keyDown', key: enter.key, code: enter.code, windowsVirtualKeyCode: enter.keyCode, text: '\r' })
-          await input(s, 'Input.dispatchKeyEvent', { type: 'keyUp', key: enter.key, code: enter.code, windowsVirtualKeyCode: enter.keyCode })
-        }
-        return { ok: true }
-      })
+          // Nothing has changed on the page yet: this is the last moment an
+          // interruption still means "abandoned" rather than "half done".
+          const interrupted = checkpoint()
+          if (interrupted) return interrupted
+          if (point) {
+            await mouse(s, 'mouseMoved', point.x, point.y, { button: 'none' })
+            await mouse(s, 'mousePressed', point.x, point.y)
+            await mouse(s, 'mouseReleased', point.x, point.y)
+            if (options.clear) {
+              const { exception } = await evaluateRaw(
+                s,
+                `(() => { const el = document.activeElement; if (el && ('value' in el)) { el.select && el.select(); } })()`,
+                false,
+              )
+              if (exception) return fail('cdp', exception)
+              await input(s, 'Input.dispatchKeyEvent', {
+                type: 'keyDown',
+                key: 'Backspace',
+                code: 'Backspace',
+                windowsVirtualKeyCode: 8,
+              })
+              await input(s, 'Input.dispatchKeyEvent', {
+                type: 'keyUp',
+                key: 'Backspace',
+                code: 'Backspace',
+                windowsVirtualKeyCode: 8,
+              })
+            }
+          }
+          // insertText is what an IME commit does: the page's input events fire,
+          // React's controlled inputs update, and there is no per-character race.
+          if (text) await input(s, 'Input.insertText', { text })
+          if (options.submit) {
+            const enter = KEY_TABLE.Enter
+            await input(s, 'Input.dispatchKeyEvent', {
+              type: 'keyDown',
+              key: enter.key,
+              code: enter.code,
+              windowsVirtualKeyCode: enter.keyCode,
+              text: '\r',
+            })
+            await input(s, 'Input.dispatchKeyEvent', {
+              type: 'keyUp',
+              key: enter.key,
+              code: enter.code,
+              windowsVirtualKeyCode: enter.keyCode,
+            })
+          }
+          return { ok: true }
+        },
+      )
     },
 
     async press(tabId: string, chord: string): Promise<ActionResult | BrowserControlError> {
       const parsed = parseKeyChord(chord)
-      if (!parsed) return fail('invalid', `"${chord}" is not a key I can press. Use names like Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a.`)
+      if (!parsed)
+        return fail(
+          'invalid',
+          `"${chord}" is not a key I can press. Use names like Enter, Tab, Escape, ArrowDown, Shift+Tab, Meta+a.`,
+        )
       return act(tabId, 'press', chord, async (s, checkpoint) => {
         const interrupted = checkpoint()
         if (interrupted) return interrupted
-        const base = { key: parsed.key, code: parsed.code, windowsVirtualKeyCode: parsed.keyCode, modifiers: parsed.modifiers }
+        const base = {
+          key: parsed.key,
+          code: parsed.code,
+          windowsVirtualKeyCode: parsed.keyCode,
+          modifiers: parsed.modifiers,
+        }
         const printable = parsed.key.length === 1 && !(parsed.modifiers & ~8)
         await input(s, 'Input.dispatchKeyEvent', {
           type: printable ? 'keyDown' : 'rawKeyDown',
@@ -657,22 +778,32 @@ export function createBrowserControl(manager: BrowserControlManager) {
       })
     },
 
-    async scroll(tabId: string, target: Target | null, deltaX: number, deltaY: number): Promise<ActionResult | BrowserControlError> {
-      return act(tabId, 'scroll', `${target && (target.ref || target.selector) ? describeTarget(target) + ' ' : ''}dx=${deltaX} dy=${deltaY}`, async (s, checkpoint) => {
-        let point: { x: number; y: number }
-        if (target && (target.ref || target.selector)) {
-          const located = await locate(s, target)
-          if ('ok' in located) return located
-          point = located
-        } else {
-          const { value } = await evaluateRaw(s, '({ x: innerWidth / 2, y: innerHeight / 2 })', false)
-          point = (value as { x: number; y: number }) ?? { x: 100, y: 100 }
-        }
-        const interrupted = checkpoint()
-        if (interrupted) return interrupted
-        await mouse(s, 'mouseWheel', point.x, point.y, { button: 'none', deltaX, deltaY })
-        return { ok: true }
-      })
+    async scroll(
+      tabId: string,
+      target: Target | null,
+      deltaX: number,
+      deltaY: number,
+    ): Promise<ActionResult | BrowserControlError> {
+      return act(
+        tabId,
+        'scroll',
+        `${target && (target.ref || target.selector) ? describeTarget(target) + ' ' : ''}dx=${deltaX} dy=${deltaY}`,
+        async (s, checkpoint) => {
+          let point: { x: number; y: number }
+          if (target && (target.ref || target.selector)) {
+            const located = await locate(s, target)
+            if ('ok' in located) return located
+            point = located
+          } else {
+            const { value } = await evaluateRaw(s, '({ x: innerWidth / 2, y: innerHeight / 2 })', false)
+            point = (value as { x: number; y: number }) ?? { x: 100, y: 100 }
+          }
+          const interrupted = checkpoint()
+          if (interrupted) return interrupted
+          await mouse(s, 'mouseWheel', point.x, point.y, { button: 'none', deltaX, deltaY })
+          return { ok: true }
+        },
+      )
     },
 
     async evaluate(tabId: string, expression: string): Promise<EvaluateResult | BrowserControlError> {
@@ -683,7 +814,10 @@ export function createBrowserControl(manager: BrowserControlManager) {
         try {
           evaluation = await evaluateRaw(s, expression, true)
         } catch (error) {
-          return fail(error instanceof DeadlineError ? 'timeout' : 'cdp', error instanceof Error ? error.message : String(error))
+          return fail(
+            error instanceof DeadlineError ? 'timeout' : 'cdp',
+            error instanceof Error ? error.message : String(error),
+          )
         }
         const { value, exception } = evaluation
         if (exception) return fail('cdp', exception)
@@ -697,7 +831,8 @@ export function createBrowserControl(manager: BrowserControlManager) {
         } catch {
           serialised = String(value)
         }
-        if (serialised.length > EVALUATE_MAX_CHARS) return { ok: true, value: `${serialised.slice(0, EVALUATE_MAX_CHARS)}…`, truncated: true }
+        if (serialised.length > EVALUATE_MAX_CHARS)
+          return { ok: true, value: `${serialised.slice(0, EVALUATE_MAX_CHARS)}…`, truncated: true }
         return { ok: true, value, truncated: false }
       })
     },
@@ -709,29 +844,39 @@ export function createBrowserControl(manager: BrowserControlManager) {
     ): Promise<ActionResult | BrowserControlError> {
       if (!condition.text && !condition.selector) return fail('invalid', 'Give `text` or `selector` to wait for.')
       const timeoutMs = clampWait(condition.timeoutMs)
-      return act(tabId, 'wait_for', condition.selector ? `selector ${condition.selector}` : `text ${condition.text ?? ''}`, async (s, checkpoint) => {
-        const probe = condition.selector
-          ? `!!document.querySelector(${JSON.stringify(condition.selector)})`
-          : `(document.body ? document.body.innerText : '').includes(${JSON.stringify(condition.text)})`
-        const deadline = Date.now() + timeoutMs
-        for (;;) {
-          const { value, exception } = await evaluateRaw(s, probe, false)
-          if (exception) return fail('cdp', exception)
-          const present = value === true
-          if (condition.gone ? !present : present) return { ok: true }
-          const interrupted = checkpoint()
-          if (interrupted) return interrupted
-          if (Date.now() >= deadline) {
-            const what = condition.selector ? `an element matching "${condition.selector}"` : `the text "${condition.text}"`
-            return fail('timeout', `Waited ${timeoutMs}ms for ${what} to ${condition.gone ? 'disappear' : 'appear'}.`)
+      return act(
+        tabId,
+        'wait_for',
+        condition.selector ? `selector ${condition.selector}` : `text ${condition.text ?? ''}`,
+        async (s, checkpoint) => {
+          const probe = condition.selector
+            ? `!!document.querySelector(${JSON.stringify(condition.selector)})`
+            : `(document.body ? document.body.innerText : '').includes(${JSON.stringify(condition.text)})`
+          const deadline = Date.now() + timeoutMs
+          for (;;) {
+            const { value, exception } = await evaluateRaw(s, probe, false)
+            if (exception) return fail('cdp', exception)
+            const present = value === true
+            if (condition.gone ? !present : present) return { ok: true }
+            const interrupted = checkpoint()
+            if (interrupted) return interrupted
+            if (Date.now() >= deadline) {
+              const what = condition.selector
+                ? `an element matching "${condition.selector}"`
+                : `the text "${condition.text}"`
+              return fail('timeout', `Waited ${timeoutMs}ms for ${what} to ${condition.gone ? 'disappear' : 'appear'}.`)
+            }
+            await new Promise((resolve) => setTimeout(resolve, WAIT_POLL_MS))
           }
-          await new Promise((resolve) => setTimeout(resolve, WAIT_POLL_MS))
-        }
-      })
+        },
+      )
     },
 
     /** Buffered console output since the last navigation (or since `clear`). */
-    async console(tabId: string, options: { clear?: boolean; level?: ConsoleEntry['level'] } = {}): Promise<{ ok: true; entries: ConsoleEntry[] } | BrowserControlError> {
+    async console(
+      tabId: string,
+      options: { clear?: boolean; level?: ConsoleEntry['level'] } = {},
+    ): Promise<{ ok: true; entries: ConsoleEntry[] } | BrowserControlError> {
       const s = await session(tabId)
       if ('ok' in s) return s
       const entries = options.level ? s.console.filter((entry) => entry.level === options.level) : [...s.console]
@@ -739,7 +884,10 @@ export function createBrowserControl(manager: BrowserControlManager) {
       return { ok: true, entries }
     },
 
-    async network(tabId: string, options: { clear?: boolean; failedOnly?: boolean } = {}): Promise<{ ok: true; entries: NetworkEntry[] } | BrowserControlError> {
+    async network(
+      tabId: string,
+      options: { clear?: boolean; failedOnly?: boolean } = {},
+    ): Promise<{ ok: true; entries: NetworkEntry[] } | BrowserControlError> {
       const s = await session(tabId)
       if ('ok' in s) return s
       const entries = options.failedOnly
@@ -801,7 +949,7 @@ function pushBounded<T>(list: T[], max: number, item: T): void {
 function describeRemoteObject(obj: Record<string, unknown>): string {
   if ('value' in obj && obj.value !== undefined) {
     const value = obj.value
-    return typeof value === 'string' ? value : JSON.stringify(value) ?? String(value)
+    return typeof value === 'string' ? value : (JSON.stringify(value) ?? String(value))
   }
   if (typeof obj.description === 'string') return obj.description
   if (obj.type === 'undefined') return 'undefined'

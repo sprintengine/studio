@@ -12,11 +12,7 @@ import type {
 import type { BacklogEpicGroup, BacklogEpicMeta, BacklogEpicProgress } from '../../utils/backlogEpics'
 import type { BacklogDependencyState, BacklogEpicBlockedRollup } from '../../utils/backlogDependencies'
 import { getHighlightSwatch } from '../../utils/highlight'
-import {
-  CRITICALITY_LABEL,
-  DIFFICULTY_LABEL,
-  DIFFICULTY_WORD,
-} from '../../utils/backlogTriage'
+import { CRITICALITY_LABEL, DIFFICULTY_LABEL, DIFFICULTY_WORD } from '../../utils/backlogTriage'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
 
 // Backlog readiness → the shared lifecycle vocabulary. The pre-work states
@@ -77,13 +73,7 @@ export const BACKLOG_BLOCKED_LABEL = 'Blocked'
 // and the children roll-up so the epic always reads the same. The hex comes from
 // the shared swatch helper (inline style — the same pattern the highlight
 // swatch picker uses — so it never trips the design-token hex-in-className lint).
-export function EpicColorDot({
-  color,
-  size = 6,
-}: {
-  color: BacklogHighlightColor | null
-  size?: number
-}): JSX.Element {
+export function EpicColorDot({ color, size = 6 }: { color: BacklogHighlightColor | null; size?: number }): JSX.Element {
   const dimension = { width: size, height: size }
   if (!color) {
     return (
@@ -129,8 +119,7 @@ export function BacklogRowHoverCard({
    *  the status word so the card never claims Ready for a gated item. */
   dependencyState?: BacklogDependencyState | null
 }): JSX.Element {
-  const statusLabel =
-    dependencyState === 'blocked' ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status]
+  const statusLabel = dependencyState === 'blocked' ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[item.status]
   return (
     <span className="flex max-w-[300px] flex-col gap-0.5 py-0.5">
       <span className="whitespace-normal text-meta font-medium leading-snug text-[color:var(--text-strong)]">
@@ -230,9 +219,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
         ) : null}
         <span className="flex min-w-0 flex-1 items-center gap-1.5">
           {plainTitle ? (
-            <span
-              className={`min-w-0 truncate text-meta ${item.isEpic ? 'font-semibold' : 'font-medium'} ${titleInk}`}
-            >
+            <span className={`min-w-0 truncate text-meta ${item.isEpic ? 'font-semibold' : 'font-medium'} ${titleInk}`}>
               {item.title}
             </span>
           ) : (
@@ -246,11 +233,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
               outline on idle rows, same rule as the status dot. Matches the
               sidebar's starred-workspace glyph (color, size, name). */}
           {item.highlight?.starred ? (
-            <StarGlyph
-              filled
-              className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-              label="Starred"
-            />
+            <StarGlyph filled className="icon-xs shrink-0 text-[color:var(--tone-warn)]" label="Starred" />
           ) : null}
         </span>
         {blocked ? <BlockedBadge /> : dependencyState != null ? <WaitingBadge /> : null}
@@ -266,9 +249,7 @@ export const BacklogRowContent = memo(function BacklogRowContent({
           slot holds the completion meter instead. */}
       <div className="mt-0.5 flex items-center gap-2 pl-[22px] text-micro">
         {item.displayId ? (
-          <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-subtle)]">
-            {item.displayId}
-          </span>
+          <span className="shrink-0 font-mono tabular-nums text-[color:var(--text-subtle)]">{item.displayId}</span>
         ) : null}
         {item.isEpic ? (
           <>
@@ -386,7 +367,9 @@ function EpicBlockedCount({ rollup }: { rollup: BacklogEpicBlockedRollup }): JSX
         <circle cx="8" cy="8" r="5" stroke="currentColor" strokeWidth="1.3" />
         <path d="M5.6 8h4.8" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
       </svg>
-      <span aria-hidden="true" className="tabular-nums">{rollup.blocked} blocked</span>
+      <span aria-hidden="true" className="tabular-nums">
+        {rollup.blocked} blocked
+      </span>
     </span>
   )
 }
@@ -410,9 +393,9 @@ const UNORDERED_EPIC_LABEL = 'Order not planned'
 
 function UnorderedEpicMark(): JSX.Element {
   const explanation =
-    'Ordering not marked done — work started from this epic has to plan first. '
-    + 'Set `dependenciesPlanned: true` on the epic once its children’s order is authored '
-    + '(no dependsOn edges at all is a valid answer: it means deliberately parallel).'
+    'Ordering not marked done — work started from this epic has to plan first. ' +
+    'Set `dependenciesPlanned: true` on the epic once its children’s order is authored ' +
+    '(no dependsOn edges at all is a valid answer: it means deliberately parallel).'
   return (
     <Tooltip content={explanation} placement="top" wrapperClassName="inline-flex shrink-0">
       <span
@@ -421,13 +404,14 @@ function UnorderedEpicMark(): JSX.Element {
         className="inline-flex shrink-0 items-center gap-1 text-micro text-[color:var(--text-muted)]"
       >
         <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0" aria-hidden="true">
+          <path d="M3 4.5h6M3 8h4M3 11.5h6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
           <path
-            d="M3 4.5h6M3 8h4M3 11.5h6"
+            d="M11 5.5l3 5M14 5.5l-3 5"
             stroke="currentColor"
             strokeWidth="1.3"
             strokeLinecap="round"
+            opacity=".7"
           />
-          <path d="M11 5.5l3 5M14 5.5l-3 5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" opacity=".7" />
         </svg>
         <span aria-hidden="true">{UNORDERED_EPIC_LABEL}</span>
       </span>
@@ -551,7 +535,11 @@ function EpicPill({ epic, onOpen }: { epic: BacklogEpicMeta; onOpen?: () => void
 // spells the size out in full (the row shows no other size label).
 export function DifficultyIndicator({ difficulty }: { difficulty?: BacklogDifficulty }): JSX.Element {
   return (
-    <Tooltip content={difficulty ? `Size: ${DIFFICULTY_WORD[difficulty]}` : 'Size unestimated'} placement="top" wrapperClassName="inline-flex shrink-0">
+    <Tooltip
+      content={difficulty ? `Size: ${DIFFICULTY_WORD[difficulty]}` : 'Size unestimated'}
+      placement="top"
+      wrapperClassName="inline-flex shrink-0"
+    >
       <span
         role="img"
         aria-label={difficulty ? `Size ${DIFFICULTY_WORD[difficulty]}` : 'Size unestimated'}
@@ -585,7 +573,11 @@ export function CriticalityIndicator({ criticality }: { criticality?: BacklogCri
   }
   const urgent = criticality === 'high' || criticality === 'critical'
   return (
-    <Tooltip content={`Priority: ${CRITICALITY_LABEL[criticality]}`} placement="top" wrapperClassName="inline-flex shrink-0">
+    <Tooltip
+      content={`Priority: ${CRITICALITY_LABEL[criticality]}`}
+      placement="top"
+      wrapperClassName="inline-flex shrink-0"
+    >
       <span
         role="img"
         aria-label={`Priority ${CRITICALITY_LABEL[criticality]}`}
@@ -693,13 +685,8 @@ export function BacklogEpicHeaderContent({
         <DisclosureChevron expanded={!collapsed} />
       </IconButton>
       {group.kind === 'epic' && group.epic ? (
-        <Tooltip
-          content={blocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[group.epic.status]}
-          placement="top"
-        >
-          <LifecycleGlyph
-            state={blocked ? 'blocked' : backlogStatusToLifecycle(group.epic.status)}
-          />
+        <Tooltip content={blocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[group.epic.status]} placement="top">
+          <LifecycleGlyph state={blocked ? 'blocked' : backlogStatusToLifecycle(group.epic.status)} />
         </Tooltip>
       ) : null}
       <TruncatedText

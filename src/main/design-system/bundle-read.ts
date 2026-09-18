@@ -75,11 +75,7 @@ const INLINE_MIME_TYPES: Record<string, string> = {
   '.woff': 'font/woff',
 }
 
-function failure(
-  reason: DesignSystemBundleReadFailure,
-  path: string,
-  message: string,
-): DesignSystemBundleReadResult {
+function failure(reason: DesignSystemBundleReadFailure, path: string, message: string): DesignSystemBundleReadResult {
   return { ok: false, reason, path, message }
 }
 
@@ -241,9 +237,7 @@ async function readTextOrNull(path: string): Promise<string | null> {
  * system the user pointed at, and silently losing the row would hide the fact
  * that anything is wrong.
  */
-export async function readDesignSystemBundle(
-  bundleDir: string,
-): Promise<DesignSystemBundleReadResult> {
+export async function readDesignSystemBundle(bundleDir: string): Promise<DesignSystemBundleReadResult> {
   if (typeof bundleDir !== 'string' || bundleDir.trim().length === 0) {
     return failure('missing', String(bundleDir ?? ''), 'No bundle directory provided.')
   }
@@ -578,10 +572,7 @@ async function readPatterns(
   return views
 }
 
-async function readGlyphs(
-  bundleDir: string,
-  manifest: DesignSystemManifest,
-): Promise<DesignSystemGlyphView[]> {
+async function readGlyphs(bundleDir: string, manifest: DesignSystemManifest): Promise<DesignSystemGlyphView[]> {
   const dir = join(bundleDir, 'glyphs')
   const declared = Array.isArray(manifest.contents.glyphs)
     ? manifest.contents.glyphs.filter((name): name is string => typeof name === 'string')

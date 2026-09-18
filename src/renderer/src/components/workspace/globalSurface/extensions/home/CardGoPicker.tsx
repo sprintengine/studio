@@ -68,14 +68,8 @@ import { CliModelPopoverSurface } from '../../../../ui'
 import { resolveModelPermissionPreset } from '../../../../ui/modelPermissionPresets'
 import { CliInstallRosterRow } from '../../../cliInstallRoute'
 import { SpawnPermissionFooter } from '../../../agentComposer/spawnFooter'
-import {
-  useAgentComposer,
-  type AgentComposerSelection,
-} from '../../../agentComposer/useAgentComposer'
-import {
-  DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
-  normalizeSelectedCli,
-} from '../../../../../store/slices/settingsSlice'
+import { useAgentComposer, type AgentComposerSelection } from '../../../agentComposer/useAgentComposer'
+import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../../../../store/slices/settingsSlice'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
 import type { AgentCli, CliPermissionPreset } from '../../../../../types/workspace'
 import type { HostedCard } from '../../../../../../../shared/hosted-card-feed'
@@ -218,11 +212,11 @@ export function CardGoPicker({
   // level a person set here leaves on the launch instead.
   const [effort, setEffort] = React.useState<Partial<Record<AgentCli, string | null>>>({})
   const effortFor = (cli: AgentCli): string | undefined =>
-    cli in effort ? effort[cli] ?? undefined : composer.reasoningForSelection(CARD_SELECTION, cli)
+    cli in effort ? (effort[cli] ?? undefined) : composer.reasoningForSelection(CARD_SELECTION, cli)
 
   const required = cardRequiredCli(card)
   const requiredOption = required
-    ? composer.agentCliOptions.find((option) => option.value === required) ?? null
+    ? (composer.agentCliOptions.find((option) => option.value === required) ?? null)
     : null
   // The whole catalogue, always. `require.cli` leads the list; it does not
   // shorten it. See the note at the top of this file.
@@ -283,7 +277,7 @@ export function CardGoPicker({
         role="status"
       >
         {composer.catalogStatus === 'error'
-          ? composer.catalogError ?? 'Could not load agent plugins.'
+          ? (composer.catalogError ?? 'Could not load agent plugins.')
           : 'Loading installed agents…'}
       </div>
     )

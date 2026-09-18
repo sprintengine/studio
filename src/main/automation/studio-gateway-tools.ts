@@ -2,10 +2,7 @@ import { BROWSER_MUTATION_TOOL_NAMES } from './browser-tools'
 import { CANVAS_MUTATION_TOOL_NAMES } from './canvas-tools'
 import type { McpToolContribution } from '../module-host/main-host'
 import { TAILNET_MUTATION_TOOL_NAMES } from './tailnet/tailnet-tools'
-import {
-  toolError,
-  type McpToolRegistration,
-} from '../../shared/modules/mcp-tools'
+import { toolError, type McpToolRegistration } from '../../shared/modules/mcp-tools'
 
 const APP_MUTATION_TOOLS = new Set([
   ...BROWSER_MUTATION_TOOL_NAMES,
@@ -82,7 +79,7 @@ export function createStudioGatewayTools(options: {
         if (!warnedCollisions.has(collisionKey)) {
           warnedCollisions.add(collisionKey)
           options.warn?.(
-            `MCP tool "${registration.name}" from module "${contribution.moduleId}" collides with a core gateway tool and is not served.`
+            `MCP tool "${registration.name}" from module "${contribution.moduleId}" collides with a core gateway tool and is not served.`,
           )
         }
         continue
@@ -100,7 +97,7 @@ export function createStudioGatewayTools(options: {
 // normal MCP tool result — never a protocol error, never the orphaned handler.
 function gateOnModuleEnablement(
   contribution: McpToolContribution,
-  isModuleEnabled: (moduleId: string) => boolean
+  isModuleEnabled: (moduleId: string) => boolean,
 ): McpToolRegistration {
   const { moduleId, moduleDisplayName, registration } = contribution
   return {
@@ -110,7 +107,7 @@ function gateOnModuleEnablement(
         ? registration.handler(args, context)
         : toolError(
             `${moduleId}_module_disabled`,
-            `The ${moduleDisplayName} module is disabled. Enable it in Settings → Modules to use ${moduleId} tools.`
+            `The ${moduleDisplayName} module is disabled. Enable it in Settings → Modules to use ${moduleId} tools.`,
           ),
   }
 }
@@ -128,7 +125,7 @@ function gateOnModuleEnablement(
 // the core classification alone.
 export function isStudioGatewayMutation(
   toolName: string,
-  resolveTools?: () => ReadonlyArray<Pick<McpToolRegistration, 'name' | 'mutates'>>
+  resolveTools?: () => ReadonlyArray<Pick<McpToolRegistration, 'name' | 'mutates'>>,
 ): boolean {
   if (APP_MUTATION_TOOLS.has(toolName)) return true
   if (!resolveTools) return false

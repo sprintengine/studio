@@ -16,13 +16,7 @@ import type { ComponentType, LazyExoticComponent } from 'react'
 // ── Manifest ─────────────────────────────────────────────────────────────────
 
 export type CapabilityCategory =
-  | 'core'
-  | 'dev-tools'
-  | 'vcs'
-  | 'orchestration'
-  | 'insight'
-  | 'connectivity'
-  | (string & {})
+  'core' | 'dev-tools' | 'vcs' | 'orchestration' | 'insight' | 'connectivity' | (string & {})
 
 export type ModuleSource = 'bundled' | 'third-party'
 
@@ -532,9 +526,7 @@ export type WorkspaceCreateInput = {
   templateId?: string
 }
 
-export type WorkspaceCreateResult =
-  | { ok: true; workspaceId: string }
-  | { ok: false; code: string; message: string }
+export type WorkspaceCreateResult = { ok: true; workspaceId: string } | { ok: false; code: string; message: string }
 
 /**
  * Programmatic workspace creation, provided by the app core. A creation runs
@@ -612,13 +604,7 @@ export type JsonSchema = Record<string, unknown>
 
 export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
 
-export type AutomationRunStatus =
-  | 'queued'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'blocked'
-  | 'skipped'
+export type AutomationRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'skipped'
 
 export type TriggerKind = 'schedule' | string
 
@@ -654,8 +640,7 @@ export type AutomationTriggerPollEvent = {
 }
 
 export type AutomationTriggerPollResult =
-  | { ok: true; events: AutomationTriggerPollEvent[] }
-  | { ok: false; blockedReason: string }
+  { ok: true; events: AutomationTriggerPollEvent[] } | { ok: false; blockedReason: string }
 
 /**
  * Bundled action kinds the host ships, plus module-namespaced kinds
@@ -697,11 +682,7 @@ export type AutomationTriggerProvider = {
   configSchema: JsonSchema
   requiredIntegrations?: string[]
   validateConfig?(config: unknown): { ok: true } | { ok: false; error: string }
-  subscribe(input: {
-    config: unknown
-    fire: (payload: Record<string, unknown>) => void
-    now: () => number
-  }): () => void
+  subscribe(input: { config: unknown; fire: (payload: Record<string, unknown>) => void; now: () => number }): () => void
   computeNextRun?(config: unknown, after: number): number | null
   poll?(input: {
     config: unknown
@@ -909,16 +890,10 @@ export type AutomationsRunEvent = {
 }
 
 export type ModuleAutomationsError =
-  | 'invalid_draft'
-  | 'invalid_workspace'
-  | 'not_found'
-  | 'not_owner'
-  | 'store_error'
-  | 'engine_unavailable'
+  'invalid_draft' | 'invalid_workspace' | 'not_found' | 'not_owner' | 'store_error' | 'engine_unavailable'
 
 export type ModuleAutomationsResult<T> =
-  | ({ ok: true } & T)
-  | { ok: false; code: ModuleAutomationsError; message: string }
+  ({ ok: true } & T) | { ok: false; code: ModuleAutomationsError; message: string }
 
 /**
  * Owned automation CRUD + run events for a module's `entry.main`, obtained via
@@ -940,14 +915,9 @@ export type ModuleAutomationsService = {
     automationId: string
     patch: AutomationDefinitionPatch
   }): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
-  delete(input: {
-    workspaceRoot: string
-    automationId: string
-  }): Promise<ModuleAutomationsResult<object>>
+  delete(input: { workspaceRoot: string; automationId: string }): Promise<ModuleAutomationsResult<object>>
   /** Automations this module owns in the workspace (never other modules' or the user's). */
-  list(input: {
-    workspaceRoot: string
-  }): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
+  list(input: { workspaceRoot: string }): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
   listRuns(input: {
     workspaceRoot: string
     automationId: string
@@ -959,23 +929,23 @@ export type ModuleAutomationsService = {
 type AutomationsModuleRegistry = {
   create(
     moduleId: string,
-    input: { workspaceRoot: string; draft: unknown }
+    input: { workspaceRoot: string; draft: unknown },
   ): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
   update(
     moduleId: string,
-    input: { workspaceRoot: string; automationId: string; patch: unknown }
+    input: { workspaceRoot: string; automationId: string; patch: unknown },
   ): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
   delete(
     moduleId: string,
-    input: { workspaceRoot: string; automationId: string }
+    input: { workspaceRoot: string; automationId: string },
   ): Promise<ModuleAutomationsResult<object>>
   list(
     moduleId: string,
-    input: { workspaceRoot: string }
+    input: { workspaceRoot: string },
   ): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
   listRuns(
     moduleId: string,
-    input: { workspaceRoot: string; automationId: string }
+    input: { workspaceRoot: string; automationId: string },
   ): Promise<ModuleAutomationsResult<{ runs: AutomationRun[] }>>
   onRunEvent(moduleId: string, listener: (event: AutomationsRunEvent) => void): () => void
 }
@@ -1008,13 +978,7 @@ export function getAutomationsService(host: MainHost): ModuleAutomationsService 
  * `absent` — never spawned, or already disposed (not present in the projection).
  */
 export type CompanionAgentStatus =
-  | 'starting'
-  | 'ready'
-  | 'active'
-  | 'awaiting_approval'
-  | 'stopped'
-  | 'failed'
-  | 'absent'
+  'starting' | 'ready' | 'active' | 'awaiting_approval' | 'stopped' | 'failed' | 'absent'
 
 /**
  * A canonical conversation event as delivered to a companion's `onEvent`.
@@ -1251,8 +1215,9 @@ type AgentSessionsRegistry = {
   list(moduleId: string): ModuleAgentSessionRecord[]
 }
 
-const agentSessionsModuleServiceToken: ServiceToken<AgentSessionsRegistry> =
-  createServiceToken<AgentSessionsRegistry>('agent-sessions.module-service')
+const agentSessionsModuleServiceToken: ServiceToken<AgentSessionsRegistry> = createServiceToken<AgentSessionsRegistry>(
+  'agent-sessions.module-service',
+)
 
 /**
  * The scoped Agent Sessions service for `host`'s module. The raw host registry
@@ -1275,15 +1240,9 @@ export function getAgentSessionService(host: MainHost): ModuleAgentSessionServic
 // ── Module storage (host-provided, consumed via the service bridge) ──────────
 
 export type ModuleStorageErrorCode =
-  | 'invalid_key'
-  | 'invalid_value'
-  | 'value_too_large'
-  | 'invalid_workspace_root'
-  | 'io_error'
+  'invalid_key' | 'invalid_value' | 'value_too_large' | 'invalid_workspace_root' | 'io_error'
 
-export type ModuleStorageResult<T> =
-  | ({ ok: true } & T)
-  | { ok: false; code: ModuleStorageErrorCode; message: string }
+export type ModuleStorageResult<T> = ({ ok: true } & T) | { ok: false; code: ModuleStorageErrorCode; message: string }
 
 /**
  * Per-module, per-workspace JSON storage, scoped to your module by
@@ -1351,8 +1310,7 @@ export type WorkspacePanelProps = {
 
 /** Eager component or React.lazy() wrapper; both render the same way. */
 export type WorkspacePanelComponent =
-  | ComponentType<WorkspacePanelProps>
-  | LazyExoticComponent<ComponentType<WorkspacePanelProps>>
+  ComponentType<WorkspacePanelProps> | LazyExoticComponent<ComponentType<WorkspacePanelProps>>
 
 export type WorkspaceTypeIconComponent = ComponentType<{ className?: string }>
 
@@ -1441,14 +1399,7 @@ export type WorkspaceTypeSupervisor = {
  * so a compiled module never emits a state the running shell can't draw.
  */
 export type WorkspaceRunGlyphState =
-  | 'todo'
-  | 'ready'
-  | 'in_progress'
-  | 'paused'
-  | 'needs_input'
-  | 'done'
-  | 'failed'
-  | 'archived'
+  'todo' | 'ready' | 'in_progress' | 'paused' | 'needs_input' | 'done' | 'failed' | 'archived'
 
 /** The sidebar row's one status slot: lifecycle state, liveness, plain label. */
 export type WorkspaceRunGlyph = {
@@ -1515,8 +1466,7 @@ export type WorkspaceCreationStepProps = {
 }
 
 export type WorkspaceCreationStepComponent =
-  | ComponentType<WorkspaceCreationStepProps>
-  | LazyExoticComponent<ComponentType<WorkspaceCreationStepProps>>
+  ComponentType<WorkspaceCreationStepProps> | LazyExoticComponent<ComponentType<WorkspaceCreationStepProps>>
 
 export type WorkspaceTypeCreationStep = {
   id: string
@@ -1863,8 +1813,7 @@ export type SettingsSectionProps = {
 }
 
 export type SettingsSectionComponent =
-  | ComponentType<SettingsSectionProps>
-  | LazyExoticComponent<ComponentType<SettingsSectionProps>>
+  ComponentType<SettingsSectionProps> | LazyExoticComponent<ComponentType<SettingsSectionProps>>
 
 /** Icons follow the house glyph pattern: 24×24 viewBox, currentColor strokes. */
 export type SettingsSectionIconComponent = ComponentType<{ className?: string }>
@@ -1886,8 +1835,7 @@ export type SidebarNavEntryRenderProps = {
 }
 
 export type SidebarNavEntryComponent =
-  | ComponentType<SidebarNavEntryRenderProps>
-  | LazyExoticComponent<ComponentType<SidebarNavEntryRenderProps>>
+  ComponentType<SidebarNavEntryRenderProps> | LazyExoticComponent<ComponentType<SidebarNavEntryRenderProps>>
 
 /**
  * A top-nav door your module contributes to the workspace sidebar's
@@ -1924,9 +1872,7 @@ export type DoorBadgeContribution = {
 
 // ── Top bar items ────────────────────────────────────────────────────────────
 
-export type TopBarItemComponent =
-  | ComponentType
-  | LazyExoticComponent<ComponentType>
+export type TopBarItemComponent = ComponentType | LazyExoticComponent<ComponentType>
 
 /**
  * A control your module contributes to the app's top bar (the title-strip
@@ -1946,9 +1892,7 @@ export type TopBarItemDefinition = {
 
 // ── Global door surfaces ─────────────────────────────────────────────────────
 
-export type GlobalSurfaceComponent =
-  | ComponentType
-  | LazyExoticComponent<ComponentType>
+export type GlobalSurfaceComponent = ComponentType | LazyExoticComponent<ComponentType>
 
 /** The glyph the shell's chrome draws when it names your surface. */
 export type SurfaceIconComponent = ComponentType<{ className?: string }>
@@ -2109,8 +2053,7 @@ export type ModalSurfaceComponentProps = {
 }
 
 export type ModalSurfaceComponent =
-  | ComponentType<ModalSurfaceComponentProps>
-  | LazyExoticComponent<ComponentType<ModalSurfaceComponentProps>>
+  ComponentType<ModalSurfaceComponentProps> | LazyExoticComponent<ComponentType<ModalSurfaceComponentProps>>
 
 /**
  * The pane row your modal surface contributes. The workspace pane lists the
@@ -2498,7 +2441,7 @@ export type RendererHost = {
   watchWorkspaceFile(
     workspaceId: string,
     relativePath: string,
-    cb: (event: WorkspaceFileWatchEvent) => void
+    cb: (event: WorkspaceFileWatchEvent) => void,
   ): Promise<() => void>
   /**
    * Observe live agent sessions: `cb` fires once with the current read-only
@@ -2513,10 +2456,7 @@ export type RendererHost = {
    * empty list; it is never a window onto other modules' sessions.
    * Declare `ipc:agents`.
    */
-  watchAgentSessions(
-    workspaceId: string | undefined,
-    cb: (sessions: ModuleAgentSessionView[]) => void
-  ): () => void
+  watchAgentSessions(workspaceId: string | undefined, cb: (sessions: ModuleAgentSessionView[]) => void): () => void
   /**
    * Spawn an agent session through the app's SHARED session runtime (the
    * same path every shell surface uses) and add its tab to the workspace
@@ -2543,12 +2483,12 @@ export type RendererHost = {
    * Invoke an IPC channel this module's own `entry.main` registered via
    * `MainHost.registerIpc`, e.g. `host.invoke('my-module:save', data)`.
    *
- * The channel MUST start with `<moduleId>:` (your own module id); other
- * channel names throw before IPC happens. The host additionally routes only
- * to channels owned by a module whose manifest declares the `ipc:invoke`
- * permission. A refused invoke rejects with an Error whose
- * `code` property carries the `ModuleBridgeRefusalCode`, so callers can
- * branch on the refusal kind without parsing the message.
+   * The channel MUST start with `<moduleId>:` (your own module id); other
+   * channel names throw before IPC happens. The host additionally routes only
+   * to channels owned by a module whose manifest declares the `ipc:invoke`
+   * permission. A refused invoke rejects with an Error whose
+   * `code` property carries the `ModuleBridgeRefusalCode`, so callers can
+   * branch on the refusal kind without parsing the message.
    *
    * This bridge is a contract, not a security boundary: all renderer code
    * shares one world. Trust gating (only `trusted` modules execute) remains
@@ -2617,9 +2557,9 @@ export function readFileDropPayload(dataTransfer: DataTransfer): FileDropPayload
   try {
     const value = JSON.parse(raw) as Partial<FileDropPayload>
     if (
-      value.version !== 1
-      || (value.workspaceId !== null && typeof value.workspaceId !== 'string')
-      || typeof value.rootPath !== 'string'
+      value.version !== 1 ||
+      (value.workspaceId !== null && typeof value.workspaceId !== 'string') ||
+      typeof value.rootPath !== 'string'
     ) {
       return null
     }
@@ -2630,11 +2570,11 @@ export function readFileDropPayload(dataTransfer: DataTransfer): FileDropPayload
     const files: FileDropPayload['files'] = []
     for (const file of value.files) {
       if (
-        !file
-        || typeof file.path !== 'string'
-        || file.path.trim().length === 0
-        || typeof file.name !== 'string'
-        || (file.isDir !== undefined && typeof file.isDir !== 'boolean')
+        !file ||
+        typeof file.path !== 'string' ||
+        file.path.trim().length === 0 ||
+        typeof file.name !== 'string' ||
+        (file.isDir !== undefined && typeof file.isDir !== 'boolean')
       ) {
         continue
       }

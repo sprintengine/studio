@@ -91,24 +91,30 @@ export function parseObservedCheckout(raw: unknown): ObservedCheckout | null {
     resolved: true,
     gitRoot,
     repoRoot: gitRoot ? absolutePath(raw.repoRoot) : null,
-    branch: gitRoot && typeof raw.branch === 'string' && raw.branch.length > 0 && raw.branch.length <= 512 ? raw.branch : null,
+    branch:
+      gitRoot && typeof raw.branch === 'string' && raw.branch.length > 0 && raw.branch.length <= 512
+        ? raw.branch
+        : null,
     isLinkedWorktree: Boolean(gitRoot) && raw.isLinkedWorktree === true,
     ...(!gitRoot && raw.missing === true ? { missing: true } : {}),
   }
 }
 
 /** Field-wise equality, so a re-resolution that changed nothing broadcasts nothing. */
-export function sameObservedCheckout(a: ObservedCheckout | null | undefined, b: ObservedCheckout | null | undefined): boolean {
+export function sameObservedCheckout(
+  a: ObservedCheckout | null | undefined,
+  b: ObservedCheckout | null | undefined,
+): boolean {
   if (!a || !b) return a === b || (!a && !b)
   return (
-    a.cwd === b.cwd
-    && a.at === b.at
-    && a.resolved === b.resolved
-    && a.gitRoot === b.gitRoot
-    && a.repoRoot === b.repoRoot
-    && a.branch === b.branch
-    && a.isLinkedWorktree === b.isLinkedWorktree
-    && (a.missing ?? false) === (b.missing ?? false)
+    a.cwd === b.cwd &&
+    a.at === b.at &&
+    a.resolved === b.resolved &&
+    a.gitRoot === b.gitRoot &&
+    a.repoRoot === b.repoRoot &&
+    a.branch === b.branch &&
+    a.isLinkedWorktree === b.isLinkedWorktree &&
+    (a.missing ?? false) === (b.missing ?? false)
   )
 }
 

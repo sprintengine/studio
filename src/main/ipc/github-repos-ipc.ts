@@ -13,10 +13,10 @@ export function registerGitHubReposIpc(ipcMain: IpcMain, githubTokenStore: GitHu
   ipcMain.handle('github:clone', async (_, input: unknown) => {
     const request = input as Partial<GitHubCloneInput> | null
     if (
-      !request
-      || typeof request.url !== 'string'
-      || typeof request.parentDir !== 'string'
-      || typeof request.folderName !== 'string'
+      !request ||
+      typeof request.url !== 'string' ||
+      typeof request.parentDir !== 'string' ||
+      typeof request.folderName !== 'string'
     ) {
       return { ok: false as const, message: 'Invalid clone request.' }
     }

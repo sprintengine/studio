@@ -40,10 +40,14 @@ const attachment = (over: Partial<FleetLiveAttachment> = {}): FleetLiveAttachmen
 
 const attachments = new Map<string, FleetLiveAttachment>()
 
-assert.deepEqual(fleetMachinePhase('tnc_1', attachments), { phase: 'paired' }, 'no link and no check: paired, nothing more claimed')
+assert.deepEqual(
+  fleetMachinePhase('tnc_1', attachments),
+  { phase: 'paired' },
+  'no link and no check: paired, nothing more claimed',
+)
 assert.deepEqual(
   fleetMachinePhase('tnc_1', attachments, new Map([['tnc_1', reach({ checking: true, checkedAt: null })]])),
-  { phase: 'checking' }
+  { phase: 'checking' },
 )
 assert.deepEqual(fleetMachinePhase('tnc_1', attachments, new Map([['tnc_1', reach()]])), {
   phase: 'reachable',
@@ -53,22 +57,35 @@ assert.deepEqual(
   fleetMachinePhase(
     'tnc_1',
     attachments,
-    new Map([['tnc_1', reach({ reachable: false, detail: 'Could not reach it.', lastReachedAt: NOW - 60_000 })]])
+    new Map([['tnc_1', reach({ reachable: false, detail: 'Could not reach it.', lastReachedAt: NOW - 60_000 })]]),
   ),
-  { phase: 'unreachable', detail: 'Could not reach it.', lastReachedAt: NOW - 60_000 }
+  { phase: 'unreachable', detail: 'Could not reach it.', lastReachedAt: NOW - 60_000 },
 )
 assert.equal(
-  fleetMachinePhase('tnc_1', attachments, new Map([['tnc_1', reach({ reachable: false, unauthorized: true, detail: 'Unauthorized.' })]])).phase,
-  'revoked'
+  fleetMachinePhase(
+    'tnc_1',
+    attachments,
+    new Map([['tnc_1', reach({ reachable: false, unauthorized: true, detail: 'Unauthorized.' })]]),
+  ).phase,
+  'revoked',
 )
 // A live pane outranks a probe that ran a minute ago, revoked included: the
 // link in front of the person is the stronger fact.
 const live = new Map<string, FleetLiveAttachment>([['a1', attachment()]])
-assert.equal(fleetMachinePhase('tnc_1', live, new Map([['tnc_1', reach({ reachable: false, unauthorized: true })]])).phase, 'connected')
+assert.equal(
+  fleetMachinePhase('tnc_1', live, new Map([['tnc_1', reach({ reachable: false, unauthorized: true })]])).phase,
+  'connected',
+)
 
 assert.equal(machinePhaseText('air', { phase: 'reachable', checkedAt: NOW - 10_000 }, NOW), '')
-assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: NOW - 2 * 3_600_000 }, NOW), 'not answering · 2 h')
-assert.equal(machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: null }, NOW), 'not answering · never reached')
+assert.equal(
+  machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: NOW - 2 * 3_600_000 }, NOW),
+  'not answering · 2 h',
+)
+assert.equal(
+  machinePhaseText('air', { phase: 'unreachable', detail: 'x', lastReachedAt: null }, NOW),
+  'not answering · never reached',
+)
 assert.equal(machinePhaseText('air', { phase: 'revoked', detail: 'x' }, NOW), 'revoked there — pair again to reconnect')
 
 assert.equal(machineRowAction({ phase: 'unreachable', detail: 'x', lastReachedAt: null }), 'retry')

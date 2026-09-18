@@ -1,7 +1,18 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 
-import { DefinitionList, Field, GhostButton, InlineNotice, Input, PrimaryButton, Select, type SelectItem, Switch, Textarea } from '../../ui'
+import {
+  DefinitionList,
+  Field,
+  GhostButton,
+  InlineNotice,
+  Input,
+  PrimaryButton,
+  Select,
+  type SelectItem,
+  Switch,
+  Textarea,
+} from '../../ui'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { selectAgentCliCatalog } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import { AutomationTypeGlyph } from './AutomationTypeGlyph'
@@ -134,14 +145,23 @@ function schemaHasStringProp(schema: AutomationsProviderView['configSchema'], ke
 }
 
 const EMPTY_FORM: EditorFormState = {
-  name: '', enabled: true, runInWorktree: true, disableAfterRun: false, actionKind: '', triggerKind: 'schedule',
-  cadenceType: 'interval', everyMinutes: 30, timeLocal: '09:00', daysOfWeek: [1, 2, 3, 4, 5], atDatetime: '',
-  webhook: { ...EMPTY_WEBHOOK_FORM }, config: {},
+  name: '',
+  enabled: true,
+  runInWorktree: true,
+  disableAfterRun: false,
+  actionKind: '',
+  triggerKind: 'schedule',
+  cadenceType: 'interval',
+  everyMinutes: 30,
+  timeLocal: '09:00',
+  daysOfWeek: [1, 2, 3, 4, 5],
+  atDatetime: '',
+  webhook: { ...EMPTY_WEBHOOK_FORM },
+  config: {},
 }
 
 function initialFormState(editor: EditorState, providers: AutomationsProviders): EditorFormState {
-  const firstAvailableAction =
-    providers.actions.find((a) => !providerUnavailableReason(a)) ?? providers.actions[0]
+  const firstAvailableAction = providers.actions.find((a) => !providerUnavailableReason(a)) ?? providers.actions[0]
   if (editor.mode === 'create') {
     return { ...EMPTY_FORM, actionKind: firstAvailableAction?.kind ?? '' }
   }
@@ -165,14 +185,14 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
     disableAfterRun: def.disableAfterRun ?? false,
     actionKind: def.action.kind,
     triggerKind: def.trigger.kind,
-    cadenceType: cadence?.type === 'daily' || cadence?.type === 'weekly' || cadence?.type === 'at' ? cadence.type : 'interval',
+    cadenceType:
+      cadence?.type === 'daily' || cadence?.type === 'weekly' || cadence?.type === 'at' ? cadence.type : 'interval',
     everyMinutes: cadence?.type === 'interval' ? cadence.everyMinutes : 30,
     timeLocal: cadence && (cadence.type === 'daily' || cadence.type === 'weekly') ? cadence.timeLocal : '09:00',
     daysOfWeek: cadence?.type === 'weekly' ? cadence.daysOfWeek : [1, 2, 3, 4, 5],
     atDatetime: cadence?.type === 'at' ? cadence.datetime : '',
-    webhook: def.trigger.kind === WEBHOOK_TRIGGER_KIND
-      ? webhookFormFromConfig(def.trigger.config)
-      : { ...EMPTY_WEBHOOK_FORM },
+    webhook:
+      def.trigger.kind === WEBHOOK_TRIGGER_KIND ? webhookFormFromConfig(def.trigger.config) : { ...EMPTY_WEBHOOK_FORM },
     config,
   }
 }
@@ -181,7 +201,12 @@ function initialFormState(editor: EditorState, providers: AutomationsProviders):
 // selected provider's configSchema (providers:list); an action whose required
 // integration is missing is disabled with an explicit unavailable state.
 export function AutomationEditor({
-  editor, providers, workspaceRoot, actionsSlot, onCancel, onSaved,
+  editor,
+  providers,
+  workspaceRoot,
+  actionsSlot,
+  onCancel,
+  onSaved,
 }: {
   editor: EditorState
   providers: AutomationsProviders | null
@@ -201,7 +226,8 @@ export function AutomationEditor({
   onSaved: (saved: AutomationDefinition) => void
 }) {
   const [form, setForm] = useState<EditorFormState>(() =>
-    providers ? initialFormState(editor, providers) : EMPTY_FORM)
+    providers ? initialFormState(editor, providers) : EMPTY_FORM,
+  )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   // This form's own id, so its Save button reaches it through the `form`
@@ -261,9 +287,13 @@ export function AutomationEditor({
   // schema consumes it — and each persisted by the submit below, which is why
   // the flags live here rather than inside the group that renders them.
   const showSkillPicker =
-    !actionUnavailableReason && actionProvider != null && schemaHasStringProp(actionProvider.configSchema, 'spawnSkillId')
+    !actionUnavailableReason &&
+    actionProvider != null &&
+    schemaHasStringProp(actionProvider.configSchema, 'spawnSkillId')
   const showConnectorPicker =
-    !actionUnavailableReason && actionProvider != null && schemaHasStringProp(actionProvider.configSchema, 'connectorId')
+    !actionUnavailableReason &&
+    actionProvider != null &&
+    schemaHasStringProp(actionProvider.configSchema, 'connectorId')
   // Provenance, stamped once by the install and never editable here (MC-2030):
   // the shelf entry this automation came from and who published it. It is how a
   // person tells a starter they added from something they wrote themselves.
@@ -303,9 +333,7 @@ export function AutomationEditor({
   // are authored from their own sub-state.
   const loadedTrigger = editor.mode === 'edit' ? editor.definition.trigger : null
   const triggerReadOnly = loadedTrigger ? !isAuthorableTrigger(loadedTrigger) : false
-  const triggerUnavailableReason = triggerReadOnly
-    ? null
-    : selectedFamilyUnavailableReason(form.triggerKind, providers)
+  const triggerUnavailableReason = triggerReadOnly ? null : selectedFamilyUnavailableReason(form.triggerKind, providers)
 
   const update = useCallback(<K extends keyof EditorFormState>(key: K, value: EditorFormState[K]) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -342,7 +370,15 @@ export function AutomationEditor({
     }
     if (triggerUnavailableReason) return !triggersEquivalent(builtTrigger, loadedTrigger)
     return true
-  }, [editor.mode, triggerReadOnly, triggerUnavailableReason, form.triggerKind, form.webhook, builtTrigger, loadedTrigger])
+  }, [
+    editor.mode,
+    triggerReadOnly,
+    triggerUnavailableReason,
+    form.triggerKind,
+    form.webhook,
+    builtTrigger,
+    loadedTrigger,
+  ])
 
   const validationError = useMemo((): string | null => {
     if (!form.name.trim()) return 'Give the automation a name.'
@@ -360,7 +396,8 @@ export function AutomationEditor({
     }
     if (!triggerReadOnly && form.triggerKind === 'schedule') {
       if (form.cadenceType === 'interval' && form.everyMinutes < 5) return 'Interval must be at least 5 minutes.'
-      if (form.cadenceType === 'weekly' && form.daysOfWeek.length === 0) return 'Pick at least one day for a weekly schedule.'
+      if (form.cadenceType === 'weekly' && form.daysOfWeek.length === 0)
+        return 'Pick at least one day for a weekly schedule.'
       if (form.cadenceType === 'at' && !form.atDatetime.trim()) return 'Pick a date and time for a one-time schedule.'
     }
     if (configKeys.includes('cli')) {
@@ -372,10 +409,23 @@ export function AutomationEditor({
       if (!form.config[key]?.trim()) return `${CONFIG_FIELD_LABEL[key] ?? key} is required.`
     }
     return null
-  }, [form, actionProvider, actionUnavailableReason, requiredKeys, configKeys, cliCatalog, triggerReadOnly, triggerUnavailableReason, shouldSendTrigger])
+  }, [
+    form,
+    actionProvider,
+    actionUnavailableReason,
+    requiredKeys,
+    configKeys,
+    cliCatalog,
+    triggerReadOnly,
+    triggerUnavailableReason,
+    shouldSendTrigger,
+  ])
 
   const handleSubmit = useCallback(async () => {
-    if (validationError || !workspaceRoot) { setError(validationError); return }
+    if (validationError || !workspaceRoot) {
+      setError(validationError)
+      return
+    }
     setSaving(true)
     setError(null)
     const config: Record<string, string> = {}
@@ -430,7 +480,10 @@ export function AutomationEditor({
         if (shouldSendTrigger) patch.trigger = draft.trigger
         result = await window.api.updateAutomation({ workspaceRoot, automationId: editor.definition.id, patch })
       }
-      if (!result.ok) { setError(result.message); return }
+      if (!result.ok) {
+        setError(result.message)
+        return
+      }
       onSaved(result.value)
     } catch (err) {
       // A rejected IPC invoke would otherwise leave the form stuck on "Saving…".
@@ -438,11 +491,25 @@ export function AutomationEditor({
     } finally {
       setSaving(false)
     }
-  }, [validationError, workspaceRoot, configKeys, form, editor, onSaved, builtTrigger, shouldSendTrigger, showAgentPicker, showConnectorPicker, showSkillPicker])
+  }, [
+    validationError,
+    workspaceRoot,
+    configKeys,
+    form,
+    editor,
+    onSaved,
+    builtTrigger,
+    shouldSendTrigger,
+    showAgentPicker,
+    showConnectorPicker,
+    showSkillPicker,
+  ])
 
   const actionItems: SelectItem[] = (providers?.actions ?? []).map((a) => ({
     value: a.kind,
-    label: providerUnavailableReason(a) ? `${actionLabel(a.kind, providers)} — unavailable` : actionLabel(a.kind, providers),
+    label: providerUnavailableReason(a)
+      ? `${actionLabel(a.kind, providers)} — unavailable`
+      : actionLabel(a.kind, providers),
     disabled: Boolean(providerUnavailableReason(a)),
   }))
   if (form.actionKind && !actionItems.some((item) => item.value === form.actionKind)) {
@@ -462,7 +529,9 @@ export function AutomationEditor({
       <PrimaryButton type="submit" form={formId} disabled={saving || validationError !== null}>
         {saving ? 'Saving…' : editor.mode === 'create' ? 'Create automation' : 'Save'}
       </PrimaryButton>
-      <GhostButton type="button" onClick={onCancel}>Cancel</GhostButton>
+      <GhostButton type="button" onClick={onCancel}>
+        Cancel
+      </GhostButton>
     </>
   )
 
@@ -473,14 +542,21 @@ export function AutomationEditor({
       // editor is the door's full canvas and a narrow workspace panel, and only
       // the container knows which.
       className="@container flex flex-col gap-5 px-6 py-5"
-      onSubmit={(e) => { e.preventDefault(); void handleSubmit() }}
+      onSubmit={(e) => {
+        e.preventDefault()
+        void handleSubmit()
+      }}
     >
       {/* Head (§.head): the mark, the name edited in place, and — for something
           that came from the shelf — who published it, so a starter is
           distinguishable from an automation written here. */}
       <div className="flex items-start gap-3">
         <span className="mt-1.5 flex items-center">
-          <AutomationTypeGlyph kind={form.actionKind} glyph={actionProvider?.glyph} label={actionLabel(form.actionKind, providers)} />
+          <AutomationTypeGlyph
+            kind={form.actionKind}
+            glyph={actionProvider?.glyph}
+            label={actionLabel(form.actionKind, providers)}
+          />
         </span>
         <div className="min-w-0 flex-1">
           <Input
@@ -542,32 +618,34 @@ export function AutomationEditor({
               {/* The action's own fields (§.field prompt). The prompt is where
                   reviewer-vs-fixer intent lives now that the autonomy control is
                   retired, so it gets the room to say so. */}
-              {configKeys.filter((key) => key !== 'cli').map((key) => {
-                const required = requiredKeys.has(key)
-                const label = CONFIG_FIELD_LABEL[key] ?? key
-                const id = `automation-config-${key}`
-                return (
-                  <Field key={key} label={label} htmlFor={id} required={required}>
-                    {key === 'prompt' ? (
-                      <Textarea
-                        id={id}
-                        rows={9}
-                        value={form.config[key] ?? ''}
-                        onChange={(e) => update('config', { ...form.config, [key]: e.target.value })}
-                        placeholder="Review the changes on this repo and summarise risks."
-                        resize="none"
-                        className={PROMPT_TEXTAREA}
-                      />
-                    ) : (
-                      <Input
-                        id={id}
-                        value={form.config[key] ?? ''}
-                        onChange={(e) => update('config', { ...form.config, [key]: e.target.value })}
-                      />
-                    )}
-                  </Field>
-                )
-              })}
+              {configKeys
+                .filter((key) => key !== 'cli')
+                .map((key) => {
+                  const required = requiredKeys.has(key)
+                  const label = CONFIG_FIELD_LABEL[key] ?? key
+                  const id = `automation-config-${key}`
+                  return (
+                    <Field key={key} label={label} htmlFor={id} required={required}>
+                      {key === 'prompt' ? (
+                        <Textarea
+                          id={id}
+                          rows={9}
+                          value={form.config[key] ?? ''}
+                          onChange={(e) => update('config', { ...form.config, [key]: e.target.value })}
+                          placeholder="Review the changes on this repo and summarise risks."
+                          resize="none"
+                          className={PROMPT_TEXTAREA}
+                        />
+                      ) : (
+                        <Input
+                          id={id}
+                          value={form.config[key] ?? ''}
+                          onChange={(e) => update('config', { ...form.config, [key]: e.target.value })}
+                        />
+                      )}
+                    </Field>
+                  )
+                })}
             </>
           )}
         </div>
@@ -592,7 +670,10 @@ export function AutomationEditor({
           />
 
           <div className="flex flex-col gap-2.5">
-            <label htmlFor="automation-worktree" className="flex items-center gap-2.5 text-meta text-[color:var(--text-default)]">
+            <label
+              htmlFor="automation-worktree"
+              className="flex items-center gap-2.5 text-meta text-[color:var(--text-default)]"
+            >
               <Switch
                 id="automation-worktree"
                 checked={form.runInWorktree}
@@ -601,7 +682,10 @@ export function AutomationEditor({
               />
               Run in worktree
             </label>
-            <label htmlFor="automation-run-once" className="flex items-center gap-2.5 text-meta text-[color:var(--text-default)]">
+            <label
+              htmlFor="automation-run-once"
+              className="flex items-center gap-2.5 text-meta text-[color:var(--text-default)]"
+            >
               <Switch
                 id="automation-run-once"
                 checked={form.disableAfterRun}
@@ -615,7 +699,10 @@ export function AutomationEditor({
               />
               Run once, then pause
             </label>
-            <label htmlFor="automation-enabled" className="flex items-center gap-2.5 text-meta text-[color:var(--text-default)]">
+            <label
+              htmlFor="automation-enabled"
+              className="flex items-center gap-2.5 text-meta text-[color:var(--text-default)]"
+            >
               <Switch
                 id="automation-enabled"
                 checked={form.enabled}
@@ -629,15 +716,15 @@ export function AutomationEditor({
       </div>
 
       {error ? <InlineNotice tone="error">{error}</InlineNotice> : null}
-      {validationError ? (
-        <p className="text-micro text-[color:var(--text-subtle)]">{validationError}</p>
-      ) : null}
+      {validationError ? <p className="text-micro text-[color:var(--text-subtle)]">{validationError}</p> : null}
 
       {/* One pair of buttons: in the host's bar when it offers a slot, at the
           foot of the form when it does not. */}
-      {actionsSlot
-        ? actionsSlot.el && createPortal(actions, actionsSlot.el)
-        : <div className="flex items-center gap-2">{actions}</div>}
+      {actionsSlot ? (
+        actionsSlot.el && createPortal(actions, actionsSlot.el)
+      ) : (
+        <div className="flex items-center gap-2">{actions}</div>
+      )}
     </form>
   )
 }

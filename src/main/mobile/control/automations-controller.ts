@@ -1,8 +1,5 @@
 import type { AutomationsAppFrontDoor } from '../../ipc/automations-ipc'
-import type {
-  MobileAutomationControlResult,
-  MobileAutomationsController,
-} from './command'
+import type { MobileAutomationControlResult, MobileAutomationsController } from './command'
 
 // Binds the phone's `automations.control` command (item 47) to the SAME front door
 // the desktop UI and the automation server write through (ipc/automations-ipc.ts):
@@ -19,7 +16,7 @@ import type {
 // can hold local paths and webhook secrets; the relay rejects any command result
 // containing a local path outright (multiauth result-summary.ts).
 export function createMobileAutomationsController(
-  resolveFrontDoor: () => AutomationsAppFrontDoor | null
+  resolveFrontDoor: () => AutomationsAppFrontDoor | null,
 ): MobileAutomationsController {
   return {
     async setStatus(request) {

@@ -10,7 +10,13 @@ import { join } from 'node:path'
 import { hashSecret } from '../mobile/bridge/crypto'
 import { createTailnetDeviceStore } from './tailnet/tailnet-devices'
 import { toolSuccess, type McpToolRegistration } from '../../shared/modules/mcp-tools'
-import { TAILNET_PAIR_PATH, TAILNET_PAIR_REQUEST_PATH, TAILNET_STREAM_PATH, TAILNET_TERMINAL_PATH, TAILNET_WS_TICKET_PATH } from './tailnet/tailnet-routes'
+import {
+  TAILNET_PAIR_PATH,
+  TAILNET_PAIR_REQUEST_PATH,
+  TAILNET_STREAM_PATH,
+  TAILNET_TERMINAL_PATH,
+  TAILNET_WS_TICKET_PATH,
+} from './tailnet/tailnet-routes'
 import { createTailnetRemoteService } from './tailnet/tailnet-service'
 import { writeTailnetSettings } from './tailnet/tailnet-settings'
 import type { TailnetPushPayload } from '../../shared/tailnet'
@@ -66,7 +72,7 @@ async function freePort(): Promise<number> {
 function call(
   port: number,
   path: string,
-  options: { token?: string; body?: unknown } = {}
+  options: { token?: string; body?: unknown } = {},
 ): Promise<{ status: number; body: Record<string, unknown> }> {
   return new Promise((resolve, reject) => {
     const payload = options.body === undefined ? undefined : JSON.stringify(options.body)
@@ -97,7 +103,7 @@ function call(
           }
           resolve({ status: response.statusCode ?? 0, body: (body ?? {}) as Record<string, unknown> })
         })
-      }
+      },
     )
     request.on('error', reject)
     if (payload) request.write(payload)
@@ -112,7 +118,10 @@ function eventCollector(): {
   waitFor: (predicate: (payload: TailnetPushPayload) => boolean, label: string) => Promise<TailnetPushPayload>
 } {
   const payloads: TailnetPushPayload[] = []
-  const waiters: Array<{ predicate: (payload: TailnetPushPayload) => boolean; resolve: (payload: TailnetPushPayload) => void }> = []
+  const waiters: Array<{
+    predicate: (payload: TailnetPushPayload) => boolean
+    resolve: (payload: TailnetPushPayload) => void
+  }> = []
   return {
     payloads,
     onEvent(payload) {
@@ -142,7 +151,12 @@ function eventCollector(): {
 }
 
 /** Upgrade a raw socket onto a WS route and resolve once the 101 lands. */
-async function openStreamSocket(port: number, ticket: string, path = TAILNET_STREAM_PATH, extraQuery = ''): Promise<Socket> {
+async function openStreamSocket(
+  port: number,
+  ticket: string,
+  path = TAILNET_STREAM_PATH,
+  extraQuery = '',
+): Promise<Socket> {
   const key = randomBytes(16).toString('base64')
   const socket = connect({ host: '127.0.0.1', port })
   await new Promise<void>((resolve, reject) => {
@@ -159,7 +173,7 @@ async function openStreamSocket(port: number, ticket: string, path = TAILNET_STR
       'Sec-WebSocket-Version: 13',
       '',
       '',
-    ].join('\r\n')
+    ].join('\r\n'),
   )
   const head = await new Promise<string>((resolve, reject) => {
     let buffer = Buffer.alloc(0)
@@ -256,39 +270,36 @@ check('a terminal attach narrates drive begin and end, named by device and sessi
       port,
       ticketed.body.ticket as string,
       TAILNET_TERMINAL_PATH,
-      `&sessionId=${encodeURIComponent('agent-standup')}`
+      `&sessionId=${encodeURIComponent('agent-standup')}`,
     )
     const begin = await events.waitFor(
       (p) => p.event.kind === 'terminal-drive' && p.event.phase === 'begin',
-      'drive begin'
+      'drive begin',
     )
     assert.equal(begin.event.kind === 'terminal-drive' && begin.event.deviceName, 'air')
     assert.equal(
       begin.event.kind === 'terminal-drive' && begin.event.terminalSessionId,
       'agent-standup',
-      'the driven session is named'
+      'the driven session is named',
     )
     // The device connects BEFORE it drives — the narrated order.
     const kinds = events.payloads.map((p) => p.event.kind)
     assert.ok(
       kinds.indexOf('device-connection') < kinds.indexOf('terminal-drive'),
-      'connection precedes drive in the story'
+      'connection precedes drive in the story',
     )
     assert.deepEqual(
       begin.live.devices[0]?.attachedTerminalSessions,
       ['agent-standup'],
-      'the live snapshot carries the attachment'
+      'the live snapshot carries the attachment',
     )
 
     socket.destroy()
-    const end = await events.waitFor(
-      (p) => p.event.kind === 'terminal-drive' && p.event.phase === 'end',
-      'drive end'
-    )
+    const end = await events.waitFor((p) => p.event.kind === 'terminal-drive' && p.event.phase === 'end', 'drive end')
     assert.equal(end.event.kind === 'terminal-drive' && end.event.terminalSessionId, 'agent-standup')
     await events.waitFor(
       (p) => p.event.kind === 'device-connection' && !p.event.connected,
-      'disconnect follows drive end'
+      'disconnect follows drive end',
     )
   } finally {
     await service.shutdown()
@@ -332,12 +343,15 @@ check('the push channel narrates listener, pairing, connection, and pair-request
     const socket = await openStreamSocket(port, ticketed.body.ticket as string)
     const connected = await events.waitFor(
       (p) => p.event.kind === 'device-connection' && p.event.connected,
-      'device connected'
+      'device connected',
     )
     assert.equal(connected.event.kind === 'device-connection' && connected.event.deviceName, 'laptop')
     assert.equal(connected.live.devices.length, 1)
     assert.equal(connected.live.devices[0].connected, true)
-    assert.deepEqual(service.getLiveState().devices.map((d) => d.deviceName), ['laptop'])
+    assert.deepEqual(
+      service.getLiveState().devices.map((d) => d.deviceName),
+      ['laptop'],
+    )
     // Liveness metadata: when the socket opened, the last activity, and the
     // peer as the TRANSPORT saw it — never a self-declared platform, because
     // nothing on this transport sends one.
@@ -354,14 +368,14 @@ check('the push channel narrates listener, pairing, connection, and pair-request
     assert.equal(identity.status, 200)
     assert.ok(
       (service.getLiveState().devices[0]?.lastActivityAt ?? 0) >= before,
-      'HTTP activity refreshes lastActivityAt on a connected device'
+      'HTTP activity refreshes lastActivityAt on a connected device',
     )
 
     // Dropping the socket announces the disconnect and empties the snapshot.
     socket.destroy()
     const dropped = await events.waitFor(
       (p) => p.event.kind === 'device-connection' && !p.event.connected,
-      'device disconnected'
+      'device disconnected',
     )
     assert.equal(dropped.live.devices.length, 0)
     assert.equal(service.getLiveState().devices.length, 0)
@@ -374,7 +388,7 @@ check('the push channel narrates listener, pairing, connection, and pair-request
     assert.equal(asked.status, 200)
     const received = await events.waitFor(
       (p) => p.event.kind === 'pair-request' && p.event.phase === 'received',
-      'pair request received'
+      'pair request received',
     )
     assert.equal(received.event.kind === 'pair-request' && received.event.deviceName, 'stranger')
     assert.equal(received.status.pairRequests.length, 1)
@@ -382,13 +396,15 @@ check('the push channel narrates listener, pairing, connection, and pair-request
     service.denyPairRequest(asked.body.requestId as string)
     const denied = await events.waitFor(
       (p) => p.event.kind === 'pair-request' && p.event.phase === 'denied',
-      'pair request denied'
+      'pair request denied',
     )
     assert.equal(denied.status.pairRequests.length, 0)
     assert.equal(
-      events.payloads.some((p) => p.event.kind === 'pair-request' && p.event.phase !== 'received' && p.event.phase !== 'denied'),
+      events.payloads.some(
+        (p) => p.event.kind === 'pair-request' && p.event.phase !== 'received' && p.event.phase !== 'denied',
+      ),
       false,
-      'denial is announced as denied and nothing else'
+      'denial is announced as denied and nothing else',
     )
 
     // Turning the listener off is announced exactly once — the transition,
@@ -396,20 +412,19 @@ check('the push channel narrates listener, pairing, connection, and pair-request
     // no error.
     const listenerEventsBefore = events.payloads.filter((p) => p.event.kind === 'listener').length
     await service.setEnabled(false)
-    const down = await events.waitFor(
-      (p) => p.event.kind === 'listener' && !p.event.running,
-      'listener stopped'
-    )
+    const down = await events.waitFor((p) => p.event.kind === 'listener' && !p.event.running, 'listener stopped')
     assert.equal(down.status.running, false)
     assert.deepEqual(down.event, { kind: 'listener', running: false, error: null }, 'a requested stop carries no error')
     assert.equal(
       events.payloads.filter((p) => p.event.kind === 'listener').length - listenerEventsBefore,
       1,
-      'one stop announcement, not the transition plus an unconditional echo'
+      'one stop announcement, not the transition plus an unconditional echo',
     )
 
     // Revisions only ever go up, by exactly one per push.
-    events.payloads.forEach((p, index) => assert.equal(p.revision, index + 1, `payload ${index} is revision ${index + 1}`))
+    events.payloads.forEach((p, index) =>
+      assert.equal(p.revision, index + 1, `payload ${index} is revision ${index + 1}`),
+    )
   } finally {
     await service.shutdown()
     rmSync(userDataDir, { recursive: true, force: true })
@@ -446,12 +461,15 @@ check('approving a request announces the resolution and the device change', asyn
     assert.equal(answer.ok, true)
     const resolved = await events.waitFor(
       (p) => p.event.kind === 'pair-request' && p.event.phase === 'approved',
-      'approved'
+      'approved',
     )
     assert.equal(resolved.status.pairRequests.length, 0)
     await events.waitFor((p) => p.event.kind === 'devices-changed', 'devices changed')
     // The approved device is in the status every later payload carries.
-    assert.equal(service.getStatus().devices.some((device) => device.name === 'macbook-air'), true)
+    assert.equal(
+      service.getStatus().devices.some((device) => device.name === 'macbook-air'),
+      true,
+    )
   } finally {
     await service.shutdown()
     rmSync(userDataDir, { recursive: true, force: true })
@@ -485,12 +503,15 @@ check('stopping the listener cancels a request still waiting, and says so', asyn
     await service.setEnabled(false)
     const cancelled = await events.waitFor(
       (p) => p.event.kind === 'pair-request' && p.event.phase === 'cancelled',
-      'pending request cancelled by the stop'
+      'pending request cancelled by the stop',
     )
     assert.equal(cancelled.event.kind === 'pair-request' && cancelled.event.requestId, waiting.body.requestId)
     assert.equal(service.getStatus().pairRequests.length, 0, 'nothing is left answerable')
     const kinds = events.payloads.map((p) => (p.event.kind === 'pair-request' ? p.event.phase : p.event.kind))
-    assert.ok(kinds.indexOf('cancelled') < kinds.lastIndexOf('listener'), 'the cancellation precedes the stop announcement')
+    assert.ok(
+      kinds.indexOf('cancelled') < kinds.lastIndexOf('listener'),
+      'the cancellation precedes the stop announcement',
+    )
   } finally {
     await service.shutdown()
     rmSync(userDataDir, { recursive: true, force: true })
@@ -523,14 +544,14 @@ check('a request nobody answers lapses on its own timer and is announced as expi
     await events.waitFor((p) => p.event.kind === 'pair-request' && p.event.phase === 'received', 'received')
     const expired = await events.waitFor(
       (p) => p.event.kind === 'pair-request' && p.event.phase === 'expired',
-      'expired on the timer'
+      'expired on the timer',
     )
     assert.equal(expired.event.kind === 'pair-request' && expired.event.requestId, asked.body.requestId)
     assert.equal(expired.status.pairRequests.length, 0, 'the lapsed request is gone from status')
     assert.equal(
       events.payloads.filter((p) => p.event.kind === 'pair-request').length,
       2,
-      'received and expired — one terminal phase, nothing else'
+      'received and expired — one terminal phase, nothing else',
     )
   } finally {
     await service.shutdown()

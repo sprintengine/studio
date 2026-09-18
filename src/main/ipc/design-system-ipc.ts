@@ -83,10 +83,8 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
       return runDesignSystemBundleLint(bundleDir, forkBundleScriptInUtilityProcess)
     },
   )
-  ipcMain.handle(
-    'design-system:read-bundle',
-    (_event, bundleDir: unknown): Promise<DesignSystemBundleReadResult> =>
-      readDesignSystemBundle(typeof bundleDir === 'string' ? bundleDir : ''),
+  ipcMain.handle('design-system:read-bundle', (_event, bundleDir: unknown): Promise<DesignSystemBundleReadResult> =>
+    readDesignSystemBundle(typeof bundleDir === 'string' ? bundleDir : ''),
   )
   // The library: a REGISTRY OF PATHS the user pointed at (item 2004), read live.
   // Nothing here copies a bundle, and nothing writes inside a registered folder.
@@ -141,13 +139,10 @@ export function registerDesignSystemIpc(ipcMain: IpcMain): void {
   )
   // Detach: remove the workspace's design-system/ copy (the Settings surface's
   // Detach/Replace path). The renderer owns the destructive confirmation.
-  ipcMain.handle(
-    'design-system:detach',
-    (_event, workspaceRoot: unknown): Promise<DesignSystemDetachResult> => {
-      if (typeof workspaceRoot !== 'string' || workspaceRoot.trim().length === 0) {
-        return Promise.resolve({ ok: false, message: 'No workspace root provided.' })
-      }
-      return detachDesignSystemBundle(workspaceRoot)
-    },
-  )
+  ipcMain.handle('design-system:detach', (_event, workspaceRoot: unknown): Promise<DesignSystemDetachResult> => {
+    if (typeof workspaceRoot !== 'string' || workspaceRoot.trim().length === 0) {
+      return Promise.resolve({ ok: false, message: 'No workspace root provided.' })
+    }
+    return detachDesignSystemBundle(workspaceRoot)
+  })
 }

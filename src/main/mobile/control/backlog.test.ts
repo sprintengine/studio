@@ -29,7 +29,6 @@ function bySource(items: MobileControlBacklogItemSnapshot[], relativePath: strin
   return found
 }
 
-
 const tests: Array<{ name: string; body: () => Promise<void> }> = []
 function run(name: string, body: () => Promise<void>): void {
   tests.push({ name, body })
@@ -115,7 +114,10 @@ run('a frontmatter-archived item is excluded from the active snapshot', async ()
   try {
     const snapshot = await readMobileBacklogWorkspaceSnapshot(root, generatedAt)
     assert.ok(snapshot)
-    assert.deepEqual(snapshot.items.map((item) => item.relativePath), ['backlog/live.md'])
+    assert.deepEqual(
+      snapshot.items.map((item) => item.relativePath),
+      ['backlog/live.md'],
+    )
   } finally {
     await rm(root, { force: true, recursive: true })
   }
@@ -153,8 +155,7 @@ run('items nested in epic folders reach the phone', async () => {
     'backlog/epics/auth-revamp.md': '---\ntype: epic\nstatus: in_progress\nid: 1\n---\n\n# Auth revamp\n',
     'backlog/auth-revamp/2026-09-01-token-rotation.md':
       '---\ntype: bug\nstatus: ready\nepic: auth-revamp\nid: 2\n---\n\n# Token rotation\n',
-    'backlog/unfiled/2026-09-03-loose-thought.md':
-      '---\ntype: spike\nstatus: idea\nid: 3\n---\n\n# Loose thought\n',
+    'backlog/unfiled/2026-09-03-loose-thought.md': '---\ntype: spike\nstatus: idea\nid: 3\n---\n\n# Loose thought\n',
   })
   try {
     const snapshot = await readMobileBacklogWorkspaceSnapshot(root, generatedAt)

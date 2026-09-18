@@ -67,11 +67,12 @@ function renderThumbnail(image: PeekImagePayload): string | null {
     // Constrain the longest edge only, so a tall screenshot stays tall — the
     // card crops it in CSS, and squashing it here would misrepresent what was
     // attached.
-    const resized = width <= PEEK_THUMBNAIL_MAX_PX && height <= PEEK_THUMBNAIL_MAX_PX
-      ? decoded
-      : width >= height
-        ? decoded.resize({ width: PEEK_THUMBNAIL_MAX_PX, quality: 'good' })
-        : decoded.resize({ height: PEEK_THUMBNAIL_MAX_PX, quality: 'good' })
+    const resized =
+      width <= PEEK_THUMBNAIL_MAX_PX && height <= PEEK_THUMBNAIL_MAX_PX
+        ? decoded
+        : width >= height
+          ? decoded.resize({ width: PEEK_THUMBNAIL_MAX_PX, quality: 'good' })
+          : decoded.resize({ height: PEEK_THUMBNAIL_MAX_PX, quality: 'good' })
     const png = resized.toPNG()
     if (png.byteLength === 0) return null
     return `data:image/png;base64,${png.toString('base64')}`

@@ -43,12 +43,7 @@ export function PluginsGlyph({ className }: { className?: string }) {
 export function AutomationsGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path
-        d="M13 8a5 5 0 1 1-2.27-4.19"
-        stroke="currentColor"
-        strokeWidth="1.4"
-        strokeLinecap="round"
-      />
+      <path d="M13 8a5 5 0 1 1-2.27-4.19" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       <path
         d="M8.4 4.9 6 8.3h1.8l-.47 2.66L9.73 7.6H7.93l.47-2.7z"
         stroke="currentColor"
@@ -66,15 +61,7 @@ export function AutomationsGlyph({ className }: { className?: string }) {
 export function DesignGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <rect
-        x="2.2"
-        y="2.2"
-        width="7"
-        height="7"
-        rx="1.6"
-        stroke="currentColor"
-        strokeWidth="1.4"
-      />
+      <rect x="2.2" y="2.2" width="7" height="7" rx="1.6" stroke="currentColor" strokeWidth="1.4" />
       <path
         d="M11.2 6.8h2a.8.8 0 0 1 .8.8v5.2a.8.8 0 0 1-.8.8H7.6a.8.8 0 0 1-.8-.8v-2"
         stroke="currentColor"
@@ -85,4 +72,3 @@ export function DesignGlyph({ className }: { className?: string }) {
     </svg>
   )
 }
-

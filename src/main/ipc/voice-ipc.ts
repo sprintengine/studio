@@ -30,6 +30,6 @@ export function registerVoiceIpc(ipcMain: IpcMain): void {
               : 'Transcription failed.'
         return { ok: false, message }
       }
-    }
+    },
   )
 }

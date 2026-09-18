@@ -7,10 +7,7 @@ import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  DEFAULT_SKILL_INSTALL_MAX_FILES,
-  DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES,
-} from './install'
+import { DEFAULT_SKILL_INSTALL_MAX_FILES, DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES } from './install'
 import {
   PLUGIN_PROVENANCE_FILE,
   PLUGIN_WORKSPACE_DIR,
@@ -57,7 +54,7 @@ async function theWholeDirectoryLands(): Promise<void> {
   assert.equal(
     await readFile(join(result.root, 'package.json'), 'utf8'),
     'bytes of package.json\n',
-    'the bytes are the source’s, not a placeholder'
+    'the bytes are the source’s, not a placeholder',
   )
   const provenance = await readPluginDirectoryProvenance(result.root)
   assert.deepEqual(provenance, {
@@ -91,7 +88,7 @@ async function reinstallingReplacesRatherThanMerges(): Promise<void> {
   assert.equal(
     existsSync(join(second.root, 'withdrawn.ts')),
     false,
-    'a file the plugin dropped is gone, not left behind for the server to load'
+    'a file the plugin dropped is gone, not left behind for the server to load',
   )
   assert.equal((await readPluginDirectoryProvenance(second.root))?.commitSha, 'two')
 }
@@ -116,7 +113,7 @@ async function anotherOwnersDirectoryIsRefusedNotOverwritten(): Promise<void> {
   await writeFile(
     join(target, PLUGIN_PROVENANCE_FILE),
     JSON.stringify({ sourceId: 'other', pluginId: 'telegram', commitSha: '' }),
-    'utf8'
+    'utf8',
   )
   const foreign = await installPluginDirectory({
     workspaceRoot: root,
@@ -162,7 +159,7 @@ async function theSkillInstallCapsApply(): Promise<void> {
   assert.equal(
     existsSync(join(root, PLUGIN_WORKSPACE_DIR, 'telegram')),
     false,
-    'the overflow was caught in staging, so no half-plugin reached the workspace'
+    'the overflow was caught in staging, so no half-plugin reached the workspace',
   )
   assert.equal(DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES, 50 * 1024 * 1024, 'the default is the skill installer’s own')
 }
@@ -225,7 +222,7 @@ async function aDirectoryThatMovedOnIsLeftAlone(): Promise<void> {
   await writeFile(
     join(target, PLUGIN_PROVENANCE_FILE),
     JSON.stringify({ sourceId: 's', pluginId: 'discord', commitSha: '' }),
-    'utf8'
+    'utf8',
   )
   const removed = await uninstallPluginDirectory({ workspaceRoot: root, pluginId: 'telegram' })
   assert.equal(removed.ok, true)

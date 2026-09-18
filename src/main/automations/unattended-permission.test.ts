@@ -69,7 +69,10 @@ function harness(root: string, options: { triggerKind?: string } = {}) {
   const createWorkspace: LocalAutomationExecutorOptions['createWorkspace'] = (input) => {
     const created = workspace('ws-host', input.folderPath ?? null, input.mode ?? 'standard')
     workspaces.push(created)
-    return { ok: true, result: { workspace: created as never, windowId: 'primary', folderPath: input.folderPath ?? null, reused: false } }
+    return {
+      ok: true,
+      result: { workspace: created as never, windowId: 'primary', folderPath: input.folderPath ?? null, reused: false },
+    }
   }
 
   // Agent launch is a main-process port since MC-2159, not a renderer request;
@@ -80,7 +83,11 @@ function harness(root: string, options: { triggerKind?: string } = {}) {
     const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
     if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
     const agentId = `agent-${launches.length}`
-    target.agents[agentId] = { id: agentId, name: request.name ?? agentId, cli: request.cli ?? 'codex' } as Workspace['agents'][string]
+    target.agents[agentId] = {
+      id: agentId,
+      name: request.name ?? agentId,
+      cli: request.cli ?? 'codex',
+    } as Workspace['agents'][string]
     return {
       ok: true,
       workspaceId: request.workspaceId,
@@ -123,7 +130,10 @@ function scheduledDefinition(overrides: Partial<AutomationDefinition> = {}): Aut
     id: 'nightly-sweep',
     name: 'Nightly sweep',
     status: 'enabled',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' },
+    },
     action: { kind: 'spawn-agent', config: { prompt: 'Sweep the repo.' } },
     nextRunAt: '2026-07-30T01:00:00.000Z',
     lastRunAt: null,

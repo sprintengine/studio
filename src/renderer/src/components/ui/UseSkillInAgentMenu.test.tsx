@@ -210,7 +210,7 @@ async function main(): Promise<void> {
     await act(async () => {
       await flush()
     })
-    assert.deepEqual(used, [], 'the Installed inventory\'s menu has always opened first')
+    assert.deepEqual(used, [], "the Installed inventory's menu has always opened first")
     assert.equal(view.menuItems().length, 1)
     view.unmount()
   })

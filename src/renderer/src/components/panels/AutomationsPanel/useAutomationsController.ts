@@ -35,8 +35,7 @@ function errorMessage(error: unknown): string {
 //   rather than from one panel-wide folder. There is no single backing
 //   workspace, so run-now omits `workspaceId` and the executor spins up its own.
 export type AutomationsControllerInput =
-  | { scope?: 'folder'; folderPath: string | null; workspaceId?: string | null }
-  | { scope: 'instance' }
+  { scope?: 'folder'; folderPath: string | null; workspaceId?: string | null } | { scope: 'instance' }
 
 export type AutomationsController = {
   definitions: AutomationDefinition[]
@@ -115,10 +114,13 @@ export function useAutomationsController(input: AutomationsControllerInput): Aut
   // depending on (and rebuilding with) the entries array.
   const rootByDefIdRef = useRef<Map<string, string>>(new Map())
 
-  const rootForDefinition = useCallback((automationId: string): string | null => {
-    if (isInstance) return rootByDefIdRef.current.get(automationId) ?? null
-    return folderPath
-  }, [isInstance, folderPath])
+  const rootForDefinition = useCallback(
+    (automationId: string): string | null => {
+      if (isInstance) return rootByDefIdRef.current.get(automationId) ?? null
+      return folderPath
+    },
+    [isInstance, folderPath],
+  )
 
   const load = useCallback(async () => {
     if (isInstance) {
@@ -143,9 +145,7 @@ export function useAutomationsController(input: AutomationsControllerInput): Aut
         setEntries(index.value.entries)
         setProblems(index.value.problems)
         setDefinitions(index.value.entries.map((entry) => entry.definition))
-        rootByDefIdRef.current = new Map(
-          index.value.entries.map((entry) => [entry.definition.id, entry.workspaceRoot]),
-        )
+        rootByDefIdRef.current = new Map(index.value.entries.map((entry) => [entry.definition.id, entry.workspaceRoot]))
         setProviders(provs.value)
         setEngineStatus(engine.ok ? engine.value : null)
         setLoadState('ready')
@@ -215,105 +215,132 @@ export function useAutomationsController(input: AutomationsControllerInput): Aut
 
   // Replace a definition in both the list and (instance scope) its entry, so the
   // rail's state line and the root mapping stay in sync after a mutation.
-  const replaceDefinition = useCallback((updated: AutomationDefinition) => {
-    setDefinitions((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
-    if (isInstance) {
-      setEntries((prev) => prev.map((entry) => (entry.definition.id === updated.id ? { ...entry, definition: updated } : entry)))
-    }
-  }, [isInstance])
+  const replaceDefinition = useCallback(
+    (updated: AutomationDefinition) => {
+      setDefinitions((prev) => prev.map((d) => (d.id === updated.id ? updated : d)))
+      if (isInstance) {
+        setEntries((prev) =>
+          prev.map((entry) => (entry.definition.id === updated.id ? { ...entry, definition: updated } : entry)),
+        )
+      }
+    },
+    [isInstance],
+  )
 
-  const dropDefinition = useCallback((automationId: string) => {
-    setDefinitions((prev) => prev.filter((d) => d.id !== automationId))
-    if (isInstance) {
-      setEntries((prev) => prev.filter((entry) => entry.definition.id !== automationId))
-      rootByDefIdRef.current.delete(automationId)
-    }
-  }, [isInstance])
+  const dropDefinition = useCallback(
+    (automationId: string) => {
+      setDefinitions((prev) => prev.filter((d) => d.id !== automationId))
+      if (isInstance) {
+        setEntries((prev) => prev.filter((entry) => entry.definition.id !== automationId))
+        rootByDefIdRef.current.delete(automationId)
+      }
+    },
+    [isInstance],
+  )
 
   // Shared mutation runner: single-flights on the row, surfaces both handled
   // ({ ok: false }) and thrown IPC failures, and always clears the busy state so
   // a rejected invoke never leaves the row spinning. The caller resolves the
   // store root and bails before calling this when the root is unknown.
-  const mutate = useCallback(async (
-    def: AutomationDefinition,
-    run: () => Promise<{ ok: true } | { ok: false; message: string }>,
-  ) => {
-    setActionError(null)
-    setBusyId(def.id)
-    try {
-      const result = await run()
-      if (!result.ok) setActionError(result.message)
-    } catch (error) {
-      setActionError(errorMessage(error))
-    } finally {
-      setBusyId(null)
-    }
-  }, [])
-
-  const runNow = useCallback(async (def: AutomationDefinition) => {
-    const root = rootForDefinition(def.id)
-    if (!root) return null
-    let finishedRun: AutomationRun | null = null
-    await mutate(def, async () => {
-      // workspaceId scopes the launch target to the host control center when
-      // present (workspace-hosted panel). The global Automations surface has no
-      // backing workspace, so it omits it — the executor then spins up a fresh
-      // standard workspace to host the launched agent.
-      const result = await window.api.runAutomationNow({
-        workspaceRoot: root,
-        ...(workspaceId ? { workspaceId } : {}),
-        automationId: def.id,
-      })
-      if (result.ok) {
-        finishedRun = result.value.run
-        replaceDefinition(result.value.definition)
+  const mutate = useCallback(
+    async (def: AutomationDefinition, run: () => Promise<{ ok: true } | { ok: false; message: string }>) => {
+      setActionError(null)
+      setBusyId(def.id)
+      try {
+        const result = await run()
+        if (!result.ok) setActionError(result.message)
+      } catch (error) {
+        setActionError(errorMessage(error))
+      } finally {
+        setBusyId(null)
       }
-      return result
-    })
-    return finishedRun
-  }, [rootForDefinition, mutate, workspaceId, replaceDefinition])
+    },
+    [],
+  )
 
-  const toggleStatus = useCallback((def: AutomationDefinition) => {
-    const root = rootForDefinition(def.id)
-    if (!root) return Promise.resolve()
-    return mutate(def, async () => {
-      const nextStatus: AutomationStatus = def.status === 'enabled' ? 'paused' : 'enabled'
-      const result = await window.api.updateAutomation({ workspaceRoot: root, automationId: def.id, patch: { status: nextStatus } })
-      if (result.ok) replaceDefinition(result.value)
-      return result
-    })
-  }, [rootForDefinition, mutate, replaceDefinition])
-
-  const remove = useCallback((def: AutomationDefinition) => {
-    const root = rootForDefinition(def.id)
-    if (!root) return Promise.resolve()
-    return mutate(def, async () => {
-      const result = await window.api.deleteAutomation({ workspaceRoot: root, automationId: def.id })
-      if (result.ok) dropDefinition(def.id)
-      return result
-    })
-  }, [rootForDefinition, mutate, dropDefinition])
-
-  const applySaved = useCallback((saved: AutomationDefinition, workspaceRoot?: string) => {
-    setDefinitions((prev) => {
-      const exists = prev.some((d) => d.id === saved.id)
-      return exists ? prev.map((d) => (d.id === saved.id ? saved : d)) : [...prev, saved]
-    })
-    if (isInstance) {
-      if (workspaceRoot) rootByDefIdRef.current.set(saved.id, workspaceRoot)
-      const root = rootByDefIdRef.current.get(saved.id) ?? workspaceRoot ?? ''
-      setEntries((prev) => {
-        const existing = prev.find((entry) => entry.definition.id === saved.id)
-        if (existing) {
-          return prev.map((entry) => (entry.definition.id === saved.id ? { ...entry, definition: saved } : entry))
+  const runNow = useCallback(
+    async (def: AutomationDefinition) => {
+      const root = rootForDefinition(def.id)
+      if (!root) return null
+      let finishedRun: AutomationRun | null = null
+      await mutate(def, async () => {
+        // workspaceId scopes the launch target to the host control center when
+        // present (workspace-hosted panel). The global Automations surface has no
+        // backing workspace, so it omits it — the executor then spins up a fresh
+        // standard workspace to host the launched agent.
+        const result = await window.api.runAutomationNow({
+          workspaceRoot: root,
+          ...(workspaceId ? { workspaceId } : {}),
+          automationId: def.id,
+        })
+        if (result.ok) {
+          finishedRun = result.value.run
+          replaceDefinition(result.value.definition)
         }
-        // A brand-new automation: seed an entry so the rail lists it immediately
-        // with no run history yet. Its live run state fills in on the next index
-        // load (a definitions-changed broadcast follows the create).
-        return [...prev, { workspaceRoot: root, workspaceId: '', definition: saved, lastRun: null, isRunningNow: false }]
+        return result
       })
-    }
-  }, [isInstance])
+      return finishedRun
+    },
+    [rootForDefinition, mutate, workspaceId, replaceDefinition],
+  )
+
+  const toggleStatus = useCallback(
+    (def: AutomationDefinition) => {
+      const root = rootForDefinition(def.id)
+      if (!root) return Promise.resolve()
+      return mutate(def, async () => {
+        const nextStatus: AutomationStatus = def.status === 'enabled' ? 'paused' : 'enabled'
+        const result = await window.api.updateAutomation({
+          workspaceRoot: root,
+          automationId: def.id,
+          patch: { status: nextStatus },
+        })
+        if (result.ok) replaceDefinition(result.value)
+        return result
+      })
+    },
+    [rootForDefinition, mutate, replaceDefinition],
+  )
+
+  const remove = useCallback(
+    (def: AutomationDefinition) => {
+      const root = rootForDefinition(def.id)
+      if (!root) return Promise.resolve()
+      return mutate(def, async () => {
+        const result = await window.api.deleteAutomation({ workspaceRoot: root, automationId: def.id })
+        if (result.ok) dropDefinition(def.id)
+        return result
+      })
+    },
+    [rootForDefinition, mutate, dropDefinition],
+  )
+
+  const applySaved = useCallback(
+    (saved: AutomationDefinition, workspaceRoot?: string) => {
+      setDefinitions((prev) => {
+        const exists = prev.some((d) => d.id === saved.id)
+        return exists ? prev.map((d) => (d.id === saved.id ? saved : d)) : [...prev, saved]
+      })
+      if (isInstance) {
+        if (workspaceRoot) rootByDefIdRef.current.set(saved.id, workspaceRoot)
+        const root = rootByDefIdRef.current.get(saved.id) ?? workspaceRoot ?? ''
+        setEntries((prev) => {
+          const existing = prev.find((entry) => entry.definition.id === saved.id)
+          if (existing) {
+            return prev.map((entry) => (entry.definition.id === saved.id ? { ...entry, definition: saved } : entry))
+          }
+          // A brand-new automation: seed an entry so the rail lists it immediately
+          // with no run history yet. Its live run state fills in on the next index
+          // load (a definitions-changed broadcast follows the create).
+          return [
+            ...prev,
+            { workspaceRoot: root, workspaceId: '', definition: saved, lastRun: null, isRunningNow: false },
+          ]
+        })
+      }
+    },
+    [isInstance],
+  )
 
   const clearActionError = useCallback(() => setActionError(null), [])
 
@@ -328,9 +355,8 @@ export function useAutomationsController(input: AutomationsControllerInput): Aut
     setFeedState('loading')
     setFeedError(null)
     try {
-      const { runs, partialCount } = await aggregateFeedRuns(
-        definitions,
-        (def) => window.api.listAutomationRuns({ workspaceRoot: folderPath, automationId: def.id }),
+      const { runs, partialCount } = await aggregateFeedRuns(definitions, (def) =>
+        window.api.listAutomationRuns({ workspaceRoot: folderPath, automationId: def.id }),
       )
       setFeedRuns(runs)
       setFeedPartialCount(partialCount)
@@ -341,22 +367,33 @@ export function useAutomationsController(input: AutomationsControllerInput): Aut
     }
   }, [folderPath, definitions])
 
-  const finalizeFeedRun = useCallback(async (automationId: string, runId: string, outcome: 'completed' | 'failed') => {
-    if (!folderPath) return
-    setActionError(null)
-    try {
-      const result = await window.api.finalizeAutomationRun({ workspaceRoot: folderPath, automationId, runId, outcome })
-      if (!result.ok) { setActionError(result.message); return }
-    } catch (error) {
-      setActionError(errorMessage(error))
-      return
-    }
-    // Reload only the feed — calling the full load() would flip loadState to
-    // 'loading' and flash the whole panel away. The definitions list's lastRun*
-    // staying briefly stale matches the detail-pane finalize (it only reloads its
-    // own runs too), and refreshes on the next list load.
-    await loadRunsFeed()
-  }, [folderPath, loadRunsFeed])
+  const finalizeFeedRun = useCallback(
+    async (automationId: string, runId: string, outcome: 'completed' | 'failed') => {
+      if (!folderPath) return
+      setActionError(null)
+      try {
+        const result = await window.api.finalizeAutomationRun({
+          workspaceRoot: folderPath,
+          automationId,
+          runId,
+          outcome,
+        })
+        if (!result.ok) {
+          setActionError(result.message)
+          return
+        }
+      } catch (error) {
+        setActionError(errorMessage(error))
+        return
+      }
+      // Reload only the feed — calling the full load() would flip loadState to
+      // 'loading' and flash the whole panel away. The definitions list's lastRun*
+      // staying briefly stale matches the detail-pane finalize (it only reloads its
+      // own runs too), and refreshes on the next list load.
+      await loadRunsFeed()
+    },
+    [folderPath, loadRunsFeed],
+  )
 
   return {
     definitions,

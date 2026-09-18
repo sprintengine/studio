@@ -101,7 +101,7 @@ export type TailnetCapability = (typeof TAILNET_CAPABILITIES)[number]
  */
 export function tailnetPeerSupports(
   capabilities: readonly string[] | null | undefined,
-  capability: TailnetCapability
+  capability: TailnetCapability,
 ): boolean {
   return capabilities?.includes(capability) ?? false
 }
@@ -133,9 +133,9 @@ function supportedTransportVersions(): string {
  */
 export function checkTailnetTransportVersion(seen: unknown): TailnetTransportRefusal | null {
   if (
-    Number.isInteger(seen)
-    && (seen as number) >= TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION
-    && (seen as number) <= TAILNET_TRANSPORT_VERSION
+    Number.isInteger(seen) &&
+    (seen as number) >= TAILNET_MIN_SUPPORTED_TRANSPORT_VERSION &&
+    (seen as number) <= TAILNET_TRANSPORT_VERSION
   ) {
     return null
   }

@@ -2,10 +2,7 @@ import React from 'react'
 
 import { IconButton, StatusDot, Tooltip } from '../../components/ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import {
-  getEffectiveKeybindingLabel,
-  platformKeybindingsFromApiPlatform,
-} from '../../commands/effectiveKeybindings'
+import { getEffectiveKeybindingLabel, platformKeybindingsFromApiPlatform } from '../../commands/effectiveKeybindings'
 import { voiceDictationController } from './voiceDictationController'
 
 // The mic button, moved out of WorkspaceActions' hardcoded markup and into the

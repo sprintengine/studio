@@ -1,10 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import {
-  CaptureUpdateAction,
-  Excalidraw,
-  MainMenu,
-  reconcileElements,
-} from '@excalidraw/excalidraw'
+import { CaptureUpdateAction, Excalidraw, MainMenu, reconcileElements } from '@excalidraw/excalidraw'
 import type {
   BinaryFileData,
   BinaryFiles,
@@ -201,9 +196,7 @@ export default function CanvasEditor({
   const appliedRevisionRef = useRef(initial.revision)
   // The hash of the last scene sent to main or applied from it. Both directions
   // write it, which is what makes it an echo guard rather than a send log.
-  const syncedHashRef = useRef<string | null>(
-    sceneVersionHash(initial.elements),
-  )
+  const syncedHashRef = useRef<string | null>(sceneVersionHash(initial.elements))
   const pendingPushRef = useRef<CanvasScenePush | null>(null)
   // When the buffered push started waiting: what lets a push out from behind a
   // text caret, which never ends on its own. See `canApplyBufferedPush`.
@@ -399,8 +392,8 @@ export default function CanvasEditor({
       const editor = apiRef.current
       const now = Date.now()
       const applicable =
-        editor !== null
-        && canApplyBufferedPush({ busy: editor.getAppState(), bufferedAt: bufferedAtRef.current ?? now, now })
+        editor !== null &&
+        canApplyBufferedPush({ busy: editor.getAppState(), bufferedAt: bufferedAtRef.current ?? now, now })
       if (!applicable) {
         bufferPush(push)
         return
@@ -424,9 +417,7 @@ export default function CanvasEditor({
     if (presence?.controller === 'agent') {
       collaborators.set(AGENT_COLLABORATOR_ID, {
         username: presence.agentName ?? 'Agent',
-        selectedElementIds: Object.fromEntries(
-          (presence.selectedElementIds ?? []).map((id) => [id, true] as const),
-        ),
+        selectedElementIds: Object.fromEntries((presence.selectedElementIds ?? []).map((id) => [id, true] as const)),
         ...(presence.pointer
           ? { pointer: { x: presence.pointer.x, y: presence.pointer.y, tool: 'pointer' as const } }
           : {}),

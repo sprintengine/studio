@@ -15,10 +15,7 @@ import type { SkillScanLoad, SkillSourcesLoad } from './skillsSurfaceModel'
 const MISSING_API_MESSAGE = 'Skills need an app restart before they are available.'
 
 type InstalledSkillsRead =
-  | { status: 'loading' }
-  | { status: 'unavailable' }
-  | { status: 'error'; message: string }
-  | { status: 'ready' }
+  { status: 'loading' } | { status: 'unavailable' } | { status: 'error'; message: string } | { status: 'ready' }
 
 export type SkillSourcesState = {
   sources: SkillSource[]
@@ -94,9 +91,7 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
         if (!mounted.current) return
         setScans((current) => ({
           ...current,
-          [sourceId]: result.ok
-            ? { status: 'ready', scan: result.scan }
-            : { status: 'error', message: result.message },
+          [sourceId]: result.ok ? { status: 'ready', scan: result.scan } : { status: 'error', message: result.message },
         }))
       })
       .catch((error: unknown) => {
@@ -284,9 +279,7 @@ export function useSkillSources(workspaceRoot: string | null): SkillSourcesState
   // canvas to its loading state to arrive at bytes already in hand.
   const applySync = useCallback((synced: SkillSource, scan: ScanResult) => {
     requestedScans.current.add(synced.id)
-    setSources((current) =>
-      current.map((source) => (source.id === synced.id ? synced : source)),
-    )
+    setSources((current) => current.map((source) => (source.id === synced.id ? synced : source)))
     setScans((current) => ({ ...current, [synced.id]: { status: 'ready', scan } }))
   }, [])
 

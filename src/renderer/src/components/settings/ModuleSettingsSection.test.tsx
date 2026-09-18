@@ -20,9 +20,7 @@ const section: RegisteredSettingsSection = {
 }
 
 // --- Fallback surface --------------------------------------------------------
-const fallbackMarkup = renderToStaticMarkup(
-  <ModuleSectionErrorFallback section={section} onRetry={() => {}} />,
-)
+const fallbackMarkup = renderToStaticMarkup(<ModuleSectionErrorFallback section={section} onRetry={() => {}} />)
 assert.match(fallbackMarkup, /role="alert"/, 'failure is announced to assistive tech')
 assert.match(fallbackMarkup, /Demo Module failed to render/, 'failure names the section')
 assert.match(fallbackMarkup, /The rest of Settings is unaffected/, 'copy scopes the failure')

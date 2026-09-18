@@ -73,9 +73,9 @@ const SHIPPED_PLUGIN_IDS: string[] = (
 /** Every skill in that marketplace, across every plugin it lists. */
 const SHIPPED_SKILL_COUNT = SHIPPED_PLUGIN_IDS.reduce(
   (total, pluginId) =>
-    total
-    + readdirSync(join(STUDIO_MARKETPLACE_ROOT, pluginId, 'skills'), { withFileTypes: true }).filter((entry) =>
-      entry.isDirectory()
+    total +
+    readdirSync(join(STUDIO_MARKETPLACE_ROOT, pluginId, 'skills'), { withFileTypes: true }).filter((entry) =>
+      entry.isDirectory(),
     ).length,
   0,
 )
@@ -171,11 +171,7 @@ const REPOS = new Map<string, Revision[]>([
  * Derived rather than recorded because a repository has one head at a time:
  * "the source moved" is not something a second recording can supply.
  */
-function withEditedEntryDocuments(
-  revision: Revision,
-  skillIds: readonly string[],
-  marker: string,
-): Revision {
+function withEditedEntryDocuments(revision: Revision, skillIds: readonly string[], marker: string): Revision {
   const files = new Map(revision.files)
   const edited = new Map<string, string>()
   for (const skillId of skillIds) {
@@ -365,15 +361,11 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   const React = await import('react')
   const { act } = React
   const { createRoot } = await import('react-dom/client')
-  const { SkillsCatalogue } = await import(
-    '../renderer/src/components/workspace/globalSurface/extensions/skills/SkillsCatalogue'
-  )
-  const { useSkillSources } = await import(
-    '../renderer/src/components/workspace/globalSurface/extensions/skills/useSkillSources'
-  )
-  const { renderSkillInvocation, skillInstalledForHarness } = await import(
-    '../renderer/src/utils/skillInvocation'
-  )
+  const { SkillsCatalogue } =
+    await import('../renderer/src/components/workspace/globalSurface/extensions/skills/SkillsCatalogue')
+  const { useSkillSources } =
+    await import('../renderer/src/components/workspace/globalSurface/extensions/skills/useSkillSources')
+  const { renderSkillInvocation, skillInstalledForHarness } = await import('../renderer/src/utils/skillInvocation')
 
   const api = domWindow.api as {
     skillsAddSource: (input: { repo: string }) => Promise<{ ok: boolean; message?: string }>
@@ -439,8 +431,7 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
     }
     assert.fail(`${what} never finished: ${visibleText(markup())}`)
   }
-  const buttons = (): HTMLButtonElement[] =>
-    [...container.querySelectorAll('button')] as unknown as HTMLButtonElement[]
+  const buttons = (): HTMLButtonElement[] => [...container.querySelectorAll('button')] as unknown as HTMLButtonElement[]
   const buttonWith = (text: string): HTMLButtonElement => {
     const found = buttons().find((button) => (button.textContent ?? '').includes(text))
     assert.ok(found, `no button reading "${text}" is on screen`)
@@ -616,11 +607,7 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   // The entry document's own bytes, rendered: its two relative links point at
   // files this skill actually ships, so both are live targets in the reader.
   const documentMarkup = markup()
-  assert.equal(
-    documentMarkup.includes('is not one of this skill'),
-    false,
-    'no link in the real SKILL.md is dead',
-  )
+  assert.equal(documentMarkup.includes('is not one of this skill'), false, 'no link in the real SKILL.md is dead')
   for (const target of ['LOGIC.md', 'UI.md']) {
     const anchor = documentMarkup.indexOf(`>${target}</button>`)
     assert.ok(anchor > 0, `${target} renders as a control that opens it in the reader`)
@@ -629,15 +616,12 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   // opens that file in place, without leaving the skill.
   const linkInDocument = buttons().find(
     (button) =>
-      (button.textContent ?? '').trim() === 'LOGIC.md'
-      && button.closest('nav[aria-label="Files in this skill"]') === null,
+      (button.textContent ?? '').trim() === 'LOGIC.md' &&
+      button.closest('nav[aria-label="Files in this skill"]') === null,
   )
   assert.ok(linkInDocument, 'the entry document carries LOGIC.md as a link, not as prose')
   await click(linkInDocument)
-  await settleUntil(
-    'the companion document read',
-    () => markup().includes('A tiny interactive terminal app'),
-  )
+  await settleUntil('the companion document read', () => markup().includes('A tiny interactive terminal app'))
 
   // ── Install: the whole directory, into every harness dir ──────────────────
 
@@ -653,8 +637,7 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   await click(buttonLabelledIn('mattpocock/skills', 'Install research'))
   await settleUntil('the research install', () => markup().includes('Installed 1 skill.'))
 
-  const installed = (harness: string, ...rest: string[]): string =>
-    join(workspaceRoot, harness, 'skills', ...rest)
+  const installed = (harness: string, ...rest: string[]): string => join(workspaceRoot, harness, 'skills', ...rest)
   for (const harness of ['.claude', '.agents']) {
     for (const path of ['SKILL.md', 'LOGIC.md', 'UI.md', join('agents', 'openai.yaml')]) {
       assert.ok(
@@ -679,7 +662,10 @@ async function testScanBrowseReadInstallSync(workspaceRoot: string): Promise<voi
   }
   // A skill nobody installed keeps its one control, which is the offer.
   await filterTo('qa')
-  assert.ok(sectionOf('mattpocock/skills').querySelector('[aria-label="Install qa"]'), 'an uninstalled row still offers Install')
+  assert.ok(
+    sectionOf('mattpocock/skills').querySelector('[aria-label="Install qa"]'),
+    'an uninstalled row still offers Install',
+  )
   await filterTo('')
 
   // The installed copy is the one the agent-facing inventory reads, so a skill
@@ -814,11 +800,9 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
   }
 
   const workspaceRoot = temporaryDir('multicode-seam-skills-collision-')
-  const installedPath = (harness: string, ...rest: string[]): string =>
-    join(workspaceRoot, harness, 'skills', ...rest)
+  const installedPath = (harness: string, ...rest: string[]): string => join(workspaceRoot, harness, 'skills', ...rest)
   const HARNESS_DIRS = ['.claude', '.agents'] as const
-  const bytesAt = (harness: string, ...rest: string[]): string =>
-    readFileSync(installedPath(harness, ...rest), 'utf8')
+  const bytesAt = (harness: string, ...rest: string[]): string => readFileSync(installedPath(harness, ...rest), 'utf8')
 
   const scanOf = async (sourceId: string): Promise<ScanResult> => {
     const result = await api.skillsGetScan({ sourceId })
@@ -848,7 +832,14 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
   const studioScan = await scanOf(STUDIO_SKILL_SOURCE_ID)
   await install(STUDIO_SKILL_SOURCE_ID, idOfSkillNamed(studioScan, 'prototype'))
 
-  const shippedRoot = join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR, 'studio-skills', 'skills', 'prototype')
+  const shippedRoot = join(
+    process.cwd(),
+    'resources',
+    STUDIO_MARKETPLACE_RESOURCE_DIR,
+    'studio-skills',
+    'skills',
+    'prototype',
+  )
   /**
    * Every file of the installed copy, against the directory the studio ships —
    * the marker aside, which install writes and the source never had. Compares
@@ -892,11 +883,7 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
   // in the bytes rather than being silently identical to what is already there.
   publishRevision(
     'mattpocock/skills',
-    withEditedEntryDocuments(
-      withResearchRestored(recorded, head),
-      [PROTOTYPE_ID],
-      'a source that does not own it',
-    ),
+    withEditedEntryDocuments(withResearchRestored(recorded, head), [PROTOTYPE_ID], 'a source that does not own it'),
   )
 
   // A directory nothing claims: the shape every copy installed before markers
@@ -909,11 +896,7 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
   }
 
   const crossSourceSync = await sync()
-  assert.equal(
-    crossSourceSync.refreshed,
-    0,
-    'a source refreshes nothing when no installed directory is one it wrote',
-  )
+  assert.equal(crossSourceSync.refreshed, 0, 'a source refreshes nothing when no installed directory is one it wrote')
   for (const harness of HARNESS_DIRS) {
     assert.equal(
       bytesAt(harness, 'research', 'SKILL.md'),
@@ -950,10 +933,7 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
   // Both move this time: the one this source owns, and the one it does not.
   const moved = headOf('mattpocock/skills')
   assert.ok(moved)
-  publishRevision(
-    'mattpocock/skills',
-    withEditedEntryDocuments(moved, [RESEARCH_ID, PROTOTYPE_ID], 'moved again'),
-  )
+  publishRevision('mattpocock/skills', withEditedEntryDocuments(moved, [RESEARCH_ID, PROTOTYPE_ID], 'moved again'))
   const sameSourceSync = await sync()
   assert.equal(sameSourceSync.refreshed, 1, 'the copy this source installed is the one it re-copies')
   for (const harness of HARNESS_DIRS) {
@@ -983,19 +963,19 @@ async function testCrossSourceCollisionKeepsItsOwnBytes(): Promise<void> {
 
 /** The visible text of the surface, for a failure message worth reading. */
 function visibleText(markup: string): string {
-  return markup.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').slice(0, 600)
+  return markup
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .slice(0, 600)
 }
 
 // --- 1936: the retired skill-packs deep link still opens Skills --------------
 
 async function testRetiredSkillPacksDeepLinkStillOpensSkills(): Promise<void> {
-  const { createSettingsSlice, defaultAppSettings } = await import(
-    '../renderer/src/store/slices/settingsSlice'
-  )
+  const { createSettingsSlice, defaultAppSettings } = await import('../renderer/src/store/slices/settingsSlice')
   const { EXTENSIONS_BROWSE_DEEPLINK } = await import('../renderer/src/components/settings/extensionsRoute')
-  const { consumePendingExtensionsSurfaceTarget } = await import(
-    '../renderer/src/components/workspace/globalSurface/extensions/extensionsSurfaceTarget'
-  )
+  const { consumePendingExtensionsSurfaceTarget } =
+    await import('../renderer/src/components/workspace/globalSurface/extensions/extensionsSurfaceTarget')
 
   const carrier = {
     workspaces: [],

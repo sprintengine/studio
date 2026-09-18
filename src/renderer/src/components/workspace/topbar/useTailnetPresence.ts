@@ -47,19 +47,19 @@ const EMPTY_LIVE_STATE: TailnetLiveState = { revision: 0, devices: [] }
 /** The bridge functions presence needs; a host missing any of them gets a quiet, absent glyph. */
 function hasTailnetPresenceBridge(api: Partial<Window['api']> | undefined): boolean {
   return (
-    !!api
-    && typeof api.onTailnetEvent === 'function'
-    && typeof api.onFleetEvent === 'function'
-    && typeof api.tailnetGetStatus === 'function'
-    && typeof api.tailnetGetLiveState === 'function'
-    && typeof api.fleetListConnections === 'function'
-    && typeof api.fleetGetLiveState === 'function'
+    !!api &&
+    typeof api.onTailnetEvent === 'function' &&
+    typeof api.onFleetEvent === 'function' &&
+    typeof api.tailnetGetStatus === 'function' &&
+    typeof api.tailnetGetLiveState === 'function' &&
+    typeof api.fleetListConnections === 'function' &&
+    typeof api.fleetGetLiveState === 'function'
   )
 }
 
 /** Live sessions per connection, from the attachments held. Only `live` counts — connecting, reconnecting, and offline are a pane hoping. */
 export function fleetLiveSessionsOf(
-  attachments: ReadonlyMap<string, FleetLiveAttachment>
+  attachments: ReadonlyMap<string, FleetLiveAttachment>,
 ): ReadonlyMap<string, ReadonlySet<string>> {
   const next = new Map<string, Set<string>>()
   for (const attachment of attachments.values()) {
@@ -240,5 +240,14 @@ export function useTailnetPresence(): TailnetPresence {
   }, [])
 
   const fleetLiveSessions = useMemo(() => fleetLiveSessionsOf(fleetAttachments), [fleetAttachments])
-  return { status, live, fleet, fleetAttachments, fleetLiveSessions, fleetRequests, fleetReachability, fleetRemoteChanges }
+  return {
+    status,
+    live,
+    fleet,
+    fleetAttachments,
+    fleetLiveSessions,
+    fleetRequests,
+    fleetReachability,
+    fleetRemoteChanges,
+  }
 }

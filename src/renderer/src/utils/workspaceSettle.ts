@@ -22,12 +22,7 @@ export const WORKSPACE_AUTO_SETTLE_AFTER_MS = 3 * 24 * 60 * 60 * 1000 // 3 days
 // Module-owned run states that must never settle on their own, no matter how
 // old: anything still in flight or waiting on the person. Carried over from the
 // archive sweep this rule replaces.
-const PINNED_RUN_STATES: ReadonlySet<LifecycleState> = new Set([
-  'in_progress',
-  'needs_input',
-  'paused',
-  'failed',
-])
+const PINNED_RUN_STATES: ReadonlySet<LifecycleState> = new Set(['in_progress', 'needs_input', 'paused', 'failed'])
 
 // The chat's own activity clock lives with the other clocks now
 // (`workspaceRecency.ts`), where the flat stream's ordering can read it
@@ -126,7 +121,7 @@ export function decideWorkspaceSettlement(input: {
 export function settleWorkspacePatch(
   workspace: Pick<Workspace, 'lastTerminalActivityAt'>,
   now: number,
-  override: 'settled' | null
+  override: 'settled' | null,
 ): WorkspaceFieldsPatch {
   return {
     // Rest supersedes sleep (snooze, 2026-09-10). A settled row is out of the

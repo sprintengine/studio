@@ -57,9 +57,7 @@ const SCRIPT_EXTENSIONS = ['.sh', '.bash', '.zsh', '.ps1', '.py', '.rb', '.pl', 
 const HARNESS_ROOT_NAMES = ['plugin']
 
 export function scanSkillTree(input: SkillTreeScanInput): ScanResult {
-  const files = input.entries.filter(
-    (entry) => entry.type === 'blob' && entry.mode !== SYMLINK_MODE
-  )
+  const files = input.entries.filter((entry) => entry.type === 'blob' && entry.mode !== SYMLINK_MODE)
   const skillDirs = collapseHarnessMirrors(findSkillDirs(files))
 
   const owned = new Set(skillDirs)
@@ -135,9 +133,7 @@ function collapseHarnessMirrors(skillDirs: readonly string[]): string[] {
       canonicalByMirrorKey.set(key, dir)
     }
   }
-  return skillDirs
-    .filter((dir) => canonicalByMirrorKey.get(harnessMirrorKey(dir)) === dir)
-    .sort(comparePaths)
+  return skillDirs.filter((dir) => canonicalByMirrorKey.get(harnessMirrorKey(dir)) === dir).sort(comparePaths)
 }
 
 /**
@@ -223,9 +219,7 @@ function group(skills: readonly ScannedSkill[], manifest: string | null): Groupi
       // name itself, and two headings reading the same word is a bug the reader
       // cannot explain.
       const withUnlisted =
-        unlisted.length > 0 && !groups.includes(SKILL_UNLISTED_GROUP)
-          ? [...groups, SKILL_UNLISTED_GROUP]
-          : groups
+        unlisted.length > 0 && !groups.includes(SKILL_UNLISTED_GROUP) ? [...groups, SKILL_UNLISTED_GROUP] : groups
       return {
         skills: all,
         groups: withUnlisted,

@@ -21,12 +21,15 @@ const host = getRendererHost()
 // `modules/index.ts` wires from the workspace store at boot. Wire the same
 // thing here, so toggling the module in the store is what the dispatcher sees.
 host.setModuleEnablementResolver((moduleId) =>
-  selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId)
+  selectModuleEnabled(useWorkspaceStore.getState().appSettings.modules, moduleId),
 )
 
-function registerProbeType(id: string, options: {
-  deriveRunGlyph?: (workspace: WorkspaceRunGlyphProviderInput) => ReturnType<typeof deriveWorkspaceRunGlyph>
-}): void {
+function registerProbeType(
+  id: string,
+  options: {
+    deriveRunGlyph?: (workspace: WorkspaceRunGlyphProviderInput) => ReturnType<typeof deriveWorkspaceRunGlyph>
+  },
+): void {
   host.hostFor(PROBE_MODULE).registerWorkspaceType({
     id,
     label: id,
@@ -51,9 +54,7 @@ registerProbeType('run-glyph-probe', {
 
 useWorkspaceStore.getState().setModuleEnabled(PROBE_MODULE, true)
 
-const workspace = (
-  overrides: Partial<WorkspaceRunGlyphProviderInput> = {},
-): WorkspaceRunGlyphProviderInput => ({
+const workspace = (overrides: Partial<WorkspaceRunGlyphProviderInput> = {}): WorkspaceRunGlyphProviderInput => ({
   mode: 'standard',
   ...overrides,
 })

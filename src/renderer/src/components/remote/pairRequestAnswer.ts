@@ -89,7 +89,7 @@ export function usePairRequestAnswer(requestId: string): PairRequestAnswer {
         setBusy(null)
       }
     },
-    [busy, code, requestId]
+    [busy, code, requestId],
   )
 
   return { code, setCode, codeError, busy, answer }

@@ -25,15 +25,8 @@ export function WorkspacePaneLauncher({ kinds, onPick }: WorkspacePaneLauncherPr
   }
 
   return (
-    <div
-      className="flex h-full items-center justify-center p-6"
-      onKeyDown={onKeyDown}
-    >
-      <div
-        role="group"
-        aria-label="Open in the pane"
-        className="grid w-full max-w-[320px] grid-cols-2 gap-2"
-      >
+    <div className="flex h-full items-center justify-center p-6" onKeyDown={onKeyDown}>
+      <div role="group" aria-label="Open in the pane" className="grid w-full max-w-[320px] grid-cols-2 gap-2">
         {kinds.map(({ kind, label, letter, Glyph }) => (
           // The kit's tile. `bordered` keeps the hairline at rest, so hover
           // moves the ground and nothing else — a grid of doors that reflowed

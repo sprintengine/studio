@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 
-import {
-  DESIGN_SYSTEM_NEW_FOR_DAYS,
-  designSystemEntryKey,
-  newDesignSystemEntryKeys,
-} from './new-entries'
+import { DESIGN_SYSTEM_NEW_FOR_DAYS, designSystemEntryKey, newDesignSystemEntryKeys } from './new-entries'
 
 // The Design door's "arrived since you last looked" rule. Every case here is one
 // the marker gets wrong in a way the person cannot see: a fresh profile that
@@ -27,14 +23,8 @@ run('the entry key is the manifest group and the manifest string, verbatim', () 
   // Components are declared as bare names, patterns as bundle-relative paths.
   // Both survive intact, and neither collides with the other.
   assert.equal(designSystemEntryKey('components', 'badge'), 'components:badge')
-  assert.equal(
-    designSystemEntryKey('patterns', 'patterns/context-rail.html'),
-    'patterns:patterns/context-rail.html',
-  )
-  assert.notEqual(
-    designSystemEntryKey('components', 'badge'),
-    designSystemEntryKey('glyphs', 'badge'),
-  )
+  assert.equal(designSystemEntryKey('patterns', 'patterns/context-rail.html'), 'patterns:patterns/context-rail.html')
+  assert.notEqual(designSystemEntryKey('components', 'badge'), designSystemEntryKey('glyphs', 'badge'))
 })
 
 run('a bundle never opened before marks only the recent arrivals', () => {
@@ -51,10 +41,7 @@ run('a bundle never opened before marks only the recent arrivals', () => {
     seenAt: null,
     now: NOW,
   })
-  assert.deepEqual(
-    [...marked].sort(),
-    ['components:fresh', 'patterns:patterns/new-thing.html'],
-  )
+  assert.deepEqual([...marked].sort(), ['components:fresh', 'patterns:patterns/new-thing.html'])
 })
 
 run('a bundle seen before marks exactly what arrived after that visit', () => {

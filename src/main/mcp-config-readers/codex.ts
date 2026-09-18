@@ -20,10 +20,7 @@ export function parseCodexMcpServers(raw: string): RawMcpServer[] {
     const transport: McpTransport = url ? 'http' : 'stdio'
     if (transport === 'stdio' && !command) continue
     const bearer = stringValue(config.bearer_token_env_var)
-    const envVarNames = [
-      ...stringArray(config.env_vars),
-      ...(bearer ? [bearer] : []),
-    ]
+    const envVarNames = [...stringArray(config.env_vars), ...(bearer ? [bearer] : [])]
     servers.push({
       id,
       name: id,
@@ -54,7 +51,7 @@ function parseCodexMcpToml(raw: string): Record<string, Record<string, unknown>>
     const section = line.match(/^\[\s*mcp_servers\s*\.\s*(.+?)\s*\]$/)
     if (section) {
       const id = parseTomlKey(section[1]!)
-      current = id ? sections[id] ?? (sections[id] = {}) : null
+      current = id ? (sections[id] ?? (sections[id] = {})) : null
       continue
     }
     // A table that is not one of ours ends the current server; codex configs
@@ -121,7 +118,7 @@ function isCompleteTomlValue(value: string): boolean {
       continue
     }
     if (!escaped && (char === '"' || char === "'")) {
-      quote = quote === char ? null : quote ?? char
+      quote = quote === char ? null : (quote ?? char)
     } else if (!quote) {
       if (char === '[') bracketDepth += 1
       if (char === ']') bracketDepth -= 1
@@ -163,7 +160,7 @@ function stripTomlComment(line: string): string {
       continue
     }
     if (!escaped && (char === '"' || char === "'")) {
-      quote = quote === char ? null : quote ?? char
+      quote = quote === char ? null : (quote ?? char)
     }
     if (!quote && char === '#') return line.slice(0, index)
     escaped = false
@@ -185,7 +182,7 @@ function splitTopLevel(value: string): string[] {
       continue
     }
     if (!escaped && (char === '"' || char === "'")) {
-      quote = quote === char ? null : quote ?? char
+      quote = quote === char ? null : (quote ?? char)
     } else if (!quote) {
       if (char === '[') bracketDepth += 1
       if (char === ']') bracketDepth -= 1
@@ -212,7 +209,7 @@ function findTopLevelEquals(value: string): number {
       continue
     }
     if (!escaped && (char === '"' || char === "'")) {
-      quote = quote === char ? null : quote ?? char
+      quote = quote === char ? null : (quote ?? char)
     } else if (!quote && char === '=') {
       return index
     }

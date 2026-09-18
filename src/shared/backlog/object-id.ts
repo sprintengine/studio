@@ -44,9 +44,7 @@ export function stableBacklogObjectId(relativePath: string): string {
 // written by the renderer. Idempotent: once every record carries the canonical
 // id, a re-run returns an equivalent list. Record lookup is by relative path
 // (case-insensitive), never by id, so re-keying never orphans a record.
-export function reconcileBacklogObjectRecordIds(
-  records: BacklogObjectRecordPayload[],
-): BacklogObjectRecordPayload[] {
+export function reconcileBacklogObjectRecordIds(records: BacklogObjectRecordPayload[]): BacklogObjectRecordPayload[] {
   const byCanonicalId = new Map<string, BacklogObjectRecordPayload>()
   for (const record of records) {
     const canonicalId = stableBacklogObjectId(record.source.relativePath)

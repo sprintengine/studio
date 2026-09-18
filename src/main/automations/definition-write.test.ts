@@ -4,7 +4,12 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { createDefinitionWriteCore, parseDefinitionDraft, parseDefinitionPatch, applyProviderPairDefaults } from './definition-write'
+import {
+  createDefinitionWriteCore,
+  parseDefinitionDraft,
+  parseDefinitionPatch,
+  applyProviderPairDefaults,
+} from './definition-write'
 import {
   allowAutomationProvider,
   createAutomationProviderRegistry,
@@ -39,10 +44,12 @@ function pairingRegistry() {
 }
 
 function assertLandedStartPairDefaultsToRunOnce(): void {
-  const parsed = parseDefinitionDraft(draftInput({
-    triggerKind: 'weather-deck.forecast-ready',
-    actionKind: 'weather-deck.refresh-forecast',
-  }))
+  const parsed = parseDefinitionDraft(
+    draftInput({
+      triggerKind: 'weather-deck.forecast-ready',
+      actionKind: 'weather-deck.refresh-forecast',
+    }),
+  )
   assert.equal(parsed.ok, true)
   if (!parsed.ok) return
   const result = applyProviderPairDefaults(parsed.value, pairingRegistry().listTriggerProviderRegistrations())
@@ -50,11 +57,13 @@ function assertLandedStartPairDefaultsToRunOnce(): void {
 }
 
 function assertExplicitFalseOptsOut(): void {
-  const parsed = parseDefinitionDraft(draftInput({
-    triggerKind: 'weather-deck.forecast-ready',
-    actionKind: 'weather-deck.refresh-forecast',
-    disableAfterRun: false,
-  }))
+  const parsed = parseDefinitionDraft(
+    draftInput({
+      triggerKind: 'weather-deck.forecast-ready',
+      actionKind: 'weather-deck.refresh-forecast',
+      disableAfterRun: false,
+    }),
+  )
   assert.equal(parsed.ok, true)
   if (!parsed.ok) return
   const result = applyProviderPairDefaults(parsed.value, pairingRegistry().listTriggerProviderRegistrations())
@@ -62,10 +71,12 @@ function assertExplicitFalseOptsOut(): void {
 }
 
 function assertOtherPairsAreUnaffected(): void {
-  const parsed = parseDefinitionDraft(draftInput({
-    triggerKind: 'weather-deck.forecast-ready',
-    actionKind: 'spawn-agent',
-  }))
+  const parsed = parseDefinitionDraft(
+    draftInput({
+      triggerKind: 'weather-deck.forecast-ready',
+      actionKind: 'spawn-agent',
+    }),
+  )
   assert.equal(parsed.ok, true)
   if (!parsed.ok) return
   const result = applyProviderPairDefaults(parsed.value, pairingRegistry().listTriggerProviderRegistrations())
@@ -78,7 +89,10 @@ function assertRetiredAutonomyFieldIsIgnoredNotRejected(): void {
   // longer means anything, so the parse accepts the draft and drops the key.
   const result = parseDefinitionDraft({
     ...draftInput({ triggerKind: 'schedule', actionKind: 'spawn-agent' }),
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' },
+    },
     autonomyDefault: 'review_only',
   })
   assert.equal(result.ok, true, 'a draft carrying the retired field still parses')
@@ -101,7 +115,10 @@ const CATALOGUE_PAYLOAD = {
   name: 'Nightly dependency sweep',
   // Ships paused; the ruling is that an added automation arrives on.
   status: 'paused',
-  trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' } },
+  trigger: {
+    kind: 'schedule',
+    config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '03:00' }, timezone: 'UTC' },
+  },
   action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
 }
 
@@ -157,7 +174,7 @@ async function assertInstallCreatesOneEnabledDefinitionWithProvenance(): Promise
     assert.notEqual(definition.id, CATALOGUE_PAYLOAD.id, 'the payload id is a template name, not the store id')
     assert.equal(definition.sourceCatalogueId, 'multicode.nightly-sweep')
     assert.equal(definition.sourcePublisher, 'Multicode Labs')
-    assert.equal(definition.ownerModuleId, undefined, 'a catalogue automation is the user\'s, not a module\'s')
+    assert.equal(definition.ownerModuleId, undefined, "a catalogue automation is the user's, not a module's")
     assert.equal(definition.nextRunAt !== null, true, 'the definition is scheduled at install, not at the next restart')
     assert.deepEqual(changed, [root], 'the definitions-changed hook fires so open surfaces refresh')
 
@@ -182,7 +199,11 @@ async function assertCatalogueCannotOptOutOfWorktreeIsolation(): Promise<void> {
 
     assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
     if (!installed.ok) return
-    assert.equal(installed.value.definition.runInWorktree, undefined, 'a payload-supplied false is dropped, never honoured')
+    assert.equal(
+      installed.value.definition.runInWorktree,
+      undefined,
+      'a payload-supplied false is dropped, never honoured',
+    )
 
     const stored = await new AutomationsStore(root).getDefinition(installed.value.definition.id)
     assert.equal(stored.ok, true)
@@ -194,8 +215,14 @@ async function assertCatalogueCannotOptOutOfWorktreeIsolation(): Promise<void> {
 async function assertSecondInstallIntoSameProjectAddsNothing(): Promise<void> {
   await withProjectRoots(1, async ([root]) => {
     const { core } = catalogueWriteCore()
-    const first = await core.installFromCatalogue(root, { payload: CATALOGUE_PAYLOAD, sourceCatalogueId: 'multicode.nightly-sweep' })
-    const second = await core.installFromCatalogue(root, { payload: CATALOGUE_PAYLOAD, sourceCatalogueId: 'multicode.nightly-sweep' })
+    const first = await core.installFromCatalogue(root, {
+      payload: CATALOGUE_PAYLOAD,
+      sourceCatalogueId: 'multicode.nightly-sweep',
+    })
+    const second = await core.installFromCatalogue(root, {
+      payload: CATALOGUE_PAYLOAD,
+      sourceCatalogueId: 'multicode.nightly-sweep',
+    })
 
     assert.equal(first.ok && second.ok, true)
     if (!first.ok || !second.ok) return
@@ -208,8 +235,14 @@ async function assertSecondInstallIntoSameProjectAddsNothing(): Promise<void> {
 async function assertSameEntryInstallsIndependentlyIntoTwoProjects(): Promise<void> {
   await withProjectRoots(2, async ([first, second]) => {
     const { core } = catalogueWriteCore()
-    const one = await core.installFromCatalogue(first, { payload: CATALOGUE_PAYLOAD, sourceCatalogueId: 'multicode.nightly-sweep' })
-    const two = await core.installFromCatalogue(second, { payload: CATALOGUE_PAYLOAD, sourceCatalogueId: 'multicode.nightly-sweep' })
+    const one = await core.installFromCatalogue(first, {
+      payload: CATALOGUE_PAYLOAD,
+      sourceCatalogueId: 'multicode.nightly-sweep',
+    })
+    const two = await core.installFromCatalogue(second, {
+      payload: CATALOGUE_PAYLOAD,
+      sourceCatalogueId: 'multicode.nightly-sweep',
+    })
 
     assert.equal(one.ok && two.ok, true)
     if (!one.ok || !two.ok) return
@@ -247,7 +280,11 @@ async function assertUnknownTriggerProviderWritesNothing(): Promise<void> {
     assert.equal(result.ok, false)
     if (result.ok) return
     assert.equal(result.code, 'unknown_trigger')
-    assert.deepEqual(await definitionFiles(root), [], 'provider validation runs before the write, as it does for the panel')
+    assert.deepEqual(
+      await definitionFiles(root),
+      [],
+      'provider validation runs before the write, as it does for the panel',
+    )
   })
 }
 
@@ -274,12 +311,16 @@ async function assertInstallResolvesTheCadenceIntoTheInstallingUsersZone(): Prom
     assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
     if (!installed.ok) return
     const schedule = storedSchedule(installed.value.definition)
-    assert.equal(schedule.timezone, 'Australia/Sydney', 'the installing user\'s zone, not the payload\'s')
+    assert.equal(schedule.timezone, 'Australia/Sydney', "the installing user's zone, not the payload's")
     assert.deepEqual(schedule.cadence, { type: 'daily', timeLocal: '03:00' }, 'the authored wall-clock is untouched')
 
     // 03:00 Sydney (UTC+10 in July) after 2026-07-30T12:00Z — not the 03:00 UTC
     // the payload would have produced.
-    assert.equal(installed.value.definition.nextRunAt, '2026-07-30T17:00:00.000Z', 'it fires at 03:00 where the user is')
+    assert.equal(
+      installed.value.definition.nextRunAt,
+      '2026-07-30T17:00:00.000Z',
+      'it fires at 03:00 where the user is',
+    )
     assert.notEqual(installed.value.definition.nextRunAt, '2026-07-31T03:00:00.000Z')
 
     const stored = await new AutomationsStore(root).getDefinition(installed.value.definition.id)
@@ -387,7 +428,11 @@ async function assertAnUnusableHostZoneLeavesThePayloadAlone(): Promise<void> {
       const installed = await core.installFromCatalogue(root, { payload: CATALOGUE_PAYLOAD, sourceCatalogueId: id })
       assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
       if (!installed.ok) return
-      assert.equal(storedSchedule(installed.value.definition).timezone, 'UTC', `"${zone}" is not stamped over the payload`)
+      assert.equal(
+        storedSchedule(installed.value.definition).timezone,
+        'UTC',
+        `"${zone}" is not stamped over the payload`,
+      )
     }
   })
 }
@@ -401,7 +446,11 @@ function assertProvenanceCannotBePatchedOrForged(): void {
   })
   assert.equal(forged.ok, true)
   if (!forged.ok) return
-  assert.equal(forged.value.sourceCatalogueId, undefined, 'provenance is stamped by the host, never read off the payload')
+  assert.equal(
+    forged.value.sourceCatalogueId,
+    undefined,
+    'provenance is stamped by the host, never read off the payload',
+  )
   assert.equal(forged.value.sourcePublisher, undefined)
 
   const patch = parseDefinitionPatch({ name: 'Renamed', sourceCatalogueId: 'multicode.other' })

@@ -78,9 +78,19 @@ let fleetBrowseAnswer: (connectionId: string) => Record<string, unknown> = () =>
 // Which repository a local folder is (one-project-across-machines); null = no remote.
 let localIdentityAnswer: (folderPath: string) => Record<string, unknown> | null = () => null
 // The picked remote project's checkout facts (checkout-and-branch-on-remote-create).
-let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<string, unknown> = (_c, workspaceId) => ({
+let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<string, unknown> = (
+  _c,
+  workspaceId,
+) => ({
   ok: true,
-  checkout: { workspaceId, git: true, branch: 'main', defaultBranch: 'main', branches: [{ name: 'main', current: true }], worktrees: [] },
+  checkout: {
+    workspaceId,
+    git: true,
+    branch: 'main',
+    defaultBranch: 'main',
+    branches: [{ name: 'main', current: true }],
+    worktrees: [],
+  },
 })
 
 ;(dom.window as unknown as { api: Record<string, unknown> }).api = {
@@ -88,7 +98,8 @@ let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<s
   getGitRepoRoot: async () => '/proj',
   fleetListConnections: async () => fleetConnections,
   fleetBrowse: async (connectionId: string) => fleetBrowseAnswer(connectionId),
-  fleetWorkspaceCheckout: async (connectionId: string, workspaceId: string) => fleetCheckoutAnswer(connectionId, workspaceId),
+  fleetWorkspaceCheckout: async (connectionId: string, workspaceId: string) =>
+    fleetCheckoutAnswer(connectionId, workspaceId),
   getGitRepositoryIdentity: async (folderPath: string) => localIdentityAnswer(folderPath),
   onFleetEvent: () => () => {},
   defaultWorkspaceParentDir: async () => '/w',
@@ -111,8 +122,20 @@ let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<s
     diagnostics: [],
   }),
   builtinSkillsList: async () => [
-    { id: 'backlog', name: 'backlog', version: '1', description: 'Work a backlog item end to end', targetPolicy: 'all-native' },
-    { id: 'design-system', name: 'design-system', version: '1', description: 'Build UI from the attached design system', targetPolicy: 'all-native' },
+    {
+      id: 'backlog',
+      name: 'backlog',
+      version: '1',
+      description: 'Work a backlog item end to end',
+      targetPolicy: 'all-native',
+    },
+    {
+      id: 'design-system',
+      name: 'design-system',
+      version: '1',
+      description: 'Build UI from the attached design system',
+      targetPolicy: 'all-native',
+    },
   ],
   workspaceSkillsList: async () => ({ ok: true, skills: [] }),
   // The Skills & MCPs picker's install-on-pick and add-on-pick paths.
@@ -124,7 +147,11 @@ let fleetCheckoutAnswer: (connectionId: string, workspaceId: string) => Record<s
     syncCalls.push(input)
     if (syncFailure) return { ok: false, message: syncFailure }
     const settings = input.settings as { servers: Record<string, unknown> }
-    return { ok: true, targets: [{ client: 'claude-code', path: '/proj/.mcp.json', serverIds: Object.keys(settings.servers) }], issues: [] }
+    return {
+      ok: true,
+      targets: [{ client: 'claude-code', path: '/proj/.mcp.json', serverIds: Object.keys(settings.servers) }],
+      issues: [],
+    }
   },
 }
 // The MCP server these checks pick. It is INSTALLED — since the third-party
@@ -160,9 +187,8 @@ async function main(): Promise<void> {
   const { useWorkspaceStore } = await import('../../../store/workspaceStore')
   const { projectHue } = await import('../../../utils/projectColor')
   const { useToastStore } = await import('../../../store/toastStore')
-  const { __resetModelPermissionPresetsForTest, storedModelPermissionPreset } = await import(
-    '../../ui/modelPermissionPresets'
-  )
+  const { __resetModelPermissionPresetsForTest, storedModelPermissionPreset } =
+    await import('../../ui/modelPermissionPresets')
 
   let failures = 0
   // Every mounted harness, so a check that throws before its own unmount
@@ -277,9 +303,8 @@ async function main(): Promise<void> {
       closed: () => closes,
       text: () => container.textContent ?? '',
       find: (predicate) =>
-        [...container.querySelectorAll('button, span, p')].find((el) =>
-          predicate(el as HTMLElement),
-        ) as HTMLElement | undefined,
+        [...container.querySelectorAll('button, span, p')].find((el) => predicate(el as HTMLElement)) as
+          HTMLElement | undefined,
     }
     liveViews.add(harness)
     return harness
@@ -422,10 +447,7 @@ async function main(): Promise<void> {
     assert.ok(!menuText.includes('Role'), 'the Role control is gone from this surface entirely')
     assert.ok(!menuText.includes('Reasoning'), 'and reasoning lives in the model picker now')
     // Debug is about the user's software, not the agent.
-    assert.ok(
-      /instruments your code/i.test(menuText),
-      `debug says what it actually does; got: ${menuText}`,
-    )
+    assert.ok(/instruments your code/i.test(menuText), `debug says what it actually does; got: ${menuText}`)
 
     // Worktree expands in place to type its branch — the click that turns it on
     // is the click that starts typing.
@@ -466,8 +488,8 @@ async function main(): Promise<void> {
       (menu?.textContent ?? '').includes('An agent in a chat window'),
       'and says what it is, where a provider can serve one',
     )
-    const terminalRow = [...(menu?.querySelectorAll('button') ?? [])].find(
-      (button) => (button.textContent ?? '').startsWith('Terminal'),
+    const terminalRow = [...(menu?.querySelectorAll('button') ?? [])].find((button) =>
+      (button.textContent ?? '').startsWith('Terminal'),
     )
     await act(async () => {
       terminalRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -500,16 +522,10 @@ async function main(): Promise<void> {
     // A shell runs nothing on your behalf: no suggested tasks, and a prompt
     // field that says so rather than dropping what was typed.
     const { SUGGESTION_BANK } = await import('./suggestionBank')
-    assert.ok(
-      !SUGGESTION_BANK.some((entry) => text.includes(entry.title)),
-      'no suggestion cards for a plain shell',
-    )
+    assert.ok(!SUGGESTION_BANK.some((entry) => text.includes(entry.title)), 'no suggestion cards for a plain shell')
     const promptField = view.container.querySelector('textarea')
     assert.equal(promptField?.disabled, true, 'and no prompt to type into')
-    assert.ok(
-      (promptField?.getAttribute('placeholder') ?? '').includes('nothing typed'),
-      'which says why',
-    )
+    assert.ok((promptField?.getAttribute('placeholder') ?? '').includes('nothing typed'), 'which says why')
 
     // The menu is the ONLY way to change what is being launched, so hiding it
     // for a terminal stranded the surface with no way back to an agent.
@@ -521,8 +537,8 @@ async function main(): Promise<void> {
       stillThere!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
     const backMenu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
-    const agentRow = [...(backMenu?.querySelectorAll('button') ?? [])].find(
-      (button) => (button.textContent ?? '').startsWith('Agent'),
+    const agentRow = [...(backMenu?.querySelectorAll('button') ?? [])].find((button) =>
+      (button.textContent ?? '').startsWith('Agent'),
     )
     assert.ok(agentRow, 'and still offers Agent')
     await act(async () => {
@@ -535,11 +551,7 @@ async function main(): Promise<void> {
       'picking Agent brings the engine chip — and the permission control inside it — back',
     )
     const back = view.text()
-    assert.equal(
-      view.container.querySelector('textarea')?.disabled,
-      false,
-      'and the prompt is typeable again',
-    )
+    assert.equal(view.container.querySelector('textarea')?.disabled, false, 'and the prompt is typeable again')
     assert.ok(
       SUGGESTION_BANK.some((entry) => back.includes(entry.title)),
       'and the suggested tasks return',
@@ -577,17 +589,18 @@ async function main(): Promise<void> {
       (chatRow?.textContent ?? '').includes('connect one in Settings'),
       'the reason is readable in full, not truncated',
     )
-    assert.ok(
-      !(chatRow?.querySelector('.truncate')),
-      'no truncation inside a row whose text IS the explanation',
-    )
+    assert.ok(!chatRow?.querySelector('.truncate'), 'no truncation inside a row whose text IS the explanation')
     view.unmount()
   })
 
   await check('the surface asks the host for the conversation catalog', async () => {
     seedStore()
     let requests = 0
-    const view = await render({ onRequestConversationCatalog: () => { requests += 1 } })
+    const view = await render({
+      onRequestConversationCatalog: () => {
+        requests += 1
+      },
+    })
     assert.equal(requests, 1, 'asked once on open, so a provider added since last time shows up')
     view.unmount()
   })
@@ -605,9 +618,7 @@ async function main(): Promise<void> {
     )
     await act(async () => {
       ;(chip as HTMLElement).focus()
-      dom.window.document.dispatchEvent(
-        new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-      )
+      dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
     assert.equal(view.closed(), 1, 'Escape cancels from anywhere on the surface')
     view.unmount()
@@ -643,10 +654,7 @@ async function main(): Promise<void> {
     assert.ok(textarea, 'the prompt field exists')
 
     await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(
-        dom.window.HTMLTextAreaElement.prototype,
-        'value',
-      )?.set
+      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')?.set
       setter?.call(textarea, 'review the auth flow')
       textarea!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
     })
@@ -667,12 +675,12 @@ async function main(): Promise<void> {
       true,
       'the confirm always names the model, even when it is the CLI’s own default',
     )
-    assert.equal(view.launches[0]?.model, null, 'and with no pick that name is null — not an omitted field the host would re-read')
     assert.equal(
-      'reasoning' in (view.launches[0] ?? {}),
-      true,
-      'and it always names the effort, for the same reason',
+      view.launches[0]?.model,
+      null,
+      'and with no pick that name is null — not an omitted field the host would re-read',
     )
+    assert.equal('reasoning' in (view.launches[0] ?? {}), true, 'and it always names the effort, for the same reason')
     assert.equal(view.launches[0]?.reasoning, null, 'with no pick that is the CLI’s own default too')
     view.unmount()
   })
@@ -836,13 +844,21 @@ async function main(): Promise<void> {
     })
     await settle()
     // The surface is portalled to the body; the chips stay in the panel.
-    const surface = () => dom.window.document.querySelector('[role="dialog"][aria-label="Skills and MCPs"]') as HTMLElement | null
+    const surface = () =>
+      dom.window.document.querySelector('[role="dialog"][aria-label="Skills and MCPs"]') as HTMLElement | null
     assert.ok(surface(), 'the picker opened')
     const text = surface()!.textContent ?? ''
     // No "Add": the picker's Add rows were the bundled catalogue's servers,
     // and the catalogue is gone (MC-2519). What is left under MCP servers is
     // the studio gateway (Included) and the servers this workspace installed.
-    for (const label of ['Skills in this workspace', 'Available to install', 'MCP servers', 'Install', 'Included', 'sprintengine-studio']) {
+    for (const label of [
+      'Skills in this workspace',
+      'Available to install',
+      'MCP servers',
+      'Install',
+      'Included',
+      'sprintengine-studio',
+    ]) {
       assert.ok(text.includes(label), `the open picker shows "${label}"`)
     }
     const listbox = surface()!.querySelector('[role="listbox"]')
@@ -858,8 +874,15 @@ async function main(): Promise<void> {
     await act(async () => {
       backlogRow!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
-    assert.equal(surface()!.querySelector('[data-picker-row="skill:backlog"]')?.getAttribute('aria-selected'), 'true', 'the row is checked')
-    assert.ok(view.find((el) => el.getAttribute('aria-label') === 'Remove skill backlog'), 'and a chip appears')
+    assert.equal(
+      surface()!.querySelector('[data-picker-row="skill:backlog"]')?.getAttribute('aria-selected'),
+      'true',
+      'the row is checked',
+    )
+    assert.ok(
+      view.find((el) => el.getAttribute('aria-label') === 'Remove skill backlog'),
+      'and a chip appears',
+    )
     assert.equal(attachCalls.length, 0, 'an installed skill installs nothing')
 
     // Keyboard: ↓ to the installable skill, ⏎ installs it and checks it.
@@ -872,8 +895,15 @@ async function main(): Promise<void> {
       input!.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }))
     })
     await settle()
-    assert.deepEqual(attachCalls.map((call) => call.skillId), ['design-system'], 'Enter installed it before anything else')
-    assert.ok(view.find((el) => el.getAttribute('aria-label') === 'Remove skill design-system'), 'and it became a chip')
+    assert.deepEqual(
+      attachCalls.map((call) => call.skillId),
+      ['design-system'],
+      'Enter installed it before anything else',
+    )
+    assert.ok(
+      view.find((el) => el.getAttribute('aria-label') === 'Remove skill design-system'),
+      'and it became a chip',
+    )
 
     // An installed MCP server whose clients do not yet reach the launch CLI:
     // the pick adds the CLI and syncs the workspace config before it counts.
@@ -892,7 +922,10 @@ async function main(): Promise<void> {
     assert.equal(synced.workspaceRoot, '/proj')
     assert.ok(synced.settings.servers.linear?.enabled, 'with the server enabled')
     assert.ok(synced.settings.servers.linear?.clients.includes('claude-code'), 'reaching the launch CLI')
-    assert.ok(view.find((el) => el.getAttribute('aria-label') === 'Remove MCP server Linear'), 'and it became a chip')
+    assert.ok(
+      view.find((el) => el.getAttribute('aria-label') === 'Remove MCP server Linear'),
+      'and it became a chip',
+    )
     assert.deepEqual(synced.clients, ['claude-code'], 'the sync is scoped to the launch CLI')
 
     // The picks ride the confirm in pick order.
@@ -900,9 +933,16 @@ async function main(): Promise<void> {
     await act(async () => {
       start!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
     })
-    const launch = view.launches[0] as { skills?: Array<{ id: string }>; mcpServers?: Array<{ id: string }> } | undefined
-    assert.deepEqual(launch?.skills?.map((skill) => skill.id), ['backlog', 'design-system'])
-    assert.deepEqual(launch?.mcpServers?.map((server) => server.id), ['linear'])
+    const launch = view.launches[0] as
+      { skills?: Array<{ id: string }>; mcpServers?: Array<{ id: string }> } | undefined
+    assert.deepEqual(
+      launch?.skills?.map((skill) => skill.id),
+      ['backlog', 'design-system'],
+    )
+    assert.deepEqual(
+      launch?.mcpServers?.map((server) => server.id),
+      ['linear'],
+    )
     view.unmount()
   })
 
@@ -936,7 +976,11 @@ async function main(): Promise<void> {
     }
     assert.equal(syncCalls.length, 1)
     assert.ok((surface.textContent ?? '').includes('EACCES'), 'the row carries the error')
-    assert.equal(view.find((el) => el.getAttribute('aria-label') === 'Remove MCP server Linear'), undefined, 'no chip')
+    assert.equal(
+      view.find((el) => el.getAttribute('aria-label') === 'Remove MCP server Linear'),
+      undefined,
+      'no chip',
+    )
     assert.deepEqual(
       useWorkspaceStore.getState().appSettings.mcp?.servers?.linear?.clients,
       ['codex'],
@@ -985,14 +1029,21 @@ async function main(): Promise<void> {
     // A disabled server is not offered: the picker adds servers to a launch,
     // and a launch cannot use one the person turned off.
     const off = buildMcpRows({ 'io-snyk-mcp': { ...fromPlugin, enabled: false } })
-    assert.equal(off.some((entry) => entry.id === 'io-snyk-mcp'), false, 'a disabled server is not a row')
+    assert.equal(
+      off.some((entry) => entry.id === 'io-snyk-mcp'),
+      false,
+      'a disabled server is not a row',
+    )
   })
 
   // 6. The greeting: a name when there is one, and a sentence either way.
   await check('the greeting uses a first name only when there is one', async () => {
     seedStore()
     useWorkspaceStore.setState({
-      authState: { ...useWorkspaceStore.getState().authState, user: { id: 'u', email: 'c@example.com', displayName: 'Sam Rivera', photoUrl: null } },
+      authState: {
+        ...useWorkspaceStore.getState().authState,
+        user: { id: 'u', email: 'c@example.com', displayName: 'Sam Rivera', photoUrl: null },
+      },
     } as never)
     const named = await render()
     assert.ok(named.text().includes('Sam'), 'it greets by first name, not full name')
@@ -1046,9 +1097,7 @@ async function main(): Promise<void> {
       onSelectProject: () => {},
       onBrowseProject: () => {},
     })
-    const named = soleProject.find(
-      (el) => el.tagName === 'BUTTON' && /proj/.test(el.textContent ?? ''),
-    )
+    const named = soleProject.find((el) => el.tagName === 'BUTTON' && /proj/.test(el.textContent ?? ''))
     assert.ok(named, 'the sole project is still a picker, because Browse is the point')
     soleProject.unmount()
 
@@ -1063,7 +1112,6 @@ async function main(): Promise<void> {
     )
     fixed.unmount()
   })
-
 
   // ── Remote machines (remote-sessions-ux / new-chat-on-a-remote-machine) ──
 
@@ -1127,73 +1175,92 @@ async function main(): Promise<void> {
     await settle()
   }
   const remoteRender = async (props: Record<string, unknown> = {}) =>
-    render({ folderPath: '/proj', projectOptions: [{ path: '/proj', label: 'proj' }], onSelectProject: () => {}, onLaunchRemote: async () => {}, ...props })
-
-  await check('the machine dropdown lists This device first and default, paired machines alphabetically after', async () => {
-    seedStore()
-    resetRememberedMachineForTests()
-    fleetConnections = [machine('m2', 'Studio'), machine('m1', 'Air'), machine('m3', 'mini')]
-    assert.deepEqual(sortMachines(fleetConnections as never).map((m) => m.machineName), ['Air', 'mini', 'Studio'])
-    const view = await remoteRender()
-    await settle()
-    const trigger = machineTrigger(view)
-    assert.ok(trigger, 'the dropdown is offered once a machine is paired')
-    assert.equal(trigger?.textContent?.trim(), 'This device', 'and opens on This device — never a remote on first open')
-    assert.equal(trigger?.querySelector('svg.icon-xs.shrink-0'), null, 'no machine glyph on the trigger while local')
-    const menu = await openMachineMenu(view)
-    const rows = [...menu.querySelectorAll('[role="menuitemradio"]')].map(
-      (row) => (row.querySelector('span.min-w-0')?.textContent ?? '').trim(),
-    )
-    assert.equal(rows[0], 'This device', 'This device heads the list')
-    assert.deepEqual(rows.slice(1), ['Air', 'mini', 'Studio'], 'then the machines, sorted')
-    assert.equal(menu.querySelectorAll('[role="menu"]').length, 0, 'one menu role: the surface, no nested menu')
-    view.unmount()
-  })
-
-  await check('picking a remote machine shows the glyph, requires an explicit project unless there is exactly one, and is remembered for the session', async () => {
-    seedStore()
-    resetRememberedMachineForTests()
-    fleetConnections = [machine('m1', 'Air'), machine('m2', 'Mini')]
-    fleetBrowseAnswer = (id) => ({
-      connectionId: id,
-      reachable: true,
-      unreachableReason: null,
-      unauthorized: false,
-      scopes: [],
-      terminalAccess: 'full',
-      workspaces: id === 'm1' ? [workspace('w1', 'alpha'), workspace('w2', 'beta')] : [workspace('w9', 'solo')],
-      terminals: [],
-      gaps: [],
+    render({
+      folderPath: '/proj',
+      projectOptions: [{ path: '/proj', label: 'proj' }],
+      onSelectProject: () => {},
+      onLaunchRemote: async () => {},
+      ...props,
     })
-    const view = await remoteRender()
-    await settle()
-    await pickMachine(view, 'Air')
-    const trigger = machineTrigger(view)
-    assert.ok(trigger?.textContent?.includes('Air'), 'the trigger names the machine')
-    assert.ok(trigger?.querySelector('svg'), 'and wears the shared machine glyph only when remote')
-    assert.ok(view.text().includes('Choose a project'), 'two projects → nobody picks for you')
-    const projectTrigger = buttonWithText(view.container, 'Choose a project')
-    await click(projectTrigger)
-    const projects = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')
-    assert.ok(projects, 'the remote project list opens')
-    assert.equal(projects!.querySelectorAll('[role="menu"]').length, 0, 'no nested menu role')
-    await click(buttonWithText(projects!, 'beta'))
-    assert.ok(buttonWithText(view.container, 'beta'), 'an explicit pick is shown')
-    view.unmount()
 
-    // One project on the Mini: it is the only possible answer, so it is picked.
-    const again = await remoteRender()
-    await settle()
-    assert.ok(machineTrigger(again)?.textContent?.includes('Air'), 'reopening keeps the session’s last machine')
-    await pickMachine(again, 'Mini')
-    assert.ok(buttonWithText(again.container, 'solo'), 'a lone project is chosen without a click')
-    await pickMachine(again, 'This device')
-    again.unmount()
-    const fresh = await remoteRender()
-    await settle()
-    assert.equal(machineTrigger(fresh)?.textContent?.trim(), 'This device', 'choosing This device forgets the remote')
-    fresh.unmount()
-  })
+  await check(
+    'the machine dropdown lists This device first and default, paired machines alphabetically after',
+    async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      fleetConnections = [machine('m2', 'Studio'), machine('m1', 'Air'), machine('m3', 'mini')]
+      assert.deepEqual(
+        sortMachines(fleetConnections as never).map((m) => m.machineName),
+        ['Air', 'mini', 'Studio'],
+      )
+      const view = await remoteRender()
+      await settle()
+      const trigger = machineTrigger(view)
+      assert.ok(trigger, 'the dropdown is offered once a machine is paired')
+      assert.equal(
+        trigger?.textContent?.trim(),
+        'This device',
+        'and opens on This device — never a remote on first open',
+      )
+      assert.equal(trigger?.querySelector('svg.icon-xs.shrink-0'), null, 'no machine glyph on the trigger while local')
+      const menu = await openMachineMenu(view)
+      const rows = [...menu.querySelectorAll('[role="menuitemradio"]')].map((row) =>
+        (row.querySelector('span.min-w-0')?.textContent ?? '').trim(),
+      )
+      assert.equal(rows[0], 'This device', 'This device heads the list')
+      assert.deepEqual(rows.slice(1), ['Air', 'mini', 'Studio'], 'then the machines, sorted')
+      assert.equal(menu.querySelectorAll('[role="menu"]').length, 0, 'one menu role: the surface, no nested menu')
+      view.unmount()
+    },
+  )
+
+  await check(
+    'picking a remote machine shows the glyph, requires an explicit project unless there is exactly one, and is remembered for the session',
+    async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      fleetConnections = [machine('m1', 'Air'), machine('m2', 'Mini')]
+      fleetBrowseAnswer = (id) => ({
+        connectionId: id,
+        reachable: true,
+        unreachableReason: null,
+        unauthorized: false,
+        scopes: [],
+        terminalAccess: 'full',
+        workspaces: id === 'm1' ? [workspace('w1', 'alpha'), workspace('w2', 'beta')] : [workspace('w9', 'solo')],
+        terminals: [],
+        gaps: [],
+      })
+      const view = await remoteRender()
+      await settle()
+      await pickMachine(view, 'Air')
+      const trigger = machineTrigger(view)
+      assert.ok(trigger?.textContent?.includes('Air'), 'the trigger names the machine')
+      assert.ok(trigger?.querySelector('svg'), 'and wears the shared machine glyph only when remote')
+      assert.ok(view.text().includes('Choose a project'), 'two projects → nobody picks for you')
+      const projectTrigger = buttonWithText(view.container, 'Choose a project')
+      await click(projectTrigger)
+      const projects = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')
+      assert.ok(projects, 'the remote project list opens')
+      assert.equal(projects!.querySelectorAll('[role="menu"]').length, 0, 'no nested menu role')
+      await click(buttonWithText(projects!, 'beta'))
+      assert.ok(buttonWithText(view.container, 'beta'), 'an explicit pick is shown')
+      view.unmount()
+
+      // One project on the Mini: it is the only possible answer, so it is picked.
+      const again = await remoteRender()
+      await settle()
+      assert.ok(machineTrigger(again)?.textContent?.includes('Air'), 'reopening keeps the session’s last machine')
+      await pickMachine(again, 'Mini')
+      assert.ok(buttonWithText(again.container, 'solo'), 'a lone project is chosen without a click')
+      await pickMachine(again, 'This device')
+      again.unmount()
+      const fresh = await remoteRender()
+      await settle()
+      assert.equal(machineTrigger(fresh)?.textContent?.trim(), 'This device', 'choosing This device forgets the remote')
+      fresh.unmount()
+    },
+  )
 
   await check('unreachable, unauthorized and workspace-gap machines say their real reason', async () => {
     seedStore()
@@ -1208,7 +1275,8 @@ async function main(): Promise<void> {
       terminalAccess: 'full',
       workspaces: [],
       terminals: [],
-      gaps: id === 'gap' ? [{ part: 'workspaces', code: 'scope', message: 'This pairing may not list workspaces.' }] : [],
+      gaps:
+        id === 'gap' ? [{ part: 'workspaces', code: 'scope', message: 'This pairing may not list workspaces.' }] : [],
     })
     const view = await remoteRender()
     await settle()
@@ -1224,87 +1292,116 @@ async function main(): Promise<void> {
     }
     assert.ok((await reasonFor('Down')).includes('Down is asleep.'), 'unreachable carries the machine’s reason')
     assert.ok(/refused this pairing/.test(await reasonFor('Revoked')), 'unauthorized says re-pair')
-    assert.ok((await reasonFor('Gap')).includes('may not list workspaces'), 'a scope gap is the gap’s message, never "no workspaces"')
-    view.unmount()
-  })
-
-  await check('a remote launch refuses what cannot travel — attached images included — and refuses a second submit while one is in flight', async () => {
-    seedStore()
-    resetRememberedMachineForTests()
-    fleetConnections = [machine('m1', 'Air')]
-    fleetBrowseAnswer = (id) => ({
-      connectionId: id, reachable: true, unreachableReason: null, unauthorized: false, scopes: [],
-      terminalAccess: 'full', workspaces: [workspace('w1', 'alpha', '/srv/alpha')], terminals: [], gaps: [],
-    })
-    const remoteLaunches: Array<Record<string, unknown>> = []
-    let release: () => void = () => {}
-    const view = await remoteRender({
-      onLaunchRemote: (launch: Record<string, unknown>) => {
-        remoteLaunches.push(launch)
-        return new Promise<void>((resolve) => {
-          release = resolve
-        })
-      },
-    })
-    await settle()
-    await pickMachine(view, 'Air')
-    const textarea = view.container.querySelector('textarea')!
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-      setter.call(textarea, 'fix the build')
-      textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-    })
-
-    // Drop an image: its chip stays on screen, so the refusal must name it.
-    useToastStore.setState({ toasts: [] })
-    const file = new dom.window.File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' })
-    const box = textarea.closest('[class*="relative"]')!
-    const dropEvent = new dom.window.Event('drop', { bubbles: true, cancelable: true })
-    Object.defineProperty(dropEvent, 'dataTransfer', {
-      value: { types: ['Files'], items: [{ kind: 'file', getAsFile: () => file }], files: [file] },
-    })
-    await act(async () => {
-      box.dispatchEvent(dropEvent)
-    })
-    await settle()
-    await settle()
-    const enter = () =>
-      act(async () => {
-        textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
-      })
-    await enter()
-    assert.equal(remoteLaunches.length, 0, 'nothing launched with an image attached')
-    const refusal = useToastStore.getState().toasts.find((toast) => toast.title === 'That launch cannot travel yet')
-    assert.ok(refusal, 'the stranded refusal is announced')
-    assert.ok(refusal?.description?.includes('the attached images'), `it names the images; got: ${refusal?.description}`)
-
-    // Remove the image and launch: one Enter starts, the second is refused
-    // while the first is still in flight.
-    const remove = [...view.container.querySelectorAll('button')].find((button) =>
-      /remove/i.test(button.getAttribute('aria-label') ?? ''),
+    assert.ok(
+      (await reasonFor('Gap')).includes('may not list workspaces'),
+      'a scope gap is the gap’s message, never "no workspaces"',
     )
-    await click(remove)
-    await enter()
-    await enter()
-    assert.equal(remoteLaunches.length, 1, 'a second submit during an in-flight remote create is refused')
-    assert.equal(remoteLaunches[0]?.remoteWorkspaceRoot, '/srv/alpha', 'the launch carries the remote folder for provenance')
-    assert.equal(remoteLaunches[0]?.remoteWorkspaceName, 'alpha')
-    await act(async () => {
-      release()
-    })
-    await settle()
-    await enter()
-    assert.equal(remoteLaunches.length, 2, 'and is accepted once the first settles')
     view.unmount()
   })
+
+  await check(
+    'a remote launch refuses what cannot travel — attached images included — and refuses a second submit while one is in flight',
+    async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      fleetConnections = [machine('m1', 'Air')]
+      fleetBrowseAnswer = (id) => ({
+        connectionId: id,
+        reachable: true,
+        unreachableReason: null,
+        unauthorized: false,
+        scopes: [],
+        terminalAccess: 'full',
+        workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
+        terminals: [],
+        gaps: [],
+      })
+      const remoteLaunches: Array<Record<string, unknown>> = []
+      let release: () => void = () => {}
+      const view = await remoteRender({
+        onLaunchRemote: (launch: Record<string, unknown>) => {
+          remoteLaunches.push(launch)
+          return new Promise<void>((resolve) => {
+            release = resolve
+          })
+        },
+      })
+      await settle()
+      await pickMachine(view, 'Air')
+      const textarea = view.container.querySelector('textarea')!
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+        setter.call(textarea, 'fix the build')
+        textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+
+      // Drop an image: its chip stays on screen, so the refusal must name it.
+      useToastStore.setState({ toasts: [] })
+      const file = new dom.window.File([new Uint8Array([137, 80, 78, 71])], 'shot.png', { type: 'image/png' })
+      const box = textarea.closest('[class*="relative"]')!
+      const dropEvent = new dom.window.Event('drop', { bubbles: true, cancelable: true })
+      Object.defineProperty(dropEvent, 'dataTransfer', {
+        value: { types: ['Files'], items: [{ kind: 'file', getAsFile: () => file }], files: [file] },
+      })
+      await act(async () => {
+        box.dispatchEvent(dropEvent)
+      })
+      await settle()
+      await settle()
+      const enter = () =>
+        act(async () => {
+          textarea.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+      await enter()
+      assert.equal(remoteLaunches.length, 0, 'nothing launched with an image attached')
+      const refusal = useToastStore.getState().toasts.find((toast) => toast.title === 'That launch cannot travel yet')
+      assert.ok(refusal, 'the stranded refusal is announced')
+      assert.ok(
+        refusal?.description?.includes('the attached images'),
+        `it names the images; got: ${refusal?.description}`,
+      )
+
+      // Remove the image and launch: one Enter starts, the second is refused
+      // while the first is still in flight.
+      const remove = [...view.container.querySelectorAll('button')].find((button) =>
+        /remove/i.test(button.getAttribute('aria-label') ?? ''),
+      )
+      await click(remove)
+      await enter()
+      await enter()
+      assert.equal(remoteLaunches.length, 1, 'a second submit during an in-flight remote create is refused')
+      assert.equal(
+        remoteLaunches[0]?.remoteWorkspaceRoot,
+        '/srv/alpha',
+        'the launch carries the remote folder for provenance',
+      )
+      assert.equal(remoteLaunches[0]?.remoteWorkspaceName, 'alpha')
+      await act(async () => {
+        release()
+      })
+      await settle()
+      await enter()
+      assert.equal(remoteLaunches.length, 2, 'and is accepted once the first settles')
+      view.unmount()
+    },
+  )
 
   await check('a remote target disables the presets its gateway refuses and moves the choice with a note', async () => {
     seedStore()
     resetRememberedMachineForTests()
     fleetConnections = [machine('m1', 'Air')]
     fleetBrowseAnswer = (id) => ({
-      connectionId: id, reachable: true, unreachableReason: null, unauthorized: false, scopes: [],
-      terminalAccess: 'full', workspaces: [workspace('w1', 'alpha')], terminals: [], gaps: [],
+      connectionId: id,
+      reachable: true,
+      unreachableReason: null,
+      unauthorized: false,
+      scopes: [],
+      terminalAccess: 'full',
+      workspaces: [workspace('w1', 'alpha')],
+      terminals: [],
+      gaps: [],
     })
     const view = await remoteRender({ permissionPreset: 'bypass' })
     await settle()
@@ -1325,8 +1422,16 @@ async function main(): Promise<void> {
     const menu = await openPermissionsMenu(local, 'Auto')
     assert.equal(menu.querySelectorAll('[role="menu"]').length, 0, 'one menu role')
     const rows = [...menu.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')]
-    assert.deepEqual(rows.map((row) => row.disabled), [true, false, false, true], 'None and Bypass are disabled for a remote')
-    assert.equal((menu.textContent ?? '').match(/Not available on a remote machine/g)?.length, 2, 'each with the one-line reason')
+    assert.deepEqual(
+      rows.map((row) => row.disabled),
+      [true, false, false, true],
+      'None and Bypass are disabled for a remote',
+    )
+    assert.equal(
+      (menu.textContent ?? '').match(/Not available on a remote machine/g)?.length,
+      2,
+      'each with the one-line reason',
+    )
     // Roving skips the disabled rows and wraps.
     const checked = rows.find((row) => row.getAttribute('aria-checked') === 'true')!
     assert.equal(dom.window.document.activeElement, checked, 'focus lands on the checked row on open')
@@ -1360,299 +1465,399 @@ async function main(): Promise<void> {
       (button.textContent ?? '').startsWith('Worktree'),
     )
 
-  await check('the scope line carries no checkout control, and the ⋯ worktree row is what sends a remote launch to a fresh worktree', async () => {
-    seedStore()
-    resetRememberedMachineForTests()
-    fleetConnections = [machine('m1', 'Air')]
-    fleetBrowseAnswer = (id) => ({
-      connectionId: id, reachable: true, unreachableReason: null, unauthorized: false,
-      scopes: ['workspace:operate', 'terminal:control'],
-      terminalAccess: 'control', workspaces: [workspace('w1', 'alpha', '/srv/alpha')], terminals: [], gaps: [],
-    })
-    const checkoutReads: string[] = []
-    fleetCheckoutAnswer = (_c, workspaceId) => {
-      checkoutReads.push(workspaceId)
-      return {
-        ok: true,
-        checkout: {
-          workspaceId, git: true, branch: 'main', defaultBranch: 'main',
-          branches: [{ name: 'feat/x', current: false }, { name: 'main', current: true }],
-          worktrees: [{ path: '/srv/alpha', branch: 'main', isMain: true }],
-        },
-      }
-    }
-    const remoteLaunches: Array<Record<string, unknown>> = []
-    const view = await remoteRender({
-      onLaunchRemote: async (launch: Record<string, unknown>) => {
-        remoteLaunches.push(launch)
-      },
-    })
-    await settle()
-    await pickMachine(view, 'Air')
-    await settle()
-    // The checkout is still READ on the pick — the ⋯ row's gate is built from
-    // it — but nothing on the scope line reports it.
-    assert.deepEqual(checkoutReads, ['w1'], 'the lone project is picked, and its checkout read once')
-    assert.equal(view.container.querySelector('[data-checkout-trigger="true"]'), null, 'no checkout chip on the scope line')
-    assert.equal(view.container.querySelector('[data-branch-trigger="true"]'), null, 'and no branch picker')
-    assert.equal(view.container.querySelector('[data-branch-fact="true"]'), null, 'and no branch fact')
-
-    const textarea = view.container.querySelector('textarea')!
-    const type = (value: string) =>
-      act(async () => {
-        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-        setter.call(textarea, value)
-        textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-      })
-    const enter = () =>
-      act(async () => {
-        textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
-      })
-    await type('fix the build')
-    await enter()
-    await settle()
-    assert.deepEqual(remoteLaunches[0]?.checkout, { mode: 'current' }, 'with no worktree asked for, the current checkout travels')
-    assert.equal(remoteLaunches[0]?.branch, 'main', 'with the branch the panel read, for the row')
-
-    // Turn the ⋯ row on and the same launch forks a worktree over there,
-    // based on the remote checkout's own branch.
-    const menu = await openMore(view)
-    const row = worktreeRowOf(menu)
-    assert.ok(row, 'the worktree row is offered once a remote project is picked')
-    assert.equal(row!.disabled, false, 'and a workspace:operate pairing may take it')
-    await click(row)
-    await settle()
-    const branchInput = dom.window.document.querySelector<HTMLInputElement>('[aria-label="Worktree branch name"]')
-    assert.ok(branchInput, 'and reveals the branch field')
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!
-      setter.call(branchInput!, 'fix/build')
-      branchInput!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-    })
-    await settle()
-    await type('fix the build again')
-    await enter()
-    await settle()
-    assert.deepEqual(
-      remoteLaunches[1]?.checkout,
-      { mode: 'worktree', baseRef: 'main', name: 'fix/build' },
-      'the worktree request carries the typed branch name and forks the remote’s own branch',
-    )
-    assert.equal(remoteLaunches[1]?.branch, null, 'the worktree’s branch is minted there, so none is claimed here')
-    view.unmount()
-  })
-
-  await check('the ⋯ worktree row stays closed while the checkout is being read, and a detached remote forks its trunk', async () => {
-    seedStore()
-    resetRememberedMachineForTests()
-    fleetConnections = [machine('m1', 'Air')]
-    fleetBrowseAnswer = (id) => ({
-      connectionId: id, reachable: true, unreachableReason: null, unauthorized: false,
-      scopes: ['workspace:operate', 'terminal:control'],
-      terminalAccess: 'control', workspaces: [workspace('w1', 'alpha')], terminals: [], gaps: [],
-    })
-    let release: (value: Record<string, unknown>) => void = () => {}
-    fleetCheckoutAnswer = () => new Promise<Record<string, unknown>>((resolve) => { release = resolve }) as never
-    const remoteLaunches: Array<Record<string, unknown>> = []
-    const view = await remoteRender({ onLaunchRemote: async (launch: Record<string, unknown>) => { remoteLaunches.push(launch) } })
-    await settle()
-    await pickMachine(view, 'Air')
-    await settle()
-    let menu = await openMore(view)
-    let row = worktreeRowOf(menu)!
-    assert.equal(row.disabled, true, 'while the checkout is unread the worktree row is closed')
-    assert.ok(row.textContent?.includes('Reading the checkout'), 'and says it is reading')
-    await act(async () => {
-      dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
-    })
-    // The read lands on a detached checkout: no branch, a trunk to fork.
-    await act(async () => {
-      release({
-        ok: true,
-        checkout: {
-          workspaceId: 'w1', git: true, branch: null, defaultBranch: 'main',
-          branches: [{ name: 'main', current: false }], worktrees: [],
-        },
-      })
-    })
-    await settle()
-    menu = await openMore(view)
-    row = worktreeRowOf(menu)!
-    assert.equal(row.disabled, false, 'once read, a repo with a trunk can fork')
-    await click(row)
-    await settle()
-    const textarea = view.container.querySelector('textarea')!
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
-      setter.call(textarea, 'go')
-      textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-    })
-    await act(async () => {
-      textarea.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }))
-    })
-    await settle()
-    assert.deepEqual(remoteLaunches[0]?.checkout, { mode: 'worktree', baseRef: 'main' }, 'the trunk is the base when there is no branch, and an unnamed worktree sends no name')
-    view.unmount()
-    fleetCheckoutAnswer = (_c, workspaceId) => ({
-      ok: true,
-      checkout: { workspaceId, git: true, branch: 'main', defaultBranch: 'main', branches: [{ name: 'main', current: true }], worktrees: [] },
-    })
-  })
-
-  await check('a pairing without workspace:operate, an unreadable checkout, and a non-repo each dim the ⋯ worktree row with the real reason', async () => {
-    seedStore()
-    resetRememberedMachineForTests()
-    fleetConnections = [machine('m1', 'Air')]
-    let scopes: string[] = ['terminal:control']
-    fleetBrowseAnswer = (id) => ({
-      connectionId: id, reachable: true, unreachableReason: null, unauthorized: false, scopes,
-      terminalAccess: 'control', workspaces: [workspace('w1', 'alpha')], terminals: [], gaps: [],
-    })
-    const reasonFor = async () => {
-      const view = await remoteRender()
-      await settle()
-      await pickMachine(view, 'Air')
-      await settle()
-      const menu = await openMore(view)
-      const row = worktreeRowOf(menu)!
-      const hint = row.textContent ?? ''
-      const disabled = row.disabled ? 'true' : null
-      await click(row)
-      await settle()
-      const opened = dom.window.document.querySelector('[aria-label="Worktree branch name"]')?.getAttribute('aria-hidden')
-      view.unmount()
-      return { hint, disabled, opened }
-    }
-    const scopeless = await reasonFor()
-    assert.equal(scopeless.disabled, 'true', 'no workspace:operate ⇒ the row is dimmed, not removed')
-    assert.ok(scopeless.hint.includes('workspace:operate'), `the reason names the scope; got: ${scopeless.hint}`)
-    assert.equal(scopeless.opened, 'true', 'and clicking it opens nothing')
-
-    scopes = ['workspace:operate', 'terminal:control']
-    fleetCheckoutAnswer = () => ({ ok: false, code: 'tailnet_scope_required', message: 'This device is not granted "workspace:read".' })
-    const unreadable = await reasonFor()
-    assert.equal(unreadable.disabled, 'true')
-    assert.ok(unreadable.hint.includes('not granted "workspace:read"'), 'an unreadable checkout carries the gateway’s words')
-
-    fleetCheckoutAnswer = (_c, workspaceId) => ({
-      ok: true,
-      checkout: { workspaceId, git: false, branch: null, defaultBranch: null, branches: [], worktrees: [] },
-    })
-    const plain = await reasonFor()
-    assert.equal(plain.disabled, 'true')
-    assert.ok(plain.hint.includes('not a git repository'), 'a non-repo says so')
-    fleetCheckoutAnswer = (_c, workspaceId) => ({
-      ok: true,
-      checkout: { workspaceId, git: true, branch: 'main', defaultBranch: 'main', branches: [{ name: 'main', current: true }], worktrees: [] },
-    })
-  })
-
-  await check('with a project in hand the machine list says which machines have it, picking one keeps the project, and This device returns to the local clone', async () => {
-    seedStore()
-    resetRememberedMachineForTests()
-    const multicode = { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
-    localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? multicode : null)
-    fleetConnections = [machine('m1', 'Air'), machine('m2', 'Mini'), machine('m3', 'Down')]
-    const browsed: string[] = []
-    fleetBrowseAnswer = (id) => {
-      browsed.push(id)
-      return {
+  await check(
+    'the scope line carries no checkout control, and the ⋯ worktree row is what sends a remote launch to a fresh worktree',
+    async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      fleetConnections = [machine('m1', 'Air')]
+      fleetBrowseAnswer = (id) => ({
         connectionId: id,
-        reachable: id !== 'm3',
-        unreachableReason: id === 'm3' ? 'Down is asleep.' : null,
+        reachable: true,
+        unreachableReason: null,
         unauthorized: false,
         scopes: ['workspace:operate', 'terminal:control'],
         terminalAccess: 'control',
-        workspaces:
-          id === 'm1'
-            ? [
-                { ...workspace('w1', 'other', '/srv/other'), repository: { canonicalKey: 'github.com/acme/other', remoteUrl: '', name: 'other' } },
-                { ...workspace('w2', 'multicode-air', '/srv/multicode'), repository: multicode },
-              ]
-            : [{ ...workspace('w9', 'scratch', '/srv/scratch'), repository: null }],
+        workspaces: [workspace('w1', 'alpha', '/srv/alpha')],
         terminals: [],
         gaps: [],
+      })
+      const checkoutReads: string[] = []
+      fleetCheckoutAnswer = (_c, workspaceId) => {
+        checkoutReads.push(workspaceId)
+        return {
+          ok: true,
+          checkout: {
+            workspaceId,
+            git: true,
+            branch: 'main',
+            defaultBranch: 'main',
+            branches: [
+              { name: 'feat/x', current: false },
+              { name: 'main', current: true },
+            ],
+            worktrees: [{ path: '/srv/alpha', branch: 'main', isMain: true }],
+          },
+        }
       }
-    }
-    const selected: string[] = []
-    const view = await remoteRender({
-      folderPath: '/proj',
-      projectOptions: [{ path: '/proj', label: 'proj' }, { path: '/other', label: 'other' }],
-      onSelectProject: (path: string) => selected.push(path),
-    })
-    await settle()
-    await settle()
-    assert.deepEqual(browsed, [], 'nothing is asked until the list is opened')
-    const menu = await openMachineMenu(view)
-    await settle()
-    await settle()
-    assert.deepEqual(browsed.sort(), ['m1', 'm2', 'm3'], 'opening the list asks every machine what it holds — once')
-    const rowsByName = new Map(
-      [...menu.querySelectorAll<HTMLButtonElement>('[data-machine-option="true"]')].map((row) => [
-        (row.querySelector('span.block')?.textContent ?? row.textContent ?? '').trim(),
-        row,
-      ])
-    )
-    const air = rowsByName.get('Air')!
-    const mini = rowsByName.get('Mini')!
-    const down = rowsByName.get('Down')!
-    assert.equal(air.getAttribute('data-machine-availability'), 'has')
-    assert.equal(air.disabled, false)
-    assert.ok(air.textContent?.includes('Has multicode'), `the row names the copy; got: ${air.textContent}`)
-    assert.equal(mini.getAttribute('data-machine-availability'), 'lacks')
-    assert.equal(mini.disabled, true, 'a machine without the project is dimmed, not removed')
-    assert.ok(mini.textContent?.includes('No copy of multicode on Mini'), `with the reason; got: ${mini.textContent}`)
-    assert.equal(down.disabled, true)
-    assert.ok(down.textContent?.includes('Down is asleep.'), 'an unreachable machine carries its reason')
-    assert.equal(rowsByName.get('This device')!.disabled, false, 'This device is always open')
+      const remoteLaunches: Array<Record<string, unknown>> = []
+      const view = await remoteRender({
+        onLaunchRemote: async (launch: Record<string, unknown>) => {
+          remoteLaunches.push(launch)
+        },
+      })
+      await settle()
+      await pickMachine(view, 'Air')
+      await settle()
+      // The checkout is still READ on the pick — the ⋯ row's gate is built from
+      // it — but nothing on the scope line reports it.
+      assert.deepEqual(checkoutReads, ['w1'], 'the lone project is picked, and its checkout read once')
+      assert.equal(
+        view.container.querySelector('[data-checkout-trigger="true"]'),
+        null,
+        'no checkout chip on the scope line',
+      )
+      assert.equal(view.container.querySelector('[data-branch-trigger="true"]'), null, 'and no branch picker')
+      assert.equal(view.container.querySelector('[data-branch-fact="true"]'), null, 'and no branch fact')
 
-    await click(air)
-    await settle()
-    await settle()
-    // The chip names the FOLDER, not the chat standing in it: `w2` is a
-    // conversation called "multicode-air" open in /srv/multicode, and the
-    // project the launch is scoped to is /srv/multicode.
-    assert.equal(
-      view.container.querySelector('[data-project-trigger="true"]')?.textContent?.trim(),
-      'multicode',
-      'picking the machine keeps the project: its copy is chosen, not the first row',
-    )
-    assert.equal(browsed.filter((id) => id === 'm1').length, 2, 'the pick re-reads the machine for freshness')
+      const textarea = view.container.querySelector('textarea')!
+      const type = (value: string) =>
+        act(async () => {
+          const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+          setter.call(textarea, value)
+          textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+        })
+      const enter = () =>
+        act(async () => {
+          textarea.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+          )
+        })
+      await type('fix the build')
+      await enter()
+      await settle()
+      assert.deepEqual(
+        remoteLaunches[0]?.checkout,
+        { mode: 'current' },
+        'with no worktree asked for, the current checkout travels',
+      )
+      assert.equal(remoteLaunches[0]?.branch, 'main', 'with the branch the panel read, for the row')
 
-    // Back to This device: the local clone of the same repository is the project.
-    await pickMachine(view, 'This device')
-    await settle()
-    assert.equal(selected.length, 0, 'the door was already on /proj, the local clone, so nothing is re-selected')
-    assert.equal(machineTrigger(view)?.textContent?.trim(), 'This device')
-    view.unmount()
+      // Turn the ⋯ row on and the same launch forks a worktree over there,
+      // based on the remote checkout's own branch.
+      const menu = await openMore(view)
+      const row = worktreeRowOf(menu)
+      assert.ok(row, 'the worktree row is offered once a remote project is picked')
+      assert.equal(row!.disabled, false, 'and a workspace:operate pairing may take it')
+      await click(row)
+      await settle()
+      const branchInput = dom.window.document.querySelector<HTMLInputElement>('[aria-label="Worktree branch name"]')
+      assert.ok(branchInput, 'and reveals the branch field')
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLInputElement.prototype, 'value')!.set!
+        setter.call(branchInput!, 'fix/build')
+        branchInput!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      await settle()
+      await type('fix the build again')
+      await enter()
+      await settle()
+      assert.deepEqual(
+        remoteLaunches[1]?.checkout,
+        { mode: 'worktree', baseRef: 'main', name: 'fix/build' },
+        'the worktree request carries the typed branch name and forks the remote’s own branch',
+      )
+      assert.equal(remoteLaunches[1]?.branch, null, 'the worktree’s branch is minted there, so none is claimed here')
+      view.unmount()
+    },
+  )
 
-    // From a remote project to This device when the door is scoped elsewhere.
-    resetRememberedMachineForTests()
-    const elsewhere = await remoteRender({
-      folderPath: '/other',
-      projectOptions: [{ path: '/proj', label: 'proj' }, { path: '/other', label: 'other' }],
-      onSelectProject: (path: string) => selected.push(path),
-    })
-    await settle()
-    await pickMachine(elsewhere, 'Air')
-    await settle()
-    // Two projects on the Air and none in hand (/other has no identity): an explicit pick.
-    await click(buttonWithText(elsewhere.container, 'Choose a project'))
-    const projects = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')!
-    // The row is the folder /srv/multicode, whatever the chat standing in it
-    // happens to be called over there.
-    await click(
-      [...projects.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((row) =>
-        (row.textContent ?? '').includes('/srv/multicode'),
-      ),
-    )
-    await settle()
-    await pickMachine(elsewhere, 'This device')
-    await settle()
-    assert.deepEqual(selected, ['/proj'], 'This device keeps the project by selecting the open local clone of it')
-    elsewhere.unmount()
-    localIdentityAnswer = () => null
-  })
+  await check(
+    'the ⋯ worktree row stays closed while the checkout is being read, and a detached remote forks its trunk',
+    async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      fleetConnections = [machine('m1', 'Air')]
+      fleetBrowseAnswer = (id) => ({
+        connectionId: id,
+        reachable: true,
+        unreachableReason: null,
+        unauthorized: false,
+        scopes: ['workspace:operate', 'terminal:control'],
+        terminalAccess: 'control',
+        workspaces: [workspace('w1', 'alpha')],
+        terminals: [],
+        gaps: [],
+      })
+      let release: (value: Record<string, unknown>) => void = () => {}
+      fleetCheckoutAnswer = () =>
+        new Promise<Record<string, unknown>>((resolve) => {
+          release = resolve
+        }) as never
+      const remoteLaunches: Array<Record<string, unknown>> = []
+      const view = await remoteRender({
+        onLaunchRemote: async (launch: Record<string, unknown>) => {
+          remoteLaunches.push(launch)
+        },
+      })
+      await settle()
+      await pickMachine(view, 'Air')
+      await settle()
+      let menu = await openMore(view)
+      let row = worktreeRowOf(menu)!
+      assert.equal(row.disabled, true, 'while the checkout is unread the worktree row is closed')
+      assert.ok(row.textContent?.includes('Reading the checkout'), 'and says it is reading')
+      await act(async () => {
+        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
+      })
+      // The read lands on a detached checkout: no branch, a trunk to fork.
+      await act(async () => {
+        release({
+          ok: true,
+          checkout: {
+            workspaceId: 'w1',
+            git: true,
+            branch: null,
+            defaultBranch: 'main',
+            branches: [{ name: 'main', current: false }],
+            worktrees: [],
+          },
+        })
+      })
+      await settle()
+      menu = await openMore(view)
+      row = worktreeRowOf(menu)!
+      assert.equal(row.disabled, false, 'once read, a repo with a trunk can fork')
+      await click(row)
+      await settle()
+      const textarea = view.container.querySelector('textarea')!
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')!.set!
+        setter.call(textarea, 'go')
+        textarea.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      await act(async () => {
+        textarea.dispatchEvent(
+          new dom.window.KeyboardEvent('keydown', { key: 'Enter', bubbles: true, cancelable: true }),
+        )
+      })
+      await settle()
+      assert.deepEqual(
+        remoteLaunches[0]?.checkout,
+        { mode: 'worktree', baseRef: 'main' },
+        'the trunk is the base when there is no branch, and an unnamed worktree sends no name',
+      )
+      view.unmount()
+      fleetCheckoutAnswer = (_c, workspaceId) => ({
+        ok: true,
+        checkout: {
+          workspaceId,
+          git: true,
+          branch: 'main',
+          defaultBranch: 'main',
+          branches: [{ name: 'main', current: true }],
+          worktrees: [],
+        },
+      })
+    },
+  )
+
+  await check(
+    'a pairing without workspace:operate, an unreadable checkout, and a non-repo each dim the ⋯ worktree row with the real reason',
+    async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      fleetConnections = [machine('m1', 'Air')]
+      let scopes: string[] = ['terminal:control']
+      fleetBrowseAnswer = (id) => ({
+        connectionId: id,
+        reachable: true,
+        unreachableReason: null,
+        unauthorized: false,
+        scopes,
+        terminalAccess: 'control',
+        workspaces: [workspace('w1', 'alpha')],
+        terminals: [],
+        gaps: [],
+      })
+      const reasonFor = async () => {
+        const view = await remoteRender()
+        await settle()
+        await pickMachine(view, 'Air')
+        await settle()
+        const menu = await openMore(view)
+        const row = worktreeRowOf(menu)!
+        const hint = row.textContent ?? ''
+        const disabled = row.disabled ? 'true' : null
+        await click(row)
+        await settle()
+        const opened = dom.window.document
+          .querySelector('[aria-label="Worktree branch name"]')
+          ?.getAttribute('aria-hidden')
+        view.unmount()
+        return { hint, disabled, opened }
+      }
+      const scopeless = await reasonFor()
+      assert.equal(scopeless.disabled, 'true', 'no workspace:operate ⇒ the row is dimmed, not removed')
+      assert.ok(scopeless.hint.includes('workspace:operate'), `the reason names the scope; got: ${scopeless.hint}`)
+      assert.equal(scopeless.opened, 'true', 'and clicking it opens nothing')
+
+      scopes = ['workspace:operate', 'terminal:control']
+      fleetCheckoutAnswer = () => ({
+        ok: false,
+        code: 'tailnet_scope_required',
+        message: 'This device is not granted "workspace:read".',
+      })
+      const unreadable = await reasonFor()
+      assert.equal(unreadable.disabled, 'true')
+      assert.ok(
+        unreadable.hint.includes('not granted "workspace:read"'),
+        'an unreadable checkout carries the gateway’s words',
+      )
+
+      fleetCheckoutAnswer = (_c, workspaceId) => ({
+        ok: true,
+        checkout: { workspaceId, git: false, branch: null, defaultBranch: null, branches: [], worktrees: [] },
+      })
+      const plain = await reasonFor()
+      assert.equal(plain.disabled, 'true')
+      assert.ok(plain.hint.includes('not a git repository'), 'a non-repo says so')
+      fleetCheckoutAnswer = (_c, workspaceId) => ({
+        ok: true,
+        checkout: {
+          workspaceId,
+          git: true,
+          branch: 'main',
+          defaultBranch: 'main',
+          branches: [{ name: 'main', current: true }],
+          worktrees: [],
+        },
+      })
+    },
+  )
+
+  await check(
+    'with a project in hand the machine list says which machines have it, picking one keeps the project, and This device returns to the local clone',
+    async () => {
+      seedStore()
+      resetRememberedMachineForTests()
+      const multicode = {
+        canonicalKey: 'github.com/acme/multicode',
+        remoteUrl: 'git@github.com:acme/multicode.git',
+        name: 'multicode',
+      }
+      localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? multicode : null)
+      fleetConnections = [machine('m1', 'Air'), machine('m2', 'Mini'), machine('m3', 'Down')]
+      const browsed: string[] = []
+      fleetBrowseAnswer = (id) => {
+        browsed.push(id)
+        return {
+          connectionId: id,
+          reachable: id !== 'm3',
+          unreachableReason: id === 'm3' ? 'Down is asleep.' : null,
+          unauthorized: false,
+          scopes: ['workspace:operate', 'terminal:control'],
+          terminalAccess: 'control',
+          workspaces:
+            id === 'm1'
+              ? [
+                  {
+                    ...workspace('w1', 'other', '/srv/other'),
+                    repository: { canonicalKey: 'github.com/acme/other', remoteUrl: '', name: 'other' },
+                  },
+                  { ...workspace('w2', 'multicode-air', '/srv/multicode'), repository: multicode },
+                ]
+              : [{ ...workspace('w9', 'scratch', '/srv/scratch'), repository: null }],
+          terminals: [],
+          gaps: [],
+        }
+      }
+      const selected: string[] = []
+      const view = await remoteRender({
+        folderPath: '/proj',
+        projectOptions: [
+          { path: '/proj', label: 'proj' },
+          { path: '/other', label: 'other' },
+        ],
+        onSelectProject: (path: string) => selected.push(path),
+      })
+      await settle()
+      await settle()
+      assert.deepEqual(browsed, [], 'nothing is asked until the list is opened')
+      const menu = await openMachineMenu(view)
+      await settle()
+      await settle()
+      assert.deepEqual(browsed.sort(), ['m1', 'm2', 'm3'], 'opening the list asks every machine what it holds — once')
+      const rowsByName = new Map(
+        [...menu.querySelectorAll<HTMLButtonElement>('[data-machine-option="true"]')].map((row) => [
+          (row.querySelector('span.block')?.textContent ?? row.textContent ?? '').trim(),
+          row,
+        ]),
+      )
+      const air = rowsByName.get('Air')!
+      const mini = rowsByName.get('Mini')!
+      const down = rowsByName.get('Down')!
+      assert.equal(air.getAttribute('data-machine-availability'), 'has')
+      assert.equal(air.disabled, false)
+      assert.ok(air.textContent?.includes('Has multicode'), `the row names the copy; got: ${air.textContent}`)
+      assert.equal(mini.getAttribute('data-machine-availability'), 'lacks')
+      assert.equal(mini.disabled, true, 'a machine without the project is dimmed, not removed')
+      assert.ok(mini.textContent?.includes('No copy of multicode on Mini'), `with the reason; got: ${mini.textContent}`)
+      assert.equal(down.disabled, true)
+      assert.ok(down.textContent?.includes('Down is asleep.'), 'an unreachable machine carries its reason')
+      assert.equal(rowsByName.get('This device')!.disabled, false, 'This device is always open')
+
+      await click(air)
+      await settle()
+      await settle()
+      // The chip names the FOLDER, not the chat standing in it: `w2` is a
+      // conversation called "multicode-air" open in /srv/multicode, and the
+      // project the launch is scoped to is /srv/multicode.
+      assert.equal(
+        view.container.querySelector('[data-project-trigger="true"]')?.textContent?.trim(),
+        'multicode',
+        'picking the machine keeps the project: its copy is chosen, not the first row',
+      )
+      assert.equal(browsed.filter((id) => id === 'm1').length, 2, 'the pick re-reads the machine for freshness')
+
+      // Back to This device: the local clone of the same repository is the project.
+      await pickMachine(view, 'This device')
+      await settle()
+      assert.equal(selected.length, 0, 'the door was already on /proj, the local clone, so nothing is re-selected')
+      assert.equal(machineTrigger(view)?.textContent?.trim(), 'This device')
+      view.unmount()
+
+      // From a remote project to This device when the door is scoped elsewhere.
+      resetRememberedMachineForTests()
+      const elsewhere = await remoteRender({
+        folderPath: '/other',
+        projectOptions: [
+          { path: '/proj', label: 'proj' },
+          { path: '/other', label: 'other' },
+        ],
+        onSelectProject: (path: string) => selected.push(path),
+      })
+      await settle()
+      await pickMachine(elsewhere, 'Air')
+      await settle()
+      // Two projects on the Air and none in hand (/other has no identity): an explicit pick.
+      await click(buttonWithText(elsewhere.container, 'Choose a project'))
+      const projects = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')!
+      // The row is the folder /srv/multicode, whatever the chat standing in it
+      // happens to be called over there.
+      await click(
+        [...projects.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((row) =>
+          (row.textContent ?? '').includes('/srv/multicode'),
+        ),
+      )
+      await settle()
+      await pickMachine(elsewhere, 'This device')
+      await settle()
+      assert.deepEqual(selected, ['/proj'], 'This device keeps the project by selecting the open local clone of it')
+      elsewhere.unmount()
+      localIdentityAnswer = () => null
+    },
+  )
 
   // The chip and its menu were lifted out of this file into ProjectScopePicker
   // so the Design door can ask the same question with the same control. New chat
@@ -1664,7 +1869,10 @@ async function main(): Promise<void> {
     fleetConnections = []
     const view = await render({
       folderPath: '/proj',
-      projectOptions: [{ path: '/proj', label: 'proj' }, { path: '/other', label: 'other' }],
+      projectOptions: [
+        { path: '/proj', label: 'proj' },
+        { path: '/other', label: 'other' },
+      ],
       onSelectProject: () => {},
       onBrowseProject: () => {},
     })
@@ -1699,9 +1907,12 @@ async function main(): Promise<void> {
     return Boolean(glyph?.querySelector('path')?.getAttribute('stroke-dasharray'))
   }
   const seedColours = (): void => {
-    useWorkspaceStore.setState((state) => ({
-      appSettings: { ...state.appSettings, projectColors: {} },
-    }) as never)
+    useWorkspaceStore.setState(
+      (state) =>
+        ({
+          appSettings: { ...state.appSettings, projectColors: {} },
+        }) as never,
+    )
   }
 
   await check('the scope line wears the project’s colour, and no project at all wears the dashed folder', async () => {
@@ -1709,12 +1920,19 @@ async function main(): Promise<void> {
     seedColours()
     resetRememberedMachineForTests()
     fleetConnections = []
-    const multicode = { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
+    const multicode = {
+      canonicalKey: 'github.com/acme/multicode',
+      remoteUrl: 'git@github.com:acme/multicode.git',
+      name: 'multicode',
+    }
     localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? multicode : null)
 
     const view = await render({
       folderPath: '/proj',
-      projectOptions: [{ path: '/proj', label: 'proj' }, { path: '/other', label: 'other' }],
+      projectOptions: [
+        { path: '/proj', label: 'proj' },
+        { path: '/other', label: 'other' },
+      ],
       onSelectProject: () => {},
       onBrowseProject: () => {},
     })
@@ -1722,12 +1940,19 @@ async function main(): Promise<void> {
     await settle()
     const trigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
     const mark = glyphMark(trigger)
-    assert.ok(mark, `the chosen project’s chip carries a hue; got class ${trigger?.querySelector('svg')?.getAttribute('class')}`)
+    assert.ok(
+      mark,
+      `the chosen project’s chip carries a hue; got class ${trigger?.querySelector('svg')?.getAttribute('class')}`,
+    )
     assert.equal(glyphIsUnfiled(trigger), false, 'and a solid folder, because this IS a project')
     // The hue is hashed from the REPOSITORY key, not the folder: two clones of
     // one repo are one project and one hue (decision 3). Derived, so nothing
     // is written — the map holds only what a person chose.
-    assert.equal(mark, projectHue('repo:github.com/acme/multicode'), 'the chip wears the hue hashed from the repository key')
+    assert.equal(
+      mark,
+      projectHue('repo:github.com/acme/multicode'),
+      'the chip wears the hue hashed from the repository key',
+    )
     assert.deepEqual(useWorkspaceStore.getState().appSettings.projectColors ?? {}, {}, 'and nothing is stored')
     // The list is where a person chooses BETWEEN projects, so the rows carry
     // their own colours rather than only the chip that opened them.
@@ -1754,7 +1979,11 @@ async function main(): Promise<void> {
     const emptyTrigger = empty.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
     assert.ok(emptyTrigger?.textContent?.includes('Choose a project'), 'it says there is a project to choose')
     assert.equal(glyphMark(emptyTrigger), null, 'no folder is not a project, so it has no hue')
-    assert.equal(glyphIsUnfiled(emptyTrigger), true, 'and the outline is dashed, not a solid folder waiting on a colour')
+    assert.equal(
+      glyphIsUnfiled(emptyTrigger),
+      true,
+      'and the outline is dashed, not a solid folder waiting on a colour',
+    )
     assert.deepEqual(
       useWorkspaceStore.getState().appSettings.projectColors,
       {},
@@ -1768,7 +1997,11 @@ async function main(): Promise<void> {
     seedStore()
     seedColours()
     resetRememberedMachineForTests()
-    const multicode = { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
+    const multicode = {
+      canonicalKey: 'github.com/acme/multicode',
+      remoteUrl: 'git@github.com:acme/multicode.git',
+      name: 'multicode',
+    }
     localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? multicode : null)
     fleetConnections = [machine('m1', 'Air')]
     fleetBrowseAnswer = (id) => ({
@@ -1779,7 +2012,10 @@ async function main(): Promise<void> {
       scopes: ['workspace:operate'],
       terminalAccess: 'control',
       workspaces: [
-        { ...workspace('w1', 'other', '/srv/other'), repository: { canonicalKey: 'github.com/acme/other', remoteUrl: '', name: 'other' } },
+        {
+          ...workspace('w1', 'other', '/srv/other'),
+          repository: { canonicalKey: 'github.com/acme/other', remoteUrl: '', name: 'other' },
+        },
         { ...workspace('w2', 'multicode-air', '/srv/multicode'), repository: multicode },
       ],
       terminals: [],
@@ -1797,7 +2033,11 @@ async function main(): Promise<void> {
     // Two projects on the Air, but one of them is the repository in hand, so
     // the machine pick keeps the project.
     const remoteTrigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
-    assert.equal(remoteTrigger?.textContent?.trim(), 'multicode', `the remote copy is the picked project; got ${remoteTrigger?.textContent}`)
+    assert.equal(
+      remoteTrigger?.textContent?.trim(),
+      'multicode',
+      `the remote copy is the picked project; got ${remoteTrigger?.textContent}`,
+    )
     assert.equal(
       glyphMark(remoteTrigger),
       localMark,
@@ -1827,90 +2067,109 @@ async function main(): Promise<void> {
     fleetConnections = []
   })
 
-  await check('every state of the scope line wears the hue: the plain line, a folder with no remote, and a recent clone of the open project', async () => {
-    seedStore()
-    seedColours()
-    resetRememberedMachineForTests()
-    fleetConnections = []
-    const multicode = { canonicalKey: 'github.com/acme/multicode', remoteUrl: 'git@github.com:acme/multicode.git', name: 'multicode' }
-    localIdentityAnswer = (folderPath) =>
-      folderPath === '/proj' || folderPath === '/clone' ? multicode : null
+  await check(
+    'every state of the scope line wears the hue: the plain line, a folder with no remote, and a recent clone of the open project',
+    async () => {
+      seedStore()
+      seedColours()
+      resetRememberedMachineForTests()
+      fleetConnections = []
+      const multicode = {
+        canonicalKey: 'github.com/acme/multicode',
+        remoteUrl: 'git@github.com:acme/multicode.git',
+        name: 'multicode',
+      }
+      localIdentityAnswer = (folderPath) => (folderPath === '/proj' || folderPath === '/clone' ? multicode : null)
 
-    // The tab strip's "+": the project is a fact rather than a choice, so the
-    // line is a `<p>` and not a control — and it still wears the colour, or the
-    // hue stops being how you tell one project from another.
-    const fixed = await render({ folderPath: '/proj' })
-    await settle()
-    await settle()
-    const line = [...fixed.container.querySelectorAll('p')].find((el) => (el.textContent ?? '').includes('proj'))
-    assert.ok(line, 'the plain scope line is there')
-    assert.equal(
-      fixed.container.querySelector('[data-project-trigger="true"]'),
-      null,
-      'and it is a line, not a chip — this host offers no choice it cannot honour',
-    )
-    const fixedMark = glyphMark(line)
-    assert.ok(fixedMark, `the plain line carries the hue too; got ${line?.querySelector('svg')?.getAttribute('class')}`)
-    assert.equal(glyphIsUnfiled(line), false, 'and a solid folder')
-    fixed.unmount()
+      // The tab strip's "+": the project is a fact rather than a choice, so the
+      // line is a `<p>` and not a control — and it still wears the colour, or the
+      // hue stops being how you tell one project from another.
+      const fixed = await render({ folderPath: '/proj' })
+      await settle()
+      await settle()
+      const line = [...fixed.container.querySelectorAll('p')].find((el) => (el.textContent ?? '').includes('proj'))
+      assert.ok(line, 'the plain scope line is there')
+      assert.equal(
+        fixed.container.querySelector('[data-project-trigger="true"]'),
+        null,
+        'and it is a line, not a chip — this host offers no choice it cannot honour',
+      )
+      const fixedMark = glyphMark(line)
+      assert.ok(
+        fixedMark,
+        `the plain line carries the hue too; got ${line?.querySelector('svg')?.getAttribute('class')}`,
+      )
+      assert.equal(glyphIsUnfiled(line), false, 'and a solid folder')
+      fixed.unmount()
 
-    // A folder with no remote is still a project — keyed by its path, because
-    // that is the only identity it has. It must not stay colourless.
-    seedColours()
-    const noRemote = await render({
-      folderPath: '/plain',
-      projectOptions: [{ path: '/plain', label: 'plain' }],
-      onSelectProject: () => {},
-    })
-    await settle()
-    await settle()
-    const noRemoteMark = glyphMark(noRemote.container.querySelector('[data-project-trigger="true"]'))
-    assert.equal(
-      noRemoteMark,
-      projectHue('folder:/plain'),
-      'a folder with no remote wears the hue of its folder key once its identity read has ANSWERED',
-    )
-    noRemote.unmount()
+      // A folder with no remote is still a project — keyed by its path, because
+      // that is the only identity it has. It must not stay colourless.
+      seedColours()
+      const noRemote = await render({
+        folderPath: '/plain',
+        projectOptions: [{ path: '/plain', label: 'plain' }],
+        onSelectProject: () => {},
+      })
+      await settle()
+      await settle()
+      const noRemoteMark = glyphMark(noRemote.container.querySelector('[data-project-trigger="true"]'))
+      assert.equal(
+        noRemoteMark,
+        projectHue('folder:/plain'),
+        'a folder with no remote wears the hue of its folder key once its identity read has ANSWERED',
+      )
+      noRemote.unmount()
 
-    // A recent clone of the OPEN project is the same project, so it is the same
-    // hue — a grey row beside its blue twin is exactly the confusion the colour
-    // exists to end. The recents are the picker's own rows, so it asks for
-    // their identities itself.
-    seedColours()
-    useWorkspaceStore.setState((state) => ({
-      appSettings: { ...state.appSettings, recentWorkspaceFolders: ['/clone'] },
-    }) as never)
-    const view = await render({
-      folderPath: '/proj',
-      projectOptions: [{ path: '/proj', label: 'proj' }],
-      onSelectProject: () => {},
-      onBrowseProject: () => {},
-    })
-    await settle()
-    await settle()
-    const trigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
-    const mark = glyphMark(trigger)
-    assert.ok(mark, 'the open clone has a hue')
-    await click(trigger)
-    await settle()
-    await settle()
-    const menu = dom.window.document.querySelector('[role="menu"][aria-label="Project this agent runs in"]')!
-    const recentRow = [...menu.querySelectorAll('[role="menuitemradio"]')].find((row) =>
-      (row.textContent ?? '').includes('/clone'),
-    )
-    assert.ok(recentRow, 'the recent folder is offered')
-    assert.equal(
-      glyphMark(recentRow),
-      mark,
-      'and it wears the same hue as the open clone: one repository is one project',
-    )
-    assert.equal(mark, projectHue('repo:github.com/acme/multicode'), 'because both clones read ONE key: the repository’s')
-    view.unmount()
-    useWorkspaceStore.setState((state) => ({
-      appSettings: { ...state.appSettings, recentWorkspaceFolders: [] },
-    }) as never)
-    localIdentityAnswer = () => null
-  })
+      // A recent clone of the OPEN project is the same project, so it is the same
+      // hue — a grey row beside its blue twin is exactly the confusion the colour
+      // exists to end. The recents are the picker's own rows, so it asks for
+      // their identities itself.
+      seedColours()
+      useWorkspaceStore.setState(
+        (state) =>
+          ({
+            appSettings: { ...state.appSettings, recentWorkspaceFolders: ['/clone'] },
+          }) as never,
+      )
+      const view = await render({
+        folderPath: '/proj',
+        projectOptions: [{ path: '/proj', label: 'proj' }],
+        onSelectProject: () => {},
+        onBrowseProject: () => {},
+      })
+      await settle()
+      await settle()
+      const trigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
+      const mark = glyphMark(trigger)
+      assert.ok(mark, 'the open clone has a hue')
+      await click(trigger)
+      await settle()
+      await settle()
+      const menu = dom.window.document.querySelector('[role="menu"][aria-label="Project this agent runs in"]')!
+      const recentRow = [...menu.querySelectorAll('[role="menuitemradio"]')].find((row) =>
+        (row.textContent ?? '').includes('/clone'),
+      )
+      assert.ok(recentRow, 'the recent folder is offered')
+      assert.equal(
+        glyphMark(recentRow),
+        mark,
+        'and it wears the same hue as the open clone: one repository is one project',
+      )
+      assert.equal(
+        mark,
+        projectHue('repo:github.com/acme/multicode'),
+        'because both clones read ONE key: the repository’s',
+      )
+      view.unmount()
+      useWorkspaceStore.setState(
+        (state) =>
+          ({
+            appSettings: { ...state.appSettings, recentWorkspaceFolders: [] },
+          }) as never,
+      )
+      localIdentityAnswer = () => null
+    },
+  )
 
   await check('a remote project the machine could not identify takes no hue and no key', async () => {
     seedStore()
@@ -1943,7 +2202,11 @@ async function main(): Promise<void> {
     await settle()
     const trigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
     assert.ok(trigger?.textContent?.includes('mystery'), `the lone project is picked; got ${trigger?.textContent}`)
-    assert.equal(glyphMark(trigger), null, 'with no hue: its path is a path on ANOTHER disk, never a key this one can match')
+    assert.equal(
+      glyphMark(trigger),
+      null,
+      'with no hue: its path is a path on ANOTHER disk, never a key this one can match',
+    )
     assert.equal(
       glyphIsUnfiled(trigger),
       false,
@@ -1992,26 +2255,37 @@ async function main(): Promise<void> {
   // The door's surface seeds from the draft parked under its key and writes
   // every change back, so an unmount from any direction loses nothing; the
   // host, not the surface, decides when the draft is forgotten.
-  await check('with a draft key the surface resumes the parked prompt and images, and writes changes through', async () => {
-    const { readNewChatDraft, writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
-    resetNewChatDraftsForTests()
-    const shot = { id: 'img-1', mediaType: 'image/png', dataBase64: 'AAAA', byteLength: 4, path: '/tmp/shot.png' }
-    writeNewChatDraft('win-1', { prompt: 'review the auth flow', images: [shot], folderPath: '/w/app' })
-    const view = await render({ draftKey: 'win-1' })
-    const textarea = view.container.querySelector('textarea')
-    assert.equal(textarea?.value, 'review the auth flow', 'the parked words are back in the box')
-    assert.ok(view.container.querySelector('img[src^="data:image/png"]'), 'and so is the pasted screenshot')
-    await act(async () => {
-      const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')?.set
-      setter?.call(textarea, 'review the auth flow, then the session store')
-      textarea!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
-    })
-    assert.equal(readNewChatDraft('win-1')?.prompt, 'review the auth flow, then the session store', 'typing is parked as it happens')
-    assert.equal(readNewChatDraft('win-1')?.folderPath, '/w/app', 'the surface never touches the scope the host owns')
-    view.unmount()
-    assert.equal(readNewChatDraft('win-1')?.prompt, 'review the auth flow, then the session store', 'unmounting forgets nothing — forgetting is the host\'s call')
-    resetNewChatDraftsForTests()
-  })
+  await check(
+    'with a draft key the surface resumes the parked prompt and images, and writes changes through',
+    async () => {
+      const { readNewChatDraft, writeNewChatDraft, resetNewChatDraftsForTests } = await import('./newChatDraft')
+      resetNewChatDraftsForTests()
+      const shot = { id: 'img-1', mediaType: 'image/png', dataBase64: 'AAAA', byteLength: 4, path: '/tmp/shot.png' }
+      writeNewChatDraft('win-1', { prompt: 'review the auth flow', images: [shot], folderPath: '/w/app' })
+      const view = await render({ draftKey: 'win-1' })
+      const textarea = view.container.querySelector('textarea')
+      assert.equal(textarea?.value, 'review the auth flow', 'the parked words are back in the box')
+      assert.ok(view.container.querySelector('img[src^="data:image/png"]'), 'and so is the pasted screenshot')
+      await act(async () => {
+        const setter = Object.getOwnPropertyDescriptor(dom.window.HTMLTextAreaElement.prototype, 'value')?.set
+        setter?.call(textarea, 'review the auth flow, then the session store')
+        textarea!.dispatchEvent(new dom.window.Event('input', { bubbles: true }))
+      })
+      assert.equal(
+        readNewChatDraft('win-1')?.prompt,
+        'review the auth flow, then the session store',
+        'typing is parked as it happens',
+      )
+      assert.equal(readNewChatDraft('win-1')?.folderPath, '/w/app', 'the surface never touches the scope the host owns')
+      view.unmount()
+      assert.equal(
+        readNewChatDraft('win-1')?.prompt,
+        'review the auth flow, then the session store',
+        "unmounting forgets nothing — forgetting is the host's call",
+      )
+      resetNewChatDraftsForTests()
+    },
+  )
 
   // A draft can also carry the ENGINE its pick was made on, for the one caller
   // that picks a row and deliberately stores nothing: a card's `Go` picker

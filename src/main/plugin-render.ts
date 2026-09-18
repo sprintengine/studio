@@ -15,16 +15,13 @@ import type {
 
 const SUBSTITUTION_PATTERN = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)\s*\}\}/g
 
-export function renderPluginLaunch(
-  manifest: PluginManifest,
-  context: PluginRenderContext
-): PluginRenderedCommand {
+export function renderPluginLaunch(manifest: PluginManifest, context: PluginRenderContext): PluginRenderedCommand {
   return renderArgvSpec(manifest, context, manifest.launch.argv, manifest.launch)
 }
 
 export function renderPluginResume(
   manifest: PluginManifest,
-  context: PluginRenderContext
+  context: PluginRenderContext,
 ): PluginRenderedCommand | null {
   if (!manifest.resume || !manifest.resume.supported) return null
   const argvSpec = manifest.resume.argv ?? manifest.launch.argv
@@ -47,7 +44,7 @@ export function renderPluginResume(
 export function renderReasoningArgs(
   manifest: PluginManifest,
   reasoning: string | undefined,
-  scope?: Map<string, string | string[] | undefined>
+  scope?: Map<string, string | string[] | undefined>,
 ): string[] {
   const level = reasoning?.trim()
   const selection = manifest.reasoningSelection
@@ -69,7 +66,7 @@ function renderArgvSpec(
   manifest: PluginManifest,
   context: PluginRenderContext,
   argvSpec: PluginArgvToken[],
-  launchSpec: { cwd?: string; env?: Record<string, string> }
+  launchSpec: { cwd?: string; env?: Record<string, string> },
 ): PluginRenderedCommand {
   const variables = buildVariableScope(manifest, context)
   const argv = expandArgv(argvSpec, variables)
@@ -96,10 +93,7 @@ function hasHostContext(context: PluginRenderContext): boolean {
  * The manifest's `contextInjection.env`, or undefined when it must not render:
  * no document to deliver, or a manifest whose declared mode is not `env`.
  */
-function contextEnvSpec(
-  manifest: PluginManifest,
-  context: PluginRenderContext
-): Record<string, string> | undefined {
+function contextEnvSpec(manifest: PluginManifest, context: PluginRenderContext): Record<string, string> | undefined {
   const injection = manifest.contextInjection
   if (!injection || injection.mode !== 'env') return undefined
   if (!hasHostContext(context)) return undefined
@@ -130,17 +124,14 @@ const LEGACY_PRESET_KEYS: Record<string, string> = {
   bypass: 'bypass_all',
 }
 
-function declaredPreset(
-  manifest: PluginManifest,
-  name: string
-): PluginPermissionPreset | undefined {
+function declaredPreset(manifest: PluginManifest, name: string): PluginPermissionPreset | undefined {
   const legacy = LEGACY_PRESET_KEYS[name]
   return manifest.permissionPresets[name] ?? (legacy ? manifest.permissionPresets[legacy] : undefined)
 }
 
 function resolvePermissionPreset(
   manifest: PluginManifest,
-  requested: string | undefined
+  requested: string | undefined,
 ): PluginPermissionPreset | undefined {
   const name = requested ?? 'manual'
   // `none` short-circuits to no args without consulting the manifest at all.
@@ -164,16 +155,13 @@ function resolvePermissionPreset(
  * hand and used to carry its own hardcoded copy of this table; that duplication
  * is how the Claude Code mapping drifted out of step with the manifest (MC-2210).
  */
-export function resolvePermissionArgs(
-  manifest: PluginManifest,
-  requested: string | undefined
-): string[] {
+export function resolvePermissionArgs(manifest: PluginManifest, requested: string | undefined): string[] {
   return resolvePermissionPreset(manifest, requested)?.args ?? []
 }
 
 function buildVariableScope(
   manifest: PluginManifest,
-  context: PluginRenderContext
+  context: PluginRenderContext,
 ): Map<string, string | string[] | undefined> {
   const scope = new Map<string, string | string[] | undefined>()
 
@@ -226,7 +214,7 @@ function buildVariableScope(
     scope.set('model', model)
     scope.set(
       'modelArgs',
-      modelArgTemplates.map((template) => substituteString(template, scope))
+      modelArgTemplates.map((template) => substituteString(template, scope)),
     )
   } else {
     scope.set('modelArgs', [])
@@ -252,7 +240,7 @@ function buildVariableScope(
     'contextArgs',
     contextArgTemplates && contextArgTemplates.length > 0 && hasHostContext(context)
       ? contextArgTemplates.map((template) => substituteString(template, scope))
-      : []
+      : [],
   )
 
   // `themeArgs` mirrors `modelArgs`: spread into argv via { spreadIf: "themeArgs" }.
@@ -279,7 +267,7 @@ function buildVariableScope(
     scope.set('themeName', themeName)
     scope.set(
       'themeArgs',
-      themeArgTemplates.map((template) => substituteString(template, scope))
+      themeArgTemplates.map((template) => substituteString(template, scope)),
     )
   } else {
     scope.set('themeArgs', [])
@@ -308,7 +296,7 @@ function buildVariableScope(
       scope.set('launchSettingsJson', JSON.stringify(payload))
       scope.set(
         'launchSettingsArgs',
-        launchSettingsTemplates.map((template) => substituteString(template, scope))
+        launchSettingsTemplates.map((template) => substituteString(template, scope)),
       )
       scope.set('themeArgs', [])
     } else {
@@ -346,10 +334,7 @@ function buildVariableScope(
   return scope
 }
 
-function expandArgv(
-  argvSpec: PluginArgvToken[],
-  variables: Map<string, string | string[] | undefined>
-): string[] {
+function expandArgv(argvSpec: PluginArgvToken[], variables: Map<string, string | string[] | undefined>): string[] {
   const out: string[] = []
   for (const token of argvSpec) {
     if (typeof token === 'string') {
@@ -377,8 +362,7 @@ function expandArgv(
     if ('valueIf' in token) {
       const condition = variables.get(token.valueIf)
       const truthy =
-        (Array.isArray(condition) && condition.length > 0) ||
-        (typeof condition === 'string' && condition.length > 0)
+        (Array.isArray(condition) && condition.length > 0) || (typeof condition === 'string' && condition.length > 0)
       if (truthy) out.push(substituteString(token.value, variables))
       continue
     }
@@ -386,10 +370,7 @@ function expandArgv(
   return out
 }
 
-function substituteString(
-  template: string,
-  variables: Map<string, string | string[] | undefined>
-): string {
+function substituteString(template: string, variables: Map<string, string | string[] | undefined>): string {
   return template.replace(SUBSTITUTION_PATTERN, (_match, name: string) => {
     const value = variables.get(name)
     if (value === undefined) return ''
@@ -400,7 +381,7 @@ function substituteString(
 
 function renderEnv(
   envSpec: Record<string, string> | undefined,
-  variables: Map<string, string | string[] | undefined>
+  variables: Map<string, string | string[] | undefined>,
 ): Record<string, string> {
   const env: Record<string, string> = {}
   if (!envSpec) return env

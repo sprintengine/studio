@@ -115,8 +115,7 @@ export const useToastStore = create<ToastStore>()((set) => ({
         ? state.toasts.map((toast) => (toast === replaced ? { ...input, id, stableId } : toast))
         : [...state.toasts, { ...input, id, stableId }]
       if (toasts.length > MAX_TOASTS) {
-        const shed =
-          toasts.find((toast) => !PERSISTENT_TONES.has(toast.tone)) ?? toasts[0]
+        const shed = toasts.find((toast) => !PERSISTENT_TONES.has(toast.tone)) ?? toasts[0]
         toasts = toasts.filter((toast) => toast !== shed)
       }
       return { toasts }
@@ -124,8 +123,7 @@ export const useToastStore = create<ToastStore>()((set) => ({
     return id
   },
 
-  dismissToast: (id) =>
-    set((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== id) })),
+  dismissToast: (id) => set((state) => ({ toasts: state.toasts.filter((toast) => toast.id !== id) })),
 }))
 
 /** Imperative door for non-component producers (event bridges, utilities). */

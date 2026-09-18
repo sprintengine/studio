@@ -30,7 +30,11 @@ import {
 import type { ConversationProviderListEntry, ConversationProviderModel } from '../../../../shared/plugin-manifest'
 import type { CliPermissionPreset } from '../../types/workspace'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import { AGENT_SPAWN_PERMISSION_OPTIONS, focusActivePresetRow, PermissionPresetMenuRows } from '../workspace/agentComposer/agentSpawnShared'
+import {
+  AGENT_SPAWN_PERMISSION_OPTIONS,
+  focusActivePresetRow,
+  PermissionPresetMenuRows,
+} from '../workspace/agentComposer/agentSpawnShared'
 import { getEffectiveKeybindings } from '../../commands/effectiveKeybindings'
 import { renderKeybinding } from '../../commands/keybindings'
 import { PANEL_COMMAND_EVENT } from '../../utils/panelCommands'
@@ -45,7 +49,36 @@ import {
   openAttachmentImage,
 } from './ComposerAttachmentStrip'
 import { renderMarkdown } from '../../utils/markdown'
-import { CardButton, ChipButton, COMPOSER_SURFACE_CLASS, ContextMenu, FilterMenu, FOCUS_RING_WITHIN_INPUT_CLASS, FOCUS_RING_WITHIN_TEXTAREA_CLASS, GhostButton, IconButton, InlineNotice, InlineSkillPicker, Input, LinkButton, MENU_DIVIDER_CLASS, MENU_GROUP_LABEL_CLASS, MENU_LIST_CLASS, MenuDivider, MenuItem, MenuOption, OutlineButton, Popover, PrimaryButton, RowButton, SkillPickerPopover, StatusDot, Textarea, Tooltip, TruncatedText } from '../ui'
+import {
+  CardButton,
+  ChipButton,
+  COMPOSER_SURFACE_CLASS,
+  ContextMenu,
+  FilterMenu,
+  FOCUS_RING_WITHIN_INPUT_CLASS,
+  FOCUS_RING_WITHIN_TEXTAREA_CLASS,
+  GhostButton,
+  IconButton,
+  InlineNotice,
+  InlineSkillPicker,
+  Input,
+  LinkButton,
+  MENU_DIVIDER_CLASS,
+  MENU_GROUP_LABEL_CLASS,
+  MENU_LIST_CLASS,
+  MenuDivider,
+  MenuItem,
+  MenuOption,
+  OutlineButton,
+  Popover,
+  PrimaryButton,
+  RowButton,
+  SkillPickerPopover,
+  StatusDot,
+  Textarea,
+  Tooltip,
+  TruncatedText,
+} from '../ui'
 import type { InlineSkillPickerHandle } from '../ui'
 import type { WorkspaceSkill } from '../../../../shared/electron-api'
 import { renderChatSkillMention, renderChatSkillPrefill } from '../../utils/skillInvocation'
@@ -269,10 +302,7 @@ function userEntryFromLocalTurn(userTurn: UserTurn): Extract<TranscriptEntry, { 
   }
 }
 
-export function projectConversation(
-  events: ConversationEvent[],
-  userTurns: UserTurn[] = []
-): ConversationProjection {
+export function projectConversation(events: ConversationEvent[], userTurns: UserTurn[] = []): ConversationProjection {
   const turns = new Map<string, TurnAccumulator>()
   const turnOrder: string[] = []
   // User bubbles recorded in the event stream itself (persisted transcript);
@@ -415,8 +445,8 @@ export function projectConversation(
         // lane: a subagent's output must never land on the parent's row.
         const parentToolUseId = readString(event.payload, 'parentToolUseId')
         const existing =
-          (id && toolsById.get(id))
-          || [...turn.tools.values()].filter((tool) => tool.parentToolUseId === parentToolUseId).at(-1)
+          (id && toolsById.get(id)) ||
+          [...turn.tools.values()].filter((tool) => tool.parentToolUseId === parentToolUseId).at(-1)
         if (existing) {
           existing.status = 'done'
           existing.completedAt = event.createdAt
@@ -436,7 +466,7 @@ export function projectConversation(
           status: 'pending',
           requestKind,
           questions: requestKind === 'question' ? readQuestions(event.payload) : undefined,
-          plan: requestKind === 'plan' ? readString(event.payload, 'plan') ?? '' : undefined,
+          plan: requestKind === 'plan' ? (readString(event.payload, 'plan') ?? '') : undefined,
         })
         approvalOrder.push(requestId)
         if (turnId) ensureTurn(turnId).approvals.push(requestId)
@@ -658,8 +688,13 @@ export function subagentLaneLabel(tool: TranscriptToolEntry): string {
   return subagentType ? `${subagentType} agent` : 'Agent'
 }
 
-export function activeConversationStage(entries: TranscriptEntry[], activeTurn: boolean): 'idle' | 'thinking' | 'tool' | 'approval' | 'responding' {
-  const latestPendingApproval = [...entries].reverse().find((entry) => entry.kind === 'approval' && entry.status === 'pending')
+export function activeConversationStage(
+  entries: TranscriptEntry[],
+  activeTurn: boolean,
+): 'idle' | 'thinking' | 'tool' | 'approval' | 'responding' {
+  const latestPendingApproval = [...entries]
+    .reverse()
+    .find((entry) => entry.kind === 'approval' && entry.status === 'pending')
   if (latestPendingApproval) return 'approval'
   const latestRunningTool = [...entries].reverse().find((entry) => entry.kind === 'tool' && entry.status === 'running')
   if (latestRunningTool) return 'tool'
@@ -823,12 +858,15 @@ export function deriveConversationTimelineRows(
 ): ConversationTimelineRow[] {
   const rows: ConversationTimelineRow[] = []
   const stage = activeConversationStage(entries, activeTurn)
-  const latestAssistant = [...entries].reverse().find(
-    (entry): entry is Extract<TranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant',
-  )
-  const pendingApproval = [...entries].reverse().find(
-    (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> => entry.kind === 'approval' && entry.status === 'pending',
-  )
+  const latestAssistant = [...entries]
+    .reverse()
+    .find((entry): entry is Extract<TranscriptEntry, { kind: 'assistant' }> => entry.kind === 'assistant')
+  const pendingApproval = [...entries]
+    .reverse()
+    .find(
+      (entry): entry is Extract<TranscriptEntry, { kind: 'approval' }> =>
+        entry.kind === 'approval' && entry.status === 'pending',
+    )
 
   for (let index = 0; index < entries.length; index += 1) {
     const entry = entries[index]
@@ -858,12 +896,12 @@ export function deriveConversationTimelineRows(
       }
       const decisions = groupResolvedDecisions(approvals)
       if (
-        entry.text.trim()
-        || entry.reasoning.trim()
-        || tools.length > 0
-        || decisions.length > 0
-        || entry.status === 'failed'
-        || entry.status === 'interrupted'
+        entry.text.trim() ||
+        entry.reasoning.trim() ||
+        tools.length > 0 ||
+        decisions.length > 0 ||
+        entry.status === 'failed' ||
+        entry.status === 'interrupted'
       ) {
         rows.push({ kind: 'assistant', id: `assistant:${entry.turnId}`, entry, tools, decisions })
       }
@@ -889,13 +927,14 @@ export function deriveConversationTimelineRows(
   }
 
   if (stage !== 'idle' && !pendingApproval) {
-    const runningTool = [...entries].reverse().find(
-      (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.status === 'running',
-    )
+    const runningTool = [...entries]
+      .reverse()
+      .find((entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.status === 'running')
     // Fan-out is the headline: while background agents run, the live line
     // counts them instead of naming whichever tool happened to start last.
     const runningLanes = entries.filter(
-      (entry): entry is TranscriptToolEntry => entry.kind === 'tool' && entry.status === 'running' && entry.subagentLane === true,
+      (entry): entry is TranscriptToolEntry =>
+        entry.kind === 'tool' && entry.status === 'running' && entry.subagentLane === true,
     )
     const laneLabel =
       runningLanes.length > 1
@@ -984,10 +1023,7 @@ export function formatAttachmentBytes(bytes: number): string {
 // Why this file cannot join the turn, or null when it can. Type and count are
 // knowable before the file is read; the byte ceiling is only decidable after
 // downscaling, so it is checked there instead of here.
-export function attachmentRejection(
-  file: { name?: string; type: string },
-  currentCount: number,
-): string | null {
+export function attachmentRejection(file: { name?: string; type: string }, currentCount: number): string | null {
   if (!isAttachableImageType(file.type)) {
     const named = file.name ? `${file.name} is not` : 'That file is not'
     return `${named} an image Claude can read. Attach a PNG, JPEG, WebP, or GIF.`
@@ -1016,12 +1052,7 @@ export { dataTransferHasFiles }
 // The staged-image strip and its helpers live in ComposerAttachmentStrip
 // (shared with the new-chat launch surface, which must not import this panel);
 // re-exported for the same reason.
-export {
-  attachmentCountLabel,
-  attachmentPreviewUrl,
-  ComposerAttachmentStrip,
-  openAttachmentImage,
-}
+export { attachmentCountLabel, attachmentPreviewUrl, ComposerAttachmentStrip, openAttachmentImage }
 
 // Fold a commit made while the turn was locked into the waiting queued turn
 // (D6/1776): text appends, images concatenate. Reports how many images the
@@ -1177,8 +1208,7 @@ type Props = {
 // `FOCUS_RING_WITHIN_TEXTAREA_CLASS`, which is the pairing that variant exists
 // for. The bounds are the caller's, per the variant's contract, and they are the
 // same pair the new-chat composer uses.
-const COMPOSER_CLASS =
-  'max-h-[280px] min-h-[40px] overflow-y-auto rounded-t-lg px-3 pb-1 pt-2.5'
+const COMPOSER_CLASS = 'max-h-[280px] min-h-[40px] overflow-y-auto rounded-t-lg px-3 pb-1 pt-2.5'
 
 type PendingAction = 'starting' | 'sending' | 'stopping' | null
 
@@ -1198,11 +1228,7 @@ export function stopDisabledForPending(pending: PendingAction): boolean {
 // and auto-sent on unlock (D6/1776) rather than fired as a live IPC that would
 // error. Type-ahead into the textarea is always allowed; only the send/queue
 // routing keys off this.
-export function isConversationBusy(
-  activeTurn: boolean,
-  awaitingApproval: boolean,
-  pending: PendingAction,
-): boolean {
+export function isConversationBusy(activeTurn: boolean, awaitingApproval: boolean, pending: PendingAction): boolean {
   return activeTurn || awaitingApproval || pending !== null
 }
 
@@ -1317,9 +1343,9 @@ export const MODEL_PICKER_TOGGLE_COMMAND = 'chat.modelPicker.toggle'
 export function respondToModelPickerToggle(): MountedChatView | null {
   const activeWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId
   const responder =
-    mountedChatViews.find((view) => view.isFocused())
-    ?? [...mountedChatViews].reverse().find((view) => view.workspaceId === activeWorkspaceId)
-    ?? null
+    mountedChatViews.find((view) => view.isFocused()) ??
+    [...mountedChatViews].reverse().find((view) => view.workspaceId === activeWorkspaceId) ??
+    null
   responder?.toggleModelPicker()
   return responder
 }
@@ -1441,7 +1467,10 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
       return
     }
     if (typeof window.api.conversationProvidersList !== 'function') {
-      setReadiness({ kind: 'error', message: 'Conversation providers need an app restart before this agent is available.' })
+      setReadiness({
+        kind: 'error',
+        message: 'Conversation providers need an app restart before this agent is available.',
+      })
       return
     }
     setReadiness({ kind: 'loading' })
@@ -1470,7 +1499,11 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         // Providers with a live catalog accept models not in the static seed, so
         // membership is only enforced for static-only providers.
         if (!provider.supportsDynamicModels && !provider.models.some((model) => model.id === conversation.modelId)) {
-          setReadiness({ kind: 'model-unavailable', providerId: conversation.providerId, modelId: conversation.modelId })
+          setReadiness({
+            kind: 'model-unavailable',
+            providerId: conversation.providerId,
+            modelId: conversation.modelId,
+          })
           return
         }
         const status = await window.api.conversationSecretStatus({ providerId: conversation.providerId })
@@ -1483,7 +1516,8 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         }
         setReadiness({ kind: 'ready' })
       } catch (err) {
-        if (!cancelled) setReadiness({ kind: 'error', message: err instanceof Error ? err.message : 'Provider check failed.' })
+        if (!cancelled)
+          setReadiness({ kind: 'error', message: err instanceof Error ? err.message : 'Provider check failed.' })
       }
     })()
     return () => {
@@ -1753,7 +1787,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         setPending(null)
       }
     },
-    [ensureSession, pending, recordWorkspaceUserMessage, userTurns.length, workspaceId]
+    [ensureSession, pending, recordWorkspaceUserMessage, userTurns.length, workspaceId],
   )
 
   // Composer submit (Enter or the send affordance). Sends immediately when the
@@ -1803,13 +1837,10 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 
   // Replace the menu's captured selection with `text` ('' for a plain cut) and
   // put the caret after what was inserted.
-  const replaceComposerSelection = useCallback(
-    (menu: ComposerMenuState, text: string) => {
-      setDraft((current) => current.slice(0, menu.selectionStart) + text + current.slice(menu.selectionEnd))
-      pendingCaretRef.current = menu.selectionStart + text.length
-    },
-    [],
-  )
+  const replaceComposerSelection = useCallback((menu: ComposerMenuState, text: string) => {
+    setDraft((current) => current.slice(0, menu.selectionStart) + text + current.slice(menu.selectionEnd))
+    pendingCaretRef.current = menu.selectionStart + text.length
+  }, [])
 
   // Apply the caret position a menu edit asked for, once the rewritten draft has
   // rendered. Focus comes back to the field so the user can keep typing.
@@ -1902,7 +1933,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         setRespondingRequestId(null)
       }
     },
-    [sessionId, respondingRequestId]
+    [sessionId, respondingRequestId],
   )
 
   const interrupt = useCallback(async () => {
@@ -1993,7 +2024,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
         isFocused: () => Boolean(shellRef.current?.contains(document.activeElement)),
         toggleModelPicker: () => toggleModelPickerRef.current(),
       }),
-    [workspaceId]
+    [workspaceId],
   )
   const modelPickerShortcutLabel = useMemo(() => {
     const keybinding = getEffectiveKeybindings(MODEL_PICKER_TOGGLE_COMMAND, keybindingSettings)[0]
@@ -2112,9 +2143,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
   // Orphan turn failure: lastError set but no transcript entry carries it (a
   // turn_failed with no turnId while nothing was streaming). Without this the
   // chat would look idle/successful with the only trace in Notifications.
-  const hasFailedTurnEntry = projection.entries.some(
-    (entry) => entry.kind === 'assistant' && entry.status === 'failed',
-  )
+  const hasFailedTurnEntry = projection.entries.some((entry) => entry.kind === 'assistant' && entry.status === 'failed')
   const composerError = actionError ?? (projection.lastError && !hasFailedTurnEntry ? projection.lastError : null)
 
   return (
@@ -2173,9 +2202,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
             </div>
           )
         ) : (
-          timelineRows.map((row) => (
-            <TimelineRow key={row.id} row={row} chrome={chrome} />
-          ))
+          timelineRows.map((row) => <TimelineRow key={row.id} row={row} chrome={chrome} />)
         )}
       </div>
 
@@ -2206,12 +2233,12 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
          */}
         {composerError ? (
           <div className="mb-2 flex items-center justify-between gap-3">
-            <TruncatedText as="span" text={composerError} className="min-w-0 text-meta leading-5 text-[color:var(--tone-error)]" />
-            <OutlineButton
-              onClick={retry}
-              disabled={composerDisabled}
-              className="shrink-0"
-            >
+            <TruncatedText
+              as="span"
+              text={composerError}
+              className="min-w-0 text-meta leading-5 text-[color:var(--tone-error)]"
+            />
+            <OutlineButton onClick={retry} disabled={composerDisabled} className="shrink-0">
               Retry
             </OutlineButton>
           </div>
@@ -2244,10 +2271,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                 className="min-w-0 text-meta leading-5 text-[color:var(--text-muted)]"
               />
             </div>
-            <OutlineButton
-              onClick={() => setQueuedTurn(null)}
-              className="shrink-0"
-            >
+            <OutlineButton onClick={() => setQueuedTurn(null)} className="shrink-0">
               Cancel
             </OutlineButton>
           </div>
@@ -2316,11 +2340,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
               onDismiss={dismissSkillTrigger}
             />
           ) : null}
-          <ComposerAttachmentStrip
-            attachments={attachments}
-            reading={attachingCount}
-            onRemove={removeAttachment}
-          />
+          <ComposerAttachmentStrip attachments={attachments} reading={attachingCount} onRemove={removeAttachment} />
           <label htmlFor={`chat-composer-${agentId}`} className="sr-only">
             Message {label}
           </label>
@@ -2393,10 +2413,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                     }}
                   />
                   <Tooltip content="Attach an image" placement="top">
-                    <IconButton
-                      aria-label="Attach an image"
-                      onClick={() => fileInputRef.current?.click()}
-                    >
+                    <IconButton aria-label="Attach an image" onClick={() => fileInputRef.current?.click()}>
                       <PaperclipGlyph className="icon-sm" />
                     </IconButton>
                   </Tooltip>
@@ -2427,9 +2444,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
                   openSettingsOverlay({ initialTab: 'providers' })
                 }}
               />
-              {contextLength ? (
-                <ContextMeter used={usedTokens} total={contextLength} />
-              ) : null}
+              {contextLength ? <ContextMeter used={usedTokens} total={contextLength} /> : null}
               {isAgentHarness ? (
                 <PermissionPresetPill
                   preset={permissionPreset}
@@ -2504,13 +2519,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 // The chat panel is header-less by design: the tab already names the agent, and
 // model/session state live in the composer footer (shared layout). Repeating the name
 // or model in a header is the duplication we're avoiding.
-function ChatShell({
-  shellRef,
-  children,
-}: {
-  shellRef?: React.RefObject<HTMLDivElement>
-  children: React.ReactNode
-}) {
+function ChatShell({ shellRef, children }: { shellRef?: React.RefObject<HTMLDivElement>; children: React.ReactNode }) {
   return (
     <div
       ref={shellRef}
@@ -2640,8 +2649,8 @@ export function filterModelGroups(groups: ModelGroup[], query: string, activeFil
             ...group,
             models: group.models.filter(
               (model) =>
-                model.id.toLowerCase().includes(normalized)
-                || (model.displayName?.toLowerCase().includes(normalized) ?? false),
+                model.id.toLowerCase().includes(normalized) ||
+                (model.displayName?.toLowerCase().includes(normalized) ?? false),
             ),
           },
     )
@@ -2714,8 +2723,8 @@ export function PermissionPresetPill({
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <Tooltip
           content={
-            AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === preset)?.title
-            ?? permissionPresetLabel(preset)
+            AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === preset)?.title ??
+            permissionPresetLabel(preset)
           }
           placement="top"
         >
@@ -2835,9 +2844,9 @@ function ModelPickerPill({
   // row — the surface is portaled, so Tab from the trigger never reaches it.
   const focusOnOpen = useCallback((surface: HTMLElement) => {
     const target =
-      surface.querySelector<HTMLElement>('input')
-      ?? surface.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]')
-      ?? surface.querySelector<HTMLElement>('[role="menuitemradio"]:not([disabled])')
+      surface.querySelector<HTMLElement>('input') ??
+      surface.querySelector<HTMLElement>('[role="menuitemradio"][aria-checked="true"]') ??
+      surface.querySelector<HTMLElement>('[role="menuitemradio"]:not([disabled])')
     if (!target) return
     target.focus()
     if (document.activeElement === target) return
@@ -2886,8 +2895,15 @@ function ModelPickerPill({
           // the edge and takes the ring for whatever input is focused inside it.
           // A `seamless` field without that wrapper class has no focus indicator
           // at all, which is why the two arrive together.
-          <div className={`flex items-center gap-1 border-b border-[color:var(--border-subtle)] p-1 pl-2.5 ${FOCUS_RING_WITHIN_INPUT_CLASS}`}>
-            <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <div
+            className={`flex items-center gap-1 border-b border-[color:var(--border-subtle)] p-1 pl-2.5 ${FOCUS_RING_WITHIN_INPUT_CLASS}`}
+          >
+            <svg
+              className="icon-xs shrink-0 text-[color:var(--text-disabled)]"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+            >
               <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
               <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             </svg>
@@ -2966,16 +2982,15 @@ function ModelPickerPill({
                       <p className="pb-1 text-micro leading-4 text-[color:var(--text-muted)]">
                         Add an API key to browse this provider’s models.
                       </p>
-                      <GhostButton
-                        size="inline"
-                        tone="accent"
-                        onClick={() => onAddKey(group.providerId)}
-                      >
+                      <GhostButton size="inline" tone="accent" onClick={() => onAddKey(group.providerId)}>
                         Add key in Settings
                       </GhostButton>
                     </div>
                   ) : (
-                    <p className="px-2.5 pb-1.5 pt-0.5 text-micro leading-4 text-[color:var(--text-muted)]" role="status">
+                    <p
+                      className="px-2.5 pb-1.5 pt-0.5 text-micro leading-4 text-[color:var(--text-muted)]"
+                      role="status"
+                    >
                       No models returned for this provider.
                     </p>
                   )
@@ -2994,7 +3009,11 @@ function ModelPickerPill({
                       key={`${group.providerId}:${model.id}`}
                       role="menuitemradio"
                       selected={isCurrent}
-                      aria-keyshortcuts={jumpHint ? `${window.api.platform === 'darwin' ? 'Meta' : 'Control'}+${jumpIndex + 1}` : undefined}
+                      aria-keyshortcuts={
+                        jumpHint
+                          ? `${window.api.platform === 'darwin' ? 'Meta' : 'Control'}+${jumpIndex + 1}`
+                          : undefined
+                      }
                       disabled={Boolean(group.unavailable)}
                       onClick={() => onSelect(group.providerId, model.id)}
                       trailing={
@@ -3005,7 +3024,10 @@ function ModelPickerPill({
                           {/* The spec's trailing hint: mono micro at text.disabled,
                               plain text rather than a kbd capsule. */}
                           {jumpHint ? (
-                            <span aria-hidden="true" className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]">
+                            <span
+                              aria-hidden="true"
+                              className="shrink-0 font-mono text-micro text-[color:var(--text-disabled)]"
+                            >
                               {jumpHint}
                             </span>
                           ) : null}
@@ -3138,11 +3160,7 @@ export function ComposerContextMenu({
         {send.label}
       </MenuItem>
       <MenuDivider />
-      <MenuItem
-        disabled={!editable || !hasSelection}
-        shortcut={editingShortcut(platform, 'X')}
-        onClick={run(onCut)}
-      >
+      <MenuItem disabled={!editable || !hasSelection} shortcut={editingShortcut(platform, 'X')} onClick={run(onCut)}>
         Cut
       </MenuItem>
       <MenuItem disabled={!hasSelection} shortcut={editingShortcut(platform, 'C')} onClick={run(onCopy)}>
@@ -3176,7 +3194,13 @@ function PaperclipGlyph({ className }: { className?: string }) {
 function SendArrowGlyph({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path d="M10 15.5V5M10 5L5.75 9.25M10 5l4.25 4.25" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M10 15.5V5M10 5L5.75 9.25M10 5l4.25 4.25"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -3205,7 +3229,13 @@ function ChatGlyph({ className }: { className?: string }) {
 function ChevronGlyph({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 20 20" fill="none" aria-hidden="true">
-      <path d="M5 7.5L10 12.5L15 7.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M5 7.5L10 12.5L15 7.5"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -3256,13 +3286,13 @@ function DockShell({
         {/* Decorative: the eyebrow beside it is the same string, so a labelled
             dot would announce the state twice. */}
         <StatusDot tone={dotTone} />
-        <span className="text-micro font-medium tracking-normal text-[color:var(--text-subtle)]">
-          {eyebrow}
-        </span>
+        <span className="text-micro font-medium tracking-normal text-[color:var(--text-subtle)]">{eyebrow}</span>
       </div>
       {children}
       <div className="flex items-center gap-2.5 px-4 pb-3 pt-2">
-        {hints ? <span className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">{hints}</span> : null}
+        {hints ? (
+          <span className="flex items-center gap-2 text-micro text-[color:var(--text-subtle)]">{hints}</span>
+        ) : null}
         <div className="ml-auto flex shrink-0 gap-2">{actions}</div>
       </div>
     </div>
@@ -3323,7 +3353,9 @@ function ConversationPendingDock({
     )
   }
   if (pendingApproval.requestKind === 'plan') {
-    return <ConversationPlanCard key={pendingApproval.requestId} entry={pendingApproval} onApprove={onApprove} busy={busy} />
+    return (
+      <ConversationPlanCard key={pendingApproval.requestId} entry={pendingApproval} onApprove={onApprove} busy={busy} />
+    )
   }
   return (
     <ConversationPermissionCard
@@ -3374,16 +3406,17 @@ function ConversationPermissionCard({
       ariaLabel="Permission request"
       hints={
         <>
-          <span className="inline-flex items-center gap-1"><Kbd>⏎</Kbd> approve</span>
-          <span className="inline-flex items-center gap-1"><Kbd>⎋</Kbd> deny</span>
+          <span className="inline-flex items-center gap-1">
+            <Kbd>⏎</Kbd> approve
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Kbd>⎋</Kbd> deny
+          </span>
         </>
       }
       actions={
         <>
-          <GhostButton
-            onClick={() => onApprove(entry.requestId, false)}
-            disabled={busy}
-          >
+          <GhostButton onClick={() => onApprove(entry.requestId, false)} disabled={busy}>
             Deny
           </GhostButton>
           <OutlineButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
@@ -3444,16 +3477,17 @@ function ConversationPlanCard({
       ariaLabel="Plan approval"
       hints={
         <>
-          <span className="inline-flex items-center gap-1"><Kbd>⏎</Kbd> approve</span>
-          <span className="inline-flex items-center gap-1"><Kbd>⎋</Kbd> keep planning</span>
+          <span className="inline-flex items-center gap-1">
+            <Kbd>⏎</Kbd> approve
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <Kbd>⎋</Kbd> keep planning
+          </span>
         </>
       }
       actions={
         <>
-          <GhostButton
-            onClick={() => onApprove(entry.requestId, false)}
-            disabled={busy}
-          >
+          <GhostButton onClick={() => onApprove(entry.requestId, false)} disabled={busy}>
             Keep planning
           </GhostButton>
           <OutlineButton size="sm" onClick={() => onApprove(entry.requestId, true)} disabled={busy}>
@@ -3577,22 +3611,23 @@ function ConversationQuestionCard({
       hints={
         <>
           {!question.multiSelect && question.options.length > 1 ? (
-            <span className="inline-flex items-center gap-1"><Kbd>↑↓</Kbd> choose</span>
+            <span className="inline-flex items-center gap-1">
+              <Kbd>↑↓</Kbd> choose
+            </span>
           ) : null}
           {question.options.length > 0 ? (
             <span className="inline-flex items-center gap-1">
               <Kbd>1–{Math.min(question.options.length, 9)}</Kbd> {question.multiSelect ? 'toggle' : 'pick'}
             </span>
           ) : null}
-          <span className="inline-flex items-center gap-1"><Kbd>⏎</Kbd> {isLast ? 'answer' : 'next'}</span>
+          <span className="inline-flex items-center gap-1">
+            <Kbd>⏎</Kbd> {isLast ? 'answer' : 'next'}
+          </span>
         </>
       }
       actions={
         <>
-          <GhostButton
-            onClick={() => onAnswer(requestId, false)}
-            disabled={busy}
-          >
+          <GhostButton onClick={() => onAnswer(requestId, false)} disabled={busy}>
             Dismiss
           </GhostButton>
           <OutlineButton size="sm" onClick={advance} disabled={busy || !currentAnswered}>
@@ -3624,32 +3659,34 @@ function ConversationQuestionCard({
               selected={checked}
               disabled={busy}
               onClick={() => toggleOption(option.label)}
-              icon={index < 9 ? (
-                <span
-                  aria-hidden="true"
-                  className={`mt-0.5 shrink-0 rounded-xs border px-1 py-px font-mono text-micro font-medium leading-none ${
-                    checked
-                      ? 'border-[color:var(--accent-primary)] text-[color:var(--accent-primary)]'
-                      : 'border-[color:var(--border-strong)] text-[color:var(--text-subtle)]'
-                  }`}
-                >
-                  {index + 1}
-                </span>
-              ) : null}
+              icon={
+                index < 9 ? (
+                  <span
+                    aria-hidden="true"
+                    className={`mt-0.5 shrink-0 rounded-xs border px-1 py-px font-mono text-micro font-medium leading-none ${
+                      checked
+                        ? 'border-[color:var(--accent-primary)] text-[color:var(--accent-primary)]'
+                        : 'border-[color:var(--border-strong)] text-[color:var(--text-subtle)]'
+                    }`}
+                  >
+                    {index + 1}
+                  </span>
+                ) : null
+              }
             >
-                <span className="block text-body font-semibold leading-5 text-[color:var(--text-strong)]">
-                  {parsed.text}
-                  {parsed.recommended ? (
-                    <span className="ml-2 text-micro font-medium tracking-normal text-[color:var(--text-muted)]">
-                      Recommended
-                    </span>
-                  ) : null}
-                </span>
-                {option.description ? (
-                  <span className="block text-meta leading-[1.45] text-[color:var(--text-muted)]">
-                    {option.description}
+              <span className="block text-body font-semibold leading-5 text-[color:var(--text-strong)]">
+                {parsed.text}
+                {parsed.recommended ? (
+                  <span className="ml-2 text-micro font-medium tracking-normal text-[color:var(--text-muted)]">
+                    Recommended
                   </span>
                 ) : null}
+              </span>
+              {option.description ? (
+                <span className="block text-meta leading-[1.45] text-[color:var(--text-muted)]">
+                  {option.description}
+                </span>
+              ) : null}
             </MenuOption>
           )
         })}
@@ -3660,9 +3697,7 @@ function ConversationQuestionCard({
             variant="quiet"
             size="content"
             value={otherText[question.question] ?? ''}
-            onChange={(event) =>
-              setOtherText((current) => ({ ...current, [question.question]: event.target.value }))
-            }
+            onChange={(event) => setOtherText((current) => ({ ...current, [question.question]: event.target.value }))}
             onKeyDown={(event) => {
               // The card's container hotkeys (digits pick options, arrows move)
               // must not fire while typing a free-text answer.
@@ -3791,12 +3826,7 @@ function ThoughtRow({ reasoning, durationMs }: { reasoning: string; durationMs?:
   const [expanded, setExpanded] = useState(false)
   return (
     <div className="mb-1.5">
-      <GhostButton
-        size="inline"
-        tone="subtle"
-        aria-expanded={expanded}
-        onClick={() => setExpanded((value) => !value)}
-      >
+      <GhostButton size="inline" tone="subtle" aria-expanded={expanded} onClick={() => setExpanded((value) => !value)}>
         <ChevronRightGlyph className={`icon-xs transition-transform ${expanded ? 'rotate-90' : ''}`} />
         {durationMs !== undefined ? `Thought for ${formatStepDuration(durationMs)}` : 'Thought'}
       </GhostButton>
@@ -3834,15 +3864,19 @@ export function WorkTimeline({ tools, live }: { tools: TranscriptToolEntry[]; li
   const working = live || allSteps.some((tool) => tool.status === 'running')
   return (
     <div className="mb-3">
-      <GhostButton
-        size="inline"
-        aria-expanded={open}
-        onClick={() => setOpen((value) => !value)}
-      >
-        <ChevronRightGlyph className={`icon-xs text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`} />
+      <GhostButton size="inline" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+        <ChevronRightGlyph
+          className={`icon-xs text-[color:var(--text-subtle)] transition-transform ${open ? 'rotate-90' : ''}`}
+        />
         {working ? (
           <span className="inline-flex items-baseline gap-1 tabular-nums">
-            Working{first?.startedAt !== undefined ? <>&nbsp;·&nbsp;<LiveElapsed startedAt={first.startedAt} /></> : null}
+            Working
+            {first?.startedAt !== undefined ? (
+              <>
+                &nbsp;·&nbsp;
+                <LiveElapsed startedAt={first.startedAt} />
+              </>
+            ) : null}
           </span>
         ) : (
           <span className="tabular-nums">
@@ -3927,7 +3961,11 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
       ) : null}
       <span className="ml-auto shrink-0 pl-2 text-micro tabular-nums text-[color:var(--text-subtle)]">
         {running ? (
-          tool.startedAt !== undefined ? <LiveElapsed startedAt={tool.startedAt} /> : 'running'
+          tool.startedAt !== undefined ? (
+            <LiveElapsed startedAt={tool.startedAt} />
+          ) : (
+            'running'
+          )
         ) : durationMs !== undefined ? (
           formatStepDuration(durationMs)
         ) : null}
@@ -3938,12 +3976,7 @@ function SubagentLane({ tool }: { tool: TranscriptToolEntry }) {
   return (
     <div>
       {expandable ? (
-        <RowButton
-          density="row"
-          aria-expanded={open}
-          onClick={() => setOpen((value) => !value)}
-          className={headerInk}
-        >
+        <RowButton density="row" aria-expanded={open} onClick={() => setOpen((value) => !value)} className={headerInk}>
           {header}
         </RowButton>
       ) : (
@@ -3986,11 +4019,7 @@ function WorkStep({ tool }: { tool: TranscriptToolEntry }) {
           running ? 'text-[color:var(--text-default)]' : 'text-[color:var(--text-muted)]'
         }`}
       >
-        <StatusDot
-          tone={running ? 'accent' : 'neutral'}
-          pulse={running}
-          className="absolute -left-[19px] top-[10px]"
-        />
+        <StatusDot tone={running ? 'accent' : 'neutral'} pulse={running} className="absolute -left-[19px] top-[10px]" />
         <span className="shrink-0 font-medium text-[color:var(--text-default)]">{toolVerb(tool.name, running)}</span>
         {object ? (
           <TruncatedText
@@ -4191,15 +4220,13 @@ function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind
             return (
               <div key={question.question}>
                 <div className="text-meta leading-5 text-[color:var(--text-muted)]">{question.question}</div>
-                {entry.status === 'approved' && answer
-                  ? answerLine(answer, true)
-                  : entry.status === 'denied'
-                    ? (
-                        <div className="mt-0.5 text-meta italic text-[color:var(--text-subtle)]">
-                          Dismissed without answering
-                        </div>
-                      )
-                    : null}
+                {entry.status === 'approved' && answer ? (
+                  answerLine(answer, true)
+                ) : entry.status === 'denied' ? (
+                  <div className="mt-0.5 text-meta italic text-[color:var(--text-subtle)]">
+                    Dismissed without answering
+                  </div>
+                ) : null}
               </div>
             )
           })}
@@ -4209,15 +4236,13 @@ function ResolvedDecisionRow({ entry }: { entry: Extract<TranscriptEntry, { kind
           <div className="text-meta leading-5 text-[color:var(--text-muted)]">
             {entry.requestKind === 'plan' ? 'Proposed a plan' : entry.summary}
           </div>
-          {entry.status === 'approved'
-            ? answerLine(entry.requestKind === 'plan' ? 'Plan approved' : 'Approved', true)
-            : entry.status === 'denied'
-              ? answerLine(entry.requestKind === 'plan' ? 'Sent back for more planning' : 'Denied', false)
-              : (
-                  <div className="mt-0.5 text-meta italic text-[color:var(--text-subtle)]">
-                    Cancelled with the turn
-                  </div>
-                )}
+          {entry.status === 'approved' ? (
+            answerLine(entry.requestKind === 'plan' ? 'Plan approved' : 'Approved', true)
+          ) : entry.status === 'denied' ? (
+            answerLine(entry.requestKind === 'plan' ? 'Sent back for more planning' : 'Denied', false)
+          ) : (
+            <div className="mt-0.5 text-meta italic text-[color:var(--text-subtle)]">Cancelled with the turn</div>
+          )}
         </div>
       )}
     </div>
@@ -4244,9 +4269,18 @@ function EmptyChatState({
   onSuggestion: (text: string) => void
 }) {
   const suggestions: Array<{ text: string; glyph: React.ReactNode }> = [
-    { text: 'Explain how this codebase is organized', glyph: <MagnifierGlyph className="icon-sm shrink-0 text-[color:var(--text-subtle)]" /> },
-    { text: 'Add a small feature and tests for it', glyph: <PlusGlyph className="icon-sm shrink-0 text-[color:var(--text-subtle)]" /> },
-    { text: 'Review my uncommitted changes', glyph: <ShieldGlyph className="icon-sm shrink-0 text-[color:var(--text-subtle)]" /> },
+    {
+      text: 'Explain how this codebase is organized',
+      glyph: <MagnifierGlyph className="icon-sm shrink-0 text-[color:var(--text-subtle)]" />,
+    },
+    {
+      text: 'Add a small feature and tests for it',
+      glyph: <PlusGlyph className="icon-sm shrink-0 text-[color:var(--text-subtle)]" />,
+    },
+    {
+      text: 'Review my uncommitted changes',
+      glyph: <ShieldGlyph className="icon-sm shrink-0 text-[color:var(--text-subtle)]" />,
+    },
   ]
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 text-center">
@@ -4268,7 +4302,10 @@ function EmptyChatState({
             <span className="flex w-full items-center gap-2.5">
               {suggestion.glyph}
               <span className="min-w-0 flex-1">{suggestion.text}</span>
-              <span aria-hidden="true" className="text-micro text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none">
+              <span
+                aria-hidden="true"
+                className="text-micro text-[color:var(--text-subtle)] opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 motion-reduce:transition-none"
+              >
                 ⏎
               </span>
             </span>
@@ -4311,8 +4348,10 @@ function ReadinessState({
             ? 'Open a workspace folder first'
             : 'Conversation is unavailable'
   const offerSwitch =
-    canSwitchModel
-    && (readiness.kind === 'provider-unavailable' || readiness.kind === 'model-unavailable' || readiness.kind === 'missing-key')
+    canSwitchModel &&
+    (readiness.kind === 'provider-unavailable' ||
+      readiness.kind === 'model-unavailable' ||
+      readiness.kind === 'missing-key')
   return (
     <div className="flex h-full flex-col items-center justify-center px-8 text-center">
       <ChatGlyph className="mb-4 h-[30px] w-[30px] text-[color:var(--text-subtle)]" />
@@ -4320,11 +4359,7 @@ function ReadinessState({
       <p className="mb-5 max-w-[44ch] text-body leading-[1.55] text-[color:var(--text-muted)]">
         {readinessLabel(readiness)}
       </p>
-      {offerSwitch ? (
-        <OutlineButton onClick={onSwitchModel}>
-          Use another model
-        </OutlineButton>
-      ) : null}
+      {offerSwitch ? <OutlineButton onClick={onSwitchModel}>Use another model</OutlineButton> : null}
     </div>
   )
 }
@@ -4366,7 +4401,13 @@ function SparkleGlyph({ className }: { className?: string }) {
 function CheckGlyph({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 12 12" fill="none" aria-hidden="true">
-      <path d="M2.5 6.5L5 9l4.5-5.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M2.5 6.5L5 9l4.5-5.5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -4411,8 +4452,12 @@ function PlusGlyph({ className }: { className?: string }) {
 function ShieldGlyph({ className }: { className?: string }) {
   return (
     <svg className={className} viewBox="0 0 14 14" fill="none" aria-hidden="true">
-      <path d="M7 1.8l5 2v3.4c0 3-2.1 5-5 6-2.9-1-5-3-5-6V3.8l5-2z" stroke="currentColor" strokeWidth="1.3" strokeLinejoin="round" />
+      <path
+        d="M7 1.8l5 2v3.4c0 3-2.1 5-5 6-2.9-1-5-3-5-6V3.8l5-2z"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
-

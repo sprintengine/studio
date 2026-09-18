@@ -1,10 +1,6 @@
 import React from 'react'
 
-import {
-  MENU_OPTION_CLASS,
-  MENU_OPTION_STACKED_CLASS,
-  MENU_ROW_HOVER_CLASS,
-} from './menuClasses'
+import { MENU_OPTION_CLASS, MENU_OPTION_STACKED_CLASS, MENU_ROW_HOVER_CLASS } from './menuClasses'
 
 // The menu row's OTHER species: the one that shows a CHOICE rather than an
 // action (design-system/components/menu-option).

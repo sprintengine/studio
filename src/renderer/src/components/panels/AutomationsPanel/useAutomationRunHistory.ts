@@ -52,22 +52,27 @@ export function useAutomationRunHistory(
     // lastRunId in the dep list: a run-now bumps it, so the history reloads.
   }, [workspaceRoot, automationId, lastRunId])
 
-  useEffect(() => { void reload() }, [reload])
+  useEffect(() => {
+    void reload()
+  }, [reload])
 
-  const finalize = useCallback(async (run: AutomationRun, outcome: 'completed' | 'failed') => {
-    if (!workspaceRoot) return
-    setFinalizingRunId(run.id)
-    setError(null)
-    try {
-      const result = await window.api.finalizeAutomationRun({ workspaceRoot, automationId, runId: run.id, outcome })
-      if (!result.ok) setError(result.message)
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'The automations service did not respond.')
-    } finally {
-      setFinalizingRunId(null)
-      await reload()
-    }
-  }, [workspaceRoot, automationId, reload])
+  const finalize = useCallback(
+    async (run: AutomationRun, outcome: 'completed' | 'failed') => {
+      if (!workspaceRoot) return
+      setFinalizingRunId(run.id)
+      setError(null)
+      try {
+        const result = await window.api.finalizeAutomationRun({ workspaceRoot, automationId, runId: run.id, outcome })
+        if (!result.ok) setError(result.message)
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'The automations service did not respond.')
+      } finally {
+        setFinalizingRunId(null)
+        await reload()
+      }
+    },
+    [workspaceRoot, automationId, reload],
+  )
 
   return { runs, state, error, finalizingRunId, reload, finalize }
 }

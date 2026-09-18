@@ -4,10 +4,7 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
-import {
-  TRUSTED_PUBLISHERS_DEV_FILENAME,
-  readTrustedMarketplacePublisherFingerprintsSync,
-} from './trusted-publishers'
+import { TRUSTED_PUBLISHERS_DEV_FILENAME, readTrustedMarketplacePublisherFingerprintsSync } from './trusted-publishers'
 
 const RELEASE_FP = 'a'.repeat(64)
 const DEV_FP = 'b'.repeat(64)
@@ -56,7 +53,12 @@ async function main(): Promise<void> {
   await withTempDir(async (dir) => {
     await writeFile(join(dir, 'trusted-publishers.json'), publishersFile(RELEASE_FP))
     assert.deepEqual(
-      [...readTrustedMarketplacePublisherFingerprintsSync({ isPackaged: false, resolveResourcePath: resolverFor(dir) })],
+      [
+        ...readTrustedMarketplacePublisherFingerprintsSync({
+          isPackaged: false,
+          resolveResourcePath: resolverFor(dir),
+        }),
+      ],
       [RELEASE_FP],
     )
   })
@@ -67,7 +69,12 @@ async function main(): Promise<void> {
     await writeFile(join(dir, 'trusted-publishers.json'), publishersFile(RELEASE_FP))
     await writeFile(join(dir, TRUSTED_PUBLISHERS_DEV_FILENAME), '{ not json')
     assert.deepEqual(
-      [...readTrustedMarketplacePublisherFingerprintsSync({ isPackaged: false, resolveResourcePath: resolverFor(dir) })],
+      [
+        ...readTrustedMarketplacePublisherFingerprintsSync({
+          isPackaged: false,
+          resolveResourcePath: resolverFor(dir),
+        }),
+      ],
       [RELEASE_FP],
     )
   })

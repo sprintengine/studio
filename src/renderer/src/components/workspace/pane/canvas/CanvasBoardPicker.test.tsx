@@ -106,19 +106,13 @@ async function main(): Promise<void> {
     })
   }
 
-  async function mount(
-    props: { onPick?: (path: string) => void; openPaths?: readonly string[] } = {},
-  ) {
+  async function mount(props: { onPick?: (path: string) => void; openPaths?: readonly string[] } = {}) {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)
     await act(async () => {
       root.render(
-        <CanvasBoardPicker
-          workspaceId="ws-1"
-          onPick={props.onPick ?? (() => {})}
-          openPaths={props.openPaths}
-        />,
+        <CanvasBoardPicker workspaceId="ws-1" onPick={props.onPick ?? (() => {})} openPaths={props.openPaths} />,
       )
     })
     const buttons = () => [...container.querySelectorAll('button')]
@@ -217,10 +211,7 @@ async function main(): Promise<void> {
     await runAsync('the second page continues the list, and the heading does not move', async () => {
       const second = view.buttons().find((element) => element.getAttribute('aria-label') === 'Page 2')!
       await click(second)
-      assert.equal(
-        view.rows()[0].querySelector('button')?.getAttribute('aria-label')?.split(',')[0],
-        'Open board b11',
-      )
+      assert.equal(view.rows()[0].querySelector('button')?.getAttribute('aria-label')?.split(',')[0], 'Open board b11')
       assert.equal(view.rows().length, 10)
       assert.match(view.container.querySelector('nav')!.textContent ?? '', /Showing 11–20 of 23/)
     })

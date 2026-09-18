@@ -33,9 +33,7 @@ export function useTerminalSessions(options?: UseTerminalSessionsOptions): Termi
   )
 }
 
-export function isLiveTerminal(
-  session: TerminalSessionSnapshot | null | undefined
-): boolean {
+export function isLiveTerminal(session: TerminalSessionSnapshot | null | undefined): boolean {
   return Boolean(session?.processAlive)
 }
 
@@ -49,35 +47,29 @@ export function isLiveTerminal(
  * `workspaceTerminalAwaitingInput` has always gated on, and for the same
  * reason: it must not outlive the pty and keep the sidebar lit.
  */
-export function isSessionWorking(
-  session: TerminalSessionSnapshot | null | undefined
-): boolean {
+export function isSessionWorking(session: TerminalSessionSnapshot | null | undefined): boolean {
   return Boolean(session?.processAlive) && session?.activity.kind === 'working'
 }
 
-export function isSessionFailed(
-  session: TerminalSessionSnapshot | null | undefined
-): boolean {
+export function isSessionFailed(session: TerminalSessionSnapshot | null | undefined): boolean {
   return session?.activity.kind === 'failed'
 }
 
 function findSession(
   sessions: TerminalSessionSnapshot[],
-  predicate: (session: TerminalSessionSnapshot) => boolean
+  predicate: (session: TerminalSessionSnapshot) => boolean,
 ): TerminalSessionSnapshot | null {
   return sessions.find(predicate) ?? null
 }
 
 export function findLiveSession(
   sessions: TerminalSessionSnapshot[],
-  predicate: (session: TerminalSessionSnapshot) => boolean
+  predicate: (session: TerminalSessionSnapshot) => boolean,
 ): TerminalSessionSnapshot | null {
   return sessions.find((session) => session.processAlive && predicate(session)) ?? null
 }
 
-export function useSession(
-  predicate: (session: TerminalSessionSnapshot) => boolean
-): TerminalSessionSnapshot | null {
+export function useSession(predicate: (session: TerminalSessionSnapshot) => boolean): TerminalSessionSnapshot | null {
   const sessions = useTerminalSessions()
   return useMemo(() => findSession(sessions, predicate), [sessions, predicate])
 }
@@ -101,10 +93,9 @@ export type WorkspaceDisplayActivity = 'needs-input' | 'working' | 'failed' | 'i
 export function deriveWorkspaceLastInputAt(
   workspaceId: string,
   sessions: TerminalSessionSnapshot[],
-  persistedLastInputAt?: number | null
+  persistedLastInputAt?: number | null,
 ): number | null {
-  let max: number | null =
-    typeof persistedLastInputAt === 'number' ? persistedLastInputAt : null
+  let max: number | null = typeof persistedLastInputAt === 'number' ? persistedLastInputAt : null
   for (const session of sessions) {
     if (session.workspaceId !== workspaceId) continue
     if (typeof session.lastInputAt !== 'number') continue
@@ -116,7 +107,7 @@ export function deriveWorkspaceLastInputAt(
 export function deriveWorkspaceTerminalActivity(
   workspaceId: string,
   sessions: TerminalSessionSnapshot[],
-  persistedLastInputAt?: number | null
+  persistedLastInputAt?: number | null,
 ): WorkspaceTerminalActivity {
   let workingSince: number | null = null
   let failedAt: number | null = null
@@ -164,7 +155,7 @@ export function deriveWorkspaceIdleSince(
   workspaceId: string,
   sessions: TerminalSessionSnapshot[],
   persistedLastInputAt?: number | null,
-  persistedTurnEndedAt?: number | null
+  persistedTurnEndedAt?: number | null,
 ): number | null {
   let idleSince: number | null = null
   for (const session of sessions) {
@@ -189,16 +180,13 @@ export function deriveWorkspaceIdleSince(
 // session is still snapshotted, and only a live agent can actually be waiting on the user —
 // a stale `awaiting_input` from an exited/crashed agent must not keep the glyph
 // lit.
-export function workspaceTerminalAwaitingInput(
-  workspaceId: string,
-  sessions: TerminalSessionSnapshot[]
-): boolean {
+export function workspaceTerminalAwaitingInput(workspaceId: string, sessions: TerminalSessionSnapshot[]): boolean {
   return sessions.some(
     (session) =>
-      session.kind === 'agent'
-      && session.workspaceId === workspaceId
-      && session.processAlive
-      && session.agentState?.phase === 'awaiting_input'
+      session.kind === 'agent' &&
+      session.workspaceId === workspaceId &&
+      session.processAlive &&
+      session.agentState?.phase === 'awaiting_input',
   )
 }
 
@@ -238,10 +226,7 @@ function isHookReportedTurnInFlight(session: TerminalSessionSnapshot): boolean {
  * automation, a resumed continuation) still reads from `activity.since`, and a
  * prompt left over from a previous turn can never pull the clock backwards.
  */
-export function deriveWorkspaceWorkingSince(
-  workspaceId: string,
-  sessions: TerminalSessionSnapshot[]
-): number | null {
+export function deriveWorkspaceWorkingSince(workspaceId: string, sessions: TerminalSessionSnapshot[]): number | null {
   let since: number | null = null
   for (const session of sessions) {
     if (session.workspaceId !== workspaceId) continue
@@ -327,9 +312,7 @@ export type TabRecencyDisplay = {
 
 // A resting tab counts from its idle transition. Exited sessions retain the
 // historical last-input fallback because they no longer have a live idle phase.
-export function pickTerminalTabRecency(
-  session: TerminalSessionSnapshot | null | undefined
-): TabRecencyDisplay | null {
+export function pickTerminalTabRecency(session: TerminalSessionSnapshot | null | undefined): TabRecencyDisplay | null {
   if (!session) return null
   if (session.activity.kind === 'idle') {
     return { at: session.activity.since, source: 'idle' }
@@ -346,7 +329,7 @@ export function pickTerminalTabRecency(
 export function pickAgentTabRecency(
   session: TerminalSessionSnapshot | null | undefined,
   persistedWorkspaceRecency: number | null | undefined,
-  cliLastExitedAt: number | null | undefined
+  cliLastExitedAt: number | null | undefined,
 ): TabRecencyDisplay | null {
   if (session?.activity.kind === 'idle') {
     return { at: session.activity.since, source: 'idle' }

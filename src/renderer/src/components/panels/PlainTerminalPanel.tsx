@@ -5,7 +5,12 @@ import { resolveWorkspaceTerminalCwd, resolveWorkspaceWorktree } from '../../uti
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
 import { recordReplayProfile } from '../../utils/diagnostics/replayProfileStore'
-import { createStudioTerminal, terminalSurfaceLinkRoots, type StudioTerminal, type TerminalSurface } from '../../utils/createStudioTerminal'
+import {
+  createStudioTerminal,
+  terminalSurfaceLinkRoots,
+  type StudioTerminal,
+  type TerminalSurface,
+} from '../../utils/createStudioTerminal'
 import { useTerminalFind } from '../../hooks/useTerminalFind'
 import { isTerminalChromeTarget, TERMINAL_SURFACE_ATTRIBUTE } from '../../utils/keyboard'
 import { createTerminalDiagnostics } from '../../utils/terminalDiagnostics'
@@ -86,11 +91,9 @@ export default function PlainTerminalPanel({
   // spawn effect below re-runs at most once (null -> path).
   const workspaceWorktreeGitRoot = useWorkspaceStore((s) => {
     const ws = s.workspaces.find((w) => w.id === workspaceId)
-    return ws ? resolveWorkspaceWorktree(ws)?.gitRoot ?? null : null
+    return ws ? (resolveWorkspaceWorktree(ws)?.gitRoot ?? null) : null
   })
-  const workspaceName = useWorkspaceStore((s) =>
-    s.workspaces.find((w) => w.id === workspaceId)?.name
-  )
+  const workspaceName = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.name)
 
   useEffect(() => {
     const container = containerRef.current
@@ -135,7 +138,12 @@ export default function PlainTerminalPanel({
       }
     }
     const openFileLinkMenu = (
-      { resolvedPath, isDirectory, line, column }: {
+      {
+        resolvedPath,
+        isDirectory,
+        line,
+        column,
+      }: {
         resolvedPath: string
         isDirectory: boolean
         line?: number
@@ -233,9 +241,10 @@ export default function PlainTerminalPanel({
           rows: term.rows,
           lastJumpLine: lastPromptJump,
         })
-        const line = direction === 'previous'
-          ? markTracker?.previousPromptLine(from) ?? null
-          : markTracker?.nextPromptLine(from) ?? null
+        const line =
+          direction === 'previous'
+            ? (markTracker?.previousPromptLine(from) ?? null)
+            : (markTracker?.nextPromptLine(from) ?? null)
         if (line === null) return false
         term.scrollToLine(line)
         lastPromptJump = line
@@ -278,20 +287,24 @@ export default function PlainTerminalPanel({
 
     // Non-null for every shell surface; the guard is what keeps a surface that
     // must not resolve local paths (fleet) from ever registering this provider.
-    const fileLinkDisposable = surfaceLinkRoots ? term.registerLinkProvider(createTerminalFileLinkProvider({
-      terminal: term,
-      workspaceRoot: surfaceLinkRoots.workspaceRoot,
-      // A thunk, so a `cd` (or the async spawn-cwd resolution below) reaches the
-      // links already on screen without re-registering the provider.
-      executionRoot: () => oscExecutionRoot ?? launchExecutionRoot,
-      inspectPath,
-      onActivate: openFileLinkMenu,
-      onOpenError: (message, anchor) => setCursorError({ message, x: anchor.x, y: anchor.y }),
-      // A matched path that never became a link leaves no trace on screen, so
-      // count it — a workspace with no configured folder drops every relative
-      // path in the pane and looks identical to a pane containing none.
-      onDrop: terminalDiagnostics.recordFileLinkDrop,
-    })) : null
+    const fileLinkDisposable = surfaceLinkRoots
+      ? term.registerLinkProvider(
+          createTerminalFileLinkProvider({
+            terminal: term,
+            workspaceRoot: surfaceLinkRoots.workspaceRoot,
+            // A thunk, so a `cd` (or the async spawn-cwd resolution below) reaches the
+            // links already on screen without re-registering the provider.
+            executionRoot: () => oscExecutionRoot ?? launchExecutionRoot,
+            inspectPath,
+            onActivate: openFileLinkMenu,
+            onOpenError: (message, anchor) => setCursorError({ message, x: anchor.x, y: anchor.y }),
+            // A matched path that never became a link leaves no trace on screen, so
+            // count it — a workspace with no configured folder drops every relative
+            // path in the pane and looks identical to a pane containing none.
+            onDrop: terminalDiagnostics.recordFileLinkDrop,
+          }),
+        )
+      : null
 
     // Loaded AFTER the file-link provider on purpose: xterm resolves link
     // providers in registration order and the earlier one's links suppress the
@@ -430,71 +443,72 @@ export default function PlainTerminalPanel({
         launchExecutionRoot = terminalCwd ?? null
         if (resolved.missing) {
           term.write(
-            `\r\n\x1b[31m[worktree missing — opened in main checkout: ${terminalCwd ?? savedFolderPath ?? 'the workspace folder'}]\x1b[0m\r\n`
+            `\r\n\x1b[31m[worktree missing — opened in main checkout: ${terminalCwd ?? savedFolderPath ?? 'the workspace folder'}]\x1b[0m\r\n`,
           )
         }
-        void window.api.terminalStatus(sessionId).then((status) => {
-          logPerfEvent('PlainTerminalPanel', status.processAlive ? 'terminal-reattach-existing-session' : 'terminal-spawn-fresh', {
-            sessionId,
-            workspaceId,
-            terminalId,
-            kind: 'terminal',
-            processAlive: status.processAlive,
-            resumeRequested: false,
-            willSpawnFresh: !status.processAlive,
+        void window.api
+          .terminalStatus(sessionId)
+          .then((status) => {
+            logPerfEvent(
+              'PlainTerminalPanel',
+              status.processAlive ? 'terminal-reattach-existing-session' : 'terminal-spawn-fresh',
+              {
+                sessionId,
+                workspaceId,
+                terminalId,
+                kind: 'terminal',
+                processAlive: status.processAlive,
+                resumeRequested: false,
+                willSpawnFresh: !status.processAlive,
+              },
+            )
           })
-        }).catch(() => {})
+          .catch(() => {})
         replayGate.beginReplayWait()
-        void window.api.terminalSpawn(
-          sessionId,
-          term.cols,
-          term.rows,
-          terminalCwd,
-          false,
-          undefined,
-          undefined,
-          undefined,
-          true,
-          {
+        void window.api
+          .terminalSpawn(sessionId, term.cols, term.rows, terminalCwd, false, undefined, undefined, undefined, true, {
             kind: 'terminal',
             workspaceId,
             terminalId,
             visible: true,
-          }
-        ).then((spawnResult) => {
-          replayGate.finishReplayWait()
-          if (spawnResult.ok) return
-          if (!reportedTerminalFailure) {
+          })
+          .then((spawnResult) => {
+            replayGate.finishReplayWait()
+            if (spawnResult.ok) return
+            if (!reportedTerminalFailure) {
+              reportedTerminalFailure = true
+              publishDiagnosticSync({
+                level: 'error',
+                source: 'terminal',
+                title: 'Terminal was not started',
+                message: spawnResult.message,
+                details: [
+                  `Session: ${sessionId}`,
+                  `Workspace path: ${terminalCwd ?? savedFolderPath ?? 'default app path'}`,
+                ]
+                  .filter(Boolean)
+                  .join('\n'),
+                workspaceId,
+                workspaceName,
+                sessionId,
+              })
+            }
+          })
+          .catch((error) => {
+            replayGate.finishReplayWait()
+            if (reportedTerminalFailure) return
             reportedTerminalFailure = true
             publishDiagnosticSync({
               level: 'error',
               source: 'terminal',
               title: 'Terminal was not started',
-              message: spawnResult.message,
-              details: [
-                `Session: ${sessionId}`,
-                `Workspace path: ${terminalCwd ?? savedFolderPath ?? 'default app path'}`,
-              ].filter(Boolean).join('\n'),
+              message: error instanceof Error ? error.message : 'Failed to start terminal.',
+              details: `Session: ${sessionId}`,
               workspaceId,
               workspaceName,
               sessionId,
             })
-          }
-        }).catch((error) => {
-          replayGate.finishReplayWait()
-          if (reportedTerminalFailure) return
-          reportedTerminalFailure = true
-          publishDiagnosticSync({
-            level: 'error',
-            source: 'terminal',
-            title: 'Terminal was not started',
-            message: error instanceof Error ? error.message : 'Failed to start terminal.',
-            details: `Session: ${sessionId}`,
-            workspaceId,
-            workspaceName,
-            sessionId,
           })
-        })
       })()
     }
     const settleTimer = window.setTimeout(() => {
@@ -542,7 +556,17 @@ export default function PlainTerminalPanel({
         void window.api.terminalSetVisible(sessionId, false).catch(() => {})
       }
     }
-  }, [cwdOverride, folderReadyPath, killOnUnmount, savedFolderPath, shouldKillOnUnmount, terminalId, workspaceId, workspaceName, workspaceWorktreeGitRoot])
+  }, [
+    cwdOverride,
+    folderReadyPath,
+    killOnUnmount,
+    savedFolderPath,
+    shouldKillOnUnmount,
+    terminalId,
+    workspaceId,
+    workspaceName,
+    workspaceWorktreeGitRoot,
+  ])
 
   const folderBlocked = Boolean(!cwdOverride && savedFolderPath && !folderReadyPath)
   const handleDragOver = (event: React.DragEvent<HTMLDivElement>) => {
@@ -575,8 +599,7 @@ export default function PlainTerminalPanel({
     setIsFileDragOver(false)
 
     const dropAnchor = { x: event.clientX, y: event.clientY }
-    const showDropError = (message: string) =>
-      setCursorError({ message, x: dropAnchor.x, y: dropAnchor.y })
+    const showDropError = (message: string) => setCursorError({ message, x: dropAnchor.x, y: dropAnchor.y })
 
     // Normally unreachable — the refusal above ends the drag — but it is what
     // stops a skill that did reach here falling through to the file path and
@@ -655,7 +678,8 @@ export default function PlainTerminalPanel({
         ) : null}
         {folderBlocked && folderMissing ? (
           <div className="absolute inset-0 flex items-center justify-center px-4 text-center text-meta text-[color:var(--text-muted)]">
-            {folderStatusMessage ?? 'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'}
+            {folderStatusMessage ??
+              'Saved workspace folder is missing. Relink it from the Files pane before starting this terminal.'}
           </div>
         ) : null}
       </div>

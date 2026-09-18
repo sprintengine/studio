@@ -64,9 +64,7 @@ export type HostedModelFeed = {
 // cliRuntimeOptions.mergeModelCatalog.
 export type HostedCliModelCatalogs = Partial<Record<string, HostedModel[]>>
 
-export type HostedModelFeedParseResult =
-  | { ok: true; feed: HostedModelFeed }
-  | { ok: false; message: string }
+export type HostedModelFeedParseResult = { ok: true; feed: HostedModelFeed } | { ok: false; message: string }
 
 export function parseHostedModelFeed(source: unknown): HostedModelFeedParseResult {
   let value: unknown = source
@@ -129,7 +127,8 @@ function parseModel(raw: unknown): { ok: true; model: HostedModel } | { ok: fals
   if (typeof raw.supportsFastMode === 'boolean') model.supportsFastMode = raw.supportsFastMode
   if (typeof raw.releasedAt === 'string' && !Number.isNaN(Date.parse(raw.releasedAt))) model.releasedAt = raw.releasedAt
   if (raw.alias === true) model.alias = true
-  else if (!model.releasedAt) return { ok: false, message: `"${id}" has no releasedAt; every model except an alias needs the date it shipped.` }
+  else if (!model.releasedAt)
+    return { ok: false, message: `"${id}" has no releasedAt; every model except an alias needs the date it shipped.` }
   if (raw.retired === true) model.retired = true
   if (typeof raw.retiredAt === 'string' && !Number.isNaN(Date.parse(raw.retiredAt))) model.retiredAt = raw.retiredAt
   return { ok: true, model }
@@ -142,7 +141,11 @@ export function hostedModelFeedUpdatedAtMs(feed: Pick<HostedModelFeed, 'updatedA
   return Number.isNaN(parsed) ? 0 : parsed
 }
 
-export function isRecentRelease(releasedAt: string | null | undefined, now: Date, days = HOSTED_MODEL_NEW_FOR_DAYS): boolean {
+export function isRecentRelease(
+  releasedAt: string | null | undefined,
+  now: Date,
+  days = HOSTED_MODEL_NEW_FOR_DAYS,
+): boolean {
   if (!releasedAt) return false
   const released = Date.parse(releasedAt)
   if (Number.isNaN(released)) return false

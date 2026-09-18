@@ -49,9 +49,7 @@ export function resolveCliRuntimeSettings(
   cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
 ): CliRuntimeSettings {
   const direct = cliRuntimes?.[cli]
-  const command =
-    (typeof direct?.command === 'string' ? direct.command : undefined)
-    ?? ''
+  const command = (typeof direct?.command === 'string' ? direct.command : undefined) ?? ''
   const useWsl = direct?.useWsl ?? false
   return { command: command.trim(), useWsl }
 }
@@ -140,17 +138,14 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
   if (!plugin) {
     throw new AgentLaunchRenderError(
       `No plugin manifest found for "${input.cli}" (looked up as "${pluginId}"). ` +
-        `Check that resources/plugins/${pluginId}/plugin.json is bundled.`
+        `Check that resources/plugins/${pluginId}/plugin.json is bundled.`,
     )
   }
 
   // The probed path wins over a `cliRuntimes` command override because the probe
   // ran against that same override (detection is keyed by it) — the resolved
   // path is that command, made absolute. The bare name is the last resort.
-  const binary =
-    input.resolvedBinaryPath?.trim()
-    || input.cliRuntime?.command?.trim()
-    || plugin.manifest.binary
+  const binary = input.resolvedBinaryPath?.trim() || input.cliRuntime?.command?.trim() || plugin.manifest.binary
   // Debug Mode is applied here, at the single render boundary every spawn path
   // converges on, so the directive (led by the CLI-native skill invocation when
   // the plugin supports it) lands in the rendered prompt token for any CLI. Only
@@ -192,7 +187,7 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
   if (!rendered) {
     throw new AgentLaunchRenderError(
       `Plugin "${pluginId}" does not declare a resume command. ` +
-        `Set resume.supported = true and resume.argv in its plugin.json.`
+        `Set resume.supported = true and resume.argv in its plugin.json.`,
     )
   }
 

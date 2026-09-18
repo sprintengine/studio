@@ -19,7 +19,8 @@ export type ExportDimensions = { width: number; height: number; scale: number }
 export function exportDimensions(width: number, height: number, maxEdge: number): ExportDimensions {
   const natural = Math.max(width, height)
   if (!Number.isFinite(natural) || natural <= 0) return { width: 1, height: 1, scale: 1 }
-  const budget = Number.isFinite(maxEdge) && maxEdge > 0 ? Math.min(maxEdge, CANVAS_MAX_EXPORT_EDGE) : CANVAS_MAX_EXPORT_EDGE
+  const budget =
+    Number.isFinite(maxEdge) && maxEdge > 0 ? Math.min(maxEdge, CANVAS_MAX_EXPORT_EDGE) : CANVAS_MAX_EXPORT_EDGE
   const scale = Math.min(CANVAS_MAX_EXPORT_SCALE, budget / natural)
   return {
     width: Math.max(1, Math.round(width * scale)),

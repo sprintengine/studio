@@ -41,11 +41,7 @@ export type BackgroundPresenceDeps = {
   createTray: () => BackgroundTrayHandle | null
   buildMenu: (items: readonly BackgroundTrayItem[], actions: BackgroundTrayActions) => unknown
   actions: BackgroundTrayActions
-  logDiagnostic?: (input: {
-    level: 'info' | 'warning'
-    title: string
-    message: string
-  }) => void
+  logDiagnostic?: (input: { level: 'info' | 'warning'; title: string; message: string }) => void
   timers?: {
     setInterval(handler: () => void, ms: number): unknown
     clearInterval(handle: unknown): void

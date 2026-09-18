@@ -1,10 +1,6 @@
 import type { AgentPhase, AgentSessionSystem } from './electron-api'
 
-export type {
-  AgentExecution,
-  AgentExecutionMode,
-  AgentState,
-} from './agent-state'
+export type { AgentExecution, AgentExecutionMode, AgentState } from './agent-state'
 export { defaultAgent, defaultAgentExecution } from './agent-state'
 
 // Generic agent-session runtime contracts. These describe how the core

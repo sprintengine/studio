@@ -55,13 +55,7 @@ export function useTitleBarFold(): TitleBarFold {
   return React.useContext(TitleBarFoldContext)
 }
 
-export function TitleBarFoldProvider({
-  fold,
-  children,
-}: {
-  fold: TitleBarFold
-  children: React.ReactNode
-}) {
+export function TitleBarFoldProvider({ fold, children }: { fold: TitleBarFold; children: React.ReactNode }) {
   return <TitleBarFoldContext.Provider value={fold}>{children}</TitleBarFoldContext.Provider>
 }
 

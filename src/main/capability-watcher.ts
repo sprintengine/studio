@@ -86,8 +86,7 @@ const MAX_WATCHED_WORKSPACES = 8
 export function createFsWatchDirectory(): WatchDirectory {
   return (target, onChange) => {
     const start = (recursive: boolean): WatchHandle =>
-      watch(target.path, { recursive }, (_event, filename) =>
-        onChange(typeof filename === 'string' ? filename : null))
+      watch(target.path, { recursive }, (_event, filename) => onChange(typeof filename === 'string' ? filename : null))
     // Recursive is supported on macOS and Windows and is what catches an edit
     // to an existing skill's SKILL.md rather than only the directory appearing.
     // Asked for only where the caller wants a tree — never for the workspace
@@ -173,17 +172,14 @@ export function createCapabilityWatcher(options: {
       const entry = group.targets[index]
       if (entry.handle) continue
       try {
-        entry.handle = watchDirectory(
-          { path: entry.path, recursive: entry.recursive },
-          (filename) => {
-            if (entry.match && filename !== null && filename !== entry.match) return
-            // A stand-in fires because the path it waits for may now exist:
-            // re-attach before invalidating, so the next change is caught by
-            // the real watch rather than by this fallback.
-            if (entry.waitingFor) attach(workspace, group)
-            schedule(workspace, group)
-          },
-        )
+        entry.handle = watchDirectory({ path: entry.path, recursive: entry.recursive }, (filename) => {
+          if (entry.match && filename !== null && filename !== entry.match) return
+          // A stand-in fires because the path it waits for may now exist:
+          // re-attach before invalidating, so the next change is caught by
+          // the real watch rather than by this fallback.
+          if (entry.waitingFor) attach(workspace, group)
+          schedule(workspace, group)
+        })
         entry.failure = null
         attached.push(entry.path)
       } catch (error) {
@@ -343,9 +339,10 @@ export function capabilityWatchGroups(input: {
       pluginIds: [...binding.pluginIds],
       // A harness declared unsupported by every CLI bound to it is never read,
       // so there is nothing to keep fresh.
-      skillsDir: binding.support !== 'unsupported' && binding.skillsDir
-        ? join(input.workspaceRoot, ...binding.skillsDir.split('/'))
-        : null,
+      skillsDir:
+        binding.support !== 'unsupported' && binding.skillsDir
+          ? join(input.workspaceRoot, ...binding.skillsDir.split('/'))
+          : null,
       configFiles: [],
     })
   }
@@ -401,10 +398,7 @@ function watchTargets(group: CapabilityWatchGroup): WatchTarget[] {
   return dedupeTargets(targets)
 }
 
-function target(
-  path: string,
-  options: { recursive?: boolean; match?: string; waitingFor?: string },
-): WatchTarget {
+function target(path: string, options: { recursive?: boolean; match?: string; waitingFor?: string }): WatchTarget {
   return {
     path,
     recursive: options.recursive ?? false,

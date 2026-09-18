@@ -39,7 +39,6 @@ export function revealAgentTerminalTab(
       if (!activateWorkspace) return
       useWorkspaceStore.getState().setActiveWorkspace(workspaceId)
     },
-    updateLayout: (workspaceId, layoutModel) =>
-      useWorkspaceStore.getState().updateLayout(workspaceId, layoutModel),
+    updateLayout: (workspaceId, layoutModel) => useWorkspaceStore.getState().updateLayout(workspaceId, layoutModel),
   })
 }

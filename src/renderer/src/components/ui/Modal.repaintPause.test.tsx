@@ -76,7 +76,7 @@ async function main(): Promise<void> {
             onClose: () => {},
             label: 'Test dialog',
             children: React.createElement('p', null, 'body'),
-          })
+          }),
         )
       })
     }

@@ -48,7 +48,7 @@ export type AgentLaunchIntent = {
 
 export function agentCheckoutOf(
   session: Pick<TerminalSessionSnapshot, 'observedCheckout'> | null | undefined,
-  launch: AgentLaunchIntent
+  launch: AgentLaunchIntent,
 ): AgentCheckout | null {
   const observed = session?.observedCheckout
   const observedKind = observedCheckoutKind(observed)
@@ -67,12 +67,11 @@ export function agentCheckoutOf(
   // Launch intent. A per-agent worktree claims no branch: the app never
   // resolved one at launch, and inventing it here would be a claim the
   // observation then corrects.
-  const launchWorktree =
-    launch.workspaceWorktree
-      ? { cwd: launch.workspaceWorktree.gitRoot, branch: launch.workspaceWorktree.branch }
-      : launch.execution?.mode === 'worktree'
-        ? { cwd: launch.execution.cwd ?? null, branch: null }
-        : null
+  const launchWorktree = launch.workspaceWorktree
+    ? { cwd: launch.workspaceWorktree.gitRoot, branch: launch.workspaceWorktree.branch }
+    : launch.execution?.mode === 'worktree'
+      ? { cwd: launch.execution.cwd ?? null, branch: null }
+      : null
   if (launchWorktree) {
     return { kind: 'worktree', ...launchWorktree, gitRoot: launchWorktree.cwd, observed: false }
   }

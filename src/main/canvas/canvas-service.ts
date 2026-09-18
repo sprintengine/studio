@@ -95,12 +95,7 @@ const LIST_MAX_PARSE_BYTES = 5 * 1024 * 1024
 
 // Folders a board never lives in, and which are expensive to walk. Dot-folders
 // are skipped wholesale below; these are the ones without a leading dot.
-const LIST_SKIP_FOLDERS: ReadonlySet<string> = new Set([
-  'node_modules',
-  'out',
-  'dist',
-  'build',
-])
+const LIST_SKIP_FOLDERS: ReadonlySet<string> = new Set(['node_modules', 'out', 'dist', 'build'])
 
 /** The screenshot budget, from the plan: a result has to fit the gateway's line limit. */
 const SCREENSHOT_DEFAULT_EDGE = 1024
@@ -508,10 +503,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     return canvasOk(undefined)
   }
 
-  async function ensureBoard(
-    ref: CanvasBoardRef,
-    opts: { create?: boolean } = {},
-  ): Promise<CanvasResult<BoardEntry>> {
+  async function ensureBoard(ref: CanvasBoardRef, opts: { create?: boolean } = {}): Promise<CanvasResult<BoardEntry>> {
     if (disposed) return canvasFail('worker_unavailable', 'The canvas service is shutting down.')
     const located = locate(ref)
     if (!located.ok) return located
@@ -781,7 +773,10 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       // saw the file between its bytes. Memory stands, the board stays dirty so
       // the next write step looks again, and nothing is written over it.
       board.diskDirty = true
-      log('A canvas board changed on disk into something unreadable', { path: board.path, detail: parsed.error.message })
+      log('A canvas board changed on disk into something unreadable', {
+        path: board.path,
+        detail: parsed.error.message,
+      })
       return 'unparseable'
     }
     const merged = mergeFromDisk(board.elements, parsed.value.elements, deps.now())
@@ -967,7 +962,9 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       for (const which of ['startBinding', 'endBinding'] as const) {
         const binding = element[which]
         const targetId =
-          typeof binding === 'object' && binding !== null && typeof (binding as { elementId?: unknown }).elementId === 'string'
+          typeof binding === 'object' &&
+          binding !== null &&
+          typeof (binding as { elementId?: unknown }).elementId === 'string'
             ? (binding as { elementId: string }).elementId
             : null
         if (targetId) want(targetId, { id: element.id, type: 'arrow' })
@@ -1017,16 +1014,21 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     board: BoardEntry,
     action: string,
     actor: CanvasActor,
-    compute: (base: CanvasElement[], files: Record<string, unknown>) => Promise<CanvasResult<{
-      outcome: ApplyOutcome
-      /** What the agent asked for: the presence badge's selection. */
-      touched: string[]
-      /** Every id the worker's own bookkeeping says it moved. Optional: the
-       *  output is re-read against the base regardless. */
-      changed?: string[]
-      value: T
-      summary: string
-    }>>,
+    compute: (
+      base: CanvasElement[],
+      files: Record<string, unknown>,
+    ) => Promise<
+      CanvasResult<{
+        outcome: ApplyOutcome
+        /** What the agent asked for: the presence badge's selection. */
+        touched: string[]
+        /** Every id the worker's own bookkeeping says it moved. Optional: the
+         *  output is re-read against the base regardless. */
+        changed?: string[]
+        value: T
+        summary: string
+      }>
+    >,
   ): Promise<CanvasResult<T>> {
     const entry = beginAction(board, action, 'in progress', actor)
     let attempts = 0
@@ -1276,7 +1278,10 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     const hasMermaid = typeof request?.mermaid === 'string' && request.mermaid.trim().length > 0
     const hasScene = request?.scene !== undefined && request.scene !== null
     if (hasMermaid === hasScene) {
-      return canvasFail('invalid_edit', 'An import takes either a mermaid definition or a scene, not both and not neither.')
+      return canvasFail(
+        'invalid_edit',
+        'An import takes either a mermaid definition or a scene, not both and not neither.',
+      )
     }
 
     const applied = await runAgentMutation(entry, 'canvas.import', actor, async (base, _files) => {
@@ -1339,9 +1344,10 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
           : 'The board is empty; there is nothing to capture.',
       )
     }
-    const requested = typeof opts?.maxEdge === 'number' && Number.isFinite(opts.maxEdge)
-      ? Math.round(opts.maxEdge)
-      : SCREENSHOT_DEFAULT_EDGE
+    const requested =
+      typeof opts?.maxEdge === 'number' && Number.isFinite(opts.maxEdge)
+        ? Math.round(opts.maxEdge)
+        : SCREENSHOT_DEFAULT_EDGE
     // The caller may ask for less. It may not ask for more than the ceiling:
     // the answer has to fit one line of the gateway's protocol, whoever asked.
     const maxEdge = Math.max(SCREENSHOT_MIN_EDGE, Math.min(requested, SCREENSHOT_MAX_EDGE))
@@ -1514,10 +1520,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       const before = entry.elements
       const beforeFiles = entry.files
       const beforeAppState = entry.appState
-      const merged = dropStaleTombstones(
-        repairBindingPairs(mergeElements(entry.elements, input.elements)),
-        deps.now(),
-      )
+      const merged = dropStaleTombstones(repairBindingPairs(mergeElements(entry.elements, input.elements)), deps.now())
       entry.elements = merged
       entry.appState = reduceAppState(input.appState)
       // Binary blobs are add-only in an editor session: merging by key keeps an
@@ -1533,7 +1536,10 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
       entry.revision += 1
       entry.mutationSeq += 1
       touch(entry)
-      recordHumanAction(entry, `${merged.filter((element) => element.isDeleted !== true).length} element(s) on the board`)
+      recordHumanAction(
+        entry,
+        `${merged.filter((element) => element.isDeleted !== true).length} element(s) on the board`,
+      )
       // The sender already has what it sent; echoing it back would fight the
       // person's own cursor. Every OTHER window hears about it.
       pushScene(entry, 'human', subscriberId)

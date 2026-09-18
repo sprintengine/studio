@@ -27,15 +27,27 @@ const at = (moves: ReturnType<typeof layoutMoves>, id: string): { x: number; y: 
 
 run('align puts every box on the selection edge, and only moves one axis', () => {
   const left = layoutMoves(boxes, { op: 'align', elementIds: [], to: 'left' })
-  assert.deepEqual(left.map((move) => move.x), [0, 0, 0])
-  assert.deepEqual(left.map((move) => move.y), [0, 80, 30])
+  assert.deepEqual(
+    left.map((move) => move.x),
+    [0, 0, 0],
+  )
+  assert.deepEqual(
+    left.map((move) => move.y),
+    [0, 80, 30],
+  )
 
   const right = layoutMoves(boxes, { op: 'align', elementIds: [], to: 'right' })
   // The selection's right edge is 440; each box's own width comes off it.
-  assert.deepEqual(right.map((move) => move.x), [340, 380, 400])
+  assert.deepEqual(
+    right.map((move) => move.x),
+    [340, 380, 400],
+  )
 
   const bottom = layoutMoves(boxes, { op: 'align', elementIds: [], to: 'bottom' })
-  assert.deepEqual(bottom.map((move) => move.y), [120, 80, 150])
+  assert.deepEqual(
+    bottom.map((move) => move.y),
+    [120, 80, 150],
+  )
 
   // Centred on the selection's own middle, not on the origin.
   const centre = layoutMoves(boxes, { op: 'align', elementIds: [], to: 'center-x' })
@@ -52,7 +64,10 @@ run('distribute leaves the outer two where they are and evens the air between', 
   assert.equal(at(moves, 'b').x, 100 + gap)
   assert.equal(at(moves, 'c').x, 100 + gap + 60 + gap)
   // Nothing moves on the other axis.
-  assert.deepEqual(moves.map((move) => move.y), [0, 80, 30])
+  assert.deepEqual(
+    moves.map((move) => move.y),
+    [0, 80, 30],
+  )
 })
 
 run('fewer than three boxes have nothing to distribute', () => {
@@ -82,8 +97,20 @@ run('a gap of zero is a gap, not a missing one', () => {
 })
 
 run('the innermost shared group is the first id everybody carries', () => {
-  assert.equal(innermostSharedGroup([['inner', 'outer'], ['inner', 'outer']]), 'inner')
-  assert.equal(innermostSharedGroup([['own', 'outer'], ['other', 'outer']]), 'outer')
+  assert.equal(
+    innermostSharedGroup([
+      ['inner', 'outer'],
+      ['inner', 'outer'],
+    ]),
+    'inner',
+  )
+  assert.equal(
+    innermostSharedGroup([
+      ['own', 'outer'],
+      ['other', 'outer'],
+    ]),
+    'outer',
+  )
   assert.equal(innermostSharedGroup([['a'], ['b']]), null)
   assert.equal(innermostSharedGroup([]), null)
   assert.equal(innermostSharedGroup([[]]), null)

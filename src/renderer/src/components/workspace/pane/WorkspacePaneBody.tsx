@@ -26,18 +26,14 @@ const PlainTerminalPanel = React.lazy(() => import('../../panels/PlainTerminalPa
 const DiffViewer = React.lazy(() =>
   import('../../auxWindows/DiffViewer').then((module) => ({ default: module.DiffViewer })),
 )
-const BrowserTab = React.lazy(() =>
-  import('./browser/BrowserTab').then((module) => ({ default: module.BrowserTab })),
-)
+const BrowserTab = React.lazy(() => import('./browser/BrowserTab').then((module) => ({ default: module.BrowserTab })))
 // The canvas editor is the heaviest dependency in the tree, and this is the
 // boundary that keeps it out of the boot chunk (scripts/check-bundle-budget.mjs
 // fails the build if its signature reaches there). A local lazy const rather
 // than a host-registered panel because the tab needs the tab RECORD — which
 // board it is on — and whether it is the one on screen, and a host panel is
 // handed neither; the same split dev-tools makes for its explorer.
-const CanvasTab = React.lazy(() =>
-  import('./canvas/CanvasTab').then((module) => ({ default: module.CanvasTab })),
-)
+const CanvasTab = React.lazy(() => import('./canvas/CanvasTab').then((module) => ({ default: module.CanvasTab })))
 
 // An inactive layer is normally `invisible`; a browser layer is parked
 // offscreen instead. Electron blanks a `visibility:hidden` guest for good on
@@ -150,36 +146,46 @@ function PaneTabPanel({ workspaceId, tab, active, onDiffCountChange }: PaneTabPa
   })
   switch (tab.kind) {
     case 'files':
-      return selectModuleEnabled(moduleOverrides, 'dev-tools')
-        ? <FileExplorer workspaceId={workspaceId} />
-        : <PaneUnavailable />
+      return selectModuleEnabled(moduleOverrides, 'dev-tools') ? (
+        <FileExplorer workspaceId={workspaceId} />
+      ) : (
+        <PaneUnavailable />
+      )
     case 'git': {
       // Git is a host-registered panel (git-module.ts); the pane renders the
       // registered component so a disabled module answers with absence.
       const GitPanel = getRendererHost().getPanel('git')
-      return GitPanel && selectModuleEnabled(moduleOverrides, 'git')
-        ? <GitPanel workspaceId={workspaceId} />
-        : <PaneUnavailable />
+      return GitPanel && selectModuleEnabled(moduleOverrides, 'git') ? (
+        <GitPanel workspaceId={workspaceId} />
+      ) : (
+        <PaneUnavailable />
+      )
     }
     case 'backlog': {
       // The workspace's Backlog panel, registered by backlog-module.ts. It
       // takes the same props the FlexLayout rail handed it, future plans
       // included.
       const BacklogPanel = getRendererHost().getPanel('backlog')
-      return BacklogPanel && selectModuleEnabled(moduleOverrides, 'backlog')
-        ? <BacklogPanel workspaceId={workspaceId} />
-        : <PaneUnavailable />
+      return BacklogPanel && selectModuleEnabled(moduleOverrides, 'backlog') ? (
+        <BacklogPanel workspaceId={workspaceId} />
+      ) : (
+        <PaneUnavailable />
+      )
     }
     case 'terminal':
-      return tab.terminalId
-        ? <PlainTerminalPanel workspaceId={workspaceId} terminalId={tab.terminalId} />
-        : <PaneUnavailable />
+      return tab.terminalId ? (
+        <PlainTerminalPanel workspaceId={workspaceId} terminalId={tab.terminalId} />
+      ) : (
+        <PaneUnavailable />
+      )
     case 'browser':
       return <BrowserTab workspaceId={workspaceId} tab={tab} active={active} />
     case 'canvas':
-      return selectModuleEnabled(moduleOverrides, 'canvas')
-        ? <CanvasTab workspaceId={workspaceId} tab={tab} active={active} />
-        : <PaneUnavailable />
+      return selectModuleEnabled(moduleOverrides, 'canvas') ? (
+        <CanvasTab workspaceId={workspaceId} tab={tab} active={active} />
+      ) : (
+        <PaneUnavailable />
+      )
     case 'diff': {
       // The opener's repository wins: the Git panel can be showing a worktree
       // scope that is not the workspace's own checkout, and re-deriving one
@@ -187,16 +193,11 @@ function PaneTabPanel({ workspaceId, tab, active, onDiffCountChange }: PaneTabPa
       // The derived root is the fallback for a Diff tab opened from the pane's
       // own + menu, which names no repository at all.
       const repoRoot = tab.diff?.repoRoot ?? diffRepoRoot
-      return repoRoot && selectModuleEnabled(moduleOverrides, 'git')
-        ? (
-          <PaneDiffTab
-            workspaceId={workspaceId}
-            repoRoot={repoRoot}
-            tab={tab}
-            onDiffCountChange={onDiffCountChange}
-          />
-        )
-        : <PaneUnavailable />
+      return repoRoot && selectModuleEnabled(moduleOverrides, 'git') ? (
+        <PaneDiffTab workspaceId={workspaceId} repoRoot={repoRoot} tab={tab} onDiffCountChange={onDiffCountChange} />
+      ) : (
+        <PaneUnavailable />
+      )
     }
     default:
       return <PaneUnavailable />
@@ -281,12 +282,7 @@ export function WorkspacePaneBody({
           >
             {floating ? <FloatingPlayerChrome workspaceId={workspaceId} tab={tab} rect={floatRect} /> : null}
             <React.Suspense fallback={<SuspenseFallback label="Loading pane" />}>
-              <PaneTabPanel
-                workspaceId={workspaceId}
-                tab={tab}
-                active={active}
-                onDiffCountChange={onDiffCountChange}
-              />
+              <PaneTabPanel workspaceId={workspaceId} tab={tab} active={active} onDiffCountChange={onDiffCountChange} />
             </React.Suspense>
           </div>
         )

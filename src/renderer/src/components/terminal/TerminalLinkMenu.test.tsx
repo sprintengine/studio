@@ -128,8 +128,7 @@ async function main(): Promise<void> {
   // descendant, and every query off `container` silently matched nothing: the
   // deep-equal below compared [] against the expected labels and this whole file
   // went red the day the portal landed.
-  const rows = (): HTMLElement[] =>
-    Array.from(dom.window.document.querySelectorAll('[data-menu-item="true"]'))
+  const rows = (): HTMLElement[] => Array.from(dom.window.document.querySelectorAll('[data-menu-item="true"]'))
 
   function labels(): string[] {
     return rows().map((node) => node.textContent?.trim() ?? '')
@@ -243,9 +242,7 @@ async function main(): Promise<void> {
       // top of the propagation path and never reaches a document listener, so
       // the old window dispatch tested nothing. A real keypress targets the
       // focused element and bubbles up through document, which this matches.
-      dom.window.document.dispatchEvent(
-        new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-      )
+      dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
     })
     assert.equal(closed, before + 1, 'Escape closes')
     view.unmount()

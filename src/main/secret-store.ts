@@ -127,7 +127,9 @@ export class ProviderSecretStore {
     return { ok: true, status: await this.buildStatus(descriptor) }
   }
 
-  private async buildStatus(descriptor: Extract<ProviderSecretDescriptor, { ok: true }>): Promise<ConversationSecretStatus> {
+  private async buildStatus(
+    descriptor: Extract<ProviderSecretDescriptor, { ok: true }>,
+  ): Promise<ConversationSecretStatus> {
     const encryptionAvailable = this.safeStorage.isEncryptionAvailable()
     if (this.inMemorySecrets.has(descriptor.storageKey)) {
       return {

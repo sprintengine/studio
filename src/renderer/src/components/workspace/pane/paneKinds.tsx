@@ -41,7 +41,13 @@ function TerminalGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
       <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M5 6.5 7 8.5 5 10.5M8.5 10.5h3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M5 6.5 7 8.5 5 10.5M8.5 10.5h3"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -73,7 +79,12 @@ function GitGlyph({ className }: { className?: string }) {
 function DiffGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path d="M5 2.5v5M2.5 5h5M2.5 11.5h5M8.5 13.5l4-11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path
+        d="M5 2.5v5M2.5 5h5M2.5 11.5h5M8.5 13.5l4-11"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   )
 }
@@ -82,7 +93,12 @@ function BrowserGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
       <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.5" />
-      <path d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path
+        d="M2 8h12M8 2c2 2 2 10 0 12M8 2c-2 2-2 10 0 12"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
     </svg>
   )
 }
@@ -97,9 +113,19 @@ function BrowserGlyph({ className }: { className?: string }) {
 export function CanvasGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path d="M2 4.5A1.5 1.5 0 0 1 3.5 3h9A1.5 1.5 0 0 1 14 4.5v4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path
+        d="M2 4.5A1.5 1.5 0 0 1 3.5 3h9A1.5 1.5 0 0 1 14 4.5v4"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+      />
       <path d="M2 8.5v3A1.5 1.5 0 0 0 3.5 13H7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <path d="M13.2 8.3 9 12.5l-2 .5.5-2 4.2-4.2a1.06 1.06 0 0 1 1.5 1.5Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path
+        d="M13.2 8.3 9 12.5l-2 .5.5-2 4.2-4.2a1.06 1.06 0 0 1 1.5 1.5Z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -145,9 +171,7 @@ export function composePaneKinds(
   launchers: readonly RegisteredModalSurfaceLauncher[],
   moduleEnabled: (moduleId: string) => boolean,
 ): PaneKindDefinition[] {
-  const kinds = STATIC_PANE_KINDS.filter(
-    (definition) => !definition.moduleId || moduleEnabled(definition.moduleId),
-  )
+  const kinds = STATIC_PANE_KINDS.filter((definition) => !definition.moduleId || moduleEnabled(definition.moduleId))
   const taken = new Set(kinds.map((definition) => definition.letter))
   for (const launcher of launchers) {
     if (!moduleEnabled(launcher.moduleId)) continue
@@ -169,8 +193,12 @@ export function composePaneKinds(
 // modal and never becomes a tab), so the static list is the whole answer.
 export function paneKindDefinition(kind: PaneLaunchKind): PaneKindDefinition {
   return (
-    STATIC_PANE_KINDS.find((definition) => definition.kind === kind)
-    ?? { kind, label: kind, letter: kind[0]?.toUpperCase() ?? '', Glyph: BrowserGlyph }
+    STATIC_PANE_KINDS.find((definition) => definition.kind === kind) ?? {
+      kind,
+      label: kind,
+      letter: kind[0]?.toUpperCase() ?? '',
+      Glyph: BrowserGlyph,
+    }
   )
 }
 

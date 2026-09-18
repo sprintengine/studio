@@ -139,8 +139,8 @@ export function DesignSystemAttachStep({
   if (existingBundle) {
     return (
       <p className="text-meta leading-5 text-[color:var(--text-muted)]">
-        This folder already has a <span className="font-mono text-[color:var(--text-default)]">design-system/</span> directory.
-        Attach never overwrites or merges — the existing copy stays as it is.
+        This folder already has a <span className="font-mono text-[color:var(--text-default)]">design-system/</span>{' '}
+        directory. Attach never overwrites or merges — the existing copy stays as it is.
       </p>
     )
   }
@@ -152,8 +152,9 @@ export function DesignSystemAttachStep({
     <div className="flex flex-col gap-2">
       {variant === 'create' ? (
         <p className="text-meta leading-5 text-[color:var(--text-muted)]">
-          Copies a released bundle into <span className="font-mono text-[color:var(--text-default)]">design-system/</span> when
-          the workspace is created; agents launched here are told to conform to it.
+          Copies a released bundle into{' '}
+          <span className="font-mono text-[color:var(--text-default)]">design-system/</span> when the workspace is
+          created; agents launched here are told to conform to it.
         </p>
       ) : null}
       <div role="group" aria-label="Design system to attach" className="flex flex-col gap-1.5">

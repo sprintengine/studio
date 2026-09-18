@@ -1,7 +1,4 @@
-import type {
-  PluginCatalogEntry,
-  PluginCatalogStatus,
-} from '../../types/workspace'
+import type { PluginCatalogEntry, PluginCatalogStatus } from '../../types/workspace'
 
 // `resumeCapabilitiesForCli` moved to the shared resume-capability module
 // (MC-2160: main-process consumers resolve caps from
@@ -125,7 +122,10 @@ export function createPluginsSlice(
         // during an in-flight background run must not inherit its no-loading /
         // suppressed-error behavior, so queue a foreground run after it settles.
         if (background || !current.background) return current.promise
-        return track(false, current.promise.then(() => runRefresh(false)))
+        return track(
+          false,
+          current.promise.then(() => runRefresh(false)),
+        )
       }
       return track(background, runRefresh(background))
     },

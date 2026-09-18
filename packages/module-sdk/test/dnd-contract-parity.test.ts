@@ -54,8 +54,16 @@ function payloadCases(): Array<[string, Record<string, string>]> {
     ['missing entry', {}],
     ['empty files', { [APP_MIME]: JSON.stringify({ ...VALID, files: [] }) }],
     ['invalid file entries', { [APP_MIME]: JSON.stringify({ ...VALID, files: [{ path: '  ', name: 'x' }, null] }) }],
-    ['non-boolean isDir', { [APP_MIME]: JSON.stringify({ ...VALID, files: [{ path: '/p/x.ts', name: 'x.ts', isDir: 'false' }] }) }],
-    ['extra file props dropped', { [APP_MIME]: JSON.stringify({ ...VALID, files: [{ path: '/p/x.ts', name: 'x.ts', isDir: true, extra: 'no' }] }) }],
+    [
+      'non-boolean isDir',
+      { [APP_MIME]: JSON.stringify({ ...VALID, files: [{ path: '/p/x.ts', name: 'x.ts', isDir: 'false' }] }) },
+    ],
+    [
+      'extra file props dropped',
+      {
+        [APP_MIME]: JSON.stringify({ ...VALID, files: [{ path: '/p/x.ts', name: 'x.ts', isDir: true, extra: 'no' }] }),
+      },
+    ],
     ['non-string rootPath', { [APP_MIME]: JSON.stringify({ ...VALID, rootPath: 7 }) }],
   ]
 }
@@ -70,18 +78,20 @@ function main(): void {
     assert.equal(
       sdkHas(fakeDataTransfer(entries)),
       appHas(fakeDataTransfer(entries)),
-      `hasFileDropData parity for: ${label}`
+      `hasFileDropData parity for: ${label}`,
     )
   }
 
   // Rebuilt entries: a non-boolean isDir is skipped, extra props are dropped.
-  const rebuilt = appRead(fakeDataTransfer({
-    [APP_MIME]: JSON.stringify({ ...VALID, files: [{ path: '/p/x.ts', name: 'x.ts', isDir: true, extra: 'no' }] }),
-  }))
+  const rebuilt = appRead(
+    fakeDataTransfer({
+      [APP_MIME]: JSON.stringify({ ...VALID, files: [{ path: '/p/x.ts', name: 'x.ts', isDir: true, extra: 'no' }] }),
+    }),
+  )
   assert.deepEqual(
     rebuilt?.files,
     [{ path: '/p/x.ts', name: 'x.ts', isDir: true }],
-    'file entries are rebuilt without unknown properties'
+    'file entries are rebuilt without unknown properties',
   )
 
   // Serialize parity: both writers put identical entries on the transfer, and

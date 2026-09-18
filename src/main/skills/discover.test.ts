@@ -75,7 +75,10 @@ async function readsAFoldedDescription(): Promise<void> {
       {
         ...PDF_HIT,
         text_matches: [
-          { fragment: 'name: robust-pdf-read\ndescription: >-\n  Read a PDF that other readers\n  give up on.\nallowed-tools: Read\n' },
+          {
+            fragment:
+              'name: robust-pdf-read\ndescription: >-\n  Read a PDF that other readers\n  give up on.\nallowed-tools: Read\n',
+          },
         ],
       },
     ]),
@@ -94,7 +97,11 @@ async function saysItNeedsATokenInsteadOfSearchingEmpty(): Promise<void> {
 
   const found = await client.searchSkills('extract text from PDFs', '')
 
-  assert.equal(github.calls.length, 0, 'code search needs authentication, so an anonymous request is not worth spending')
+  assert.equal(
+    github.calls.length,
+    0,
+    'code search needs authentication, so an anonymous request is not worth spending',
+  )
   assert.deepEqual(found.results, [])
   assert.equal(found.degraded?.reason, 'needs_token')
   assert.match(found.degraded?.message ?? '', /Settings/, 'the condition points at where the token is entered')
@@ -105,8 +112,18 @@ async function browsesUnauthenticatedAndStillFlagsTheMissingToken(): Promise<voi
   const github = stubGitHub((call) => ({
     body: {
       items: [
-        { full_name: 'browser-act/skills', description: 'Browser skills', stargazers_count: 4900, html_url: 'https://github.com/browser-act/skills' },
-        { full_name: 'pbakaus/impeccable', description: 'One skill', stargazers_count: 52000, html_url: 'https://github.com/pbakaus/impeccable' },
+        {
+          full_name: 'browser-act/skills',
+          description: 'Browser skills',
+          stargazers_count: 4900,
+          html_url: 'https://github.com/browser-act/skills',
+        },
+        {
+          full_name: 'pbakaus/impeccable',
+          description: 'One skill',
+          stargazers_count: 52000,
+          html_url: 'https://github.com/pbakaus/impeccable',
+        },
       ].filter(() => new URL(call.url).searchParams.get('q') === 'topic:claude-skills'),
     },
   }))
@@ -133,7 +150,10 @@ async function putsCuratedRepositoriesFirstWithoutInventingStars(): Promise<void
       return {
         body: {
           items: [
-            { path: '.claude-plugin/marketplace.json', repository: { full_name: 'obra/superpowers', description: 'A curated marketplace' } },
+            {
+              path: '.claude-plugin/marketplace.json',
+              repository: { full_name: 'obra/superpowers', description: 'A curated marketplace' },
+            },
           ],
         },
       }
@@ -142,7 +162,14 @@ async function putsCuratedRepositoriesFirstWithoutInventingStars(): Promise<void
       body: {
         items:
           url.searchParams.get('q') === 'topic:claude-skills'
-            ? [{ full_name: 'claude-mem/claude-mem', description: 'Not a skill collection', stargazers_count: 88000, html_url: 'https://github.com/claude-mem/claude-mem' }]
+            ? [
+                {
+                  full_name: 'claude-mem/claude-mem',
+                  description: 'Not a skill collection',
+                  stargazers_count: 88000,
+                  html_url: 'https://github.com/claude-mem/claude-mem',
+                },
+              ]
             : [],
       },
     }
@@ -151,7 +178,10 @@ async function putsCuratedRepositoriesFirstWithoutInventingStars(): Promise<void
 
   const browsed = await client.listPopularSkillRepos('ghp_token')
 
-  assert.deepEqual(browsed.results.map((hit) => hit.repo), ['obra/superpowers', 'claude-mem/claude-mem'])
+  assert.deepEqual(
+    browsed.results.map((hit) => hit.repo),
+    ['obra/superpowers', 'claude-mem/claude-mem'],
+  )
   assert.equal(browsed.results[0].curated, true)
   assert.equal(
     browsed.results[0].stars,
@@ -179,7 +209,11 @@ async function statesRateLimitExhaustion(): Promise<void> {
   const found = await client.searchSkills('extract text from PDFs', 'ghp_token')
 
   assert.deepEqual(found.results, [])
-  assert.equal(found.degraded?.reason, 'rate_limited', 'an exhausted budget is never an empty list that reads as no matches')
+  assert.equal(
+    found.degraded?.reason,
+    'rate_limited',
+    'an exhausted budget is never an empty list that reads as no matches',
+  )
   assert.ok((found.degraded?.retryAfterSeconds ?? 0) > 0)
   assert.deepEqual(found.rateLimit, { limit: 10, remaining: 0, resetAt: new Date(resetAt * 1000).toISOString() })
 

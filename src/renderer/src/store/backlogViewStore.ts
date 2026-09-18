@@ -40,9 +40,7 @@ function projectKey(folderPath: string | null | undefined): string | null {
 // place (workspacesSlice). A non-object or unknown-enum value falls back to the
 // default for that field.
 function coerceProjectView(input: unknown): BacklogProjectView {
-  const normalized = normalizeWorkspaceBacklogState(
-    input && typeof input === 'object' ? input : {},
-  )
+  const normalized = normalizeWorkspaceBacklogState(input && typeof input === 'object' ? input : {})
   return {
     view: normalized?.view ?? DEFAULT_BACKLOG_PROJECT_VIEW.view,
     sort: normalized?.sort ?? DEFAULT_BACKLOG_PROJECT_VIEW.sort,
@@ -60,10 +58,7 @@ function isDefaultProjectView(value: BacklogProjectView): boolean {
 
 interface BacklogViewStore {
   viewByProject: Record<string, BacklogProjectView>
-  setProjectView: (
-    folderPath: string | null | undefined,
-    patch: Partial<BacklogProjectView>,
-  ) => void
+  setProjectView: (folderPath: string | null | undefined, patch: Partial<BacklogProjectView>) => void
   // One-time migration hook: seed the shared record from a workspace's legacy
   // per-workspace backlog state the first time a panel on the project mounts, so
   // existing lens/sort/group preferences carry over. A no-op once an entry

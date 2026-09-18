@@ -218,9 +218,7 @@ run('canvasFontFamilyName names the three voices and defaults to hand-drawn', ()
 })
 
 run('a label whose container is gone stays visible as its own element', () => {
-  const elements = [
-    element({ id: 'orphan', type: 'text', containerId: 'missing', x: 0, y: 0, text: 'stranded' }),
-  ]
+  const elements = [element({ id: 'orphan', type: 'text', containerId: 'missing', x: 0, y: 0, text: 'stranded' })]
   assert.equal(skeletonFor(elements, 'orphan').text, 'stranded')
 })
 
@@ -256,7 +254,10 @@ run('validateSkeleton rejects unknown keys, wrong types and non-finite numbers',
   assert.match(messages(validateSkeleton({ type: 'rectangle', x: 0, y: 0, locked: 'yes' })), /must be true or false/)
   assert.match(messages(validateSkeleton({ type: 'rectangle', x: 0, y: 0, fillStyle: 'gradient' })), /fillStyle/)
   assert.match(messages(validateSkeleton({ type: 'line', x: 0, y: 0, points: [[0, 0], [1]] })), /points\[1\]/)
-  assert.match(messages(validateSkeleton({ type: 'frame', x: 0, y: 0, children: ['a', 2] })), /children must contain ids/)
+  assert.match(
+    messages(validateSkeleton({ type: 'frame', x: 0, y: 0, children: ['a', 2] })),
+    /children must contain ids/,
+  )
   assert.match(messages(validateSkeleton('a string')), /must be an object/)
 })
 

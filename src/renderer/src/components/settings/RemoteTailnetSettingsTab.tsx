@@ -98,9 +98,7 @@ export function RemoteTailnetSettingsTab() {
       // The local offer holds the one-time TOKEN (main never re-serves it),
       // but the pairing's existence is main's fact: cancelled or replaced
       // from any other surface, a dead QR must not stay on screen.
-      setOffer((current) =>
-        current && payload.status.pairing?.expiresAt === current.expiresAt ? current : null
-      )
+      setOffer((current) => (current && payload.status.pairing?.expiresAt === current.expiresAt ? current : null))
     })
   }, [])
 
@@ -162,7 +160,7 @@ export function RemoteTailnetSettingsTab() {
         peers: scan?.peers ?? [],
         now,
       }),
-    [status?.devices, presence.fleet, scan, now]
+    [status?.devices, presence.fleet, scan, now],
   )
 
   const run = async (message: string, work: () => Promise<void>): Promise<void> => {
@@ -380,7 +378,7 @@ export function RemoteTailnetSettingsTab() {
                           endpoint: `${peerAddressOf(target, scan)}:${scan.probedPort}`,
                           machineName: target.name,
                         }
-                      : { kind: 'code' }
+                      : { kind: 'code' },
                   )
                 }
                 onRevoke={(target) => void forgetMachine(target)}
@@ -438,9 +436,7 @@ export function RemoteTailnetSettingsTab() {
 
 /** The scan row this machine came from, for the endpoint a request would dial. */
 function peerAddressOf(machine: TailnetMachine, scan: TailnetPeerScan): string {
-  const peer = scan.peers.find(
-    (candidate) => candidate.hostName === machine.name || candidate.dnsName === machine.key
-  )
+  const peer = scan.peers.find((candidate) => candidate.hostName === machine.name || candidate.dnsName === machine.key)
   return peer?.address ?? machine.name
 }
 
@@ -508,8 +504,8 @@ function PairingCodeCard({
           <div className="text-meta text-[color:var(--text-muted)]">{pairingExpiry(expiresAt, now)}</div>
         ) : null}
         <p className="text-micro leading-4 text-[color:var(--text-subtle)]">
-          Being asked for a six-digit code instead? That code is shown on the machine that asked, not here — read it
-          off that screen and type it there.
+          Being asked for a six-digit code instead? That code is shown on the machine that asked, not here — read it off
+          that screen and type it there.
         </p>
         {scopes.length > 0 ? (
           <ScopePillSet ariaLabel="Scopes in this code">
@@ -560,8 +556,10 @@ function QrSquare({ matrix, label }: { matrix: { size: number; modules: boolean[
       className="h-32 w-32 shrink-0 rounded-sm"
       shapeRendering="crispEdges"
     >
-      <rect width={extent} height={extent} fill="#ffffff" /> {/* design-tokens-allow: QR polarity is functional — a camera reads dark-on-light, so this square must not follow the theme */}
-      <path d={path} fill="#000000" /> {/* design-tokens-allow: see above — themed modules on a dark surface are a square a scanner may refuse */}
+      {/* design-tokens-allow: QR polarity is functional — a camera reads dark-on-light, so this square must not follow the theme */}
+      <rect width={extent} height={extent} fill="#ffffff" />
+      {/* design-tokens-allow: see above — themed modules on a dark surface are a square a scanner may refuse */}
+      <path d={path} fill="#000000" />
     </svg>
   )
 }

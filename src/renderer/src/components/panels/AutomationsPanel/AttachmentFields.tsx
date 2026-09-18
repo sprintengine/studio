@@ -47,10 +47,13 @@ export function AttachmentFields({
   // this is seeded on pick and falls back to the id when editing a saved run.
   const [pickedSkillLabel, setPickedSkillLabel] = useState<string | null>(null)
   const selectedSkillId = spawnSkillId?.trim() || ''
-  const onPickSkill = useCallback((skill: WorkspaceSkill) => {
-    setPickedSkillLabel(skill.name)
-    onPatchConfig({ spawnSkillId: skill.id })
-  }, [onPatchConfig])
+  const onPickSkill = useCallback(
+    (skill: WorkspaceSkill) => {
+      setPickedSkillLabel(skill.name)
+      onPatchConfig({ spawnSkillId: skill.id })
+    },
+    [onPatchConfig],
+  )
   const onClearSkill = useCallback(() => {
     setPickedSkillLabel(null)
     onClearConfigKey('spawnSkillId')
@@ -80,10 +83,13 @@ export function AttachmentFields({
     return items
   }, [selectedConnectorId, installedMcpServers])
 
-  const onSelectConnector = useCallback((value: string) => {
-    if (value) onPatchConfig({ connectorId: value })
-    else onClearConfigKey('connectorId')
-  }, [onPatchConfig, onClearConfigKey])
+  const onSelectConnector = useCallback(
+    (value: string) => {
+      if (value) onPatchConfig({ connectorId: value })
+      else onClearConfigKey('connectorId')
+    },
+    [onPatchConfig, onClearConfigKey],
+  )
 
   if (!showSkillPicker && !showConnectorPicker) return null
 
@@ -110,12 +116,7 @@ export function AttachmentFields({
               filterSkill={onlyBuiltinSkills}
               placement="bottom-start"
               renderTrigger={({ ref, triggerProps, togglePopover }) => (
-                <TriggerButton
-                  ref={ref}
-                  variant="dashed"
-                  onClick={togglePopover}
-                  {...triggerProps}
-                >
+                <TriggerButton ref={ref} variant="dashed" onClick={togglePopover} {...triggerProps}>
                   Add a skill
                   <svg className="icon-xs shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
                     <path d="M8 3v10M3 8h10" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />

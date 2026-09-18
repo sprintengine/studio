@@ -76,11 +76,7 @@ function leafAt(document: Record<string, unknown>, path: string): Record<string,
  * text, so a caller can say "unresolved" instead of rendering `{ref.color.x}` as
  * if it were a colour.
  */
-export function resolveTokenValue(
-  document: unknown,
-  path: string,
-  mode: DesignSystemTokenMode,
-): string | null {
+export function resolveTokenValue(document: unknown, path: string, mode: DesignSystemTokenMode): string | null {
   const raw = resolveTokenRaw(document, path, mode)
   return typeof raw === 'string' ? raw : null
 }
@@ -98,22 +94,14 @@ export function resolveTokenValue(
  * Arrays (a `fontFamily`'s list) are still null: joining one is a decision with
  * its own quoting rule, and `resolveFontFamilies` owns it.
  */
-export function resolveTokenScalar(
-  document: unknown,
-  path: string,
-  mode: DesignSystemTokenMode,
-): string | null {
+export function resolveTokenScalar(document: unknown, path: string, mode: DesignSystemTokenMode): string | null {
   const raw = resolveTokenRaw(document, path, mode)
   if (typeof raw === 'string') return raw
   return typeof raw === 'number' && Number.isFinite(raw) ? String(raw) : null
 }
 
 /** The value an alias chain terminates in, whatever type that turns out to be. */
-function resolveTokenRaw(
-  document: unknown,
-  path: string,
-  mode: DesignSystemTokenMode,
-): unknown {
+function resolveTokenRaw(document: unknown, path: string, mode: DesignSystemTokenMode): unknown {
   if (!isRecord(document)) return null
   const seen = new Set<string>()
   let current = path
@@ -183,11 +171,7 @@ export function resolveFontFamilies(
  * them. Joining follows the same rule the bundle's own generator uses: comma
  * separated, quoting any family whose name contains whitespace.
  */
-function resolveFontFamily(
-  document: unknown,
-  path: string,
-  mode: DesignSystemTokenMode,
-): string | null {
+function resolveFontFamily(document: unknown, path: string, mode: DesignSystemTokenMode): string | null {
   if (!isRecord(document)) return null
   const leaf = leafAt(document, path)
   if (!leaf) return null
@@ -228,11 +212,7 @@ interface CollectedToken {
   node: Record<string, unknown>
 }
 
-function collectTokens(
-  node: unknown,
-  path: string[],
-  out: CollectedToken[],
-): CollectedToken[] {
+function collectTokens(node: unknown, path: string[], out: CollectedToken[]): CollectedToken[] {
   if (!isRecord(node)) return out
   if ('$value' in node) {
     out.push({ path: path.join('.'), node })

@@ -15,7 +15,11 @@ import type {
   MockAdapterSessionInput,
   MockAdapterTurnInput,
 } from './providers/mock-conversation-provider'
-import type { ConversationEvent, ConversationEventType, ConversationPermissionPreset } from '../shared/conversation-runtime'
+import type {
+  ConversationEvent,
+  ConversationEventType,
+  ConversationPermissionPreset,
+} from '../shared/conversation-runtime'
 
 async function main(): Promise<void> {
   await testMockSessionTurnApprovalInterruptStopAndPersistence()
@@ -442,10 +446,11 @@ async function testStatefulProviderMidTurnApprovalAndNoHistoryReplay(): Promise<
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
   try {
     let id = 0
-    const capture: { resumeSessionIds: Array<string | undefined>; messages: Array<ConversationMessage[] | undefined> } = {
-      resumeSessionIds: [],
-      messages: [],
-    }
+    const capture: { resumeSessionIds: Array<string | undefined>; messages: Array<ConversationMessage[] | undefined> } =
+      {
+        resumeSessionIds: [],
+        messages: [],
+      }
     const runtime = new ConversationRuntime({
       randomId: () => `${++id}`,
       getProviderById: () => undefined,
@@ -542,7 +547,13 @@ function createContinuationProvider(capture: {
       capture.resolved.push({ requestId: input.requestId, approved: input.approved })
       const sink = capture.sink
       if (sink) {
-        sink(runtimeEvent(input, 'approval_resolved', { turnId: contTurnId, requestId: input.requestId, approved: input.approved }))
+        sink(
+          runtimeEvent(input, 'approval_resolved', {
+            turnId: contTurnId,
+            requestId: input.requestId,
+            approved: input.approved,
+          }),
+        )
         sink(runtimeEvent(input, 'content_delta', { turnId: contTurnId, text: input.approved ? 'ran ls' : 'skipped' }))
         sink(runtimeEvent(input, 'turn_completed', { turnId: contTurnId }))
       }
@@ -604,7 +615,7 @@ async function testToolAfterTurnResultResolvesThroughContinuationChannel(): Prom
         requestId: 'cont_req_1',
         action: 'Bash',
         summary: 'Bash: ls',
-      })
+      }),
     )
     await waitForEventType(events, 'approval_requested')
     const request = events.find((event) => event.type === 'approval_requested')
@@ -616,7 +627,11 @@ async function testToolAfterTurnResultResolvesThroughContinuationChannel(): Prom
     assert.equal(responded.ok, true)
     await waitForStatus(runtime, 'workspace', 'ready')
 
-    assert.deepEqual(capture.resolved, [{ requestId: 'cont_req_1', approved: true }], 'the tool was answered, not auto-denied')
+    assert.deepEqual(
+      capture.resolved,
+      [{ requestId: 'cont_req_1', approved: true }],
+      'the tool was answered, not auto-denied',
+    )
     assert.deepEqual(
       events.map((event) => event.type),
       [
@@ -631,10 +646,13 @@ async function testToolAfterTurnResultResolvesThroughContinuationChannel(): Prom
         'approval_resolved',
         'content_delta',
         'turn_completed',
-      ]
+      ],
     )
     // Nothing was denied and the session is usable again.
-    assert.equal(events.some((event) => event.type === 'turn_failed'), false)
+    assert.equal(
+      events.some((event) => event.type === 'turn_failed'),
+      false,
+    )
     const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
     assert.equal(persisted.filter((event) => event.type === 'approval_requested').length, 1)
   } finally {
@@ -690,7 +708,7 @@ async function testSendIsRejectedWhileAContinuationTurnIsOpen(): Promise<void> {
     assert.equal(
       events.filter((event) => event.type === 'user_message').length,
       1,
-      'the rejected send never opened a turn or persisted a user bubble'
+      'the rejected send never opened a turn or persisted a user bubble',
     )
 
     // Once the continuation closes, the same send is accepted.
@@ -780,17 +798,17 @@ async function testContinuationTurnDoesNotSuppressAnInFlightUserTurn(): Promise<
         'content_delta',
         'turn_completed',
       ],
-      'the raced continuation turn_started is dropped; every live-turn event survives'
+      'the raced continuation turn_started is dropped; every live-turn event survives',
     )
     const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
     assert.deepEqual(
       persisted.filter((event) => event.type === 'content_delta').map((event) => event.payload?.text),
       ['first half', 'second half'],
-      'both halves of the live turn reach the transcript'
+      'both halves of the live turn reach the transcript',
     )
     assert.equal(
       persisted.some((event) => event.payload?.turnId === 'cont_turn_1'),
-      false
+      false,
     )
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
@@ -881,7 +899,7 @@ async function testSubagentToolEventsKeepTheirParentLink(): Promise<void> {
         tool: 'Read',
         summary: 'Read: a.ts',
         parentToolUseId: 'task_1',
-      })
+      }),
     )
     sink(runtimeEvent(base, 'turn_completed', { turnId: 'cont_turn_1' }))
     // The continuation channel is serialized off the send path, so wait for the
@@ -894,7 +912,7 @@ async function testSubagentToolEventsKeepTheirParentLink(): Promise<void> {
     assert.deepEqual(
       laneRows.map((event) => event.payload?.parentToolUseId),
       [undefined, 'task_1', 'task_1', 'task_1'],
-      'only the lane header is parentless; every child keeps its link'
+      'only the lane header is parentless; every child keeps its link',
     )
     assert.equal(laneRows[0]?.payload?.subagentLane, true)
     assert.equal(laneRows[0]?.payload?.subagentType, 'Explore')
@@ -904,7 +922,7 @@ async function testSubagentToolEventsKeepTheirParentLink(): Promise<void> {
     assert.deepEqual(
       persistedRows.map((event) => event.payload?.parentToolUseId),
       [undefined, 'task_1', 'task_1', 'task_1'],
-      'the replayed transcript rebuilds the same lanes'
+      'the replayed transcript rebuilds the same lanes',
     )
     assert.equal(persistedRows[0]?.payload?.subagentLane, true)
   } finally {
@@ -915,18 +933,43 @@ async function testSubagentToolEventsKeepTheirParentLink(): Promise<void> {
 async function testStatefulProviderResumeCursorReadFromTranscript(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
   try {
-    const capture: { resumeSessionIds: Array<string | undefined>; messages: Array<ConversationMessage[] | undefined> } = {
-      resumeSessionIds: [],
-      messages: [],
-    }
+    const capture: { resumeSessionIds: Array<string | undefined>; messages: Array<ConversationMessage[] | undefined> } =
+      {
+        resumeSessionIds: [],
+        messages: [],
+      }
     // Simulate a previous app run's transcript carrying the provider cursor.
     const dir = join(workspaceRoot, '.sprintengine', 'conversations', 'workspace')
     await mkdir(dir, { recursive: true })
     const priorEvents = [
-      { id: 'old_1', sessionId: 'conv_old', workspaceId: 'workspace', agentId: 'agent', providerId: 'stateful-provider', modelId: 'stateful-model', type: 'session_started', createdAt: 1, payload: { providerSessionId: null } },
-      { id: 'old_2', sessionId: 'conv_old', workspaceId: 'workspace', agentId: 'agent', providerId: 'stateful-provider', modelId: 'stateful-model', type: 'session_updated', createdAt: 2, payload: { providerSessionId: 'cursor-from-disk' } },
+      {
+        id: 'old_1',
+        sessionId: 'conv_old',
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId: 'stateful-provider',
+        modelId: 'stateful-model',
+        type: 'session_started',
+        createdAt: 1,
+        payload: { providerSessionId: null },
+      },
+      {
+        id: 'old_2',
+        sessionId: 'conv_old',
+        workspaceId: 'workspace',
+        agentId: 'agent',
+        providerId: 'stateful-provider',
+        modelId: 'stateful-model',
+        type: 'session_updated',
+        createdAt: 2,
+        payload: { providerSessionId: 'cursor-from-disk' },
+      },
     ]
-    await writeFile(join(dir, 'agent.jsonl'), priorEvents.map((event) => JSON.stringify(event)).join('\n') + '\n', 'utf-8')
+    await writeFile(
+      join(dir, 'agent.jsonl'),
+      priorEvents.map((event) => JSON.stringify(event)).join('\n') + '\n',
+      'utf-8',
+    )
 
     const runtime = new ConversationRuntime({
       getProviderById: () => undefined,
@@ -1020,7 +1063,10 @@ async function testInterruptSuppressesLateAsyncProviderEvents(): Promise<void> {
     assert.equal(sent.session.status, 'ready')
     assert.deepEqual(events, ['session_started', 'session_ready', 'user_message', 'turn_started', 'turn_failed'])
     const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
-    assert.deepEqual(persisted.map((event) => event.type), events)
+    assert.deepEqual(
+      persisted.map((event) => event.type),
+      events,
+    )
     assert.equal(JSON.stringify(persisted).includes('late output'), false)
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
@@ -1061,9 +1107,19 @@ async function testStopSessionSuppressesLateAsyncProviderEvents(): Promise<void>
     assert.equal(sent.ok, true)
     if (!sent.ok) return
     assert.equal(sent.session.status, 'stopped')
-    assert.deepEqual(events, ['session_started', 'session_ready', 'user_message', 'turn_started', 'turn_failed', 'session_closed'])
+    assert.deepEqual(events, [
+      'session_started',
+      'session_ready',
+      'user_message',
+      'turn_started',
+      'turn_failed',
+      'session_closed',
+    ])
     const persisted = await readConversationEvents(workspaceRoot, 'workspace', 'agent')
-    assert.deepEqual(persisted.map((event) => event.type), events)
+    assert.deepEqual(
+      persisted.map((event) => event.type),
+      events,
+    )
     assert.equal(JSON.stringify(persisted).includes('late output'), false)
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
@@ -1097,7 +1153,12 @@ async function testOpenAiCompatibleRuntimeTurnCompletesThroughLocalEndpoint(): P
             label: 'API key',
           },
         }),
-        resolveSecret: async () => ({ ok: true, providerId: provider.manifest.id, value: 'sk-test', source: 'environment' }),
+        resolveSecret: async () => ({
+          ok: true,
+          providerId: provider.manifest.id,
+          value: 'sk-test',
+          source: 'environment',
+        }),
       },
     })
     const events: string[] = []
@@ -1232,7 +1293,7 @@ async function testStartFailuresAreExplicit(): Promise<void> {
         providerId: 'mock-provider',
         modelId: 'mock-model',
       }),
-      { ok: false, message: 'Workspace path is unavailable.' }
+      { ok: false, message: 'Workspace path is unavailable.' },
     )
     assert.deepEqual(
       await runtime.startSession({
@@ -1242,7 +1303,7 @@ async function testStartFailuresAreExplicit(): Promise<void> {
         providerId: 'missing-provider',
         modelId: 'mock-model',
       }),
-      { ok: false, message: 'Conversation provider is not installed.' }
+      { ok: false, message: 'Conversation provider is not installed.' },
     )
     assert.deepEqual(
       await runtime.startSession({
@@ -1252,7 +1313,7 @@ async function testStartFailuresAreExplicit(): Promise<void> {
         providerId: 'mock-provider',
         modelId: 'bad-model',
       }),
-      { ok: false, message: 'Conversation model is invalid.' }
+      { ok: false, message: 'Conversation model is invalid.' },
     )
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
@@ -1302,7 +1363,7 @@ async function testProviderWithAuthRequiresConfiguredSecret(): Promise<void> {
         providerId: 'openai-compatible',
         modelId: 'gpt-5',
       }),
-      { ok: false, message: 'Conversation provider secret is not configured.' }
+      { ok: false, message: 'Conversation provider secret is not configured.' },
     )
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
@@ -1350,14 +1411,15 @@ async function testBlockedExecutableProviderTrustErrorSurfaces(): Promise<void> 
         providerId: 'unsigned-adapter',
         modelId: 'demo',
       }),
-      { ok: false, message: 'Unsigned executable provider adapters cannot run in production mode.' }
+      { ok: false, message: 'Unsigned executable provider adapters cannot run in production mode.' },
     )
   } finally {
     await rm(workspaceRoot, { recursive: true, force: true })
   }
 }
 
-function unusedSecretStore(): Pick<ProviderSecretStore, 'getStatus'> & Partial<Pick<ProviderSecretStore, 'resolveSecret'>> {
+function unusedSecretStore(): Pick<ProviderSecretStore, 'getStatus'> &
+  Partial<Pick<ProviderSecretStore, 'resolveSecret'>> {
   return {
     getStatus: async () => ({ ok: false, message: 'unused' }),
     resolveSecret: async () => ({ ok: false, message: 'unused' }),
@@ -1403,11 +1465,7 @@ async function testMultiTurnHistoryAccumulates(): Promise<void> {
     await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'hello' })
     await runtime.sendTurn({ sessionId: started.session.sessionId, message: 'and again' })
 
-    assert.deepEqual(
-      captured[0],
-      [{ role: 'user', content: 'hello' }],
-      'the first turn sends just the user message',
-    )
+    assert.deepEqual(captured[0], [{ role: 'user', content: 'hello' }], 'the first turn sends just the user message')
     assert.deepEqual(
       captured[1],
       [
@@ -1487,7 +1545,7 @@ async function testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript(): P
     assert.equal(
       JSON.stringify(transcript.events).includes(attachment.dataBase64),
       false,
-      'image data is never persisted to the JSONL transcript'
+      'image data is never persisted to the JSONL transcript',
     )
     const userMessages = transcript.events.filter((event) => event.type === 'user_message')
     assert.equal(userMessages.length, 2)
@@ -1573,7 +1631,7 @@ async function testSetPermissionAppliesThroughTheAdapterOrRefuses(): Promise<voi
     assert.equal(staticSession.session.permissionPreset, undefined, 'no preset chosen means none reported')
     assert.deepEqual(
       await runtime.setPermission({ sessionId: staticSession.session.sessionId, permissionPreset: 'auto' }),
-      { ok: false, message: 'This conversation provider cannot change tool permissions mid-conversation.' }
+      { ok: false, message: 'This conversation provider cannot change tool permissions mid-conversation.' },
     )
 
     const stopped = await runtime.stopSession({ sessionId })
@@ -1643,7 +1701,7 @@ function createSlowProvider(gate: { promise: Promise<void> }): ConversationProvi
 function runtimeEvent(
   input: MockAdapterSessionInput,
   type: ConversationEventType,
-  payload?: Record<string, unknown>
+  payload?: Record<string, unknown>,
 ): ConversationEvent {
   return {
     id: '',
@@ -1693,17 +1751,34 @@ async function waitForStatus(runtime: ConversationRuntime, workspaceId: string, 
   throw new Error(`Timed out waiting for session status ${status}`)
 }
 
-async function readLastEvent(workspaceRoot: string, workspaceId: string, agentId: string): Promise<Record<string, any>> {
+async function readLastEvent(
+  workspaceRoot: string,
+  workspaceId: string,
+  agentId: string,
+): Promise<Record<string, any>> {
   const events = await readConversationEvents(workspaceRoot, workspaceId, agentId)
   return events[events.length - 1] ?? {}
 }
 
-async function readConversationEvents(workspaceRoot: string, workspaceId: string, agentId: string): Promise<Record<string, any>[]> {
+async function readConversationEvents(
+  workspaceRoot: string,
+  workspaceId: string,
+  agentId: string,
+): Promise<Record<string, any>[]> {
   const content = await readFile(
-    join(workspaceRoot, '.sprintengine', 'conversations', encodeURIComponent(workspaceId.replace(/[\\/]/g, '-')), `${agentId}.jsonl`),
-    'utf-8'
+    join(
+      workspaceRoot,
+      '.sprintengine',
+      'conversations',
+      encodeURIComponent(workspaceId.replace(/[\\/]/g, '-')),
+      `${agentId}.jsonl`,
+    ),
+    'utf-8',
   )
-  return content.trim().split('\n').map((line) => JSON.parse(line) as Record<string, any>)
+  return content
+    .trim()
+    .split('\n')
+    .map((line) => JSON.parse(line) as Record<string, any>)
 }
 
 function openAiProvider(baseUrl: string): LoadedConversationProvider {

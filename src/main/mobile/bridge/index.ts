@@ -9,9 +9,7 @@ import { hashSecret } from './crypto'
 import { getDesktopDisplayName } from './desktop'
 import { manualPairingValueFromRelayChallenge } from './pairing'
 import { FetchMobileRelayTransport, RELAY_SUPPORTED_COMMANDS } from './relay-transport'
-import {
-  isMobileBridgePresence,
-} from './validation'
+import { isMobileBridgePresence } from './validation'
 import {
   failedCommandResult,
   relaySummaryByteLength,
@@ -24,15 +22,8 @@ import { dispatchSnapshotRequest } from './snapshot-request'
 import { authorizeRelayCommand } from './relay-auth'
 import { upsertRelayDevice } from './relay-device'
 import { DEFAULT_MOBILE_RELAY_URL } from '../../service-endpoints'
-import {
-  getDefaultMobileBridgeStorePath,
-  readMobileBridgeStore,
-  writeMobileBridgeStore,
-} from './store'
-import {
-  emitMobileBridgeStateChanged,
-  recordMobileBridgeDiagnostic,
-} from './notifications'
+import { getDefaultMobileBridgeStorePath, readMobileBridgeStore, writeMobileBridgeStore } from './store'
+import { emitMobileBridgeStateChanged, recordMobileBridgeDiagnostic } from './notifications'
 import {
   listActiveMobilePushTargets,
   listMobilePushRegistrations,
@@ -54,11 +45,7 @@ import {
 import { readStudioEnv } from '../../../shared/studio-env'
 
 export type MobileControlCommandType =
-  | 'snapshot.request'
-  | 'device.revoke'
-  | 'backlog.update'
-  | 'backlog.create'
-  | 'automations.control'
+  'snapshot.request' | 'device.revoke' | 'backlog.update' | 'backlog.create' | 'automations.control'
 
 export type MobileControlCapability =
   | 'snapshots.read'
@@ -140,11 +127,7 @@ export type MobileRelayScope =
   | 'relay:automations:control'
 
 export type RelayCommandType =
-  | 'snapshot.request'
-  | 'device.revoke'
-  | 'backlog.update'
-  | 'backlog.create'
-  | 'automations.control'
+  'snapshot.request' | 'device.revoke' | 'backlog.update' | 'backlog.create' | 'automations.control'
 
 export type RelayCommandEnvelope = {
   desktopRelaySessionId: string
@@ -401,10 +384,7 @@ function shouldReplaceStoredRelayUrl(value: string | null): boolean {
 
   try {
     const url = new URL(value)
-    return (
-      (url.hostname === 'localhost' || url.hostname === '127.0.0.1') &&
-      (url.port === '3000' || url.port === '')
-    )
+    return (url.hostname === 'localhost' || url.hostname === '127.0.0.1') && (url.port === '3000' || url.port === '')
   } catch {
     return false
   }
@@ -450,7 +430,7 @@ export class MobileBridge {
 
   constructor(
     private readonly sessionProvider: DesktopSessionProvider,
-    options: MobileBridgeOptions = {}
+    options: MobileBridgeOptions = {},
   ) {
     this.relayUrl = options.relayUrl === undefined ? RELAY_URL : options.relayUrl?.replace(/\/+$/u, '') || null
     this.storePathOverride = options.storePath
@@ -462,11 +442,11 @@ export class MobileBridge {
     this.commandPollIntervalMs = Math.max(250, options.commandPollIntervalMs ?? DEFAULT_COMMAND_POLL_INTERVAL_MS)
     this.commandPollCeilingMs = Math.max(
       this.commandPollIntervalMs,
-      options.commandPollCeilingMs ?? DEFAULT_COMMAND_POLL_CEILING_MS
+      options.commandPollCeilingMs ?? DEFAULT_COMMAND_POLL_CEILING_MS,
     )
     this.commandPollAttentionWindowMs = Math.max(
       0,
-      options.commandPollAttentionWindowMs ?? DEFAULT_COMMAND_POLL_ATTENTION_WINDOW_MS
+      options.commandPollAttentionWindowMs ?? DEFAULT_COMMAND_POLL_ATTENTION_WINDOW_MS,
     )
     this.commandPollIntervalMsCurrent = this.commandPollIntervalMs
   }
@@ -481,9 +461,10 @@ export class MobileBridge {
     await this.load()
 
     const enabled = update && typeof update === 'object' ? update.enabled : undefined
-    const relayUrl = update && typeof update === 'object' && Object.hasOwn(update, 'relayUrl')
-      ? normalizeRelayUrlUpdate(update.relayUrl)
-      : undefined
+    const relayUrl =
+      update && typeof update === 'object' && Object.hasOwn(update, 'relayUrl')
+        ? normalizeRelayUrlUpdate(update.relayUrl)
+        : undefined
     if (relayUrl !== undefined && relayUrl !== this.relayUrl) {
       this.relayUrl = relayUrl
       this.disconnect(this.enabled ? 'unconfigured' : 'disabled')
@@ -491,7 +472,7 @@ export class MobileBridge {
         'info',
         relayUrl ? 'relay_connected' : 'relay_not_configured',
         relayUrl ? 'Mobile relay URL updated.' : 'Mobile relay URL cleared.',
-        false
+        false,
       )
     }
 
@@ -501,7 +482,7 @@ export class MobileBridge {
         'info',
         enabled ? 'relay_not_configured' : 'mobile_bridge_disabled',
         enabled ? 'Mobile companion control enabled.' : 'Mobile companion control disabled.',
-        enabled && !this.relayUrl
+        enabled && !this.relayUrl,
       )
 
       if (this.enabled) {
@@ -592,7 +573,12 @@ export class MobileBridge {
 
     const device = this.pairedDevices.find((candidate) => candidate.deviceId === trimmedDeviceId)
     if (!device) {
-      this.recordDiagnostic('warning', 'device_revoked', `Device ${trimmedDeviceId} was not found for revocation.`, false)
+      this.recordDiagnostic(
+        'warning',
+        'device_revoked',
+        `Device ${trimmedDeviceId} was not found for revocation.`,
+        false,
+      )
       throw new Error('Paired mobile device was not found.')
     }
 
@@ -605,8 +591,10 @@ export class MobileBridge {
       this.recordDiagnostic(
         'info',
         'device_revoked',
-        trimmedReason ? `Revoked mobile device ${device.displayName}: ${trimmedReason}` : `Revoked mobile device ${device.displayName}.`,
-        false
+        trimmedReason
+          ? `Revoked mobile device ${device.displayName}: ${trimmedReason}`
+          : `Revoked mobile device ${device.displayName}.`,
+        false,
       )
     }
 
@@ -681,9 +669,7 @@ export class MobileBridge {
 
     const persisted = await readMobileBridgeStore(this.storePath)
     this.enabled = persisted.enabled
-    this.relayUrl = shouldReplaceStoredRelayUrl(persisted.relayUrl)
-      ? RELAY_URL
-      : persisted.relayUrl ?? this.relayUrl
+    this.relayUrl = shouldReplaceStoredRelayUrl(persisted.relayUrl) ? RELAY_URL : (persisted.relayUrl ?? this.relayUrl)
     this.desktopInstanceId = persisted.desktopInstanceId
     this.pairedDevices = persisted.pairedDevices
     this.pushRegistrations = persisted.pushRegistrations
@@ -720,7 +706,12 @@ export class MobileBridge {
     if (this.closed) return
     if (!session.authenticated) {
       this.relayStatus = 'error'
-      this.recordDiagnostic('warning', 'unauthenticated', 'Mobile relay connection requires a signed-in desktop session.', true)
+      this.recordDiagnostic(
+        'warning',
+        'unauthenticated',
+        'Mobile relay connection requires a signed-in desktop session.',
+        true,
+      )
       this.connectWithBackoff()
       return
     }
@@ -729,7 +720,12 @@ export class MobileBridge {
     if (this.closed) return
     if (!accessToken) {
       this.relayStatus = 'error'
-      this.recordDiagnostic('warning', 'unauthenticated', 'Mobile relay connection requires a desktop access token.', true)
+      this.recordDiagnostic(
+        'warning',
+        'unauthenticated',
+        'Mobile relay connection requires a desktop access token.',
+        true,
+      )
       this.connectWithBackoff()
       return
     }
@@ -798,7 +794,10 @@ export class MobileBridge {
     this.reconnectTimer = setTimeout(() => {
       void this.connectOnce()
     }, boundedDelay)
-    this.reconnectDelayMs = Math.min(Math.max(this.reconnectDelayMs * 2, INITIAL_RECONNECT_DELAY_MS), MAX_RECONNECT_DELAY_MS)
+    this.reconnectDelayMs = Math.min(
+      Math.max(this.reconnectDelayMs * 2, INITIAL_RECONNECT_DELAY_MS),
+      MAX_RECONNECT_DELAY_MS,
+    )
     this.emitStateChanged()
   }
 
@@ -900,11 +899,11 @@ export class MobileBridge {
   private completeCommandEvent(
     commandId: string,
     status: Extract<MobileBridgeCommandEvent['status'], 'completed' | 'failed'>,
-    resultCode: string
+    resultCode: string,
   ): void {
     const completedAt = new Date().toISOString()
     this.recentCommands = this.recentCommands.map((event) =>
-      event.commandId === commandId ? { ...event, status, resultCode, completedAt } : event
+      event.commandId === commandId ? { ...event, status, resultCode, completedAt } : event,
     )
     this.emitStateChanged()
   }
@@ -913,15 +912,9 @@ export class MobileBridge {
     level: MobileBridgeDiagnosticEntry['level'],
     code: MobileBridgeDiagnosticEntry['code'],
     message: string,
-    retryable: boolean
+    retryable: boolean,
   ): void {
-    this.diagnostics = recordMobileBridgeDiagnostic(
-      this.diagnostics,
-      level,
-      code,
-      message,
-      retryable
-    )
+    this.diagnostics = recordMobileBridgeDiagnostic(this.diagnostics, level, code, message, retryable)
   }
 
   private emitStateChanged(): void {
@@ -978,7 +971,7 @@ export class MobileBridge {
     if (Date.now() < this.commandPollAttentionUntil) return this.commandPollIntervalMs
     return Math.min(
       Math.max(this.commandPollIntervalMsCurrent * 2, this.commandPollIntervalMs),
-      this.commandPollCeilingMs
+      this.commandPollCeilingMs,
     )
   }
 
@@ -1078,11 +1071,18 @@ export class MobileBridge {
 
     try {
       const result = await this.dispatchRelayCommand(envelope, device)
-      this.completeCommandEvent(envelope.commandId, result.ok ? 'completed' : 'failed', result.ok ? 'ok' : result.error.code)
+      this.completeCommandEvent(
+        envelope.commandId,
+        result.ok ? 'completed' : 'failed',
+        result.ok ? 'ok' : result.error.code,
+      )
       await this.postCommandResult(envelope.commandId, result)
     } catch (error) {
       this.completeCommandEvent(envelope.commandId, 'failed', 'internal_error')
-      await this.postCommandResult(envelope.commandId, failedCommandResult(envelope, 'internal_error', getErrorMessage(error)))
+      await this.postCommandResult(
+        envelope.commandId,
+        failedCommandResult(envelope, 'internal_error', getErrorMessage(error)),
+      )
     } finally {
       this.activeRelayCommandIds.delete(envelope.commandId)
     }
@@ -1090,7 +1090,7 @@ export class MobileBridge {
 
   private async dispatchRelayCommand(
     envelope: RelayCommandEnvelope,
-    device: MobileRelayAuthenticatedDevice | null
+    device: MobileRelayAuthenticatedDevice | null,
   ): Promise<MobileControlCommandResult> {
     const commandType = relayCommandTypeToMobile(envelope.commandType)
     const authorizationError = authorizeRelayCommand({
@@ -1107,7 +1107,7 @@ export class MobileBridge {
     const { pairedDevice: activeDevice, inserted } = upsertRelayDevice(
       this.pairedDevices,
       device as MobileRelayAuthenticatedDevice,
-      mobileControlProtocolVersion
+      mobileControlProtocolVersion,
     )
     if (inserted) void this.persist().then(() => this.emitStateChanged())
     const command = relayEnvelopeToMobileCommand({
@@ -1150,13 +1150,23 @@ export class MobileBridge {
 
   private async revokeDeviceAtRelay(deviceId: string, reason: string): Promise<void> {
     if (!this.relayUrl) {
-      this.recordDiagnostic('warning', 'relay_not_configured', 'Mobile relay URL is not configured; device was not revoked.', true)
+      this.recordDiagnostic(
+        'warning',
+        'relay_not_configured',
+        'Mobile relay URL is not configured; device was not revoked.',
+        true,
+      )
       throw new Error('Mobile relay URL is not configured.')
     }
 
     const accessToken = await this.accessTokenProvider()
     if (!accessToken) {
-      this.recordDiagnostic('warning', 'unauthenticated', 'Mobile relay revocation requires a desktop access token.', true)
+      this.recordDiagnostic(
+        'warning',
+        'unauthenticated',
+        'Mobile relay revocation requires a desktop access token.',
+        true,
+      )
       throw new Error('Mobile relay revocation requires a desktop access token.')
     }
     const session = await this.sessionProvider()
@@ -1165,12 +1175,17 @@ export class MobileBridge {
       await this.relayTransport.revokeDevice({
         relayUrl: this.relayUrl,
         accessToken,
-        organizationId: session.authenticated ? session.selectedOrganization?.id ?? null : null,
+        organizationId: session.authenticated ? (session.selectedOrganization?.id ?? null) : null,
         deviceId,
         reason,
       })
     } catch (error) {
-      this.recordDiagnostic('error', 'relay_unavailable', `Relay device revocation failed: ${getErrorMessage(error)}`, true)
+      this.recordDiagnostic(
+        'error',
+        'relay_unavailable',
+        `Relay device revocation failed: ${getErrorMessage(error)}`,
+        true,
+      )
       throw error
     }
   }
@@ -1207,7 +1222,8 @@ export class MobileBridge {
   }
 
   private async publishSnapshotToRelay(): Promise<void> {
-    if (!this.relayTransport.publishSnapshot || !this.relayUrl || !this.relayToken || !this.desktopRelaySessionId) return
+    if (!this.relayTransport.publishSnapshot || !this.relayUrl || !this.relayToken || !this.desktopRelaySessionId)
+      return
     try {
       const snapshot = await this.snapshotService.publishSnapshot({
         desktopSessionId: this.desktopRelaySessionId,
@@ -1222,12 +1238,19 @@ export class MobileBridge {
         })
       }
     } catch (error) {
-      this.recordDiagnostic('warning', 'relay_unavailable', `Snapshot publication failed: ${getErrorMessage(error)}`, true)
+      this.recordDiagnostic(
+        'warning',
+        'relay_unavailable',
+        `Snapshot publication failed: ${getErrorMessage(error)}`,
+        true,
+      )
     }
   }
 }
 
-function failedSnapshotSizeResult(result: Extract<MobileControlCommandResult, { ok: true }>): MobileControlCommandResult {
+function failedSnapshotSizeResult(
+  result: Extract<MobileControlCommandResult, { ok: true }>,
+): MobileControlCommandResult {
   return failedCommandResult(
     {
       commandId: result.commandId,
@@ -1235,7 +1258,7 @@ function failedSnapshotSizeResult(result: Extract<MobileControlCommandResult, { 
       ...(result.idempotencyKey ? { idempotencyKey: result.idempotencyKey } : {}),
     },
     'snapshot_too_large',
-    'Mobile control snapshot result exceeded the relay result summary size limit.'
+    'Mobile control snapshot result exceeded the relay result summary size limit.',
   )
 }
 

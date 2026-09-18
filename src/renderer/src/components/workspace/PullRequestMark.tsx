@@ -74,9 +74,7 @@ function writtenNumber(pr: BranchPullRequest, spans: boolean): string {
  * sentence, and the visible line is a label.
  */
 function spokenNumber(pr: BranchPullRequest, spans: boolean): string {
-  return spans
-    ? `Pull request ${pr.number} in ${pr.repoName}`
-    : `Pull request ${pr.number}`
+  return spans ? `Pull request ${pr.number} in ${pr.repoName}` : `Pull request ${pr.number}`
 }
 
 /**
@@ -128,9 +126,7 @@ export function peekMarkCopy(list: readonly BranchPullRequest[], now: number): P
   const spans = pullRequestsSpanRepositories(list)
   const state = pullRequestStateLabel(primary)
   const opened = relativeFromNow(primary.openedAt, now)
-  const identity = spans
-    ? writtenNumber(primary, spans)
-    : `Pull request ${writtenNumber(primary, spans)}`
+  const identity = spans ? writtenNumber(primary, spans) : `Pull request ${writtenNumber(primary, spans)}`
   // A pull request the hooks CAPTURED has no title until GitHub answers — and
   // never gets one if `gh` cannot reach it. Untitled, the identity moves up
   // into the title line, because a bold empty line over "Pull request #418 ·
@@ -144,9 +140,7 @@ export function peekMarkCopy(list: readonly BranchPullRequest[], now: number): P
     lines: [
       // Identity only ONCE: it is the title line above when there is no title,
       // and this line then carries what is left to say about it.
-      (titled ? [identity, state, opened] : [state, opened])
-        .filter((part) => part.length > 0)
-        .join(' · '),
+      (titled ? [identity, state, opened] : [state, opened]).filter((part) => part.length > 0).join(' · '),
       'Open it on GitHub',
     ],
     ariaLabel: titled
@@ -182,10 +176,7 @@ export type PullRequestMenuGroup = {
  * The grouping and the ordering are the shared module's (`groupPullRequests`),
  * so this cannot disagree with the mark about which one is newest.
  */
-export function pullRequestMenuGroups(
-  list: readonly BranchPullRequest[],
-  now: number,
-): PullRequestMenuGroup[] {
+export function pullRequestMenuGroups(list: readonly BranchPullRequest[], now: number): PullRequestMenuGroup[] {
   const spans = pullRequestsSpanRepositories(list)
   const grouped = groupPullRequests(list)
   const rowOf = (pr: BranchPullRequest): PullRequestMenuRow => {
@@ -275,10 +266,7 @@ function askKey(sessionId: string, branch: string | null): string {
  * a poller: the TTL above does, and main holds the lookup behind its own hold
  * and coalesces the refreshes it accepts.
  */
-export function shouldLookUpPullRequests(line: {
-  kind: 'agent' | 'shell' | 'remote'
-  branch: string | null
-}): boolean {
+export function shouldLookUpPullRequests(line: { kind: 'agent' | 'shell' | 'remote'; branch: string | null }): boolean {
   return line.kind === 'agent' && line.branch !== null
 }
 
@@ -289,11 +277,7 @@ export function shouldLookUpPullRequests(line: {
  *
  * `now` is a test seam. Callers are event handlers and pass nothing.
  */
-export function refreshPullRequestsForLine(
-  sessionId: string,
-  branch: string | null,
-  now: number = Date.now(),
-): void {
+export function refreshPullRequestsForLine(sessionId: string, branch: string | null, now: number = Date.now()): void {
   if (!sessionId) return
   const key = askKey(sessionId, branch)
   const last = askedAt.get(key)

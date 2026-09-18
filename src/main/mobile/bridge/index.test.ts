@@ -45,17 +45,22 @@ async function main(): Promise<void> {
 async function assertLegacyLocalRelayUrlMigratesToProductionDefault(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-store-'))
   const storePath = join(workspaceRoot, 'mobile-bridge.json')
-  await writeFile(storePath, `${JSON.stringify({
-    enabled: false,
-    relayUrl: 'http://localhost:3000',
-    desktopInstanceId: 'mdi_existing',
-    pairedDevices: [],
-    pushRegistrations: [],
-  }, null, 2)}\n`, 'utf8')
-  const bridge = new MobileBridge(
-    async () => ({ authenticated: false }),
-    { storePath }
+  await writeFile(
+    storePath,
+    `${JSON.stringify(
+      {
+        enabled: false,
+        relayUrl: 'http://localhost:3000',
+        desktopInstanceId: 'mdi_existing',
+        pairedDevices: [],
+        pushRegistrations: [],
+      },
+      null,
+      2,
+    )}\n`,
+    'utf8',
   )
+  const bridge = new MobileBridge(async () => ({ authenticated: false }), { storePath })
 
   const state = await bridge.getState()
   bridge.shutdown()
@@ -78,7 +83,7 @@ async function assertDesktopPairingDisplayUsesManualRelayCode(): Promise<void> {
       relayTransport: relay,
       workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
-    }
+    },
   )
 
   // No device is paired yet, so enabling stays idle; requesting a pairing code is
@@ -108,7 +113,7 @@ async function assertDesktopPairingDisplayRejectsLegacyRelayChallenge(): Promise
       relayTransport: relay,
       workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
-    }
+    },
   )
 
   // Enabling stays idle with no paired device; requestPairingCode connects on demand,
@@ -116,7 +121,7 @@ async function assertDesktopPairingDisplayRejectsLegacyRelayChallenge(): Promise
   await bridge.updateSettings({ enabled: true })
   await assert.rejects(
     () => bridge.requestPairingCode(),
-    /Relay pairing challenge did not include a mobile-compatible pairing link/u
+    /Relay pairing challenge did not include a mobile-compatible pairing link/u,
   )
   assert.equal(relay.connects.length, 1)
   bridge.shutdown()
@@ -138,7 +143,11 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
     commandDelivery('cmd_backlog_update', {
       desktopRelaySessionId: 'drs_desktop_1',
       commandType: 'backlog.update',
-      payload: { workspacePath: mutation.workspaceRoot, relativePath: 'backlog/backlog_0000.md', status: 'in_progress' },
+      payload: {
+        workspacePath: mutation.workspaceRoot,
+        relativePath: 'backlog/backlog_0000.md',
+        status: 'in_progress',
+      },
       device: pairedDevice({ scopes: ['relay:backlog:update'] }),
     }),
     commandDelivery('cmd_snapshot', {
@@ -210,7 +219,7 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
       }),
       workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
-    }
+    },
   )
 
   await bridge.updateSettings({ enabled: true })
@@ -249,13 +258,20 @@ async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Prom
   assert.equal(backlogAudit.status, 'accepted')
   assert.equal(typeof backlogAudit.recordedAt, 'string')
   // The workspace root never crosses the relay, in a result or in its audit.
-  assert.equal(JSON.stringify(resultByCommand.get('cmd_backlog_update')?.summary).includes(mutation.workspaceRoot), false)
+  assert.equal(
+    JSON.stringify(resultByCommand.get('cmd_backlog_update')?.summary).includes(mutation.workspaceRoot),
+    false,
+  )
 
   const snapshotSummary = resultByCommand.get('cmd_snapshot')?.summary ?? {}
   assert.equal(snapshotSummary.ok, true)
   assert.notDeepEqual((snapshotSummary as { data?: unknown }).data, { truncated: true })
   const snapshotValidation = validateMobileControlSnapshot((snapshotSummary as { data?: unknown }).data)
-  assert.equal(snapshotValidation.ok, true, snapshotValidation.ok === false ? snapshotValidation.error.message : undefined)
+  assert.equal(
+    snapshotValidation.ok,
+    true,
+    snapshotValidation.ok === false ? snapshotValidation.error.message : undefined,
+  )
   assert.equal(relaySummaryByteLength(snapshotSummary) < relayResultSummaryMaxBytes, true)
 }
 
@@ -286,18 +302,22 @@ async function assertOversizedSnapshotRequestFailsRatherThanTruncating(): Promis
     desktopSessionId: 'desktop_1',
     snapshotVersion: 'snap_oversized',
     commands: [],
-    backlog: [{
-      workspaceId: 'backlog:ws_token',
-      workspacePath: 'ws_token',
-      workspaceName: 'projA',
-      updatedAt: now.toISOString(),
-      items: [{
-        itemId: 'i1',
-        relativePath: 'backlog/a.md',
-        title: createNonAsciiPayloadBelowCharacterCapAboveByteCap(),
-        status: 'idea',
-      }],
-    }],
+    backlog: [
+      {
+        workspaceId: 'backlog:ws_token',
+        workspacePath: 'ws_token',
+        workspaceName: 'projA',
+        updatedAt: now.toISOString(),
+        items: [
+          {
+            itemId: 'i1',
+            relativePath: 'backlog/a.md',
+            title: createNonAsciiPayloadBelowCharacterCapAboveByteCap(),
+            status: 'idea',
+          },
+        ],
+      },
+    ],
   }
   const bridge = new MobileBridge(
     async () => ({
@@ -317,7 +337,7 @@ async function assertOversizedSnapshotRequestFailsRatherThanTruncating(): Promis
       } as unknown as MobileControlSnapshotService,
       workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
-    }
+    },
   )
 
   await bridge.updateSettings({ enabled: true })
@@ -355,7 +375,7 @@ async function assertSnapshotWithinBudgetShipsWhole(): Promise<void> {
       relayTransport: relay,
       workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
-    }
+    },
   )
 
   await bridge.updateSettings({ enabled: true })
@@ -388,17 +408,21 @@ async function assertSnapshotRequestSkipsUnchangedWhenKnownVersionMatches(): Pro
   // every call (with a fresh wall-clock generatedAt), so a stub that returns the
   // same internal snapshot is what makes the version comparison deterministic.
   // The sanitized copy the client receives carries this same snapshotVersion.
-  const built = await service.readSnapshot({ desktopSessionId: 'ses_relay_desktop', workspaceRoots: [fixture.workspaceRoot] })
+  const built = await service.readSnapshot({
+    desktopSessionId: 'ses_relay_desktop',
+    workspaceRoots: [fixture.workspaceRoot],
+  })
   const shippedVersion = built.snapshotVersion
   assert.equal(typeof shippedVersion, 'string')
 
   const snapshotService = { readSnapshot: async () => built } as unknown as MobileControlSnapshotService
-  const dispatch = (payload: Record<string, unknown>) => dispatchSnapshotRequest({
-    command: snapshotRequestCommand(payload),
-    snapshotService,
-    desktopSessionId: 'ses_relay_desktop',
-    workspaceRootsProvider: async () => [fixture.workspaceRoot],
-  })
+  const dispatch = (payload: Record<string, unknown>) =>
+    dispatchSnapshotRequest({
+      command: snapshotRequestCommand(payload),
+      snapshotService,
+      desktopSessionId: 'ses_relay_desktop',
+      workspaceRootsProvider: async () => [fixture.workspaceRoot],
+    })
 
   const unchanged = await dispatch({ knownSnapshotVersion: shippedVersion })
   const full = await dispatch({})
@@ -425,7 +449,9 @@ async function assertSnapshotRequestSkipsUnchangedWhenKnownVersionMatches(): Pro
   const fullBytes = relaySummaryByteLength(summarizeCommandResult(full))
   assert.equal(unchangedBytes < 512, true)
   assert.equal(fullBytes > unchangedBytes * 8, true)
-  console.log(`[1599] unchanged result ${unchangedBytes} B vs full snapshot ${fullBytes} B (${(fullBytes / unchangedBytes).toFixed(1)}x)`)
+  console.log(
+    `[1599] unchanged result ${unchangedBytes} B vs full snapshot ${fullBytes} B (${(fullBytes / unchangedBytes).toFixed(1)}x)`,
+  )
 }
 
 function snapshotRequestCommand(payload: Record<string, unknown>): MobileControlCommand {
@@ -461,7 +487,7 @@ async function assertMobileDeviceCannotRevokeSiblingDevice(): Promise<void> {
       relayTransport: relay,
       workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 10_000,
-    }
+    },
   )
 
   await bridge.updateSettings({ enabled: true })
@@ -494,7 +520,7 @@ async function assertEnabledBridgeWithNoPairedDevicesIssuesNoRelayTraffic(): Pro
       relayTransport: relay,
       workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 250,
-    }
+    },
   )
 
   await bridge.updateSettings({ enabled: true })
@@ -532,24 +558,28 @@ async function assertPairedIdleCadenceBacksOffToCeilingAndSnapsBackOnCommand(): 
       // (snapshot dispatch fits inside it), small enough that decay reaches the
       // ceiling well within the state timeout.
       commandPollAttentionWindowMs: 200,
-    }
+    },
   )
 
   await bridge.updateSettings({ enabled: true })
   // Quiet: interval doubles 250 -> 500 -> 1000 and holds at the ceiling.
-  await waitForState(bridge, (state) =>
-    state.commandPollCadence.state === 'decayed' && state.commandPollCadence.intervalMs === 1000
+  await waitForState(
+    bridge,
+    (state) => state.commandPollCadence.state === 'decayed' && state.commandPollCadence.intervalMs === 1000,
   )
 
   // A delivered command snaps the cadence back to fast within one ceiling interval.
-  relay.queue(commandDelivery('cmd_backoff_snap', {
-    desktopRelaySessionId: 'drs_desktop_1',
-    commandType: 'snapshot.request',
-    payload: {},
-    device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
-  }))
-  await waitForState(bridge, (state) =>
-    state.commandPollCadence.state === 'fast' && state.commandPollCadence.intervalMs === 250
+  relay.queue(
+    commandDelivery('cmd_backoff_snap', {
+      desktopRelaySessionId: 'drs_desktop_1',
+      commandType: 'snapshot.request',
+      payload: {},
+      device: pairedDevice({ scopes: ['relay:snapshot:read'] }),
+    }),
+  )
+  await waitForState(
+    bridge,
+    (state) => state.commandPollCadence.state === 'fast' && state.commandPollCadence.intervalMs === 250,
   )
   bridge.shutdown()
 }
@@ -571,12 +601,13 @@ async function assertRevokingLastDeviceStopsPollingAndGoesIdle(): Promise<void> 
       relayTransport: relay,
       workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 500,
-    }
+    },
   )
 
   await bridge.updateSettings({ enabled: true })
-  await waitForState(bridge, (state) =>
-    state.relayStatus === 'connected' && state.commandPollCadence.state !== 'paused'
+  await waitForState(
+    bridge,
+    (state) => state.relayStatus === 'connected' && state.commandPollCadence.state !== 'paused',
   )
 
   await bridge.revokeDevice('pdv_seed', 'Lost phone')
@@ -610,7 +641,7 @@ async function assertPairingFromIdleKeepsConnectionAfterRaceWithConnectPoll(): P
       relayTransport: relay,
       workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 500,
-    }
+    },
   )
 
   await bridge.updateSettings({ enabled: true })
@@ -643,12 +674,13 @@ async function assertShutdownDoesNotReschedulePolling(): Promise<void> {
       relayTransport: relay,
       workspaceRootsProvider: async () => [fixture.workspaceRoot],
       commandPollIntervalMs: 50,
-    }
+    },
   )
 
   await bridge.updateSettings({ enabled: true })
-  await waitForState(bridge, (state) =>
-    state.relayStatus === 'connected' && state.commandPollCadence.state !== 'paused'
+  await waitForState(
+    bridge,
+    (state) => state.relayStatus === 'connected' && state.commandPollCadence.state !== 'paused',
   )
   bridge.shutdown()
   await delay(50)
@@ -806,7 +838,7 @@ class LegacyPairingChallengeRelayTransport extends FakeRelayTransport {
 // `nonAsciiPayload` rides one item's title so the byte cap (not the character
 // cap) is what the relay sizing measures.
 async function writeBridgeFixture(
-  options: { backlogItems?: number; nonAsciiPayload?: string; pairDevice?: boolean } = {}
+  options: { backlogItems?: number; nonAsciiPayload?: string; pairDevice?: boolean } = {},
 ): Promise<{ workspaceRoot: string }> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-'))
   const itemCount = options.backlogItems ?? 1
@@ -819,7 +851,7 @@ async function writeBridgeFixture(
     await writeFile(
       join(workspaceRoot, 'backlog', `${itemId}.md`),
       `---\ntype: feature\n---\n\n# ${title}\n\nBody text.\n`,
-      'utf8'
+      'utf8',
     )
     items.push({
       id: itemId,
@@ -835,27 +867,37 @@ async function writeBridgeFixture(
   await writeFile(
     join(workspaceRoot, '.sprintengine', 'backlog', 'items.json'),
     JSON.stringify({ schemaVersion: 1, items }),
-    'utf8'
+    'utf8',
   )
   // Command polling is now gated on an active paired device, so fixtures that drive
   // the bridge through connect/poll seed one by default. Pairing-flow tests pass
   // `pairDevice: false` to exercise the idle → connect-on-demand path.
   if (options.pairDevice !== false) {
-    await writeFile(join(workspaceRoot, 'mobile-bridge.json'), `${JSON.stringify({
-      enabled: false,
-      relayUrl: null,
-      desktopInstanceId: 'mdi_fixture',
-      pairedDevices: [{
-        protocolVersion: mobileControlProtocolVersion,
-        deviceId: 'pdv_seed',
-        displayName: 'Seeded phone',
-        platform: 'ios',
-        appVersion: '1.0.0',
-        pairedAt: now.toISOString(),
-        capabilities: [],
-      }],
-      pushRegistrations: [],
-    }, null, 2)}\n`, 'utf8')
+    await writeFile(
+      join(workspaceRoot, 'mobile-bridge.json'),
+      `${JSON.stringify(
+        {
+          enabled: false,
+          relayUrl: null,
+          desktopInstanceId: 'mdi_fixture',
+          pairedDevices: [
+            {
+              protocolVersion: mobileControlProtocolVersion,
+              deviceId: 'pdv_seed',
+              displayName: 'Seeded phone',
+              platform: 'ios',
+              appVersion: '1.0.0',
+              pairedAt: now.toISOString(),
+              capabilities: [],
+            },
+          ],
+          pushRegistrations: [],
+        },
+        null,
+        2,
+      )}\n`,
+      'utf8',
+    )
   }
   return { workspaceRoot }
 }
@@ -874,7 +916,7 @@ function commandDelivery(
     commandType: RelayCommandType
     payload: Record<string, unknown>
     device: MobileRelayAuthenticatedDevice | null
-  }
+  },
 ): Awaited<ReturnType<MobileRelayTransport['listPendingCommands']>>[number] {
   const envelope = {
     desktopRelaySessionId: input.desktopRelaySessionId,

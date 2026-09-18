@@ -61,11 +61,7 @@ const agent = (over: Partial<AgentState> = {}): AgentState =>
     ...over,
   }) as AgentState
 
-const chat = (
-  sessions: TerminalSessionSnapshot[],
-  agents: Record<string, AgentState> = {},
-  name = 'A chat',
-) =>
+const chat = (sessions: TerminalSessionSnapshot[], agents: Record<string, AgentState> = {}, name = 'A chat') =>
   rowConversationPeekIdentities({
     workspace: { name, agents },
     sessions,
@@ -74,8 +70,7 @@ const chat = (
   })
 
 /** Session ids in the order the row would offer them. */
-const ids = (identities: ReturnType<typeof chat>): string[] =>
-  identities.map((identity) => identity.agent.sessionId)
+const ids = (identities: ReturnType<typeof chat>): string[] => identities.map((identity) => identity.agent.sessionId)
 
 run('a row with no terminals has nothing to peek at', () => {
   assert.deepEqual(chat([]), [], 'no sessions, no card')
@@ -160,8 +155,8 @@ run('an agent that has never launched gets no card', () => {
   assert.deepEqual(
     chat([], { a1: agent({ cliHasLaunched: false, cliLastExitedAt: null }) }),
     [],
-    'no transcript and no sidecar by construction — main would answer "none" and the card would '
-      + 'then call a Claude chat a runtime that cannot report',
+    'no transcript and no sidecar by construction — main would answer "none" and the card would ' +
+      'then call a Claude chat a runtime that cannot report',
   )
 })
 
@@ -198,8 +193,8 @@ run('a chat that lives on a paired machine is not offered a card it cannot answe
   assert.deepEqual(
     identities,
     [],
-    'this main has no session and no sidecar under a remote id — it would call a Claude chat a '
-      + 'runtime that cannot report',
+    'this main has no session and no sidecar under a remote id — it would call a Claude chat a ' +
+      'runtime that cannot report',
   )
 })
 
@@ -263,9 +258,7 @@ run('the session’s own figures ride the identity, so the card reads no snapsho
   const identities = chat([
     session({
       sessionId: 'sess-1',
-      fileChanges: [
-        { path: '/repo/src/main/scheduler.ts', additions: 14, deletions: 6, edits: 2, lastEditedAt: NOW },
-      ],
+      fileChanges: [{ path: '/repo/src/main/scheduler.ts', additions: 14, deletions: 6, edits: 2, lastEditedAt: NOW }],
       activeSubagents: 2,
       contextUsage: { usedPercentage: 38, at: NOW },
     } as never),
@@ -289,9 +282,7 @@ run('a session from an older main, with no ledger fields, reads as empty rather 
 run('an agent the renderer has no record for still runs something', () => {
   const identities = rowConversationPeekIdentities({
     workspace: { name: 'Headless launch', agents: {} },
-    sessions: [
-      session({ sessionId: 'sess-2', agentId: 'ghost', agentName: 'roaming-agent-1', cli: 'codex' }),
-    ],
+    sessions: [session({ sessionId: 'sess-2', agentId: 'ghost', agentName: 'roaming-agent-1', cli: 'codex' })],
     status: peekStatusOf('idle', ''),
     now: NOW,
   })

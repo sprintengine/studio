@@ -112,8 +112,9 @@ assert.equal(
   'an entity declaration (XXE) is rejected',
 )
 assert.equal(
-  sanitizeProjectLogoSvg(`<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">${CLEAN_SVG}`)
-    !== null,
+  sanitizeProjectLogoSvg(
+    `<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">${CLEAN_SVG}`,
+  ) !== null,
   true,
   'a bare doctype with no internal subset is not a rejection on its own',
 )
@@ -167,7 +168,11 @@ async function main(): Promise<void> {
 
   {
     const { io } = createIo({})
-    assert.equal(await detectProjectLogo('/gone', io), null, 'an unreadable folder resolves nothing instead of throwing')
+    assert.equal(
+      await detectProjectLogo('/gone', io),
+      null,
+      'an unreadable folder resolves nothing instead of throwing',
+    )
   }
 
   {
@@ -193,7 +198,7 @@ async function main(): Promise<void> {
     assert.equal(await detectProjectLogo('/repo', io), null, 'a non-file candidate is skipped')
   }
 
-// --- resolver cache ----------------------------------------------------------
+  // --- resolver cache ----------------------------------------------------------
 
   {
     const files: Record<string, FakeFile> = { '/repo/logo.svg': { bytes: Buffer.from(CLEAN_SVG), mtimeMs: 5 } }

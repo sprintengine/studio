@@ -49,10 +49,7 @@ function integration(invocation: Record<string, unknown>, support = 'native') {
     '/design-review',
   )
   assert.equal(
-    renderSkillMention(
-      integration({ mentionPrefix: '$', explicitTemplate: 'Use ${{skillId}}.' }),
-      'design-review',
-    ),
+    renderSkillMention(integration({ mentionPrefix: '$', explicitTemplate: 'Use ${{skillId}}.' }), 'design-review'),
     '$design-review',
     'codex inserts the mention, not "Use $design-review."',
   )
@@ -62,10 +59,7 @@ function integration(invocation: Record<string, unknown>, support = 'native') {
     'no prefix, nothing to insert — the caller keeps a picker',
   )
   assert.equal(
-    renderSkillMention(
-      integration({ mentionPrefix: '#', mentionTemplate: '{{mentionPrefix}}{{skillId}}!' }),
-      'audit',
-    ),
+    renderSkillMention(integration({ mentionPrefix: '#', mentionTemplate: '{{mentionPrefix}}{{skillId}}!' }), 'audit'),
     '#audit!',
     'an explicit mentionTemplate wins over the default',
   )
@@ -74,11 +68,11 @@ function integration(invocation: Record<string, unknown>, support = 'native') {
 // 3. The standalone form is untouched by any of this — it has other callers
 //    (debug launch, connector chat, backlog handoff).
 {
+  assert.equal(resolveSkillInvocation(integration({ explicitTemplate: 'Use ${{skillId}}.' }), 'debug'), 'Use $debug.')
   assert.equal(
-    resolveSkillInvocation(integration({ explicitTemplate: 'Use ${{skillId}}.' }), 'debug'),
-    'Use $debug.',
+    renderSkillInvocationTemplate('/{{skillId}} {{path}}', { skillId: 'a', skillName: 'A', path: 'p' }),
+    '/a p',
   )
-  assert.equal(renderSkillInvocationTemplate('/{{skillId}} {{path}}', { skillId: 'a', skillName: 'A', path: 'p' }), '/a p')
   assert.equal(plainSkillInvocation('debug'), 'Use the debug skill.')
 }
 

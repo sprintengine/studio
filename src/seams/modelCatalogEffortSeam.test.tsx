@@ -122,19 +122,15 @@ async function main(): Promise<void> {
   const { createRoot } = await import('react-dom/client')
 
   const { useWorkspaceStore } = await import('../renderer/src/store/workspaceStore')
-  const { WORKSPACE_STORE_VERSION, migratePersistedWorkspaceState } = await import(
-    '../renderer/src/store/slices/persistenceSlice'
-  )
+  const { WORKSPACE_STORE_VERSION, migratePersistedWorkspaceState } =
+    await import('../renderer/src/store/slices/persistenceSlice')
   const { normalizeAppSettings } = await import('../renderer/src/store/slices/settingsSlice')
-  const { buildAgentCliCatalog, resolveCliReasoning, resolveSurfaceModel } = await import(
-    '../renderer/src/components/workspace/newWorkspace/cliRuntimeOptions'
-  )
+  const { buildAgentCliCatalog, resolveCliReasoning, resolveSurfaceModel } =
+    await import('../renderer/src/components/workspace/newWorkspace/cliRuntimeOptions')
   const { CliModelPopoverSurface } = await import('../renderer/src/components/ui/CliModelPicker')
   const { buildAgentShellCommand, renderAgentLaunchArgv } = await import('../main/agent-launch-render')
   const { createPluginRegistry } = await import('../main/plugin-registry')
-  const { __resetPluginRegistryForTest, __setPluginRegistryForTest } = await import(
-    '../main/plugin-registry-instance'
-  )
+  const { __resetPluginRegistryForTest, __setPluginRegistryForTest } = await import('../main/plugin-registry-instance')
 
   let failures = 0
   const check = async (name: string, fn: () => Promise<void> | void): Promise<void> => {
@@ -200,7 +196,9 @@ async function main(): Promise<void> {
       rows: () => scoped<HTMLElement>('[data-model-row="true"]'),
       pickers: () => scoped<HTMLButtonElement>('[data-reasoning-trigger="true"]'),
       menuItems: () =>
-        [...dom.window.document.body.querySelectorAll('[data-reasoning-option="true"]')] as unknown as HTMLButtonElement[],
+        [
+          ...dom.window.document.body.querySelectorAll('[data-reasoning-option="true"]'),
+        ] as unknown as HTMLButtonElement[],
       click: async (element: Element | undefined | null) => {
         assert.ok(element, 'expected the control to exist before clicking it')
         await act(async () => {
@@ -210,9 +208,7 @@ async function main(): Promise<void> {
       key: async (element: Element | undefined | null, key: string) => {
         assert.ok(element, 'expected the control to exist before keying it')
         await act(async () => {
-          element.dispatchEvent(
-            new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }),
-          )
+          element.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key, bubbles: true, cancelable: true }))
         })
       },
       // Effort is a ramp on a slider, not a row per level, so a level is
@@ -221,8 +217,7 @@ async function main(): Promise<void> {
       // element re-read each step, because these mounts read their level back
       // out of a store they do not subscribe to.
       pickLevel: async (label: string) => {
-        const slider = () =>
-          dom.window.document.body.querySelector('[data-slider="true"]') as HTMLElement | null
+        const slider = () => dom.window.document.body.querySelector('[data-slider="true"]') as HTMLElement | null
         assert.ok(slider(), 'the effort ramp is on the open surface')
         await view.key(slider(), 'Home')
         for (let step = 0; step <= 12; step += 1) {
@@ -272,8 +267,8 @@ async function main(): Promise<void> {
     assert.deepEqual(
       settings.lastSelectedAgentModel,
       PREVIOUS_BUILD_SELECTION,
-      'and the per-CLI level survives beside it — including with no model, '
-        + 'which the pre-1870 normalizer would have thrown away',
+      'and the per-CLI level survives beside it — including with no model, ' +
+        'which the pre-1870 normalizer would have thrown away',
     )
     assert.deepEqual(
       settings.cliRuntimes.codex.models,
@@ -329,11 +324,7 @@ async function main(): Promise<void> {
     await useWorkspaceStore.persist.rehydrate()
     const second = useWorkspaceStore.getState().appSettings
     assert.deepEqual(second.cliModelCatalog, first.cliModelCatalog, 'second load: catalog unchanged')
-    assert.deepEqual(
-      second.lastSelectedAgentModel,
-      first.lastSelectedAgentModel,
-      'second load: the level unchanged',
-    )
+    assert.deepEqual(second.lastSelectedAgentModel, first.lastSelectedAgentModel, 'second load: the level unchanged')
   })
 
   // ── Seam 2: the union merge under repetition, through the store setter ─────
@@ -362,11 +353,14 @@ async function main(): Promise<void> {
       [{ id: 'claude-sonnet-5' }],
     ]
     passes.forEach((models, index) => {
-      store.setCliModelCatalog('claude-code' as never, {
-        models,
-        fetchedAt: `2026-07-2${7 + index}T00:00:00Z`,
-        source: 'agent-sdk',
-      } as never)
+      store.setCliModelCatalog(
+        'claude-code' as never,
+        {
+          models,
+          fetchedAt: `2026-07-2${7 + index}T00:00:00Z`,
+          source: 'agent-sdk',
+        } as never,
+      )
       const ids = claudeModels().map((model) => model.id)
       assert.ok(
         ids.includes('claude-opus-5'),
@@ -412,8 +406,7 @@ async function main(): Promise<void> {
       options: options as never,
       currentCli: 'claude-code' as never,
       effectiveModelFor: (cli) => resolveSurfaceModel(cli, store().appSettings.lastSelectedAgentModel),
-      effectiveReasoningFor: (cli) =>
-        resolveCliReasoning(cli, store().appSettings.lastSelectedAgentModel),
+      effectiveReasoningFor: (cli) => resolveCliReasoning(cli, store().appSettings.lastSelectedAgentModel),
       onSelectReasoning: (cli, reasoning) => store().setLastSelectedAgentReasoning(cli, reasoning),
     })
 
@@ -463,9 +456,7 @@ async function main(): Promise<void> {
     // The REASONING trigger specifically — with the axes split, the first
     // trigger on the row is the context window, which knows nothing about effort.
     view.render({})
-    const trigger = view
-      .pickers()
-      .find((picker) => (picker.getAttribute('aria-label') ?? '').startsWith('Reasoning'))
+    const trigger = view.pickers().find((picker) => (picker.getAttribute('aria-label') ?? '').startsWith('Reasoning'))
     assert.ok(trigger, 'the picker is still rendered after the write')
     assert.match(trigger.textContent ?? '', /Extra high/, 'and it reads the stored level back')
     view.unmount()
@@ -544,13 +535,14 @@ async function main(): Promise<void> {
     assert.ok(view.rows().length >= 2, 'the CLI and its models still render')
     assert.equal(view.pickers().length, 0, 'no picker anywhere')
     assert.equal(view.menuItems().length, 0, 'and no menu of levels behind it')
-    const inert = [...view.rows()].flatMap((row) => [
-      ...row.querySelectorAll('[disabled],[aria-disabled="true"]'),
-    ])
+    const inert = [...view.rows()].flatMap((row) => [...row.querySelectorAll('[disabled],[aria-disabled="true"]')])
     assert.equal(inert.length, 0, 'and nothing rendered disabled in its place')
     // Nothing explains the absence either — a row for a CLI without levels reads
     // exactly like a row for a CLI that has them and has none picked.
-    const text = view.rows().map((row) => row.textContent ?? '').join(' ')
+    const text = view
+      .rows()
+      .map((row) => row.textContent ?? '')
+      .join(' ')
     assert.doesNotMatch(text, /effort|reasoning/i, `no copy names the missing control: ${text}`)
     view.unmount()
   })
@@ -569,10 +561,8 @@ async function main(): Promise<void> {
     assert.deepEqual(normalized.lastSelectedAgentModel, PREVIOUS_BUILD_SELECTION)
     // Neither a model nor a level: not an override at all.
     assert.equal(
-      normalizeAppSettings(
-        { lastSelectedAgentModel: { cli: 'codex', model: '', reasoning: '  ' } } as never,
-        [],
-      ).lastSelectedAgentModel,
+      normalizeAppSettings({ lastSelectedAgentModel: { cli: 'codex', model: '', reasoning: '  ' } } as never, [])
+        .lastSelectedAgentModel,
       null,
     )
     // Idempotent: the normalizer runs on every hydration, so a second pass over

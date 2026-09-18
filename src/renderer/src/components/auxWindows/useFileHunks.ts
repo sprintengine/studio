@@ -183,9 +183,7 @@ export function useFileHunks({
             index: hunk.index,
             fingerprint: hunk.fingerprint,
           }
-          const result = hunk.included
-            ? await window.api.unstageGitHunk(ref)
-            : await window.api.stageGitHunk(ref)
+          const result = hunk.included ? await window.api.unstageGitHunk(ref) : await window.api.stageGitHunk(ref)
           if (!result.ok) {
             // Let the real state win rather than leaving a box that lies.
             setOverride(null)
@@ -217,7 +215,7 @@ export function useFileHunks({
         }
       })()
     },
-    [refreshGitStatus, repoRoot]
+    [refreshGitStatus, repoRoot],
   )
 
   // A stale prediction can outlive nothing: if the read that was to supersede

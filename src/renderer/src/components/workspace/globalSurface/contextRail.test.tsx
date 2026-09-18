@@ -101,7 +101,11 @@ async function main(): Promise<void> {
       <GlobalSurfaceShell
         ariaLabel="Backlog"
         bar={{ title: 'summer26' }}
-        rail={<button type="button" data-testid="rail-row">summer26</button>}
+        rail={
+          <button type="button" data-testid="rail-row">
+            summer26
+          </button>
+        }
         onBack={() => undefined}
         canGoBack
       >
@@ -116,10 +120,7 @@ async function main(): Promise<void> {
       'and it is the app sidebar width, not a second rail width of its own',
     )
     assert.ok(aside!.querySelector('[data-testid="rail-row"]'), 'the rail content is inside it')
-    assert.ok(
-      view.container.querySelector('button[aria-label="Back"]'),
-      'and the bar chevron is the way out',
-    )
+    assert.ok(view.container.querySelector('button[aria-label="Back"]'), 'and the bar chevron is the way out')
     view.unmount()
   })
 
@@ -131,7 +132,11 @@ async function main(): Promise<void> {
         <GlobalSurfaceShell
           ariaLabel="Backlog"
           bar={{ title: 'summer26' }}
-          rail={<button type="button" data-testid="rail-row">summer26</button>}
+          rail={
+            <button type="button" data-testid="rail-row">
+              summer26
+            </button>
+          }
           onBack={() => undefined}
           canGoBack
         >
@@ -259,12 +264,7 @@ async function main(): Promise<void> {
 
   run('the host column is the rail scrollport and nothing else', () => {
     const view = mount(
-      <ContextRailColumn
-        surfaceKey="backlog"
-        ariaLabel="Backlog rail"
-        active
-        railRef={() => undefined}
-      />,
+      <ContextRailColumn surfaceKey="backlog" ariaLabel="Backlog rail" active railRef={() => undefined} />,
     )
     const column = view.container.querySelector('[data-context-rail]')
     assert.ok(column, 'the column is findable by the marker Escape resolution uses')

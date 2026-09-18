@@ -139,19 +139,27 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
           collapsed={collapsed}
           variant="dashed"
           icon={
-            installing
-              ? <Spinner className="icon-sm shrink-0" />
-              : <FolderPlusIcon className="icon-sm pointer-events-none shrink-0" />
+            installing ? (
+              <Spinner className="icon-sm shrink-0" />
+            ) : (
+              <FolderPlusIcon className="icon-sm pointer-events-none shrink-0" />
+            )
           }
           label={installing ? 'Adding extension…' : 'Add extension'}
           ariaLabel={installing ? 'Adding extension from a folder' : 'Add extension from a folder'}
-          tooltip={installMessage?.text ?? (installing ? 'Adding extension from a folder' : 'Add extension from a folder')}
+          tooltip={
+            installMessage?.text ?? (installing ? 'Adding extension from a folder' : 'Add extension from a folder')
+          }
           disabled={installing}
           onClick={() => void addExtension()}
         />
         {!collapsed ? <ActionResultMessage message={installMessage} className="mt-2" /> : null}
       </div>
-      <div role="list" aria-label="Extensions" className="mx-2 mt-1 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto">
+      <div
+        role="list"
+        aria-label="Extensions"
+        className="mx-2 mt-1 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto"
+      >
         {rows.map((row) => (
           <div key={row.key} role="listitem" className="flex flex-col">
             {row.node}

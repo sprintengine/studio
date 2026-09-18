@@ -33,17 +33,24 @@ const TYPE_SHAPES: Record<BacklogType, JSX.Element> = {
   epic: (
     <>
       <path d="M8 2.4 13.4 5 8 7.6 2.6 5z" stroke="currentColor" strokeWidth="1.2" strokeLinejoin="round" />
-      <path d="M3 7.6 8 10.1 13 7.6" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M3 10.1 8 12.6 13 10.1" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M3 7.6 8 10.1 13 7.6"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M3 10.1 8 12.6 13 10.1"
+        stroke="currentColor"
+        strokeWidth="1.2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </>
   ),
   // Four-point spark — a new capability.
-  feature: (
-    <path
-      d="M8 2.3 9.25 6.75 13.7 8 9.25 9.25 8 13.7 6.75 9.25 2.3 8 6.75 6.75z"
-      fill="currentColor"
-    />
-  ),
+  feature: <path d="M8 2.3 9.25 6.75 13.7 8 9.25 9.25 8 13.7 6.75 9.25 2.3 8 6.75 6.75z" fill="currentColor" />,
   // Beetle — rounded body, antennae, and legs.
   bug: (
     <>
@@ -65,7 +72,5 @@ const TYPE_SHAPES: Record<BacklogType, JSX.Element> = {
     </>
   ),
   // Lightning bolt — a time-boxed research spike.
-  spike: (
-    <path d="M9.2 2.3 4.4 9h3.1l-.8 4.7L11.6 7H8.4z" fill="currentColor" />
-  ),
+  spike: <path d="M9.2 2.3 4.4 9h3.1l-.8 4.7L11.6 7H8.4z" fill="currentColor" />,
 }

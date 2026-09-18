@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 import { renderToStaticMarkup } from 'react-dom/server'
 
-import type {
-  AutomationDefinition,
-  AutomationsProviders,
-} from '../../../../../shared/automations/contracts'
+import type { AutomationDefinition, AutomationsProviders } from '../../../../../shared/automations/contracts'
 import {
   EMPTY_WEBHOOK_FORM,
   buildWebhookConfig,
@@ -56,17 +53,31 @@ const BLOCKED_REASON =
 
 const blockedProviders: AutomationsProviders = {
   triggers: [
-    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'webhook', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    {
+      kind: 'schedule',
+      moduleId: 'automations',
+      configSchema: { type: 'object' },
+      requiredIntegrations: [],
+      missingIntegrations: [],
+    },
+    {
+      kind: 'webhook',
+      moduleId: 'automations',
+      configSchema: { type: 'object' },
+      requiredIntegrations: [],
+      missingIntegrations: [],
+    },
   ],
-  actions: [{
-    kind: 'weather-deck.refresh-forecast',
-    moduleId: 'weather-deck',
-    configSchema: { type: 'object' },
-    requiredIntegrations: [],
-    missingIntegrations: [],
-    blockedReason: BLOCKED_REASON,
-  }],
+  actions: [
+    {
+      kind: 'weather-deck.refresh-forecast',
+      moduleId: 'weather-deck',
+      configSchema: { type: 'object' },
+      requiredIntegrations: [],
+      missingIntegrations: [],
+      blockedReason: BLOCKED_REASON,
+    },
+  ],
 }
 
 const markup = renderToStaticMarkup(
@@ -90,8 +101,24 @@ console.log('AutomationEditor blocked-provider render tests passed')
 // ---------------------------------------------------------------------------
 
 assert.deepEqual(
-  buildWebhookConfig({ enabled: true, port: '8765', path: 'deploy', secret: 'x'.repeat(20), hasSecret: false, eventType: 'push', label: 'Deploy' }),
-  { kind: 'webhook', enabled: true, port: 8765, path: 'deploy', eventType: 'push', label: 'Deploy', secret: 'x'.repeat(20) },
+  buildWebhookConfig({
+    enabled: true,
+    port: '8765',
+    path: 'deploy',
+    secret: 'x'.repeat(20),
+    hasSecret: false,
+    eventType: 'push',
+    label: 'Deploy',
+  }),
+  {
+    kind: 'webhook',
+    enabled: true,
+    port: 8765,
+    path: 'deploy',
+    eventType: 'push',
+    label: 'Deploy',
+    secret: 'x'.repeat(20),
+  },
   'webhook config coerces the port to an integer and carries the new secret',
 )
 assert.deepEqual(
@@ -107,22 +134,34 @@ console.log('AutomationEditor config-build tests passed')
 // ---------------------------------------------------------------------------
 
 assert.equal(
-  webhookTriggerError({ ...EMPTY_WEBHOOK_FORM, enabled: true, port: '80', path: 'h', secret: 'short' }, { sendingTrigger: true }),
+  webhookTriggerError(
+    { ...EMPTY_WEBHOOK_FORM, enabled: true, port: '80', path: 'h', secret: 'short' },
+    { sendingTrigger: true },
+  ),
   'Webhook secret must be at least 16 characters.',
   'a secret shorter than 16 chars blocks save',
 )
 assert.match(
-  webhookTriggerError({ ...EMPTY_WEBHOOK_FORM, enabled: true, port: '80', path: 'h', hasSecret: false }, { sendingTrigger: true }) ?? '',
+  webhookTriggerError(
+    { ...EMPTY_WEBHOOK_FORM, enabled: true, port: '80', path: 'h', hasSecret: false },
+    { sendingTrigger: true },
+  ) ?? '',
   /Generate a webhook secret/,
   'enabling a webhook with no stored secret requires generating one',
 )
 assert.match(
-  webhookTriggerError({ ...EMPTY_WEBHOOK_FORM, enabled: true, port: '80', path: 'h', hasSecret: true }, { sendingTrigger: true }) ?? '',
+  webhookTriggerError(
+    { ...EMPTY_WEBHOOK_FORM, enabled: true, port: '80', path: 'h', hasSecret: true },
+    { sendingTrigger: true },
+  ) ?? '',
   /Regenerate the webhook secret/,
   'changing an enabled webhook requires regenerating the secret (the stored one is never readable)',
 )
 assert.match(
-  webhookTriggerError({ ...EMPTY_WEBHOOK_FORM, enabled: false, port: '80', path: 'hook', hasSecret: true }, { sendingTrigger: true }) ?? '',
+  webhookTriggerError(
+    { ...EMPTY_WEBHOOK_FORM, enabled: false, port: '80', path: 'hook', hasSecret: true },
+    { sendingTrigger: true },
+  ) ?? '',
   /Regenerate the webhook secret/,
   'editing a DISABLED webhook that has a stored secret also requires regenerating — sending the rebuilt config would otherwise drop the stored credential (Fallback Discipline)',
 )
@@ -146,17 +185,37 @@ console.log('AutomationEditor webhook-secret rule tests passed')
 
 // webhook: the redacted config (hasSecret, no secret) rebuilds without a secret;
 // the trigger is equivalent so the patch is omitted and the stored secret kept.
-const webhookLoaded = { kind: 'webhook', enabled: true, port: 8765, path: 'deploy', eventType: 'push', label: 'Deploy', hasSecret: true }
+const webhookLoaded = {
+  kind: 'webhook',
+  enabled: true,
+  port: 8765,
+  path: 'deploy',
+  eventType: 'push',
+  label: 'Deploy',
+  hasSecret: true,
+}
 const webhookTrigger = { kind: 'webhook', config: webhookLoaded }
 const webhookForm = triggerForm({ triggerKind: 'webhook', webhook: webhookFormFromConfig(webhookLoaded) })
-const webhookResolved = resolveSubmitTrigger({ mode: 'edit', definition: definition(webhookTrigger) }, webhookForm, 'UTC')
+const webhookResolved = resolveSubmitTrigger(
+  { mode: 'edit', definition: definition(webhookTrigger) },
+  webhookForm,
+  'UTC',
+)
 assert.deepEqual(
   webhookResolved.config,
   { kind: 'webhook', enabled: true, port: 8765, path: 'deploy', eventType: 'push', label: 'Deploy' },
   'webhook round-trips its fields (minus the never-readable secret)',
 )
-assert.equal(triggersEquivalent(webhookResolved, webhookTrigger), true, 'an unchanged webhook is detected as equivalent')
-assert.equal(shouldSendWebhookTrigger(webhookForm.webhook, webhookLoaded), false, 'an unchanged webhook omits its trigger patch (preserves the secret)')
+assert.equal(
+  triggersEquivalent(webhookResolved, webhookTrigger),
+  true,
+  'an unchanged webhook is detected as equivalent',
+)
+assert.equal(
+  shouldSendWebhookTrigger(webhookForm.webhook, webhookLoaded),
+  false,
+  'an unchanged webhook omits its trigger patch (preserves the secret)',
+)
 assert.equal(
   shouldSendWebhookTrigger({ ...webhookForm.webhook, secret: 'y'.repeat(20) }, webhookLoaded),
   true,
@@ -170,7 +229,13 @@ const cronTrigger = {
 }
 const cronResolved = resolveSubmitTrigger(
   { mode: 'edit', definition: definition(cronTrigger) },
-  triggerForm({ triggerKind: 'schedule', cadenceType: 'weekly', everyMinutes: 30, timeLocal: '08:30', daysOfWeek: [1, 3] }),
+  triggerForm({
+    triggerKind: 'schedule',
+    cadenceType: 'weekly',
+    everyMinutes: 30,
+    timeLocal: '08:30',
+    daysOfWeek: [1, 3],
+  }),
   'America/New_York',
 )
 assert.deepEqual(cronResolved, cronTrigger, 'a loaded cron schedule round-trips verbatim, never converted to interval')
@@ -182,7 +247,13 @@ const intervalTrigger = {
 }
 const editedSchedule = resolveSubmitTrigger(
   { mode: 'edit', definition: definition(intervalTrigger) },
-  triggerForm({ triggerKind: 'schedule', cadenceType: 'weekly', everyMinutes: 30, timeLocal: '08:30', daysOfWeek: [1, 3] }),
+  triggerForm({
+    triggerKind: 'schedule',
+    cadenceType: 'weekly',
+    everyMinutes: 30,
+    timeLocal: '08:30',
+    daysOfWeek: [1, 3],
+  }),
   'UTC',
 )
 assert.deepEqual(
@@ -218,16 +289,30 @@ console.log('AutomationEditor trigger round-trip tests passed')
 
 const familyProviders: AutomationsProviders = {
   triggers: [
-    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'webhook', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
+    {
+      kind: 'schedule',
+      moduleId: 'automations',
+      configSchema: { type: 'object' },
+      requiredIntegrations: [],
+      missingIntegrations: [],
+    },
+    {
+      kind: 'webhook',
+      moduleId: 'automations',
+      configSchema: { type: 'object' },
+      requiredIntegrations: [],
+      missingIntegrations: [],
+    },
   ],
-  actions: [{
-    kind: 'spawn-agent',
-    moduleId: 'automations',
-    configSchema: { type: 'object', properties: { prompt: { type: 'string' } } },
-    requiredIntegrations: [],
-    missingIntegrations: [],
-  }],
+  actions: [
+    {
+      kind: 'spawn-agent',
+      moduleId: 'automations',
+      configSchema: { type: 'object', properties: { prompt: { type: 'string' } } },
+      requiredIntegrations: [],
+      missingIntegrations: [],
+    },
+  ],
 }
 
 const webhookMarkup = renderToStaticMarkup(
@@ -239,7 +324,11 @@ const webhookMarkup = renderToStaticMarkup(
     onSaved={() => {}}
   />,
 )
-assert.match(webhookMarkup, /\/automations\/webhooks\/deploy/, 'webhook shows the delivery URL with the configured path')
+assert.match(
+  webhookMarkup,
+  /\/automations\/webhooks\/deploy/,
+  'webhook shows the delivery URL with the configured path',
+)
 assert.match(webhookMarkup, /Regenerate secret/, 'a stored webhook secret offers regenerate, never the value')
 assert.match(webhookMarkup, /x-multicode-signature/, 'webhook shows the HMAC signature header as helper text')
 
@@ -253,7 +342,11 @@ const cronMarkup = renderToStaticMarkup(
   />,
 )
 assert.match(cronMarkup, /Cron · 0 9 \* \* 1/, 'cron schedule renders a read-only summary of its expression')
-assert.match(cronMarkup, /Editing this trigger type isn.t supported yet/, 'cron schedule stays read-only (no authoring control)')
+assert.match(
+  cronMarkup,
+  /Editing this trigger type isn.t supported yet/,
+  'cron schedule stays read-only (no authoring control)',
+)
 assert.doesNotMatch(cronMarkup, /Run every \(minutes\)/, 'cron schedule hides the editable cadence fields')
 
 console.log('AutomationEditor family render tests passed')
@@ -268,20 +361,34 @@ console.log('AutomationEditor family render tests passed')
 
 const spawnAgentProviders: AutomationsProviders = {
   triggers: [
-    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'webhook', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-  ],
-  actions: [{
-    kind: 'spawn-agent',
-    moduleId: 'automations',
-    configSchema: {
-      type: 'object',
-      properties: { cli: { type: 'string' }, prompt: { type: 'string' } },
-      required: ['prompt'],
+    {
+      kind: 'schedule',
+      moduleId: 'automations',
+      configSchema: { type: 'object' },
+      requiredIntegrations: [],
+      missingIntegrations: [],
     },
-    requiredIntegrations: [],
-    missingIntegrations: [],
-  }],
+    {
+      kind: 'webhook',
+      moduleId: 'automations',
+      configSchema: { type: 'object' },
+      requiredIntegrations: [],
+      missingIntegrations: [],
+    },
+  ],
+  actions: [
+    {
+      kind: 'spawn-agent',
+      moduleId: 'automations',
+      configSchema: {
+        type: 'object',
+        properties: { cli: { type: 'string' }, prompt: { type: 'string' } },
+        required: ['prompt'],
+      },
+      requiredIntegrations: [],
+      missingIntegrations: [],
+    },
+  ],
 }
 
 const agentBlockMarkup = renderToStaticMarkup(
@@ -304,11 +411,7 @@ assert.doesNotMatch(
 // with no stored preset runs unattended, so the control must read that rather
 // than "Default" — the editor may not show a preset the run will not use.
 assert.match(agentBlockMarkup, /Permission/, 'the editor labels the permission field')
-assert.match(
-  agentBlockMarkup,
-  /Bypass all — runs unattended/,
-  'an unset automation reads as the unattended default',
-)
+assert.match(agentBlockMarkup, /Bypass all — runs unattended/, 'an unset automation reads as the unattended default')
 assert.doesNotMatch(
   agentBlockMarkup,
   /Default — asks before acting<\/span>\s*<svg/,
@@ -328,20 +431,34 @@ console.log('AutomationEditor agent-block render tests passed')
 
 const connectorProviders: AutomationsProviders = {
   triggers: [
-    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-    { kind: 'webhook', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-  ],
-  actions: [{
-    kind: 'spawn-agent',
-    moduleId: 'automations',
-    configSchema: {
-      type: 'object',
-      properties: { cli: { type: 'string' }, prompt: { type: 'string' }, connectorId: { type: 'string' } },
-      required: ['prompt'],
+    {
+      kind: 'schedule',
+      moduleId: 'automations',
+      configSchema: { type: 'object' },
+      requiredIntegrations: [],
+      missingIntegrations: [],
     },
-    requiredIntegrations: [],
-    missingIntegrations: [],
-  }],
+    {
+      kind: 'webhook',
+      moduleId: 'automations',
+      configSchema: { type: 'object' },
+      requiredIntegrations: [],
+      missingIntegrations: [],
+    },
+  ],
+  actions: [
+    {
+      kind: 'spawn-agent',
+      moduleId: 'automations',
+      configSchema: {
+        type: 'object',
+        properties: { cli: { type: 'string' }, prompt: { type: 'string' }, connectorId: { type: 'string' } },
+        required: ['prompt'],
+      },
+      requiredIntegrations: [],
+      missingIntegrations: [],
+    },
+  ],
 }
 
 const connectorCreateMarkup = renderToStaticMarkup(
@@ -357,7 +474,11 @@ assert.match(connectorCreateMarkup, /Connector/, 'a connectorId-bearing action r
 assert.match(connectorCreateMarkup, /No connector/, 'the connector picker defaults to "No connector"')
 
 // A connectorId is not rendered as a generic free-text config input — the picker owns it.
-assert.doesNotMatch(connectorCreateMarkup, /automation-config-connectorId/, 'connectorId is not a free-text config field')
+assert.doesNotMatch(
+  connectorCreateMarkup,
+  /automation-config-connectorId/,
+  'connectorId is not a free-text config field',
+)
 
 // An action schema without connectorId renders no connector control.
 assert.doesNotMatch(agentBlockMarkup, />Connector</, 'no connector control when the schema lacks connectorId')
@@ -365,7 +486,10 @@ assert.doesNotMatch(agentBlockMarkup, />Connector</, 'no connector control when 
 // Edit: a stored connectorId round-trips into the control (shown as its id while
 // the catalog is still loading under static render).
 const connectorEditDef: AutomationDefinition = {
-  ...definition({ kind: 'schedule', config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'interval', everyMinutes: 30 } } }),
+  ...definition({
+    kind: 'schedule',
+    config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'interval', everyMinutes: 30 } },
+  }),
   action: { kind: 'spawn-agent', config: { prompt: 'Deploy the service', connectorId: 'railway' } },
 }
 const connectorEditMarkup = renderToStaticMarkup(
@@ -391,19 +515,32 @@ console.log('AutomationEditor connector-picker render tests passed')
 
 const starterProviders: AutomationsProviders = {
   triggers: [
-    { kind: 'schedule', moduleId: 'automations', configSchema: { type: 'object' }, requiredIntegrations: [], missingIntegrations: [] },
-  ],
-  actions: [{
-    kind: 'spawn-agent',
-    moduleId: 'automations',
-    configSchema: {
-      type: 'object',
-      properties: { cli: { type: 'string' }, prompt: { type: 'string' }, spawnSkillId: { type: 'string' }, connectorId: { type: 'string' } },
-      required: ['prompt'],
+    {
+      kind: 'schedule',
+      moduleId: 'automations',
+      configSchema: { type: 'object' },
+      requiredIntegrations: [],
+      missingIntegrations: [],
     },
-    requiredIntegrations: [],
-    missingIntegrations: [],
-  }],
+  ],
+  actions: [
+    {
+      kind: 'spawn-agent',
+      moduleId: 'automations',
+      configSchema: {
+        type: 'object',
+        properties: {
+          cli: { type: 'string' },
+          prompt: { type: 'string' },
+          spawnSkillId: { type: 'string' },
+          connectorId: { type: 'string' },
+        },
+        required: ['prompt'],
+      },
+      requiredIntegrations: [],
+      missingIntegrations: [],
+    },
+  ],
 }
 
 // A catalogue install resolves the schedule into the installing machine's zone
@@ -463,9 +600,16 @@ assert.match(starterMarkup, /Local time, 24-hour/, 'and that time is the reader�
 // things about one schedule.
 const elsewhereMarkup = renderEditor({
   ...starterDefinition,
-  trigger: { kind: 'schedule', config: { kind: 'schedule', timezone: ELSEWHERE, cadence: { type: 'daily', timeLocal: '02:00' } } },
+  trigger: {
+    kind: 'schedule',
+    config: { kind: 'schedule', timezone: ELSEWHERE, cadence: { type: 'daily', timeLocal: '02:00' } },
+  },
 })
-assert.match(elsewhereMarkup, new RegExp(`24-hour \\(HH:MM\\), in ${ELSEWHERE}`), 'the time field names the zone it is read in')
+assert.match(
+  elsewhereMarkup,
+  new RegExp(`24-hour \\(HH:MM\\), in ${ELSEWHERE}`),
+  'the time field names the zone it is read in',
+)
 assert.doesNotMatch(elsewhereMarkup, /Local time/, 'and does not also claim to be local')
 assert.match(starterMarkup, /Bypass all — runs unattended/, 'permission reads the unattended default it will run on')
 assert.match(starterMarkup, /Every run/, 'the aside states the run contract')
@@ -496,9 +640,17 @@ assert.doesNotMatch(handWrittenMarkup, /Multicode Labs/, 'with no publisher line
 // state, so a static render cannot witness a store value at all.)
 const CATALOG = [{ value: 'claude-code' }, { value: 'cursor' }]
 assert.equal(resolveAutomationRuntimeCli('codex', 'cursor', CATALOG), 'codex', 'the definition’s own cli wins')
-assert.equal(resolveAutomationRuntimeCli(undefined, 'cursor', CATALOG), 'cursor', 'an unset cli reads the launch’s fallback')
+assert.equal(
+  resolveAutomationRuntimeCli(undefined, 'cursor', CATALOG),
+  'cursor',
+  'an unset cli reads the launch’s fallback',
+)
 assert.equal(resolveAutomationRuntimeCli('  ', 'cursor', CATALOG), 'cursor', 'and blank counts as unset')
-assert.equal(resolveAutomationRuntimeCli(undefined, undefined, CATALOG), 'claude-code', 'with no fallback set, the catalog answers')
+assert.equal(
+  resolveAutomationRuntimeCli(undefined, undefined, CATALOG),
+  'claude-code',
+  'with no fallback set, the catalog answers',
+)
 assert.equal(resolveAutomationRuntimeCli(undefined, undefined, []), 'claude-code', 'and the picker is never left empty')
 
 console.log('AutomationEditor starter render tests passed')

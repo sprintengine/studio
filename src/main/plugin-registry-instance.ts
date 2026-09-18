@@ -55,7 +55,7 @@ function ensureRegistry(): PluginRegistry {
   if (registry) return registry
   const userRoot = defaultUserPluginRoot()
   registry = createPluginRegistry(
-    createAppPluginRegistryOptions(loadElectron().app.getPath('userData'), resolveBundledPluginRoot(), userRoot)
+    createAppPluginRegistryOptions(loadElectron().app.getPath('userData'), resolveBundledPluginRoot(), userRoot),
   )
   configuredUserRoot = userRoot
   lastReport = registry.loadSync()
@@ -65,7 +65,7 @@ function ensureRegistry(): PluginRegistry {
 export function createAppPluginRegistryOptions(
   userDataDir: string,
   bundledRoot: string = resolveBundledPluginRoot(),
-  userRoot: string = defaultUserPluginRoot()
+  userRoot: string = defaultUserPluginRoot(),
 ): PluginRegistryOptions {
   return {
     bundledRoot,
@@ -117,7 +117,11 @@ export function getPluginRegistryUserRoot(): string {
 }
 
 // Test-only: lets unit tests substitute a registry built from a fixture root.
-export function __setPluginRegistryForTest(custom: PluginRegistry, report: PluginRegistryLoadReport, userRoot?: string): void {
+export function __setPluginRegistryForTest(
+  custom: PluginRegistry,
+  report: PluginRegistryLoadReport,
+  userRoot?: string,
+): void {
   registry = custom
   lastReport = report
   configuredUserRoot = userRoot ?? defaultUserPluginRoot()

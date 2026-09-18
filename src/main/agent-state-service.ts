@@ -216,9 +216,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // that file's read-modify-write. (Their specs are identical today, so the
     // race would be benign — until the day one diverges.)
     const chainKey =
-      spec.registration.scope === 'user'
-        ? `user:${spec.registration.path}`
-        : `${spec.registration.path}::${root}`
+      spec.registration.scope === 'user' ? `user:${spec.registration.path}` : `${spec.registration.path}::${root}`
     const prior = installChains.get(chainKey) ?? Promise.resolve()
     const next = prior.then(async () => {
       if (installed.has(key)) return
@@ -246,7 +244,7 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // rather than inheriting a poisoned promise.
     installChains.set(
       chainKey,
-      next.catch(() => {})
+      next.catch(() => {}),
     )
     await next.catch((error) => warn('Agent-state hook install threw', message(error)))
   }

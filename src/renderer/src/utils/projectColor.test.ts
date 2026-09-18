@@ -47,10 +47,7 @@ run('a folder with no remote keys off its normalised path', () => {
 })
 
 run('an empty or absent canonical key falls through to the folder', () => {
-  assert.equal(
-    projectColorKey({ folderPath: '/tmp/x', repository: { canonicalKey: '   ' } }),
-    'folder:/tmp/x',
-  )
+  assert.equal(projectColorKey({ folderPath: '/tmp/x', repository: { canonicalKey: '   ' } }), 'folder:/tmp/x')
   assert.equal(projectColorKey({ folderPath: '/tmp/x', repository: null }), 'folder:/tmp/x')
 })
 
@@ -80,8 +77,14 @@ run('the hash is pinned: changing it would recolour every project for everyone',
 })
 
 run('one repository is one hue on every machine, however it was cloned', () => {
-  const mac = projectColorKey({ folderPath: '/Users/me/code/multicode', repository: { canonicalKey: 'github.com/acme/multicode' } })
-  const windows = projectColorKey({ folderPath: 'D:\\work\\mc', repository: { canonicalKey: 'GitHub.com/Acme/Multicode' } })
+  const mac = projectColorKey({
+    folderPath: '/Users/me/code/multicode',
+    repository: { canonicalKey: 'github.com/acme/multicode' },
+  })
+  const windows = projectColorKey({
+    folderPath: 'D:\\work\\mc',
+    repository: { canonicalKey: 'GitHub.com/Acme/Multicode' },
+  })
   assert.equal(projectHue(mac!), projectHue(windows!))
 })
 
@@ -154,7 +157,8 @@ run('the presets are distinct named hues around the whole wheel, yellow and gree
   assert.equal(new Set(PROJECT_COLOR_PRESETS.map((preset) => preset.label)).size, hues.length, 'or a name')
   for (const hue of hues) assert.ok(isProjectColor(hue))
   const labels = PROJECT_COLOR_PRESETS.map((preset) => preset.label)
-  for (const wanted of ['Yellow', 'Green', 'Blue', 'Pink', 'Cyan']) assert.ok(labels.includes(wanted), `${wanted} is offered`)
+  for (const wanted of ['Yellow', 'Green', 'Blue', 'Pink', 'Cyan'])
+    assert.ok(labels.includes(wanted), `${wanted} is offered`)
 })
 
 function main(): void {

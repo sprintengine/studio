@@ -3,10 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 
-import {
-  TEST_OPEN_DIR_ENV,
-  resolveTestOpenDirOverride,
-} from './menu-dialog-ipc'
+import { TEST_OPEN_DIR_ENV, resolveTestOpenDirOverride } from './menu-dialog-ipc'
 
 async function main(): Promise<void> {
   const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-open-dir-'))
@@ -33,10 +30,11 @@ async function main(): Promise<void> {
     )
 
     await assert.rejects(
-      () => resolveTestOpenDirOverride({
-        isPackaged: false,
-        env: { [TEST_OPEN_DIR_ENV]: join(tempRoot, 'missing') },
-      }),
+      () =>
+        resolveTestOpenDirOverride({
+          isPackaged: false,
+          env: { [TEST_OPEN_DIR_ENV]: join(tempRoot, 'missing') },
+        }),
       new RegExp(`${TEST_OPEN_DIR_ENV} must point to an existing directory`),
       'invalid test override fails loudly instead of inventing a path',
     )

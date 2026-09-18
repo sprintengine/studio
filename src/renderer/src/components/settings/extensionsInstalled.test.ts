@@ -39,10 +39,7 @@ function mcp(overrides: Partial<McpServerConfig> = {}): McpServerConfig {
   } as McpServerConfig
 }
 
-function moduleView(
-  trust: ModuleTrustStatus,
-  manifest: Partial<CapabilityManifest> = {},
-): ThirdPartyModuleView {
+function moduleView(trust: ModuleTrustStatus, manifest: Partial<CapabilityManifest> = {}): ThirdPartyModuleView {
   return {
     manifest: {
       id: 'demo-module',
@@ -57,7 +54,10 @@ function moduleView(
   }
 }
 
-function modulesResult(modules: ThirdPartyModuleView[], rejected: ThirdPartyModuleListResult['rejected'] = []): ThirdPartyModuleListResult {
+function modulesResult(
+  modules: ThirdPartyModuleView[],
+  rejected: ThirdPartyModuleListResult['rejected'] = [],
+): ThirdPartyModuleListResult {
   return { modules, rejected }
 }
 
@@ -97,7 +97,10 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
 // --- mapping ---------------------------------------------------------------
 
 {
-  const rows = mcpToInstalled([mcp({ enabled: true }), mcp({ id: 'brave', name: 'Brave', enabled: false, source: 'custom' })])
+  const rows = mcpToInstalled([
+    mcp({ enabled: true }),
+    mcp({ id: 'brave', name: 'Brave', enabled: false, source: 'custom' }),
+  ])
   assert.equal(rows.length, 2)
   assert.equal(rows[0].kind, 'mcp')
   assert.equal(rows[0].source, 'Bundled')
@@ -125,7 +128,11 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
 
   const [gone] = mcpToInstalled([mcp({ source: 'source', sourceRef: { ...ref, missing: true } })])
   assert.equal(gone.missingFromSource, true)
-  assert.deepEqual(gone.chips, ['MCP server'], 'the state rides the row\u2019s state line, where it fits and can be read')
+  assert.deepEqual(
+    gone.chips,
+    ['MCP server'],
+    'the state rides the row\u2019s state line, where it fits and can be read',
+  )
   assert.equal(NO_LONGER_IN_SOURCE, 'No longer in source')
   assert.equal(gone.sourceId, 'github:acme/plugins', 'and it stays under the source it came from')
   assert.equal(gone.enabled, true, 'the server keeps working; only the row says something changed')
@@ -183,7 +190,10 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
     skill({ id: 'tdd', name: 'TDD', source: 'builtin', installState: 'available' }),
     skill({ id: 'debug', name: 'Debug', source: 'builtin', installState: 'update-available' }),
   ])
-  assert.deepEqual(rows.map((row) => row.id), ['frontend-design', 'debug'])
+  assert.deepEqual(
+    rows.map((row) => row.id),
+    ['frontend-design', 'debug'],
+  )
   assert.equal(rows[0].kind, 'skill')
   assert.equal(rows[0].key, 'skill:frontend-design')
   assert.deepEqual(rows[0].chips, ['Skill'], 'provenance carries no chip')
@@ -205,7 +215,10 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   if (view.status !== 'ready') throw new Error('unreachable')
   assert.equal(view.total, 4)
   // Group order: mcp, skill, cli, module.
-  assert.deepEqual(view.groups.map((g) => g.kind), ['mcp', 'skill', 'cli', 'module'])
+  assert.deepEqual(
+    view.groups.map((g) => g.kind),
+    ['mcp', 'skill', 'cli', 'module'],
+  )
   assert.equal(view.notices.length, 0)
 }
 
@@ -227,7 +240,10 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
   )
   assert.equal(view.status, 'degraded')
   if (view.status !== 'degraded') throw new Error('unreachable')
-  assert.deepEqual(view.notices.map((n) => `${n.kind}:${n.tone}`), ['skill:warn'])
+  assert.deepEqual(
+    view.notices.map((n) => `${n.kind}:${n.tone}`),
+    ['skill:warn'],
+  )
 }
 
 {
@@ -288,7 +304,10 @@ function input(overrides: Partial<ExtensionsInstalledInput> = {}): ExtensionsIns
       mcpServers: [mcp()],
       modules: {
         status: 'ok',
-        value: modulesResult([moduleView('trusted')], [{ path: 'mods/bad', issues: [{ path: '.', message: 'bad manifest' }] }]),
+        value: modulesResult(
+          [moduleView('trusted')],
+          [{ path: 'mods/bad', issues: [{ path: '.', message: 'bad manifest' }] }],
+        ),
       },
     }),
   )

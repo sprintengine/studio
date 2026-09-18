@@ -17,7 +17,7 @@ export type MarketplaceRegistryIpcHandlers = {
 }
 
 function createMarketplaceRegistryIpcHandlers(
-  reader: MarketplaceRegistryReader = createDefaultMarketplaceRegistryClient()
+  reader: MarketplaceRegistryReader = createDefaultMarketplaceRegistryClient(),
 ): MarketplaceRegistryIpcHandlers {
   return {
     read(input?: MarketplaceRegistryReadInput): Promise<MarketplaceRegistryReadResult> {
@@ -28,7 +28,7 @@ function createMarketplaceRegistryIpcHandlers(
 
 export function registerMarketplaceRegistryIpc(
   ipcMain: IpcMain,
-  overrides: Partial<MarketplaceRegistryIpcHandlers> = {}
+  overrides: Partial<MarketplaceRegistryIpcHandlers> = {},
 ): void {
   const handlers: MarketplaceRegistryIpcHandlers = {
     read: overrides.read ?? createMarketplaceRegistryIpcHandlers().read,
@@ -51,7 +51,7 @@ export function registerMarketplaceRegistryIpc(
           message: formatError(error),
         }
       }
-    }
+    },
   )
 }
 
@@ -71,11 +71,16 @@ export function createDefaultMarketplaceRegistryClient(): MarketplaceRegistryCli
   })
 }
 
-function validateReadInput(input: unknown): { ok: true; input?: MarketplaceRegistryReadInput } | { ok: false; result: MarketplaceRegistryReadResult } {
+function validateReadInput(
+  input: unknown,
+): { ok: true; input?: MarketplaceRegistryReadInput } | { ok: false; result: MarketplaceRegistryReadResult } {
   if (input === undefined) return { ok: true }
   if (!isRecord(input)) return invalidReadInputResult()
   if ('forceRefresh' in input && typeof input.forceRefresh !== 'boolean') return invalidReadInputResult()
-  return { ok: true, input: { ...(typeof input.forceRefresh === 'boolean' ? { forceRefresh: input.forceRefresh } : {}) } }
+  return {
+    ok: true,
+    input: { ...(typeof input.forceRefresh === 'boolean' ? { forceRefresh: input.forceRefresh } : {}) },
+  }
 }
 
 function invalidReadInputResult(): { ok: false; result: MarketplaceRegistryReadResult } {

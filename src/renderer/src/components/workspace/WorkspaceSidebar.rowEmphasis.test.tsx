@@ -153,12 +153,10 @@ async function main(): Promise<void> {
   // first in document order, and the weight lands on the leaf inside it.
   const titleOf = (name: string): HTMLElement => {
     const row = [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')].find((el) =>
-      el.textContent?.includes(name)
+      el.textContent?.includes(name),
     )
     assert.ok(row, `row ${name} is rendered`)
-    const title = [...row.querySelectorAll<HTMLElement>('span')]
-      .filter((el) => el.textContent?.trim() === name)
-      .at(-1)
+    const title = [...row.querySelectorAll<HTMLElement>('span')].filter((el) => el.textContent?.trim() === name).at(-1)
     assert.ok(title, `row ${name} has a title element`)
     return title
   }
@@ -194,7 +192,7 @@ async function main(): Promise<void> {
     // text.
     assert.ok(
       titleOf('Quiet').className.includes('group-hover:text-[color:var(--text-default)]'),
-      'a background row lifts to normal ink on hover'
+      'a background row lifts to normal ink on hover',
     )
   } finally {
     act(() => {

@@ -190,7 +190,9 @@ export function createInMemoryWorkspaceRegistryStore(
   return {
     read: (): WorkspaceRegistryReadOutcome =>
       current ? { status: 'loaded', file: current, droppedRecords: [] } : { status: 'missing' },
-    write: (file) => { current = file },
+    write: (file) => {
+      current = file
+    },
     flush: async () => undefined,
     filePath: () => `<memory>/${WORKSPACE_REGISTRY_FILE_NAME}`,
     current: () => current,

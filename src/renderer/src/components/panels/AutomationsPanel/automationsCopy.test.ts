@@ -67,14 +67,16 @@ run('reads an action label from the registered provider when one is supplied', (
   assert.equal(
     actionLabel('atlas-chart', {
       triggers: [],
-      actions: [{
-        kind: 'atlas-chart',
-        moduleId: 'atlas',
-        label: 'Chart a project',
-        configSchema: {},
-        requiredIntegrations: [],
-        missingIntegrations: [],
-      }],
+      actions: [
+        {
+          kind: 'atlas-chart',
+          moduleId: 'atlas',
+          label: 'Chart a project',
+          configSchema: {},
+          requiredIntegrations: [],
+          missingIntegrations: [],
+        },
+      ],
     }),
     'Chart a project',
   )
@@ -129,7 +131,11 @@ run('schedule rows keep their cadence summary as the detail', () => {
   assert.equal(triggerDetail(schedule({ type: 'daily', timeLocal: '09:00' }), AT, READER_ZONE), 'Daily at 09:00')
   // The list row carries the same zone qualifier the summary does.
   assert.equal(
-    triggerDetail(trigger('schedule', { kind: 'schedule', timezone: 'UTC', cadence: { type: 'daily', timeLocal: '09:00' } }), AT, READER_ZONE),
+    triggerDetail(
+      trigger('schedule', { kind: 'schedule', timezone: 'UTC', cadence: { type: 'daily', timeLocal: '09:00' } }),
+      AT,
+      READER_ZONE,
+    ),
     'Daily at 09:00 UTC',
   )
 })
@@ -155,7 +161,10 @@ run('still renders schedule cadences for the four cadence types', () => {
   assert.equal(summary(schedule({ type: 'interval', everyMinutes: 30 })), 'Every 30 min')
   assert.equal(summary(schedule({ type: 'interval', everyMinutes: 120 })), 'Every 2h')
   assert.equal(summary(schedule({ type: 'daily', timeLocal: '09:00' })), 'Daily at 09:00')
-  assert.equal(summary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1, 3] })), 'Weekly · Mon, Wed at 08:30')
+  assert.equal(
+    summary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1, 3] })),
+    'Weekly · Mon, Wed at 08:30',
+  )
   assert.equal(summary(schedule({ type: 'cron', expression: '0 9 * * 1' })), 'Cron · 0 9 * * 1')
 })
 
@@ -177,10 +186,7 @@ run('names the zone of a cadence written in someone else’s', () => {
   // The pre-2039 starter as it sits in an existing store: 02:00 UTC is 03:00 for
   // this reader in July, and the row says which 02:00 it means.
   assert.equal(summary(schedule({ type: 'daily', timeLocal: '02:00' })), 'Daily at 02:00 UTC')
-  assert.equal(
-    summary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1] })),
-    'Weekly · Mon at 08:30 UTC',
-  )
+  assert.equal(summary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1] })), 'Weekly · Mon at 08:30 UTC')
   // An interval names no wall-clock, so there is nothing to qualify.
   assert.equal(summary(schedule({ type: 'interval', everyMinutes: 120 })), 'Every 2h')
 })
@@ -199,14 +205,22 @@ run('treats only known not-running states as unreachable (null is unknown, not u
 run('merges feed runs newest-first and caps to the limit', () => {
   const feedRun = (id: string, dueAt: string, defId: string): AutomationFeedRun => ({
     run: { id, automationId: defId, status: 'completed', dueAt, startedAt: null, completedAt: null },
-    definitionId: defId, definitionName: `Def ${defId}`, triggerKind: 'schedule',
+    definitionId: defId,
+    definitionName: `Def ${defId}`,
+    triggerKind: 'schedule',
   })
   const merged = mergeFeedRuns([
     [feedRun('a', '2026-01-01T00:00:00Z', 'd1'), feedRun('b', '2026-01-03T00:00:00Z', 'd1')],
     [feedRun('c', '2026-01-02T00:00:00Z', 'd2')],
   ])
-  assert.deepEqual(merged.map((m) => m.run.id), ['b', 'c', 'a'], 'sorted by dueAt descending across definitions')
-  const many = Array.from({ length: 70 }, (_, i) => feedRun(`r${i}`, `2026-01-01T00:00:${String(i % 60).padStart(2, '0')}Z`, 'd1'))
+  assert.deepEqual(
+    merged.map((m) => m.run.id),
+    ['b', 'c', 'a'],
+    'sorted by dueAt descending across definitions',
+  )
+  const many = Array.from({ length: 70 }, (_, i) =>
+    feedRun(`r${i}`, `2026-01-01T00:00:${String(i % 60).padStart(2, '0')}Z`, 'd1'),
+  )
   assert.equal(mergeFeedRuns([many]).length, 50, 'capped to the 50-run window')
 })
 
@@ -216,22 +230,42 @@ run('merges feed runs newest-first and caps to the limit', () => {
 
 run('orders the feed by the displayed stamp (completedAt ?? startedAt ?? dueAt), not dueAt', () => {
   const make = (id: string, over: Partial<AutomationRun>): AutomationFeedRun => ({
-    run: { id, automationId: 'd', status: 'completed', dueAt: '2026-01-01T00:00:00Z', startedAt: null, completedAt: null, ...over },
-    definitionId: 'd', definitionName: 'Def d', triggerKind: 'schedule',
+    run: {
+      id,
+      automationId: 'd',
+      status: 'completed',
+      dueAt: '2026-01-01T00:00:00Z',
+      startedAt: null,
+      completedAt: null,
+      ...over,
+    },
+    definitionId: 'd',
+    definitionName: 'Def d',
+    triggerKind: 'schedule',
   })
   // Same dueAt for all; completion time decides order (newer completion first).
-  const byCompletion = mergeFeedRuns([[
-    make('older-completion', { completedAt: '2026-01-02T00:00:00Z' }),
-    make('newer-completion', { completedAt: '2026-01-05T00:00:00Z' }),
-  ]])
-  assert.deepEqual(byCompletion.map((m) => m.run.id), ['newer-completion', 'older-completion'])
+  const byCompletion = mergeFeedRuns([
+    [
+      make('older-completion', { completedAt: '2026-01-02T00:00:00Z' }),
+      make('newer-completion', { completedAt: '2026-01-05T00:00:00Z' }),
+    ],
+  ])
+  assert.deepEqual(
+    byCompletion.map((m) => m.run.id),
+    ['newer-completion', 'older-completion'],
+  )
   // A running row (startedAt, no completedAt) orders by startedAt — above a
   // completed run whose later dueAt would have won under the old dueAt-only sort.
-  const mixed = mergeFeedRuns([[
-    make('completed-earlier', { dueAt: '2026-01-09T00:00:00Z', completedAt: '2026-01-03T00:00:00Z' }),
-    make('running-later', { dueAt: '2026-01-01T00:00:00Z', startedAt: '2026-01-06T00:00:00Z', status: 'running' }),
-  ]])
-  assert.deepEqual(mixed.map((m) => m.run.id), ['running-later', 'completed-earlier'])
+  const mixed = mergeFeedRuns([
+    [
+      make('completed-earlier', { dueAt: '2026-01-09T00:00:00Z', completedAt: '2026-01-03T00:00:00Z' }),
+      make('running-later', { dueAt: '2026-01-01T00:00:00Z', startedAt: '2026-01-06T00:00:00Z', status: 'running' }),
+    ],
+  ])
+  assert.deepEqual(
+    mixed.map((m) => m.run.id),
+    ['running-later', 'completed-earlier'],
+  )
 })
 
 // --- Runs-feed fan-out timeout robustness (T11 I1) -------------------------
@@ -240,22 +274,33 @@ run('orders the feed by the displayed stamp (completedAt ?? startedAt ?? dueAt),
 
 async function main(): Promise<void> {
   const def = (id: string): AutomationDefinition =>
-    ({ id, name: `Def ${id}`, trigger: { kind: 'schedule', config: {} } } as unknown as AutomationDefinition)
+    ({ id, name: `Def ${id}`, trigger: { kind: 'schedule', config: {} } }) as unknown as AutomationDefinition
   const runFor = (id: string): AutomationRun => ({
-    id: `run-${id}`, automationId: id, status: 'completed',
-    dueAt: '2026-01-01T00:00:00Z', startedAt: null, completedAt: null,
+    id: `run-${id}`,
+    automationId: id,
+    status: 'completed',
+    dueAt: '2026-01-01T00:00:00Z',
+    startedAt: null,
+    completedAt: null,
   })
   const okResult = (id: string): AutomationsRunsListResult => ({ ok: true, value: [runFor(id)] })
 
-  await runAsync('settles a hung per-definition load: feed still reaches a result, slow definition counted partial', async () => {
-    const loader = (d: AutomationDefinition): Promise<AutomationsRunsListResult> =>
-      d.id === 'hung'
-        ? new Promise<AutomationsRunsListResult>(() => {}) // never settles
-        : Promise.resolve(okResult(d.id))
-    const { runs, partialCount } = await aggregateFeedRuns([def('ok'), def('hung')], loader, 20)
-    assert.equal(partialCount, 1, 'the hung definition is skipped and counted, not awaited forever')
-    assert.deepEqual(runs.map((r) => r.run.id), ['run-ok'], 'the healthy definition still contributes its runs')
-  })
+  await runAsync(
+    'settles a hung per-definition load: feed still reaches a result, slow definition counted partial',
+    async () => {
+      const loader = (d: AutomationDefinition): Promise<AutomationsRunsListResult> =>
+        d.id === 'hung'
+          ? new Promise<AutomationsRunsListResult>(() => {}) // never settles
+          : Promise.resolve(okResult(d.id))
+      const { runs, partialCount } = await aggregateFeedRuns([def('ok'), def('hung')], loader, 20)
+      assert.equal(partialCount, 1, 'the hung definition is skipped and counted, not awaited forever')
+      assert.deepEqual(
+        runs.map((r) => r.run.id),
+        ['run-ok'],
+        'the healthy definition still contributes its runs',
+      )
+    },
+  )
 
   await runAsync('counts handled failures and thrown rejections as partial alongside the healthy load', async () => {
     const loader = (d: AutomationDefinition): Promise<AutomationsRunsListResult> => {
@@ -265,7 +310,10 @@ async function main(): Promise<void> {
     }
     const { runs, partialCount } = await aggregateFeedRuns([def('ok'), def('fail'), def('throw')], loader, 1000)
     assert.equal(partialCount, 2)
-    assert.deepEqual(runs.map((r) => r.run.id), ['run-ok'])
+    assert.deepEqual(
+      runs.map((r) => r.run.id),
+      ['run-ok'],
+    )
   })
 
   if (failures > 0) {

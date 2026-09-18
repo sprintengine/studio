@@ -63,7 +63,7 @@ const payload = {
       manualPairingCode: '123456',
       pairingUri: 'not-a-url',
     }),
-    '123456'
+    '123456',
   )
   console.log('ok - a manual pairing code short-circuits link construction')
 }

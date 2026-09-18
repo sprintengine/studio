@@ -75,7 +75,7 @@ export function subtreeLiveReason(
   rootPid: number,
   procs: readonly ProcRow[],
   listeningPids: ReadonlySet<number>,
-  options: { busyCpuPercent?: number } = {}
+  options: { busyCpuPercent?: number } = {},
 ): SubtreeLiveReason | null {
   const busyCpuPercent = options.busyCpuPercent ?? SUBTREE_BUSY_CPU_PERCENT
   const childrenByParent = new Map<number, ProcRow[]>()
@@ -104,7 +104,7 @@ export function subtreeHasLiveProcess(
   rootPid: number,
   procs: readonly ProcRow[],
   listeningPids: ReadonlySet<number>,
-  options: { busyCpuPercent?: number } = {}
+  options: { busyCpuPercent?: number } = {},
 ): boolean {
   return subtreeLiveReason(rootPid, procs, listeningPids, options) !== null
 }
@@ -115,7 +115,7 @@ export function subtreeHasLiveProcess(
 function execFileTextOrNull(command: string, args: string[]): Promise<string | null> {
   return new Promise((resolve) => {
     execFile(command, args, { timeout: 3_000, maxBuffer: 8 * 1024 * 1024 }, (error, stdout) =>
-      resolve(error ? null : stdout)
+      resolve(error ? null : stdout),
     )
   })
 }
@@ -131,7 +131,7 @@ export type SubtreeProbeDeps = {
 // failure) means "undetermined" — callers MUST treat that as live/keep-alive.
 export async function probeSubtreesForLiveWork(
   rootPids: readonly number[],
-  deps: SubtreeProbeDeps = {}
+  deps: SubtreeProbeDeps = {},
 ): Promise<Map<number, SubtreeLiveReason | null>> {
   const platform = deps.platform ?? process.platform
   const result = new Map<number, SubtreeLiveReason | null>()
@@ -162,7 +162,7 @@ export async function probeSubtreesForLiveWork(
 // Boolean projection kept for callers that only need live/not-live.
 export async function probeSubtreesForLiveProcesses(
   rootPids: readonly number[],
-  deps: SubtreeProbeDeps = {}
+  deps: SubtreeProbeDeps = {},
 ): Promise<Map<number, boolean>> {
   const reasons = await probeSubtreesForLiveWork(rootPids, deps)
   const result = new Map<number, boolean>()
@@ -197,7 +197,7 @@ export function matchCliSessionPids(psOutput: string, cliSessionId: string): num
  */
 export async function killCliSessionSurvivors(
   cliSessionId: string,
-  deps: SubtreeProbeDeps & { delayMs?: number; kill?: (pid: number, signal: NodeJS.Signals) => void } = {}
+  deps: SubtreeProbeDeps & { delayMs?: number; kill?: (pid: number, signal: NodeJS.Signals) => void } = {},
 ): Promise<number[]> {
   if (!cliSessionId) return []
   const platform = deps.platform ?? process.platform

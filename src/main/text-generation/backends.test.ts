@@ -43,12 +43,20 @@ run('codex runs exec ephemeral, read-only, schema and last-message on files, pro
   assert.equal(file, '/opt/homebrew/bin/codex')
   assert.deepEqual(args.slice(0, 5), ['exec', '--ephemeral', '--skip-git-repo-check', '-s', 'read-only'])
   assert.deepEqual(args.slice(5, 9), ['--model', 'gpt-5.6-luna', '-c', 'model_reasoning_effort="low"'])
-  assert.deepEqual(args.slice(9), ['--output-schema', '/tmp/x/schema.json', '--output-last-message', '/tmp/x/last-message.txt', '-'])
+  assert.deepEqual(args.slice(9), [
+    '--output-schema',
+    '/tmp/x/schema.json',
+    '--output-last-message',
+    '/tmp/x/last-message.txt',
+    '-',
+  ])
 })
 
 run('reads the claude envelope, verbose arrays, and refuses an error envelope', () => {
   assert.equal(
-    readClaudeChatTitleStdout('{"type":"result","is_error":false,"structured_output":{"title":"Sidebar flicker"},"result":"{\\"title\\":\\"Sidebar flicker\\"}"}'),
+    readClaudeChatTitleStdout(
+      '{"type":"result","is_error":false,"structured_output":{"title":"Sidebar flicker"},"result":"{\\"title\\":\\"Sidebar flicker\\"}"}',
+    ),
     'Sidebar flicker',
   )
   assert.equal(

@@ -45,10 +45,7 @@ async function main(): Promise<void> {
   // A raw-hex violation surfaces as findings, never a throw or silent pass.
   const dirty = makeExampleCopy()
   try {
-    writeFileSync(
-      join(dirty, 'components', 'button', 'component.css'),
-      '.button { color: #ff0000; }\n',
-    )
+    writeFileSync(join(dirty, 'components', 'button', 'component.css'), '.button { color: #ff0000; }\n')
     const result = await runDesignSystemBundleLint(dirty, nodeFork)
     assert.equal(result.ok, false)
     if (!result.ok) {

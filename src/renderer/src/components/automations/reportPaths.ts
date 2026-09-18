@@ -26,9 +26,8 @@ import { normalizeReportPath } from '../../../../shared/automations/contracts'
  * normalized, de-duplicated, and capped.
  */
 export function extractReportPaths(run: Pick<AutomationRun, 'reportPaths' | 'summary'>): string[] {
-  const candidates = run.reportPaths && run.reportPaths.length > 0
-    ? run.reportPaths
-    : scanSummaryForReportPaths(run.summary)
+  const candidates =
+    run.reportPaths && run.reportPaths.length > 0 ? run.reportPaths : scanSummaryForReportPaths(run.summary)
 
   const seen = new Set<string>()
   const paths: string[] = []
@@ -71,7 +70,5 @@ function scanSummaryForReportPaths(summary: string | undefined): string[] {
   // live "View report" pointing at a file that does not exist. So decode the
   // escapes, and drop any candidate still carrying a backslash rather than invent
   // a path from it.
-  return matches
-    .map((match) => match.replace(MARKDOWN_ESCAPE, '$1'))
-    .filter((candidate) => !candidate.includes('\\'))
+  return matches.map((match) => match.replace(MARKDOWN_ESCAPE, '$1')).filter((candidate) => !candidate.includes('\\'))
 }

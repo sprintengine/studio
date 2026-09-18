@@ -1,9 +1,5 @@
 import { useEffect, useSyncExternalStore } from 'react'
-import {
-  ensureProjectLogo,
-  getProjectLogoDataUrl,
-  subscribeProjectLogos,
-} from '../utils/projectLogos'
+import { ensureProjectLogo, getProjectLogoDataUrl, subscribeProjectLogos } from '../utils/projectLogos'
 
 /**
  * The project's own logo for an icon slot (MC-2135), or null when the repo has

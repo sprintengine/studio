@@ -93,9 +93,7 @@ export type EnsureExtensionFoldersResult = {
  * place and an existing README is never overwritten (a user may have edited or
  * removed it). Returns the resolved roots and any non-fatal errors.
  */
-export function ensureExtensionFolders(
-  options: EnsureExtensionFoldersOptions = {}
-): EnsureExtensionFoldersResult {
+export function ensureExtensionFolders(options: EnsureExtensionFoldersOptions = {}): EnsureExtensionFoldersResult {
   const moduleRoot = options.moduleRoot ?? defaultUserModuleRoot()
   const pluginRoot = options.pluginRoot ?? defaultUserPluginRoot()
   const errors: string[] = []

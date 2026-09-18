@@ -9,7 +9,12 @@ const execFileAsync = promisify(execFile)
 function removeLineEndingWarnings(output: string): string {
   return output
     .split(/\r?\n/)
-    .filter((line) => !/^warning: in the working copy of '.+', (?:LF|CRLF) will be replaced by (?:LF|CRLF) the next time Git touches it$/.test(line.trim()))
+    .filter(
+      (line) =>
+        !/^warning: in the working copy of '.+', (?:LF|CRLF) will be replaced by (?:LF|CRLF) the next time Git touches it$/.test(
+          line.trim(),
+        ),
+    )
     .join('\n')
     .trim()
 }
@@ -35,7 +40,7 @@ export async function runGit(cwd: string, args: string[]): Promise<string> {
 export async function runGitCommand(
   cwd: string,
   args: string[],
-  envOverrides?: NodeJS.ProcessEnv
+  envOverrides?: NodeJS.ProcessEnv,
 ): Promise<GitCommandResult> {
   try {
     const { stdout, stderr } = await execFileAsync('git', ['-C', cwd, ...args], {
@@ -78,9 +83,7 @@ export function toFilesystemPath(pathValue: string): string {
 export function normalizeComparablePath(pathValue: string): string {
   const normalized = toPosixPath(pathValue).replace(/\/+$/, '')
   const wslMatch = normalized.match(/^\/mnt\/([A-Za-z])\/(.*)$/)
-  const comparable = wslMatch
-    ? `${wslMatch[1].toUpperCase()}:/${wslMatch[2]}`
-    : normalized
+  const comparable = wslMatch ? `${wslMatch[1].toUpperCase()}:/${wslMatch[2]}` : normalized
 
   return /^[A-Za-z]:/.test(comparable) ? comparable.toLowerCase() : comparable
 }

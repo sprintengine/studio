@@ -35,10 +35,7 @@ import {
   marketplaceComponentDigestMismatchIssuesSync,
 } from '../../packages/module-sdk/src/plugin-component-digests'
 import { hasCodeBearingComponent } from '../shared/marketplace/component-trust'
-import {
-  AUTOMATION_DEFAULT_PERMISSION_PRESET,
-  type AutomationDefinition,
-} from '../shared/automations/contracts'
+import { AUTOMATION_DEFAULT_PERMISSION_PRESET, type AutomationDefinition } from '../shared/automations/contracts'
 import { createDefinitionWriteCore } from '../main/automations/definition-write'
 import { allowAutomationProvider, createBuiltInAutomationProviderRegistry } from '../main/automations/provider-registry'
 import { computeNextRun, validateScheduleTriggerConfig } from '../main/automations/schedule'
@@ -278,7 +275,10 @@ async function assertLegacyRecordKeepsItsIntentBesideAnInstalledStarter(): Promi
     const legacyCreated = await core.create(root, {
       name: 'Legacy reviewer',
       status: 'enabled',
-      trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '04:00' }, timezone: 'UTC' } },
+      trigger: {
+        kind: 'schedule',
+        config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '04:00' }, timezone: 'UTC' },
+      },
       action: { kind: 'spawn-agent', config: { prompt: 'Report on the state of the tests.' } },
     })
     assert.equal(legacyCreated.ok, true, legacyCreated.ok ? '' : legacyCreated.message)
@@ -323,7 +323,9 @@ async function assertLegacyRecordKeepsItsIntentBesideAnInstalledStarter(): Promi
     assert.equal(Object.hasOwn(rewritten, 'autonomyDefault'), false, 'a rewrite does not resurrect the retired key')
     assert.equal(Object.hasOwn(rewritten, 'legacyWriteUpOnly'), false, 'nor persist the marker derived from it')
   })
-  console.log('ok - a legacy review_only record keeps its intent beside an installed starter, and neither key is ever persisted')
+  console.log(
+    'ok - a legacy review_only record keeps its intent beside an installed starter, and neither key is ever persisted',
+  )
 }
 
 // ── T6 → T7: the shelf hands the added automation to the door's editor ───────
@@ -348,7 +350,9 @@ async function assertShelfHandsAddedAutomationToTheEditor(): Promise<void> {
   const openTarget = consumePendingAutomationSurfaceTarget()
   assert.equal(openTarget?.view, 'runs', 'Open keeps the historical behaviour')
 
-  console.log('ok - the shelf → door hand-off carries an added automation into the editor, and Open still lands on runs')
+  console.log(
+    'ok - the shelf → door hand-off carries an added automation into the editor, and Open still lands on runs',
+  )
 }
 
 async function writeJson(path: string, value: unknown): Promise<void> {
@@ -359,7 +363,11 @@ async function main(): Promise<void> {
   // The structural tier is what the bundle gates run; prove it rejects as well
   // as accepts, or the gate above is only asserting that nothing runs.
   assert.equal(marketplaceAutomationPayloadIssues('not json').length > 0, true)
-  assert.equal(marketplaceAutomationPayloadIssues('{"name":"x"}').length, 2, 'a payload with no trigger and no action is refused')
+  assert.equal(
+    marketplaceAutomationPayloadIssues('{"name":"x"}').length,
+    2,
+    'a payload with no trigger and no action is refused',
+  )
 
   await assertEveryShippedStarterSurvivesTheWholeChain()
   await assertLegacyRecordKeepsItsIntentBesideAnInstalledStarter()

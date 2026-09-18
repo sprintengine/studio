@@ -5,11 +5,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { readBranchSpan } from './git-branch-span'
-import {
-  createCheckoutSummaryShare,
-  getWorkspaceChangeSummary,
-  summaryFromSpan,
-} from './workspace-change-summary'
+import { createCheckoutSummaryShare, getWorkspaceChangeSummary, summaryFromSpan } from './workspace-change-summary'
 import type { BranchSpan } from './git-branch-span'
 import type { ChangedFileCounts, WorkspaceChangeSummary } from '../shared/electron-api'
 
@@ -52,7 +48,6 @@ function repo(): string {
   git(dir, 'commit', '-m', 'seed')
   return dir
 }
-
 
 /**
  * A clone with a real `origin`, which is the configuration the severe findings
@@ -108,7 +103,7 @@ function assertSums(summary: WorkspaceChangeSummary): void {
     assert.equal(
       reading.files.added + reading.files.updated + reading.files.removed,
       reading.changedFiles,
-      `${reading.what}: added + updated + removed must equal changedFiles`
+      `${reading.what}: added + updated + removed must equal changedFiles`,
     )
   }
 }
@@ -118,10 +113,7 @@ void (async () => {
 
   await run('a linked worktree claims this chat’s work whatever its branch does', async () => {
     assert.equal(summaryFromSpan(span('feat', { isLinkedWorktree: true })).scope, 'worktree')
-    assert.equal(
-      summaryFromSpan(span('feat', { isLinkedWorktree: true, aheadOfBase: true })).scope,
-      'worktree'
-    )
+    assert.equal(summaryFromSpan(span('feat', { isLinkedWorktree: true, aheadOfBase: true })).scope, 'worktree')
   })
 
   await run('a shared checkout claims the branch only when it is ahead', async () => {
@@ -204,11 +196,7 @@ void (async () => {
     // for an implementation that reports nothing at all, which is exactly the
     // failure mode it is named for.
     assert.equal(before.additions, 2, 'the agent wrote two lines')
-    assert.equal(
-      after.additions,
-      2,
-      'a merge from the trunk moves HEAD and the base together'
-    )
+    assert.equal(after.additions, 2, 'a merge from the trunk moves HEAD and the base together')
   })
 
   await run('a detached HEAD reports no branch and the folder reading', async () => {
@@ -366,7 +354,6 @@ void (async () => {
     const summary = await getWorkspaceChangeSummary({ checkoutPath: bare })
     assert.equal(summary.scope, 'folder', 'never `branch` or `worktree` for a span we could not read')
   })
-
 
   // ---- the uncommitted reading (the sidebar number for a landed branch) ----
   //
@@ -558,7 +545,6 @@ void (async () => {
     })
   })
 
-
   // ---- the file breakdown (decision 1: the numbers are FILES) ------------
   //
   // `files` is what the sidebar line and the header chip draw: `+added+updated`
@@ -715,7 +701,7 @@ void (async () => {
         reads += 1
         return summaryFromSpan(span('feat'))
       },
-      { holdMs: 100, now: () => clock }
+      { holdMs: 100, now: () => clock },
     )
     await share.read('/a')
     await share.read('/b')
@@ -748,7 +734,7 @@ void (async () => {
         reads += 1
         return summaryFromSpan(span('feat'))
       },
-      { holdMs: 100, now: () => clock }
+      { holdMs: 100, now: () => clock },
     )
     await counted.read('/a')
     clock += 1000
@@ -770,7 +756,7 @@ void (async () => {
             resolve(summaryFromSpan(span('feat')))
           })
         }),
-      { concurrency: 2 }
+      { concurrency: 2 },
     )
     // Six distinct checkouts asked at once — a remote terminal.list's fan-out.
     const all = Promise.all(['/a', '/b', '/c', '/d', '/e', '/f'].map((path) => share.read(path)))

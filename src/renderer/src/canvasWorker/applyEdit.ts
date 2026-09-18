@@ -81,10 +81,7 @@ type BatchEntry = {
   library?: LibrarySkeleton
 }
 
-export function applyEdit(
-  bridge: CanvasEditorBridge,
-  request: CanvasWorkerRequestOf<'apply-edit'>,
-): ApplyEditOutcome {
+export function applyEdit(bridge: CanvasEditorBridge, request: CanvasWorkerRequestOf<'apply-edit'>): ApplyEditOutcome {
   const stamp: Stamp = { now: bridge.now, nonce: bridge.nonce }
   const draft = new SceneDraft(request.elements)
   const warnings: string[] = []
@@ -244,7 +241,9 @@ function collectRebuilds(
     const patch = entry.set ?? {}
     if (!patchNeedsRebuild(patch as Record<string, unknown>)) continue
     if (!isAuthorable(element.type)) {
-      warnings.push(`${entry.id} is a ${element.type}, which this format cannot re-describe; its geometry was left alone.`)
+      warnings.push(
+        `${entry.id} is a ${element.type}, which this format cannot re-describe; its geometry was left alone.`,
+      )
       continue
     }
     addRebuild(draft, element, patch, batch)
@@ -618,10 +617,7 @@ function routeLinear(
   const end: ArrowEnd = { box: endBox(draft, batch, entry.endId) }
   if (!start.box) start.free = given?.[0] ?? [skeleton.x, skeleton.y]
   if (!end.box) {
-    end.free = given?.[given.length - 1] ?? [
-      skeleton.x + (skeleton.width ?? 100),
-      skeleton.y + (skeleton.height ?? 0),
-    ]
+    end.free = given?.[given.length - 1] ?? [skeleton.x + (skeleton.width ?? 100), skeleton.y + (skeleton.height ?? 0)]
   }
 
   const routed = arrowGeometry(start, end, middle)
@@ -732,12 +728,7 @@ function reportGrowth(entry: BatchEntry, produced: CanvasElement, warnings: stri
  * an arrow that is not attached to it. `repairTouched` adds the missing half of
  * a binding; this removes the half that is left over.
  */
-function detachRepointed(
-  draft: SceneDraft,
-  batch: Map<string, BatchEntry>,
-  stamp: Stamp,
-  updated: Set<string>,
-): void {
+function detachRepointed(draft: SceneDraft, batch: Map<string, BatchEntry>, stamp: Stamp, updated: Set<string>): void {
   for (const entry of batch.values()) {
     if (entry.kind !== 'rebuild' || !LINEAR_TYPES.has(entry.type) || !entry.base) continue
     const nowBound = new Set(
@@ -911,15 +902,7 @@ function bindingTarget(element: CanvasElement, which: 'startBinding' | 'endBindi
   return isRecord(binding) && typeof binding.elementId === 'string' ? binding.elementId : null
 }
 
-const AUTHORABLE: ReadonlySet<string> = new Set([
-  'rectangle',
-  'ellipse',
-  'diamond',
-  'text',
-  'arrow',
-  'line',
-  'frame',
-])
+const AUTHORABLE: ReadonlySet<string> = new Set(['rectangle', 'ellipse', 'diamond', 'text', 'arrow', 'line', 'frame'])
 
 function isAuthorable(type: string): boolean {
   return AUTHORABLE.has(type)

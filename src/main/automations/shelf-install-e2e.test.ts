@@ -49,27 +49,27 @@ type FrontDoor = ReturnType<typeof registerAutomationsIpc>
 
 function frontDoorFor(roots: string[]): FrontDoor {
   const registry = createBuiltInAutomationProviderRegistry()
-  return registerAutomationsIpc(
-    { registerIpc: () => undefined },
-    {
-      engine: {
-        runNow: async () => ({ ok: false as const, problem: { code: 'unused', message: 'run drive is a separate phase' } }),
-        finalizeRun: async () => ({ ok: false as const, problem: { code: 'unused', message: 'unused' } }),
-      },
-      createStore: (workspaceRoot: string) => new AutomationsStore(workspaceRoot),
-      triggerProviders: registry.listTriggerProviders(),
-      actionProviders: registry.listActionProviders(),
-      getWorkspaceSyncSnapshot: () => ({
-        sequence: 1,
-        state: {
-          activeWorkspaceId: roots[0] ? 'ws-1' : null,
-          primaryWorkspaceWindowId: 'primary',
-          workspaceWindows: [],
-          workspaces: roots.map((folderPath, index) => ({ id: `ws-${index + 1}`, folderPath })),
-        },
+  return registerAutomationsIpc({ registerIpc: () => undefined }, {
+    engine: {
+      runNow: async () => ({
+        ok: false as const,
+        problem: { code: 'unused', message: 'run drive is a separate phase' },
       }),
-    } as never
-  )
+      finalizeRun: async () => ({ ok: false as const, problem: { code: 'unused', message: 'unused' } }),
+    },
+    createStore: (workspaceRoot: string) => new AutomationsStore(workspaceRoot),
+    triggerProviders: registry.listTriggerProviders(),
+    actionProviders: registry.listActionProviders(),
+    getWorkspaceSyncSnapshot: () => ({
+      sequence: 1,
+      state: {
+        activeWorkspaceId: roots[0] ? 'ws-1' : null,
+        primaryWorkspaceWindowId: 'primary',
+        workspaceWindows: [],
+        workspaces: roots.map((folderPath, index) => ({ id: `ws-${index + 1}`, folderPath })),
+      },
+    }),
+  } as never)
 }
 
 // The wiring marketplace-plugin-ipc.ts uses, minus Electron's `app`.
@@ -94,7 +94,7 @@ function installerServices(frontDoor: FrontDoor | null): never {
 
 async function pressGet(
   starter: string,
-  input: { frontDoor: FrontDoor | null; workspaceRoot?: string; cli?: string | undefined }
+  input: { frontDoor: FrontDoor | null; workspaceRoot?: string; cli?: string | undefined },
 ): Promise<{ ok: boolean; message?: string; installed?: unknown }> {
   return (await installMarketplacePlugin(
     {
@@ -102,7 +102,7 @@ async function pressGet(
       ...(input.workspaceRoot ? { workspaceRoot: input.workspaceRoot } : {}),
       ...(input.cli === undefined ? {} : { automationDefaultCli: input.cli }),
     } as never,
-    installerServices(input.frontDoor)
+    installerServices(input.frontDoor),
   )) as never
 }
 
@@ -142,8 +142,14 @@ async function assertGetWritesTheDefinitionTheInstallDefaultsPromise(): Promise<
   // `absent ⇒ run in a worktree` is the single place that answer lives, so the
   // field being absent — not `false` — is what makes the run isolated.
   assert.notEqual(definition.runInWorktree, false, 'a starter must never land opted out of worktree isolation')
-  record('runInWorktree on disk', 'runInWorktree' in definition ? definition.runInWorktree : '<absent — resolves to true>')
-  assert.ok(typeof definition.nextRunAt === 'string' && definition.nextRunAt.length > 0, 'the write computes a next run')
+  record(
+    'runInWorktree on disk',
+    'runInWorktree' in definition ? definition.runInWorktree : '<absent — resolves to true>',
+  )
+  assert.ok(
+    typeof definition.nextRunAt === 'string' && definition.nextRunAt.length > 0,
+    'the write computes a next run',
+  )
   record('nextRunAt', definition.nextRunAt)
 
   // A second Get for the same starter in the same project resolves to the
@@ -151,7 +157,11 @@ async function assertGetWritesTheDefinitionTheInstallDefaultsPromise(): Promise<
   const second = await pressGet(STARTERS[0], { frontDoor, workspaceRoot: project, cli: 'claude-code' })
   assert.equal(second.ok, true, 'a duplicate Get is answered, not failed')
   record('duplicate Get result', second.installed)
-  assert.match(JSON.stringify(second.installed), /Already added/u, 'the duplicate says so rather than claiming a new add')
+  assert.match(
+    JSON.stringify(second.installed),
+    /Already added/u,
+    'the duplicate says so rather than claiming a new add',
+  )
   const afterSecond = await readStoreDefinitions(project)
   assert.equal(afterSecond.length, 1, 'a duplicate Get writes nothing')
   assert.equal(afterSecond[0].id, definition.id, 'a duplicate Get resolves to the same definition')
@@ -165,7 +175,11 @@ async function assertMissingPreconditionsRefuseAndWriteNothing(): Promise<void> 
   record('no active project', noProject.message)
 
   const project = await makeProject('nocli')
-  const noCli = await pressGet(STARTERS[0], { frontDoor: frontDoorFor([project]), workspaceRoot: project, cli: undefined })
+  const noCli = await pressGet(STARTERS[0], {
+    frontDoor: frontDoorFor([project]),
+    workspaceRoot: project,
+    cli: undefined,
+  })
   assert.equal(noCli.ok, false, 'Get with no last-selected CLI must refuse')
   record('no last-selected CLI', noCli.message)
   assert.equal((await readStoreDefinitions(project)).length, 0, 'a refused Get writes nothing')
@@ -190,7 +204,12 @@ async function assertEveryShippedStarterInstalls(): Promise<void> {
   assert.equal(new Set(definitions.map((d) => d.id)).size, STARTERS.length, 'store ids are distinct')
   record(
     'five starters',
-    definitions.map((d) => ({ id: d.id, name: d.name, trigger: (d.trigger as Record<string, unknown>).kind, nextRunAt: d.nextRunAt }))
+    definitions.map((d) => ({
+      id: d.id,
+      name: d.name,
+      trigger: (d.trigger as Record<string, unknown>).kind,
+      nextRunAt: d.nextRunAt,
+    })),
   )
 }
 
@@ -230,13 +249,19 @@ async function assertALiveEngineSchedulesAnInstallWithoutRestart(): Promise<void
     sourcePublisher: 'Multicode Labs',
     definition: {
       name: 'T9 live schedule',
-      trigger: { kind: 'schedule', config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'interval', everyMinutes: 5 } } },
+      trigger: {
+        kind: 'schedule',
+        config: { kind: 'schedule', timezone: 'UTC', cadence: { type: 'interval', everyMinutes: 5 } },
+      },
       action: { kind: 'spawn-agent', config: { prompt: 'recorded by the harness', cli: 'claude-code' } },
     },
   })
   assert.equal(installed.ok, true, `live install failed: ${installed.ok ? '' : installed.message}`)
   const automationId = installed.ok ? installed.value.definition.id : ''
-  record('installed under a running engine', { automationId, nextRunAt: installed.ok ? installed.value.definition.nextRunAt : null })
+  record('installed under a running engine', {
+    automationId,
+    nextRunAt: installed.ok ? installed.value.definition.nextRunAt : null,
+  })
 
   const seen = await engine.tick()
   record('tick immediately after install', { scheduled: seen.scheduled.length, fired: seen.fired.length })
@@ -245,7 +270,11 @@ async function assertALiveEngineSchedulesAnInstallWithoutRestart(): Promise<void
 
   clock += 6 * 60_000
   const dueTick = await engine.tick()
-  record('tick once the schedule is due', { fired: dueTick.fired.map((run) => run.automationId), problems: dueTick.problems, executorSaw: fired })
+  record('tick once the schedule is due', {
+    fired: dueTick.fired.map((run) => run.automationId),
+    problems: dueTick.problems,
+    executorSaw: fired,
+  })
   assert.deepEqual(fired, [automationId], 'the automation the engine never started with is the one that fired')
 }
 

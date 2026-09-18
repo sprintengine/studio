@@ -116,7 +116,7 @@ async function run(): Promise<void> {
       'for (const call of spec.calls) await hooks["tool.execute.after"](call.input, call.output)',
       '',
     ].join('\n'),
-    'utf8'
+    'utf8',
   )
 
   const frames: string[] = []
@@ -170,7 +170,12 @@ async function run(): Promise<void> {
     editCall(DELETE_PATCH, 0, 2),
     // 3. write that CREATED the file — no diff anywhere in the payload.
     {
-      input: { tool: 'write', sessionID: 'ses_opencode_1', callID: 'c3', args: { filePath: FRESH, content: 'alpha\nbeta\ngamma\n' } },
+      input: {
+        tool: 'write',
+        sessionID: 'ses_opencode_1',
+        callID: 'c3',
+        args: { filePath: FRESH, content: 'alpha\nbeta\ngamma\n' },
+      },
       output: {
         title: 'fresh.txt',
         output: 'Wrote file successfully.',
@@ -180,7 +185,12 @@ async function run(): Promise<void> {
     // 4. write that OVERWROTE an existing file: nothing in the payload says
     //    what changed, so the claim is the file and no line of it.
     {
-      input: { tool: 'write', sessionID: 'ses_opencode_1', callID: 'c4', args: { filePath: SAMPLE, content: 'whatever\n' } },
+      input: {
+        tool: 'write',
+        sessionID: 'ses_opencode_1',
+        callID: 'c4',
+        args: { filePath: SAMPLE, content: 'whatever\n' },
+      },
       output: { title: 'sample.txt', output: 'Wrote file successfully.', metadata: { filepath: SAMPLE, exists: true } },
     },
     // 5. The same edit delivered with CRLF line separators.
@@ -189,7 +199,11 @@ async function run(): Promise<void> {
     //    own input still names the file, so the file is still claimed.
     {
       input: { tool: 'edit', sessionID: 'ses_opencode_1', callID: 'c6', args: { filePath: SAMPLE } },
-      output: { title: 'sample.txt', output: 'Edit applied successfully.', metadata: { filediff: 'nonsense', diff: 42 } },
+      output: {
+        title: 'sample.txt',
+        output: 'Edit applied successfully.',
+        metadata: { filediff: 'nonsense', diff: 42 },
+      },
     },
     // 7. A relative `filediff.file`, resolved against the session directory.
     editCall(EDIT_PATCH, 1, 1, 'sample.txt'),
@@ -201,7 +215,8 @@ async function run(): Promise<void> {
         metadata: {
           filediff: {
             file: '/repo/work/logo.png',
-            patch: 'Index: logo.png\n===================================================================\nBinary files logo.png and logo.png differ\n',
+            patch:
+              'Index: logo.png\n===================================================================\nBinary files logo.png and logo.png differ\n',
           },
         },
       },
@@ -244,7 +259,12 @@ async function run(): Promise<void> {
     //     frame at all (the dedup eats a `tool.execute.after` that carries
     //     neither a file change nor a capture), which is the point.
     {
-      input: { tool: 'bash', sessionID: 'ses_opencode_1', callID: 'c12', args: { command: 'gh pr view 12 --json url' } },
+      input: {
+        tool: 'bash',
+        sessionID: 'ses_opencode_1',
+        callID: 'c12',
+        args: { command: 'gh pr view 12 --json url' },
+      },
       output: { title: 'gh pr view', output: '{"url":"https://github.com/acme/app/pull/12"}', metadata: { exit: 0 } },
     },
     // 13. The creation itself: `gh` prints the URL on the LAST line of output.
@@ -265,7 +285,11 @@ async function run(): Promise<void> {
     //     the dedup then eats the frame — so the count below is what proves it.
     {
       input: { tool: 'bash', sessionID: 'ses_opencode_1', callID: 'c14', args: { command: 'gh pr create --fill' } },
-      output: { title: 'gh pr create', output: 'pull request create failed: No commits between main and feature', metadata: { exit: 1 } },
+      output: {
+        title: 'gh pr create',
+        output: 'pull request create failed: No commits between main and feature',
+        metadata: { exit: 1 },
+      },
     },
   ]
 
@@ -300,13 +324,13 @@ async function run(): Promise<void> {
     // (id, path) to survive. The calls with no frame here (c10 onward, bar the
     // capture) were eaten by the plugin's own repeated-event dedup, not by this.
     ['c0', 'call_1', 'call_1', 'c3', 'c4', 'call_1', 'c6', 'call_1', 'c8', 'c9', 'c9', 'c13'],
-    'every frame carries the callID of the tool call that produced it'
+    'every frame carries the callID of the tool call that produced it',
   )
   assert.equal(parsed[0].toolUseId, 'c0', 'a frame that claims no file carries the id too')
   assert.equal(
     parsed[9].toolUseId,
     parsed[10].toolUseId,
-    'a multi-file apply_patch sends one frame per file under a single call id — the PATH is what separates them'
+    'a multi-file apply_patch sends one frame per file under a single call id — the PATH is what separates them',
   )
   console.log('ok - OpenCode`s callID rides every frame as toolUseId, one id across a multi-file patch')
   console.log('ok - OpenCode`s callID rides every frame as toolUseId, one id across a multi-file patch')
@@ -320,7 +344,7 @@ async function run(): Promise<void> {
   assert.deepEqual(
     changes[1],
     { path: SAMPLE, additions: 1, deletions: 1, edits: [{ oldStart: 7, oldLines: 1, newStart: 7, newLines: 1 }] },
-    'context advances both cursors and never enters an edit'
+    'context advances both cursors and never enters an edit',
   )
   console.log('ok - edit: a one-line change inside four lines of context claims one line')
 
@@ -329,7 +353,7 @@ async function run(): Promise<void> {
   assert.deepEqual(
     changes[2],
     { path: SAMPLE, additions: 0, deletions: 2, edits: [{ oldStart: 12, oldLines: 2, newStart: 11, newLines: 0 }] },
-    'a pure deletion anchors its empty new side after the preceding line'
+    'a pure deletion anchors its empty new side after the preceding line',
   )
   console.log('ok - edit: a pure deletion reports -12,2 +11,0 in git hunk convention')
 
@@ -338,14 +362,14 @@ async function run(): Promise<void> {
   assert.deepEqual(
     changes[3],
     { path: FRESH, additions: 3, deletions: 0, edits: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 3 }] },
-    'a write with exists:false is counted from the content it was given'
+    'a write with exists:false is counted from the content it was given',
   )
   console.log('ok - write: a created file is one -0,0 +1,N region counted from args.content')
 
   assert.deepEqual(
     changes[4],
     { path: SAMPLE, additions: 0, deletions: 0 },
-    'an overwrite has no diff in the payload, so it claims the file and no line of it'
+    'an overwrite has no diff in the payload, so it claims the file and no line of it',
   )
   console.log('ok - write: an overwrite degrades to a file-level claim rather than a guessed count')
 
@@ -355,7 +379,7 @@ async function run(): Promise<void> {
   assert.deepEqual(
     changes[6],
     { path: SAMPLE, additions: 0, deletions: 0 },
-    'unreadable metadata falls back to the path the tool was given'
+    'unreadable metadata falls back to the path the tool was given',
   )
   console.log('ok - malformed metadata degrades to a path-only claim instead of dropping the file')
 
@@ -365,21 +389,28 @@ async function run(): Promise<void> {
   assert.deepEqual(
     changes[8],
     { path: '/repo/work/logo.png', additions: 0, deletions: 0 },
-    'a binary stub has no hunk to walk and no counts to read'
+    'a binary stub has no hunk to walk and no counts to read',
   )
   console.log('ok - a binary-file diff claims the file with no invented line ranges')
 
   assert.deepEqual(
     changes[9],
     { path: SAMPLE, additions: 0, deletions: 2, edits: [{ oldStart: 12, oldLines: 2, newStart: 11, newLines: 0 }] },
-    'missing additions/deletions are walked out of the patch itself'
+    'missing additions/deletions are walked out of the patch itself',
   )
   assert.deepEqual(
     changes[10],
-    { path: '/repo/work/two.txt', additions: 2, deletions: 0, edits: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2 }] },
-    'a file created inside a patch is the whole-file `-0,0 +1,N` region'
+    {
+      path: '/repo/work/two.txt',
+      additions: 2,
+      deletions: 0,
+      edits: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2 }],
+    },
+    'a file created inside a patch is the whole-file `-0,0 +1,N` region',
   )
-  console.log('ok - apply_patch sends one frame per file, counting from the per-file patch when the tool omits the numbers')
+  console.log(
+    'ok - apply_patch sends one frame per file, counting from the per-file patch when the tool omits the numbers',
+  )
 
   assert.equal(changes.length, 12, 'a payload naming no file at all claims nothing and adds no frame')
   console.log('ok - a payload with no path anywhere adds no ledger entry')
@@ -395,17 +426,17 @@ async function run(): Promise<void> {
   assert.deepEqual(
     captures.filter(Boolean),
     [{ url: 'https://github.com/acme/website/pull/9' }],
-    'exactly one call opened a pull request, and the capture stops at its number — a tab and a query are not part of it'
+    'exactly one call opened a pull request, and the capture stops at its number — a tab and a query are not part of it',
   )
   assert.deepEqual(
     captures.slice(0, 11),
     new Array(11).fill(undefined),
-    'every frame before it carries no capture: editing a file opens no pull request'
+    'every frame before it carries no capture: editing a file opens no pull request',
   )
   assert.deepEqual(
     captures[11],
     { url: 'https://github.com/acme/website/pull/9' },
-    'the capture rides the frame of the call that made it'
+    'the capture rides the frame of the call that made it',
   )
   assert.equal(parsed.length, 12, 'a bash call that captured nothing and edited nothing adds no frame')
   console.log('ok - `gh pr create` captures its URL, while `gh pr view` and a failed creation capture nothing')

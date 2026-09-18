@@ -108,8 +108,20 @@ async function assertCorrelation(): Promise<void> {
   assert.ok(requestId.length > 0, 'the host mints a request id')
 
   // Somebody else's answer, and a late one of our own shape: neither is ours.
-  fake.respond({ kind: 'layout', requestId: 'another-request', ok: true, elements: [{ id: 'wrong', type: 'rectangle', version: 1, versionNonce: 1 }], changed: [] })
-  fake.respond({ kind: 'layout', requestId, ok: true, elements: [{ id: 'right', type: 'rectangle', version: 1, versionNonce: 1 }], changed: [] })
+  fake.respond({
+    kind: 'layout',
+    requestId: 'another-request',
+    ok: true,
+    elements: [{ id: 'wrong', type: 'rectangle', version: 1, versionNonce: 1 }],
+    changed: [],
+  })
+  fake.respond({
+    kind: 'layout',
+    requestId,
+    ok: true,
+    elements: [{ id: 'right', type: 'rectangle', version: 1, versionNonce: 1 }],
+    changed: [],
+  })
 
   const answer = await call
   assert.ok(answer.ok, 'the matching answer settles the call')

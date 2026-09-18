@@ -186,10 +186,7 @@ function assertMultibytePayloadTruncatesByBytes(): void {
 
 type CapturedLaunch = { prompt: string; permissionPreset?: string }
 
-function stubRuntime(
-  triggerPayload: Record<string, unknown> | undefined,
-  captured: CapturedLaunch
-): SpawnAgentRuntime {
+function stubRuntime(triggerPayload: Record<string, unknown> | undefined, captured: CapturedLaunch): SpawnAgentRuntime {
   return {
     definition: { id: 'auto-1', name: 'Nightly' } as unknown as AutomationDefinition,
     runId: 'run-7',
@@ -235,10 +232,7 @@ async function assertUnspecifiedPresetResolvesToBypass(): Promise<void> {
     ['bypass_all', 'bypass'],
   ] as const) {
     const saved: CapturedLaunch = { prompt: '' }
-    await runSpawnAgentAction(
-      { prompt: 'Sweep the repo.', permissionPreset: legacy },
-      stubRuntime(undefined, saved),
-    )
+    await runSpawnAgentAction({ prompt: 'Sweep the repo.', permissionPreset: legacy }, stubRuntime(undefined, saved))
     assert.equal(saved.permissionPreset, canonical, `the legacy "${legacy}" normalizes to "${canonical}"`)
   }
 

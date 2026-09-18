@@ -88,10 +88,7 @@ assert.equal(normalized.lastAgentSpawnPermissionPreset, 'manual')
 assert.deepEqual(normalized.projectKnowledgeRoots, {
   '/Users/example/project': 'docs/knowledge',
 })
-assert.deepEqual(normalized.recentWorkspaceFolders, [
-  '/Users/example/project',
-  '/Users/example/other',
-])
+assert.deepEqual(normalized.recentWorkspaceFolders, ['/Users/example/project', '/Users/example/other'])
 assert.deepEqual(normalized.keybindings, defaultKeybindingSettings())
 
 // --- Keybinding settings --------------------------------------------------
@@ -171,10 +168,7 @@ assert.equal(normalizeCliPermissionPreset('bypass_all' as never), 'bypass')
   for (const [legacy, before] of Object.entries(legacyRank)) {
     const after = normalizeCliPermissionPreset(legacy as never)
     assert.notEqual(after, 'none', `${legacy} must not migrate into the CLI's own default`)
-    assert.ok(
-      rank[after] <= before,
-      `${legacy} migrated UP the ladder to ${after} — migration may never grant more`,
-    )
+    assert.ok(rank[after] <= before, `${legacy} migrated UP the ladder to ${after} — migration may never grant more`)
   }
   // Corruption floors, and the floor is the least permissive rung.
   assert.equal(rank[normalizeCliPermissionPreset('nonsense' as never)], 0)
@@ -191,28 +185,30 @@ assert.deepEqual(normalizeNewChatAgentChoice('terminal'), { kind: 'general' })
 assert.deepEqual(defaultAppSettings().lastNewChatAgent, { kind: 'general' })
 
 // A model override keeps only a well-formed { cli, model } pair.
-assert.deepEqual(
-  normalizeCliModelSelection({ cli: 'claude-code', model: ' opus ' }),
-  { cli: 'claude-code', model: 'opus' },
-)
+assert.deepEqual(normalizeCliModelSelection({ cli: 'claude-code', model: ' opus ' }), {
+  cli: 'claude-code',
+  model: 'opus',
+})
 assert.equal(normalizeCliModelSelection({ cli: '', model: 'opus' }), null)
 assert.equal(normalizeCliModelSelection({ cli: 'codex' } as never), null)
 // The reasoning-effort level rides the same selection. A level with no model is
 // a real choice ("the CLI's default model at high effort") and survives; a
 // selection with neither is not an override at all.
-assert.deepEqual(
-  normalizeCliModelSelection({ cli: 'claude-code', model: 'opus', reasoning: ' high ' }),
-  { cli: 'claude-code', model: 'opus', reasoning: 'high' },
-)
-assert.deepEqual(
-  normalizeCliModelSelection({ cli: 'codex', model: '', reasoning: 'xhigh' }),
-  { cli: 'codex', model: '', reasoning: 'xhigh' },
-)
+assert.deepEqual(normalizeCliModelSelection({ cli: 'claude-code', model: 'opus', reasoning: ' high ' }), {
+  cli: 'claude-code',
+  model: 'opus',
+  reasoning: 'high',
+})
+assert.deepEqual(normalizeCliModelSelection({ cli: 'codex', model: '', reasoning: 'xhigh' }), {
+  cli: 'codex',
+  model: '',
+  reasoning: 'xhigh',
+})
 assert.equal(normalizeCliModelSelection({ cli: 'codex', model: '', reasoning: '   ' }), null)
-assert.deepEqual(
-  normalizeCliModelSelection({ cli: 'codex', model: 'gpt-5.5', reasoning: 42 } as never),
-  { cli: 'codex', model: 'gpt-5.5' },
-)
+assert.deepEqual(normalizeCliModelSelection({ cli: 'codex', model: 'gpt-5.5', reasoning: 42 } as never), {
+  cli: 'codex',
+  model: 'gpt-5.5',
+})
 const modelNormalized = normalizeAppSettings(
   {
     cliRuntimes: {
@@ -251,7 +247,13 @@ assert.deepEqual(
   normalizeCliModelCatalogs({
     codex: {
       models: [
-        { id: ' gpt-5.6 ', displayName: ' GPT-5.6 ', contextWindow: 272000, effortLevels: ['low', '', 'high'], supportsFastMode: true },
+        {
+          id: ' gpt-5.6 ',
+          displayName: ' GPT-5.6 ',
+          contextWindow: 272000,
+          effortLevels: ['low', '', 'high'],
+          supportsFastMode: true,
+        },
         { id: 'gpt-5.6' },
         { id: '   ' },
         'not a model',
@@ -266,7 +268,13 @@ assert.deepEqual(
   {
     codex: {
       models: [
-        { id: 'gpt-5.6', displayName: 'GPT-5.6', contextWindow: 272000, effortLevels: ['low', 'high'], supportsFastMode: true },
+        {
+          id: 'gpt-5.6',
+          displayName: 'GPT-5.6',
+          contextWindow: 272000,
+          effortLevels: ['low', 'high'],
+          supportsFastMode: true,
+        },
         { id: 'gpt-5.4' },
       ],
       fetchedAt: '2026-07-26T00:00:00Z',
@@ -304,10 +312,7 @@ assert.deepEqual(
   'the discovered catalog never leaks into the user list for the same CLI',
 )
 
-assert.deepEqual(
-  normalizeRecentWorkspaceFolders(['/A', '/a/', '/B'], ['/C', '/b']),
-  ['/A', '/B', '/C'],
-)
+assert.deepEqual(normalizeRecentWorkspaceFolders(['/A', '/a/', '/B'], ['/C', '/b']), ['/A', '/B', '/C'])
 
 const carrier = {
   workspaces: [
@@ -428,7 +433,7 @@ assert.equal(
 )
 slice.openModalSurface('notebooks', { workspaceId: 'ws-7' })
 slice.openSettingsOverlay()
-assert.equal(carrier.activeModalSurfaceWorkspaceId, null, 'Settings is the app\'s, not a workspace\'s')
+assert.equal(carrier.activeModalSurfaceWorkspaceId, null, "Settings is the app's, not a workspace's")
 slice.closeSettingsOverlay()
 slice.openModalSurface('notebooks', { workspaceId: 'ws-7' })
 slice.openGlobalSurface('backlog')
@@ -624,26 +629,14 @@ assert.deepEqual(
   'a level for another CLI starts that CLI on its own default model',
 )
 store.setLastSelectedAgentReasoning('codex', null)
-assert.equal(
-  lastAgentModel(),
-  null,
-  'clearing the only remaining choice leaves no empty selection behind',
-)
+assert.equal(lastAgentModel(), null, 'clearing the only remaining choice leaves no empty selection behind')
 store.setLastSelectedAgentModel({ cli: 'codex', model: 'gpt-5.5' })
 store.setLastSelectedAgentReasoning('codex', 'xhigh')
 store.setLastSelectedAgentReasoning('codex', '   ')
-assert.deepEqual(
-  lastAgentModel(),
-  { cli: 'codex', model: 'gpt-5.5' },
-  'clearing the level keeps the model',
-)
+assert.deepEqual(lastAgentModel(), { cli: 'codex', model: 'gpt-5.5' }, 'clearing the level keeps the model')
 store.setLastSelectedAgentReasoning('codex', 'high')
 store.setLastSelectedAgentModel(null)
-assert.equal(
-  lastAgentModel(),
-  null,
-  'an explicit null clears the whole selection, level included',
-)
+assert.equal(lastAgentModel(), null, 'an explicit null clears the whole selection, level included')
 // Retiring a custom model id must retire it as a remembered launch default too:
 // a surface still naming it would pass `--model <deleted id>` and the agent dies
 // on a model nothing offers.
@@ -655,11 +648,7 @@ assert.deepEqual(
   'retiring the id on another CLI leaves this default untouched',
 )
 store.forgetCliModels('claude-code', ['fable-5.1'])
-assert.equal(
-  lastAgentModel(),
-  null,
-  'a default naming the retired id for that CLI falls back to the CLI default',
-)
+assert.equal(lastAgentModel(), null, 'a default naming the retired id for that CLI falls back to the CLI default')
 store.setLastSelectedAgentModel({ cli: 'claude-code', model: 'fable-5.1' })
 store.setLastSelectedAgentReasoning('claude-code', 'high')
 store.forgetCliModels('claude-code', ['  fable-5.1  '])
@@ -669,11 +658,7 @@ assert.deepEqual(
   'the level survives — it was chosen for the CLI, not for the model that went away',
 )
 store.forgetCliModels('claude-code', ['', '   '])
-assert.deepEqual(
-  lastAgentModel(),
-  { cli: 'claude-code', model: '', reasoning: 'high' },
-  'a blank id forgets nothing',
-)
+assert.deepEqual(lastAgentModel(), { cli: 'claude-code', model: '', reasoning: 'high' }, 'a blank id forgets nothing')
 store.setLastSelectedAgentModel(null)
 
 store.setCommandKeybindings('commandPalette.open', ['Primary+Shift+P', 'CmdOrCtrl+Shift+P', 'Ctrl + +', 'bad-key'])
@@ -806,10 +791,7 @@ assert.deepEqual(
 )
 // Round-trip through the persistence normalizer (what app restart replays).
 assert.deepEqual(
-  normalizeAppSettings(
-    { moduleSettings: useWorkspaceStore.getState().appSettings.moduleSettings },
-    [],
-  ).moduleSettings,
+  normalizeAppSettings({ moduleSettings: useWorkspaceStore.getState().appSettings.moduleSettings }, []).moduleSettings,
   { 'module:demo-module': { count: 2 } },
   'module settings survive the persisted-settings normalization round trip',
 )
@@ -894,10 +876,7 @@ assert.deepEqual(
     'a profile parked at welcome with no workspaces is fresh, not returning',
   )
   // An explicit persisted value always wins, in both directions.
-  assert.equal(
-    normalizeAppSettings({ firstRunCliCardDismissed: true }, []).firstRunCliCardDismissed,
-    true,
-  )
+  assert.equal(normalizeAppSettings({ firstRunCliCardDismissed: true }, []).firstRunCliCardDismissed, true)
   assert.equal(
     normalizeAppSettings({ firstRunCliCardDismissed: false }, someWorkspace).firstRunCliCardDismissed,
     false,
@@ -925,7 +904,11 @@ assert.equal(normalizeSelectedCli('some-user-cli'), 'some-user-cli')
 assert.equal(normalizeSelectedCli('muse'), 'claude-code', 'a non-selectable persisted CLI normalizes to the default')
 assert.equal(normalizeSelectedCli('generic-shell'), 'claude-code')
 assert.equal(normalizeSelectedCli('muse', 'codex'), 'codex', 'the caller fallback wins when eligible')
-assert.equal(normalizeSelectedCli('muse', 'generic-shell'), 'claude-code', 'an ineligible fallback falls to the stock default')
+assert.equal(
+  normalizeSelectedCli('muse', 'generic-shell'),
+  'claude-code',
+  'an ineligible fallback falls to the stock default',
+)
 assert.equal(normalizeSelectedCli(null), 'claude-code')
 
 // Sync's own writer. Adding a server is a person wiring something up, and
@@ -1140,7 +1123,6 @@ assert.equal(normalizeSelectedCli(null), 'claude-code')
   assert.deepEqual(seen(), before)
 }
 
-
 // ── One colour per project ─────────────────────────────────────────────────
 //
 // `projectColors` holds only the overrides a person chose; the hue itself is
@@ -1188,7 +1170,13 @@ assert.equal(normalizeSelectedCli(null), 'claude-code')
   // colour" from that build is still a choice, and survives.
   assert.deepEqual(
     normalizeAppSettings(
-      { projectColors: { 'repo:github.com/acme/multicode': 'blue', 'folder:/notes': 'teal', 'repo:logo': 'none' } as never },
+      {
+        projectColors: {
+          'repo:github.com/acme/multicode': 'blue',
+          'folder:/notes': 'teal',
+          'repo:logo': 'none',
+        } as never,
+      },
       [],
     ).projectColors,
     { 'repo:logo': 'none' },
@@ -1202,8 +1190,7 @@ assert.equal(normalizeSelectedCli(null), 'claude-code')
 
   // --- the writer -----------------------------------------------------------
 
-  const colors = (): Record<string, ProjectColorSetting> =>
-    useWorkspaceStore.getState().appSettings.projectColors
+  const colors = (): Record<string, ProjectColorSetting> => useWorkspaceStore.getState().appSettings.projectColors
 
   // The person picking a colour writes it through; picking the same one again
   // writes nothing — not an equal object, the same one.

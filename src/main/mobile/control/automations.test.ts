@@ -17,11 +17,16 @@ import { deriveWorkspaceId } from './workspace-id'
 
 const generatedAt = '2026-07-14T12:00:00.000Z'
 
-function definitionOf(overrides: Partial<AutomationDefinition> & Pick<AutomationDefinition, 'id'>): AutomationDefinition {
+function definitionOf(
+  overrides: Partial<AutomationDefinition> & Pick<AutomationDefinition, 'id'>,
+): AutomationDefinition {
   return {
     name: `Automation ${overrides.id}`,
     status: 'enabled',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' },
+    },
     action: { kind: 'agent-run', config: { prompt: 'do the thing' } },
     nextRunAt: null,
     lastRunAt: null,
@@ -60,87 +65,106 @@ function run(name: string, body: () => Promise<void>): void {
   tests.push({ name, body })
 }
 
-run('projects the monitor view: grouped by projectKey, cadence pre-rendered, no provider config on the wire', async () => {
-  await withWorkspace(
-    async (store) => {
-      await store.createDefinition(
-        definitionOf({
-          id: 'nightly-sweep',
-          name: 'Nightly sweep',
-          status: 'paused',
-          lastRunAt: '2026-07-13T09:04:00.000Z',
-          lastRunId: 'run-2',
-        }),
-      )
-      await store.recordRun(runOf({ id: 'run-1', automationId: 'nightly-sweep', dueAt: '2026-07-12T09:00:00.000Z', startedAt: '2026-07-12T09:00:01.000Z', completedAt: '2026-07-12T09:03:00.000Z' }))
-      await store.recordRun(runOf({ id: 'run-2', automationId: 'nightly-sweep' }))
-    },
-    async (root) => {
-      const automations = await readMobileAutomationSnapshots(root, generatedAt)
-      assert.equal(automations.length, 1)
-      const automation = automations[0]
+run(
+  'projects the monitor view: grouped by projectKey, cadence pre-rendered, no provider config on the wire',
+  async () => {
+    await withWorkspace(
+      async (store) => {
+        await store.createDefinition(
+          definitionOf({
+            id: 'nightly-sweep',
+            name: 'Nightly sweep',
+            status: 'paused',
+            lastRunAt: '2026-07-13T09:04:00.000Z',
+            lastRunId: 'run-2',
+          }),
+        )
+        await store.recordRun(
+          runOf({
+            id: 'run-1',
+            automationId: 'nightly-sweep',
+            dueAt: '2026-07-12T09:00:00.000Z',
+            startedAt: '2026-07-12T09:00:01.000Z',
+            completedAt: '2026-07-12T09:03:00.000Z',
+          }),
+        )
+        await store.recordRun(runOf({ id: 'run-2', automationId: 'nightly-sweep' }))
+      },
+      async (root) => {
+        const automations = await readMobileAutomationSnapshots(root, generatedAt)
+        assert.equal(automations.length, 1)
+        const automation = automations[0]
 
-      assert.equal(automation.automationId, 'nightly-sweep')
-      assert.equal(automation.name, 'Nightly sweep')
-      // Three states, never flattened to a boolean.
-      assert.equal(automation.status, 'paused')
-      assert.equal(automation.triggerKind, 'schedule')
-      assert.equal(automation.projectKey, deriveWorkspaceId(root))
-      // Rendered on the desktop: the phone never sees the cadence union.
-      assert.equal(automation.cadence, 'Every 30 min')
-      assert.equal(automation.lastRunStatus, 'completed')
+        assert.equal(automation.automationId, 'nightly-sweep')
+        assert.equal(automation.name, 'Nightly sweep')
+        // Three states, never flattened to a boolean.
+        assert.equal(automation.status, 'paused')
+        assert.equal(automation.triggerKind, 'schedule')
+        assert.equal(automation.projectKey, deriveWorkspaceId(root))
+        // Rendered on the desktop: the phone never sees the cadence union.
+        assert.equal(automation.cadence, 'Every 30 min')
+        assert.equal(automation.lastRunStatus, 'completed')
 
-      // Newest first.
-      assert.deepEqual(automation.recentRuns?.map((entry) => entry.runId), ['run-2', 'run-1'])
+        // Newest first.
+        assert.deepEqual(
+          automation.recentRuns?.map((entry) => entry.runId),
+          ['run-2', 'run-1'],
+        )
 
-      // Nothing about the action, prompt, worktree or connector rides the wire.
-      const serialized = JSON.stringify(automation)
-      assert.equal(serialized.includes('do the thing'), false)
-      assert.equal(serialized.includes('agent-run'), false)
-    },
-  )
-})
+        // Nothing about the action, prompt, worktree or connector rides the wire.
+        const serialized = JSON.stringify(automation)
+        assert.equal(serialized.includes('do the thing'), false)
+        assert.equal(serialized.includes('agent-run'), false)
+      },
+    )
+  },
+)
 
-run('a long-running run is age-qualifiable: startedAt rides the wire, a null completedAt is omitted not nulled', async () => {
-  // The real shape in this repo today: permission-blocked runs have no finalize
-  // channel and sit `running` with completedAt: null for hours. The phone can only
-  // separate that from healthy progress by elapsed time, so startedAt must survive.
-  await withWorkspace(
-    async (store) => {
-      await store.createDefinition(definitionOf({ id: 'stuck', lastRunId: 'run-stuck', lastRunAt: '2026-07-14T03:00:00.000Z' }))
-      await store.recordRun(
-        runOf({
-          id: 'run-stuck',
-          automationId: 'stuck',
-          status: 'running',
-          dueAt: '2026-07-14T03:00:00.000Z',
-          startedAt: '2026-07-14T03:00:02.000Z',
-          completedAt: null,
-        }),
-      )
-    },
-    async (root) => {
-      const [automation] = await readMobileAutomationSnapshots(root, generatedAt)
-      const [latest] = automation.recentRuns ?? []
+run(
+  'a long-running run is age-qualifiable: startedAt rides the wire, a null completedAt is omitted not nulled',
+  async () => {
+    // The real shape in this repo today: permission-blocked runs have no finalize
+    // channel and sit `running` with completedAt: null for hours. The phone can only
+    // separate that from healthy progress by elapsed time, so startedAt must survive.
+    await withWorkspace(
+      async (store) => {
+        await store.createDefinition(
+          definitionOf({ id: 'stuck', lastRunId: 'run-stuck', lastRunAt: '2026-07-14T03:00:00.000Z' }),
+        )
+        await store.recordRun(
+          runOf({
+            id: 'run-stuck',
+            automationId: 'stuck',
+            status: 'running',
+            dueAt: '2026-07-14T03:00:00.000Z',
+            startedAt: '2026-07-14T03:00:02.000Z',
+            completedAt: null,
+          }),
+        )
+      },
+      async (root) => {
+        const [automation] = await readMobileAutomationSnapshots(root, generatedAt)
+        const [latest] = automation.recentRuns ?? []
 
-      assert.equal(automation.lastRunStatus, 'running')
-      assert.equal(latest.status, 'running')
-      assert.equal(latest.startedAt, '2026-07-14T03:00:02.000Z')
-      // Not `completedAt: null` — the snapshot validator rejects an explicit null and
-      // would take the WHOLE snapshot down with it.
-      assert.equal('completedAt' in latest, false)
+        assert.equal(automation.lastRunStatus, 'running')
+        assert.equal(latest.status, 'running')
+        assert.equal(latest.startedAt, '2026-07-14T03:00:02.000Z')
+        // Not `completedAt: null` — the snapshot validator rejects an explicit null and
+        // would take the WHOLE snapshot down with it.
+        assert.equal('completedAt' in latest, false)
 
-      const validation = validateMobileControlSnapshot({
-        protocolVersion: mobileControlProtocolVersion,
-        generatedAt,
-        desktopSessionId: 'desktop-1',
-        sprintEngines: [],
-        automations: [automation],
-      })
-      assert.equal(validation.ok, true)
-    },
-  )
-})
+        const validation = validateMobileControlSnapshot({
+          protocolVersion: mobileControlProtocolVersion,
+          generatedAt,
+          desktopSessionId: 'desktop-1',
+          sprintEngines: [],
+          automations: [automation],
+        })
+        assert.equal(validation.ok, true)
+      },
+    )
+  },
+)
 
 run('capped by construction: 24 automations per project, 5 newest runs, 160-char run text', async () => {
   const overCap = automationsPerProjectMax + 6
@@ -151,7 +175,9 @@ run('capped by construction: 24 automations per project, 5 newest runs, 160-char
       for (let index = 0; index < overCap; index += 1) {
         // Ascending updatedAt: the newest `automationsPerProjectMax` survive the cap.
         const day = String(index + 1).padStart(2, '0')
-        await store.createDefinition(definitionOf({ id: `a-${String(index).padStart(2, '0')}`, updatedAt: `2026-06-${day}T00:00:00.000Z` }))
+        await store.createDefinition(
+          definitionOf({ id: `a-${String(index).padStart(2, '0')}`, updatedAt: `2026-06-${day}T00:00:00.000Z` }),
+        )
       }
       for (let index = 0; index < overRuns; index += 1) {
         const minute = String(index).padStart(2, '0')
@@ -173,10 +199,18 @@ run('capped by construction: 24 automations per project, 5 newest runs, 160-char
       const automations = await readMobileAutomationSnapshots(root, generatedAt)
       assert.equal(automations.length, automationsPerProjectMax)
       // The most recently changed survive; the oldest are the ones dropped.
-      assert.equal(automations.some((automation) => automation.automationId === `a-${String(overCap - 1).padStart(2, '0')}`), true)
-      assert.equal(automations.some((automation) => automation.automationId === 'a-00'), false)
+      assert.equal(
+        automations.some((automation) => automation.automationId === `a-${String(overCap - 1).padStart(2, '0')}`),
+        true,
+      )
+      assert.equal(
+        automations.some((automation) => automation.automationId === 'a-00'),
+        false,
+      )
 
-      const withRuns = automations.find((automation) => automation.automationId === `a-${String(overCap - 1).padStart(2, '0')}`)
+      const withRuns = automations.find(
+        (automation) => automation.automationId === `a-${String(overCap - 1).padStart(2, '0')}`,
+      )
       assert.equal(withRuns?.recentRuns?.length, automationRecentRunsMax)
       // Newest first, so the cap keeps the newest runs rather than the first written.
       assert.equal(withRuns?.recentRuns?.[0]?.runId, `run-0${overRuns - 1}`)
@@ -195,7 +229,10 @@ run('cadence: wall-clock cadences carry their zone; a cadence the engine rejects
       await store.createDefinition(
         definitionOf({
           id: 'daily',
-          trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'Asia/Kolkata' } },
+          trigger: {
+            kind: 'schedule',
+            config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'Asia/Kolkata' },
+          },
         }),
       )
       await store.createDefinition(
@@ -203,11 +240,18 @@ run('cadence: wall-clock cadences carry their zone; a cadence the engine rejects
           id: 'cronish',
           // Declared in the contract but unimplemented: validateScheduleTriggerConfig
           // has no cron branch, so the engine can never schedule this.
-          trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'cron', expression: '0 9 * * 1' }, timezone: 'UTC' } },
+          trigger: {
+            kind: 'schedule',
+            config: { kind: 'schedule', cadence: { type: 'cron', expression: '0 9 * * 1' }, timezone: 'UTC' },
+          },
         }),
       )
       await store.createDefinition(
-        definitionOf({ id: 'hooked', status: 'blocked', trigger: { kind: 'webhook', config: { kind: 'webhook', path: '/deploy' } } }),
+        definitionOf({
+          id: 'hooked',
+          status: 'blocked',
+          trigger: { kind: 'webhook', config: { kind: 'webhook', path: '/deploy' } },
+        }),
       )
     },
     async (root) => {
@@ -239,7 +283,9 @@ run('nextRunAt resolves the way the engine resolves it: definition first, then s
       })
     },
     async (root) => {
-      const byId = new Map((await readMobileAutomationSnapshots(root, generatedAt)).map((entry) => [entry.automationId, entry]))
+      const byId = new Map(
+        (await readMobileAutomationSnapshots(root, generatedAt)).map((entry) => [entry.automationId, entry]),
+      )
 
       assert.equal(byId.get('on-definition')?.nextRunAt, '2026-07-15T09:00:00.000Z')
       // Without the state fallback the phone would show "no upcoming run" for an
@@ -260,10 +306,14 @@ run('carries runInFlight so the phone can gate run-now on what the engine will a
   await withWorkspace(
     async (store) => {
       await store.createDefinition(definitionOf({ id: 'running-now' }))
-      await store.recordRun(runOf({ id: 'run-live', automationId: 'running-now', status: 'running', completedAt: null }))
+      await store.recordRun(
+        runOf({ id: 'run-live', automationId: 'running-now', status: 'running', completedAt: null }),
+      )
 
       await store.createDefinition(definitionOf({ id: 'queued-now' }))
-      await store.recordRun(runOf({ id: 'run-queued', automationId: 'queued-now', status: 'queued', startedAt: null, completedAt: null }))
+      await store.recordRun(
+        runOf({ id: 'run-queued', automationId: 'queued-now', status: 'queued', startedAt: null, completedAt: null }),
+      )
 
       await store.createDefinition(definitionOf({ id: 'idle', lastRunId: 'run-done' }))
       await store.recordRun(runOf({ id: 'run-done', automationId: 'idle' }))
@@ -271,7 +321,9 @@ run('carries runInFlight so the phone can gate run-now on what the engine will a
       await store.createDefinition(definitionOf({ id: 'never-run' }))
     },
     async (root) => {
-      const byId = new Map((await readMobileAutomationSnapshots(root, generatedAt)).map((entry) => [entry.automationId, entry]))
+      const byId = new Map(
+        (await readMobileAutomationSnapshots(root, generatedAt)).map((entry) => [entry.automationId, entry]),
+      )
 
       assert.equal(byId.get('running-now')?.runInFlight, true)
       assert.equal(byId.get('queued-now')?.runInFlight, true)
@@ -294,21 +346,25 @@ run('resolves runInFlight against every run, not just the ones that ride the wir
   await withWorkspace(
     async (store) => {
       await store.createDefinition(definitionOf({ id: 'busy' }))
-      await store.recordRun(runOf({
-        id: 'run-old-but-live',
-        automationId: 'busy',
-        status: 'running',
-        dueAt: '2026-07-01T09:00:00.000Z',
-        startedAt: '2026-07-01T09:00:01.000Z',
-        completedAt: null,
-      }))
-      for (let index = 0; index < automationRecentRunsMax + 2; index += 1) {
-        await store.recordRun(runOf({
-          id: `run-newer-${index}`,
+      await store.recordRun(
+        runOf({
+          id: 'run-old-but-live',
           automationId: 'busy',
-          dueAt: `2026-07-1${index % 3 + 1}T09:00:00.000Z`,
-          completedAt: `2026-07-1${index % 3 + 1}T09:04:00.000Z`,
-        }))
+          status: 'running',
+          dueAt: '2026-07-01T09:00:00.000Z',
+          startedAt: '2026-07-01T09:00:01.000Z',
+          completedAt: null,
+        }),
+      )
+      for (let index = 0; index < automationRecentRunsMax + 2; index += 1) {
+        await store.recordRun(
+          runOf({
+            id: `run-newer-${index}`,
+            automationId: 'busy',
+            dueAt: `2026-07-1${(index % 3) + 1}T09:00:00.000Z`,
+            completedAt: `2026-07-1${(index % 3) + 1}T09:04:00.000Z`,
+          }),
+        )
       }
     },
     async (root) => {

@@ -16,14 +16,25 @@
 
 import React, { useCallback, useEffect, useMemo, useState } from 'react'
 
-import { scanPlugins, skillDirName, type ScanResult, type ScannedPlugin, type SkillSource } from '../../../../../../../shared/skills'
+import {
+  scanPlugins,
+  skillDirName,
+  type ScanResult,
+  type ScannedPlugin,
+  type SkillSource,
+} from '../../../../../../../shared/skills'
 import { GhostButton, InlineNotice, Spinner, StatusDot, TruncatedText } from '../../../../ui'
 import { ExtensionIcon } from '../../../../ui/ExtensionIcon'
 import { ConnectorRow } from '../../../../panels/ConnectorsPanel/ConnectorRow'
 import { InstalledExtensionsInventory } from '../../../../panels/ConnectorsPanel/InstalledExtensionsInventory'
 import { useWorkspaceStore } from '../../../../../store/workspaceStore'
 import type { WorkspaceSkill } from '../../../../../../../shared/electron-api'
-import { CatalogueHead, CatalogueSurface, type CatalogueAddMenu, type CatalogueSection } from '../catalogue/CatalogueSurface'
+import {
+  CatalogueHead,
+  CatalogueSurface,
+  type CatalogueAddMenu,
+  type CatalogueSection,
+} from '../catalogue/CatalogueSurface'
 import {
   catalogueMonogram,
   catalogueTabLabel,
@@ -220,7 +231,11 @@ export function SkillsCatalogue({
         setReport(
           result.ok
             ? { sourceId: source.id, outcome: summarizeInstallRun(1, []), error: null }
-            : { sourceId: source.id, outcome: null, error: summarizeInstallRun(0, [{ skillId, message: result.message }]) },
+            : {
+                sourceId: source.id,
+                outcome: null,
+                error: summarizeInstallRun(0, [{ skillId, message: result.message }]),
+              },
         )
         return result.ok
       } catch (error) {
@@ -405,59 +420,53 @@ export function SkillsCatalogue({
   // every source are on screen, so every source's report is too.
   const thisReport = report && (searching || report.sourceId === activeSource?.id) ? report : null
 
-  const head =
-    crossSearch ? (
-      <CatalogueHead name="All sources" stateLine={crossSourceStateLine(crossSearch)} />
-    ) : tabId === INSTALLED_TAB_ID ? (
-      <CatalogueHead
-        name="Installed"
-        stateLine={
-          workspaceRoot
-            ? 'The skills installed in this workspace, grouped by where they came from.'
-            : 'Open a workspace to see the skills installed in it — a skill installs into a workspace, not into the app.'
-        }
-      />
-    ) : activeSource ? (
-      <CatalogueHead
-        monogram={<SourceAvatar source={activeSource} monogram={catalogueMonogram(activeSource)} />}
-        name={catalogueTabLabel(activeSource)}
-        // Where it comes from, and nothing else: the repository, or the folder
-        // on this machine. What it holds is on the tab and the section heading;
-        // what happened to it last is a notice below.
-        stateLine={activeSource.path || sourceDisplayName(activeSource)}
-        actions={
-          <SourceTabActions
-            source={activeSource}
-            workspaceRoot={workspaceRoot}
-            onSynced={(source, result) => {
-              sources.applySync(source, result.scan)
-              sources.refreshInstalled()
-              setReport({ sourceId: source.id, outcome: summarizeSyncRun(result), error: null })
-            }}
-            // The manual update check reports into the same head line a sync
-            // reports into: one place the source says what just happened to it.
-            onCheckReport={(source, message) =>
-              setReport({ sourceId: source.id, outcome: message, error: null })
-            }
-            onSyncFailed={(source, message) => setReport({ sourceId: source.id, outcome: null, error: message })}
-            onRemoved={() => {
-              sources.refreshSources()
-              onSelectTab(INSTALLED_TAB_ID)
-            }}
-          />
-        }
-      />
-    ) : null
+  const head = crossSearch ? (
+    <CatalogueHead name="All sources" stateLine={crossSourceStateLine(crossSearch)} />
+  ) : tabId === INSTALLED_TAB_ID ? (
+    <CatalogueHead
+      name="Installed"
+      stateLine={
+        workspaceRoot
+          ? 'The skills installed in this workspace, grouped by where they came from.'
+          : 'Open a workspace to see the skills installed in it — a skill installs into a workspace, not into the app.'
+      }
+    />
+  ) : activeSource ? (
+    <CatalogueHead
+      monogram={<SourceAvatar source={activeSource} monogram={catalogueMonogram(activeSource)} />}
+      name={catalogueTabLabel(activeSource)}
+      // Where it comes from, and nothing else: the repository, or the folder
+      // on this machine. What it holds is on the tab and the section heading;
+      // what happened to it last is a notice below.
+      stateLine={activeSource.path || sourceDisplayName(activeSource)}
+      actions={
+        <SourceTabActions
+          source={activeSource}
+          workspaceRoot={workspaceRoot}
+          onSynced={(source, result) => {
+            sources.applySync(source, result.scan)
+            sources.refreshInstalled()
+            setReport({ sourceId: source.id, outcome: summarizeSyncRun(result), error: null })
+          }}
+          // The manual update check reports into the same head line a sync
+          // reports into: one place the source says what just happened to it.
+          onCheckReport={(source, message) => setReport({ sourceId: source.id, outcome: message, error: null })}
+          onSyncFailed={(source, message) => setReport({ sourceId: source.id, outcome: null, error: message })}
+          onRemoved={() => {
+            sources.refreshSources()
+            onSelectTab(INSTALLED_TAB_ID)
+          }}
+        />
+      }
+    />
+  ) : null
 
   const bundled = searching ? null : bundledScanLine(scan)
   const unreadLine = crossSearch ? unreadSourcesLine(crossSearch.unread) : null
   const notices = (
     <>
       {landingNotice ? (
-        <InlineNotice
-          tone="warn"
-          action={<GhostButton onClick={() => setLandingNotice(null)}>Dismiss</GhostButton>}
-        >
+        <InlineNotice tone="warn" action={<GhostButton onClick={() => setLandingNotice(null)}>Dismiss</GhostButton>}>
           {landingNotice}
         </InlineNotice>
       ) : null}
@@ -546,7 +555,7 @@ export function SkillsCatalogue({
 
   // The open skill's OWN source and scan — the row's, which under a search
   // need not be the tab's.
-  const openSource = openSkill ? sourceById.get(openSkill.sourceId) ?? null : null
+  const openSource = openSkill ? (sourceById.get(openSkill.sourceId) ?? null) : null
   const openScan = openSkill ? readyScan(openSkill.sourceId) : null
   const opened = openScan && openSkill ? findSkill(openScan, openSkill.skillId) : null
   const detail =

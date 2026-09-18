@@ -105,7 +105,7 @@ export function hasHunkGutter(item: DiffFileItem | null): boolean {
 export function settleOverride(
   override: HunkOverride | null,
   fileKey: string | null,
-  revision: number
+  revision: number,
 ): HunkOverride | null {
   if (!override) return null
   if (override.fileKey !== fileKey) return null
@@ -169,7 +169,7 @@ function settleOverrideKey(override: HunkOverride | null, fileKey: string | null
 export function predictedSummary(
   summary: HunkInclusionSummary | null,
   override: HunkOverride | null,
-  fileKey: string | null
+  fileKey: string | null,
 ): HunkInclusionSummary | null {
   if (!summary || !override || override.fileKey !== fileKey) return summary
   const included = summary.included + (override.checked ? 1 : -1)

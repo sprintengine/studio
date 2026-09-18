@@ -45,11 +45,7 @@ export function createRunSkillLoopActionProvider(): AutomationActionProvider {
 
 export async function runSkillLoopAction(config: unknown, runtime: SpawnAgentRuntime) {
   const parsed = parseRunSkillLoopConfig(config)
-  const loopPrompt = [
-    `/loop ${parsed.skill ?? 'skill'}`,
-    '',
-    parsed.prompt,
-  ].join('\n')
+  const loopPrompt = [`/loop ${parsed.skill ?? 'skill'}`, '', parsed.prompt].join('\n')
 
   return runSpawnAgentAction(
     {
@@ -57,7 +53,7 @@ export async function runSkillLoopAction(config: unknown, runtime: SpawnAgentRun
       name: parsed.name ?? `${runtime.definition.name} loop`,
       prompt: loopPrompt,
     },
-    runtime
+    runtime,
   )
 }
 
@@ -65,9 +61,7 @@ function parseRunSkillLoopConfig(config: unknown): RunSkillLoopConfig {
   const parsed = parseSpawnAgentConfig(config)
   return {
     ...parsed,
-    skill: isRecord(config) && typeof config.skill === 'string' && config.skill.trim()
-      ? config.skill.trim()
-      : undefined,
+    skill:
+      isRecord(config) && typeof config.skill === 'string' && config.skill.trim() ? config.skill.trim() : undefined,
   }
 }
-

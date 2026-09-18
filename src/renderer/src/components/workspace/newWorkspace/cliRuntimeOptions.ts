@@ -149,11 +149,13 @@ export function labelForCliRuntime(cli: AgentCli): string {
   // Title-casing would render this id as "Kimi Claude"; keep the registry
   // displayName so the loading/error fallback catalog reads the same.
   if (cli === 'kimi-claude') return 'Kimi K3'
-  return cli
-    .split(/[-_\s]+/u)
-    .filter(Boolean)
-    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
-    .join(' ') || cli
+  return (
+    cli
+      .split(/[-_\s]+/u)
+      .filter(Boolean)
+      .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+      .join(' ') || cli
+  )
 }
 
 function legacyCliRuntimeOptions(
@@ -202,15 +204,11 @@ export function installableCliSummary(labels: string[]): string {
 // Bundled entries first, then user entries, deduped by id — the row order for
 // the Agents settings tab. Unlike buildAgentCliCatalog this keeps the full
 // PluginCatalogEntry (binary, version, source) the settings rows need.
-export function orderInstalledPlugins(
-  entries: PluginCatalogEntry[] | null | undefined,
-): PluginCatalogEntry[] {
+export function orderInstalledPlugins(entries: PluginCatalogEntry[] | null | undefined): PluginCatalogEntry[] {
   if (!entries) return []
   const seen = new Set<string>()
   const ordered: PluginCatalogEntry[] = []
-  for (const entry of [...entries].sort((a, b) =>
-    a.source === b.source ? 0 : a.source === 'bundled' ? -1 : 1,
-  )) {
+  for (const entry of [...entries].sort((a, b) => (a.source === b.source ? 0 : a.source === 'bundled' ? -1 : 1))) {
     const id = entry.id.trim()
     if (!id || seen.has(id)) continue
     seen.add(id)
@@ -226,17 +224,12 @@ export function cliRuntimeForPlugin(
   cliRuntimes: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>> | undefined,
 ): { command: string; useWsl: boolean } {
   const direct = cliRuntimes?.[pluginId]
-  const command =
-    (typeof direct?.command === 'string' ? direct.command : undefined)
-    ?? ''
+  const command = (typeof direct?.command === 'string' ? direct.command : undefined) ?? ''
   const useWsl = direct?.useWsl ?? false
   return { command, useWsl }
 }
 
-export function isAgentCliAvailable(
-  cli: AgentCli,
-  catalog: AgentCliCatalogOption[],
-): boolean {
+export function isAgentCliAvailable(cli: AgentCli, catalog: AgentCliCatalogOption[]): boolean {
   const registryId = pluginRegistryIdForCli(cli)
   return catalog.some((option) => option.value === cli || option.value === registryId)
 }
@@ -268,10 +261,7 @@ export function resolveLaunchableAgentCli(
   return resolveAvailableAgentCli(cli, catalog, first.value)
 }
 
-export function isAgentCliMissing(
-  cli: AgentCli | null | undefined,
-  catalog: AgentCliCatalogOption[],
-): boolean {
+export function isAgentCliMissing(cli: AgentCli | null | undefined, catalog: AgentCliCatalogOption[]): boolean {
   return Boolean(cli && !isAgentCliAvailable(cli, catalog))
 }
 
@@ -504,7 +494,7 @@ export function selectAgentCliCatalog(
   discovered?: DiscoveredCliModelCatalogs,
   hosted?: HostedCliModelCatalogs,
 ): AgentCliCatalogOption[] {
-  const catalog = buildAgentCliCatalog(status === 'ready' ? entries ?? [] : null, cliRuntimes, discovered, hosted)
+  const catalog = buildAgentCliCatalog(status === 'ready' ? (entries ?? []) : null, cliRuntimes, discovered, hosted)
   if (!availability) return catalog
   return filterCatalogByAvailability(catalog, availability.map, availability.status)
 }
@@ -532,9 +522,7 @@ export function filterCatalogByAvailability(
 ): AgentCliCatalogOption[] {
   const annotated = catalog.map((option) => {
     const entry = availabilityMap?.[option.value]
-    return entry
-      ? { ...option, installed: entry.installed, resolvedPath: entry.resolvedPath }
-      : option
+    return entry ? { ...option, installed: entry.installed, resolvedPath: entry.resolvedPath } : option
   })
 
   if (status !== 'ready' || !availabilityMap) return annotated

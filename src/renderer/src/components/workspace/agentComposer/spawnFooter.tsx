@@ -1,6 +1,13 @@
 import React from 'react'
 
-import { ChipButton, Popover, Tooltip, roveMenuFocus, setModelPermissionPreset, useModelPermissionPreset } from '../../ui'
+import {
+  ChipButton,
+  Popover,
+  Tooltip,
+  roveMenuFocus,
+  setModelPermissionPreset,
+  useModelPermissionPreset,
+} from '../../ui'
 import { ChevronDownIcon } from '../../AppIcons'
 import { MENU_GROUP_LABEL_CLASS, MENU_LIST_CLASS } from '../../ui/menuClasses'
 import {
@@ -79,22 +86,14 @@ export function FooterMenu({
           // tone and its `--bg-hover` lift.
           <ChipButton
             ref={ref}
-            tint={
-              tone === 'warn'
-                ? 'var(--tone-warn)'
-                : tone === 'accent'
-                  ? 'var(--accent-primary)'
-                  : undefined
-            }
+            tint={tone === 'warn' ? 'var(--tone-warn)' : tone === 'accent' ? 'var(--accent-primary)' : undefined}
             aria-label={ariaLabel}
             onClick={togglePopover}
             className="shrink-0"
             {...triggerProps}
           >
             {label}
-            {chevron ? (
-              <ChevronDownIcon className="size-icon-xs shrink-0 text-[color:var(--text-disabled)]" />
-            ) : null}
+            {chevron ? <ChevronDownIcon className="size-icon-xs shrink-0 text-[color:var(--text-disabled)]" /> : null}
           </ChipButton>
         )
         return tooltip ? (
@@ -111,7 +110,9 @@ export function FooterMenu({
         className={bodyClassName ?? 'min-w-[168px]'}
         // The preset rows own their own keyboard contract; the compact bodies
         // borrow the shared menu rove.
-        {...(onOpenAutoFocus ? {} : { onKeyDown: (event: React.KeyboardEvent) => roveMenuFocus(event, surfaceRef.current) })}
+        {...(onOpenAutoFocus
+          ? {}
+          : { onKeyDown: (event: React.KeyboardEvent) => roveMenuFocus(event, surfaceRef.current) })}
       >
         {heading ? <p className={MENU_GROUP_LABEL_CLASS}>{heading}</p> : null}
         {children(() => setOpen(false))}
@@ -119,8 +120,6 @@ export function FooterMenu({
     </Popover>
   )
 }
-
-
 
 // The chip names the preset, not the sentence behind it — the surface carries
 // no explanatory copy (owner, 2026-08-04). It reads the exhaustive chip labels

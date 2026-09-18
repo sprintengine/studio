@@ -1,7 +1,16 @@
 import React from 'react'
 
 import type { TailnetPresence } from './useTailnetPresence'
-import { CloseIconButton, GhostButton, IconButton, LinkButton, OutlineButton, PanelHeader, RefreshIcon, Tooltip } from '../../ui'
+import {
+  CloseIconButton,
+  GhostButton,
+  IconButton,
+  LinkButton,
+  OutlineButton,
+  PanelHeader,
+  RefreshIcon,
+  Tooltip,
+} from '../../ui'
 import { RemoteMachineGlyph } from '../../AppIcons'
 import { useWorkspaceStore } from '../../../store/workspaceStore'
 import { useTerminalSessions } from '../../../hooks/useTerminalSessions'
@@ -97,15 +106,15 @@ export function RemotePopover({
           />
         ))}
         {quiet ? (
-          <div className="px-2.5 pb-1 pt-1 text-micro text-[color:var(--text-subtle)]">
-            No machines connected.
-          </div>
+          <div className="px-2.5 pb-1 pt-1 text-micro text-[color:var(--text-subtle)]">No machines connected.</div>
         ) : null}
         {/* The two ways out of the list, on one row: pairing another machine
             and the tab that holds everything this popover leaves out. */}
         <div className="flex items-center gap-2 px-2.5 pb-1 pt-0.5">
           <Tooltip
-            content={listening ? 'Scan the tailnet and pair another machine' : 'Not connected to Tailscale — nothing to scan'}
+            content={
+              listening ? 'Scan the tailnet and pair another machine' : 'Not connected to Tailscale — nothing to scan'
+            }
             placement="top"
           >
             <GhostButton size="sm" onClick={onOpenRemoteSettings} disabled={!listening}>
@@ -157,14 +166,20 @@ function ConnectedDeviceRow({ device, now }: { device: TailnetLiveDevice; now: n
       <div className="flex items-center gap-2">
         {/* Connected is green, on the glyph (owner ruling 2026-09-05: the
             glyph is the row's one status channel; no dot beside it). */}
-        <span role="img" aria-label={driving ? 'Driving a terminal' : 'Connected'} className="flex shrink-0 items-center">
+        <span
+          role="img"
+          aria-label={driving ? 'Driving a terminal' : 'Connected'}
+          className="flex shrink-0 items-center"
+        >
           <RemoteMachineGlyph className="size-icon-sm shrink-0 text-[color:var(--tone-good)]" />
         </span>
         <span className="min-w-0 flex-1">
           <span className="block truncate font-medium text-[color:var(--text-default)]">
             {shortMachineName(device.deviceName)}
           </span>
-          <span className="block truncate text-micro tabular-nums text-[color:var(--text-subtle)]">{deviceLivenessText(device, now)}</span>
+          <span className="block truncate text-micro tabular-nums text-[color:var(--text-subtle)]">
+            {deviceLivenessText(device, now)}
+          </span>
         </span>
         {/* A glyph, not a word (owner ruling 2026-09-05): the row is narrow,
             the actions are the same two everywhere, and a red X is read faster
@@ -204,7 +219,7 @@ function DrivenTerminalLine({ sessionId }: { sessionId: string }) {
         const workspace = workspaces.find((candidate) => candidate.id === workspaceId)
         return workspace?.agents[agentId]?.name ?? null
       }),
-    [sessionId, sessions, workspaces]
+    [sessionId, sessions, workspaces],
   )
   const label = (
     <>
@@ -242,7 +257,10 @@ function DrivenTerminalLine({ sessionId }: { sessionId: string }) {
 }
 
 /** "Connected for 12m" from the socket's open, else "Last seen 3m ago" from the last activity main saw. */
-export function deviceLivenessText(device: Pick<TailnetLiveDevice, 'connectedSince' | 'lastActivityAt'>, now: number): string {
+export function deviceLivenessText(
+  device: Pick<TailnetLiveDevice, 'connectedSince' | 'lastActivityAt'>,
+  now: number,
+): string {
   if (device.connectedSince !== null) return `Connected for ${formatElapsedMs(device.connectedSince, now)}`
   if (device.lastActivityAt !== null) return `Last seen ${formatRelativeMsAgo(device.lastActivityAt, now)}`
   return 'Connected'
@@ -377,7 +395,11 @@ function MachineRow({
           </IconButton>
         </Tooltip>
       ) : action === 'pair-again' ? (
-        <Tooltip content={`${name} took back its pairing — ask it again`} placement="bottom" wrapperClassName="shrink-0">
+        <Tooltip
+          content={`${name} took back its pairing — ask it again`}
+          placement="bottom"
+          wrapperClassName="shrink-0"
+        >
           <OutlineButton size="xs" onClick={onPairAgain}>
             Pair again
           </OutlineButton>

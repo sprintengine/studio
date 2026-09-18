@@ -103,24 +103,40 @@ run('the door shows the project the user picked, and remembers it', () => {
   // A stored pick wins over the active workspace. This is the whole point:
   // pointing the app at another project must not silently move the door.
   assert.equal(
-    resolveDesignProjectPath({ storedPath: '/work/picked', storedPathExists: true, activeWorkspaceFolderPath: '/work/active' }),
+    resolveDesignProjectPath({
+      storedPath: '/work/picked',
+      storedPathExists: true,
+      activeWorkspaceFolderPath: '/work/active',
+    }),
     '/work/picked',
   )
   // A folder the user browsed to has no workspace behind it, and is still the
   // door's project.
   assert.equal(
-    resolveDesignProjectPath({ storedPath: '/elsewhere/brand', storedPathExists: true, activeWorkspaceFolderPath: null }),
+    resolveDesignProjectPath({
+      storedPath: '/elsewhere/brand',
+      storedPathExists: true,
+      activeWorkspaceFolderPath: null,
+    }),
     '/elsewhere/brand',
   )
   // Gone from disk: fall back rather than showing a project that is not there.
   assert.equal(
-    resolveDesignProjectPath({ storedPath: '/work/gone', storedPathExists: false, activeWorkspaceFolderPath: '/work/active' }),
+    resolveDesignProjectPath({
+      storedPath: '/work/gone',
+      storedPathExists: false,
+      activeWorkspaceFolderPath: '/work/active',
+    }),
     '/work/active',
   )
   // Still being probed counts as present, so the door does not flash onto the
   // active workspace and back on every open.
   assert.equal(
-    resolveDesignProjectPath({ storedPath: '/work/picked', storedPathExists: null, activeWorkspaceFolderPath: '/work/active' }),
+    resolveDesignProjectPath({
+      storedPath: '/work/picked',
+      storedPathExists: null,
+      activeWorkspaceFolderPath: '/work/active',
+    }),
     '/work/picked',
   )
   // Nothing stored, nothing open: no group, exactly as before.
@@ -138,15 +154,24 @@ run('a group with no rows is dropped, so one group means no headings', () => {
   // SurfaceRail hides its headings below two groups, so dropping empties is what
   // makes "only one group has rows → both headings drop" fall out.
   const libraryOnly = buildDesignRailGroups([entry()], '')
-  assert.deepEqual(libraryOnly.map((group) => group.key), ['library'])
+  assert.deepEqual(
+    libraryOnly.map((group) => group.key),
+    ['library'],
+  )
 
   const both = buildDesignRailGroups(
     [entry({ group: 'project', id: projectRowId('/proj/design-system') }), entry({ path: '/other/design-system' })],
     '',
   )
-  assert.deepEqual(both.map((group) => group.key), ['project', 'library'])
+  assert.deepEqual(
+    both.map((group) => group.key),
+    ['project', 'library'],
+  )
   // In this project leads Library — the attached one is the one you are working in.
-  assert.deepEqual(both.map((group) => group.label), ['In this project', 'Library'])
+  assert.deepEqual(
+    both.map((group) => group.label),
+    ['In this project', 'Library'],
+  )
 })
 
 run('search matches name, summary and path — and never hides a broken row', () => {
@@ -351,7 +376,10 @@ run('a system with nothing new wears nothing at all', () => {
 
 run('the roll-up lands on the row it belongs to, and only that row', () => {
   const brand = entry()
-  const other = entry({ path: '/work/other/design-system', identity: identity({ path: '/work/other/design-system', name: 'harbor' }) })
+  const other = entry({
+    path: '/work/other/design-system',
+    identity: identity({ path: '/work/other/design-system', name: 'harbor' }),
+  })
   const html = railMarkup([brand, other], null, { [other.id]: 2 })
   const brandRow = html.slice(html.indexOf('multicode'), html.indexOf('harbor'))
   assert.ok(!/new/i.test(brandRow), 'the untouched system stays quiet')

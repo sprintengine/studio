@@ -29,10 +29,7 @@ export type ApplyLayoutOutcome = {
   warnings: string[]
 }
 
-export function applyLayout(
-  bridge: CanvasEditorBridge,
-  request: CanvasWorkerRequestOf<'layout'>,
-): ApplyLayoutOutcome {
+export function applyLayout(bridge: CanvasEditorBridge, request: CanvasWorkerRequestOf<'layout'>): ApplyLayoutOutcome {
   const layout = request.request
   const draft = new SceneDraft(request.elements)
   const stamp: Stamp = { now: bridge.now, nonce: bridge.nonce }
@@ -148,12 +145,7 @@ function ungroup(draft: SceneDraft, subjects: CanvasElement[], stamp: Stamp): Ca
   return draft.all()
 }
 
-function setLocked(
-  draft: SceneDraft,
-  subjects: CanvasElement[],
-  locked: boolean,
-  stamp: Stamp,
-): CanvasElement[] {
+function setLocked(draft: SceneDraft, subjects: CanvasElement[], locked: boolean, stamp: Stamp): CanvasElement[] {
   for (const element of subjects) {
     draft.patch(element.id, { locked }, stamp)
     for (const label of labelsOf(draft, element.id)) draft.patch(label.id, { locked }, stamp)

@@ -125,20 +125,22 @@ assert.deepEqual(
 assert.equal(registeredFileActions[1]?.moduleId, 'weather-deck', 'owning module is recorded for enablement gating')
 
 assert.throws(
-  () => fileActionHost.hostFor('weather-deck').registerFileAction({
-    id: 'weather-deck.open-notes',
-    label: 'Duplicate',
-    run() {},
-  }),
+  () =>
+    fileActionHost.hostFor('weather-deck').registerFileAction({
+      id: 'weather-deck.open-notes',
+      label: 'Duplicate',
+      run() {},
+    }),
   /File action "weather-deck\.open-notes" is already registered/,
   'duplicate file-action ids fail clearly',
 )
 assert.throws(
-  () => fileActionHost.hostFor('weather-deck').registerFileAction({
-    id: '   ',
-    label: 'Blank',
-    run() {},
-  }),
+  () =>
+    fileActionHost.hostFor('weather-deck').registerFileAction({
+      id: '   ',
+      label: 'Blank',
+      run() {},
+    }),
   /File action id must be a non-empty string/,
   'blank file-action ids are rejected before registration',
 )
@@ -185,13 +187,14 @@ assert.equal(
 )
 
 assert.throws(
-  () => commandHost.hostFor('demo-module').registerCommand({
-    id: 'hello',
-    title: 'Say Hello Again',
-    category: 'Demo Module',
-    scopes: ['global'],
-    run() {},
-  }),
+  () =>
+    commandHost.hostFor('demo-module').registerCommand({
+      id: 'hello',
+      title: 'Say Hello Again',
+      category: 'Demo Module',
+      scopes: ['global'],
+      run() {},
+    }),
   /Module command "demo-module\.hello" is already registered/,
   'duplicate command-id registration is an explicit error',
 )
@@ -205,46 +208,50 @@ assert.ok(
   'the shadowing test has to name a command the shell actually registers, or it proves nothing',
 )
 assert.throws(
-  () => commandHost.hostFor('workspace').registerCommand({
-    id: 'close',
-    title: 'Shadow Close Workspace',
-    category: 'Shadow',
-    scopes: ['global'],
-    run() {},
-  }),
+  () =>
+    commandHost.hostFor('workspace').registerCommand({
+      id: 'close',
+      title: 'Shadow Close Workspace',
+      category: 'Shadow',
+      scopes: ['global'],
+      run() {},
+    }),
   /already registered by the application command registry/,
   'a module cannot take over a shell command id',
 )
 assert.throws(
-  () => commandHost.hostFor('demo-module').registerCommand({
-    id: '   ',
-    title: 'Blank',
-    category: 'Demo Module',
-    scopes: ['global'],
-    run() {},
-  }),
+  () =>
+    commandHost.hostFor('demo-module').registerCommand({
+      id: '   ',
+      title: 'Blank',
+      category: 'Demo Module',
+      scopes: ['global'],
+      run() {},
+    }),
   /non-empty string/,
   'blank command ids are rejected',
 )
 assert.throws(
-  () => commandHost.hostFor('demo-module').registerCommand({
-    id: 'untitled',
-    title: '  ',
-    category: 'Demo Module',
-    scopes: ['global'],
-    run() {},
-  }),
+  () =>
+    commandHost.hostFor('demo-module').registerCommand({
+      id: 'untitled',
+      title: '  ',
+      category: 'Demo Module',
+      scopes: ['global'],
+      run() {},
+    }),
   /non-empty title/,
   'blank titles are rejected',
 )
 assert.throws(
-  () => commandHost.hostFor('demo-module').registerCommand({
-    id: 'scopeless',
-    title: 'No Scope',
-    category: 'Demo Module',
-    scopes: [],
-    run() {},
-  }),
+  () =>
+    commandHost.hostFor('demo-module').registerCommand({
+      id: 'scopeless',
+      title: 'No Scope',
+      category: 'Demo Module',
+      scopes: [],
+      run() {},
+    }),
   /at least one scope/,
   'commands must declare a scope so dispatch and the palette can gate them',
 )
@@ -317,22 +324,24 @@ assert.equal(
   'settings sections record their owning module for enablement gating',
 )
 assert.throws(
-  () => sectionHost.hostFor('third-module').registerSettingsSection({
-    id: 'demo-general',
-    label: 'Impostor',
-    icon: sectionIcon,
-    Component: sectionComponent,
-  }),
+  () =>
+    sectionHost.hostFor('third-module').registerSettingsSection({
+      id: 'demo-general',
+      label: 'Impostor',
+      icon: sectionIcon,
+      Component: sectionComponent,
+    }),
   /Settings section "demo-general" is already registered by module "demo-module"/,
   'duplicate section ids fail with an explicit error naming the owner',
 )
 assert.throws(
-  () => sectionHost.hostFor('demo-module').registerSettingsSection({
-    id: '   ',
-    label: 'Blank',
-    icon: sectionIcon,
-    Component: sectionComponent,
-  }),
+  () =>
+    sectionHost.hostFor('demo-module').registerSettingsSection({
+      id: '   ',
+      label: 'Blank',
+      icon: sectionIcon,
+      Component: sectionComponent,
+    }),
   /non-empty string/,
   'blank section ids are rejected',
 )
@@ -344,7 +353,7 @@ assert.deepEqual(
 assert.deepEqual(
   sectionHost.getSettingsSections((moduleId) => moduleId !== 'demo-module').map((section) => section.id),
   ['other-general'],
-  'a disabled module\'s section is filtered out reactively',
+  "a disabled module's section is filtered out reactively",
 )
 assert.deepEqual(
   sectionHost.getSettingsSections(() => true).map((section) => section.id),
@@ -388,7 +397,7 @@ assert.deepEqual(
 assert.deepEqual(
   navHost.getSidebarNavEntries((moduleId) => moduleId !== 'roadmap').map((entry) => entry.id),
   ['compass'],
-  'a disabled module\'s nav door is filtered out reactively — the toggle needs no reload',
+  "a disabled module's nav door is filtered out reactively — the toggle needs no reload",
 )
 assert.deepEqual(
   navHost.getSidebarNavEntries(() => true).map((entry) => entry.id),
@@ -414,7 +423,10 @@ doorBadgeHost.hostFor('calendar').registerDoorBadge({
 })
 assert.deepEqual(
   doorBadgeHost.getDoorBadges().map((badge) => [badge.rowId, badge.moduleId, badge.getWaitingCount()]),
-  [['calendar', 'calendar', 2], ['agenda', 'calendar', 1]],
+  [
+    ['calendar', 'calendar', 2],
+    ['agenda', 'calendar', 1],
+  ],
   'both doors contribute waiting counts under the owning module',
 )
 assert.equal(
@@ -434,17 +446,19 @@ assert.throws(
 )
 assert.throws(
   () =>
-    createRendererHost().hostFor('calendar').registerDoorBadge({
-      rowId: '  ',
-      getWaitingCount: () => 0,
-      subscribe: () => () => undefined,
-    }),
+    createRendererHost()
+      .hostFor('calendar')
+      .registerDoorBadge({
+        rowId: '  ',
+        getWaitingCount: () => 0,
+        subscribe: () => () => undefined,
+      }),
   /row id must be a non-empty string/,
 )
 assert.deepEqual(
   doorBadgeHost.getDoorBadges((moduleId) => moduleId !== 'calendar').map((badge) => badge.rowId),
   [],
-  'a disabled module\'s door badges are filtered out reactively',
+  "a disabled module's door badges are filtered out reactively",
 )
 
 console.log('renderer host door badge tests passed')
@@ -455,7 +469,9 @@ const topBarHost = createRendererHost()
 const topBarComponent = () => {
   throw new Error('top bar item component should not be evaluated during registration')
 }
-topBarHost.hostFor('voice-dictation').registerTopBarItem({ id: 'voice-dictation', order: 10, Component: topBarComponent })
+topBarHost
+  .hostFor('voice-dictation')
+  .registerTopBarItem({ id: 'voice-dictation', order: 10, Component: topBarComponent })
 topBarHost.hostFor('acme.compass').registerTopBarItem({ id: 'compass', order: 5, Component: topBarComponent })
 
 assert.equal(
@@ -464,7 +480,8 @@ assert.equal(
   'top bar items record their owning module for enablement gating',
 )
 assert.throws(
-  () => topBarHost.hostFor('impostor').registerTopBarItem({ id: 'voice-dictation', order: 1, Component: topBarComponent }),
+  () =>
+    topBarHost.hostFor('impostor').registerTopBarItem({ id: 'voice-dictation', order: 1, Component: topBarComponent }),
   /Top bar item "voice-dictation" is already registered by module "voice-dictation"/,
   'duplicate top bar item ids fail with an explicit error naming the owner',
 )
@@ -481,7 +498,7 @@ assert.deepEqual(
 assert.deepEqual(
   topBarHost.getTopBarItems((moduleId) => moduleId !== 'voice-dictation').map((item) => item.id),
   ['compass'],
-  'a disabled module\'s top bar control is filtered out reactively — the toggle needs no reload',
+  "a disabled module's top bar control is filtered out reactively — the toggle needs no reload",
 )
 assert.deepEqual(
   topBarHost.getTopBarItems(() => true).map((item) => item.id),
@@ -574,7 +591,7 @@ assert.deepEqual(
 assert.deepEqual(
   surfaceHost.getGlobalSurfaces((moduleId) => moduleId !== 'roadmap').map((surface) => surface.id),
   ['compass'],
-  'a disabled module\'s surface is filtered out reactively',
+  "a disabled module's surface is filtered out reactively",
 )
 assert.deepEqual(
   surfaceHost.getGlobalSurfaces(() => true).map((surface) => surface.id),
@@ -610,9 +627,12 @@ assert.deepEqual(
     'a registered door carries its views through to the drawer that places them',
   )
   assert.throws(
-    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
-      id: 'blank-label', label: '  ', Component: surfaceComponent,
-    }),
+    () =>
+      doorHost.hostFor('acme.compass').registerGlobalSurface({
+        id: 'blank-label',
+        label: '  ',
+        Component: surfaceComponent,
+      }),
     /empty label/,
     'a door with a blank label is rejected — omitting it is how a door says it names itself elsewhere',
   )
@@ -620,29 +640,35 @@ assert.deepEqual(
   // blank or duplicated one would light two rows at once — or none — instead of
   // failing here.
   assert.throws(
-    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
-      id: 'blank-view-id', Component: surfaceComponent,
-      views: [{ id: '  ', label: 'A', Icon: chromeIcon, open() {} }],
-    }),
+    () =>
+      doorHost.hostFor('acme.compass').registerGlobalSurface({
+        id: 'blank-view-id',
+        Component: surfaceComponent,
+        views: [{ id: '  ', label: 'A', Icon: chromeIcon, open() {} }],
+      }),
     /view with an empty id/,
     'a view without an id is rejected: nothing could ever publish it',
   )
   assert.throws(
-    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
-      id: 'blank-view-label', Component: surfaceComponent,
-      views: [{ id: 'a', label: '  ', Icon: chromeIcon, open() {} }],
-    }),
+    () =>
+      doorHost.hostFor('acme.compass').registerGlobalSurface({
+        id: 'blank-view-label',
+        Component: surfaceComponent,
+        views: [{ id: 'a', label: '  ', Icon: chromeIcon, open() {} }],
+      }),
     /non-empty label/,
     'a view without a label is rejected — the label is the drawer row’s name',
   )
   assert.throws(
-    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
-      id: 'dupe-views', Component: surfaceComponent,
-      views: [
-        { id: 'a', label: 'A', Icon: chromeIcon, open() {} },
-        { id: 'a', label: 'Also A', Icon: chromeIcon, open() {} },
-      ],
-    }),
+    () =>
+      doorHost.hostFor('acme.compass').registerGlobalSurface({
+        id: 'dupe-views',
+        Component: surfaceComponent,
+        views: [
+          { id: 'a', label: 'A', Icon: chromeIcon, open() {} },
+          { id: 'a', label: 'Also A', Icon: chromeIcon, open() {} },
+        ],
+      }),
     /registers view "a" twice/,
     'two views cannot share an id, or the published view would select both rows',
   )
@@ -650,7 +676,8 @@ assert.deepEqual(
   // was then kept untrimmed, so the drawer's lookup missed it and the row could
   // never be selected — with nothing on screen to explain why.
   doorHost.hostFor('acme.compass').registerGlobalSurface({
-    id: 'padded-views', Component: surfaceComponent,
+    id: 'padded-views',
+    Component: surfaceComponent,
     views: [{ id: '  near  ', label: 'Near', Icon: chromeIcon, open() {} }],
   })
   assert.deepEqual(
@@ -663,7 +690,8 @@ assert.deepEqual(
   // not the drawer's lookup, not `activeGlobalSurface`, not the door that opens
   // it. The mount would simply never happen.
   doorHost.hostFor('acme.compass').registerGlobalSurface({
-    id: '  padded-surface  ', Component: surfaceComponent,
+    id: '  padded-surface  ',
+    Component: surfaceComponent,
   })
   assert.equal(
     doorHost.getGlobalSurface('padded-surface')?.id,
@@ -674,17 +702,21 @@ assert.deepEqual(
   // unknown value fell through to the more destructive default: a drawer row
   // that meant `inline` would have deleted the drawer that opened it, silently.
   assert.throws(
-    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
-      id: 'bad-placement', Component: surfaceComponent,
-      railPlacement: 'floating' as never,
-    }),
+    () =>
+      doorHost.hostFor('acme.compass').registerGlobalSurface({
+        id: 'bad-placement',
+        Component: surfaceComponent,
+        railPlacement: 'floating' as never,
+      }),
     /unknown railPlacement/,
     'an unrecognised railPlacement is rejected rather than defaulting to taking the column',
   )
   assert.throws(
-    () => doorHost.hostFor('acme.compass').registerGlobalSurface({
-      id: 'extensions-home', Component: surfaceComponent,
-    }),
+    () =>
+      doorHost.hostFor('acme.compass').registerGlobalSurface({
+        id: 'extensions-home',
+        Component: surfaceComponent,
+      }),
     /reserved for the app/,
     'the "extensions-home" id is reserved — the Extensions home is the app\'s own, never a module\'s to claim',
   )
@@ -708,10 +740,18 @@ const modalIcon = () => {
   throw new Error('modal surface icon should not be evaluated during registration')
 }
 modalHost.hostFor('design').registerModalSurface({
-  id: 'design', order: 30, label: 'Design', Icon: modalIcon, Component: modalComponent,
+  id: 'design',
+  order: 30,
+  label: 'Design',
+  Icon: modalIcon,
+  Component: modalComponent,
 })
 modalHost.hostFor('acme.compass').registerModalSurface({
-  id: 'compass', order: 15, label: 'Compass', Icon: modalIcon, Component: modalComponent,
+  id: 'compass',
+  order: 15,
+  label: 'Compass',
+  Icon: modalIcon,
+  Component: modalComponent,
 })
 
 assert.equal(
@@ -721,23 +761,38 @@ assert.equal(
 )
 assert.equal(modalHost.getModalSurface('missing'), undefined, 'an unregistered modal surface id resolves to undefined')
 assert.throws(
-  () => modalHost.hostFor('impostor').registerModalSurface({
-    id: 'design', order: 1, label: 'Design', Icon: modalIcon, Component: modalComponent,
-  }),
+  () =>
+    modalHost.hostFor('impostor').registerModalSurface({
+      id: 'design',
+      order: 1,
+      label: 'Design',
+      Icon: modalIcon,
+      Component: modalComponent,
+    }),
   /Modal surface "design" is already registered by module "design"/,
   'duplicate modal surface ids fail with an explicit error naming the owner',
 )
 assert.throws(
-  () => modalHost.hostFor('design').registerModalSurface({
-    id: '  ', order: 1, label: 'X', Icon: modalIcon, Component: modalComponent,
-  }),
+  () =>
+    modalHost.hostFor('design').registerModalSurface({
+      id: '  ',
+      order: 1,
+      label: 'X',
+      Icon: modalIcon,
+      Component: modalComponent,
+    }),
   /non-empty string/,
   'blank modal surface ids are rejected before registration',
 )
 assert.throws(
-  () => modalHost.hostFor('design').registerModalSurface({
-    id: 'blank-label', order: 1, label: '  ', Icon: modalIcon, Component: modalComponent,
-  }),
+  () =>
+    modalHost.hostFor('design').registerModalSurface({
+      id: 'blank-label',
+      order: 1,
+      label: '  ',
+      Icon: modalIcon,
+      Component: modalComponent,
+    }),
   /non-empty label/,
   'a modal surface without a label is rejected — the label is the trigger tooltip and the dialog name',
 )
@@ -746,9 +801,14 @@ assert.throws(
 // is made of doors. It lives on `registerGlobalSurface` instead, asserted above.
 
 assert.throws(
-  () => modalHost.hostFor('acme.compass').registerModalSurface({
-    id: 'settings', order: 1, label: 'Settings', Icon: modalIcon, Component: modalComponent,
-  }),
+  () =>
+    modalHost.hostFor('acme.compass').registerModalSurface({
+      id: 'settings',
+      order: 1,
+      label: 'Settings',
+      Icon: modalIcon,
+      Component: modalComponent,
+    }),
   /reserved for the app/,
   'the "settings" id is reserved — core Settings never registers here, so without this a module could claim it',
 )
@@ -759,7 +819,11 @@ assert.throws(
 {
   const diffIdHost = createRendererHost()
   diffIdHost.hostFor('acme.compass').registerModalSurface({
-    id: 'diff', order: 1, label: 'Diff', Icon: modalIcon, Component: modalComponent,
+    id: 'diff',
+    order: 1,
+    label: 'Diff',
+    Icon: modalIcon,
+    Component: modalComponent,
   })
   assert.equal(
     diffIdHost.getModalSurface('diff')?.moduleId,
@@ -775,7 +839,7 @@ assert.deepEqual(
 assert.deepEqual(
   modalHost.getModalSurfaces((moduleId) => moduleId !== 'design').map((surface) => surface.id),
   ['compass'],
-  'a disabled module\'s modal surface is filtered out reactively — trigger and mount leave together',
+  "a disabled module's modal surface is filtered out reactively — trigger and mount leave together",
 )
 assert.deepEqual(
   modalHost.getModalSurfaces(() => true).map((surface) => surface.id),
@@ -800,7 +864,10 @@ assert.deepEqual(
     Component: modalComponent,
   })
   launcherHost.hostFor('design').registerModalSurface({
-    id: 'design', order: 30, label: 'Design', Component: modalComponent,
+    id: 'design',
+    order: 30,
+    label: 'Design',
+    Component: modalComponent,
   })
 
   assert.deepEqual(
@@ -816,21 +883,23 @@ assert.deepEqual(
   assert.deepEqual(
     launcherHost.getModalSurfaceLaunchers((moduleId) => moduleId !== 'acme.reviews'),
     [],
-    'a disabled module\'s row leaves the pane with the module',
+    "a disabled module's row leaves the pane with the module",
   )
   assert.equal(
     launcherHost.getModalSurfaceLaunchers()[0]?.Glyph,
     glyph,
-    'the glyph is handed through by reference — the pane draws the module\'s own mark',
+    "the glyph is handed through by reference — the pane draws the module's own mark",
   )
 
-  const bad = (launcher: unknown): (() => void) => () =>
-    launcherHost.hostFor('acme.reviews').registerModalSurface({
-      id: `bad-${Math.random()}`,
-      label: 'Bad',
-      launcher: launcher as { label: string; letter: string; Glyph: typeof glyph },
-      Component: modalComponent,
-    })
+  const bad =
+    (launcher: unknown): (() => void) =>
+    () =>
+      launcherHost.hostFor('acme.reviews').registerModalSurface({
+        id: `bad-${Math.random()}`,
+        label: 'Bad',
+        launcher: launcher as { label: string; letter: string; Glyph: typeof glyph },
+        Component: modalComponent,
+      })
   assert.throws(
     bad({ label: '   ', letter: 'X', Glyph: glyph }),
     /launcher with an empty label/,
@@ -844,13 +913,9 @@ assert.deepEqual(
   assert.throws(
     bad({ label: 'Bad', letter: '', Glyph: glyph }),
     /must be exactly one character/,
-    'and so is an empty one — losing the shortcut is the host\'s call on collision, not the module\'s',
+    "and so is an empty one — losing the shortcut is the host's call on collision, not the module's",
   )
-  assert.throws(
-    bad({ label: 'Bad', letter: 'X' }),
-    /without a Glyph/,
-    'a row with no mark is refused',
-  )
+  assert.throws(bad({ label: 'Bad', letter: 'X' }), /without a Glyph/, 'a row with no mark is refused')
 }
 
 console.log('renderer host modal surface tests passed')
@@ -930,7 +995,7 @@ assert.deepEqual(
 assert.deepEqual(
   notificationHost.getNotificationActionProviders((moduleId) => moduleId !== 'calendar'),
   [],
-  'a disabled module\'s provider is filtered out reactively',
+  "a disabled module's provider is filtered out reactively",
 )
 
 console.log('renderer host notification action provider tests passed')
@@ -972,13 +1037,17 @@ async function testBridgeInvoke(): Promise<void> {
       'invoke forwards channel and payload to the preload bridge',
     )
 
-    bridgeOutcome = { ok: false, code: 'permission_missing', message: 'Module "weather-deck" does not declare "ipc:invoke".' }
+    bridgeOutcome = {
+      ok: false,
+      code: 'permission_missing',
+      message: 'Module "weather-deck" does not declare "ipc:invoke".',
+    }
     await assert.rejects(
       () => invokeHost.invoke('weather-deck:forecast'),
       (error: unknown) =>
-        error instanceof Error
-        && /does not declare "ipc:invoke"/.test(error.message)
-        && (error as Error & { code?: string }).code === 'permission_missing',
+        error instanceof Error &&
+        /does not declare "ipc:invoke"/.test(error.message) &&
+        (error as Error & { code?: string }).code === 'permission_missing',
       'a refusal surfaces as a thrown Error carrying the message and the structured code',
     )
   } finally {
@@ -1052,10 +1121,7 @@ async function testBacklogReaderSeam(): Promise<void> {
     /Backlog module is disabled/,
     'a disabled backlog module is named as the cause',
   )
-  assert.throws(
-    () => consumer.watchBacklogItems('ws-1', () => {}),
-    /Backlog module is disabled/,
-  )
+  assert.throws(() => consumer.watchBacklogItems('ws-1', () => {}), /Backlog module is disabled/)
   kernel.setModuleEnablementResolver(() => true)
   assert.equal((await consumer.listBacklogItems('ws-3')).length, 2, 're-enabling restores access')
 
@@ -1121,11 +1187,7 @@ function testAgentIdNamespaces(): void {
     'notebooks',
     'and to the module that claimed it',
   )
-  assert.equal(
-    kernel.getAgentIdNamespace('agent-1'),
-    undefined,
-    'an ordinary workspace agent id belongs to nobody',
-  )
+  assert.equal(kernel.getAgentIdNamespace('agent-1'), undefined, 'an ordinary workspace agent id belongs to nobody')
   assert.equal(kernel.getAgentIdNamespace(''), undefined, 'an empty id never resolves to a namespace')
 
   // Enablement is live: a disabled module owns nothing, so a session in its
@@ -1226,7 +1288,9 @@ function testModuleAppState(): void {
 
 function testModuleEventSubscription(): void {
   const kernel = createRendererHost()
-  const sinks = new Set<(envelope: { sourceModuleId: string; topic: string; payload?: unknown; emittedAt: number }) => void>()
+  const sinks = new Set<
+    (envelope: { sourceModuleId: string; topic: string; payload?: unknown; emittedAt: number }) => void
+  >()
   let sourceAttachments = 0
   const wireSource = (): void => {
     kernel.setModuleEventSource((cb) => {
@@ -1350,7 +1414,11 @@ async function testWorkspaceListAndColorScheme(): Promise<void> {
   assert.equal(lists.length, 1, 'an unchanged list does not re-fire')
   workspaces = [...workspaces, { id: 'ws-3', name: 'Spike', folderPath: '/spike', mode: 'default' }]
   listListeners.forEach((emit) => emit())
-  assert.deepEqual(lists[1]?.map((workspace) => workspace.id), ['ws-1', 'ws-2', 'ws-3'], 'a change delivers the new list')
+  assert.deepEqual(
+    lists[1]?.map((workspace) => workspace.id),
+    ['ws-1', 'ws-2', 'ws-3'],
+    'a change delivers the new list',
+  )
   stopList()
   assert.equal(listListeners.size, 0, 'the returned closure detaches the watch')
 

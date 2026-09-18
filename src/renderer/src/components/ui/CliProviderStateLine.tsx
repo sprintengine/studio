@@ -1,8 +1,5 @@
 import { ProviderStateId } from './ProviderRow'
-import {
-  cliProviderStateWords,
-  type CliProviderState,
-} from './cliProviderState'
+import { cliProviderStateWords, type CliProviderState } from './cliProviderState'
 
 // The rendered state line for an agent CLI, one implementation for every host.
 // Words from `cliProviderStateWords`, identifiers mono, and nothing else: a

@@ -62,7 +62,10 @@ run('a group that does not fit continues onto the next page, under a heading tha
 
 run('an empty group takes no space and draws no heading', () => {
   const view = deriveCataloguePage({ groups: groups(0, 3, 0), page: 1, pageSize: 12 })
-  assert.deepEqual(view.groups.map((group) => group.key), ['g1'])
+  assert.deepEqual(
+    view.groups.map((group) => group.key),
+    ['g1'],
+  )
   assert.equal(view.total, 3)
 })
 
@@ -88,10 +91,7 @@ run('an empty tab still has one page, and its sentence says what is missing', ()
 })
 
 run('the range sentence says where you are, in words', () => {
-  assert.equal(
-    catalogueRangeLabel({ rangeStart: 13, rangeEnd: 24, total: 318 }),
-    'Showing 13–24 of 318',
-  )
+  assert.equal(catalogueRangeLabel({ rangeStart: 13, rangeEnd: 24, total: 318 }), 'Showing 13–24 of 318')
 })
 
 run('a search or a tab change lands on page 1; the same list keeps its page', () => {

@@ -98,7 +98,8 @@ async function runChangelistCall(
 /** Re-read from the store — after a commit, a discard, or anything else that
  *  changes which paths git reports. */
 export function refreshChangelists(repoRoot: string | null): Promise<Changelist[]> {
-  if (!repoRoot || typeof window.api.getGitChangelists !== 'function') return Promise.resolve(createDefaultChangelists())
+  if (!repoRoot || typeof window.api.getGitChangelists !== 'function')
+    return Promise.resolve(createDefaultChangelists())
   const subscription = getSubscription(repoRoot)
   // Coalesce: a burst of watch ticks must not become a burst of git spawns.
   if (subscription.inFlight) return subscription.inFlight

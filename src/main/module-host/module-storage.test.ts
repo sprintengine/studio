@@ -37,10 +37,9 @@ async function main(): Promise<void> {
     assert.equal(existsSync(join(userData, 'module-storage', 'calendar', 'prefs.json')), true)
 
     // Workspace-scoped keys land in the workspace's .sprintengine/modules/<id>/.
-    assert.deepEqual(
-      await storage.set('calendar', { key: 'events', value: [{ id: 'ev-1' }], workspaceRoot }),
-      { ok: true }
-    )
+    assert.deepEqual(await storage.set('calendar', { key: 'events', value: [{ id: 'ev-1' }], workspaceRoot }), {
+      ok: true,
+    })
     assert.equal(existsSync(join(workspaceRoot, '.sprintengine', 'modules', 'calendar', 'events.json')), true)
     assert.deepEqual(await storage.get('calendar', { key: 'events', workspaceRoot }), {
       ok: true,
@@ -108,9 +107,7 @@ async function main(): Promise<void> {
     assert.deepEqual(await storage.get('calendar', { key: 'prefs' }), { ok: true, value: undefined, found: false })
 
     // Concurrent sets serialize — last write wins, file stays valid JSON.
-    await Promise.all(
-      Array.from({ length: 8 }, (_, index) => storage.set('calendar', { key: 'race', value: index }))
-    )
+    await Promise.all(Array.from({ length: 8 }, (_, index) => storage.set('calendar', { key: 'race', value: index })))
     const settled = await storage.get('calendar', { key: 'race' })
     assert.equal(settled.ok, true)
     if (settled.ok) assert.equal(typeof settled.value, 'number')

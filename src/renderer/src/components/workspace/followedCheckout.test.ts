@@ -28,8 +28,18 @@ const workspace = (over: Partial<FollowedCheckoutWorkspace> = {}): FollowedCheck
   id: 'ws',
   folderPath: '/repo',
   agents: {
-    a1: { id: 'a1', name: 'Conor Kirby', cli: 'claude-code', execution: { mode: 'current_workspace', worktreeId: null, cwd: '/repo' } },
-    a2: { id: 'a2', name: 'Aine Carey', cli: 'codex', execution: { mode: 'current_workspace', worktreeId: null, cwd: '/repo' } },
+    a1: {
+      id: 'a1',
+      name: 'Conor Kirby',
+      cli: 'claude-code',
+      execution: { mode: 'current_workspace', worktreeId: null, cwd: '/repo' },
+    },
+    a2: {
+      id: 'a2',
+      name: 'Aine Carey',
+      cli: 'codex',
+      execution: { mode: 'current_workspace', worktreeId: null, cwd: '/repo' },
+    },
   } as never,
   ...over,
 })
@@ -69,7 +79,10 @@ const inWorktree = {
 // branch, still attributed.
 {
   const followed = followedCheckoutOf(workspace(), 'a1', [
-    session({ sessionId: 's1', observedCheckout: { ...inWorktree, cwd: '/repo/src', gitRoot: '/repo', branch: 'main', isLinkedWorktree: false } }),
+    session({
+      sessionId: 's1',
+      observedCheckout: { ...inWorktree, cwd: '/repo/src', gitRoot: '/repo', branch: 'main', isLinkedWorktree: false },
+    }),
   ])
   assert.equal(followed.probePath, '/repo')
   assert.equal(followed.branch, 'main')
@@ -80,7 +93,12 @@ const inWorktree = {
 // workspace checkout, and the branch is left to it.
 {
   const followed = followedCheckoutOf(workspace(), 'a1', [session({ sessionId: 's1' })])
-  assert.deepEqual(followed, { probePath: '/repo', branch: null, isRepo: null, agent: { agentId: 'a1', name: 'Conor Kirby', cli: 'claude-code' } })
+  assert.deepEqual(followed, {
+    probePath: '/repo',
+    branch: null,
+    isRepo: null,
+    agent: { agentId: 'a1', name: 'Conor Kirby', cli: 'claude-code' },
+  })
 }
 
 // The focused agent's tab closed and its session gone: still the one followed
@@ -94,7 +112,10 @@ const inWorktree = {
 // A focused agent that no longer exists: the most recently active live agent
 // stands in; with none, the workspace's own checkout.
 {
-  const sessions = [session({ sessionId: 's1', lastOutputAt: 10 }), session({ sessionId: 's2', agentId: 'a2', lastOutputAt: 20, observedCheckout: inWorktree })]
+  const sessions = [
+    session({ sessionId: 's1', lastOutputAt: 10 }),
+    session({ sessionId: 's2', agentId: 'a2', lastOutputAt: 20, observedCheckout: inWorktree }),
+  ]
   assert.equal(followedCheckoutOf(workspace(), 'gone', sessions).agent?.agentId, 'a2')
   assert.equal(followedCheckoutOf(workspace(), 'gone', sessions).probePath, '/repo/.claude/worktrees/rail')
   assert.equal(followedCheckoutOf(workspace(), 'gone', []).agent, null)
@@ -102,7 +123,12 @@ const inWorktree = {
 
 // A live session speaks for the agent over a parked one, whatever their order.
 {
-  const parked = session({ sessionId: 'old', processAlive: false, suspended: true, observedCheckout: { ...inWorktree, gitRoot: '/repo', cwd: '/repo', branch: 'old-branch', isLinkedWorktree: false } })
+  const parked = session({
+    sessionId: 'old',
+    processAlive: false,
+    suspended: true,
+    observedCheckout: { ...inWorktree, gitRoot: '/repo', cwd: '/repo', branch: 'old-branch', isLinkedWorktree: false },
+  })
   const live = session({ sessionId: 'new', observedCheckout: inWorktree, startedAt: 5 })
   assert.equal(followedCheckoutOf(workspace(), 'a1', [parked, live]).branch, 'worktree-workspace-rail')
   assert.equal(followedCheckoutOf(workspace(), 'a1', [live, parked]).branch, 'worktree-workspace-rail')
@@ -112,7 +138,17 @@ const inWorktree = {
 // no repository claimed — the workspace's branch is not its answer.
 {
   const followed = followedCheckoutOf(workspace(), 'a1', [
-    session({ sessionId: 's1', observedCheckout: { ...inWorktree, cwd: '/tmp/x', gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false } }),
+    session({
+      sessionId: 's1',
+      observedCheckout: {
+        ...inWorktree,
+        cwd: '/tmp/x',
+        gitRoot: null,
+        repoRoot: null,
+        branch: null,
+        isLinkedWorktree: false,
+      },
+    }),
   ])
   assert.equal(followed.probePath, null)
   assert.equal(followed.isRepo, false)
@@ -124,7 +160,7 @@ const inWorktree = {
   const own = followedCheckoutOf(
     workspace({ folderPath: '/repo/.worktrees/feat', worktree: { branch: 'feat' } as never, agents: {} as never }),
     undefined,
-    []
+    [],
   )
   assert.equal(own.probePath, '/repo/.worktrees/feat')
   assert.equal(own.branch, 'feat')
