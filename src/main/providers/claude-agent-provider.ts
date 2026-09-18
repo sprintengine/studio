@@ -759,7 +759,7 @@ function withContinuationTurnId(event: ConversationEvent, turnId: string): Conve
   if (SESSION_SCOPED_EVENT_TYPES.has(event.type)) return event
   const current = event.payload?.turnId
   if (typeof current === 'string' && current) return event
-  return { ...event, payload: { ...(event.payload ?? {}), turnId } }
+  return { ...event, payload: { ...event.payload, turnId } }
 }
 
 // Spawn the SDK-computed command ourselves so the child PID lands on the
@@ -920,7 +920,7 @@ export function mapSdkMessage(
           toolCallId: typeof block.id === 'string' ? block.id : undefined,
           tool: block.name,
           summary: summarizeToolInput(block.name, toolInput),
-          ...(computeEditDiffCounts(block.name, toolInput) ?? {}),
+          ...computeEditDiffCounts(block.name, toolInput),
           ...(parentToolUseId ? { parentToolUseId } : {}),
           ...subagentLaneFields(block.name, toolInput),
         }

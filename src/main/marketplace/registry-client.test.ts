@@ -83,7 +83,7 @@ async function writeMarketplace(path: string, marketplace: MarketplaceIndex): Pr
 function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
   return new Response(`${JSON.stringify(value)}\n`, {
     status: 200,
-    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    headers: { 'content-type': 'application/json', ...init.headers },
     ...init,
   })
 }

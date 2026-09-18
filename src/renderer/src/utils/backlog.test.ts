@@ -712,7 +712,7 @@ run('Backlog scan/refresh resolves visible links and persists status through the
 run('a Backlog item can be marked done manually', () => {
   assert.match(
     backlogPanelSource,
-    /id: 'mark-completed', label: 'Mark completed'/,
+    /id: 'mark-completed',\s*label: 'Mark completed'/,
     'the detail overflow exposes a manual completed status action',
   )
   assert.match(

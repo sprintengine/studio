@@ -885,7 +885,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   }, [])
 
   const setTabHighlightColor = useCallback((node: TabNode, nextColor: HighlightColor | undefined) => {
-    const nextConfig = { ...(node.getConfig() ?? {}), highlightColor: nextColor }
+    const nextConfig = { ...node.getConfig(), highlightColor: nextColor }
 
     // Preserve any existing non-highlight class names on the tab while we
     // replace the tab-highlight-* class.

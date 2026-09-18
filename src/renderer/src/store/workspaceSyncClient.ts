@@ -424,7 +424,7 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
       unsubscribe = api.onWorkspaceSyncEvent((event) => {
         void enqueueEvent(event)
       })
-    } catch (error) {
+    } catch {
       log({ phase: 'listener', reason: 'subscribe_failed', message: 'Failed to subscribe to workspace sync events.' })
       unsubscribe = null
     }

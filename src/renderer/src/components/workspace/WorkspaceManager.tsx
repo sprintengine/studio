@@ -3287,7 +3287,12 @@ export default function WorkspaceManager() {
         },
       },
     })
-  }, [addWorkspace, setActiveWorkspaceForWindow, setNewChatPanelState, showToast, workspaceWindowId])
+  }, [
+	addWorkspace,
+	setActiveWorkspaceForWindow,
+	setNewChatPanelState,
+	workspaceWindowId
+])
 
   const confirmRemoteNewChat = useCallback(async (launch: RemoteNewChatLaunch): Promise<void> => {
     const created = await window.api

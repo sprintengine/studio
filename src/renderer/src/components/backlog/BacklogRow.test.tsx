@@ -480,7 +480,7 @@ run('panel rows resolve the row color (highlight ▸ epic ▸ derived risk) thro
   ] as const) {
     assert.match(
       source,
-      /backlogRowPaintClass\(\{ color(: \w+)?, litFill, selected \}\)/,
+      /backlogRowPaintClass\(\{\s*color(: \w+)?,\s*litFill,\s*selected,?\s*\}\)/,
       `the ${surface} list paints its rows through the shared paint-order seam, not its own ternary`,
     )
     assert.ok(

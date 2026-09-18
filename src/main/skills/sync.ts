@@ -246,7 +246,7 @@ export function refreshSourceMcpServers(input: {
  * nothing, because the server no longer reads it.
  */
 function refreshedEnv(fresh: McpServerConfig, installed: McpServerConfig): Record<string, string> {
-  const next: Record<string, string> = { ...(fresh.env ?? {}) }
+  const next: Record<string, string> = { ...fresh.env }
   for (const name of fresh.envVarNames ?? []) {
     if (name in next) continue
     const filledIn = installed.env?.[name]

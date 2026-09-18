@@ -19,7 +19,7 @@ function stubGitHub(replies: (call: Call) => Reply): { calls: Call[]; fetcher: t
     const reply = replies(call)
     return new Response(JSON.stringify(reply.body ?? {}), {
       status: reply.status ?? 200,
-      headers: { 'content-type': 'application/json', ...(reply.headers ?? {}) },
+      headers: { 'content-type': 'application/json', ...reply.headers },
     })
   }) as unknown as typeof fetch
   return { calls, fetcher }

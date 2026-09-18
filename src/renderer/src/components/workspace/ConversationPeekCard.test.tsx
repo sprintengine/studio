@@ -102,8 +102,8 @@ function card(
     <ConversationPeekCard
       identity={{
         ...IDENTITY,
-        ...(over.identity ?? {}),
-        agent: { ...AGENT, ...(over.agent ?? {}) },
+        ...over.identity,
+        agent: { ...AGENT, ...over.agent },
       }}
       peek={over.peek === undefined ? peek() : over.peek}
       loading={over.loading ?? false}

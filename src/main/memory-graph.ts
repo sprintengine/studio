@@ -283,7 +283,7 @@ function parseFrontmatter(content: string): ParsedFrontmatter {
       currentList.push(stripQuotes(listItem[1]))
       continue
     }
-    const kv = /^([A-Za-z0-9_\-]+)\s*:\s*(.*)$/.exec(line)
+    const kv = /^([A-Za-z0-9_-]+)\s*:\s*(.*)$/.exec(line)
     if (!kv) continue
     if (currentKey && currentList) {
       data[currentKey] = currentList

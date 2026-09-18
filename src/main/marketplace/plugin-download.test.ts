@@ -50,7 +50,7 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
 function jsonResponse(value: unknown, init: ResponseInit = {}): Response {
   return new Response(`${JSON.stringify(value)}\n`, {
     status: 200,
-    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    headers: { 'content-type': 'application/json', ...init.headers },
     ...init,
   })
 }

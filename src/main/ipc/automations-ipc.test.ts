@@ -416,7 +416,7 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
   const seededState = await store.writeState({
     ...(stateBeforeDelete.value ?? { nextRunAtByAutomationId: {}, lock: null }),
     triggerEventDedupByAutomationId: {
-      ...(stateBeforeDelete.value?.triggerEventDedupByAutomationId ?? {}),
+      ...stateBeforeDelete.value?.triggerEventDedupByAutomationId,
       'nightly-review': {
         'webhook:deploy:delivery-1': '2026-06-18T00:06:00.000Z',
       },
@@ -425,7 +425,7 @@ async function testDefinitionRoundTripAndRunNow(): Promise<void> {
       },
     },
     triggerBlockedReasonByAutomationId: {
-      ...(stateBeforeDelete.value?.triggerBlockedReasonByAutomationId ?? {}),
+      ...stateBeforeDelete.value?.triggerBlockedReasonByAutomationId,
       'nightly-review': 'Blocked before delete.',
       'other-automation': 'Still blocked.',
     },

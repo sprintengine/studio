@@ -49,8 +49,8 @@ export class TranscriptionError extends Error {
 export function buildTranscriptionUrl(serverUrl: string): string {
   const trimmed = serverUrl.trim().replace(/\/+$/u, '')
   if (!trimmed) throw new TranscriptionError('No transcription server URL is configured.')
-  if (/\/v1\/transcriptions$/u.test(trimmed)) return trimmed
-  if (/\/v1$/u.test(trimmed)) return `${trimmed}/transcriptions`
+  if (trimmed.endsWith('/v1/transcriptions')) return trimmed
+  if (trimmed.endsWith('/v1')) return `${trimmed}/transcriptions`
   return `${trimmed}/v1/transcriptions`
 }
 

@@ -504,7 +504,7 @@ function quotePathForTerminal(pathValue: string, style: TerminalPathStyle): stri
     return `'${pathValue.replace(/'/g, "''")}'`
   }
 
-  return `'${pathValue.replace(/'/g, `'\"'\"'`)}'`
+  return `'${pathValue.replace(/'/g, `'"'"'`)}'`
 }
 
 function getRelativePath(parentPath: string, childPath: string, style: TerminalPathStyle): string | null {
@@ -542,7 +542,7 @@ function normalizeSeparatorsForStyle(pathValue: string, style: TerminalPathStyle
 }
 
 function inferPathStyle(pathValue: string): TerminalPathStyle {
-  if (/^[A-Za-z]:[\\/]/.test(pathValue) || /^\\\\/.test(pathValue)) return 'windows'
+  if (/^[A-Za-z]:[\\/]/.test(pathValue) || pathValue.startsWith('\\\\')) return 'windows'
   if (/^\/mnt\/[A-Za-z]\//.test(pathValue)) return 'wsl'
   return 'posix'
 }

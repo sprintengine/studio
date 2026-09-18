@@ -40,16 +40,18 @@ function harness() {
   assert.equal(h.carrier.focusedAgentByWorkspaceId.other, 'b1', 'another workspace is untouched')
 }
 
-const session = (over: Partial<FocusFallbackSession>): FocusFallbackSession => ({
-  agentId: 'a1',
-  workspaceId: 'ws',
-  kind: 'agent',
-  processAlive: true,
-  suspended: false,
-  lastInputAt: null,
-  lastOutputAt: null,
-  ...over,
-});
+function session(over: Partial<FocusFallbackSession>): FocusFallbackSession {
+  return {
+    agentId: 'a1',
+    workspaceId: 'ws',
+    kind: 'agent',
+    processAlive: true,
+    suspended: false,
+    lastInputAt: null,
+    lastOutputAt: null,
+    ...over,
+  }
+}
 
 // The last focused agent wins while it still exists — even with its tab
 // closed and its session gone.

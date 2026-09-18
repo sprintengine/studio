@@ -135,7 +135,7 @@ function createFakeStore(windows: WorkspaceWindowState[], activeWorkspaceId: Wor
       const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
       if (!workspace) return
       workspace.agents[agentId] = {
-        ...(workspace.agents[agentId] ?? {}),
+        ...workspace.agents[agentId],
         id: agentId,
         name: agentId,
         status: 'idle',

@@ -568,7 +568,7 @@ function opencodeRemoteHeaders(server: McpServerConfig): Record<string, string> 
     ? Object.fromEntries(
         Object.entries(server.headers ?? {}).filter(([key]) => key.toLowerCase() !== 'authorization')
       )
-    : { ...(server.headers ?? {}) }
+    : { ...server.headers }
   if (server.envVarNames?.[0]) {
     headers.Authorization = `Bearer {env:${server.envVarNames[0]}}`
   }
@@ -731,7 +731,7 @@ function toClaudeServer(server: McpServerConfig): Record<string, unknown> {
 }
 
 function httpHeadersForClaude(server: McpServerConfig): { headers?: Record<string, string> } {
-  const headers = { ...(server.headers ?? {}) }
+  const headers = { ...server.headers }
   if (!headers.Authorization && server.envVarNames?.[0]) {
     headers.Authorization = `Bearer \${${server.envVarNames[0]}}`
   }

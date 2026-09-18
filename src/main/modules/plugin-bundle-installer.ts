@@ -291,7 +291,7 @@ function installMcpComponent(
   const nextSettings: McpSettings = {
     syncEnabled: true,
     servers: {
-      ...(input.mcpSettings?.servers ?? {}),
+      ...input.mcpSettings?.servers,
       ...Object.fromEntries(component.servers.map((server) => [server.id, server])),
     },
   }
@@ -761,7 +761,7 @@ function failure(
   issues?: MarketplaceManifestIssue[],
   extra?: Pick<Extract<MarketplacePluginInstallResult, { ok: false }>, 'trust' | 'loadEligible'>
 ): { ok: false; result: MarketplacePluginInstallResult } {
-  return { ok: false, result: { ok: false, message, ...(component ? { component } : {}), ...(issues ? { issues } : {}), ...(extra ?? {}) } }
+  return { ok: false, result: { ok: false, message, ...(component ? { component } : {}), ...(issues ? { issues } : {}), ...extra } }
 }
 
 function componentFailure(

@@ -713,7 +713,7 @@ export function recordEdit(
 
   return normalizeChangelists(
     normalized.map((list) => {
-      const spans = { ...(list.spans ?? {}) }
+      const spans = { ...list.spans }
       const owned = mergeSpans(working.get(list.id) ?? [])
       if (owned.length > 0) spans[target] = owned
       else delete spans[target]

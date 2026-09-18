@@ -396,7 +396,7 @@ async function installInlineMcpEntry(
     const nextSettings: McpSettings = {
       syncEnabled: true,
       servers: {
-        ...(input.mcpSettings?.servers ?? {}),
+        ...input.mcpSettings?.servers,
         ...Object.fromEntries(servers.map((server) => [server.id, server])),
       },
     }
@@ -979,7 +979,7 @@ function removeMcpComponent(
   if (!workspaceRoot) throw new Error('Workspace root is required to uninstall MCP components.')
 
   const serverIds = component.serverIds?.length ? component.serverIds : component.id.split(',').map((id) => id.trim()).filter(Boolean)
-  const currentServers = { ...(currentSettings?.servers ?? {}) }
+  const currentServers = { ...currentSettings?.servers }
   const disabledServers: Record<string, McpServerConfig> = {}
   for (const serverId of serverIds) {
     const server = currentServers[serverId] ?? component.servers?.find((candidate) => candidate.id === serverId)
@@ -1138,7 +1138,7 @@ function previousMcpSettings(
 ): McpSettings | undefined {
   const mcpComponents = components.filter((component) => component.kind === 'mcp')
   if (mcpComponents.length === 0) return undefined
-  const servers = { ...(currentSettings?.servers ?? {}) }
+  const servers = { ...currentSettings?.servers }
   for (const component of mcpComponents) {
     for (const server of component.servers ?? []) {
       servers[server.id] = { ...server, enabled: server.enabled ?? true }

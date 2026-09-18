@@ -136,19 +136,19 @@ async function main(): Promise<void> {
       if (!parts) continue
       const [, variant, utility] = parts
       let property: string | null = null
-      if (/^bg-/.test(utility)) property = 'background'
-      else if (/^text-\[color:/.test(utility)) property = 'color'
+      if (utility.startsWith('bg-')) property = 'background'
+      else if (utility.startsWith('text-[color:')) property = 'color'
       else if (/^text-(?:micro|meta|body|heading|title|\[length:)/.test(utility)) property = 'font-size'
       else if (/^border(?:-\d+)?$/.test(utility)) property = 'border-width'
       else if (/^border-(?:solid|dashed|dotted|none)$/.test(utility)) property = 'border-style'
-      else if (/^border-\[color:/.test(utility)) property = 'border-color'
-      else if (/^rounded/.test(utility)) property = 'border-radius'
-      else if (/^justify-/.test(utility)) property = 'justify-content'
-      else if (/^items-/.test(utility)) property = 'align-items'
-      else if (/^h-/.test(utility)) property = 'height'
-      else if (/^w-/.test(utility)) property = 'width'
-      else if (/^cursor-/.test(utility)) property = 'cursor'
-      else if (/^opacity-/.test(utility)) property = 'opacity'
+      else if (utility.startsWith('border-[color:')) property = 'border-color'
+      else if (utility.startsWith('rounded')) property = 'border-radius'
+      else if (utility.startsWith('justify-')) property = 'justify-content'
+      else if (utility.startsWith('items-')) property = 'align-items'
+      else if (utility.startsWith('h-')) property = 'height'
+      else if (utility.startsWith('w-')) property = 'width'
+      else if (utility.startsWith('cursor-')) property = 'cursor'
+      else if (utility.startsWith('opacity-')) property = 'opacity'
       if (!property) continue
       const key = `${variant}${property}`
       seen.set(key, (seen.get(key) ?? 0) + 1)

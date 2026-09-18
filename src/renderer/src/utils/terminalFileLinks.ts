@@ -109,7 +109,7 @@ export type TerminalFileLinkProviderOptions = {
 }
 
 const FILE_REFERENCE_PATTERN =
-  /(^|[\s"'(<{\[])([A-Za-z]:[\\/][^\s"'<>`)\]}]+|\/[^\s"'<>`)\]}]+|\.{1,2}[\\/][^\s"'<>`)\]}]+|(?:[\w@.+-]+[\\/])+[\w@.+-][^\s"'<>`]*)/gu
+  /(^|[\s"'(<{[])([A-Za-z]:[\\/][^\s"'<>`)\]}]+|\/[^\s"'<>`)\]}]+|\.{1,2}[\\/][^\s"'<>`)\]}]+|(?:[\w@.+-]+[\\/])+[\w@.+-][^\s"'<>`]*)/gu
 
 const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/u
 

@@ -915,7 +915,7 @@ function resolveConstant(file, name, depth = 0) {
       const identifier = source.slice(i, j)
       // A shared ring token is evidence on its own; the caller's
       // FOCUS_RING_PRESENT names these by identifier as well as by class.
-      if (/^FOCUS_RING_/.test(identifier)) out += ' ' + identifier
+      if (identifier.startsWith('FOCUS_RING_')) out += ' ' + identifier
       else {
         const nested = resolveConstant(file, identifier, depth + 1)
         // One unreadable link makes the whole chain unreadable: returning the
@@ -999,7 +999,7 @@ function focusRingVerdict(file, open) {
     // the interpolation is matched on its own pass.
     if (/^\$+$/.test(name)) continue
     if (KEYWORDS.has(name)) continue
-    if (/^FOCUS_RING_/.test(name)) return 'ring'
+    if (name.startsWith('FOCUS_RING_')) return 'ring'
     const value = resolveConstant(file, name)
     if (value !== null) {
       resolved += '\n' + value

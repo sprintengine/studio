@@ -1278,7 +1278,7 @@ export async function updateBacklogModuleMetadata(input: BacklogModuleMetadataIn
   return mutateItem(input.workspaceRoot, input.relativePath, (record, now) => ({
     ...record,
     metadata: {
-      ...(record.metadata ?? {}),
+      ...record.metadata,
       [moduleId]: input.value,
     },
     updatedAt: now,

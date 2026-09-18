@@ -31,6 +31,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
 function inert(): unknown {
   const handle = (() => {}) as (() => void) & { then?: unknown; catch?: unknown; finally?: unknown }
   const settled = Promise.resolve(undefined)
+  // oxlint-disable-next-line unicorn/no-thenable -- the fake handle stands in for a promise-like one
   handle.then = settled.then.bind(settled)
   handle.catch = settled.catch.bind(settled)
   handle.finally = settled.finally.bind(settled)

@@ -48,6 +48,7 @@ export class ModuleSectionErrorBoundary extends React.Component<BoundaryProps, B
     // The boundary instance is reused when the user switches sections; a
     // failure in one module's section must not stick to the next one.
     if (previous.section.id !== this.props.section.id && this.state.failed) {
+      // oxlint-disable-next-line react/no-did-update-set-state -- guarded reset, runs once per switch
       this.setState({ failed: false })
     }
   }

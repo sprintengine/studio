@@ -164,7 +164,7 @@ function agentTabNode(
           contentClassName: AGENT_TAB_SPAWN_FLASH_PANEL_CLASS,
         }
       : {}),
-    config: { agentId, ...(config ?? {}) },
+    config: { agentId, ...config },
   }
 }
 
@@ -689,7 +689,7 @@ export function convertNewAgentTabToAgent(
     Actions.updateNodeAttributes(tabId, {
       name,
       component: 'agent',
-      config: { agentId, ...(config ?? {}) },
+      config: { agentId, ...config },
       className: withClass(node.getClassName(), AGENT_TAB_SPAWN_FLASH_CLASS),
       contentClassName: withClass(node.getContentClassName(), AGENT_TAB_SPAWN_FLASH_PANEL_CLASS),
     }),
@@ -861,7 +861,7 @@ export function remapFileTabsForPath(workspaceId: string, fromPath: string, toPa
       tabId: node.getId(),
       name: basename(nextPath),
       config: {
-        ...((node.getConfig() as Record<string, unknown> | undefined) ?? {}),
+        ...(node.getConfig() as Record<string, unknown> | undefined),
         filePath: nextPath,
       },
     })

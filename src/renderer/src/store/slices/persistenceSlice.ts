@@ -255,7 +255,7 @@ export function migratePersistedWorkspaceState(
       cliRuntimes: {
         codex: {
           ...defaults.cliRuntimes.codex,
-          ...(existing.cliRuntimes?.codex ?? {}),
+          ...existing.cliRuntimes?.codex,
           command:
             existing.cliRuntimes?.codex?.command
             ?? existing.cliCommands?.codex
@@ -263,7 +263,7 @@ export function migratePersistedWorkspaceState(
         },
         'claude-code': {
           ...defaults.cliRuntimes['claude-code'],
-          ...(existing.cliRuntimes?.['claude-code'] ?? {}),
+          ...existing.cliRuntimes?.['claude-code'],
           command:
             existing.cliRuntimes?.['claude-code']?.command
             ?? defaults.cliRuntimes['claude-code'].command,
@@ -277,13 +277,13 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
         'claude-code': {
           ...defaults.cliRuntimes['claude-code'],
-          ...(current.appSettings?.cliRuntimes?.['claude-code'] ?? {}),
+          ...current.appSettings?.cliRuntimes?.['claude-code'],
         },
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
@@ -294,10 +294,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
     }
@@ -309,10 +309,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
     }
@@ -352,10 +352,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
     }
@@ -365,10 +365,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
       recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
@@ -382,10 +382,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
       recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
@@ -399,10 +399,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
       lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(

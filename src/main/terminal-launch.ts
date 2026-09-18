@@ -493,11 +493,11 @@ function normalizeTextPaths(
 }
 
 function isNativeWindowsPath(dirPath: string): boolean {
-  return /^[A-Za-z]:[\\/]/.test(dirPath) || /^\\\\/.test(dirPath)
+  return /^[A-Za-z]:[\\/]/.test(dirPath) || dirPath.startsWith('\\\\')
 }
 
 function quotePosix(value: string): string {
-  return `'${value.replace(/'/g, `'\"'\"'`)}'`
+  return `'${value.replace(/'/g, `'"'"'`)}'`
 }
 
 function quotePosixCommand(value: string): string {
@@ -964,7 +964,7 @@ export function buildShellIntegrationSetup(shellName: string | undefined, zdotdi
       // its last act is to put `$?` back, so a command appended behind it still
       // reads the real exit status. A plain assignment rather than
       // `export NAME=…` so no shell can field-split the joined value.
-      `PROMPT_COMMAND=${quotePosix(SHELL_INTEGRATION_BASH_PROMPT_COMMAND)}\${SPRINTENGINE_USER_PROMPT_COMMAND:+"; \$SPRINTENGINE_USER_PROMPT_COMMAND"}`,
+      `PROMPT_COMMAND=${quotePosix(SHELL_INTEGRATION_BASH_PROMPT_COMMAND)}\${SPRINTENGINE_USER_PROMPT_COMMAND:+"; $SPRINTENGINE_USER_PROMPT_COMMAND"}`,
       'export PROMPT_COMMAND',
     ].join('; ')
   }
@@ -1380,7 +1380,7 @@ export function getShellLaunchConfig(
       env: mergeProviderLaunchEnv(
         {
           ...applyMergedLaunchContribution(getTerminalEnv(), merged, 'windows'),
-          ...(managedMcpEnv ?? {}),
+          ...managedMcpEnv,
         },
         providerLaunchEnv
       ),
@@ -1458,7 +1458,7 @@ export function getShellLaunchConfig(
     env: mergeProviderLaunchEnv(
       {
         ...applyMergedLaunchContribution(getTerminalEnv(), merged, 'posix'),
-        ...(managedMcpEnv ?? {}),
+        ...managedMcpEnv,
       },
       providerLaunchEnv
     ),

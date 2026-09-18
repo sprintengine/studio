@@ -75,7 +75,7 @@ function mergeBacklogObjectRecords(
     criticality: newer.criticality ?? older.criticality,
     risk: newer.risk ?? older.risk,
     highlight: newer.highlight ?? older.highlight,
-    metadata: { ...(older.metadata ?? {}), ...(newer.metadata ?? {}) },
+    metadata: { ...older.metadata, ...newer.metadata },
     links: mergeBacklogObjectLinks(older.links ?? [], newer.links ?? []),
     createdAt: earliest(a.createdAt, b.createdAt),
     updatedAt: latest(a.updatedAt, b.updatedAt),

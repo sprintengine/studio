@@ -1186,7 +1186,7 @@ function testModuleAppState(): void {
   kernel.setModuleAppStateStore({
     get: (moduleId) => store.get(moduleId) ?? empty,
     set: (moduleId, key, value) => {
-      const next = { ...(store.get(moduleId) ?? {}) }
+      const next = { ...store.get(moduleId) }
       if (value === undefined) delete next[key]
       else next[key] = value
       store.set(moduleId, next)

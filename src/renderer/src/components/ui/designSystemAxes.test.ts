@@ -39,7 +39,7 @@ function walk(dir: string, out: string[] = []): string[] {
     const full = join(dir, name)
     if (statSync(full).isDirectory()) {
       walk(full, out)
-    } else if (/\.(tsx|ts)$/.test(name) && !/\.test\./.test(name) && !/\.d\.ts$/.test(name)) {
+    } else if (/\.(tsx|ts)$/.test(name) && !/\.test\./.test(name) && !name.endsWith('.d.ts')) {
       // `.d.ts` is build output, not source. A stray `tsc` run beside the
       // sources re-declares every exported class constant as a string literal,
       // so the same off-ramp is counted twice and a directory nobody edited

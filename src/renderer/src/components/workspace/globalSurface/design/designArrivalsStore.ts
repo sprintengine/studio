@@ -107,7 +107,7 @@ export function reportDesignArrivals(
 ): void {
   if (!bundleId || !addedAt) return
   const existing = snapshot.bundles.find((bundle) => bundle.bundleId === bundleId)
-  const merged = { ...(existing?.addedAt ?? {}), ...addedAt }
+  const merged = { ...existing?.addedAt, ...addedAt }
   if (existing && existing.path === path && sameDates(existing.addedAt, merged)) return
   const row: DesignSystemBundleArrivals = { bundleId, path, addedAt: merged }
   const bundles = existing

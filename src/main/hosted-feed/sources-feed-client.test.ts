@@ -59,7 +59,7 @@ const json = (body: unknown, init: ResponseInit = {}): Response =>
   new Response(typeof body === 'string' ? body : JSON.stringify(body), {
     status: 200,
     ...init,
-    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    headers: { 'content-type': 'application/json', ...init.headers },
   })
 
 async function withDir(run: (dir: string) => Promise<void>): Promise<void> {

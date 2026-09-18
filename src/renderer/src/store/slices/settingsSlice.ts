@@ -424,10 +424,10 @@ function normalizeCliRuntimes(
   const canonicalClaude = cliRuntimes?.['claude-code']
   const merged: AppSettings['cliRuntimes'] = {
     ...defaults.cliRuntimes,
-    ...(cliRuntimes ?? {}),
+    ...cliRuntimes,
     'claude-code': {
       ...defaults.cliRuntimes['claude-code'],
-      ...(canonicalClaude ?? {}),
+      ...canonicalClaude,
     },
   }
   delete merged.claude
@@ -1544,7 +1544,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         if (!id || !settingKey) return
         const namespace = moduleSettingsNamespace(id)
         const current = normalizeModuleSettings(state.appSettings.moduleSettings)
-        const entry = { ...(current[namespace] ?? {}) }
+        const entry = { ...current[namespace] }
         if (value === undefined) {
           delete entry[settingKey]
         } else {

@@ -29,7 +29,6 @@ import vm from 'node:vm'
 
 const require = createRequire(import.meta.url)
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const ASSETS_DIR = join(ROOT, 'out/renderer/assets')
 const RUN_TIMEOUT_MS = 60_000
 
 const args = parseArgs(process.argv.slice(2))

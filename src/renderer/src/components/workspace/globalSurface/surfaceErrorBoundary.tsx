@@ -50,6 +50,7 @@ export class GlobalSurfaceErrorBoundary extends React.Component<
     // The boundary instance is reused as the operator moves between doors; a
     // failure in one surface must not stick to the next one.
     if (previous.surfaceId !== this.props.surfaceId && this.state.failed) {
+      // oxlint-disable-next-line react/no-did-update-set-state -- guarded reset, runs once per switch
       this.setState({ failed: false })
     }
   }

@@ -391,7 +391,7 @@ async function main(): Promise<void> {
     for (const tab of tabs) {
       for (const token of classesOf(tab)) {
         assert.ok(
-          !/^bg-\[color:var\(--accent-primary/.test(token),
+          !token.startsWith('bg-[color:var(--accent-primary'),
           `the accent is never a fill on the control itself, found \`${token}\``,
         )
       }
@@ -400,7 +400,7 @@ async function main(): Promise<void> {
       // violation this contract exists to catch.
       for (const element of subtree(tab)) {
         const classes = classesOf(element)
-        if (!classes.some((token) => /^bg-\[color:var\(--accent-primary/.test(token))) continue
+        if (!classes.some((token) => token.startsWith('bg-[color:var(--accent-primary'))) continue
         assert.ok(
           classes.includes('h-px') || classes.includes('w-px'),
           `only a hairline may carry the accent fill, found it on \`${classes.join(' ')}\``,
@@ -942,7 +942,7 @@ async function main(): Promise<void> {
 
   await run('2005 Point at a folder is the ONE accent-filled action on the screen', () => {
     const primaries = (Array.from(designContainer.querySelectorAll('button')) as Element[]).filter(
-      (button) => classesOf(button).some((token) => /^bg-\[color:var\(--accent-primary/.test(token)),
+      (button) => classesOf(button).some((token) => token.startsWith('bg-[color:var(--accent-primary')),
     )
     // The one accent-filled control rides the door bar (`DesignGlobalSurface`'s
     // `bar.actions`, audit 2026-09-02); the screen itself paints none.

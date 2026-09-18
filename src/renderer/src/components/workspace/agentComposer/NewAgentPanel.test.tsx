@@ -207,7 +207,7 @@ async function main(): Promise<void> {
     useWorkspaceStore.setState({
       workspaces: [
         {
-          ...(useWorkspaceStore.getState().workspaces[0] ?? {}),
+          ...useWorkspaceStore.getState().workspaces[0],
           id: 'ws-1',
           name: 'multicode',
           folderPath: '/proj',
@@ -1937,7 +1937,7 @@ async function main(): Promise<void> {
     const view = await remoteRender()
     await settle()
     await settle()
-    const before = { ...(useWorkspaceStore.getState().appSettings.projectColors ?? {}) }
+    const before = { ...useWorkspaceStore.getState().appSettings.projectColors }
     await pickMachine(view, 'Air')
     await settle()
     await settle()

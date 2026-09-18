@@ -159,7 +159,7 @@ expectIncludes(presetMenu, "event.key === 'ArrowDown'", 'preset menu roves focus
 expectIncludes(presetMenu, "event.key === 'ArrowUp'", 'preset menu roves focus on ArrowUp')
 expectIncludes(presetMenu, "event.key === 'Home'", 'preset menu roves focus to the first row on Home')
 expectIncludes(presetMenu, "event.key === 'End'", 'preset menu roves focus to the last row on End')
-expectIncludes(presetMenu, '.filter(\n    (row) => !row.disabled,\n  )', 'the walk skips disabled rows')
+expectMatches(presetMenu, /\.filter\(\s*\(row\) => !row\.disabled,?\s*\)/, 'the walk skips disabled rows')
 expectIncludes(presetMenu, "event.key === 'Enter' || event.key === ' '", 'Enter and Space activate the focused row')
 expectIncludes(presetMenu, 'export function focusActivePresetRow', 'one shared open-focus helper for every host')
 const launchPanel = read('src/renderer/src/components/workspace/agentComposer/NewAgentPanel.tsx')

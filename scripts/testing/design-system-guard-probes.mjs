@@ -58,7 +58,7 @@
 // Usage:  node scripts/testing/design-system-guard-probes.mjs
 // Exit 0 when every probe behaved as specified; 1 otherwise.
 
-import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'

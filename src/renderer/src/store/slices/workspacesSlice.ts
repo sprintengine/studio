@@ -1498,7 +1498,7 @@ export function createWorkspacesSlice(
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (!ws) return
-        const folderRoles = { ...(ws.fileExplorerState?.folderRoles ?? {}) }
+        const folderRoles = { ...ws.fileExplorerState?.folderRoles }
         // A null role CLEARS the mark rather than storing "none": the absence
         // of an entry is what lets a folder inherit from an ancestor again.
         if (role) folderRoles[folderPath] = role

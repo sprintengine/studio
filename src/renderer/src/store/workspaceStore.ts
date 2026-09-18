@@ -811,8 +811,8 @@ const workspaceStateStorage: StateStorage = {
     const settings = readSettingsKey()
     const settingsState = legacyExtractedSettings ?? settings.envelope?.state ?? null
     const mergedState: Record<string, unknown> = {
-      ...(registryState ?? {}),
-      ...(settingsState ?? {}),
+      ...registryState,
+      ...settingsState,
     }
     // If everything is absent we treat this as a true cold-start. Zustand will
     // create the store from defaults; partialize will not write until a real
@@ -1227,7 +1227,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()(
             : null
         return {
           ...current,
-          ...(state ?? {}),
+          ...state,
           workspaces,
           activeWorkspaceId:
             persistedActiveWorkspaceId
