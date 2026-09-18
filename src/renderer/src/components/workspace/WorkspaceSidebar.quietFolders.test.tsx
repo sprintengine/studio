@@ -81,7 +81,7 @@ async function main(): Promise<void> {
     // A project whose only live chat has moved to Starred is quiet in the
     // tree: the row is already on screen, and a header over nothing is the
     // same empty folder the ruling above removed.
-    workspace('w5', 'Echo', { folderPath: '/pinned', highlight: { starred: true } }),
+    workspace('w5', 'Echo', { folderPath: '/pinned', highlight: { starred: true, color: null } }),
   ]
 
   const noop = () => {}

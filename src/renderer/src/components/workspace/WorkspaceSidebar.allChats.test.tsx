@@ -96,7 +96,7 @@ async function main(): Promise<void> {
     // would lead both lists. It must appear once, in Starred, in either shape.
     workspace('w5', 'Echo', '/repo/apples', {
       lastUserMessageAt: now - MINUTE,
-      highlight: { starred: true },
+      highlight: { starred: true, color: null },
     }),
   ]
 

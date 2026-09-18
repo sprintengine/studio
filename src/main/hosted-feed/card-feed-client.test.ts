@@ -298,12 +298,21 @@ async function main(): Promise<void> {
     const hang = new Promise<void>((resolve) => {
       gate.release = resolve
     })
+    // The network read reaches the fetcher only after its own disk reads, so
+    // under a loaded suite the local read could answer before any fetch was
+    // open and the case proved nothing. Wait for the fetch to be in flight.
+    const started: { signal: (() => void) | null } = { signal: null }
+    const fetchStarted = new Promise<void>((resolve) => {
+      started.signal = resolve
+    })
     const { fetcher, calls } = fetcherFor(async () => {
+      started.signal?.()
       await hang
       return json(feed('2026-09-06T00:00:00Z', ['live']))
     })
     const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now, packagedSeedPath: seedPath })
     const inFlight = client.read()
+    await fetchStarted
     const local = await client.read({ cachedOnly: true })
     assert.ok(local.ok)
     assert.equal(local.source, 'seed', 'the local read answered while the fetch was still open')

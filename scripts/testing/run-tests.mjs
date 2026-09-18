@@ -131,6 +131,17 @@ async function bundle(esbuild, testPath, profile, outFile) {
 // fail-fast against a leaked timer holding the event loop open.
 const FILE_TIMEOUT_MS = 120_000
 
+// The app exports its own SPRINTENGINE_* / MULTICODE_* variables into every
+// terminal it opens, and this repository is developed in the app — so a suite
+// started from a Studio terminal inherited a user-data dir, an agent id and a
+// state socket that a CI shell never has, and a test that boots the main
+// process took the dev-profile branch and failed. A test that needs one of
+// these sets it itself; none may depend on which shell ran the suite.
+const APP_ENV_PREFIXES = ['SPRINTENGINE_', 'MULTICODE_']
+const testEnv = Object.fromEntries(
+  Object.entries(process.env).filter(([name]) => !APP_ENV_PREFIXES.some((prefix) => name.startsWith(prefix))),
+)
+
 function runNode(outFile, nodeFlags) {
   return new Promise((resolve) => {
     execFile(
@@ -138,6 +149,7 @@ function runNode(outFile, nodeFlags) {
       [...nodeFlags, outFile],
       {
         cwd: repoRoot,
+        env: testEnv,
         maxBuffer: 32 * 1024 * 1024,
         timeout: FILE_TIMEOUT_MS,
         killSignal: 'SIGKILL',
