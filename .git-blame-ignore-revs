@@ -1,0 +1,5 @@
+# Commits `git blame` should look through. GitHub's blame view reads this file;
+# locally: git config blame.ignoreRevsFile .git-blame-ignore-revs
+
+# The tree is formatted by Prettier, and CI checks it stays that way
+f27863753f0a90141ad13d3b4bdbea5cdda14425
