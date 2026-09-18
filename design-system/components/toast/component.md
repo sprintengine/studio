@@ -83,8 +83,12 @@ class here follows the token grammar, `status.danger`.)
 toast ("Update available: Codex 0.153.3")
 carries `.ds-toast-actions` with **Settings** (ghost) and **Update** (primary),
 and `.ds-toast-glyph` — the agent CLI's icon — in place of the tone dot. It
-never auto-dismisses: a toast asking for an action waits for the answer or the
-dismiss. This is the only toast in the system with buttons. "Undo" in a toast is
+stays for one minute, not five seconds and not forever (owner ruling
+2026-09-18): long enough to reach for Update, short enough that an unasked-for
+notice does not sit in the corner until clicked. Missing it loses nothing — the
+bell and the Settings row carry the same news. Once Update is pressed the
+toast becomes that update's report, and its buttons go with the question
+they answered. This is the only toast in the system with buttons. "Undo" in a toast is
 still an action on a timer racing its own dismissal and still belongs where the
 change is visible; a second consumer of the action row is a design decision to
 record here, not a styling choice.

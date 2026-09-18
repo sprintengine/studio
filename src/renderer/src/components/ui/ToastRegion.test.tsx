@@ -240,6 +240,27 @@ run('a toast re-shown under its stable id is replaced in place and keeps that id
   unmount()
 })
 
+run('a re-show drops the fields it leaves out — a finished update no longer offers to run', () => {
+  reset()
+  const mounted = mount()
+  act(() => {
+    showToast({
+      id: 'cli-update:codex',
+      tone: 'neutral',
+      cli: 'codex',
+      title: 'Update available: Codex 0.155.0',
+      autoDismissMs: false,
+      actions: [{ id: 'update', label: 'Update', primary: true, run: () => {} }],
+    })
+    showToast({ id: 'cli-update:codex', tone: 'good', cli: 'codex', title: 'Codex updated to 0.155.0' })
+  })
+  const [toast] = useToastStore.getState().toasts
+  assert.equal(toast?.actions, undefined, 'the question\'s buttons left with the question')
+  assert.equal(toast?.autoDismissMs, undefined, 'the report takes its tone\'s dismissal, not the question\'s never')
+  assert.doesNotMatch(mounted.innerHTML, />Update</)
+  unmount()
+})
+
 if (failures > 0) {
   console.error(`ToastRegion.test.tsx: ${failures} failing`)
   process.exit(1)

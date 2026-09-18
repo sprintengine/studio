@@ -374,6 +374,11 @@ function selectWorkspaceManagerWorkspaces(workspaces: Workspace[]): Workspace[] 
 // "Update available: Codex 0.153.3", and two buttons — Settings, and Update,
 // which runs the same command the Settings row runs and reports in place.
 // The ONE toast with actions; main sends each (cli, version) pair once.
+// It leaves after a minute (owner ruling 2026-09-18): a notice nobody asked
+// for should not sit in the corner until clicked, and the bell entry below
+// and the Settings row still say the same thing once it has gone.
+const CLI_UPDATE_TOAST_MS = 60_000
+
 function showCliUpdateToast(advisory: CliVersionAdvisory): void {
   const store = useWorkspaceStore.getState()
   const displayName = (cli: string): string =>
@@ -394,7 +399,7 @@ function showCliUpdateToast(advisory: CliVersionAdvisory): void {
     tone: 'neutral',
     cli: advisory.cli,
     title: notice.title,
-    autoDismissMs: false,
+    autoDismissMs: CLI_UPDATE_TOAST_MS,
     actions: [
       {
         id: 'settings',

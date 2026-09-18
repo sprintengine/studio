@@ -107,8 +107,12 @@ export const useToastStore = create<ToastStore>()((set) => ({
         ? state.toasts.find((toast) => toast.id === input.id)
         : state.toasts.find((toast) => !toast.stableId && toast.tone === input.tone && toast.title === input.title)
       const stableId = input.id !== undefined
+      // Replaced, not merged: a field the new input leaves out is gone. The
+      // CLI-update toast re-shown as "Codex updated to 0.155.0" used to keep
+      // the question's Update button and its never-dismiss from the toast it
+      // replaced, so a finished update still offered to run itself.
       let toasts = replaced
-        ? state.toasts.map((toast) => (toast === replaced ? { ...toast, ...input, id, stableId } : toast))
+        ? state.toasts.map((toast) => (toast === replaced ? { ...input, id, stableId } : toast))
         : [...state.toasts, { ...input, id, stableId }]
       if (toasts.length > MAX_TOASTS) {
         const shed =
