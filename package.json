@@ -222,7 +222,7 @@
     "@xterm/xterm": "6.1.0-beta.303",
     "electron-updater": "^6.8.9",
     "flexlayout-react": "^0.11.0",
-    "immer": "^10.1.1",
+    "immer": "^11.1.18",
     "monaco-editor": "^0.56.0",
     "nanoid": "^5.0.9",
     "node-pty": "^1.1.0",
