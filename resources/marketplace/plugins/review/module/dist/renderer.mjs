@@ -277,8 +277,8 @@ var init_annotationZones = __esm({
 
 // src/renderer/canvas/AnnotationRibbon.tsx
 import { useEffect as useEffect4, useLayoutEffect, useRef as useRef4, useState as useState4 } from "react";
-import { GhostButton as GhostButton2 } from "@multicode/module-sdk/ui";
-import { LinkButton } from "@multicode/module-sdk/ui";
+import { GhostButton as GhostButton2 } from "@sprintengine/module-sdk/ui";
+import { LinkButton } from "@sprintengine/module-sdk/ui";
 import { Fragment, jsx as jsx4, jsxs as jsxs4 } from "react/jsx-runtime";
 function AnnotationRibbon({ annotation, onAskGuide, onMeasured }) {
   const [open, setOpen] = useState4(false);
@@ -364,9 +364,9 @@ var init_AnnotationRibbon = __esm({
 
 // src/renderer/canvas/CommentComposer.tsx
 import { useEffect as useEffect5, useRef as useRef5, useState as useState5 } from "react";
-import { PrimaryButton, GhostButton as GhostButton3 } from "@multicode/module-sdk/ui";
-import { Textarea } from "@multicode/module-sdk/ui";
-import { KbdChord } from "@multicode/module-sdk/ui";
+import { PrimaryButton, GhostButton as GhostButton3 } from "@sprintengine/module-sdk/ui";
+import { Textarea } from "@sprintengine/module-sdk/ui";
+import { KbdChord } from "@sprintengine/module-sdk/ui";
 import { Fragment as Fragment2, jsx as jsx5, jsxs as jsxs5 } from "react/jsx-runtime";
 function CommentComposer({
   placeholder,
@@ -449,9 +449,9 @@ var init_CommentComposer = __esm({
 
 // src/renderer/canvas/CommentThread.tsx
 import { useState as useState6 } from "react";
-import { GhostButton as GhostButton4 } from "@multicode/module-sdk/ui";
-import { InlineNotice } from "@multicode/module-sdk/ui";
-import { StatusDot } from "@multicode/module-sdk/ui";
+import { GhostButton as GhostButton4 } from "@sprintengine/module-sdk/ui";
+import { InlineNotice } from "@sprintengine/module-sdk/ui";
+import { StatusDot } from "@sprintengine/module-sdk/ui";
 import { jsx as jsx6, jsxs as jsxs6 } from "react/jsx-runtime";
 function CommentSyncBadge({ comment, context }) {
   const chip = commentSyncChip(comment);
@@ -1114,7 +1114,7 @@ function resolveRuntime(picked, runtimes) {
 }
 
 // src/renderer/door/ReviewsGlobalSurface.tsx
-import { PrimaryButton as PrimaryButton6 } from "@multicode/module-sdk/ui";
+import { PrimaryButton as PrimaryButton6 } from "@sprintengine/module-sdk/ui";
 
 // src/renderer/canvas/useReviewSession.ts
 import { useCallback as useCallback3, useEffect as useEffect3, useMemo as useMemo2, useRef as useRef3, useState as useState3 } from "react";
@@ -1882,19 +1882,19 @@ function resolveStatus(hasTarget, changesetLoad, briefLoad, changeset) {
 }
 
 // src/renderer/canvas/ReviewCanvas.tsx
-import { GhostButton as GhostButton8 } from "@multicode/module-sdk/ui";
-import { EmptyState as EmptyState3 } from "@multicode/module-sdk/ui";
-import { InlineNotice as InlineNotice4 } from "@multicode/module-sdk/ui";
-import { Spinner as Spinner2 } from "@multicode/module-sdk/ui";
+import { GhostButton as GhostButton8 } from "@sprintengine/module-sdk/ui";
+import { EmptyState as EmptyState3 } from "@sprintengine/module-sdk/ui";
+import { InlineNotice as InlineNotice4 } from "@sprintengine/module-sdk/ui";
+import { Spinner as Spinner2 } from "@sprintengine/module-sdk/ui";
 
 // src/renderer/canvas/ReviewWalkthrough.tsx
 init_editor();
 import { useCallback as useCallback5, useEffect as useEffect7, useMemo as useMemo4, useRef as useRef7, useState as useState9 } from "react";
-import { Drawer, EmptyState as EmptyState2, KbdChord as KbdChord2, Section as Section2 } from "@multicode/module-sdk/ui";
+import { Drawer, EmptyState as EmptyState2, KbdChord as KbdChord2, Section as Section2 } from "@sprintengine/module-sdk/ui";
 
 // src/renderer/canvas/TopBar.tsx
-import { SegmentedControl } from "@multicode/module-sdk/ui";
-import { GhostButton } from "@multicode/module-sdk/ui";
+import { SegmentedControl } from "@sprintengine/module-sdk/ui";
+import { GhostButton } from "@sprintengine/module-sdk/ui";
 import { jsx as jsx2, jsxs as jsxs2 } from "react/jsx-runtime";
 var DIFF_VIEW_ITEMS = [
   { value: "side-by-side", label: "Side by side" },
@@ -1990,8 +1990,8 @@ function TopBar({
 }
 
 // src/renderer/canvas/StepRail.tsx
-import { OutlineButton } from "@multicode/module-sdk/ui";
-import { RowButton } from "@multicode/module-sdk/ui";
+import { OutlineButton } from "@sprintengine/module-sdk/ui";
+import { RowButton } from "@sprintengine/module-sdk/ui";
 import { jsx as jsx3, jsxs as jsxs3 } from "react/jsx-runtime";
 function StepRing({ view }) {
   if (view.read) {
@@ -2076,12 +2076,12 @@ function StepRail({ rail, activePaneId, onSelectPane }) {
 }
 
 // src/renderer/canvas/StepPane.tsx
-import { SegmentedControl as SegmentedControl2 } from "@multicode/module-sdk/ui";
+import { SegmentedControl as SegmentedControl2 } from "@sprintengine/module-sdk/ui";
 
 // src/renderer/canvas/FileCard.tsx
 import React, { Suspense } from "react";
-import { OutlineButton as OutlineButton2 } from "@multicode/module-sdk/ui";
-import { TruncatedText } from "@multicode/module-sdk/ui";
+import { OutlineButton as OutlineButton2 } from "@sprintengine/module-sdk/ui";
+import { TruncatedText } from "@sprintengine/module-sdk/ui";
 import { jsx as jsx8, jsxs as jsxs8 } from "react/jsx-runtime";
 var ReviewDiffEditor2 = React.lazy(() => Promise.resolve().then(() => (init_ReviewDiffEditor(), ReviewDiffEditor_exports)));
 function DeltaCounts({ additions, deletions }) {
@@ -2244,7 +2244,7 @@ function StepPane({
 }
 
 // src/renderer/canvas/OverviewPane.tsx
-import { InlineNotice as InlineNotice2 } from "@multicode/module-sdk/ui";
+import { InlineNotice as InlineNotice2 } from "@sprintengine/module-sdk/ui";
 import { jsx as jsx10, jsxs as jsxs10 } from "react/jsx-runtime";
 function LabeledParagraph({ label, children }) {
   return /* @__PURE__ */ jsxs10("p", { className: "mb-4 max-w-[80ch] text-body leading-[1.55] text-[color:var(--text-muted)]", children: [
@@ -2280,7 +2280,7 @@ function OverviewPane({ overview, knowledgeRefs, unassignedPaths, changeMapSlot 
 }
 
 // src/renderer/canvas/ChangeMapView.tsx
-import { FOCUS_RING_CLASS } from "@multicode/module-sdk/ui";
+import { FOCUS_RING_CLASS } from "@sprintengine/module-sdk/ui";
 
 // src/renderer/canvas/changeMapLayout.ts
 var PAD = 14;
@@ -2563,9 +2563,9 @@ function ChangeMapNodeGlyph({
 
 // src/renderer/canvas/AnnotationsPanel.tsx
 init_anchorLabel();
-import { GhostButton as GhostButton5 } from "@multicode/module-sdk/ui";
-import { EmptyState } from "@multicode/module-sdk/ui";
-import { Section } from "@multicode/module-sdk/ui";
+import { GhostButton as GhostButton5 } from "@sprintengine/module-sdk/ui";
+import { EmptyState } from "@sprintengine/module-sdk/ui";
+import { Section } from "@sprintengine/module-sdk/ui";
 import { jsx as jsx12, jsxs as jsxs12 } from "react/jsx-runtime";
 function AnnotationsPanel({ annotations, onJumpTo, onAskGuide }) {
   return (
@@ -2604,8 +2604,8 @@ function AnnotationsPanel({ annotations, onJumpTo, onAskGuide }) {
 init_commentModel();
 init_CommentThread();
 import { useState as useState8 } from "react";
-import { PrimaryButton as PrimaryButton2, GhostButton as GhostButton6 } from "@multicode/module-sdk/ui";
-import { InlineNotice as InlineNotice3 } from "@multicode/module-sdk/ui";
+import { PrimaryButton as PrimaryButton2, GhostButton as GhostButton6 } from "@sprintengine/module-sdk/ui";
+import { InlineNotice as InlineNotice3 } from "@sprintengine/module-sdk/ui";
 import { jsx as jsx13, jsxs as jsxs13 } from "react/jsx-runtime";
 function ReviewTray({ comments, changeset, onPost, postState }) {
   const [copied, setCopied] = useState8(false);
@@ -2832,9 +2832,9 @@ function ShortcutHints({ inStep, commentsEnabled }) {
 }
 
 // src/renderer/canvas/FreshnessBanner.tsx
-import { Banner } from "@multicode/module-sdk/ui";
-import { GhostButton as GhostButton7 } from "@multicode/module-sdk/ui";
-import { Spinner } from "@multicode/module-sdk/ui";
+import { Banner } from "@sprintengine/module-sdk/ui";
+import { GhostButton as GhostButton7 } from "@sprintengine/module-sdk/ui";
+import { Spinner } from "@sprintengine/module-sdk/ui";
 import { jsx as jsx15, jsxs as jsxs15 } from "react/jsx-runtime";
 var REFRESH_PHASE_LABEL = {
   reading: "Re-reading the change\u2026",
@@ -3036,15 +3036,15 @@ var RUN_PHASE_LABEL = {
 };
 
 // src/renderer/door/ReviewsGlobalSurface.tsx
-import { GlobalSurfaceShell } from "@multicode/module-sdk/surface";
-import { SurfaceCanvasState } from "@multicode/module-sdk/surface";
-import { useSurfaceBackNav } from "@multicode/module-sdk/surface";
+import { GlobalSurfaceShell } from "@sprintengine/module-sdk/surface";
+import { SurfaceCanvasState } from "@sprintengine/module-sdk/surface";
+import { useSurfaceBackNav } from "@sprintengine/module-sdk/surface";
 
 // src/renderer/door/ReviewsRail.tsx
-import { LifecycleGlyph } from "@multicode/module-sdk/ui";
+import { LifecycleGlyph } from "@sprintengine/module-sdk/ui";
 import {
   SurfaceRail
-} from "@multicode/module-sdk/surface";
+} from "@sprintengine/module-sdk/surface";
 import { jsx as jsx17 } from "react/jsx-runtime";
 var STATUS_GLYPH = {
   draft: "todo",
@@ -3094,7 +3094,7 @@ import {
   Select,
   StatusDot as StatusDot2,
   Textarea as Textarea2
-} from "@multicode/module-sdk/ui";
+} from "@sprintengine/module-sdk/ui";
 
 // src/renderer/door/reviewCreation.ts
 var ReviewControllerError = class extends Error {
@@ -3537,12 +3537,12 @@ function resolveReviewAutoSelect(entries, rows, remembered) {
 }
 
 // src/renderer/door/ReviewSurfaceBar.tsx
-import { GhostButton as GhostButton11, PrimaryButton as PrimaryButton4 } from "@multicode/module-sdk/ui";
-import { Spinner as Spinner3 } from "@multicode/module-sdk/ui";
+import { GhostButton as GhostButton11, PrimaryButton as PrimaryButton4 } from "@sprintengine/module-sdk/ui";
+import { Spinner as Spinner3 } from "@sprintengine/module-sdk/ui";
 
 // src/renderer/door/ReviewGuideStop.tsx
 import { useCallback as useCallback6, useState as useState11 } from "react";
-import { GhostButton as GhostButton10, InlineNotice as InlineNotice6 } from "@multicode/module-sdk/ui";
+import { GhostButton as GhostButton10, InlineNotice as InlineNotice6 } from "@sprintengine/module-sdk/ui";
 import { Fragment as Fragment5, jsx as jsx19, jsxs as jsxs18 } from "react/jsx-runtime";
 function StopGuideRunButton({ session }) {
   const [stopping, setStopping] = useState11(false);
@@ -3650,7 +3650,7 @@ import {
   SegmentedControl as SegmentedControl4,
   Spinner as Spinner4,
   Textarea as Textarea3
-} from "@multicode/module-sdk/ui";
+} from "@sprintengine/module-sdk/ui";
 
 // src/renderer/door/reviewAppState.ts
 import { useMemo as useMemo6 } from "react";

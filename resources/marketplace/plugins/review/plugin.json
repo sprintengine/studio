@@ -15,7 +15,7 @@
     "network",
     "storage"
   ],
-  "publisher": "Multicode Labs",
+  "publisher": "SprintEngine Labs",
   "category": "orchestration",
   "summary": "Guided, human-led review of a pull request, branch, or patch.",
   "dependsOn": [
@@ -27,19 +27,19 @@
       "files": [
         {
           "path": "module/dist/main.cjs",
-          "sha256": "e2fe76fc444423a9a4c2072724e71fd88f5a85e0c8f035d32ffea49336e85238"
+          "sha256": "0d2f3f4e793d9c3a97ee65f0711bc01d106dc3dd159128e5b922bca0772779bb"
         },
         {
           "path": "module/dist/renderer.mjs",
-          "sha256": "b8d6e4f2f4a130a6b5ebbb12f21e7f6e567e3905567a38b3ef638c7b8e40ba3a"
+          "sha256": "c7b2d6b5ae81f4b969e927dc376e70aa27585e8cb3e2dfc0522d384c3437e205"
         },
         {
           "path": "module/manifest.json",
-          "sha256": "2c2aacbb9f831b993844dc8184f1d1a517e4c6da42a260135da31dfdf9ef9130"
+          "sha256": "02a7a4fb7d976603c543d0db38b836fedec6441e116eb5b07165da11f10bf4eb"
         },
         {
           "path": "module/README.md",
-          "sha256": "096d5ce8161f1a13b4839e8f82fcc912a432888604292b8f91300c8e81363514"
+          "sha256": "5e7ad7332803c040cf26df8dbb93b4cf7b41ba8b347f7dfc7895ccb0c3c4f858"
         },
         {
           "path": "module/skills/review-guide/agents/openai.yaml",
@@ -59,6 +59,6 @@
   "signature": {
     "algorithm": "ed25519",
     "publicKey": "MCowBQYDK2VwAyEAptxscrkw0So+0D3Pm2FupKpxqOyaNmpUR909RrGSuX0=",
-    "signature": "Adh22YqGBDvdKxBGlWZQtyk8rmOJAjlPSdXh+b/bAaqa5RQWgb5CDaFlMyYdJb9mvs+xJvjBTMmGSAmPwjg4Aw=="
+    "signature": "1QMOt/EcQM7BuY7T3djoixeTz72Xfza0mE3nymQEj7Vta3dbt9XZsiGIy9DXm+w+fZKAvtY0ef70AcOJ6iDJCQ=="
   }
 }

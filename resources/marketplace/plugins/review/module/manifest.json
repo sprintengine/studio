@@ -15,7 +15,7 @@
     "network",
     "storage"
   ],
-  "publisher": "Multicode Labs",
+  "publisher": "SprintEngine Labs",
   "category": "orchestration",
   "summary": "Guided, human-led review of a pull request, branch, or patch.",
   "dependsOn": [
@@ -28,6 +28,6 @@
   "signature": {
     "algorithm": "ed25519",
     "publicKey": "MCowBQYDK2VwAyEAptxscrkw0So+0D3Pm2FupKpxqOyaNmpUR909RrGSuX0=",
-    "signature": "WIV9TqqZJdgPAeAT4jHJSXfON1tgiEJ4cvHKMHUSJZSlgSYpMGGFvmRcTS70EQFrjj20YQ+Un87IeTq4EcCCAg=="
+    "signature": "EwmX5Yn3rY7QfejxKkMHks04HMoCbF+YYLdnvZCCEdLRBUgFdTFuQNzhxO1vRSR5c3GcL0+Af7eLY1uzkBEBDA=="
   }
 }

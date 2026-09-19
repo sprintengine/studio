@@ -26,11 +26,17 @@ module.exports = __toCommonJS(main_exports);
 var import_os2 = require("os");
 var import_electron = require("electron");
 
-// node_modules/@multicode/module-sdk/dist/plugin-manifest.js
-var MARKETPLACE_COMPONENT_KINDS = ["mcp", "skills", "module", "cli", "automation"];
+// node_modules/@sprintengine/module-sdk/dist/plugin-manifest.js
+var MARKETPLACE_COMPONENT_KINDS = [
+  "mcp",
+  "skills",
+  "module",
+  "cli",
+  "automation"
+];
 var COMPONENT_KIND_SET = new Set(MARKETPLACE_COMPONENT_KINDS);
 
-// node_modules/@multicode/module-sdk/dist/index.js
+// node_modules/@sprintengine/module-sdk/dist/index.js
 function createServiceToken(key) {
   return { key };
 }
@@ -1136,7 +1142,7 @@ function reviewChangeSetDir(workspaceRoot, workspaceId) {
   if (!/^[A-Za-z0-9._-]+$/.test(workspaceId)) {
     throw new Error(`Invalid workspace id for review storage: ${JSON.stringify(workspaceId)}.`);
   }
-  return (0, import_path2.join)(workspaceRoot, ".multi-code", "review", workspaceId);
+  return (0, import_path2.join)(workspaceRoot, ".sprintengine", "review", workspaceId);
 }
 function assembleChangeSet(build) {
   const changeset = {
@@ -1298,7 +1304,7 @@ function toolError(code, message) {
 // src/main/review-index.ts
 var import_promises3 = require("fs/promises");
 var import_path3 = require("path");
-var REVIEW_ROOT_SEGMENTS = [".multi-code", "review"];
+var REVIEW_ROOT_SEGMENTS = [".sprintengine", "review"];
 var REVIEW_ID = /^[A-Za-z0-9._-]+$/;
 async function enumerateReviews(roots) {
   const uniqueRoots = [...new Set(roots.filter((root) => typeof root === "string" && root.length > 0))];
@@ -1496,7 +1502,7 @@ var import_path5 = require("path");
 // src/main/guide-run-registry.ts
 var TERMINAL_PHASES = /* @__PURE__ */ new Set(["done", "failed"]);
 var GuideRunRegistry = class {
-  // Keyed by review id (the id the review's `.multi-code/review/<id>/` directory
+  // Keyed by review id (the id the review's `.sprintengine/review/<id>/` directory
   // is named for), which is also the BriefRunEvent `workspaceId`.
   runs = /* @__PURE__ */ new Map();
   nextRunId = 1;
@@ -1885,7 +1891,7 @@ var BUILD_FETCH_TIMEOUT_MS = 6e4;
 var JSON_ACCEPT = "application/vnd.github+json";
 var DIFF_ACCEPT = "application/vnd.github.v3.diff";
 var API_VERSION = "2022-11-28";
-var USER_AGENT = "Multicode-Review";
+var USER_AGENT = "SprintEngine-Review";
 var NOT_A_GITHUB_PR = "That does not look like a GitHub pull request URL (expected \u2026/owner/repo/pull/123).";
 var BITBUCKET_UNSUPPORTED = "Bitbucket support is planned. For now, paste a GitHub pull request URL or use a branch/patch source.";
 var ProbeTimeout = class extends Error {
@@ -2210,7 +2216,7 @@ var import_path7 = require("path");
 var JSON_ACCEPT2 = "application/vnd.github+json";
 var DIFF_ACCEPT2 = "application/vnd.github.v3.diff";
 var API_VERSION2 = "2022-11-28";
-var USER_AGENT2 = "Multicode-Review";
+var USER_AGENT2 = "SprintEngine-Review";
 var POST_FETCH_TIMEOUT_MS = 6e4;
 var MOVED = "moved";
 var HttpError = class extends Error {
