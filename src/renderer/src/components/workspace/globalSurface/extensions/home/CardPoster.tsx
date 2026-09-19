@@ -87,7 +87,7 @@
 // rings for one tab stop is the failure that idiom's own note warns about — so
 // `Go` gives its ring up and the card wears it.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import type { HostedCard } from '../../../../../../../shared/hosted-card-feed'
 import { cardActionLabel, cardStampLabel } from '../../../../extensions/homeCards'

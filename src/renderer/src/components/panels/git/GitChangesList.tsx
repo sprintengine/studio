@@ -46,7 +46,7 @@
 // meaningful with this list focused — and because the menu may only carry a
 // shortcut hint for a key that works with the menu closed, which these do.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { getGitStatusAppearance } from '../../../utils/gitStatusAppearance'
 import {

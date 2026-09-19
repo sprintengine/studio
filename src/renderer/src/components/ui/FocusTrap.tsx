@@ -18,7 +18,7 @@
 // two dialogs into one cycle; reading the sibling span keeps them separate and
 // lets the inner trap win while it is open, because its sentinels sit closer to
 // the focused control.
-import React, { useCallback, useRef } from 'react'
+import React, { useCallback, useRef, type JSX } from 'react'
 
 // Tabbable candidates, as close to the browser's own tab order as a selector
 // gets: disabled controls and `tabindex="-1"` are out by construction.

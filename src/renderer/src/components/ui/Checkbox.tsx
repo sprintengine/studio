@@ -1,4 +1,4 @@
-import React, { useId } from 'react'
+import React, { useId, type JSX } from 'react'
 
 import { FOCUS_RING_PEER_CLASS } from './tokens'
 

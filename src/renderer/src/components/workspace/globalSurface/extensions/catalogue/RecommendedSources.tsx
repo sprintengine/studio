@@ -26,7 +26,7 @@
 // state to apologise for: it is exactly what this surface showed before the
 // feed existed, and a person who knows a repository can still type it in.
 
-import React, { useCallback, useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState, type JSX } from 'react'
 
 import type { HostedSource } from '../../../../../../../shared/electron-api'
 import { recommendedSourcesToAdd } from '../../../../../../../shared/hosted-sources-feed'

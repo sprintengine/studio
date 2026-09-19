@@ -18,7 +18,7 @@
 // business — a registry category, a repository's folders, the CLI shelf — and
 // arrives as sections of items plus a way to draw one and a way to key it.
 
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, type JSX } from 'react'
 
 import {
   IconButton,

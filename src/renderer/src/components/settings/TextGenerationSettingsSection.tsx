@@ -9,7 +9,7 @@
 // in force. The copy names whose quota it spends: the honesty rule of
 // the text-generation rule, the cost is theirs.
 
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import {
   resolveTextGenerationEngine,

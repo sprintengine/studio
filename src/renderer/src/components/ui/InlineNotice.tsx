@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 import { LifecycleGlyph } from './LifecycleGlyph'
 import { FOCUS_RING_CLASS } from './tokens'
 

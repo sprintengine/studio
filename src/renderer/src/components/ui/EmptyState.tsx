@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 // The kit's empty state. Five surfaces declared a local `EmptyState`
 // (or `DetailEmptyState`) for the same idea, and they disagreed on nearly

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { TONE_COLOR_VAR, TONE_SOFT_VAR, type Tone } from './tokens'
 

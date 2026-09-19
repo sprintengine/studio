@@ -1,4 +1,4 @@
-import { memo } from 'react'
+import { memo, type JSX } from 'react'
 
 import { ChipButton, IconButton, LifecycleGlyph, StarGlyph, Tooltip, TruncatedText, type LifecycleState } from '../ui'
 import { BacklogTypeGlyph } from './BacklogTypeGlyph'

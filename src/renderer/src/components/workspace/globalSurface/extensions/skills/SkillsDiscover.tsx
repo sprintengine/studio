@@ -20,7 +20,7 @@
 // 103), and only a scan can derive it. Scan hands the repository to the same
 // Add-a-source flow a pasted URL takes.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 
 import type { SkillDiscoveryResult, SkillRepoHit, SkillSearchHit } from '../../../../../../../shared/skills'
 import {

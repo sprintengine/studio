@@ -18,6 +18,7 @@
 // Two clusters, one column: the Backlog switch toggles the pane's Backlog tab
 // (open it, bring it forward, or close it), the pane switch the pane itself.
 
+import type { JSX } from 'react'
 import { IconButton, Tooltip } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectModuleEnabled } from '../../modules'

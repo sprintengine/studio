@@ -2,7 +2,7 @@
 // icons of their own — a repository is not a brand — so the monogram is the
 // mark that makes the rail scannable without inventing artwork for anybody.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export function SourceMonogram({ monogram, size = 'sm' }: { monogram: string; size?: 'sm' | 'lg' }): JSX.Element {
   return (

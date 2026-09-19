@@ -1125,7 +1125,7 @@ test('agent-state', async () => {
     // would misresolve once the session cwd drifts off the root.
     const ourEntry = settings.hooks?.SessionStart?.[0]?.hooks?.find((h) => h._multicode === AGENT_STATE_HOOK_TAG)
     const expectedScript = join(root, '.multicode', 'hooks', 'agent-state.mjs').split('\\').join('/')
-    assert.ok(ourEntry?.command.includes(`node "${expectedScript}"`), ourEntry?.command)
+    assert.ok(ourEntry?.command.includes(`node "${expectedScript}"`), ourEntry?.command ?? 'no hook entry')
     // Guard against regressing to the relative form `node ".multicode/...`: in the
     // absolute form the opening quote is followed by the root (`/` or `C:/`), never
     // by `.multicode`, so this substring can only appear if a relative path leaked.
@@ -1305,7 +1305,10 @@ test('agent-state', async () => {
     const grokEntry = grokOnDisk.hooks?.SessionStart?.[0]?.hooks?.[0]
     const grokScript = join(grokRoot, '.multicode', 'hooks', 'agent-state.mjs')
     assert.ok(existsSync(grokScript), 'grok install must copy the shared reporter')
-    assert.ok(grokEntry?.command.includes(`node "${grokScript.split('\\').join('/')}"`), grokEntry?.command)
+    assert.ok(
+      grokEntry?.command.includes(`node "${grokScript.split('\\').join('/')}"`),
+      grokEntry?.command ?? 'no hook entry',
+    )
     assert.ok(!grokEntry?.command.includes('node ".multicode'), 'must not embed a relative script path')
 
     // Re-install is idempotent (whole-file overwrite, no accumulation).

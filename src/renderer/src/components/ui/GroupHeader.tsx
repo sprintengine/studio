@@ -17,7 +17,7 @@
 // centred the ring lands exactly on the band's own edge. The floor belongs to
 // the row that repeats four hundred times; a header appears once per group.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { Checkbox } from './Checkbox'
 import { FOCUS_RING_CLASS, FOCUS_RING_INSET_CLASS } from './tokens'

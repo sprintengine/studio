@@ -17,7 +17,7 @@
 // Display only. No hover, no focus, no click: a scope a person can act on is a
 // DescribedCheckRow, which is what the pairing dialog uses.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export type ScopePillProps = {
   /** The identifier itself — `workspace:read`. Never abbreviated: a scope shown

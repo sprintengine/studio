@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { CliModelPopoverSurface, GhostButton, Popover, PrimaryButton } from '../ui'
 import { CliInstallRosterRow } from '../workspace/cliInstallRoute'

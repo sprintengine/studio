@@ -5,7 +5,7 @@
 // the editor owns the form state and the one save path, and each picker hands
 // its choice back through `onPatchConfig` / `onClearConfigKey`.
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState, type JSX } from 'react'
 
 import { GhostButton, Select, type SelectItem, TriggerButton } from '../../ui'
 import { SkillPickerPopover } from '../../ui/SkillPickerPopover'

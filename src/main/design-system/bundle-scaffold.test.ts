@@ -29,7 +29,7 @@ test('bundle-scaffold', async () => {
         summary: '  A warm,\n editorial   system. ',
         templatesDir,
       })
-      assert.equal(result.ok, true, result.message)
+      assert.equal(result.ok, true, result.message ?? '')
       assert.equal(result.alreadyExisted, undefined)
       const bundleDir = join(workspace, 'design-system')
       assert.equal(result.bundleDir, bundleDir)
@@ -150,7 +150,7 @@ test('bundle-scaffold', async () => {
         summary: 'Seeded from the example.',
         templatesDir,
       })
-      assert.equal(result.ok, true, result.ok ? '' : result.message)
+      assert.equal(result.ok, true, result.ok ? '' : (result.message ?? ''))
       if (!result.ok) return
       assert.equal(result.bundleDir, target)
 
@@ -195,7 +195,7 @@ test('bundle-scaffold', async () => {
         summary: 'Seeded.',
         templatesDir,
       })
-      assert.equal(seeded.ok, true, seeded.ok ? '' : seeded.message)
+      assert.equal(seeded.ok, true, seeded.ok ? '' : (seeded.message ?? ''))
 
       const lint = spawnSync(process.execPath, [join(target, 'scripts', 'lint.mjs'), target], {
         encoding: 'utf8',
@@ -217,7 +217,7 @@ test('bundle-scaffold', async () => {
         summary: 'From nothing.',
         templatesDir,
       })
-      assert.equal(result.ok, true, result.ok ? '' : result.message)
+      assert.equal(result.ok, true, result.ok ? '' : (result.message ?? ''))
       if (!result.ok) return
       assert.equal(result.bundleDir, target, 'the bundle IS the folder the user chose')
       const manifest = parseDesignSystemManifest(readFileSync(join(target, 'design-system.json'), 'utf8'))

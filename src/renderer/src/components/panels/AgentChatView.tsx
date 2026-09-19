@@ -1479,7 +1479,13 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
 // The chat panel is header-less by design: the tab already names the agent, and
 // model/session state live in the composer footer (shared layout). Repeating the name
 // or model in a header is the duplication we're avoiding.
-function ChatShell({ shellRef, children }: { shellRef?: React.RefObject<HTMLDivElement>; children: React.ReactNode }) {
+function ChatShell({
+  shellRef,
+  children,
+}: {
+  shellRef?: React.RefObject<HTMLDivElement | null>
+  children: React.ReactNode
+}) {
   return (
     <div
       ref={shellRef}

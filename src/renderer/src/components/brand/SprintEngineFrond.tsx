@@ -17,7 +17,7 @@
 // No store, no module registry: this file is imported by pure render surfaces
 // (the Skills and MCPs aside among them) whose tests mount them without either.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 // The mark's own two colors. A brand mark is not themed — these are the values
 // the mobile app's generator emits, and the plate it sits on is fixed light for

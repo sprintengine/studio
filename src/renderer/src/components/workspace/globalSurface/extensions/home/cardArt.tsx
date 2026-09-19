@@ -28,7 +28,7 @@
 // the strings inside them are fake window chrome, so the whole picture is
 // hidden from assistive technology — see `CardArt` at the foot of this file.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { CARD_ART_NAMES, type CardArtName } from './cardArtNames'
 

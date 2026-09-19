@@ -15,6 +15,7 @@
 // The fallback is a real mark, not an empty slot: a machine whose name says
 // nothing is still a machine.
 
+import type { JSX } from 'react'
 import {
   DeviceDesktopGlyph,
   DeviceLaptopGlyph,

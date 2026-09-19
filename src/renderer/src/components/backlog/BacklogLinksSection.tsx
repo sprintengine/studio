@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 
 import { IconButton, InlineNotice, RowButton, Section, Tooltip } from '../ui'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../../utils/backlog'

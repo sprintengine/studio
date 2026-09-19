@@ -29,7 +29,7 @@
 // 16-grid stroke discipline (glyphs/component.md): frame 1.2, line work 1.3–1.4,
 // the letterforms a step heavier at 1.45 so they hold at 16px.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 export type FileTypeKind =
   | 'typescript'

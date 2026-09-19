@@ -6,7 +6,7 @@
 // needs a trust decision gets the same disclosure prompt the storefront
 // install uses — never a silent grant, never a fake success.
 
-import type { ReactNode } from 'react'
+import type { ReactNode, JSX } from 'react'
 
 import type { CapabilityPermission } from '../../../../../shared/modules/permissions'
 import { GhostButton, InlineNotice, OutlineButton, PrimaryButton, Spinner, StatusDot } from '../../ui'

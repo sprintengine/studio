@@ -25,7 +25,7 @@
 // cannot open on a control that receives no events, so the one explanation the
 // design gives the person is unreachable exactly when they need it.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { IconButton } from './Buttons'
 

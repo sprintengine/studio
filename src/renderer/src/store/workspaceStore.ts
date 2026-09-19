@@ -1,4 +1,4 @@
-import { create } from 'zustand'
+import { create, type Mutate, type StoreApi, type UseBoundStore } from 'zustand'
 import { createJSONStorage, persist, type StateStorage } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type { IJsonModel } from 'flexlayout-react'
@@ -1133,7 +1133,14 @@ function emitHydrationDiagnostic(): void {
   console.info('[workspaceStore] hydration', diagnostic)
 }
 
-export const useWorkspaceStore = create<WorkspaceStore>()(
+// Spelled out rather than inferred: the inferred type runs through immer's draft
+// types, which immer 11 no longer exports, and this project emits declarations
+// (`composite`), so an inferred type it cannot name fails the typecheck.
+type WorkspaceStoreHook = UseBoundStore<
+  Mutate<StoreApi<WorkspaceStore>, [['zustand/persist', unknown], ['zustand/immer', never]]>
+>
+
+export const useWorkspaceStore: WorkspaceStoreHook = create<WorkspaceStore>()(
   persist(
     immer((set, get) => ({
       ...createAuthSlice(set),

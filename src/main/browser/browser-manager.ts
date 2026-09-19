@@ -3,7 +3,16 @@ import { mkdir, writeFile } from 'node:fs/promises'
 import { existsSync } from 'node:fs'
 import { isAbsolute, join, resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
-import { BrowserWindow, clipboard, session, shell, webContents, type Session, type WebContents } from 'electron'
+import {
+  BrowserWindow,
+  clipboard,
+  ClipboardItem,
+  session,
+  shell,
+  webContents,
+  type Session,
+  type WebContents,
+} from 'electron'
 import {
   BROWSER_PARTITION,
   BROWSER_PICK_CROP_PADDING,
@@ -825,7 +834,9 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       if (!tab) return { ok: false, message: 'This browser tab is gone.' }
       try {
         const image = await capturePage(tab.wc)
-        clipboard.writeImage(image)
+        await clipboard.write([
+          new ClipboardItem({ 'image/png': new Blob([new Uint8Array(image.toPNG())], { type: 'image/png' }) }),
+        ])
         return { ok: true }
       } catch (error) {
         return { ok: false, message: error instanceof Error ? error.message : 'The capture failed.' }

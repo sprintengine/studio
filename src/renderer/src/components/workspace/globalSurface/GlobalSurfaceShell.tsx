@@ -1,4 +1,4 @@
-import React, { useContext, useEffect, useRef } from 'react'
+import React, { useContext, useEffect, useRef, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 
 import { CloseIconButton, IconButton } from '../../ui'

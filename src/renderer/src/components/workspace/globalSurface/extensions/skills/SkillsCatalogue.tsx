@@ -14,7 +14,7 @@
 // Reading a skill: the row opens `SkillPage` as a dialog over the list, which
 // is where Install lives for the skill in hand.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 
 import {
   scanPlugins,

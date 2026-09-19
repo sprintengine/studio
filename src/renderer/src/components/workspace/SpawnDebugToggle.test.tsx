@@ -28,11 +28,11 @@ test('SpawnDebugToggle', async () => {
   // without a DOM or the store/window-bound parent menu. What it is DRAWN with is
   // the kit's business, so the chrome assertions read the rendered markup instead
   // of a className string the call site no longer writes.
-  function tooltipElement(active: boolean, onChange: (next: boolean) => void): ReactElement {
-    return SpawnDebugToggle({ active, onChange }) as ReactElement
+  function tooltipElement(active: boolean, onChange: (next: boolean) => void): ReactElement<any> {
+    return SpawnDebugToggle({ active, onChange }) as ReactElement<any>
   }
-  function buttonOf(el: ReactElement): ReactElement {
-    return el.props.children as ReactElement
+  function buttonOf(el: ReactElement<any>): ReactElement<any> {
+    return el.props.children as ReactElement<any>
   }
 
   run('is the kit chip, labelled "DEBUG" and left in the tab order', () => {

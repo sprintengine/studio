@@ -453,9 +453,9 @@ test('plugin-registry', async () => {
       const manifest = registry.get(entry.id)?.manifest
       assert.ok(manifest, `${entry.id}: registry.get must resolve a listed plugin`)
       for (let requested = 0; requested < ladder.length; requested += 1) {
-        const resolved = renderPluginLaunch(manifest, { permissionPreset: ladder[requested] }).argv
+        const resolved: string[] = renderPluginLaunch(manifest, { permissionPreset: ladder[requested] }).argv
         // Every argv the manifest could legitimately produce at or below this rung.
-        const allowed = ladder
+        const allowed: string[][] = ladder
           .slice(0, requested + 1)
           .filter((name) => manifest.permissionPresets[name])
           .map((name) => renderPluginLaunch(manifest, { permissionPreset: name }).argv)

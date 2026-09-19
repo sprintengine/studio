@@ -8,7 +8,7 @@
 // as `McpBrandIcon`) because the aside renders from a view model with no access
 // to the Settings component graph.
 
-import React, { useState } from 'react'
+import React, { useState, type JSX } from 'react'
 
 import { glyphGraphemeCount } from '../../../../shared/skills'
 import { iconHasOwnPlate } from './iconPlate'

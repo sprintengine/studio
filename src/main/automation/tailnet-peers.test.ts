@@ -140,7 +140,7 @@ test('tailnet-peers', async () => {
     assert.equal(parsed.ok, true)
     if (!parsed.ok) return
     for (const name of ['never-seen', 'no-field', 'garbled']) {
-      const found = parsed.peers.filter((entry) => entry.hostName === name)
+      const found: typeof parsed.peers = parsed.peers.filter((entry) => entry.hostName === name)
       assert.ok(found.length === 1, `expected exactly one peer named ${name}`)
       assert.ok(found[0].lastSeenAt === null, `${name} should carry no last-seen, got ${found[0].lastSeenAt}`)
     }

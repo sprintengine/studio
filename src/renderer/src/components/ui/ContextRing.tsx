@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { Tooltip } from './Tooltip'
 import { FOCUS_RING_CLASS } from './tokens'

@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 type SpinnerProps = {
   /** Icon size in px. Defaults to 16 (icon-sm). */
   size?: number

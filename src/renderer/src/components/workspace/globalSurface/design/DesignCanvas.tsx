@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, type JSX } from 'react'
 
 import { composePreviewSrcDoc, type PreviewMode } from '../../../../../../shared/design-system/preview-doc'
 import { representativeStage } from '../../../../../../shared/design-system/bundle-parse'

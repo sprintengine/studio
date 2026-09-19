@@ -22,7 +22,7 @@
 // then scrim, then title, then stamp. The one exception is the stamp, which
 // takes a layer of its own so a card that puts it first still gets it on top.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 /**
  * Where the scrim finishes fading.

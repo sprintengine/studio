@@ -10,7 +10,7 @@
 // writes one at all: the list is the sentence they will commit later, typed
 // once, at the moment they knew what the work was.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { Checkbox, Field, Input, Textarea } from '../../ui'
 // The shell itself is not on the barrel — every dialog in the product reaches

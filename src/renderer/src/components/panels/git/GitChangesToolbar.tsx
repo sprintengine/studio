@@ -24,7 +24,7 @@
 // it stays walkable, focusable and hoverable, and the reason rides its
 // accessible name as well as the tooltip.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import {
   CollapseAllGlyph,

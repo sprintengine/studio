@@ -21,10 +21,9 @@
     // either the package or its `/types` subpath. The renderer is bundled by
     // Vite, which resolves exactly this way; the other two projects already do.
     "moduleResolution": "bundler",
-    "baseUrl": ".",
     "types": ["vite/client"],
     "paths": {
-      "@renderer/*": ["src/renderer/src/*"]
+      "@renderer/*": ["./src/renderer/src/*"]
     }
   }
 }

@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import type { BacklogType } from '../../utils/backlog'
 import type { TooltipChildProps } from '../ui/Tooltip'
 
