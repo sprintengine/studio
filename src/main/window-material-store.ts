@@ -27,9 +27,10 @@ export function getWindowMaterial(): WindowMaterial {
   if (cached) return cached
   try {
     const parsed = JSON.parse(readFileSync(storePath(), 'utf8')) as { material?: unknown }
-    cached = parsed.material === 'glass' ? 'glass' : 'solid'
+    cached = parsed.material === 'solid' ? 'solid' : 'glass'
   } catch {
-    cached = 'solid'
+    // No mirror yet (first launch): glass is the default material.
+    cached = 'glass'
   }
   return cached
 }

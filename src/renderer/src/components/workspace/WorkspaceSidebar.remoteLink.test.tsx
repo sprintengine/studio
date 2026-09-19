@@ -131,6 +131,9 @@ test('WorkspaceSidebar.remoteLink', async () => {
     const { act } = React
     const { createRoot } = await import('react-dom/client')
     const { default: WorkspaceSidebar } = await import('./WorkspaceSidebar')
+    const { useWorkspaceStore } = await import('../../store/workspaceStore')
+    // This suite walks the per-project tree, which is not the rail's default shape.
+    useWorkspaceStore.setState({ chatListView: 'projects' })
 
     type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
     const workspaces = [

@@ -13,7 +13,8 @@ export type ModuleEnablementWriteResult = { ok: boolean; message?: string }
 export type ColorScheme = 'light' | 'dark'
 
 // Window chrome material: 'glass' renders the window canvas (sidebar, title
-// strip, aside column) over OS-native vibrancy; 'solid' is the opaque default.
+// strip, aside column) over OS-native vibrancy, and is the default; 'solid' is
+// the opaque alternative.
 // macOS-only for now — main ignores 'glass' on other platforms.
 export type WindowMaterial = 'solid' | 'glass'
 export type AppMenuAcceleratorUpdate = {

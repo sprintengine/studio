@@ -66,7 +66,9 @@
           var material = persisted && persisted.state && persisted.state.appSettings
             && persisted.state.appSettings.appearance
             && persisted.state.appSettings.appearance.windowMaterial
-          var glass = material === 'glass' && navigator.platform.indexOf('Mac') === 0
+          // Glass is the default, so only an explicit 'solid' opts out — a
+          // first launch with nothing persisted paints the frost too.
+          var glass = material !== 'solid' && navigator.platform.indexOf('Mac') === 0
           if (glass) {
             document.documentElement.setAttribute('data-window-material', 'glass')
           }

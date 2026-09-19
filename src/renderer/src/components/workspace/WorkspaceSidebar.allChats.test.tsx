@@ -190,8 +190,11 @@ test('WorkspaceSidebar.allChats', async () => {
       })
       await settle()
 
-      // The tree is what the rail opens on.
-      assert.equal(useWorkspaceStore.getState().chatListView, 'projects', 'the tree is the default shape')
+      // The stream is what the rail opens on; the walk below starts from the
+      // tree so it can watch the switch in both directions.
+      assert.equal(useWorkspaceStore.getState().chatListView, 'all', 'the stream is the default shape')
+      chooseView('projects')
+      await settle()
       assert.ok(
         folderHeadings().some((heading) => heading.includes('apples')),
         `the tree draws a header per project (got ${folderHeadings().join(' | ')})`,
@@ -266,7 +269,7 @@ test('WorkspaceSidebar.allChats', async () => {
       act(() => {
         root.unmount()
       })
-      useWorkspaceStore.setState({ chatListView: 'projects' })
+      useWorkspaceStore.setState({ chatListView: 'all' })
     }
   }
 

@@ -1220,7 +1220,7 @@ export const useWorkspaceStore: WorkspaceStoreHook = create<WorkspaceStore>()(
           sidebarCollapsed:
             typeof state?.sidebarCollapsed === 'boolean' ? state.sidebarCollapsed : current.sidebarCollapsed,
           // A value this build does not know (an older or newer name for a
-          // rail shape) falls back to the tree rather than leaving the rail
+          // rail shape) falls back to the default rather than leaving the rail
           // in a shape nothing renders.
           chatListView:
             state?.chatListView === 'all' || state?.chatListView === 'projects'

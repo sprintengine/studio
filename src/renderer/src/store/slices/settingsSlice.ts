@@ -56,7 +56,7 @@ export type SettingsOverlayState = {
 }
 
 export function defaultAppearanceSettings(): AppearanceSettings {
-  return { theme: 'system', windowMaterial: 'solid' }
+  return { theme: 'system', windowMaterial: 'glass' }
 }
 
 export function normalizeAppearanceSettings(value: unknown): AppearanceSettings {
@@ -846,7 +846,8 @@ export interface SettingsSliceState {
   // How the chat rail lists conversations (all-chats-view, 2026-09-07):
   // `projects` is the folder tree — a header per project over its chats;
   // `all` is one stream of every chat, newest activity first, with each row
-  // naming the project it belongs to. Persisted in the settings envelope, so
+  // naming the project it belongs to. The stream is what a fresh profile opens
+  // on. Persisted in the settings envelope, so
   // the rail reopens in the shape the person left it in. App-wide rather than
   // per window: it is how this person reads their work, not a property of one
   // window.
@@ -1085,7 +1086,7 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
     activeModalSurface: null,
     activeModalSurfaceWorkspaceId: null,
     sidebarSection: 'home',
-    chatListView: 'projects',
+    chatListView: 'all',
     sidebarCollapsed: false,
     sidebarWidth: SIDEBAR_DEFAULT_WIDTH,
     workspacePaneWidth: WORKSPACE_ASIDE_DEFAULT_WIDTH,

@@ -820,7 +820,7 @@ test('settingsSlice', async () => {
   )
 
   // Appearance: windowMaterial is a second axis beside theme.
-  assert.deepEqual(defaultAppearanceSettings(), { theme: 'system', windowMaterial: 'solid' })
+  assert.deepEqual(defaultAppearanceSettings(), { theme: 'system', windowMaterial: 'glass' })
   assert.deepEqual(normalizeAppearanceSettings(undefined), defaultAppearanceSettings())
   assert.deepEqual(normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'glass' }), {
     theme: 'sage',
@@ -828,8 +828,8 @@ test('settingsSlice', async () => {
   })
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'sage' }),
-    { theme: 'sage', windowMaterial: 'solid' },
-    'a persisted appearance predating the material axis hydrates to solid',
+    { theme: 'sage', windowMaterial: 'glass' },
+    'a persisted appearance predating the material axis hydrates to the glass default',
   )
   assert.deepEqual(
     normalizeAppearanceSettings({ theme: 'nope', windowMaterial: 'frosted' }),
