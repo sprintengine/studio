@@ -5,7 +5,7 @@ import { defaultAuthState } from './authSlice'
 import { test } from 'vitest'
 
 test('authSlice', async () => {
-  function createAuthenticatedState(): MulticodeAuthState {
+  function createAuthenticatedState(): SprintEngineAuthState {
     return {
       authenticated: true,
       user: {
@@ -23,7 +23,7 @@ test('authSlice', async () => {
       entitlements: {
         userId: 'user-1',
         organizationId: 'org-1',
-        product: 'multicode',
+        product: 'sprintengine',
         roles: ['owner'],
         plan: {
           code: 'pro',

@@ -13,10 +13,10 @@ test('workspaceStore.activeSync', async () => {
   // persisting a registry another window's `storage` listener would import. That
   // listener is gone, and with it the echo hazard it created.
 
-  const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
+  const WORKSPACE_STORAGE_KEY = 'sprintengine-workspaces'
 
   const stored: Record<string, string> = {}
-  stored['multicode.workspaceStorageLiveSync'] = '1'
+  stored['sprintengine.workspaceStorageLiveSync'] = '1'
   let registryWriteCount = 0
   const localStorageMock = {
     getItem: (key: string) => stored[key] ?? null,
@@ -224,7 +224,7 @@ test('workspaceStore.activeSync', async () => {
   // The deferred-echo hazard, closed structurally. This used to be a live risk: a
   // suppressed apply left the registry dedup baseline stale, so a LATER unrelated
   // settings write serialized the imported window-active snapshot into
-  // `multicode-workspaces`, where another window's storage listener imported it
+  // `sprintengine-workspaces`, where another window's storage listener imported it
   // and flipped that window's active workspace. Neither half exists now — the
   // registry key is frozen and the listener is deleted — so the assertion is that
   // NOTHING reaches the key, whatever order the mutations arrive in.

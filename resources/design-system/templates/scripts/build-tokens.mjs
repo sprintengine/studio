@@ -11,7 +11,7 @@
 //   - one custom property per token: `--` + token path with `.` → `-`
 //   - `:root { … }` holds every token at its light/default $value
 //   - `[data-mode="dark"] { … }` re-declares only the tokens whose
-//     $extensions["com.multicode"].modes.dark differs from modes.light
+//     $extensions["com.sprintengine"].modes.dark differs from modes.light
 //   - aliases emit var(--target); literals emit as-is; fontFamily arrays join
 //     with commas, quoting names that contain spaces
 //
@@ -23,7 +23,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const VENDOR_NAMESPACE = 'com.multicode'
+const VENDOR_NAMESPACE = 'com.sprintengine'
 const ALIAS_PATTERN = /^\{([a-z0-9.-]+)\}$/
 
 class BuildFailure extends Error {
@@ -61,8 +61,7 @@ function cssVariableName(tokenPath) {
 
 function tokenModes(token) {
   const extensions = token.node.$extensions
-  const vendor =
-    typeof extensions === 'object' && extensions !== null ? extensions[VENDOR_NAMESPACE] : undefined
+  const vendor = typeof extensions === 'object' && extensions !== null ? extensions[VENDOR_NAMESPACE] : undefined
   const modes = typeof vendor === 'object' && vendor !== null ? vendor.modes : undefined
   return typeof modes === 'object' && modes !== null ? modes : null
 }

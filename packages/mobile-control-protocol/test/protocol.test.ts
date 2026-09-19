@@ -26,7 +26,7 @@ const validCommand: MobileControlCommand = {
   idempotencyKey: "mobile:device_1:cmd_1",
   expectedSnapshotVersion: "snap_1",
   payload: {
-    workspacePath: "ws_multicode",
+    workspacePath: "ws_sprintengine",
     relativePath: "backlog/2026-04-28-example.md",
     status: "in_progress",
   },
@@ -46,10 +46,10 @@ const validSnapshot: MobileControlSnapshot = {
   ],
   backlog: [
     {
-      workspaceId: "backlog:ws_multicode",
-      workspacePath: "ws_multicode",
-      projectKey: "ws_multicode",
-      workspaceName: "multicode",
+      workspaceId: "backlog:ws_sprintengine",
+      workspacePath: "ws_sprintengine",
+      projectKey: "ws_sprintengine",
+      workspaceName: "sprintengine",
       updatedAt: now,
       items: [
         {
@@ -64,7 +64,7 @@ const validSnapshot: MobileControlSnapshot = {
   automations: [
     {
       automationId: "auto_1",
-      projectKey: "ws_multicode",
+      projectKey: "ws_sprintengine",
       name: "nightly",
       status: "enabled",
       triggerKind: "schedule",
@@ -82,7 +82,7 @@ const validAutomationsControlCommand: MobileControlCommand = {
   issuedAt: now,
   deviceId: "device_1",
   payload: {
-    workspacePath: "ws_multicode",
+    workspacePath: "ws_sprintengine",
     automationId: "auto_1",
     action: "runNow",
   },
@@ -276,7 +276,7 @@ assertInvalid(
   validateMobileControlCommand({
     ...validAutomationsControlCommand,
     payload: {
-      workspacePath: "ws_multicode",
+      workspacePath: "ws_sprintengine",
       automationId: "auto_1",
     },
   }),
@@ -286,7 +286,7 @@ assertInvalid(
   validateMobileControlCommand({
     ...validCommand,
     payload: {
-      workspacePath: "ws_multicode",
+      workspacePath: "ws_sprintengine",
     },
   }),
 );

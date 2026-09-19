@@ -165,7 +165,7 @@ test('automation', async () => {
       createAgentWorktree:
         overrides.createAgentWorktree ??
         (async ({ workspaceRoot, name }) => ({
-          worktreePath: `${workspaceRoot}/.multicode-worktrees/${name}`,
+          worktreePath: `${workspaceRoot}/.sprintengine-worktrees/${name}`,
           branch: `agent/${name}`,
         })),
       readWorkspaceCheckout:
@@ -209,7 +209,7 @@ test('automation', async () => {
   }
 
   async function testSettingsDefaultOnAndRoundTrip(): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-settings-'))
+    const dir = mkdtempSync(join(tmpdir(), 'se-automation-settings-'))
     try {
       const missing = readAutomationSettings(dir)
       assert.equal(missing.settings.enabled, true, 'missing settings file means the Studio MCP is enabled')
@@ -229,7 +229,7 @@ test('automation', async () => {
   }
 
   async function testStudioGatewayStartsDespiteLegacyDisabledSetting(): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-studio-mcp-service-'))
+    const dir = mkdtempSync(join(tmpdir(), 'se-studio-mcp-service-'))
     try {
       writeAutomationSettings(dir, { enabled: false })
       const service = createAutomationService({
@@ -256,14 +256,14 @@ test('automation', async () => {
   }
 
   async function testStudioGatewayEndpointContractAcrossPlatforms(): Promise<void> {
-    const windows = resolveSocketPath('C:\\Users\\test\\AppData\\Roaming\\multicode', 'win32')
-    assert.match(windows, /^\\\\\.\\pipe\\multicode-automation-[a-f0-9]{12}$/)
-    const mac = resolveSocketPath('/Users/test/Library/Application Support/multicode', 'darwin')
-    assert.equal(mac, '/Users/test/Library/Application Support/multicode/automation.sock')
-    const linux = resolveSocketPath('/home/test/.config/multicode', 'linux')
-    assert.equal(linux, '/home/test/.config/multicode/automation.sock')
-    const longLinux = resolveSocketPath(`/home/test/${'nested/'.repeat(20)}multicode`, 'linux', '/tmp')
-    assert.match(longLinux, /^\/tmp\/multicode-automation-[a-f0-9]{12}\.sock$/)
+    const windows = resolveSocketPath('C:\\Users\\test\\AppData\\Roaming\\sprintengine', 'win32')
+    assert.match(windows, /^\\\\\.\\pipe\\sprintengine-automation-[a-f0-9]{12}$/)
+    const mac = resolveSocketPath('/Users/test/Library/Application Support/sprintengine', 'darwin')
+    assert.equal(mac, '/Users/test/Library/Application Support/sprintengine/automation.sock')
+    const linux = resolveSocketPath('/home/test/.config/sprintengine', 'linux')
+    assert.equal(linux, '/home/test/.config/sprintengine/automation.sock')
+    const longLinux = resolveSocketPath(`/home/test/${'nested/'.repeat(20)}sprintengine`, 'linux', '/tmp')
+    assert.match(longLinux, /^\/tmp\/sprintengine-automation-[a-f0-9]{12}\.sock$/)
   }
 
   async function testToolListNamesTheToolSurface(): Promise<void> {
@@ -432,9 +432,9 @@ test('automation', async () => {
         contextUsage: { usedPercentage: 62, at: 43 },
         pullRequests: [
           {
-            url: 'https://github.com/acme/multicode/pull/7',
-            repoKey: 'github.com/acme/multicode',
-            repoName: 'multicode',
+            url: 'https://github.com/acme/sprintengine/pull/7',
+            repoKey: 'github.com/acme/sprintengine',
+            repoName: 'sprintengine',
             number: 7,
             title: 'Carry the row',
             state: 'open',
@@ -465,15 +465,15 @@ test('automation', async () => {
       backendsOf({
         sessions,
         workspaces: [
-          testWorkspace('ws-1', { folderPath: '/code/multicode', snoozedUntil: 9_000 }),
+          testWorkspace('ws-1', { folderPath: '/code/sprintengine', snoozedUntil: 9_000 }),
           testWorkspace('ws-2', { folderPath: null }),
         ],
         readRepositoryIdentity: async (folderPath) =>
-          folderPath === '/code/multicode'
+          folderPath === '/code/sprintengine'
             ? {
-                canonicalKey: 'github.com/acme/multicode',
-                remoteUrl: 'git@github.com:acme/multicode.git',
-                name: 'multicode',
+                canonicalKey: 'github.com/acme/sprintengine',
+                remoteUrl: 'git@github.com:acme/sprintengine.git',
+                name: 'sprintengine',
               }
             : null,
       }),
@@ -497,7 +497,7 @@ test('automation', async () => {
 
     // The hue is the shared hash of the REPOSITORY key, so this row is the same
     // degree on the phone, on this desktop, and on a paired machine's clone.
-    assert.equal(listed[0].projectHue, projectHue('repo:github.com/acme/multicode'))
+    assert.equal(listed[0].projectHue, projectHue('repo:github.com/acme/sprintengine'))
     assert.equal(listed[1].projectHue, null, 'a chat with no folder is not a project and wears no colour')
 
     assert.equal(listed[0].snoozedUntil, 9_000, 'a sleeping chat says when it wakes')
@@ -507,9 +507,9 @@ test('automation', async () => {
     // draft flag to draw its mark, and nothing needs the read timestamps.
     assert.deepEqual(listed[0].pullRequests, [
       {
-        url: 'https://github.com/acme/multicode/pull/7',
-        repoKey: 'github.com/acme/multicode',
-        repoName: 'multicode',
+        url: 'https://github.com/acme/sprintengine/pull/7',
+        repoKey: 'github.com/acme/sprintengine',
+        repoName: 'sprintengine',
         number: 7,
         title: 'Carry the row',
         state: 'open',
@@ -654,7 +654,7 @@ test('automation', async () => {
         (async (input) => {
           worktreeCalls.push(input)
           return {
-            worktreePath: `${input.workspaceRoot}/.multicode-worktrees/${input.name}`,
+            worktreePath: `${input.workspaceRoot}/.sprintengine-worktrees/${input.name}`,
             branch: `agent/${input.name}`,
           }
         }),
@@ -751,10 +751,10 @@ test('automation', async () => {
     assert.equal(okWorktree.isError, undefined, JSON.stringify(okWorktree.structuredContent))
     assert.deepEqual(isolated.worktreeCalls, [{ workspaceRoot: '/tmp/project-a', name: 'Scout' }])
     const worktreeReq = isolated.requests[0]
-    assert.equal(worktreeReq.worktreePath, '/tmp/project-a/.multicode-worktrees/Scout')
+    assert.equal(worktreeReq.worktreePath, '/tmp/project-a/.sprintengine-worktrees/Scout')
     assert.equal(
       (okWorktree.structuredContent as { worktreePath?: string }).worktreePath,
-      '/tmp/project-a/.multicode-worktrees/Scout',
+      '/tmp/project-a/.sprintengine-worktrees/Scout',
     )
     assert.equal(
       (okWorktree.structuredContent as { worktreeBranch?: string }).worktreeBranch,
@@ -790,7 +790,7 @@ test('automation', async () => {
     assert.deepEqual(connector.worktreeCalls, [{ workspaceRoot: '/tmp/project-a', name: 'Scout' }])
     const connectorReq = connector.requests[0]
     assert.equal(connectorReq.connectorId, 'railway')
-    assert.equal(connectorReq.worktreePath, '/tmp/project-a/.multicode-worktrees/Scout')
+    assert.equal(connectorReq.worktreePath, '/tmp/project-a/.sprintengine-worktrees/Scout')
 
     // A worktree-creation failure is fatal isolation — worktree_unavailable, and
     // the launch never happens.
@@ -1022,7 +1022,7 @@ test('automation', async () => {
   }
 
   async function testSocketServerSpeaksMcpAndOnlyWhenStarted(): Promise<void> {
-    const socketPath = join(mkdtempSync(join(tmpdir(), 'multicode-automation-sock-')), 'automation.sock')
+    const socketPath = join(mkdtempSync(join(tmpdir(), 'se-automation-sock-')), 'automation.sock')
     let attributedAgentId: string | undefined
     const echoTool: McpToolRegistration = {
       name: 'workspace.list',
@@ -1035,7 +1035,7 @@ test('automation', async () => {
     }
     const server = createMcpSocketServer({
       socketPath,
-      serverName: 'multicode-automation',
+      serverName: 'sprintengine-automation',
       serverVersion: '0.0.0-test',
       resolveTools: () => [echoTool],
     })
@@ -1108,7 +1108,7 @@ test('automation', async () => {
         result: { protocolVersion: string; serverInfo: { name: string }; capabilities: { tools: object } }
       }
       assert.equal(init.result.protocolVersion, '2025-03-26')
-      assert.equal(init.result.serverInfo.name, 'multicode-automation')
+      assert.equal(init.result.serverInfo.name, 'sprintengine-automation')
       assert.ok(init.result.capabilities.tools)
 
       const tools = byId.get(2) as { result: { tools: Array<{ name: string }> } }
@@ -1166,11 +1166,11 @@ test('automation', async () => {
     // framing, per-request `_meta.protocolVersion`, and `ttlMs` (the two tests below).
     assert.equal(DEFAULT_MCP_PROTOCOL_VERSION, '2026-07-28', 'the declared default is the declared maximum')
 
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-negotiate-'))
+    const dir = mkdtempSync(join(tmpdir(), 'se-automation-negotiate-'))
     const socketPath = join(dir, 'automation.sock')
     const server = createMcpSocketServer({
       socketPath,
-      serverName: 'multicode-automation',
+      serverName: 'sprintengine-automation',
       serverVersion: '0.0.0-test',
       resolveTools: () => [],
     })
@@ -1253,7 +1253,7 @@ test('automation', async () => {
     const socketPath = join(dir, 'automation.sock')
     const server = createMcpSocketServer({
       socketPath,
-      serverName: 'multicode-automation',
+      serverName: 'sprintengine-automation',
       serverVersion: '0.0.0-test',
       resolveTools: () => [
         {
@@ -1299,7 +1299,7 @@ test('automation', async () => {
     // client opens the socket and calls straight away. That already worked here (the
     // dispatch has no handshake gate), which is exactly why it needs pinning: nothing
     // in the code says "do not add a gate", so only this test stops one being added.
-    const client = await handshakelessClient('multicode-mcp-nohandshake-')
+    const client = await handshakelessClient('sprintengine-mcp-nohandshake-')
     try {
       client.send({ jsonrpc: '2.0', id: 1, method: 'tools/list' })
       client.send({ jsonrpc: '2.0', id: 2, method: 'tools/call', params: { name: 'workspace.list', arguments: {} } })
@@ -1333,7 +1333,7 @@ test('automation', async () => {
     const unsupported = '2099-01-01'
     assert.ok(!SUPPORTED_MCP_PROTOCOL_VERSIONS.includes(unsupported), 'this test needs a version we do NOT serve')
 
-    const client = await handshakelessClient('multicode-mcp-declared-')
+    const client = await handshakelessClient('sprintengine-mcp-declared-')
     try {
       const meta = (protocolVersion: unknown): Record<string, unknown> => ({ _meta: { protocolVersion } })
       client.send({ jsonrpc: '2.0', id: 1, method: 'tools/list', params: meta(DEFAULT_MCP_PROTOCOL_VERSION) })
@@ -1382,12 +1382,12 @@ test('automation', async () => {
 
   async function testStaleSocketFileIsReplacedOnStart(): Promise<void> {
     if (process.platform === 'win32') return
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-stale-'))
+    const dir = mkdtempSync(join(tmpdir(), 'se-automation-stale-'))
     const socketPath = join(dir, 'automation.sock')
     writeFileSync(socketPath, '')
     const server = createMcpSocketServer({
       socketPath,
-      serverName: 'multicode-automation',
+      serverName: 'sprintengine-automation',
       serverVersion: '0.0.0-test',
       resolveTools: () => [],
     })
@@ -1445,12 +1445,12 @@ test('automation', async () => {
   }
 
   async function testBridgePipesStdioToSocketAndExitsOnServerStop(): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-bridge-'))
+    const dir = mkdtempSync(join(tmpdir(), 'se-automation-bridge-'))
     const socketPath = join(dir, 'automation.sock')
     const infoPath = join(dir, 'automation-server-info.json')
     const server = createMcpSocketServer({
       socketPath,
-      serverName: 'multicode-automation',
+      serverName: 'sprintengine-automation',
       serverVersion: '0.0.0-test',
       resolveTools: () => [
         {
@@ -1473,7 +1473,7 @@ test('automation', async () => {
 
       const byId = new Map(bridge.stdoutLines.map((response) => [response.id, response]))
       const init = byId.get(1) as { result: { serverInfo: { name: string } } }
-      assert.equal(init.result.serverInfo.name, 'multicode-automation')
+      assert.equal(init.result.serverInfo.name, 'sprintengine-automation')
       const tools = byId.get(2) as { result: { tools: Array<{ name: string }> } }
       assert.deepEqual(
         tools.result.tools.map((entry) => entry.name),
@@ -1490,7 +1490,7 @@ test('automation', async () => {
   }
 
   async function testConcurrentBridgesKeepResponsesAndAttributionIsolated(): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-studio-mcp-concurrency-'))
+    const dir = mkdtempSync(join(tmpdir(), 'se-studio-mcp-concurrency-'))
     const socketPath = join(dir, 'automation.sock')
     const infoPath = join(dir, STUDIO_MCP_SERVER_INFO_FILENAME)
     const server = createMcpSocketServer({
@@ -1547,7 +1547,7 @@ test('automation', async () => {
   }
 
   async function testBridgeFailsClearlyWithoutDiscoveryFile(): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-bridge-off-'))
+    const dir = mkdtempSync(join(tmpdir(), 'se-automation-bridge-off-'))
     const bridge = spawnBridge(join(dir, 'automation-server-info.json'))
     const exit = await bridge.exited
     assert.equal(exit.code, 1, 'missing discovery file is a hard failure')
@@ -1556,7 +1556,7 @@ test('automation', async () => {
   }
 
   async function testBridgeReportsStaleDiscoveryFile(): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-automation-bridge-stale-'))
+    const dir = mkdtempSync(join(tmpdir(), 'se-automation-bridge-stale-'))
     // A freshly-exited child gives a pid that is certainly not alive.
     const dead = spawn(process.execPath, ['-e', ''])
     await new Promise<void>((resolve) => dead.once('exit', () => resolve()))
@@ -2559,7 +2559,7 @@ test('automation', async () => {
   // whole path a connected agent drives: module kernel → gateway resolver →
   // socket server → JSON-RPC tools/list + tools/call.
   async function testModuleContributedToolIsLiveOnAConnectedSession(): Promise<void> {
-    const socketPath = join(mkdtempSync(join(tmpdir(), 'multicode-module-tool-')), 'automation.sock')
+    const socketPath = join(mkdtempSync(join(tmpdir(), 'se-module-tool-')), 'automation.sock')
     const forecastTool: McpToolRegistration = {
       name: 'weather_deck_forecast',
       description: 'Forecast from the fixture module.',
@@ -2592,7 +2592,7 @@ test('automation', async () => {
     })
     const server = createMcpSocketServer({
       socketPath,
-      serverName: 'multicode-automation',
+      serverName: 'sprintengine-automation',
       serverVersion: '0.0.0-test',
       resolveTools: resolveGatewayTools,
     })
@@ -2687,7 +2687,7 @@ test('automation', async () => {
   }
 
   async function testStudioGatewayAuditIsRedactedAndRotated(): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-studio-mcp-audit-'))
+    const dir = mkdtempSync(join(tmpdir(), 'se-studio-mcp-audit-'))
     try {
       const store = createGatewayAuditStore({ resolveUserDataDir: () => dir, maxBytes: 1024, backups: 2 })
       for (let index = 0; index < 20; index += 1) {
@@ -2914,7 +2914,7 @@ test('automation', async () => {
   // than against a literal, so a `module.status` reading some other registry fails
   // here instead of misreporting the app to an agent.
   async function testModuleStatusAgreesWithTheToolsTheGatewayServes(): Promise<void> {
-    const socketPath = join(mkdtempSync(join(tmpdir(), 'multicode-module-agree-')), 'automation.sock')
+    const socketPath = join(mkdtempSync(join(tmpdir(), 'se-module-agree-')), 'automation.sock')
     const forecastTool: McpToolRegistration = {
       name: 'weather_deck_forecast',
       description: 'Forecast from the fixture module.',

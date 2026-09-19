@@ -1606,8 +1606,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     const onCommand = (event: Event) => {
       gitCommandHandlerRef.current((event as CustomEvent).detail)
     }
-    window.addEventListener('multicode:panel-command', onCommand)
-    return () => window.removeEventListener('multicode:panel-command', onCommand)
+    window.addEventListener('sprintengine:panel-command', onCommand)
+    return () => window.removeEventListener('sprintengine:panel-command', onCommand)
   }, [])
 
   const handleSwitchBranch = async (branchName: string) => {

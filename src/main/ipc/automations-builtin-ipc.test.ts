@@ -77,7 +77,7 @@ test('automations-builtin-ipc', async () => {
   }
 
   async function withWorkspaceRoot(): Promise<string> {
-    return mkdtemp(join(tmpdir(), 'multicode-automations-builtin-'))
+    return mkdtemp(join(tmpdir(), 'sprintengine-automations-builtin-'))
   }
 
   // The five automations that ship inside the app (Extensions drawer ruling,
@@ -89,7 +89,7 @@ test('automations-builtin-ipc', async () => {
   // may already hold the copy.
   async function testBuiltinListAndAddGoThroughTheCatalogueWrite(): Promise<void> {
     const knownRoot = await withWorkspaceRoot()
-    const outsideRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-ipc-builtin-'))
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'sprintengine-automations-ipc-builtin-'))
     const handlers = createFakeHost({ workspaceRoots: [knownRoot] })
 
     const listed = await invoke<AutomationsBuiltinListResult>(handlers, AUTOMATIONS_BUILTIN_LIST_CHANNEL)
@@ -139,7 +139,7 @@ test('automations-builtin-ipc', async () => {
     // The provenance pair is what makes the surface's "Added" answerable, and the
     // id it records is the built-in's own — never a name.
     assert.equal(added.value.definition.sourceCatalogueId, 'dead-code-sweep-automation')
-    assert.equal(added.value.definition.sourcePublisher, 'Multicode Labs')
+    assert.equal(added.value.definition.sourcePublisher, 'SprintEngine Labs')
     assert.notEqual(added.value.definition.id, 'dead-code-sweep-automation', 'the store issues the record id')
     // The catalogue write resolves the authored zone into the host's, so the
     // wall-clock the rail promised ("Nightly 02:00") is 02:00 where it now runs.

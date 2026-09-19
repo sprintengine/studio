@@ -27,12 +27,12 @@ import { resolveClaudeConfigDir } from './conversation-peek/locate'
 // stays importable from a plain Node test harness.
 // =============================================================================
 
-export const AGENT_STATE_HOOK_TAG = 'multicode-agent-state'
+export const AGENT_STATE_HOOK_TAG = 'sprintengine-agent-state'
 
 // Where the reporter script is copied inside a workspace. The reporter also
 // honours a SPRINTENGINE_AGENT_STATE_SOCKET env fallback (see the .mjs), but the
 // install always passes the socket via --socket, so it is not referenced here.
-export const AGENT_STATE_HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'agent-state.mjs')
+export const AGENT_STATE_HOOK_SCRIPT_REL = join('.sprintengine', 'hooks', 'agent-state.mjs')
 
 // =============================================================================
 // Frame resolution against a manifest agentStateSpec
@@ -204,7 +204,7 @@ export function holdTurnEndForBackgroundWork(
 // $comment on the claude-code plugin carries the full rationale).
 /**
  * The hook events on which the reporter forwards the person's prompt
- * (`resources/hooks/multicode-agent-state.mjs`). `UserPromptSubmit` is
+ * (`resources/hooks/sprintengine-agent-state.mjs`). `UserPromptSubmit` is
  * Claude/Codex/Kimi vocabulary; Cursor spells the same moment
  * `beforeSubmitPrompt`. Named here because the reporter's list and any reader's
  * idea of "does this runtime report messages" have to be the same list.
@@ -822,7 +822,7 @@ export function selectAgentStateTarget<T>(
 type ClaudeHookEntry = {
   type: 'command'
   command: string
-  _multicode?: string
+  _sprintengine?: string
 }
 
 type ClaudeMatcherBlock = {
@@ -860,7 +860,7 @@ async function readJsonIfExists<T>(path: string): Promise<T | null> {
   }
 }
 
-// Reporter entries are recognized primarily by the `_multicode` tag, but other
+// Reporter entries are recognized primarily by the `_sprintengine` tag, but other
 // writers round-trip settings.local.json through schemas that drop unknown keys
 // (Claude Code does this when it records e.g. enabledMcpjsonServers), stripping
 // the tag. An untagged entry is unremovable by tag alone, and once the workspace
@@ -868,10 +868,10 @@ async function readJsonIfExists<T>(path: string): Promise<T | null> {
 // event forever. So also claim untagged entries whose command has the exact
 // shape buildAgentStateReporterCommand emits: the script path is always
 // forward-slashed and ends in this suffix, immediately followed by `--socket`.
-const AGENT_STATE_COMMAND_SIGNATURE = '/.multicode/hooks/agent-state.mjs" --socket "'
+const AGENT_STATE_COMMAND_SIGNATURE = '/.sprintengine/hooks/agent-state.mjs" --socket "'
 
 function isAgentStateEntry(entry: ClaudeHookEntry): boolean {
-  if (entry?._multicode === AGENT_STATE_HOOK_TAG) return true
+  if (entry?._sprintengine === AGENT_STATE_HOOK_TAG) return true
   return (
     typeof entry?.command === 'string' &&
     entry.command.startsWith('node "') &&
@@ -933,7 +933,7 @@ export async function mergeAgentStateHooks(
     if (!Array.isArray(settings.hooks[event])) settings.hooks[event] = []
     const blocks = settings.hooks[event]
     const block = ensureMatcherBlock(blocks, matcher)
-    const ours: ClaudeHookEntry = { type: 'command', command, _multicode: AGENT_STATE_HOOK_TAG }
+    const ours: ClaudeHookEntry = { type: 'command', command, _sprintengine: AGENT_STATE_HOOK_TAG }
     const filtered = (block.hooks ?? []).filter((entry) => !isAgentStateEntry(entry))
     filtered.push(ours)
     block.hooks = filtered
@@ -974,9 +974,9 @@ export async function unmergeAgentStateHooks(settingsPath: string): Promise<void
 // would be a straight theft of their terminal. So install WRAPS: their command
 // is base64'd into `--wrap`, the forwarder runs it with the same stdin bytes and
 // passes its stdout and exit code through, and the object we displaced is kept
-// verbatim under `_multicodeWrapped` so uninstall can put it back exactly.
+// verbatim under `_sprintengineWrapped` so uninstall can put it back exactly.
 //
-// Same `_multicode` discipline as the hooks: our entry is recognizable, ours
+// Same `_sprintengine` discipline as the hooks: our entry is recognizable, ours
 // alone is ever replaced, every other key in the file is preserved, and install
 // is idempotent (a second install unwraps our own entry rather than wrapping
 // itself). Serialization is the caller's, and it is the SAME per-target-file
@@ -984,18 +984,18 @@ export async function unmergeAgentStateHooks(settingsPath: string): Promise<void
 // =============================================================================
 
 // Where the forwarder script is copied inside a workspace, beside the reporter.
-export const STATUS_LINE_HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'status-line.mjs')
+export const STATUS_LINE_HOOK_SCRIPT_REL = join('.sprintengine', 'hooks', 'status-line.mjs')
 
 // The same tag-stripping problem the hook entries have (a writer round-tripping
 // settings.local.json through a schema that drops unknown keys would take
-// `_multicode` with it, leaving an unremovable entry pointing at a script path
+// `_sprintengine` with it, leaving an unremovable entry pointing at a script path
 // that dangles the moment the workspace moves). So ours is claimed by the
 // command's shape too, exactly as buildStatusLineForwarderCommand emits it.
-const STATUS_LINE_COMMAND_SIGNATURE = '/.multicode/hooks/status-line.mjs" --socket "'
+const STATUS_LINE_COMMAND_SIGNATURE = '/.sprintengine/hooks/status-line.mjs" --socket "'
 
 // The person's own command, as it rides in our argv: base64 of
 // {"command": "..."}, double-quoted. Read back out of a command string when a
-// tag-stripping writer has taken `_multicodeWrapped` — the envelope is then the
+// tag-stripping writer has taken `_sprintengineWrapped` — the envelope is then the
 // only surviving copy of what we displaced.
 const STATUS_LINE_WRAP_ARGUMENT = /--wrap "([A-Za-z0-9+/=]+)"/
 
@@ -1052,7 +1052,7 @@ export function buildStatusLineForwarderCommand(
 /** Whether a `statusLine` value is one this app wrote. */
 function isOurStatusLine(value: unknown): boolean {
   if (!isRecord(value)) return false
-  if (value._multicode === true) return true
+  if (value._sprintengine === true) return true
   return typeof value.command === 'string' && value.command.includes(STATUS_LINE_COMMAND_SIGNATURE)
 }
 
@@ -1114,7 +1114,7 @@ type DisplacedStatusLine =
   | { kind: 'unusable' }
 
 // The person's own status line rebuilt out of OUR entry — the only surviving
-// copy once a schema-normalizing writer has taken `_multicodeWrapped`. The
+// copy once a schema-normalizing writer has taken `_sprintengineWrapped`. The
 // command comes from the base64 in our argv; `padding` and `refreshInterval`
 // come from our own entry, which carries them precisely so that Claude keeps
 // running their script the way they configured it. `padding: 0` is a setting a
@@ -1141,14 +1141,14 @@ function statusLineFromWrapArgument(ours: Record<string, unknown>): Record<strin
 // The origin recorded on one of our entries, when it is still there and still
 // one of the three we write.
 function recordedStatusLineOrigin(ours: Record<string, unknown>): WrappedStatusLineOrigin | null {
-  const recorded = ours._multicodeWrappedFrom
+  const recorded = ours._sprintengineWrappedFrom
   return typeof recorded === 'string' && WRAPPED_STATUS_LINE_ORIGINS.has(recorded)
     ? (recorded as WrappedStatusLineOrigin)
     : null
 }
 
 function displacedStatusLine(ours: Record<string, unknown>): DisplacedStatusLine {
-  const previous = ours._multicodeWrapped
+  const previous = ours._sprintengineWrapped
   if (isRecord(previous)) {
     const statusLine = wrappableStatusLine(previous)
     if (!statusLine) return { kind: 'unusable' }
@@ -1158,7 +1158,7 @@ function displacedStatusLine(ours: Record<string, unknown>): DisplacedStatusLine
   if (previous === null) return { kind: 'none' }
   // Absent: the same writer the command-shape signature exists for has round-
   // tripped this file through a schema that drops unknown keys, taking
-  // `_multicodeWrapped` with the tag. It may or may not have taken the origin
+  // `_sprintengineWrapped` with the tag. It may or may not have taken the origin
   // too — when the origin survived it is still the truth about where the
   // command came from, and using it is what stops a project-level status line
   // being copied down into the local file as a permanent shadow of itself.
@@ -1299,7 +1299,7 @@ export function buildLaunchStatusLineSetting(input: {
   const command = buildStatusLineForwarderCommand(input.scriptPath, input.socketPath, resolved.wrapped)
   if (command.length > MAX_STATUS_LINE_RENDERED_COMMAND_LENGTH) return null
 
-  // No `_multicode` bookkeeping here, unlike the install: nothing is written to
+  // No `_sprintengine` bookkeeping here, unlike the install: nothing is written to
   // disk, so there is no entry for a later run to recognise or restore from.
   const setting: Record<string, unknown> = { type: 'command', command }
   // Carried over for the same reason the install carries them: they configure
@@ -1359,12 +1359,12 @@ function applyStatusLineForwarder(settings: ClaudeSettings, install: StatusLineF
   if (typeof refreshInterval === 'number' && Number.isFinite(refreshInterval)) {
     ours.refreshInterval = refreshInterval
   }
-  ours._multicode = true
+  ours._sprintengine = true
   // Verbatim, so restore is byte-identical to what was there. Explicitly null
   // (rather than absent) when we installed over nothing: uninstall reads the
   // difference between "restore this" and "delete the key".
-  ours._multicodeWrapped = install.wrapped?.statusLine ?? null
-  if (install.wrapped) ours._multicodeWrappedFrom = install.wrapped.origin
+  ours._sprintengineWrapped = install.wrapped?.statusLine ?? null
+  if (install.wrapped) ours._sprintengineWrappedFrom = install.wrapped.origin
   settings.statusLine = ours
 }
 
@@ -1385,7 +1385,7 @@ function applyStatusLineForwarder(settings: ClaudeSettings, install: StatusLineF
 function removeStatusLineForwarder(settings: ClaudeSettings): void {
   const current = settings.statusLine
   if (!isOurStatusLine(current) || !isRecord(current)) return
-  const previous = current._multicodeWrapped
+  const previous = current._sprintengineWrapped
   const recordedOrigin = recordedStatusLineOrigin(current)
   const restorable = recordedOrigin === null || recordedOrigin === 'local'
   if (restorable && isRecord(previous) && !isOurStatusLine(previous)) {
@@ -1466,7 +1466,7 @@ export async function unmergeStatusLineForwarder(settingsPath: string): Promise<
 // "timeout"?, "matcher"? } ] } } — event keys map straight to entry arrays,
 // with no matcher-block nesting. The file is shared with the user's own hooks,
 // so this merges rather than owns. Unlike the Claude settings writer, NO
-// `_multicode` tag key is written: the entry schema is the vendor's, an
+// `_sprintengine` tag key is written: the entry schema is the vendor's, an
 // unknown key risks strict-validation rejection, and the command-shape
 // signature (the same one that reclaims tag-stripped Claude entries) is a
 // sufficient identity on its own.
@@ -1535,8 +1535,8 @@ async function mergeFlatAgentStateHooks(
 // byte-identical so existing installed blocks are still recognized and replaced.
 // =============================================================================
 
-const AGENT_STATE_TOML_START = '# >>> multicode agent-state hooks managed'
-const AGENT_STATE_TOML_END = '# <<< multicode agent-state hooks managed'
+const AGENT_STATE_TOML_START = '# >>> sprintengine agent-state hooks managed'
+const AGENT_STATE_TOML_END = '# <<< sprintengine agent-state hooks managed'
 
 // TOML basic strings share JSON's escaping (matches the repo's MCP writer), so
 // JSON.stringify yields a valid quoted value — and correctly escapes the Windows
@@ -1763,7 +1763,7 @@ export async function installAgentStateReporter(
     // ABSOLUTE path (hook commands run with no guaranteed cwd). The copy lives
     // where the REGISTRATION lives: a workspace-scoped registration uses the
     // workspace copy; a user-scoped one (a user-global config like Kimi's)
-    // gets a home-scoped copy (~/.multicode/hooks/) — pointing a user-global
+    // gets a home-scoped copy (~/.sprintengine/hooks/) — pointing a user-global
     // config into a workspace would dangle machine-wide the moment that
     // workspace (or a deleted worktree) goes away, firing
     // MODULE_NOT_FOUND for every session of that CLI until reinstalled.

@@ -46,7 +46,7 @@ export const agentRuntimeRendererModule: RendererModule = {
     id: 'agent-runtime',
     displayName: 'Agent Runtime',
     version: 1,
-    publisher: 'multicode',
+    publisher: 'sprintengine',
     category: 'core',
     summary: 'Terminals, agent launch, and the session runtime that every other capability builds on. Always on.',
     defaultEnabled: true,

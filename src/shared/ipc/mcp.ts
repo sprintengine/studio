@@ -7,7 +7,7 @@ export type McpScope = 'workspace' | 'user'
 // 'source' is a server a *source* installed (backlog/2026-09-05-plugin-sources.md,
 // "Provenance"): it is neither bundled with the app nor typed by hand, and Sync
 // owns it. The distinction is what lets a sync overwrite exactly what it wrote
-// and nothing else — the same rule `.multicode-skill.json` gives skills.
+// and nothing else — the same rule `.sprintengine-skill.json` gives skills.
 export type McpServerSource = 'bundled' | 'custom' | 'source'
 export type McpRiskLevel = 'low' | 'network' | 'local-command' | 'secrets'
 

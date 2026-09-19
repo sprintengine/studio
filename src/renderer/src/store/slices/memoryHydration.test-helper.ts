@@ -25,7 +25,7 @@ const seededWorkspace = {
   id: 'ws-hydrate-1',
   name: 'Hydration Fixture',
   mode: 'standard',
-  folderPath: '/tmp/multicode-hydration-fixture',
+  folderPath: '/tmp/sprintengine-hydration-fixture',
   templateId: 'standard',
   layoutModel: {
     global: {},
@@ -52,7 +52,7 @@ const seededEnvelope = {
   version: 44,
 }
 
-storage.set('multicode-workspaces', JSON.stringify(seededEnvelope))
+storage.set('sprintengine-workspaces', JSON.stringify(seededEnvelope))
 
 const fakeWindow = {
   localStorage: fakeLocalStorage,

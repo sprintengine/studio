@@ -153,7 +153,7 @@ test('module-notifications', async () => {
         entry: { main: 'main.cjs' },
       },
       registerMain: () => {
-        throw new Error('exploded reading /Users/someone/.multicode/modules/broken-module/main.cjs')
+        throw new Error('exploded reading /Users/someone/.sprintengine/modules/broken-module/main.cjs')
       },
     }
     const failingBundled: CapabilityModule = {

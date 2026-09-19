@@ -7,7 +7,7 @@ import { test } from 'vitest'
 import { installPluginFolder } from './plugin-install'
 
 function tmpBase(): string {
-  return mkdtempSync(join(tmpdir(), 'multicode-plugin-install-'))
+  return mkdtempSync(join(tmpdir(), 'sprintengine-plugin-install-'))
 }
 
 test('installs a valid CLI plugin folder under its declared id', async () => {

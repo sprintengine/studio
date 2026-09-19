@@ -15,11 +15,11 @@ import { basename, parentPath, pathJoin, pathSeparatorFor, trimPath } from './pa
  * derivation and its inverse ({@link repoRootFromWorktreePath}) can never drift
  * apart from each other.
  */
-export const WORKTREE_CONTAINER_DIR = '.multicode-worktrees'
+export const WORKTREE_CONTAINER_DIR = '.sprintengine-worktrees'
 
 /**
  * Container directory a repo's worktrees live under:
- * `<repo-parent>/.multicode-worktrees/<repo>`. Single source of truth for the
+ * `<repo-parent>/.sprintengine-worktrees/<repo>`. Single source of truth for the
  * convention, shared by the Worktree manager, connector chats, and
  * agent-at-spawn worktrees.
  */
@@ -30,7 +30,7 @@ export function worktreeContainerPath(repoRoot: string): string {
 /**
  * The inverse of {@link worktreeContainerPath}: given a path inside a container,
  * recover the repo checkout the worktree was cut from
- * (`<parent>/.multicode-worktrees/<repo>/<slug…>` → `<parent>/<repo>`). Null for
+ * (`<parent>/.sprintengine-worktrees/<repo>/<slug…>` → `<parent>/<repo>`). Null for
  * any path that is not inside a container.
  *
  * This is the fallback for worktree-backed workspaces recorded before they

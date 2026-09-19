@@ -78,7 +78,7 @@ test('checkout-resolve', async () => {
   async function run(): Promise<void> {
     assertHostPathTranslation()
     assertCommonGitDirParsing()
-    const scratch = await mkdtemp(join(tmpdir(), 'multicode-checkout-resolve-'))
+    const scratch = await mkdtemp(join(tmpdir(), 'sprintengine-checkout-resolve-'))
     try {
       // --- a primary checkout ---------------------------------------------
       const repo = join(scratch, 'repo')

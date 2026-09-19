@@ -1,13 +1,13 @@
 // Runs in every test worker before each test file.
 import { afterEach, vi } from 'vitest'
 
-// The app exports its own SPRINTENGINE_* / MULTICODE_* variables into every
+// The app exports its own SPRINTENGINE_* / SPRINTENGINE_* variables into every
 // terminal it opens, and this repository is developed in the app — so a suite
 // started from a Studio terminal would inherit a user-data dir, an agent id and
 // a state socket that a CI shell never has. A test that needs one of these
 // sets it itself; none may depend on which shell ran the suite.
 for (const name of Object.keys(process.env)) {
-  if (name.startsWith('SPRINTENGINE_') || name.startsWith('MULTICODE_')) delete process.env[name]
+  if (name.startsWith('SPRINTENGINE_') || name.startsWith('SPRINTENGINE_')) delete process.env[name]
 }
 
 // `DEV` is false, as the app's own build compiles it; Vitest's default is a dev

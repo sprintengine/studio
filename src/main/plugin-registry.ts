@@ -50,7 +50,7 @@ export type PluginRegistryLoadReport = {
 }
 
 export function defaultUserPluginRoot(): string {
-  return join(homedir(), '.multicode', 'plugins')
+  return join(homedir(), '.sprintengine', 'plugins')
 }
 
 export function createPluginRegistry(options: PluginRegistryOptions): PluginRegistry {

@@ -319,7 +319,7 @@ export interface MobileControlBacklogWorkspaceSnapshot {
 }
 
 // Terminal and in-flight states of one automation run (`AutomationRunStatus`,
-// multicode/src/shared/automations/contracts.ts). Closed on purpose: unlike a
+// src/shared/automations/contracts.ts in the Studio repository). Closed on purpose: unlike a
 // trigger kind, run status is engine-owned and cannot be extended by a provider.
 export type MobileControlAutomationRunStatus =
   | "queued"

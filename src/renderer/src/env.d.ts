@@ -24,7 +24,7 @@ import type {
   MemoryGraphNode as SharedMemoryGraphNode,
   MemoryPreviewResult as SharedMemoryPreviewResult,
   MemoryRootStatus as SharedMemoryRootStatus,
-  MulticodeAuthState as SharedMulticodeAuthState,
+  SprintEngineAuthState as SharedSprintEngineAuthState,
   SessionActivity as SharedSessionActivity,
   AgentPhase as SharedAgentPhase,
   AgentStateSource as SharedAgentStateSource,
@@ -66,7 +66,7 @@ declare global {
   type GitWorktreeOperationResult<T> = SharedGitWorktreeOperationResult<T>
   type WorkspaceFolderCheckResult = SharedWorkspaceFolderCheckResult
   type WindowState = SharedWindowState
-  type MulticodeAuthState = SharedMulticodeAuthState
+  type SprintEngineAuthState = SharedSprintEngineAuthState
 
   interface Window {
     api: ElectronApi

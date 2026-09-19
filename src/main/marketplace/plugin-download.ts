@@ -517,7 +517,7 @@ export type ClaudeCodePluginDownloadResult =
   | { ok: false; sourceUrl: string; message: string; statusCode?: number }
 
 const CLAUDE_PLUGIN_NOT_BUNDLED_MESSAGE =
-  'This plugin isn’t installable offline yet — its skill content isn’t bundled with this version of Multicode. It may become installable after an app update refreshes the catalogue.'
+  'This plugin isn’t installable offline yet — its skill content isn’t bundled with this version of SprintEngine. It may become installable after an app update refreshes the catalogue.'
 
 /**
  * Identity of a bundled content set: a digest over the (sorted) per-skill
@@ -607,7 +607,7 @@ export async function downloadClaudeCodePluginSource(
         return {
           ok: false,
           sourceUrl,
-          message: `Bundled content for skill “${skill.name}” failed integrity verification: ${verification.message} Reinstalling or updating Multicode restores the packaged catalogue.`,
+          message: `Bundled content for skill “${skill.name}” failed integrity verification: ${verification.message} Reinstalling or updating SprintEngine restores the packaged catalogue.`,
         }
       }
       await mkdir(join(stage, 'skills'), { recursive: true })
@@ -621,7 +621,7 @@ export async function downloadClaudeCodePluginSource(
         ok: false,
         sourceUrl,
         message:
-          'This Claude Code plugin bundles no skills. Multicode installs plugin skills only; its commands run inside Claude Code sessions.',
+          'This Claude Code plugin bundles no skills. SprintEngine installs plugin skills only; its commands run inside Claude Code sessions.',
       }
     }
 

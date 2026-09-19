@@ -105,7 +105,7 @@ export function createBackgroundPresence(deps: BackgroundPresenceDeps) {
         level: 'warning',
         title: 'Background tray unavailable',
         message:
-          'Multicode is running in the background but could not create a tray icon; reopen it from the app or the dock.',
+          'SprintEngine is running in the background but could not create a tray icon; reopen it from the app or the dock.',
       })
       return
     }

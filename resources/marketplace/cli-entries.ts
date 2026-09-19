@@ -24,7 +24,7 @@ import type { MarketplacePluginEntry } from '../../src/shared/marketplace'
 // The one publisher allowed on generated inline-CLI entries. `verified: true`
 // without a signature is legal for this shape only — see the inline-CLI lane
 // in verify-marketplace.ts for the rule and its reasoning.
-export const INLINE_CLI_PUBLISHER = { name: 'Multicode Labs', verified: true } as const
+export const INLINE_CLI_PUBLISHER = { name: 'SprintEngine Labs', verified: true } as const
 
 // Marketplace entry id for a bundled plugin id. Mirrors pluginRegistryIdForCli
 // (src/renderer/src/components/workspace/newWorkspace/cliRuntimeOptions.ts) —

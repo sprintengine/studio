@@ -56,11 +56,11 @@ test('workspaceStore.persistence', async () => {
 
   // Seed the v44 single-key envelope to verify the legacy split on cold-load.
   // The custom storage adapter must read this, split out the settings portion
-  // to multicode-app-settings, leave multicode-workspaces as registry-only, and
+  // to sprintengine-app-settings, leave sprintengine-workspaces as registry-only, and
   // surface a hydrated store with both halves.
   const stored: Record<string, string> = {
-    'multicode.workspaceStorageLiveSync': '1',
-    'multicode-workspaces': JSON.stringify({
+    'sprintengine.workspaceStorageLiveSync': '1',
+    'sprintengine-workspaces': JSON.stringify({
       state: {
         appSettings: {},
         sidebarCollapsed: true,
@@ -151,10 +151,10 @@ test('workspaceStore.persistence', async () => {
   // ── CASE 1 ──────────────────────────────────────────────────────────────────
   // Legacy v44 split + cold-load. The seeded envelope has appSettings AND
   // workspaces in one key; the custom storage adapter must split them.
-  // localStorage 'multicode-app-settings' is now seeded; 'multicode-workspaces'
+  // localStorage 'sprintengine-app-settings' is now seeded; 'sprintengine-workspaces'
   // still contains the legacy shape until the next setItem rewrites it.
-  assert.ok(stored['multicode-app-settings'], 'legacy split extracted settings to its own key')
-  const splitSettings = JSON.parse(stored['multicode-app-settings']) as SettingsRecord
+  assert.ok(stored['sprintengine-app-settings'], 'legacy split extracted settings to its own key')
+  const splitSettings = JSON.parse(stored['sprintengine-app-settings']) as SettingsRecord
   assert.equal(splitSettings.state.sidebarCollapsed, true, 'legacy sidebarCollapsed migrated to app-settings key')
 
   assert.equal(diagnosticLog.length, 1, 'exactly one hydration diagnostic per cold-load')
@@ -168,14 +168,14 @@ test('workspaceStore.persistence', async () => {
   assert.equal(coldLoadDiag.hydratedWorkspaceCount, 1)
 
   // The registry key is FROZEN: main owns the registry, so a workspace
-  // mutation no longer rewrites multicode-workspaces. The key keeps its last
+  // mutation no longer rewrites sprintengine-workspaces. The key keeps its last
   // written value for one release as the rollback artifact, and the release after
   // this deletes it.
-  const frozenRegistryRaw = stored['multicode-workspaces']
+  const frozenRegistryRaw = stored['sprintengine-workspaces']
   useWorkspaceStore.getState().renameWorkspace(persistedWorkspace.id, 'Retained Workspace')
   await new Promise<void>((resolve) => setTimeout(resolve, 50))
   assert.equal(
-    stored['multicode-workspaces'],
+    stored['sprintengine-workspaces'],
     frozenRegistryRaw,
     'a workspace rename does not write the legacy registry key: main persists the registry now',
   )
@@ -190,15 +190,19 @@ test('workspaceStore.persistence', async () => {
   // SETTINGS key and still writes it, while the registry key is never written at
   // all. Both halves are asserted, because "nothing is written" would also be
   // satisfied by a persistence layer that had stopped working entirely.
-  const settingsRawBefore = stored['multicode-app-settings']
+  const settingsRawBefore = stored['sprintengine-app-settings']
   useWorkspaceStore.getState().setSidebarCollapsed(false)
   await new Promise<void>((resolve) => setTimeout(resolve, 50))
   assert.notEqual(
-    stored['multicode-app-settings'],
+    stored['sprintengine-app-settings'],
     settingsRawBefore,
     'a settings change still writes the app-settings key: the renderer owns settings',
   )
-  assert.equal(stored['multicode-workspaces'], frozenRegistryRaw, 'and it still does not touch the frozen registry key')
+  assert.equal(
+    stored['sprintengine-workspaces'],
+    frozenRegistryRaw,
+    'and it still does not touch the frozen registry key',
+  )
 
   // Pre-seed an agent into the live store so reconcileWorkspaceAgentLaunchFlags
   // has something real to mutate. Durable resume fields (cliStartRequested,
@@ -225,7 +229,7 @@ test('workspaceStore.persistence', async () => {
       }
     }),
   }))
-  const registryRawBefore = stored['multicode-workspaces']
+  const registryRawBefore = stored['sprintengine-workspaces']
   // Durable resume identity is main's to persist now, so it is asserted against
   // the normalized record main receives rather than the frozen localStorage key.
   // The strip rules are unchanged — `normalizeWorkspaceForRegistry` mirrors
@@ -259,9 +263,9 @@ test('workspaceStore.persistence', async () => {
   for (const surface of startupWriteSurfaces) {
     surface.mutate()
     assert.equal(
-      stored['multicode-workspaces'],
+      stored['sprintengine-workspaces'],
       registryRawBefore,
-      `${surface.label} must NOT touch the multicode-workspaces key (by-construction guarantee)`,
+      `${surface.label} must NOT touch the sprintengine-workspaces key (by-construction guarantee)`,
     )
   }
 
@@ -328,7 +332,7 @@ test('workspaceStore.persistence', async () => {
   // it, hydration refuses to seed and retries on the next boot. It is asserted in
   // memory now, because the frozen registry key is no longer written.
   const backupCallsBeforeClear = backupWriteCalls.length
-  const frozenBeforeClear = stored['multicode-workspaces']
+  const frozenBeforeClear = stored['sprintengine-workspaces']
   useWorkspaceStore.getState().removeWorkspace(persistedWorkspace.id)
   await new Promise<void>((resolve) => setTimeout(resolve, 350))
 
@@ -343,7 +347,7 @@ test('workspaceStore.persistence', async () => {
     'updatedAt timestamp present',
   )
   assert.equal(
-    stored['multicode-workspaces'],
+    stored['sprintengine-workspaces'],
     frozenBeforeClear,
     'removing the last workspace does not write the frozen registry key',
   )
@@ -456,7 +460,7 @@ test('workspaceStore.persistence', async () => {
       recentWorkspaceFolders: [],
     },
   })
-  stored['multicode-workspaces'] = 'unreadable garbage {{{'
+  stored['sprintengine-workspaces'] = 'unreadable garbage {{{'
   backupReadResponse = {
     ok: true,
     payload: {
@@ -522,7 +526,7 @@ test('workspaceStore.persistence', async () => {
   // If the user creates a workspace while async backup recovery is in flight, the
   // just-written registry is newer than the backup and must not be overwritten.
   diagnosticLog.length = 0
-  stored['multicode-workspaces'] = 'unreadable garbage {{{'
+  stored['sprintengine-workspaces'] = 'unreadable garbage {{{'
   useWorkspaceStore.setState({
     workspaces: [],
     activeWorkspaceId: null,
@@ -590,7 +594,7 @@ test('workspaceStore.persistence', async () => {
   // including appSettings (projectKnowledgeRoots, recentWorkspaceFolders,
   // learning, CLI/MCP, etc.). On a dangerous-empty cold-load that triggers
   // recovery, the salvage path must carry those fields through to
-  // multicode-app-settings instead of letting the next persist write commit
+  // sprintengine-app-settings instead of letting the next persist write commit
   // the current empty defaults over them.
   //
   // Evidence shape mirrors the production incident: 4 projectKnowledgeRoots
@@ -607,7 +611,7 @@ test('workspaceStore.persistence', async () => {
       recentWorkspaceFolders: [],
     },
   })
-  stored['multicode-workspaces'] = 'unreadable garbage {{{'
+  stored['sprintengine-workspaces'] = 'unreadable garbage {{{'
 
   const legacyBackupAppSettings = {
     cliRuntimes: {
@@ -617,12 +621,12 @@ test('workspaceStore.persistence', async () => {
     lastSelectedCli: 'claude-code',
     lastAgentSpawnPermissionPreset: 'default',
     projectKnowledgeRoots: {
-      '/Users/dev/workspace/multicode': 'knowledge',
-      '/Users/dev/workspace/multicode-mobile': '../multicode/knowledge',
-      '/Users/dev/workspace/docs-site': '../multicode/knowledge',
-      '/Users/dev/workspace/marketing-site': '../multicode/knowledge',
+      '/Users/dev/workspace/sprintengine': 'knowledge',
+      '/Users/dev/workspace/sprintengine-mobile': '../sprintengine/knowledge',
+      '/Users/dev/workspace/docs-site': '../sprintengine/knowledge',
+      '/Users/dev/workspace/marketing-site': '../sprintengine/knowledge',
     },
-    recentWorkspaceFolders: ['/Users/dev/workspace/multicode', '/Users/dev/workspace/multicode-mobile'],
+    recentWorkspaceFolders: ['/Users/dev/workspace/sprintengine', '/Users/dev/workspace/sprintengine-mobile'],
     mcp: { syncEnabled: true, servers: {} },
   }
 
@@ -636,13 +640,13 @@ test('workspaceStore.persistence', async () => {
         state: {
           workspaces: [
             {
-              id: 'ws-multicode',
-              name: 'multicode',
-              folderPath: '/Users/dev/workspace/multicode',
+              id: 'ws-sprintengine',
+              name: 'sprintengine',
+              folderPath: '/Users/dev/workspace/sprintengine',
               agents: {},
             } as Workspace,
           ],
-          activeWorkspaceId: 'ws-multicode',
+          activeWorkspaceId: 'ws-sprintengine',
           appSettings: legacyBackupAppSettings,
           sidebarCollapsed: false,
         },
@@ -655,7 +659,7 @@ test('workspaceStore.persistence', async () => {
 
   const salvaged = useWorkspaceStore.getState()
   assert.equal(salvaged.workspaces.length, 1)
-  assert.equal(salvaged.workspaces[0]?.id, 'ws-multicode')
+  assert.equal(salvaged.workspaces[0]?.id, 'ws-sprintengine')
 
   // Salvaged appSettings carry the four project-knowledge roots through normalization.
   const salvagedRoots = salvaged.appSettings.projectKnowledgeRoots
@@ -664,29 +668,29 @@ test('workspaceStore.persistence', async () => {
     4,
     'all four projectKnowledgeRoots survive recovery (the production regression: previously 4 → 0)',
   )
-  assert.equal(salvagedRoots['/Users/dev/workspace/multicode'], 'knowledge')
-  assert.equal(salvagedRoots['/Users/dev/workspace/multicode-mobile'], '../multicode/knowledge')
+  assert.equal(salvagedRoots['/Users/dev/workspace/sprintengine'], 'knowledge')
+  assert.equal(salvagedRoots['/Users/dev/workspace/sprintengine-mobile'], '../sprintengine/knowledge')
 
   // Other non-workspace app-settings survive too.
   assert.equal(salvaged.appSettings.recentWorkspaceFolders.length, 2)
   assert.equal(salvaged.appSettings.mcp.syncEnabled, true)
   assert.equal(salvaged.sidebarCollapsed, false, 'salvaged sidebarCollapsed honored')
 
-  // multicode-app-settings on disk was written immediately so the next persist
+  // sprintengine-app-settings on disk was written immediately so the next persist
   // write does not clobber the salvage with current empty defaults.
-  const settingsAfterSalvage = JSON.parse(stored['multicode-app-settings']) as SettingsRecord
+  const settingsAfterSalvage = JSON.parse(stored['sprintengine-app-settings']) as SettingsRecord
   const persistedRoots = (settingsAfterSalvage.state.appSettings as { projectKnowledgeRoots: Record<string, string> })
     .projectKnowledgeRoots
   assert.equal(
     Object.keys(persistedRoots).length,
     4,
-    'multicode-app-settings on disk also carries the four projectKnowledgeRoots after salvage',
+    'sprintengine-app-settings on disk also carries the four projectKnowledgeRoots after salvage',
   )
 
   // The salvage lands in the settings key and in memory; it never writes the
   // frozen registry key, which main owns the successor to.
   assert.ok(
-    (JSON.parse(stored['multicode-app-settings']) as SettingsRecord).state.appSettings,
+    (JSON.parse(stored['sprintengine-app-settings']) as SettingsRecord).state.appSettings,
     'the salvage is committed to the settings key, which the renderer still owns',
   )
 
@@ -802,7 +806,7 @@ test('workspaceStore.persistence', async () => {
   )
   assert.equal(
     workspaceProjectRoot({
-      folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+      folderPath: '/Users/example/.sprintengine-worktrees/project/chat-a1b2',
       worktree: partializedLegacyWorktree.worktree,
     }),
     '/Users/example/project',
@@ -832,7 +836,7 @@ test('workspaceStore.persistence', async () => {
     // shape it last held, so reading its version back would run the
     // migrate ladder instead — and this case is specifically about the ladder
     // never looking at the registry again.
-    stored['multicode-workspaces'] = JSON.stringify({
+    stored['sprintengine-workspaces'] = JSON.stringify({
       state: {
         workspaces: [
           { ...persistedWorkspace },
@@ -865,12 +869,12 @@ test('workspaceStore.persistence', async () => {
   // it, exactly as it does for every other retired key.
   {
     const { WORKSPACE_STORE_VERSION } = await import('./slices/persistenceSlice')
-    const settingsEnvelope = JSON.parse(stored['multicode-app-settings']) as {
+    const settingsEnvelope = JSON.parse(stored['sprintengine-app-settings']) as {
       state: { appSettings?: Record<string, unknown> }
       version: number
     }
     const persistedAppSettings = (settingsEnvelope.state.appSettings ?? {}) as Record<string, unknown>
-    stored['multicode-app-settings'] = JSON.stringify({
+    stored['sprintengine-app-settings'] = JSON.stringify({
       state: {
         ...settingsEnvelope.state,
         appSettings: {
@@ -911,7 +915,7 @@ test('workspaceStore.persistence', async () => {
   // either way.
   {
     const { WORKSPACE_STORE_VERSION } = await import('./slices/persistenceSlice')
-    const settingsEnvelope = JSON.parse(stored['multicode-app-settings']) as SettingsRecord
+    const settingsEnvelope = JSON.parse(stored['sprintengine-app-settings']) as SettingsRecord
     assert.equal(
       settingsEnvelope.version,
       WORKSPACE_STORE_VERSION,
@@ -919,7 +923,7 @@ test('workspaceStore.persistence', async () => {
     )
     const persistedAppSettings = (settingsEnvelope.state.appSettings ?? {}) as Record<string, unknown>
     const seedCatalog = (cliModelCatalog: unknown): void => {
-      stored['multicode-app-settings'] = JSON.stringify({
+      stored['sprintengine-app-settings'] = JSON.stringify({
         state: {
           ...settingsEnvelope.state,
           appSettings: {
@@ -978,8 +982,8 @@ test('workspaceStore.persistence', async () => {
   // and a module's bag entry must survive verbatim.
   {
     const { WORKSPACE_STORE_VERSION } = await import('./slices/persistenceSlice')
-    const currentEnvelope = JSON.parse(stored['multicode-workspaces']) as RegistryRecord
-    stored['multicode-workspaces'] = JSON.stringify({
+    const currentEnvelope = JSON.parse(stored['sprintengine-workspaces']) as RegistryRecord
+    stored['sprintengine-workspaces'] = JSON.stringify({
       state: {
         ...currentEnvelope.state,
         workspaces: [

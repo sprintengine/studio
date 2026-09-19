@@ -56,7 +56,7 @@ test('modelCatalogEffortSeam', async () => {
 
   const seedStorage = (version: number): void => {
     dom.window.localStorage.setItem(
-      'multicode-workspaces',
+      'sprintengine-workspaces',
       JSON.stringify({
         state: {
           workspaces: [
@@ -76,7 +76,7 @@ test('modelCatalogEffortSeam', async () => {
       }),
     )
     dom.window.localStorage.setItem(
-      'multicode-app-settings',
+      'sprintengine-app-settings',
       JSON.stringify({
         state: {
           appSettings: {
@@ -156,7 +156,7 @@ test('modelCatalogEffortSeam', async () => {
       __resetPluginRegistryForTest()
       const registry = createPluginRegistry({
         bundledRoot: BUNDLED_ROOT,
-        userRoot: join(process.cwd(), '.does-not-exist', 'multicode', 'plugins'),
+        userRoot: join(process.cwd(), '.does-not-exist', 'sprintengine', 'plugins'),
       })
       const report = registry.loadSync()
       assert.deepEqual(report.rejected, [], 'bundled manifests load clean')

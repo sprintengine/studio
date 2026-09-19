@@ -35,12 +35,12 @@ test('enablement-store', async () => {
   }
 
   async function testMissingFileReturnsEmpty(): Promise<void> {
-    const dir = await mkdtemp(join(tmpdir(), 'multicode-enablement-'))
+    const dir = await mkdtemp(join(tmpdir(), 'sprintengine-enablement-'))
     assert.deepEqual(readModuleOverridesSync(dir), {})
   }
 
   async function testRoundTrip(): Promise<void> {
-    const dir = await mkdtemp(join(tmpdir(), 'multicode-enablement-'))
+    const dir = await mkdtemp(join(tmpdir(), 'sprintengine-enablement-'))
     const write = await writeModuleOverrides(dir, { 'memory-graph': false, git: true })
     assert.equal(write.ok, true)
     assert.deepEqual(readModuleOverridesSync(dir), { 'memory-graph': false, git: true })
@@ -50,7 +50,7 @@ test('enablement-store', async () => {
   }
 
   async function testWriteNormalizes(): Promise<void> {
-    const dir = await mkdtemp(join(tmpdir(), 'multicode-enablement-'))
+    const dir = await mkdtemp(join(tmpdir(), 'sprintengine-enablement-'))
     // Cast through unknown: callers shouldn't pass junk, but a malformed IPC
     // payload must not poison the file.
     await writeModuleOverrides(dir, { ok: true, junk: 'x' } as unknown as Record<string, boolean>)

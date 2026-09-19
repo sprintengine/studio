@@ -57,7 +57,7 @@
           "$value": "{ref.color.neutral.50}",
           "$description": "Root page/application background.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "surface",
               "use": "The outermost background layer of any page or app shell.",
               "doNotUse": "Not for cards or raised panels; use sem.color.bg.surface.",
@@ -70,7 +70,7 @@
           "$value": "{ref.color.neutral.0}",
           "$description": "Card and panel surface, one level above the app background.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "surface",
               "use": "Cards, panels, inputs, and any content container sitting on sem.color.bg.app.",
               "components": ["button"],
@@ -85,7 +85,7 @@
           "$value": "{ref.color.neutral.800}",
           "$description": "Primary content text.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "text",
               "use": "Body copy, titles, labels — the default foreground.",
               "modes": { "light": "{ref.color.neutral.800}", "dark": "{ref.color.neutral.50}" }
@@ -97,7 +97,7 @@
           "$value": "{ref.color.neutral.500}",
           "$description": "Secondary, supporting text.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "text",
               "use": "Meta, captions, and supporting copy next to primary text.",
               "doNotUse": "Never for actionable copy standing alone.",
@@ -110,7 +110,7 @@
           "$value": "{ref.color.neutral.0}",
           "$description": "Foreground on accent-filled controls.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "text",
               "use": "Labels and icons sitting on sem.color.accent.primary or sem.color.status.danger fills.",
               "components": ["button"],
@@ -125,7 +125,7 @@
           "$value": "{ref.color.neutral.200}",
           "$description": "Default hairline border.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "border",
               "use": "Panel dividers, card edges, and secondary control outlines. Borders carry structure; shadows do not.",
               "doNotUse": "Not for form-field boundaries; use sem.color.border.input so unfocused fields stay visible.",
@@ -139,7 +139,7 @@
           "$value": "{ref.color.neutral.500}",
           "$description": "Boundary for form fields that must read as bounded controls.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "border",
               "use": "Outlines of text inputs, selects, and other form fields — keeps unfocused controls visible (at least 3:1 against their surface) in both modes.",
               "doNotUse": "Not for panel dividers or card edges; use sem.color.border.default."
@@ -153,7 +153,7 @@
           "$value": "{ref.color.green.600}",
           "$description": "The single accent color.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "accent",
               "use": "Primary CTA fills and selected states. One accent per view; selection and primary action share it.",
               "doNotUse": "Never to convey status (use sem.color.status.*) and never as a large decorative surface fill.",
@@ -167,7 +167,7 @@
           "$value": "{ref.color.green.700}",
           "$description": "Hover shift of the accent.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "accent",
               "use": "Hover and focus emphasis on accent-filled or accent-outlined controls.",
               "components": ["button"],
@@ -182,7 +182,7 @@
           "$value": "{ref.color.red.500}",
           "$description": "Destructive and error signal.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "status",
               "use": "Destructive action fills, error text, and failure marks — status meaning only.",
               "doNotUse": "Never as a category or brand color.",
@@ -198,7 +198,7 @@
           "$value": "{ref.color.green.500}",
           "$description": "Deprecated brand highlight, kept to exercise the deprecation schema.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "accent",
               "use": "Do not adopt; retained only for existing consumers.",
               "deprecated": {
@@ -217,7 +217,7 @@
         "$value": "{ref.space.2}",
         "$description": "Gap between a control's internal elements and between sibling controls.",
         "$extensions": {
-          "com.multicode": {
+          "com.sprintengine": {
             "role": "space",
             "use": "Icon-to-label gaps and gaps in control rows.",
             "components": ["button"]
@@ -229,7 +229,7 @@
         "$value": "{ref.space.6}",
         "$description": "Vertical rhythm between page sections.",
         "$extensions": {
-          "com.multicode": {
+          "com.sprintengine": {
             "role": "space",
             "use": "Padding around sections and stacked page regions."
           }
@@ -242,7 +242,7 @@
         "$value": "{ref.radius.sm}",
         "$description": "Corner radius for interactive controls.",
         "$extensions": {
-          "com.multicode": {
+          "com.sprintengine": {
             "role": "radius",
             "use": "Buttons, inputs, chips, and rows.",
             "components": ["button"]
@@ -254,7 +254,7 @@
         "$value": "{ref.radius.md}",
         "$description": "Corner radius for floating surfaces.",
         "$extensions": {
-          "com.multicode": {
+          "com.sprintengine": {
             "role": "radius",
             "use": "Popovers, cards, and modal shells. Keep at most two radii per view."
           }
@@ -268,7 +268,7 @@
           "$value": "{ref.font.family.ui}",
           "$description": "The face for all UI copy.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "type",
               "use": "Everything except identifiers and code, which use ref.font.family.mono.",
               "components": ["button"]
@@ -282,7 +282,7 @@
           "$value": "{ref.font.size.md}",
           "$description": "Default body text size.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "type",
               "use": "Body copy and control labels. Keep at most three sizes per view.",
               "components": ["button"]
@@ -296,7 +296,7 @@
           "$value": "{ref.font.weight.semibold}",
           "$description": "Emphasis weight for labels and headings.",
           "$extensions": {
-            "com.multicode": {
+            "com.sprintengine": {
               "role": "type",
               "use": "Control labels, section headings, and inline emphasis.",
               "components": ["button"]

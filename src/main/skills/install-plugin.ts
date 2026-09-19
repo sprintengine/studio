@@ -18,7 +18,7 @@
 //     server declared as `bun run --cwd ${CLAUDE_PLUGIN_ROOT} … start` cannot
 //     start unless those files are on disk and that variable means something,
 //     and only Claude Code's own loader sets it. So the plugin root lands under
-//     `.multicode/claude-plugins/<id>` and the variable is resolved to where it
+//     `.sprintengine/claude-plugins/<id>` and the variable is resolved to where it
 //     landed (plugin-directory.ts, shared/mcp/plugin-root.ts). A plugin whose
 //     servers name no such directory copies nothing extra.
 //  4. **Commands, agents, hooks and language servers are not installed.** They
@@ -140,7 +140,7 @@ export type PluginInstallResult =
        * its directory name so a Remove can take it back.
        */
       pluginRoot: string
-      /** The single path segment under `.multicode/claude-plugins`, '' when nothing was copied. */
+      /** The single path segment under `.sprintengine/claude-plugins`, '' when nothing was copied. */
       pluginDirName: string
       /** Files copied into `pluginRoot`; 0 when nothing was. */
       pluginFileCount: number
@@ -220,7 +220,7 @@ export async function installPlugin(options: PluginInstallOptions): Promise<Plug
   }
   if (plugin.id === STUDIO_PLUGIN_ID) {
     // The app installs its own plugin itself, by materialising the bundled
-    // template into `.multicode/studio-plugin` and copying the skills from
+    // template into `.sprintengine/studio-plugin` and copying the skills from
     // there (studio-plugin.ts). A catalogue install would be a SECOND copy of
     // the same skills under a second provenance marker — and of the published
     // template, whose `.mcp.json` and hooks still carry `__SPRINTENGINE_*` tokens
@@ -432,7 +432,7 @@ async function sweepPluginDirectory(workspaceRoot: string, pluginId: string, dir
 function describeOrigin(plugin: ScannedPlugin): string {
   const origin = plugin.origin
   if (origin.kind === 'linked') return origin.repo || origin.url || 'its repository'
-  if (origin.kind === 'registry') return 'the Multicode marketplace, which ships no plugin directory'
+  if (origin.kind === 'registry') return 'the SprintEngine marketplace, which ships no plugin directory'
   return 'its source'
 }
 
@@ -443,7 +443,7 @@ export type PluginUninstallOptions = {
   /** Skill directory names the install copied; swept from every harness dir. */
   skillDirNames: readonly string[]
   /**
-   * The plugin's own directory under `.multicode/claude-plugins`, '' when the
+   * The plugin's own directory under `.sprintengine/claude-plugins`, '' when the
    * install copied none. Absent on a receipt written before plugin directories
    * existed, which means the same thing: there is nothing of that kind to
    * remove.

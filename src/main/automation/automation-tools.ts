@@ -575,7 +575,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceList: McpToolRegistration = {
     name: 'workspace.list',
     description:
-      'List the workspaces visible to the user in the running Multicode instance, with window assignment and agent ids. ' +
+      'List the workspaces visible to the user in the running SprintEngine instance, with window assignment and agent ids. ' +
       'Workspaces that survived a restart are listed like any other: main owns the registry, so their name, ' +
       'folder, mode, and agents are real whether or not a window is open.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -738,7 +738,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   const workspaceCreate: McpToolRegistration = {
     name: 'workspace.create',
     description:
-      'Create a workspace in the running Multicode instance. The main process owns the registry, so this ' +
+      'Create a workspace in the running SprintEngine instance. The main process owns the registry, so this ' +
       'succeeds with no window open and the returned workspace is immediately addressable by every other tool.',
     inputSchema: {
       type: 'object',
@@ -1025,7 +1025,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           .filter((session) => !kind || session.kind === kind)
           .map(async (session) => ({
             ...terminalSessionProjection(session),
-            // The phone's thread row (multicode-mobile id 81) carries the same
+            // The phone's thread row (sprintengine-mobile id 81) carries the same
             // second line the sidebar does: the workspace's display name, and the
             // checkout's branch and diff read through the sidebar's own summary
             // share (one read per checkout per hold window, at most four reads

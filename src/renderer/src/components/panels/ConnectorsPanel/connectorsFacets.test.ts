@@ -273,7 +273,7 @@ test('connectorsFacets', async () => {
   // (launchable) rail, never count toward it, and never enter the connector grid.
   {
     const calendar = plugin({
-      id: 'multicode-calendar',
+      id: 'sprintengine-calendar',
       name: 'Calendar',
       summary: 'Adds a calendar workspace type: time-block notes and schedule Backlog items.',
       category: 'Productivity',
@@ -289,7 +289,7 @@ test('connectorsFacets', async () => {
     const calendarRows = buildConnectorEntries([calendar])
     assert.deepEqual(
       calendarRows.map((row) => row.id),
-      ['multicode-calendar'],
+      ['sprintengine-calendar'],
     )
     assert.equal(calendarRows[0].canLaunch, false)
     assert.deepEqual(calendarRows[0].componentLabels, ['Module'])

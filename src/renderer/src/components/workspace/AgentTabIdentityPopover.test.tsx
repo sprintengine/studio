@@ -100,9 +100,9 @@ test('AgentTabIdentityPopover', async () => {
         ...SELF,
         pullRequests: [
           {
-            url: 'https://github.com/acme/multicode/pull/418',
-            repoKey: 'github.com/acme/multicode',
-            repoName: 'multicode',
+            url: 'https://github.com/acme/sprintengine/pull/418',
+            repoKey: 'github.com/acme/sprintengine',
+            repoName: 'sprintengine',
             number: 418,
             title: 'Extensions icon carries its unread count',
             state: 'open',

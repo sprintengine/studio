@@ -62,7 +62,7 @@ export function pullRequestsSpanRepositories(list: readonly BranchPullRequest[])
   return new Set(list.map((pr) => pr.repoKey)).size > 1
 }
 
-/** "#418", or "multicode-website #12" once the list spans repositories. */
+/** "#418", or "sprintengine-website #12" once the list spans repositories. */
 function writtenNumber(pr: BranchPullRequest, spans: boolean): string {
   return spans ? `${pr.repoName} #${pr.number}` : `#${pr.number}`
 }
@@ -152,7 +152,7 @@ export function peekMarkCopy(list: readonly BranchPullRequest[], now: number): P
 /** One row of the peek's menu — everything it draws and everything it says. */
 export type PullRequestMenuRow = {
   url: string
-  /** "#409", or "multicode-website #12" when the conversation spans repositories. */
+  /** "#409", or "sprintengine-website #12" when the conversation spans repositories. */
   number: string
   title: string
   /** The terse age in the hint slot ("1d"); empty under a minute, and then omitted. */

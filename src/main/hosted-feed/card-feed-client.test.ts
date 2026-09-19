@@ -535,7 +535,7 @@ test('card-feed-client', async () => {
       assert.match(bad.ok ? '' : bad.message, /HTTPS/)
       // The override goes through the same gate as the default.
       const overridden = await new HostedCardFeedClient({
-        feedUrl: configuredCardFeedUrl({ MULTICODE_CARD_FEED_URL: 'http://localhost:8765/cards-feed.json' }),
+        feedUrl: configuredCardFeedUrl({ SPRINTENGINE_CARD_FEED_URL: 'http://localhost:8765/cards-feed.json' }),
         cachePath: '/nonexistent/cache.json',
         fetcher: async () => json({}),
       }).read()
@@ -554,7 +554,7 @@ test('card-feed-client', async () => {
         'https://raw.githubusercontent.com/sprintengine/studio-releases/main/cards-feed.json',
       )
       assert.equal(
-        configuredCardFeedUrl({ MULTICODE_CARD_FEED_URL: ' https://localhost:8765/cards-feed.json ' }),
+        configuredCardFeedUrl({ SPRINTENGINE_CARD_FEED_URL: ' https://localhost:8765/cards-feed.json ' }),
         'https://localhost:8765/cards-feed.json',
       )
       assert.deepEqual(

@@ -12,7 +12,7 @@ import { normalizeWorkspaceBacklogState } from './slices/workspacesSlice'
 // backlog reads as one list per project instead of diverging per window. Which
 // item is selected stays per-workspace (a navigation position), and the search
 // query is ephemeral (never persisted); both are handled in BacklogPanel.
-const STORAGE_KEY = 'multicode-backlog-project-view'
+const STORAGE_KEY = 'sprintengine-backlog-project-view'
 
 export interface BacklogProjectView {
   view: BacklogView

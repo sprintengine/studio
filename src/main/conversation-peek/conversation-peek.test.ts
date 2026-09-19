@@ -47,7 +47,7 @@ test('conversation-peek', async () => {
       isSidechain: false,
       uuid: `uuid-${Math.random().toString(16).slice(2)}`,
       timestamp: '2026-09-06T10:00:00.000Z',
-      cwd: '/home/dev/projects/multicode',
+      cwd: '/home/dev/projects/sprintengine',
       userType: 'external',
       ...overrides,
     }
@@ -64,7 +64,7 @@ test('conversation-peek', async () => {
   }
 
   async function writeTranscript(rows: Row[]): Promise<string> {
-    const directory = await mkdtemp(join(tmpdir(), 'multicode-peek-'))
+    const directory = await mkdtemp(join(tmpdir(), 'sprintengine-peek-'))
     const path = join(directory, 'session.jsonl')
     await writeFile(path, `${rows.map((row) => JSON.stringify(row)).join('\n')}\n`, 'utf8')
     return path
@@ -89,7 +89,7 @@ test('conversation-peek', async () => {
     assert.ok(huge.text.startsWith('Take a look.'), huge.text.slice(0, 40))
 
     const dropped = collapsePeekText(
-      'Read `design-system/USAGE.md` and conform.\n/home/dev/projects/multicode/src/main/app.ts\n@src/renderer/App.tsx',
+      'Read `design-system/USAGE.md` and conform.\n/home/dev/projects/sprintengine/src/main/app.ts\n@src/renderer/App.tsx',
     )
     assert.deepEqual(
       dropped.paths.map((path) => path.label),
@@ -236,17 +236,17 @@ test('conversation-peek', async () => {
     assert.equal(await readTranscriptPeek('relative/path.jsonl'), null, 'a relative path must be refused')
     assert.equal(await readTranscriptPeek('/tmp/not-a-transcript.txt'), null, 'only .jsonl is read')
     assert.equal(await readTranscriptPeek('/tmp/missing-\u0000.jsonl'), null, 'a NUL byte must be refused')
-    assert.equal(await readTranscriptPeek(join(tmpdir(), 'multicode-peek-absent.jsonl')), null)
+    assert.equal(await readTranscriptPeek(join(tmpdir(), 'sprintengine-peek-absent.jsonl')), null)
 
     // A directory named like a transcript: `isFile()` is what rejects it, and
     // without that check the streaming read would stall on a FIFO forever.
-    const directory = await mkdtemp(join(tmpdir(), 'multicode-peek-dir-'))
+    const directory = await mkdtemp(join(tmpdir(), 'sprintengine-peek-dir-'))
     const directoryTranscript = join(directory, 'session.jsonl')
     await mkdir(directoryTranscript)
     assert.equal(await readTranscriptPeek(directoryTranscript), null, 'a directory is not a transcript')
 
     // A truncated trailing write from a live CLI must not lose the rows above it.
-    const partial = await mkdtemp(join(tmpdir(), 'multicode-peek-partial-'))
+    const partial = await mkdtemp(join(tmpdir(), 'sprintengine-peek-partial-'))
     const partialPath = join(partial, 'session.jsonl')
     await writeFile(partialPath, `${JSON.stringify(humanRow('First thing.'))}\n{"type":"user","mess`, 'utf8')
     const peek = await readTranscriptPeek(partialPath)
@@ -267,7 +267,7 @@ test('conversation-peek', async () => {
     const png = 'iVBORw0KGgo='
     // A real directory with real files, because whether a chip is live now
     // depends on whether the file is actually there.
-    const repo = await mkdtemp(join(tmpdir(), 'multicode-peek-repo-'))
+    const repo = await mkdtemp(join(tmpdir(), 'sprintengine-peek-repo-'))
     await mkdir(join(repo, 'backlog', 'mockups'), { recursive: true })
     await writeFile(join(repo, 'backlog', 'mockups', 'peek.html'), '<p>ok</p>', 'utf8')
     await writeFile(join(repo, 'run-1877.log'), 'stalled\n', 'utf8')
@@ -491,15 +491,15 @@ test('conversation-peek', async () => {
     // Code versions, and an encoding derived from one example would name the
     // wrong folder for the other three.
     const cases: [string, string][] = [
-      ['/home/dev/projects/multicode', '-home-dev-projects-multicode'],
+      ['/home/dev/projects/sprintengine', '-home-dev-projects-sprintengine'],
       // `/.` becomes `--`: a dot is not special, it is just another separator.
       [
-        '/home/dev/projects/multicode/.claude/worktrees/workspace-rail',
-        '-home-dev-projects-multicode--claude-worktrees-workspace-rail',
+        '/home/dev/projects/sprintengine/.claude/worktrees/workspace-rail',
+        '-home-dev-projects-sprintengine--claude-worktrees-workspace-rail',
       ],
       [
-        '/home/dev/projects/.multicode-worktrees/multicode/perf-review-wholesale',
-        '-home-dev-projects--multicode-worktrees-multicode-perf-review-wholesale',
+        '/home/dev/projects/.sprintengine-worktrees/sprintengine/perf-review-wholesale',
+        '-home-dev-projects--sprintengine-worktrees-sprintengine-perf-review-wholesale',
       ],
       // Case is PRESERVED, and a hyphen already in the path survives as itself.
       [
@@ -507,15 +507,15 @@ test('conversation-peek', async () => {
         '-private-var-folders-vf-lknbrykx2l5dytzj634f4qk00000gn-T-mc-sdk-smoke-hFGiGN',
       ],
       [
-        '/private/tmp/claude-501/-home-dev-projects-multicode-068fbe4a-9a0c-4859-b095-3a38c5eb7c91/scratchpad/native-probe',
-        '-private-tmp-claude-501--home-dev-projects-multicode-068fbe4a-9a0c-4859-b095-3a38c5eb7c91-scratchpad-native-probe',
+        '/private/tmp/claude-501/-home-dev-projects-sprintengine-068fbe4a-9a0c-4859-b095-3a38c5eb7c91/scratchpad/native-probe',
+        '-private-tmp-claude-501--home-dev-projects-sprintengine-068fbe4a-9a0c-4859-b095-3a38c5eb7c91-scratchpad-native-probe',
       ],
     ]
     for (const [cwd, expected] of cases) assert.equal(encodeClaudeProjectDir(cwd), expected, cwd)
   }
 
   async function testLocateTranscript(): Promise<void> {
-    const home = await mkdtemp(join(tmpdir(), 'multicode-peek-home-'))
+    const home = await mkdtemp(join(tmpdir(), 'sprintengine-peek-home-'))
     const projects = join(home, '.claude', 'projects')
     const launchCwd = '/tmp/repo'
     const sessionId = '11111111-2222-3333-4444-555555555555'
@@ -571,7 +571,7 @@ test('conversation-peek', async () => {
 
     // CLAUDE_CONFIG_DIR wins, and takes the first entry of a list — the same rule
     // the token-usage adapter resolves by, so the two cannot disagree.
-    const altHome = await mkdtemp(join(tmpdir(), 'multicode-peek-alt-'))
+    const altHome = await mkdtemp(join(tmpdir(), 'sprintengine-peek-alt-'))
     const altConfig = join(altHome, 'custom-claude')
     await mkdir(join(altConfig, 'projects', encodeClaudeProjectDir(launchCwd)), { recursive: true })
     const altTranscript = join(altConfig, 'projects', encodeClaudeProjectDir(launchCwd), `${sessionId}.jsonl`)
@@ -589,7 +589,7 @@ test('conversation-peek', async () => {
     // A remembered hit is revalidated: a transcript that has since been deleted
     // must not be handed to the reader.
     clearClaudeTranscriptLocatorCache()
-    const volatileHome = await mkdtemp(join(tmpdir(), 'multicode-peek-vol-'))
+    const volatileHome = await mkdtemp(join(tmpdir(), 'sprintengine-peek-vol-'))
     const volatileDir = join(volatileHome, '.claude', 'projects', encodeClaudeProjectDir(launchCwd))
     await mkdir(volatileDir, { recursive: true })
     const volatile = join(volatileDir, `${sessionId}.jsonl`)
@@ -619,7 +619,7 @@ test('conversation-peek', async () => {
         // and the directory it was launched in.
         parked: {
           cliSessionId: 'cli-session-1',
-          launchCwd: '/home/dev/projects/multicode',
+          launchCwd: '/home/dev/projects/sprintengine',
           claudeHarness: true,
           prompts: [],
         },
@@ -627,7 +627,7 @@ test('conversation-peek', async () => {
         running: {
           transcriptPath: hookPath,
           cliSessionId: 'cli-session-1',
-          launchCwd: '/home/dev/projects/multicode',
+          launchCwd: '/home/dev/projects/sprintengine',
           claudeHarness: true,
           prompts: [],
         },
@@ -635,14 +635,14 @@ test('conversation-peek', async () => {
         // Claude-shaped path for it.
         codex: {
           cliSessionId: 'cli-session-2',
-          launchCwd: '/home/dev/projects/multicode',
+          launchCwd: '/home/dev/projects/sprintengine',
           claudeHarness: false,
           prompts: [{ text: 'Have a look at the reasoning picker', at: 5 }],
         },
         // A Claude session whose transcript is not on disk yet.
         cold: {
           cliSessionId: 'cli-session-3',
-          launchCwd: '/home/dev/projects/multicode',
+          launchCwd: '/home/dev/projects/sprintengine',
           claudeHarness: true,
           prompts: [{ text: 'Just asked this', at: 7 }],
         },
@@ -654,7 +654,7 @@ test('conversation-peek', async () => {
     const parked = await service.readConversationPeek('parked')
     assert.equal(parked.source, 'transcript', 'a parked Claude chat must recover its own history')
     assert.equal(parked.first?.text, 'Recovered by derivation.')
-    assert.deepEqual(located, [{ cliSessionId: 'cli-session-1', launchCwd: '/home/dev/projects/multicode' }])
+    assert.deepEqual(located, [{ cliSessionId: 'cli-session-1', launchCwd: '/home/dev/projects/sprintengine' }])
 
     const running = await service.readConversationPeek('running')
     assert.equal(running.first?.text, 'Named by the hook.', 'a hook-supplied path always wins over a derived one')
@@ -739,7 +739,7 @@ test('conversation-peek', async () => {
 
   async function testSourceSelection(): Promise<void> {
     const png = 'iVBORw0KGgo='
-    const logDir = await mkdtemp(join(tmpdir(), 'multicode-peek-log-'))
+    const logDir = await mkdtemp(join(tmpdir(), 'sprintengine-peek-log-'))
     const logPath = join(logDir, 'run-1877.log')
     await writeFile(logPath, 'stalled\n', 'utf8')
     const transcriptPath = await writeTranscript([
@@ -888,7 +888,7 @@ test('conversation-peek', async () => {
           // tell that by reading it.
           transcriptPath: rollout,
           cliSessionId: 'cli-codex-1',
-          launchCwd: '/home/dev/projects/multicode',
+          launchCwd: '/home/dev/projects/sprintengine',
           claudeHarness: false,
           reportsMessages: true,
           prompts: [{ text: 'Port voice dictation to Studio', at: 4 }],

@@ -111,8 +111,8 @@ const PATH_EXEMPTIONS = [
 // Five entries were retired when the list was measured, 2026-09-08. Three
 // (`panels/PlainTerminalPanel.tsx`, `panels/TerminalView.tsx`,
 // `memory/memoryGraphTypes.ts`) had drained to zero hex literals and were
-// standing open over nothing; two (`brand/MulticodeMark.tsx`,
-// `brand/MulticodeWordmark.tsx`) named files that no longer exist. None of that
+// standing open over nothing; two (`brand/SprintEngineMark.tsx`,
+// `brand/SprintEngineWordmark.tsx`) named files that no longer exist. None of that
 // was visible while the exemption was blanket, which is the argument for the
 // counts above and for the two checks below.
 

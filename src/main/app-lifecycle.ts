@@ -11,7 +11,7 @@ import { createBackgroundPresence } from './background-presence'
 import { buildElectronBackgroundMenu, createElectronBackgroundTray } from './background-tray-electron'
 import { emptyBackgroundStatus, type BackgroundStatus } from '../shared/background-mode'
 import { writeDiagnosticLog } from './diagnostics-service'
-import type { MulticodeUpdateService } from './update-service'
+import type { SprintEngineUpdateService } from './update-service'
 import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
 import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
 import { readHostedModelFeed } from './hosted-feed/hosted-feed-service'
@@ -76,7 +76,7 @@ type RegisterAppLifecycleOptions = {
     runShutdownBegin(): Promise<void>
     runShutdown(): Promise<void>
   }
-  updateService: MulticodeUpdateService
+  updateService: SprintEngineUpdateService
   handleAuthCallback(argv: string[]): void
   // Background mode. Absent means the setting can never read on, so
   // the last-window-close rule collapses to exactly its form before background mode existed.

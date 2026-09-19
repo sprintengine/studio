@@ -196,8 +196,8 @@ function resolveEndpoint(
 // OpenRouter uses these for its app-attribution rankings; other OpenAI-compatible
 // endpoints ignore unknown headers, so they are safe to send unconditionally.
 const ATTRIBUTION_HEADERS: Record<string, string> = {
-  'HTTP-Referer': 'https://multicode.app',
-  'X-Title': 'Multicode',
+  'HTTP-Referer': 'https://sprintengine.ai',
+  'X-Title': 'SprintEngine Studio',
 }
 
 function buildHeaders(apiKey: string): Record<string, string> {

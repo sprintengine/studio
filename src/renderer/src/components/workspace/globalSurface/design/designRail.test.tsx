@@ -35,7 +35,7 @@ test('designRail', async () => {
   function identity(overrides: Partial<DesignSystemBundleIdentity> = {}): DesignSystemBundleIdentity {
     return {
       path: '/work/brand/design-system',
-      name: 'multicode',
+      name: 'sprintengine',
       version: '2.4.0',
       summary: 'The in-house system.',
       // design-tokens-allow: a PREVIEWED bundle's own accent is content under test, not app chrome — the whole point is that it is not one of our tokens.
@@ -178,7 +178,7 @@ test('designRail', async () => {
 
   run('search matches name, summary and path — and never hides a broken row', () => {
     const readable = entry()
-    assert.equal(designRowMatchesSearch(readable, 'multi'), true, 'by name')
+    assert.equal(designRowMatchesSearch(readable, 'sprint'), true, 'by name')
     assert.equal(designRowMatchesSearch(readable, 'in-house'), true, 'by summary')
     assert.equal(designRowMatchesSearch(readable, '/work/brand'), true, 'by folder')
     assert.equal(designRowMatchesSearch(readable, 'nothing'), false)
@@ -213,7 +213,7 @@ test('designRail', async () => {
     assert.equal(designRowStateLine(entry()), '2.4.0')
     // An unresolved row falls back to its folder name rather than going untitled.
     assert.equal(designRowTitle(entry({ identity: null, path: '/work/harbor' })), 'harbor')
-    assert.equal(designRowTitle(entry()), 'multicode')
+    assert.equal(designRowTitle(entry()), 'sprintengine')
   })
 
   // ── The rendered anatomy ─────────────────────────────────────────────────────
@@ -279,7 +279,7 @@ test('designRail', async () => {
         entries={[]}
         selectedId={null}
         accentMode="light"
-        projectScope={<span data-project-scope="true">multicode</span>}
+        projectScope={<span data-project-scope="true">sprintengine</span>}
         search=""
         onSearch={() => {}}
         status="all"
@@ -352,7 +352,7 @@ test('designRail', async () => {
     assert.match(html, /3 new/)
     assert.ok(!/>3</.test(html), 'never a naked count')
     // And the name is still there — the mark joins the title, it does not replace it.
-    assert.match(html, /multicode/)
+    assert.match(html, /sprintengine/)
   })
 
   run('the roll-up is the kit’s New mark, the same one the model picker wears', () => {
@@ -383,7 +383,7 @@ test('designRail', async () => {
       identity: identity({ path: '/work/other/design-system', name: 'harbor' }),
     })
     const html = railMarkup([brand, other], null, { [other.id]: 2 })
-    const brandRow = html.slice(html.indexOf('multicode'), html.indexOf('harbor'))
+    const brandRow = html.slice(html.indexOf('sprintengine'), html.indexOf('harbor'))
     assert.ok(!/new/i.test(brandRow), 'the untouched system stays quiet')
     assert.match(html.slice(html.indexOf('harbor')), /2 new/)
   })
@@ -391,7 +391,7 @@ test('designRail', async () => {
   run('the name truncates before the mark does, and the state line is untouched', () => {
     const brand = entry()
     const html = railMarkup([brand], null, { [brand.id]: 4 })
-    const title = html.slice(html.indexOf('multicode') - 200, html.indexOf('multicode'))
+    const title = html.slice(html.indexOf('sprintengine') - 200, html.indexOf('sprintengine'))
     assert.match(title, /min-w-0 flex-1/, 'the name is what gives way')
     const mark = html.slice(html.indexOf('accent-primary-soft') - 120, html.indexOf('accent-primary-soft'))
     assert.match(mark, /shrink-0/, 'a long name can never push the mark out of the row')

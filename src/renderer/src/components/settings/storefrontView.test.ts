@@ -9,7 +9,7 @@ test('storefrontView', async () => {
     return {
       id: 'browser-automation-mcp',
       name: 'Browser Automation MCP',
-      publisher: { name: 'Multicode Labs', verified: true },
+      publisher: { name: 'SprintEngine Labs', verified: true },
       summary: 'Playwright MCP server for browser inspection and UI automation.',
       category: 'Testing',
       icon: 'icons/browser-automation.svg',
@@ -45,7 +45,7 @@ test('storefrontView', async () => {
 
   {
     // A module-carrying entry's kind label reads "Module".
-    const calendar = plugin({ id: 'multicode-calendar', name: 'Calendar', provides: ['module'] })
+    const calendar = plugin({ id: 'sprintengine-calendar', name: 'Calendar', provides: ['module'] })
     assert.deepEqual(componentKindLabels(calendar.provides), ['Module'])
     assert.deepEqual(componentKindLabels(['mcp', 'skills']), ['MCP server', 'Skill pack'])
   }

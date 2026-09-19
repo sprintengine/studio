@@ -66,7 +66,7 @@ export function describeBackgroundGateway(status: BackgroundStatus): string {
  * shows none at all for a menu-bar item, so the counters that matter go first.
  */
 export function describeBackgroundTooltip(status: BackgroundStatus): string {
-  return `Multicode — running in the background · ${describeBackgroundSessions(status)} · ${describeBackgroundGateway(status)}`
+  return `SprintEngine — running in the background · ${describeBackgroundSessions(status)} · ${describeBackgroundGateway(status)}`
 }
 
 /**
@@ -74,11 +74,13 @@ export function describeBackgroundTooltip(status: BackgroundStatus): string {
  * actions the backlog names: open a window, and quit for real.
  */
 export function buildBackgroundTrayItems(status: BackgroundStatus): BackgroundTrayItem[] {
-  const items: BackgroundTrayItem[] = [{ id: 'header', label: 'Multicode is running in the background', kind: 'info' }]
+  const items: BackgroundTrayItem[] = [
+    { id: 'header', label: 'SprintEngine is running in the background', kind: 'info' },
+  ]
   items.push({ id: 'sessions', label: describeBackgroundSessions(status), kind: 'info' })
   items.push({ id: 'gateway', label: describeBackgroundGateway(status), kind: 'info' })
   items.push({ id: 'separator', kind: 'separator' })
-  items.push({ id: 'open', label: 'Open Multicode', kind: 'action' })
-  items.push({ id: 'quit', label: 'Quit Multicode', kind: 'action' })
+  items.push({ id: 'open', label: 'Open SprintEngine', kind: 'action' })
+  items.push({ id: 'quit', label: 'Quit SprintEngine', kind: 'action' })
   return items
 }

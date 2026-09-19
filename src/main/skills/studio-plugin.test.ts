@@ -44,15 +44,15 @@ test('studio-plugin', async () => {
       nodeCommand: '/Applications/SprintEngine Studio.app/Contents/MacOS/Studio',
       bridgeScriptPath: '/Applications/SprintEngine Studio.app/Contents/Resources/automation/mcp-stdio-bridge.mjs',
       userDataDir: '/Users/someone/Library/Application Support/sprintengine-studio',
-      agentStateReporterPath: join(workspace, '.multicode', 'hooks', 'agent-state.mjs'),
+      agentStateReporterPath: join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs'),
       agentStateSocketPath: '/Users/someone/Library/Application Support/sprintengine-studio/agent-state.sock',
     }
   }
 
   async function workspaceAndReporter(): Promise<{ workspace: string; reporter: string }> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-studio-plugin-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-studio-plugin-'))
     const reporter = join(workspace, 'bundled-reporter.mjs')
-    await writeFile(reporter, '// stand-in for resources/hooks/multicode-agent-state.mjs\n', 'utf8')
+    await writeFile(reporter, '// stand-in for resources/hooks/sprintengine-agent-state.mjs\n', 'utf8')
     return { workspace, reporter }
   }
 
@@ -128,7 +128,7 @@ test('studio-plugin', async () => {
   }
 
   async function aMissingTemplateIsNamedNotGuessed(): Promise<void> {
-    const empty = await mkdtemp(join(tmpdir(), 'multicode-studio-plugin-empty-'))
+    const empty = await mkdtemp(join(tmpdir(), 'sprintengine-studio-plugin-empty-'))
     const read = await readStudioPluginTemplate(empty)
     assert.equal(read.ok, false)
     assert.match(read.ok ? '' : read.message, /missing from this build/)
@@ -140,8 +140,8 @@ test('studio-plugin', async () => {
       nodeCommand: 'C:\\Program Files\\Studio\\Studio.exe',
       bridgeScriptPath: 'C:\\Program Files\\Studio\\resources\\automation\\mcp-stdio-bridge.mjs',
       userDataDir: 'C:\\Users\\Someone\\AppData\\Roaming\\sprintengine-studio',
-      agentStateReporterPath: 'C:\\repo\\.multicode\\hooks\\agent-state.mjs',
-      agentStateSocketPath: '\\\\.\\pipe\\multicode-agent-state-abc123',
+      agentStateReporterPath: 'C:\\repo\\.sprintengine\\hooks\\agent-state.mjs',
+      agentStateSocketPath: '\\\\.\\pipe\\sprintengine-agent-state-abc123',
     }
     const out = substituteStudioPluginTokens(
       '{"a":"__SPRINTENGINE_NODE__","b":"__SPRINTENGINE_AGENT_STATE_SOCKET__"}',
@@ -151,7 +151,7 @@ test('studio-plugin', async () => {
     // Paths become forward slashes (Node accepts `C:/...`); the named pipe keeps
     // its backslashes, because they are the name.
     assert.equal(parsed.a, 'C:/Program Files/Studio/Studio.exe')
-    assert.equal(parsed.b, '\\\\.\\pipe\\multicode-agent-state-abc123')
+    assert.equal(parsed.b, '\\\\.\\pipe\\sprintengine-agent-state-abc123')
     assert.equal(hasUnsubstitutedTokens(out), false)
   }
 
@@ -250,7 +250,7 @@ test('studio-plugin', async () => {
     //    the claude-code manifest names — and pointing at a reporter that exists.
     assert.equal(result.hookSettingsPath, resolve(workspace, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH))
     const local = JSON.parse(await readFile(result.hookSettingsPath, 'utf8')) as {
-      hooks: Record<string, { hooks: { command: string; _multicode?: string }[] }[]>
+      hooks: Record<string, { hooks: { command: string; _sprintengine?: string }[] }[]>
       extraKnownMarketplaces: Record<string, { source: { source: string; path: string } }>
     }
     assert.deepEqual(Object.keys(local.hooks).sort(), [
@@ -264,9 +264,9 @@ test('studio-plugin', async () => {
       'UserPromptSubmit',
     ])
     const entry = local.hooks.Stop[0].hooks[0]
-    assert.equal(entry._multicode, 'multicode-agent-state')
-    assert.match(entry.command, /^node ".*\/\.multicode\/hooks\/agent-state\.mjs" --socket "/)
-    assert.equal(existsSync(join(workspace, '.multicode', 'hooks', 'agent-state.mjs')), true)
+    assert.equal(entry._sprintengine, 'sprintengine-agent-state')
+    assert.match(entry.command, /^node ".*\/\.sprintengine\/hooks\/agent-state\.mjs" --socket "/)
+    assert.equal(existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')), true)
     // PreToolUse is deliberately absent: PostToolUse alone is load-bearing.
     assert.equal('PreToolUse' in local.hooks, false)
 
@@ -403,7 +403,7 @@ test('studio-plugin', async () => {
   }
 
   async function aMissingReporterStopsTheInstallBeforeItRegistersAnything(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-studio-plugin-noreporter-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-studio-plugin-noreporter-'))
     const result = await installStudioPlugin({
       workspaceRoot: workspace,
       templateRoot: TEMPLATE_ROOT,
@@ -420,7 +420,7 @@ test('studio-plugin', async () => {
   }
 
   async function aWorkspaceThatVanishedIsRefusedByName(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-studio-plugin-gone-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-studio-plugin-gone-'))
     await rm(workspace, { recursive: true, force: true })
     const result = await installStudioPlugin({
       workspaceRoot: workspace,

@@ -2,7 +2,7 @@
   "kind": "provider",
   "id": "openrouter",
   "displayName": "OpenRouter",
-  "publisher": "multicode",
+  "publisher": "sprintengine",
   "version": 1,
   "summary": "OpenRouter's model catalog as a conversation model provider.",
   "category": "Model Provider",

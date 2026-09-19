@@ -69,7 +69,7 @@ done.
 2. **Add a token only with full semantic metadata.** Edit
    `foundations/tokens.tokens.json` only (never the derived CSS). Every token
    carries an explicit `$type` and a `$description`; every `sem.*` token also
-   carries `$extensions["com.multicode"]` with `role` and `use` (plus
+   carries `$extensions["com.sprintengine"]` with `role` and `use` (plus
    `doNotUse` / `components` where relevant). A token whose value differs by
    mode declares `modes: { light, dark }` there, with `$value` equal to the
    light value. Then regenerate: `node scripts/build-tokens.mjs`.

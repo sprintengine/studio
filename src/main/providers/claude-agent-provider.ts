@@ -437,7 +437,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
           ? 'The user dismissed the question without answering.'
           : plan !== null
             ? 'The user rejected this plan. Revise it and keep planning.'
-            : 'The user denied this tool use in Multicode.',
+            : 'The user denied this tool use in SprintEngine.',
       }
     }
     if (questions) {

@@ -43,7 +43,7 @@ test('run-card', async () => {
   const VERIFIED_MODULE_ENTRY: MarketplacePluginEntry = {
     id: 'review',
     name: 'Reviews',
-    publisher: { name: 'Multicode Labs', verified: true },
+    publisher: { name: 'SprintEngine Labs', verified: true },
     summary: 'Guided, human-led review of a pull request, branch, or patch.',
     category: 'Code Quality',
     icon: 'icons/review.svg',

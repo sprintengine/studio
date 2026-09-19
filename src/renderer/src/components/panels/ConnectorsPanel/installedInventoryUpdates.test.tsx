@@ -183,7 +183,7 @@ test('installedInventoryUpdates', async () => {
   const acmeKitEntry = {
     id: 'acme-design-kit',
     name: 'Acme Design Kit',
-    publisher: { name: 'Multicode Labs', verified: true },
+    publisher: { name: 'SprintEngine Labs', verified: true },
     summary: 'A third-party design kit',
     category: 'Design',
     icon: '',
@@ -194,7 +194,7 @@ test('installedInventoryUpdates', async () => {
   const cursorEntry = {
     id: 'cursor',
     name: 'Cursor',
-    publisher: { name: 'Multicode Labs', verified: true },
+    publisher: { name: 'SprintEngine Labs', verified: true },
     summary: 'Drive the Cursor agent.',
     category: 'Agent Runtime',
     icon: '',

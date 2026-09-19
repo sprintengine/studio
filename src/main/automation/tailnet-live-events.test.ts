@@ -218,7 +218,7 @@ test('tailnet-live-events', async () => {
   }
 
   check('a disabled service initializes silently: no listener, no events, nothing running', async () => {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-off-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-live-off-'))
     const port = await freePort()
     // enabled: false — every build's resting state.
     writeTailnetSettings(userDataDir, { enabled: false, port, notifications: true })
@@ -245,7 +245,7 @@ test('tailnet-live-events', async () => {
   })
 
   check('a terminal attach narrates drive begin and end, named by device and session', async () => {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-drive-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-live-drive-'))
     const port = await freePort()
     writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
     const events = eventCollector()
@@ -310,7 +310,7 @@ test('tailnet-live-events', async () => {
   })
 
   check('the push channel narrates listener, pairing, connection, and pair-request changes', async () => {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-live-'))
     const port = await freePort()
     writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
     const events = eventCollector()
@@ -438,7 +438,7 @@ test('tailnet-live-events', async () => {
   })
 
   check('approving a request announces the resolution and the device change', async () => {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-approve-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-live-approve-'))
     const port = await freePort()
     writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
     const events = eventCollector()
@@ -483,7 +483,7 @@ test('tailnet-live-events', async () => {
   })
 
   check('stopping the listener cancels a request still waiting, and says so', async () => {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-cancel-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-live-cancel-'))
     const port = await freePort()
     writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
     const events = eventCollector()
@@ -525,7 +525,7 @@ test('tailnet-live-events', async () => {
   })
 
   check('a request nobody answers lapses on its own timer and is announced as expired', async () => {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-expire-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-live-expire-'))
     const port = await freePort()
     writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
     const events = eventCollector()
@@ -566,7 +566,7 @@ test('tailnet-live-events', async () => {
   })
 
   check('a listener that cannot start at boot announces the error without waiting for a knock', async () => {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-live-porttaken-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-live-porttaken-'))
     const port = await freePort()
     // Take the port first, as a stale process or another app would have.
     const squatter = createServer()

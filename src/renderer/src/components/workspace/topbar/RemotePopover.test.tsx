@@ -793,7 +793,7 @@ test('RemotePopover', async () => {
       useWorkspaceStore.setState({
         activeWorkspaceId: null,
         workspaces: [
-          { id: 'ws1', name: 'multicode', agents: { 'agent-1': { id: 'agent-1', name: 'Fix the login bug' } } },
+          { id: 'ws1', name: 'sprintengine', agents: { 'agent-1': { id: 'agent-1', name: 'Fix the login bug' } } },
         ],
       } as never)
     })

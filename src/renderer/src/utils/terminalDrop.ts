@@ -4,9 +4,9 @@ import type { AgentSkill } from '../../../shared/skills'
 import { plainSkillInvocation } from '../../../shared/skill-invocation'
 import { hasInstalledNativeSkillTarget, renderSkillInvocationTemplate } from './skillInvocation'
 
-export const MULTICODE_FILE_DROP_MIME = 'application/x-multicode-file-drop'
-const MULTICODE_COMMIT_DROP_MIME = 'application/x-multicode-commit-drop'
-export const MULTICODE_SKILL_DROP_MIME = 'application/x-multicode-skill-drop'
+export const SPRINTENGINE_FILE_DROP_MIME = 'application/x-sprintengine-file-drop'
+const SPRINTENGINE_COMMIT_DROP_MIME = 'application/x-sprintengine-commit-drop'
+export const SPRINTENGINE_SKILL_DROP_MIME = 'application/x-sprintengine-skill-drop'
 
 const BACKLOG_SKILL_ID = 'backlog'
 
@@ -47,23 +47,23 @@ export type TerminalDropResult =
 export function setFileDropData(dataTransfer: DataTransfer, payload: FileDropPayload): void {
   const fileText = payload.files.map((file) => file.path).join('\n')
   dataTransfer.effectAllowed = 'copy'
-  dataTransfer.setData(MULTICODE_FILE_DROP_MIME, JSON.stringify(payload))
+  dataTransfer.setData(SPRINTENGINE_FILE_DROP_MIME, JSON.stringify(payload))
   dataTransfer.setData('text/plain', fileText)
 }
 
 export function hasFileDropData(dataTransfer: DataTransfer): boolean {
   const types = Array.from(dataTransfer.types)
-  return types.includes(MULTICODE_FILE_DROP_MIME) || types.includes('Files')
+  return types.includes(SPRINTENGINE_FILE_DROP_MIME) || types.includes('Files')
 }
 
 export function setCommitDropData(dataTransfer: DataTransfer, hash: string): void {
   dataTransfer.effectAllowed = 'copy'
-  dataTransfer.setData(MULTICODE_COMMIT_DROP_MIME, hash)
+  dataTransfer.setData(SPRINTENGINE_COMMIT_DROP_MIME, hash)
   dataTransfer.setData('text/plain', hash)
 }
 
 export function hasCommitDropData(dataTransfer: DataTransfer): boolean {
-  return Array.from(dataTransfer.types).includes(MULTICODE_COMMIT_DROP_MIME)
+  return Array.from(dataTransfer.types).includes(SPRINTENGINE_COMMIT_DROP_MIME)
 }
 
 export async function pasteDroppedCommitIntoTerminal(input: {
@@ -82,24 +82,24 @@ export async function pasteDroppedCommitIntoTerminal(input: {
 }
 
 function parseCommitDropHash(dataTransfer: DataTransfer): string | null {
-  const raw = dataTransfer.getData(MULTICODE_COMMIT_DROP_MIME).trim()
+  const raw = dataTransfer.getData(SPRINTENGINE_COMMIT_DROP_MIME).trim()
   return /^[0-9a-fA-F]{4,64}$/.test(raw) ? raw : null
 }
 
 export function setSkillDropData(dataTransfer: DataTransfer, payload: SkillDropPayload): void {
   dataTransfer.effectAllowed = 'copy'
-  dataTransfer.setData(MULTICODE_SKILL_DROP_MIME, JSON.stringify(payload))
+  dataTransfer.setData(SPRINTENGINE_SKILL_DROP_MIME, JSON.stringify(payload))
   // Dropped anywhere that is not a terminal — an editor, a note, a chat field —
   // the id is the only text that means anything on its own.
   dataTransfer.setData('text/plain', payload.skillId)
 }
 
 export function hasSkillDropData(dataTransfer: DataTransfer): boolean {
-  return Array.from(dataTransfer.types).includes(MULTICODE_SKILL_DROP_MIME)
+  return Array.from(dataTransfer.types).includes(SPRINTENGINE_SKILL_DROP_MIME)
 }
 
 function parseSkillDropPayload(dataTransfer: DataTransfer): SkillDropPayload | null {
-  const raw = dataTransfer.getData(MULTICODE_SKILL_DROP_MIME)
+  const raw = dataTransfer.getData(SPRINTENGINE_SKILL_DROP_MIME)
   if (!raw) return null
   try {
     const value = JSON.parse(raw) as Partial<SkillDropPayload>
@@ -363,7 +363,7 @@ function backlogRelativePath(rootPath: string, filePath: string): string | null 
 }
 
 function parseFileDropPayload(dataTransfer: DataTransfer): FileDropPayload | null {
-  const raw = dataTransfer.getData(MULTICODE_FILE_DROP_MIME)
+  const raw = dataTransfer.getData(SPRINTENGINE_FILE_DROP_MIME)
   // Only fall back to native Files when the studio's MIME entry is entirely
   // absent — a present-but-malformed entry stays a rejection.
   if (!raw) return parseNativeFileDropPayload(dataTransfer)
@@ -377,7 +377,7 @@ function parseFileDropPayload(dataTransfer: DataTransfer): FileDropPayload | nul
  * an unknown version, or an invalid shape. Never throws.
  */
 export function readFileDropPayload(dataTransfer: DataTransfer): FileDropPayload | null {
-  const raw = dataTransfer.getData(MULTICODE_FILE_DROP_MIME)
+  const raw = dataTransfer.getData(SPRINTENGINE_FILE_DROP_MIME)
   if (!raw) return null
   return parseFileDropJson(raw)
 }

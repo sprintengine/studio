@@ -83,7 +83,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
       id: 'automations',
       displayName: 'Automations',
       version: 1,
-      publisher: 'multicode',
+      publisher: 'sprintengine',
       category: 'orchestration',
       summary: 'Local-first scheduled agent automations with run history and module-gated execution.',
       defaultEnabled: true,

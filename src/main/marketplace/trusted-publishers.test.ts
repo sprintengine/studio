@@ -23,7 +23,7 @@ test('trusted-publishers', async () => {
   function publishersFile(fingerprint: string): string {
     return JSON.stringify({
       schemaVersion: 1,
-      publishers: [{ name: 'Multicode Labs', verified: true, publicKey: 'k', fingerprint }],
+      publishers: [{ name: 'SprintEngine Labs', verified: true, publicKey: 'k', fingerprint }],
     })
   }
 

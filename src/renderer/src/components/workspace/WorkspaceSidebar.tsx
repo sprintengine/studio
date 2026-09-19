@@ -70,7 +70,6 @@ import { isHiddenFromRail } from '../../utils/workspaceVisibility'
 import { isSettledWorkspace } from '../../utils/workspaceSettle'
 import { isSnoozedWorkspace, resolveSnoozePresets, snoozeWakeLabel, workspaceWokeAt } from '../../utils/workspaceSnooze'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
-import { ensureProjectSidecarDirName } from '../../utils/projectSidecar'
 import {
   buildFolderGroups,
   fleetPanesOf,
@@ -209,8 +208,8 @@ const ALL_CHATS_SHELF_ID = 'ws-settled-all-chats'
 // The flat stream's Snoozed shelf, alongside the Settled one above.
 const ALL_CHATS_SNOOZE_SHELF_ID = 'ws-snoozed-all-chats'
 
-const DRAG_MIME_WORKSPACE = 'application/x-multicode-workspace'
-const DRAG_MIME_FOLDER = 'application/x-multicode-folder'
+const DRAG_MIME_WORKSPACE = 'application/x-sprintengine-workspace'
+const DRAG_MIME_FOLDER = 'application/x-sprintengine-folder'
 
 function didWorkspaceDragLeaveSidebar(event: React.DragEvent, sidebar: HTMLElement | null): boolean {
   if (!sidebar) return false
@@ -320,7 +319,7 @@ export default function WorkspaceSidebar({
   // only while the row has an open terminal. The git poll is therefore asked
   // about live rows alone — a suspended chat never reads a branch, so it can
   // never wear the checkout's current numbers as if they were its own, which
-  // is exactly what every parked chat on `multicode` did after a restart. A
+  // is exactly what every parked chat on `sprintengine` did after a restart. A
   // row that leaves this list drops out of the poll's membership and its
   // facts are pruned with it; a row that joins is swept on the next tick the
   // membership change triggers.
@@ -755,18 +754,6 @@ export default function WorkspaceSidebar({
       [localRailWorkspaces],
     ),
   )
-  // Which sidecar directory each of those projects uses, resolved here because
-  // the rail is the one surface that sees every open project — including the
-  // ones restored from persistence and the ones another window created, which
-  // no single store action sees. Everything downstream that builds a path into
-  // the sidecar (the backlog config, the automations definitions) reads the
-  // answer out of the shared registry.
-  useEffect(() => {
-    for (const workspace of localRailWorkspaces) {
-      ensureProjectSidecarDirName(workspace.folderPath, (path) => window.api.pathExists(path))
-      ensureProjectSidecarDirName(workspaceProjectRoot(workspace), (path) => window.api.pathExists(path))
-    }
-  }, [localRailWorkspaces])
   // Resolved over the rail's rows, not every workspace: a local folder whose
   // rows are all hidden or archived is not a header a remote row can join.
   const resolvedGroups = useMemo(
@@ -1038,8 +1025,8 @@ export default function WorkspaceSidebar({
   // The same line for a conversation on a paired machine. It resolves through
   // the SAME group the tree files it under, so a remote chat of a project open
   // here reads with that project's name and that project's hue — which is the
-  // whole point of `one-project-across-machines`: the Mini's copy of multicode
-  // is multicode, not "the Mini".
+  // whole point of `one-project-across-machines`: the Mini's copy of sprintengine
+  // is sprintengine, not "the Mini".
   //
   // Never unfiled: a remote conversation has a folder, it is simply on another
   // disk. The dashed outline means "no folder at all", which is a different

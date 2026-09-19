@@ -296,9 +296,9 @@ test('conversationPeekRow', async () => {
 
   run('a live session hands over its pull requests; a parked record claims none', () => {
     const opened = {
-      url: 'https://github.com/acme/multicode/pull/418',
-      repoKey: 'github.com/acme/multicode',
-      repoName: 'multicode',
+      url: 'https://github.com/acme/sprintengine/pull/418',
+      repoKey: 'github.com/acme/sprintengine',
+      repoName: 'sprintengine',
       number: 418,
       title: 'Extensions icon carries its unread count',
       state: 'open' as const,

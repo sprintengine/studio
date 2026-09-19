@@ -70,7 +70,7 @@ export type ProjectKnowledgeEntry = {
   key: string
   /** Project-root path with original casing, for display. */
   projectRoot: string
-  /** Final path segment of `projectRoot` (e.g. `multicode`). */
+  /** Final path segment of `projectRoot` (e.g. `sprintengine`). */
   name: string
   /** Configured knowledge folder relative to `projectRoot`, or null when unconfigured. */
   relativeRoot: string | null

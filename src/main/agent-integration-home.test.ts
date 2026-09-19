@@ -19,8 +19,8 @@ test('agent-integration-home', async () => {
   // studio-plugin.test.ts uses them: a fixture would keep passing while the
   // thing that actually ships drifted out from under it.
   const TEMPLATE_ROOT = join(process.cwd(), 'resources', 'studio-plugin')
-  const REPORTER_SOURCE = join(process.cwd(), 'resources', 'hooks', 'multicode-agent-state.mjs')
-  const STATUS_LINE_SOURCE = join(process.cwd(), 'resources', 'hooks', 'multicode-status-line.mjs')
+  const REPORTER_SOURCE = join(process.cwd(), 'resources', 'hooks', 'sprintengine-agent-state.mjs')
+  const STATUS_LINE_SOURCE = join(process.cwd(), 'resources', 'hooks', 'sprintengine-status-line.mjs')
 
   const TOKENS = {
     nodeCommand: '/Applications/SprintEngine Studio.app/Contents/MacOS/Studio',
@@ -30,7 +30,7 @@ test('agent-integration-home', async () => {
   }
 
   async function userData(): Promise<string> {
-    return mkdtemp(join(tmpdir(), 'multicode-agent-integration-'))
+    return mkdtemp(join(tmpdir(), 'sprintengine-agent-integration-'))
   }
 
   // --- the copy a launch points at ---------------------------------------------

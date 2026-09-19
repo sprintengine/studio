@@ -25,7 +25,7 @@ export {
 /**
  * The project a workspace files under: its own folder, or — for a
  * worktree-backed one — the checkout the worktree was cut from. A worktree chat
- * lives at `<parent>/.multicode-worktrees/<repo>/<slug>`, so grouping by
+ * lives at `<parent>/.sprintengine-worktrees/<repo>/<slug>`, so grouping by
  * `folderPath` alone would give it a project header of its own named after the
  * slug instead of filing it under the project it belongs to.
  *

@@ -8,7 +8,7 @@ import { test } from 'vitest'
 
 test('workspace-backup', async () => {
   async function main(): Promise<void> {
-    const dir = await mkdtemp(join(tmpdir(), 'multicode-workspace-backup-'))
+    const dir = await mkdtemp(join(tmpdir(), 'sprintengine-workspace-backup-'))
     try {
       const service = createWorkspaceBackupService({ resolveUserDataDir: () => dir })
 

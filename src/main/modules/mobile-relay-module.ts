@@ -1,7 +1,7 @@
 import { registerMobileBridgeIpc } from '../ipc/mobile-bridge-ipc'
 import { MobileBridge } from '../mobile/bridge'
 import { MobileControlSnapshotService } from '../mobile/control/snapshot'
-import { MulticodeAuthToken, TerminalRuntimeToken, WorkspaceSyncServiceToken } from '../module-host/service-tokens'
+import { SprintEngineAuthToken, TerminalRuntimeToken, WorkspaceSyncServiceToken } from '../module-host/service-tokens'
 import { listKnownWorkspaceRoots, uniqueResolvedRoots } from '../workspace-roots'
 import type { CapabilityModule } from '../module-host/load-modules'
 
@@ -20,7 +20,7 @@ export const mobileRelayModule: CapabilityModule = {
     id: 'mobile-relay',
     displayName: 'Mobile Relay',
     version: 1,
-    publisher: 'multicode',
+    publisher: 'sprintengine',
     category: 'connectivity',
     summary: 'Pair a phone with the desktop app over an encrypted relay to drive agents remotely.',
     defaultEnabled: true,
@@ -30,7 +30,7 @@ export const mobileRelayModule: CapabilityModule = {
   },
   registerMain(host) {
     const terminalRuntime = host.requireService(TerminalRuntimeToken)
-    const multicodeAuth = host.requireService(MulticodeAuthToken)
+    const sprintengineAuth = host.requireService(SprintEngineAuthToken)
     const workspaceSync = host.requireService(WorkspaceSyncServiceToken)
 
     // The phone's scope is read from main's own registry. The renderer
@@ -46,8 +46,8 @@ export const mobileRelayModule: CapabilityModule = {
     // hostname would be network topology handed to a third party for a URL that
     // device probably cannot use. Web targets ride the tailnet gateway only.
     const snapshotService = new MobileControlSnapshotService()
-    const bridge = new MobileBridge(() => multicodeAuth.getSession(), {
-      accessTokenProvider: () => multicodeAuth.getRelayAccessToken(),
+    const bridge = new MobileBridge(() => sprintengineAuth.getSession(), {
+      accessTokenProvider: () => sprintengineAuth.getRelayAccessToken(),
       commandService: terminalRuntime.commandService,
       snapshotService,
       workspaceRootsProvider: async () => resolveWorkspaceRoots(),

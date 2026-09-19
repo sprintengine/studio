@@ -3,7 +3,7 @@ import { persist } from 'zustand/middleware'
 import { immer } from 'zustand/middleware/immer'
 import type { AppNotification, DiagnosticLogEntry, DiagnosticSource } from '../types/workspace'
 
-const NOTIFICATION_STORAGE_KEY = 'multicode-notifications'
+const NOTIFICATION_STORAGE_KEY = 'sprintengine-notifications'
 const MAX_NOTIFICATIONS = 120
 
 // The rail sections whose badge counts something that is not a notification:

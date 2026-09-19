@@ -161,21 +161,21 @@ test('terminal-launch', async () => {
   // manifest's launch.env, even a malicious one.
   function testNeverOverridesProtectedKeys(): void {
     const out = mergeProviderLaunchEnv(
-      { TERM: 'xterm-256color', FORCE_HYPERLINK: '1', MULTICODE_AGENT_ID: 'agent-1', PATH: '/bin' },
+      { TERM: 'xterm-256color', FORCE_HYPERLINK: '1', SPRINTENGINE_AGENT_ID: 'agent-1', PATH: '/bin' },
       {
         TERM: 'evil',
         FORCE_HYPERLINK: '0',
-        MULTICODE_AGENT_ID: 'spoofed',
+        SPRINTENGINE_AGENT_ID: 'spoofed',
         ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic',
       },
     )
     assert.equal(out.TERM, 'xterm-256color', 'TERM is protected')
     assert.equal(out.FORCE_HYPERLINK, '1', "the hyperlink capability is the pane's to declare, not a manifest's")
-    assert.equal(out.MULTICODE_AGENT_ID, 'agent-1', 'agent identity is protected')
+    assert.equal(out.SPRINTENGINE_AGENT_ID, 'agent-1', 'agent identity is protected')
     assert.equal(out.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic', 'non-protected keys still apply')
   }
 
-  // A stale MULTICODE_AGENT_STATE_SOCKET inherited by the app's own process (the
+  // A stale SPRINTENGINE_AGENT_STATE_SOCKET inherited by the app's own process (the
   // app launched from inside an agent shell) must never leak into a launched
   // session: an identity-less launch carries none, and an agent launch replaces
   // it with this instance's own address (unresolvable outside Electron, where it
@@ -183,17 +183,17 @@ test('terminal-launch', async () => {
   function testStripsInheritedAgentStateSocket(): void {
     const base = {
       PATH: '/bin',
-      MULTICODE_AGENT_STATE_SOCKET: '/tmp/other-instance.sock',
-      MULTICODE_AGENT_ID: 'stale-agent',
+      SPRINTENGINE_AGENT_STATE_SOCKET: '/tmp/other-instance.sock',
+      SPRINTENGINE_AGENT_ID: 'stale-agent',
     }
     const plain = applyAgentIdentityEnv(base, {})
-    assert.equal('MULTICODE_AGENT_STATE_SOCKET' in plain, false, 'identity-less launch drops inherited socket')
-    assert.equal('MULTICODE_AGENT_ID' in plain, false, 'identity-less launch drops inherited agent id')
+    assert.equal('SPRINTENGINE_AGENT_STATE_SOCKET' in plain, false, 'identity-less launch drops inherited socket')
+    assert.equal('SPRINTENGINE_AGENT_ID' in plain, false, 'identity-less launch drops inherited agent id')
 
     const agent = applyAgentIdentityEnv(base, { workspaceId: 'ws-1', agentId: 'agent-1' })
-    assert.equal(agent.MULTICODE_AGENT_ID, 'agent-1')
+    assert.equal(agent.SPRINTENGINE_AGENT_ID, 'agent-1')
     assert.notEqual(
-      agent.MULTICODE_AGENT_STATE_SOCKET,
+      agent.SPRINTENGINE_AGENT_STATE_SOCKET,
       '/tmp/other-instance.sock',
       'inherited socket address must never survive onto an agent launch',
     )
@@ -203,10 +203,10 @@ test('terminal-launch', async () => {
   // must not be able to redirect agent-state reporting to another socket.
   function testSocketNeverClobberedByProviderEnv(): void {
     const out = mergeProviderLaunchEnv(
-      { MULTICODE_AGENT_STATE_SOCKET: '/tmp/ours.sock', PATH: '/bin' },
-      { MULTICODE_AGENT_STATE_SOCKET: '/tmp/theirs.sock' },
+      { SPRINTENGINE_AGENT_STATE_SOCKET: '/tmp/ours.sock', PATH: '/bin' },
+      { SPRINTENGINE_AGENT_STATE_SOCKET: '/tmp/theirs.sock' },
     )
-    assert.equal(out.MULTICODE_AGENT_STATE_SOCKET, '/tmp/ours.sock', 'socket address is protected')
+    assert.equal(out.SPRINTENGINE_AGENT_STATE_SOCKET, '/tmp/ours.sock', 'socket address is protected')
   }
 
   // ── Host context ────────────────────────────────────────────────────────────
@@ -401,7 +401,7 @@ test('terminal-launch', async () => {
   function testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning(): void {
     assert.match(
       OSC7_BASH_PROMPT_COMMAND,
-      /printf '\\033\]7;file:\/\/%s\\033\\\\' "\$__multicode_osc7"/u,
+      /printf '\\033\]7;file:\/\/%s\\033\\\\' "\$__sprintengine_osc7"/u,
       'an empty host, and $PWD (already absolute) supplies the leading slash',
     )
     assert.ok(!/file:\/\/\$\{?HOST/u.test(OSC7_BASH_PROMPT_COMMAND), 'never the hostname form other terminals emit')
@@ -441,13 +441,13 @@ test('terminal-launch', async () => {
     // Only the interactive stage installs the hook, and it is the stage that
     // hands $ZDOTDIR back for good.
     const zshrc = buildShellIntegrationZshShim('.zshrc')
-    assert.ok(zshrc.includes('precmd_functions+=(__multicode_osc7_cwd)'))
+    assert.ok(zshrc.includes('precmd_functions+=(__sprintengine_osc7_cwd)'))
     assert.ok(
-      zshrc.includes('if (( ! ${precmd_functions[(I)__multicode_osc7_cwd]} )); then'),
+      zshrc.includes('if (( ! ${precmd_functions[(I)__sprintengine_osc7_cwd]} )); then'),
       'a nested zsh reads this file again and must not stack a second hook',
     )
     assert.ok(
-      zshrc.includes('  precmd_functions+=(__multicode_osc7_cwd)\nfi\n__multicode_osc7_cwd\n'),
+      zshrc.includes('  precmd_functions+=(__sprintengine_osc7_cwd)\nfi\n__sprintengine_osc7_cwd\n'),
       'the launch directory is reported before the first prompt — the call still follows its own registration',
     )
     assert.ok(zshrc.includes('ZDOTDIR=$SPRINTENGINE_USER_ZDOTDIR'), 'the shell is left holding its own $ZDOTDIR')
@@ -493,7 +493,7 @@ test('terminal-launch', async () => {
   // ran, and any command at all replaces it.
   function testOsc133RidesTheSamePromptCommandAndCapturesTheStatusFirst(): void {
     assert.ok(
-      SHELL_INTEGRATION_BASH_PROMPT_COMMAND.startsWith('__multicode_status=$?; '),
+      SHELL_INTEGRATION_BASH_PROMPT_COMMAND.startsWith('__sprintengine_status=$?; '),
       'the status capture leads; the OSC 7 emitter opens with an assignment, which would already have reset $?',
     )
     assert.ok(
@@ -507,7 +507,7 @@ test('terminal-launch', async () => {
 
     assert.ok(
       OSC133_BASH_PROMPT_COMMAND.startsWith(
-        'printf \'\\033]133;D;%s\\033\\\\\\033]133;A\\033\\\\\' "$__multicode_status"',
+        'printf \'\\033]133;D;%s\\033\\\\\\033]133;A\\033\\\\\' "$__sprintengine_status"',
       ),
       'D for the command that finished and A for the prompt about to be drawn, in one write',
     )
@@ -524,7 +524,9 @@ test('terminal-launch', async () => {
       "C rides PS0 — no DEBUG trap, which would clobber the user's own",
     )
     assert.ok(
-      OSC133_BASH_PROMPT_COMMAND.endsWith('case $__multicode_status in 0) ;; *) ( exit $__multicode_status ) ;; esac'),
+      OSC133_BASH_PROMPT_COMMAND.endsWith(
+        'case $__sprintengine_status in 0) ;; *) ( exit $__sprintengine_status ) ;; esac',
+      ),
       'the status is put back for anything appended behind us, and the subshell is skipped on success',
     )
     assert.ok(
@@ -541,24 +543,24 @@ test('terminal-launch', async () => {
 
     assert.ok(
       zshrc.includes(
-        'precmd_functions=(__multicode_osc133_precmd "${(@)precmd_functions:#__multicode_osc133_precmd}")',
+        'precmd_functions=(__sprintengine_osc133_precmd "${(@)precmd_functions:#__sprintengine_osc133_precmd}")',
       ),
       "prepended, not appended — a hook behind another one sees that one's status, not the command's",
     )
     assert.ok(
-      zshrc.includes('__multicode_osc133_precmd() {\n  local __multicode_ret=$?\n  emulate -L zsh'),
+      zshrc.includes('__sprintengine_osc133_precmd() {\n  local __sprintengine_ret=$?\n  emulate -L zsh'),
       'the capture is the first line of the function; even `emulate` would be a command in front of it',
     )
     assert.ok(
-      zshrc.includes('  return $__multicode_ret\n}'),
+      zshrc.includes('  return $__sprintengine_ret\n}'),
       'the status is handed on, so a prompt theme behind us still shows the real one',
     )
     assert.ok(
-      zshrc.includes('if (( ! ${preexec_functions[(I)__multicode_osc133_preexec]} )); then'),
+      zshrc.includes('if (( ! ${preexec_functions[(I)__sprintengine_osc133_preexec]} )); then'),
       'a nested zsh reads this file again and must not stack a second preexec',
     )
     assert.ok(
-      zshrc.includes('  if (( __multicode_osc133_active )); then'),
+      zshrc.includes('  if (( __sprintengine_osc133_active )); then'),
       'D is emitted only for a command a C opened — a bare Enter fires precmd too',
     )
     assert.ok(
@@ -566,22 +568,22 @@ test('terminal-launch', async () => {
       'B is zero-width inside %{…%}; without it zsh mis-measures the prompt',
     )
     assert.ok(
-      zshrc.includes('if [[ -o promptpercent ]]; then __multicode_osc133_prompt_percent=1; fi'),
+      zshrc.includes('if [[ -o promptpercent ]]; then __sprintengine_osc133_prompt_percent=1; fi'),
       "and the option is read at file scope — `emulate -L zsh` inside the hook would report zsh's defaults, not the user's",
     )
     assert.ok(
-      zshrc.includes('if (( __multicode_osc133_prompt_percent )) && [[ $PS1 != '),
+      zshrc.includes('if (( __sprintengine_osc133_prompt_percent )) && [[ $PS1 != '),
       'a shell with PROMPT_PERCENT off gets no B rather than a literal %{ in its prompt',
     )
 
     // OSC 7 is unchanged by all of the above: same hook, same registration, and
     // it is still the interactive stage alone that installs anything.
-    assert.ok(zshrc.includes('precmd_functions+=(__multicode_osc7_cwd)'), 'OSC 7 still registers its own hook')
+    assert.ok(zshrc.includes('precmd_functions+=(__sprintengine_osc7_cwd)'), 'OSC 7 still registers its own hook')
     assert.ok(zshrc.includes('printf \'\\033]7;file://%s\\033\\\\\' "$d"'), 'OSC 7 still emits')
     for (const fileName of ['.zshenv', '.zprofile', '.zlogin'] as const) {
       const shim = buildShellIntegrationZshShim(fileName)
       assert.ok(
-        !shim.includes('__multicode_osc133'),
+        !shim.includes('__sprintengine_osc133'),
         `${fileName} installs no mark hook — the interactive stage owns it`,
       )
       assert.ok(!shim.includes('precmd_functions'), `${fileName} installs no hook at all`)
@@ -650,7 +652,7 @@ test('terminal-launch', async () => {
 
     assert.ok(
       bash.startsWith(
-        'case "${PROMPT_COMMAND:-}" in *__multicode_status*) ;; *) ' +
+        'case "${PROMPT_COMMAND:-}" in *__sprintengine_status*) ;; *) ' +
           'SPRINTENGINE_USER_PROMPT_COMMAND=${PROMPT_COMMAND:-}; export SPRINTENGINE_USER_PROMPT_COMMAND ;; esac; ',
       ),
       'the inherited value is captured before it is replaced',
@@ -666,7 +668,7 @@ test('terminal-launch', async () => {
     // The guard keys on a variable that appears only in our own emitter, so a
     // relaunch inside one of our terminals does not record ours as "the user's"
     // and grow the string once per nesting level.
-    assert.ok(SHELL_INTEGRATION_BASH_PROMPT_COMMAND.includes('__multicode_status'))
+    assert.ok(SHELL_INTEGRATION_BASH_PROMPT_COMMAND.includes('__sprintengine_status'))
   }
 
   // Four files, a STABLE shared directory, rewritten on every shell-pane launch:
@@ -675,7 +677,7 @@ test('terminal-launch', async () => {
   // the empty middle — the user's own config then silently never sources, and
   // $ZDOTDIR is left pointing at the shim for that shell's whole life.
   function testTheShimFilesAreReplacedRatherThanTruncated(): void {
-    const directory = mkdtempSync(join(tmpdir(), 'multicode-shim-'))
+    const directory = mkdtempSync(join(tmpdir(), 'sprintengine-shim-'))
     try {
       const filePath = join(directory, '.zshrc')
       const before = `${'old'.repeat(4_000)}\n`

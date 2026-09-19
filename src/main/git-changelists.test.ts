@@ -56,7 +56,7 @@ test('git-changelists', async () => {
   }
 
   async function main(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-changelists-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-changelists-'))
     const userData = join(root, 'user-data')
     const repo = join(root, 'repo')
 

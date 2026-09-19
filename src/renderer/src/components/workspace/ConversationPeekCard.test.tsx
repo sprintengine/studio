@@ -232,9 +232,9 @@ test('ConversationPeekCard', async () => {
   // the window. What the words say is held in `PullRequestMark.test.tsx`; what is
   // held here is that the head carries it, in the right place, in the right shape.
   const pullRequest = (over: Partial<BranchPullRequest> & { number: number }): BranchPullRequest => ({
-    url: `https://github.com/acme/multicode/pull/${over.number}`,
-    repoKey: 'github.com/acme/multicode',
-    repoName: 'multicode',
+    url: `https://github.com/acme/sprintengine/pull/${over.number}`,
+    repoKey: 'github.com/acme/sprintengine',
+    repoName: 'sprintengine',
     title: `Pull request ${over.number}`,
     state: 'open',
     isDraft: false,

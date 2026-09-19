@@ -125,8 +125,8 @@ export default function AgentPanel({ workspaceId, agentId, sessionId, shouldKill
       if (detail?.sessionId !== effectiveSessionId) return
       setIsResumePending(Boolean(detail?.resuming))
     }
-    window.addEventListener('multicode:terminal-resume-state', onResumeState)
-    return () => window.removeEventListener('multicode:terminal-resume-state', onResumeState)
+    window.addEventListener('sprintengine:terminal-resume-state', onResumeState)
+    return () => window.removeEventListener('sprintengine:terminal-resume-state', onResumeState)
   }, [effectiveSessionId])
   // Layout effect: a fresh suspend re-expands the footer, and the stale pending
   // flag from the previous resume must clear before that first paint or the
@@ -191,7 +191,7 @@ export default function AgentPanel({ workspaceId, agentId, sessionId, shouldKill
   // session id — same path as typing into the suspended terminal.
   const resumeTerminal = () => {
     if (!effectiveSessionId) return
-    window.dispatchEvent(new CustomEvent('multicode:resume-terminal', { detail: { sessionId: effectiveSessionId } }))
+    window.dispatchEvent(new CustomEvent('sprintengine:resume-terminal', { detail: { sessionId: effectiveSessionId } }))
   }
   if (isConversationRuntime) {
     return (

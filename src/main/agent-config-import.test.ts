@@ -70,7 +70,7 @@ test('agent-config-import', async () => {
   }
 
   async function testNothingPresent(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-config-empty-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-agent-config-empty-'))
     const service = createService({
       homeRoot: join(temp, 'home'),
       sourceRoot: join(temp, 'source'),
@@ -84,7 +84,7 @@ test('agent-config-import', async () => {
   }
 
   async function testPartialMcpOnly(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-config-partial-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-agent-config-partial-'))
     const homeRoot = join(temp, 'home')
     await writeCodexMcp(homeRoot)
     const service = createService({
@@ -102,7 +102,7 @@ test('agent-config-import', async () => {
   }
 
   async function testFullConfig(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-config-full-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-agent-config-full-'))
     const homeRoot = join(temp, 'home')
     await writeCodexMcp(homeRoot)
     await writeClaudeMcp(homeRoot)
@@ -123,7 +123,7 @@ test('agent-config-import', async () => {
   }
 
   async function testAdoptUsesExistingSyncPaths(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-config-adopt-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-agent-config-adopt-'))
     const homeRoot = join(temp, 'home')
     const sourceRoot = join(temp, 'source')
     const workspaceRoot = join(temp, 'workspace')
@@ -158,7 +158,7 @@ test('agent-config-import', async () => {
   }
 
   async function testCodexMultilineMcpValues(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-config-codex-multiline-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-agent-config-codex-multiline-'))
     const homeRoot = join(temp, 'home')
     const workspaceRoot = join(temp, 'workspace')
     const syncCalls: McpSyncInput[] = []
@@ -201,7 +201,7 @@ test('agent-config-import', async () => {
   }
 
   async function testCodexQuotedIdsHeadersAndDisabledServers(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-config-codex-quoted-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-agent-config-codex-quoted-'))
     const homeRoot = join(temp, 'home')
     const workspaceRoot = join(temp, 'workspace')
     const syncCalls: McpSyncInput[] = []
@@ -239,7 +239,7 @@ test('agent-config-import', async () => {
   }
 
   async function testMalformedCodexValuesWarnAndSkip(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-config-codex-malformed-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-agent-config-codex-malformed-'))
     const homeRoot = join(temp, 'home')
     await writeCodexConfig(homeRoot, [
       '[mcp_servers.context7]',

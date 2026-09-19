@@ -62,15 +62,15 @@ test('WorkspaceSidebar.remoteGroup', async () => {
       detected.push(folderPath)
       return null
     },
-    // one-project-across-machines: /projA is a clone of acme/multicode; the
+    // one-project-across-machines: /projA is a clone of acme/sprintengine; the
     // remote row Foxtrot below is that repository on the Air.
     getGitRepositoryIdentity: async (folderPath: string) => {
       identityReads.push(folderPath)
       return folderPath === '/projA'
         ? {
-            canonicalKey: 'github.com/acme/multicode',
-            remoteUrl: 'git@github.com:acme/multicode.git',
-            name: 'multicode',
+            canonicalKey: 'github.com/acme/sprintengine',
+            remoteUrl: 'git@github.com:acme/sprintengine.git',
+            name: 'sprintengine',
           }
         : null
     },
@@ -107,19 +107,19 @@ test('WorkspaceSidebar.remoteGroup', async () => {
       workspaceRoot: '/Users/me/relay',
     }
     const workspaces = [
-      // The remote clone of acme/multicode comes FIRST in the list: the group
+      // The remote clone of acme/sprintengine comes FIRST in the list: the group
       // it joins must still be headed by the local folder, not by "No folder".
       workspace('w0', 'Zulu', null, {
         remoteOrigin: {
           connectionId: 'c1',
           machineName: 'MacBook Air',
           workspaceId: 'rw3',
-          workspaceName: 'multicode',
-          workspaceRoot: '/Users/air/multicode',
+          workspaceName: 'sprintengine',
+          workspaceRoot: '/Users/air/sprintengine',
           repository: {
-            canonicalKey: 'github.com/acme/multicode',
-            remoteUrl: 'git@github.com:acme/multicode.git',
-            name: 'multicode',
+            canonicalKey: 'github.com/acme/sprintengine',
+            remoteUrl: 'git@github.com:acme/sprintengine.git',
+            name: 'sprintengine',
           },
         },
         layoutModel: { layout: { type: 'row', children: [] } },
@@ -139,18 +139,18 @@ test('WorkspaceSidebar.remoteGroup', async () => {
       workspace('w4', 'Delta', null, { remoteOrigin, layoutModel: { layout: { type: 'row', children: [] } } }),
       // A genuinely folderless local row keeps its old home.
       workspace('w5', 'Echo', null),
-      // Born on the Air in ITS clone of acme/multicode — the same repository
+      // Born on the Air in ITS clone of acme/sprintengine — the same repository
       // as /projA (one-project-across-machines): files under projA's header.
       workspace('w6', 'Foxtrot', null, {
         remoteOrigin: {
           ...remoteOrigin,
           workspaceId: 'rw2',
-          workspaceName: 'multicode',
-          workspaceRoot: '/Users/air/multicode',
+          workspaceName: 'sprintengine',
+          workspaceRoot: '/Users/air/sprintengine',
           repository: {
-            canonicalKey: 'github.com/acme/multicode',
-            remoteUrl: 'git@github.com:acme/multicode.git',
-            name: 'multicode',
+            canonicalKey: 'github.com/acme/sprintengine',
+            remoteUrl: 'git@github.com:acme/sprintengine.git',
+            name: 'sprintengine',
           },
         },
         layoutModel: { layout: { type: 'row', children: [] } },
@@ -223,7 +223,7 @@ test('WorkspaceSidebar.remoteGroup', async () => {
     const rowsOf = (name: string) => [...sectionOf(name).querySelectorAll('[role="treeitem"]')]
     const textOf = (name: string) => rowsOf(name).map((row) => row.textContent ?? '')
 
-    // projA is a clone of acme/multicode, and so are Zulu and Foxtrot on the Air
+    // projA is a clone of acme/sprintengine, and so are Zulu and Foxtrot on the Air
     // (one-project-across-machines): four rows, one project, one header.
     const localRows = textOf('projA')
     assert.equal(localRows.length, 4, 'the two local chats and the Air’s two chats in the same repository')
@@ -259,7 +259,7 @@ test('WorkspaceSidebar.remoteGroup', async () => {
 
     assert.ok(!detected.includes('/Users/me/relay'), 'the remote root is never looked up on the local disk')
     assert.ok(identityReads.includes('/projA'), 'the local folder is still asked which repository it is')
-    assert.ok(!identityReads.includes('/Users/air/multicode'), 'a remote root is never asked on this disk')
+    assert.ok(!identityReads.includes('/Users/air/sprintengine'), 'a remote root is never asked on this disk')
 
     const noFolderRows = textOf('No folder')
     assert.equal(noFolderRows.length, 1, 'only the genuinely folderless local row is under No folder')

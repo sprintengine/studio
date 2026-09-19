@@ -93,7 +93,7 @@ test('agent-launch-render', async () => {
     __resetPluginRegistryForTest()
     const registry = createPluginRegistry({
       bundledRoot: BUNDLED_ROOT,
-      userRoot: join(process.cwd(), '.does-not-exist', 'multicode', 'plugins'),
+      userRoot: join(process.cwd(), '.does-not-exist', 'sprintengine', 'plugins'),
     })
     const report = registry.loadSync()
     assert.deepEqual(

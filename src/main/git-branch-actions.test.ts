@@ -37,7 +37,7 @@ test('git-branch-actions', async () => {
   }
 
   async function assertMergeConflictLifecycle(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-git-merge-conflict-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-git-merge-conflict-'))
     const repo = join(root, 'repo')
 
     try {
@@ -91,7 +91,7 @@ test('git-branch-actions', async () => {
   }
 
   async function assertRebaseAction(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-git-rebase-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-git-rebase-'))
     const repo = join(root, 'repo')
 
     try {
@@ -171,7 +171,7 @@ test('git-branch-actions', async () => {
   }
 
   async function assertCherryPickAndRevert(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-git-cherry-pick-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-git-cherry-pick-'))
     const repo = join(root, 'repo')
 
     try {
@@ -244,7 +244,7 @@ test('git-branch-actions', async () => {
   }
 
   async function assertResetAction(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-git-reset-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-git-reset-'))
     const repo = join(root, 'repo')
 
     try {
@@ -294,7 +294,7 @@ test('git-branch-actions', async () => {
   }
 
   async function assertBranchManagement(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-git-branch-management-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-git-branch-management-'))
     const repo = join(root, 'repo')
 
     try {
@@ -341,7 +341,7 @@ test('git-branch-actions', async () => {
   }
 
   async function assertMergeAction(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-git-merge-action-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-git-merge-action-'))
     const repo = join(root, 'repo')
 
     try {
@@ -415,7 +415,7 @@ test('git-branch-actions', async () => {
   }
 
   async function assertCommitActions(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-git-commit-actions-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-git-commit-actions-'))
     const repo = join(root, 'repo')
 
     try {
@@ -475,7 +475,7 @@ test('git-branch-actions', async () => {
   }
 
   async function assertPullMergesDivergentBranches(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-git-pull-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-git-pull-'))
 
     try {
       const remote = join(root, 'remote.git')
@@ -514,8 +514,8 @@ test('git-branch-actions', async () => {
   }
 
   function configureRepo(cwd: string): void {
-    git(cwd, ['config', 'user.email', 'multicode@example.invalid'])
-    git(cwd, ['config', 'user.name', 'Multicode Test'])
+    git(cwd, ['config', 'user.email', 'sprintengine@example.invalid'])
+    git(cwd, ['config', 'user.name', 'SprintEngine Test'])
   }
 
   function git(cwd: string, args: string[]): string {

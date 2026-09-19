@@ -307,10 +307,10 @@ const AUX_WINDOW_TITLES: Record<AuxWindowKind, string> = {
 
 // The renderer shell's own `<title>`. One index.html serves every window, so
 // loading it announces this name to the OS and overwrites whatever the window
-// was constructed with — which is how a diff window came to read "Multicode"
+// was constructed with — which is how a diff window came to read "SprintEngine"
 // until its React tree got around to naming itself. This is the one title an
 // aux window refuses; every other one is the page naming itself.
-const RENDERER_SHELL_TITLE = 'Multicode'
+const RENDERER_SHELL_TITLE = 'SprintEngine'
 
 type CreateAuxWindowOptions = {
   kind: AuxWindowKind

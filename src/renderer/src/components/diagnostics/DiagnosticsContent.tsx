@@ -243,7 +243,7 @@ const DIAGNOSTIC_TABS: TabItem<DiagnosticTabId>[] = [
   { id: 'subsystems', label: 'Subsystems' },
 ]
 
-const DIAGNOSTIC_TAB_STORAGE_KEY = 'multicode.diagnostics.activeTab'
+const DIAGNOSTIC_TAB_STORAGE_KEY = 'sprintengine.diagnostics.activeTab'
 
 function isDiagnosticTabId(value: string | null): value is DiagnosticTabId {
   return value !== null && DIAGNOSTIC_TABS.some((tab) => tab.id === value)

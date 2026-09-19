@@ -35,7 +35,7 @@ export type PaletteOpenRequest = {
   target?: PaletteAgentTarget | null
 }
 
-const PALETTE_OPEN_REQUEST_EVENT = 'multicode:palette-open-request'
+const PALETTE_OPEN_REQUEST_EVENT = 'sprintengine:palette-open-request'
 
 export function requestPaletteOpen(request: PaletteOpenRequest): void {
   if (typeof window === 'undefined') return

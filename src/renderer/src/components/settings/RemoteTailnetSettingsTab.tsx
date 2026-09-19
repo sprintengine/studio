@@ -348,7 +348,7 @@ export function RemoteTailnetSettingsTab() {
             <Input
               value={pairingLink}
               onChange={(event) => setPairingLink(event.target.value)}
-              placeholder="multicode-tailnet://pair?…"
+              placeholder="sprintengine-tailnet://pair?…"
               aria-label="Pairing link"
               autoFocus
               onKeyDown={(event) => {

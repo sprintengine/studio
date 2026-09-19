@@ -24,7 +24,7 @@ export const designRendererModule: RendererModule = {
     id: 'design',
     displayName: 'Design',
     version: 1,
-    publisher: 'multicode',
+    publisher: 'sprintengine',
     category: 'insight',
     summary: 'The Design door: see the design systems you have, rendered, and point at new ones on disk.',
     defaultEnabled: true,

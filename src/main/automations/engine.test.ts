@@ -147,7 +147,7 @@ test('engine', async () => {
   }
 
   async function createWorkspace(): Promise<string> {
-    return mkdtemp(join(tmpdir(), 'multicode-automations-engine-'))
+    return mkdtemp(join(tmpdir(), 'sprintengine-automations-engine-'))
   }
 
   async function listenOnEphemeralPort(): Promise<{ server: Server; port: number }> {
@@ -179,7 +179,7 @@ test('engine', async () => {
     runs: AutomationRun[] = []
 
     constructor(definitionValue: AutomationDefinition) {
-      super(join(tmpdir(), 'multicode-automations-engine-memory'))
+      super(join(tmpdir(), 'sprintengine-automations-engine-memory'))
       this.definitionValue = definitionValue
     }
 
@@ -422,7 +422,7 @@ test('engine', async () => {
         trigger: { kind: 'schedule', config: dailyConfig('02:00', 'UTC') },
         action: { kind: 'spawn-agent', config: { prompt: 'Check for outdated dependencies.' } },
       },
-      sourceCatalogueId: 'multicode.nightly-sweep',
+      sourceCatalogueId: 'sprintengine.nightly-sweep',
     })
     assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
     if (!installed.ok) return
@@ -1380,7 +1380,7 @@ test('engine', async () => {
     assert.equal(swept.ok && swept.value.status, 'failed')
     assert.equal(
       swept.ok && swept.value.summary,
-      'The agent was still running after 6 hours, so Multicode stopped waiting and ended the run.',
+      'The agent was still running after 6 hours, so SprintEngine stopped waiting and ended the run.',
     )
     assert.equal(counters.prCalls, 0, 'a swept run opens no PR')
     assert.equal(removedWorktrees.length, 1)

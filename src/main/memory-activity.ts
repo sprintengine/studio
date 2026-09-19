@@ -61,11 +61,10 @@ const states = new Map<string, WorkspaceState>()
 // Path helpers
 // =============================================================================
 
-const HOOK_TAG = 'multicode-knowledge-activity'
-const LEGACY_HOOK_TAG = 'multicode-memory-activity'
-const HOOK_SCRIPT_REL = join('.multicode', 'hooks', 'knowledge-activity.mjs')
-const TRACE_DIR_REL = join('.multicode', 'knowledge-trace')
-const INSTALLED_RECORD_REL = join('.multicode', 'hooks', 'installed.json')
+const HOOK_TAG = 'sprintengine-knowledge-activity'
+const HOOK_SCRIPT_REL = join('.sprintengine', 'hooks', 'knowledge-activity.mjs')
+const TRACE_DIR_REL = join('.sprintengine', 'knowledge-trace')
+const INSTALLED_RECORD_REL = join('.sprintengine', 'hooks', 'installed.json')
 const CLAUDE_LOCAL_SETTINGS_REL = join('.claude', 'settings.local.json')
 
 function workspaceKey(workspaceRoot: string): string {
@@ -93,7 +92,7 @@ function getBundledHookScriptPath(): string | null {
 type ClaudeHookEntry = {
   type: 'command'
   command: string
-  _multicode?: string
+  _sprintengine?: string
 }
 
 type ClaudeMatcherBlock = {
@@ -136,11 +135,11 @@ function ensureMatcherBlock(blocks: ClaudeMatcherBlock[], matcher: string): Clau
   return next
 }
 
-function isMulticodeEntry(entry: ClaudeHookEntry): boolean {
-  return entry?._multicode === HOOK_TAG || entry?._multicode === LEGACY_HOOK_TAG
+function isSprintEngineEntry(entry: ClaudeHookEntry): boolean {
+  return entry?._sprintengine === HOOK_TAG
 }
 
-async function mergeMulticodeHook(settingsPath: string, hookCommand: string): Promise<void> {
+async function mergeSprintEngineHook(settingsPath: string, hookCommand: string): Promise<void> {
   const existing = (await readJsonIfExists<ClaudeSettings>(settingsPath)) ?? {}
   const settings: ClaudeSettings = { ...existing }
   if (!settings.hooks || typeof settings.hooks !== 'object') settings.hooks = {}
@@ -149,14 +148,14 @@ async function mergeMulticodeHook(settingsPath: string, hookCommand: string): Pr
   const blocks = settings.hooks.PostToolUse as ClaudeMatcherBlock[]
   const block = ensureMatcherBlock(blocks, 'Read|Edit|Write')
 
-  // Replace any prior multicode entry; preserve all unrelated hooks the user
+  // Replace any prior sprintengine entry; preserve all unrelated hooks the user
   // configured themselves.
   const ours: ClaudeHookEntry = {
     type: 'command',
     command: hookCommand,
-    _multicode: HOOK_TAG,
+    _sprintengine: HOOK_TAG,
   }
-  const filtered = (block.hooks ?? []).filter((entry) => !isMulticodeEntry(entry))
+  const filtered = (block.hooks ?? []).filter((entry) => !isSprintEngineEntry(entry))
   filtered.push(ours)
   block.hooks = filtered
 
@@ -164,13 +163,13 @@ async function mergeMulticodeHook(settingsPath: string, hookCommand: string): Pr
   await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8')
 }
 
-async function unmergeMulticodeHook(settingsPath: string): Promise<void> {
+async function unmergeSprintEngineHook(settingsPath: string): Promise<void> {
   const existing = await readJsonIfExists<ClaudeSettings>(settingsPath)
   if (!existing?.hooks?.PostToolUse) return
   const blocks = existing.hooks.PostToolUse as ClaudeMatcherBlock[]
   for (const block of blocks) {
     if (!Array.isArray(block.hooks)) continue
-    block.hooks = block.hooks.filter((entry) => !isMulticodeEntry(entry))
+    block.hooks = block.hooks.filter((entry) => !isSprintEngineEntry(entry))
   }
   // Drop blocks that became empty so we don't leave dangling matchers.
   existing.hooks.PostToolUse = blocks.filter((b) => Array.isArray(b.hooks) && b.hooks.length > 0)
@@ -199,7 +198,7 @@ export async function installMemoryActivityHook(
   }
 
   try {
-    const hookDir = resolve(workspaceRoot, '.multicode', 'hooks')
+    const hookDir = resolve(workspaceRoot, '.sprintengine', 'hooks')
     await mkdir(hookDir, { recursive: true })
     const destScript = resolve(workspaceRoot, HOOK_SCRIPT_REL)
     await copyFile(sourceScript, destScript)
@@ -209,7 +208,7 @@ export async function installMemoryActivityHook(
 
     const settingsPath = resolve(workspaceRoot, CLAUDE_LOCAL_SETTINGS_REL)
     const command = buildHookCommand(memoryRelativeRoot)
-    await mergeMulticodeHook(settingsPath, command)
+    await mergeSprintEngineHook(settingsPath, command)
 
     const installedRecord = {
       installedAt: new Date().toISOString(),
@@ -242,7 +241,7 @@ export async function uninstallMemoryActivityHook(workspaceRoot: string): Promis
 
   try {
     const settingsPath = resolve(workspaceRoot, CLAUDE_LOCAL_SETTINGS_REL)
-    if (existsSync(settingsPath)) await unmergeMulticodeHook(settingsPath)
+    if (existsSync(settingsPath)) await unmergeSprintEngineHook(settingsPath)
 
     const installedRecord = resolve(workspaceRoot, INSTALLED_RECORD_REL)
     if (existsSync(installedRecord)) await rm(installedRecord, { force: true })

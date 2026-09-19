@@ -56,4 +56,4 @@ Complete: all 19 concrete themes have both plates at standard and 4K resolution
 the active light or dark theme before a backdrop is selected.
 
 The full set is mirrored for visual review in
-`multicode-website/public/art/multicode-theme-backdrops-2026-06/`.
+`sprintengine-website/public/art/sprintengine-theme-backdrops-2026-06/`.

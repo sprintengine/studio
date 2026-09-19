@@ -42,7 +42,7 @@ test('workspace-change-summary', async () => {
 
   const created: string[] = []
   function repo(): string {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-change-summary-'))
+    const dir = mkdtempSync(join(tmpdir(), 'sprintengine-change-summary-'))
     created.push(dir)
     git(dir, 'init', '-b', 'main')
     writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\n')
@@ -57,14 +57,14 @@ test('workspace-change-summary', async () => {
    * suite had no fixture for, which is why none of them were caught here.
    */
   function clonedRepo(): { origin: string; clone: string } {
-    const origin = mkdtempSync(join(tmpdir(), 'multicode-change-origin-'))
+    const origin = mkdtempSync(join(tmpdir(), 'sprintengine-change-origin-'))
     created.push(origin)
     git(origin, 'init', '-b', 'main')
     writeFileSync(join(origin, 'a.txt'), 'one\ntwo\nthree\n')
     git(origin, 'add', '.')
     git(origin, 'commit', '-m', 'seed')
 
-    const clone = mkdtempSync(join(tmpdir(), 'multicode-change-clone-'))
+    const clone = mkdtempSync(join(tmpdir(), 'sprintengine-change-clone-'))
     created.push(clone)
     rmSync(clone, { recursive: true, force: true })
     execFileSync('git', ['clone', '--quiet', origin, clone])
@@ -229,7 +229,7 @@ test('workspace-change-summary', async () => {
     })
 
     await run('a repo with no default branch to compare against degrades to folder', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-change-summary-odd-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-change-summary-odd-'))
       created.push(dir)
       git(dir, 'init', '-b', 'solo')
       writeFileSync(join(dir, 'a.txt'), 'one\n')
@@ -243,7 +243,7 @@ test('workspace-change-summary', async () => {
     })
 
     await run('an unborn HEAD and a non-repo both degrade quietly', async () => {
-      const fresh = mkdtempSync(join(tmpdir(), 'multicode-change-summary-unborn-'))
+      const fresh = mkdtempSync(join(tmpdir(), 'sprintengine-change-summary-unborn-'))
       created.push(fresh)
       git(fresh, 'init', '-b', 'main')
       writeFileSync(join(fresh, 'a.txt'), 'x\n')
@@ -251,7 +251,7 @@ test('workspace-change-summary', async () => {
       assert.equal(unborn.additions, 0)
       assert.equal(unborn.scope, 'folder')
 
-      const plain = mkdtempSync(join(tmpdir(), 'multicode-change-summary-plain-'))
+      const plain = mkdtempSync(join(tmpdir(), 'sprintengine-change-summary-plain-'))
       created.push(plain)
       const notRepo = await getWorkspaceChangeSummary({ checkoutPath: plain })
       assert.deepEqual(notRepo, {
@@ -350,7 +350,7 @@ test('workspace-change-summary', async () => {
     await run('an unreadable span falls back to the folder rather than to zero', async () => {
       const dir = repo()
       // A bare repo has no work tree, so `git diff` cannot run at all.
-      const bare = mkdtempSync(join(tmpdir(), 'multicode-change-bare-'))
+      const bare = mkdtempSync(join(tmpdir(), 'sprintengine-change-bare-'))
       created.push(bare)
       execFileSync('git', ['clone', '--quiet', '--bare', dir, bare])
       const summary = await getWorkspaceChangeSummary({ checkoutPath: bare })
@@ -410,13 +410,13 @@ test('workspace-change-summary', async () => {
 
     await run('an unreadable checkout leaves the field ABSENT, never zeros', async () => {
       const dir = repo()
-      const bare = mkdtempSync(join(tmpdir(), 'multicode-change-bare-uncommitted-'))
+      const bare = mkdtempSync(join(tmpdir(), 'sprintengine-change-bare-uncommitted-'))
       created.push(bare)
       execFileSync('git', ['clone', '--quiet', '--bare', dir, bare])
       const summary = await getWorkspaceChangeSummary({ checkoutPath: bare })
       assert.equal('uncommitted' in summary, false, 'a zero here would claim a landed branch is clean')
 
-      const plain = mkdtempSync(join(tmpdir(), 'multicode-change-plain-uncommitted-'))
+      const plain = mkdtempSync(join(tmpdir(), 'sprintengine-change-plain-uncommitted-'))
       created.push(plain)
       assert.equal('uncommitted' in (await getWorkspaceChangeSummary({ checkoutPath: plain })), false)
     })
@@ -664,13 +664,13 @@ test('workspace-change-summary', async () => {
 
     await run('a reading that could not be taken has NO files, never zeros', async () => {
       const dir = repo()
-      const bare = mkdtempSync(join(tmpdir(), 'multicode-change-bare-files-'))
+      const bare = mkdtempSync(join(tmpdir(), 'sprintengine-change-bare-files-'))
       created.push(bare)
       execFileSync('git', ['clone', '--quiet', '--bare', dir, bare])
       const summary = await getWorkspaceChangeSummary({ checkoutPath: bare })
       assert.equal('files' in summary, false, 'an unreadable span draws nothing, not a zero')
 
-      const plain = mkdtempSync(join(tmpdir(), 'multicode-change-plain-files-'))
+      const plain = mkdtempSync(join(tmpdir(), 'sprintengine-change-plain-files-'))
       created.push(plain)
       assert.equal('files' in (await getWorkspaceChangeSummary({ checkoutPath: plain })), false)
       assert.equal('files' in summaryFromSpan(null), false)

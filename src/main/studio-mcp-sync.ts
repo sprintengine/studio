@@ -1,7 +1,7 @@
 import { RETIRED_SPRINTENGINE_MCP_SERVER_ID, type McpConfigService } from './mcp-config-service'
 import type { McpServerConfig, McpSyncInput } from '../shared/electron-api'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
-import { compatStudioEnvEntry } from '../shared/studio-env'
+import { studioEnvEntry } from '../shared/studio-env'
 
 export type StudioMcpSyncResult = { ok: true } | { ok: false; message: string }
 
@@ -39,13 +39,10 @@ export async function syncStudioMcpConfig(
       transport: 'stdio',
       command: studioGateway.command,
       args: [studioGateway.bridgeScriptPath],
-      // Both spellings: this config is written into the workspace's own MCP
-      // files and stays there, so the bridge that eventually reads it may be a
-      // copy installed either side of the rename.
       env: {
         ELECTRON_RUN_AS_NODE: '1',
-        ...compatStudioEnvEntry('SPRINTENGINE_USER_DATA_DIR', studioGateway.userDataDir),
-        ...compatStudioEnvEntry('SPRINTENGINE_AGENT_CLI', cliId),
+        ...studioEnvEntry('SPRINTENGINE_USER_DATA_DIR', studioGateway.userDataDir),
+        ...studioEnvEntry('SPRINTENGINE_AGENT_CLI', cliId),
       },
       enabled: true,
       required: true,

@@ -8,7 +8,7 @@ import { test } from 'vitest'
 
 test('menu-dialog-ipc', async () => {
   async function main(): Promise<void> {
-    const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-open-dir-'))
+    const tempRoot = await mkdtemp(join(tmpdir(), 'sprintengine-open-dir-'))
     const selectedDir = join(tempRoot, 'selected')
 
     try {

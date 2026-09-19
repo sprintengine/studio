@@ -1,7 +1,7 @@
 {
   "id": "zai",
   "displayName": "Z.AI",
-  "publisher": "multicode",
+  "publisher": "sprintengine",
   "version": 1,
   "summary": "GLM through the Claude Code CLI, pointed at Z.AI's endpoint.",
   "category": "Agent CLI",

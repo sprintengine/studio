@@ -29,7 +29,7 @@ import { isRecord } from '../records'
 
 export type DesignSystemTokenMode = 'light' | 'dark'
 
-const VENDOR_KEY = 'com.multicode'
+const VENDOR_KEY = 'com.sprintengine'
 /** A DTCG alias is a whole-value reference: `{ref.color.green-700}`. */
 const ALIAS_PATTERN = /^\{([^{}]+)\}$/
 
@@ -42,7 +42,7 @@ function isLeaf(node: Record<string, unknown>): boolean {
  * The mode-specific raw value a leaf declares, falling back to `$value`.
  *
  * A mode-varying token declares `modes: { light, dark }` inside
- * `$extensions["com.multicode"]`, and the format requires `$value` to equal
+ * `$extensions["com.sprintengine"]`, and the format requires `$value` to equal
  * `modes.light`. A token with no `modes` block is mode-invariant, so `$value`
  * is correct for both.
  */

@@ -21,7 +21,7 @@ test('child-process-metrics', async () => {
   const PS_OUTPUT = `
   100     1  150000   2.5 /Electron        /app/Electron .
   101   100  700000   5.1 /Electron        /app/Electron Helper --type=renderer
-  102   100     700   0.0 /bin/zsh         /bin/zsh -l /Users/test/Library/Application Support/multicode/terminal-startup/session.sh
+  102   100     700   0.0 /bin/zsh         /bin/zsh -l /Users/test/Library/Application Support/sprintengine/terminal-startup/session.sh
   103   102  260000  12.4 claude           claude --permission-mode bypassPermissions long prompt text
   104   103   42000   1.2 npm              npm exec @playwright/mcp@latest
   105   104   31000   0.8 node             node /tmp/node_modules/.bin/playwright-mcp
@@ -39,7 +39,7 @@ test('child-process-metrics', async () => {
         rssKb: 700,
         cpuPercent: 0,
         command: '/bin/zsh',
-        args: '/bin/zsh -l /Users/test/Library/Application Support/multicode/terminal-startup/session.sh',
+        args: '/bin/zsh -l /Users/test/Library/Application Support/sprintengine/terminal-startup/session.sh',
       })
       assert.equal(rows[3].cpuPercent, 12.4)
     })

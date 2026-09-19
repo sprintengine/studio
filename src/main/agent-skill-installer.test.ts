@@ -15,9 +15,9 @@ test('agent-skill-installer', async () => {
   function bundledRegistry(): PluginRegistry {
     const registry = createPluginRegistry(
       createAppPluginRegistryOptions(
-        join(process.cwd(), 'node_modules', '.cache', 'multicode'),
+        join(process.cwd(), 'node_modules', '.cache', 'sprintengine'),
         join(process.cwd(), 'resources', 'plugins'),
-        join(process.cwd(), 'node_modules', '.cache', 'multicode', 'plugins-none'),
+        join(process.cwd(), 'node_modules', '.cache', 'sprintengine', 'plugins-none'),
       ),
     )
     registry.loadSync()
@@ -51,7 +51,7 @@ test('agent-skill-installer', async () => {
   async function main(): Promise<void> {
     const registry = bundledRegistry()
     const plugins = registry.list()
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-skill-installer-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-agent-skill-installer-'))
     const builtinRoot = join(temp, 'builtin-skills')
     await writeSkillSource(
       join(builtinRoot, 'backlog'),
@@ -104,9 +104,9 @@ test('agent-skill-installer', async () => {
     )
     assert.equal(installedEntry, 'notes\n')
     const marker = JSON.parse(
-      await readFile(join(fullRoot, '.claude', 'skills', 'backlog', '.multicode-skill.json'), 'utf-8'),
+      await readFile(join(fullRoot, '.claude', 'skills', 'backlog', '.sprintengine-skill.json'), 'utf-8'),
     ) as { source?: string; id?: string; sourceHash?: string }
-    assert.equal(marker.source, 'multicode-builtin')
+    assert.equal(marker.source, 'sprintengine-builtin')
     assert.equal(marker.id, 'backlog')
     // The interop that makes this one install path rather than two: the marker an
     // attach writes is the one the built-in status reader verifies, so a copy
@@ -204,11 +204,11 @@ test('agent-skill-installer', async () => {
     assert.equal(byPath(handAttach.targets).get('.claude/skills/mine')?.status, 'unchanged')
     assert.equal(byPath(handAttach.targets).get('.codex/skills/mine')?.status, 'written')
     assert.equal(
-      JSON.parse(await readFile(join(handRoot, '.codex', 'skills', 'mine', '.multicode-skill.json'), 'utf-8'))
+      JSON.parse(await readFile(join(handRoot, '.codex', 'skills', 'mine', '.sprintengine-skill.json'), 'utf-8'))
         .copiedFrom,
       '.claude/skills/mine',
     )
-    await assert.rejects(readFile(join(handWritten, '.multicode-skill.json'), 'utf-8'))
+    await assert.rejects(readFile(join(handWritten, '.sprintengine-skill.json'), 'utf-8'))
 
     const handRemove = await installer().remove({ workspaceRoot: handRoot, skillId: 'mine' })
     assert.ok(handRemove.ok)

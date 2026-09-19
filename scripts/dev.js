@@ -46,12 +46,12 @@ async function findAvailablePort(start) {
 
 function devProfileDir(port) {
   if (process.platform === 'darwin') {
-    return path.join(os.homedir(), 'Library', 'Application Support', `multicode-dev-${port}`)
+    return path.join(os.homedir(), 'Library', 'Application Support', `sprintengine-dev-${port}`)
   }
   if (process.platform === 'win32') {
-    return path.join(process.env.APPDATA || os.homedir(), `multicode-dev-${port}`)
+    return path.join(process.env.APPDATA || os.homedir(), `sprintengine-dev-${port}`)
   }
-  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), `multicode-dev-${port}`)
+  return path.join(process.env.XDG_CONFIG_HOME || path.join(os.homedir(), '.config'), `sprintengine-dev-${port}`)
 }
 
 // Both spellings of the app's variables are honoured, the way
@@ -59,21 +59,21 @@ function devProfileDir(port) {
 // This launcher runs as plain node ahead of any build step, so the rule is
 // spelled out inline rather than imported.
 async function configureParallelDevInstance() {
-  const requestedPort = parsePort(env.SPRINTENGINE_RENDERER_PORT ?? env.MULTICODE_RENDERER_PORT)
+  const requestedPort = parsePort(env.SPRINTENGINE_RENDERER_PORT ?? env.SPRINTENGINE_RENDERER_PORT)
   let rendererPort = requestedPort ?? defaultRendererPort
 
   if (!requestedPort && !(await isPortAvailable(defaultRendererPort))) {
     const availablePort = await findAvailablePort(defaultRendererPort + 1)
-    if (!availablePort) throw new Error('No available renderer port found for Multicode dev.')
+    if (!availablePort) throw new Error('No available renderer port found for SprintEngine dev.')
     rendererPort = availablePort
     env.SPRINTENGINE_RENDERER_PORT = String(rendererPort)
   }
 
-  if (rendererPort !== defaultRendererPort && !(env.SPRINTENGINE_USER_DATA_DIR ?? env.MULTICODE_USER_DATA_DIR)) {
+  if (rendererPort !== defaultRendererPort && !(env.SPRINTENGINE_USER_DATA_DIR ?? env.SPRINTENGINE_USER_DATA_DIR)) {
     env.SPRINTENGINE_USER_DATA_DIR = devProfileDir(rendererPort)
     env.SPRINTENGINE_ALLOW_MULTI_INSTANCE = '1'
     console.info(
-      `Starting parallel Multicode dev instance on port ${rendererPort} with userData ${env.SPRINTENGINE_USER_DATA_DIR}`,
+      `Starting parallel SprintEngine dev instance on port ${rendererPort} with userData ${env.SPRINTENGINE_USER_DATA_DIR}`,
     )
   }
 }

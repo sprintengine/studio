@@ -140,7 +140,7 @@ test('conversationSeam', async () => {
   // --- 1798: one definition of busy, on both sides of the boundary -------------
 
   async function testContinuationTurnIsBusyOnBothSidesOfTheBoundary(): Promise<void> {
-    await withWorkspaceRoot('multicode-seam-conversation-busy-', async (workspaceRoot) => {
+    await withWorkspaceRoot('sprintengine-seam-conversation-busy-', async (workspaceRoot) => {
       const { ipcMain } = await import('electron')
       const { ConversationRuntime } = await import('../main/conversation-runtime')
       const { registerConversationIpc } = await import('../main/ipc/conversation-ipc')
@@ -270,7 +270,7 @@ test('conversationSeam', async () => {
   // --- 1809: the pill reports the session, not a stale record ------------------
 
   async function testPermissionPillReportsTheLiveSession(): Promise<void> {
-    await withWorkspaceRoot('multicode-seam-conversation-permission-', async (workspaceRoot) => {
+    await withWorkspaceRoot('sprintengine-seam-conversation-permission-', async (workspaceRoot) => {
       const { ConversationRuntime } = await import('../main/conversation-runtime')
       const { resolvePermissionPreset } = await import('../renderer/src/components/panels/AgentChatView')
 

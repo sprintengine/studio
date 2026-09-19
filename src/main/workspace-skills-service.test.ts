@@ -34,7 +34,7 @@ test('workspace-skills-service', async () => {
   }
 
   async function main(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-workspace-skills-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-workspace-skills-'))
     const workspaceRoot = join(temp, 'workspace')
     await mkdir(workspaceRoot, { recursive: true })
 
@@ -70,16 +70,16 @@ test('workspace-skills-service', async () => {
     const backlogBuiltin = BUILTIN_SKILLS.find((skill) => skill.id === 'backlog')
     assert.ok(backlogBuiltin)
     await writeFile(
-      join(backlogDir, '.multicode-skill.json'),
-      JSON.stringify({ id: 'backlog', source: 'multicode-builtin', version: backlogBuiltin.version }),
+      join(backlogDir, '.sprintengine-skill.json'),
+      JSON.stringify({ id: 'backlog', source: 'sprintengine-builtin', version: backlogBuiltin.version }),
       'utf-8',
     )
 
     // Installed builtin with a stale manifest version → update-available.
     const debugDir = await writeSkillDir(workspaceRoot, '.claude', 'debug')
     await writeFile(
-      join(debugDir, '.multicode-skill.json'),
-      JSON.stringify({ id: 'debug', source: 'multicode-builtin', version: '0.0.1' }),
+      join(debugDir, '.sprintengine-skill.json'),
+      JSON.stringify({ id: 'debug', source: 'sprintengine-builtin', version: '0.0.1' }),
       'utf-8',
     )
 
@@ -156,9 +156,9 @@ test('workspace-skills-service', async () => {
   function bundledRegistry(): PluginRegistry {
     const registry = createPluginRegistry(
       createAppPluginRegistryOptions(
-        join(process.cwd(), 'node_modules', '.cache', 'multicode'),
+        join(process.cwd(), 'node_modules', '.cache', 'sprintengine'),
         join(process.cwd(), 'resources', 'plugins'),
-        join(process.cwd(), 'node_modules', '.cache', 'multicode', 'plugins-none'),
+        join(process.cwd(), 'node_modules', '.cache', 'sprintengine', 'plugins-none'),
       ),
     )
     registry.loadSync()
@@ -169,7 +169,7 @@ test('workspace-skills-service', async () => {
     const registry = bundledRegistry()
     const plugins = registry.list()
     const lookupManifest = (pluginId: string): PluginManifest | undefined => registry.get(pluginId)?.manifest
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-agent-capabilities-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-agent-capabilities-'))
     const workspaceRoot = join(temp, 'workspace')
     await mkdir(workspaceRoot, { recursive: true })
 
@@ -183,13 +183,13 @@ test('workspace-skills-service', async () => {
       'utf-8',
     )
     await writeFile(
-      join(claudeSkills, 'backlog', '.multicode-skill.json'),
-      JSON.stringify({ id: 'backlog', source: 'multicode-builtin', version: '1.0.0' }),
+      join(claudeSkills, 'backlog', '.sprintengine-skill.json'),
+      JSON.stringify({ id: 'backlog', source: 'sprintengine-builtin', version: '1.0.0' }),
       'utf-8',
     )
     await mkdir(join(claudeSkills, 'from-github'), { recursive: true })
     await writeFile(
-      join(claudeSkills, 'from-github', '.multicode-skill.json'),
+      join(claudeSkills, 'from-github', '.sprintengine-skill.json'),
       JSON.stringify({ sourceId: 'gh-1', skillId: 'from-github', commitSha: 'abc' }),
       'utf-8',
     )
@@ -443,7 +443,7 @@ test('workspace-skills-service', async () => {
   }
 
   async function testThirteenthCli(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-thirteenth-cli-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-thirteenth-cli-'))
     const userPluginRoot = join(temp, 'user-plugins')
     await mkdir(join(userPluginRoot, 'hypertron'), { recursive: true })
     await writeFile(
@@ -456,7 +456,7 @@ test('workspace-skills-service', async () => {
     // dropped-in plugin would be rather than hand-built into the shape the map wants.
     const registry = createPluginRegistry(
       createAppPluginRegistryOptions(
-        join(process.cwd(), 'node_modules', '.cache', 'multicode'),
+        join(process.cwd(), 'node_modules', '.cache', 'sprintengine'),
         join(process.cwd(), 'resources', 'plugins'),
         userPluginRoot,
       ),

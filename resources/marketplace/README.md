@@ -37,7 +37,7 @@ removing four left the other eighteen byte-identical.
 set `publisher.verified: true`, and `validateInlineCliEntry` allows that claim
 only under a name listed there as verified — identity proven by the signed app
 bundle instead of by a detached signature. Deleting the file would fail all 13.
-The Multicode Labs key is a trust anchor for those rows now rather than for any
+The SprintEngine Labs key is a trust anchor for those rows now rather than for any
 signature, and the signature path itself is still exercised: the publish test
 signs a probe bundle with a throwaway key it generates and trusts for the length
 of the run.
@@ -102,7 +102,7 @@ npm run verify:marketplace-registry -- --root ../marketplace
 ```
 
 The verifier uses the shared marketplace schema validator for `marketplace.json`
-and delegates every *signed* plugin bundle to `multicode-module plugin verify`,
+and delegates every *signed* plugin bundle to `sprintengine-module plugin verify`,
 the same authoring CLI path used before publish. It also checks component file
 digests, allowlisted HTTPS source URLs (the host allowlist above, replacing the
 former canonical `plugins/<id>` pin), verified publisher signatures

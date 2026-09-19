@@ -114,7 +114,7 @@ export async function pullGitBranchWithStash(repoRoot: string): Promise<GitComma
       'push',
       '--include-untracked',
       '-m',
-      'Multicode auto-stash before pull',
+      'SprintEngine auto-stash before pull',
     ])
     appendGitCommandOutput(outputs, 'stash', stashResult)
     if (!stashResult.ok) return stashResult

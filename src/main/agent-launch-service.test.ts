@@ -308,7 +308,7 @@ test('agent-launch-service', async () => {
     assert.equal(launched.ok, true, JSON.stringify(launched))
     const spawn = app.spawns[0]!
     // The resolved pair is what the spawn carries, and it is BOTH halves now: it
-    // sets MULTICODE_KNOWLEDGE_ROOT for the session AND it is what
+    // sets SPRINTENGINE_KNOWLEDGE_ROOT for the session AND it is what
     // `terminal-launch.ts` builds the host-context document's knowledge section
     // from. A headless launch therefore hands the spawn exactly what an
     // interactive one does.

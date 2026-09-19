@@ -5,7 +5,7 @@ import { test } from 'vitest'
 
 test('WorkspaceSidebar.worktreeGroup', async () => {
   // A worktree chat files under the project it was cut from. New chat on a
-  // worktree lands the checkout at `<parent>/.multicode-worktrees/<repo>/<slug>`
+  // worktree lands the checkout at `<parent>/.sprintengine-worktrees/<repo>/<slug>`
   // and points the chat's folderPath at it, so grouping by path alone gave the
   // chat a top-level header named after the slug — the person branched one
   // project, and the sidebar showed them two. The header is the parent's now,
@@ -80,8 +80,8 @@ test('WorkspaceSidebar.worktreeGroup', async () => {
     }
   }
 
-  const PARENT = '/home/dev/projects/multicode'
-  const WORKTREE = '/home/dev/projects/.multicode-worktrees/multicode/perf-review-wholesale'
+  const PARENT = '/home/dev/projects/sprintengine'
+  const WORKTREE = '/home/dev/projects/.sprintengine-worktrees/sprintengine/perf-review-wholesale'
 
   async function main(): Promise<void> {
     const React = await import('react')
@@ -234,7 +234,7 @@ test('WorkspaceSidebar.worktreeGroup', async () => {
       check('a worktree chat and its parent share one header, named after the parent', () => {
         assert.deepEqual(
           headers.map((header) => header.textContent?.trim() ?? ''),
-          ['multicode'],
+          ['sprintengine'],
           'one header, the project — not a second one named after the slug',
         )
         const rows = [...headers[0]!.closest('section')!.querySelectorAll('[role="treeitem"]')].map(
@@ -259,7 +259,7 @@ test('WorkspaceSidebar.worktreeGroup', async () => {
       check('a worktree chat alone still heads its project, with live actions', () => {
         assert.deepEqual(
           headers.map((header) => header.textContent?.trim() ?? ''),
-          ['multicode'],
+          ['sprintengine'],
         )
         assert.ok(detected.includes(PARENT), 'the header asks the disk about the project')
         assert.ok(!detected.includes(WORKTREE), 'never about the worktree it was cut into')

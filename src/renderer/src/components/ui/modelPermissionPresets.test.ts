@@ -15,7 +15,7 @@ test('modelPermissionPresets', async () => {
   anyGlobal.window = dom.window
   anyGlobal.localStorage = dom.window.localStorage
 
-  const STORAGE_KEY = 'multicode.model-permission-presets'
+  const STORAGE_KEY = 'sprintengine.model-permission-presets'
 
   // Seeded BEFORE the module is imported: the store reads localStorage once,
   // lazily, so this is the only way to exercise the hydrate path a real app start

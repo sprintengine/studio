@@ -261,7 +261,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
    * "Add from folder…": a folder on this machine. The picker is the app's own
    * open-folder dialog, and the scan is the same rule a repository gets — the
    * source kind differs, the reading does not. The default destination is the
-   * user's skills folder (`~/.multicode/skills`), created lazily the first time
+   * user's skills folder (`~/.sprintengine/skills`), created lazily the first time
    * this control opens.
    */
   const addFromFile = useCallback(async (): Promise<void> => {

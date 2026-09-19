@@ -9,7 +9,7 @@ import {
 import { test } from 'vitest'
 
 test('terminalLinkActions', async () => {
-  const ROOT = '/Users/dev/workspace/multicode'
+  const ROOT = '/Users/dev/workspace/sprintengine'
 
   function fileMenu(resolvedPath: string, isDirectory = false): TerminalLinkActionId[] {
     return terminalLinkActions({

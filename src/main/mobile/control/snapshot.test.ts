@@ -89,7 +89,7 @@ test('snapshot', async () => {
   // no second copy to compare and the phone's own pin becomes an assertion about
   // which package version it resolved. docs/mobile-protocol-package.md has the
   // order of operations.
-  const mobileProtocolSourceSha256 = '445ae2c2a577b829168daca27bf6ffdccb0d9e41acd6fcb79899b11cff93a5fc'
+  const mobileProtocolSourceSha256 = 'ca7db9da218ca3cfa91d74a009808a24c6d5d573808e9c9d0e6db340bfdcf543'
 
   function assertMobileProtocolCopyHasNotDrifted(): void {
     const source = readFileSync(join(process.cwd(), 'packages/mobile-control-protocol/src/index.ts'))
@@ -97,7 +97,7 @@ test('snapshot', async () => {
     assert.equal(
       digest,
       mobileProtocolSourceSha256,
-      'the protocol package source changed — mirror the edit into the multicode-mobile copy and update both pinned hashes to the new shared value',
+      'the protocol package source changed — mirror the edit into the sprintengine-mobile copy and update both pinned hashes to the new shared value',
     )
   }
 
@@ -778,7 +778,7 @@ test('snapshot', async () => {
   }
 
   async function makeWorkspaceRoot(label: string): Promise<string> {
-    return mkdtemp(join(tmpdir(), `multicode-mobile-${label}-`))
+    return mkdtemp(join(tmpdir(), `sprintengine-mobile-${label}-`))
   }
 
   async function writeBacklogFixture(workspaceRoot: string, itemId: string, title: string): Promise<void> {

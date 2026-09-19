@@ -93,7 +93,7 @@ test('marketplace', async () => {
       entry: {
         id: 'bundle-plugin',
         name: 'Bundle Plugin',
-        publisher: { name: 'Multicode Labs', verified: true },
+        publisher: { name: 'SprintEngine Labs', verified: true },
         summary: 'Bundle plugin.',
         category: 'dev-tools',
         icon: 'icons/bundle.svg',

@@ -15,7 +15,7 @@ import type { AgentCli } from '../../types/workspace'
 // plain key plus a `:role:<id>` suffix. Roles are gone, so such a key is simply
 // never shown (see isLegacyCompositionKey); it stays in the store untouched.
 
-const STORAGE_KEY = 'multicode.model-favourites'
+const STORAGE_KEY = 'sprintengine.model-favourites'
 
 const ROLE_MARKER = ':role:'
 

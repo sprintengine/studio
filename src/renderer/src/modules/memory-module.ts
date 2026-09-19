@@ -15,7 +15,7 @@ export const memoryRendererModule: RendererModule = {
     id: 'memory-graph',
     displayName: 'Memory Graph panel',
     version: 1,
-    publisher: 'multicode',
+    publisher: 'sprintengine',
     category: 'insight',
     summary:
       'Force-directed visualization of the workspace knowledge graph. Disabling hides the panel; the knowledge-graph backend stays available to agents.',

@@ -2,7 +2,7 @@ import { isAbsolute, join, resolve, sep } from 'path'
 import { workspaceSidecarPath } from '../../workspace-sidecar'
 
 // Where a file uploaded from a phone lands, and the guard that keeps it there
-// (backlog id 88, multicode-mobile: "files and images from the phone").
+// (backlog id 88, sprintengine-mobile: "files and images from the phone").
 //
 // Separate from the route because this is the security-critical half: a phone
 // is naming a file on someone else's machine, and the whole contract is that

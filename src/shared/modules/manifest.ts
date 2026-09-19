@@ -71,7 +71,7 @@ export type CapabilityCategory =
   'core' | 'dev-tools' | 'vcs' | 'orchestration' | 'insight' | 'connectivity' | (string & {})
 
 // Where a module came from. Absent means 'bundled' (first-party, compiled in).
-// 'third-party' modules are discovered from ~/.multicode/modules/, carry declared
+// 'third-party' modules are discovered from ~/.sprintengine/modules/, carry declared
 // permissions + an optional signature, and are gated by trust (Phase 7).
 export type ModuleSource = 'bundled' | 'third-party'
 

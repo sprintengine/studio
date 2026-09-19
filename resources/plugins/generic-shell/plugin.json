@@ -1,7 +1,7 @@
 {
   "id": "generic-shell",
   "displayName": "Generic Shell",
-  "publisher": "multicode",
+  "publisher": "sprintengine",
   "version": 1,
   "summary": "A bare shell runtime for driving any command-line program as an agent.",
   "category": "Agent CLI",

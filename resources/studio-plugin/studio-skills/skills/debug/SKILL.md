@@ -20,13 +20,13 @@ Keep one state file per investigation at:
 ```
 
 `<sidecar>` is the app-owned directory already in this workspace: `.sprintengine`
-in a workspace made since the 2026-09-08 rename, `.multi-code` in an older one.
+in a workspace made since the 2026-09-08 rename, `.sprintengine` in an older one.
 Use whichever is there, and `.sprintengine` when neither is — never create the
 second one beside an existing first, because the app reads only one of them.
 
 `<SPRINTENGINE_AGENT_ID>` is the value of the `SPRINTENGINE_AGENT_ID` environment
 variable already exported into this terminal (one file per agent terminal); older
-app builds export it as `MULTICODE_AGENT_ID` instead, so read that if the first is
+app builds export it as `SPRINTENGINE_AGENT_ID` instead, so read that if the first is
 unset. If neither is set, fall back to `<sidecar>/debug/session.json`.
 
 **Every turn, before doing anything else, read this file.** It tells you the

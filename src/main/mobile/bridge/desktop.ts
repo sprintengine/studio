@@ -5,5 +5,5 @@ export function getAllBrowserWindows(): BrowserWindow[] {
 }
 
 export function getDesktopDisplayName(): string {
-  return typeof app?.name === 'string' && app.name.trim() ? app.name : 'Multicode Desktop'
+  return typeof app?.name === 'string' && app.name.trim() ? app.name : 'SprintEngine Desktop'
 }

@@ -35,7 +35,7 @@ export function createFilesystemReadHandlers() {
       }
       if (targetStats.size > MAX_TEXT_FILE_READ_BYTES) {
         throw new Error(
-          `File is too large to open in Multicode (${formatBytes(targetStats.size)}; limit ${formatBytes(MAX_TEXT_FILE_READ_BYTES)}).`,
+          `File is too large to open in SprintEngine (${formatBytes(targetStats.size)}; limit ${formatBytes(MAX_TEXT_FILE_READ_BYTES)}).`,
         )
       }
 
@@ -55,7 +55,7 @@ export function createFilesystemReadHandlers() {
       }
       if (targetStats.size > MAX_IMAGE_DATA_URL_BYTES) {
         throw new Error(
-          `Image is too large to preview in Multicode (${formatBytes(targetStats.size)}; limit ${formatBytes(MAX_IMAGE_DATA_URL_BYTES)}).`,
+          `Image is too large to preview in SprintEngine (${formatBytes(targetStats.size)}; limit ${formatBytes(MAX_IMAGE_DATA_URL_BYTES)}).`,
         )
       }
       const content = await readFile(filePath)

@@ -117,7 +117,7 @@ export function createConversationIpcHandlers(
             // picker can say WHY it is unavailable (spawn defaults skip it).
             listed.push({
               ...provider,
-              unavailable: `The ${provider.displayName} CLI wasn’t found from the app. Launch Multicode from a terminal, or set a command override in Settings → CLI runtimes.`,
+              unavailable: `The ${provider.displayName} CLI wasn’t found from the app. Launch SprintEngine from a terminal, or set a command override in Settings → CLI runtimes.`,
             })
             continue
           }

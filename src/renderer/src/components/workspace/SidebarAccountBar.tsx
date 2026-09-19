@@ -9,7 +9,7 @@ import {
   Tooltip,
   TruncatedText,
 } from '../ui'
-import type { MulticodeAuthState } from '../../../../shared/electron-api'
+import type { SprintEngineAuthState } from '../../../../shared/electron-api'
 import { AccountAvatar, AccountUserGlyph } from './AccountAvatar'
 import { hasPaidEntitlement, planDisplayTier, type PlanDisplayTier } from './accountEntitlements'
 
@@ -81,7 +81,7 @@ function formatShortDate(value: string | null): string {
 // The plan's own name, for printing: "Pro plan" while active, else the status
 // ("Past due"). Null when there is no plan to name. Presentation only — it
 // reads the plan code to SHOW it, and nothing may branch on what it returns.
-function planLabel(authState: MulticodeAuthState): string | null {
+function planLabel(authState: SprintEngineAuthState): string | null {
   const plan = authState.entitlements?.plan
   if (!plan) return null
   return plan.status === 'active' ? `${sentenceCase(plan.code)} plan` : sentenceCase(plan.status)
@@ -89,7 +89,7 @@ function planLabel(authState: MulticodeAuthState): string | null {
 
 // The account row's secondary line, which always shows something: the plan's
 // name when there is one, else the tier word.
-function accountPlanLabel(authState: MulticodeAuthState): string {
+function accountPlanLabel(authState: SprintEngineAuthState): string {
   return planLabel(authState) ?? ACCOUNT_TIER_STYLE[planDisplayTier(authState)].label
 }
 
@@ -127,7 +127,7 @@ function AccountPopover({
   onLogout,
   onUpgrade,
 }: {
-  authState: MulticodeAuthState
+  authState: SprintEngineAuthState
   message: string | null
   onCheckAccess: () => void
   onLogout: () => void
@@ -190,7 +190,7 @@ function AccountPopover({
 
 export type SidebarAccountBarProps = {
   collapsed: boolean
-  authState: MulticodeAuthState
+  authState: SprintEngineAuthState
   authMessage: string | null
   accountOpen: boolean
   setAccountOpen: React.Dispatch<React.SetStateAction<boolean>>

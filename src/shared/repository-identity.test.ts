@@ -18,14 +18,14 @@ test('repository-identity', async () => {
   function main(): void {
     // Transport and spelling collapse to host/owner/name.
     const forms = [
-      'git@github.com:Acme/Multicode.git',
-      'https://github.com/acme/multicode/',
-      'ssh://git@github.com/acme/multicode',
-      'HTTPS://GitHub.com/Acme/Multicode.git',
-      'git@github.com:acme/multicode',
+      'git@github.com:Acme/SprintEngine.git',
+      'https://github.com/acme/sprintengine/',
+      'ssh://git@github.com/acme/sprintengine',
+      'HTTPS://GitHub.com/Acme/SprintEngine.git',
+      'git@github.com:acme/sprintengine',
     ]
     for (const form of forms) {
-      assert.equal(canonicalRepositoryKey(form), 'github.com/acme/multicode', form)
+      assert.equal(canonicalRepositoryKey(form), 'github.com/acme/sprintengine', form)
     }
     assert.equal(
       canonicalRepositoryKey('ssh://git@gitlab.example.com:2222/team/sub/repo.git'),
@@ -37,30 +37,30 @@ test('repository-identity', async () => {
     assert.equal(canonicalRepositoryKey('/srv/git/repo.git'), '/srv/git/repo')
     assert.equal(canonicalRepositoryKey('   '), '')
 
-    const identity = repositoryIdentityFromRemote('git@github.com:Acme/Multicode.git')
+    const identity = repositoryIdentityFromRemote('git@github.com:Acme/SprintEngine.git')
     assert.deepEqual(identity, {
-      canonicalKey: 'github.com/acme/multicode',
-      remoteUrl: 'git@github.com:Acme/Multicode.git',
-      name: 'multicode',
+      canonicalKey: 'github.com/acme/sprintengine',
+      remoteUrl: 'git@github.com:Acme/SprintEngine.git',
+      name: 'sprintengine',
     })
     assert.equal(repositoryIdentityFromRemote(''), null)
     // A token in the URL never leaves the reader; the key was never carrying it.
-    const tokened = repositoryIdentityFromRemote('https://me:ghp_secret@github.com/acme/multicode.git')
-    assert.equal(tokened?.remoteUrl, 'https://github.com/acme/multicode.git')
-    assert.equal(tokened?.canonicalKey, 'github.com/acme/multicode')
+    const tokened = repositoryIdentityFromRemote('https://me:ghp_secret@github.com/acme/sprintengine.git')
+    assert.equal(tokened?.remoteUrl, 'https://github.com/acme/sprintengine.git')
+    assert.equal(tokened?.canonicalKey, 'github.com/acme/sprintengine')
     assert.equal(
-      stripRemoteCredentials('git@github.com:acme/multicode.git'),
-      'git@github.com:acme/multicode.git',
+      stripRemoteCredentials('git@github.com:acme/sprintengine.git'),
+      'git@github.com:acme/sprintengine.git',
       'scp-style user is the ssh login, not a secret',
     )
 
     // `git remote -v` parsing: fetch URLs only, one per remote.
     const remotes = parseRemoteFetchUrls(
       [
-        'origin\tgit@github.com:me/multicode.git (fetch)',
-        'origin\tgit@github.com:me/multicode.git (push)',
-        'upstream\thttps://github.com/acme/multicode.git (fetch)',
-        'upstream\thttps://github.com/acme/multicode.git (push)',
+        'origin\tgit@github.com:me/sprintengine.git (fetch)',
+        'origin\tgit@github.com:me/sprintengine.git (push)',
+        'upstream\thttps://github.com/acme/sprintengine.git (fetch)',
+        'upstream\thttps://github.com/acme/sprintengine.git (push)',
         '',
       ].join('\n'),
     )
@@ -68,7 +68,7 @@ test('repository-identity', async () => {
     // upstream beats origin: a fork's identity is the repository it forked.
     assert.deepEqual(pickPrimaryRemote(remotes), {
       remoteName: 'upstream',
-      remoteUrl: 'https://github.com/acme/multicode.git',
+      remoteUrl: 'https://github.com/acme/sprintengine.git',
     })
     assert.deepEqual(
       pickPrimaryRemote(

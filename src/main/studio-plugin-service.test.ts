@@ -29,14 +29,14 @@ test('studio-plugin-service', async () => {
   }
 
   async function harness(overrides: Partial<StudioPluginServiceOptions> = {}): Promise<Harness> {
-    const root = await mkdtemp(join(tmpdir(), 'multicode-studio-service-'))
+    const root = await mkdtemp(join(tmpdir(), 'sprintengine-studio-service-'))
     const workspace = join(root, 'workspace')
     const userData = join(root, 'userData')
     await rm(workspace, { recursive: true, force: true })
     const { mkdir } = await import('node:fs/promises')
     await mkdir(workspace, { recursive: true })
     await mkdir(userData, { recursive: true })
-    const reporter = join(root, 'multicode-agent-state.mjs')
+    const reporter = join(root, 'sprintengine-agent-state.mjs')
     await writeFile(reporter, '// reporter\n', 'utf8')
     const warnings: string[] = []
     const options: StudioPluginServiceOptions = {
@@ -74,8 +74,8 @@ test('studio-plugin-service', async () => {
     const bundledSkills = await readdir(join(TEMPLATE_ROOT, 'sprintengine-studio', 'skills'))
     assert.equal(record?.skillDirNames.length, bundledSkills.length)
     assert.equal(existsSync(join(workspace, '.agents', 'skills', 'studio-backlog', 'SKILL.md')), true)
-    assert.equal(existsSync(join(workspace, '.multicode', 'studio-plugin')), true)
-    assert.equal(existsSync(join(workspace, '.multicode', 'hooks', 'agent-state.mjs')), true)
+    assert.equal(existsSync(join(workspace, '.sprintengine', 'studio-plugin')), true)
+    assert.equal(existsSync(join(workspace, '.sprintengine', 'hooks', 'agent-state.mjs')), true)
     assert.equal(record?.hookSettingsPath, resolve(workspace, '.claude/settings.local.json'))
     assert.deepEqual(warnings, [], 'a clean open warns about nothing')
 
@@ -236,14 +236,14 @@ test('studio-plugin-service', async () => {
     // in both files, which must survive untouched.
     await mkdir(join(built.workspace, '.claude', 'skills', 'studio-backlog'), { recursive: true })
     await writeFile(
-      join(built.workspace, '.claude', 'skills', 'studio-backlog', '.multicode-skill.json'),
+      join(built.workspace, '.claude', 'skills', 'studio-backlog', '.sprintengine-skill.json'),
       `${JSON.stringify({ sourceId: 'sprintengine-studio', skillId: 'studio-backlog', commitSha: '0.0.1', installedAt: '2026-01-01T00:00:00.000Z' })}\n`,
       'utf8',
     )
     await mkdir(join(built.workspace, '.claude', 'skills', 'their-own-skill'), { recursive: true })
     await writeFile(join(built.workspace, '.claude', 'skills', 'their-own-skill', 'SKILL.md'), '# theirs\n', 'utf8')
-    await mkdir(join(built.workspace, '.multicode', 'hooks'), { recursive: true })
-    await writeFile(join(built.workspace, '.multicode', 'hooks', 'agent-state.mjs'), '// old reporter\n', 'utf8')
+    await mkdir(join(built.workspace, '.sprintengine', 'hooks'), { recursive: true })
+    await writeFile(join(built.workspace, '.sprintengine', 'hooks', 'agent-state.mjs'), '// old reporter\n', 'utf8')
     await writeFile(
       join(built.workspace, '.claude', 'settings.local.json'),
       `${JSON.stringify(
@@ -254,8 +254,8 @@ test('studio-plugin-service', async () => {
                 hooks: [
                   {
                     type: 'command',
-                    command: 'node "/ws/.multicode/hooks/agent-state.mjs" --socket "/tmp/old.sock"',
-                    _multicode: 'multicode-agent-state',
+                    command: 'node "/ws/.sprintengine/hooks/agent-state.mjs" --socket "/tmp/old.sock"',
+                    _sprintengine: 'sprintengine-agent-state',
                   },
                 ],
               },
@@ -292,7 +292,7 @@ test('studio-plugin-service', async () => {
     assert.equal(local.extraKnownMarketplaces, undefined, 'and the machine path with it')
     assert.equal(local.theirLocalSetting, true, 'their own settings are untouched')
     assert.equal(
-      existsSync(join(built.workspace, '.multicode', 'hooks', 'agent-state.mjs')),
+      existsSync(join(built.workspace, '.sprintengine', 'hooks', 'agent-state.mjs')),
       false,
       'the reporter script the old hook named is removed, and never written back',
     )
@@ -337,7 +337,7 @@ test('studio-plugin-service', async () => {
     await service.ensureInstalledForRoots([built.workspace])
     const before = service.installed(built.workspace)
     assert.ok(before?.hookSettingsPath, 'the early open registers the hook in the workspace')
-    assert.equal(existsSync(join(built.workspace, '.multicode', 'hooks', 'agent-state.mjs')), true)
+    assert.equal(existsSync(join(built.workspace, '.sprintengine', 'hooks', 'agent-state.mjs')), true)
 
     active = true
     await service.ensureInstalledForRoots([built.workspace])
@@ -349,7 +349,7 @@ test('studio-plugin-service', async () => {
       'and takes the hook the earlier open wrote back out',
     )
     assert.equal(
-      existsSync(join(built.workspace, '.multicode', 'hooks', 'agent-state.mjs')),
+      existsSync(join(built.workspace, '.sprintengine', 'hooks', 'agent-state.mjs')),
       false,
       'along with the script it named',
     )

@@ -22,7 +22,7 @@
     "catalog/index.html": "scripts/build-catalog.mjs"
   },
   "provenance": {
-    "authoredBy": "multicode-design-wizard",
+    "authoredBy": "sprintengine-design-wizard",
     "sourceLibraryId": null,
     "sourceLibraryVersion": null,
     "releasedAt": null,

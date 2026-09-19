@@ -40,7 +40,7 @@ test('install', async () => {
   const CONTENT = (path: string): Buffer => Buffer.from(`content of ${path}\n`, 'utf8')
 
   async function installsWholeDirectory(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-skill-install-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-skill-install-'))
     const paths = [
       'SKILL.md',
       'agents/openai.yaml',
@@ -82,7 +82,7 @@ test('install', async () => {
   }
 
   async function reinstallReplacesRatherThanMerges(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-skill-reinstall-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-skill-reinstall-'))
     const install = (paths: string[]): Promise<unknown> =>
       installSkill({
         workspaceRoot: workspace,
@@ -102,7 +102,7 @@ test('install', async () => {
   }
 
   async function rejectsEscapingPaths(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-skill-escape-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-skill-escape-'))
     const escapes = [
       '../../.claude/settings.json',
       'reference/../../../evil.md',
@@ -145,7 +145,7 @@ test('install', async () => {
   }
 
   async function refusesWithoutAHarness(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-skill-noharness-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-skill-noharness-'))
     const result = await installSkill({
       workspaceRoot: workspace,
       skill: skill(['SKILL.md']),
@@ -160,7 +160,7 @@ test('install', async () => {
   // A skill that is already a directory on this machine — a plugin bundle's skill
   // component — installs by the same copy, subdirectories and all.
   async function installsALocalDirectory(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-skill-localdir-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-skill-localdir-'))
     const workspace = join(temp, 'ws')
     const source = join(temp, 'bundle', 'my-skill')
     await mkdir(workspace, { recursive: true })
@@ -206,7 +206,7 @@ test('install', async () => {
   // Removal sweeps every harness that could hold a copy: one left behind is a
   // skill the user believes they removed and an agent still reads.
   async function uninstallSweepsEveryHarness(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-skill-uninstall-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-skill-uninstall-'))
     const workspace = join(temp, 'ws')
     const source = join(temp, 'my-skill')
     await mkdir(workspace, { recursive: true })
@@ -255,7 +255,7 @@ test('install', async () => {
   // bytes came from, so it cannot reach the file list the skill reader renders —
   // the list is the scan's, and the scan reads the source.
   async function theProvenanceMarkerStaysOutOfTheReadersFileList(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-skill-reader-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-skill-reader-'))
     const workspace = join(temp, 'ws')
     const sourceRoot = join(temp, 'source')
     await mkdir(workspace, { recursive: true })
@@ -290,7 +290,7 @@ test('install', async () => {
    * 2026-09-06).
    */
   async function aLocalEntryWithNoDescriptionIsSkippedAndCounted(): Promise<void> {
-    const root = await mkdtemp(join(tmpdir(), 'multicode-skill-nodesc-'))
+    const root = await mkdtemp(join(tmpdir(), 'sprintengine-skill-nodesc-'))
     for (const name of ['keeper', 'nameless', 'empty']) {
       await mkdir(join(root, name), { recursive: true })
     }

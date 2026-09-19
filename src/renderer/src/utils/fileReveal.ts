@@ -11,7 +11,7 @@
 // later and can miss a live event. The latch covers that race. Same shape, and
 // for the same reason, as `backlogReveal.ts`.
 
-const FILE_REVEAL_EVENT = 'multicode:reveal-file'
+const FILE_REVEAL_EVENT = 'sprintengine:reveal-file'
 
 export type FileRevealDetail = {
   workspaceId: string

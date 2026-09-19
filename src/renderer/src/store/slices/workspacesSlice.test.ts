@@ -661,11 +661,11 @@ test('workspacesSlice', async () => {
   // that project rather than at the registry head.
   useWorkspaceStore.getState().applyWorkspaceCreatedEvent({
     workspace: {
-      ...driftWorkspace('repo-b-worktree', '/repo/.multicode-worktrees/b/chat-a1b2'),
+      ...driftWorkspace('repo-b-worktree', '/repo/.sprintengine-worktrees/b/chat-a1b2'),
       worktree: { branch: 'agent/chat-a1b2', repoRoot: '/repo/b' },
     } as Workspace,
     windowId: 'primary',
-    folderPath: '/repo/.multicode-worktrees/b/chat-a1b2',
+    folderPath: '/repo/.sprintengine-worktrees/b/chat-a1b2',
     createdAt: 4200,
     isCurrentWindowTarget: true,
   })
@@ -857,12 +857,12 @@ test('workspacesSlice', async () => {
   })
   const worktreeChatId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
     name: 'Worktree chat',
-    folderPath: '/Users/example/.multicode-worktrees/worktree-parent/chat-a1b2',
+    folderPath: '/Users/example/.sprintengine-worktrees/worktree-parent/chat-a1b2',
     worktree: { branch: 'agent/chat-a1b2', baseRef: 'HEAD', repoRoot: worktreeParent },
   })
   const legacyWorktreeChatId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
     name: 'Legacy worktree chat',
-    folderPath: '/Users/example/.multicode-worktrees/worktree-parent/chat-c3d4',
+    folderPath: '/Users/example/.sprintengine-worktrees/worktree-parent/chat-c3d4',
     worktree: { branch: 'agent/chat-c3d4' },
   })
   state = useWorkspaceStore.getState()
@@ -883,7 +883,7 @@ test('workspacesSlice', async () => {
     appSettings: {
       ...state.appSettings,
       recentWorkspaceFolders: [
-        '/Users/example/.multicode-worktrees/worktree-parent/chat-legacy',
+        '/Users/example/.sprintengine-worktrees/worktree-parent/chat-legacy',
         ...state.appSettings.recentWorkspaceFolders,
       ],
     },
@@ -891,7 +891,9 @@ test('workspacesSlice', async () => {
   assert.ok(
     useWorkspaceStore
       .getState()
-      .appSettings.recentWorkspaceFolders.includes('/Users/example/.multicode-worktrees/worktree-parent/chat-legacy'),
+      .appSettings.recentWorkspaceFolders.includes(
+        '/Users/example/.sprintengine-worktrees/worktree-parent/chat-legacy',
+      ),
     'the stale worktree recent is actually in place before forgetting',
   )
   useWorkspaceStore.getState().forgetFolder(worktreeParent)

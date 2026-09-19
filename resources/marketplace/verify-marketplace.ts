@@ -71,7 +71,7 @@ function parseArgs(args: string[]): VerifyOptions {
         break
       case '--help':
       case '-h':
-        console.log('Usage: node marketplace-registry-verify.cjs [--root <marketplace-root>] [--cli <multicode-module-cli.cjs>]')
+        console.log('Usage: node marketplace-registry-verify.cjs [--root <marketplace-root>] [--cli <sprintengine-module-cli.cjs>]')
         process.exit(0)
       default:
         throw new Error(`Unknown argument: ${arg}`)
@@ -128,7 +128,7 @@ function ensureCliBundle(cliPath: string | undefined): string {
     if (!existsSync(cliPath)) throw new Error(`CLI bundle not found: ${cliPath}`)
     return cliPath
   }
-  const outfile = join(process.cwd(), 'node_modules', '.cache', 'multicode', 'multicode-module-marketplace-ci.cjs')
+  const outfile = join(process.cwd(), 'node_modules', '.cache', 'sprintengine', 'sprintengine-module-marketplace-ci.cjs')
   mkdirSync(dirname(outfile), { recursive: true })
   buildSync({
     entryPoints: [join(process.cwd(), 'packages', 'module-sdk', 'src', 'cli.ts')],
@@ -320,7 +320,7 @@ function validateInlineCliEntry(
 
 /**
  * Every committed plugins/<id>/ payload must be claimed by an index entry that
- * this verifier actually checked — signed entries through `multicode-module
+ * this verifier actually checked — signed entries through `sprintengine-module
  * plugin verify`, unsigned non-code-bearing entries through
  * {@link validateUnsignedPluginPayload}. The payload dir is what the
  * packaged-seed install path stages, so an unclaimed one would ship bytes
@@ -555,7 +555,7 @@ async function validateMarketplace(root: string, cliBundle: string): Promise<Ver
     if (!cliResult.ok) {
       issues.push(issue(
         `plugins/${entry.id}/plugin.json`,
-        `multicode-module plugin verify failed (exit ${cliResult.status ?? 'unknown'}): ${(cliResult.stderr || cliResult.stdout).trim()}`
+        `sprintengine-module plugin verify failed (exit ${cliResult.status ?? 'unknown'}): ${(cliResult.stderr || cliResult.stdout).trim()}`
       ))
       continue
     }

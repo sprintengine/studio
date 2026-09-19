@@ -57,7 +57,7 @@ export function buildTranscriptionUrl(serverUrl: string): string {
 export function buildTranscriptionHeaders(settings: TranscriptionRequestSettings): Record<string, string> {
   const headers: Record<string, string> = {
     'Content-Type': 'audio/wav',
-    'x-multivoice-client': 'multicode',
+    'x-multivoice-client': 'sprintengine',
     'x-multivoice-backend': 'whisper',
     'x-multivoice-model': settings.model,
     'x-multivoice-language': settings.language || 'auto',

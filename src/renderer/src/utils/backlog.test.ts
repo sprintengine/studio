@@ -112,7 +112,7 @@ test('backlog', async () => {
         '/repo/outside.md': file('# Outside'),
         '/repo/backlog': {
           kind: 'dir',
-          children: ['idea.md', 'mockup.html', 'note.txt', 'node_modules', '.git', '.multicode-worktrees'],
+          children: ['idea.md', 'mockup.html', 'note.txt', 'node_modules', '.git', '.sprintengine-worktrees'],
         },
         '/repo/backlog/idea.md': file('# Product Requirements\nShip it.'),
         '/repo/backlog/mockup.html': file('<html><title>Checkout</title></html>'),
@@ -121,8 +121,8 @@ test('backlog', async () => {
         '/repo/backlog/node_modules/dependency.md': file('# Dependency'),
         '/repo/backlog/.git': { kind: 'dir', children: ['config.md'] },
         '/repo/backlog/.git/config.md': file('# Git'),
-        '/repo/backlog/.multicode-worktrees': { kind: 'dir', children: ['worktree.md'] },
-        '/repo/backlog/.multicode-worktrees/worktree.md': file('# Worktree'),
+        '/repo/backlog/.sprintengine-worktrees': { kind: 'dir', children: ['worktree.md'] },
+        '/repo/backlog/.sprintengine-worktrees/worktree.md': file('# Worktree'),
       }),
     )
 

@@ -16,7 +16,7 @@ test('terminal-snapshot-sidecar', async () => {
     store: ReturnType<typeof createTerminalSnapshotSidecarStore>
     dir: string
   } {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-terminal-sidecar-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-terminal-sidecar-'))
     return {
       store: createTerminalSnapshotSidecarStore({ resolveUserDataDir: () => userDataDir, ttlMs }),
       dir: join(userDataDir, TERMINAL_SNAPSHOT_SIDECAR_DIR_NAME),

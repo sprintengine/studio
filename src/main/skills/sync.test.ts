@@ -43,7 +43,7 @@ test('sync', async () => {
   async function workspaceWith(
     installed: Record<string, { harnessDirs: string[]; sourceId: string | null }>,
   ): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), 'multicode-skill-sync-'))
+    const root = await mkdtemp(join(tmpdir(), 'sprintengine-skill-sync-'))
     for (const [dirName, entry] of Object.entries(installed)) {
       for (const harnessDir of entry.harnessDirs) {
         const dir = join(root, harnessDir, 'skills', dirName)

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
 
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
-import { compatStudioEnvEntry } from '../shared/studio-env'
+import { studioEnvEntry } from '../shared/studio-env'
 import {
   AGENT_STATE_HOOK_TAG,
   applyBackgroundWork,
@@ -57,7 +57,7 @@ test('agent-state', async () => {
   type Settings = {
     hooks?: Record<
       string,
-      Array<{ matcher?: string; hooks?: Array<{ type: string; command: string; _multicode?: string }> }>
+      Array<{ matcher?: string; hooks?: Array<{ type: string; command: string; _sprintengine?: string }> }>
     >
   }
 
@@ -70,7 +70,7 @@ test('agent-state', async () => {
     for (const blocks of Object.values(settings.hooks ?? {})) {
       for (const block of blocks) {
         for (const entry of block.hooks ?? []) {
-          if (entry._multicode === AGENT_STATE_HOOK_TAG) n += 1
+          if (entry._sprintengine === AGENT_STATE_HOOK_TAG) n += 1
         }
       }
     }
@@ -94,7 +94,7 @@ test('agent-state', async () => {
     // The reporter always exits 0 and stays silent on failure, so a wrong path
     // would read as "no frame" — i.e. as a drop assertion passing for the wrong
     // reason. Fail loudly instead.
-    const reporterPath = join(process.cwd(), 'resources', 'hooks', 'multicode-agent-state.mjs')
+    const reporterPath = join(process.cwd(), 'resources', 'hooks', 'sprintengine-agent-state.mjs')
     assert.ok(existsSync(reporterPath), `reporter script not found at ${reporterPath}`)
     const dir = await mkdtemp(join(tmpdir(), 'agent-state-reporter-'))
     const socketPath = join(dir, 'sock')
@@ -106,14 +106,14 @@ test('agent-state', async () => {
     try {
       const child = spawn(process.execPath, [reporterPath, '--socket', socketPath], {
         // The reporter reads SPRINTENGINE_AGENT_STATE_SOCKET first (legacy
-        // MULTICODE_* is the fallback), so when this suite runs inside a studio
+        // SPRINTENGINE_* is the fallback), so when this suite runs inside a studio
         // agent terminal the inherited live-app value would steal the frame.
         // Pin both spellings; this is the same pair the app writes at launch.
         env: {
           ...process.env,
-          ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', socketPath),
-          ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', 'agent-1'),
-          ...compatStudioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'ws-1'),
+          ...studioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', socketPath),
+          ...studioEnvEntry('SPRINTENGINE_AGENT_ID', 'agent-1'),
+          ...studioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'ws-1'),
         },
         stdio: ['pipe', 'ignore', 'ignore'],
       })
@@ -1021,12 +1021,12 @@ test('agent-state', async () => {
     // double-quoted so spaces survive and forward-slashed so a Windows `C:\...` path
     // carries no unescaped backslashes into the JSON/TOML command string.
     const cmd = buildAgentStateReporterCommand(
-      '/abs/multi code/.multicode/hooks/agent-state.mjs',
-      '/tmp/multi code/agent.sock',
+      '/abs/sprint engine/.sprintengine/hooks/agent-state.mjs',
+      '/tmp/sprint engine/agent.sock',
     )
     assert.match(
       cmd,
-      /^node "\/abs\/multi code\/\.multicode\/hooks\/agent-state\.mjs" --socket "\/tmp\/multi code\/agent\.sock"$/,
+      /^node "\/abs\/sprint engine\/\.sprintengine\/hooks\/agent-state\.mjs" --socket "\/tmp\/sprint engine\/agent\.sock"$/,
     )
     // The host path separator is rewritten to '/': on Windows `resolve()` yields
     // backslashes, which Node accepts as forward slashes and which avoids embedding
@@ -1038,13 +1038,13 @@ test('agent-state', async () => {
     // A Windows named-pipe SOCKET path must survive verbatim — a separator rewrite
     // would corrupt `\\.\pipe\...` into `//./pipe/...`, which connect() cannot open.
     const winCmd = buildAgentStateReporterCommand(
-      '/abs/.multicode/hooks/agent-state.mjs',
-      '\\\\.\\pipe\\multicode-agent-state-abc',
+      '/abs/.sprintengine/hooks/agent-state.mjs',
+      '\\\\.\\pipe\\sprintengine-agent-state-abc',
     )
-    assert.ok(winCmd.includes('--socket "\\\\.\\pipe\\multicode-agent-state-abc"'), winCmd)
+    assert.ok(winCmd.includes('--socket "\\\\.\\pipe\\sprintengine-agent-state-abc"'), winCmd)
 
     // --- settings-json install / uninstall round-trip (claude spec) ---------
-    const root = await mkdtemp(join(tmpdir(), 'multicode-agent-state-'))
+    const root = await mkdtemp(join(tmpdir(), 'sprintengine-agent-state-'))
     const sourceScriptPath = join(root, 'reporter-src.mjs')
     await writeFile(sourceScriptPath, '// reporter\n', 'utf8')
 
@@ -1060,7 +1060,7 @@ test('agent-state', async () => {
             PostToolUse: [
               { matcher: 'Read', hooks: [{ type: 'command', command: 'echo user' }] },
               // An untagged stale reporter: an external writer (e.g. Claude Code
-              // rewriting settings.local.json) stripped the `_multicode` tag, then the
+              // rewriting settings.local.json) stripped the `_sprintengine` tag, then the
               // workspace root moved so the absolute path dangles. Install must claim
               // it by command shape and migrate it away, not strand it.
               {
@@ -1068,7 +1068,7 @@ test('agent-state', async () => {
                 hooks: [
                   {
                     type: 'command',
-                    command: 'node "/old/root/.multicode/hooks/agent-state.mjs" --socket "/old/agent.sock"',
+                    command: 'node "/old/root/.sprintengine/hooks/agent-state.mjs" --socket "/old/agent.sock"',
                   },
                 ],
               },
@@ -1077,7 +1077,10 @@ test('agent-state', async () => {
             // now-dropped PreToolUse event. Install must migrate it away (and uninstall
             // must also clean it), not strand it.
             PreToolUse: [
-              { matcher: '*', hooks: [{ type: 'command', command: 'old reporter', _multicode: AGENT_STATE_HOOK_TAG }] },
+              {
+                matcher: '*',
+                hooks: [{ type: 'command', command: 'old reporter', _sprintengine: AGENT_STATE_HOOK_TAG }],
+              },
             ],
           },
         },
@@ -1123,18 +1126,18 @@ test('agent-state', async () => {
     // Our command references the reporter by ABSOLUTE path (the copied destination),
     // not a workspace-relative path: hook cwd is not guaranteed, so a relative path
     // would misresolve once the session cwd drifts off the root.
-    const ourEntry = settings.hooks?.SessionStart?.[0]?.hooks?.find((h) => h._multicode === AGENT_STATE_HOOK_TAG)
-    const expectedScript = join(root, '.multicode', 'hooks', 'agent-state.mjs').split('\\').join('/')
+    const ourEntry = settings.hooks?.SessionStart?.[0]?.hooks?.find((h) => h._sprintengine === AGENT_STATE_HOOK_TAG)
+    const expectedScript = join(root, '.sprintengine', 'hooks', 'agent-state.mjs').split('\\').join('/')
     assert.ok(ourEntry?.command.includes(`node "${expectedScript}"`), ourEntry?.command ?? 'no hook entry')
-    // Guard against regressing to the relative form `node ".multicode/...`: in the
+    // Guard against regressing to the relative form `node ".sprintengine/...`: in the
     // absolute form the opening quote is followed by the root (`/` or `C:/`), never
-    // by `.multicode`, so this substring can only appear if a relative path leaked.
-    assert.ok(!ourEntry?.command.includes('node ".multicode'), 'must not embed a relative script path')
+    // by `.sprintengine`, so this substring can only appear if a relative path leaked.
+    assert.ok(!ourEntry?.command.includes('node ".sprintengine'), 'must not embed a relative script path')
 
     // Idempotent: installing again does not duplicate entries.
     await mergeAgentStateHooks(
       settingsPath,
-      buildAgentStateReporterCommand(join(root, '.multicode', 'hooks', 'agent-state.mjs'), join(root, 'agent.sock')),
+      buildAgentStateReporterCommand(join(root, '.sprintengine', 'hooks', 'agent-state.mjs'), join(root, 'agent.sock')),
       claudeRegisteredEvents,
     )
     settings = await readSettings(settingsPath)
@@ -1161,8 +1164,8 @@ test('agent-state', async () => {
       'node "/abs/agent-state.mjs" --socket "/abs/agent-state.sock"',
       codexRegistered,
     )
-    assert.ok(codexBlock.startsWith('# >>> multicode agent-state hooks managed'))
-    assert.ok(codexBlock.trimEnd().endsWith('# <<< multicode agent-state hooks managed'))
+    assert.ok(codexBlock.startsWith('# >>> sprintengine agent-state hooks managed'))
+    assert.ok(codexBlock.trimEnd().endsWith('# <<< sprintengine agent-state hooks managed'))
     assert.ok(codexBlock.includes('[[hooks.PermissionRequest]]'))
     assert.ok(codexBlock.includes('[[hooks.Stop]]'))
     assert.ok(codexBlock.includes('[[hooks.PostToolUse]]') && codexBlock.includes('matcher = "*"'))
@@ -1181,14 +1184,14 @@ test('agent-state', async () => {
     assert.ok(mergedOnce.includes('[mcp_servers.foo]'), 'user MCP block dropped')
     const mergedTwice = mergeTomlAgentStateHooks(mergedOnce, 'node "/x.mjs" --socket "/s.sock"', codexRegistered)
     assert.equal(
-      (mergedTwice.match(/# >>> multicode agent-state hooks managed/gu) ?? []).length,
+      (mergedTwice.match(/# >>> sprintengine agent-state hooks managed/gu) ?? []).length,
       1,
       'agent-state block duplicated on re-merge',
     )
 
     // Install round-trip on disk: writes .codex/config.toml, copies the reporter,
     // and preserves prior content.
-    const codexRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-codex-'))
+    const codexRoot = await mkdtemp(join(tmpdir(), 'sprintengine-agent-state-codex-'))
     const codexReporter = join(codexRoot, 'reporter-src.mjs')
     await writeFile(codexReporter, '// reporter\n', 'utf8')
     await mkdir(join(codexRoot, '.codex'), { recursive: true })
@@ -1204,12 +1207,12 @@ test('agent-state', async () => {
     assert.ok(codexConfig.includes('[[hooks.SessionStart]]'))
     // command references the reporter by ABSOLUTE path (Codex hooks have no cwd
     // guarantee) and the live socket.
-    assert.ok(codexConfig.includes(join(codexRoot, '.multicode', 'hooks', 'agent-state.mjs').split('\\').join('/')))
+    assert.ok(codexConfig.includes(join(codexRoot, '.sprintengine', 'hooks', 'agent-state.mjs').split('\\').join('/')))
 
     // --- plugin-file: socket baking renders a valid JS string literal --------
     const ocTemplate = "const BAKED_SOCKET = '__SPRINTENGINE_AGENT_STATE_SOCKET__'\n"
     // A Windows pipe path's backslashes must survive as data, not act as escapes.
-    const winSocket = '\\\\.\\pipe\\multicode-agent-state-abc'
+    const winSocket = '\\\\.\\pipe\\sprintengine-agent-state-abc'
     const renderedWin = renderAgentStatePluginTemplate(ocTemplate, winSocket)
     assert.ok(renderedWin.includes(`const BAKED_SOCKET = ${JSON.stringify(winSocket)}`), renderedWin)
     assert.ok(!renderedWin.includes("'__SPRINTENGINE_AGENT_STATE_SOCKET__'"), 'token left unsubstituted')
@@ -1217,9 +1220,9 @@ test('agent-state', async () => {
     assert.equal(JSON.parse(renderedWin.split('= ')[1].trim()), winSocket)
 
     // --- plugin-file install round-trip on disk (opencode spec) --------------
-    // Writes .opencode/plugin/multicode-agent-state.js with the socket baked in,
+    // Writes .opencode/plugin/sprintengine-agent-state.js with the socket baked in,
     // and is idempotent.
-    const ocRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-opencode-'))
+    const ocRoot = await mkdtemp(join(tmpdir(), 'sprintengine-agent-state-opencode-'))
     const ocReporter = join(ocRoot, 'opencode-reporter-src.mjs')
     await writeFile(ocReporter, ocTemplate, 'utf8')
     const ocSocket = join(ocRoot, 'agent-state.sock')
@@ -1229,7 +1232,7 @@ test('agent-state', async () => {
       socketPath: ocSocket,
     })
     assert.equal(ocInstalled.ok, true)
-    const ocPluginPath = join(ocRoot, '.opencode', 'plugin', 'multicode-agent-state.js')
+    const ocPluginPath = join(ocRoot, '.opencode', 'plugin', 'sprintengine-agent-state.js')
     let ocPlugin = await readFile(ocPluginPath, 'utf8')
     assert.ok(ocPlugin.includes(JSON.stringify(ocSocket)), 'opencode plugin missing baked socket')
     assert.ok(!ocPlugin.includes("'__SPRINTENGINE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
@@ -1288,9 +1291,9 @@ test('agent-state', async () => {
     )
 
     // --- owned-json install round-trip on disk (grok spec) -------------------
-    // Writes .grok/hooks/multicode-agent-state.json, copies the shared reporter,
+    // Writes .grok/hooks/sprintengine-agent-state.json, copies the shared reporter,
     // and references it by absolute path.
-    const grokRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-grok-'))
+    const grokRoot = await mkdtemp(join(tmpdir(), 'sprintengine-agent-state-grok-'))
     const grokReporter = join(grokRoot, 'reporter-src.mjs')
     await writeFile(grokReporter, '// reporter\n', 'utf8')
     const grokSocket = join(grokRoot, 'agent-state.sock')
@@ -1300,16 +1303,16 @@ test('agent-state', async () => {
       socketPath: grokSocket,
     })
     assert.equal(grokInstalled.ok, true)
-    const grokConfigPath = join(grokRoot, '.grok', 'hooks', 'multicode-agent-state.json')
+    const grokConfigPath = join(grokRoot, '.grok', 'hooks', 'sprintengine-agent-state.json')
     const grokOnDisk = JSON.parse(await readFile(grokConfigPath, 'utf8')) as Settings
     const grokEntry = grokOnDisk.hooks?.SessionStart?.[0]?.hooks?.[0]
-    const grokScript = join(grokRoot, '.multicode', 'hooks', 'agent-state.mjs')
+    const grokScript = join(grokRoot, '.sprintengine', 'hooks', 'agent-state.mjs')
     assert.ok(existsSync(grokScript), 'grok install must copy the shared reporter')
     assert.ok(
       grokEntry?.command.includes(`node "${grokScript.split('\\').join('/')}"`),
       grokEntry?.command ?? 'no hook entry',
     )
-    assert.ok(!grokEntry?.command.includes('node ".multicode'), 'must not embed a relative script path')
+    assert.ok(!grokEntry?.command.includes('node ".sprintengine'), 'must not embed a relative script path')
 
     // Re-install is idempotent (whole-file overwrite, no accumulation).
     const grokReinstall = await installAgentStateReporter(grokRoot, grokSpec, {
@@ -1357,14 +1360,14 @@ test('agent-state', async () => {
     }
 
     // --- flat-hooks-json merge / unmerge round-trip (cursor spec) ------------
-    const cursorRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-cursor-'))
+    const cursorRoot = await mkdtemp(join(tmpdir(), 'sprintengine-agent-state-cursor-'))
     const cursorReporter = join(cursorRoot, 'reporter-src.mjs')
     await writeFile(cursorReporter, '// reporter\n', 'utf8')
     const cursorHooksPath = join(cursorRoot, '.cursor', 'hooks.json')
     await mkdir(join(cursorRoot, '.cursor'), { recursive: true })
     // A user's own hook and a stale reporter entry from a moved workspace root:
     // the user's survives install untouched; the stale one is
-    // reclaimed by command shape (no _multicode tag exists in this format).
+    // reclaimed by command shape (no _sprintengine tag exists in this format).
     await writeFile(
       cursorHooksPath,
       JSON.stringify(
@@ -1373,7 +1376,7 @@ test('agent-state', async () => {
           hooks: {
             stop: [
               { command: 'notify-send done' },
-              { command: 'node "/old/root/.multicode/hooks/agent-state.mjs" --socket "/old/agent.sock"' },
+              { command: 'node "/old/root/.sprintengine/hooks/agent-state.mjs" --socket "/old/agent.sock"' },
             ],
           },
         },
@@ -1395,7 +1398,7 @@ test('agent-state', async () => {
     for (const { event } of cursorRegistered) {
       const entries = cursorFile.hooks?.[event] ?? []
       assert.equal(
-        entries.filter((e) => e.command?.includes('/.multicode/hooks/agent-state.mjs')).length,
+        entries.filter((e) => e.command?.includes('/.sprintengine/hooks/agent-state.mjs')).length,
         1,
         `one reporter entry for ${event}`,
       )
@@ -1405,7 +1408,7 @@ test('agent-state', async () => {
       'user stop hook survived install',
     )
     assert.ok(!JSON.stringify(cursorFile).includes('/old/root/'), 'stale reporter entry reclaimed by command shape')
-    assert.ok(!JSON.stringify(cursorFile).includes('_multicode'), 'no vendor-foreign tag key may be written')
+    assert.ok(!JSON.stringify(cursorFile).includes('_sprintengine'), 'no vendor-foreign tag key may be written')
 
     // Idempotent re-install: no duplicates.
     const cursorReinstall = await installAgentStateReporter(cursorRoot, cursorSpec, {
@@ -1415,7 +1418,7 @@ test('agent-state', async () => {
     assert.equal(cursorReinstall.ok, true)
     cursorFile = JSON.parse(await readFile(cursorHooksPath, 'utf8')) as FlatFile
     assert.equal(
-      cursorFile.hooks?.stop?.filter((e) => e.command?.includes('/.multicode/hooks/agent-state.mjs')).length,
+      cursorFile.hooks?.stop?.filter((e) => e.command?.includes('/.sprintengine/hooks/agent-state.mjs')).length,
       1,
       'reporter entry duplicated on re-install',
     )
@@ -1449,7 +1452,7 @@ test('agent-state', async () => {
       'node "/abs/agent-state.mjs" --socket "/s.sock"',
       kimiRegistered,
     )
-    assert.ok(kimiBlock.startsWith('# >>> multicode agent-state hooks managed'))
+    assert.ok(kimiBlock.startsWith('# >>> sprintengine agent-state hooks managed'))
     assert.ok(kimiBlock.includes('[[hooks]]\nevent = "PermissionRequest"'), kimiBlock)
     assert.ok(!kimiBlock.includes('[[hooks.'), 'array-of-tables shape, never the Codex nesting')
     assert.equal((kimiBlock.match(/^\[\[hooks\]\]$/gmu) ?? []).length, kimiRegistered.length)
@@ -1468,14 +1471,14 @@ test('agent-state', async () => {
       kimiRegistered,
     )
     assert.equal(
-      (kimiMergedTwice.match(/# >>> multicode agent-state hooks managed/gu) ?? []).length,
+      (kimiMergedTwice.match(/# >>> sprintengine agent-state hooks managed/gu) ?? []).length,
       1,
       'kimi block duplicated on re-merge',
     )
 
     // --- user-scoped install resolves against homeDir, not the workspace -----
-    const kimiWorkspace = await mkdtemp(join(tmpdir(), 'multicode-agent-state-kimi-ws-'))
-    const kimiHome = await mkdtemp(join(tmpdir(), 'multicode-agent-state-kimi-home-'))
+    const kimiWorkspace = await mkdtemp(join(tmpdir(), 'sprintengine-agent-state-kimi-ws-'))
+    const kimiHome = await mkdtemp(join(tmpdir(), 'sprintengine-agent-state-kimi-home-'))
     const kimiReporter = join(kimiWorkspace, 'reporter-src.mjs')
     await writeFile(kimiReporter, '// reporter\n', 'utf8')
 
@@ -1497,7 +1500,7 @@ test('agent-state', async () => {
     // user-global config pointing into a workspace would dangle machine-wide
     // the moment that workspace (or a worktree it was launched into) is
     // removed, firing MODULE_NOT_FOUND on every event of every kimi session.
-    const kimiHomeScript = join(kimiHome, '.multicode', 'hooks', 'agent-state.mjs')
+    const kimiHomeScript = join(kimiHome, '.sprintengine', 'hooks', 'agent-state.mjs')
     assert.ok(existsSync(kimiHomeScript), 'user-scoped registration must copy the reporter under homeDir')
     assert.ok(kimiConfig.includes(kimiHomeScript.split('\\').join('/')), kimiConfig)
     assert.ok(
@@ -1509,7 +1512,7 @@ test('agent-state', async () => {
     // The forwarder is installed alongside the hooks for a Claude-family
     // settings-json spec that opts in, and it must never cost a person the status
     // line they already had.
-    const statusLineScript = join(process.cwd(), 'resources', 'hooks', 'multicode-status-line.mjs')
+    const statusLineScript = join(process.cwd(), 'resources', 'hooks', 'sprintengine-status-line.mjs')
     assert.ok(existsSync(statusLineScript), `status-line forwarder not found at ${statusLineScript}`)
     assert.equal(claudeSpec.statusLine, true, 'claude-code must opt into the status line')
     assert.equal((await loadBundledSpec('zai')).statusLine, true, 'zai must opt into the status line')
@@ -1567,19 +1570,19 @@ test('agent-state', async () => {
       assert.deepEqual(settings.permissions, { allow: ['Bash(ls:*)'] }, 'unrelated keys must survive install')
       assert.ok(settings.hooks, 'the hooks merge must still have happened')
       assert.equal(settings.statusLine.type, 'command')
-      assert.equal(settings.statusLine._multicode, true)
-      assert.equal(settings.statusLine._multicodeWrapped, null)
-      assert.equal(settings.statusLine._multicodeWrappedFrom, undefined)
+      assert.equal(settings.statusLine._sprintengine, true)
+      assert.equal(settings.statusLine._sprintengineWrapped, null)
+      assert.equal(settings.statusLine._sprintengineWrappedFrom, undefined)
       assert.ok(!('padding' in settings.statusLine), 'no padding to carry, so none is written')
       assert.ok(!settings.statusLine.command.includes('--wrap'), settings.statusLine.command)
       // Absolute path to the copied script, forward-slashed, exactly like the
       // reporter command — a relative one would misresolve off the session cwd.
-      const expectedScript = join(world.root, '.multicode', 'hooks', 'status-line.mjs').split('\\').join('/')
+      const expectedScript = join(world.root, '.sprintengine', 'hooks', 'status-line.mjs').split('\\').join('/')
       assert.ok(
         settings.statusLine.command.startsWith(`node "${expectedScript}" --socket "${world.socket}"`),
         settings.statusLine.command,
       )
-      assert.ok(existsSync(join(world.root, '.multicode', 'hooks', 'status-line.mjs')), 'forwarder not copied')
+      assert.ok(existsSync(join(world.root, '.sprintengine', 'hooks', 'status-line.mjs')), 'forwarder not copied')
 
       // Nothing was wrapped, so the unmerge deletes the key entirely.
       assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
@@ -1597,8 +1600,8 @@ test('agent-state', async () => {
       const world = await seedStatusLineWorld({ user: { statusLine: theirs } })
       assert.equal((await installStatusLine(world)).ok, true)
       let settings = await readStatusLine(world)
-      assert.deepEqual(settings.statusLine._multicodeWrapped, theirs, 'the original must be kept verbatim')
-      assert.equal(settings.statusLine._multicodeWrappedFrom, 'user')
+      assert.deepEqual(settings.statusLine._sprintengineWrapped, theirs, 'the original must be kept verbatim')
+      assert.equal(settings.statusLine._sprintengineWrappedFrom, 'user')
       assert.equal(settings.statusLine.padding, 2, 'padding must be carried so the layout does not move')
       assert.equal(settings.statusLine.refreshInterval, 5, 'refreshInterval must be carried: their script still prints')
       assert.deepEqual(wrapArgOf(settings.statusLine.command), { command: 'my-line.sh --pretty' })
@@ -1626,15 +1629,15 @@ test('agent-state', async () => {
       })
       assert.equal((await installStatusLine(world)).ok, true)
       const settings = await readStatusLine(world)
-      assert.deepEqual(settings.statusLine._multicodeWrapped, project, 'project settings outrank user settings')
-      assert.equal(settings.statusLine._multicodeWrappedFrom, 'project')
+      assert.deepEqual(settings.statusLine._sprintengineWrapped, project, 'project settings outrank user settings')
+      assert.equal(settings.statusLine._sprintengineWrappedFrom, 'project')
     }
     {
       const mine = { type: 'command', command: 'local-line.sh', padding: 1 }
       const world = await seedStatusLineWorld({ local: { statusLine: mine, env: { FOO: 'bar' } } })
       assert.equal((await installStatusLine(world)).ok, true)
       let settings = await readStatusLine(world)
-      assert.equal(settings.statusLine._multicodeWrappedFrom, 'local')
+      assert.equal(settings.statusLine._sprintengineWrappedFrom, 'local')
       assert.deepEqual(wrapArgOf(settings.statusLine.command), { command: 'local-line.sh' })
       assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
       settings = await readStatusLine(world)
@@ -1732,7 +1735,7 @@ test('agent-state', async () => {
     }
 
     // 7. A writer that round-trips settings.local.json through a schema dropping
-    //    unknown keys takes `_multicode` and the wrap bookkeeping with it. The
+    //    unknown keys takes `_sprintengine` and the wrap bookkeeping with it. The
     //    command it leaves behind still carries the person's own command, base64'd
     //    in --wrap, and that is then the only copy of it left anywhere.
     {
@@ -1747,14 +1750,14 @@ test('agent-state', async () => {
       assert.equal((await installStatusLine(world)).ok, true)
       const healed = await readStatusLine(world)
       assert.deepEqual(
-        healed.statusLine._multicodeWrapped,
+        healed.statusLine._sprintengineWrapped,
         theirs,
         'the wrapped command is recovered from our own argv when the bookkeeping is gone',
       )
       assert.deepEqual(wrapArgOf(healed.statusLine.command), { command: 'stripped-original.sh' })
       // Origin is genuinely unrecoverable, so it is treated as local — the
       // direction that keeps a command running.
-      assert.equal(healed.statusLine._multicodeWrappedFrom, 'local')
+      assert.equal(healed.statusLine._sprintengineWrappedFrom, 'local')
 
       // And uninstall recovers it the same way. This is the case that loses the
       // command outright if only install knows the trick.
@@ -1795,7 +1798,7 @@ test('agent-state', async () => {
       )
     }
     {
-      // A `_multicodeWrapped` that is no longer something we could wrap (a
+      // A `_sprintengineWrapped` that is no longer something we could wrap (a
       // hand-edit, a type from a later Claude) is still the record uninstall
       // restores from: leave the whole setting alone rather than overwrite it
       // with null.
@@ -1803,11 +1806,11 @@ test('agent-state', async () => {
       const world = await seedStatusLineWorld({ local: { statusLine: { type: 'command', command: 'mine.sh' } } })
       assert.equal((await installStatusLine(world)).ok, true)
       const installed = await readStatusLine(world)
-      const tampered = { ...installed.statusLine, _multicodeWrapped: odd }
+      const tampered = { ...installed.statusLine, _sprintengineWrapped: odd }
       await writeFile(world.settingsPath, JSON.stringify({ ...installed, statusLine: tampered }, null, 2), 'utf8')
       assert.equal((await installStatusLine(world)).ok, true)
       assert.deepEqual(
-        (await readStatusLine(world)).statusLine._multicodeWrapped,
+        (await readStatusLine(world)).statusLine._sprintengineWrapped,
         odd,
         'a restore record we cannot re-wrap is never overwritten',
       )
@@ -1820,7 +1823,7 @@ test('agent-state', async () => {
       // it silently and forever, so ours comes out.
       const world = await seedStatusLineWorld({ user: { statusLine: { type: 'command', command: 'user-line.sh' } } })
       assert.equal((await installStatusLine(world)).ok, true)
-      assert.equal((await readStatusLine(world)).statusLine._multicode, true)
+      assert.equal((await readStatusLine(world)).statusLine._sprintengine, true)
       await writeFile(
         join(world.root, '.claude', 'settings.json'),
         JSON.stringify({ statusLine: { type: 'from-a-later-claude' } }),
@@ -1871,7 +1874,7 @@ test('agent-state', async () => {
       await writeFile(join(world.root, '.claude', 'settings.json'), JSON.stringify({}), 'utf8')
       assert.equal((await installStatusLine(world)).ok, true)
       const after = await readStatusLine(world)
-      assert.equal(after.statusLine._multicodeWrapped, null)
+      assert.equal(after.statusLine._sprintengineWrapped, null)
       assert.ok(!after.statusLine.command.includes('--wrap'))
     }
 
@@ -1880,7 +1883,7 @@ test('agent-state', async () => {
     //    where the forwarder copy goes makes the copy throw.
     {
       const world = await seedStatusLineWorld({})
-      await mkdir(join(world.root, '.multicode', 'hooks', 'status-line.mjs'), { recursive: true })
+      await mkdir(join(world.root, '.sprintengine', 'hooks', 'status-line.mjs'), { recursive: true })
       const result = await installStatusLine(world)
       assert.equal(result.ok, true, `a status-line failure must not fail the install: ${JSON.stringify(result)}`)
       const settings = await readStatusLine(world)
@@ -1889,7 +1892,7 @@ test('agent-state', async () => {
     }
 
     // 10. Only numbers are carried across; the rest of the person's object stays
-    //     in `_multicodeWrapped` and comes back on uninstall.
+    //     in `_sprintengineWrapped` and comes back on uninstall.
     {
       const theirs = { type: 'command', command: 'l.sh', padding: 'two', refreshInterval: null, colour: 'red' }
       const world = await seedStatusLineWorld({ local: { statusLine: theirs } })
@@ -1897,7 +1900,7 @@ test('agent-state', async () => {
       const settings = await readStatusLine(world)
       assert.ok(!('padding' in settings.statusLine), 'a non-numeric padding is not carried')
       assert.ok(!('refreshInterval' in settings.statusLine), 'nor a null refreshInterval')
-      assert.deepEqual(settings.statusLine._multicodeWrapped, theirs, 'but the whole object is kept for the restore')
+      assert.deepEqual(settings.statusLine._sprintengineWrapped, theirs, 'but the whole object is kept for the restore')
       assert.equal((await unmergeClaudeSettings(world.settingsPath)).ok, true)
       assert.deepEqual((await readStatusLine(world)).statusLine, theirs)
     }
@@ -1919,8 +1922,8 @@ test('agent-state', async () => {
         const child = spawn('/bin/sh', ['-c', written], {
           env: {
             ...process.env,
-            ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', ''),
-            ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', ''),
+            ...studioEnvEntry('SPRINTENGINE_AGENT_ID', ''),
+            ...studioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', ''),
             SHELL: '/bin/sh',
           },
           stdio: ['pipe', 'pipe', 'ignore'],
@@ -1947,7 +1950,7 @@ test('agent-state', async () => {
       const world = await seedStatusLineWorld({})
       await writeFile(join(world.home, '.claude', 'settings.json'), '{ "statusLine": ', 'utf8')
       assert.equal((await installStatusLine(world)).ok, true, 'unreadable user settings must not fail the install')
-      assert.equal((await readStatusLine(world)).statusLine._multicodeWrapped, null)
+      assert.equal((await readStatusLine(world)).statusLine._sprintengineWrapped, null)
     }
 
     // 12. Someone replaced our status line by hand: uninstall leaves it exactly so.
@@ -1964,7 +1967,7 @@ test('agent-state', async () => {
     //     install asks about the person's own status line, because `--settings`
     //     outranks every settings FILE.
     {
-      const launchRoot = await mkdtemp(join(tmpdir(), 'multicode-launch-status-'))
+      const launchRoot = await mkdtemp(join(tmpdir(), 'sprintengine-launch-status-'))
       const launchHome = join(launchRoot, 'home')
       await mkdir(join(launchHome, '.claude'), { recursive: true })
       await mkdir(join(launchRoot, '.claude'), { recursive: true })

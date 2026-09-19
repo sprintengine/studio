@@ -40,7 +40,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const VENDOR_NAMESPACE = 'com.multicode'
+const VENDOR_NAMESPACE = 'com.sprintengine'
 
 class BuildFailure extends Error {
   constructor(message, code = 1) {

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import type {
   AgentState,
-  MulticodeAuthState,
+  SprintEngineAuthState,
   SessionActivity,
   TerminalSessionSnapshot,
 } from '../../../../shared/electron-api'
@@ -50,14 +50,14 @@ test('workspaceManagerHelpers', async () => {
         id,
         name: id,
         folderPath,
-        worktree: folderPath.includes('.multicode-worktrees') ? { branch: `agent/${id}`, repoRoot } : null,
+        worktree: folderPath.includes('.sprintengine-worktrees') ? { branch: `agent/${id}`, repoRoot } : null,
         agents: {},
       }) as unknown as Workspace
     const order = buildSidebarWorkspaceOrder([
       ws('parent', '/repo/a'),
       ws('other-project', '/repo/b'),
-      ws('worktree', '/repo/.multicode-worktrees/a/chat-a1b2', '/repo/a'),
-      ws('legacy-worktree', '/repo/.multicode-worktrees/a/chat-c3d4'),
+      ws('worktree', '/repo/.sprintengine-worktrees/a/chat-a1b2', '/repo/a'),
+      ws('legacy-worktree', '/repo/.sprintengine-worktrees/a/chat-c3d4'),
     ])
     const at = (id: string): number => order.get(id) ?? -1
     assert.deepEqual(
@@ -454,9 +454,9 @@ test('workspaceManagerHelpers', async () => {
       planCode?: string
       planStatus?: string
       features?: Record<string, boolean>
-      entitlementStatus?: MulticodeAuthState['entitlementStatus']
+      entitlementStatus?: SprintEngineAuthState['entitlementStatus']
     } = {},
-  ): MulticodeAuthState {
+  ): SprintEngineAuthState {
     const {
       authenticated = true,
       planCode = 'free',
@@ -472,7 +472,7 @@ test('workspaceManagerHelpers', async () => {
         ? {
             userId: 'u1',
             organizationId: 'o1',
-            product: 'multicode',
+            product: 'sprintengine',
             roles: [],
             features,
             limits: {},
@@ -491,17 +491,17 @@ test('workspaceManagerHelpers', async () => {
     }
   }
 
-  // Multiauth's catalog: Free grants only `multicode.sprintengine`; Pro adds
+  // Multiauth's catalog: Free grants only `sprintengine.sprintengine`; Pro adds
   // the mobile companion, and nothing else. Functions rather than
   // consts because this file calls `main()` before its own top-level bindings run.
   function freeFeatures(): Record<string, boolean> {
     return {
-      'multicode.sprintengine': true,
-      'multicode.mobile_companion': false,
+      'sprintengine.sprintengine': true,
+      'sprintengine.mobile_companion': false,
     }
   }
   function proFeatures(): Record<string, boolean> {
-    return { ...freeFeatures(), 'multicode.mobile_companion': true }
+    return { ...freeFeatures(), 'sprintengine.mobile_companion': true }
   }
 
   function assertPaidAccessIsDecidedByFeatureKeys(): void {
@@ -524,7 +524,7 @@ test('workspaceManagerHelpers', async () => {
       'a plan called pro that grants nothing paid is not paid access',
     )
     assert.equal(
-      hasPaidEntitlement(authState({ planCode: 'multicode_pro_monthly', features: proFeatures() })),
+      hasPaidEntitlement(authState({ planCode: 'sprintengine_pro_monthly', features: proFeatures() })),
       true,
       'a provider-renamed plan still resolves through its feature keys',
     )
@@ -532,17 +532,17 @@ test('workspaceManagerHelpers', async () => {
     // An operator grant for the key on a free plan is real paid access.
     assert.equal(
       hasPaidEntitlement(
-        authState({ planCode: 'free', features: { ...freeFeatures(), 'multicode.mobile_companion': true } }),
+        authState({ planCode: 'free', features: { ...freeFeatures(), 'sprintengine.mobile_companion': true } }),
       ),
       true,
       'an admin override counts as paid access',
     )
 
     // Retired keys decide nothing: a snapshot from an older server that still
-    // carries `multicode.frontier_models` is not paid access on its own.
+    // carries `sprintengine.frontier_models` is not paid access on its own.
     assert.equal(
       hasPaidEntitlement(
-        authState({ planCode: 'free', features: { ...freeFeatures(), 'multicode.frontier_models': true } }),
+        authState({ planCode: 'free', features: { ...freeFeatures(), 'sprintengine.frontier_models': true } }),
       ),
       false,
       'a retired key does not count as paid access',

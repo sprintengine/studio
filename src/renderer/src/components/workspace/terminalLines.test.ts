@@ -77,9 +77,9 @@ test('terminalLines', async () => {
   // A pull request as main resolves it onto the session snapshot (epic
   // pull-request-marks): only its state and number matter to the line.
   const pr = (over: Partial<BranchPullRequest> = {}): BranchPullRequest => ({
-    url: 'https://github.com/acme/multicode/pull/418',
-    repoKey: 'github.com/acme/multicode',
-    repoName: 'multicode',
+    url: 'https://github.com/acme/sprintengine/pull/418',
+    repoKey: 'github.com/acme/sprintengine',
+    repoName: 'sprintengine',
     number: 418,
     title: 'The sidebar number is the branch diff',
     state: 'open',
@@ -571,7 +571,7 @@ test('terminalLines', async () => {
     assert.deepEqual(
       lineDiffOf(withUncommitted, [
         pr({ number: 418, state: 'merged', openedAt: 1_000 }),
-        pr({ number: 420, state: 'open', openedAt: 2_000, url: 'https://github.com/acme/multicode/pull/420' }),
+        pr({ number: 420, state: 'open', openedAt: 2_000, url: 'https://github.com/acme/sprintengine/pull/420' }),
       ]).scope,
       'branch',
       'a newer open pull request takes the mark back, and the number with it',
@@ -647,9 +647,9 @@ test('terminalLines', async () => {
   // an empty one draw the same thing, which is nothing.
   {
     const opened = {
-      url: 'https://github.com/acme/multicode/pull/418',
-      repoKey: 'github.com/acme/multicode',
-      repoName: 'multicode',
+      url: 'https://github.com/acme/sprintengine/pull/418',
+      repoKey: 'github.com/acme/sprintengine',
+      repoName: 'sprintengine',
       number: 418,
       title: 'Extensions icon carries its unread count',
       state: 'open' as const,

@@ -31,13 +31,13 @@ test('desktop-identity', async () => {
     issuer: 'https://clerk.sprintengine.ai/',
     authorizationEndpoint: 'https://clerk.sprintengine.ai/oauth/authorize',
     tokenEndpoint: 'https://clerk.sprintengine.ai/oauth/token',
-    clientIds: { 'multicode-desktop': 'client_desk', 'multicode-mobile': 'client_mob' },
+    clientIds: { 'sprintengine-desktop': 'client_desk', 'sprintengine-mobile': 'client_mob' },
     scopes: ['openid', 'profile', 'email', 'offline_access'],
     schemaVersion: 1,
   }
 
   function discoveryParsesClerkAndMultiauth(): void {
-    const clerk = parseIdentityDiscovery(CLERK_DISCOVERY, 'multicode-desktop')
+    const clerk = parseIdentityDiscovery(CLERK_DISCOVERY, 'sprintengine-desktop')
     assert.deepEqual(clerk, {
       provider: 'clerk',
       issuer: 'https://clerk.sprintengine.ai',
@@ -50,14 +50,14 @@ test('desktop-identity', async () => {
     // Endpoints derive from the issuer when the document omits them, and the
     // scope list falls back to the desktop default.
     const { authorizationEndpoint: _a, tokenEndpoint: _t, scopes: _s, ...bare } = CLERK_DISCOVERY
-    const derived = parseIdentityDiscovery(bare, 'multicode-desktop')
+    const derived = parseIdentityDiscovery(bare, 'sprintengine-desktop')
     assert.equal(derived.provider, 'clerk')
     if (derived.provider === 'clerk') {
       assert.equal(derived.tokenEndpoint, 'https://clerk.sprintengine.ai/oauth/token')
       assert.deepEqual(derived.scopes, CLERK_DESKTOP_SCOPES)
     }
 
-    assert.deepEqual(parseIdentityDiscovery({ provider: 'multiauth', schemaVersion: 1 }, 'multicode-desktop'), {
+    assert.deepEqual(parseIdentityDiscovery({ provider: 'multiauth', schemaVersion: 1 }, 'sprintengine-desktop'), {
       provider: 'multiauth',
     })
   }
@@ -70,30 +70,32 @@ test('desktop-identity', async () => {
       {},
       { provider: 'okta' },
       { provider: 'clerk' },
-      { provider: 'clerk', issuer: 'http://clerk.example', clientIds: { 'multicode-desktop': 'x' } },
-      { provider: 'clerk', issuer: 'https://clerk.example', clientIds: { 'multicode-mobile': 'x' } },
-      { provider: 'clerk', issuer: 'https://clerk.example', clientIds: { 'multicode-desktop': '' } },
+      { provider: 'clerk', issuer: 'http://clerk.example', clientIds: { 'sprintengine-desktop': 'x' } },
+      { provider: 'clerk', issuer: 'https://clerk.example', clientIds: { 'sprintengine-mobile': 'x' } },
+      { provider: 'clerk', issuer: 'https://clerk.example', clientIds: { 'sprintengine-desktop': '' } },
       {
         provider: 'clerk',
         issuer: 'https://clerk.example',
-        clientIds: { 'multicode-desktop': 'x' },
+        clientIds: { 'sprintengine-desktop': 'x' },
         scopes: ['openid'],
       },
       { provider: 'multiauth', schemaVersion: 2 },
     ]) {
-      assert.throws(() => parseIdentityDiscovery(payload, 'multicode-desktop'), IdentityDiscoveryError)
+      assert.throws(() => parseIdentityDiscovery(payload, 'sprintengine-desktop'), IdentityDiscoveryError)
     }
   }
 
   function overrideIsTheRollbackLever(): void {
     assert.equal(resolveIdentityOverride({}), null)
-    assert.equal(resolveIdentityOverride({ MULTICODE_IDENTITY_PROVIDER: '  ' }), null)
-    assert.deepEqual(resolveIdentityOverride({ MULTICODE_IDENTITY_PROVIDER: 'multiauth' }), { provider: 'multiauth' })
+    assert.equal(resolveIdentityOverride({ SPRINTENGINE_IDENTITY_PROVIDER: '  ' }), null)
+    assert.deepEqual(resolveIdentityOverride({ SPRINTENGINE_IDENTITY_PROVIDER: 'multiauth' }), {
+      provider: 'multiauth',
+    })
 
     const clerk = resolveIdentityOverride({
-      MULTICODE_IDENTITY_PROVIDER: 'clerk',
-      MULTICODE_CLERK_ISSUER: 'https://clerk.example/',
-      MULTICODE_CLERK_CLIENT_ID: ' client_x ',
+      SPRINTENGINE_IDENTITY_PROVIDER: 'clerk',
+      SPRINTENGINE_CLERK_ISSUER: 'https://clerk.example/',
+      SPRINTENGINE_CLERK_CLIENT_ID: ' client_x ',
     })
     assert.deepEqual(clerk, {
       provider: 'clerk',
@@ -104,13 +106,13 @@ test('desktop-identity', async () => {
       scopes: CLERK_DESKTOP_SCOPES,
     })
 
-    assert.throws(() => resolveIdentityOverride({ MULTICODE_IDENTITY_PROVIDER: 'okta' }), IdentityDiscoveryError)
-    assert.throws(() => resolveIdentityOverride({ MULTICODE_IDENTITY_PROVIDER: 'clerk' }), IdentityDiscoveryError)
+    assert.throws(() => resolveIdentityOverride({ SPRINTENGINE_IDENTITY_PROVIDER: 'okta' }), IdentityDiscoveryError)
+    assert.throws(() => resolveIdentityOverride({ SPRINTENGINE_IDENTITY_PROVIDER: 'clerk' }), IdentityDiscoveryError)
     assert.throws(
       () =>
         resolveIdentityOverride({
-          MULTICODE_IDENTITY_PROVIDER: 'clerk',
-          MULTICODE_CLERK_ISSUER: 'https://clerk.example',
+          SPRINTENGINE_IDENTITY_PROVIDER: 'clerk',
+          SPRINTENGINE_CLERK_ISSUER: 'https://clerk.example',
         }),
       IdentityDiscoveryError,
     )
@@ -160,14 +162,14 @@ test('desktop-identity', async () => {
     const multiauthUrl = new URL(
       buildMultiauthAuthorizationUrl(request, {
         baseUrl: 'https://auth.example',
-        clientId: 'multicode-desktop',
-        product: 'multicode',
+        clientId: 'sprintengine-desktop',
+        product: 'sprintengine',
         scope: 'openid profile entitlements:read relay:desktop',
       }),
     )
     assert.equal(multiauthUrl.origin + multiauthUrl.pathname, 'https://auth.example/')
     assert.equal(multiauthUrl.searchParams.get('returnTo'), 'desktop')
-    assert.equal(multiauthUrl.searchParams.get('client_id'), 'multicode-desktop')
+    assert.equal(multiauthUrl.searchParams.get('client_id'), 'sprintengine-desktop')
     assert.equal(multiauthUrl.searchParams.get('organization_id'), 'org_1')
     assert.equal(multiauthUrl.searchParams.get('scope'), 'openid profile entitlements:read relay:desktop')
   }

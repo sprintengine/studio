@@ -45,7 +45,7 @@ test('index', async () => {
   }
 
   async function assertLegacyLocalRelayUrlMigratesToProductionDefault(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-store-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-bridge-store-'))
     const storePath = join(workspaceRoot, 'mobile-bridge.json')
     await writeFile(
       storePath,
@@ -714,7 +714,7 @@ test('index', async () => {
     async createPairingChallenge() {
       return {
         pairingChallengeId: 'pcha_1',
-        pairingUri: 'multicode://mobile/pair?secret=pair-secret',
+        pairingUri: 'sprintengine://mobile/pair?secret=pair-secret',
         expiresAt: new Date(now.getTime() + 60_000).toISOString(),
       }
     }
@@ -778,7 +778,7 @@ test('index', async () => {
         pairingChallengeId: 'pcha_current',
         manualPairingCode: '123456',
         pairingUri: [
-          'multicode://mobile/pair?',
+          'sprintengine://mobile/pair?',
           new URLSearchParams({
             relayUrl: 'https://relay.test',
             pairingSecret: 'psec_current',
@@ -825,7 +825,7 @@ test('index', async () => {
     override async createPairingChallenge() {
       return {
         pairingChallengeId: 'pcha_legacy',
-        pairingUri: 'multicode://mobile/pair?secret=legacy-secret',
+        pairingUri: 'sprintengine://mobile/pair?secret=legacy-secret',
         expiresAt: new Date(now.getTime() + 60_000).toISOString(),
       }
     }
@@ -838,7 +838,7 @@ test('index', async () => {
   async function writeBridgeFixture(
     options: { backlogItems?: number; nonAsciiPayload?: string; pairDevice?: boolean } = {},
   ): Promise<{ workspaceRoot: string }> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-bridge-'))
     const itemCount = options.backlogItems ?? 1
     await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
     await mkdir(join(workspaceRoot, '.sprintengine', 'backlog'), { recursive: true })

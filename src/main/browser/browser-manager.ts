@@ -221,7 +221,7 @@ function stripUserAgent(userAgent: string): string {
   // one the person will ship; so does one that sees the app's own token.
   return userAgent
     .replace(/\s?Electron\/\S+/i, '')
-    .replace(/\s?multicode\/\S+/i, '')
+    .replace(/\s?sprintengine\/\S+/i, '')
     .replace(/\s?sprintengine-studio\/\S+/i, '')
     .replace(/\s{2,}/g, ' ')
     .trim()

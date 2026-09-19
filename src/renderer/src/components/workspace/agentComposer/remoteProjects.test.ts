@@ -41,13 +41,13 @@ test('remoteProjects', async () => {
 
   check('chats in one folder are one project, named after the folder', () => {
     const projects = remoteProjectsOf([
-      chat('w3', 'Yeah, that’s a good spot', '/Users/dev/multicode'),
-      chat('w1', 'Improve Search Glass Effect', '/Users/dev/multicode'),
-      chat('w2', 'Fix Reaped Terminal Brightness', '/Users/dev/multicode'),
+      chat('w3', 'Yeah, that’s a good spot', '/Users/dev/sprintengine'),
+      chat('w1', 'Improve Search Glass Effect', '/Users/dev/sprintengine'),
+      chat('w2', 'Fix Reaped Terminal Brightness', '/Users/dev/sprintengine'),
     ])
     assert.equal(projects.length, 1, 'three chats in one checkout are one row')
-    assert.equal(projects[0]!.name, 'multicode', 'named after the folder, not after a chat')
-    assert.equal(projects[0]!.folderPath, '/Users/dev/multicode')
+    assert.equal(projects[0]!.name, 'sprintengine', 'named after the folder, not after a chat')
+    assert.equal(projects[0]!.folderPath, '/Users/dev/sprintengine')
     assert.equal(projects[0]!.conversationCount, 3)
   })
 
@@ -106,11 +106,11 @@ test('remoteProjects', async () => {
   check('a machine copy found by repository resolves to the folder it stands in', () => {
     const workspaces = [
       chat('w1', 'other', '/srv/other', repo('other')),
-      chat('w2', 'multicode-air', '/srv/multicode', repo('multicode')),
+      chat('w2', 'sprintengine-air', '/srv/sprintengine', repo('sprintengine')),
     ]
     const projects = remoteProjectsOf(workspaces)
     const found = remoteProjectOfWorkspace(projects, workspaces, 'w2')
-    assert.equal(found?.name, 'multicode')
+    assert.equal(found?.name, 'sprintengine')
     assert.equal(
       remoteProjectOfWorkspace(projects, workspaces, 'nope'),
       null,

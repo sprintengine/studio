@@ -16,15 +16,15 @@ export type RepositoryIdentity = {
   canonicalKey: string
   /** The remote URL as `git remote` reported it, for display and diagnosis. */
   remoteUrl: string
-  /** The last path segment of the key — `multicode` for `github.com/acme/multicode`. */
+  /** The last path segment of the key — `sprintengine` for `github.com/acme/sprintengine`. */
   name: string
 }
 
 /**
  * The key two clones share. Lower-cased and stripped of `.git`, trailing
- * slashes and the transport, so `git@github.com:Acme/Multicode.git`,
- * `https://github.com/acme/multicode/` and `ssh://git@github.com/acme/multicode`
- * are one key: `github.com/acme/multicode`. A URL that cannot be read as
+ * slashes and the transport, so `git@github.com:Acme/SprintEngine.git`,
+ * `https://github.com/acme/sprintengine/` and `ssh://git@github.com/acme/sprintengine`
+ * are one key: `github.com/acme/sprintengine`. A URL that cannot be read as
  * host + path is returned normalised as-is — still stable for that string.
  */
 export function canonicalRepositoryKey(remoteUrl: string): string {

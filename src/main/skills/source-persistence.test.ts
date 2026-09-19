@@ -79,7 +79,7 @@ test('source-persistence', async () => {
 
   async function main(): Promise<void> {
     await run('a source added through the service is there for the next launch, with its scan', async () => {
-      const userData = await mkdtemp(join(tmpdir(), 'multicode-source-persistence-'))
+      const userData = await mkdtemp(join(tmpdir(), 'sprintengine-source-persistence-'))
       const added = await serviceOver(userData).addSource({ repo: ADDED_REPO })
       assert.equal(added.ok, true, added.ok ? '' : added.message)
       if (!added.ok) return
@@ -108,7 +108,7 @@ test('source-persistence', async () => {
       // check resolves every repository's head and calls `putSource` for each,
       // including the two always-present ones. If any of those writes rebuilt the
       // file from a partial state, this is where a person's source would go.
-      const userData = await mkdtemp(join(tmpdir(), 'multicode-source-persistence-'))
+      const userData = await mkdtemp(join(tmpdir(), 'sprintengine-source-persistence-'))
       let head = COMMIT
       const service = serviceOver(userData, { repoReader: fakeReader(() => head) })
       const added = await service.addSource({ repo: ADDED_REPO })
@@ -142,7 +142,7 @@ test('source-persistence', async () => {
       // reported a flat success and put nothing in the list, because the store
       // keeps one record per id — so the person went looking for a source that
       // was never going to appear.
-      const userData = await mkdtemp(join(tmpdir(), 'multicode-source-persistence-'))
+      const userData = await mkdtemp(join(tmpdir(), 'sprintengine-source-persistence-'))
       const service = serviceOver(userData)
       const result = await service.addSource({ repo: OFFICIAL_PLUGINS_SKILL_SOURCE_REPO, replace: true })
       assert.equal(result.ok, true, result.ok ? '' : result.message)
@@ -162,7 +162,7 @@ test('source-persistence', async () => {
     })
 
     await run('the same paste without replace is a merge too, not a refusal', async () => {
-      const userData = await mkdtemp(join(tmpdir(), 'multicode-source-persistence-'))
+      const userData = await mkdtemp(join(tmpdir(), 'sprintengine-source-persistence-'))
       const result = await serviceOver(userData).addSource({ repo: OFFICIAL_PLUGINS_SKILL_SOURCE_REPO })
       assert.equal(result.ok, true, result.ok ? '' : result.message)
       assert.equal(result.ok && result.mergedIntoBuiltin, true)
@@ -174,7 +174,7 @@ test('source-persistence', async () => {
       // `message` from it; a rejection there would leave the button on
       // "Removing…" for good.
       if (typeof process.getuid === 'function' && process.getuid() === 0) return
-      const userData = await mkdtemp(join(tmpdir(), 'multicode-source-persistence-'))
+      const userData = await mkdtemp(join(tmpdir(), 'sprintengine-source-persistence-'))
       const service = serviceOver(userData)
       assert.equal((await service.addSource({ repo: ADDED_REPO })).ok, true)
       const path = join(userData, 'skill-sources.json')
@@ -188,7 +188,7 @@ test('source-persistence', async () => {
     })
 
     await run('adding a repository twice without replace is still refused', async () => {
-      const userData = await mkdtemp(join(tmpdir(), 'multicode-source-persistence-'))
+      const userData = await mkdtemp(join(tmpdir(), 'sprintengine-source-persistence-'))
       const service = serviceOver(userData)
       assert.equal((await service.addSource({ repo: ADDED_REPO })).ok, true)
       const again = await service.addSource({ repo: ADDED_REPO })

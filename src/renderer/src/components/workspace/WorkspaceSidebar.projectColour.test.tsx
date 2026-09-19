@@ -75,10 +75,10 @@ test('WorkspaceSidebar.projectColour', async () => {
   // The reader, under this suite's control: which folders answer, when, and
   // whether the answer SETTLED.
   type IdentityRead = { identity: { canonicalKey: string; remoteUrl: string; name: string } | null; settled: boolean }
-  const MULTICODE = {
-    canonicalKey: 'github.com/acme/multicode',
-    remoteUrl: 'git@github.com:acme/multicode.git',
-    name: 'multicode',
+  const SPRINTENGINE = {
+    canonicalKey: 'github.com/acme/sprintengine',
+    remoteUrl: 'git@github.com:acme/sprintengine.git',
+    name: 'sprintengine',
   }
   const asks: string[] = []
   const unsettledFolders = new Set<string>()
@@ -95,7 +95,7 @@ test('WorkspaceSidebar.projectColour', async () => {
   domWindow.api = {
     platform: 'darwin',
     detectProjectLogo: async () => null,
-    // /projA is a clone of acme/multicode. /projB is a folder with no remote at
+    // /projA is a clone of acme/sprintengine. /projB is a folder with no remote at
     // all — a real project, keyed by path, and the case a "was it answered?"
     // gate must not swallow. Anything in `unsettledFolders` answers "could not
     // ask", which is not an answer and must never be treated as one.
@@ -103,7 +103,7 @@ test('WorkspaceSidebar.projectColour', async () => {
       asks.push(folderPath)
       await identityGate
       if (unsettledFolders.has(folderPath)) return { identity: null, settled: false }
-      return { identity: folderPath === '/projA' ? MULTICODE : null, settled: true }
+      return { identity: folderPath === '/projA' ? SPRINTENGINE : null, settled: true }
     },
   }
 
@@ -130,7 +130,7 @@ test('WorkspaceSidebar.projectColour', async () => {
 
     resetProjectLogos()
 
-    const HUE_A = projectHue('repo:github.com/acme/multicode')
+    const HUE_A = projectHue('repo:github.com/acme/sprintengine')
     const HUE_B = projectHue('folder:/projb')
     const PICKED_HUE = PROJECT_COLOR_PRESETS.find((preset) => preset.label === 'Violet')!.hue
 
@@ -148,7 +148,7 @@ test('WorkspaceSidebar.projectColour', async () => {
       ...localWorkspaces,
       // No folder is not a project (decision 6).
       workspace('w4', 'Echo', null),
-      // Born on a paired machine, in ITS clone of acme/multicode. It is a row of
+      // Born on a paired machine, in ITS clone of acme/sprintengine. It is a row of
       // projA like Alpha and Bravo (one-project-across-machines), wearing that
       // project's hue plus the green machine glyph.
       workspace('w5', 'Foxtrot', null, {
@@ -156,9 +156,9 @@ test('WorkspaceSidebar.projectColour', async () => {
           connectionId: 'c1',
           machineName: 'MacBook Air',
           workspaceId: 'rw1',
-          workspaceName: 'multicode',
-          workspaceRoot: '/Users/air/multicode',
-          repository: MULTICODE,
+          workspaceName: 'sprintengine',
+          workspaceRoot: '/Users/air/sprintengine',
+          repository: SPRINTENGINE,
         },
         layoutModel: { layout: { type: 'row', children: [] } },
       }),
@@ -387,7 +387,7 @@ test('WorkspaceSidebar.projectColour', async () => {
     assert.equal(
       hueOf(glyphOf(stream.container, 'Foxtrot')),
       HUE_A,
-      'the Air’s clone of acme/multicode is acme/multicode',
+      'the Air’s clone of acme/sprintengine is acme/sprintengine',
     )
     const marks = [...foxtrot.firstElementChild!.children]
     assert.equal(marks[0]?.tagName.toLowerCase(), 'svg', 'the folder glyph leads the project line')
@@ -429,7 +429,7 @@ test('WorkspaceSidebar.projectColour', async () => {
     )
     assert.deepEqual(
       projectColorsNow(),
-      { 'repo:github.com/acme/multicode': PICKED_HUE },
+      { 'repo:github.com/acme/sprintengine': PICKED_HUE },
       'and the choice is stored under the repository key, as the only entry',
     )
 

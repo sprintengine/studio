@@ -49,7 +49,7 @@ const errors = []
 const OFFICIAL_PLUGINS_REPO = 'anthropics/claude-plugins-official'
 
 async function shipped(relative, name) {
-  const outfile = join(root, 'node_modules', '.cache', 'multicode', `check-sources-seed.${name}.mjs`)
+  const outfile = join(root, 'node_modules', '.cache', 'sprintengine', `check-sources-seed.${name}.mjs`)
   await build({
     entryPoints: [join(root, ...relative)],
     bundle: true,

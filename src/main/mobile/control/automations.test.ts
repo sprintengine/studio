@@ -53,7 +53,7 @@ test('automations', async () => {
     seed: (store: AutomationsStore) => Promise<void>,
     assertions: (root: string) => Promise<void>,
   ): Promise<void> {
-    const root = await mkdtemp(join(tmpdir(), 'multicode-mobile-automations-'))
+    const root = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-automations-'))
     try {
       await seed(new AutomationsStore(root))
       await assertions(root)
@@ -386,7 +386,7 @@ test('automations', async () => {
   })
 
   run('a workspace with no automations store contributes nothing', async () => {
-    const root = await mkdtemp(join(tmpdir(), 'multicode-mobile-automations-empty-'))
+    const root = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-automations-empty-'))
     try {
       assert.deepEqual(await readMobileAutomationSnapshots(root, generatedAt), [])
     } finally {

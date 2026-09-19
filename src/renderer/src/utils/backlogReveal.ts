@@ -6,7 +6,7 @@
 // (`revealBacklogItemInPane`), so it mounts a tick later and can miss a live
 // event. The latch covers that race.
 
-const BACKLOG_REVEAL_EVENT = 'multicode:reveal-backlog-item'
+const BACKLOG_REVEAL_EVENT = 'sprintengine:reveal-backlog-item'
 
 export type BacklogRevealDetail = {
   workspaceId: string

@@ -102,7 +102,7 @@ test('designCanvas', async () => {
   const view = {
     identity: {
       path: '/work/brand/design-system',
-      name: 'multicode',
+      name: 'sprintengine',
       version: '2.4.0',
       summary: 'The in-house system.',
       // design-tokens-allow: a PREVIEWED bundle's own tokens are content under test, not app chrome — the point is that they are not ours.
@@ -110,7 +110,7 @@ test('designCanvas', async () => {
     },
     manifest: {
       schemaVersion: 1,
-      name: 'multicode',
+      name: 'sprintengine',
       version: '2.4.0',
       summary: 'The in-house system.',
       modes: ['light', 'dark'],
@@ -449,7 +449,7 @@ test('designCanvas', async () => {
         assert.ok(!/font-family/i.test(element.getAttribute('style') ?? ''), 'and no element states a face of its own')
       }
       assert.match(text(), /\/work\/brand\/design-system/, 'the folder rides the band')
-      assert.ok(!text().includes('multicode'), 'the name is the door bar’s, and only the door bar’s')
+      assert.ok(!text().includes('sprintengine'), 'the name is the door bar’s, and only the door bar’s')
     })
 
     run('every frame is inert, and the measured ones are the only same-origin ones', () => {

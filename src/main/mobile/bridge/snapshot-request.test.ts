@@ -309,7 +309,7 @@ test('snapshot-request', async () => {
   }
 
   async function makeWorkspaceRoot(): Promise<string> {
-    return mkdtemp(join(tmpdir(), 'multicode-snapshot-request-'))
+    return mkdtemp(join(tmpdir(), 'sprintengine-snapshot-request-'))
   }
 
   // Overwrites the item record so a second call with a new status is a real backlog-only

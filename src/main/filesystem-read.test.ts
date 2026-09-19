@@ -28,7 +28,7 @@ test('filesystem-read', async () => {
   // target file's contents. Symlinks that stay within reports/, plain report
   // files, and reads outside any reports/ tree are unaffected.
   async function assertReportSymlinkContainment(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-fs-report-symlink-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-fs-report-symlink-'))
     const handlers = createFilesystemReadHandlers()
 
     try {
@@ -81,7 +81,7 @@ test('filesystem-read', async () => {
   }
 
   async function assertTextReadLimits(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-fs-read-text-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-fs-read-text-'))
     const handlers = createFilesystemReadHandlers()
 
     try {
@@ -102,7 +102,7 @@ test('filesystem-read', async () => {
   }
 
   async function assertImageReadLimits(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-fs-read-image-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-fs-read-image-'))
     const handlers = createFilesystemReadHandlers()
 
     try {
@@ -120,7 +120,7 @@ test('filesystem-read', async () => {
   }
 
   async function assertFileStats(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-fs-stat-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-fs-stat-'))
     const handlers = createFilesystemReadHandlers()
 
     try {
@@ -138,7 +138,7 @@ test('filesystem-read', async () => {
   }
 
   async function assertMemoryPreviewImageLimit(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-memory-preview-image-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-memory-preview-image-'))
 
     try {
       const knowledgeRoot = join(root, 'knowledge')

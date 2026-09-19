@@ -13,7 +13,7 @@ import { runGitCommand } from './git-utils'
  * Every machine that ran a build between `c8ed695a2` and the removal has real
  * artefacts on disk that nothing else will ever collect once the code that made
  * them is gone: up to 50 refs per workspace under
- * `refs/multicode/checkpoints/`, each pinning a whole-worktree tree object so
+ * `refs/sprintengine/checkpoints/`, each pinning a whole-worktree tree object so
  * it holds storage down against `gc`, plus the index that lists them.
  *
  * The index is the authority on WHICH repos to visit — it is the record of
@@ -37,9 +37,9 @@ import { runGitCommand } from './git-utils'
 
 const INDEX_FILE = 'checkpoint-index.json'
 const CORRUPT_SUFFIX = '.corrupt'
-const REFS_PREFIX = 'refs/multicode/checkpoints/'
+const REFS_PREFIX = 'refs/sprintengine/checkpoints/'
 /** Temp index files a capture killed mid-flight could not remove. */
-const TEMP_INDEX_PREFIX = 'multicode-checkpoint-index-'
+const TEMP_INDEX_PREFIX = 'sprintengine-checkpoint-index-'
 
 export type CheckpointSweepResult = {
   /** Repos visited, refs actually deleted, and whether the index could go. */
@@ -118,7 +118,7 @@ export async function sweepCheckpointRefs(cwd: string): Promise<{ deleted: numbe
 }
 
 /**
- * Remove `multicode-checkpoint-index-*` files from the repo's git common dir.
+ * Remove `sprintengine-checkpoint-index-*` files from the repo's git common dir.
  * A capture deleted its own in a `finally`, so only a hard kill mid-capture
  * leaves one; they are inert, but they are ours and nothing else will take
  * them.

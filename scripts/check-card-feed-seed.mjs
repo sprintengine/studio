@@ -98,7 +98,7 @@ const HERO_DEK_MAX = 120
 // Bundle a renderer/shared module and import it, so this gate reads the real
 // thing rather than a copy of it.
 async function shipped(relative, name) {
-  const outfile = join(root, 'node_modules', '.cache', 'multicode', `check-card-feed-seed.${name}.mjs`)
+  const outfile = join(root, 'node_modules', '.cache', 'sprintengine', `check-card-feed-seed.${name}.mjs`)
   await build({
     entryPoints: [join(root, ...relative)],
     bundle: true,

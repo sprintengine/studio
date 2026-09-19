@@ -105,12 +105,12 @@ export class EntitlementService {
     const reading = this.provider.read()
 
     if (!reading.authenticated) {
-      return denied(request.featureKey, undefined, 'signed_out', 'Sign in to unlock this Multicode feature.')
+      return denied(request.featureKey, undefined, 'signed_out', 'Sign in to unlock this SprintEngine feature.')
     }
 
     const snapshot = reading.snapshot
     if (!snapshot || snapshot.schemaVersion !== 1 || snapshot.product !== this.product) {
-      return denied(request.featureKey, undefined, 'missing', 'Multicode access could not be verified.')
+      return denied(request.featureKey, undefined, 'missing', 'SprintEngine access could not be verified.')
     }
 
     const cache = reading.cache ?? {
@@ -127,7 +127,7 @@ export class EntitlementService {
         request.featureKey,
         value,
         'expired',
-        'Multicode premium access needs a fresh entitlement check.',
+        'SprintEngine premium access needs a fresh entitlement check.',
         limit,
       )
     }
@@ -163,7 +163,7 @@ export class EntitlementService {
       request.featureKey,
       value,
       'missing',
-      'Upgrade this organization or switch to one with Multicode premium access.',
+      'Upgrade this organization or switch to one with SprintEngine premium access.',
       limit,
     )
   }
@@ -190,7 +190,7 @@ export class EntitlementService {
 
     const { snapshot } = this.provider.read()
     if (!snapshot) {
-      throw new Error('No Multicode entitlement snapshot is available.')
+      throw new Error('No SprintEngine entitlement snapshot is available.')
     }
 
     return snapshot
@@ -257,10 +257,10 @@ export function entitlementCacheStatus(
 export function offlineGraceMessage(graceExpiresAt: string | null | undefined): string {
   const expiresAt = graceExpiresAt ? new Date(graceExpiresAt) : null
   if (!expiresAt || Number.isNaN(expiresAt.getTime())) {
-    return 'Using cached Multicode access while offline.'
+    return 'Using cached SprintEngine access while offline.'
   }
 
-  return `Using cached Multicode access while offline. Access expires ${expiresAt.toLocaleString()}.`
+  return `Using cached SprintEngine access while offline. Access expires ${expiresAt.toLocaleString()}.`
 }
 
 // Shape check for a snapshot read back off disk. A cache file that fails this is

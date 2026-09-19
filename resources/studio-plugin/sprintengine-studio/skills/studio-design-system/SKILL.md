@@ -40,7 +40,7 @@ content: tokens, principles and components are authored work. Then, in order:
    Don't list. Write it before the components; it settles the later arguments.
 2. `foundations/tokens.tokens.json` — a `ref` tier (raw scale) and a `sem` tier
    (meaning) aliasing it. Every token carries `$type` and `$description`; every
-   `sem.*` one also `$extensions["com.multicode"]` with `role` and `use`. A
+   `sem.*` one also `$extensions["com.sprintengine"]` with `role` and `use`. A
    token whose value differs by mode declares `modes: { light, dark }`, so both
    modes ship from one source and no component CSS writes a per-mode override.
 3. The first components — each the trio below, tokens only.

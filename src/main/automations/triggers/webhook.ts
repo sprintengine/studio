@@ -14,9 +14,9 @@ import { isRecord } from '../../../shared/records'
 export { WEBHOOK_TRIGGER_KIND }
 export type { WebhookTriggerConfig }
 
-export const WEBHOOK_SIGNATURE_HEADER = 'x-multicode-signature'
-export const WEBHOOK_DELIVERY_ID_HEADER = 'x-multicode-delivery-id'
-export const WEBHOOK_EVENT_TIME_HEADER = 'x-multicode-event-time'
+export const WEBHOOK_SIGNATURE_HEADER = 'x-sprintengine-signature'
+export const WEBHOOK_DELIVERY_ID_HEADER = 'x-sprintengine-delivery-id'
+export const WEBHOOK_EVENT_TIME_HEADER = 'x-sprintengine-event-time'
 export const WEBHOOK_ROUTE_PREFIX = '/automations/webhooks/'
 
 type WebhookTriggerValidationResult = { ok: true; value: WebhookTriggerConfig } | { ok: false; error: string }

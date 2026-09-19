@@ -48,7 +48,7 @@ import {
   updateBacklogType,
 } from './backlog-service'
 import { createBuiltinSkillManager, ensureSkillInstalled, setDefaultSkillManager } from './builtin-skills'
-import { MulticodeAuthBridge } from './auth-service'
+import { SprintEngineAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { createTailnetShareService, readTailnetWebTargets } from './automation/tailnet/tailnet-share-service'
 import { MobileControlSnapshotService, sanitizeMobileSnapshotForRelay } from './mobile/control/snapshot'
@@ -117,7 +117,7 @@ import { createAgentLaunchService } from './agent-launch-service'
 import { ConversationRuntime } from './conversation-runtime'
 import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
-import { MulticodeUpdateService } from './update-service'
+import { SprintEngineUpdateService } from './update-service'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
 import { createWorkspaceRegistryStore } from './workspace-registry-store'
@@ -134,7 +134,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   const { logMainPerfEvent, withIpcDiagnostics } = createMainDiagnostics({
     enabled: diagnosticsEnabled,
   })
-  const multicodeAuth = new MulticodeAuthBridge()
+  const sprintengineAuth = new SprintEngineAuthBridge()
   const mcpConfigService = createMcpConfigService()
   const resolveStudioMcpBridgeScriptPath = () =>
     app.isPackaged
@@ -541,7 +541,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       },
     },
   })
-  const updateService = new MulticodeUpdateService({ writeDiagnosticLog })
+  const updateService = new SprintEngineUpdateService({ writeDiagnosticLog })
   const agentConfigImportService = createAgentConfigImportService({
     mcpConfigService,
     builtinSkillManager,
@@ -552,7 +552,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // capability module (src/main/modules/), registered through the host kernel.
   // The terminal runtime now exposes only generic agent-session seams
   // (spawn/kill/inventory + a session-exit listener); modules layer their own
-  // system-specific behavior on top. multicodeAuth and terminalRuntime are
+  // system-specific behavior on top. sprintengineAuth and terminalRuntime are
   // seeded into the kernel so those modules can build on them via the service
   // bridge.
 
@@ -1167,10 +1167,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     githubTokenStore,
     logMainPerfEvent,
     mcpConfigService,
-    multicodeAuth,
+    sprintengineAuth,
     // The provider-agnostic entitlement seam. Feature gates resolve THIS;
-    // `multicodeAuth` is the account-service adapter sitting behind it.
-    entitlements: multicodeAuth.entitlements,
+    // `sprintengineAuth` is the account-service adapter sitting behind it.
+    entitlements: sprintengineAuth.entitlements,
     skillsService,
     agentLaunchSettings,
     conversationPeek,
@@ -1213,13 +1213,13 @@ function getBundledHookReporterPath(filename: string): string | null {
 // registrations name their own bundled template (e.g. OpenCode's in-process
 // plugin, rewritten to .js on install).
 function getBundledAgentStateReporterPath(): string | null {
-  return getBundledHookReporterPath('multicode-agent-state.mjs')
+  return getBundledHookReporterPath('sprintengine-agent-state.mjs')
 }
 
 // The status-line forwarder, shipped by the same `resources/hooks` entry. Only
 // the Claude-family specs that declare `statusLine: true` install it.
 function getBundledStatusLineForwarderPath(): string | null {
-  return getBundledHookReporterPath('multicode-status-line.mjs')
+  return getBundledHookReporterPath('sprintengine-status-line.mjs')
 }
 
 // The app's own plugin marketplace, shipped by the `resources/studio-plugin`

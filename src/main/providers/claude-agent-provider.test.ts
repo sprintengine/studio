@@ -202,11 +202,11 @@ test('claude-agent-provider', async () => {
       ANTHROPIC_API_KEY: 'sk-ant-inherited',
       ANTHROPIC_AUTH_TOKEN: 'third-party-token',
       ANTHROPIC_BASE_URL: 'https://api.z.ai',
-      MULTICODE_WORKSPACE_ID: 'workspace',
+      SPRINTENGINE_WORKSPACE_ID: 'workspace',
     })
     for (const key of STRIPPED_ANTHROPIC_AUTH_ENV_KEYS) assert.equal(key in stripped, false)
     assert.equal(stripped.PATH, '/usr/bin')
-    assert.equal(stripped.MULTICODE_WORKSPACE_ID, 'workspace')
+    assert.equal(stripped.SPRINTENGINE_WORKSPACE_ID, 'workspace')
   }
 
   // Text-only turns keep the plain-string content shape (unchanged path);

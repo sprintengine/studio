@@ -14,7 +14,7 @@ test('background-mode-store', async () => {
   const FILE_NAME = 'background-mode.json'
 
   async function withUserData(body: (dir: string) => Promise<void>): Promise<void> {
-    const dir = await mkdtemp(join(tmpdir(), 'multicode-background-mode-'))
+    const dir = await mkdtemp(join(tmpdir(), 'sprintengine-background-mode-'))
     try {
       await body(dir)
     } finally {

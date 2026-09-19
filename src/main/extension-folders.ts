@@ -13,14 +13,14 @@ import { defaultUserPluginRoot } from './plugin-registry'
 
 const EXTENSION_README_FILENAME = 'README.md'
 
-export const MODULE_FOLDER_README = `# Multicode capability modules
+export const MODULE_FOLDER_README = `# SprintEngine capability modules
 
-Drop a capability module here to have Multicode pick it up on next launch.
+Drop a capability module here to have SprintEngine pick it up on next launch.
 
 ## Layout
 
 \`\`\`
-~/.multicode/modules/
+~/.sprintengine/modules/
   <module-id>/
     manifest.json   # required — id must equal this folder name
     dist/main.cjs   # optional entry.main (CommonJS, main process)
@@ -41,8 +41,8 @@ the host APIs (\`MainHost\` / \`RendererHost\`). Validate, pack and sign with th
 bundled CLI:
 
 \`\`\`
-npx multicode-module pack ./my-module
-npx multicode-module sign ./my-module --key ./signing.pem
+npx sprintengine-module pack ./my-module
+npx sprintengine-module sign ./my-module --key ./signing.pem
 \`\`\`
 
 Installed modules are listed under **Settings → Modules**, where you review the
@@ -50,23 +50,23 @@ access each one requests and grant trust before its code runs. You can also
 install a module folder from there instead of copying it here by hand.
 `
 
-export const PLUGIN_FOLDER_README = `# Multicode CLI plugins (BYO CLI)
+export const PLUGIN_FOLDER_README = `# SprintEngine CLI plugins (BYO CLI)
 
-Drop a CLI plugin here to add a new agent CLI to Multicode. Plugins are picked
+Drop a CLI plugin here to add a new agent CLI to SprintEngine. Plugins are picked
 up on next launch (or after **Refresh** / **Install CLI from folder** under
 **Settings → Agents**).
 
 ## Layout
 
 \`\`\`
-~/.multicode/plugins/
+~/.sprintengine/plugins/
   <plugin-id>/
     plugin.json     # required — id must equal this folder name
 \`\`\`
 
 ## What a plugin describes
 
-A \`plugin.json\` tells Multicode how to launch and resume an agent CLI: its
+A \`plugin.json\` tells SprintEngine how to launch and resume an agent CLI: its
 \`binary\`, the \`launch\` / \`resume\` argv templates, prompt injection, completion
 detection, MCP config format, model selection and capabilities. See the
 \`CliPluginManifest\` type and \`validateCliPluginManifest\` validator published by

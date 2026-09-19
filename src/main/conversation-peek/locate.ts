@@ -28,8 +28,8 @@ import { pathExists } from '../filesystem-workspace'
  *     `cd design-system` or enters a worktree keeps writing to the folder it
  *     started in. Deriving from the observed cwd would miss all six.
  *  2. Every non-alphanumeric character observed in a real path collapses to
- *     `-`: `/home/dev/projects/multicode/.claude/worktrees/workspace-rail`
- *     is stored as `-home-dev-projects-multicode--claude-worktrees-workspace-rail`
+ *     `-`: `/home/dev/projects/sprintengine/.claude/worktrees/workspace-rail`
+ *     is stored as `-home-dev-projects-sprintengine--claude-worktrees-workspace-rail`
  *     (note the `/.` → `--`), and case is preserved (`…-T-mc-sdk-smoke-hFGiGN`).
  *     The rule below generalises that rather than enumerating separators,
  *     because an unhandled character would silently name the wrong folder.

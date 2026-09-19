@@ -11,7 +11,7 @@
 //    is a hash of its key, so the same project is the same colour on every
 //    machine and for every person, with nothing to sync. The 2026-09-09 design
 //    handed out six hues first-come and stored the pick per machine, which made
-//    `multicode` blue on one Mac and teal on the next.
+//    `sprintengine` blue on one Mac and teal on the next.
 //  * THE WHOLE HUE WHEEL, AT ONE LIGHTNESS AND CHROMA. Yellow, green, pink —
 //    every hue — at the same `--sem-color-mark-project-lightness` and
 //    `-chroma`, which differ per mode so every hue reads on all eleven themes

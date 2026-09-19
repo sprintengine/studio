@@ -247,7 +247,7 @@ test('tailnet-transport-version', async () => {
 
   check('a machine that does not advertise the change feed stops being dialled for it', async () => {
     await withFakeMachine([], async ({ port, paths }) => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-fleet-capability-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-capability-'))
       const store = createTailnetFleetStore({ resolveUserDataDir: () => dir })
       store.add({
         machineName: 'mac-mini',
@@ -290,7 +290,7 @@ test('tailnet-transport-version', async () => {
 
   check('a machine that advertises the change feed is dialled for it', async () => {
     await withFakeMachine(['events'], async ({ port, paths }) => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-fleet-capability-on-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-capability-on-'))
       const store = createTailnetFleetStore({ resolveUserDataDir: () => dir })
       store.add({
         machineName: 'build-box',
@@ -329,7 +329,7 @@ test('tailnet-transport-version', async () => {
     // capability list did, so a build from that window serves the feed and names
     // nothing — reading that as "no feed" would switch off a feature that works.
     await withFakeMachine(null, async ({ port, paths }) => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-fleet-capability-silent-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-capability-silent-'))
       const store = createTailnetFleetStore({ resolveUserDataDir: () => dir })
       store.add({
         machineName: 'dev-macbook-air',

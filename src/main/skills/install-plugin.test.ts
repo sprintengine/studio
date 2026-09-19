@@ -84,7 +84,7 @@ test('install-plugin', async () => {
     Buffer.from(`bytes of ${file.path}\n`, 'utf8')
 
   async function claudeIsCopiedForLikeEveryOtherHarness(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-install-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-plugin-install-'))
     // A person's own settings must survive untouched.
     await mkdir(join(workspace, '.claude'), { recursive: true })
     await writeFile(
@@ -185,7 +185,7 @@ test('install-plugin', async () => {
    * correction of 2026-09-06.
    */
   async function theSettingsKeysAreAnExtraNothingDependsOn(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-install-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-plugin-install-'))
     await mkdir(join(workspace, '.claude'), { recursive: true })
     await writeFile(join(workspace, CLAUDE_SETTINGS_RELATIVE_PATH), '{ "permissions": ')
     const result = await installPlugin({
@@ -228,7 +228,7 @@ test('install-plugin', async () => {
    * from, not only hidden on our own tab.
    */
   async function theAppsOwnPluginIsNeverInstalledTwice(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-install-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-plugin-install-'))
     const result = await installPlugin({
       workspaceRoot: workspace,
       sourceId: 'github:sprintengine/studio-releases',
@@ -249,7 +249,7 @@ test('install-plugin', async () => {
   async function pluginOnlyRepositoryCopiesSkillsToClaudeToo(): Promise<void> {
     // No marketplace name: Claude Code cannot be pointed at it, so it gets the
     // skills copy like everyone else.
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-install-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-plugin-install-'))
     const result = await installPlugin({
       workspaceRoot: workspace,
       sourceId: 'github:acme/plugin',
@@ -270,7 +270,7 @@ test('install-plugin', async () => {
   }
 
   async function nothingToInstallIsSaidNotHidden(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-install-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-plugin-install-'))
     // Hooks only, no marketplace, no Claude: nothing any harness here can use.
     const result = await installPlugin({
       workspaceRoot: workspace,
@@ -361,7 +361,7 @@ test('install-plugin', async () => {
    * (backlog/2026-09-06-mcp-installs-carry-source-provenance.md).
    */
   async function installedServersCarryTheirSource(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-mcp-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-plugin-mcp-'))
     const result = await installPlugin({
       workspaceRoot: workspace,
       sourceId: 'github:anthropics/claude-plugins-official',
@@ -424,7 +424,7 @@ test('install-plugin', async () => {
   }
 
   async function aFilteredInstallCopiesOnlyTheChosenSkill(): Promise<void> {
-    const workspace = await mkdtemp(join(tmpdir(), 'multicode-plugin-item-'))
+    const workspace = await mkdtemp(join(tmpdir(), 'sprintengine-plugin-item-'))
     await mkdir(join(workspace, '.claude'), { recursive: true })
     await writeFile(
       join(workspace, CLAUDE_SETTINGS_RELATIVE_PATH),

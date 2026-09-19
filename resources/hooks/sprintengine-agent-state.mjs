@@ -36,15 +36,8 @@ import { readFileSync, statSync } from 'node:fs'
 import { connect } from 'node:net'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 
-// The app's own variables answer to two names. Everything was spelled
-// `MULTICODE_*` before the 2026-09-08 rename to SprintEngine Studio and is
-// spelled `SPRINTENGINE_*` now, and this file is a COPY installed into a
-// workspace: the app instance launching an agent may be either side of that
-// rename, and this copy may be either side of it too. New name first, old name
-// second. An empty value counts as unset here, matching the `||` fallbacks the
-// call sites already had.
-const studioEnv = (name) =>
-  process.env[name] || process.env[name.replace(/^SPRINTENGINE_/, 'MULTICODE_')] || ''
+// The app's own variables. An empty value counts as unset.
+const studioEnv = (name) => process.env[name] || ''
 
 const CONNECT_TIMEOUT_MS = 1000
 // Bounded retry: a transiently busy listener must not silently eat a frame —
@@ -128,7 +121,12 @@ function deriveEdits(hunks) {
     // the region it describes is the next one. `oldLines`/`newLines` are read
     // ONLY for that test — deliberately, so a CLI that omits them degrades to
     // the ordinary (context-carrying) reading rather than losing every range.
-    const walked = walkHunkLines(lines, oldLines === 0 ? oldStart + 1 : oldStart, newLines === 0 ? newStart + 1 : newStart, edits)
+    const walked = walkHunkLines(
+      lines,
+      oldLines === 0 ? oldStart + 1 : oldStart,
+      newLines === 0 ? newStart + 1 : newStart,
+      edits,
+    )
     if (!walked) return null
     if (edits.length >= MAX_EDITS_PER_FRAME) return edits.slice(0, MAX_EDITS_PER_FRAME)
   }
@@ -241,12 +239,12 @@ function deriveFileChange(toolResponse, toolInput) {
   const input = toolInput && typeof toolInput === 'object' ? toolInput : {}
   const text = (value) => (typeof value === 'string' ? value : null)
   const rawPath =
-    text(response.filePath)
-    ?? text(response.file_path)
-    ?? text(input.file_path)
-    ?? text(input.filePath)
-    ?? text(input.notebook_path)
-    ?? text(input.notebookPath)
+    text(response.filePath) ??
+    text(response.file_path) ??
+    text(input.file_path) ??
+    text(input.filePath) ??
+    text(input.notebook_path) ??
+    text(input.notebookPath)
   const path = rawPath?.trim()
   if (!path || path.length > MAX_FILE_PATH_LENGTH) return null
 
@@ -539,7 +537,12 @@ function deriveCodexFileChanges(patchText, baseDir) {
       // write and must not claim.
       const found = located ? locateBlock(fileAfter, normalizeNewlines(post)) : { kind: 'absent' }
       if (found.kind !== 'found') located = false
-      const walked = walkHunkLines(lines, Math.max(1, (found.start ?? 1) - delta), found.start ?? 1, located ? edits : [])
+      const walked = walkHunkLines(
+        lines,
+        Math.max(1, (found.start ?? 1) - delta),
+        found.start ?? 1,
+        located ? edits : [],
+      )
       if (!walked) {
         located = false
         continue
@@ -764,7 +767,9 @@ function deriveFileChanges(event, toolName, payload) {
   }
 
   if (FILE_EDIT_TOOL_NAMES.has(toolName) || STR_REPLACE_TOOL_NAMES.has(toolName) || WRITE_TOOL_NAMES.has(toolName)) {
-    if (toolCallFailed(payload?.tool_response ?? payload?.toolResponse ?? payload?.tool_output ?? payload?.toolOutput)) {
+    if (
+      toolCallFailed(payload?.tool_response ?? payload?.toolResponse ?? payload?.tool_output ?? payload?.toolOutput)
+    ) {
       return []
     }
     const path = readInputPath(input, baseDir)
@@ -808,7 +813,8 @@ function deriveFileChanges(event, toolName, payload) {
 // (`/pull/new/<branch>`) all fail to match. The trailing lookahead refuses
 // `/pull/12ab`, so a number that is not a number captures nothing rather than
 // its own prefix.
-const PULL_REQUEST_URL_RE = /https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+(?![\w])/
+const PULL_REQUEST_URL_RE =
+  /https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+(?![\w])/
 
 // `gh pr create`, however the shell spaced it. Anchored on word boundaries so
 // `/usr/local/bin/gh pr create` matches and `gh pr list` never does.
@@ -872,15 +878,7 @@ function firstPullRequestUrl(text, mustEndInside) {
 // `result` cover the CLIs that wrap a command result in an object of their own —
 // `stderr` included because `gh` prints the "a pull request already exists"
 // line, URL and all, on the error stream.
-const TOOL_RESPONSE_TEXT_FIELDS = [
-  'stdout',
-  'stderr',
-  'output',
-  'content',
-  'text',
-  'result',
-  'structuredContent',
-]
+const TOOL_RESPONSE_TEXT_FIELDS = ['stdout', 'stderr', 'output', 'content', 'text', 'result', 'structuredContent']
 
 // The pull request URL a tool result carries, wherever in it the CLI put it.
 // Bounded in depth and in breadth: an untrusted payload must cost a fixed amount
@@ -1077,7 +1075,11 @@ async function main() {
     const input = payload?.tool_input ?? payload?.toolInput
     if (input && typeof input === 'object') {
       if (input.stop === true) frame.wakeup = { stop: true }
-      else if (typeof input.delaySeconds === 'number' && Number.isFinite(input.delaySeconds) && input.delaySeconds > 0) {
+      else if (
+        typeof input.delaySeconds === 'number' &&
+        Number.isFinite(input.delaySeconds) &&
+        input.delaySeconds > 0
+      ) {
         frame.wakeup = { delaySeconds: input.delaySeconds }
       }
     }
@@ -1134,7 +1136,7 @@ async function main() {
     const toolInput = payload?.tool_input ?? payload?.toolInput
     if (isPullRequestCreation(toolInput)) {
       const url = extractPullRequestUrl(
-        payload?.tool_response ?? payload?.toolResponse ?? payload?.tool_output ?? payload?.toolOutput
+        payload?.tool_response ?? payload?.toolResponse ?? payload?.tool_output ?? payload?.toolOutput,
       )
       if (url) frame.pullRequest = { url }
     }
@@ -1168,7 +1170,7 @@ async function main() {
   const workspaceRoots = Array.isArray(payload?.workspace_roots) ? payload.workspace_roots : null
   const cwd = workspaceRoots
     ? str(workspaceRoots[0])
-    : str(payload?.new_cwd) ?? str(payload?.newCwd) ?? str(payload?.cwd)
+    : (str(payload?.new_cwd) ?? str(payload?.newCwd) ?? str(payload?.cwd))
   if (cwd && !subagentId) {
     const trimmed = cwd.trim()
     if (trimmed && trimmed.length <= MAX_CWD_LENGTH) frame.cwd = trimmed
@@ -1179,8 +1181,7 @@ async function main() {
   // — the runtime re-ingesting the same phase/ts is a no-op, and the ledger
   // reads each file change once. No file change: the phase frame still goes,
   // exactly as before.
-  const frames =
-    fileChanges.length > 0 ? fileChanges.map((fileChange) => ({ ...frame, fileChange })) : [frame]
+  const frames = fileChanges.length > 0 ? fileChanges.map((fileChange) => ({ ...frame, fileChange })) : [frame]
   await writeFrame(socketPath, frames)
 }
 

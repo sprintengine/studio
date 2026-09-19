@@ -2,7 +2,7 @@
 //
 // A CLI plugin is a folder containing a `plugin.json` that tells the studio how
 // to launch, resume, drive and complete an agent CLI (e.g. claude-code, codex,
-// opencode). Drop it into `~/.multicode/plugins/<id>/` or install it from
+// opencode). Drop it into `~/.sprintengine/plugins/<id>/` or install it from
 // Settings → Agents → "Install CLI from folder". The plugin id must equal the
 // containing folder name; a user plugin with the same id as a bundled CLI
 // overrides the bundled one.

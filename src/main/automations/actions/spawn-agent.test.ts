@@ -25,7 +25,7 @@ test('spawn-agent', async () => {
     // the agent to write.
     const prompt = compose()
     assert.ok(!prompt.includes('run-status'), 'prompt names no run-status file')
-    assert.ok(!prompt.includes('.multicode-automation-run-status.json'), 'prompt carries no signal filename')
+    assert.ok(!prompt.includes('.sprintengine-automation-run-status.json'), 'prompt carries no signal filename')
     assert.ok(!prompt.includes('"status"'), 'prompt states no signal JSON shape')
   }
 

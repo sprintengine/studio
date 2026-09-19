@@ -99,7 +99,7 @@ test('automations-ipc', async () => {
   }
 
   async function withWorkspaceRoot(): Promise<string> {
-    return mkdtemp(join(tmpdir(), 'multicode-automations-ipc-'))
+    return mkdtemp(join(tmpdir(), 'sprintengine-automations-ipc-'))
   }
 
   function workspaceSnapshot(workspaceRoots: string[]): WorkspaceSyncSnapshot {
@@ -598,7 +598,7 @@ test('automations-ipc', async () => {
   // install is invisible, and one with no project at all is worse.
   async function testCatalogueInstallTargetsOnlyAnOpenProject(): Promise<void> {
     const knownRoot = await withWorkspaceRoot()
-    const outsideRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-ipc-outside-'))
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'sprintengine-automations-ipc-outside-'))
     const frontDoor = registerAutomationsIpc(
       { registerIpc: () => undefined },
       testDeps({ workspaceRoots: [knownRoot] }),
@@ -614,7 +614,7 @@ test('automations-ipc', async () => {
 
     const noProject = await frontDoor.installCatalogueDefinition({
       definition: payload,
-      sourceCatalogueId: 'multicode.nightly-sweep',
+      sourceCatalogueId: 'sprintengine.nightly-sweep',
     })
     assert.equal(noProject.ok, false)
     if (!noProject.ok)
@@ -623,7 +623,7 @@ test('automations-ipc', async () => {
     const wrongProject = await frontDoor.installCatalogueDefinition({
       workspaceRoot: outsideRoot,
       definition: payload,
-      sourceCatalogueId: 'multicode.nightly-sweep',
+      sourceCatalogueId: 'sprintengine.nightly-sweep',
     })
     assert.equal(wrongProject.ok, false)
     if (!wrongProject.ok) assert.equal(wrongProject.code, 'workspace_root_untrusted')
@@ -637,19 +637,19 @@ test('automations-ipc', async () => {
     const added = await frontDoor.installCatalogueDefinition({
       workspaceRoot: knownRoot,
       definition: payload,
-      sourceCatalogueId: 'multicode.nightly-sweep',
-      sourcePublisher: 'Multicode Labs',
+      sourceCatalogueId: 'sprintengine.nightly-sweep',
+      sourcePublisher: 'SprintEngine Labs',
     })
     assert.equal(added.ok, true, added.ok ? '' : added.message)
     if (!added.ok) return
     assert.equal(added.value.alreadyAdded, false)
     assert.equal(added.value.workspaceRoot, knownRoot, 'the result names the project it used')
-    assert.equal(added.value.definition.sourceCatalogueId, 'multicode.nightly-sweep')
+    assert.equal(added.value.definition.sourceCatalogueId, 'sprintengine.nightly-sweep')
   }
 
   async function testOutOfWorkspaceRootIsRejectedBeforeStoreOrRunNow(): Promise<void> {
     const knownRoot = await withWorkspaceRoot()
-    const outsideRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-ipc-outside-'))
+    const outsideRoot = await mkdtemp(join(tmpdir(), 'sprintengine-automations-ipc-outside-'))
     const handlers: HandlerMap = new Map()
     let storeCreated = 0
     let runNowCalled = 0

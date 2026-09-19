@@ -29,7 +29,7 @@ test('git-patch', async () => {
 
   /** A repo holding `src/[id].tsx` beside `src/i.tsx`, both changed. */
   function makeRepo(): { root: string; repo: string } {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-git-patch-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-git-patch-'))
     const repo = join(root, 'repo')
     execFileSync('git', ['init', '--quiet', '--initial-branch=main', repo], { encoding: 'utf8' })
     git(repo, ['config', 'user.email', 'test@example.com'])

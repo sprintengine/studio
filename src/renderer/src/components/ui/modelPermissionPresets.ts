@@ -23,7 +23,7 @@ import type { AgentCli, CliPermissionPreset } from '../../types/workspace'
 // Settings still owns. So nothing changes for a row nobody has touched, and
 // setting one row can never move another.
 
-const STORAGE_KEY = 'multicode.model-permission-presets'
+const STORAGE_KEY = 'sprintengine.model-permission-presets'
 
 // Exhaustive over the union, so a preset added to the type fails the build here
 // rather than being silently dropped on read as an unknown value.

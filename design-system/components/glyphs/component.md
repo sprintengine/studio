@@ -2,7 +2,7 @@
 
 The product's icon language: one concept per glyph, drawn in `currentColor`
 line work, sized only by the `--sem-icon-size-*` ramp. The thirty-eight SVGs in
-`glyphs/` (close, search, spinner, multicode-mark, git-branch, remote-machine,
+`glyphs/` (close, search, spinner, sprintengine-mark, git-branch, remote-machine,
 the four `device-*` marks,
 commit, worktree, history, folder, file-typescript, file-generic, the three
 pull-request marks — pull-request-open, pull-request-merged,

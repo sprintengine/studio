@@ -67,9 +67,9 @@ test('globalDoorsIntegration', async () => {
   anyGlobal.ResizeObserver = NoopResizeObserver
   dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
 
-  const multicode = '/work/multicode'
+  const sprintengine = '/work/sprintengine'
   const multiauth = '/work/multiauth'
-  const mobile = '/work/multicode-mobile'
+  const mobile = '/work/sprintengine-mobile'
 
   // The Design door's world (item 2002): an empty library first, then one real
   // bundle, so the door can be driven through both its first-run empty state and
@@ -81,7 +81,7 @@ test('globalDoorsIntegration', async () => {
     summary: string
     releasedAt: string | null
   }> = []
-  const designBundlePath = `${multicode}/design-system`
+  const designBundlePath = `${sprintengine}/design-system`
   const designLibraryOnlyPath = '/work/harbor/design-system'
   const designBundles: Record<string, unknown> = {
     ['/work/harbor/design-system']: {
@@ -122,8 +122,8 @@ test('globalDoorsIntegration', async () => {
     },
     [designBundlePath]: {
       identity: {
-        path: 'MULTICODE_PLACEHOLDER/design-system',
-        name: 'multicode',
+        path: 'SPRINTENGINE_PLACEHOLDER/design-system',
+        name: 'sprintengine',
         version: '2.4.0',
         summary: 'The in-house system.',
         // design-tokens-allow: a PREVIEWED bundle's own tokens are content under test, not app chrome — the point is that they are not ours.
@@ -131,7 +131,7 @@ test('globalDoorsIntegration', async () => {
       },
       manifest: {
         schemaVersion: 1,
-        name: 'multicode',
+        name: 'sprintengine',
         version: '2.4.0',
         summary: 'The in-house system.',
         modes: ['light', 'dark'],
@@ -172,7 +172,7 @@ test('globalDoorsIntegration', async () => {
         ? { ok: true, view: designBundles[bundleDir] }
         : { ok: false, reason: 'missing', path: bundleDir, message: `gone: ${bundleDir}` },
     readfile: async (path: string) => {
-      if (path.startsWith(multicode)) return JSON.stringify({ key: 'MC' })
+      if (path.startsWith(sprintengine)) return JSON.stringify({ key: 'MC' })
       if (path.startsWith(multiauth)) return JSON.stringify({ key: 'MA' })
       if (path.startsWith(mobile)) return JSON.stringify({ key: 'MM' })
       throw new Error('no config')
@@ -297,9 +297,9 @@ test('globalDoorsIntegration', async () => {
       workspaces: [
         {
           id: 'w-mc',
-          name: 'multicode',
+          name: 'sprintengine',
           mode: 'standard',
-          folderPath: multicode,
+          folderPath: sprintengine,
           agents: {},
           openFiles: [],
           createdAt: 1,
@@ -360,8 +360,8 @@ test('globalDoorsIntegration', async () => {
 
     // Now with a project open that carries an attached system AND a separate one
     // in the library: two groups, so the headings earn their place.
-    const designProjectWorkspace = residentWorkspaces.find((workspace) => workspace.folderPath === multicode)
-    assert.ok(designProjectWorkspace, 'the fixture keeps a workspace rooted at the multicode project')
+    const designProjectWorkspace = residentWorkspaces.find((workspace) => workspace.folderPath === sprintengine)
+    assert.ok(designProjectWorkspace, 'the fixture keeps a workspace rooted at the sprintengine project')
     useWorkspaceStore.setState({
       activeWorkspaceId: designProjectWorkspace.id,
     } as never)
@@ -375,7 +375,7 @@ test('globalDoorsIntegration', async () => {
     await settle()
     {
       const text = container.textContent ?? ''
-      assert.match(text, /multicode/, 'the attached system is listed by its own name')
+      assert.match(text, /sprintengine/, 'the attached system is listed by its own name')
       assert.match(text, /harbor/, 'beside the one that is only in the library')
       // Two groups with rows, so the headings separate something from something.
       assert.match(text, /In this project/)
@@ -482,7 +482,7 @@ test('globalDoorsIntegration', async () => {
             {
               id: 'roadmap-module',
               name: 'Roadmap',
-              publisher: { name: 'Multicode', verified: true },
+              publisher: { name: 'SprintEngine', verified: true },
               summary: 'Plan quarterly arcs.',
               category: 'Planning',
               icon: 'roadmap.svg',
@@ -506,14 +506,14 @@ test('globalDoorsIntegration', async () => {
       // one repository. A tab each, the app's leading.
       //
       // That catalogue used to be a `builtin`-kind source whose id was literally
-      // `builtin` and whose record called itself "Multicode"; `catalogueTabLabel`
+      // `builtin` and whose record called itself "SprintEngine"; `catalogueTabLabel`
       // recognised that id and drew the product's name over it. The
       // studio-marketplace ruling (2026-09-06, commit 34f5f67ac) replaced it with
       // the repository we publish — a `github` source at
       // `sprintengine/studio-releases`, read by the same scanner as any other —
       // and this fixture kept the retired record. The label rule now keys on
       // STUDIO_SKILL_SOURCE_ID, so an id of `builtin` fell through to the
-      // record's own name and the tab read "Multicode": the assertion below was
+      // record's own name and the tab read "SprintEngine": the assertion below was
       // right and the fixture beneath it was two days stale. The constants are
       // imported rather than typed out so the next rename moves this fixture with
       // the product instead of leaving it behind again.

@@ -99,7 +99,7 @@ test('source-store', async () => {
 
   async function main(): Promise<void> {
     await run('a folder source survives the write and the read that follows it', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-source-store-'))
       const store = createSkillSourceStore(dir)
       await store.putSource(FOLDER, scanOf('tdd'))
 
@@ -121,7 +121,7 @@ test('source-store', async () => {
     })
 
     await run('a repository source still round-trips', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-source-store-'))
       const store = createSkillSourceStore(dir)
       await store.putSource(REPO, scanOf('research'))
       const reopened = createSkillSourceStore(dir)
@@ -129,7 +129,7 @@ test('source-store', async () => {
     })
 
     await run('a removed source takes its scan with it', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-source-store-'))
       const store = createSkillSourceStore(dir)
       await store.putSource(FOLDER, scanOf('tdd'))
       await store.removeSource(FOLDER.id)
@@ -175,7 +175,7 @@ test('source-store', async () => {
       // cached beside it, and the commit that scan was taken at, have to survive
       // the trip to disk: a store that dropped them would refetch 292 plugins on
       // every launch and could never say an update was available.
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-source-store-'))
       const store = createSkillSourceStore(dir)
       const fresh = await store.getSource(OFFICIAL_PLUGINS_SKILL_SOURCE_ID)
       assert.equal(fresh?.kind, 'github', 'a fresh profile has it without anyone adding it')
@@ -238,7 +238,7 @@ test('source-store', async () => {
       )
       assert.deepEqual(wrongKind.sources, [], 'a kind that is not the always-present source’s is not that source')
 
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-source-store-'))
       writeFileSync(
         join(dir, 'skill-sources.json'),
         JSON.stringify({
@@ -287,7 +287,7 @@ test('source-store', async () => {
       // repository we publish, so its scan and its commit have to survive to
       // disk exactly like Anthropic's — otherwise every launch refetches it and
       // no check could ever say an update was available.
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-skill-sources-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-skill-sources-'))
       const store = createSkillSourceStore(dir)
       const listed = await store.listSources()
       assert.equal(listed[0]?.id, STUDIO_SKILL_SOURCE_ID, 'ours leads the row')
@@ -364,7 +364,7 @@ test('source-store', async () => {
     })
 
     await run('a write says what it wrote and what it removed', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-source-store-'))
       const { log, lines } = recorder()
       const store = createSkillSourceStore(dir, { log })
       await store.putSource(REPO, scanOf('research'))
@@ -383,7 +383,7 @@ test('source-store', async () => {
       // the very next write then persisted over a list of real sources. One
       // transient failure, every added source gone, and nothing said.
       if (typeof process.getuid === 'function' && process.getuid() === 0) return
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-source-store-'))
       const store = createSkillSourceStore(dir, { log: () => {} })
       await store.putSource(REPO, scanOf('research'))
       await store.putSource(FOLDER, scanOf('tdd'))
@@ -405,7 +405,7 @@ test('source-store', async () => {
       // The one case that must not block forever: a store nobody can parse would
       // otherwise refuse every add for the life of the install. The bytes are
       // kept, so whatever was in them can still be recovered by hand.
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-source-store-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-source-store-'))
       writeFileSync(join(dir, 'skill-sources.json'), '{"sources":[{"id":"github:acme/skills"')
       const { log, lines } = recorder()
       const store = createSkillSourceStore(dir, { log })

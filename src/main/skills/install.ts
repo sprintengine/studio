@@ -41,11 +41,11 @@ export const DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES = 50 * 1024 * 1024
  * skills the app ships, deliberately: one convention for "the studio put this
  * here", not two. The shapes differ and each reader recognises only its own —
  * a bundled skill's manifest names no `sourceId`, so no sync claims it, and a
- * source's marker fails the built-in reader's `source: 'multicode-builtin'`
+ * source's marker fails the built-in reader's `source: 'sprintengine-builtin'`
  * check, so the built-in installer treats that directory as local and refuses
  * to overwrite it.
  */
-export const SKILL_PROVENANCE_FILE = '.multicode-skill.json'
+export const SKILL_PROVENANCE_FILE = '.sprintengine-skill.json'
 
 /** Which source an installed copy was taken from, and at which commit. */
 export type SkillInstallProvenance = {
@@ -196,7 +196,7 @@ export async function installSkill(options: InstallSkillOptions): Promise<SkillI
   const { plan } = planned
   const maxTotalBytes = options.maxTotalBytes ?? DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES
 
-  const stagingRoot = options.stagingRoot ?? join(tmpdir(), 'multicode-skill-install')
+  const stagingRoot = options.stagingRoot ?? join(tmpdir(), 'sprintengine-skill-install')
   let stage: string | null = null
   try {
     await mkdir(stagingRoot, { recursive: true })

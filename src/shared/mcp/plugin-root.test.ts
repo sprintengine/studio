@@ -93,11 +93,11 @@ test('plugin-root', async () => {
    * variable stops being something the person is asked to fill in.
    */
   function resolvingSubstitutesExportsAndStopsAsking(): void {
-    const resolved = resolvePluginRoot(server(), '/w/.multicode/claude-plugins/telegram')
+    const resolved = resolvePluginRoot(server(), '/w/.sprintengine/claude-plugins/telegram')
     assert.deepEqual(resolved.args, [
       'run',
       '--cwd',
-      '/w/.multicode/claude-plugins/telegram',
+      '/w/.sprintengine/claude-plugins/telegram',
       '--shell=bun',
       '--silent',
       'start',
@@ -105,7 +105,7 @@ test('plugin-root', async () => {
     assert.equal(resolved.command, 'bun', 'the runtime is untouched — it is looked up on PATH, not in the plugin')
     assert.equal(
       resolved.env[PLUGIN_ROOT_VARIABLE],
-      '/w/.multicode/claude-plugins/telegram',
+      '/w/.sprintengine/claude-plugins/telegram',
       'exported too, so a package.json script that reads it gets the right answer',
     )
     assert.deepEqual(resolved.envVarNames, [], 'nothing is still waiting for a value it has been given')

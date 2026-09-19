@@ -2,7 +2,7 @@
   "kind": "provider",
   "id": "xai",
   "displayName": "xAI",
-  "publisher": "multicode",
+  "publisher": "sprintengine",
   "version": 1,
   "summary": "xAI's Grok models as a conversation model provider.",
   "category": "Model Provider",

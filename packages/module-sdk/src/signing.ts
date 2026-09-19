@@ -3,7 +3,7 @@
 // Subpath export `@sprintengine/module-sdk/signing` (not part of the root index:
 // this file needs node:crypto, and the root index must stay loadable in a
 // renderer). The studio's signature verification
-// (src/main/modules/module-signature.ts) and the `multicode-module` CLI both
+// (src/main/modules/module-signature.ts) and the `sprintengine-module` CLI both
 // consume these functions, so signer and verifier can never disagree about
 // what a valid signature is.
 //

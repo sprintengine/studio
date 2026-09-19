@@ -51,7 +51,7 @@ test('agent-changelist-feed', async () => {
   }
 
   async function main(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-agent-changelist-feed-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-agent-changelist-feed-'))
     const userData = join(root, 'user-data')
     const repo = join(root, 'repo')
     const worktree = join(root, 'worktrees', 'feature')

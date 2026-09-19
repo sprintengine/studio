@@ -282,7 +282,7 @@ test('model-feed-client', async () => {
         'https://raw.githubusercontent.com/sprintengine/studio-releases/main/model-feed.json',
       )
       assert.equal(
-        configuredModelFeedUrl({ MULTICODE_MODEL_FEED_URL: ' https://localhost:8765/model-feed.json ' }),
+        configuredModelFeedUrl({ SPRINTENGINE_MODEL_FEED_URL: ' https://localhost:8765/model-feed.json ' }),
         'https://localhost:8765/model-feed.json',
       )
       assert.deepEqual(

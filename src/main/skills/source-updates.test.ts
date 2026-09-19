@@ -41,7 +41,7 @@ test('source-updates', async () => {
   }
 
   async function main(): Promise<void> {
-    const userData = await mkdtemp(join(tmpdir(), 'multicode-source-updates-'))
+    const userData = await mkdtemp(join(tmpdir(), 'sprintengine-source-updates-'))
     const store = createSkillSourceStore(userData)
     // Our own marketplace is a repository like the rest since the
     // studio-marketplace ruling (2026-09-06), so it is checked like the rest —
@@ -202,7 +202,7 @@ test('source-updates', async () => {
    * follows: no line here names one.
    */
   async function overGit(): Promise<void> {
-    const userData = await mkdtemp(join(tmpdir(), 'multicode-source-updates-git-'))
+    const userData = await mkdtemp(join(tmpdir(), 'sprintengine-source-updates-git-'))
     const store = createSkillSourceStore(userData)
     await store.putSource(source('anthropics/claude-plugins-official', 'aaa'), null)
 

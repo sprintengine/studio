@@ -60,11 +60,11 @@ test('ProjectSourceMenu', async () => {
     const markup = renderToStaticMarkup(
       <ProjectSourceMenu
         options={[
-          { path: '/w/multicode', label: 'multicode' },
+          { path: '/w/sprintengine', label: 'sprintengine' },
           { path: '/w/toolbox', label: 'toolbox' },
         ]}
         recentOptions={[{ path: '/w/old-repo', label: 'old-repo' }]}
-        selectedPath="/w/multicode"
+        selectedPath="/w/sprintengine"
         defaultParent="/w"
         onSelect={() => {}}
         onBrowse={() => {}}
@@ -76,7 +76,7 @@ test('ProjectSourceMenu', async () => {
     await check('the selector opens on a search field over the project rows', () => {
       assert.match(markup, /aria-label="Search projects"/)
       const search = markup.indexOf('Search projects')
-      const firstRow = markup.indexOf('multicode')
+      const firstRow = markup.indexOf('sprintengine')
       assert.ok(search !== -1 && firstRow !== -1 && search < firstRow, 'search leads the list')
     })
 
@@ -103,7 +103,7 @@ test('ProjectSourceMenu', async () => {
       const browse = markup.indexOf('Browse…')
       const importGit = markup.indexOf('Import from Git')
       const separator = markup.indexOf('role="separator"')
-      const firstProject = markup.indexOf('multicode')
+      const firstProject = markup.indexOf('sprintengine')
       assert.ok(search < browse && browse < importGit, 'Browse… then Import, directly under the search field')
       assert.ok(
         importGit < separator && separator < firstProject,
@@ -179,8 +179,8 @@ test('ProjectSourceMenu', async () => {
             )}
           >
             <ProjectSourceMenu
-              options={[{ path: '/w/multicode', label: 'multicode' }]}
-              selectedPath="/w/multicode"
+              options={[{ path: '/w/sprintengine', label: 'sprintengine' }]}
+              selectedPath="/w/sprintengine"
               defaultParent="/w"
               onSelect={(path) => selections.push(path)}
               onBrowse={() => {}}

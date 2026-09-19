@@ -194,7 +194,7 @@ test('capability-watcher', async () => {
     const seen = collector()
     const release = watcher.subscribe(workspaceRoot, seen.notify)
 
-    const skillDir = join(workspaceRoot, '.claude', 'skills', 'outside-multicode')
+    const skillDir = join(workspaceRoot, '.claude', 'skills', 'outside-sprintengine')
     await mkdir(skillDir, { recursive: true })
     await writeFile(join(skillDir, 'SKILL.md'), '---\nname: outside\n---\n', 'utf-8')
 
@@ -485,7 +485,7 @@ test('capability-watcher', async () => {
     const seen = collector()
     const release = watcher.subscribe(workspaceRoot, seen.notify)
 
-    const skillDir = join(workspaceRoot, '.claude', 'skills', 'attached-by-multicode')
+    const skillDir = join(workspaceRoot, '.claude', 'skills', 'attached-by-sprintengine')
     await mkdir(skillDir, { recursive: true })
     await writeFile(join(skillDir, 'SKILL.md'), '---\nname: attached\n---\n', 'utf-8')
     watcher.invalidate(workspaceRoot, 'claude')
@@ -606,7 +606,7 @@ test('capability-watcher', async () => {
   }
 
   async function main(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-capability-watcher-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-capability-watcher-'))
     try {
       testWatchedPathsAreDerived(temp)
       await testSkillCreationInvalidatesOnce(temp)

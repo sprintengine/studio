@@ -149,6 +149,6 @@ export function describeCapabilityPermission(permission: string): string {
 }
 
 // The permissions validator lives in the published SDK so the app and the
-// `multicode-module` CLI validate manifests identically; re-exported here for
+// `sprintengine-module` CLI validate manifests identically; re-exported here for
 // app code.
 export { validateCapabilityPermissions } from '../../../packages/module-sdk/src/manifest-validate'

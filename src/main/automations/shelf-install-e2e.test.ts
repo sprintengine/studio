@@ -109,7 +109,7 @@ test('shelf-install-e2e', async () => {
   }
 
   async function readStoreDefinitions(root: string): Promise<Array<Record<string, unknown>>> {
-    const dir = join(root, automationsStoreDirectory(root), 'definitions')
+    const dir = join(root, automationsStoreDirectory(), 'definitions')
     const files = await readdir(dir).catch(() => [] as string[])
     const out: Array<Record<string, unknown>> = []
     for (const file of files.filter((name) => name.endsWith('.json')).sort()) {
@@ -247,8 +247,8 @@ test('shelf-install-e2e', async () => {
     // minutes for the run to come due.
     const installed = await frontDoor.installCatalogueDefinition({
       workspaceRoot: project,
-      sourceCatalogueId: 'multicode.t9-live-schedule',
-      sourcePublisher: 'Multicode Labs',
+      sourceCatalogueId: 'sprintengine.t9-live-schedule',
+      sourcePublisher: 'SprintEngine Labs',
       definition: {
         name: 'T9 live schedule',
         trigger: {

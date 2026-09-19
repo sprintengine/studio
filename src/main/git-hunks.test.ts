@@ -35,7 +35,7 @@ test('git-hunks', async () => {
   }
 
   function makeRepo(name: string): { root: string; repo: string } {
-    const root = mkdtempSync(join(tmpdir(), `multicode-git-hunks-${name}-`))
+    const root = mkdtempSync(join(tmpdir(), `sprintengine-git-hunks-${name}-`))
     const repo = join(root, 'repo')
     execFileSync('git', ['init', '--quiet', '--initial-branch=main', repo], { encoding: 'utf8' })
     git(repo, ['config', 'user.email', 'test@example.com'])

@@ -25,7 +25,7 @@
     }
   },
   "bin": {
-    "multicode-module": "./dist/cli.js"
+    "sprintengine-module": "./dist/cli.js"
   },
   "files": [
     "dist",

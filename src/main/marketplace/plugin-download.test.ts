@@ -109,7 +109,7 @@ test('plugin-download', async () => {
       id: 'downloaded-plugin',
       displayName: 'Downloaded Plugin',
       version: 1,
-      publisher: 'Multicode Labs',
+      publisher: 'SprintEngine Labs',
       category: 'Testing',
       summary: 'Downloaded marketplace plugin.',
       defaultEnabled: false,
@@ -128,7 +128,7 @@ test('plugin-download', async () => {
       entry: {
         id: 'downloaded-plugin',
         name: 'Downloaded Plugin',
-        publisher: { name: 'Multicode Labs', verified: true },
+        publisher: { name: 'SprintEngine Labs', verified: true },
         summary: 'Downloaded marketplace plugin.',
         category: 'Testing',
         icon: 'icons/downloaded.svg',
@@ -155,7 +155,7 @@ test('plugin-download', async () => {
         id: 'downloaded-plugin',
         displayName: 'Downloaded Plugin',
         version: 1,
-        publisher: 'Multicode Labs',
+        publisher: 'SprintEngine Labs',
         category: 'Testing',
         summary: 'Downloaded marketplace plugin.',
         defaultEnabled: false,
@@ -166,7 +166,7 @@ test('plugin-download', async () => {
       entry: {
         id: 'downloaded-plugin',
         name: 'Downloaded Plugin',
-        publisher: { name: 'Multicode Labs', verified: false },
+        publisher: { name: 'SprintEngine Labs', verified: false },
         summary: 'Downloaded marketplace plugin.',
         category: 'Testing',
         icon: 'icons/downloaded.svg',
@@ -755,7 +755,7 @@ test('plugin-download', async () => {
   function testCliAndAppRejectSameTamperedModuleBytes(): void {
     const workDir = mkdtempSync(join(tmpdir(), 'mc-marketplace-cli-verify-'))
     try {
-      const cliBundle = join(workDir, 'multicode-module.cjs')
+      const cliBundle = join(workDir, 'sprintengine-module.cjs')
       buildSync({
         entryPoints: [join(process.cwd(), 'packages/module-sdk/src/cli.ts')],
         bundle: true,

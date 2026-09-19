@@ -129,7 +129,7 @@ test('startup-timeline', async () => {
     assert.equal(startupTimelineEnabledFor({ SPRINTENGINE_DIAGNOSTICS: '1' }), true)
     assert.equal(startupTimelineEnabledFor({ SPRINTENGINE_STARTUP_TIMELINE: 'yes' }), false)
     // A shell that still exports the pre-rename name measures boot as before.
-    assert.equal(startupTimelineEnabledFor({ MULTICODE_STARTUP_TIMELINE: '1' }), true)
+    assert.equal(startupTimelineEnabledFor({ SPRINTENGINE_STARTUP_TIMELINE: '1' }), true)
   }
 
   console.log('startup-timeline tests passed')

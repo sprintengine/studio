@@ -374,7 +374,7 @@ export function createSkillsService(
       const id = input.sourceId ?? ''
       if (!isRemovableSkillSource(id)) {
         skillSourceLog('source-remove', { id, outcome: 'refused-always-present' })
-        return { ok: false, message: 'This source is part of Multicode and cannot be removed.' }
+        return { ok: false, message: 'This source is part of SprintEngine and cannot be removed.' }
       }
       // The store now refuses to write over a file it could not read (a
       // permission error, a busy volume) and says so by throwing. Here that is
@@ -526,7 +526,7 @@ export function createSkillsService(
       if (!source) return { ok: false, message: 'That source is not in your list.' }
       if (source.kind === 'local') return syncLocalSource(source, input)
       if (source.kind !== 'github') {
-        return { ok: false, message: `${source.name} ships with Multicode and refreshes with the app.` }
+        return { ok: false, message: `${source.name} ships with SprintEngine and refreshes with the app.` }
       }
       const ref = parseSkillRepoRef(source.repo)
       if (!ref) {

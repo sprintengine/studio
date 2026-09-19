@@ -812,7 +812,7 @@ export function formatEndpoint(address: string, port: number): string {
  */
 export function pairingUrl(address: string, port: number, token: string): string {
   const query = new URLSearchParams({ endpoint: formatEndpoint(address, port), token })
-  return `multicode-tailnet://pair?${query.toString()}`
+  return `sprintengine-tailnet://pair?${query.toString()}`
 }
 
 function message(error: unknown): string {

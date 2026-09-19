@@ -51,7 +51,7 @@ export function createElectronBackgroundTray(): BackgroundTrayHandle | null {
   // An empty image is an invisible menu-bar item — a presence the user cannot
   // find is the same as no presence. macOS renders a text title beside (or in
   // place of) the icon, so fall back to one rather than shipping a ghost.
-  if (image.isEmpty() && process.platform === 'darwin') tray.setTitle('Multicode')
+  if (image.isEmpty() && process.platform === 'darwin') tray.setTitle('SprintEngine')
   return {
     setToolTip: (text) => tray.setToolTip(text),
     setContextMenu: (menu) => tray.setContextMenu(menu as Menu),

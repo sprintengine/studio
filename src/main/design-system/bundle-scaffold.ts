@@ -43,7 +43,7 @@ export function kebabCaseBundleName(value: string): string {
 
 function manifestSummary(raw: string): string {
   const collapsed = raw.replace(/\s+/g, ' ').trim()
-  if (!collapsed) return 'Design system authored in Multicode.'
+  if (!collapsed) return 'Design system authored in SprintEngine.'
   return collapsed.length > 160 ? `${collapsed.slice(0, 159).trimEnd()}…` : collapsed
 }
 
@@ -61,7 +61,7 @@ function buildManifestJson(name: string, summary: string): string {
       'catalog/index.html': 'scripts/build-catalog.mjs',
     },
     provenance: {
-      authoredBy: 'multicode',
+      authoredBy: 'sprintengine',
       sourceLibraryId: null,
       sourceLibraryVersion: null,
       releasedAt: null,

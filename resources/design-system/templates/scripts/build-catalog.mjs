@@ -40,7 +40,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
-const VENDOR_NAMESPACE = 'com.multicode'
+const VENDOR_NAMESPACE = 'com.sprintengine'
 
 class BuildFailure extends Error {
   constructor(message, code = 1) {
@@ -62,11 +62,7 @@ function exitAfterFlush(code) {
 }
 
 function escapeHtml(text) {
-  return String(text)
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
+  return String(text).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
 // Component directory names and pattern file stems become CSS class names on
@@ -101,8 +97,7 @@ function cssVariableName(tokenPath) {
 
 function tokenVendor(token) {
   const extensions = token.node.$extensions
-  const vendor =
-    typeof extensions === 'object' && extensions !== null ? extensions[VENDOR_NAMESPACE] : undefined
+  const vendor = typeof extensions === 'object' && extensions !== null ? extensions[VENDOR_NAMESPACE] : undefined
   return typeof vendor === 'object' && vendor !== null ? vendor : null
 }
 
@@ -225,9 +220,7 @@ function scopeCss(css, scope) {
       }
       continue
     }
-    const selectors = splitTopLevel(rule.prelude, ',').map((selector) =>
-      scopeSelector(selector, scope),
-    )
+    const selectors = splitTopLevel(rule.prelude, ',').map((selector) => scopeSelector(selector, scope))
     out.push(`${selectors.join(', ')} {${clampViewportMinHeight(rule.body)}}`)
   }
   return out.join('\n')
@@ -251,10 +244,7 @@ function extractEmbeddable(html, sourceLabel) {
     styles.push(match[0].replace(/^<style[^>]*>/i, '').replace(/<\/style>$/i, ''))
   }
   const titleMatch = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(html)
-  const markup = bodyMatch[1]
-    .replace(STYLE_TAG_PATTERN, '')
-    .replace(SCRIPT_TAG_PATTERN, '')
-    .trim()
+  const markup = bodyMatch[1].replace(STYLE_TAG_PATTERN, '').replace(SCRIPT_TAG_PATTERN, '').trim()
   return {
     title: titleMatch ? titleMatch[1].trim() : null,
     css: styles.join('\n'),
@@ -411,9 +401,7 @@ function paletteSection(tokens) {
 }
 
 function typeSection(tokens) {
-  const type = tokens.filter(
-    (token) => token.node.$type !== 'color' && token.path.split('.').includes('font'),
-  )
+  const type = tokens.filter((token) => token.node.$type !== 'color' && token.path.split('.').includes('font'))
   if (type.length === 0) return `<p class="catalog-empty">This system defines no type tokens.</p>`
   return type
     .map((token) => {
@@ -432,16 +420,11 @@ function typeSection(tokens) {
 }
 
 function spacingSection(tokens) {
-  const space = tokens.filter(
-    (token) => token.node.$type === 'dimension' && token.path.split('.').includes('space'),
-  )
+  const space = tokens.filter((token) => token.node.$type === 'dimension' && token.path.split('.').includes('space'))
   if (space.length === 0) return `<p class="catalog-empty">This system defines no spacing tokens.</p>`
   return space
     .map((token) =>
-      tokenRow(
-        token,
-        `<span class="catalog-space-bar" style="width: var(${cssVariableName(token.path)})"></span>`,
-      ),
+      tokenRow(token, `<span class="catalog-space-bar" style="width: var(${cssVariableName(token.path)})"></span>`),
     )
     .join('\n')
 }
@@ -504,10 +487,7 @@ function main() {
 
   const tokensCssPath = join(bundleRoot, 'foundations', 'tokens.css')
   if (!existsSync(tokensCssPath)) {
-    fail(
-      'Missing foundations/tokens.css — run `node scripts/build-tokens.mjs` first; the catalog inlines it.',
-      2,
-    )
+    fail('Missing foundations/tokens.css — run `node scripts/build-tokens.mjs` first; the catalog inlines it.', 2)
   }
   const tokensCss = readFileSync(tokensCssPath, 'utf8')
 
@@ -532,9 +512,7 @@ function main() {
         .filter((entry) => entry.isDirectory())
         .map((entry) => entry.name)
     : []
-  const componentNames = [
-    ...new Set([...(contents.components ?? []), ...onDiskComponents]),
-  ].sort()
+  const componentNames = [...new Set([...(contents.components ?? []), ...onDiskComponents])].sort()
   const components = componentNames.map((name) => {
     assertEmbedName(name, `components/${name}`)
     const dir = join(componentsDir, name)
@@ -588,7 +566,9 @@ function main() {
     if (!existsSync(filePath)) fail(`${path}: registered in contents.glyphs but missing on disk`)
     return {
       name: path.slice(path.lastIndexOf('/') + 1).replace(/\.svg$/, ''),
-      svg: readFileSync(filePath, 'utf8').replace(/<\?xml[\s\S]*?\?>/, '').trim(),
+      svg: readFileSync(filePath, 'utf8')
+        .replace(/<\?xml[\s\S]*?\?>/, '')
+        .trim(),
     }
   })
 
@@ -629,9 +609,7 @@ function main() {
     // Demo islands pinned to light keep their light values under the toggle.
     modePatchCss +=
       `#ds-mode-dark:checked ~ .ds-catalog [data-mode="light"] {\n` +
-      parsedTokensCss.dark
-        .map((decl) => `  ${decl.name}: ${lightValues.get(decl.name)};`)
-        .join('\n') +
+      parsedTokensCss.dark.map((decl) => `  ${decl.name}: ${lightValues.get(decl.name)};`).join('\n') +
       `\n}\n`
   }
 
@@ -773,14 +751,10 @@ function main() {
     .join('\n')
   const scopedDemoCss = [
     ...components.map((component) =>
-      component.demo.css.trim() === ''
-        ? ''
-        : scopeCss(component.demo.css, `.ds-embed-component-${component.name}`),
+      component.demo.css.trim() === '' ? '' : scopeCss(component.demo.css, `.ds-embed-component-${component.name}`),
     ),
     ...patterns.map((pattern) =>
-      pattern.embed.css.trim() === ''
-        ? ''
-        : scopeCss(pattern.embed.css, `.ds-embed-pattern-${pattern.stem}`),
+      pattern.embed.css.trim() === '' ? '' : scopeCss(pattern.embed.css, `.ds-embed-pattern-${pattern.stem}`),
     ),
   ]
     .filter((css) => css !== '')

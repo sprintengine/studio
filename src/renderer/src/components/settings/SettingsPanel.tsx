@@ -1036,15 +1036,15 @@ export default function SettingsPanel({
                   Add a hook to <span className="font-mono">.claude/settings.local.json</span> in the project folder
                 </li>
                 <li>
-                  Copy a hook script to <span className="font-mono">.multicode/hooks/</span>
+                  Copy a hook script to <span className="font-mono">.sprintengine/hooks/</span>
                 </li>
                 <li>
-                  Record knowledge file touches to <span className="font-mono">.multicode/knowledge-trace/</span>
+                  Record knowledge file touches to <span className="font-mono">.sprintengine/knowledge-trace/</span>
                 </li>
               </ul>
               <div className="mt-2">
-                Only files under your knowledge folder are recorded. Add <span className="font-mono">.multicode/</span>{' '}
-                to <span className="font-mono">.gitignore</span>.
+                Only files under your knowledge folder are recorded. Add{' '}
+                <span className="font-mono">.sprintengine/</span> to <span className="font-mono">.gitignore</span>.
               </div>
             </>
           ),
@@ -2117,7 +2117,7 @@ export default function SettingsPanel({
 // Human plan label for the Profile meta grid ("Pro plan" / "Free plan" / a
 // non-active entitlement status). Presentation only: it reads the plan's name
 // to print it, and nothing may branch on what it returns.
-function profilePlanLabel(authState: MulticodeAuthState): string {
+function profilePlanLabel(authState: SprintEngineAuthState): string {
   const plan = authState.entitlements?.plan ?? null
   if (!plan) return 'Free plan'
   if (plan.status === 'active') {
@@ -2139,7 +2139,7 @@ function ProfileSection({
   onRefresh,
   onUpgrade,
 }: {
-  authState: MulticodeAuthState
+  authState: SprintEngineAuthState
   message: string | null
   pending: boolean
   onSignIn: () => void

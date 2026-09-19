@@ -78,7 +78,7 @@ test('workspace-title', async () => {
 
   run('rejects a prompt that is nothing but dropped paths or a commit hash', () => {
     assert.equal(deriveWorkspaceTitle('src/main/terminal-runtime.ts'), null)
-    assert.equal(deriveWorkspaceTitle('/Users/me/workspace/multicode/src/main/git.ts'), null)
+    assert.equal(deriveWorkspaceTitle('/Users/me/workspace/sprintengine/src/main/git.ts'), null)
     assert.equal(deriveWorkspaceTitle('4617df92a1bd3c9f8e2a7b6c5d4e3f2a1b0c9d8e'), null)
     assert.equal(deriveWorkspaceTitle('@src/renderer/src/App.tsx'), null)
   })

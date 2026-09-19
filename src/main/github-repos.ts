@@ -31,7 +31,7 @@ export async function listGitHubRepos(tokenStore: GitHubTokenStore): Promise<Git
   const headers: Record<string, string> = {
     Accept: 'application/vnd.github+json',
     Authorization: `Bearer ${token}`,
-    'User-Agent': 'multicode-workspace-clone',
+    'User-Agent': 'sprintengine-workspace-clone',
     'X-GitHub-Api-Version': '2022-11-28',
   }
 

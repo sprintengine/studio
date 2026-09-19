@@ -49,7 +49,17 @@ export const manifest: CapabilityManifest = {
   summary: 'Forecast panel and quick-check command.',
   defaultEnabled: true,
   source: 'third-party',
-  permissions: ['network', 'ipc:workspace-read', 'ipc:invoke', 'ipc:agents', 'automations.manage', 'backlog.read', 'agents:companion', 'storage', 'process:spawn'],
+  permissions: [
+    'network',
+    'ipc:workspace-read',
+    'ipc:invoke',
+    'ipc:agents',
+    'automations.manage',
+    'backlog.read',
+    'agents:companion',
+    'storage',
+    'process:spawn',
+  ],
   dependsOn: ['automations', 'agent-runtime'],
   entry: {
     main: 'dist/main.cjs',
@@ -188,7 +198,10 @@ export const registerMain: RegisterMain = (host) => {
         id: 'weather-deck-refresh',
         name: 'Weather Deck: refresh forecast',
         status: 'paused',
-        trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'UTC' } },
+        trigger: {
+          kind: 'schedule',
+          config: { kind: 'schedule', cadence: { type: 'daily', timeLocal: '09:00' }, timezone: 'UTC' },
+        },
         action: { kind: 'weather-deck.refresh-forecast', config: { city: 'Dublin' } },
       },
     })
@@ -296,7 +309,8 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
       // module's own channel first, then let the event say "read it again".
       // A subscriber that assumed replay would render nothing until the next
       // refresh happened to fire.
-      void host.invoke('weather-deck:read-outlook')
+      void host
+        .invoke('weather-deck:read-outlook')
         .then((current) => {
           const record = current as { summary?: unknown }
           if (typeof record.summary === 'string') setOutlook(record.summary)
@@ -324,7 +338,8 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
       // this workspace (the lastCity entry the other effect maintains).
       let disposed = false
       const brief = () => {
-        void host.invoke('weather-deck:workspace-briefing', workspaceId)
+        void host
+          .invoke('weather-deck:workspace-briefing', workspaceId)
           .then((briefing) => {
             if (disposed) return
             const record = briefing as { briefingCount?: unknown }
@@ -345,10 +360,10 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
       const onPanelCommand = (event: Event) => {
         if ((event as CustomEvent<{ id?: string }>).detail?.id === 'weather-deck.refresh.briefing') brief()
       }
-      window.addEventListener('multicode:panel-command', onPanelCommand)
+      window.addEventListener('sprintengine:panel-command', onPanelCommand)
       return () => {
         disposed = true
-        window.removeEventListener('multicode:panel-command', onPanelCommand)
+        window.removeEventListener('sprintengine:panel-command', onPanelCommand)
       }
     }, [workspaceId])
     useEffect(() => {
@@ -366,8 +381,11 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
       }
       void host.getWorkingRoot(workspaceId).catch(() => null)
       let offFile: (() => void) | undefined
-      void host.watchWorkspaceFile(workspaceId, 'forecast/config.json', () => undefined)
-        .then((off) => { offFile = off })
+      void host
+        .watchWorkspaceFile(workspaceId, 'forecast/config.json', () => undefined)
+        .then((off) => {
+          offFile = off
+        })
         .catch(() => undefined)
       return () => {
         offSessions?.()
@@ -394,7 +412,8 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
       // workspace's folder against the new one's data; null means "not
       // currently resolvable", so the panel just omits the folder.
       setWorkspace(null)
-      host.getWorkspace(workspaceId)
+      host
+        .getWorkspace(workspaceId)
         .then((view) => {
           if (!disposed) setWorkspace(view)
         })
@@ -405,7 +424,8 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
       // unavailable state after switching to a workspace that reads fine.
       setBacklogUnavailable(false)
       setBacklogCount(null)
-      host.listBacklogItems(workspaceId)
+      host
+        .listBacklogItems(workspaceId)
         .then((items) => {
           if (!disposed) setBacklogCount(items.length)
         })
@@ -446,7 +466,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
         ? 'Backlog unavailable'
         : backlogCount === null
           ? 'Loading backlog…'
-          : `${backlogCount} backlog items${workspace?.folderPath ? ` in ${workspace.folderPath}` : ''} · ${liveAgents} live agents · briefing #${briefingCount}${outlook ? ` · ${outlook}` : ''}`
+          : `${backlogCount} backlog items${workspace?.folderPath ? ` in ${workspace.folderPath}` : ''} · ${liveAgents} live agents · briefing #${briefingCount}${outlook ? ` · ${outlook}` : ''}`,
     )
   }
 }
@@ -454,8 +474,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
 function createForecastTemplate(context?: WorkspaceTypeCreateContext): WorkspaceLayoutTemplate {
   // The creation step's collected value arrives here; a broken/skipped step
   // hands undefined, so the template must always work without it.
-  const city =
-    typeof context?.stepValue === 'string' && context.stepValue.trim() ? context.stepValue.trim() : null
+  const city = typeof context?.stepValue === 'string' && context.stepValue.trim() ? context.stepValue.trim() : null
   return {
     id: 'weather-deck-board',
     name: 'Weather board',
@@ -469,8 +488,18 @@ function createForecastTemplate(context?: WorkspaceTypeCreateContext): Workspace
       layout: {
         type: 'row',
         children: [
-          { type: 'tabset', weight: 50, children: [{ type: 'tab', name: city ? `Forecast: ${city}` : 'Forecast', component: 'weather-deck.forecast' }] },
-          { type: 'tabset', weight: 50, children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'agent-1' } }] },
+          {
+            type: 'tabset',
+            weight: 50,
+            children: [
+              { type: 'tab', name: city ? `Forecast: ${city}` : 'Forecast', component: 'weather-deck.forecast' },
+            ],
+          },
+          {
+            type: 'tabset',
+            weight: 50,
+            children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'agent-1' } }],
+          },
         ],
       },
     },
@@ -499,7 +528,7 @@ function ForecastCityStep({ value, setValue }: WorkspaceCreationStepProps) {
     'div',
     null,
     createElement('input', {
-      value: failure ? failure.city ?? '' : typeof value === 'string' ? value : '',
+      value: failure ? (failure.city ?? '') : typeof value === 'string' ? value : '',
       placeholder: 'City to forecast',
       onChange: (event: { target: { value: string } }) => setValue(event.target.value),
     }),
@@ -544,9 +573,7 @@ const forecastWorkspaceType: WorkspaceTypeDefinition = {
     description: 'The forecast panel opens on this city.',
     Component: ForecastCityStep,
     isReady: (value) =>
-      typeof value === 'string'
-        ? value.trim().length > 0
-        : Boolean((value as { city?: string } | null)?.city?.trim()),
+      typeof value === 'string' ? value.trim().length > 0 : Boolean((value as { city?: string } | null)?.city?.trim()),
     blockedHint: 'Name a city to forecast.',
   },
   createTemplate: createForecastTemplate,
@@ -575,9 +602,7 @@ const openForecastNotes: FileAction = {
   id: 'weather-deck.open-forecast-notes',
   label: 'Open forecast notes…',
   isVisible: (context) =>
-    context.entries.length === 1
-    && !context.entries[0]?.isDir
-    && /\.md$/i.test(context.entries[0]?.name ?? ''),
+    context.entries.length === 1 && !context.entries[0]?.isDir && /\.md$/i.test(context.entries[0]?.name ?? ''),
   run: () => undefined,
 }
 
@@ -663,7 +688,7 @@ export const registerRenderer: RegisterRenderer = (host) => {
         workspaceId: 'active',
         name: 'Forecaster',
         cli: runtimes[0]?.id,
-        prompt: 'Summarize today\'s forecast for the workspace city.',
+        prompt: "Summarize today's forecast for the workspace city.",
       })
       if (!result.ok) console.error('[weather-deck] spawn failed:', result.code, result.message)
     },
@@ -679,7 +704,9 @@ export const registerRenderer: RegisterRenderer = (host) => {
     scopes: ['panel:weather-deck'],
     availability: (context) => context.activeWorkspaceMode === 'weather-deck',
     run: () => {
-      window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id: 'weather-deck.refresh.forecast' } }))
+      window.dispatchEvent(
+        new CustomEvent('sprintengine:panel-command', { detail: { id: 'weather-deck.refresh.forecast' } }),
+      )
     },
   })
   // Predicate-gated entry point for the cross-surface briefing: the shell
@@ -693,7 +720,9 @@ export const registerRenderer: RegisterRenderer = (host) => {
     scopes: ['panel:weather-deck'],
     availability: (context) => context.activeWorkspaceMode === 'weather-deck',
     run: () => {
-      window.dispatchEvent(new CustomEvent('multicode:panel-command', { detail: { id: 'weather-deck.refresh.briefing' } }))
+      window.dispatchEvent(
+        new CustomEvent('sprintengine:panel-command', { detail: { id: 'weather-deck.refresh.briefing' } }),
+      )
     },
   })
   host.registerSettingsSection({

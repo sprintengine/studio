@@ -94,7 +94,7 @@ async function main() {
   }
 
   mkdirSync(RUNTIME_DIR, { recursive: true })
-  const tmp = await mkdtemp(join(tmpdir(), 'multicode-runtimes-'))
+  const tmp = await mkdtemp(join(tmpdir(), 'sprintengine-runtimes-'))
   try {
     await fetchNpm(tmp)
     log('done')

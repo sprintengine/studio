@@ -70,22 +70,13 @@ const EAGER_SHARED_MODULE_SPECIFIERS: Record<string, object> = {
 // The keys are exact bare specifiers, which is what an import map matches on,
 // so a module's `import { Banner } from '@sprintengine/module-sdk/ui'` resolves
 // without the SDK tarball's runtime stub ever being reached.
-//
-// Both SDK scopes are answered. A module's bundle names the specifier it was
-// BUILT against, and one built before the 2026-09-08 rename is an artefact on
-// disk that renaming the package does not reach — so dropping the old keys
-// would leave an installed module importing a specifier the map no longer
-// answers, which falls through to the tarball's throwing stub and renders a
-// blank door rather than a version complaint.
 const LAZY_SHARED_MODULE_LOADERS: Record<string, () => Promise<object>> = {
   '@sprintengine/module-sdk/ui': () => import('./sdk-ui'),
   '@sprintengine/module-sdk/surface': () => import('./sdk-surface'),
-  '@multicode/module-sdk/ui': () => import('./sdk-ui'),
-  '@multicode/module-sdk/surface': () => import('./sdk-surface'),
   '@monaco-editor/react': () => import('@monaco-editor/react'),
 }
 
-const SHARED_RUNTIME_GLOBAL = '__multicodeSharedModuleRuntime'
+const SHARED_RUNTIME_GLOBAL = '__sprintengineSharedModuleRuntime'
 
 const IDENTIFIER_PATTERN = /^[A-Za-z_$][A-Za-z0-9_$]*$/
 

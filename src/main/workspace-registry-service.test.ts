@@ -13,7 +13,7 @@ import type { WorkspaceRegistryDiagnostic } from './workspace-registry-service'
 type Harness = ReturnType<typeof harness>
 
 function harness(options: { persistDebounceMs?: number } = {}) {
-  const dir = mkdtempSync(join(tmpdir(), 'multicode-workspace-registry-'))
+  const dir = mkdtempSync(join(tmpdir(), 'sprintengine-workspace-registry-'))
   const diagnostics: WorkspaceRegistryDiagnostic[] = []
   let clock = 1_000
   const store = createWorkspaceRegistryStore({
@@ -345,7 +345,7 @@ test('hydration validates a window routing block from an old profile', () => {
 })
 
 test('a corrupt registry file is refused rather than presented as an empty list', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'multicode-workspace-registry-corrupt-'))
+  const dir = mkdtempSync(join(tmpdir(), 'sprintengine-workspace-registry-corrupt-'))
   try {
     writeFileSync(join(dir, WORKSPACE_REGISTRY_FILE_NAME), '{ truncated', 'utf8')
     const diagnostics: WorkspaceRegistryDiagnostic[] = []

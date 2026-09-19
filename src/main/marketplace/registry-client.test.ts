@@ -67,7 +67,7 @@ test('registry-client', async () => {
     return {
       id: 'dev-helper',
       name: 'Dev Helper',
-      publisher: { name: 'Multicode Labs', verified: true },
+      publisher: { name: 'SprintEngine Labs', verified: true },
       summary: 'Adds development helpers.',
       category: 'dev-tools',
       icon: 'icons/dev-helper.svg',
@@ -455,10 +455,10 @@ test('registry-client', async () => {
   async function testBundledDefaultTracksEnvOverrideDetection(): Promise<void> {
     const { isMarketplaceRegistryOverrideConfigured } = await import('./registry-client')
     assert.equal(isMarketplaceRegistryOverrideConfigured({}), false)
-    assert.equal(isMarketplaceRegistryOverrideConfigured({ MULTICODE_MARKETPLACE_REGISTRY_URL: '  ' }), false)
+    assert.equal(isMarketplaceRegistryOverrideConfigured({ SPRINTENGINE_MARKETPLACE_REGISTRY_URL: '  ' }), false)
     assert.equal(
       isMarketplaceRegistryOverrideConfigured({
-        MULTICODE_MARKETPLACE_REGISTRY_URL: 'https://catalogue.example.com/v1/registry',
+        SPRINTENGINE_MARKETPLACE_REGISTRY_URL: 'https://catalogue.example.com/v1/registry',
       }),
       true,
     )
@@ -471,12 +471,12 @@ test('registry-client', async () => {
     )
     assert.equal(configuredMarketplaceRegistryUrl({}), DEFAULT_MARKETPLACE_REGISTRY_URL)
     assert.equal(
-      configuredMarketplaceRegistryUrl({ MULTICODE_MARKETPLACE_REGISTRY_URL: '   ' }),
+      configuredMarketplaceRegistryUrl({ SPRINTENGINE_MARKETPLACE_REGISTRY_URL: '   ' }),
       DEFAULT_MARKETPLACE_REGISTRY_URL,
     )
     assert.equal(
       configuredMarketplaceRegistryUrl({
-        MULTICODE_MARKETPLACE_REGISTRY_URL: ' https://catalogue.example.com/v1/registry ',
+        SPRINTENGINE_MARKETPLACE_REGISTRY_URL: ' https://catalogue.example.com/v1/registry ',
       }),
       'https://catalogue.example.com/v1/registry',
     )
@@ -497,7 +497,7 @@ test('registry-client', async () => {
         return response
       }
       const client = new MarketplaceRegistryClient({
-        registryUrl: configuredMarketplaceRegistryUrl({ MULTICODE_MARKETPLACE_REGISTRY_URL: catalogueUrl }),
+        registryUrl: configuredMarketplaceRegistryUrl({ SPRINTENGINE_MARKETPLACE_REGISTRY_URL: catalogueUrl }),
         cachePath: join(dir, 'cache.json'),
         fetcher,
         now: () => new Date('2026-06-16T00:00:00.000Z'),
@@ -593,7 +593,7 @@ test('registry-client', async () => {
     }
 
     const catalogueUrl = configuredMarketplaceRegistryUrl({
-      MULTICODE_MARKETPLACE_REGISTRY_URL: 'https://catalogue.example.com/v1/registry',
+      SPRINTENGINE_MARKETPLACE_REGISTRY_URL: 'https://catalogue.example.com/v1/registry',
     })
     const githubRawUrl = configuredMarketplaceRegistryUrl({})
     assert.notEqual(catalogueUrl, githubRawUrl, 'the two transports must be distinct URLs')

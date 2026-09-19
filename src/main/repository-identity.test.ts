@@ -40,7 +40,7 @@ test('repository-identity', async () => {
   const uniqueFolder = () => `/tmp/repo-identity-${(counter += 1)}`
 
   const REMOTE_V =
-    'origin\tgit@github.com:acme/multicode.git (fetch)\norigin\tgit@github.com:acme/multicode.git (push)\n'
+    'origin\tgit@github.com:acme/sprintengine.git (fetch)\norigin\tgit@github.com:acme/sprintengine.git (push)\n'
 
   const suiteRun = (async () => {
     await run('a completed read is settled, and names the repository', async () => {
@@ -49,7 +49,7 @@ test('repository-identity', async () => {
         readers: { readRepoRoot: async () => folder, readRemotes: async () => REMOTE_V },
       })
       assert.equal(read.settled, true)
-      assert.equal(read.identity?.canonicalKey, 'github.com/acme/multicode')
+      assert.equal(read.identity?.canonicalKey, 'github.com/acme/sprintengine')
     })
 
     await run('a folder that is not a repository is a settled null, not an unknown', async () => {
@@ -109,7 +109,7 @@ test('repository-identity', async () => {
         readers: { readRepoRoot: async () => folder, readRemotes: async () => REMOTE_V },
       })
       assert.equal(answered.settled, true)
-      assert.equal(answered.identity?.canonicalKey, 'github.com/acme/multicode')
+      assert.equal(answered.identity?.canonicalKey, 'github.com/acme/sprintengine')
     })
 
     await run('a settled answer is held for the full minute', async () => {
@@ -139,7 +139,7 @@ test('repository-identity', async () => {
       const identity = await readRepositoryIdentity(folder, {
         readers: { readRepoRoot: async () => folder, readRemotes: async () => REMOTE_V },
       })
-      assert.equal(identity?.canonicalKey, 'github.com/acme/multicode')
+      assert.equal(identity?.canonicalKey, 'github.com/acme/sprintengine')
 
       // The gateway's projection only groups, so it is handed the identity and
       // never has to think about whether the question was answered: an

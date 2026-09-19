@@ -5,7 +5,7 @@
 // WHERE IT LIVES. `<userData>/git-changelists/<basename>-<hash>.json`, one file
 // per repository, keyed by the repo root. Keyed rather than stored inside the
 // repository on purpose: a changelist is the person's private division of their
-// own working tree, and a `.git/multicode-changelists.json` would be one more
+// own working tree, and a `.git/sprintengine-changelists.json` would be one more
 // untracked file in the very list it describes. The basename is in the filename
 // only so a human opening the folder can tell the files apart; the hash is what
 // makes the key unique. Written temp-then-rename, exactly as

@@ -885,7 +885,7 @@ export class AutomationsEngine {
         outcome: 'failed',
         // Names the limit it actually hit: "past its maximum duration" leaves the
         // user with no way to tell a hung agent from one that simply needed longer.
-        summary: `The agent was still running after ${formatRunLimit(this.maxAgentRunMs)}, so Multicode stopped waiting and ended the run.`,
+        summary: `The agent was still running after ${formatRunLimit(this.maxAgentRunMs)}, so SprintEngine stopped waiting and ended the run.`,
         workspaceId: pending.workspaceId,
         eventTrigger: 'timer',
       })
@@ -1178,7 +1178,7 @@ export class AutomationsEngine {
       startedAt: null,
       completedAt,
       blockedReason: 'overdue_not_replayed',
-      summary: 'Missed while Multicode was not running; skipped instead of replaying catch-up runs.',
+      summary: 'Missed while SprintEngine was not running; skipped instead of replaying catch-up runs.',
     })
     const recorded = await store.recordRun(run)
     if (!recorded.ok) {

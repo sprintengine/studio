@@ -37,7 +37,7 @@ test('background-mode', async () => {
     assert.equal(describeBackgroundGateway(one), 'Studio gateway listening')
     assert.match(
       describeBackgroundTooltip(one),
-      /^Multicode — running in the background · 1 agent session running · Studio gateway listening$/,
+      /^SprintEngine — running in the background · 1 agent session running · Studio gateway listening$/,
     )
 
     const several = status({ agentSessions: 3 })

@@ -26,7 +26,7 @@ test('marketplace-plugin-ipc', async () => {
 
   async function main(): Promise<void> {
     const userData = mkdtempSync(join(tmpdir(), 'mc-marketplace-ipc-'))
-    process.env.MULTICODE_USER_DATA_DIR = userData
+    process.env.SPRINTENGINE_USER_DATA_DIR = userData
     try {
       // Imported after the env is set: the module reads `app.getPath('userData')`
       // when the surface is registered.

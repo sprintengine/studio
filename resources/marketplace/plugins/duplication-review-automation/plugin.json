@@ -5,7 +5,7 @@
   "defaultEnabled": false,
   "source": "third-party",
   "permissions": [],
-  "publisher": "Multicode Labs",
+  "publisher": "SprintEngine Labs",
   "category": "Code Quality",
   "summary": "Writes up duplication worth abstracting and the case against it, and never refactors. One agent run nightly at 02:30 UTC, opening a pull request.",
   "components": {

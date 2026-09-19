@@ -2,7 +2,7 @@
   "kind": "provider",
   "id": "claude-agent",
   "displayName": "Claude Code",
-  "publisher": "multicode",
+  "publisher": "sprintengine",
   "version": 1,
   "summary": "Claude conversation agents in the app, run through the Claude Agent SDK.",
   "category": "Agent Runtime",

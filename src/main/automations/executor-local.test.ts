@@ -625,7 +625,7 @@ test('executor-local', async () => {
   }
 
   async function assertNonGitWorkspaceNoLongerBlocksLaunch(): Promise<void> {
-    const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-non-git-'))
+    const folderPath = await mkdtemp(join(tmpdir(), 'sprintengine-automations-non-git-'))
     const host = workspace('ws-host', folderPath, { mode: 'automations-host' })
     const harness = executorHarness([host])
     const result = await harness.executor({

@@ -11396,10 +11396,6 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <path d="M2.5 5.25h9M9 2.75l2.5 2.5L9 7.75" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
   <path d="M13.5 10.75h-9M7 8.25l-2.5 2.5L7 13.25" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/>
 </svg><figcaption>move-to-changelist</figcaption></figure>
-<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
-  <path d="M4 3.5 L16 13.5 L16 28.5 L4 28.5 Z" fill="currentColor"/>
-  <path d="M28 3.5 L16 13.5 L16 28.5 L28 28.5 Z" fill="currentColor" fill-opacity="0.72"/>
-</svg><figcaption>multicode-mark</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <path d="M8 3.25v9.5M3.25 8h9.5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
 </svg><figcaption>new-changelist</figcaption></figure>
@@ -11462,6 +11458,10 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
   <circle cx="8" cy="8" r="5" stroke="currentColor" stroke-width="1.5" stroke-opacity="0.22"/>
   <path d="M8 3a5 5 0 0 1 5 5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/>
 </svg><figcaption>spinner</figcaption></figure>
+<figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" fill="none">
+  <path d="M4 3.5 L16 13.5 L16 28.5 L4 28.5 Z" fill="currentColor"/>
+  <path d="M28 3.5 L16 13.5 L16 28.5 L28 28.5 Z" fill="currentColor" fill-opacity="0.72"/>
+</svg><figcaption>sprintengine-mark</figcaption></figure>
 <figure class="catalog-glyph"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" fill="none">
   <path d="M1.9 5.6h12.2v6.4a1.1 1.1 0 0 1-1.1 1.1H3a1.1 1.1 0 0 1-1.1-1.1z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
   <path d="M2.6 2.9h10.8a.7.7 0 0 1 .7.7v2H1.9v-2a.7.7 0 0 1 .7-.7z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/>
@@ -20008,7 +20008,7 @@ for (const sentinel of root.querySelectorAll('[data-sentinel]')) {
 </div>
 </div>
 <div class="catalog-doc">
-<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The thirty-eight SVGs in <code>glyphs/</code> (close, search, spinner, multicode-mark, git-branch, remote-machine, the four <code>device-*</code> marks, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
+<p>The product's icon language: one concept per glyph, drawn in <code>currentColor</code> line work, sized only by the <code>--sem-icon-size-*</code> ramp. The thirty-eight SVGs in <code>glyphs/</code> (close, search, spinner, sprintengine-mark, git-branch, remote-machine, the four <code>device-*</code> marks, commit, worktree, history, folder, file-typescript, file-generic, the three pull-request marks — pull-request-open, pull-request-merged, pull-request-closed — and the nineteen Commit-window action marks — rollback, move-to-changelist, stash, group-by, expand-all, collapse-all, next-difference, previous-difference, show-diff, side-by-side, unified, gear, open-in-editor, write-commit-message, new-changelist, delete-changelist, edit-changelist, create-patch, kebab) are the framework-neutral assets; the shipped vocabulary lives in React — <code>src/renderer/src/components/AppIcons.tsx</code> and the <code>ui/</code> glyph primitives beside it. This entry documents that vocabulary so a consumer can pick, size, and color a glyph without reading the React source.</p>
 <p>A glyph is not decoration and not a status pill. It answers exactly one question — *which thing is this* (identity), *where is it in its pipeline* (lifecycle), *which machine is it on* (device), *what kind of capability* (capability), *which runtime* (CLI), or *what will this control do* (action) — and each question has its own family below. A surface that reaches for two families to answer one question has the wrong hierarchy, not the wrong icon.</p>
 <h4>Anatomy</h4>
 <p>Two drawing grids, each with its own stroke discipline:</p>
@@ -23275,7 +23275,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
       <p class="demo-pane-title">Sources — resting</p>
       <button type="button" class="ds-list-row">
         <span class="ds-list-row-text">
-          <span class="ds-list-row-title">Multicode</span>
+          <span class="ds-list-row-title">SprintEngine</span>
           <span class="ds-list-row-supporting">12 skills</span>
         </span>
         <span class="ds-list-row-trailing">2m</span>
@@ -23469,7 +23469,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
       <p class="demo-pane-title">Sources — resting</p>
       <button type="button" class="ds-list-row">
         <span class="ds-list-row-text">
-          <span class="ds-list-row-title">Multicode</span>
+          <span class="ds-list-row-title">SprintEngine</span>
           <span class="ds-list-row-supporting">12 skills</span>
         </span>
         <span class="ds-list-row-trailing">2m</span>
@@ -24129,7 +24129,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
       &lt;p class=&quot;demo-pane-title&quot;&gt;Sources — resting&lt;/p&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
         &lt;span class=&quot;ds-list-row-text&quot;&gt;
-          &lt;span class=&quot;ds-list-row-title&quot;&gt;Multicode&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;SprintEngine&lt;/span&gt;
           &lt;span class=&quot;ds-list-row-supporting&quot;&gt;12 skills&lt;/span&gt;
         &lt;/span&gt;
         &lt;span class=&quot;ds-list-row-trailing&quot;&gt;2m&lt;/span&gt;
@@ -24323,7 +24323,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
       &lt;p class=&quot;demo-pane-title&quot;&gt;Sources — resting&lt;/p&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
         &lt;span class=&quot;ds-list-row-text&quot;&gt;
-          &lt;span class=&quot;ds-list-row-title&quot;&gt;Multicode&lt;/span&gt;
+          &lt;span class=&quot;ds-list-row-title&quot;&gt;SprintEngine&lt;/span&gt;
           &lt;span class=&quot;ds-list-row-supporting&quot;&gt;12 skills&lt;/span&gt;
         &lt;/span&gt;
         &lt;span class=&quot;ds-list-row-trailing&quot;&gt;2m&lt;/span&gt;
@@ -24764,7 +24764,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
           </button>
           <button type="button" class="ds-menu-item" role="menuitemradio" aria-checked="false">
             <span class="ds-menu-item-glyph" aria-hidden="true"></span>
-            multicode
+            sprintengine
           </button>
           <div class="ds-menu-separator" role="separator"></div>
           <div class="ds-menu-group-label">Sort</div>
@@ -25125,7 +25125,7 @@ document.querySelectorAll('[data-demo-search]').forEach((input) =&gt; {
           &lt;/button&gt;
           &lt;button type=&quot;button&quot; class=&quot;ds-menu-item&quot; role=&quot;menuitemradio&quot; aria-checked=&quot;false&quot;&gt;
             &lt;span class=&quot;ds-menu-item-glyph&quot; aria-hidden=&quot;true&quot;&gt;&lt;/span&gt;
-            multicode
+            sprintengine
           &lt;/button&gt;
           &lt;div class=&quot;ds-menu-separator&quot; role=&quot;separator&quot;&gt;&lt;/div&gt;
           &lt;div class=&quot;ds-menu-group-label&quot;&gt;Sort&lt;/div&gt;
@@ -29274,7 +29274,7 @@ window.addEventListener('resize', repositionAll)
   <div class="demo-panel">
     <button type="button" class="ds-row-button ds-row-button--dashed">New workspace</button>
     <button type="button" class="ds-row-button">studio · main</button>
-    <button type="button" class="ds-row-button" aria-current="true">multicode · swap-kit</button>
+    <button type="button" class="ds-row-button" aria-current="true">sprintengine · swap-kit</button>
     <button type="button" class="ds-row-button ds-row-button--nav">Automations</button>
     <button type="button" class="ds-row-button" disabled>Archived worktree</button>
   </div>
@@ -29288,7 +29288,7 @@ window.addEventListener('resize', repositionAll)
   <div class="demo-panel">
     <button type="button" class="ds-row-button ds-row-button--dashed">New workspace</button>
     <button type="button" class="ds-row-button">studio · main</button>
-    <button type="button" class="ds-row-button" aria-current="true">multicode · swap-kit</button>
+    <button type="button" class="ds-row-button" aria-current="true">sprintengine · swap-kit</button>
     <button type="button" class="ds-row-button ds-row-button--nav">Automations</button>
     <button type="button" class="ds-row-button" disabled>Archived worktree</button>
   </div>
@@ -29468,7 +29468,7 @@ window.addEventListener('resize', repositionAll)
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--dashed&quot;&gt;New workspace&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot;&gt;studio · main&lt;/button&gt;
-    &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot; aria-current=&quot;true&quot;&gt;multicode · swap-kit&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot; aria-current=&quot;true&quot;&gt;sprintengine · swap-kit&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--nav&quot;&gt;Automations&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot; disabled&gt;Archived worktree&lt;/button&gt;
   &lt;/div&gt;
@@ -29482,7 +29482,7 @@ window.addEventListener('resize', repositionAll)
   &lt;div class=&quot;demo-panel&quot;&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--dashed&quot;&gt;New workspace&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot;&gt;studio · main&lt;/button&gt;
-    &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot; aria-current=&quot;true&quot;&gt;multicode · swap-kit&lt;/button&gt;
+    &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot; aria-current=&quot;true&quot;&gt;sprintengine · swap-kit&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button ds-row-button--nav&quot;&gt;Automations&lt;/button&gt;
     &lt;button type=&quot;button&quot; class=&quot;ds-row-button&quot; disabled&gt;Archived worktree&lt;/button&gt;
   &lt;/div&gt;
@@ -38015,7 +38015,7 @@ measureAll()
             </label>
             <div class="cr-group">Projects</div>
             <div class="cr-group-rows">
-              <button type="button" class="cr-row cr-row--selected" aria-current="true">multicode</button>
+              <button type="button" class="cr-row cr-row--selected" aria-current="true">sprintengine</button>
               <button type="button" class="cr-row">website</button>
               <button type="button" class="cr-row">relay</button>
             </div>
@@ -38071,7 +38071,7 @@ measureAll()
     <div class="cr-column">
       <div class="cr-nested-tag">app rail</div>
       <div class="cr-scroll">
-        <button type="button" class="cr-row cr-row--resting" aria-current="true">multicode</button>
+        <button type="button" class="cr-row cr-row--resting" aria-current="true">sprintengine</button>
         <button type="button" class="cr-row">website</button>
       </div>
     </div>
@@ -38618,7 +38618,7 @@ measureAll()
             &lt;/label&gt;
             &lt;div class=&quot;cr-group&quot;&gt;Projects&lt;/div&gt;
             &lt;div class=&quot;cr-group-rows&quot;&gt;
-              &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;multicode&lt;/button&gt;
+              &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--selected&quot; aria-current=&quot;true&quot;&gt;sprintengine&lt;/button&gt;
               &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;website&lt;/button&gt;
               &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;relay&lt;/button&gt;
             &lt;/div&gt;
@@ -38674,7 +38674,7 @@ measureAll()
     &lt;div class=&quot;cr-column&quot;&gt;
       &lt;div class=&quot;cr-nested-tag&quot;&gt;app rail&lt;/div&gt;
       &lt;div class=&quot;cr-scroll&quot;&gt;
-        &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--resting&quot; aria-current=&quot;true&quot;&gt;multicode&lt;/button&gt;
+        &lt;button type=&quot;button&quot; class=&quot;cr-row cr-row--resting&quot; aria-current=&quot;true&quot;&gt;sprintengine&lt;/button&gt;
         &lt;button type=&quot;button&quot; class=&quot;cr-row&quot;&gt;website&lt;/button&gt;
       &lt;/div&gt;
     &lt;/div&gt;
@@ -39430,7 +39430,7 @@ measureAll()
     <div class="pat-pane">
       <p class="pat-pane-title"><span>Sources</span></p>
       <button type="button" class="ds-list-row">
-        <span class="ds-list-row-text"><span class="ds-list-row-title">Multicode</span></span>
+        <span class="ds-list-row-text"><span class="ds-list-row-title">SprintEngine</span></span>
       </button>
       <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
         <span class="ds-list-row-text"><span class="ds-list-row-title">Matt Pocock</span></span>
@@ -39526,7 +39526,7 @@ measureAll()
     <div class="pat-pane">
       <p class="pat-pane-title"><span>Sources</span></p>
       <button type="button" class="ds-list-row">
-        <span class="ds-list-row-text"><span class="ds-list-row-title">Multicode</span></span>
+        <span class="ds-list-row-text"><span class="ds-list-row-title">SprintEngine</span></span>
       </button>
       <button type="button" class="ds-list-row ds-list-row--selected">
         <span class="ds-list-row-text"><span class="ds-list-row-title">Matt Pocock</span></span>
@@ -39585,7 +39585,7 @@ measureAll()
     <div class="pat-pane">
       <p class="pat-pane-title"><span>Sources</span></p>
       <button type="button" class="ds-list-row">
-        <span class="ds-list-row-text"><span class="ds-list-row-title">Multicode</span></span>
+        <span class="ds-list-row-text"><span class="ds-list-row-title">SprintEngine</span></span>
       </button>
       <button type="button" class="ds-list-row ds-list-row--resting" aria-current="true">
         <span class="ds-list-row-text"><span class="ds-list-row-title">Matt Pocock</span></span>
@@ -39745,7 +39745,7 @@ measureAll()
     &lt;div class=&quot;pat-pane&quot;&gt;
       &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Sources&lt;/span&gt;&lt;/p&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
-        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Multicode&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;SprintEngine&lt;/span&gt;&lt;/span&gt;
       &lt;/button&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--resting&quot; aria-current=&quot;true&quot;&gt;
         &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Matt Pocock&lt;/span&gt;&lt;/span&gt;
@@ -39841,7 +39841,7 @@ measureAll()
     &lt;div class=&quot;pat-pane&quot;&gt;
       &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Sources&lt;/span&gt;&lt;/p&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
-        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Multicode&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;SprintEngine&lt;/span&gt;&lt;/span&gt;
       &lt;/button&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--selected&quot;&gt;
         &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Matt Pocock&lt;/span&gt;&lt;/span&gt;
@@ -39900,7 +39900,7 @@ measureAll()
     &lt;div class=&quot;pat-pane&quot;&gt;
       &lt;p class=&quot;pat-pane-title&quot;&gt;&lt;span&gt;Sources&lt;/span&gt;&lt;/p&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-list-row&quot;&gt;
-        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Multicode&lt;/span&gt;&lt;/span&gt;
+        &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;SprintEngine&lt;/span&gt;&lt;/span&gt;
       &lt;/button&gt;
       &lt;button type=&quot;button&quot; class=&quot;ds-list-row ds-list-row--resting&quot; aria-current=&quot;true&quot;&gt;
         &lt;span class=&quot;ds-list-row-text&quot;&gt;&lt;span class=&quot;ds-list-row-title&quot;&gt;Matt Pocock&lt;/span&gt;&lt;/span&gt;

@@ -279,7 +279,7 @@ test('plugin-lifecycle', async () => {
       entry: {
         id: signed.id,
         name: signed.displayName,
-        publisher: { name: 'Multicode Labs', verified: !options.unsigned },
+        publisher: { name: 'SprintEngine Labs', verified: !options.unsigned },
         summary: 'Registry plugin.',
         category: 'dev-tools',
         icon: 'icons/registry.svg',
@@ -1431,7 +1431,7 @@ test('plugin-lifecycle', async () => {
       // The registry override env var is the fixture seam: the client reads the
       // configured URL, which serves an index whose latest is 2.
       const registryUrl = configuredMarketplaceRegistryUrl({
-        MULTICODE_MARKETPLACE_REGISTRY_URL: 'https://registry.test/marketplace.json',
+        SPRINTENGINE_MARKETPLACE_REGISTRY_URL: 'https://registry.test/marketplace.json',
       } as unknown as NodeJS.ProcessEnv)
       assert.equal(registryUrl, 'https://registry.test/marketplace.json')
       const registryReader = new MarketplaceRegistryClient({

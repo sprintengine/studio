@@ -58,7 +58,7 @@ import type {
 import type { ModuleBridgeRefusalCode as AppModuleBridgeRefusalCode } from '../../../src/shared/modules/bridge'
 import type { ModuleEventEnvelope as AppModuleEventEnvelope } from '../../../src/shared/modules/events'
 import type { FileDropPayload as AppFileDropPayload } from '../../../src/renderer/src/utils/terminalDrop'
-import { MULTICODE_FILE_DROP_MIME as APP_FILE_DROP_MIME } from '../../../src/renderer/src/utils/terminalDrop'
+import { SPRINTENGINE_FILE_DROP_MIME as APP_FILE_DROP_MIME } from '../../../src/renderer/src/utils/terminalDrop'
 import type {
   ModuleNotification as AppModuleNotification,
   ModuleNotificationSeverity as AppModuleNotificationSeverity,
@@ -294,7 +294,7 @@ import type {
 import {
   BUNDLED_MODULE_IDS as SDK_BUNDLED_MODULE_IDS,
   KNOWN_CAPABILITY_PERMISSIONS as SDK_KNOWN_CAPABILITY_PERMISSIONS,
-  MULTICODE_FILE_DROP_MIME as SDK_FILE_DROP_MIME,
+  SPRINTENGINE_FILE_DROP_MIME as SDK_FILE_DROP_MIME,
   AUTOMATION_PROVIDER_GLYPHS as SDK_AUTOMATION_PROVIDER_GLYPHS,
 } from '../src/index'
 
@@ -591,7 +591,7 @@ assert.deepEqual(
   [...APP_AUTOMATION_PROVIDER_GLYPHS],
   'AUTOMATION_PROVIDER_GLYPHS drifted between SDK and app',
 )
-assert.equal(SDK_FILE_DROP_MIME, APP_FILE_DROP_MIME, 'MULTICODE_FILE_DROP_MIME drifted between SDK and app')
+assert.equal(SDK_FILE_DROP_MIME, APP_FILE_DROP_MIME, 'SPRINTENGINE_FILE_DROP_MIME drifted between SDK and app')
 
 // Service-token keys the SDK mirrors as private literals: pin the app side to
 // the documented strings so an accidental key edit fails here instead of

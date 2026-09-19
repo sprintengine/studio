@@ -64,22 +64,15 @@ electron.vite.config.*.mjs
 # and element crops; captured conversation transcripts and review state;
 # automation runtime state.
 #
-# BOTH names are listed. The directory was `.multi-code/` before the app was
-# renamed (2026-09-08) and is `.sprintengine/` now, and nothing migrates a
-# workspace that already has the old one — so both are live for as long as both
-# are read, and a checkout keeping the old name must not start showing its
-# runtime state as untracked noise for someone to eventually commit.
-#
 # `backlog/config.json` is in here too, and is NOT an exception. It carries the
 # `MC` item-key prefix, so it reads like project configuration, but the app
 # rewrites it as it runs and a clone gets its own on first run — tracking it
 # published one machine's live state, which is the same mistake
 # `backlog/items.json` made before it.
-# No exceptions under either name: a re-include here only holds a door open for
+# No exceptions: a re-include here only holds a door open for
 # a workspace's live runtime state to be committed by someone who added a file
 # and saw git offer it.
 .sprintengine/
-.multi-code/
 
 # Editor directories and files
 .idea
@@ -89,17 +82,6 @@ electron.vite.config.*.mjs
 *.njsproj
 *.sln
 *.sw?
-
-# SprintEngine Studio's own plugin: install output, built from
-# `resources/studio-plugin/`, which IS tracked. (The skill packs its installer
-# copies into each harness's skill dir are covered by the harness folders above.)
-.multicode/studio-plugin/
-
-# The agent-state reporter script. `AGENT_STATE_HOOK_SCRIPT_REL` in
-# src/main/agent-state.ts is `.multicode/hooks/agent-state.mjs`: the app copies
-# `resources/hooks/multicode-agent-state.mjs` there byte for byte when it opens a
-# workspace, so the tracked copy was a second, staler original.
-.multicode/hooks/
 
 # Leftover app metadata from the retired Design Wizard (deleted 2026-09-08):
 # its idea seed and inspiration drops. Nothing writes here any more, and the

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// multicode-module — packaging and signing CLI for SprintEngine Studio
+// sprintengine-module — packaging and signing CLI for SprintEngine Studio
 // capability module authors. Runs without repo access: everything it needs
 // ships in the @sprintengine/module-sdk tarball.
 //
@@ -40,17 +40,17 @@ import {
 } from './plugin-component-digests.js'
 import { generateModuleSigningKeyPair, signManifest, verifyModuleSignature } from './signing.js'
 
-const USAGE = `multicode-module — pack, sign, and verify SprintEngine Studio capability modules
+const USAGE = `sprintengine-module — pack, sign, and verify SprintEngine Studio capability modules
 
 Usage:
-  multicode-module keygen [--out <file>] [--force]
-  multicode-module pack <module-dir> [--out <dir>] [--force] [--allow-reserved-id]
-  multicode-module sign <module-dir> --key <private-key.pem>
-  multicode-module verify <module-dir>
-  multicode-module plugin scaffold <plugin-id> [--out <dir>] [--component <kind>]... [--force]
-  multicode-module plugin pack <plugin-dir> [--out <dir>] [--force]
-  multicode-module plugin sign <plugin-dir> --key <private-key.pem>
-  multicode-module plugin verify <plugin-dir>
+  sprintengine-module keygen [--out <file>] [--force]
+  sprintengine-module pack <module-dir> [--out <dir>] [--force] [--allow-reserved-id]
+  sprintengine-module sign <module-dir> --key <private-key.pem>
+  sprintengine-module verify <module-dir>
+  sprintengine-module plugin scaffold <plugin-id> [--out <dir>] [--component <kind>]... [--force]
+  sprintengine-module plugin pack <plugin-dir> [--out <dir>] [--force]
+  sprintengine-module plugin sign <plugin-dir> --key <private-key.pem>
+  sprintengine-module plugin verify <plugin-dir>
 
 keygen writes an ed25519 private key (PKCS#8 PEM) to --out
 (default module-signing.key). Keep it out of the module directory and out of
@@ -331,7 +331,7 @@ function pack(args: string[]): void {
   for (const name of skipped) {
     console.warn(`Skipped ${name}: key material is never packed into a module.`)
   }
-  const signedNote = manifest.signature ? 'signed' : 'UNSIGNED — run `multicode-module sign` before distributing'
+  const signedNote = manifest.signature ? 'signed' : 'UNSIGNED — run `sprintengine-module sign` before distributing'
   console.log(`Packed ${manifest.id} (${signedNote}) to ${outDir}`)
 }
 
@@ -343,7 +343,7 @@ function signCommand(args: string[]): void {
   })
   const moduleDir = positionals[0]
   if (!moduleDir) fail(`sign requires a module directory.\n\n${USAGE}`)
-  if (!values.key) fail('sign requires --key <private-key.pem> (create one with `multicode-module keygen`).')
+  if (!values.key) fail('sign requires --key <private-key.pem> (create one with `sprintengine-module keygen`).')
   const keyPath = resolve(values.key)
   if (!existsSync(keyPath)) fail(`Signing key not found: ${keyPath}`)
 
@@ -369,7 +369,7 @@ function verifyCommand(args: string[]): void {
   if (!moduleDir) fail(`verify requires a module directory.\n\n${USAGE}`)
   const { manifest } = readManifest(resolve(moduleDir))
   if (!manifest.signature) {
-    fail(`${manifest.id} is unsigned. The app will show it as 'unsigned'; sign it with \`multicode-module sign\`.`)
+    fail(`${manifest.id} is unsigned. The app will show it as 'unsigned'; sign it with \`sprintengine-module sign\`.`)
   }
   const { valid, fingerprint } = verifyModuleSignature(manifest)
   if (!valid) {
@@ -509,7 +509,7 @@ function pluginScaffold(args: string[]): void {
   console.log(`Scaffolded marketplace plugin ${id} at ${outDir}`)
   console.log(`Registry entry "provides": ${JSON.stringify(providesForComponents(components))}`)
   console.log(
-    'Run `multicode-module keygen`, then `multicode-module plugin sign`, then `multicode-module plugin verify`.',
+    'Run `sprintengine-module keygen`, then `sprintengine-module plugin sign`, then `sprintengine-module plugin verify`.',
   )
 }
 
@@ -575,7 +575,7 @@ function pluginSign(args: string[]): void {
   })
   const pluginDir = positionals[0]
   if (!pluginDir) fail(`plugin sign requires a plugin directory.\n\n${USAGE}`)
-  if (!values.key) fail('plugin sign requires --key <private-key.pem> (create one with `multicode-module keygen`).')
+  if (!values.key) fail('plugin sign requires --key <private-key.pem> (create one with `sprintengine-module keygen`).')
   const keyPath = resolve(values.key)
   if (!existsSync(keyPath)) fail(`Signing key not found: ${keyPath}`)
 
@@ -619,7 +619,7 @@ function pluginVerify(args: string[]): void {
   const authoring = readPluginAuthoringManifest(sourceDir)
   if (!authoring.manifest.signature) {
     fail(
-      `${authoring.manifest.id} is unsigned. The app will refuse to install it; sign it with \`multicode-module plugin sign\`.`,
+      `${authoring.manifest.id} is unsigned. The app will refuse to install it; sign it with \`sprintengine-module plugin sign\`.`,
     )
   }
   const { manifest } = readPluginManifest(sourceDir)

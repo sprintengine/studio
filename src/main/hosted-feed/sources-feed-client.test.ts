@@ -345,7 +345,7 @@ test('sources-feed-client', async () => {
     {
       assert.match(configuredSourcesFeedUrl({} as NodeJS.ProcessEnv), /^https:\/\/raw\.githubusercontent\.com\//)
       assert.equal(
-        configuredSourcesFeedUrl({ MULTICODE_SOURCES_FEED_URL: 'https://example.test/s.json' } as NodeJS.ProcessEnv),
+        configuredSourcesFeedUrl({ SPRINTENGINE_SOURCES_FEED_URL: 'https://example.test/s.json' } as NodeJS.ProcessEnv),
         'https://example.test/s.json',
       )
       // HTTPS is enforced at read time, not by the override.

@@ -26,7 +26,7 @@ import { isSidebarAnimating, onSidebarAnimating } from './sidebarTransition'
 // Dispatched (as a plain window event) when a hidden workspace layer becomes
 // the active, visible one. WorkspaceManager owns the dispatch; parked
 // schedulers re-check their container and run the deferred fit.
-export const WORKSPACE_LAYER_REVEAL_EVENT = 'multicode:workspace-layer-revealed'
+export const WORKSPACE_LAYER_REVEAL_EVENT = 'sprintengine:workspace-layer-revealed'
 
 // While the window is being interactively resized, visible terminals re-fit
 // at most once per throttle window so the content still tracks the drag.

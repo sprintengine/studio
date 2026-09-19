@@ -50,7 +50,7 @@ export type ExtensionsSurfaceTarget = {
   skillId?: string
 }
 
-const EXTENSIONS_SURFACE_TARGET_EVENT = 'multicode:extensions-surface-target'
+const EXTENSIONS_SURFACE_TARGET_EVENT = 'sprintengine:extensions-surface-target'
 
 const VIEWS: readonly string[] = Object.values(EXTENSIONS_DRAWER_VIEWS)
 

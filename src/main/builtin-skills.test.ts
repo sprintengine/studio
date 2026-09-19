@@ -101,7 +101,7 @@ test('builtin-skills', async () => {
       await readFile(join(shipped, skill.id, 'agents', 'openai.yaml'), 'utf-8')
     }
 
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-builtin-skills-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-builtin-skills-'))
     const sourceRoot = join(temp, 'source')
     const workspaceRoot = join(temp, 'workspace')
     await mkdir(workspaceRoot, { recursive: true })
@@ -418,7 +418,7 @@ test('builtin-skills', async () => {
   // managed manifest. The only difference is where its bytes come from and how
   // long it lives — the module's own tree, and the module's own lifetime.
   async function testModuleOwnedSkills(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-module-skills-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-module-skills-'))
     const bundledRoot = join(temp, 'bundled')
     const moduleRoot = join(temp, 'modules', 'review')
     const workspaceRoot = join(temp, 'workspace')

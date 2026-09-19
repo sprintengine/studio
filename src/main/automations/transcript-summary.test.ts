@@ -8,7 +8,7 @@ import { MAX_TRANSCRIPT_BYTES, MAX_TRANSCRIPT_SUMMARY_LENGTH, readTranscriptSumm
 import { test } from 'vitest'
 
 test('transcript-summary', async () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'multicode-transcript-summary-'))
+  const workDir = mkdtempSync(join(tmpdir(), 'sprintengine-transcript-summary-'))
 
   function writeTranscript(name: string, rows: unknown[]): string {
     const filePath = join(workDir, name)

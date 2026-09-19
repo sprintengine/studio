@@ -323,11 +323,11 @@ export function resolveSocketPath(
   temporaryDir: string = tmpdir(),
 ): string {
   if (platform === 'win32') {
-    return `\\\\.\\pipe\\multicode-automation-${profileHash(userDataDir)}`
+    return `\\\\.\\pipe\\sprintengine-automation-${profileHash(userDataDir)}`
   }
   const direct = join(userDataDir, 'automation.sock')
   if (direct.length <= MAX_POSIX_SOCKET_PATH) return direct
-  return join(temporaryDir, `multicode-automation-${profileHash(userDataDir)}.sock`)
+  return join(temporaryDir, `sprintengine-automation-${profileHash(userDataDir)}.sock`)
 }
 
 function profileHash(userDataDir: string): string {

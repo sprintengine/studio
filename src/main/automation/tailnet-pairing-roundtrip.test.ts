@@ -119,8 +119,8 @@ test('tailnet-pairing-roundtrip', async () => {
    * the producer changed shape, this is what would notice.
    */
   function parsePairingUrl(url: string): { host: string; port: number; token: string } {
-    assert.ok(url.startsWith('multicode-tailnet://pair?'), `unexpected scheme in ${url}`)
-    const params = new URLSearchParams(url.slice('multicode-tailnet://pair?'.length))
+    assert.ok(url.startsWith('sprintengine-tailnet://pair?'), `unexpected scheme in ${url}`)
+    const params = new URLSearchParams(url.slice('sprintengine-tailnet://pair?'.length))
     const endpoint = params.get('endpoint')
     const token = params.get('token')
     assert.ok(endpoint, 'the pairing URL carries an endpoint')
@@ -140,7 +140,7 @@ test('tailnet-pairing-roundtrip', async () => {
   }
 
   async function startHarness(): Promise<Harness> {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-pairing-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-pairing-'))
     const port = await freePort()
     // The persisted setting is the only thing that turns the listener on, so the
     // test turns it on the way a person does rather than by reaching past it.

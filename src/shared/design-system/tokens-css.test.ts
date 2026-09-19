@@ -72,7 +72,7 @@ test('tokens-css', async () => {
     const { generated, document } = generate((tokens) => {
       // A literal, an alias, a mode-varying pair, and a fontFamily array.
       tokens.ref.color.green['600'].$value = '#0a0b0c'
-      tokens.sem.color.accent.primary.$extensions['com.multicode'].modes = {
+      tokens.sem.color.accent.primary.$extensions['com.sprintengine'].modes = {
         light: '{ref.color.green.600}',
         dark: '{ref.color.green.500}',
       }
@@ -83,7 +83,7 @@ test('tokens-css', async () => {
         $type: 'fontFamily',
         $value: ['Inter Tight', 'system-ui'],
         $description: 'UI face.',
-        $extensions: { 'com.multicode': { role: 'font', use: 'App chrome.' } },
+        $extensions: { 'com.sprintengine': { role: 'font', use: 'App chrome.' } },
       }
     })
     const emitted = emitTokensCss(document)
@@ -116,7 +116,7 @@ test('tokens-css', async () => {
     const { document } = generate()
     const doc = document as Record<string, any>
     doc.sem.color.accent.primary.$value = '{ref.color.nope}'
-    doc.sem.color.accent.primary.$extensions['com.multicode'].modes = {
+    doc.sem.color.accent.primary.$extensions['com.sprintengine'].modes = {
       light: '{ref.color.nope}',
       dark: '{ref.color.nope}',
     }

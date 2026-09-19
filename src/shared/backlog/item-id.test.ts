@@ -89,7 +89,7 @@ test('item-id', async () => {
 
   run('deriveDefaultBacklogKey: initials for multi-word, prefix for single word', () => {
     assert.equal(deriveDefaultBacklogKey('ACME Web'), 'AW')
-    assert.equal(deriveDefaultBacklogKey('multicode'), 'MUL')
+    assert.equal(deriveDefaultBacklogKey('sprintengine'), 'SPR')
     assert.equal(deriveDefaultBacklogKey('my-cool-project'), 'MCP')
     assert.equal(deriveDefaultBacklogKey('   '), 'BL')
     assert.equal(deriveDefaultBacklogKey('123'), 'BL') // alpha-led keys only

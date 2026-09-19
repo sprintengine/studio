@@ -15,7 +15,7 @@ import {
 import { readStudioEnv } from '../../shared/studio-env'
 
 // Discovery + install for third-party capability modules under
-// ~/.multicode/modules/<id>/manifest.json. Mirrors the BYO-CLI plugin-registry
+// ~/.sprintengine/modules/<id>/manifest.json. Mirrors the BYO-CLI plugin-registry
 // pattern. This layer validates, classifies trust, and installs — it does NOT
 // execute module code; trusted `entry.main` loading is wired separately through
 // third-party-main-loader.
@@ -27,7 +27,7 @@ import { readStudioEnv } from '../../shared/studio-env'
 export function defaultUserModuleRoot(): string {
   const override = readStudioEnv('SPRINTENGINE_USER_MODULE_ROOT')?.trim()
   if (override) return override
-  return join(homedir(), '.multicode', 'modules')
+  return join(homedir(), '.sprintengine', 'modules')
 }
 
 type ModuleRejectionIssue = { path: string; message: string }

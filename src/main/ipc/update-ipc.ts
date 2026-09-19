@@ -1,9 +1,9 @@
 import type { IpcMain } from 'electron'
 import type { AppUpdateCheckResult, AppUpdateState } from '../../shared/electron-api'
-import type { MulticodeUpdateService } from '../update-service'
+import type { SprintEngineUpdateService } from '../update-service'
 
 type UpdateIpcDependencies = {
-  updateService: MulticodeUpdateService
+  updateService: SprintEngineUpdateService
 }
 
 export function registerUpdateIpc(ipcMain: IpcMain, { updateService }: UpdateIpcDependencies): void {

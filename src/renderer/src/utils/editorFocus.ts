@@ -7,7 +7,7 @@
 // This is what makes a search result a destination rather than just a file: the
 // content search knows the line it matched, and until something dispatched this
 // the editor opened every hit at line 1.
-export const EDITOR_FOCUS_EVENT = 'multicode:focus-editor'
+export const EDITOR_FOCUS_EVENT = 'sprintengine:focus-editor'
 
 export type EditorFocusRequest = {
   workspaceId: string

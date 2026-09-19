@@ -3,7 +3,7 @@
 //
 // Invoked as a PostToolUse hook. Reads Claude's JSON payload from stdin,
 // extracts the touched file path, and appends a single JSON line to the
-// session trace file under .multicode/knowledge-trace/. Silently no-ops when
+// session trace file under .sprintengine/knowledge-trace/. Silently no-ops when
 // the touched file is outside the configured knowledge root.
 //
 // Args:
@@ -15,16 +15,8 @@
 import { appendFile, mkdir } from 'node:fs/promises'
 import { isAbsolute, resolve, sep } from 'node:path'
 
-// The app's own variables answer to two names. Everything was spelled
-// `MULTICODE_*` before the 2026-09-08 rename to SprintEngine Studio and is
-// spelled `SPRINTENGINE_*` now, and this file is a COPY installed into a
-// workspace: the app instance launching an agent may be either side of that
-// rename, and this copy may be either side of it too. New name first, old name
-// second. An empty value counts as unset here, matching the `||` fallbacks the
-// call sites already had.
-const studioEnv = (name) =>
-  process.env[name] || process.env[name.replace(/^SPRINTENGINE_/, 'MULTICODE_')] || ''
-
+// The app's own variables. An empty value counts as unset.
+const studioEnv = (name) => process.env[name] || ''
 
 async function readStdin() {
   return new Promise((res) => {
@@ -76,7 +68,9 @@ function isInside(parent, child) {
 }
 
 function relativeForward(parent, child) {
-  const rel = resolve(child).slice(resolve(parent).length).replace(/^[\\/]+/, '')
+  const rel = resolve(child)
+    .slice(resolve(parent).length)
+    .replace(/^[\\/]+/, '')
   return rel.split(sep).join('/')
 }
 
@@ -99,9 +93,7 @@ async function main() {
     log('no --knowledge-root')
     return
   }
-  const memoryRoot = isAbsolute(args.memoryRoot)
-    ? args.memoryRoot
-    : resolve(process.cwd(), args.memoryRoot)
+  const memoryRoot = isAbsolute(args.memoryRoot) ? args.memoryRoot : resolve(process.cwd(), args.memoryRoot)
   log(`memoryRoot=${memoryRoot}`)
 
   const stdinRaw = await readStdin()
@@ -144,7 +136,7 @@ async function main() {
     return
   }
 
-  const traceDir = resolve(process.cwd(), '.multicode', 'knowledge-trace')
+  const traceDir = resolve(process.cwd(), '.sprintengine', 'knowledge-trace')
   await mkdir(traceDir, { recursive: true })
 
   const event = {
@@ -159,8 +151,10 @@ async function main() {
   await appendFile(traceFile, JSON.stringify(event) + '\n', { encoding: 'utf8' })
 }
 
-main().catch(() => {
-  // Never let a hook error break Claude.
-}).finally(() => {
-  process.exit(0)
-})
+main()
+  .catch(() => {
+    // Never let a hook error break Claude.
+  })
+  .finally(() => {
+    process.exit(0)
+  })

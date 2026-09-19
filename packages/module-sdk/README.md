@@ -13,16 +13,6 @@ mirrored values (`BUNDLED_MODULE_IDS`, `KNOWN_CAPABILITY_PERMISSIONS`,
 application's own code, so an external project can compile a module against the
 tarball alone.
 
-## Renamed in 0.6.0
-
-This package was `@multicode/module-sdk` up to and including `0.5.0`. Change
-every import to `@sprintengine/module-sdk` — root, `/ui`, `/surface` and
-`/signing` — and the matching `--external:` flags in your bundler. Nothing else
-moved: the types, the export names and the runtime contract are identical, so
-the rename is a find-and-replace and not a migration. A bundle you already
-built against the old specifiers still loads, because the host's import map
-answers both names.
-
 ## Versioning
 
 Semver, starting at `0.1.0`. See `CHANGELOG.md`. Inside the studio
@@ -111,7 +101,7 @@ contracts, so a published version always matches the app version it ships with.
   strings fail closed, so a condition a newer shell added never breaks a
   module compiled against an older one);
   panel-targeted dispatch is a
-  `multicode:panel-command` CustomEvent from your `run()`),
+  `sprintengine:panel-command` CustomEvent from your `run()`),
   `registerSettingsSection` (values persist in the module's own
   `module:<id>` settings namespace),   `registerSidebarNavEntry` (an
   instance-level door in the workspace sidebar's top-nav cluster — a
@@ -262,7 +252,7 @@ import type { CapabilityManifest, RegisterMain, RegisterRenderer } from '@sprint
 
 Author `manifest.json` matching `CapabilityManifest`, bundle `entry.main` as
 CJS and `entry.renderer` as a single-file ESM bundle, sign the manifest, and
-install the module folder under `~/.multicode/modules/<id>/`. See
+install the module folder under `~/.sprintengine/modules/<id>/`. See
 `test-fixtures/external-project/` in the repository for a complete minimal
 module compiled against this package.
 
@@ -301,7 +291,7 @@ the actual boundary.
 ## Accepting drags from the Backlog and Files panels
 
 Backlog rows and Files-tree entries put a published payload on their drags
-under `MULTICODE_FILE_DROP_MIME`. `readFileDropPayload` is the safe reader:
+under `SPRINTENGINE_FILE_DROP_MIME`. `readFileDropPayload` is the safe reader:
 it returns `null` — never throws — for a missing entry, unparseable JSON, an
 invalid shape, or an unknown `version` (only `version: 1` exists today;
 future versions parse to `null`, so always handle it). A Backlog-item drag
@@ -728,7 +718,7 @@ helper functions so provider ownership is always stamped from the host.
 A **CLI plugin** is a different artifact from a capability module: a folder
 containing a `plugin.json` that teaches the studio how to launch, resume, drive,
 and detect completion for a new agent CLI (claude-code, codex, opencode, and
-your own). Drop it into `~/.multicode/plugins/<id>/`, or install it from
+your own). Drop it into `~/.sprintengine/plugins/<id>/`, or install it from
 **Settings → Agents → "Install CLI from folder"**. The plugin id must equal the
 folder name; a user plugin with a bundled CLI's id overrides the bundled one.
 
@@ -747,10 +737,10 @@ package), so a manifest it accepts is loadable by the studio — the authoring
 contract and the loader cannot drift. The bundled manifests under
 `resources/plugins/` in the app repository are worked `plugin.json` examples.
 
-## Signing and packaging: the `multicode-module` CLI
+## Signing and packaging: the `sprintengine-module` CLI
 
-The package ships a `multicode-module` binary (run it with
-`npx multicode-module` from a project that depends on this package). It uses
+The package ships a `sprintengine-module` binary (run it with
+`npx sprintengine-module` from a project that depends on this package). It uses
 the same canonicalization and ed25519 code the app's verifier imports, so the
 CLI and the app can never disagree about what a valid signature is.
 
@@ -760,22 +750,22 @@ The happy path from module directory to installable, signed module:
 # 1. One-time: generate your ed25519 signing keypair.
 #    Writes a PKCS#8 PEM private key; keep it OUT of the module directory
 #    and out of version control. The public key is derived from it at sign time.
-npx multicode-module keygen --out ~/keys/module-signing.key
+npx sprintengine-module keygen --out ~/keys/module-signing.key
 
 # 2. Sign the module. Validates manifest.json, writes the normalized manifest
 #    (sorted, unknown keys stripped) back including the detached signature —
 #    the bytes on disk are exactly what the app verifies.
-npx multicode-module sign path/to/my-module --key ~/keys/module-signing.key
+npx sprintengine-module sign path/to/my-module --key ~/keys/module-signing.key
 
 # 3. Check the module the way the studio will.
 #    Exit 0 + signer fingerprint when valid; exit 1 when unsigned or tampered.
-npx multicode-module verify path/to/my-module
+npx sprintengine-module verify path/to/my-module
 
 # 4. Assemble the installable copy. Validates the manifest (bad ids, reserved
 #    bundled ids, malformed permissions all fail with explicit errors) and
 #    copies the module to --out (default packed/<id>), excluding node_modules,
 #    .git, and any *.key / *.pem files.
-npx multicode-module pack path/to/my-module --out dist/my-module
+npx sprintengine-module pack path/to/my-module --out dist/my-module
 ```
 
 Re-running `sign` replaces the previous signature. Any edit to the manifest

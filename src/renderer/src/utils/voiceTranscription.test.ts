@@ -31,7 +31,7 @@ test('voiceTranscription', async () => {
   // Headers carry the model/language/backend contract; token only when present.
   const noTokenHeaders = buildTranscriptionHeaders(baseSettings)
   assert.equal(noTokenHeaders['Content-Type'], 'audio/wav')
-  assert.equal(noTokenHeaders['x-multivoice-client'], 'multicode')
+  assert.equal(noTokenHeaders['x-multivoice-client'], 'sprintengine')
   assert.equal(noTokenHeaders['x-multivoice-backend'], 'whisper')
   assert.equal(noTokenHeaders['x-multivoice-model'], 'small')
   assert.equal(noTokenHeaders['x-multivoice-language'], 'auto')

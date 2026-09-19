@@ -64,7 +64,7 @@ export async function writeAttachmentImageFile(input: AttachmentImageInput, fall
   if (bytes.length === 0) throw new Error('That image could not be read.')
   if (bytes.length > MAX_ATTACHMENT_IMAGE_BYTES) throw new Error('That image is too large to attach.')
 
-  const directory = join(tmpdir(), 'multicode-images', randomUUID().slice(0, 8))
+  const directory = join(tmpdir(), 'sprintengine-images', randomUUID().slice(0, 8))
   await mkdir(directory, { recursive: true })
   const filePath = join(directory, safeImageFileName(input.name, fallbackStem, extension))
   await writeFile(filePath, bytes, { flag: 'wx' })

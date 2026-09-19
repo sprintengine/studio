@@ -15,7 +15,7 @@ test('consent-store', async () => {
   const FILE_NAME = 'telemetry-consent.json'
 
   async function withUserData(body: (dir: string) => Promise<void>): Promise<void> {
-    const dir = await mkdtemp(join(tmpdir(), 'multicode-telemetry-consent-'))
+    const dir = await mkdtemp(join(tmpdir(), 'sprintengine-telemetry-consent-'))
     try {
       await body(dir)
     } finally {

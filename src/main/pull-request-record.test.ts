@@ -102,7 +102,7 @@ test('pull-request-record', async () => {
   /** A store of its own per case: the file is keyed by repository, and two cases
    *  using one directory would inherit each other's pull requests. */
   function freshUserDataDir(): Promise<string> {
-    return mkdtemp(join(tmpdir(), 'multicode-pr-record-'))
+    return mkdtemp(join(tmpdir(), 'sprintengine-pr-record-'))
   }
 
   async function main(): Promise<void> {

@@ -582,7 +582,7 @@ export class MobileBridge {
       throw new Error('Paired mobile device was not found.')
     }
 
-    await this.revokeDeviceAtRelay(trimmedDeviceId, trimmedReason ?? 'Revoked from Multicode desktop settings.')
+    await this.revokeDeviceAtRelay(trimmedDeviceId, trimmedReason ?? 'Revoked from SprintEngine desktop settings.')
 
     if (!device.revokedAt) {
       const revokedAt = new Date().toISOString()

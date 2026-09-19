@@ -121,8 +121,8 @@ test('agentCliShelfInstall', async () => {
   const cursorEntry = {
     id: 'cursor',
     name: 'Cursor',
-    publisher: { name: 'Multicode Labs', verified: true },
-    summary: 'Drive the Cursor agent from Multicode.',
+    publisher: { name: 'SprintEngine Labs', verified: true },
+    summary: 'Drive the Cursor agent from SprintEngine.',
     category: 'Agent Runtime',
     latest: 1,
     provides: ['cli'],
@@ -131,7 +131,7 @@ test('agentCliShelfInstall', async () => {
   const builtinEntry = {
     id: 'claude-agent',
     name: 'Claude Code (SDK)',
-    publisher: { name: 'Multicode Labs', verified: true },
+    publisher: { name: 'SprintEngine Labs', verified: true },
     summary: 'Claude conversation agents in the app.',
     category: 'Agent Runtime',
     latest: 1,

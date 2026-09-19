@@ -6,7 +6,7 @@ import { LoadingOverlay } from './LoadingOverlay'
 // container. The `.suspense-fallback` class delays the fade-in (see index.css)
 // so a fast chunk load never flashes.
 //
-// This used to render the `MulticodeSpinner` brand mark: a hex-gradient glyph
+// This used to render the `SprintEngineSpinner` brand mark: a hex-gradient glyph
 // tuned for dark, so every light theme got a washed grey mark — and it was the
 // application icon, which the wordmark records as being for the icon and
 // nothing else. The spinner spec names one working mark and the overlay for

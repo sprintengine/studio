@@ -214,7 +214,7 @@ export function remoteGroupOf(workspace: Workspace): FolderGroup['remote'] {
  * A remote-only project's header: the FOLDER's name on that machine, and
  * nothing else (owner, 2026-09-11).
  *
- * It used to read "mac-mini.example.ts.net · multicode" — the machine
+ * It used to read "mac-mini.example.ts.net · sprintengine" — the machine
  * first, the project second, so the same repository on two machines read as two
  * different projects and neither header lined up with the local one. The
  * machine is a glyph on each row now, with the device's name on hover, which is

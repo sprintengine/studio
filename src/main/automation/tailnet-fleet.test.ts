@@ -58,8 +58,8 @@ test('tailnet-fleet', async () => {
   }
 
   async function startHarness(): Promise<Harness> {
-    const remoteDir = mkdtempSync(join(tmpdir(), 'multicode-fleet-remote-'))
-    const localDir = mkdtempSync(join(tmpdir(), 'multicode-fleet-local-'))
+    const remoteDir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-remote-'))
+    const localDir = mkdtempSync(join(tmpdir(), 'sprintengine-fleet-local-'))
     const devices = createTailnetDeviceStore({ resolveUserDataDir: () => remoteDir })
     const terminals = createStubTerminalHost()
 
@@ -199,7 +199,7 @@ test('tailnet-fleet', async () => {
               name: 'Bishop',
               terminal: { sessionId: 'session_three', processAlive: true },
             },
-            worktreePath: '/repos/.multicode-worktrees/atlas/fix',
+            worktreePath: '/repos/.sprintengine-worktrees/atlas/fix',
             worktreeBranch: 'agent/fix',
           })
         },
@@ -545,7 +545,7 @@ test('tailnet-fleet', async () => {
       assert.deepEqual(created.checkout, {
         mode: 'worktree',
         branch: 'agent/fix',
-        worktreePath: '/repos/.multicode-worktrees/atlas/fix',
+        worktreePath: '/repos/.sprintengine-worktrees/atlas/fix',
       })
       const wire = agentLaunchArgs[agentLaunchArgs.length - 1]
       assert.deepEqual(wire?.worktree, { name: 'fix', baseRef: 'feat/x' })

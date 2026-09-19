@@ -34,10 +34,10 @@ test('pairing', async () => {
 
   {
     const link = manualPairingValueFromRelayChallenge({
-      pairingUri: 'multicode://mobile/pair?secret=legacy',
+      pairingUri: 'sprintengine://mobile/pair?secret=legacy',
       pairingPayload: payload,
     })
-    assert.equal(new URL(link).protocol, 'multicode:')
+    assert.equal(new URL(link).protocol, 'sprintengine:')
     console.log('ok - a relay link still on the pre-rename scheme is left alone')
   }
 

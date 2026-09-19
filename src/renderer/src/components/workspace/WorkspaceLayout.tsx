@@ -730,7 +730,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
       if (action.type === Actions.DELETE_TAB) {
         const node = modelRef.current?.getNodeById(action.data.node)
         const nodeId = node?.getId() ?? String(action.data.node ?? '')
-        const preserveRuntime = (action.data as Record<string, unknown>).__multicodePreserveRuntime === true
+        const preserveRuntime = (action.data as Record<string, unknown>).__sprintenginePreserveRuntime === true
         if (preserveRuntime) {
           hideTabWithoutCleanupRef.current.delete(nodeId)
         } else if (hideTabWithoutCleanupRef.current.has(nodeId)) {

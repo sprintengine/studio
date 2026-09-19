@@ -6,7 +6,7 @@ import { test } from 'vitest'
 
 test('memoryHydration', async () => {
   function readPersistedWorkspaces(): unknown[] {
-    const raw = hydrationStorage.get('multicode-workspaces')
+    const raw = hydrationStorage.get('sprintengine-workspaces')
     assert.ok(raw, 'persisted entry should still exist in localStorage')
     const envelope = JSON.parse(raw) as { state?: { workspaces?: unknown[] } }
     const workspaces = envelope.state?.workspaces

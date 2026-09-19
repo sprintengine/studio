@@ -111,7 +111,7 @@ function parseArgs(argv) {
 
 const opts = parseArgs(process.argv.slice(2))
 const REPO = opts.repo
-const cacheDir = path.join(REPO, 'node_modules', '.cache', 'multicode')
+const cacheDir = path.join(REPO, 'node_modules', '.cache', 'sprintengine')
 
 // ── the project's built stylesheet ───────────────────────────────────────────
 // Named, never guessed: --css points at whatever the project's build emits.
@@ -253,9 +253,7 @@ function renderSpecimens(modulePath) {
     absWorkingDir: REPO,
     define: { 'import.meta.env.DEV': 'false' },
     loader: { '.css': 'empty', '.svg': 'text', '.png': 'dataurl', '.jpg': 'dataurl' },
-    alias: Object.fromEntries(
-      Object.entries(opts.alias).map(([name, dir]) => [name, path.resolve(REPO, dir)]),
-    ),
+    alias: Object.fromEntries(Object.entries(opts.alias).map(([name, dir]) => [name, path.resolve(REPO, dir)])),
     logLevel: 'warning',
   })
   const run = spawnSync(process.execPath, [bundle, markup], { cwd: REPO, encoding: 'utf8' })
@@ -272,7 +270,8 @@ for (const file of opts.sites) {
   if (!Array.isArray(parsed)) throw new Error(`${file}: a sites file is an array of records`)
   for (const record of parsed) {
     if (!record.file || typeof record.line !== 'number') throw new Error(`${file}: a record needs file and line`)
-    if (!STATUSES.includes(record.status)) throw new Error(`${file}: ${record.file}:${record.line} has status "${record.status}"`)
+    if (!STATUSES.includes(record.status))
+      throw new Error(`${file}: ${record.file}:${record.line} has status "${record.status}"`)
     rows.push({ ...record, file: String(record.file).replace(`${REPO}/`, '') })
   }
 }
@@ -580,7 +579,9 @@ const page = [
 ${
   laneCounts.length > 0
     ? `<div class="stats">${laneCounts
-        .map((l) => `<div class="stat"><span class="stat-n">${l.n}</span><span class="stat-l">${esc(l.name)}</span></div>`)
+        .map(
+          (l) => `<div class="stat"><span class="stat-n">${l.n}</span><span class="stat-l">${esc(l.name)}</span></div>`,
+        )
         .join('')}</div>`
     : ''
 }
@@ -609,7 +610,9 @@ if (drawnSwaps.length > 0) {
       if (found) found.rows.push(record)
       else members.push({ name, rows: [record] })
     }
-    members.sort((a, b) => (b.rows.length === a.rows.length ? (a.name < b.name ? -1 : 1) : b.rows.length - a.rows.length))
+    members.sort((a, b) =>
+      b.rows.length === a.rows.length ? (a.name < b.name ? -1 : 1) : b.rows.length - a.rows.length,
+    )
     for (const member of members) {
       page.push(
         `<div class="secthead"><h2>${esc(member.name)}</h2><p class="lede">${member.rows.length} site${
@@ -658,8 +661,11 @@ const problems = []
 if (/<!doctype|<html[\s>]|<head[\s>]|<body[\s>]/i.test(html)) problems.push('the fragment carries a document wrapper')
 if (/<pre[\s>]|<code[\s>]/i.test(html)) problems.push('the page carries a code block; the specimens are the content')
 if (missing.length > 0) problems.push(`the specimen module exports no ${[...new Set(missing)].join(', ')}`)
-if (grounds.counts.light === 0 || grounds.counts.dark === 0) problems.push('a ground is empty; check the --tokens files and their :root selectors')
-for (const token of new Set([...drawnSwaps, ...drawnKept, ...drawnFamilies].map((r) => r.specimen.ground).filter(Boolean))) {
+if (grounds.counts.light === 0 || grounds.counts.dark === 0)
+  problems.push('a ground is empty; check the --tokens files and their :root selectors')
+for (const token of new Set(
+  [...drawnSwaps, ...drawnKept, ...drawnFamilies].map((r) => r.specimen.ground).filter(Boolean),
+)) {
   if (!grounds.css.includes(`${token}:`)) problems.push(`a specimen sits on ${token}, which the grounds do not declare`)
 }
 console.log(

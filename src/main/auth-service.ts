@@ -3,9 +3,9 @@ import { mkdir, readFile, unlink, writeFile } from 'fs/promises'
 import { createHash, randomBytes } from 'crypto'
 import { createServer, type Server } from 'http'
 import { dirname, join } from 'path'
-import type { EntitlementSnapshot, MulticodeAuthState, SessionSnapshot, SessionUser } from '../shared/electron-api'
+import type { EntitlementSnapshot, SprintEngineAuthState, SessionSnapshot, SessionUser } from '../shared/electron-api'
 import { AccountPhotoCache } from './account-photo-cache'
-import { CURRENT_DEEP_LINK_SCHEME, DEEP_LINK_SCHEMES, LEGACY_DEEP_LINK_SCHEME } from './deep-link-scheme'
+import { CURRENT_DEEP_LINK_SCHEME, DEEP_LINK_SCHEMES } from './deep-link-scheme'
 import {
   ENTITLEMENT_GRACE_MS,
   ENTITLEMENT_MAX_CACHE_AGE_MS,
@@ -28,7 +28,7 @@ import {
   type IdentityConfig,
 } from './desktop-identity'
 import {
-  MulticodeAccountClient,
+  SprintEngineAccountClient,
   parseAccountProfile,
   type AccountProfile,
   type IdentityMarker,
@@ -49,7 +49,7 @@ import { readStudioEnv } from '../shared/studio-env'
 // The default it falls back to is set in `./service-endpoints`, where a build
 // can bake in a different deployment via the same `MULTIAUTH_BASE_URL` name.
 const MULTIAUTH_BASE_URL = (process.env['MULTIAUTH_BASE_URL'] || DEFAULT_MULTIAUTH_BASE_URL).replace(/\/+$/u, '')
-const DESKTOP_CLIENT_ID = 'multicode-desktop' as const
+const DESKTOP_CLIENT_ID = 'sprintengine-desktop' as const
 const LOOPBACK_HOST = '127.0.0.1' as const
 const LOOPBACK_PORT = 43110
 const LOOPBACK_REDIRECT_URI = `http://${LOOPBACK_HOST}:${LOOPBACK_PORT}/callback` as const
@@ -59,13 +59,6 @@ const LOOPBACK_REDIRECT_URI = `http://${LOOPBACK_HOST}:${LOOPBACK_PORT}/callback
 // refused outright, so `SPRINTENGINE_AUTH_REDIRECT_MODE=custom` needs this
 // spelling registered before it works. Loopback, the default, is unaffected.
 const CUSTOM_SCHEME_REDIRECT_URI = `${CURRENT_DEEP_LINK_SCHEME}://auth/callback` as const
-// The same callback under the scheme the app shipped under before the
-// 2026-09-08 rename. A constant of its own rather than folded into the one
-// above because the token exchange has to echo back the *exact* redirect_uri
-// the authorization request carried (RFC 6749 §4.1.3) — so a callback that
-// arrives on the old scheme has to be exchanged with the old spelling, and
-// guessing from the mode this process would pick now would get it wrong.
-const LEGACY_CUSTOM_SCHEME_REDIRECT_URI = `${LEGACY_DEEP_LINK_SCHEME}://auth/callback` as const
 // Loopback for packaged builds too. The custom scheme is bound by
 // macOS LaunchServices to whichever Electron bundle registered it last — a
 // released build beside a beta is enough to send the callback to the wrong
@@ -80,13 +73,13 @@ const AUTH_REDIRECT_MODE =
     : DEFAULT_AUTH_REDIRECT_MODE
 const REDIRECT_URI: typeof CUSTOM_SCHEME_REDIRECT_URI | typeof LOOPBACK_REDIRECT_URI =
   AUTH_REDIRECT_MODE === 'loopback' ? LOOPBACK_REDIRECT_URI : CUSTOM_SCHEME_REDIRECT_URI
-const PRODUCT_KEY = 'multicode' as const
+const PRODUCT_KEY = 'sprintengine' as const
 const MULTIAUTH_DESKTOP_SCOPE = 'openid profile entitlements:read relay:desktop'
 const AUTH_PREFLIGHT_TIMEOUT_MS = 3000
-const ACCOUNT_SERVICE_LABEL = 'The Multicode account service'
+const ACCOUNT_SERVICE_LABEL = 'The SprintEngine account service'
 
 type ElectronRendererAuthState = Pick<
-  MulticodeAuthState,
+  SprintEngineAuthState,
   'authenticated' | 'user' | 'selectedOrganization' | 'entitlements'
 >
 
@@ -177,8 +170,8 @@ class ElectronIdentityMarkerStore implements IdentityMarkerStore {
   }
 }
 
-export class MulticodeAuthBridge {
-  private readonly client = new MulticodeAccountClient({
+export class SprintEngineAuthBridge {
+  private readonly client = new SprintEngineAccountClient({
     baseUrl: MULTIAUTH_BASE_URL,
     clientId: DESKTOP_CLIENT_ID,
     product: PRODUCT_KEY,
@@ -194,7 +187,7 @@ export class MulticodeAuthBridge {
       else console.info(`[auth] ${event}`, data ?? {})
     },
   })
-  private state: MulticodeAuthState = signedOutAuthState('Checking account.')
+  private state: SprintEngineAuthState = signedOutAuthState('Checking account.')
   private pendingLogin: PendingDesktopLogin | null = null
   private callbackServer: DesktopCallbackServer | null = null
   private cachedEntitlements: CachedEntitlementSnapshot | null = null
@@ -232,7 +225,7 @@ export class MulticodeAuthBridge {
     },
   )
 
-  async initialize(): Promise<MulticodeAuthState> {
+  async initialize(): Promise<SprintEngineAuthState> {
     this.setState({ ...this.state, status: 'checking', message: 'Checking account.' })
 
     try {
@@ -255,7 +248,7 @@ export class MulticodeAuthBridge {
           message:
             entitlementStatus === 'offline_grace'
               ? offlineGraceMessage(graceExpiresAt)
-              : 'Sign in again to refresh Multicode access.',
+              : 'Sign in again to refresh SprintEngine access.',
           lastRefreshAt: cache.lastRefreshAt,
           graceExpiresAt,
         })
@@ -267,7 +260,7 @@ export class MulticodeAuthBridge {
     }
   }
 
-  getState(): MulticodeAuthState {
+  getState(): SprintEngineAuthState {
     return this.state
   }
 
@@ -339,7 +332,7 @@ export class MulticodeAuthBridge {
     return { state, authorizationUrl }
   }
 
-  async handleCallback(callbackUrl: string): Promise<MulticodeAuthState> {
+  async handleCallback(callbackUrl: string): Promise<SprintEngineAuthState> {
     const url = new URL(callbackUrl)
     if (!isSupportedAuthCallbackUrl(url)) {
       throw new Error('Unsupported sign-in callback URL.')
@@ -409,7 +402,7 @@ export class MulticodeAuthBridge {
     return result
   }
 
-  async refreshEntitlements(options: { forceRefresh?: boolean } = {}): Promise<MulticodeAuthState> {
+  async refreshEntitlements(options: { forceRefresh?: boolean } = {}): Promise<SprintEngineAuthState> {
     try {
       const entitlements = await this.client.getEntitlements({ forceRefresh: options.forceRefresh ?? true })
       const session = await this.readSessionFromEntitlements(entitlements)
@@ -652,7 +645,7 @@ export class MulticodeAuthBridge {
   // cache only — no network), else the ids the entitlement snapshot carries.
   private async readOfflineAccount(
     entitlements: EntitlementSnapshot,
-  ): Promise<Pick<MulticodeAuthState, 'user' | 'selectedOrganization'>> {
+  ): Promise<Pick<SprintEngineAuthState, 'user' | 'selectedOrganization'>> {
     if (this.state.user && this.state.selectedOrganization?.id === entitlements.organizationId) {
       return { user: this.state.user, selectedOrganization: this.state.selectedOrganization }
     }
@@ -728,7 +721,7 @@ export class MulticodeAuthBridge {
     await writeFile(this.cachePath, `${JSON.stringify(cache, null, 2)}\n`, 'utf8')
   }
 
-  private setState(state: MulticodeAuthState): void {
+  private setState(state: SprintEngineAuthState): void {
     this.state = state
     for (const win of BrowserWindow.getAllWindows()) {
       if (!win.isDestroyed()) {
@@ -799,11 +792,8 @@ async function closeServer(server: Server): Promise<void> {
 // Null for anything that is not one of the app's own schemes — loopback
 // included — so callers can use it both as "which redirect_uri does this
 // callback belong to" and as "did this arrive over the OS".
-function customSchemeRedirectUriFor(
-  url: URL,
-): typeof CUSTOM_SCHEME_REDIRECT_URI | typeof LEGACY_CUSTOM_SCHEME_REDIRECT_URI | null {
+function customSchemeRedirectUriFor(url: URL): typeof CUSTOM_SCHEME_REDIRECT_URI | null {
   if (url.protocol === `${CURRENT_DEEP_LINK_SCHEME}:`) return CUSTOM_SCHEME_REDIRECT_URI
-  if (url.protocol === `${LEGACY_DEEP_LINK_SCHEME}:`) return LEGACY_CUSTOM_SCHEME_REDIRECT_URI
   return null
 }
 
@@ -818,7 +808,7 @@ function isSupportedAuthCallbackUrl(url: URL): boolean {
 }
 
 function callbackSuccessHtml(): string {
-  return '<!doctype html><meta charset="utf-8"><title>Multicode sign-in complete</title><body style="font:14px system-ui,sans-serif;background:#101012;color:#f4f4f5;padding:32px">Sign-in is complete. You can return to Multicode.</body>'
+  return '<!doctype html><meta charset="utf-8"><title>SprintEngine sign-in complete</title><body style="font:14px system-ui,sans-serif;background:#101012;color:#f4f4f5;padding:32px">Sign-in is complete. You can return to SprintEngine.</body>'
 }
 
 function callbackErrorHtml(message: string): string {
@@ -833,7 +823,7 @@ function callbackErrorHtml(message: string): string {
         "'": '&#39;',
       })[char] ?? char,
   )
-  return `<!doctype html><meta charset="utf-8"><title>Multicode sign-in failed</title><body style="font:14px system-ui,sans-serif;background:#101012;color:#f4f4f5;padding:32px">Sign-in failed: ${escaped}</body>`
+  return `<!doctype html><meta charset="utf-8"><title>SprintEngine sign-in failed</title><body style="font:14px system-ui,sans-serif;background:#101012;color:#f4f4f5;padding:32px">Sign-in failed: ${escaped}</body>`
 }
 
 function toSessionUser(user: AccountProfile['user'], photoUrl: string | null): SessionUser {
@@ -845,7 +835,7 @@ function toSessionUser(user: AccountProfile['user'], photoUrl: string | null): S
   }
 }
 
-function signedOutAuthState(message: string | null): MulticodeAuthState {
+function signedOutAuthState(message: string | null): SprintEngineAuthState {
   return {
     authenticated: false,
     user: null,
@@ -879,7 +869,7 @@ function isAuthCallbackArg(arg: string): boolean {
   )
 }
 
-export async function parseAuthCallbackFromArgv(auth: MulticodeAuthBridge, argv: string[]): Promise<void> {
+export async function parseAuthCallbackFromArgv(auth: SprintEngineAuthBridge, argv: string[]): Promise<void> {
   const callbackUrl = argv.find(isAuthCallbackArg)
   if (!callbackUrl) return
 

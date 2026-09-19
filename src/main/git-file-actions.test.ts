@@ -30,7 +30,7 @@ test('git-file-actions', async () => {
 
   /** A repo holding `src/[id].tsx` beside `src/i.tsx`, both changed in the tree. */
   function makeRepo(name: string): { root: string; repo: string } {
-    const root = mkdtempSync(join(tmpdir(), `multicode-git-file-actions-${name}-`))
+    const root = mkdtempSync(join(tmpdir(), `sprintengine-git-file-actions-${name}-`))
     const repo = join(root, 'repo')
     execFileSync('git', ['init', '--quiet', '--initial-branch=main', repo], { encoding: 'utf8' })
     git(repo, ['config', 'user.email', 'test@example.com'])

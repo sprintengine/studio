@@ -180,7 +180,7 @@ test('background-presence', async () => {
     const menu = h.trays[0]!.menus.at(-1) ?? []
     assert.deepEqual(
       menu.filter((item) => item.kind === 'action').map((item) => item.label),
-      ['Open Multicode', 'Quit Multicode'],
+      ['Open SprintEngine', 'Quit SprintEngine'],
     )
   }
 

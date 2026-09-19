@@ -26,9 +26,7 @@ start without it.
 together. It takes port 5173 by default; if that port is busy it moves to the
 next free one and gives that instance its own user-data directory, so you can
 run more than one dev build side by side. Set `SPRINTENGINE_RENDERER_PORT` to
-pin a port, or `SPRINTENGINE_USER_DATA_DIR` to pin a profile. Every variable the
-app owns was spelled `MULTICODE_*` before the 2026-09-08 rename and is still
-read under that name, so an old export in your shell profile keeps working.
+pin a port, or `SPRINTENGINE_USER_DATA_DIR` to pin a profile.
 
 The toolchain is Node and nothing else. No gate in this repository needs a
 Python on your machine, and the app neither ships nor resolves one.
@@ -77,7 +75,7 @@ There is one suite, with no Python half. `npm test` runs Vitest over every
 test. `tests/` holds what they share: the setup every worker runs
 (`tests/setup.ts`), stand-ins for modules that only exist inside Electron
 (`tests/stubs/`, `tests/stand-in.ts`) and fixtures. Each test runs with the
-app's own `SPRINTENGINE_*` and `MULTICODE_*` variables removed from its
+app's own `SPRINTENGINE_*` variables removed from its
 environment, so the suite behaves the same from a Studio terminal as from CI.
 The suites that assert on timing run in a `serial` project, one file at a time,
 after the rest. The release-script tests under `scripts/release/` run as

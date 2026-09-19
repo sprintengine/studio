@@ -3,7 +3,7 @@
 // `focusTerminal` lives inside TerminalView/PlainTerminalPanel's mount effect,
 // closed over the xterm instance, so nothing outside those components can focus
 // a terminal. The editor already solved the same problem with a window event
-// (`multicode:focus-editor`, EditorPanel.tsx); this is that pattern for
+// (`sprintengine:focus-editor`, EditorPanel.tsx); this is that pattern for
 // terminals, addressed by workspace + agent/terminal id so exactly one pane
 // answers.
 //
@@ -12,7 +12,7 @@
 // lazy-loads TerminalView: a request sent the instant a workspace opens can
 // arrive before the chunk has resolved, and the caller needs to know to retry.
 
-const TERMINAL_FOCUS_EVENT = 'multicode:focus-terminal'
+const TERMINAL_FOCUS_EVENT = 'sprintengine:focus-terminal'
 
 /** Who to focus. `agentId` addresses an agent pane, `terminalId` a plain terminal. */
 export type TerminalFocusTarget = {

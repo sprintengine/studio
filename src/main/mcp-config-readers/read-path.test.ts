@@ -58,9 +58,9 @@ test('read-path', async () => {
   function bundledManifests(): Map<string, PluginManifest> {
     const registry = createPluginRegistry(
       createAppPluginRegistryOptions(
-        join(process.cwd(), 'node_modules', '.cache', 'multicode'),
+        join(process.cwd(), 'node_modules', '.cache', 'sprintengine'),
         join(process.cwd(), 'resources', 'plugins'),
-        join(process.cwd(), 'node_modules', '.cache', 'multicode', 'plugins-none'),
+        join(process.cwd(), 'node_modules', '.cache', 'sprintengine', 'plugins-none'),
       ),
     )
     registry.loadSync()
@@ -359,7 +359,7 @@ test('read-path', async () => {
   }
 
   async function main(): Promise<void> {
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-mcp-read-path-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-mcp-read-path-'))
     const manifests = bundledManifests()
 
     testParsers()

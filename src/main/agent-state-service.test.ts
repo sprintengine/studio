@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
-import { compatStudioEnvEntry } from '../shared/studio-env'
+import { studioEnvEntry } from '../shared/studio-env'
 import type { AgentStateFrame } from './agent-state'
 import { createAgentStateService, resolveAgentStateSocketPath } from './agent-state-service'
 import { test } from 'vitest'
@@ -60,7 +60,7 @@ test('agent-state-service', async () => {
     }
 
     // --- socket round-trip: valid frame in, malformed dropped --------------
-    const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-agent-state-svc-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'se-agent-state-svc-'))
     const received: AgentStateFrame[] = []
     const service = createAgentStateService({
       resolveUserDataDir: () => userDataDir,
@@ -102,7 +102,7 @@ test('agent-state-service', async () => {
     assert.equal(service.isRunning(), false)
 
     // --- install: serialized + run once per workspace ----------------------
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-ws-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'se-agent-state-ws-'))
     const reporterSrc = join(workspaceRoot, 'reporter-src.mjs')
     await writeFile(reporterSrc, '// reporter\n', 'utf8')
 
@@ -167,7 +167,7 @@ test('agent-state-service', async () => {
     await installSvc.installForWorkspace(workspaceRoot, 'grok')
     assert.equal(resolveCalls, 3)
     const grokHooksConfig = JSON.parse(
-      await readFile(join(workspaceRoot, '.grok', 'hooks', 'multicode-agent-state.json'), 'utf8'),
+      await readFile(join(workspaceRoot, '.grok', 'hooks', 'sprintengine-agent-state.json'), 'utf8'),
     ) as { hooks?: Record<string, unknown> }
     assert.ok(grokHooksConfig.hooks?.SessionStart, 'grok reporter hook not installed')
     assert.ok(!grokHooksConfig.hooks?.PreToolUse, 'PreToolUse must not be installed for grok (trimmed)')
@@ -183,7 +183,7 @@ test('agent-state-service', async () => {
     assert.equal(lastTemplateName, 'opencode-agent-state.mjs', 'template name comes from the manifest registration')
     assert.equal(resolveCalls, 3, 'opencode must not consume the shared stdin reporter resolver')
     const opencodePlugin = await readFile(
-      join(workspaceRoot, '.opencode', 'plugin', 'multicode-agent-state.js'),
+      join(workspaceRoot, '.opencode', 'plugin', 'sprintengine-agent-state.js'),
       'utf8',
     )
     assert.ok(
@@ -203,7 +203,7 @@ test('agent-state-service', async () => {
     // the workspace must receive no reporter copy and no hook entry: a second
     // registration fires the reporter twice for every event, and the files would
     // be left behind in someone's repository for a colleague to inherit.
-    const injectedRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-state-injected-'))
+    const injectedRoot = await mkdtemp(join(tmpdir(), 'se-agent-state-injected-'))
     let injectedResolveCalls = 0
     const injectedSvc = createAgentStateService({
       resolveUserDataDir: () => userDataDir,
@@ -236,9 +236,9 @@ test('agent-state-service', async () => {
     // first workspace's launch writes it, a second workspace's launch is a
     // no-op (the content is workspace-independent), and nothing touches the
     // real home because the test injects resolveHomeDir.
-    const userScopeHome = await mkdtemp(join(tmpdir(), 'multicode-agent-state-home-'))
-    const wsA = await mkdtemp(join(tmpdir(), 'multicode-agent-state-wsA-'))
-    const wsB = await mkdtemp(join(tmpdir(), 'multicode-agent-state-wsB-'))
+    const userScopeHome = await mkdtemp(join(tmpdir(), 'se-agent-state-home-'))
+    const wsA = await mkdtemp(join(tmpdir(), 'se-agent-state-wsA-'))
+    const wsB = await mkdtemp(join(tmpdir(), 'se-agent-state-wsB-'))
     let userScopeResolves = 0
     const userScopeSvc = createAgentStateService({
       resolveUserDataDir: () => userDataDir,
@@ -259,7 +259,7 @@ test('agent-state-service', async () => {
     assert.equal(userScopeResolves, 1, 'user-scoped install must be once per CLI, not per workspace')
 
     // --- missing reporter script: safe no-op, never throws -----------------
-    const noScriptWs = await mkdtemp(join(tmpdir(), 'multicode-agent-state-noscript-'))
+    const noScriptWs = await mkdtemp(join(tmpdir(), 'se-agent-state-noscript-'))
     const noScriptSvc = createAgentStateService({
       resolveUserDataDir: () => userDataDir,
       resolveAgentStateSpec: resolveSpec,
@@ -277,8 +277,8 @@ test('agent-state-service', async () => {
     // rewritten (last-writer-wins) — so env must win, arg is the fallback for
     // sessions launched outside the app.
     if (process.platform !== 'win32') {
-      const reporterScript = join(process.cwd(), 'resources', 'hooks', 'multicode-agent-state.mjs')
-      const sockDir = await mkdtemp(join(tmpdir(), 'multicode-agent-state-prec-'))
+      const reporterScript = join(process.cwd(), 'resources', 'hooks', 'sprintengine-agent-state.mjs')
+      const sockDir = await mkdtemp(join(tmpdir(), 'se-agent-state-prec-'))
 
       const listenLines = async (socketPath: string, sink: string[]): Promise<Server> => {
         const server = createServer((socket) => {
@@ -306,9 +306,9 @@ test('agent-state-service', async () => {
               // inheriting it would silently redirect the "fallback" run to the
               // real app. Empty string is falsy, so the reporter falls to --socket.
               // Both spellings: the reporter reads SPRINTENGINE_* first.
-              ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', 'prec-agent'),
-              ...compatStudioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'prec-ws'),
-              ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', envSocket ?? ''),
+              ...studioEnvEntry('SPRINTENGINE_AGENT_ID', 'prec-agent'),
+              ...studioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'prec-ws'),
+              ...studioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', envSocket ?? ''),
             },
             stdio: ['pipe', 'ignore', 'ignore'],
           })
@@ -798,7 +798,7 @@ test('agent-state-service', async () => {
       // Kimi and Grok could not be run on this machine (each refuses headless
       // without an account), so those payloads are built from vendor docs —
       // Grok's from the hook documentation embedded in its own binary.
-      const vocabDir = await mkdtemp(join(tmpdir(), 'multicode-agent-state-vocab-'))
+      const vocabDir = await mkdtemp(join(tmpdir(), 'se-agent-state-vocab-'))
       const vocabSockPath = join(sockDir, 'vocab-instance.sock')
       const vocabFrames: string[] = []
       const vocabServer = await listenLines(vocabSockPath, vocabFrames)
@@ -995,7 +995,7 @@ test('agent-state-service', async () => {
 
       // A file OUTSIDE the workspace root is reported as itself — it is absolute,
       // it is what the agent changed, and the ledger hands a person a file to open.
-      const outsideDir = await mkdtemp(join(tmpdir(), 'multicode-agent-state-outside-'))
+      const outsideDir = await mkdtemp(join(tmpdir(), 'se-agent-state-outside-'))
       const outsideFile = join(outsideDir, 'outside.txt')
       await writeFile(outsideFile, 'a\nOUTSIDE\nc\n', 'utf8')
       await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
@@ -1527,7 +1527,7 @@ test('agent-state-service', async () => {
       // documented status-line document, and what comes back over the socket must
       // be the seven values and nothing else. Then the wrap path: the person's own
       // command runs with the same stdin bytes and its stdout is ours.
-      const statusLineScript = join(process.cwd(), 'resources', 'hooks', 'multicode-status-line.mjs')
+      const statusLineScript = join(process.cwd(), 'resources', 'hooks', 'sprintengine-status-line.mjs')
       const slSockPath = join(sockDir, 'status-line.sock')
       const slFrames: string[] = []
       const slServer = await listenLines(slSockPath, slFrames)
@@ -1577,9 +1577,9 @@ test('agent-state-service', async () => {
               // studio agent terminal, whose launch env names the LIVE app's
               // socket and agent. Both spellings: the forwarder reads
               // SPRINTENGINE_* first.
-              ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', options.envSocket ?? ''),
-              ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', options.agentId ?? ''),
-              ...compatStudioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'sl-ws'),
+              ...studioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', options.envSocket ?? ''),
+              ...studioEnvEntry('SPRINTENGINE_AGENT_ID', options.agentId ?? ''),
+              ...studioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'sl-ws'),
               // Pinned rather than inherited: the wrapped command runs under the
               // person's own $SHELL, and a suite whose result depends on the
               // developer's login shell is a suite that passes for the wrong
@@ -1804,8 +1804,8 @@ test('agent-state-service', async () => {
           {
             env: {
               ...process.env,
-              ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', ''),
-              ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', ''),
+              ...studioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', ''),
+              ...studioEnvEntry('SPRINTENGINE_AGENT_ID', ''),
               SHELL: '/bin/sh',
             },
             stdio: ['pipe', 'ignore', 'ignore'],

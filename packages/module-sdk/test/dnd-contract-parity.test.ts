@@ -1,14 +1,14 @@
 import assert from 'node:assert/strict'
 
 import {
-  MULTICODE_FILE_DROP_MIME as APP_MIME,
+  SPRINTENGINE_FILE_DROP_MIME as APP_MIME,
   hasFileDropData as appHas,
   readFileDropPayload as appRead,
   setFileDropData as appSet,
   type FileDropPayload as AppPayload,
 } from '../../../src/renderer/src/utils/terminalDrop'
 import {
-  MULTICODE_FILE_DROP_MIME as SDK_MIME,
+  SPRINTENGINE_FILE_DROP_MIME as SDK_MIME,
   hasFileDropData as sdkHas,
   readFileDropPayload as sdkRead,
   setFileDropData as sdkSet,

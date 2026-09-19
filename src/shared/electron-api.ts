@@ -175,7 +175,7 @@ export type {
   VersionControlProviderId,
   VersionControlProviderProbe,
 } from './version-control'
-import type { MulticodeAuthState } from './ipc/account'
+import type { SprintEngineAuthState } from './ipc/account'
 import type {
   AgentLaunchPreviewInput,
   AgentLaunchPreviewResult,
@@ -733,12 +733,12 @@ export type ElectronApi = {
   onAutomationRunEvent: (cb: (event: AutomationsRunEvent) => void) => () => void
   /** Fires after any automation-definition write (user IPC or module service); panels reload their list. */
   onAutomationsDefinitionsChanged: (cb: (event: AutomationsDefinitionsChangedEvent) => void) => () => void
-  authGetState: () => Promise<MulticodeAuthState>
+  authGetState: () => Promise<SprintEngineAuthState>
   authLogin: (organizationId?: string | null) => Promise<{ state: string; authorizationUrl: string }>
   authLogout: () => Promise<{ loggedOut: true }>
-  authRefreshEntitlements: () => Promise<MulticodeAuthState>
+  authRefreshEntitlements: () => Promise<SprintEngineAuthState>
   authOpenUpgrade: (reason?: string) => Promise<{ opened: true; url: string }>
-  onAuthStateChanged: (cb: (state: MulticodeAuthState) => void) => () => void
+  onAuthStateChanged: (cb: (state: SprintEngineAuthState) => void) => () => void
   onAuthCallbackError: (cb: (message: string) => void) => () => void
   mobileBridgeGetState: () => Promise<MobileBridgeState>
   mobileBridgeUpdateSettings: (input: MobileBridgeSettingsUpdate) => Promise<MobileBridgeState>
@@ -892,7 +892,7 @@ export type ElectronApi = {
   openFolderInTarget: (request: FolderOpenRequest) => Promise<FolderOpenResult>
   watchPath: (path: string, cb: (event: FileWatchEvent) => void) => Promise<() => Promise<void>>
   openDir: (options?: { defaultPath?: string }) => Promise<string | null>
-  /** Creates `~/.multicode/skills` if needed and returns its absolute path. */
+  /** Creates `~/.sprintengine/skills` if needed and returns its absolute path. */
   ensureDefaultUserSkillsDir: () => Promise<string>
   defaultWorkspaceParentDir: () => Promise<string | null>
   showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>

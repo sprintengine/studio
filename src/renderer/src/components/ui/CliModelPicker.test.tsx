@@ -475,7 +475,7 @@ test('CliModelPicker', async () => {
       first.unmount()
 
       // The restart: a fresh module cache reading the same localStorage.
-      const stored = dom.window.localStorage.getItem('multicode.model-favourites')
+      const stored = dom.window.localStorage.getItem('sprintengine.model-favourites')
       assert.equal(stored, JSON.stringify([modelFavouriteKey('claude-code', 'claude-fable-5')]))
       __resetModelFavouritesForTest()
       const second = mountElement(
@@ -504,7 +504,7 @@ test('CliModelPicker', async () => {
 
     await run('a model+role star saved by an older build is never shown', async () => {
       dom.window.localStorage.setItem(
-        'multicode.model-favourites',
+        'sprintengine.model-favourites',
         JSON.stringify([`${modelFavouriteKey('claude-code', 'claude-fable-5')}:role:architect`]),
       )
       __resetModelFavouritesForTest()

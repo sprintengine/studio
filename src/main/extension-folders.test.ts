@@ -7,7 +7,7 @@ import { test } from 'vitest'
 import { ensureExtensionFolders, MODULE_FOLDER_README, PLUGIN_FOLDER_README } from './extension-folders'
 
 function tmpRoot(): string {
-  return mkdtempSync(join(tmpdir(), 'multicode-ext-folders-'))
+  return mkdtempSync(join(tmpdir(), 'sprintengine-ext-folders-'))
 }
 
 test('creates both roots and seeds READMEs', () => {

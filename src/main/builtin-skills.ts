@@ -20,14 +20,14 @@ import { isPathInsideOrEqual } from './path-containment'
 // The marker a managed copy carries. Exported because the attach path
 // (src/main/agent-skill-installer.ts) reads and writes the same file, and two
 // spellings of this name would be two conventions.
-export const MANAGED_SKILL_MANIFEST_FILE = '.multicode-skill.json'
+export const MANAGED_SKILL_MANIFEST_FILE = '.sprintengine-skill.json'
 
 const DEFAULT_HARNESSES: readonly SkillHarness[] = ['agents']
 const ALL_NATIVE_TARGET_POLICY = 'all-native'
 
 export type ManagedSkillManifest = {
   id: string
-  source: 'multicode-builtin'
+  source: 'sprintengine-builtin'
   version: string
   sourceHash: string
   installedSkillHash: string
@@ -194,7 +194,7 @@ export async function writeManagedSkillManifest(input: {
   const timestamp = input.now ?? new Date().toISOString()
   const manifest: ManagedSkillManifest = {
     id: input.skill.id,
-    source: 'multicode-builtin',
+    source: 'sprintengine-builtin',
     version: input.skill.version,
     sourceHash: input.sourceHash,
     // Taken before the manifest exists, which is also how it is re-checked.
@@ -472,7 +472,7 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     }
 
     const manifest = await readJson<ManagedSkillManifest>(join(destinationPath, MANAGED_SKILL_MANIFEST_FILE))
-    if (!manifest || manifest.id !== skill.id || manifest.source !== 'multicode-builtin') {
+    if (!manifest || manifest.id !== skill.id || manifest.source !== 'sprintengine-builtin') {
       return { ...base, destinationPath, status: 'local' }
     }
 

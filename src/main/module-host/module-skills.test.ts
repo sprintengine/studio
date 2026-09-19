@@ -67,7 +67,7 @@ test('module-skills', async () => {
     return { registry, registered, unregistered, ensured, owners }
   }
 
-  const REVIEW_ROOT = resolve('/tmp/multicode-modules/review')
+  const REVIEW_ROOT = resolve('/tmp/sprintengine-modules/review')
 
   function testSourceDirResolvesAgainstTheModuleRoot(): void {
     const recorder = createRecordingSkillRegistry()
@@ -148,7 +148,7 @@ test('module-skills', async () => {
     const recorder = createRecordingSkillRegistry()
     const kernel = createMainKernel(createFakeIpcMain(), { skillRegistry: recorder.registry })
     const host = kernel.hostFor('bundled-thing')
-    const shipped = resolve('/opt/multicode/resources/skills/shipped')
+    const shipped = resolve('/opt/sprintengine/resources/skills/shipped')
 
     // A bundled module's code is the app's; it has no install folder to be
     // contained by, so an absolute path is the only thing there is to resolve.
@@ -164,7 +164,7 @@ test('module-skills', async () => {
   function testOwnershipIsTracked(): void {
     const recorder = createRecordingSkillRegistry()
     const kernel = createMainKernel(createFakeIpcMain(), {
-      resolveModuleRoot: (moduleId) => resolve('/tmp/multicode-modules', moduleId),
+      resolveModuleRoot: (moduleId) => resolve('/tmp/sprintengine-modules', moduleId),
       skillRegistry: recorder.registry,
     })
 

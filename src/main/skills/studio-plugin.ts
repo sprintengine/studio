@@ -5,7 +5,7 @@
 // thing that gets loaded. Three values in it can only be known on this machine
 // at this moment — the node binary, the absolute path of the stdio bridge in
 // this app bundle, and the live agent-state socket — so install materialises a
-// copy of the whole marketplace into `<workspace>/.multicode/studio-plugin`
+// copy of the whole marketplace into `<workspace>/.sprintengine/studio-plugin`
 // with those tokens replaced. That mirrors what the agent-state hook installer
 // already does with its own absolute script path, and it is why the bridge is
 // NOT copied into the plugin: the bridge must be the one belonging to the
@@ -14,7 +14,7 @@
 //
 // What install writes, and why each lands where it does:
 //
-//   - The materialised plugin under `.multicode/`, which is the app-owned
+//   - The materialised plugin under `.sprintengine/`, which is the app-owned
 //     per-workspace directory the agent-state reporter already lives in.
 //   - The skills, copied into every harness's skill directory through the
 //     ordinary skill installer, so each copy carries a provenance marker and
@@ -94,7 +94,7 @@ const STUDIO_PLUGIN_MARKETPLACE_NAME = 'sprintengine-studio'
 export const STUDIO_PLUGIN_SOURCE_ID = 'sprintengine-studio'
 
 /** Where the materialised copy lives inside a workspace. */
-export const STUDIO_PLUGIN_WORKSPACE_DIR = join('.multicode', 'studio-plugin')
+export const STUDIO_PLUGIN_WORKSPACE_DIR = join('.sprintengine', 'studio-plugin')
 
 // Re-exported rather than respelled: two constants naming the same file is how
 // one of them ends up pointing somewhere else.
@@ -714,7 +714,7 @@ export function studioClaudePluginKey(): string {
  *
  * Every workspace opened before the launch carried these plugins still holds
  * the older arrangement: the reporter merged into `.claude/settings.local.json`
- * pointing at a script under `.multicode/hooks`, the two settings keys, and a
+ * pointing at a script under `.sprintengine/hooks`, the two settings keys, and a
  * copy of each skill under `.claude/skills`. Left alone, the stale hook and the
  * one the launch now registers would BOTH fire for every event — the doubling
  * this file's notes describe — and the files would stay in the person's

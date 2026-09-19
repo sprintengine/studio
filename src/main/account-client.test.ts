@@ -8,7 +8,7 @@
  */
 import assert from 'node:assert/strict'
 import {
-  MulticodeAccountClient,
+  SprintEngineAccountClient,
   ORGANIZATION_HEADER,
   type IdentityMarker,
   type IdentityMarkerStore,
@@ -70,7 +70,7 @@ test('account-client', async () => {
     discovery: unknown = {
       provider: 'clerk',
       issuer: CLERK.issuer,
-      clientIds: { 'multicode-desktop': 'client_desk' },
+      clientIds: { 'sprintengine-desktop': 'client_desk' },
       scopes: CLERK.scopes,
       schemaVersion: 1,
     }
@@ -123,7 +123,7 @@ test('account-client', async () => {
         return Response.json({
           userId: 'usr_1',
           organizationId,
-          product: 'multicode',
+          product: 'sprintengine',
           roles: ['owner'],
           features: {},
           limits: {},
@@ -180,10 +180,10 @@ test('account-client', async () => {
     const stores = { multiauth: tokenStore(input.multiauth ?? null), clerk: tokenStore(input.clerk ?? null) }
     const marker = markerStore(input.marker ?? null)
     const events: Array<{ event: string; data?: Record<string, unknown> }> = []
-    const account = new MulticodeAccountClient({
+    const account = new SprintEngineAccountClient({
       baseUrl: BASE_URL,
-      clientId: 'multicode-desktop',
-      product: 'multicode',
+      clientId: 'sprintengine-desktop',
+      product: 'sprintengine',
       refreshTokenStores: stores,
       identityMarker: marker,
       env: input.env ?? {},
@@ -214,7 +214,7 @@ test('account-client', async () => {
       multiauth: 'ma_rt_1',
       clerk: 'ck_rt_1',
       marker: { provider: 'clerk', clerk: CLERK },
-      env: { MULTICODE_IDENTITY_PROVIDER: 'multiauth' },
+      env: { SPRINTENGINE_IDENTITY_PROVIDER: 'multiauth' },
     })
 
     await account.resumeStoredSession()
@@ -339,10 +339,10 @@ test('account-client', async () => {
     await assert.rejects(account.resolveIdentityForLogin(), IdentityDiscoveryError)
 
     backend.discoveryStatus = 200
-    backend.discovery = { provider: 'clerk', issuer: CLERK.issuer, clientIds: { 'multicode-mobile': 'client_mob' } }
+    backend.discovery = { provider: 'clerk', issuer: CLERK.issuer, clientIds: { 'sprintengine-mobile': 'client_mob' } }
     await assert.rejects(account.resolveIdentityForLogin(), IdentityDiscoveryError)
 
-    const pinned = client(backend, { env: { MULTICODE_IDENTITY_PROVIDER: 'multiauth' } })
+    const pinned = client(backend, { env: { SPRINTENGINE_IDENTITY_PROVIDER: 'multiauth' } })
     assert.deepEqual(await pinned.account.resolveIdentityForLogin(), { provider: 'multiauth' })
   }
 
@@ -399,10 +399,10 @@ test('account-client', async () => {
     const stores = { multiauth: tokenStore(null), clerk: tokenStore('ck_rt_1') }
     const marker = markerStore({ provider: 'clerk', clerk: CLERK })
     let now = Date.now()
-    const account = new MulticodeAccountClient({
+    const account = new SprintEngineAccountClient({
       baseUrl: BASE_URL,
-      clientId: 'multicode-desktop',
-      product: 'multicode',
+      clientId: 'sprintengine-desktop',
+      product: 'sprintengine',
       refreshTokenStores: stores,
       identityMarker: marker,
       env: {},

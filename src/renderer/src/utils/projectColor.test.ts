@@ -23,21 +23,21 @@ test('projectColor', async () => {
 
   run('the repository key wins over the folder path, so two clones are one project', () => {
     const local = projectColorKey({
-      folderPath: '/Users/me/code/multicode',
-      repository: { canonicalKey: 'github.com/acme/multicode' },
+      folderPath: '/Users/me/code/sprintengine',
+      repository: { canonicalKey: 'github.com/acme/sprintengine' },
     })
     const paired = projectColorKey({
-      folderPath: 'D:\\work\\multicode-checkout',
-      repository: { canonicalKey: 'github.com/acme/multicode' },
+      folderPath: 'D:\\work\\sprintengine-checkout',
+      repository: { canonicalKey: 'github.com/acme/sprintengine' },
     })
-    assert.equal(local, 'repo:github.com/acme/multicode')
+    assert.equal(local, 'repo:github.com/acme/sprintengine')
     assert.equal(local, paired)
   })
 
   run('a repository key is lower-cased and trimmed, so one repo is never two keys', () => {
     assert.equal(
-      projectColorKey({ folderPath: null, repository: { canonicalKey: '  GitHub.com/Acme/Multicode ' } }),
-      'repo:github.com/acme/multicode',
+      projectColorKey({ folderPath: null, repository: { canonicalKey: '  GitHub.com/Acme/SprintEngine ' } }),
+      'repo:github.com/acme/sprintengine',
     )
   })
 
@@ -73,19 +73,19 @@ test('projectColor', async () => {
   run('the hash is pinned: changing it would recolour every project for everyone', () => {
     // Golden values. If one of these moves, every person's every project changes
     // colour on their next launch — that has to be a decision, not a refactor.
-    assert.equal(projectHue('repo:github.com/acme/multicode'), 301)
+    assert.equal(projectHue('repo:github.com/acme/sprintengine'), 323)
     assert.equal(projectHue('repo:github.com/acme/api'), 36)
     assert.equal(projectHue('folder:/users/me/notes'), 53)
   })
 
   run('one repository is one hue on every machine, however it was cloned', () => {
     const mac = projectColorKey({
-      folderPath: '/Users/me/code/multicode',
-      repository: { canonicalKey: 'github.com/acme/multicode' },
+      folderPath: '/Users/me/code/sprintengine',
+      repository: { canonicalKey: 'github.com/acme/sprintengine' },
     })
     const windows = projectColorKey({
       folderPath: 'D:\\work\\mc',
-      repository: { canonicalKey: 'GitHub.com/Acme/Multicode' },
+      repository: { canonicalKey: 'GitHub.com/Acme/SprintEngine' },
     })
     assert.equal(projectHue(mac!), projectHue(windows!))
   })

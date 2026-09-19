@@ -170,8 +170,8 @@ test('definition-write', async () => {
       const { core, changed } = catalogueWriteCore()
       const installed = await core.installFromCatalogue(root, {
         payload: CATALOGUE_PAYLOAD,
-        sourceCatalogueId: 'multicode.nightly-sweep',
-        sourcePublisher: 'Multicode Labs',
+        sourceCatalogueId: 'sprintengine.nightly-sweep',
+        sourcePublisher: 'SprintEngine Labs',
       })
 
       assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
@@ -180,10 +180,10 @@ test('definition-write', async () => {
       assert.equal(installed.value.alreadyAdded, false)
       assert.equal(definition.status, 'enabled', 'an added automation arrives on, whatever the payload said')
       assert.equal(definition.runInWorktree, undefined, 'left absent, which is the contract\'s "run in a worktree"')
-      assert.notEqual(definition.id, 'multicode.nightly-sweep', 'the catalogue id is never the automation id')
+      assert.notEqual(definition.id, 'sprintengine.nightly-sweep', 'the catalogue id is never the automation id')
       assert.notEqual(definition.id, CATALOGUE_PAYLOAD.id, 'the payload id is a template name, not the store id')
-      assert.equal(definition.sourceCatalogueId, 'multicode.nightly-sweep')
-      assert.equal(definition.sourcePublisher, 'Multicode Labs')
+      assert.equal(definition.sourceCatalogueId, 'sprintengine.nightly-sweep')
+      assert.equal(definition.sourcePublisher, 'SprintEngine Labs')
       assert.equal(definition.ownerModuleId, undefined, "a catalogue automation is the user's, not a module's")
       assert.equal(
         definition.nextRunAt !== null,
@@ -198,7 +198,7 @@ test('definition-write', async () => {
       if (!stored.ok) return
       assert.equal(
         stored.value.sourceCatalogueId,
-        'multicode.nightly-sweep',
+        'sprintengine.nightly-sweep',
         'provenance round-trips through the store',
       )
     })
@@ -212,7 +212,7 @@ test('definition-write', async () => {
       const { core } = catalogueWriteCore()
       const installed = await core.installFromCatalogue(root, {
         payload: { ...CATALOGUE_PAYLOAD, runInWorktree: false },
-        sourceCatalogueId: 'multicode.uncontained',
+        sourceCatalogueId: 'sprintengine.uncontained',
       })
 
       assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
@@ -235,11 +235,11 @@ test('definition-write', async () => {
       const { core } = catalogueWriteCore()
       const first = await core.installFromCatalogue(root, {
         payload: CATALOGUE_PAYLOAD,
-        sourceCatalogueId: 'multicode.nightly-sweep',
+        sourceCatalogueId: 'sprintengine.nightly-sweep',
       })
       const second = await core.installFromCatalogue(root, {
         payload: CATALOGUE_PAYLOAD,
-        sourceCatalogueId: 'multicode.nightly-sweep',
+        sourceCatalogueId: 'sprintengine.nightly-sweep',
       })
 
       assert.equal(first.ok && second.ok, true)
@@ -255,11 +255,11 @@ test('definition-write', async () => {
       const { core } = catalogueWriteCore()
       const one = await core.installFromCatalogue(first, {
         payload: CATALOGUE_PAYLOAD,
-        sourceCatalogueId: 'multicode.nightly-sweep',
+        sourceCatalogueId: 'sprintengine.nightly-sweep',
       })
       const two = await core.installFromCatalogue(second, {
         payload: CATALOGUE_PAYLOAD,
-        sourceCatalogueId: 'multicode.nightly-sweep',
+        sourceCatalogueId: 'sprintengine.nightly-sweep',
       })
 
       assert.equal(one.ok && two.ok, true)
@@ -276,7 +276,7 @@ test('definition-write', async () => {
       const { core, changed } = catalogueWriteCore()
       const result = await core.installFromCatalogue(root, {
         payload: { name: 'No trigger', action: { kind: 'spawn-agent', config: {} } },
-        sourceCatalogueId: 'multicode.broken',
+        sourceCatalogueId: 'sprintengine.broken',
       })
 
       assert.equal(result.ok, false)
@@ -292,7 +292,7 @@ test('definition-write', async () => {
       const { core } = catalogueWriteCore()
       const result = await core.installFromCatalogue(root, {
         payload: { ...CATALOGUE_PAYLOAD, trigger: { kind: 'not-a-provider', config: {} } },
-        sourceCatalogueId: 'multicode.unknown-trigger',
+        sourceCatalogueId: 'sprintengine.unknown-trigger',
       })
 
       assert.equal(result.ok, false)
@@ -323,7 +323,7 @@ test('definition-write', async () => {
       const { core } = catalogueWriteCore(undefined, SYDNEY)
       const installed = await core.installFromCatalogue(root, {
         payload: CATALOGUE_PAYLOAD,
-        sourceCatalogueId: 'multicode.nightly-sweep',
+        sourceCatalogueId: 'sprintengine.nightly-sweep',
       })
 
       assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
@@ -363,7 +363,7 @@ test('definition-write', async () => {
             config: { kind: 'schedule', cadence: { type: 'at', datetime: '2026-08-01T09:00' }, timezone: 'UTC' },
           },
         },
-        sourceCatalogueId: 'multicode.one-shot',
+        sourceCatalogueId: 'sprintengine.one-shot',
       })
       assert.equal(oneShot.ok, true, oneShot.ok ? '' : oneShot.message)
       if (!oneShot.ok) return
@@ -381,7 +381,7 @@ test('definition-write', async () => {
             config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' },
           },
         },
-        sourceCatalogueId: 'multicode.interval',
+        sourceCatalogueId: 'sprintengine.interval',
       })
       assert.equal(interval.ok, true, interval.ok ? '' : interval.message)
       if (!interval.ok) return
@@ -397,7 +397,7 @@ test('definition-write', async () => {
       const { core } = catalogueWriteCore(undefined, SYDNEY)
       const installed = await core.installFromCatalogue(root, {
         payload: CATALOGUE_PAYLOAD,
-        sourceCatalogueId: 'multicode.nightly-sweep',
+        sourceCatalogueId: 'sprintengine.nightly-sweep',
       })
       assert.equal(installed.ok, true, installed.ok ? '' : installed.message)
       if (!installed.ok) return
@@ -425,7 +425,7 @@ test('definition-write', async () => {
       // Nor does a second Get for the same entry rewrite the record already there.
       const again = await core.installFromCatalogue(root, {
         payload: CATALOGUE_PAYLOAD,
-        sourceCatalogueId: 'multicode.nightly-sweep',
+        sourceCatalogueId: 'sprintengine.nightly-sweep',
       })
       assert.equal(again.ok, true, again.ok ? '' : again.message)
       if (!again.ok) return
@@ -439,8 +439,8 @@ test('definition-write', async () => {
   async function assertAnUnusableHostZoneLeavesThePayloadAlone(): Promise<void> {
     await withProjectRoots(2, async ([blankRoot, bogusRoot]) => {
       for (const [root, zone, id] of [
-        [blankRoot, '', 'multicode.no-zone'],
-        [bogusRoot, 'Mars/Olympus_Mons', 'multicode.bogus-zone'],
+        [blankRoot, '', 'sprintengine.no-zone'],
+        [bogusRoot, 'Mars/Olympus_Mons', 'sprintengine.bogus-zone'],
       ] as const) {
         const { core } = catalogueWriteCore(undefined, () => zone)
         const installed = await core.installFromCatalogue(root, { payload: CATALOGUE_PAYLOAD, sourceCatalogueId: id })
@@ -459,7 +459,7 @@ test('definition-write', async () => {
     const forged = parseDefinitionDraft({
       ...CATALOGUE_PAYLOAD,
       status: 'enabled',
-      sourceCatalogueId: 'multicode.something-i-did-not-install',
+      sourceCatalogueId: 'sprintengine.something-i-did-not-install',
       sourcePublisher: 'Someone Else',
     })
     assert.equal(forged.ok, true)
@@ -471,7 +471,7 @@ test('definition-write', async () => {
     )
     assert.equal(forged.value.sourcePublisher, undefined)
 
-    const patch = parseDefinitionPatch({ name: 'Renamed', sourceCatalogueId: 'multicode.other' })
+    const patch = parseDefinitionPatch({ name: 'Renamed', sourceCatalogueId: 'sprintengine.other' })
     assert.equal(patch.ok, true)
     if (!patch.ok) return
     assert.equal(Object.hasOwn(patch.value, 'sourceCatalogueId'), false, 'provenance is immutable after create')

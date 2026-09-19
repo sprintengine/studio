@@ -136,7 +136,7 @@ export interface WorkspaceStore
   primaryWorkspaceWindowId: WorkspaceWindowId
   workspaceRegistryEmptyState: WorkspaceRegistryEmptyState | null
   appSettings: AppSettings
-  authState: MulticodeAuthState
+  authState: SprintEngineAuthState
   sidebarCollapsed: boolean
   setSidebarCollapsed: (collapsed: boolean) => void
   // Which shape the chat rail lists conversations in (all-chats-view):
@@ -236,7 +236,7 @@ export interface WorkspaceStore
   recordWorkspaceTurnEnd: (id: WorkspaceId, at: number) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
   projectLaunchedAgentSessions: (sessions: TerminalSessionSnapshot[]) => LaunchedAgentProjection[]
-  setAuthState: (authState: MulticodeAuthState) => void
+  setAuthState: (authState: SprintEngineAuthState) => void
   setCliRuntime: (cli: AgentCli, update: Partial<CliRuntimeSettings>) => void
   setCliModelCatalog: (cli: AgentCli, catalog: DiscoveredCliModelCatalog | null) => void
   setMcpSyncEnabled: (enabled: boolean) => void
@@ -440,9 +440,9 @@ function scheduleBackupWrite(serializedRegistryEnvelope: string, serializedSetti
 // Two-key split persistence (T23). The custom storage adapter is the only
 // place workspace-registry and app-settings keys are read/written, so non-
 // workspace state changes physically cannot serialize the workspace registry:
-//   setItem extracts registry fields → writes multicode-workspaces ONLY when
+//   setItem extracts registry fields → writes sprintengine-workspaces ONLY when
 //                                      those fields changed (dedup)
-//   setItem extracts settings fields → writes multicode-app-settings ONLY
+//   setItem extracts settings fields → writes sprintengine-app-settings ONLY
 //                                      when those fields changed (dedup)
 // A setSidebarCollapsed call ends up in the dedup'd settings write; the
 // workspace-registry key is untouched, so it cannot be wiped by construction.
@@ -1087,7 +1087,7 @@ async function attemptBackupRecovery(): Promise<void> {
       return next
     })
 
-    // Mirror the recovered app-settings to multicode-app-settings now so the
+    // Mirror the recovered app-settings to sprintengine-app-settings now so the
     // next persist write doesn't clobber projectKnowledgeRoots /
     // recentWorkspaceFolders with the current empty state.
     if (

@@ -13,17 +13,17 @@
 // `planDisplayTier` and the label helpers on the surfaces themselves. Nothing
 // derived from a plan code may decide what an account can do.
 
-import type { MulticodeAuthState } from '../../../../shared/electron-api'
+import type { SprintEngineAuthState } from '../../../../shared/electron-api'
 
 // The one key the paid plan gates. Decision of record (owner, 2026-09-01):
 // nothing is gated by the paid plan except the ability to use the
 // mobile app. No capability in the app is paid — the
-// `multicode.frontier_models` key that used to sit here was retired from the
+// `sprintengine.frontier_models` key that used to sit here was retired from the
 // Multiauth catalogue in the same change, because nothing in the product ever
 // consumed it. Enforcement lives on the server: every relay entry point in
 // `../multiauth/src/relay/service.ts` refuses without this key, so what the
 // desktop reads here only decides what to render, never what the account can do.
-const PAID_FEATURE_KEYS: readonly string[] = ['multicode.mobile_companion']
+const PAID_FEATURE_KEYS: readonly string[] = ['sprintengine.mobile_companion']
 
 // True when the account holds any paid capability. ANY rather than ALL, so a
 // second paid key can be added without turning this into "has every one": an
@@ -32,7 +32,7 @@ const PAID_FEATURE_KEYS: readonly string[] = ['multicode.mobile_companion']
 //
 // Read off the entitlement snapshot the main process publishes: these callers
 // decide what to render, so they need a synchronous answer.
-export function hasPaidEntitlement(authState: MulticodeAuthState): boolean {
+export function hasPaidEntitlement(authState: SprintEngineAuthState): boolean {
   const features = authState.entitlements?.features
   if (!features) return false
   return PAID_FEATURE_KEYS.some((key) => features[key] === true)
@@ -44,7 +44,7 @@ export function hasPaidEntitlement(authState: MulticodeAuthState): boolean {
 // anything that decides what the account can do.
 export type PlanDisplayTier = 'free' | 'pro'
 
-export function planDisplayTier(authState: MulticodeAuthState): PlanDisplayTier {
+export function planDisplayTier(authState: SprintEngineAuthState): PlanDisplayTier {
   const plan = authState.entitlements?.plan
   return plan?.status === 'active' && plan.code.toLowerCase() === 'pro' ? 'pro' : 'free'
 }

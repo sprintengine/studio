@@ -39,7 +39,7 @@ test('branch-steps', async () => {
 
   const created: string[] = []
   function repo(): string {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-steps-'))
+    const dir = mkdtempSync(join(tmpdir(), 'sprintengine-steps-'))
     created.push(dir)
     git(dir, 'init', '-b', 'main')
     writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\n')
@@ -127,7 +127,7 @@ test('branch-steps', async () => {
     })
 
     await run('a non-repo and a missing folder report an empty strip, never a throw', async () => {
-      const plain = mkdtempSync(join(tmpdir(), 'multicode-steps-plain-'))
+      const plain = mkdtempSync(join(tmpdir(), 'sprintengine-steps-plain-'))
       created.push(plain)
       const snapshot = await listBranchSteps(plain)
       assert.deepEqual(snapshot, {
@@ -254,7 +254,7 @@ test('branch-steps', async () => {
     })
 
     await run('a ROOT commit reports its whole tree rather than failing', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-steps-root-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-steps-root-'))
       created.push(dir)
       git(dir, 'init', '-b', 'main')
       writeFileSync(join(dir, 'first.txt'), 'x\n')
@@ -323,7 +323,7 @@ test('branch-steps', async () => {
     // `--output=<file>`. A review confirmed this writing a file from main.
     await run('an option-shaped hash never reaches git', async () => {
       const dir = repo()
-      const target = join(tmpdir(), `multicode-steps-pwned-${process.pid}.txt`)
+      const target = join(tmpdir(), `sprintengine-steps-pwned-${process.pid}.txt`)
       const diff = await diffBranchSelection(dir, { kind: 'commit', hash: `--output=${target}` })
       assert.deepEqual(diff.files, [], 'refused, not run')
       assert.equal(existsSync(target), false, 'and nothing was written')
@@ -333,7 +333,7 @@ test('branch-steps', async () => {
 
     await run('readFileAtRev refuses an option-shaped rev or path, and escapes nothing', async () => {
       const dir = repo()
-      const target = join(tmpdir(), `multicode-steps-pwned2-${process.pid}.txt`)
+      const target = join(tmpdir(), `sprintengine-steps-pwned2-${process.pid}.txt`)
       assert.deepEqual(await readFileAtRev(dir, `--output=${target}`, 'a.txt'), { kind: 'absent' })
       assert.equal(existsSync(target), false)
       assert.deepEqual(await readFileAtRev(dir, 'HEAD', '--output=x'), { kind: 'absent' })
@@ -366,7 +366,7 @@ test('branch-steps', async () => {
     // The row diffs an unborn HEAD against the empty tree; the pane ran
     // `git diff HEAD`, which fails there, so the row said +2 and the pane nothing.
     await run('an unborn HEAD shows its staged work, matching the row', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-steps-unborn-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-steps-unborn-'))
       created.push(dir)
       git(dir, 'init', '-b', 'main')
       writeFileSync(join(dir, 'a.txt'), 'one\ntwo\n')
@@ -432,7 +432,7 @@ test('branch-steps', async () => {
 
     await run('and they agree when the checkout cannot be read at all', async () => {
       const source = repo()
-      const bare = mkdtempSync(join(tmpdir(), 'multicode-steps-bare-'))
+      const bare = mkdtempSync(join(tmpdir(), 'sprintengine-steps-bare-'))
       created.push(bare)
       execFileSync('git', ['clone', '--quiet', '--bare', source, bare])
       // No working tree: the row clamps to `folder`, so the strip must too, or the

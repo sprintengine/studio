@@ -47,16 +47,8 @@
 import { spawn } from 'node:child_process'
 import { connect } from 'node:net'
 
-// The app's own variables answer to two names. Everything was spelled
-// `MULTICODE_*` before the 2026-09-08 rename to SprintEngine Studio and is
-// spelled `SPRINTENGINE_*` now, and this file is a COPY installed into a
-// workspace: the app instance launching an agent may be either side of that
-// rename, and this copy may be either side of it too. New name first, old name
-// second. An empty value counts as unset here, matching the `||` fallbacks the
-// call sites already had.
-const studioEnv = (name) =>
-  process.env[name] || process.env[name.replace(/^SPRINTENGINE_/, 'MULTICODE_')] || ''
-
+// The app's own variables. An empty value counts as unset.
+const studioEnv = (name) => process.env[name] || ''
 
 // One attempt, short. The reporter retries because a lost `Stop` strands a
 // session; a lost status-line reading is replaced by the next refresh.
@@ -78,8 +70,8 @@ const MAX_NAME_LENGTH = 256
 
 // --- socket write ----------------------------------------------------------
 // Deliberately a MINIMAL DUPLICATE of writeFrameOnce in
-// multicode-agent-state.mjs rather than an import: these are bundled scripts
-// COPIED one-by-one into a workspace's .multicode/hooks/ (see
+// sprintengine-agent-state.mjs rather than an import: these are bundled scripts
+// COPIED one-by-one into a workspace's .sprintengine/hooks/ (see
 // AGENT_STATE_HOOK_SCRIPT_REL / STATUS_LINE_HOOK_SCRIPT_REL), so an import
 // between them would resolve only when both copies happen to be present and
 // current — a coupling neither the installer nor the packaging filter
@@ -188,9 +180,7 @@ function runWrapped(wrapped, stdinData) {
     // never the override — a person who set `$SHELL` set it deliberately.
     // The Windows form mirrors Node's own child_process.exec: cmd.exe with the
     // command as ONE verbatim argument, so its quoting survives.
-    const shell = isWindows
-      ? process.env.ComSpec || 'cmd.exe'
-      : process.env.SHELL || '/bin/sh'
+    const shell = isWindows ? process.env.ComSpec || 'cmd.exe' : process.env.SHELL || '/bin/sh'
     const args = isWindows ? ['/d', '/s', '/c', `"${wrapped.command}"`] : ['-c', wrapped.command]
     let child
     try {
@@ -245,7 +235,7 @@ function runWrapped(wrapped, stdinData) {
     })
     child.on('close', (code, signal) => {
       release()
-      res(signal ? 1 : code ?? 0)
+      res(signal ? 1 : (code ?? 0))
     })
     // A command that ignores its stdin (most do) closes the pipe early; writing
     // into it then EPIPEs, which is not an error worth reporting.
@@ -256,8 +246,7 @@ function runWrapped(wrapped, stdinData) {
 
 // --- frame -----------------------------------------------------------------
 const number = (value) => (typeof value === 'number' && Number.isFinite(value) ? value : null)
-const record = (value) =>
-  value && typeof value === 'object' && !Array.isArray(value) ? value : null
+const record = (value) => (value && typeof value === 'object' && !Array.isArray(value) ? value : null)
 const name = (value) => {
   if (typeof value !== 'string') return null
   const trimmed = value.trim()

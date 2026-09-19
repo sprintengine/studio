@@ -40,8 +40,8 @@ test('library-registry', async () => {
     const home = mkdtempSync(join(tmpdir(), 'ds-registry-'))
     return {
       home,
-      registryPath: join(home, '.multicode', 'design-systems.json'),
-      legacyRoot: join(home, '.multicode', 'design-systems'),
+      registryPath: join(home, '.sprintengine', 'design-systems.json'),
+      legacyRoot: join(home, '.sprintengine', 'design-systems'),
     }
   }
 
@@ -294,7 +294,7 @@ test('library-registry', async () => {
   run('a damaged registry file is an empty library, never a door that cannot open', async () => {
     const paths = fixture()
     try {
-      mkdirSync(join(paths.home, '.multicode'), { recursive: true })
+      mkdirSync(join(paths.home, '.sprintengine'), { recursive: true })
       writeFileSync(paths.registryPath, '{ not json')
       assert.deepEqual((await readDesignSystemRegistry(paths.registryPath)).entries, [])
       assert.deepEqual((await listDesignSystemLibrary(paths)).entries, [])

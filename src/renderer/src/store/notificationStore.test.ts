@@ -9,7 +9,7 @@ test('notificationStore', async () => {
   // the bell forever. The store drops them when it loads. The storage is seeded
   // before the store module is imported, so this exercises the real rehydrate.
 
-  const STORAGE_KEY = 'multicode-notifications'
+  const STORAGE_KEY = 'sprintengine-notifications'
 
   function notification(id: string, source: string): AppNotification {
     return {

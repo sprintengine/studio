@@ -26,17 +26,17 @@ import { isRecord } from '../../shared/records'
 // a store of copies.
 //
 // This module writes exactly one file — its own registry at
-// `~/.multicode/design-systems.json`. It never writes inside a registered
+// `~/.sprintengine/design-systems.json`. It never writes inside a registered
 // folder: those belong to the user's own repo, and the door is a viewer.
 
 /** The registry file, beside the legacy copy directory so the two never collide. */
 export function defaultDesignSystemRegistryPath(): string {
-  return join(homedir(), '.multicode', 'design-systems.json')
+  return join(homedir(), '.sprintengine', 'design-systems.json')
 }
 
 /** Where release-era copies live. Read for adoption; never written, never removed. */
 export function defaultDesignSystemLibraryRoot(): string {
-  return join(homedir(), '.multicode', 'design-systems')
+  return join(homedir(), '.sprintengine', 'design-systems')
 }
 
 function text(value: unknown): string | null {

@@ -60,7 +60,7 @@ test('command', async () => {
   // dropped command is a phone spinning until its own timeout, which was the real
   // failure that rule was guarding against, and it is still guarded here.
   async function assertRetiredSprintCommandIsRefusedCleanly(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-retired-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-command-retired-'))
     const service = new MobileControlCommandService({ workspaceRoot, now: () => now })
 
     const result = await service.dispatch(
@@ -86,7 +86,7 @@ test('command', async () => {
   }
 
   async function assertEveryRetiredSprintCommandIsRefusedCleanly(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-retired-all-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-command-retired-all-'))
     const service = new MobileControlCommandService({ workspaceRoot, now: () => now })
 
     // Every payload here is one a live phone really sent at v2. None of the nine
@@ -134,7 +134,7 @@ test('command', async () => {
   // artifact command a good one: a visible side effect on disk, so a replay that
   // re-executed would be caught by the item count rather than by a spy.
   async function assertSameIdempotencyKeyAndBodyReplaysCachedResult(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-replay-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-command-replay-'))
     const service = new MobileControlCommandService({ workspaceRoot, now: () => now })
     const mobileCommand = command(
       'backlog.create',
@@ -163,7 +163,7 @@ test('command', async () => {
   }
 
   async function assertSameIdempotencyKeyWithDifferentBodyIsRejected(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-replay-conflict-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-command-replay-conflict-'))
     const service = new MobileControlCommandService({ workspaceRoot, now: () => now })
 
     const first = await service.dispatch(
@@ -205,7 +205,7 @@ test('command', async () => {
   }
 
   async function assertIdempotencyReplaySurvivesServiceRecreation(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-replay-recreate-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-command-replay-recreate-'))
     const mobileCommand = command(
       'backlog.create',
       {
@@ -434,7 +434,7 @@ test('command', async () => {
 
     const result = await fixture.service.dispatch(
       command('automations.control', {
-        workspacePath: deriveWorkspaceId(join(tmpdir(), 'multicode-not-this-workspace')),
+        workspacePath: deriveWorkspaceId(join(tmpdir(), 'sprintengine-not-this-workspace')),
         automationId: 'nightly-review',
         action: 'pause',
       }),
@@ -571,7 +571,7 @@ test('command', async () => {
   async function assertAutomationsControlRejectsWhenTheModuleIsAbsent(): Promise<void> {
     // A desktop build with no Automations module must reject honestly rather than
     // report a success nobody applied.
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-automations-absent-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-automations-absent-'))
     const service = new MobileControlCommandService({
       workspaceRoot,
       now: () => now,
@@ -612,7 +612,7 @@ test('command', async () => {
     createAutomation(overrides?: Partial<AutomationDefinitionDraft>): Promise<void>
     readDefinition(automationId?: string): Promise<AutomationDefinition>
   }> {
-    const workspaceRoot = await realpath(await mkdtemp(join(tmpdir(), 'multicode-mobile-automations-')))
+    const workspaceRoot = await realpath(await mkdtemp(join(tmpdir(), 'sprintengine-mobile-automations-')))
     const runs: string[] = []
     const runGate = pendingRunGate
     pendingRunGate = null
@@ -711,7 +711,7 @@ test('command', async () => {
   }
 
   async function assertBacklogUpdateWritesFrontmatter(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-update-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-backlog-update-'))
     await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
     const body = '# A rough idea\n\nDo the thing.\n'
     await writeFile(join(workspaceRoot, 'backlog', 'idea.md'), body, 'utf8')
@@ -790,7 +790,7 @@ test('command', async () => {
   }
 
   async function assertBacklogCreateWritesFileAndRecord(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-create-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-backlog-create-'))
     const service = new MobileControlCommandService({
       workspaceRoot,
       now: () => now,
@@ -855,7 +855,7 @@ test('command', async () => {
   }
 
   async function assertBacklogCreateRejectsEmptyTitle(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-create-empty-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-backlog-create-empty-'))
     const service = new MobileControlCommandService({
       workspaceRoot,
       now: () => now,
@@ -880,7 +880,7 @@ test('command', async () => {
   }
 
   async function assertBacklogCreateKeepsGeneratedPathUnderBacklog(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-create-escape-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-backlog-create-escape-'))
     const service = new MobileControlCommandService({
       workspaceRoot,
       now: () => now,
@@ -914,7 +914,7 @@ test('command', async () => {
   // somewhere else would still return a plausible-looking string.
   async function assertFilesystemMutationHandlersRoundTripOrdinaryPaths(): Promise<void> {
     const handlers = await importMainProcessIpcHandlers()
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-fs-guard-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-fs-guard-'))
 
     const safeDirectory = join(workspaceRoot, 'safe')
     const safeCopyDestination = join(workspaceRoot, 'safe-copy')
@@ -965,7 +965,7 @@ test('command', async () => {
         app: {
           defaultApp: false,
           getAppPath: () => process.cwd(),
-          getPath: (name: string) => join(tmpdir(), `multicode-electron-${name}`),
+          getPath: (name: string) => join(tmpdir(), `sprintengine-electron-${name}`),
           getVersion: () => '0.0.0',
           isPackaged: false,
           on: () => undefined,
@@ -1020,7 +1020,7 @@ test('command', async () => {
       // module on disk for the test bundle's `require` to find. Stubbing it here
       // keeps this test's existing interception the single place main's build-only
       // dependencies are stood in for.
-      'virtual:multicode-build-stamp': {
+      'virtual:sprintengine-build-stamp': {
         buildStamp: {
           commit: null,
           source: 'unavailable' as const,

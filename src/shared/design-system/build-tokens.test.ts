@@ -116,7 +116,8 @@ test('build-tokens', async () => {
     const result = buildMutatedExample((root) => {
       mutateTokens(root, (tokens: any) => {
         tokens.sem.color.text.primary.$value = '{ref.color.neutral.presence-of-typo}'
-        tokens.sem.color.text.primary.$extensions['com.multicode'].modes.light = '{ref.color.neutral.presence-of-typo}'
+        tokens.sem.color.text.primary.$extensions['com.sprintengine'].modes.light =
+          '{ref.color.neutral.presence-of-typo}'
       })
     })
     assert.equal(result.status, 1)
@@ -138,7 +139,7 @@ test('build-tokens', async () => {
   run('modes.light diverging from $value fails loudly (light is the default mode)', () => {
     const result = buildMutatedExample((root) => {
       mutateTokens(root, (tokens: any) => {
-        tokens.sem.color.bg.app.$extensions['com.multicode'].modes.light = '{ref.color.neutral.0}'
+        tokens.sem.color.bg.app.$extensions['com.sprintengine'].modes.light = '{ref.color.neutral.0}'
       })
     })
     assert.equal(result.status, 1)

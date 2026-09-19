@@ -1,6 +1,6 @@
 // The SprintEngine frond — the mark the mobile app wears as its application
 // icon. The geometry is the generated one, copied path-for-path from
-// `multicode-mobile/sprintengine/simple/mark-light.svg` (built by that repo's
+// `sprintengine-mobile/sprintengine/simple/mark-light.svg` (built by that repo's
 // `mark.js`), so the two products carry the same mark rather than two drawings
 // of the same idea. Regenerate there and re-copy; nothing here re-derives it.
 //

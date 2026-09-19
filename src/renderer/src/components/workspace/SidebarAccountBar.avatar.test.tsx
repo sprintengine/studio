@@ -12,7 +12,7 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import SidebarAccountBar from './SidebarAccountBar'
-import type { MulticodeAuthState, SessionUser } from '../../../../shared/electron-api'
+import type { SprintEngineAuthState, SessionUser } from '../../../../shared/electron-api'
 import { test } from 'vitest'
 
 test('SidebarAccountBar.avatar', async () => {
@@ -53,7 +53,7 @@ test('SidebarAccountBar.avatar', async () => {
 
   const PHOTO = 'data:image/png;base64,iVBORw0KGgo='
 
-  function state(user: SessionUser | null, authenticated = true): MulticodeAuthState {
+  function state(user: SessionUser | null, authenticated = true): SprintEngineAuthState {
     return {
       authenticated,
       user,
@@ -62,9 +62,9 @@ test('SidebarAccountBar.avatar', async () => {
         ? {
             userId: 'u1',
             organizationId: 'o1',
-            product: 'multicode',
+            product: 'sprintengine',
             roles: [],
-            features: { 'multicode.sprintengine': true },
+            features: { 'sprintengine.sprintengine': true },
             limits: {},
             sources: {},
             plan: { code: 'free', status: 'active' },
@@ -81,7 +81,7 @@ test('SidebarAccountBar.avatar', async () => {
     }
   }
 
-  function render(authState: MulticodeAuthState, accountOpen = true): void {
+  function render(authState: SprintEngineAuthState, accountOpen = true): void {
     const host = dom.window.document.createElement('div')
     dom.window.document.body.appendChild(host)
     const root = createRoot(host as unknown as Element)

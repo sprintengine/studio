@@ -69,7 +69,7 @@ export function projectColorKey(input: {
 /**
  * The part of a key that names the project the same way on every machine.
  *
- * A repository key already does (`github.com/acme/multicode`), and all of it is
+ * A repository key already does (`github.com/acme/sprintengine`), and all of it is
  * hashed so two organisations' `api` repositories differ. A folder key is a
  * path on THIS disk, so only its last segment is hashed — which does make two
  * unrelated `notes` folders one colour, but a folder with no remote has no

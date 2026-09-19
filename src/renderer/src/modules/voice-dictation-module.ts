@@ -53,7 +53,7 @@ export const voiceDictationRendererModule: RendererModule = {
     id: 'voice-dictation',
     displayName: 'Voice dictation',
     version: 1,
-    publisher: 'multicode',
+    publisher: 'sprintengine',
     category: 'connectivity',
     summary:
       'Record speech from the top bar (or Ctrl/Cmd+Shift+1) and transcribe it with a Whisper server, copying the text to the clipboard. Configure the server in Settings → Voice dictation.',

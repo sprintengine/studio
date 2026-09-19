@@ -21,7 +21,7 @@ test('openGitDiff', async () => {
   const stored: Record<string, string> = {
     // A remembered window placement, so the aux request is asserted to carry the
     // bounds the last diff window was left at rather than opening at default size.
-    'multicode.auxWindowPlacement.diff': JSON.stringify({ x: 40, y: 60, width: 900, height: 600 }),
+    'sprintengine.auxWindowPlacement.diff': JSON.stringify({ x: 40, y: 60, width: 900, height: 600 }),
   }
 
   Object.defineProperty(globalThis, 'window', {

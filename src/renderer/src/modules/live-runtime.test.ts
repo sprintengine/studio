@@ -277,14 +277,14 @@ test('live-runtime', async () => {
   type WorkingRootInput = Pick<Workspace, 'folderPath' | 'worktree' | 'moduleState'>
 
   const worktreeBackedWorkspace: WorkingRootInput = {
-    folderPath: '/Users/example/.multicode-worktrees/project/auth',
+    folderPath: '/Users/example/.sprintengine-worktrees/project/auth',
     worktree: { branch: 'agent/auth' },
     moduleState: undefined,
   }
 
   async function testEffectiveWorkingRoot(): Promise<void> {
     // Worktree-backed workspace: live work happens under the worktree.
-    assert.equal(workspaceWorkingRoot(worktreeBackedWorkspace), '/Users/example/.multicode-worktrees/project/auth')
+    assert.equal(workspaceWorkingRoot(worktreeBackedWorkspace), '/Users/example/.sprintengine-worktrees/project/auth')
     // Plain workspace: the primary checkout IS the working root.
     assert.equal(
       workspaceWorkingRoot({ folderPath: '/Users/example/project', worktree: null }),
@@ -308,7 +308,7 @@ test('live-runtime', async () => {
     const stop = await watcher('ws-1', 'state/loop.json', () => {})
     assert.equal(
       watchedPaths[0],
-      '/Users/example/.multicode-worktrees/project/auth/state',
+      '/Users/example/.sprintengine-worktrees/project/auth/state',
       'the watch attaches under the worktree, not the primary checkout',
     )
     stop()

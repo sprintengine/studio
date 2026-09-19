@@ -76,7 +76,7 @@ test('freshInstallWalkSeam', async () => {
   const mockElectron = {
     app: {
       getAppPath: () => process.cwd(),
-      getPath: () => join(tmpdir(), 'multicode-fresh-install-seam-user-data'),
+      getPath: () => join(tmpdir(), 'sprintengine-fresh-install-seam-user-data'),
       isPackaged: false,
     },
     BrowserWindow: {
@@ -226,7 +226,7 @@ test('freshInstallWalkSeam', async () => {
     sessionId: string
   }): Promise<{ result: TerminalSpawnResult; spawnCalls: SpawnCall[]; startupScript: string | null }> {
     const runtimeModule = (await import('../main/terminal-runtime')) as TerminalRuntimeModule
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-fresh-install-seam-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-fresh-install-seam-'))
     const runtime = runtimeModule.createTerminalRuntime({
       diagnosticsEnabled: false,
       logMainPerfEvent: () => undefined,

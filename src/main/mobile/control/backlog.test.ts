@@ -11,7 +11,7 @@ test('backlog', async () => {
   const generatedAt = '2026-06-27T00:00:00.000Z'
 
   async function setupWorkspace(files: Record<string, string>, store?: unknown): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), 'multicode-mobile-backlog-'))
+    const root = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-backlog-'))
     for (const [relativePath, content] of Object.entries(files)) {
       const abs = join(root, relativePath)
       await mkdir(dirname(abs), { recursive: true })

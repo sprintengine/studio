@@ -62,7 +62,7 @@ test('tailnet-fleet-reachability', async () => {
 
   /** One "machine": a listener with its device store, and a fleet that can ask others. */
   async function startMachine(name: string, options: { reachabilityIntervalMs?: number } = {}): Promise<Machine> {
-    const dir = mkdtempSync(join(tmpdir(), `multicode-reach-${name}-`))
+    const dir = mkdtempSync(join(tmpdir(), `sprintengine-reach-${name}-`))
     const devices = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
     const events: FleetEvent[] = []
     // The fleet is built first so the listener's reverse-grant hook can reach it.

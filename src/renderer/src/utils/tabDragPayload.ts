@@ -3,7 +3,7 @@
 // create a new workspace seeded with that tab, or tile it into an existing
 // workspace as a side-by-side column.
 
-export const TAB_DRAG_MIME = 'application/x-multicode-tab'
+export const TAB_DRAG_MIME = 'application/x-sprintengine-tab'
 
 export type TabDragPayload = {
   sourceWorkspaceId: string

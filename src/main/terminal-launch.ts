@@ -31,7 +31,7 @@ import { renderReasoningArgs, resolvePermissionArgs } from './plugin-render'
 import { getPluginById, getPluginManifest } from './plugin-registry-instance'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
-import { compatStudioEnvEntry, studioEnvNames, withoutStudioEnv } from '../shared/studio-env'
+import { studioEnvEntry, withoutStudioEnv } from '../shared/studio-env'
 import type { LaunchContributionPathStyle } from '../shared/modules/launch-contributions'
 import { collectLaunchContributions, type MergedLaunchContribution } from './module-host/launch-contributions'
 
@@ -110,15 +110,11 @@ function agentIdentityEnv(input: {
   const agentId = input.agentId?.trim()
   const agentName = input.agentName?.trim()
   const agentStateSocketPath = agentId ? agentStateSocketPathForLaunch() : null
-  // Both spellings of every value. The reader is a hook script the app copied
-  // into the person's workspace at some earlier version and does not rewrite on
-  // launch; a copy from before the rename reads MULTICODE_*, one from after
-  // reads SPRINTENGINE_*, and the same app instance has to satisfy both.
   return {
-    ...compatStudioEnvEntry('SPRINTENGINE_WORKSPACE_ID', workspaceId),
-    ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', agentId),
-    ...compatStudioEnvEntry('SPRINTENGINE_AGENT_NAME', agentName),
-    ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', agentStateSocketPath),
+    ...studioEnvEntry('SPRINTENGINE_WORKSPACE_ID', workspaceId),
+    ...studioEnvEntry('SPRINTENGINE_AGENT_ID', agentId),
+    ...studioEnvEntry('SPRINTENGINE_AGENT_NAME', agentName),
+    ...studioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', agentStateSocketPath),
   }
 }
 
@@ -266,10 +262,7 @@ export function applyAgentIdentityEnv(
 // PROVIDER, and every key in here is a fact about the pane or about which agent
 // this is — neither of which a manifest is in a position to restate.
 const PROTECTED_LAUNCH_ENV_KEYS = new Set<string>([
-  // Both spellings: `agentIdentityEnv` writes both, so protecting only the new
-  // one would leave a manifest able to set the legacy name and have an older
-  // hook copy report this session under another agent's identity.
-  ...AGENT_IDENTITY_ENV_KEYS.flatMap(studioEnvNames),
+  ...AGENT_IDENTITY_ENV_KEYS,
   'TERM',
   'COLORTERM',
   // Same reasoning as TERM: whether this terminal renders OSC 8 hyperlinks is a
@@ -387,9 +380,7 @@ export function applyMergedLaunchContribution(
   pathStyle: 'posix' | 'windows',
 ): Record<string, string> {
   const next: Record<string, string> = { ...env }
-  for (const key of merged.identityKeys) {
-    for (const name of studioEnvNames(key)) delete next[name]
-  }
+  for (const key of merged.identityKeys) delete next[key]
   for (const [key, value] of Object.entries(merged.env)) {
     if (PROTECTED_LAUNCH_ENV_KEYS.has(key)) continue
     next[key] = value
@@ -695,9 +686,9 @@ function oscSequenceLiteral(payload: string): string {
  * through an `exec` — there is no function definition on the far side to call.
  */
 export const OSC7_BASH_PROMPT_COMMAND: string = [
-  '__multicode_osc7=${PWD}',
-  ...OSC7_PATH_ESCAPES.map(([from, to]) => `__multicode_osc7=\${__multicode_osc7//\\${from}/${to}}`),
-  `printf '\\033]7;file://%s\\033\\\\' "$__multicode_osc7"`,
+  '__sprintengine_osc7=${PWD}',
+  ...OSC7_PATH_ESCAPES.map(([from, to]) => `__sprintengine_osc7=\${__sprintengine_osc7//\\${from}/${to}}`),
+  `printf '\\033]7;file://%s\\033\\\\' "$__sprintengine_osc7"`,
 ].join('; ')
 
 /**
@@ -707,14 +698,14 @@ export const OSC7_BASH_PROMPT_COMMAND: string = [
  * it — a plain assignment included, which is exactly what the OSC 7 emitter
  * opens with.
  */
-export const OSC133_BASH_STATUS_CAPTURE: string = '__multicode_status=$?'
+export const OSC133_BASH_STATUS_CAPTURE: string = '__sprintengine_status=$?'
 
 /**
  * The variable name above, on its own: `buildShellIntegrationSetup` matches on
  * it to tell an inherited `PROMPT_COMMAND` that is ALREADY ours from a user's.
  * Named here so the two cannot drift.
  */
-export const OSC133_BASH_STATUS_CAPTURE_VARIABLE: string = '__multicode_status'
+export const OSC133_BASH_STATUS_CAPTURE_VARIABLE: string = '__sprintengine_status'
 
 /**
  * bash's OSC 133 marks, appended to the same exported `PROMPT_COMMAND`.
@@ -739,10 +730,10 @@ export const OSC133_BASH_STATUS_CAPTURE_VARIABLE: string = '__multicode_status'
  *    The subshell is skipped on success, which is the common case.
  */
 export const OSC133_BASH_PROMPT_COMMAND: string = [
-  `printf '${oscSequenceLiteral('133;D;%s')}${oscSequenceLiteral('133;A')}' "$__multicode_status"`,
+  `printf '${oscSequenceLiteral('133;D;%s')}${oscSequenceLiteral('133;A')}' "$__sprintengine_status"`,
   `case \${PS1-} in *'${oscSequenceLiteral('133;B')}'*) ;; *) PS1=\${PS1-}'\\[${oscSequenceLiteral('133;B')}\\]' ;; esac`,
   `case \${PS0-} in *'${oscSequenceLiteral('133;C')}'*) ;; *) PS0=\${PS0-}'${oscSequenceLiteral('133;C')}' ;; esac`,
-  'case $__multicode_status in 0) ;; *) ( exit $__multicode_status ) ;; esac',
+  'case $__sprintengine_status in 0) ;; *) ( exit $__sprintengine_status ) ;; esac',
 ].join('; ')
 
 /**
@@ -757,7 +748,7 @@ export const SHELL_INTEGRATION_BASH_PROMPT_COMMAND: string = [
 
 /** zsh's emitter plus the `precmd` hook that runs it, appended to our `.zshrc`. */
 const OSC7_ZSH_HOOK: string = [
-  '__multicode_osc7_cwd() {',
+  '__sprintengine_osc7_cwd() {',
   // The user's option set is theirs; this function should not depend on it.
   '  emulate -L zsh',
   '  local d=$PWD',
@@ -766,11 +757,11 @@ const OSC7_ZSH_HOOK: string = [
   '}',
   'typeset -ag precmd_functions',
   // Idempotent: a nested zsh reads this file again and must not stack the hook.
-  'if (( ! ${precmd_functions[(I)__multicode_osc7_cwd]} )); then',
-  '  precmd_functions+=(__multicode_osc7_cwd)',
+  'if (( ! ${precmd_functions[(I)__sprintengine_osc7_cwd]} )); then',
+  '  precmd_functions+=(__sprintengine_osc7_cwd)',
   'fi',
   // The first prompt has no `cd` before it, so report the launch directory too.
-  '__multicode_osc7_cwd',
+  '__sprintengine_osc7_cwd',
 ].join('\n')
 
 /**
@@ -784,19 +775,19 @@ const OSC7_ZSH_HOOK: string = [
  * `return`s it, so the hooks behind it — the user's prompt theme included —
  * still see what they saw before we were here.
  *
- * `__multicode_osc133_active` is what keeps a bare Enter from being reported as
+ * `__sprintengine_osc133_active` is what keeps a bare Enter from being reported as
  * a command: D is emitted only when a C opened one. (The renderer applies the
  * same rule independently — see `terminalShellMarks.ts` — because the marks are
  * attacker-controlled and this hook is not the only thing that can print them.)
  */
 const OSC133_ZSH_HOOK: string = [
-  '__multicode_osc133_precmd() {',
+  '__sprintengine_osc133_precmd() {',
   // Before `emulate`, before anything: any command at all replaces `$?`.
-  '  local __multicode_ret=$?',
+  '  local __sprintengine_ret=$?',
   '  emulate -L zsh',
-  '  if (( __multicode_osc133_active )); then',
-  `    printf '${oscSequenceLiteral('133;D;%s')}' "$__multicode_ret"`,
-  '    __multicode_osc133_active=0',
+  '  if (( __sprintengine_osc133_active )); then',
+  `    printf '${oscSequenceLiteral('133;D;%s')}' "$__sprintengine_ret"`,
+  '    __sprintengine_osc133_active=0',
   '  fi',
   `  printf '${oscSequenceLiteral('133;A')}'`,
   // Prompt end. `%{`…`%}` is zsh's "these bytes occupy no columns"; without it
@@ -804,32 +795,32 @@ const OSC133_ZSH_HOOK: string = [
   // Re-checked every prompt so a theme that rebuilds PS1 costs one mark rather
   // than losing it for the session, and guarded so one that does not rebuild it
   // does not collect a copy per prompt.
-  `  if (( __multicode_osc133_prompt_percent )) && [[ $PS1 != *$'\\e]133;B'* ]]; then`,
+  `  if (( __sprintengine_osc133_prompt_percent )) && [[ $PS1 != *$'\\e]133;B'* ]]; then`,
   `    PS1=$PS1$'%{\\e]133;B\\e\\\\%}'`,
   '  fi',
   // The status the rest of the prompt machinery expects to find.
-  '  return $__multicode_ret',
+  '  return $__sprintengine_ret',
   '}',
-  '__multicode_osc133_preexec() {',
+  '__sprintengine_osc133_preexec() {',
   '  emulate -L zsh',
-  '  __multicode_osc133_active=1',
+  '  __sprintengine_osc133_active=1',
   `  printf '${oscSequenceLiteral('133;C')}'`,
   '}',
-  'typeset -g __multicode_osc133_active=0',
+  'typeset -g __sprintengine_osc133_active=0',
   // Whether `%{`…`%}` means anything in this shell, read HERE rather than in the
   // hook: `emulate -L zsh` inside a function reports zsh's default option set,
   // not the user's, and a user who turned PROMPT_PERCENT off would otherwise
   // get a literal `%{` printed into their prompt. Read after their own .zshrc
   // has run, which is the state the prompt will actually be rendered under.
-  'typeset -g __multicode_osc133_prompt_percent=0',
-  'if [[ -o promptpercent ]]; then __multicode_osc133_prompt_percent=1; fi',
+  'typeset -g __sprintengine_osc133_prompt_percent=0',
+  'if [[ -o promptpercent ]]; then __sprintengine_osc133_prompt_percent=1; fi',
   'typeset -ag precmd_functions',
   // Idempotent prepend: the filter drops any copy a nested zsh already added,
   // then puts exactly one back at the front.
-  'precmd_functions=(__multicode_osc133_precmd "${(@)precmd_functions:#__multicode_osc133_precmd}")',
+  'precmd_functions=(__sprintengine_osc133_precmd "${(@)precmd_functions:#__sprintengine_osc133_precmd}")',
   'typeset -ag preexec_functions',
-  'if (( ! ${preexec_functions[(I)__multicode_osc133_preexec]} )); then',
-  '  preexec_functions+=(__multicode_osc133_preexec)',
+  'if (( ! ${preexec_functions[(I)__sprintengine_osc133_preexec]} )); then',
+  '  preexec_functions+=(__sprintengine_osc133_preexec)',
   'fi',
 ].join('\n')
 
@@ -952,7 +943,7 @@ export function buildShellIntegrationSetup(shellName: string | undefined, zdotdi
       //
       // The `case` is the self-reference guard: relaunching inside one of our
       // own terminals inherits `<ours>; <theirs>`, and re-capturing THAT would
-      // append our emitter to itself once per nesting level. `__multicode_status`
+      // append our emitter to itself once per nesting level. `__sprintengine_status`
       // appears only in our string, and `SPRINTENGINE_USER_PROMPT_COMMAND` is
       // exported, so the nested shell keeps the value the outer one captured.
       `case "\${PROMPT_COMMAND:-}" in *${OSC133_BASH_STATUS_CAPTURE_VARIABLE}*) ;; *) SPRINTENGINE_USER_PROMPT_COMMAND=\${PROMPT_COMMAND:-}; export SPRINTENGINE_USER_PROMPT_COMMAND ;; esac`,
@@ -1649,7 +1640,7 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   // invocation pulled from the manifest. Permission args above stay untouched.
   const codexPlugin = getPluginById('codex')
   const nativeInvocation = debugMode && codexPlugin ? resolveDebugSkillInvocation(codexPlugin) : undefined
-  const debugPrompt = debugMode ? applyDebugDirective(initialPrompt ?? '', true, nativeInvocation, cwd) : initialPrompt
+  const debugPrompt = debugMode ? applyDebugDirective(initialPrompt ?? '', true, nativeInvocation) : initialPrompt
   const promptArg = nativeWindowsCodexPromptArg(debugPrompt)
   // The model flag is hardcoded like the rest of this acknowledged-legacy
   // codex-specific path; the manifest-rendered paths read modelSelection.args.

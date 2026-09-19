@@ -433,7 +433,7 @@ test('automations-module', async () => {
   }
 
   async function testWebhookReceiverFailureIsVisibleInSidecarStatus(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-automations-module-webhook-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-automations-module-webhook-'))
     const occupied = await listenOnEphemeralPort()
     const store = new AutomationsStore(workspaceRoot)
     assert.equal(
@@ -658,7 +658,7 @@ test('automations-module', async () => {
     // refuses, so the run fails at launch — but the point is it reached the launch,
     // proving there is no pre-launch dirty-tree block). Real repository, because
     // the module wires the real `defaultCreateRunWorktree`.
-    const folderPath = await initDirtyTestRepo('multicode-automations-module-dirty-')
+    const folderPath = await initDirtyTestRepo('sprintengine-automations-module-dirty-')
     const launchRequests: Array<{ kind: 'agent.launch' } & AgentLaunchRequest> = []
     let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null as
       AutomationsEngineOptions['runAutomation'] | null
@@ -705,7 +705,7 @@ test('automations-module', async () => {
   // being launched — unattended, with permissions bypassed — into that folder.
   // Real module wiring, so this covers the production `defaultCreateRunWorktree`.
   async function testModuleExecutorBlocksWhenTheRunCannotGetAWorktree(): Promise<void> {
-    const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-non-git-'))
+    const folderPath = await mkdtemp(join(tmpdir(), 'sprintengine-automations-module-non-git-'))
     const launchRequests: Array<{ kind: 'agent.launch' } & AgentLaunchRequest> = []
     let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null as
       AutomationsEngineOptions['runAutomation'] | null
@@ -799,7 +799,7 @@ test('automations-module', async () => {
     let capturedEngineOptions: AutomationsEngineOptions | null = null as AutomationsEngineOptions | null
     let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null as
       AutomationsEngineOptions['runAutomation'] | null
-    const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-'))
+    const folderPath = await mkdtemp(join(tmpdir(), 'sprintengine-automations-module-provider-'))
 
     const moduleLoad = loadMainModules({
       ipcMain,
@@ -851,7 +851,7 @@ test('automations-module', async () => {
     let capturedRunAutomation: AutomationsEngineOptions['runAutomation'] | null = null as
       AutomationsEngineOptions['runAutomation'] | null
     let weatherDeckTrusted = true
-    const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-blocked-'))
+    const folderPath = await mkdtemp(join(tmpdir(), 'sprintengine-automations-module-provider-blocked-'))
     const checkProviderPermission: AutomationProviderPermissionChecker = (registration) => {
       if (registration.moduleId !== 'weather-deck') return { ok: true }
       return weatherDeckTrusted
@@ -927,7 +927,7 @@ test('automations-module', async () => {
       AutomationsEngineOptions['runAutomation'] | null
     let weatherDeckTrusted = true
     const counters = { getterCalls: 0, runCalls: 0 }
-    const folderPath = await mkdtemp(join(tmpdir(), 'multicode-automations-module-provider-getters-'))
+    const folderPath = await mkdtemp(join(tmpdir(), 'sprintengine-automations-module-provider-getters-'))
     const checkProviderPermission: AutomationProviderPermissionChecker = (registration) => {
       if (registration.moduleId !== 'weather-deck') return { ok: true }
       return weatherDeckTrusted

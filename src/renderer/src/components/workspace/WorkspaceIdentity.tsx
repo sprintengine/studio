@@ -228,8 +228,8 @@ export function useFolderOpenTargets(workspaceId: string | null, openPath: strin
       if (detail.workspaceId && detail.workspaceId !== workspaceId) return
       void openTarget('finder', false)
     }
-    window.addEventListener('multicode:panel-command', onPanelCommand)
-    return () => window.removeEventListener('multicode:panel-command', onPanelCommand)
+    window.addEventListener('sprintengine:panel-command', onPanelCommand)
+    return () => window.removeEventListener('sprintengine:panel-command', onPanelCommand)
   }, [openTarget, workspaceId])
 
   // Re-probed whenever the menu opens: an editor installed while the app was

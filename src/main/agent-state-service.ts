@@ -260,11 +260,11 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
 
 export function resolveAgentStateSocketPath(userDataDir: string): string {
   if (process.platform === 'win32') {
-    return `\\\\.\\pipe\\multicode-agent-state-${profileHash(userDataDir)}`
+    return `\\\\.\\pipe\\sprintengine-agent-state-${profileHash(userDataDir)}`
   }
   const direct = join(userDataDir, 'agent-state.sock')
   if (direct.length <= MAX_POSIX_SOCKET_PATH) return direct
-  return join(tmpdir(), `multicode-agent-state-${profileHash(userDataDir)}.sock`)
+  return join(tmpdir(), `sprintengine-agent-state-${profileHash(userDataDir)}.sock`)
 }
 
 function profileHash(userDataDir: string): string {

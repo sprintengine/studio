@@ -718,7 +718,7 @@ async function listAllBacklogSourcePaths(workspace: ValidWorkspace): Promise<str
     }
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (entry.name !== 'node_modules' && entry.name !== '.git' && entry.name !== '.multicode-worktrees') {
+        if (entry.name !== 'node_modules' && entry.name !== '.git' && entry.name !== '.sprintengine-worktrees') {
           await walk(join(directory, entry.name))
         }
         continue

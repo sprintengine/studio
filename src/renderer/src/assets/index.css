@@ -978,7 +978,7 @@
 
 /* Paper — the product's signature light theme: warm cream canvas, sage
    panel chrome, single green accent. Coordinated 1:1 with the marketing site
-   (multicode-website globals.css: paper #f4f1e8, sage #d9dec9, accent #2f6a4a).
+   (sprintengine-website globals.css: paper #f4f1e8, sage #d9dec9, accent #2f6a4a).
    A green-accented, warm-light sibling of Herbarium, but cream-dominant (vs
    Herbarium's sage-dominant canvas) so the green accent pops on cream rather
    than muddying on sage. Shares the light-theme legibility overrides below. */

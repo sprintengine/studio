@@ -21,7 +21,7 @@
 //     # once, on this machine, with the pairing URL from the other machine's
 //     # Settings → Remote (QR or "copy pairing link"):
 //     node mcp-stdio-bridge.mjs pair \
-//       --pairing-url 'multicode-tailnet://pair?endpoint=100.x.y.z:8471&token=mcpair_...' \
+//       --pairing-url 'sprintengine-tailnet://pair?endpoint=100.x.y.z:8471&token=mcpair_...' \
 //       --token-file ~/.sprintengine/mac-mini.json
 //
 //     # then register the remote Studio like any other MCP server:
@@ -51,15 +51,9 @@ import { homedir, hostname } from 'node:os'
 import { dirname, join } from 'node:path'
 import process from 'node:process'
 
-// The app's own variables answer to two names. Everything was spelled
-// `MULTICODE_*` before the 2026-09-08 rename to SprintEngine Studio and is
-// spelled `SPRINTENGINE_*` now, and this file is a COPY installed into a
-// workspace: the app instance that launched this bridge may be either side of
-// that rename, and this copy may be either side of it too. New name first, old
-// name second. An empty value counts as unset, which is what every call site
-// here already assumed.
-const studioEnv = (name) =>
-  process.env[name] || process.env[name.replace(/^SPRINTENGINE_/, 'MULTICODE_')] || ''
+// The app's own variables. An empty value counts as unset, which is what every
+// call site here already assumed.
+const studioEnv = (name) => process.env[name] || ''
 
 const INFO_FILENAMES = ['sprintengine-studio-mcp-info.json', 'automation-server-info.json']
 
@@ -83,13 +77,13 @@ const WEBSOCKET_CLOSE_REVOKED = 4401
  * at all, which is the worst failure this script can produce.
  */
 const CONNECT_TIMEOUT_MS = 15_000
-const PAIRING_URL_SCHEME = 'multicode-tailnet:'
+const PAIRING_URL_SCHEME = 'sprintengine-tailnet:'
 
 const USAGE = [
   'Usage:',
   '  mcp-stdio-bridge.mjs [--info-path <sprintengine-studio-mcp-info.json>]',
   '  mcp-stdio-bridge.mjs [--remote <host:port>] --token-file <path>',
-  "  mcp-stdio-bridge.mjs pair --pairing-url '<multicode-tailnet://pair?...>' --token-file <path> [--device-name <name>]",
+  "  mcp-stdio-bridge.mjs pair --pairing-url '<sprintengine-tailnet://pair?...>' --token-file <path> [--device-name <name>]",
 ].join('\n')
 
 function fail(message) {
@@ -126,20 +120,20 @@ function parseArgs(argv) {
   return { command, values }
 }
 
-// Electron derives userData from package.json's `name` ("multicode",
-// lowercase). "Multicode" is kept as a fallback for case-sensitive
+// Electron derives userData from package.json's `name` ("sprintengine-studio").
+// The productName spelling is kept as a fallback for case-sensitive
 // filesystems in case a future release promotes productName to the app name.
 function defaultUserDataDirs() {
   if (process.platform === 'darwin') {
     const base = join(homedir(), 'Library', 'Application Support')
-    return [join(base, 'sprintengine-studio'), join(base, 'SprintEngine Studio'), join(base, 'multicode'), join(base, 'Multicode')]
+    return [join(base, 'sprintengine-studio'), join(base, 'SprintEngine Studio')]
   }
   if (process.platform === 'win32') {
     const appData = process.env.APPDATA
-    return appData ? [join(appData, 'sprintengine-studio'), join(appData, 'SprintEngine Studio'), join(appData, 'multicode'), join(appData, 'Multicode')] : []
+    return appData ? [join(appData, 'sprintengine-studio'), join(appData, 'SprintEngine Studio')] : []
   }
   const configHome = process.env.XDG_CONFIG_HOME || join(homedir(), '.config')
-  return [join(configHome, 'sprintengine-studio'), join(configHome, 'SprintEngine Studio'), join(configHome, 'multicode'), join(configHome, 'Multicode')]
+  return [join(configHome, 'sprintengine-studio'), join(configHome, 'SprintEngine Studio')]
 }
 
 function resolveInfoPath(explicit) {
@@ -159,10 +153,7 @@ function readServerInfo(infoPath) {
   try {
     raw = readFileSync(infoPath, 'utf8')
   } catch {
-    fail(
-      `No Studio MCP discovery file at ${infoPath}. `
-        + 'SprintEngine Studio is not running yet.'
-    )
+    fail(`No Studio MCP discovery file at ${infoPath}. ` + 'SprintEngine Studio is not running yet.')
   }
   let info
   try {
@@ -225,8 +216,8 @@ function runLocal(infoPathArg) {
     const alive = appearsAlive(info.pid)
     if (alive === false) {
       fail(
-        `Could not connect to ${info.socketPath} and the recorded app process (pid ${info.pid}) is gone — `
-          + 'the discovery file is stale (the app likely crashed). Start SprintEngine Studio.'
+        `Could not connect to ${info.socketPath} and the recorded app process (pid ${info.pid}) is gone — ` +
+          'the discovery file is stale (the app likely crashed). Start SprintEngine Studio.',
       )
     }
     fail(`Could not connect to ${info.socketPath}: ${error.message}`)
@@ -249,7 +240,9 @@ function parseEndpoint(value, source) {
   const plain = /^([^:]+):(\d+)$/.exec(trimmed)
   const match = bracketed ?? plain
   if (!match) {
-    fail(`${source} is not a "host:port" endpoint: "${trimmed}". An IPv6 literal must be bracketed, e.g. [fd7a:115c:a1e0::1]:8471.`)
+    fail(
+      `${source} is not a "host:port" endpoint: "${trimmed}". An IPv6 literal must be bracketed, e.g. [fd7a:115c:a1e0::1]:8471.`,
+    )
   }
   const port = Number(match[2])
   if (!Number.isInteger(port) || port <= 0 || port > 65535) fail(`${source} names an invalid port: "${match[2]}".`)
@@ -306,15 +299,20 @@ function resolveRemoteCredential(values) {
   }
   if (!token) {
     fail(
-      'Remote mode needs a device token. Pass --token-file <path> (written by "mcp-stdio-bridge.mjs pair") '
-        + 'or set SPRINTENGINE_TAILNET_TOKEN. The token is never accepted as a command-line argument.'
+      'Remote mode needs a device token. Pass --token-file <path> (written by "mcp-stdio-bridge.mjs pair") ' +
+        'or set SPRINTENGINE_TAILNET_TOKEN. The token is never accepted as a command-line argument.',
     )
   }
   const endpointValue = values['--remote'] ?? storedEndpoint
   if (!endpointValue) {
-    fail('Remote mode needs an endpoint: pass --remote <host:port>, or use a token file written by "pair", which records one.')
+    fail(
+      'Remote mode needs an endpoint: pass --remote <host:port>, or use a token file written by "pair", which records one.',
+    )
   }
-  return { token, endpoint: parseEndpoint(endpointValue, values['--remote'] ? '--remote' : 'The token file\'s endpoint') }
+  return {
+    token,
+    endpoint: parseEndpoint(endpointValue, values['--remote'] ? '--remote' : "The token file's endpoint"),
+  }
 }
 
 function requestJson(endpoint, method, path, options = {}) {
@@ -346,11 +344,13 @@ function requestJson(endpoint, method, path, options = {}) {
           }
           resolve({ status: response.statusCode ?? 0, body, text })
         })
-      }
+      },
     )
     request.on('error', reject)
     request.setTimeout(CONNECT_TIMEOUT_MS, () => {
-      request.destroy(new Error(`no answer within ${CONNECT_TIMEOUT_MS / 1000}s (is this the tailnet listener's port?)`))
+      request.destroy(
+        new Error(`no answer within ${CONNECT_TIMEOUT_MS / 1000}s (is this the tailnet listener's port?)`),
+      )
     })
     if (payload) request.write(payload)
     request.end()
@@ -418,7 +418,8 @@ function createFrameDecoder() {
         const masked = (second & 0x80) !== 0
         let length = second & 0x7f
         let offset = 2
-        if ((first & 0x70) !== 0) return { frames, error: 'The server set reserved frame bits but no extension was negotiated.' }
+        if ((first & 0x70) !== 0)
+          return { frames, error: 'The server set reserved frame bits but no extension was negotiated.' }
         if (length === 126) {
           if (buffer.length < offset + 2) return { frames }
           length = buffer.readUInt16BE(offset)
@@ -426,11 +427,13 @@ function createFrameDecoder() {
         } else if (length === 127) {
           if (buffer.length < offset + 8) return { frames }
           const extended = buffer.readBigUInt64BE(offset)
-          if (extended > BigInt(MAX_MESSAGE_BYTES)) return { frames, error: `A server frame exceeds the ${MAX_MESSAGE_BYTES}-byte limit.` }
+          if (extended > BigInt(MAX_MESSAGE_BYTES))
+            return { frames, error: `A server frame exceeds the ${MAX_MESSAGE_BYTES}-byte limit.` }
           length = Number(extended)
           offset += 8
         }
-        if (length > MAX_MESSAGE_BYTES) return { frames, error: `A server frame exceeds the ${MAX_MESSAGE_BYTES}-byte limit.` }
+        if (length > MAX_MESSAGE_BYTES)
+          return { frames, error: `A server frame exceeds the ${MAX_MESSAGE_BYTES}-byte limit.` }
         const maskLength = masked ? 4 : 0
         if (buffer.length < offset + maskLength + length) return { frames }
         const mask = masked ? buffer.subarray(offset, offset + 4) : null
@@ -438,7 +441,11 @@ function createFrameDecoder() {
         const payload = Buffer.from(buffer.subarray(offset, offset + length))
         if (mask) for (let index = 0; index < payload.length; index += 1) payload[index] ^= mask[index % 4]
         buffer = buffer.subarray(offset + length)
-        if (opcode === 0x0 || !fin) return { frames, error: 'The server sent a fragmented message; this transport carries one JSON-RPC message per frame.' }
+        if (opcode === 0x0 || !fin)
+          return {
+            frames,
+            error: 'The server sent a fragmented message; this transport carries one JSON-RPC message per frame.',
+          }
         if (opcode === 0x1) frames.push({ kind: 'text', text: payload.toString('utf8') })
         else if (opcode === 0x8) {
           frames.push({
@@ -449,7 +456,11 @@ function createFrameDecoder() {
           return { frames }
         } else if (opcode === 0x9) frames.push({ kind: 'ping', payload })
         else if (opcode === 0xa) frames.push({ kind: 'pong' })
-        else return { frames, error: `The server sent opcode 0x${opcode.toString(16)}, which this transport does not carry.` }
+        else
+          return {
+            frames,
+            error: `The server sent opcode 0x${opcode.toString(16)}, which this transport does not carry.`,
+          }
       }
     },
   }
@@ -484,7 +495,8 @@ function openStream(endpoint, ticket) {
     }
     const onError = (error) => settle(error)
     const onClose = () => settle(new Error('The server closed the connection during the stream handshake.'))
-    const onTimeout = () => settle(new Error(`the stream handshake got no answer within ${CONNECT_TIMEOUT_MS / 1000}s.`))
+    const onTimeout = () =>
+      settle(new Error(`the stream handshake got no answer within ${CONNECT_TIMEOUT_MS / 1000}s.`))
     const onData = (chunk) => {
       head = Buffer.concat([head, chunk])
       const boundary = head.indexOf('\r\n\r\n')
@@ -499,8 +511,10 @@ function openStream(endpoint, ticket) {
       const headers = new Map(
         headerLines.map((line) => {
           const colon = line.indexOf(':')
-          return colon === -1 ? [line.toLowerCase(), ''] : [line.slice(0, colon).toLowerCase(), line.slice(colon + 1).trim()]
-        })
+          return colon === -1
+            ? [line.toLowerCase(), '']
+            : [line.slice(0, colon).toLowerCase(), line.slice(colon + 1).trim()]
+        }),
       )
       if (status !== 101) {
         const code = headers.get('x-tailnet-error')
@@ -529,7 +543,7 @@ function openStream(endpoint, ticket) {
           'Sec-WebSocket-Version: 13',
           '',
           '',
-        ].join('\r\n')
+        ].join('\r\n'),
       )
     })
   })
@@ -546,13 +560,15 @@ async function runRemote(values) {
   }
   if (ticketAnswer.status === 401) {
     fail(
-      `${formatEndpoint(endpoint)} rejected this device token: `
-        + `${errorMessageOf(ticketAnswer, 'it is not a paired device.')} `
-        + 'If the device was revoked in Settings → Remote, pair again to get a new token.'
+      `${formatEndpoint(endpoint)} rejected this device token: ` +
+        `${errorMessageOf(ticketAnswer, 'it is not a paired device.')} ` +
+        'If the device was revoked in Settings → Remote, pair again to get a new token.',
     )
   }
   if (ticketAnswer.status !== 200 || !ticketAnswer.body || typeof ticketAnswer.body.ticket !== 'string') {
-    fail(`${formatEndpoint(endpoint)} did not issue a stream ticket (HTTP ${ticketAnswer.status}): ${errorMessageOf(ticketAnswer, 'no reason given')}.`)
+    fail(
+      `${formatEndpoint(endpoint)} did not issue a stream ticket (HTTP ${ticketAnswer.status}): ${errorMessageOf(ticketAnswer, 'no reason given')}.`,
+    )
   }
 
   let stream
@@ -594,8 +610,15 @@ async function runRemote(values) {
         // else — revocation above all — is a failure the client must see.
         if (frame.code === 1000 || frame.code === 1001) finish(0)
         else if (frame.code === WEBSOCKET_CLOSE_REVOKED) {
-          finish(1, `${formatEndpoint(endpoint)} revoked this device: ${frame.reason || 'access was withdrawn in Settings → Remote.'} Pair again to get a new token.`)
-        } else finish(1, `The Studio tailnet listener closed the stream (code ${frame.code})${frame.reason ? `: ${frame.reason}` : '.'}`)
+          finish(
+            1,
+            `${formatEndpoint(endpoint)} revoked this device: ${frame.reason || 'access was withdrawn in Settings → Remote.'} Pair again to get a new token.`,
+          )
+        } else
+          finish(
+            1,
+            `The Studio tailnet listener closed the stream (code ${frame.code})${frame.reason ? `: ${frame.reason}` : '.'}`,
+          )
         return
       }
     }
@@ -647,7 +670,9 @@ function parsePairingUrl(value) {
     fail(`--pairing-url is not a URL. Copy the pairing link from the other machine's Settings → Remote.`)
   }
   if (url.protocol !== PAIRING_URL_SCHEME) {
-    fail(`--pairing-url must be a ${PAIRING_URL_SCHEME}//pair link from the other machine's Settings → Remote, not "${url.protocol}//".`)
+    fail(
+      `--pairing-url must be a ${PAIRING_URL_SCHEME}//pair link from the other machine's Settings → Remote, not "${url.protocol}//".`,
+    )
   }
   const endpointValue = url.searchParams.get('endpoint')
   const pairingToken = url.searchParams.get('token')
@@ -659,10 +684,12 @@ async function runPair(values) {
   const urlValue = values['--pairing-url'] ?? studioEnv('SPRINTENGINE_TAILNET_PAIRING_URL')?.trim()
   if (!urlValue) fail(`pair needs --pairing-url (or SPRINTENGINE_TAILNET_PAIRING_URL).\n${USAGE}`)
   const tokenFilePath = values['--token-file'] ?? studioEnv('SPRINTENGINE_TAILNET_TOKEN_FILE')?.trim()
-  if (!tokenFilePath) fail(`pair needs --token-file <path>: the device token it receives is written there and nowhere else.\n${USAGE}`)
+  if (!tokenFilePath)
+    fail(`pair needs --token-file <path>: the device token it receives is written there and nowhere else.\n${USAGE}`)
   const { endpoint, pairingToken } = parsePairingUrl(urlValue)
   const deviceName = (values['--device-name'] ?? hostname() ?? '').trim()
-  if (!deviceName) fail('Could not determine this machine\'s name; pass --device-name so the pairing is identifiable in Settings.')
+  if (!deviceName)
+    fail("Could not determine this machine's name; pass --device-name so the pairing is identifiable in Settings.")
 
   let answer
   try {
@@ -671,7 +698,9 @@ async function runPair(values) {
     fail(`Could not reach the Studio tailnet listener at ${formatEndpoint(endpoint)}: ${error.message}`)
   }
   if (answer.status !== 200 || !answer.body || typeof answer.body.deviceToken !== 'string') {
-    fail(`Pairing with ${formatEndpoint(endpoint)} failed (HTTP ${answer.status}): ${errorMessageOf(answer, 'no reason given')}`)
+    fail(
+      `Pairing with ${formatEndpoint(endpoint)} failed (HTTP ${answer.status}): ${errorMessageOf(answer, 'no reason given')}`,
+    )
   }
 
   const record = {
@@ -692,8 +721,8 @@ async function runPair(values) {
     // unrecoverable would be the worst of both. Say what happened and how to
     // undo it.
     fail(
-      `Paired with ${formatEndpoint(endpoint)}, but the device token could not be written to ${tokenFilePath}: ${error.message}. `
-        + 'Revoke this device in Settings → Remote and pair again to a writable path.'
+      `Paired with ${formatEndpoint(endpoint)}, but the device token could not be written to ${tokenFilePath}: ${error.message}. ` +
+        'Revoke this device in Settings → Remote and pair again to a writable path.',
     )
   }
 
@@ -708,7 +737,7 @@ async function runPair(values) {
       'Register the remote Studio with an MCP client:',
       `  claude mcp add sprintengine-studio-remote -- node ${process.argv[1]} --token-file ${tokenFilePath}`,
       '',
-    ].join('\n')
+    ].join('\n'),
   )
 }
 
@@ -726,8 +755,14 @@ for (const flag of command === 'pair' ? SERVE_ONLY_FLAGS : PAIR_ONLY_FLAGS) {
 
 if (command === 'pair') {
   await runPair(values)
-} else if (values['--remote'] || values['--token-file'] || studioEnv('SPRINTENGINE_TAILNET_TOKEN') || studioEnv('SPRINTENGINE_TAILNET_TOKEN_FILE')) {
-  if (values['--info-path']) fail(`--info-path is local-socket mode and --remote/--token-file is tailnet mode; pass one.\n${USAGE}`)
+} else if (
+  values['--remote'] ||
+  values['--token-file'] ||
+  studioEnv('SPRINTENGINE_TAILNET_TOKEN') ||
+  studioEnv('SPRINTENGINE_TAILNET_TOKEN_FILE')
+) {
+  if (values['--info-path'])
+    fail(`--info-path is local-socket mode and --remote/--token-file is tailnet mode; pass one.\n${USAGE}`)
   await runRemote(values)
 } else {
   runLocal(values['--info-path'])

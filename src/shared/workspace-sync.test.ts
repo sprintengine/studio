@@ -230,7 +230,7 @@ test('workspace-sync', async () => {
   // project it was cut from — otherwise it unshifts to the registry head and, on
   // the next restart, drags its parent's whole group to the top of the sidebar.
   const worktreeCreated: Workspace = {
-    ...workspace('ws-worktree', '/repo/.multicode-worktrees/b/chat-a1b2'),
+    ...workspace('ws-worktree', '/repo/.sprintengine-worktrees/b/chat-a1b2'),
     worktree: { branch: 'agent/chat-a1b2', repoRoot: '/repo/b' },
   }
   const worktreeCreateResult = applyWorkspaceSyncEvent(
@@ -241,7 +241,7 @@ test('workspace-sync', async () => {
       payload: {
         workspace: worktreeCreated,
         windowId: 'primary',
-        insert: { kind: 'folder_head', folderPath: '/repo/.multicode-worktrees/b/chat-a1b2' },
+        insert: { kind: 'folder_head', folderPath: '/repo/.sprintengine-worktrees/b/chat-a1b2' },
       },
     }),
   )

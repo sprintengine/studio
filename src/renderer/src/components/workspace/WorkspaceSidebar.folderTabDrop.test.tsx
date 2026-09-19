@@ -199,7 +199,7 @@ test('WorkspaceSidebar.folderTabDrop', async () => {
     // Regression: the folder header still carries the folder-reorder drag, which
     // shares these handlers. A non-tab drag must never reach the extract path.
     const reorderTransfer = {
-      types: ['application/x-multicode-folder'],
+      types: ['application/x-sprintengine-folder'],
       dropEffect: 'none',
       effectAllowed: 'move',
       getData: () => '',

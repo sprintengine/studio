@@ -1148,7 +1148,7 @@ export function createCanvasService(deps: CanvasServiceDeps): CanvasServiceInter
     for (const entry of entries) {
       if (found.length >= LIST_MAX_SCANNED) return
       if (entry.isDirectory) {
-        // Dot-folders wholesale: `.git`, `.sprintengine`, `.multi-code` and
+        // Dot-folders wholesale: `.git`, `.sprintengine` and
         // every other tool's store are not where a person keeps a drawing.
         if (entry.name.startsWith('.')) continue
         if (LIST_SKIP_FOLDERS.has(entry.name)) continue

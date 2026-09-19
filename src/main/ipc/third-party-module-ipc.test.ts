@@ -155,7 +155,10 @@ test('third-party-module-ipc', async () => {
       disabled: [],
       sidecars: [],
       errors: [
-        { id: 'broken-main', message: "Cannot find module '/Users/example/.multicode/modules/broken-main/main.cjs'" },
+        {
+          id: 'broken-main',
+          message: "Cannot find module '/Users/example/.sprintengine/modules/broken-main/main.cjs'",
+        },
       ],
     })
 

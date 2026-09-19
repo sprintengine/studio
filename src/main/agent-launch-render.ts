@@ -152,7 +152,7 @@ export function renderAgentLaunchArgv(input: AgentLaunchRenderInput): RenderedAg
   // touched when debugMode is set, preserving an undefined prompt (and thus the
   // no-prompt argv shape) for ordinary launches.
   const prompt = input.debugMode
-    ? applyDebugDirective(input.initialPrompt ?? '', true, resolveDebugSkillInvocation(plugin), input.workspaceRoot)
+    ? applyDebugDirective(input.initialPrompt ?? '', true, resolveDebugSkillInvocation(plugin))
     : input.initialPrompt
   const context: PluginRenderContext = {
     binary,

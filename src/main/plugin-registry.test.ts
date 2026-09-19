@@ -56,7 +56,7 @@ test('plugin-registry', async () => {
   async function testBundledManifestsLoad(): Promise<void> {
     const registry = createPluginRegistry({
       bundledRoot: BUNDLED_ROOT,
-      userRoot: join(await mkdtemp(join(tmpdir(), 'multicode-no-user-plugins-')), 'plugins'),
+      userRoot: join(await mkdtemp(join(tmpdir(), 'sprintengine-no-user-plugins-')), 'plugins'),
     })
     const report = await registry.load()
     assert.deepEqual(
@@ -166,7 +166,7 @@ test('plugin-registry', async () => {
   async function testResumeCapabilitiesProjectedAndConsistent(): Promise<void> {
     const registry = createPluginRegistry({
       bundledRoot: BUNDLED_ROOT,
-      userRoot: join(await mkdtemp(join(tmpdir(), 'multicode-no-user-plugins-')), 'plugins'),
+      userRoot: join(await mkdtemp(join(tmpdir(), 'sprintengine-no-user-plugins-')), 'plugins'),
     })
     await registry.load()
 
@@ -259,7 +259,7 @@ test('plugin-registry', async () => {
   async function testClaudeBundledRenderMatchesExpected(): Promise<void> {
     const registry = createPluginRegistry({
       bundledRoot: BUNDLED_ROOT,
-      userRoot: join(await mkdtemp(join(tmpdir(), 'multicode-no-user-plugins-')), 'plugins'),
+      userRoot: join(await mkdtemp(join(tmpdir(), 'sprintengine-no-user-plugins-')), 'plugins'),
     })
     await registry.load()
     const plugin = registry.get('claude-code')
@@ -309,7 +309,7 @@ test('plugin-registry', async () => {
   async function testCodexBundledRenderMatchesExpected(): Promise<void> {
     const registry = createPluginRegistry({
       bundledRoot: BUNDLED_ROOT,
-      userRoot: join(await mkdtemp(join(tmpdir(), 'multicode-no-user-plugins-')), 'plugins'),
+      userRoot: join(await mkdtemp(join(tmpdir(), 'sprintengine-no-user-plugins-')), 'plugins'),
     })
     await registry.load()
     const plugin = registry.get('codex')
@@ -332,7 +332,7 @@ test('plugin-registry', async () => {
   async function testGrokBundledRenderMatchesExpected(): Promise<void> {
     const registry = createPluginRegistry({
       bundledRoot: BUNDLED_ROOT,
-      userRoot: join(await mkdtemp(join(tmpdir(), 'multicode-no-user-plugins-')), 'plugins'),
+      userRoot: join(await mkdtemp(join(tmpdir(), 'sprintengine-no-user-plugins-')), 'plugins'),
     })
     await registry.load()
     const plugin = registry.get('grok')
@@ -389,7 +389,7 @@ test('plugin-registry', async () => {
   async function bundledRegistry(): Promise<ReturnType<typeof createPluginRegistry>> {
     const registry = createPluginRegistry({
       bundledRoot: BUNDLED_ROOT,
-      userRoot: join(await mkdtemp(join(tmpdir(), 'multicode-no-user-plugins-')), 'plugins'),
+      userRoot: join(await mkdtemp(join(tmpdir(), 'sprintengine-no-user-plugins-')), 'plugins'),
     })
     await registry.load()
     return registry
@@ -504,7 +504,7 @@ test('plugin-registry', async () => {
   async function testFixtureManifestsValidate(): Promise<void> {
     const registry = createPluginRegistry({
       bundledRoot: FIXTURE_ROOT,
-      userRoot: join(await mkdtemp(join(tmpdir(), 'multicode-no-user-plugins-')), 'plugins'),
+      userRoot: join(await mkdtemp(join(tmpdir(), 'sprintengine-no-user-plugins-')), 'plugins'),
     })
     const report = await registry.load()
     assert.deepEqual(
@@ -520,7 +520,7 @@ test('plugin-registry', async () => {
   }
 
   async function testUserPluginOverridesBundled(): Promise<void> {
-    const userRootParent = await mkdtemp(join(tmpdir(), 'multicode-user-plugins-'))
+    const userRootParent = await mkdtemp(join(tmpdir(), 'sprintengine-user-plugins-'))
     const userRoot = join(userRootParent, 'plugins')
     const overrideRoot = join(userRoot, 'claude-code')
     await mkdir(overrideRoot, { recursive: true })
@@ -644,7 +644,7 @@ test('plugin-registry', async () => {
   }
 
   async function testIdDirectoryMismatchRejected(): Promise<void> {
-    const userRootParent = await mkdtemp(join(tmpdir(), 'multicode-mismatch-'))
+    const userRootParent = await mkdtemp(join(tmpdir(), 'sprintengine-mismatch-'))
     const userRoot = join(userRootParent, 'plugins')
     const dir = join(userRoot, 'wrong-dir-name')
     await mkdir(dir, { recursive: true })
@@ -779,7 +779,7 @@ test('plugin-registry', async () => {
   }
 
   async function testProviderManifestLoadsThroughProviderListOnly(): Promise<void> {
-    const userRootParent = await mkdtemp(join(tmpdir(), 'multicode-provider-plugins-'))
+    const userRootParent = await mkdtemp(join(tmpdir(), 'sprintengine-provider-plugins-'))
     const userRoot = join(userRootParent, 'plugins')
     const providerRoot = join(userRoot, 'openai-compatible')
     await mkdir(providerRoot, { recursive: true })
@@ -939,7 +939,7 @@ test('plugin-registry', async () => {
   }
 
   async function testBundledExecutableProviderClassifiedAsExecutable(): Promise<void> {
-    const bundledRoot = await mkdtemp(join(tmpdir(), 'multicode-bundled-provider-'))
+    const bundledRoot = await mkdtemp(join(tmpdir(), 'sprintengine-bundled-provider-'))
     const providerRoot = join(bundledRoot, 'bundled-adapter')
     await mkdir(providerRoot, { recursive: true })
     await writeProviderManifest(providerRoot, {
@@ -954,7 +954,7 @@ test('plugin-registry', async () => {
 
     const registry = createPluginRegistry({
       bundledRoot,
-      userRoot: join(await mkdtemp(join(tmpdir(), 'multicode-no-user-plugins-')), 'plugins'),
+      userRoot: join(await mkdtemp(join(tmpdir(), 'sprintengine-no-user-plugins-')), 'plugins'),
     })
     const report = await registry.load()
     assert.deepEqual(report.rejected, [])
@@ -1056,7 +1056,7 @@ test('plugin-registry', async () => {
       adapter: executableAdapterSpec(),
     })
     const userRoot = await createUserProvider('app-trusted-adapter', signed)
-    const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-provider-trust-store-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sprintengine-provider-trust-store-'))
     await writeTrustedModules(userDataDir, { [signed.id]: manifestFingerprint(signed) })
 
     const registry = createPluginRegistry(createAppPluginRegistryOptions(userDataDir, BUNDLED_ROOT, userRoot))
@@ -1138,7 +1138,7 @@ test('plugin-registry', async () => {
   }
 
   async function createUserProvider(id: string, manifest: ConversationProviderManifest): Promise<string> {
-    const userRootParent = await mkdtemp(join(tmpdir(), 'multicode-provider-plugins-'))
+    const userRootParent = await mkdtemp(join(tmpdir(), 'sprintengine-provider-plugins-'))
     const userRoot = join(userRootParent, 'plugins')
     await writeProviderManifest(join(userRoot, id), manifest)
     return userRoot

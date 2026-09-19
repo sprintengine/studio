@@ -467,9 +467,9 @@ test('designSystemConformance', async () => {
               // of the card (epic pull-request-marks).
               pullRequests: [
                 {
-                  url: 'https://github.com/acme/multicode/pull/418',
-                  repoKey: 'github.com/acme/multicode',
-                  repoName: 'multicode',
+                  url: 'https://github.com/acme/sprintengine/pull/418',
+                  repoKey: 'github.com/acme/sprintengine',
+                  repoName: 'sprintengine',
                   number: 418,
                   title: 'Extensions icon carries its unread count',
                   state: 'open' as const,
@@ -478,9 +478,9 @@ test('designSystemConformance', async () => {
                   stateAt: peekNow,
                 },
                 {
-                  url: 'https://github.com/acme/multicode/pull/411',
-                  repoKey: 'github.com/acme/multicode',
-                  repoName: 'multicode',
+                  url: 'https://github.com/acme/sprintengine/pull/411',
+                  repoKey: 'github.com/acme/sprintengine',
+                  repoName: 'sprintengine',
                   number: 411,
                   title: 'Split the review provider',
                   state: 'merged' as const,
@@ -650,7 +650,7 @@ test('designSystemConformance', async () => {
     const designView = {
       identity: {
         path: '/work/brand/design-system',
-        name: 'multicode',
+        name: 'sprintengine',
         version: '2.4.0',
         summary: 'The in-house system.',
         // design-tokens-allow: a PREVIEWED bundle's own tokens are content under test, not app chrome — the point is that they are not ours.
@@ -658,7 +658,7 @@ test('designSystemConformance', async () => {
       },
       manifest: {
         schemaVersion: 1,
-        name: 'multicode',
+        name: 'sprintengine',
         version: '2.4.0',
         summary: 'The in-house system.',
         modes: ['light', 'dark'],
@@ -870,7 +870,7 @@ test('designSystemConformance', async () => {
     await run('2003 the canvas names no system in its own copy, and its folder once', () => {
       const copy = designContainer.textContent ?? ''
       assert.equal(
-        copy.split('multicode').length - 1,
+        copy.split('sprintengine').length - 1,
         0,
         'the door bar names the system; the canvas repeating it is the second name',
       )
@@ -907,7 +907,7 @@ test('designSystemConformance', async () => {
       newRoot.render(
         React.createElement(NewDesignSystemScreen, {
           sources: [
-            { path: '/work/brand/design-system', name: 'multicode', view: designView as never },
+            { path: '/work/brand/design-system', name: 'sprintengine', view: designView as never },
             { path: null, name: 'Empty system', view: null },
           ],
           mode: 'dark',
@@ -953,9 +953,9 @@ test('designSystemConformance', async () => {
       )
       assert.equal(cards.length, 2, 'one per source, plus Empty')
       const seeded = cards[0]
-      assert.equal(seeded.getAttribute('aria-label'), 'Start from multicode')
+      assert.equal(seeded.getAttribute('aria-label'), 'Start from sprintengine')
       assert.ok(
-        !(seeded.textContent ?? '').includes('multicode'),
+        !(seeded.textContent ?? '').includes('sprintengine'),
         'no caption repeating the name the specimen already carries',
       )
       // Boxless: no border on the card itself.

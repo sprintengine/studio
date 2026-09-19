@@ -72,7 +72,7 @@ type CreateEntryRequest = {
   token: number
 }
 
-const MULTICODE_EXPLORER_MOVE_MIME = 'application/x-multicode-explorer-move'
+const SPRINTENGINE_EXPLORER_MOVE_MIME = 'application/x-sprintengine-explorer-move'
 
 type ExplorerMovePayload = {
   version: 1
@@ -377,7 +377,7 @@ function pathSeparatorFor(path: string): '\\' | '/' {
 }
 
 function parseExplorerMovePayload(dataTransfer: DataTransfer): ExplorerMovePayload | null {
-  const raw = dataTransfer.getData(MULTICODE_EXPLORER_MOVE_MIME)
+  const raw = dataTransfer.getData(SPRINTENGINE_EXPLORER_MOVE_MIME)
   if (!raw) return null
 
   try {
@@ -410,12 +410,12 @@ function parseExplorerMovePayload(dataTransfer: DataTransfer): ExplorerMovePaylo
 }
 
 function hasExplorerMovePayload(dataTransfer: DataTransfer): boolean {
-  return Array.from(dataTransfer.types).includes(MULTICODE_EXPLORER_MOVE_MIME)
+  return Array.from(dataTransfer.types).includes(SPRINTENGINE_EXPLORER_MOVE_MIME)
 }
 
 // True for OS-level file drags (Finder, desktop, browser). The browser only adds
 // the read-only `Files` type for native drags, so this never matches an in-app
-// explorer move, which carries MULTICODE_EXPLORER_MOVE_MIME instead.
+// explorer move, which carries SPRINTENGINE_EXPLORER_MOVE_MIME instead.
 function hasNativeFileDrop(dataTransfer: DataTransfer): boolean {
   return Array.from(dataTransfer.types).includes('Files')
 }
@@ -1265,7 +1265,7 @@ function ExplorerTree({
       })),
     })
     event.dataTransfer.effectAllowed = 'copyMove'
-    event.dataTransfer.setData(MULTICODE_EXPLORER_MOVE_MIME, JSON.stringify(movePayload))
+    event.dataTransfer.setData(SPRINTENGINE_EXPLORER_MOVE_MIME, JSON.stringify(movePayload))
   }
 
   const readMoveDragPayload = (dataTransfer: DataTransfer): ExplorerMovePayload | null => {

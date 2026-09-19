@@ -19,7 +19,7 @@ import type { Workspace } from '../../types/workspace'
 //   workspace-change-summary.ts) and entries are swept checkout by checkout so
 //   those rows land inside the share's hold window. This is the dedupe the
 //   checkpoint model had to remove and the branch model makes correct again
-//   (epic decision 7); the bug it once caused — ten rows on `multicode` all
+//   (epic decision 7); the bug it once caused — ten rows on `sprintengine` all
 //   reading `+246 −94` — cannot return, because rows on DIFFERENT checkouts
 //   never share and a shared checkout genuinely is one answer;
 // - one sweep at a time: a sweep hung on a spun-down volume delays the next

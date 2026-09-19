@@ -94,7 +94,7 @@ unreachable from a remote client, by design. `tailnet_status` and
 `tailnet_list_peers` read; `tailnet_set_enabled`, `tailnet_revoke_device`,
 `tailnet_approve_pair_request` and `tailnet_deny_pair_request` change pairing
 state. `tailnet_offer_pairing` returns the pairing code and the
-`multicode-tailnet://` URL **once** — neither is re-readable afterwards, and
+`sprintengine-tailnet://` URL **once** — neither is re-readable afterwards, and
 `tailnet_status` never returns them — so deliver them to the person who asked in
 the same reply or they are lost. A lost code is recovered by offering again,
 which replaces the outstanding offer rather than needing a cancel first; that

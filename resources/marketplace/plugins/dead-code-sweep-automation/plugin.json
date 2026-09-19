@@ -5,7 +5,7 @@
   "defaultEnabled": false,
   "source": "third-party",
   "permissions": [],
-  "publisher": "Multicode Labs",
+  "publisher": "SprintEngine Labs",
   "category": "Code Quality",
   "summary": "Deletes code nothing reaches, with the evidence for each removal. One agent run nightly at 02:00 UTC, opening a pull request.",
   "components": {

@@ -74,11 +74,8 @@ app.whenReady().then(async () => {
       outfile: path.join(temp, 'wrapper.js'),
       jsx: 'automatic',
       loader: { '.css': 'text' },
-      // Both SDK scopes, matching the renderer's import map: the workspace this
-      // bundles lives in its own repo and may still import the pre-rename name.
       alias: {
         '@sprintengine/module-sdk/ui': path.join(root, 'src/renderer/src/modules/sdk-ui.ts'),
-        '@multicode/module-sdk/ui': path.join(root, 'src/renderer/src/modules/sdk-ui.ts'),
         react: path.join(root, 'node_modules/react'),
         'react-dom': path.join(root, 'node_modules/react-dom'),
       },

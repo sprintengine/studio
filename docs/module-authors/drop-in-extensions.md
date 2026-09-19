@@ -7,15 +7,15 @@ is always a discoverable place to drop things.
 
 | Kind | Folder | Manifest | Surfaced in |
 | --- | --- | --- | --- |
-| **Capability module** | `~/.multicode/modules/<id>/` | `manifest.json` | Settings → Modules |
-| **CLI plugin (BYO CLI)** | `~/.multicode/plugins/<id>/` | `plugin.json` | Settings → Agents |
+| **Capability module** | `~/.sprintengine/modules/<id>/` | `manifest.json` | Settings → Modules |
+| **CLI plugin (BYO CLI)** | `~/.sprintengine/plugins/<id>/` | `plugin.json` | Settings → Agents |
 
 In both cases the folder name must equal the manifest `id`. A user plugin with
 the same id as a bundled CLI overrides the bundled one.
 
 The module root can be relocated with the `SPRINTENGINE_USER_MODULE_ROOT`
 environment variable (used by the dev harness); plugins always resolve under
-`~/.multicode/plugins`.
+`~/.sprintengine/plugins`.
 
 ## Capability modules
 
@@ -29,8 +29,8 @@ contracts. Modules are trust-gated: only modules the user has trusted execute
 code.
 
 - Author against [`@sprintengine/module-sdk`](../../packages/module-sdk/README.md).
-- Validate, pack, and sign with the bundled `multicode-module` CLI.
-- Install by dropping the folder into `~/.multicode/modules/<id>/`, or from
+- Validate, pack, and sign with the bundled `sprintengine-module` CLI.
+- Install by dropping the folder into `~/.sprintengine/modules/<id>/`, or from
   **Settings → Modules → "Install a module from a folder"**, then grant trust.
 - Permissions are install-time disclosure — see [permissions.md](./permissions.md).
 
@@ -69,7 +69,7 @@ so a dev key can never become a signing authority for anybody else.
 
 ```bash
 # once
-multicode-module keygen --out ~/.config/sprintengine/keys/my-dev.key
+sprintengine-module keygen --out ~/.config/sprintengine/keys/my-dev.key
 # prints: Public key fingerprint: <fingerprint>
 
 cat > resources/marketplace/trusted-publishers.dev.json <<'JSON'
@@ -77,7 +77,7 @@ cat > resources/marketplace/trusted-publishers.dev.json <<'JSON'
   "schemaVersion": 1,
   "publishers": [
     {
-      "name": "Multicode Labs",
+      "name": "SprintEngine Labs",
       "verified": true,
       "publicKey": "<the public key the keygen printed>",
       "fingerprint": "<fingerprint>",
@@ -131,23 +131,23 @@ Folder install (above) is the developer loop. To let other users discover and
 install your module from the Extensions door's **Plugins** view, publish it to
 the marketplace registry as a signed plugin bundle:
 
-1. **Sign the module.** `multicode-module keygen` once, then
-   `multicode-module sign <module-dir> --key <key.pem>` and
-   `multicode-module verify <module-dir>`. Keep the private key out of the
+1. **Sign the module.** `sprintengine-module keygen` once, then
+   `sprintengine-module sign <module-dir> --key <key.pem>` and
+   `sprintengine-module verify <module-dir>`. Keep the private key out of the
    module directory and out of version control; modules are code-bearing, so
    an unsigned module bundle is hard-blocked from install.
 2. **Wrap it in a plugin bundle.**
-   `multicode-module plugin scaffold <plugin-id> --component module`, replace
+   `sprintengine-module plugin scaffold <plugin-id> --component module`, replace
    the `module/` placeholder with your packed module
-   (`multicode-module pack <module-dir> --out <staging>`), and fill in
+   (`sprintengine-module pack <module-dir> --out <staging>`), and fill in
    `plugin.json` — id, displayName, summary, category, and the same
    `permissions` your module manifest declares (they are what the install
    trust prompt shows).
 3. **Sign and check the bundle.**
-   `multicode-module plugin sign <plugin-dir> --key <key.pem>` writes
+   `sprintengine-module plugin sign <plugin-dir> --key <key.pem>` writes
    per-component file digests into `plugin.json` and signs it — component
    bytes can't change afterwards without failing verification. Then
-   `multicode-module plugin verify <plugin-dir>` runs the exact check the app
+   `sprintengine-module plugin verify <plugin-dir>` runs the exact check the app
    runs at install.
 4. **Open a registry PR.** Add `plugins/<plugin-id>/` (your signed bundle), an
    `icons/<plugin-id>.svg`, and a `marketplace.json` entry whose
@@ -187,7 +187,7 @@ how to launch, resume, inject prompts into, and detect completion for a CLI.
   `package`) — read `src/shared/plugin-manifest.ts` for those.
 - The bundled CLI plugins under `resources/plugins/` are the worked examples:
   each is a `plugin.json` in the shape a user plugin takes.
-- Install by dropping the folder into `~/.multicode/plugins/<id>/`, or from
+- Install by dropping the folder into `~/.sprintengine/plugins/<id>/`, or from
   **Settings → Agents → "Install a CLI from a folder"**. New plugins are picked
   up immediately on install, on the next launch, or when you press **Re-check
   every CLI now**.

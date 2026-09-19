@@ -14,7 +14,7 @@ test('workspaceStore.registrySnapshotHeal', async () => {
   // layout is written back to main once, so the heal converges.
 
   const stored: Record<string, string> = {}
-  stored['multicode.workspaceStorageLiveSync'] = '1'
+  stored['sprintengine.workspaceStorageLiveSync'] = '1'
   const localStorageMock = {
     getItem: (key: string) => stored[key] ?? null,
     setItem: (key: string, value: string) => {

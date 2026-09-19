@@ -51,7 +51,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testClaudeConversationPreparesStudioMcpBeforeSession(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-studio-mcp-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-studio-mcp-'))
     const prepared: Array<{ workspaceRoot: string; workspaceId: string; agentId: string }> = []
     const adapter: ConversationProviderAdapter = {
       id: 'claude-agent',
@@ -181,7 +181,7 @@ test('conversation-runtime', async () => {
   // must win: the session ends 'failed' (not wedged in awaiting_approval) and
   // the next send is accepted.
   async function testTurnFailureWithDanglingApprovalDoesNotWedgeTheSession(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       const crashingProvider: ConversationProviderAdapter = {
         id: 'crashing-provider',
@@ -250,7 +250,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testIdleSweepDisposesOnlyTrulyIdleSessions(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       let clock = 1_000_000
       const capture = lifecycleCapture()
@@ -305,7 +305,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testShutdownStopsSessionsAndDisposesChildren(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       const capture = lifecycleCapture()
       const runtime = new ConversationRuntime({
@@ -445,7 +445,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testStatefulProviderMidTurnApprovalAndNoHistoryReplay(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       let id = 0
       const capture: {
@@ -575,7 +575,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testToolAfterTurnResultResolvesThroughContinuationChannel(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       const capture: {
         base: MockAdapterSessionInput | null
@@ -671,7 +671,7 @@ test('conversation-runtime', async () => {
   // a queued send in — which then took the provider's turn over and blanked the
   // continuation. The shared busy predicate rejects the send until it closes.
   async function testSendIsRejectedWhileAContinuationTurnIsOpen(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-send-race-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-send-race-'))
     try {
       const capture: {
         base: MockAdapterSessionInput | null
@@ -733,7 +733,7 @@ test('conversation-runtime', async () => {
   // the live turn was dropped by shouldSuppressEvent — blank in the UI and absent
   // from the JSONL. The live turn keeps the session; the raced mirror is dropped.
   async function testContinuationTurnDoesNotSuppressAnInFlightUserTurn(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-suppression-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-suppression-'))
     try {
       const capture: {
         base: MockAdapterSessionInput | null
@@ -825,7 +825,7 @@ test('conversation-runtime', async () => {
   // for them. `parentToolUseId` and the lane markers must survive broadcast and
   // persistence untouched, on the in-turn path and the continuation channel alike.
   async function testSubagentToolEventsKeepTheirParentLink(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-lanes-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-lanes-'))
     try {
       const capture: { base: MockAdapterSessionInput | null; sink: ConversationSessionEventSink | null } = {
         base: null,
@@ -937,7 +937,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testStatefulProviderResumeCursorReadFromTranscript(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       const capture: {
         resumeSessionIds: Array<string | undefined>
@@ -999,7 +999,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testReadTranscriptClosesUnfinishedTurns(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       const dir = join(workspaceRoot, '.sprintengine', 'conversations', 'workspace')
       await mkdir(dir, { recursive: true })
@@ -1036,7 +1036,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testInterruptSuppressesLateAsyncProviderEvents(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       let id = 0
       const gate = createDeferred<void>()
@@ -1082,7 +1082,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testStopSessionSuppressesLateAsyncProviderEvents(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       let id = 0
       const gate = createDeferred<void>()
@@ -1135,7 +1135,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testOpenAiCompatibleRuntimeTurnCompletesThroughLocalEndpoint(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     const server = createServer(handleOpenAiCompatibleRequest)
     server.listen(0, '127.0.0.1')
     await once(server, 'listening')
@@ -1212,7 +1212,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testMockSessionTurnApprovalInterruptStopAndPersistence(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       let id = 0
       let now = 100
@@ -1286,7 +1286,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testStartFailuresAreExplicit(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       const runtime = new ConversationRuntime({
         getProviderById: () => undefined,
@@ -1329,7 +1329,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testProviderWithAuthRequiresConfiguredSecret(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       const runtime = new ConversationRuntime({
         adapters: [],
@@ -1379,7 +1379,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testBlockedExecutableProviderTrustErrorSurfaces(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-runtime-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-runtime-'))
     try {
       const runtime = new ConversationRuntime({
         adapters: [],
@@ -1435,7 +1435,7 @@ test('conversation-runtime', async () => {
   }
 
   async function testMultiTurnHistoryAccumulates(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-history-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-history-'))
     const captured: ConversationMessage[][] = []
     try {
       let id = 0
@@ -1491,7 +1491,7 @@ test('conversation-runtime', async () => {
   // D3: attachments ride the turn call to the adapter, but v1 is live-only —
   // they must never enter replayed history or the persisted JSONL transcript.
   async function testImageAttachmentsReachTheAdapterButNotHistoryOrTranscript(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-attachments-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-attachments-'))
     const captured: ConversationMessage[][] = []
     const turns: MockAdapterTurnInput[] = []
     try {
@@ -1567,7 +1567,7 @@ test('conversation-runtime', async () => {
   // to the adapter and only records it once the adapter confirms, so a refusal
   // leaves the session reporting the preset the provider is actually honoring.
   async function testSetPermissionAppliesThroughTheAdapterOrRefuses(): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-conversation-permission-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-conversation-permission-'))
     const applied: ConversationPermissionPreset[] = []
     let refusal: string | null = null
     try {

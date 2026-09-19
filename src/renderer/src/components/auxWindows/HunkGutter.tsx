@@ -80,7 +80,7 @@ export function HunkGutter({
       const domNode = document.createElement('div')
       domNode.className = 'flex h-full w-full items-center justify-center'
       const widget: GlyphMarginWidget = {
-        getId: () => `multicode.hunk-include.${box.widgetId}`,
+        getId: () => `sprintengine.hunk-include.${box.widgetId}`,
         getDomNode: () => domNode,
         getPosition: () => ({
           lane,

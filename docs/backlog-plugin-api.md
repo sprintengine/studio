@@ -29,9 +29,7 @@ A Backlog item is split across two stores (see
   module-scoped metadata, and its own timestamps. It is gitignored (the folder
   carries its own `.gitignore`, so it stays invisible in any project) and
   re-derivable: deleting it costs a lookup, never data. `<sidecar>` is the
-  workspace's app-owned directory — `.sprintengine`, or `.multi-code` in a
-  workspace made before the 2026-09-08 rename; the app resolves which one a
-  workspace has and never creates the second beside the first.
+  workspace's app-owned directory, `.sprintengine`.
 
 Both are mutated only through the named Electron API; the channel determines
 which store it writes.

@@ -113,11 +113,11 @@ async function reportStartup() {
       `(${Math.round(chunk.size / 1024)} KB of a ${chunk.eagerTotalKb} KB boot graph)`,
   )
 
-  const sharedProfile = args.profile === 'reuse' ? mkdtempSync(join(tmpdir(), 'multicode-startup-')) : null
+  const sharedProfile = args.profile === 'reuse' ? mkdtempSync(join(tmpdir(), 'sprintengine-startup-')) : null
   const runs = []
   try {
     for (let index = 0; index < args.runs; index += 1) {
-      const profileDir = sharedProfile ?? mkdtempSync(join(tmpdir(), 'multicode-startup-'))
+      const profileDir = sharedProfile ?? mkdtempSync(join(tmpdir(), 'sprintengine-startup-'))
       try {
         const report = await launchOnce(profileDir)
         runs.push(report)

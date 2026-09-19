@@ -658,7 +658,7 @@ export default function TerminalView({
       // session snapshot flips `suspended` off and the footer leaves. Failure
       // rolls the footer back to "Paused".
       window.dispatchEvent(
-        new CustomEvent('multicode:terminal-resume-state', {
+        new CustomEvent('sprintengine:terminal-resume-state', {
           detail: { sessionId, resuming: true },
         }),
       )
@@ -682,7 +682,7 @@ export default function TerminalView({
         if (buffered) window.api.terminalWriteFast(sessionId, buffered)
       } else {
         window.dispatchEvent(
-          new CustomEvent('multicode:terminal-resume-state', {
+          new CustomEvent('sprintengine:terminal-resume-state', {
             detail: { sessionId, resuming: false },
           }),
         )
@@ -771,7 +771,7 @@ export default function TerminalView({
       focusTerminal()
       void resumeFromSuspend()
     }
-    window.addEventListener('multicode:resume-terminal', onResumeRequest)
+    window.addEventListener('sprintengine:resume-terminal', onResumeRequest)
 
     // Opening a workspace hands the keyboard to its visible terminal
     // (WorkspaceManager). Answered here rather than by the mount-time
@@ -1270,7 +1270,7 @@ export default function TerminalView({
       disposeReplay()
       disposeExit()
       disposeError()
-      window.removeEventListener('multicode:resume-terminal', onResumeRequest)
+      window.removeEventListener('sprintengine:resume-terminal', onResumeRequest)
       disposeFocusRequest()
       onDataDisposable.dispose()
       onResizeDisposable.dispose()

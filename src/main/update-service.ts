@@ -56,7 +56,7 @@ function getStatusMessage(status: AppUpdateStatus): string {
     case 'downloaded':
       return 'Update ready to install.'
     case 'not_available':
-      return 'Multicode is up to date.'
+      return 'SprintEngine is up to date.'
     case 'error':
       return 'Update check failed.'
     default:
@@ -74,7 +74,7 @@ function normalizeReleaseNotes(notes: UpdateInfoLike['releaseNotes']): string | 
   return joined || null
 }
 
-export class MulticodeUpdateService {
+export class SprintEngineUpdateService {
   private readonly writeDiagnosticLog: WriteDiagnosticLog
   private state: AppUpdateState
 
@@ -141,7 +141,7 @@ export class MulticodeUpdateService {
         state: this.getState(),
         message:
           info.version && info.version !== getAppVersion()
-            ? `Multicode ${info.version} is available.`
+            ? `SprintEngine ${info.version} is available.`
             : getStatusMessage(this.state.status),
       }
     } catch (error) {

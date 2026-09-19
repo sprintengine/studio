@@ -222,7 +222,7 @@ async function scanBacklogMarkdownPaths(backlogLocation: BacklogLocation): Promi
     }
     for (const entry of entries) {
       if (entry.isDirectory()) {
-        if (entry.name !== 'node_modules' && entry.name !== '.git' && entry.name !== '.multicode-worktrees') {
+        if (entry.name !== 'node_modules' && entry.name !== '.git' && entry.name !== '.sprintengine-worktrees') {
           await walk(join(directory, entry.name), `${prefix}/${entry.name}`)
         }
         continue

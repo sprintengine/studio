@@ -1,4 +1,4 @@
-import { buildStamp } from 'virtual:multicode-build-stamp'
+import { buildStamp } from 'virtual:sprintengine-build-stamp'
 
 // The renderer's half of the build-identity check. `buildStamp` is
 // minted when this bundle is built, so it is the commit the *loaded document*

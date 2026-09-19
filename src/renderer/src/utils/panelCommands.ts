@@ -2,7 +2,7 @@
 // local action matching the id. The one dispatch helper shared by the shell
 // (palette, WorkspaceManager) and module command registrations — the
 // sanctioned module→panel dispatch pattern.
-export const PANEL_COMMAND_EVENT = 'multicode:panel-command'
+export const PANEL_COMMAND_EVENT = 'sprintengine:panel-command'
 
 export function dispatchPanelCommandEvent(id: string, workspaceId?: string): void {
   window.dispatchEvent(new CustomEvent(PANEL_COMMAND_EVENT, { detail: workspaceId ? { id, workspaceId } : { id } }))

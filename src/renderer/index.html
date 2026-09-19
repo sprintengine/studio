@@ -3,8 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Multicode</title>
-    <link rel="icon" type="image/svg+xml" href="./src/assets/brand/multicode/mark-on-dark.svg" />
+    <title>SprintEngine</title>
+    <link rel="icon" type="image/svg+xml" href="./src/assets/brand/sprintengine/mark-on-dark.svg" />
     <script>
       // Apply the persisted theme before any CSS evaluates so the user never
       // sees a flash of the wrong theme. Mirrors the resolution rules in
@@ -48,7 +48,7 @@
           document.documentElement.setAttribute('data-mode', isLightSurface(theme) ? 'light' : 'dark')
         }
         try {
-          var KEY = 'multicode-app-settings'
+          var KEY = 'sprintengine-app-settings'
           var raw = window.localStorage.getItem(KEY)
           var persisted = raw ? JSON.parse(raw) : null
           var theme = persisted && persisted.state && persisted.state.appSettings

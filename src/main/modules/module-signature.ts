@@ -1,7 +1,7 @@
 // Trust classification for third-party modules.
 //
 // The pure sign/verify/canonicalization logic lives in the published SDK
-// (packages/module-sdk/src/signing.ts) so the app and the `multicode-module`
+// (packages/module-sdk/src/signing.ts) so the app and the `sprintengine-module`
 // CLI can never disagree about what a valid signature is; this module re-exports
 // it and adds the app's trust policy on top.
 

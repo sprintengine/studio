@@ -152,7 +152,7 @@ test('unattended-permission', async () => {
   }
 
   async function withStore(definition: AutomationDefinition): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), 'multicode-unattended-'))
+    const root = await mkdtemp(join(tmpdir(), 'sprintengine-unattended-'))
     const store = new AutomationsStore(root)
     const config = definition.action.config as Record<string, unknown>
     const created = await store.createDefinition({

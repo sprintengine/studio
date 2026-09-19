@@ -240,7 +240,7 @@ test('third-party-loader', async () => {
     await loadThirdPartyRendererEntries(
       kernel,
       served([{ id: 'loader-leaky' }]),
-      importerFor({ 'loader-leaky': new Error('ENOENT: /Users/someone/.multicode/modules/x.js') }),
+      importerFor({ 'loader-leaky': new Error('ENOENT: /Users/someone/.sprintengine/modules/x.js') }),
     )
     const state = getThirdPartyRendererLoadState('loader-leaky')
     assert.equal(state?.status, 'error')

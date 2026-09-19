@@ -211,7 +211,9 @@ export function machineCopyOf(browse: FleetBrowse, identity: RepositoryIdentity 
   // A plain checkout over a worktree of the same repository (its worktrees
   // share its remote): the copy a person means is the clone, not a branch
   // of it that happens to be open there.
-  return copies.find((workspace) => !/\/\.multicode-worktrees\//u.test(workspace.folderPath ?? '')) ?? copies[0] ?? null
+  return (
+    copies.find((workspace) => !/\/\.sprintengine-worktrees\//u.test(workspace.folderPath ?? '')) ?? copies[0] ?? null
+  )
 }
 
 export function machineAvailabilityOf(

@@ -29,16 +29,8 @@
 import { connect } from 'node:net'
 import { isAbsolute, resolve as resolvePath } from 'node:path'
 
-// The app's own variables answer to two names. Everything was spelled
-// `MULTICODE_*` before the 2026-09-08 rename to SprintEngine Studio and is
-// spelled `SPRINTENGINE_*` now, and this file is a COPY installed into a
-// workspace: the app instance launching an agent may be either side of that
-// rename, and this copy may be either side of it too. New name first, old name
-// second. An empty value counts as unset here, matching the `||` fallbacks the
-// call sites already had.
-const studioEnv = (name) =>
-  process.env[name] || process.env[name.replace(/^SPRINTENGINE_/, 'MULTICODE_')] || ''
-
+// The app's own variables. An empty value counts as unset.
+const studioEnv = (name) => process.env[name] || ''
 
 // Replaced with the live socket path (as a JSON string literal) at install time.
 // Left as the raw token only if the file was copied without substitution.
@@ -47,7 +39,7 @@ const BAKED_SOCKET = '__SPRINTENGINE_AGENT_STATE_SOCKET__'
 // of the quoted token) can never rewrite this guard value.
 const RAW_TOKEN = '__SPRINTENGINE' + '_AGENT_STATE_SOCKET__'
 const CONNECT_TIMEOUT_MS = 1000
-// Bounded retry, mirroring multicode-agent-state.mjs: a transiently busy
+// Bounded retry, mirroring sprintengine-agent-state.mjs: a transiently busy
 // listener must not eat a frame (a lost final `idle` parks the agent as
 // working until the reap policy's stalled-expiry backstop). Capped by
 // attempts AND an absolute deadline; a dead socket fails fast. Duplicate
@@ -102,7 +94,7 @@ function sessionIdFromEvent(event) {
 // =============================================================================
 // File changes — what the agent's changelist ends up owning, line by line.
 //
-// The stdin reporter (resources/hooks/multicode-agent-state.mjs) reads Claude
+// The stdin reporter (resources/hooks/sprintengine-agent-state.mjs) reads Claude
 // Code's `structuredPatch` OBJECTS. OpenCode hands its plugins a real unified
 // diff as TEXT, and this file is loaded into OpenCode's own process, so it can
 // import nothing from the app. The walk below is therefore the reporter's
@@ -355,7 +347,7 @@ function deriveFileChanges(toolName, args, output, directory) {
           patch: entry.patch,
           additions: entry.additions,
           deletions: entry.deletions,
-        })
+        }),
       )
     }
     if (changes.length > 0) return changes
@@ -373,7 +365,7 @@ function deriveFileChanges(toolName, args, output, directory) {
         patch: filediff.patch,
         additions: filediff.additions,
         deletions: filediff.deletions,
-      })
+      }),
     )
     if (changes.length > 0) return changes
   }
@@ -387,7 +379,7 @@ function deriveFileChanges(toolName, args, output, directory) {
       // given. An overwrite (`exists: true`) has no diff anywhere in the
       // payload, so it stays a file-level claim rather than a guessed count.
       createdContent: metadata.exists === false ? input.content : undefined,
-    })
+    }),
   )
   return changes
 }
@@ -396,7 +388,7 @@ function deriveFileChanges(toolName, args, output, directory) {
 // Pull request capture (epic `pull-request-marks`, decision 8b)
 //
 // The same read the command-hook reporter does on PostToolUse
-// (resources/hooks/multicode-agent-state.mjs — keep the two in step), on the
+// (resources/hooks/sprintengine-agent-state.mjs — keep the two in step), on the
 // one hook OpenCode gives that carries a tool's input AND its result. The
 // regex below is the wire-side twin of `parsePullRequestUrl`
 // (src/shared/git/pr-url.ts): a plugin loaded by OpenCode's own runtime can
@@ -414,7 +406,8 @@ const MAX_TOOL_USE_ID_LENGTH = 256
 
 const MAX_PULL_REQUEST_URL_LENGTH = 2048
 const MAX_PULL_REQUEST_SCAN_LENGTH = 64 * 1024
-const PULL_REQUEST_URL_RE = /https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+(?![\w])/
+const PULL_REQUEST_URL_RE =
+  /https?:\/\/[A-Za-z0-9.-]+(?::\d{1,5})?\/[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+\/pull\/\d+(?![\w])/
 const GH_PR_CREATE_RE = /\bgh\s+pr\s+create\b/
 const PULL_REQUEST_TOOL_NAMES = new Set(['bash'])
 
@@ -583,8 +576,7 @@ async function report(phase, event, sessionId, fileChanges = [], pullRequest = n
   // call), all carrying the identical event and ts so the phase fold stays
   // idempotent and the ledger reads each file once. No file change: the phase
   // frame still goes, exactly as before.
-  const frames =
-    fileChanges.length > 0 ? fileChanges.map((fileChange) => ({ ...frame, fileChange })) : [frame]
+  const frames = fileChanges.length > 0 ? fileChanges.map((fileChange) => ({ ...frame, fileChange })) : [frame]
   await writeFrame(socketPath, frames)
 }
 
@@ -592,7 +584,7 @@ async function report(phase, event, sessionId, fileChanges = [], pullRequest = n
 // object. The generic `event` hook receives the typed lifecycle event stream;
 // `tool.execute.before/after` are separate named hooks (not part of that stream)
 // and give the tool_use phase, mirroring Claude's PreToolUse/PostToolUse split.
-export const MulticodeAgentState = async (context) => {
+export const SprintEngineAgentState = async (context) => {
   // `directory` is the session's working directory in OpenCode's plugin
   // context (its `worktree` is the git root, which is the derived fact the app
   // computes itself). Older builds may pass no context: the frame then carries
@@ -650,7 +642,7 @@ export const MulticodeAgentState = async (context) => {
           sessionId,
           changes,
           pullRequest,
-          callId !== '' && callId.length <= MAX_TOOL_USE_ID_LENGTH ? callId : null
+          callId !== '' && callId.length <= MAX_TOOL_USE_ID_LENGTH ? callId : null,
         )
       } catch {
         // Never let a reporter error break OpenCode.

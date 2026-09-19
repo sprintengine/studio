@@ -14,7 +14,7 @@ export const gitRendererModule: RendererModule = {
     id: 'git',
     displayName: 'Git panel',
     version: 1,
-    publisher: 'multicode',
+    publisher: 'sprintengine',
     category: 'vcs',
     summary:
       'Commit, stage, branch, and view diffs. Disabling hides the panel; change indicators in the editor and explorer stay.',

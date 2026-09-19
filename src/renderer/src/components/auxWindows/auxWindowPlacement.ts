@@ -5,7 +5,7 @@ import type { AuxWindowKind, WindowBounds } from '../../../../shared/electron-ap
 // writes its bounds here and the opener (in another window) reads them back to
 // place the next one. Off-screen bounds are re-normalised by the main process.
 function placementKey(kind: AuxWindowKind): string {
-  return `multicode.auxWindowPlacement.${kind}`
+  return `sprintengine.auxWindowPlacement.${kind}`
 }
 
 export function readAuxWindowBounds(kind: AuxWindowKind): WindowBounds | null {

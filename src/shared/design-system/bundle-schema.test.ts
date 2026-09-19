@@ -22,7 +22,7 @@ test('bundle-schema', async () => {
     node: Record<string, unknown>
   }
 
-  const VENDOR_NAMESPACE = 'com.multicode'
+  const VENDOR_NAMESPACE = 'com.sprintengine'
   const ALIAS_PATTERN = /^\{([a-z0-9.-]+)\}$/
   const SEGMENT_PATTERN = /^[a-z0-9]+(-[a-z0-9]+)*$/
   const HEX_COLOR_PATTERN = /^#[0-9a-f]{6}([0-9a-f]{2})?$/

@@ -482,7 +482,7 @@ function describeOrigin(plugin: ScannedPlugin, source: SkillSource, shape: Sourc
       </span>
     )
   }
-  if (origin.kind === 'registry') return 'Multicode marketplace'
+  if (origin.kind === 'registry') return 'SprintEngine marketplace'
   return (
     <span>
       {source.repo ? <span className="font-mono">{source.repo}</span> : source.name}

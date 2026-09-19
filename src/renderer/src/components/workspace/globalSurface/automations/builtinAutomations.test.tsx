@@ -83,7 +83,7 @@ test('builtinAutomations', async () => {
     },
     action: { kind: 'spawn-agent', config: { prompt: 'Find code nothing reaches.' } },
     sourceCatalogueId: 'dead-code-sweep-automation',
-    sourcePublisher: 'Multicode Labs',
+    sourcePublisher: 'SprintEngine Labs',
   }
 
   let storeHasAdded = false

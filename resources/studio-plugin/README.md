@@ -43,7 +43,7 @@ that bridge inside this app bundle, and the live agent-state socket. They appear
 here as tokens — `__SPRINTENGINE_NODE__`, `__SPRINTENGINE_BRIDGE__`,
 `__SPRINTENGINE_USER_DATA_DIR__`, `__SPRINTENGINE_AGENT_STATE_REPORTER__`,
 `__SPRINTENGINE_AGENT_STATE_SOCKET__` — and install materialises the whole
-marketplace into `<workspace>/.multicode/studio-plugin` with each one replaced.
+marketplace into `<workspace>/.sprintengine/studio-plugin` with each one replaced.
 A test walks every materialised file and fails if a token survives.
 
 ## Where the bridge comes from

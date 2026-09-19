@@ -93,7 +93,7 @@ test('terminal-runtime', async () => {
   const mockElectron = {
     app: {
       getAppPath: () => process.cwd(),
-      getPath: () => join(tmpdir(), 'multicode-terminal-runtime-test-user-data'),
+      getPath: () => join(tmpdir(), 'sprintengine-terminal-runtime-test-user-data'),
     },
     BrowserWindow: {
       getAllWindows: () => mockWindows,
@@ -211,7 +211,7 @@ test('terminal-runtime', async () => {
   // (no probe), so even the unguarded sync sweep respects it; a stop frame
   // disarms it and the session reaps normally.
   async function assertPendingWakeupFrameHoldsIdleReaper(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-wakeup-hold-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-wakeup-hold-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -282,11 +282,11 @@ test('terminal-runtime', async () => {
   // session IS, resolved through git into the checkout containing it, and it is
   // what the snapshot reports — not the launch cwd the agent may have left.
   async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-observed-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-observed-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
-    const worktreeRoot = join(workspaceRoot, '.multicode-worktrees', 'ws', 'feature')
+    const worktreeRoot = join(workspaceRoot, '.sprintengine-worktrees', 'ws', 'feature')
     const resolveCalls: string[] = []
     let blockResolution: Promise<void> | null = null
     let gone = true
@@ -568,7 +568,7 @@ test('terminal-runtime', async () => {
   // the SESSION — the turn-end frame that a consumer acts on never carries one, so
   // a passthrough of frame.wakeup would read "no wakeup" for every self-paced agent.
   async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-phase-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-phase-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -817,7 +817,7 @@ test('terminal-runtime', async () => {
   // spawnTerminal existing-session branch, adopting the real WebContents and
   // replaying the buffered output.
   async function assertHeadlessSpawnAttachesToLaterWindow(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-headless-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-headless-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -885,7 +885,7 @@ test('terminal-runtime', async () => {
   // actual pty with every window closed — and that a window opened afterwards
   // adopts that same session with its scrollback rather than starting a second one.
   async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-agent-launch-headless-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-agent-launch-headless-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -1008,7 +1008,7 @@ test('terminal-runtime', async () => {
   // background shell command". Once the subtree probes clean, the same session
   // reaps normally on the next sweep.
   async function assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-guarded-sweep-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-guarded-sweep-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -1091,7 +1091,7 @@ test('terminal-runtime', async () => {
   // whose authoritative hook phase is non-idle (here: awaiting_input) is never
   // reaped regardless of how long it has been idle by keystroke.
   async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-idle-suspend-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-idle-suspend-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -1205,7 +1205,7 @@ test('terminal-runtime', async () => {
   // bright (observed 2026-09-10: an agent paused a second after launch sat at
   // `starting`/`working` for 70 minutes).
   async function assertSuspendSettlesAWorkingAgentToRest(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-suspend-rest-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-suspend-rest-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -1270,7 +1270,7 @@ test('terminal-runtime', async () => {
   // set, an idle sweep reaps only down to that many live agent terminals, sparing
   // the most recently used — so a user's active set can never be paused wholesale.
   async function assertIdleSweepRecencyFloorSparesMostRecent(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-recency-floor-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-recency-floor-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -1361,7 +1361,7 @@ test('terminal-runtime', async () => {
   //    already has visible=true (a renderer reload/remount can miss the unmount
   //    hide; edge-triggered reveal left the fresh xterm blank under "Paused").
   async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-lock-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-lock-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -1458,7 +1458,7 @@ test('terminal-runtime', async () => {
   async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
     runtimeModule: RuntimeModule,
   ): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-agent-exit-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-agent-exit-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -1580,7 +1580,7 @@ test('terminal-runtime', async () => {
   }
 
   async function assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-resolve-exec-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-resolve-exec-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -1649,7 +1649,7 @@ test('terminal-runtime', async () => {
   }
 
   async function assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-stale-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-stale-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -1716,8 +1716,8 @@ test('terminal-runtime', async () => {
   // painted screen), and resume/dispose consume the sidecar so nothing stale
   // lingers.
   async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sidecar-ws-'))
-    const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-sidecar-data-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-sidecar-ws-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-sidecar-data-'))
     const sidecarStore = createTerminalSnapshotSidecarStore({
       resolveUserDataDir: () => userDataDir,
     })
@@ -1910,8 +1910,8 @@ test('terminal-runtime', async () => {
   // the third write site. A deliberate dispose still means gone: dispose deletes
   // the sidecar and then kills the pty, so the exit handler must not resurrect it.
   async function assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-selfexit-ws-'))
-    const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-selfexit-data-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-selfexit-ws-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-selfexit-data-'))
     const sidecarStore = createTerminalSnapshotSidecarStore({
       resolveUserDataDir: () => userDataDir,
     })
@@ -1985,7 +1985,7 @@ test('terminal-runtime', async () => {
   }
 
   async function assertTerminalReattachUsesReplayChannel(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-replay-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-replay-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -2041,7 +2041,7 @@ test('terminal-runtime', async () => {
   }
 
   async function assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-hidden-replay-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-hidden-replay-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -2105,7 +2105,7 @@ test('terminal-runtime', async () => {
   //   - a slow consumer is dropped and resynced from the replay rather than
   //     stalling the pty or the local renderer.
   async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-remote-attach-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-remote-attach-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -2278,7 +2278,7 @@ test('terminal-runtime', async () => {
   // clear the screen between them. Sent whole, a 2.5 MB replay was refused by
   // the client's 1 MB decoder and the attach looped.
   async function assertRemoteFramesNeverExceedTheWireCap(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-remote-chunks-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-remote-chunks-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -2360,18 +2360,18 @@ test('terminal-runtime', async () => {
   }
 
   // Phase 2 of the Backlog item ↔ agent link: a launched agent terminal carries
-  // its durable identity (workspaceId + agentId) and name as MULTICODE_* env vars
+  // its durable identity (workspaceId + agentId) and name as SPRINTENGINE_* env vars
   // so a typed handoff can record the same link the drag-drop path writes. Only
   // the values actually present are emitted.
   async function assertAgentSpawnExposesAgentIdentityEnv(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-identity-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-identity-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
     // Simulate the app's own process inheriting a stale identity (e.g. launched
     // from inside an agent shell): it must never leak into spawned terminals.
-    const priorAgentId = process.env.MULTICODE_AGENT_ID
-    process.env.MULTICODE_AGENT_ID = 'stale-leak-from-app-process'
+    const priorAgentId = process.env.SPRINTENGINE_AGENT_ID
+    process.env.SPRINTENGINE_AGENT_ID = 'stale-leak-from-app-process'
 
     const runtime = runtimeModule.createTerminalRuntime({
       diagnosticsEnabled: false,
@@ -2395,9 +2395,9 @@ test('terminal-runtime', async () => {
       assert.equal(result.ok, true, JSON.stringify(result))
       assert.equal(mockPty.spawnCalls.length, 1)
       const env = (mockPty.spawnCalls[0]?.options.env ?? {}) as Record<string, string>
-      assert.equal(env.MULTICODE_WORKSPACE_ID, 'ws-42')
-      assert.equal(env.MULTICODE_AGENT_ID, 'agent-7', 'agent identity overrides any stale inherited id')
-      assert.equal(env.MULTICODE_AGENT_NAME, 'Fred Walsh')
+      assert.equal(env.SPRINTENGINE_WORKSPACE_ID, 'ws-42')
+      assert.equal(env.SPRINTENGINE_AGENT_ID, 'agent-7', 'agent identity overrides any stale inherited id')
+      assert.equal(env.SPRINTENGINE_AGENT_NAME, 'Fred Walsh')
 
       // No agent identity passed → identity vars are stripped, including the stale
       // value inherited from the app process, so a plain terminal claims none.
@@ -2414,14 +2414,14 @@ test('terminal-runtime', async () => {
       assert.equal(plain.ok, true, JSON.stringify(plain))
       const plainEnv = (mockPty.spawnCalls[0]?.options.env ?? {}) as Record<string, string>
       assert.equal(
-        plainEnv.MULTICODE_AGENT_ID,
+        plainEnv.SPRINTENGINE_AGENT_ID,
         undefined,
         'stale inherited identity must not leak into plain terminals',
       )
-      assert.equal(plainEnv.MULTICODE_WORKSPACE_ID, undefined)
+      assert.equal(plainEnv.SPRINTENGINE_WORKSPACE_ID, undefined)
     } finally {
-      if (priorAgentId === undefined) delete process.env.MULTICODE_AGENT_ID
-      else process.env.MULTICODE_AGENT_ID = priorAgentId
+      if (priorAgentId === undefined) delete process.env.SPRINTENGINE_AGENT_ID
+      else process.env.SPRINTENGINE_AGENT_ID = priorAgentId
       await runtime.shutdown()
     }
   }
@@ -2433,7 +2433,7 @@ test('terminal-runtime', async () => {
   // mid-work (owner, 2026-09-04). The manifest's `background` events keep a
   // per-session count, and the runtime holds the turn end while it is open.
   async function assertTurnEndIsHeldWhileBackgroundWorkIsOpen(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-background-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-background-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -2534,8 +2534,8 @@ test('terminal-runtime', async () => {
   // last known reading, and only a change in the whole percent is worth a
   // broadcast.
   async function assertContextUsageFollowsStatusLineFrames(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-context-'))
-    const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-context-data-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-context-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-context-data-'))
     const sidecarStore = createTerminalSnapshotSidecarStore({ resolveUserDataDir: () => userDataDir })
     mockPty.spawnCalls = []
     mockSender.sent = []
@@ -2691,8 +2691,8 @@ test('terminal-runtime', async () => {
   // the list reads newest-edited first, and a change is broadcast-worthy on its
   // own, because nothing else about the session need have moved.
   async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-ledger-'))
-    const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-ledger-data-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-ledger-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-ledger-data-'))
     const sidecarStore = createTerminalSnapshotSidecarStore({ resolveUserDataDir: () => userDataDir })
     mockPty.spawnCalls = []
     mockSender.sent = []
@@ -2990,7 +2990,7 @@ test('terminal-runtime', async () => {
   // guards drop, a launch only for an AGENT, an exit exactly once — and that a
   // seam that throws cannot take a terminal down with it.
   async function assertAgentChangelistSeamsFire(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-changelists-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-changelists-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -3264,7 +3264,7 @@ test('terminal-runtime', async () => {
   }
 
   async function assertIngestAgentStateFrameUpdatesSession(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-ingest-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-ingest-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -3426,7 +3426,7 @@ test('terminal-runtime', async () => {
   }
 
   async function assertStandardAgentSpawnKeepsEnabledOptionalMcpSettings(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-standard-mcp-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-standard-mcp-'))
     const syncInputs: SyncInput[] = []
     const mcpSettings = createOptionalMcpSettings()
     mockPty.spawnCalls = []
@@ -3464,7 +3464,7 @@ test('terminal-runtime', async () => {
   }
 
   async function assertAgentSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-failure-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-failure-'))
     const failureMessage = 'MCP sync writer for format "generic" is not implemented yet; cannot launch an agent.'
     mockPty.spawnCalls = []
     mockSender.sent = []
@@ -3619,7 +3619,7 @@ test('terminal-runtime', async () => {
   // skills when debug is off. Asserts both the gating and the (workspaceRoot,
   // skillId) the runtime requests.
   async function assertDebugModeEnsureInstallsDebugSkill(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-debug-install-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-debug-install-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
     const ensureCalls: Array<{ workspaceRoot: string; skillId: string }> = []
@@ -3668,7 +3668,7 @@ test('terminal-runtime', async () => {
   // and the two are orthogonal. A skill-only spawn must NOT exclude, a connector
   // launch excludes with or without a skill, and an ordinary spawn does neither.
   async function assertSpawnSkillInstallIsOrthogonalToMcpIsolation(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-connector-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-connector-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
     const ensureCalls: Array<{ workspaceRoot: string; skillId: string }> = []
@@ -3752,7 +3752,7 @@ test('terminal-runtime', async () => {
   // agents launch in a shell that never sources it, and the in-script guard echoed
   // and fell through. Both halves are asserted at the IPC the renderer calls.
   async function assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-preflight-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-preflight-'))
     const runtime = runtimeModule.createTerminalRuntime({
       diagnosticsEnabled: false,
       logMainPerfEvent: () => undefined,
@@ -3826,7 +3826,7 @@ test('terminal-runtime', async () => {
   // a different one and reported success. Shell-only terminals legitimately carry
   // no CLI and must still spawn.
   async function assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-nocli-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-nocli-'))
     const runtime = runtimeModule.createTerminalRuntime({
       diagnosticsEnabled: false,
       logMainPerfEvent: () => undefined,
@@ -3880,8 +3880,8 @@ test('terminal-runtime', async () => {
   // like the file ledger, after the liveness guard: a dead session accepts no
   // more facts about itself.
   async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-pr-capture-'))
-    const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-pr-record-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-pr-capture-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-pr-record-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
 
@@ -4047,7 +4047,7 @@ test('terminal-runtime', async () => {
   // missed. An id the registry does not know at all still falls through to the
   // launch render's own unknown-plugin error.
   async function assertSpawnRefusesAgentCliWithoutAgentStateSpec(runtimeModule: RuntimeModule): Promise<void> {
-    const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-nohooks-'))
+    const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-nohooks-'))
     const runtime = runtimeModule.createTerminalRuntime({
       diagnosticsEnabled: false,
       logMainPerfEvent: () => undefined,

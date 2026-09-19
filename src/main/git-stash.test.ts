@@ -14,7 +14,7 @@ test('git-stash', async () => {
   }
 
   async function assertStashLifecycle(): Promise<void> {
-    const root = mkdtempSync(join(tmpdir(), 'multicode-git-stash-'))
+    const root = mkdtempSync(join(tmpdir(), 'sprintengine-git-stash-'))
     const repo = join(root, 'repo')
 
     try {
@@ -92,8 +92,8 @@ test('git-stash', async () => {
   }
 
   function configureRepo(cwd: string): void {
-    git(cwd, ['config', 'user.email', 'multicode@example.invalid'])
-    git(cwd, ['config', 'user.name', 'Multicode Test'])
+    git(cwd, ['config', 'user.email', 'sprintengine@example.invalid'])
+    git(cwd, ['config', 'user.name', 'SprintEngine Test'])
   }
 
   function git(cwd: string, args: string[]): string {

@@ -446,7 +446,7 @@ export function reconcileChangelists(
   // An AGENT's list adopts what it is plausibly the author of — and never the
   // dotfiles. Launching an agent is what makes its list active, and launching
   // an agent is also what writes the app's own scaffolding into the workspace
-  // (`.claude/`, `.multicode/`, `.codex/`, `.mcp.json`, …): on a fresh
+  // (`.claude/`, `.sprintengine/`, `.codex/`, `.mcp.json`, …): on a fresh
   // checkout that was ninety-nine untracked files landing in "Nadia · 101
   // files" before Nadia had touched one. A hidden path an agent really did
   // edit still reaches its list through the hook, which claims explicitly.

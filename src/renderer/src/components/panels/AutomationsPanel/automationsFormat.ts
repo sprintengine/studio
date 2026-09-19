@@ -258,7 +258,7 @@ export type SubmitTriggerForm = ScheduleCadenceForm & {
 
 // /automations/webhooks/<path> — mirrors WEBHOOK_ROUTE_PREFIX in the receiver.
 export const WEBHOOK_ROUTE_PREFIX = '/automations/webhooks/'
-export const WEBHOOK_SIGNATURE_HEADER = 'x-multicode-signature'
+export const WEBHOOK_SIGNATURE_HEADER = 'x-sprintengine-signature'
 const MIN_WEBHOOK_SECRET_LENGTH = 16
 // Mirrors the receiver's path rule (webhook.ts WEBHOOK_PATH_PATTERN).
 const WEBHOOK_PATH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/

@@ -17,7 +17,7 @@ test('mcp-config-service', async () => {
   async function main(): Promise<void> {
     const registry = createPluginRegistry({
       bundledRoot: BUNDLED_ROOT,
-      userRoot: join(process.cwd(), '.does-not-exist', 'multicode', 'plugins'),
+      userRoot: join(process.cwd(), '.does-not-exist', 'sprintengine', 'plugins'),
     })
     const report = registry.loadSync()
     assert.deepEqual(report.rejected, [], `bundled plugins should validate: ${JSON.stringify(report.rejected)}`)
@@ -26,7 +26,7 @@ test('mcp-config-service', async () => {
       return plugin ? { manifest: plugin.manifest as PluginManifest } : undefined
     }
 
-    const temp = await mkdtemp(join(tmpdir(), 'multicode-mcp-config-'))
+    const temp = await mkdtemp(join(tmpdir(), 'sprintengine-mcp-config-'))
     const workspaceRoot = join(temp, 'workspace')
     await mkdir(workspaceRoot, { recursive: true })
 

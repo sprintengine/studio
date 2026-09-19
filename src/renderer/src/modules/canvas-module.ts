@@ -23,7 +23,7 @@ export const canvasRendererModule: RendererModule = {
     id: 'canvas',
     displayName: 'Canvas',
     version: 1,
-    publisher: 'multicode',
+    publisher: 'sprintengine',
     category: 'insight',
     summary:
       'A whiteboard tab in the workspace pane, backed by a board file in the project. Disabling hides the tab; the board files and the canvas tools stay.',

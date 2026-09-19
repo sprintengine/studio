@@ -153,7 +153,7 @@ export default function WorktreeManager({
       setBranchName('')
       return
     }
-    setBranchName(`multicode/${slug}`)
+    setBranchName(`sprintengine/${slug}`)
   }, [worktreeName])
 
   const refreshWorktrees = useCallback(async () => {
@@ -483,7 +483,7 @@ export default function WorktreeManager({
                   value={branchName}
                   onChange={(event) => setBranchName(event.target.value)}
                   disabled={formDisabled}
-                  placeholder="multicode/feature-login"
+                  placeholder="sprintengine/feature-login"
                   className="min-w-0 font-mono"
                 />
               </Field>

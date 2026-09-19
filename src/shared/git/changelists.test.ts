@@ -721,13 +721,13 @@ test('changelists', async () => {
     const scaffolded = reconcileChangelists(nadiaActive, [
       'src/new.ts',
       '.claude/settings.local.json',
-      '.multicode/hooks/agent-state.mjs',
+      '.sprintengine/hooks/agent-state.mjs',
       'docs/.hidden/note.md',
     ])
     assert.deepEqual(pathsOf(scaffolded, NADIA_ID), ['src/new.ts'])
     assert.deepEqual(pathsOf(scaffolded, DEFAULT_CHANGELIST_ID), [
       '.claude/settings.local.json',
-      '.multicode/hooks/agent-state.mjs',
+      '.sprintengine/hooks/agent-state.mjs',
       'docs/.hidden/note.md',
     ])
     const featureActive = setActiveChangelist(

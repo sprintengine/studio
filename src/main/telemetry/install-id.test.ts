@@ -15,7 +15,7 @@ test('install-id', async () => {
   const VALID = '3f2b1c4d-5e6f-4a7b-8c9d-0e1f2a3b4c5d'
 
   async function withUserData(body: (dir: string) => Promise<void>): Promise<void> {
-    const dir = await mkdtemp(join(tmpdir(), 'multicode-telemetry-id-'))
+    const dir = await mkdtemp(join(tmpdir(), 'sprintengine-telemetry-id-'))
     try {
       await body(dir)
     } finally {

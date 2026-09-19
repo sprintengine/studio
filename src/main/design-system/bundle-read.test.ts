@@ -102,7 +102,7 @@ test('bundle-read', async () => {
     try {
       editTokens(dir, (tokens) => {
         tokens.sem.color.accent.primary.$value = '{ref.color.green.nope}'
-        tokens.sem.color.accent.primary.$extensions['com.multicode'].modes = {
+        tokens.sem.color.accent.primary.$extensions['com.sprintengine'].modes = {
           light: '{ref.color.green.nope}',
           dark: '{ref.color.green.nope}',
         }

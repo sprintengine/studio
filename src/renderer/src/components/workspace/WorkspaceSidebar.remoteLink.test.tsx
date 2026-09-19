@@ -78,12 +78,12 @@ test('WorkspaceSidebar.remoteLink', async () => {
     workspaceId: 'rw1',
     agentName,
     cli: 'claude-code',
-    cwd: '/Users/mini/multicode',
+    cwd: '/Users/mini/sprintengine',
     processAlive: true,
     suspended: false,
     phase: 'working',
     phaseSince: 1_000,
-    workspaceName: 'multicode',
+    workspaceName: 'sprintengine',
     git: null,
     ...over,
   })
@@ -119,7 +119,7 @@ test('WorkspaceSidebar.remoteLink', async () => {
       scopes: connection.scopes,
       terminalAccess: 'control',
       workspaces: [
-        { id: 'rw1', name: 'multicode', mode: 'standard', folderPath: '/Users/mini/multicode', repository: null },
+        { id: 'rw1', name: 'sprintengine', mode: 'standard', folderPath: '/Users/mini/sprintengine', repository: null },
       ],
       terminals: [remoteTerminal('s1', 'Tara Boyle'), remoteTerminal('s2', 'Gael Corry', { phase: 'awaiting_input' })],
       gaps: [],
@@ -140,7 +140,7 @@ test('WorkspaceSidebar.remoteLink', async () => {
       // the browse can say what is standing in it.
       {
         id: 'w2',
-        name: 'Tara Boyle · multicode',
+        name: 'Tara Boyle · sprintengine',
         mode: 'standard',
         folderPath: null,
         // Starred, so the pass below also covers the Starred section: starring
@@ -152,8 +152,8 @@ test('WorkspaceSidebar.remoteLink', async () => {
           connectionId: 'c1',
           machineName: 'mac-mini',
           workspaceId: 'rw1',
-          workspaceName: 'multicode',
-          workspaceRoot: '/Users/mini/multicode',
+          workspaceName: 'sprintengine',
+          workspaceRoot: '/Users/mini/sprintengine',
           sessionId: 's1',
         },
         layoutModel: { layout: { type: 'row', children: [] } },
@@ -245,7 +245,7 @@ test('WorkspaceSidebar.remoteLink', async () => {
         !(remoteRow.textContent ?? '').includes('Tara Boyle'),
         `the agent's name is not the row's title: ${remoteRow.textContent}`,
       )
-      assert.ok((remoteRow.textContent ?? '').includes('multicode'), 'the chat over there is what the row is called')
+      assert.ok((remoteRow.textContent ?? '').includes('sprintengine'), 'the chat over there is what the row is called')
 
       // …and it draws a line per agent in the conversation, the way a local chat
       // running two terminals does — not the one pane this window attached.

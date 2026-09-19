@@ -271,9 +271,9 @@ test('useTerminalSessions', async () => {
     const mark = (
       over: Partial<NonNullable<TerminalSessionSnapshot['pullRequests']>[number]> & { number: number },
     ): NonNullable<TerminalSessionSnapshot['pullRequests']>[number] => ({
-      url: `https://github.com/acme/multicode/pull/${over.number}`,
-      repoKey: 'github.com/acme/multicode',
-      repoName: 'multicode',
+      url: `https://github.com/acme/sprintengine/pull/${over.number}`,
+      repoKey: 'github.com/acme/sprintengine',
+      repoName: 'sprintengine',
       number: over.number,
       title: over.title ?? '',
       state: over.state ?? 'open',
@@ -807,9 +807,9 @@ test('useTerminalSessions', async () => {
         lastOutputAt: 1000,
         pullRequests: [
           {
-            url: 'https://github.com/acme/multicode/pull/418',
-            repoKey: 'github.com/acme/multicode',
-            repoName: 'multicode',
+            url: 'https://github.com/acme/sprintengine/pull/418',
+            repoKey: 'github.com/acme/sprintengine',
+            repoName: 'sprintengine',
             number: 418,
             title: '',
             state: 'open',

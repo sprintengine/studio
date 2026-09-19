@@ -8,7 +8,7 @@ import { join } from 'node:path'
  * directories on install.
  */
 export function defaultUserSkillsDir(homeDir: string = homedir()): string {
-  return join(homeDir, '.multicode', 'skills')
+  return join(homeDir, '.sprintengine', 'skills')
 }
 
 export function ensureDefaultUserSkillsDir(homeDir: string = homedir()): string {

@@ -22,7 +22,7 @@ const WINDOW_A = 'primary'
 const WINDOW_B = 'window-b'
 
 function harness() {
-  const dir = mkdtempSync(join(tmpdir(), 'multicode-workspace-reconcile-'))
+  const dir = mkdtempSync(join(tmpdir(), 'sprintengine-workspace-reconcile-'))
   let clock = 1_000
   let ids = 0
   const registry = createWorkspaceRegistryService({

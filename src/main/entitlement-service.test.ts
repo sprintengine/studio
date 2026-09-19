@@ -27,7 +27,7 @@ test('entitlement-service', async () => {
   // A purely local premium feature: nothing server-side happens when it runs, so
   // it is the case offline grace exists to keep working. There is no allowlist —
   // this is an ordinary key, and that is the point.
-  const LOCAL_KEY = 'multicode.local_premium'
+  const LOCAL_KEY = 'sprintengine.local_premium'
   // What Multiauth actually issues: `expiresAt = issuedAt + 72h` (SNAPSHOT_TTL_MS
   // in `../multiauth/src/entitlements/resolver.ts`). The grace bug survived the
   // old suite because no fixture used this shape.
@@ -52,7 +52,7 @@ test('entitlement-service', async () => {
     return {
       userId: 'user_1',
       organizationId: 'org_1',
-      product: 'multicode',
+      product: 'sprintengine',
       roles: [],
       features: {},
       limits: {},
@@ -98,7 +98,7 @@ test('entitlement-service', async () => {
 
   function serviceFor(reading: EntitlementReading): { service: EntitlementService; provider: FakeProvider } {
     const provider = new FakeProvider(reading)
-    return { service: new EntitlementService(provider, { product: 'multicode' }), provider }
+    return { service: new EntitlementService(provider, { product: 'sprintengine' }), provider }
   }
 
   function check(reading: EntitlementReading, featureKey: string, extra = {}): Promise<PremiumAccessDecision> {
@@ -111,7 +111,7 @@ test('entitlement-service', async () => {
     {
       const decision = await check(
         { authenticated: false, snapshot: null, cache: null, lastRefreshAt: null },
-        'multicode.anything',
+        'sprintengine.anything',
       )
       assert.equal(decision.allowed, false)
       assert.equal(decision.status, 'signed_out')
@@ -121,7 +121,7 @@ test('entitlement-service', async () => {
     for (const bad of [
       { authenticated: true, snapshot: null, cache: null, lastRefreshAt: null },
       signedIn(snapshot({ schemaVersion: 2 as unknown as 1 })),
-      signedIn(snapshot({ product: 'other' as unknown as 'multicode' })),
+      signedIn(snapshot({ product: 'other' as unknown as 'sprintengine' })),
     ] satisfies EntitlementReading[]) {
       const decision = await check(bad, LOCAL_KEY)
       assert.equal(decision.allowed, false, 'an unusable snapshot must not grant anything')
@@ -131,8 +131,8 @@ test('entitlement-service', async () => {
     // A fresh boolean feature: allowed, and the value travels with the decision.
     {
       const decision = await check(
-        signedIn(snapshot({ features: { 'multicode.mobile_companion': true } })),
-        'multicode.mobile_companion',
+        signedIn(snapshot({ features: { 'sprintengine.mobile_companion': true } })),
+        'sprintengine.mobile_companion',
       )
       assert.equal(decision.allowed, true)
       assert.equal(decision.status, 'fresh')
@@ -141,34 +141,34 @@ test('entitlement-service', async () => {
 
     // A feature explicitly false, and a key present in neither map, both read as
     // "not entitled" with the upgrade message rather than an error.
-    for (const key of ['multicode.off', 'multicode.unknown']) {
-      const decision = await check(signedIn(snapshot({ features: { 'multicode.off': false } })), key)
+    for (const key of ['sprintengine.off', 'sprintengine.unknown']) {
+      const decision = await check(signedIn(snapshot({ features: { 'sprintengine.off': false } })), key)
       assert.equal(decision.allowed, false, `${key} must not be granted`)
       assert.equal(decision.status, 'missing')
     }
 
     // Numeric limits gate on the requested amount and report the ceiling.
     {
-      const reading = signedIn(snapshot({ limits: { 'multicode.seats': 3 } }))
-      const within = await check(reading, 'multicode.seats', { amount: 3 })
+      const reading = signedIn(snapshot({ limits: { 'sprintengine.seats': 3 } }))
+      const within = await check(reading, 'sprintengine.seats', { amount: 3 })
       assert.equal(within.allowed, true)
       assert.equal(within.limit, 3)
 
-      const over = await check(reading, 'multicode.seats', { amount: 4 })
+      const over = await check(reading, 'sprintengine.seats', { amount: 4 })
       assert.equal(over.allowed, false)
       assert.equal(over.limit, 3, 'a refusal still tells the caller the ceiling')
 
-      const zero = await check(signedIn(snapshot({ limits: { 'multicode.seats': 0 } })), 'multicode.seats')
+      const zero = await check(signedIn(snapshot({ limits: { 'sprintengine.seats': 0 } })), 'sprintengine.seats')
       assert.equal(zero.allowed, false)
     }
 
     // String-valued entitlements (a tier name, a region) allow when non-blank.
     {
-      const set = await check(signedIn(snapshot({ features: { 'multicode.tier': 'team' } })), 'multicode.tier')
+      const set = await check(signedIn(snapshot({ features: { 'sprintengine.tier': 'team' } })), 'sprintengine.tier')
       assert.equal(set.allowed, true)
       assert.equal(set.value, 'team')
 
-      const blank = await check(signedIn(snapshot({ features: { 'multicode.tier': '  ' } })), 'multicode.tier')
+      const blank = await check(signedIn(snapshot({ features: { 'sprintengine.tier': '  ' } })), 'sprintengine.tier')
       assert.equal(blank.allowed, false)
     }
 
@@ -251,11 +251,11 @@ test('entitlement-service', async () => {
     {
       const cache = defaultTtlCache(SNAPSHOT_TTL_MS + HOUR_MS, {
         [LOCAL_KEY]: true,
-        'multicode.other_local': true,
+        'sprintengine.other_local': true,
       })
       const reading = signedIn(cache.snapshot, cache)
 
-      for (const key of [LOCAL_KEY, 'multicode.other_local']) {
+      for (const key of [LOCAL_KEY, 'sprintengine.other_local']) {
         const decision = await check(reading, key)
         assert.equal(decision.allowed, true, `${key} is local, so it survives offline with no allowlist`)
         assert.equal(decision.status, 'offline_grace')
@@ -284,8 +284,8 @@ test('entitlement-service', async () => {
       assert.ok(graceMessage.includes(new Date(deadline).toLocaleString()), 'the deadline is in the message')
 
       // An unreadable deadline drops the clause instead of inventing one.
-      assert.equal(offlineGraceMessage(null), 'Using cached Multicode access while offline.')
-      assert.equal(offlineGraceMessage('not-a-date'), 'Using cached Multicode access while offline.')
+      assert.equal(offlineGraceMessage(null), 'Using cached SprintEngine access while offline.')
+      assert.equal(offlineGraceMessage('not-a-date'), 'Using cached SprintEngine access while offline.')
     }
 
     // Past the grace window nothing is granted.
@@ -324,45 +324,45 @@ test('entitlement-service', async () => {
 
     // hasFeature is the boolean face of the same decision.
     {
-      const { service } = serviceFor(signedIn(snapshot({ features: { 'multicode.x': true } })))
-      assert.equal(await service.hasFeature('multicode.x'), true)
-      assert.equal(await service.hasFeature('multicode.y'), false)
+      const { service } = serviceFor(signedIn(snapshot({ features: { 'sprintengine.x': true } })))
+      assert.equal(await service.hasFeature('sprintengine.x'), true)
+      assert.equal(await service.hasFeature('sprintengine.y'), false)
     }
 
     // refreshFeature goes back to the provider first, then decides on what came
     // back — the pre-flight check before an expensive action.
     {
-      const denyingSnapshot = snapshot({ features: { 'multicode.x': false } })
+      const denyingSnapshot = snapshot({ features: { 'sprintengine.x': false } })
       const provider = new FakeProvider(signedIn(denyingSnapshot))
-      const service = new EntitlementService(provider, { product: 'multicode' })
-      provider.onRefresh = () => provider.set(signedIn(snapshot({ features: { 'multicode.x': true } })))
+      const service = new EntitlementService(provider, { product: 'sprintengine' })
+      provider.onRefresh = () => provider.set(signedIn(snapshot({ features: { 'sprintengine.x': true } })))
 
-      assert.equal((await service.checkAccess({ featureKey: 'multicode.x' })).allowed, false)
-      const decision = await service.refreshFeature('multicode.x')
+      assert.equal((await service.checkAccess({ featureKey: 'sprintengine.x' })).allowed, false)
+      const decision = await service.refreshFeature('sprintengine.x')
       assert.equal(provider.refreshCount, 1)
       assert.equal(decision.allowed, true, 'the decision is made on the refreshed snapshot')
     }
 
     // requireFeature throws the refusal message, and returns the value on success.
     {
-      const { service } = serviceFor(signedIn(snapshot({ limits: { 'multicode.seats': 2 } })))
-      assert.equal(await service.requireFeature('multicode.seats'), 2)
-      assert.equal(await service.requireFeature({ featureKey: 'multicode.seats', amount: 2 }), 2)
-      await assert.rejects(() => service.requireFeature('multicode.missing'), /Upgrade this organization/)
+      const { service } = serviceFor(signedIn(snapshot({ limits: { 'sprintengine.seats': 2 } })))
+      assert.equal(await service.requireFeature('sprintengine.seats'), 2)
+      assert.equal(await service.requireFeature({ featureKey: 'sprintengine.seats', amount: 2 }), 2)
+      await assert.rejects(() => service.requireFeature('sprintengine.missing'), /Upgrade this organization/)
     }
 
     // getSnapshot force-refreshes on demand, and refuses to invent an empty
     // snapshot when there is none — "could not check" is not "you have nothing".
     {
       const provider = new FakeProvider(signedIn(snapshot()))
-      const service = new EntitlementService(provider, { product: 'multicode' })
+      const service = new EntitlementService(provider, { product: 'sprintengine' })
       await service.getSnapshot()
       assert.equal(provider.refreshCount, 0, 'a plain read must not hit the provider')
       await service.getSnapshot({ forceRefresh: true })
       assert.equal(provider.refreshCount, 1)
 
       provider.set({ authenticated: true, snapshot: null, cache: null, lastRefreshAt: null })
-      await assert.rejects(() => service.getSnapshot(), /No Multicode entitlement snapshot/)
+      await assert.rejects(() => service.getSnapshot(), /No SprintEngine entitlement snapshot/)
     }
 
     // Grace policy is shared with the adapter, so the auth state it publishes and
@@ -396,10 +396,10 @@ test('entitlement-service', async () => {
     // Cache-file validation: anything that fails the shape check is discarded, so
     // a corrupt or hostile file on disk cannot grant access.
     {
-      assert.equal(isEntitlementSnapshot(snapshot(), 'multicode'), true)
+      assert.equal(isEntitlementSnapshot(snapshot(), 'sprintengine'), true)
       for (const bad of [
         null,
-        'multicode',
+        'sprintengine',
         {},
         { ...snapshot(), product: 'other' },
         { ...snapshot(), schemaVersion: 2 },
@@ -409,7 +409,7 @@ test('entitlement-service', async () => {
         { ...snapshot(), limits: [] },
         { ...snapshot(), expiresAt: 42 },
       ]) {
-        assert.equal(isEntitlementSnapshot(bad, 'multicode'), false, `${JSON.stringify(bad)} must be rejected`)
+        assert.equal(isEntitlementSnapshot(bad, 'sprintengine'), false, `${JSON.stringify(bad)} must be rejected`)
       }
     }
 

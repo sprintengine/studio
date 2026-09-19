@@ -18,7 +18,7 @@ import type { PeekImagePayload } from './transcript'
  */
 
 /** Where an opened attachment image is materialised. Cleared by the OS, not by us. */
-const PEEK_IMAGE_DIR = 'multicode-conversation-peek'
+const PEEK_IMAGE_DIR = 'sprintengine-conversation-peek'
 
 export function createConversationPeek(
   readSessionState: (sessionId: string) => ConversationPeekSessionState | null,

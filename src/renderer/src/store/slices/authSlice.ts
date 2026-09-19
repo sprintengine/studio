@@ -1,7 +1,7 @@
-// MulticodeAuthState is declared globally via src/renderer/src/env.d.ts
-// (re-exported from @multicode/shared), so no import is required here.
+// SprintEngineAuthState is declared globally via src/renderer/src/env.d.ts
+// (re-exported from @sprintengine/shared), so no import is required here.
 
-export const defaultAuthState = (): MulticodeAuthState => ({
+export const defaultAuthState = (): SprintEngineAuthState => ({
   authenticated: false,
   user: null,
   selectedOrganization: null,
@@ -14,11 +14,11 @@ export const defaultAuthState = (): MulticodeAuthState => ({
 })
 
 interface AuthSliceState {
-  authState: MulticodeAuthState
+  authState: SprintEngineAuthState
 }
 
 interface AuthSliceActions {
-  setAuthState: (authState: MulticodeAuthState) => void
+  setAuthState: (authState: SprintEngineAuthState) => void
 }
 
 export type AuthSlice = AuthSliceState & AuthSliceActions

@@ -121,7 +121,7 @@ export function createTailnetTools(options: {
     name: 'tailnet.offer_pairing',
     description:
       'Mint a one-time pairing code for another machine to redeem, valid for 30 days. Returns the code and the ' +
-      'multicode-tailnet:// pairing URL ONCE — neither is re-readable afterwards, and neither is ever returned by ' +
+      'sprintengine-tailnet:// pairing URL ONCE — neither is re-readable afterwards, and neither is ever returned by ' +
       'tailnet.status. Replaces any outstanding offer, including one a person is part-way through using in Settings. ' +
       'The code does not survive an app restart. Served only over the local socket.',
     inputSchema: {

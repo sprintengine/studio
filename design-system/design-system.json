@@ -100,7 +100,7 @@
       "glyphs/history.svg",
       "glyphs/kebab.svg",
       "glyphs/move-to-changelist.svg",
-      "glyphs/multicode-mark.svg",
+      "glyphs/sprintengine-mark.svg",
       "glyphs/new-changelist.svg",
       "glyphs/next-difference.svg",
       "glyphs/previous-difference.svg",
@@ -126,7 +126,7 @@
     "catalog/index.html": "scripts/build-catalog.mjs"
   },
   "provenance": {
-    "authoredBy": "multicode-design-wizard",
+    "authoredBy": "sprintengine-design-wizard",
     "sourceLibraryId": null,
     "sourceLibraryVersion": null,
     "releasedAt": null,

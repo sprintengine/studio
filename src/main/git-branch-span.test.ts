@@ -49,7 +49,7 @@ test('git-branch-span', async () => {
   }
 
   const created: string[] = []
-  function repo(prefix = 'multicode-branch-span-'): string {
+  function repo(prefix = 'sprintengine-branch-span-'): string {
     const dir = mkdtempSync(join(tmpdir(), prefix))
     created.push(dir)
     git(dir, 'init', '-b', 'main')
@@ -118,7 +118,7 @@ test('git-branch-span', async () => {
     })
 
     await run('a repo with neither main nor master nor a remote has no base', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-branch-span-solo-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-branch-span-solo-'))
       created.push(dir)
       git(dir, 'init', '-b', 'solo')
       writeFileSync(join(dir, 'a.txt'), 'one\n')
@@ -128,13 +128,13 @@ test('git-branch-span', async () => {
     })
 
     await run('origin/HEAD wins over the conventional guesses', async () => {
-      const origin = repo('multicode-branch-span-origin-')
+      const origin = repo('sprintengine-branch-span-origin-')
       git(origin, 'checkout', '-b', 'trunk')
       writeFileSync(join(origin, 'trunk.txt'), 'trunk\n')
       git(origin, 'add', '.')
       git(origin, 'commit', '-m', 'trunk work')
 
-      const clone = mkdtempSync(join(tmpdir(), 'multicode-branch-span-clone-'))
+      const clone = mkdtempSync(join(tmpdir(), 'sprintengine-branch-span-clone-'))
       created.push(clone)
       rmSync(clone, { recursive: true, force: true })
       execFileSync('git', ['clone', '--quiet', origin, clone])
@@ -159,8 +159,8 @@ test('git-branch-span', async () => {
     })
 
     await run('resolveTrunk rejects a branch’s own remote-tracking ref', async () => {
-      const origin = repo('multicode-branch-span-selftrack-origin-')
-      const clone = mkdtempSync(join(tmpdir(), 'multicode-branch-span-selftrack-'))
+      const origin = repo('sprintengine-branch-span-selftrack-origin-')
+      const clone = mkdtempSync(join(tmpdir(), 'sprintengine-branch-span-selftrack-'))
       created.push(clone)
       rmSync(clone, { recursive: true, force: true })
       execFileSync('git', ['clone', '--quiet', origin, clone])
@@ -180,7 +180,7 @@ test('git-branch-span', async () => {
     await run('the main checkout is not a linked worktree; a linked one is', async () => {
       const dir = repo()
       assert.equal(await isLinkedWorktree(dir), false)
-      const tree = join(dir, '..', `multicode-branch-span-wt-${process.pid}`)
+      const tree = join(dir, '..', `sprintengine-branch-span-wt-${process.pid}`)
       created.push(tree)
       git(dir, 'worktree', 'add', '-b', 'wt', tree)
       assert.equal(await isLinkedWorktree(tree), true)
@@ -197,14 +197,14 @@ test('git-branch-span', async () => {
     // ---- the span itself ----------------------------------------------------
 
     await run('a missing folder and a non-repo both read null', async () => {
-      const plain = mkdtempSync(join(tmpdir(), 'multicode-branch-span-plain-'))
+      const plain = mkdtempSync(join(tmpdir(), 'sprintengine-branch-span-plain-'))
       created.push(plain)
       assert.equal(await readBranchSpan(plain), null)
       assert.equal(await readBranchSpan(join(plain, 'gone')), null)
     })
 
     await run('an unborn HEAD names its branch and spans nothing', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-branch-span-unborn-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-branch-span-unborn-'))
       created.push(dir)
       git(dir, 'init', '-b', 'main')
       writeFileSync(join(dir, 'a.txt'), 'x\n')
@@ -398,7 +398,7 @@ test('git-branch-span', async () => {
 
     await run('a span that could not be read has NO counts, not zeros', async () => {
       const dir = repo()
-      const bare = mkdtempSync(join(tmpdir(), 'multicode-branch-span-bare-'))
+      const bare = mkdtempSync(join(tmpdir(), 'sprintengine-branch-span-bare-'))
       created.push(bare)
       execFileSync('git', ['clone', '--quiet', '--bare', dir, bare])
       const span = await readBranchSpan(bare)

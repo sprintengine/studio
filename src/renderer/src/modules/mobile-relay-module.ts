@@ -13,7 +13,7 @@ export const mobileRelayRendererModule: RendererModule = {
     id: 'mobile-relay',
     displayName: 'Mobile Relay',
     version: 1,
-    publisher: 'multicode',
+    publisher: 'sprintengine',
     category: 'connectivity',
     summary: 'Pair a phone with the desktop app over an encrypted relay to drive agents remotely.',
     defaultEnabled: true,

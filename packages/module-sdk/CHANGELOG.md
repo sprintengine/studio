@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+- **The app's previous name is gone from every contract.** This is a
+  **breaking change**, with no aliases kept:
+  - the host's import map answers only the `@sprintengine/module-sdk` scope, so
+    a bundle built against an earlier scope must be rebuilt;
+  - the panel-command window event is `sprintengine:panel-command`;
+  - the authoring CLI binary is `sprintengine-module`;
+  - the drop-in extension roots are `~/.sprintengine/modules` and
+    `~/.sprintengine/plugins`.
+
 - **`BacklogItemView` loses `kind`.** A Backlog item is a markdown file with
   metadata; the host no longer guesses a plan kind from its filename or title,
   and no longer reads a `kind:` / `planKind:` frontmatter field. This is a
@@ -163,17 +172,12 @@
   menu and the detail header's More-actions menu. The header's own buttons
   belong to the shell. No type change.
 
-- **The package is now `@sprintengine/module-sdk`** (was `@multicode/module-sdk`),
-  matching the app's name since 2026-09-08. **A module author must change every
-  import**, including the `--external:` flags for the host-bridged subpaths:
-  `@sprintengine/module-sdk`, `@sprintengine/module-sdk/ui`,
-  `@sprintengine/module-sdk/surface`, `@sprintengine/module-sdk/signing`. The
-  types, the exports and the runtime contract are unchanged — only the name is.
-  A module bundle built against the old specifiers keeps working: the host's
-  import map answers both scopes, so an installed module does not have to be
-  rebuilt to keep rendering. Every reference in this file was rewritten to the
-  new name, earlier entries included, because nothing was ever published under
-  the old one. The `multicode-module` CLI binary keeps its name for now.
+- **The package is now `@sprintengine/module-sdk`**, matching the app's name.
+  **A module author must change every import**, including the `--external:`
+  flags for the host-bridged subpaths: `@sprintengine/module-sdk`,
+  `@sprintengine/module-sdk/ui`, `@sprintengine/module-sdk/surface`,
+  `@sprintengine/module-sdk/signing`. The types, the exports and the runtime
+  contract are unchanged — only the name is.
 
 - **Packaged web runtimes have stable module origins.** `RendererHost.getAssetUrl`
   resolves an installed asset to a `studio-module:` URL. Packaged HTML supports
@@ -482,7 +486,7 @@
 
 - MCP tool contributions on `MainHost`:
   `registerMcpTools(tools: McpToolRegistration[])` puts agent-facing MCP tools
-  on Multicode's always-on Studio gateway, owned by your module's id the way
+  on SprintEngine's always-on Studio gateway, owned by your module's id the way
   IPC channels are. A tool name another module already registered is a
   registration error and the whole batch is rejected (no partial
   registration). Availability follows your module's live enablement at the
@@ -578,12 +582,12 @@
   (`{ activeWorkspaceId, activeWorkspaceMode }`) — "offer this only when…"
   without a shell enum change; predicate commands fail closed when no context
   is wired. Panel-targeted dispatch stays the module bus pattern (a
-  `multicode:panel-command` CustomEvent from the command's `run()`), now the
+  `sprintengine:panel-command` CustomEvent from the command's `run()`), now the
   documented convention. In-tree proof: Switchboard/Watchtower's built-in
   commands are registered through this path.
 - Per-module, per-workspace storage: `getModuleStorage(host)` →
   `{ get, set, delete, list }` scoped to your module, with host-owned file
-  placement (workspace `.multi-code/modules/<moduleId>/<key>.json`, or
+  placement (workspace `.sprintengine/modules/<moduleId>/<key>.json`, or
   per-user app data for global keys). JSON values with a 1 MB cap, keys
   `^[a-z0-9][a-z0-9._-]{0,63}$`, atomic write-then-rename, honest errors
   (`invalid_key` / `invalid_value` / `value_too_large` /
@@ -610,7 +614,7 @@ Calendar-class workspace parity: a module's renderer can now reach its own
 service + one-shot `at` cadence), enumerate and watch the Backlog, accept
 Backlog/Files drags, and style against published theme tokens.
 
-- File-drop drag-and-drop contract: `MULTICODE_FILE_DROP_MIME`,
+- File-drop drag-and-drop contract: `SPRINTENGINE_FILE_DROP_MIME`,
   `FileDropPayload`, `setFileDropData`, `hasFileDropData` (the dragover-safe
   presence check), and the null-safe `readFileDropPayload` (missing entry,
   bad JSON, unknown version, or invalid shape ⇒ `null`, never a throw; file
@@ -662,7 +666,7 @@ Backlog/Files drags, and style against published theme tokens.
 
 - Licensed MIT (`LICENSE` added, `license` field set, included in published
   files). Permits building and selling modules, including closed-source;
-  covers this SDK package only, not the Multicode app or marketplace terms.
+  covers this SDK package only, not the SprintEngine app or marketplace terms.
 - New Automations provider authoring surface:
   `registerAutomationTrigger`, `registerAutomationAction`, provider/context
   types for trusted modules that declare `dependsOn: ['automations']`.
@@ -685,10 +689,10 @@ BYO-CLI plugin authoring and programmatic workspace creation.
   `CliResumeSpec`, `CliPromptInjection`, `CliCompletionSpec`, `CliCapabilities`,
   `CliMcpConfigSpec`, `CliModelSelectionSpec`, `CliSkillIntegration`,
   `CliSkillInstallTarget`, `CliSkillInvocation`, …). A CLI plugin is a folder
-  dropped into `~/.multicode/plugins/<id>/`, or installed from
+  dropped into `~/.sprintengine/plugins/<id>/`, or installed from
   Settings → Agents → "Install CLI from folder".
 - `validateCliPluginManifest` is the **single source of truth** for CLI
-  manifest validation: the Multicode app loads a `plugin.json` by delegating to
+  manifest validation: the SprintEngine app loads a `plugin.json` by delegating to
   it (no separate in-app copy), so the authoring contract and the loader cannot
   drift. As part of consolidating the two former copies, `version` is now
   required to be a positive integer (the app previously accepted any number).
@@ -702,14 +706,14 @@ BYO-CLI plugin authoring and programmatic workspace creation.
 
 Signing toolchain for module authors.
 
-- New `multicode-module` CLI (`bin`): `keygen` (ed25519 PKCS#8 PEM keypair),
+- New `sprintengine-module` CLI (`bin`): `keygen` (ed25519 PKCS#8 PEM keypair),
   `pack` (validate + assemble an installable module directory; excludes
   node_modules, .git, and key material), `sign` (detached ed25519 signature
   over the canonical manifest, normalized manifest written back to disk),
-  `verify` (checks a module directory exactly like the Multicode app).
+  `verify` (checks a module directory exactly like the SprintEngine app).
 - New `@sprintengine/module-sdk/signing` subpath export:
   `generateModuleSigningKeyPair`, `signManifest`, `verifyModuleSignature`,
-  `manifestFingerprint`, `publicKeyFingerprint`. The Multicode app's verifier
+  `manifestFingerprint`, `publicKeyFingerprint`. The SprintEngine app's verifier
   imports these same functions, so signer and verifier cannot drift.
 - Manifest validation (`parseThirdPartyModuleManifest`,
   `validateThirdPartyModuleManifest`, `canonicalManifestPayload`) is now the

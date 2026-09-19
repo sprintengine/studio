@@ -42,7 +42,7 @@ test('checkpoint-sweep', async () => {
 
   /** A repo carrying checkpoint refs exactly as the retired capture wrote them. */
   function repoWithCheckpoints(turns = 3): string {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-sweep-'))
+    const dir = mkdtempSync(join(tmpdir(), 'sprintengine-sweep-'))
     created.push(dir)
     git(dir, 'init', '-b', 'main')
     writeFileSync(join(dir, 'a.txt'), 'one\n')
@@ -57,25 +57,25 @@ test('checkpoint-sweep', async () => {
         encoding: 'utf8',
         env: {
           ...process.env,
-          GIT_AUTHOR_NAME: 'Multicode',
-          GIT_AUTHOR_EMAIL: 'checkpoints@multicode.local',
-          GIT_COMMITTER_NAME: 'Multicode',
-          GIT_COMMITTER_EMAIL: 'checkpoints@multicode.local',
+          GIT_AUTHOR_NAME: 'SprintEngine',
+          GIT_AUTHOR_EMAIL: 'checkpoints@sprintengine.local',
+          GIT_COMMITTER_NAME: 'SprintEngine',
+          GIT_COMMITTER_EMAIL: 'checkpoints@sprintengine.local',
         },
       }).trim()
-      git(dir, 'update-ref', `refs/multicode/checkpoints/${encoded}/turn/${turn}`, commit)
+      git(dir, 'update-ref', `refs/sprintengine/checkpoints/${encoded}/turn/${turn}`, commit)
     }
     // Refs of other people's that must survive untouched — including two NEAR
     // MISSES under our own namespace, which are what a prefix guard gets wrong.
     git(dir, 'update-ref', 'refs/notes/someone-elses', head)
     git(dir, 'update-ref', 'refs/remotes/origin/main', head)
-    git(dir, 'update-ref', 'refs/multicode/mybackup', head)
-    git(dir, 'update-ref', 'refs/multicode/checkpointsOTHER/x', head)
+    git(dir, 'update-ref', 'refs/sprintengine/mybackup', head)
+    git(dir, 'update-ref', 'refs/sprintengine/checkpointsOTHER/x', head)
     return dir
   }
 
   function userData(indexJson: string | null): string {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-sweep-userdata-'))
+    const dir = mkdtempSync(join(tmpdir(), 'sprintengine-sweep-userdata-'))
     created.push(dir)
     if (indexJson !== null) writeFileSync(join(dir, 'checkpoint-index.json'), indexJson)
     return dir
@@ -121,7 +121,7 @@ test('checkpoint-sweep', async () => {
       const headsBefore = refsIn(dir, 'refs/heads/')
       const notesBefore = refsIn(dir, 'refs/notes/')
       assert.equal(
-        refsIn(dir, 'refs/multicode/checkpoints/').length,
+        refsIn(dir, 'refs/sprintengine/checkpoints/').length,
         4,
         'four of ours, plus two near misses beside them',
       )
@@ -132,10 +132,10 @@ test('checkpoint-sweep', async () => {
       assert.equal(swept.deleted, 4)
       assert.equal(swept.ok, true)
       assert.deepEqual(
-        refsIn(dir, 'refs/multicode/')
+        refsIn(dir, 'refs/sprintengine/')
           .map((line) => line.split(' ')[0])
           .sort(),
-        ['refs/multicode/checkpointsOTHER/x', 'refs/multicode/mybackup'],
+        ['refs/sprintengine/checkpointsOTHER/x', 'refs/sprintengine/mybackup'],
         'the near misses under our own namespace survive',
       )
       assert.deepEqual(refsIn(dir, 'refs/heads/'), headsBefore, 'branches byte-identical')
@@ -151,7 +151,7 @@ test('checkpoint-sweep', async () => {
     })
 
     await run('a repo with no checkpoint refs is a clean no-op', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-sweep-clean-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-sweep-clean-'))
       created.push(dir)
       git(dir, 'init', '-b', 'main')
       writeFileSync(join(dir, 'a.txt'), 'x\n')
@@ -163,7 +163,7 @@ test('checkpoint-sweep', async () => {
     })
 
     await run('a non-repo and a missing folder report zero, and NOT finished', async () => {
-      const plain = mkdtempSync(join(tmpdir(), 'multicode-sweep-plain-'))
+      const plain = mkdtempSync(join(tmpdir(), 'sprintengine-sweep-plain-'))
       created.push(plain)
       // Not a repo we could read, so not a repo we may forget: ok:false keeps the
       // index and the next launch's attempt alive.
@@ -173,7 +173,7 @@ test('checkpoint-sweep', async () => {
 
     await run('a repo that cannot be swept KEEPS the index for the next launch', async () => {
       const alive = repoWithCheckpoints(2)
-      const unreachable = join(tmpdir(), 'multicode-sweep-unmounted-volume')
+      const unreachable = join(tmpdir(), 'sprintengine-sweep-unmounted-volume')
       const data = userData(
         JSON.stringify({
           workspaces: {
@@ -191,10 +191,10 @@ test('checkpoint-sweep', async () => {
     await run('stale temp index files go with the refs', async () => {
       const dir = repoWithCheckpoints(1)
       const gitDir = join(dir, '.git')
-      writeFileSync(join(gitDir, 'multicode-checkpoint-index-abc'), 'stale')
+      writeFileSync(join(gitDir, 'sprintengine-checkpoint-index-abc'), 'stale')
       writeFileSync(join(gitDir, 'index'), readFileSync(join(gitDir, 'index')))
       await sweepCheckpointRefs(dir)
-      assert.equal(existsSync(join(gitDir, 'multicode-checkpoint-index-abc')), false)
+      assert.equal(existsSync(join(gitDir, 'sprintengine-checkpoint-index-abc')), false)
       assert.equal(existsSync(join(gitDir, 'index')), true, 'the real index is not ours to delete')
     })
 
@@ -215,10 +215,10 @@ test('checkpoint-sweep', async () => {
       assert.equal(result.reposVisited, 2)
       assert.equal(result.refsDeleted, 5)
       assert.equal(result.indexRemoved, true)
-      assert.deepEqual(refsIn(repoA, 'refs/multicode/checkpoints/'), [])
-      assert.deepEqual(refsIn(repoB, 'refs/multicode/checkpoints/'), [])
+      assert.deepEqual(refsIn(repoA, 'refs/sprintengine/checkpoints/'), [])
+      assert.deepEqual(refsIn(repoB, 'refs/sprintengine/checkpoints/'), [])
       // And the near misses beside them are still there in both.
-      assert.equal(refsIn(repoA, 'refs/multicode/').length, 2)
+      assert.equal(refsIn(repoA, 'refs/sprintengine/').length, 2)
       assert.equal(existsSync(join(data, 'checkpoint-index.json')), false)
     })
 
@@ -249,13 +249,13 @@ test('checkpoint-sweep', async () => {
 
     await run('a linked worktree in the index sweeps the shared ref store once', async () => {
       const dir = repoWithCheckpoints(2)
-      const tree = join(dir, '..', `multicode-sweep-wt-${process.pid}`)
+      const tree = join(dir, '..', `sprintengine-sweep-wt-${process.pid}`)
       created.push(tree)
       git(dir, 'worktree', 'add', '-b', 'wt', tree)
       // Refs live in the COMMON dir, so sweeping from the worktree clears them.
       const swept = await sweepCheckpointRefs(tree)
       assert.equal(swept.deleted, 2)
-      assert.deepEqual(refsIn(dir, 'refs/multicode/checkpoints/'), [])
+      assert.deepEqual(refsIn(dir, 'refs/sprintengine/checkpoints/'), [])
     })
 
     for (const dir of created) rmSync(dir, { recursive: true, force: true })

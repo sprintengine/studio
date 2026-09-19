@@ -3,7 +3,7 @@
 // This is the single source of truth for what a valid third-party manifest is
 // and for the exact bytes a module signature covers. The studio imports
 // this module (via src/shared/modules/third-party-manifest.ts and
-// src/shared/modules/permissions.ts) and the `multicode-module` CLI ships it in
+// src/shared/modules/permissions.ts) and the `sprintengine-module` CLI ships it in
 // the published tarball, so the app and external authors can never disagree.
 //
 // A third-party module is a folder containing a manifest.json. The manifest is

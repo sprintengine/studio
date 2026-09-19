@@ -5,7 +5,7 @@
   "defaultEnabled": false,
   "source": "third-party",
   "permissions": [],
-  "publisher": "Multicode Labs",
+  "publisher": "SprintEngine Labs",
   "category": "Design",
   "summary": "Reviews the interface against the design system from source only — it does not render the app. One agent run nightly at 03:30 UTC, opening a pull request.",
   "components": {

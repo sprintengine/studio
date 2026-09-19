@@ -21,7 +21,7 @@ test('manifest', async () => {
     id: 'dev-helper',
     displayName: 'Dev Helper',
     version: 1,
-    publisher: 'Multicode Labs',
+    publisher: 'SprintEngine Labs',
     summary: 'Adds development helpers.',
     category: 'dev-tools',
     permissions: ['network', 'ipc:settings'],
@@ -56,7 +56,7 @@ test('manifest', async () => {
       {
         id: 'dev-helper',
         name: 'Dev Helper',
-        publisher: { name: 'Multicode Labs', verified: true },
+        publisher: { name: 'SprintEngine Labs', verified: true },
         summary: 'Adds development helpers.',
         category: 'dev-tools',
         icon: 'icons/dev-helper.svg',
@@ -99,7 +99,7 @@ test('manifest', async () => {
   const VALID_INLINE_CLI_ENTRY = {
     id: 'claude-code',
     name: 'Claude Code',
-    publisher: { name: 'Multicode Labs', verified: true },
+    publisher: { name: 'SprintEngine Labs', verified: true },
     summary: "Anthropic's terminal coding agent.",
     category: 'Agent CLI',
     icon: 'icons/claude-code.svg',
@@ -518,7 +518,10 @@ test('manifest', async () => {
       validateMarketplaceIndex,
     )
     assertRejectsAt(
-      { ...VALID_MARKETPLACE, plugins: [{ ...VALID_MARKETPLACE.plugins[0], publisher: { name: 'Multicode Labs' } }] },
+      {
+        ...VALID_MARKETPLACE,
+        plugins: [{ ...VALID_MARKETPLACE.plugins[0], publisher: { name: 'SprintEngine Labs' } }],
+      },
       'plugins[0].publisher.verified',
       validateMarketplaceIndex,
     )

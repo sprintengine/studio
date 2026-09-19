@@ -67,7 +67,7 @@ export const BUILTIN_AUTOMATIONS: readonly BuiltinAutomation[] = [
     builtin: true,
     id: 'dead-code-sweep-automation',
     name: 'Dead code sweep',
-    publisher: 'Multicode Labs',
+    publisher: 'SprintEngine Labs',
     category: 'Code Quality',
     description:
       'Deletes code nothing reaches, with the evidence for each removal. One agent run on a worktree of its own, opening a pull request that carries both the removals and the report naming what proved each one dead.',
@@ -92,7 +92,7 @@ export const BUILTIN_AUTOMATIONS: readonly BuiltinAutomation[] = [
     builtin: true,
     id: 'duplication-review-automation',
     name: 'Duplication review',
-    publisher: 'Multicode Labs',
+    publisher: 'SprintEngine Labs',
     category: 'Code Quality',
     description:
       'Writes up duplication worth abstracting and the case against it, and never refactors. One agent run on a worktree of its own, opening a pull request that contains the write-up and nothing else.',
@@ -117,7 +117,7 @@ export const BUILTIN_AUTOMATIONS: readonly BuiltinAutomation[] = [
     builtin: true,
     id: 'unit-test-coverage-automation',
     name: 'Unit test coverage',
-    publisher: 'Multicode Labs',
+    publisher: 'SprintEngine Labs',
     category: 'Testing',
     description:
       'Writes unit tests for the weakest-covered, highest-cost paths, up to five files a run. One agent run on a worktree of its own, opening a pull request with the tests it added.',
@@ -142,7 +142,7 @@ export const BUILTIN_AUTOMATIONS: readonly BuiltinAutomation[] = [
     builtin: true,
     id: 'ui-ux-review-automation',
     name: 'UI & UX review',
-    publisher: 'Multicode Labs',
+    publisher: 'SprintEngine Labs',
     category: 'Design',
     description:
       'Reviews the interface against the design system from source only — it does not render the app. One agent run on a worktree of its own, opening a pull request with what it found.',
@@ -167,7 +167,7 @@ export const BUILTIN_AUTOMATIONS: readonly BuiltinAutomation[] = [
     builtin: true,
     id: 'merged-pr-seam-review-automation',
     name: 'Merged-PR seam review',
-    publisher: 'Multicode Labs',
+    publisher: 'SprintEngine Labs',
     category: 'Code Review',
     description:
       'Reviews the day’s merged pull requests together for the seams between them: duplicated concepts under different names, contradictory assumptions, interfaces one changed and another still consumes. One agent run on a worktree of its own, opening a pull request with the findings.',

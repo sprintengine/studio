@@ -8,7 +8,7 @@ import type { Plugin } from 'vite'
 import type { BuildStamp } from './src/shared/build-stamp'
 import { readStudioEnv } from './src/shared/studio-env'
 
-const BUILD_STAMP_ID = 'virtual:multicode-build-stamp'
+const BUILD_STAMP_ID = 'virtual:sprintengine-build-stamp'
 const RESOLVED_BUILD_STAMP_ID = `\0${BUILD_STAMP_ID}`
 
 // electron-vite sets this before it loads this config: `development` for
@@ -44,7 +44,7 @@ function mintBuildStamp(): BuildStamp {
   }
 }
 
-// Mints `virtual:multicode-build-stamp`. Rollup re-runs `load` on every
+// Mints `virtual:sprintengine-build-stamp`. Rollup re-runs `load` on every
 // watch rebuild, so main's stamp follows the bundle it is about to boot; the dev
 // server caches its transform instead, so the module is invalidated on any hot
 // update and re-minted the next time a document loads it. That makes a window's
@@ -52,7 +52,7 @@ function mintBuildStamp(): BuildStamp {
 // See src/shared/build-stamp.ts.
 function buildStampPlugin(): Plugin {
   return {
-    name: 'multicode-build-stamp',
+    name: 'sprintengine-build-stamp',
     resolveId(id) {
       return id === BUILD_STAMP_ID ? RESOLVED_BUILD_STAMP_ID : null
     },

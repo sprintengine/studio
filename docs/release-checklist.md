@@ -215,9 +215,7 @@ done that day.
 - Confirm terminal sessions launch.
 - Confirm Git panel reads status in a real repository.
 - Confirm the Backlog door lists items in a project that has a `backlog/`.
-- Confirm protocol registration for `sprintengine://` auth callbacks still works,
-  and that `multicode://` — still registered for links minted before the rename —
-  reaches the same handler.
+- Confirm protocol registration for `sprintengine://` auth callbacks still works.
 
 ## Update Validation
 

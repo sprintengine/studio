@@ -38,7 +38,7 @@ test('git-row-summary', async () => {
   }
 
   function tempRepo(): string {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-git-row-'))
+    const dir = mkdtempSync(join(tmpdir(), 'sprintengine-git-row-'))
     git(dir, 'init', '-b', 'main')
     writeFileSync(join(dir, 'a.txt'), 'one\ntwo\nthree\n')
     git(dir, 'add', '.')
@@ -84,7 +84,7 @@ test('git-row-summary', async () => {
     })
 
     await run('a non-repo answers the quiet shape, never a throw', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-git-row-none-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-git-row-none-'))
       try {
         assert.deepEqual(await getGitRowSummary(dir), { branch: null, additions: 0, deletions: 0 })
       } finally {
@@ -93,7 +93,7 @@ test('git-row-summary', async () => {
     })
 
     await run('an unborn HEAD (fresh init) keeps the branch and zero lines', async () => {
-      const dir = mkdtempSync(join(tmpdir(), 'multicode-git-row-unborn-'))
+      const dir = mkdtempSync(join(tmpdir(), 'sprintengine-git-row-unborn-'))
       try {
         git(dir, 'init', '-b', 'main')
         const summary = await getGitRowSummary(dir)

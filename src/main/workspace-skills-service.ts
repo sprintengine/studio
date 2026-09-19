@@ -25,10 +25,10 @@ import {
 } from '../shared/skills'
 import { BUILTIN_SKILLS } from './builtin-skills'
 
-// The .multicode-skill.json manifest a builtin install writes next to SKILL.md;
+// The .sprintengine-skill.json manifest a builtin install writes next to SKILL.md;
 // version drift against BUILTIN_SKILLS marks the entry update-available without
 // re-hashing the directory.
-const BUILTIN_MANIFEST_FILE = '.multicode-skill.json'
+const BUILTIN_MANIFEST_FILE = '.sprintengine-skill.json'
 
 export type WorkspaceSkillsService = {
   listWorkspaceSkills(input: WorkspaceSkillsListInput): Promise<WorkspaceSkillsListResult>
@@ -255,7 +255,7 @@ async function readSkillProvenance(skillDir: string): Promise<AgentSkillSource> 
   }
   if (typeof parsed !== 'object' || parsed === null) return 'local'
   const marker = parsed as { source?: unknown; sourceId?: unknown }
-  if (marker.source === 'multicode-builtin') return 'builtin'
+  if (marker.source === 'sprintengine-builtin') return 'builtin'
   if (typeof marker.sourceId === 'string' && marker.sourceId !== '') return 'source'
   return 'local'
 }

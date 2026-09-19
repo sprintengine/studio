@@ -7,7 +7,7 @@ description: List, create, run and inspect SprintEngine Studio Automations, and 
 
 An Automation is a trigger plus an action, stored per workspace in
 the app-owned workspace directory (`.sprintengine/automations`, or
-`.multi-code/automations` in an older workspace). Every one of these tools is
+`.sprintengine/automations` in an older workspace). Every one of these tools is
 keyed by `workspaceId` — get it from `workspace_list` first. Studio's automation
 surface runs in the main process, so a run works with no app window open.
 

@@ -302,8 +302,7 @@ export function parseSkillSourceState(raw: string, log: SkillSourceLog = skillSo
  * The parse, plus whether the bytes were JSON at all — which only a caller
  * about to WRITE needs, to tell "there was nothing here" from "there was
  * something here and it is now unreadable". The store's own write path asks
- * it, and so does the legacy-profile rescue before it writes over the current
- * store (`legacy-profile.ts`).
+ * it.
  */
 export function parseSkillSourceBytes(
   raw: string,

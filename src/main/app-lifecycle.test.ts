@@ -31,8 +31,8 @@ test('app-lifecycle', async () => {
     exit: (code: number) => {
       exitCalls.push(code)
     },
-    getPath: () => '/tmp/multicode-lifecycle-test',
-    getAppPath: () => '/tmp/multicode-lifecycle-test',
+    getPath: () => '/tmp/sprintengine-lifecycle-test',
+    getAppPath: () => '/tmp/sprintengine-lifecycle-test',
     setAppLogsPath: () => undefined,
     setAppUserModelId: () => undefined,
     setAsDefaultProtocolClient: () => true,

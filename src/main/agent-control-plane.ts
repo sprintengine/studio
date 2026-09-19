@@ -61,7 +61,7 @@ export type ControlPlaneSession = {
 /**
  * How a caller names the session it wants.
  *
- * The string form is for external/scripted callers (the deferred `multicode`
+ * The string form is for external/scripted callers (the deferred `sprintengine`
  * CLI, MCP tools): a bare value is a session id, and a `<kind>:<value>` prefix
  * selects a substring match. The prefixes stop at `cli:` and deliberately do
  * not include a `cmdline:` — the runtime retains the agent's CLI id and cwd,

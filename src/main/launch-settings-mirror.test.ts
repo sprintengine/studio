@@ -34,7 +34,7 @@ test('launch-settings-mirror', async () => {
   }
 
   async function withHarness(body: (harness: Harness) => Promise<void>): Promise<void> {
-    const userDataDir = await mkdtemp(join(tmpdir(), 'multicode-launch-settings-'))
+    const userDataDir = await mkdtemp(join(tmpdir(), 'sprintengine-launch-settings-'))
     const diagnostics: Array<{ title: string; details?: string }> = []
     try {
       await body({

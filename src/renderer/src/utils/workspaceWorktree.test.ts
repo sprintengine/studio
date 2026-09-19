@@ -53,11 +53,11 @@ test('workspaceWorktree', async () => {
   //     healthy worktree sits in front of the user.
   {
     const ws = make({
-      folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+      folderPath: '/Users/example/.sprintengine-worktrees/project/chat-a1b2',
       worktree: { branch: 'agent/chat-a1b2', repoRoot: '/Users/example/project' },
     })
     assert.deepEqual(resolveWorkspaceWorktree(ws), {
-      gitRoot: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+      gitRoot: '/Users/example/.sprintengine-worktrees/project/chat-a1b2',
       branch: 'agent/chat-a1b2',
     })
   }
@@ -90,7 +90,7 @@ test('workspaceWorktree', async () => {
   {
     const wt = scope({
       id: 'worktree:/wt',
-      path: '/Users/example/project/.multicode-worktrees/project/a',
+      path: '/Users/example/project/.sprintengine-worktrees/project/a',
       branch: 'agent/a',
     })
     const found = findHealthyWorktreeScope([mainScope, wt], wt.path, 'agent/a')
@@ -102,10 +102,10 @@ test('workspaceWorktree', async () => {
   {
     const wt = scope({
       id: 'worktree:/private',
-      path: '/private/tmp/proj/.multicode-worktrees/project/a',
+      path: '/private/tmp/proj/.sprintengine-worktrees/project/a',
       branch: 'agent/a',
     })
-    const joinedButSymlinked = '/tmp/proj/.multicode-worktrees/project/a'
+    const joinedButSymlinked = '/tmp/proj/.sprintengine-worktrees/project/a'
     const found = findHealthyWorktreeScope([mainScope, wt], joinedButSymlinked, 'agent/a')
     assert.equal(found?.id, wt.id, 'branch match recovers a symlinked path divergence')
   }
@@ -141,11 +141,11 @@ test('workspaceWorktree', async () => {
     assert.equal(connectorWorktreeSlug('railway', 'a1b2c3d4'), 'railway-a1b2c3d4')
   }
 
-  // 19. Worktree paths land under the repo's shared `.multicode-worktrees/<repo>`
+  // 19. Worktree paths land under the repo's shared `.sprintengine-worktrees/<repo>`
   //     container (worktreeContainerPath — the single source the Worktree manager
   //     also uses).
   {
-    assert.equal(worktreeContainerPath('/Users/example/project'), '/Users/example/.multicode-worktrees/project')
+    assert.equal(worktreeContainerPath('/Users/example/project'), '/Users/example/.sprintengine-worktrees/project')
   }
 
   // 20. connectorMcpSettings wraps exactly one server with sync ON — never a second
@@ -232,8 +232,8 @@ test('workspaceWorktree', async () => {
     assert.equal(slugifyWorktreeName('  Fix Payments!! '), 'fix-payments')
     assert.equal(slugifyWorktreeName('///'), '')
     assert.equal(
-      worktreeIdFromPath('/Users/example/.multicode-worktrees/project/nova-x1'),
-      'worktree-users-example-multicode-worktrees-project-nova-x1',
+      worktreeIdFromPath('/Users/example/.sprintengine-worktrees/project/nova-x1'),
+      'worktree-users-example-sprintengine-worktrees-project-nova-x1',
     )
   }
 
@@ -242,8 +242,8 @@ test('workspaceWorktree', async () => {
   {
     const paths = agentWorktreePaths('/Users/example/project', 'Fix Payments')
     assert.deepEqual(paths, {
-      containerPath: '/Users/example/.multicode-worktrees/project',
-      destinationPath: '/Users/example/.multicode-worktrees/project/fix-payments',
+      containerPath: '/Users/example/.sprintengine-worktrees/project',
+      destinationPath: '/Users/example/.sprintengine-worktrees/project/fix-payments',
       slug: 'fix-payments',
       branchName: 'agent/fix-payments',
     })
@@ -267,7 +267,7 @@ test('workspaceWorktree', async () => {
     // past `<repo>` is slug and simply falls away.
     assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/feat/x`), repo)
     // Windows separators survive as Windows separators, drive letter included.
-    assert.equal(repoRootFromWorktreePath('C:\\a\\.multicode-worktrees\\proj\\s'), 'C:\\a\\proj')
+    assert.equal(repoRootFromWorktreePath('C:\\a\\.sprintengine-worktrees\\proj\\s'), 'C:\\a\\proj')
     // A trailing separator is not a slug segment.
     assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/nova-x1/`), repo)
   }
@@ -275,9 +275,9 @@ test('workspaceWorktree', async () => {
   // 32. Anything not inside a container is not a worktree path.
   {
     assert.equal(repoRootFromWorktreePath('/Users/example/project'), null, 'a plain checkout')
-    assert.equal(repoRootFromWorktreePath('/Users/example/.multicode-worktrees'), null, 'the container dir itself')
-    assert.equal(repoRootFromWorktreePath('/Users/example/.multicode-worktrees/project'), null, 'no slug segment')
-    assert.equal(repoRootFromWorktreePath('.multicode-worktrees/project/slug'), null, 'nothing before the marker')
+    assert.equal(repoRootFromWorktreePath('/Users/example/.sprintengine-worktrees'), null, 'the container dir itself')
+    assert.equal(repoRootFromWorktreePath('/Users/example/.sprintengine-worktrees/project'), null, 'no slug segment')
+    assert.equal(repoRootFromWorktreePath('.sprintengine-worktrees/project/slug'), null, 'nothing before the marker')
   }
 
   // 33. workspaceProjectRoot: the recorded project wins over the derived one, so a
@@ -286,7 +286,7 @@ test('workspaceWorktree', async () => {
   {
     assert.equal(
       workspaceProjectRoot({
-        folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+        folderPath: '/Users/example/.sprintengine-worktrees/project/chat-a1b2',
         worktree: { branch: 'agent/chat-a1b2', repoRoot: '/Users/example/other-checkout' },
       }),
       '/Users/example/other-checkout',
@@ -298,7 +298,7 @@ test('workspaceWorktree', async () => {
   {
     assert.equal(
       workspaceProjectRoot({
-        folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+        folderPath: '/Users/example/.sprintengine-worktrees/project/chat-a1b2',
         worktree: { branch: 'agent/chat-a1b2' },
       }),
       '/Users/example/project',
@@ -309,8 +309,8 @@ test('workspaceWorktree', async () => {
   //      the recorded answer peel all the way out, so such a chat files under the
   //      real project and never under the intermediate worktree.
   {
-    const nested = `${worktreeContainerPath('/Users/example/.multicode-worktrees/project/chat-a1b2')}/chat-e5f6`
-    assert.equal(nested, '/Users/example/.multicode-worktrees/project/.multicode-worktrees/chat-a1b2/chat-e5f6')
+    const nested = `${worktreeContainerPath('/Users/example/.sprintengine-worktrees/project/chat-a1b2')}/chat-e5f6`
+    assert.equal(nested, '/Users/example/.sprintengine-worktrees/project/.sprintengine-worktrees/chat-a1b2/chat-e5f6')
     assert.equal(
       workspaceProjectRoot({ folderPath: nested, worktree: { branch: 'agent/chat-e5f6' } }),
       '/Users/example/project',
@@ -319,7 +319,7 @@ test('workspaceWorktree', async () => {
     assert.equal(
       workspaceProjectRoot({
         folderPath: nested,
-        worktree: { branch: 'agent/chat-e5f6', repoRoot: '/Users/example/.multicode-worktrees/project/chat-a1b2' },
+        worktree: { branch: 'agent/chat-e5f6', repoRoot: '/Users/example/.sprintengine-worktrees/project/chat-a1b2' },
       }),
       '/Users/example/project',
       'a recorded intermediate worktree is peeled too',
@@ -350,18 +350,18 @@ test('workspaceWorktree', async () => {
     {
       const result = await resolveWorktreeSpawnFallback(
         'worktree',
-        '/proj/.multicode-worktrees/project/a',
+        '/proj/.sprintengine-worktrees/project/a',
         '/proj',
         existsAlways,
       )
-      assert.deepEqual(result, { fellBack: false, cwd: '/proj/.multicode-worktrees/project/a' })
+      assert.deepEqual(result, { fellBack: false, cwd: '/proj/.sprintengine-worktrees/project/a' })
     }
 
     // 14. Worktree cwd removed → fall back to the workspace folder and flag it.
     {
       const result = await resolveWorktreeSpawnFallback(
         'worktree',
-        '/proj/.multicode-worktrees/project/a',
+        '/proj/.sprintengine-worktrees/project/a',
         '/proj',
         existsNever,
       )
@@ -419,13 +419,13 @@ test('workspaceWorktree', async () => {
 
     // 26. Distinct gitRoot present on disk → spawn into the worktree.
     {
-      const result = await resolveWorkspaceTerminalCwd('/proj/.multicode-worktrees/project/a', '/proj', existsAlways)
-      assert.deepEqual(result, { cwd: '/proj/.multicode-worktrees/project/a', missing: false })
+      const result = await resolveWorkspaceTerminalCwd('/proj/.sprintengine-worktrees/project/a', '/proj', existsAlways)
+      assert.deepEqual(result, { cwd: '/proj/.sprintengine-worktrees/project/a', missing: false })
     }
 
     // 27. Distinct gitRoot gone from disk → missing, no cwd override.
     {
-      const result = await resolveWorkspaceTerminalCwd('/proj/.multicode-worktrees/project/a', '/proj', existsNever)
+      const result = await resolveWorkspaceTerminalCwd('/proj/.sprintengine-worktrees/project/a', '/proj', existsNever)
       assert.deepEqual(result, { cwd: null, missing: true })
     }
 

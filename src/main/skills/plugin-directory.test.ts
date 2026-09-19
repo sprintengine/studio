@@ -32,7 +32,7 @@ test('plugin-directory', async () => {
   const READ = async (file: { path: string }): Promise<Buffer> => Buffer.from(`bytes of ${file.path}\n`, 'utf8')
 
   async function workspace(): Promise<string> {
-    return mkdtemp(join(tmpdir(), 'multicode-plugin-dir-'))
+    return mkdtemp(join(tmpdir(), 'sprintengine-plugin-dir-'))
   }
 
   /** The whole directory lands, subdirectories and dotfiles included, with provenance. */

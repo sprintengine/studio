@@ -1,12 +1,12 @@
 import type { IpcMain } from 'electron'
-import type { MulticodeAuthState } from '../../shared/electron-api'
+import type { SprintEngineAuthState } from '../../shared/electron-api'
 
 // Identity and session.
 type AuthBridge = {
-  initialize(): Promise<MulticodeAuthState>
+  initialize(): Promise<SprintEngineAuthState>
   login(organizationId?: string | null): Promise<{ state: string; authorizationUrl: string }>
   logout(): Promise<{ loggedOut: true }>
-  refreshEntitlements(options?: { forceRefresh?: boolean }): Promise<MulticodeAuthState>
+  refreshEntitlements(options?: { forceRefresh?: boolean }): Promise<SprintEngineAuthState>
   openUpgrade(reason?: string): Promise<{ opened: true; url: string }>
 }
 

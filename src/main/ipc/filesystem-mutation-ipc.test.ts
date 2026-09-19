@@ -20,7 +20,7 @@ test('filesystem-mutation-ipc', async () => {
   }
 
   async function main(): Promise<void> {
-    const tempRoot = await mkdtemp(join(tmpdir(), 'multicode-fs-mutation-'))
+    const tempRoot = await mkdtemp(join(tmpdir(), 'sprintengine-fs-mutation-'))
     const ipcMain = createIpcMain()
 
     registerFilesystemMutationIpc(ipcMain as unknown as Parameters<typeof registerFilesystemMutationIpc>[0], {

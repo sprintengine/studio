@@ -26,7 +26,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { parseAgentStateFrame, renderAgentStatePluginTemplate, type AgentStateFrame } from './agent-state'
-import { compatStudioEnvEntry } from '../shared/studio-env'
+import { studioEnvEntry } from '../shared/studio-env'
 import { test } from 'vitest'
 
 test('opencode-agent-state', async () => {
@@ -93,14 +93,14 @@ test('opencode-agent-state', async () => {
   })
 
   async function run(): Promise<void> {
-    const workDir = await mkdtemp(join(tmpdir(), 'multicode-opencode-plugin-'))
+    const workDir = await mkdtemp(join(tmpdir(), 'sprintengine-opencode-plugin-'))
     const socketPath = join(workDir, 'agent-state.sock')
 
     // Rendered exactly the way installAgentStateReporter renders a plugin-file
     // registration. `.mjs` rather than the installed `.js` only because the temp
     // dir has no package.json to declare the module type.
     const template = await readFile(join(process.cwd(), 'resources', 'hooks', 'opencode-agent-state.mjs'), 'utf8')
-    const pluginPath = join(workDir, 'multicode-agent-state.mjs')
+    const pluginPath = join(workDir, 'sprintengine-agent-state.mjs')
     const rendered = renderAgentStatePluginTemplate(template, socketPath)
     assert.ok(rendered.includes(JSON.stringify(socketPath)), 'the socket path must be baked into the rendered plugin')
     assert.ok(
@@ -115,9 +115,9 @@ test('opencode-agent-state', async () => {
       driverPath,
       [
         "import { readFile } from 'node:fs/promises'",
-        `import { MulticodeAgentState } from ${JSON.stringify(pluginPath)}`,
+        `import { SprintEngineAgentState } from ${JSON.stringify(pluginPath)}`,
         'const spec = JSON.parse(await readFile(process.argv[2], "utf8"))',
-        'const hooks = await MulticodeAgentState({ directory: spec.directory })',
+        'const hooks = await SprintEngineAgentState({ directory: spec.directory })',
         'for (const call of spec.calls) await hooks["tool.execute.after"](call.input, call.output)',
         '',
       ].join('\n'),
@@ -146,9 +146,9 @@ test('opencode-agent-state', async () => {
                 // session the launch env carries the LIVE app's socket, and
                 // inheriting it would send these frames to the real app. Both
                 // spellings: the plugin reads SPRINTENGINE_* first.
-                ...compatStudioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', socketPath),
-                ...compatStudioEnvEntry('SPRINTENGINE_AGENT_ID', 'oc-agent'),
-                ...compatStudioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'oc-ws'),
+                ...studioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', socketPath),
+                ...studioEnvEntry('SPRINTENGINE_AGENT_ID', 'oc-agent'),
+                ...studioEnvEntry('SPRINTENGINE_WORKSPACE_ID', 'oc-ws'),
               },
               stdio: ['ignore', 'inherit', 'inherit'],
             })

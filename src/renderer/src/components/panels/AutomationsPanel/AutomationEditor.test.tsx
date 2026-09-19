@@ -86,7 +86,7 @@ test('AutomationEditor', async () => {
     <AutomationEditor
       editor={{ mode: 'create' }}
       providers={blockedProviders}
-      workspaceRoot="/tmp/multicode-automation-editor"
+      workspaceRoot="/tmp/sprintengine-automation-editor"
       onCancel={() => {}}
       onSaved={() => {}}
     />,
@@ -329,7 +329,7 @@ test('AutomationEditor', async () => {
     <AutomationEditor
       editor={{ mode: 'edit', definition: definition(webhookTrigger) }}
       providers={familyProviders}
-      workspaceRoot="/tmp/multicode-automation-editor"
+      workspaceRoot="/tmp/sprintengine-automation-editor"
       onCancel={() => {}}
       onSaved={() => {}}
     />,
@@ -340,13 +340,13 @@ test('AutomationEditor', async () => {
     'webhook shows the delivery URL with the configured path',
   )
   assert.match(webhookMarkup, /Regenerate secret/, 'a stored webhook secret offers regenerate, never the value')
-  assert.match(webhookMarkup, /x-multicode-signature/, 'webhook shows the HMAC signature header as helper text')
+  assert.match(webhookMarkup, /x-sprintengine-signature/, 'webhook shows the HMAC signature header as helper text')
 
   const cronMarkup = renderToStaticMarkup(
     <AutomationEditor
       editor={{ mode: 'edit', definition: definition(cronTrigger) }}
       providers={familyProviders}
-      workspaceRoot="/tmp/multicode-automation-editor"
+      workspaceRoot="/tmp/sprintengine-automation-editor"
       onCancel={() => {}}
       onSaved={() => {}}
     />,
@@ -405,7 +405,7 @@ test('AutomationEditor', async () => {
     <AutomationEditor
       editor={{ mode: 'create' }}
       providers={spawnAgentProviders}
-      workspaceRoot="/tmp/multicode-automation-editor"
+      workspaceRoot="/tmp/sprintengine-automation-editor"
       onCancel={() => {}}
       onSaved={() => {}}
     />,
@@ -475,7 +475,7 @@ test('AutomationEditor', async () => {
     <AutomationEditor
       editor={{ mode: 'create' }}
       providers={connectorProviders}
-      workspaceRoot="/tmp/multicode-automation-editor"
+      workspaceRoot="/tmp/sprintengine-automation-editor"
       onCancel={() => {}}
       onSaved={() => {}}
     />,
@@ -506,7 +506,7 @@ test('AutomationEditor', async () => {
     <AutomationEditor
       editor={{ mode: 'edit', definition: connectorEditDef }}
       providers={connectorProviders}
-      workspaceRoot="/tmp/multicode-automation-editor"
+      workspaceRoot="/tmp/sprintengine-automation-editor"
       onCancel={() => {}}
       onSaved={() => {}}
     />,
@@ -571,8 +571,8 @@ test('AutomationEditor', async () => {
     name: 'Dead code sweep',
     action: { kind: 'spawn-agent', config: { prompt: 'Find code in this repository that nothing reaches.' } },
     runInWorktree: true,
-    sourceCatalogueId: 'multicode.dead-code-sweep',
-    sourcePublisher: 'Multicode Labs',
+    sourceCatalogueId: 'sprintengine.dead-code-sweep',
+    sourcePublisher: 'SprintEngine Labs',
   }
 
   function renderEditor(def: AutomationDefinition): string {
@@ -580,7 +580,7 @@ test('AutomationEditor', async () => {
       <AutomationEditor
         editor={{ mode: 'edit', definition: def }}
         providers={starterProviders}
-        workspaceRoot="/tmp/multicode-automation-editor"
+        workspaceRoot="/tmp/sprintengine-automation-editor"
         onCancel={() => {}}
         onSaved={() => {}}
       />,
@@ -590,7 +590,7 @@ test('AutomationEditor', async () => {
   const starterMarkup = renderEditor(starterDefinition)
 
   assert.match(starterMarkup, /Dead code sweep/, 'the head carries the automation name, edited in place')
-  assert.match(starterMarkup, /Multicode Labs/, 'the head names the publisher beneath it')
+  assert.match(starterMarkup, /SprintEngine Labs/, 'the head names the publisher beneath it')
   // "Plugins shelf", not "Extensions shelf". The catalogue an installed automation
   // comes from is a VIEW of the Extensions door, and it is called Plugins — the
   // editor has said so since the door took its views (AutomationEditor.tsx, the
@@ -640,7 +640,7 @@ test('AutomationEditor', async () => {
   })
   assert.match(handWrittenMarkup, /Written in this project/, 'a hand-written automation names no shelf')
   assert.doesNotMatch(handWrittenMarkup, /Extensions shelf/, 'and is not dressed up as a starter')
-  assert.doesNotMatch(handWrittenMarkup, /Multicode Labs/, 'with no publisher line')
+  assert.doesNotMatch(handWrittenMarkup, /SprintEngine Labs/, 'with no publisher line')
 
   // The runtime the picker shows is the one the RUN resolves, in the launch's own
   // order: the definition's cli, else the last-selected one, else the catalog. A

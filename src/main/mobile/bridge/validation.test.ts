@@ -175,7 +175,7 @@ test('validation', async () => {
   // re-pair that granted it is silently undone on the next desktop restart, and the
   // owner's phone disappears from the paired list with nothing in the log to say why.
   async function assertStoreKeepsDeviceGrantedAutomationsControl(): Promise<void> {
-    const dir = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-validation-'))
+    const dir = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-bridge-validation-'))
     const storePath = join(dir, 'mobile-bridge.json')
     await writeFile(
       storePath,
@@ -230,7 +230,7 @@ test('validation', async () => {
 
   // And the whole way through the store, since dropping happens there.
   async function assertStoreKeepsDeviceStampedOneVersionBack(): Promise<void> {
-    const dir = await mkdtemp(join(tmpdir(), 'multicode-mobile-bridge-window-'))
+    const dir = await mkdtemp(join(tmpdir(), 'sprintengine-mobile-bridge-window-'))
     const storePath = join(dir, 'mobile-bridge.json')
     await writeFile(
       storePath,
@@ -255,7 +255,7 @@ test('validation', async () => {
   // so a link is never accepted by the command gate and refused by the scanner.
   function assertPairingLinkFollowsTheSameWindow(): void {
     const link = (version: number): string =>
-      `multicode://mobile/pair?mobileControlProtocolVersion=${version}` +
+      `sprintengine://mobile/pair?mobileControlProtocolVersion=${version}` +
       '&pairingChallengeId=pc_1&relayUrl=https://relay.example.com&pairingSecret=s3cret' +
       '&expiresAt=2026-09-14T10:00:30.000Z&desktopName=mac-mini&desktopInstanceId=mdi_test'
 

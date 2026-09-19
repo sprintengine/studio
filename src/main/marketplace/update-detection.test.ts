@@ -22,7 +22,7 @@ test('update-detection', async () => {
     return {
       id,
       name: `${id} Plugin`,
-      publisher: { name: 'Multicode Labs', verified: true },
+      publisher: { name: 'SprintEngine Labs', verified: true },
       summary: `${id} summary.`,
       category: 'dev-tools',
       icon: `icons/${id}.svg`,

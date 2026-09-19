@@ -133,17 +133,17 @@ function getManagedNpmPrefixDir(platform: NodeJS.Platform = process.platform): s
   const override = readStudioEnv('SPRINTENGINE_NODE_PREFIX')
   if (override && override.trim()) return override.trim()
   if (platform === 'win32') {
-    return join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'Multicode', 'node')
+    return join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'SprintEngine', 'node')
   }
-  return join(homedir(), '.multicode', 'node')
+  return join(homedir(), '.sprintengine', 'node')
 }
 
 /** Directory holding the managed `node`/`npm` shims. */
 function getManagedRuntimeShimDir(platform: NodeJS.Platform = process.platform): string {
   if (platform === 'win32') {
-    return join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'Multicode', 'runtime-bin')
+    return join(process.env['LOCALAPPDATA'] ?? join(homedir(), 'AppData', 'Local'), 'SprintEngine', 'runtime-bin')
   }
-  return join(homedir(), '.multicode', 'runtime-bin')
+  return join(homedir(), '.sprintengine', 'runtime-bin')
 }
 
 /**

@@ -3,7 +3,7 @@
 // agent-state hook into the user's repository.
 //
 // Why it exists. Everything this app shipped a workspace used to live in that
-// workspace — `.multicode/studio-plugin`, `.multicode/hooks/agent-state.mjs`,
+// workspace — `.sprintengine/studio-plugin`, `.sprintengine/hooks/agent-state.mjs`,
 // hook entries in `.claude/settings.local.json`. That has three costs a person
 // actually feels: the files show up in their repository, a colleague who never
 // ran this app inherits hook commands naming paths that do not exist on their
@@ -12,12 +12,12 @@
 // none of them: the copy lives here, the flag applies to that one session, and
 // a CLI started any other way sees nothing.
 //
-// What the directory holds, and why here rather than `~/.multicode`. One
+// What the directory holds, and why here rather than `~/.sprintengine`. One
 // materialised copy of the bundled marketplace per PLUGIN VERSION, under this
 // profile's userData directory. Two of the values substituted into it — the
 // node binary that runs the MCP bridge, and the bridge script itself — belong
 // to the build that wrote them, so the copy cannot be shared across builds; a
-// dev build (whose userData is its own `multicode-dev-<port>` directory) and a
+// dev build (whose userData is its own `sprintengine-dev-<port>` directory) and a
 // packaged build therefore never overwrite each other's, which is exactly the
 // collision the shared workspace file had.
 //

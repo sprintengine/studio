@@ -88,7 +88,7 @@ const IDENTITY_DISCOVERY_PATH = '/api/auth/identity'
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 3000
 const ACCESS_TOKEN_REFRESH_MARGIN_MS = 60_000
 
-export class MulticodeAccountClient {
+export class SprintEngineAccountClient {
   private accessToken: string | null = null
   private accessTokenExpiresAt = 0
   private selectedOrganizationId: string | null = null

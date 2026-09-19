@@ -2,7 +2,7 @@
 // (backlog/2026-09-06-a-plugins-own-files-must-land-before-its-server-can-start.md).
 //
 // The app already does exactly this for its own plugin: `studio-plugin.ts`
-// materialises the bundled tree into `<workspace>/.multicode/studio-plugin` and
+// materialises the bundled tree into `<workspace>/.sprintengine/studio-plugin` and
 // substitutes the tokens, so the command it writes points at real files. A
 // plugin from a source needs the same treatment, and this is it — the copy;
 // `src/shared/mcp/plugin-root.ts` is the substitution.
@@ -18,12 +18,12 @@
 // lands. It is small in practice: telegram is 11 files and 89 KB at
 // 85cce0381e7860082641b59d961a2b8c368b8b79.
 //
-// **Where it lands: `<workspace>/.multicode/claude-plugins/<plugin id>`.**
-// Beside `.multicode/studio-plugin`, in the app-owned per-workspace directory
+// **Where it lands: `<workspace>/.sprintengine/claude-plugins/<plugin id>`.**
+// Beside `.sprintengine/studio-plugin`, in the app-owned per-workspace directory
 // the agent-state reporter already lives in — a plugin's directory is
 // per-workspace because installs are, and it must be writable because
-// `bun install` writes `node_modules` into it. NOT `.multicode/plugins`:
-// `plugin-registry.ts` uses `~/.multicode/plugins` for the studio's own modules,
+// `bun install` writes `node_modules` into it. NOT `.sprintengine/plugins`:
+// `plugin-registry.ts` uses `~/.sprintengine/plugins` for the studio's own modules,
 // and a person who opens their home directory as a workspace would have the two
 // meet.
 //
@@ -46,19 +46,19 @@ import { DEFAULT_SKILL_INSTALL_MAX_FILES, DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES,
 import { isPathStrictlyInside } from '../path-containment'
 
 /** Where a source's plugins land inside a workspace. */
-export const PLUGIN_WORKSPACE_DIR = join('.multicode', 'claude-plugins')
+export const PLUGIN_WORKSPACE_DIR = join('.sprintengine', 'claude-plugins')
 
 /**
  * The provenance marker, written last into each copied plugin directory so a
  * plugin shipping a file of this name cannot forge its own provenance.
  *
- * Its own name rather than the skill installer's `.multicode-skill.json`: a
+ * Its own name rather than the skill installer's `.sprintengine-skill.json`: a
  * plugin directory is not a skill directory, no skill sync may claim it, and
  * one reader recognising both shapes is how a marker ends up meaning the wrong
  * thing. It is also the guard on the destination — a directory carrying no
  * marker of ours is somebody else's and is never written over.
  */
-export const PLUGIN_PROVENANCE_FILE = '.multicode-plugin.json'
+export const PLUGIN_PROVENANCE_FILE = '.sprintengine-plugin.json'
 
 /** One file of a plugin's own directory, relative to that directory. */
 export type PluginDirectoryFile = { path: string; size: number }
@@ -182,12 +182,12 @@ export async function installPluginDirectory(
   if (!standing && (await exists(destination))) {
     return {
       ok: false,
-      message: `${destination} already exists and was not written by Multicode, so ${options.pluginId} was not installed.`,
+      message: `${destination} already exists and was not written by SprintEngine, so ${options.pluginId} was not installed.`,
     }
   }
 
   const maxTotalBytes = options.maxTotalBytes ?? DEFAULT_SKILL_INSTALL_MAX_TOTAL_BYTES
-  const stagingRoot = options.stagingRoot ?? join(tmpdir(), 'multicode-plugin-install')
+  const stagingRoot = options.stagingRoot ?? join(tmpdir(), 'sprintengine-plugin-install')
   let stage: string | null = null
   try {
     await mkdir(stagingRoot, { recursive: true })

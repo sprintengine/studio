@@ -477,7 +477,7 @@ test('remoteSessionsModel', async () => {
 
   // ── remoteWorkspaceName / remoteConversationTitle ────────────────────────
   // The CHAT's name, never the agent's (owner, 2026-09-13).
-  assert.equal(remoteWorkspaceName('Tara Boyle', 'multicode'), 'multicode')
+  assert.equal(remoteWorkspaceName('Tara Boyle', 'sprintengine'), 'sprintengine')
   assert.equal(
     remoteWorkspaceName('Tara Boyle', '  '),
     'Tara Boyle',
@@ -487,15 +487,23 @@ test('remoteSessionsModel', async () => {
 
   const titled = (name: string, workspaceName: string | undefined) =>
     remoteConversationTitle({ name, remoteOrigin: workspaceName === undefined ? null : ({ workspaceName } as never) })
-  assert.equal(titled('Tara Boyle · multicode', 'multicode'), 'multicode', 'a row stored under the old rule is rescued')
-  assert.equal(titled('multicode', 'multicode'), 'multicode', 'a row already named for its chat is left alone')
-  assert.equal(titled('Ship the release', 'multicode'), 'Ship the release', 'a name a person chose is theirs')
   assert.equal(
-    titled(' · multicode', 'multicode'),
-    ' · multicode',
+    titled('Tara Boyle · sprintengine', 'sprintengine'),
+    'sprintengine',
+    'a row stored under the old rule is rescued',
+  )
+  assert.equal(titled('sprintengine', 'sprintengine'), 'sprintengine', 'a row already named for its chat is left alone')
+  assert.equal(titled('Ship the release', 'sprintengine'), 'Ship the release', 'a name a person chose is theirs')
+  assert.equal(
+    titled(' · sprintengine', 'sprintengine'),
+    ' · sprintengine',
     'no agent in front of it: not the old rule, not rewritten',
   )
-  assert.equal(titled('Tara Boyle · multicode', undefined), 'Tara Boyle · multicode', 'a local row is never touched')
+  assert.equal(
+    titled('Tara Boyle · sprintengine', undefined),
+    'Tara Boyle · sprintengine',
+    'a local row is never touched',
+  )
   assert.equal(titled('Tara Boyle', ''), 'Tara Boyle', 'a remote that never named its chat leaves the name as it is')
 
   console.log('remote sessions model tests passed')

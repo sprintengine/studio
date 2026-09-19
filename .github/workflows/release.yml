@@ -135,12 +135,12 @@ jobs:
           - name: windows
             os: windows-2022
             runtimeArgs: --platform win32 --arch x64
-            artifactName: multicode-windows
+            artifactName: sprintengine-windows
           - name: macos-x64
             os: macos-15-intel
             builderArgs: --mac --x64
             runtimeArgs: --platform darwin --arch x64
-            artifactName: multicode-macos-x64
+            artifactName: sprintengine-macos-x64
           # The self-hosted runner lives in ~/actions-runner on the INTERNAL
           # disk: macOS TCC refuses to exec a LaunchAgent from an external
           # volume ("Operation not permitted"), so do not relocate it to
@@ -152,11 +152,11 @@ jobs:
             os: ""
             builderArgs: --mac --arm64
             runtimeArgs: --platform darwin --arch arm64
-            artifactName: multicode-macos-arm64
+            artifactName: sprintengine-macos-arm64
           - name: linux
             os: ubuntu-latest
             runtimeArgs: --platform linux --arch x64
-            artifactName: multicode-linux
+            artifactName: sprintengine-linux
 
     env:
       VERSION: ${{ needs.validate.outputs.version }}
@@ -342,7 +342,7 @@ jobs:
       - name: Download packaged artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: multicode-*-${{ needs.validate.outputs.version }}
+          pattern: sprintengine-*-${{ needs.validate.outputs.version }}
           merge-multiple: true
           path: release-assets
 

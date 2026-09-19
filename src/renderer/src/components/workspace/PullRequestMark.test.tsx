@@ -51,9 +51,9 @@ test('PullRequestMark', async () => {
   const DAY = 24 * HOUR
 
   const pr = (over: Partial<BranchPullRequest> & { number: number }): BranchPullRequest => ({
-    url: `https://github.com/acme/multicode/pull/${over.number}`,
-    repoKey: 'github.com/acme/multicode',
-    repoName: 'multicode',
+    url: `https://github.com/acme/sprintengine/pull/${over.number}`,
+    repoKey: 'github.com/acme/sprintengine',
+    repoName: 'sprintengine',
     title: `Pull request ${over.number}`,
     state: 'open',
     isDraft: false,
@@ -165,17 +165,17 @@ test('PullRequestMark', async () => {
 
     await run('a list spanning repositories names the repo on every line — and only then', () => {
       const list = [
-        pr({ number: 12, repoKey: 'github.com/acme/multicode-website', repoName: 'multicode-website' }),
+        pr({ number: 12, repoKey: 'github.com/acme/sprintengine-website', repoName: 'sprintengine-website' }),
         pr({ number: 411, state: 'merged', openedAt: NOW - 2 * DAY }),
       ]
       assert.equal(pullRequestsSpanRepositories(list), true)
       assert.equal(pullRequestsSpanRepositories([list[1]!]), false)
       const copy = sidebarMarkCopy(list)
-      assert.equal(copy?.title, `multicode-website ${num(12)} · open`)
-      assert.deepEqual(copy?.lines, ['Open it on GitHub', `Earlier: multicode ${num(411)} · merged`])
+      assert.equal(copy?.title, `sprintengine-website ${num(12)} · open`)
+      assert.deepEqual(copy?.lines, ['Open it on GitHub', `Earlier: sprintengine ${num(411)} · merged`])
       assert.equal(
         copy?.ariaLabel,
-        'Pull request 12 in multicode-website, open. Earlier: pull request 411 in multicode, merged. Open it on GitHub',
+        'Pull request 12 in sprintengine-website, open. Earlier: pull request 411 in sprintengine, merged. Open it on GitHub',
       )
     })
 
@@ -198,9 +198,9 @@ test('PullRequestMark', async () => {
       // never can. Rendered naively that was a bold empty line over the identity
       // line, and "Pull request 418, open: . Open it on GitHub" out loud.
       const captured: BranchPullRequest = {
-        url: 'https://github.com/acme/multicode/pull/418',
-        repoKey: 'github.com/acme/multicode',
-        repoName: 'multicode',
+        url: 'https://github.com/acme/sprintengine/pull/418',
+        repoKey: 'github.com/acme/sprintengine',
+        repoName: 'sprintengine',
         number: 418,
         title: '',
         state: 'open',
@@ -491,7 +491,7 @@ test('PullRequestMark', async () => {
       await act(async () => {
         rows()[2]!.click()
       })
-      assert.deepEqual(opened, ['https://github.com/acme/multicode/pull/402'], 'the row it chose')
+      assert.deepEqual(opened, ['https://github.com/acme/sprintengine/pull/402'], 'the row it chose')
       assert.equal(menuSurface(), null, 'and the menu closed behind it')
       assert.equal(primaryName(), before, 'the primary is a rule, not a memory of what you picked')
       view.unmount()
@@ -655,7 +655,7 @@ test('PullRequestMark', async () => {
       await act(async () => {
         view.host.querySelector<HTMLElement>('[data-pull-request-mark]')!.click()
       })
-      assert.deepEqual(opened, ['https://github.com/acme/multicode/pull/418'])
+      assert.deepEqual(opened, ['https://github.com/acme/sprintengine/pull/418'])
       view.unmount()
     })
 
@@ -720,7 +720,7 @@ test('PullRequestMark', async () => {
       const host = document.createElement('div')
       document.body.append(host)
       const root = createRoot(host)
-      act(() => root.render(<ProjectPullRequestMark openCount={3} projectName="multicode" />))
+      act(() => root.render(<ProjectPullRequestMark openCount={3} projectName="sprintengine" />))
       assert.equal(host.querySelector('button'), null, "a button here would steal the folder header's own click")
       act(() => root.unmount())
       host.remove()

@@ -11,17 +11,17 @@ import type {
 import { translateRetiredAutonomy, withoutWriteUpOnlyMarker } from '../../shared/automations/contracts'
 import { isRecord } from '../../shared/records'
 import { workspaceSidecarPath } from '../workspace-sidecar'
-import { knownSidecarDirName, SIDECAR_DIR_NAME, sidecarRelativePath } from '../../shared/workspace-sidecar'
+import { sidecarRelativePath } from '../../shared/workspace-sidecar'
 
-/** Workspace-relative, under the sidecar this workspace uses. */
-export function automationsStoreDirectory(workspaceRoot: string): string {
-  return sidecarRelativePath(knownSidecarDirName(workspaceRoot), 'automations')
+/** Workspace-relative, under the workspace's sidecar. */
+export function automationsStoreDirectory(): string {
+  return sidecarRelativePath('automations')
 }
 
 // What a store problem names when it is about the store as a whole rather than
 // one file in it. No workspace is in scope at either site, and the label is read
 // by a person, not opened.
-const AUTOMATIONS_STORE_LABEL = sidecarRelativePath(SIDECAR_DIR_NAME, 'automations')
+const AUTOMATIONS_STORE_LABEL = sidecarRelativePath('automations')
 const AUTOMATION_RUN_HISTORY_LIMIT = 50
 
 export type AutomationStoreProblemCode =

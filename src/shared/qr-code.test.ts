@@ -233,7 +233,8 @@ test('qr-code', async () => {
   check('a pairing URL round-trips through the symbol', () => {
     // The real payload shape: the custom scheme, an endpoint with an escaped
     // colon, and a pairing token of the length the device store mints.
-    const url = 'multicode-tailnet://pair?endpoint=100.101.102.103%3A8471&token=mcpair_5nJqT2xW9bK4mZpR7vY1cD8fH3aL0sGe'
+    const url =
+      'sprintengine-tailnet://pair?endpoint=100.101.102.103%3A8471&token=mcpair_5nJqT2xW9bK4mZpR7vY1cD8fH3aL0sGe'
     const matrix = encodeQrCode(url)
     assert.ok(matrix, 'a pairing URL must fit')
     assert.equal(decode(matrix), url)
@@ -241,7 +242,7 @@ test('qr-code', async () => {
 
   check('an IPv6 endpoint, the longest pairing URL we can produce, round-trips', () => {
     const url =
-      'multicode-tailnet://pair?endpoint=%5Bfd7a%3A115c%3Aa1e0%3Aab12%3A4843%3Acd96%3A6265%3A1a2b%5D%3A8471' +
+      'sprintengine-tailnet://pair?endpoint=%5Bfd7a%3A115c%3Aa1e0%3Aab12%3A4843%3Acd96%3A6265%3A1a2b%5D%3A8471' +
       '&token=mcpair_5nJqT2xW9bK4mZpR7vY1cD8fH3aL0sGe'
     const matrix = encodeQrCode(url)
     assert.ok(matrix, 'an IPv6 pairing URL must fit')
@@ -281,7 +282,7 @@ test('qr-code', async () => {
   })
 
   check('function patterns land where a scanner looks for them', () => {
-    const matrix = encodeQrCode('multicode-tailnet://pair?endpoint=100.64.0.1%3A8471&token=mcpair_abc')
+    const matrix = encodeQrCode('sprintengine-tailnet://pair?endpoint=100.64.0.1%3A8471&token=mcpair_abc')
     assert.ok(matrix)
     const { modules, size } = matrix
     for (const [originX, originY] of [

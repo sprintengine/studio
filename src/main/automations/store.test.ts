@@ -27,7 +27,7 @@ test('store', async () => {
   }
 
   async function createWorkspace(): Promise<string> {
-    return mkdtemp(join(tmpdir(), 'multicode-automations-'))
+    return mkdtemp(join(tmpdir(), 'sprintengine-automations-'))
   }
 
   function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {

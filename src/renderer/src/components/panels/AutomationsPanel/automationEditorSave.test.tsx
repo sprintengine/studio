@@ -131,8 +131,8 @@ test('automationEditorSave', async () => {
       ...baseDefinition,
       id: 'auto-2',
       name: 'Dead code sweep',
-      sourceCatalogueId: 'multicode.dead-code-sweep',
-      sourcePublisher: 'Multicode Labs',
+      sourceCatalogueId: 'sprintengine.dead-code-sweep',
+      sourcePublisher: 'SprintEngine Labs',
     }
 
     async function mount(

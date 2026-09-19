@@ -98,7 +98,7 @@ test('repo-transport', async () => {
 
   /** Deps every case shares: no token, no seed on disk, and an API that throws. */
   async function serviceWith(extra: Partial<SkillsServiceDeps>): Promise<ReturnType<typeof createSkillsService>> {
-    const userData = await mkdtemp(join(tmpdir(), 'multicode-repo-transport-'))
+    const userData = await mkdtemp(join(tmpdir(), 'sprintengine-repo-transport-'))
     return createSkillsService(
       userData,
       {

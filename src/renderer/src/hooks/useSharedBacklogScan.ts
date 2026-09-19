@@ -13,7 +13,7 @@ import { collectDanglingMockups } from '../utils/backlogMockups'
 import { formatBacklogDisplayId } from '../../../shared/backlog/item-id'
 import { normalizeProjectRootKey } from '../utils/projectKnowledge'
 import type { BacklogItemRecordInput } from '../../../shared/electron-api'
-import { knownSidecarDirName, sidecarRelativePath } from '../../../shared/workspace-sidecar'
+import { sidecarRelativePath } from '../../../shared/workspace-sidecar'
 
 // Project-folder-keyed shared Backlog scan, modeled on the shared-subscription
 // pattern in useGitStatus: workspaces are grouped by folder, so several
@@ -98,8 +98,8 @@ async function defaultBacklogScanRunner(folderPath: string): Promise<BacklogScan
     })
   let result: BacklogScanResult
   if (ensured?.ok) result = hydrateBacklogScanResult(scanned, ensured.store)
-  else if (ensured && !ensured.ok) result = mergeMetadataError(scanned, folderPath, ensured.message)
-  else if (metadataError) result = mergeMetadataError(scanned, folderPath, metadataError)
+  else if (ensured && !ensured.ok) result = mergeMetadataError(scanned, ensured.message)
+  else if (metadataError) result = mergeMetadataError(scanned, metadataError)
   else result = scanned
   return annotateBacklogDanglingMockups(folderPath, await allocateBacklogItemIds(folderPath, result))
 }
@@ -171,8 +171,8 @@ function emit(subscription: BacklogScanSubscription): void {
   subscription.subscribers.forEach((subscriber) => subscriber(snapshot))
 }
 
-function mergeMetadataError(scan: BacklogScanResult, folderPath: string, message: string): BacklogScanResult {
-  const relativePath = sidecarRelativePath(knownSidecarDirName(folderPath), 'backlog', 'items.json')
+function mergeMetadataError(scan: BacklogScanResult, message: string): BacklogScanResult {
+  const relativePath = sidecarRelativePath('backlog', 'items.json')
   const errors = [...scan.errors, { relativePath, message }]
   return scan.items.length > 0 ? { state: 'partial', items: scan.items, errors } : { state: 'error', items: [], errors }
 }

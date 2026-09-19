@@ -29,8 +29,8 @@ test('arrivals', async () => {
     const home = mkdtempSync(join(tmpdir(), 'ds-arrivals-'))
     return {
       home,
-      registryPath: join(home, '.multicode', 'design-systems.json'),
-      legacyRoot: join(home, '.multicode', 'design-systems'),
+      registryPath: join(home, '.sprintengine', 'design-systems.json'),
+      legacyRoot: join(home, '.sprintengine', 'design-systems'),
     }
   }
 

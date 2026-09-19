@@ -128,11 +128,11 @@ export const app = {
   // when a suite wants to look at what was written, under either of its names
   // because this stub cannot import the TypeScript seam that reconciles them.
   getPath(name: string) {
-    const override = process.env.SPRINTENGINE_USER_DATA_DIR ?? process.env.MULTICODE_USER_DATA_DIR
+    const override = process.env.SPRINTENGINE_USER_DATA_DIR ?? process.env.SPRINTENGINE_USER_DATA_DIR
     const base =
       override && override.trim().length > 0
         ? override.trim()
-        : join(tmpdir(), `multicode-electron-stub-${process.pid}`)
+        : join(tmpdir(), `sprintengine-electron-stub-${process.pid}`)
     mkdirSync(base, { recursive: true })
     return name === 'userData' ? base : join(base, String(name))
   },

@@ -19,8 +19,8 @@ import { normalizeWorkspaceFileExplorerState, normalizeWorkspaceMode } from './w
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
 import { dedupeAutomationsHostWorkspaces, dropRetiredModeWorkspaces, mapMigrationWorkspaces } from './normalizers'
 
-export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
-export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
+export const WORKSPACE_STORAGE_KEY = 'sprintengine-workspaces'
+export const APP_SETTINGS_STORAGE_KEY = 'sprintengine-app-settings'
 export const WORKSPACE_STORE_VERSION = 76
 export const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const LEGACY_WORKSPACE_STORAGE_KEY = ['free', 'ai', 'ide', 'workspaces'].join('-')

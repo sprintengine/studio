@@ -11,7 +11,7 @@ import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import SidebarAccountBar from './SidebarAccountBar'
-import type { MulticodeAuthState } from '../../../../shared/electron-api'
+import type { SprintEngineAuthState } from '../../../../shared/electron-api'
 import { test } from 'vitest'
 
 test('SidebarAccountBar.entitlements', async () => {
@@ -52,8 +52,8 @@ test('SidebarAccountBar.entitlements', async () => {
   function state(
     planCode: string,
     features: Record<string, boolean>,
-    entitlementStatus: MulticodeAuthState['entitlementStatus'] = 'fresh',
-  ): MulticodeAuthState {
+    entitlementStatus: SprintEngineAuthState['entitlementStatus'] = 'fresh',
+  ): SprintEngineAuthState {
     return {
       authenticated: true,
       user: { id: 'u1', email: 'dev@example.com', displayName: 'Dev Person', photoUrl: null },
@@ -61,7 +61,7 @@ test('SidebarAccountBar.entitlements', async () => {
       entitlements: {
         userId: 'u1',
         organizationId: 'o1',
-        product: 'multicode',
+        product: 'sprintengine',
         roles: [],
         features,
         limits: {},
@@ -78,10 +78,10 @@ test('SidebarAccountBar.entitlements', async () => {
       graceExpiresAt: null,
     }
   }
-  const FREE = { 'multicode.sprintengine': true, 'multicode.mobile_companion': false }
-  const PRO = { 'multicode.sprintengine': true, 'multicode.mobile_companion': true }
+  const FREE = { 'sprintengine.sprintengine': true, 'sprintengine.mobile_companion': false }
+  const PRO = { 'sprintengine.sprintengine': true, 'sprintengine.mobile_companion': true }
 
-  function render(authState: MulticodeAuthState): HTMLElement {
+  function render(authState: SprintEngineAuthState): HTMLElement {
     const host = dom.window.document.createElement('div')
     dom.window.document.body.appendChild(host)
     const root = createRoot(host as unknown as Element)

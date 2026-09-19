@@ -177,7 +177,7 @@ test('unattended-containment', async () => {
   }
 
   async function withStore(definition: AutomationDefinition): Promise<string> {
-    const root = await mkdtemp(join(tmpdir(), 'multicode-containment-'))
+    const root = await mkdtemp(join(tmpdir(), 'sprintengine-containment-'))
     const store = new AutomationsStore(root)
     const config = definition.action.config as Record<string, unknown>
     const created = await store.createDefinition({
@@ -356,7 +356,7 @@ test('unattended-containment', async () => {
   // repository at all, and one where `git worktree add` genuinely fails because
   // the run's branch is already checked out.
   async function assertRealWorktreeFailuresAreClassified(): Promise<void> {
-    const plainFolder = await realpath(await mkdtemp(join(tmpdir(), 'multicode-containment-plain-')))
+    const plainFolder = await realpath(await mkdtemp(join(tmpdir(), 'sprintengine-containment-plain-')))
     try {
       await assert.rejects(
         defaultCreateRunWorktree({ workspaceRoot: plainFolder, runId: 'run-1' }),
@@ -367,7 +367,7 @@ test('unattended-containment', async () => {
       await rm(plainFolder, { recursive: true, force: true })
     }
 
-    const repoRoot = await realpath(await mkdtemp(join(tmpdir(), 'multicode-containment-repo-')))
+    const repoRoot = await realpath(await mkdtemp(join(tmpdir(), 'sprintengine-containment-repo-')))
     try {
       for (const args of [
         ['init', '-q'],
@@ -399,7 +399,7 @@ test('unattended-containment', async () => {
   // about the record changes: it stays enabled, and neither the retired key nor
   // the marker derived from it is written back.
   async function assertLegacyReviewOnlyDefinitionKeepsItsIntent(): Promise<void> {
-    const root = await mkdtemp(join(tmpdir(), 'multicode-containment-legacy-'))
+    const root = await mkdtemp(join(tmpdir(), 'sprintengine-containment-legacy-'))
     const definitionsDirectory = join(root, '.sprintengine', 'automations', 'definitions')
     await mkdir(definitionsDirectory, { recursive: true })
     const definitionPath = join(definitionsDirectory, 'nightly-sweep.json')

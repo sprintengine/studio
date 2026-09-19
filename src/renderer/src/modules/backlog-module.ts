@@ -11,7 +11,7 @@ export const backlogRendererModule: RendererModule = {
     id: 'backlog',
     displayName: 'Backlog',
     version: 1,
-    publisher: 'multicode',
+    publisher: 'sprintengine',
     category: 'orchestration',
     summary: 'Local work-intake items backed by backlog files and sidecar metadata.',
     defaultEnabled: true,

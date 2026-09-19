@@ -55,12 +55,12 @@ import { isPathStrictlyInside } from './path-containment'
  * then attached to the rest. Its own copies are the studio's to remove; the
  * hand-authored original is not, and stays unmarked.
  *
- * Third shape of `.multicode-skill.json`, alongside the built-in manifest
+ * Third shape of `.sprintengine-skill.json`, alongside the built-in manifest
  * (src/main/builtin-skills.ts) and the source-install marker
  * (src/main/skills/install.ts). One filename for "the studio put this here";
  * each reader recognises only its own shape.
  */
-const ATTACHED_MARKER_SOURCE = 'multicode-attach'
+const ATTACHED_MARKER_SOURCE = 'sprintengine-attach'
 
 const NO_TARGET_MESSAGE = 'No agent CLI on this machine reads workspace skills.'
 
@@ -423,7 +423,7 @@ async function isManagedCopy(dir: string): Promise<boolean> {
   if (typeof parsed !== 'object' || parsed === null) return false
   const marker = parsed as { source?: unknown; sourceId?: unknown }
   return (
-    marker.source === 'multicode-builtin' ||
+    marker.source === 'sprintengine-builtin' ||
     marker.source === ATTACHED_MARKER_SOURCE ||
     (typeof marker.sourceId === 'string' && marker.sourceId !== '')
   )

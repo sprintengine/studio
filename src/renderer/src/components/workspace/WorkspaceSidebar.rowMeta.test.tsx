@@ -171,9 +171,9 @@ test('WorkspaceSidebar.rowMeta', async () => {
   const HOUR = 3_600_000
 
   const pullRequest = (over: Partial<BranchPullRequest> & { number: number }): BranchPullRequest => ({
-    url: `https://github.com/acme/multicode/pull/${over.number}`,
-    repoKey: 'github.com/acme/multicode',
-    repoName: 'multicode',
+    url: `https://github.com/acme/sprintengine/pull/${over.number}`,
+    repoKey: 'github.com/acme/sprintengine',
+    repoName: 'sprintengine',
     title: `Pull request ${over.number}`,
     state: 'open',
     isDraft: false,
@@ -200,7 +200,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
       /aria-label="Pull request 418, open. Open it on GitHub"/,
       'the spoken name carries the state and the consequence',
     )
-    assert.match(markup, /data-pull-request-mark="https:\/\/github.com\/acme\/multicode\/pull\/418"/)
+    assert.match(markup, /data-pull-request-mark="https:\/\/github.com\/acme\/sprintengine\/pull\/418"/)
     assert.match(markup, /color:var\(--accent-primary\)/, 'open inks in the accent')
     assert.doesNotMatch(markup, /<a /, 'a control, never an anchor: nothing here navigates in-app')
   })
@@ -488,25 +488,25 @@ test('WorkspaceSidebar.rowMeta', async () => {
 
   run('a worktree row groups under the project it was cut from, not under its own slug', () => {
     const parent = {
-      folderPath: '/home/dev/projects/multicode',
+      folderPath: '/home/dev/projects/sprintengine',
       layoutModel: { layout: { type: 'row', children: [] } },
     } as unknown as Workspace
     const parentKey = groupKeyOf(parent)
-    assert.equal(parentKey, '/home/dev/projects/multicode')
+    assert.equal(parentKey, '/home/dev/projects/sprintengine')
 
     // The row the Worktree manager writes today: it carries the project it came
     // from explicitly, so no path convention has to be trusted.
     const declared = {
-      folderPath: '/home/dev/projects/.multicode-worktrees/multicode/perf-review-wholesale',
-      worktree: { branch: 'wt/perf-review-wholesale', repoRoot: '/home/dev/projects/multicode' },
+      folderPath: '/home/dev/projects/.sprintengine-worktrees/sprintengine/perf-review-wholesale',
+      worktree: { branch: 'wt/perf-review-wholesale', repoRoot: '/home/dev/projects/sprintengine' },
       layoutModel: { layout: { type: 'row', children: [] } },
     } as unknown as Workspace
     assert.equal(groupKeyOf(declared), parentKey, 'the recorded project is the header')
 
     // A row written before that field existed: the container convention says
-    // where it came from — `<parent>/.multicode-worktrees/<repo>/<slug>`.
+    // where it came from — `<parent>/.sprintengine-worktrees/<repo>/<slug>`.
     const legacyWorktree = {
-      folderPath: '/home/dev/projects/.multicode-worktrees/multicode/perf-review-wholesale',
+      folderPath: '/home/dev/projects/.sprintengine-worktrees/sprintengine/perf-review-wholesale',
       worktree: { branch: 'wt/perf-review-wholesale' },
       layoutModel: { layout: { type: 'row', children: [] } },
     } as unknown as Workspace
@@ -515,7 +515,7 @@ test('WorkspaceSidebar.rowMeta', async () => {
     // A row whose folderPath is ALREADY the parent project, with no worktree
     // marker, files under that project unchanged.
     const atProjectRoot = {
-      folderPath: '/home/dev/projects/multicode',
+      folderPath: '/home/dev/projects/sprintengine',
       layoutModel: { layout: { type: 'row', children: [] } },
     } as unknown as Workspace
     assert.equal(groupKeyOf(atProjectRoot), parentKey, 'a row at the project root stays filed under it')

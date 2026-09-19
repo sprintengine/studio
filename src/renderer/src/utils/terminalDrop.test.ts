@@ -7,8 +7,8 @@ import {
   backlogSkillInvocationForDrop,
   formatDroppedPathsForTerminal,
   hasSkillDropData,
-  MULTICODE_FILE_DROP_MIME,
-  MULTICODE_SKILL_DROP_MIME,
+  SPRINTENGINE_FILE_DROP_MIME,
+  SPRINTENGINE_SKILL_DROP_MIME,
   pasteDroppedSkillIntoTerminal,
   sendFileDropToTerminal,
   sendSkillToTerminal,
@@ -851,7 +851,7 @@ test('terminalDrop', async () => {
 
   // --- the drop wrapper -------------------------------------------------------
 
-  function skillDataTransfer(value: unknown, mime = MULTICODE_SKILL_DROP_MIME): DataTransfer {
+  function skillDataTransfer(value: unknown, mime = SPRINTENGINE_SKILL_DROP_MIME): DataTransfer {
     const entries = new Map<string, string>([[mime, JSON.stringify(value)]])
     return {
       types: Array.from(entries.keys()),
@@ -870,7 +870,7 @@ test('terminalDrop', async () => {
       await pasteDroppedSkillIntoTerminal({
         dataTransfer: skillDataTransfer(
           { version: 1, skillId: 'backlog', workspaceId: 'workspace-1' },
-          MULTICODE_FILE_DROP_MIME,
+          SPRINTENGINE_FILE_DROP_MIME,
         ),
         sessionId: 'session-1',
         workspaceId: 'workspace-1',
@@ -921,13 +921,13 @@ test('terminalDrop', async () => {
     assert.equal(dataTransfer.effectAllowed, 'copy')
     assert.equal(hasSkillDropData(dataTransfer as unknown as DataTransfer), true)
     assert.equal(
-      entries.get(MULTICODE_SKILL_DROP_MIME),
+      entries.get(SPRINTENGINE_SKILL_DROP_MIME),
       JSON.stringify({ version: 1, skillId: 'backlog', workspaceId: 'workspace-1' }),
     )
     // Dropped somewhere that is not a terminal, the id is the useful text.
     assert.equal(entries.get('text/plain'), 'backlog')
     // A drag with no skill on it is not a skill drop.
-    assert.equal(hasSkillDropData({ types: [MULTICODE_FILE_DROP_MIME] } as unknown as DataTransfer), false)
+    assert.equal(hasSkillDropData({ types: [SPRINTENGINE_FILE_DROP_MIME] } as unknown as DataTransfer), false)
   }
 
   const suiteRun = testSlashCapableAgentGetsBacklogCommand()

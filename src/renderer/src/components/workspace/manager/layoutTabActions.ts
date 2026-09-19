@@ -175,7 +175,7 @@ export function cycleActiveLayoutTab(workspaceId: string, step: 1 | -1): boolean
   model.doAction(Actions.selectTab(nextTab.getId()))
   if (nextTab.getComponent() === 'editor') {
     window.requestAnimationFrame(() => {
-      window.dispatchEvent(new CustomEvent('multicode:focus-editor', { detail: { workspaceId } }))
+      window.dispatchEvent(new CustomEvent('sprintengine:focus-editor', { detail: { workspaceId } }))
     })
   }
   return true

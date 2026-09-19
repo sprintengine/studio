@@ -143,8 +143,8 @@ test('HunkGutter', async () => {
       const editor = fakeEditor()
       const view = mount(<HunkGutter editor={editor.host} boxes={boxesFor([4, 19])} onToggle={() => {}} />)
       assert.equal(editor.widgets.size, 2)
-      assert.equal(editor.lineOf('multicode.hunk-include.unstaged.0'), 4)
-      assert.equal(editor.lineOf('multicode.hunk-include.unstaged.1'), 19)
+      assert.equal(editor.lineOf('sprintengine.hunk-include.unstaged.0'), 4)
+      assert.equal(editor.lineOf('sprintengine.hunk-include.unstaged.1'), 19)
       // The lane is the centre one, and every widget asks for the same one.
       assert.deepEqual(
         [...editor.widgets.values()].map((widget) => widget.getPosition().lane),
@@ -233,7 +233,7 @@ test('HunkGutter', async () => {
       // Staging the first hunk shortens the file above the second one. Nothing
       // here caches an offset: new lines, new widgets.
       view.render(<HunkGutter editor={editor.host} boxes={boxesFor([4, 16])} onToggle={() => {}} />)
-      assert.equal(editor.lineOf('multicode.hunk-include.unstaged.1'), 16)
+      assert.equal(editor.lineOf('sprintengine.hunk-include.unstaged.1'), 16)
       assert.equal(editor.widgets.size, 2, 'and the old widget did not stay behind')
       view.unmount()
     })

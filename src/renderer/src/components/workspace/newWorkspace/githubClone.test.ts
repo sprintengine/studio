@@ -8,32 +8,32 @@ import { test } from 'vitest'
 test('githubClone', async () => {
   // --- validateCloneUrl -------------------------------------------------------
   {
-    const https = validateCloneUrl('https://github.com/octocat/multicode')
+    const https = validateCloneUrl('https://github.com/octocat/sprintengine')
     assert.ok(https.ok, 'a github web URL is a valid clone source')
-    assert.equal(https.ok && https.url, 'https://github.com/octocat/multicode', 'kept verbatim minus nothing')
-    assert.equal(https.ok && https.repoName, 'multicode', 'repo name from the last path segment')
+    assert.equal(https.ok && https.url, 'https://github.com/octocat/sprintengine', 'kept verbatim minus nothing')
+    assert.equal(https.ok && https.repoName, 'sprintengine', 'repo name from the last path segment')
     assert.equal(https.ok && https.httpsHost, 'github.com', 'host surfaces for token routing')
   }
   {
-    const suffixed = validateCloneUrl('https://github.com/octocat/multicode.git/')
+    const suffixed = validateCloneUrl('https://github.com/octocat/sprintengine.git/')
     assert.ok(suffixed.ok, '.git suffix and trailing slash are accepted')
-    assert.equal(suffixed.ok && suffixed.repoName, 'multicode', '.git is stripped from the name')
+    assert.equal(suffixed.ok && suffixed.repoName, 'sprintengine', '.git is stripped from the name')
   }
   {
-    const scp = validateCloneUrl('git@github.com:octocat/multicode.git')
+    const scp = validateCloneUrl('git@github.com:octocat/sprintengine.git')
     assert.ok(scp.ok, 'scp-style ssh is a valid clone source')
     assert.equal(scp.ok && scp.httpsHost, null, 'no https host — the token must never ride ssh')
-    assert.equal(scp.ok && scp.repoName, 'multicode')
+    assert.equal(scp.ok && scp.repoName, 'sprintengine')
   }
   {
-    const sshUrl = validateCloneUrl('ssh://git@github.com/octocat/multicode.git')
+    const sshUrl = validateCloneUrl('ssh://git@github.com/octocat/sprintengine.git')
     assert.ok(sshUrl.ok, 'ssh:// URLs are accepted')
   }
   {
-    const pageUrl = validateCloneUrl('https://github.com/octocat/multicode/tree/main/src')
+    const pageUrl = validateCloneUrl('https://github.com/octocat/sprintengine/tree/main/src')
     assert.ok(pageUrl.ok, 'a github.com page URL with a sub-path is accepted')
-    assert.equal(pageUrl.ok && pageUrl.url, 'https://github.com/octocat/multicode', 'normalized to the repo root')
-    assert.equal(pageUrl.ok && pageUrl.repoName, 'multicode')
+    assert.equal(pageUrl.ok && pageUrl.url, 'https://github.com/octocat/sprintengine', 'normalized to the repo root')
+    assert.equal(pageUrl.ok && pageUrl.repoName, 'sprintengine')
   }
   {
     const otherHost = validateCloneUrl('https://gitlab.example.com/group/sub/repo.git')
@@ -90,7 +90,7 @@ test('githubClone', async () => {
   // --- filterGitHubRepos ------------------------------------------------------
   const repos: GitHubRepoSummary[] = [
     repo,
-    { ...repo, fullName: 'octocat/multicode', name: 'multicode', description: 'SprintEngine Studio desktop app' },
+    { ...repo, fullName: 'octocat/sprintengine', name: 'sprintengine', description: 'SprintEngine Studio desktop app' },
   ]
   assert.equal(filterGitHubRepos(repos, '').length, 2, 'no filter returns everything')
   assert.equal(filterGitHubRepos(repos, 'WEATHER').length, 1, 'full-name match, case-insensitive')

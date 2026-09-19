@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "publishers": [
     {
-      "name": "Multicode Labs",
+      "name": "SprintEngine Labs",
       "verified": true,
       "publicKey": "MCowBQYDK2VwAyEAJ53RCVYIAvj+4HGLduBarxzTfqJvshh7+jyB200/PQM=",
       "fingerprint": "95ca10be257ff29b2e935982c38f0e165adb7200255e07fa41d26e8476828a1f",
       "scope": "First-party seed marketplace plugins under resources/marketplace/plugins"
     },
     {
-      "name": "Multicode Labs",
+      "name": "SprintEngine Labs",
       "verified": true,
       "publicKey": "MCowBQYDK2VwAyEAptxscrkw0So+0D3Pm2FupKpxqOyaNmpUR909RrGSuX0=",
       "fingerprint": "1f1aaa3251ae217ad6259eacde381bb21dff17466d2fa0593adba9dc31010a00",

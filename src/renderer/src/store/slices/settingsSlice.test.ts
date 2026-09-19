@@ -1175,7 +1175,7 @@ test('settingsSlice', async () => {
       normalizeAppSettings(
         {
           projectColors: {
-            'repo:github.com/acme/multicode': 'blue',
+            'repo:github.com/acme/sprintengine': 'blue',
             'folder:/notes': 'teal',
             'repo:logo': 'none',
           } as never,

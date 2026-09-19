@@ -2512,7 +2512,7 @@ export type ModuleBridgeRefusalCode = 'unknown_channel' | 'not_bridgeable' | 'pe
 // compatible ones — against a drift-guarded contract instead of an internal
 // MIME string. Self-contained mirror of the app's terminalDrop contract.
 
-export const MULTICODE_FILE_DROP_MIME = 'application/x-multicode-file-drop'
+export const SPRINTENGINE_FILE_DROP_MIME = 'application/x-sprintengine-file-drop'
 
 export type FileDropPayload = {
   version: 1
@@ -2529,7 +2529,7 @@ export type FileDropPayload = {
 export function setFileDropData(dataTransfer: DataTransfer, payload: FileDropPayload): void {
   const fileText = payload.files.map((file) => file.path).join('\n')
   dataTransfer.effectAllowed = 'copy'
-  dataTransfer.setData(MULTICODE_FILE_DROP_MIME, JSON.stringify(payload))
+  dataTransfer.setData(SPRINTENGINE_FILE_DROP_MIME, JSON.stringify(payload))
   dataTransfer.setData('text/plain', fileText)
 }
 
@@ -2540,7 +2540,7 @@ export function setFileDropData(dataTransfer: DataTransfer, payload: FileDropPay
  */
 export function hasFileDropData(dataTransfer: DataTransfer): boolean {
   const types = Array.from(dataTransfer.types)
-  return types.includes(MULTICODE_FILE_DROP_MIME) || types.includes('Files')
+  return types.includes(SPRINTENGINE_FILE_DROP_MIME) || types.includes('Files')
 }
 
 /**
@@ -2551,7 +2551,7 @@ export function hasFileDropData(dataTransfer: DataTransfer): boolean {
  * path in `files[0].path`, resolvable back to the item.
  */
 export function readFileDropPayload(dataTransfer: DataTransfer): FileDropPayload | null {
-  const raw = dataTransfer.getData(MULTICODE_FILE_DROP_MIME)
+  const raw = dataTransfer.getData(SPRINTENGINE_FILE_DROP_MIME)
   if (!raw) return null
 
   try {
@@ -2667,7 +2667,7 @@ export {
 
 // ── BYO-CLI plugin authoring (kind: 'cli') ───────────────────────────────────
 // A CLI plugin is a separate artifact from a capability module: a `plugin.json`
-// dropped into ~/.multicode/plugins/<id>/ that teaches the studio a new agent
+// dropped into ~/.sprintengine/plugins/<id>/ that teaches the studio a new agent
 // CLI. Pure validator + types, safe in any runtime.
 
 export {

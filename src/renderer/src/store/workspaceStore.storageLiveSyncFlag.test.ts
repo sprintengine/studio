@@ -6,7 +6,7 @@ import { test } from 'vitest'
 test('workspaceStore.storageLiveSyncFlag', async () => {
   // The retired rollback flag, set on: proving the deleted path cannot be
   // switched back on is the point of this file.
-  const stored: Record<string, string> = { 'multicode.workspaceStorageLiveSync': '1' }
+  const stored: Record<string, string> = { 'sprintengine.workspaceStorageLiveSync': '1' }
   const localStorageMock = {
     getItem: (key: string) => stored[key] ?? null,
     setItem: (key: string, value: string) => {
@@ -57,7 +57,7 @@ test('workspaceStore.storageLiveSyncFlag', async () => {
   const { __workspaceStoreBackupRecoveryPromise } = await import('./workspaceStore')
   await __workspaceStoreBackupRecoveryPromise
 
-  // The `multicode.workspaceStorageLiveSync` flag and the storage-event path it
+  // The `sprintengine.workspaceStorageLiveSync` flag and the storage-event path it
   // gated are deleted: they were the rollback for a localStorage
   // registry that no longer exists. What survives is the assertion that mattered
   // — this window subscribes to main's bus and mirrors it — now with the flag set

@@ -34,7 +34,7 @@
 // land without full semantic metadata):
 //   missing-token-type        token without an explicit string $type
 //   missing-token-description token without a non-empty $description
-//   missing-token-semantics   sem.* token without $extensions["com.multicode"]
+//   missing-token-semantics   sem.* token without $extensions["com.sprintengine"]
 //                             carrying non-empty `role` and `use`
 //   unresolved-token-alias    {dot.path} alias (in $value or modes) that does
 //                             not resolve to a token in this file
@@ -49,7 +49,7 @@ import { dirname, join, relative, resolve, sep } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const ALLOW_MARKER = 'ds-lint-allow:'
-const VENDOR_NAMESPACE = 'com.multicode'
+const VENDOR_NAMESPACE = 'com.sprintengine'
 const ALIAS_PATTERN = /^\{([a-z0-9.-]+)\}$/
 
 // `#abc`..`#aabbccdd` used as a color literal. The lookbehind keeps URL
@@ -286,7 +286,7 @@ function main() {
         '--sem-font-family-mono (the system ships two families, permanently).\n' +
         'A missing spacing step belongs in the token source, not in a component.\n' +
         'Give every token an explicit $type, a $description, and (for sem.*\n' +
-        'tokens) $extensions["com.multicode"] with role and use — see USAGE.md.\n' +
+        'tokens) $extensions["com.sprintengine"] with role and use — see USAGE.md.\n' +
         'Document a legitimately un-tokenizable component value with a\n' +
         '`ds-lint-allow: <reason>` marker on the same line or one of the two\n' +
         'lines above it.\n',

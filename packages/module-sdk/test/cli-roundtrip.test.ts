@@ -1,4 +1,4 @@
-// Round-trip acceptance test for the `multicode-module` CLI.
+// Round-trip acceptance test for the `sprintengine-module` CLI.
 //
 // Proves the signer and the app verifier can never disagree by running BOTH
 // paths over the same on-disk fixtures:
@@ -30,8 +30,8 @@ import { classifySignedManifestTrust, verifyModuleSignature } from '../../../src
 import { test } from 'vitest'
 
 test('cli-roundtrip', async () => {
-  const workDir = mkdtempSync(join(tmpdir(), 'multicode-cli-roundtrip-'))
-  const cliBundle = join(workDir, 'multicode-module.cjs')
+  const workDir = mkdtempSync(join(tmpdir(), 'sprintengine-cli-roundtrip-'))
+  const cliBundle = join(workDir, 'sprintengine-module.cjs')
 
   buildSync({
     entryPoints: [join(process.cwd(), 'packages/module-sdk/src/cli.ts')],
@@ -391,7 +391,7 @@ test('cli-roundtrip', async () => {
     testPluginTamperRejectedByBothPaths(signedPluginDir)
     testPluginVerifyRejectsUnsigned()
     testPluginPackRejectsMissingComponent()
-    console.log('multicode-module CLI round-trip tests passed')
+    console.log('sprintengine-module CLI round-trip tests passed')
   } finally {
     rmSync(workDir, { recursive: true, force: true })
   }

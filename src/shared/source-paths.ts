@@ -41,5 +41,5 @@ export function markdownTitle(content: string): string | null {
 }
 
 export function shouldScanDirectory(name: string): boolean {
-  return name !== 'node_modules' && name !== '.git' && name !== '.multicode-worktrees'
+  return name !== 'node_modules' && name !== '.git' && name !== '.sprintengine-worktrees'
 }

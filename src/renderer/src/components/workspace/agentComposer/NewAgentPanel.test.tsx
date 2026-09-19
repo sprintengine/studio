@@ -237,7 +237,7 @@ test('NewAgentPanel', async () => {
           {
             ...useWorkspaceStore.getState().workspaces[0],
             id: 'ws-1',
-            name: 'multicode',
+            name: 'sprintengine',
             folderPath: '/proj',
             mode: 'standard',
             agents: {},
@@ -323,7 +323,7 @@ test('NewAgentPanel', async () => {
       // called things like "new chat panel", which says nothing about where the
       // agent runs. The fixture names them differently on purpose.
       assert.ok(text.includes('proj'), 'the scope line names the folder the agent will run in')
-      assert.ok(!text.includes('multicode'), 'and not the workspace’s own name')
+      assert.ok(!text.includes('sprintengine'), 'and not the workspace’s own name')
       // Permissions used to stand beside the engine as their own chip. They are a
       // property of the runtime the row names, so they moved INSIDE the model
       // picker (owner, 2026-09-05) and are remembered against that row — the row
@@ -1762,12 +1762,12 @@ test('NewAgentPanel', async () => {
       async () => {
         seedStore()
         resetRememberedMachineForTests()
-        const multicode = {
-          canonicalKey: 'github.com/acme/multicode',
-          remoteUrl: 'git@github.com:acme/multicode.git',
-          name: 'multicode',
+        const sprintengine = {
+          canonicalKey: 'github.com/acme/sprintengine',
+          remoteUrl: 'git@github.com:acme/sprintengine.git',
+          name: 'sprintengine',
         }
-        localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? multicode : null)
+        localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? sprintengine : null)
         fleetConnections = [machine('m1', 'Air'), machine('m2', 'Mini'), machine('m3', 'Down')]
         const browsed: string[] = []
         fleetBrowseAnswer = (id) => {
@@ -1786,7 +1786,7 @@ test('NewAgentPanel', async () => {
                       ...workspace('w1', 'other', '/srv/other'),
                       repository: { canonicalKey: 'github.com/acme/other', remoteUrl: '', name: 'other' },
                     },
-                    { ...workspace('w2', 'multicode-air', '/srv/multicode'), repository: multicode },
+                    { ...workspace('w2', 'sprintengine-air', '/srv/sprintengine'), repository: sprintengine },
                   ]
                 : [{ ...workspace('w9', 'scratch', '/srv/scratch'), repository: null }],
             terminals: [],
@@ -1820,11 +1820,11 @@ test('NewAgentPanel', async () => {
         const down = rowsByName.get('Down')!
         assert.equal(air.getAttribute('data-machine-availability'), 'has')
         assert.equal(air.disabled, false)
-        assert.ok(air.textContent?.includes('Has multicode'), `the row names the copy; got: ${air.textContent}`)
+        assert.ok(air.textContent?.includes('Has sprintengine'), `the row names the copy; got: ${air.textContent}`)
         assert.equal(mini.getAttribute('data-machine-availability'), 'lacks')
         assert.equal(mini.disabled, true, 'a machine without the project is dimmed, not removed')
         assert.ok(
-          mini.textContent?.includes('No copy of multicode on Mini'),
+          mini.textContent?.includes('No copy of sprintengine on Mini'),
           `with the reason; got: ${mini.textContent}`,
         )
         assert.equal(down.disabled, true)
@@ -1835,11 +1835,11 @@ test('NewAgentPanel', async () => {
         await settle()
         await settle()
         // The chip names the FOLDER, not the chat standing in it: `w2` is a
-        // conversation called "multicode-air" open in /srv/multicode, and the
-        // project the launch is scoped to is /srv/multicode.
+        // conversation called "sprintengine-air" open in /srv/sprintengine, and the
+        // project the launch is scoped to is /srv/sprintengine.
         assert.equal(
           view.container.querySelector('[data-project-trigger="true"]')?.textContent?.trim(),
-          'multicode',
+          'sprintengine',
           'picking the machine keeps the project: its copy is chosen, not the first row',
         )
         assert.equal(browsed.filter((id) => id === 'm1').length, 2, 'the pick re-reads the machine for freshness')
@@ -1867,11 +1867,11 @@ test('NewAgentPanel', async () => {
         // Two projects on the Air and none in hand (/other has no identity): an explicit pick.
         await click(buttonWithText(elsewhere.container, 'Choose a project'))
         const projects = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')!
-        // The row is the folder /srv/multicode, whatever the chat standing in it
+        // The row is the folder /srv/sprintengine, whatever the chat standing in it
         // happens to be called over there.
         await click(
           [...projects.querySelectorAll<HTMLButtonElement>('[role="menuitemradio"]')].find((row) =>
-            (row.textContent ?? '').includes('/srv/multicode'),
+            (row.textContent ?? '').includes('/srv/sprintengine'),
           ),
         )
         await settle()
@@ -1946,12 +1946,12 @@ test('NewAgentPanel', async () => {
         seedColours()
         resetRememberedMachineForTests()
         fleetConnections = []
-        const multicode = {
-          canonicalKey: 'github.com/acme/multicode',
-          remoteUrl: 'git@github.com:acme/multicode.git',
-          name: 'multicode',
+        const sprintengine = {
+          canonicalKey: 'github.com/acme/sprintengine',
+          remoteUrl: 'git@github.com:acme/sprintengine.git',
+          name: 'sprintengine',
         }
-        localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? multicode : null)
+        localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? sprintengine : null)
 
         const view = await render({
           folderPath: '/proj',
@@ -1976,7 +1976,7 @@ test('NewAgentPanel', async () => {
         // is written — the map holds only what a person chose.
         assert.equal(
           mark,
-          projectHue('repo:github.com/acme/multicode'),
+          projectHue('repo:github.com/acme/sprintengine'),
           'the chip wears the hue hashed from the repository key',
         )
         assert.deepEqual(useWorkspaceStore.getState().appSettings.projectColors ?? {}, {}, 'and nothing is stored')
@@ -2024,12 +2024,12 @@ test('NewAgentPanel', async () => {
       seedStore()
       seedColours()
       resetRememberedMachineForTests()
-      const multicode = {
-        canonicalKey: 'github.com/acme/multicode',
-        remoteUrl: 'git@github.com:acme/multicode.git',
-        name: 'multicode',
+      const sprintengine = {
+        canonicalKey: 'github.com/acme/sprintengine',
+        remoteUrl: 'git@github.com:acme/sprintengine.git',
+        name: 'sprintengine',
       }
-      localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? multicode : null)
+      localIdentityAnswer = (folderPath) => (folderPath === '/proj' ? sprintengine : null)
       fleetConnections = [machine('m1', 'Air')]
       fleetBrowseAnswer = (id) => ({
         connectionId: id,
@@ -2043,7 +2043,7 @@ test('NewAgentPanel', async () => {
             ...workspace('w1', 'other', '/srv/other'),
             repository: { canonicalKey: 'github.com/acme/other', remoteUrl: '', name: 'other' },
           },
-          { ...workspace('w2', 'multicode-air', '/srv/multicode'), repository: multicode },
+          { ...workspace('w2', 'sprintengine-air', '/srv/sprintengine'), repository: sprintengine },
         ],
         terminals: [],
         gaps: [],
@@ -2062,7 +2062,7 @@ test('NewAgentPanel', async () => {
       const remoteTrigger = view.container.querySelector<HTMLButtonElement>('[data-project-trigger="true"]')
       assert.equal(
         remoteTrigger?.textContent?.trim(),
-        'multicode',
+        'sprintengine',
         `the remote copy is the picked project; got ${remoteTrigger?.textContent}`,
       )
       assert.equal(
@@ -2079,9 +2079,9 @@ test('NewAgentPanel', async () => {
       await settle()
       const remoteMenu = dom.window.document.querySelector('[role="menu"][aria-label="Project on Air"]')!
       const rows = [...remoteMenu.querySelectorAll('[role="menuitemradio"]')]
-      // The rows are FOLDERS: /srv/multicode and /srv/other, not the chats
+      // The rows are FOLDERS: /srv/sprintengine and /srv/other, not the chats
       // standing in them.
-      const twinRow = rows.find((row) => (row.textContent ?? '').includes('/srv/multicode'))
+      const twinRow = rows.find((row) => (row.textContent ?? '').includes('/srv/sprintengine'))
       const strangerRow = rows.find((row) => (row.textContent ?? '').includes('/srv/other'))
       assert.equal(glyphMark(twinRow), localMark, 'the row for the repository open here wears the hue it wears here')
       assert.equal(
@@ -2101,12 +2101,12 @@ test('NewAgentPanel', async () => {
         seedColours()
         resetRememberedMachineForTests()
         fleetConnections = []
-        const multicode = {
-          canonicalKey: 'github.com/acme/multicode',
-          remoteUrl: 'git@github.com:acme/multicode.git',
-          name: 'multicode',
+        const sprintengine = {
+          canonicalKey: 'github.com/acme/sprintengine',
+          remoteUrl: 'git@github.com:acme/sprintengine.git',
+          name: 'sprintengine',
         }
-        localIdentityAnswer = (folderPath) => (folderPath === '/proj' || folderPath === '/clone' ? multicode : null)
+        localIdentityAnswer = (folderPath) => (folderPath === '/proj' || folderPath === '/clone' ? sprintengine : null)
 
         // The tab strip's "+": the project is a fact rather than a choice, so the
         // line is a `<p>` and not a control — and it still wears the colour, or the
@@ -2184,7 +2184,7 @@ test('NewAgentPanel', async () => {
         )
         assert.equal(
           mark,
-          projectHue('repo:github.com/acme/multicode'),
+          projectHue('repo:github.com/acme/sprintengine'),
           'because both clones read ONE key: the repository’s',
         )
         view.unmount()

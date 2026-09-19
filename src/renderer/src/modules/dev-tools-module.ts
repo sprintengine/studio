@@ -24,7 +24,7 @@ export const devToolsRendererModule: RendererModule = {
     id: 'dev-tools',
     displayName: 'Dev Tools',
     version: 1,
-    publisher: 'multicode',
+    publisher: 'sprintengine',
     category: 'dev-tools',
     summary:
       'File explorer and code editor. Disabling hides these panels; the filesystem backend stays available to agents and the search palette.',

@@ -115,7 +115,7 @@ test('tailnet-pair-approval', async () => {
     port: number
     close: () => Promise<void>
   }> {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-approve-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-approve-'))
     const port = await freePort()
     writeTailnetSettings(userDataDir, { enabled: true, port, notifications: true })
     const service = createTailnetRemoteService({

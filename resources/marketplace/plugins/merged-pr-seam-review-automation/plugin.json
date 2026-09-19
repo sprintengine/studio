@@ -5,7 +5,7 @@
   "defaultEnabled": false,
   "source": "third-party",
   "permissions": [],
-  "publisher": "Multicode Labs",
+  "publisher": "SprintEngine Labs",
   "category": "Code Review",
   "summary": "Reviews the day’s merged pull requests together for the seams between them. One agent run each evening at 18:00 UTC, opening a pull request.",
   "components": {

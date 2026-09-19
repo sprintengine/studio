@@ -23,7 +23,7 @@ test('instance-index', async () => {
   }
 
   async function createRoot(label: string): Promise<string> {
-    return mkdtemp(join(tmpdir(), `multicode-automations-instance-${label}-`))
+    return mkdtemp(join(tmpdir(), `sprintengine-automations-instance-${label}-`))
   }
 
   function definition(id: string, overrides: Partial<AutomationDefinition> = {}): AutomationDefinition {
@@ -129,7 +129,7 @@ test('instance-index', async () => {
   async function assertMalformedRootIsReportedNotFatal(): Promise<void> {
     const badRoot = await createRoot('bad')
     const goodRoot = await createRoot('good')
-    const definitionsDir = join(badRoot, automationsStoreDirectory(badRoot), 'definitions')
+    const definitionsDir = join(badRoot, automationsStoreDirectory(), 'definitions')
     await mkdir(definitionsDir, { recursive: true })
     await writeFile(join(definitionsDir, 'broken.json'), '{ not valid json', 'utf8')
     await new AutomationsStore(goodRoot).createDefinition(definition('healthy'))

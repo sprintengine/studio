@@ -300,8 +300,8 @@ test('skillSourcesSeam', async () => {
   // ── The suite ────────────────────────────────────────────────────────────────
 
   async function main(): Promise<void> {
-    const workspaceRoot = temporaryDir('multicode-seam-skills-ws-')
-    const userDataDir = temporaryDir('multicode-seam-skills-userdata-')
+    const workspaceRoot = temporaryDir('sprintengine-seam-skills-ws-')
+    const userDataDir = temporaryDir('sprintengine-seam-skills-userdata-')
 
     const { createSkillsService } = await import('../main/skills')
     const { createAgentCapabilityService, createFsSkillDirectoryReader, createWorkspaceSkillsService } =
@@ -811,7 +811,7 @@ test('skillSourcesSeam', async () => {
       }>
     }
 
-    const workspaceRoot = temporaryDir('multicode-seam-skills-collision-')
+    const workspaceRoot = temporaryDir('sprintengine-seam-skills-collision-')
     const installedPath = (harness: string, ...rest: string[]): string =>
       join(workspaceRoot, harness, 'skills', ...rest)
     const HARNESS_DIRS = ['.claude', '.agents'] as const

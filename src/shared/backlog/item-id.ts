@@ -120,7 +120,7 @@ export function formatBacklogDisplayId(input: {
 
 // Derive a default workspace key from the workspace folder name, the same way a
 // user would pick a Jira project key: initials for a multi-word name (ACME Web
-// -> AW), else the first letters of a single word (multicode -> MUL). Uppercased
+// -> AW), else the first letters of a single word (sprintengine -> MUL). Uppercased
 // and alphanumeric; falls back to `BL` (backlog) for an empty/symbol-only name.
 // This is only the default — the key is configurable per workspace.
 export function deriveDefaultBacklogKey(workspaceName: string): string {

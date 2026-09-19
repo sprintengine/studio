@@ -83,7 +83,7 @@ export function formatTailnetEndpoint(endpoint: TailnetEndpoint): string {
   return endpoint.host.includes(':') ? `[${endpoint.host}]:${endpoint.port}` : `${endpoint.host}:${endpoint.port}`
 }
 
-/** A `multicode-tailnet://pair?…` link, as the other machine's Settings shows it. */
+/** A `sprintengine-tailnet://pair?…` link, as the other machine's Settings shows it. */
 export function parsePairingUrl(value: string): { endpoint: TailnetEndpoint; pairingToken: string } | null {
   let url: URL
   try {
@@ -91,7 +91,7 @@ export function parsePairingUrl(value: string): { endpoint: TailnetEndpoint; pai
   } catch {
     return null
   }
-  if (url.protocol !== 'multicode-tailnet:') return null
+  if (url.protocol !== 'sprintengine-tailnet:') return null
   const endpointValue = url.searchParams.get('endpoint')
   const pairingToken = url.searchParams.get('token')
   if (!endpointValue || !pairingToken) return null

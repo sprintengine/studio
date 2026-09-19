@@ -69,7 +69,7 @@ test('plugin-verify', async () => {
       id: 'preview-plugin',
       displayName: 'Preview Plugin',
       version: 1,
-      publisher: 'Multicode Labs',
+      publisher: 'SprintEngine Labs',
       category: 'Testing',
       summary: 'Preview marketplace plugin.',
       defaultEnabled: false,
@@ -89,7 +89,7 @@ test('plugin-verify', async () => {
       entry: {
         id: manifest.id,
         name: manifest.displayName,
-        publisher: { name: 'Multicode Labs', verified: options.publisherVerified ?? true },
+        publisher: { name: 'SprintEngine Labs', verified: options.publisherVerified ?? true },
         summary: manifest.summary ?? '',
         category: manifest.category ?? '',
         icon: 'icons/preview.svg',

@@ -17,7 +17,7 @@ test('managed-runtime', async () => {
       platform: overrides.platform ?? 'linux',
       resourcesPath: overrides.resourcesPath ?? '/app/resources',
       isPackaged: overrides.isPackaged ?? true,
-      execPath: overrides.execPath ?? '/app/multicode',
+      execPath: overrides.execPath ?? '/app/sprintengine',
       cwd: overrides.cwd ?? '/checkout',
       exists: overrides.exists ?? ((p: string) => present.has(p)),
     }
@@ -26,8 +26,8 @@ test('managed-runtime', async () => {
   // --- node / npm ------------------------------------------------------------
 
   {
-    const env = makeEnv({ execPath: '/app/Multicode' })
-    assert.equal(managedNodeBinary(env), '/app/Multicode', 'managed node is the electron binary')
+    const env = makeEnv({ execPath: '/app/SprintEngine' })
+    assert.equal(managedNodeBinary(env), '/app/SprintEngine', 'managed node is the electron binary')
   }
 
   {

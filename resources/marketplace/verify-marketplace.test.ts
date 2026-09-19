@@ -15,12 +15,12 @@ import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../src/shared/automatio
 import { test } from 'vitest'
 
 test("verify-marketplace", async () => {
-const workDir = mkdtempSync(join(tmpdir(), 'multicode-marketplace-publish-'))
-const verifierBundle = join(process.cwd(), 'node_modules', '.cache', 'multicode', 'marketplace-registry-verify-for-test.cjs')
+const workDir = mkdtempSync(join(tmpdir(), 'sprintengine-marketplace-publish-'))
+const verifierBundle = join(process.cwd(), 'node_modules', '.cache', 'sprintengine', 'marketplace-registry-verify-for-test.cjs')
 const seedRoot = join(process.cwd(), 'resources', 'marketplace')
 const registryWorkflowPath = join(seedRoot, '.github', 'workflows', 'marketplace-registry.yml')
 
-mkdirSync(join(process.cwd(), 'node_modules', '.cache', 'multicode'), { recursive: true })
+mkdirSync(join(process.cwd(), 'node_modules', '.cache', 'sprintengine'), { recursive: true })
 buildSync({
   entryPoints: [join(process.cwd(), 'resources', 'marketplace', 'verify-marketplace.ts')],
   bundle: true,
@@ -44,7 +44,7 @@ buildSync({
  * inside a registry root — `assertNoKeyMaterial` rejects committed key material
  * and that check has to keep firing on real registries.
  */
-const moduleCliBundle = join(process.cwd(), 'node_modules', '.cache', 'multicode', 'multicode-module-for-marketplace-test.cjs')
+const moduleCliBundle = join(process.cwd(), 'node_modules', '.cache', 'sprintengine', 'sprintengine-module-for-marketplace-test.cjs')
 buildSync({
   entryPoints: [join(process.cwd(), 'packages', 'module-sdk', 'src', 'cli.ts')],
   bundle: true,
@@ -57,7 +57,7 @@ const signingKeyPath = join(workDir, 'probe-signing.key')
 assert.equal(
   spawnSync(process.execPath, [moduleCliBundle, 'keygen', '--out', signingKeyPath], { encoding: 'utf8' }).status,
   0,
-  'multicode-module keygen must produce a throwaway signing key'
+  'sprintengine-module keygen must produce a throwaway signing key'
 )
 
 const SIGNED_PROBE_ID = 'signed-probe-mcp'
@@ -414,7 +414,7 @@ function testTamperedPluginFailsThroughCliVerify(): void {
   const result = runVerifier(root)
   assert.equal(result.status, 1)
   assert.match(result.stderr, new RegExp(`plugins/${SIGNED_PROBE_ID}/plugin\\.json`))
-  assert.match(result.stderr, /multicode-module plugin verify failed/)
+  assert.match(result.stderr, /sprintengine-module plugin verify failed/)
   assert.match(result.stderr, /INVALID signature/)
 }
 
@@ -429,7 +429,7 @@ function testTamperedComponentFailsThroughCliVerify(): void {
   const result = runVerifier(root)
   assert.equal(result.status, 1)
   assert.match(result.stderr, new RegExp(`plugins/${SIGNED_PROBE_ID}/plugin\\.json`))
-  assert.match(result.stderr, /multicode-module plugin verify failed/)
+  assert.match(result.stderr, /sprintengine-module plugin verify failed/)
   assert.match(result.stderr, /component digests/i)
 }
 

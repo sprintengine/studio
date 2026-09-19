@@ -73,7 +73,7 @@ export type ModuleRegistryEntry = {
   id: string
   /** The manifest as registered — the module's own self-description. */
   manifest: CapabilityManifest
-  /** Provenance. Bundled modules are compiled in; third-party come from ~/.multicode/modules. */
+  /** Provenance. Bundled modules are compiled in; third-party come from ~/.sprintengine/modules. */
   source: ModuleSource
   /** Resolved through the same enablement resolution the app gates its surfaces on. */
   enabled: boolean

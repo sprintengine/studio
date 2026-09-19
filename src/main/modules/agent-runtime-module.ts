@@ -12,7 +12,7 @@ import {
   GitHubTokenStoreToken,
   ModuleStorageToken,
   EntitlementServiceToken,
-  MulticodeAuthToken,
+  SprintEngineAuthToken,
   TerminalRuntimeToken,
   WorkspaceContextToken,
   WorkspaceRegistryToken,
@@ -53,7 +53,7 @@ export const AGENT_RUNTIME_MANIFEST: CapabilityManifest = {
   id: 'agent-runtime',
   displayName: 'Agent Runtime',
   version: 1,
-  publisher: 'multicode',
+  publisher: 'sprintengine',
   category: 'core',
   summary: 'Terminals, agent launch, and the session runtime that every other capability builds on. Always on.',
   defaultEnabled: true,
@@ -72,7 +72,7 @@ export function createAgentRuntimeModule(
       host.provideService(AgentLaunchServiceToken, () => services.agentLaunchService)
       host.provideService(AgentLaunchSettingsToken, () => services.agentLaunchSettings)
       host.provideService(GitHubTokenStoreToken, () => services.githubTokenStore)
-      host.provideService(MulticodeAuthToken, () => services.multicodeAuth)
+      host.provideService(SprintEngineAuthToken, () => services.sprintengineAuth)
       host.provideService(EntitlementServiceToken, () => services.entitlements)
       host.provideService(WorkspaceSyncServiceToken, () => services.workspaceSyncService)
       host.provideService(WorkspaceRegistryToken, () => services.workspaceRegistry)

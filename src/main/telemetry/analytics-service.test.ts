@@ -30,7 +30,7 @@ test('analytics-service', async () => {
   }
 
   async function withUserData(body: (dir: string) => Promise<void>): Promise<void> {
-    const dir = await mkdtemp(join(tmpdir(), 'multicode-telemetry-send-'))
+    const dir = await mkdtemp(join(tmpdir(), 'sprintengine-telemetry-send-'))
     try {
       await body(dir)
     } finally {

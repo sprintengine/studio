@@ -1410,7 +1410,7 @@ export function removeTab(workspaceId: string, tabId: string, options?: { preser
   const action = Actions.deleteTab(tabId)
   if (options?.preserveRuntime) {
     const actionData = action.data as Record<string, unknown>
-    actionData.__multicodePreserveRuntime = true
+    actionData.__sprintenginePreserveRuntime = true
   }
   model.doAction(action)
   return true

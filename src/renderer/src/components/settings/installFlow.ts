@@ -42,7 +42,7 @@ function hasCodeBearingKind(provides: MarketplaceComponentKind[]): boolean {
  *
  * Only the two workspace-scoped kinds do: an MCP server syncs into
  * `<workspaceRoot>/.mcp.json` and a skill pack copies into the workspace's
- * harness dirs. A module installs into `~/.multicode/modules/<id>`, a CLI
+ * harness dirs. A module installs into `~/.sprintengine/modules/<id>`, a CLI
  * plugin into the user plugin root — neither touches a project — so a
  * module-only bundle installs with no workspace open at all, which is what
  * makes a first-party module installable from a fresh app that has never

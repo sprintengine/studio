@@ -105,7 +105,7 @@ test('tailnet', async () => {
       terminalCwd?: string
     } = {},
   ): Promise<Harness> {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-'))
     const calls: string[] = []
     const devices = createTailnetDeviceStore({ resolveUserDataDir: () => userDataDir })
     const audit = createGatewayAuditStore({ resolveUserDataDir: () => userDataDir })
@@ -601,7 +601,7 @@ test('tailnet', async () => {
   }
 
   async function testDisabledMeansNoListeningTcpSocket(): Promise<void> {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-off-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-off-'))
     try {
       // Default-off in every build: a profile that has never been configured.
       assert.deepEqual(readTailnetSettings(userDataDir).settings, {
@@ -642,7 +642,7 @@ test('tailnet', async () => {
   }
 
   async function testEnabledWithoutATailnetRefusesInsteadOfBindingAnythingElse(): Promise<void> {
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-none-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-none-'))
     try {
       const service = createTailnetRemoteService({
         resolveUserDataDir: () => userDataDir,
@@ -670,7 +670,7 @@ test('tailnet', async () => {
     // ever looked again — the setting read `enabled: true` for hours while the
     // phone got "the desktop did not answer" from a machine that was running
     // fine. The refusal must be a "not yet", not a verdict.
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-late-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-late-'))
     try {
       // A port nothing else holds, and loopback as the "interface": the bind
       // guard allows loopback, and a real 100.64/10 address cannot be bound on a
@@ -718,7 +718,7 @@ test('tailnet', async () => {
     // said "Serving" against a machine nothing could reach. Reported by the
     // owner on 2026-09-05, having disconnected Tailscale and watched the glyph
     // stay green.
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-away-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-away-'))
     try {
       const port = await freePort()
       writeFileSync(
@@ -784,7 +784,7 @@ test('tailnet', async () => {
   async function testTheInterfaceWatchStopsWhenTheListenerIsTurnedOff(): Promise<void> {
     // The watch must not outlive the setting: a machine that never runs
     // Tailscale, with remote turned back off, should be enumerating nothing.
-    const userDataDir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-watch-'))
+    const userDataDir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-watch-'))
     try {
       let looks = 0
       const service = createTailnetRemoteService({
@@ -1237,7 +1237,7 @@ test('tailnet', async () => {
           token: 'mcpair_test',
           scopes: [...TAILNET_STRUCTURED_SCOPES],
           expiresAt: '2026-09-09T00:00:00.000Z',
-          pairingUrl: 'multicode-tailnet://pair?endpoint=100.64.0.1%3A8787&token=mcpair_test',
+          pairingUrl: 'sprintengine-tailnet://pair?endpoint=100.64.0.1%3A8787&token=mcpair_test',
         }
       },
       // This test is about refusing to mint a code that points at nothing, not
@@ -1308,7 +1308,7 @@ test('tailnet', async () => {
     assert.deepEqual(minted, [{ scopes: ['backlog:read'], origin: { kind: 'agent', by: null } }])
     const pairing = (ok.structuredContent as { pairing: { token: string; pairingUrl: string } }).pairing
     assert.equal(pairing.token, 'mcpair_test')
-    assert.match(pairing.pairingUrl, /^multicode-tailnet:\/\/pair\?/)
+    assert.match(pairing.pairingUrl, /^sprintengine-tailnet:\/\/pair\?/)
 
     // Revoking an id nobody is paired under is reported, not absorbed: the store
     // is idempotent, so a silent success would read as "that device is gone".
@@ -1968,7 +1968,7 @@ test('tailnet', async () => {
     assert.equal(formatEndpoint('100.101.102.103', 8471), '100.101.102.103:8471')
     assert.equal(formatEndpoint('fd7a:115c:a1e0::1', 8471), '[fd7a:115c:a1e0::1]:8471')
     const url = pairingUrl('100.101.102.103', 8471, 'mcpair_abc')
-    assert.equal(url, 'multicode-tailnet://pair?endpoint=100.101.102.103%3A8471&token=mcpair_abc')
+    assert.equal(url, 'sprintengine-tailnet://pair?endpoint=100.101.102.103%3A8471&token=mcpair_abc')
   }
 
   // ── The stdio bridge in remote mode ────────────────────────────────
@@ -2066,7 +2066,7 @@ test('tailnet', async () => {
 
   async function testTheBridgePairsThenDrivesTheGatewayFromAnotherMachine(): Promise<void> {
     const harness = await startHarness({ peerNode: 'laptop.tailnet.ts.net' })
-    const clientDir = mkdtempSync(join(tmpdir(), 'multicode-bridge-client-'))
+    const clientDir = mkdtempSync(join(tmpdir(), 'sprintengine-bridge-client-'))
     const tokenFilePath = join(clientDir, 'nested', 'mac-mini.json')
     try {
       const { run, deviceToken } = await pairViaBridge(harness, tokenFilePath)
@@ -2138,7 +2138,7 @@ test('tailnet', async () => {
 
   async function testTheBridgeFailsCleanlyWhenTheDeviceIsRevoked(): Promise<void> {
     const harness = await startHarness()
-    const clientDir = mkdtempSync(join(tmpdir(), 'multicode-bridge-revoke-'))
+    const clientDir = mkdtempSync(join(tmpdir(), 'sprintengine-bridge-revoke-'))
     const tokenFilePath = join(clientDir, 'mac-mini.json')
     try {
       const { deviceToken } = await pairViaBridge(harness, tokenFilePath)
@@ -2168,7 +2168,7 @@ test('tailnet', async () => {
 
   async function testTheBridgeRefusesIncompleteOrConflictingRemoteInvocations(): Promise<void> {
     const harness = await startHarness()
-    const clientDir = mkdtempSync(join(tmpdir(), 'multicode-bridge-args-'))
+    const clientDir = mkdtempSync(join(tmpdir(), 'sprintengine-bridge-args-'))
     const tokenFilePath = join(clientDir, 'device.json')
     try {
       // An endpoint with no credential: an explicit refusal naming both ways to
@@ -2203,7 +2203,7 @@ test('tailnet', async () => {
         tokenFilePath,
       ])
       assert.equal(badUrl.code, 1)
-      assert.match(badUrl.stderr, /multicode-tailnet:/)
+      assert.match(badUrl.stderr, /sprintengine-tailnet:/)
     } finally {
       rmSync(clientDir, { recursive: true, force: true })
       await harness.close()
@@ -2217,7 +2217,7 @@ test('tailnet', async () => {
   // helper was correct and tested, and its only caller could never reach it.
 
   async function testAPairedDeviceUploadsIntoTheThreadsFolderAndGetsThePathBack(): Promise<void> {
-    const projectDir = mkdtempSync(join(tmpdir(), 'multicode-upload-'))
+    const projectDir = mkdtempSync(join(tmpdir(), 'sprintengine-upload-'))
     const harness = await startHarness({ terminalCwd: projectDir })
     try {
       const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
@@ -2244,7 +2244,7 @@ test('tailnet', async () => {
   }
 
   async function testASecondFileOfTheSameNameIsSuffixedRatherThanRefused(): Promise<void> {
-    const projectDir = mkdtempSync(join(tmpdir(), 'multicode-upload-'))
+    const projectDir = mkdtempSync(join(tmpdir(), 'sprintengine-upload-'))
     const harness = await startHarness({ terminalCwd: projectDir })
     try {
       const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
@@ -2275,7 +2275,7 @@ test('tailnet', async () => {
   }
 
   async function testAnUploadedNameCannotEscapeTheThreadsFolderOverTheWire(): Promise<void> {
-    const projectDir = mkdtempSync(join(tmpdir(), 'multicode-upload-'))
+    const projectDir = mkdtempSync(join(tmpdir(), 'sprintengine-upload-'))
     const harness = await startHarness({ terminalCwd: projectDir })
     try {
       const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
@@ -2306,7 +2306,7 @@ test('tailnet', async () => {
   }
 
   async function testUploadsSitBehindTheControlScopeAndAKnownSession(): Promise<void> {
-    const projectDir = mkdtempSync(join(tmpdir(), 'multicode-upload-'))
+    const projectDir = mkdtempSync(join(tmpdir(), 'sprintengine-upload-'))
     const harness = await startHarness({ terminalCwd: projectDir })
     try {
       const watcher = await pairDevice(harness, { scopes: ['terminal:observe'], name: 'watcher' })
@@ -2352,7 +2352,7 @@ test('tailnet', async () => {
   }
 
   async function testAnOversizedUploadIsCutOffAndLeavesNothingBehind(): Promise<void> {
-    const projectDir = mkdtempSync(join(tmpdir(), 'multicode-upload-'))
+    const projectDir = mkdtempSync(join(tmpdir(), 'sprintengine-upload-'))
     const harness = await startHarness({ terminalCwd: projectDir })
     try {
       const device = await pairDevice(harness, { scopes: ['terminal:control'], name: 'phone' })
@@ -2399,7 +2399,7 @@ test('tailnet', async () => {
    * quiet no-op, because a surface acting on a row that is gone has to know.
    */
   async function testWideningADevicesScopesPersistsAndAnUnknownIdThrows(): Promise<void> {
-    const dir = mkdtempSync(join(tmpdir(), 'multicode-tailnet-scopes-'))
+    const dir = mkdtempSync(join(tmpdir(), 'sprintengine-tailnet-scopes-'))
     try {
       const store = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
       const minted = store.mintDevice({

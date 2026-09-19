@@ -23,20 +23,20 @@ From the studio repo root:
 
 ```bash
 npm ci
-npx esbuild packages/module-sdk/src/cli.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/multicode-module.cjs
+npx esbuild packages/module-sdk/src/cli.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/sprintengine/sprintengine-module.cjs
 ```
 
 The commands below use the bundled local CLI:
 
 ```bash
-MULTICODE_MODULE="node $(pwd)/node_modules/.cache/multicode/multicode-module.cjs"
+SPRINTENGINE_MODULE="node $(pwd)/node_modules/.cache/sprintengine/sprintengine-module.cjs"
 ```
 
 When the SDK package is installed in an external author workspace, replace that
 variable with the packaged binary:
 
 ```bash
-MULTICODE_MODULE="multicode-module"
+SPRINTENGINE_MODULE="sprintengine-module"
 ```
 
 Run the scaffold, sign, verify, pack, and registry-entry commands below from a
@@ -48,7 +48,7 @@ at the current directory.
 Pick a lowercase plugin id. The id is the registry key and the folder name.
 
 ```bash
-$MULTICODE_MODULE plugin scaffold acme-doc-search --out plugins/acme-doc-search --component mcp --component skills
+$SPRINTENGINE_MODULE plugin scaffold acme-doc-search --out plugins/acme-doc-search --component mcp --component skills
 ```
 
 By default, scaffold can create all component placeholders. Use `--component`
@@ -70,7 +70,7 @@ Keep the private key outside the plugin folder and outside git.
 
 ```bash
 mkdir -p .private
-$MULTICODE_MODULE keygen --out .private/acme-doc-search.key
+$SPRINTENGINE_MODULE keygen --out .private/acme-doc-search.key
 ```
 
 The CLI prints the public-key fingerprint. Store the private key in your own
@@ -83,7 +83,7 @@ sign command writes per-component file digests into `plugin.json` before adding
 the ed25519 signature, so component byte changes require a fresh signature.
 
 ```bash
-$MULTICODE_MODULE plugin sign plugins/acme-doc-search --key .private/acme-doc-search.key
+$SPRINTENGINE_MODULE plugin sign plugins/acme-doc-search --key .private/acme-doc-search.key
 ```
 
 Signing writes the normalized signed manifest, including component file
@@ -94,7 +94,7 @@ digests, back to `plugin.json`.
 Run the same plugin verification command CI uses:
 
 ```bash
-$MULTICODE_MODULE plugin verify plugins/acme-doc-search
+$SPRINTENGINE_MODULE plugin verify plugins/acme-doc-search
 ```
 
 A valid plugin prints `<id>: plugin signature valid` and the signer fingerprint. If
@@ -107,8 +107,8 @@ component digest mismatch. Re-sign before submitting.
 Packing proves the bundle can be copied without private key material.
 
 ```bash
-$MULTICODE_MODULE plugin pack plugins/acme-doc-search --out packed/acme-doc-search --force
-$MULTICODE_MODULE plugin verify packed/acme-doc-search
+$SPRINTENGINE_MODULE plugin pack plugins/acme-doc-search --out packed/acme-doc-search --force
+$SPRINTENGINE_MODULE plugin verify packed/acme-doc-search
 ```
 
 `plugin pack` excludes `.git`, `node_modules`, `*.key`, and `*.pem`.
@@ -188,7 +188,7 @@ npm run verify:marketplace-registry -- --root ../marketplace
 The validator checks:
 
 - `marketplace.json` with the shared marketplace index validator.
-- Every `plugins/<id>/plugin.json` with `multicode-module plugin verify`.
+- Every `plugins/<id>/plugin.json` with `sprintengine-module plugin verify`.
 - Signed component file digests against the committed bytes under
   `plugins/<id>/`.
 - Registry entry id, name, version, provided components, and signature against
@@ -214,4 +214,4 @@ Open a pull request against the marketplace registry with:
 The `.github/workflows/marketplace-registry.yml` job runs the same
 `npm run verify:marketplace-registry` command and the publish validation test. Schema-invalid submissions fail with
 the exact shared-validator path, and tampered signatures fail through
-`multicode-module plugin verify` with an `INVALID signature` message.
+`sprintengine-module plugin verify` with an `INVALID signature` message.

@@ -15,7 +15,7 @@ export type FeatureValue = boolean | number | string
 export type EntitlementSnapshot = {
   userId: string
   organizationId: string
-  product: 'multicode'
+  product: 'sprintengine'
   roles: string[]
   features: Record<string, FeatureValue>
   limits: Record<string, number>
@@ -29,7 +29,7 @@ export type EntitlementSnapshot = {
   schemaVersion: 1
 }
 
-export type MulticodeAuthState = {
+export type SprintEngineAuthState = {
   authenticated: boolean
   user: SessionUser | null
   selectedOrganization: SessionOrganization | null

@@ -7,7 +7,7 @@ test('WorkspaceSidebar.liveRows', async () => {
   // Owner ruling 2026-09-04 (the-diff-an-agent-made, decision 9): the sidebar
   // row's terminal lines — mark · name · branch · ±lines — exist only while
   // the row has an open terminal. Before this, every parked chat on one checkout
-  // read the checkout's CURRENT numbers after a restart (ten rows on `multicode`
+  // read the checkout's CURRENT numbers after a restart (ten rows on `sprintengine`
   // all `+37 −3`, most of them with no agent alive), because the git poll
   // asked about every row and line 2 rendered whenever a branch came back.
   //
