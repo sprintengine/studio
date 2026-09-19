@@ -231,7 +231,7 @@
     "zustand": "^5.0.15"
   },
   "devDependencies": {
-    "@electron-toolkit/tsconfig": "^1.0.1",
+    "@electron-toolkit/tsconfig": "^2.0.0",
     "@tailwindcss/vite": "^4.3.3",
     "@types/hast": "3.0.5",
     "@types/jsdom": "^28.0.3",
