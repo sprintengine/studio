@@ -109,14 +109,13 @@ const isPreview = (raw) => parseVersion(raw).pre !== null
 async function resolve() {
   const eventName = env('EVENT_NAME')
   const sha = env('SHA')
-  const releasesToken = env('RELEASES_TOKEN')
   const sourceRepo = env('SOURCE_REPO')
   const sourceToken = env('SOURCE_TOKEN')
   const dispatchChannel = env('DISPATCH_CHANNEL', { required: false }) || 'preview'
   const publish = eventName !== 'workflow_dispatch' || env('DISPATCH_PUBLISH', { required: false }) !== 'false'
 
   const source = await github(`/repos/${sourceRepo}`, sourceToken)
-  const releases = await listPublishedReleases(releasesToken)
+  const releases = await listPublishedReleases(sourceToken)
   const stable = latestStable(releases)
   const lastPreview = latestRelease(releases, isPreview)
   const lastStableRelease = latestRelease(releases, (raw) => !isPreview(raw))
@@ -231,7 +230,7 @@ function mergeMac(dir, channel) {
 // proves the release is complete, the unauthenticated pass proves a user can
 // get at it. A private releases repository passes the first perfectly.
 async function verify() {
-  const token = env('RELEASES_TOKEN')
+  const token = env('SOURCE_TOKEN')
   const tag = env('TAG')
   const version = env('VERSION')
   const channel = env('CHANNEL')
@@ -259,7 +258,7 @@ async function verify() {
   if (problems.length > 0) throw new Error(`Release ${tag} is not installable:\n  - ${problems.join('\n  - ')}`)
   console.log(`Release ${tag} is complete on ${RELEASES_REPO}.`)
 
-  // Everything above answered while holding RELEASES_TOKEN, which is exactly
+  // Everything above answered while holding the job's token, which is exactly
   // the credential no user has. Ask again with none, at the URLs the shipped
   // updater reads, so a releases repository that is private or misnamed fails
   // here rather than in the silence of an app that never finds an update.

@@ -33,7 +33,7 @@ on:
           - preview
           - stable
       publish:
-        description: "Publish to studio-releases (false: build and keep the packages as workflow artifacts)"
+        description: "Publish the release (false: build and keep the packages as workflow artifacts)"
         required: true
         default: true
         type: boolean
@@ -68,23 +68,6 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v7
 
-      # Releases publish to another repo, so the only credential that can do it
-      # is RELEASES_TOKEN; resolving the version reads that repo too. When the
-      # secret is absent `${{ secrets.X }}` expands to an empty string and the
-      # failure surfaced only in the last step of a long matrix. Check it first.
-      - name: Confirm the releases token is present
-        shell: bash
-        env:
-          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-        run: |
-          if [ -z "${RELEASES_TOKEN}" ]; then
-            echo "RELEASES_TOKEN is not set on this repository." >&2
-            echo "It is a fine-grained PAT with Contents read/write on" >&2
-            echo "sprintengine/studio-releases only. Add it under" >&2
-            echo "Settings -> Secrets and variables -> Actions, then re-run." >&2
-            exit 1
-          fi
-
       - name: Setup Node
         uses: actions/setup-node@v7
         with:
@@ -103,7 +86,6 @@ jobs:
           DISPATCH_PUBLISH: ${{ inputs.publish }}
           SOURCE_REPO: ${{ github.repository }}
           SOURCE_TOKEN: ${{ github.token }}
-          RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
         run: node scripts/release/release.mjs resolve
 
   # The whole CI gate -- the build, verify:app, the marketplace registry -- against
@@ -313,16 +295,15 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     permissions:
-      # Only to tag the source repo when a preview is promoted to stable. The
-      # release itself is written with RELEASES_TOKEN.
+      # To create the release, and the tag it sits on, in this repository.
       contents: write
     env:
       VERSION: ${{ needs.validate.outputs.version }}
       TAG: ${{ needs.validate.outputs.tag }}
       CHANNEL: ${{ needs.validate.outputs.channel }}
       REF: ${{ needs.validate.outputs.ref }}
-      GH_TOKEN: ${{ secrets.RELEASES_TOKEN }}
-      RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
+      GH_TOKEN: ${{ github.token }}
+      SOURCE_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v7
@@ -361,7 +342,7 @@ jobs:
       # the website read the release the moment it is published; a release
       # published before its last file finished uploading is one somebody can
       # half-install.
-      - name: Publish to the releases repository
+      - name: Publish the release
         shell: bash
         run: |
           set -euo pipefail
@@ -381,13 +362,15 @@ jobs:
             latest="--latest"
           fi
 
-          gh release create "$TAG" --repo "$REPO" --draft "${flags[@]}" \
+          # --target: a tag that does not exist yet is created on the commit
+          # that was built, not on whatever main has moved to since.
+          gh release create "$TAG" --repo "$REPO" --target "$REF" --draft "${flags[@]}" \
             --title "SprintEngine Studio ${VERSION}" \
             --notes-file release-notes.md \
             release-assets/*
           gh release edit "$TAG" --repo "$REPO" --draft=false "$latest"
 
-      # Twice over: once through the API with RELEASES_TOKEN, which says the
+      # Twice over: once through the API with the job's token, which says the
       # release is complete, and once with no credential at all against the URLs
       # electron-updater reads, which says a user can actually get at it. Only
       # the second catches a releases repository that is private or misnamed --
@@ -397,7 +380,8 @@ jobs:
         run: node scripts/release/release.mjs verify
 
       # A promoted stable has no tag in the source repo yet; a pushed one does.
-      # Created with the workflow's own token, which does not trigger another run.
+      # `gh release create --target` above normally creates it already; this
+      # stays as the guard. The workflow's own token does not trigger another run.
       - name: Tag the source commit
         if: needs.validate.outputs.channel == 'latest' && github.event_name != 'push'
         env:
