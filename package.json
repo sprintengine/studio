@@ -64,7 +64,7 @@
     "sync:model-feed": "node scripts/sync-model-feed.mjs",
     "measure:startup": "node scripts/measure-startup.mjs",
     "report:source-size": "node scripts/report-source-size.mjs",
-    "postinstall": "node scripts/fix-node-pty-permissions.js"
+    "postinstall": "node scripts/fix-node-pty-permissions.js && node node_modules/electron/install.js"
   },
   "build": {
     "appId": "com.sprintengine.studio",
