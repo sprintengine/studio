@@ -24,8 +24,7 @@ export const filesystemApi = {
     ipcRenderer.invoke('fs:search-files', { rootPath, query, limit: options?.limit }),
   searchContent: (rootPath: string, query: string, options?: { limit?: number }): Promise<ContentSearchResult> =>
     ipcRenderer.invoke('fs:search-content', { rootPath, query, limit: options?.limit }),
-  cancelContentSearch: (): Promise<void> =>
-    ipcRenderer.invoke('fs:cancel-content-search'),
+  cancelContentSearch: (): Promise<void> => ipcRenderer.invoke('fs:cancel-content-search'),
   readfile: (path: string) => ipcRenderer.invoke('fs:readfile', path),
   readImageDataUrl: (path: string) => ipcRenderer.invoke('fs:read-image-data-url', path),
   pathExists: (path: string) => ipcRenderer.invoke('fs:path-exists', path),
@@ -41,22 +40,26 @@ export const filesystemApi = {
     ipcRenderer.invoke('fs:check-workspace-folder', path),
   detectProjectLogo: (folderPath: string): Promise<ProjectLogo | null> =>
     ipcRenderer.invoke('fs:detect-project-logo', folderPath),
-  memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }): Promise<MemoryRootStatus> =>
-    ipcRenderer.invoke('memory:resolve-root', input),
-  memoryIndex: (input: { workspaceRoot: string | null; relativeRoot: string | null }): Promise<MemoryGraphIndexResult> =>
-    ipcRenderer.invoke('memory:index', input),
-  memoryReadPreview: (
-    input: { workspaceRoot: string | null; relativeRoot: string | null; relativePath: string }
-  ): Promise<MemoryPreviewResult> =>
-    ipcRenderer.invoke('memory:read-preview', input),
+  memoryResolveRoot: (input: {
+    workspaceRoot: string | null
+    relativeRoot: string | null
+  }): Promise<MemoryRootStatus> => ipcRenderer.invoke('memory:resolve-root', input),
+  memoryIndex: (input: {
+    workspaceRoot: string | null
+    relativeRoot: string | null
+  }): Promise<MemoryGraphIndexResult> => ipcRenderer.invoke('memory:index', input),
+  memoryReadPreview: (input: {
+    workspaceRoot: string | null
+    relativeRoot: string | null
+    relativePath: string
+  }): Promise<MemoryPreviewResult> => ipcRenderer.invoke('memory:read-preview', input),
   logDiagnostic: (input: DiagnosticLogInput): Promise<DiagnosticLogEntry> =>
     ipcRenderer.invoke('diagnostics:log', input),
   openDiagnosticsLogsFolder: (): Promise<{ opened: true; path: string }> =>
     ipcRenderer.invoke('diagnostics:open-logs-folder'),
   diagnosticsGetProcessMetrics: (): Promise<ProcessMetricsSnapshot> =>
     ipcRenderer.invoke('diagnostics:get-process-metrics'),
-  diagnosticsOpenWindow: (): Promise<void> =>
-    ipcRenderer.invoke('diagnostics:open-window'),
+  diagnosticsOpenWindow: (): Promise<void> => ipcRenderer.invoke('diagnostics:open-window'),
   writefile: (path: string, content: string) => ipcRenderer.invoke('fs:writefile', path, content),
   saveDroppedImage: (input: { mediaType: string; dataBase64: string }): Promise<string> =>
     ipcRenderer.invoke('fs:save-dropped-image', input),
@@ -75,8 +78,7 @@ export const filesystemApi = {
   probeVersionControlProviders: (): Promise<VersionControlProviderProbe[]> =>
     ipcRenderer.invoke('version-control:probe-providers'),
   openHtmlFileInBrowser: (targetPath: string) => ipcRenderer.invoke('fs:open-html-file-in-browser', targetPath),
-  listFolderOpenTargets: (): Promise<FolderOpenTargetAvailability[]> =>
-    ipcRenderer.invoke('fs:folder-open-targets'),
+  listFolderOpenTargets: (): Promise<FolderOpenTargetAvailability[]> => ipcRenderer.invoke('fs:folder-open-targets'),
   openFolderInTarget: (request: FolderOpenRequest): Promise<FolderOpenResult> =>
     ipcRenderer.invoke('fs:open-folder-in-target', request),
   watchPath: async (path: string, cb: (event: FileWatchEvent) => void) => {

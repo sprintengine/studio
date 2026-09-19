@@ -56,8 +56,8 @@ export function GitHubRepoPicker({
         // lane below still clones public repositories without any token.
         <p className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] px-3 py-2.5 text-meta leading-5 text-[color:var(--text-muted)]">
           To browse your repositories, add a GitHub token in{' '}
-          <span className="font-medium text-[color:var(--text-default)]">Settings → Version control</span>.
-          Public repositories clone from a URL without one.
+          <span className="font-medium text-[color:var(--text-default)]">Settings → Version control</span>. Public
+          repositories clone from a URL without one.
         </p>
       ) : null}
 
@@ -88,12 +88,14 @@ export function GitHubRepoPicker({
           />
           {visibleRepos.length === 0 ? (
             <p className="px-0.5 text-micro text-[color:var(--text-subtle)]">
-              {listState.repos.length === 0
-                ? 'No repositories on this account.'
-                : 'No repositories match the filter.'}
+              {listState.repos.length === 0 ? 'No repositories on this account.' : 'No repositories match the filter.'}
             </p>
           ) : (
-            <div className="flex min-h-[88px] flex-1 flex-col gap-0.5 overflow-y-auto pr-1" role="listbox" aria-label="GitHub repositories">
+            <div
+              className="flex min-h-[88px] flex-1 flex-col gap-0.5 overflow-y-auto pr-1"
+              role="listbox"
+              aria-label="GitHub repositories"
+            >
               {visibleRepos.map((repo) => {
                 const selected = repo.fullName === selectedFullName
                 return (
@@ -134,9 +136,7 @@ export function GitHubRepoPicker({
 
       <div className="flex items-center gap-2.5" aria-hidden>
         <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
-        <span className="text-micro font-medium text-[color:var(--text-subtle)]">
-          or paste a URL
-        </span>
+        <span className="text-micro font-medium text-[color:var(--text-subtle)]">or paste a URL</span>
         <span className="h-px flex-1 bg-[color:var(--border-subtle)]" />
       </div>
       {/* The error edge rides `aria-invalid` inside the primitive, so the

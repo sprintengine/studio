@@ -122,7 +122,7 @@ export type EnsureAgentIntegrationHomeOptions = {
  * rather than handing back a directory that would load nothing.
  */
 export async function ensureAgentIntegrationHome(
-  options: EnsureAgentIntegrationHomeOptions
+  options: EnsureAgentIntegrationHomeOptions,
 ): Promise<{ ok: true; home: AgentIntegrationHome } | { ok: false; message: string }> {
   const templateRoot = options.templateRoot
   if (!templateRoot) return { ok: false, message: 'The SprintEngine Studio plugin did not ship with this build.' }

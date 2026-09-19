@@ -82,8 +82,7 @@ export type FleetWorkspaceCheckout = {
 }
 
 export type FleetWorkspaceCheckoutResult =
-  | { ok: true; checkout: FleetWorkspaceCheckout }
-  | { ok: false; code: string; message: string }
+  { ok: true; checkout: FleetWorkspaceCheckout } | { ok: false; code: string; message: string }
 
 /**
  * Where a remote chat runs, chosen at the launch: the current checkout or a
@@ -94,9 +93,7 @@ export type FleetWorkspaceCheckoutResult =
  * the agent there; it is served by `agent.launch`, the audited
  * `workspace:operate` mutation that already owns worktree creation.
  */
-export type FleetCheckoutRequest =
-  | { mode: 'current' }
-  | { mode: 'worktree'; name?: string; baseRef?: string }
+export type FleetCheckoutRequest = { mode: 'current' } | { mode: 'worktree'; name?: string; baseRef?: string }
 
 /** What a create actually landed on, reported back so the row can say so. */
 type FleetCreatedCheckout = {
@@ -209,9 +206,7 @@ export type FleetTerminalEvent =
   | { type: 'ended'; reason: string }
   | { type: 'error'; code: string; message: string }
 
-export type FleetPairResult =
-  | { ok: true; connection: FleetConnection }
-  | { ok: false; code: string; message: string }
+export type FleetPairResult = { ok: true; connection: FleetConnection } | { ok: false; code: string; message: string }
 
 export type FleetAttachResult = { ok: true } | { ok: false; code: string; message: string }
 
@@ -279,8 +274,7 @@ export type FleetMachineReachability = {
 }
 
 export type FleetRequestPairingResult =
-  | { ok: true; request: FleetPairRequestView }
-  | { ok: false; code: string; message: string }
+  { ok: true; request: FleetPairRequestView } | { ok: false; code: string; message: string }
 
 /**
  * The answer to one poll. `unreachable` is deliberately NOT an outcome here —
@@ -330,7 +324,13 @@ export type FleetEvent =
    * shows that machine re-reads it through the fleet's browse, which is the
    * read it already knows how to do — and no longer does on a timer.
    */
-  | { kind: 'remote-changed'; revision: number; connectionId: string; machineName: string; what: 'terminals' | 'workspaces' }
+  | {
+      kind: 'remote-changed'
+      revision: number
+      connectionId: string
+      machineName: string
+      what: 'terminals' | 'workspaces'
+    }
 
 /**
  * One pane's link to one remote session. Keyed by `attachId` — the pane —

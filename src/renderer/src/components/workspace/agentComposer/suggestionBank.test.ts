@@ -1,10 +1,5 @@
 import assert from 'node:assert/strict'
-import {
-  SUGGESTION_BANK,
-  SUGGESTION_DRAW_SIZE,
-  drawSuggestions,
-  type SuggestionEntry,
-} from './suggestionBank'
+import { SUGGESTION_BANK, SUGGESTION_DRAW_SIZE, drawSuggestions, type SuggestionEntry } from './suggestionBank'
 
 // MC-2147. A card is a launch button, so two properties matter more than the
 // copy: the draw is STABLE for the life of a tab (a re-render must not move what
@@ -18,7 +13,11 @@ import {
   assert.deepEqual(a, b, 'same seed, same draw — including order')
   assert.equal(a.length, SUGGESTION_DRAW_SIZE, 'the draw fills the grid')
 
-  const seeds = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) => drawSuggestions(seed).map((e) => e.id).join(','))
+  const seeds = [1, 2, 3, 4, 5, 6, 7, 8].map((seed) =>
+    drawSuggestions(seed)
+      .map((e) => e.id)
+      .join(','),
+  )
   assert.ok(new Set(seeds).size > 1, 'different seeds draw differently — Shuffle has to do something')
 }
 

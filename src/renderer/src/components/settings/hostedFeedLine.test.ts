@@ -9,7 +9,15 @@ const ok = (
   source: 'network' | 'cache' | 'seed',
   state: 'ok' | 'degraded' = 'ok',
   fetchedAt = '2026-09-05T12:00:00Z',
-): HostedModelFeedReadResult => ({ ok: true, state, feedUrl: 'https://example.com/f.json', source, fetchedAt, changed: false, feed })
+): HostedModelFeedReadResult => ({
+  ok: true,
+  state,
+  feedUrl: 'https://example.com/f.json',
+  source,
+  fetchedAt,
+  changed: false,
+  feed,
+})
 
 // Live, just fetched. Terse, the way the band above it says "Checked 2m ago".
 assert.deepEqual(hostedFeedLine(ok('network'), now), { primary: 'Models updated 2m ago', meta: 'from GitHub' })
@@ -22,7 +30,10 @@ assert.deepEqual(hostedFeedLine(ok('cache', 'degraded', '2026-09-02T12:00:00Z'),
 })
 // The bundled seed, before and after a failed first fetch.
 assert.deepEqual(hostedFeedLine(ok('seed'), now), { primary: 'Models from this build', meta: 'GitHub not reached yet' })
-assert.deepEqual(hostedFeedLine(ok('seed', 'degraded'), now), { primary: 'Models from this build', meta: "couldn't reach GitHub" })
+assert.deepEqual(hostedFeedLine(ok('seed', 'degraded'), now), {
+  primary: 'Models from this build',
+  meta: "couldn't reach GitHub",
+})
 // Nothing read yet (the boot call has not answered) reads as the seed.
 assert.deepEqual(hostedFeedLine(null, now), { primary: 'Models from this build', meta: 'GitHub not reached yet' })
 // Nothing to serve at all: the reason, in the words the client chose.
@@ -31,7 +42,11 @@ assert.deepEqual(
   { primary: 'Models could not be checked', meta: 'GitHub answered HTTP 500.' },
 )
 // The strings never leak the client's vocabulary.
-for (const line of [hostedFeedLine(ok('network'), now), hostedFeedLine(ok('cache', 'degraded'), now), hostedFeedLine(ok('seed'), now)]) {
+for (const line of [
+  hostedFeedLine(ok('network'), now),
+  hostedFeedLine(ok('cache', 'degraded'), now),
+  hostedFeedLine(ok('seed'), now),
+]) {
   for (const word of ['etag', 'schema', 'cache', 'seed', 'network', 'degraded']) {
     assert.ok(!`${line.primary} ${line.meta}`.toLowerCase().includes(word), `${word} is not a word for the screen`)
   }

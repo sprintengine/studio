@@ -15,7 +15,13 @@ import {
 
 export type MarketplaceComponentKind = 'mcp' | 'skills' | 'module' | 'cli' | 'automation'
 
-export const MARKETPLACE_COMPONENT_KINDS: readonly MarketplaceComponentKind[] = ['mcp', 'skills', 'module', 'cli', 'automation']
+export const MARKETPLACE_COMPONENT_KINDS: readonly MarketplaceComponentKind[] = [
+  'mcp',
+  'skills',
+  'module',
+  'cli',
+  'automation',
+]
 
 export type MarketplaceComponentFileDigest = {
   path: string
@@ -44,12 +50,10 @@ export type MarketplacePluginManifest = Omit<MarketplacePluginAuthoringManifest,
 export type MarketplaceManifestIssue = { path: string; message: string }
 
 export type MarketplacePluginManifestResult =
-  | { ok: true; manifest: MarketplacePluginManifest }
-  | { ok: false; issues: MarketplaceManifestIssue[] }
+  { ok: true; manifest: MarketplacePluginManifest } | { ok: false; issues: MarketplaceManifestIssue[] }
 
 export type MarketplacePluginAuthoringManifestResult =
-  | { ok: true; manifest: MarketplacePluginAuthoringManifest }
-  | { ok: false; issues: MarketplaceManifestIssue[] }
+  { ok: true; manifest: MarketplacePluginAuthoringManifest } | { ok: false; issues: MarketplaceManifestIssue[] }
 
 const COMPONENT_KIND_SET = new Set<string>(MARKETPLACE_COMPONENT_KINDS)
 
@@ -61,7 +65,7 @@ function pushSdkIssues(
   issues: MarketplaceManifestIssue[],
   sdkIssues: ThirdPartyManifestIssue[],
   pathPrefix = '',
-  remap: Record<string, string> = {}
+  remap: Record<string, string> = {},
 ): void {
   for (const issue of sdkIssues) {
     const mappedPath = remap[issue.path] ?? issue.path
@@ -82,7 +86,7 @@ function validateComponentFileDigests(
   componentPath: string,
   path: string,
   issues: MarketplaceManifestIssue[],
-  required: boolean
+  required: boolean,
 ): MarketplaceComponentFileDigest[] | undefined {
   if (value === undefined) {
     if (required) issues.push({ path: `${path}.files`, message: 'component file digests are required.' })
@@ -139,7 +143,7 @@ function validateComponentFileDigests(
 function validateComponents(
   value: unknown,
   issues: MarketplaceManifestIssue[],
-  requireFileDigests: boolean
+  requireFileDigests: boolean,
 ): MarketplacePluginComponents | undefined {
   if (!isObject(value)) {
     issues.push({ path: 'components', message: 'components must be an object.' })
@@ -149,7 +153,10 @@ function validateComponents(
   const components: MarketplacePluginComponents = {}
   for (const [kind, component] of Object.entries(value)) {
     if (!COMPONENT_KIND_SET.has(kind)) {
-      issues.push({ path: `components.${kind}`, message: `component kind must be one of: ${MARKETPLACE_COMPONENT_KINDS.join(', ')}.` })
+      issues.push({
+        path: `components.${kind}`,
+        message: `component kind must be one of: ${MARKETPLACE_COMPONENT_KINDS.join(', ')}.`,
+      })
       continue
     }
     const path = `components.${kind}`
@@ -198,10 +205,12 @@ export function marketplaceAutomationPayloadIssues(source: string): MarketplaceM
   try {
     parsed = JSON.parse(source)
   } catch (error) {
-    return [{
-      path: AUTOMATION_ISSUE_PATH,
-      message: `automation payload must be valid JSON: ${error instanceof Error ? error.message : 'parse error'}.`,
-    }]
+    return [
+      {
+        path: AUTOMATION_ISSUE_PATH,
+        message: `automation payload must be valid JSON: ${error instanceof Error ? error.message : 'parse error'}.`,
+      },
+    ]
   }
   if (!isObject(parsed)) {
     return [{ path: AUTOMATION_ISSUE_PATH, message: 'automation payload must be a JSON object.' }]
@@ -209,12 +218,18 @@ export function marketplaceAutomationPayloadIssues(source: string): MarketplaceM
 
   const issues: MarketplaceManifestIssue[] = []
   if (typeof parsed.name !== 'string' || parsed.name.trim().length === 0) {
-    issues.push({ path: `${AUTOMATION_ISSUE_PATH}.name`, message: 'automation payload name is required and must be a non-empty string.' })
+    issues.push({
+      path: `${AUTOMATION_ISSUE_PATH}.name`,
+      message: 'automation payload name is required and must be a non-empty string.',
+    })
   }
   for (const field of ['trigger', 'action'] as const) {
     const value = parsed[field]
     if (!isObject(value)) {
-      issues.push({ path: `${AUTOMATION_ISSUE_PATH}.${field}`, message: `automation payload ${field} is required and must be an object.` })
+      issues.push({
+        path: `${AUTOMATION_ISSUE_PATH}.${field}`,
+        message: `automation payload ${field} is required and must be an object.`,
+      })
       continue
     }
     if (typeof value.kind !== 'string' || value.kind.trim().length === 0) {
@@ -229,7 +244,7 @@ export function marketplaceAutomationPayloadIssues(source: string): MarketplaceM
 
 function validateMarketplacePluginManifestBase(
   value: unknown,
-  requireSignature: boolean
+  requireSignature: boolean,
 ): MarketplacePluginAuthoringManifestResult {
   const issues: MarketplaceManifestIssue[] = []
   if (!isObject(value)) {

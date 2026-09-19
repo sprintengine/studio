@@ -70,8 +70,7 @@ const MENU_ROW_SHAPE = 'flex w-full gap-2 px-2.5 py-1.5 text-left transition-col
  * selected row never receives this string at all. `MENU_OPTION_CLASS` below is
  * the shape without it, and `ui/MenuOption` adds it on the resting branch only.
  */
-export const MENU_ROW_HOVER_CLASS =
-  'hover:bg-[color:var(--bg-hover)] aria-disabled:hover:bg-transparent'
+export const MENU_ROW_HOVER_CLASS = 'hover:bg-[color:var(--bg-hover)] aria-disabled:hover:bg-transparent'
 
 const MENU_ROW_GEOMETRY = `${MENU_ROW_SHAPE} ${MENU_ROW_HOVER_CLASS}`
 

@@ -19,11 +19,7 @@ import { MenuDivider, MenuItem, roveMenuFocus } from './ContextMenu'
 import { OutlineButton, PrimaryButton } from './Buttons'
 import { Popover, type PopoverPlacement } from './Popover'
 import { Spinner } from './Spinner'
-import {
-  listLiveAgentSessions,
-  pickTargetSession,
-  type LiveAgentSession,
-} from '../../utils/useSkillInAgent'
+import { listLiveAgentSessions, pickTargetSession, type LiveAgentSession } from '../../utils/useSkillInAgent'
 
 export type UseSkillInAgentMenuProps = {
   /** Names the skill in the trigger's accessible label. */

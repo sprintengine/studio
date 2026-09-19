@@ -8,7 +8,12 @@
 // in memory for an hour per package so a focus-driven availability refresh
 // never re-asks npm. A registry that does not answer within the timeout yields
 // `unknown`, never a failure that could block availability detection.
-import type { CliAvailability, CliUpdateCommand, CliVersionAdvisory, CliVersionAdvisoryMap } from '../shared/electron-api'
+import type {
+  CliAvailability,
+  CliUpdateCommand,
+  CliVersionAdvisory,
+  CliVersionAdvisoryMap,
+} from '../shared/electron-api'
 import type { PluginManifest } from '../shared/plugin-manifest'
 import { compareSemver } from '../shared/semver'
 

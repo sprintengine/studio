@@ -15,7 +15,6 @@ const ConversationPeekCard = React.lazy(() =>
   import('./ConversationPeekCard').then((m) => ({ default: m.ConversationPeekCard })),
 )
 
-
 // The conversation peek as a sidebar row's hover surface. The tab anchor lives
 // in `AgentTabIdentityPopover` — same card, same hook, a different anchor and a
 // different placement, which is the whole difference the design allows between
@@ -88,8 +87,7 @@ export function ConversationPeekPopover({
   const identitiesRef = useRef(identities)
   identitiesRef.current = identities
   const chosen = hoveredSession ?? openedOn
-  const identity =
-    identities.find((entry) => entry.agent.sessionId === chosen) ?? identities[0] ?? null
+  const identity = identities.find((entry) => entry.agent.sessionId === chosen) ?? identities[0] ?? null
   const sessionId = identity?.agent.sessionId ?? null
   const hover = useConversationPeek(sessionId)
   const { copied, copy } = useCopyValue(sessionId)

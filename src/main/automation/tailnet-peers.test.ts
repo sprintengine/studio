@@ -85,7 +85,7 @@ check('the node list is read from Tailscale, self first and reachable before asl
   assert.equal(parsed.backendRunning, true)
   assert.deepEqual(
     parsed.peers.map((peer) => peer.hostName),
-    ['studio-desktop', 'studio-laptop', 'a-phone']
+    ['studio-desktop', 'studio-laptop', 'a-phone'],
   )
 
   const self = parsed.peers[0]
@@ -127,7 +127,7 @@ check('an unknown or zero LastSeen is null rather than a date two thousand years
         absent: { ID: 'n-absent', HostName: 'no-field', Online: true, TailscaleIPs: ['100.64.0.5'] },
         junk: { ID: 'n-junk', HostName: 'garbled', Online: false, LastSeen: 'yesterday', TailscaleIPs: ['100.64.0.6'] },
       },
-    })
+    }),
   )
   assert.equal(parsed.ok, true)
   if (!parsed.ok) return
@@ -150,19 +150,19 @@ check('a node with no dialable tailnet address is not offered', () => {
         'no-id': { HostName: 'anonymous', Online: true, TailscaleIPs: ['100.64.0.9'] },
         good: { ID: 'node-z', HostName: 'real', Online: true, TailscaleIPs: ['100.64.0.8'] },
       },
-    })
+    }),
   )
   assert.equal(parsed.ok, true)
   if (!parsed.ok) return
   assert.deepEqual(
     parsed.peers.filter((peer) => !peer.isSelf).map((peer) => peer.hostName),
-    ['real']
+    ['real'],
   )
 })
 
 check('a peer with only an IPv6 tailnet address is still dialable', () => {
   const parsed = parseTailscaleStatus(
-    statusJson({ Peer: { six: { ID: 'n6', HostName: 'v6only', Online: true, TailscaleIPs: ['fd7a:115c:a1e0::5'] } } })
+    statusJson({ Peer: { six: { ID: 'n6', HostName: 'v6only', Online: true, TailscaleIPs: ['fd7a:115c:a1e0::5'] } } }),
   )
   assert.equal(parsed.ok, true)
   if (!parsed.ok) return
@@ -226,13 +226,13 @@ check('a probe that throws leaves the peer listed and undrivable', async () => {
   assert.equal(scan.peers.length, 3)
   assert.equal(
     scan.peers.every((peer) => peer.studio === null),
-    true
+    true,
   )
 })
 
 check('only the health shape counts as a Studio', () => {
   const valid = readHealthPayload(
-    JSON.stringify({ product: STUDIO_MCP_SERVER_NAME, transportVersion: 1, protocolVersions: ['2025-06-18'] })
+    JSON.stringify({ product: STUDIO_MCP_SERVER_NAME, transportVersion: 1, protocolVersions: ['2025-06-18'] }),
   )
   assert.deepEqual(valid, {
     product: STUDIO_MCP_SERVER_NAME,
@@ -276,7 +276,7 @@ check('nothing beyond product and protocol version is carried out of a peer’s 
       userEmail: 'someone@example.com',
       workspaces: ['/Users/someone/secret-project'],
       pairedDevices: 3,
-    })
+    }),
   )
   assert.ok(payload)
   assert.deepEqual(Object.keys(payload).sort(), ['product', 'protocolVersions', 'transportVersion'])
@@ -289,7 +289,7 @@ check('nothing beyond product and protocol version is carried out of a peer’s 
 
 async function withServer(
   handler: (path: string) => { status: number; body: string },
-  run: (port: number) => Promise<void>
+  run: (port: number) => Promise<void>,
 ): Promise<void> {
   const server: Server = createServer((request, response) => {
     const answer = handler(request.url ?? '')
@@ -325,18 +325,18 @@ check('the probe reads a real listener over a real socket', async () => {
       const answer = await probeStudioListener('127.0.0.1', port)
       assert.equal(answer?.product, STUDIO_MCP_SERVER_NAME)
       assert.equal(answer?.transportVersion, 1)
-    }
+    },
   )
 })
 
 check('a listener that answers something else is not a Studio', async () => {
   await withServer(
     () => ({ status: 500, body: 'nope' }),
-    async (port) => assert.equal(await probeStudioListener('127.0.0.1', port), null)
+    async (port) => assert.equal(await probeStudioListener('127.0.0.1', port), null),
   )
   await withServer(
     () => ({ status: 200, body: '<html>some other service</html>' }),
-    async (port) => assert.equal(await probeStudioListener('127.0.0.1', port), null)
+    async (port) => assert.equal(await probeStudioListener('127.0.0.1', port), null),
   )
 })
 
@@ -375,7 +375,7 @@ check('a port with nothing on it resolves null rather than rejecting', async () 
     () => ({ status: 200, body: '{}' }),
     async (port) => {
       released = port
-    }
+    },
   )
   assert.equal(await probeStudioListener('127.0.0.1', released), null)
 })

@@ -258,7 +258,7 @@ export function useCopyValue(value: string | null): { copied: boolean; copy: () 
 
   const copy = useCallback(() => {
     if (!value) return
-    const write = (window.api as typeof window.api & ClipboardApi | undefined)?.clipboardWriteText
+    const write = (window.api as (typeof window.api & ClipboardApi) | undefined)?.clipboardWriteText
     if (typeof write !== 'function') return
     void write(value)
       .then(() => {

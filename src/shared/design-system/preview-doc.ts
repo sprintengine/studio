@@ -32,8 +32,7 @@ export type PreviewMode = 'light' | 'dark'
  * are inline (we compose them), and images/fonts may only be `data:` URIs the
  * reader already inlined.
  */
-const PREVIEW_CSP =
-  "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:"
+const PREVIEW_CSP = "default-src 'none'; style-src 'unsafe-inline'; img-src data:; font-src data:"
 
 /**
  * Strip anything that would reach outside the document.
@@ -44,28 +43,30 @@ const PREVIEW_CSP =
  * the CSP, so a preview is inert in three independent ways.
  */
 export function stripActiveContent(html: string): string {
-  return html
-    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
-    .replace(/<script\b[^>]*\/?>/gi, '')
-    .replace(/<link\b[^>]*>/gi, '')
-    .replace(/<base\b[^>]*>/gi, '')
-    .replace(/<meta\b[^>]*http-equiv[^>]*>/gi, '')
-    // Inline event handlers cannot fire under `sandbox=""`, but leaving them in
-    // the markup invites someone to relax the sandbox later and be surprised.
-    .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
-    // Any remaining OUTBOUND reference. The reader already inlined what it could
-    // resolve inside the bundle and reported the rest, and the CSP would refuse
-    // these at load — but a document that still CONTAINS a tracker URL is one
-    // relaxed attribute away from fetching it. Blank the value, keep the element.
-    .replace(
-      /\s(src|href|poster|srcset)\s*=\s*("([^"]*)"|'([^']*)')/gi,
-      (whole, attribute: string, _quoted: string, double?: string, single?: string) => {
-        const value = (double ?? single ?? '').trim()
-        if (!value || value.startsWith('#') || value.startsWith('data:')) return whole
-        return ` ${attribute}=""`
-      },
-    )
+  return (
+    html
+      .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
+      .replace(/<script\b[^>]*\/?>/gi, '')
+      .replace(/<link\b[^>]*>/gi, '')
+      .replace(/<base\b[^>]*>/gi, '')
+      .replace(/<meta\b[^>]*http-equiv[^>]*>/gi, '')
+      // Inline event handlers cannot fire under `sandbox=""`, but leaving them in
+      // the markup invites someone to relax the sandbox later and be surprised.
+      .replace(/\son[a-z]+\s*=\s*"[^"]*"/gi, '')
+      .replace(/\son[a-z]+\s*=\s*'[^']*'/gi, '')
+      // Any remaining OUTBOUND reference. The reader already inlined what it could
+      // resolve inside the bundle and reported the rest, and the CSP would refuse
+      // these at load — but a document that still CONTAINS a tracker URL is one
+      // relaxed attribute away from fetching it. Blank the value, keep the element.
+      .replace(
+        /\s(src|href|poster|srcset)\s*=\s*("([^"]*)"|'([^']*)')/gi,
+        (whole, attribute: string, _quoted: string, double?: string, single?: string) => {
+          const value = (double ?? single ?? '').trim()
+          if (!value || value.startsWith('#') || value.startsWith('data:')) return whole
+          return ` ${attribute}=""`
+        },
+      )
+  )
 }
 
 export interface ComposePreviewInput {
@@ -116,15 +117,7 @@ export interface ComposePreviewInput {
  * specificity ties exactly as it does in its own repo.
  */
 export function composePreviewSrcDoc(input: ComposePreviewInput): string {
-  const {
-    tokensCss,
-    componentCss,
-    inlineStyles,
-    bodyHtml,
-    mode,
-    layout = 'center',
-    captions = 'none',
-  } = input
+  const { tokensCss, componentCss, inlineStyles, bodyHtml, mode, layout = 'center', captions = 'none' } = input
   const styles = [tokensCss, ...inlineStyles, componentCss]
     .map((block) => block.trim())
     .filter(Boolean)

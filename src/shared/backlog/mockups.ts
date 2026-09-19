@@ -102,10 +102,7 @@ function itemDirectory(itemRelativePath: string): string {
 // `../mockups/x.html` → `mockups/x.html`); any other ref is already understood as
 // root-relative and kept as-is (a bare `mockups/x.html` stays `mockups/x.html`).
 // Deduped, first-seen order preserved.
-export function detectBacklogMockupReferences(
-  sourceContent: string,
-  itemRelativePath: string,
-): string[] {
+export function detectBacklogMockupReferences(sourceContent: string, itemRelativePath: string): string[] {
   const dir = itemDirectory(itemRelativePath)
   const out: string[] = []
   const seen = new Set<string>()
@@ -113,7 +110,11 @@ export function detectBacklogMockupReferences(
   const add = (rawRef: string): void => {
     // Strip a `<>` wrapper, then a `#fragment`/`?query` tail — neither is part of
     // the on-disk path (and srcDoc previews can't act on a fragment anyway).
-    const ref = rawRef.trim().replace(/^<|>$/g, '').replace(/[?#].*$/, '').trim()
+    const ref = rawRef
+      .trim()
+      .replace(/^<|>$/g, '')
+      .replace(/[?#].*$/, '')
+      .trim()
     if (!ref || isExternalOrAbsoluteRef(ref) || !isHtmlRef(ref)) return
     const resolved =
       ref.startsWith('./') || ref.startsWith('../')

@@ -90,9 +90,7 @@ export function Switch({
           // bright (Conifer gold + pale sage, Lantern amber + warm cream,
           // Graphite white + light grey).
           'switch-thumb inline-block h-3 w-3 rounded-full',
-          checked
-            ? 'bg-[color:var(--text-on-accent)]'
-            : 'bg-[color:var(--text-strong)]',
+          checked ? 'bg-[color:var(--text-on-accent)]' : 'bg-[color:var(--text-strong)]',
         ].join(' ')}
       />
     </button>

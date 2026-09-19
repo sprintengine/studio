@@ -87,7 +87,7 @@ function isCachedAlwaysPresentSource(stored: SkillSource): boolean {
     // edit, or a store written by a build that placed a different source
     // there — used to survive this filter and then hand its fields to
     // `withPersistedScanState`, which trusted them.
-    (always) => always.id === stored.id && always.kind === 'github' && stored.kind === always.kind
+    (always) => always.id === stored.id && always.kind === 'github' && stored.kind === always.kind,
   )
 }
 
@@ -261,7 +261,11 @@ export function createSkillSourceStore(userDataDir: string, options: SkillSource
         log('source-write-failed', { id: source.id, message: errorMessage(error) })
         throw error
       }
-      log('source-written', { id: source.id, outcome: added ? 'added' : 'updated', skills: scan?.skills.length ?? null })
+      log('source-written', {
+        id: source.id,
+        outcome: added ? 'added' : 'updated',
+        skills: scan?.skills.length ?? null,
+      })
     },
     async removeSource(id) {
       if (!isRemovableSkillSource(id)) {

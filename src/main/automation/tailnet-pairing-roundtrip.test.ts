@@ -71,7 +71,7 @@ function call(
   port: number,
   method: string,
   path: string,
-  options: { token?: string; body?: unknown } = {}
+  options: { token?: string; body?: unknown } = {},
 ): Promise<HttpAnswer> {
   return new Promise((resolve, reject) => {
     const payload = options.body === undefined ? undefined : JSON.stringify(options.body)
@@ -102,7 +102,7 @@ function call(
           }
           resolve({ status: response.statusCode ?? 0, body })
         })
-      }
+      },
     )
     request.on('error', reject)
     if (payload) request.write(payload)
@@ -309,7 +309,7 @@ check('turning remote control off drops the outstanding code and closes the port
     // The port is closed, so the square now points at nothing at all.
     await assert.rejects(
       () => call(harness.port, 'POST', '/tailnet/v1/pair', { body: { pairingToken: scanned.token, deviceName: 'x' } }),
-      /ECONNREFUSED/u
+      /ECONNREFUSED/u,
     )
 
     // And re-enabling does not resurrect it.

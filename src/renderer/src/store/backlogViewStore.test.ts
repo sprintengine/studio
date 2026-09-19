@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
 
-import {
-  DEFAULT_BACKLOG_PROJECT_VIEW,
-  selectBacklogProjectView,
-  useBacklogViewStore,
-} from './backlogViewStore'
+import { DEFAULT_BACKLOG_PROJECT_VIEW, selectBacklogProjectView, useBacklogViewStore } from './backlogViewStore'
 
 function reset(): void {
   useBacklogViewStore.setState({ viewByProject: {} })
@@ -69,9 +65,7 @@ test('seedProjectViewIfAbsent migrates a legacy record only when absent', () => 
 
 test('seedProjectViewIfAbsent skips a pure-default seed to stay sparse', () => {
   reset()
-  useBacklogViewStore
-    .getState()
-    .seedProjectViewIfAbsent('/p', { view: 'active', sort: 'recent', group: 'none' })
+  useBacklogViewStore.getState().seedProjectViewIfAbsent('/p', { view: 'active', sort: 'recent', group: 'none' })
   assert.deepEqual(useBacklogViewStore.getState().viewByProject, {})
   // Absent record still reads as default.
   assert.deepEqual(read('/p'), DEFAULT_BACKLOG_PROJECT_VIEW)

@@ -1,5 +1,15 @@
 import React, { useEffect, useMemo, useId, useState } from 'react'
-import { EmptyState, GhostButton, InlineNotice, Input, LinkButton, OutlineButton, PrimaryButton, StatusDot, type Tone } from '../ui'
+import {
+  EmptyState,
+  GhostButton,
+  InlineNotice,
+  Input,
+  LinkButton,
+  OutlineButton,
+  PrimaryButton,
+  StatusDot,
+  type Tone,
+} from '../ui'
 import {
   MetaCell,
   SettingCard,
@@ -12,18 +22,10 @@ import {
 import type { MobileControlProtocolVersion } from '../../../../../packages/mobile-control-protocol/src/index'
 
 type MobileControlCommandType =
-  | 'snapshot.request'
-  | 'device.revoke'
-  | 'backlog.update'
-  | 'backlog.create'
-  | 'automations.control'
+  'snapshot.request' | 'device.revoke' | 'backlog.update' | 'backlog.create' | 'automations.control'
 
 type MobileControlCapability =
-  | 'snapshots.read'
-  | 'devices.revoke'
-  | 'backlog.update'
-  | 'backlog.create'
-  | 'automations.control'
+  'snapshots.read' | 'devices.revoke' | 'backlog.update' | 'backlog.create' | 'automations.control'
 
 type MobileControlDevice = {
   /** A device paired before a protocol bump keeps its stamp, so this is the window, not the current version. */
@@ -172,7 +174,7 @@ export default function MobileSettingsTab() {
       if (cancelled) return
       setState(next)
       setRelayUrlPersisted(next.relayUrl ?? '')
-      setRelayUrlDraft((current) => (current === '' ? next.relayUrl ?? '' : current))
+      setRelayUrlDraft((current) => (current === '' ? (next.relayUrl ?? '') : current))
       setAction((current) => ({
         status: current.status === 'busy' ? 'busy' : 'idle',
         message: statusMessage(next),
@@ -187,7 +189,7 @@ export default function MobileSettingsTab() {
 
   const activeDevices = useMemo(
     () => state?.pairedDevices.filter((device) => !device.revokedAt) ?? [],
-    [state?.pairedDevices]
+    [state?.pairedDevices],
   )
   const enabled = state?.enabled ?? false
   const busy = action.status === 'loading' || action.status === 'busy'
@@ -262,10 +264,7 @@ export default function MobileSettingsTab() {
     setRevokingDeviceId(device.deviceId)
     setAction({ status: 'busy', message: `Revoking ${device.displayName}…` })
     try {
-      await mobileBridgeApi.mobileBridgeRevokeDevice(
-        device.deviceId,
-        'Revoked from settings.'
-      )
+      await mobileBridgeApi.mobileBridgeRevokeDevice(device.deviceId, 'Revoked from settings.')
       const next = await mobileBridgeApi.mobileBridgeGetState()
       setState(next)
       setAction({ status: 'idle', message: `${device.displayName} revoked.` })
@@ -293,12 +292,7 @@ export default function MobileSettingsTab() {
   }
 
   return (
-    <div
-      role="tabpanel"
-      id="settings-panel-mobile"
-      aria-labelledby="settings-tab-mobile"
-      className="space-y-5"
-    >
+    <div role="tabpanel" id="settings-panel-mobile" aria-labelledby="settings-tab-mobile" className="space-y-5">
       {/* The relay's state rides the page header as its fact: dot + word, not
           a tinted pill. The dot is earned — it only renders while the
           companion is on (live link, working, or failing). What the state
@@ -308,10 +302,7 @@ export default function MobileSettingsTab() {
         meta={
           <span className="inline-flex items-center gap-1.5">
             {enabled ? (
-              <StatusDot
-                tone={relayStatusDotTone(state?.relayStatus)}
-                label={relayStatusLabel(state?.relayStatus)}
-              />
+              <StatusDot tone={relayStatusDotTone(state?.relayStatus)} label={relayStatusLabel(state?.relayStatus)} />
             ) : null}
             {enabled ? relayStatusLabel(state?.relayStatus) : 'Off'}
           </span>
@@ -430,20 +421,28 @@ export default function MobileSettingsTab() {
       {/* The relay's internals are diagnostics: shown once someone has asked
           for the diagnostics below, not on every visit. */}
       {showDiagnostics ? (
-      <section>
-        <SettingsSectionTitle className="mb-1.5">Relay state</SettingsSectionTitle>
-        <div className="grid gap-x-6 gap-y-3 text-body sm:grid-cols-2">
-          <MetaCell label="Relay status" value={relayStatusLabel(state?.relayStatus)} tone={relayStatusTone(state?.relayStatus)} />
-          <MetaCell
-            label="Relay polling"
-            value={pollCadenceLabel(enabled, state?.commandPollCadence, activeDevices.length)}
-            tone={pollCadenceTone(enabled, state?.commandPollCadence)}
-          />
-          <MetaCell label="Session" value={state?.desktopRelaySessionId ? 'Ready' : 'Not ready'} tone={state?.desktopRelaySessionId ? 'positive' : 'muted'} />
-          <MetaCell label="Last presence" value={formatNullableDate(state?.lastPresenceAt)} />
-          <MetaCell label="Token expires" value={formatNullableDate(state?.relayTokenExpiresAt)} />
-        </div>
-      </section>
+        <section>
+          <SettingsSectionTitle className="mb-1.5">Relay state</SettingsSectionTitle>
+          <div className="grid gap-x-6 gap-y-3 text-body sm:grid-cols-2">
+            <MetaCell
+              label="Relay status"
+              value={relayStatusLabel(state?.relayStatus)}
+              tone={relayStatusTone(state?.relayStatus)}
+            />
+            <MetaCell
+              label="Relay polling"
+              value={pollCadenceLabel(enabled, state?.commandPollCadence, activeDevices.length)}
+              tone={pollCadenceTone(enabled, state?.commandPollCadence)}
+            />
+            <MetaCell
+              label="Session"
+              value={state?.desktopRelaySessionId ? 'Ready' : 'Not ready'}
+              tone={state?.desktopRelaySessionId ? 'positive' : 'muted'}
+            />
+            <MetaCell label="Last presence" value={formatNullableDate(state?.lastPresenceAt)} />
+            <MetaCell label="Token expires" value={formatNullableDate(state?.relayTokenExpiresAt)} />
+          </div>
+        </section>
       ) : null}
 
       <section>
@@ -458,9 +457,7 @@ export default function MobileSettingsTab() {
                   <div className="min-w-0 truncate text-body text-[color:var(--text-strong)]">
                     {commandLabel(event.commandType)}
                   </div>
-                  <span className={`text-meta font-semibold ${commandStatusClass(event.status)}`}>
-                    {event.status}
-                  </span>
+                  <span className={`text-meta font-semibold ${commandStatusClass(event.status)}`}>{event.status}</span>
                 </div>
                 <div className="flex flex-wrap gap-x-3 gap-y-1 text-meta text-[color:var(--text-muted)]">
                   <span>{event.deviceName ?? event.deviceId ?? 'Mobile device'}</span>
@@ -490,11 +487,7 @@ export default function MobileSettingsTab() {
           <div className="space-y-3">
             {visibleDiagnostics.map((entry) => (
               <div key={entry.id} className="grid grid-cols-[auto_minmax(0,1fr)] gap-2 text-body leading-5">
-                <StatusDot
-                  tone={diagnosticDotTone(entry.level)}
-                  label={entry.level}
-                  className="mt-2"
-                />
+                <StatusDot tone={diagnosticDotTone(entry.level)} label={entry.level} className="mt-2" />
                 <div className="min-w-0">
                   <div className="text-[color:var(--text-default)]">{entry.message}</div>
                   <div className="mt-0.5 flex flex-wrap gap-x-3 gap-y-1 text-meta text-[color:var(--text-muted)]">
@@ -566,7 +559,7 @@ function relayStatusLabel(status: MobileBridgeRelayStatus | undefined): string {
 function pollCadenceLabel(
   enabled: boolean,
   cadence: MobileBridgeCommandPollCadence | undefined,
-  activeDeviceCount: number
+  activeDeviceCount: number,
 ): string {
   if (!enabled) return 'Off'
   if (!cadence || cadence.state === 'paused') {
@@ -578,7 +571,7 @@ function pollCadenceLabel(
 
 function pollCadenceTone(
   enabled: boolean,
-  cadence: MobileBridgeCommandPollCadence | undefined
+  cadence: MobileBridgeCommandPollCadence | undefined,
 ): 'positive' | 'muted' | undefined {
   if (!enabled || !cadence || cadence.state === 'paused') return 'muted'
   return cadence.state === 'fast' ? 'positive' : undefined

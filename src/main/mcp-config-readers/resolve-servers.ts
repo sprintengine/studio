@@ -25,10 +25,12 @@ export type McpServerResolver = {
   }): Promise<Map<string, ResolvedMcpServers>>
 }
 
-export function createMcpServerResolver(options: {
-  readers?: ReadonlyMap<PluginMcpConfigFormat, McpConfigReader>
-  homeDir?: () => string
-} = {}): McpServerResolver {
+export function createMcpServerResolver(
+  options: {
+    readers?: ReadonlyMap<PluginMcpConfigFormat, McpConfigReader>
+    homeDir?: () => string
+  } = {},
+): McpServerResolver {
   const readers = options.readers ?? MCP_CONFIG_READERS
   const homeDir = options.homeDir ?? (() => homedir())
 
@@ -49,10 +51,10 @@ export function createMcpServerResolver(options: {
       }
 
       const resolved = await Promise.all(
-        targets.map(async (target) => [
-          target.pluginId,
-          await resolveTarget(target, { workspaceRoot, readers, homeDir, readOnce }),
-        ] as const),
+        targets.map(
+          async (target) =>
+            [target.pluginId, await resolveTarget(target, { workspaceRoot, readers, homeDir, readOnce })] as const,
+        ),
       )
       return new Map(resolved)
     },
@@ -75,12 +77,14 @@ async function resolveTarget(
     const path = resolveMcpConfigPath(target.spec, 'workspace', context.workspaceRoot, context.homeDir)
     return {
       servers: [],
-      diagnostics: [{
-        capability: 'servers',
-        reason: 'unreadable',
-        path: path ?? '',
-        message: `No MCP config reader for format "${target.spec.format}", declared by plugin "${target.pluginId}".`,
-      }],
+      diagnostics: [
+        {
+          capability: 'servers',
+          reason: 'unreadable',
+          path: path ?? '',
+          message: `No MCP config reader for format "${target.spec.format}", declared by plugin "${target.pluginId}".`,
+        },
+      ],
     }
   }
 

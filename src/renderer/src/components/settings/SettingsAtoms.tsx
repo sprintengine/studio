@@ -139,15 +139,7 @@ export function SettingToggle({
   )
 }
 
-export function MetaCell({
-  label,
-  value,
-  tone,
-}: {
-  label: string
-  value: string
-  tone?: MetaTone
-}) {
+export function MetaCell({ label, value, tone }: { label: string; value: string; tone?: MetaTone }) {
   return (
     <div className="min-w-0">
       <div className="text-meta text-[color:var(--text-muted)]">{label}</div>

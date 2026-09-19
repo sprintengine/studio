@@ -18,9 +18,24 @@ import type {
 } from '../shared/agent-runtime'
 import { clearConversationPeekCaches } from './conversation-peek/caches'
 import { appendLivePeekPrompt, type ConversationPeekSessionState } from './conversation-peek/service'
-import { agentStateSpecReportsPrompts, applyBackgroundWork, deriveActivityFromPhase, evaluateAgentStall, holdTurnEndForBackgroundWork, isAtRestAgentPhase, resolveAgentStateEvent, selectAgentStateTarget, type AgentStateFrame } from './agent-state'
+import {
+  agentStateSpecReportsPrompts,
+  applyBackgroundWork,
+  deriveActivityFromPhase,
+  evaluateAgentStall,
+  holdTurnEndForBackgroundWork,
+  isAtRestAgentPhase,
+  resolveAgentStateEvent,
+  selectAgentStateTarget,
+  type AgentStateFrame,
+} from './agent-state'
 import { resolveCheckoutForCwd, type ObservedCheckoutResolver, type ResolvedCheckoutFacts } from './checkout-resolve'
-import { parseObservedCheckout, sameObservedCheckout, unresolvedObservedCheckout, type ObservedCheckout } from '../shared/observed-checkout'
+import {
+  parseObservedCheckout,
+  sameObservedCheckout,
+  unresolvedObservedCheckout,
+  type ObservedCheckout,
+} from '../shared/observed-checkout'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   cleanupHostContextFile,
@@ -169,12 +184,7 @@ type TerminalRuntimeOptions = {
   // gets its list. `onAgentFileEdit` fires per reported edit, and
   // `onAgentSessionExit` once per pty that dies on its own.
   onAgentLaunched?(session: TerminalSession): void
-  onAgentFileEdit?(input: {
-    session: TerminalSession
-    path: string
-    edits?: ChangelistEdit[]
-    ts: number
-  }): void
+  onAgentFileEdit?(input: { session: TerminalSession; path: string; edits?: ChangelistEdit[]; ts: number }): void
   onAgentSessionExit?(session: TerminalSession): void
   // --- Pull request marks (pull-request-record.ts) --------------------------
   //
@@ -195,10 +205,7 @@ type TerminalIpcHandlers = {
   spawnTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult>
   writeTerminal(sessionId: string, data: string): void
   resizeTerminal(sessionId: string, cols: number, rows: number): void
-  getTerminalStatus(
-    sessionId: string,
-    sender?: WebContents
-  ): Promise<{ processAlive: boolean; suspended: boolean }>
+  getTerminalStatus(sessionId: string, sender?: WebContents): Promise<{ processAlive: boolean; suspended: boolean }>
   listTerminals(): TerminalSessionSnapshot[]
   setTerminalVisible(sessionId: string, visible: boolean, sender?: WebContents): void
   suspendTerminal(sessionId: string): void
@@ -303,9 +310,10 @@ function agentStateSpecForSession(session: TerminalSession) {
 // authoritative manifest source; cli id == plugin id). The main process stamps
 // these onto the agent-terminal sync payload so renderer stores never re-derive
 // resume behavior from a hardcoded cli-id allowlist. Absent plugin → both false.
-export function cliResumeCapabilities(
-  cli: string | undefined
-): { resumeSession: boolean; sessionIdFromCaller: boolean } {
+export function cliResumeCapabilities(cli: string | undefined): {
+  resumeSession: boolean
+  sessionIdFromCaller: boolean
+} {
   const caps = cli ? getPluginById(pluginIdForCli(cli))?.manifest.capabilities : undefined
   return {
     resumeSession: caps?.resumeSession ?? false,
@@ -366,18 +374,14 @@ export function createTerminalRuntime(options: TerminalRuntimeOptions): Terminal
       writeTerminal: writeTerminalInput,
       resizeTerminal: safeResizeTerminal,
       async getTerminalStatus(sessionId, sender) {
-        const session =
-          terminals.get(sessionId)
-          ?? (await rehydrateSuspendedTerminalFromSidecar(sessionId, sender))
+        const session = terminals.get(sessionId) ?? (await rehydrateSuspendedTerminalFromSidecar(sessionId, sender))
         return {
           processAlive: Boolean(session && isTerminalProcessAlive(session)),
           suspended: Boolean(session?.suspended && !session.isDisposed),
         }
       },
       listTerminals() {
-        return [...terminals.values()]
-          .filter((session) => !session.isDisposed)
-          .map(getTerminalSnapshot)
+        return [...terminals.values()].filter((session) => !session.isDisposed).map(getTerminalSnapshot)
       },
       setTerminalVisible: setTerminalVisible,
       suspendTerminal: suspendTerminal,
@@ -425,11 +429,7 @@ function trackAgentListenerRecord(record: Promise<void>): void {
   })
 }
 
-function sendTerminalEvent(
-  sender: Electron.WebContents,
-  channel: string,
-  payload: string | number
-): void {
+function sendTerminalEvent(sender: Electron.WebContents, channel: string, payload: string | number): void {
   if (!sender.isDestroyed()) {
     sender.send(channel, payload)
   }
@@ -612,10 +612,11 @@ const terminalOutput = createTerminalOutputBuffer({
  * service's spawn port in `src/main/app-services.ts`.
  */
 export function resolveSpawnEventSink(): WebContents {
-  return BrowserWindow.getAllWindows()
-    .find((win) => !win.isDestroyed() && !win.webContents.isDestroyed() && !isCanvasWorkerWindow(win))
-    ?.webContents
-    ?? createHeadlessTerminalSender()
+  return (
+    BrowserWindow.getAllWindows().find(
+      (win) => !win.isDestroyed() && !win.webContents.isDestroyed() && !isCanvasWorkerWindow(win),
+    )?.webContents ?? createHeadlessTerminalSender()
+  )
 }
 
 /**
@@ -691,9 +692,7 @@ function flushTerminalSessionsBroadcast(): void {
     clearTimeout(pendingSessionsBroadcast)
     pendingSessionsBroadcast = null
   }
-  const snapshots = [...terminals.values()]
-    .filter((session) => !session.isDisposed)
-    .map(getTerminalSnapshot)
+  const snapshots = [...terminals.values()].filter((session) => !session.isDisposed).map(getTerminalSnapshot)
 
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed() && !win.webContents.isDestroyed()) {
@@ -897,10 +896,7 @@ export function suspendTerminal(sessionId: string): void {
 function settleSuspendedAgentRest(session: TerminalSession): void {
   const phase = session.agentState?.phase
   const claimsWork =
-    session.activity.kind === 'working'
-    || phase === 'starting'
-    || phase === 'thinking'
-    || phase === 'tool_use'
+    session.activity.kind === 'working' || phase === 'starting' || phase === 'thinking' || phase === 'tool_use'
   if (!claimsWork) return
   // When the turn ended, if one ever did; else the moment the process died,
   // which is all a session suspended mid-turn can honestly say.
@@ -912,7 +908,7 @@ function settleSuspendedAgentRest(session: TerminalSession): void {
 
 function writeTerminalSnapshotSidecar(
   session: TerminalSession,
-  payload: { snapshot?: string; rawReplay?: string; cols: number; rows: number }
+  payload: { snapshot?: string; rawReplay?: string; cols: number; rows: number },
 ): void {
   if (!snapshotSidecars) return
   // Painted-pause is an agent-terminal promise (the paused footer, resume-on-
@@ -969,7 +965,7 @@ function writeTerminalSnapshotSidecar(
 // seeding the raw buffer when the render fails.
 async function rehydrateSuspendedTerminalFromSidecar(
   sessionId: string,
-  sender?: WebContents
+  sender?: WebContents,
 ): Promise<TerminalSession | undefined> {
   if (!snapshotSidecars) return undefined
   const sidecar = snapshotSidecars.read(sessionId)
@@ -1025,10 +1021,7 @@ async function rehydrateSuspendedTerminalFromSidecar(
 // `resume: true` — the existing launch path renders `--resume <sessionId>` for
 // Claude and attaches a fresh pty. A non-suspended session falls through to the
 // normal spawn/reattach path unchanged (no-op relaunch).
-async function resumeTerminal(
-  sender: WebContents,
-  payload: TerminalSpawnPayload
-): Promise<TerminalSpawnResult> {
+async function resumeTerminal(sender: WebContents, payload: TerminalSpawnPayload): Promise<TerminalSpawnResult> {
   const existing = terminals.get(payload.sessionId)
   // Carry the agent's captured harness session id forward from the suspended
   // session before it is disposed, so an in-session resume still targets the
@@ -1043,7 +1036,12 @@ async function resumeTerminal(
     // plugin authored before agentStateSpec existed) must keep the frozen view
     // intact instead of erasing it and then failing to spawn anything.
     const resumeCli = payload.cli ?? existing.cli
-    if (!payload.shellOnly && resumeCli && getPluginById(pluginIdForCli(resumeCli)) && !agentStateSupportsCli(resumeCli)) {
+    if (
+      !payload.shellOnly &&
+      resumeCli &&
+      getPluginById(pluginIdForCli(resumeCli)) &&
+      !agentStateSupportsCli(resumeCli)
+    ) {
       return {
         ok: false,
         sessionId: payload.sessionId,
@@ -1085,7 +1083,11 @@ function disposeTerminal(sessionId: string): void {
   clearTerminalIdleTimer(session)
   clearAgentStallTimer(session)
   session.isDisposed = true
-  setTerminalActivity(session, { kind: 'exited', at: Date.now(), exitCode: session.exitCode ?? 0 }, { broadcast: false })
+  setTerminalActivity(
+    session,
+    { kind: 'exited', at: Date.now(), exitCode: session.exitCode ?? 0 },
+    { broadcast: false },
+  )
   terminals.delete(sessionId)
   broadcastTerminalSessionsChanged()
 
@@ -1212,7 +1214,7 @@ function stopStaleTerminalSweep(): void {
 export function reapStaleTerminals(
   now = Date.now(),
   guardHolds?: ReadonlyMap<string, string>,
-  probedSessionIds?: ReadonlySet<string>
+  probedSessionIds?: ReadonlySet<string>,
 ): string[] {
   const staleSessionIds = [...terminals.values()]
     .filter((session) => isTerminalSessionStale(session, now))
@@ -1304,7 +1306,7 @@ function recordGuardHoldSkip(
   sessionId: string,
   guardHolds: ReadonlyMap<string, string> | undefined,
   now: number,
-  sweep: string
+  sweep: string,
 ): boolean {
   const hold = guardHolds?.get(sessionId)
   if (hold === undefined) return false
@@ -1377,7 +1379,7 @@ function buildReapCandidates(): ReapCandidate[] {
 export function runIdleAgentReapSweep(
   now = Date.now(),
   guardHolds?: ReadonlyMap<string, string>,
-  probedSessionIds?: ReadonlySet<string>
+  probedSessionIds?: ReadonlySet<string>,
 ): string[] {
   const candidates = buildReapCandidates()
   const decision = selectReapableSessions(candidates, {
@@ -1520,7 +1522,7 @@ export function runIdleAgentReapSweep(
 // probe (ps/lsof failure) holds the session rather than risking live work.
 export async function runGuardedTerminalReapSweeps(
   now = Date.now(),
-  deps: { subtree?: SubtreeProbeDeps } = {}
+  deps: { subtree?: SubtreeProbeDeps } = {},
 ): Promise<{ staleReaped: string[]; idleReaped: string[] }> {
   const staleTargets = [...terminals.values()]
     .filter((session) => isTerminalSessionStale(session, now) && session.reapExempt !== true)
@@ -1547,7 +1549,7 @@ export async function runGuardedTerminalReapSweeps(
 // retained buffers.
 async function buildReapGuardHolds(
   targetSessionIds: ReadonlySet<string>,
-  deps: { subtree?: SubtreeProbeDeps }
+  deps: { subtree?: SubtreeProbeDeps },
 ): Promise<Map<string, string>> {
   const holds = new Map<string, string>()
   const subtreeTargets: { sessionId: string; pid: number }[] = []
@@ -1560,7 +1562,7 @@ async function buildReapGuardHolds(
   if (subtreeTargets.length > 0) {
     const verdicts = await probeSubtreesForLiveWork(
       subtreeTargets.map((target) => target.pid),
-      deps.subtree
+      deps.subtree,
     )
     for (const target of subtreeTargets) {
       const reason = verdicts.get(target.pid)
@@ -1576,22 +1578,24 @@ async function buildReapGuardHolds(
 // panel shows. The session snapshot deliberately omits pids, so this main-only
 // accessor exposes them to the workspace-memory sampler.
 export function listTerminalRoots(): TerminalRootInfo[] {
-  return [...terminals.values()]
-    // A placeholder rehydrated from a snapshot sidecar has an inert process
-    // with no pid — there is no subtree to attribute, so it has no root entry.
-    .filter((session) => !session.isDisposed && typeof session.process.pid === 'number')
-    .map((session) => ({
-      sessionId: session.sessionId,
-      rootPid: session.process.pid,
-      workspaceId: session.workspaceId ?? null,
-      agentId: session.agentId ?? null,
-      terminalId: session.terminalId ?? null,
-      kind: session.kind,
-      cli: session.cli ?? null,
-      activityKind: session.activity.kind,
-      processAlive: isTerminalProcessAlive(session),
-      startedAt: session.startedAt,
-    }))
+  return (
+    [...terminals.values()]
+      // A placeholder rehydrated from a snapshot sidecar has an inert process
+      // with no pid — there is no subtree to attribute, so it has no root entry.
+      .filter((session) => !session.isDisposed && typeof session.process.pid === 'number')
+      .map((session) => ({
+        sessionId: session.sessionId,
+        rootPid: session.process.pid,
+        workspaceId: session.workspaceId ?? null,
+        agentId: session.agentId ?? null,
+        terminalId: session.terminalId ?? null,
+        kind: session.kind,
+        cli: session.cli ?? null,
+        activityKind: session.activity.kind,
+        processAlive: isTerminalProcessAlive(session),
+        startedAt: session.startedAt,
+      }))
+  )
 }
 
 async function shutdownTerminalRuntime(): Promise<void> {
@@ -1650,7 +1654,11 @@ async function disposeAllTerminals(): Promise<void> {
   for (const session of sessions) {
     if (terminals.get(session.sessionId) === session) {
       session.isDisposed = true
-      setTerminalActivity(session, { kind: 'exited', at: Date.now(), exitCode: session.exitCode ?? 0 }, { broadcast: false })
+      setTerminalActivity(
+        session,
+        { kind: 'exited', at: Date.now(), exitCode: session.exitCode ?? 0 },
+        { broadcast: false },
+      )
       terminals.delete(session.sessionId)
     }
   }
@@ -1673,10 +1681,10 @@ function getLiveAgentExecutionIds(): LiveAgentExecution[] {
 function resolveAgentExecutionId(input: { workspaceId: string; agentId: string }): string | undefined {
   for (const session of terminals.values()) {
     if (
-      isTerminalProcessAlive(session)
-      && session.agentId === input.agentId
-      && session.agentSession?.workspaceId === input.workspaceId
-      && session.agentSession.executionId
+      isTerminalProcessAlive(session) &&
+      session.agentId === input.agentId &&
+      session.agentSession?.workspaceId === input.workspaceId &&
+      session.agentSession.executionId
     ) {
       return session.agentSession.executionId
     }
@@ -1701,18 +1709,19 @@ function registerAgentPhaseListener(listener: AgentPhaseListener): () => void {
 function disposeOtherAgentSessions(
   sessionId: string,
   workspaceId: string | undefined,
-  agentId: string | undefined
+  agentId: string | undefined,
 ): void {
   if (!workspaceId || !agentId) return
 
   const duplicateSessionIds = [...terminals.values()]
-    .filter((session) => (
-      session.sessionId !== sessionId
-      && isTerminalProcessAlive(session)
-      && session.kind === 'agent'
-      && session.workspaceId === workspaceId
-      && session.agentId === agentId
-    ))
+    .filter(
+      (session) =>
+        session.sessionId !== sessionId &&
+        isTerminalProcessAlive(session) &&
+        session.kind === 'agent' &&
+        session.workspaceId === workspaceId &&
+        session.agentId === agentId,
+    )
     .map((session) => session.sessionId)
 
   duplicateSessionIds.forEach(disposeTerminal)
@@ -1737,7 +1746,7 @@ function scheduleTerminalIdleTransition(session: TerminalSession): void {
 function setTerminalActivity(
   session: TerminalSession,
   nextActivity: SessionActivity,
-  options: { broadcast?: boolean } = {}
+  options: { broadcast?: boolean } = {},
 ): boolean {
   const previousActivity = session.activity
   const changed = transitionTerminalActivity(session, nextActivity)
@@ -1962,8 +1971,8 @@ function peekStateForSession(session: TerminalSession): ConversationPeekSessionS
   // `--session-id`), our terminal key IS its session id, so the transcript can
   // still be found. A CLI that mints its own (Codex) gets nothing, which is
   // correct: guessing there would name someone else's file.
-  const cliSessionId = session.cliSessionId
-    ?? (cliResumesWithCallerSessionId(session.cli) ? session.sessionId : undefined)
+  const cliSessionId =
+    session.cliSessionId ?? (cliResumesWithCallerSessionId(session.cli) ? session.sessionId : undefined)
   return {
     ...(session.transcriptPath === undefined ? {} : { transcriptPath: session.transcriptPath }),
     ...(cliSessionId === undefined ? {} : { cliSessionId }),
@@ -1980,8 +1989,8 @@ function peekStateForSidecar(sessionId: string): ConversationPeekSessionState | 
   const sidecar = snapshotSidecars?.read(sessionId)
   if (!sidecar || sidecar.kind !== 'agent') return null
   const launchCwd = sidecar.worktreePath ?? sidecar.cwd
-  const cliSessionId = sidecar.cliSessionId
-    ?? (cliResumesWithCallerSessionId(sidecar.cli) ? sidecar.sessionId : undefined)
+  const cliSessionId =
+    sidecar.cliSessionId ?? (cliResumesWithCallerSessionId(sidecar.cli) ? sidecar.sessionId : undefined)
   return {
     ...(cliSessionId === undefined ? {} : { cliSessionId }),
     ...(launchCwd === undefined ? {} : { launchCwd }),
@@ -2079,9 +2088,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // Only a change in the whole-percent reading counts as a change worth
   // broadcasting; the cost and line counts move on every refresh and nothing
   // renders them yet.
-  const contextUsageChanged = frame.statusLine
-    ? recordSessionStatusLine(session, frame.statusLine, frame.ts)
-    : false
+  const contextUsageChanged = frame.statusLine ? recordSessionStatusLine(session, frame.statusLine, frame.ts) : false
   // A pull request the agent just opened, handed to the record in the same
   // place and for the same reason as the two folds above: it arrives on a
   // `PostToolUse`, and a frame dropped as stale or held back by the PHASE guard
@@ -2220,8 +2227,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // persist it the first time the hook reports one. The frame is already routed
   // to the right session by the per-terminal agent identity env, so concurrent
   // spawns can't cross-assign it.
-  const cliSessionIdChanged =
-    !!frame.sessionId && frame.sessionId !== session.cliSessionId
+  const cliSessionIdChanged = !!frame.sessionId && frame.sessionId !== session.cliSessionId
   if (cliSessionIdChanged) session.cliSessionId = frame.sessionId ?? session.cliSessionId
 
   // Bridge to the legacy activity field so existing consumers (sidebar bolding,
@@ -2259,8 +2265,14 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // folds a burst of them into one send.
   const attentionChanged = (previousPhase === 'awaiting_input') !== (resolution.phase === 'awaiting_input')
   if (
-    (activityChanged || attentionChanged || cliSessionIdChanged || promptChanged || ledgerChanged || contextUsageChanged || backgroundWorkChanged)
-    && terminals.get(session.sessionId) === session
+    (activityChanged ||
+      attentionChanged ||
+      cliSessionIdChanged ||
+      promptChanged ||
+      ledgerChanged ||
+      contextUsageChanged ||
+      backgroundWorkChanged) &&
+    terminals.get(session.sessionId) === session
   ) {
     broadcastTerminalSessionsChanged()
   }
@@ -2282,7 +2294,7 @@ function notifyAgentPhaseListeners(
   session: TerminalSession,
   frame: AgentStateFrame,
   resolution: { phase: AgentPhase; turnEnd: boolean; turnFailure: boolean },
-  previousPhase: AgentPhase | null
+  previousPhase: AgentPhase | null,
 ): void {
   if (agentPhaseListeners.size === 0) return
 
@@ -2349,11 +2361,7 @@ function retainFailedTerminalSession(input: {
     exitCode: input.exitCode ?? 1,
   })
   terminals.set(input.sessionId, session)
-  terminalDiagnostics.recordActivityTransition(
-    session,
-    { kind: 'working', since: at },
-    session.activity
-  )
+  terminalDiagnostics.recordActivityTransition(session, { kind: 'working', since: at }, session.activity)
   broadcastTerminalSessionsChanged()
   return session
 }
@@ -2361,7 +2369,7 @@ function retainFailedTerminalSession(input: {
 function materializeAgentSessionIdentity(
   sessionId: string,
   workspaceId: string | undefined,
-  agentSession: AgentSessionMetadata | undefined
+  agentSession: AgentSessionMetadata | undefined,
 ): AgentSessionIdentity | undefined {
   if (!agentSession) return undefined
 
@@ -2378,7 +2386,7 @@ function materializeAgentSessionIdentity(
 function attachTerminalSession(
   sessionId: string,
   terminalSession: TerminalSession,
-  initialInput: string | undefined
+  initialInput: string | undefined,
 ): void {
   terminals.set(sessionId, terminalSession)
   // The agent's own changelist, made and made ACTIVE at launch (decision of
@@ -2421,10 +2429,7 @@ function attachTerminalSession(
       // output stays a liveness co-signal without owning status. Plain
       // terminals keep the output-driven working/idle bolding.
       if (terminalSession.kind !== 'agent' && terminalSession.activity.kind !== 'working') {
-        setTerminalActivity(
-          terminalSession,
-          { kind: 'working', since: terminalSession.lastOutputAt ?? now }
-        )
+        setTerminalActivity(terminalSession, { kind: 'working', since: terminalSession.lastOutputAt ?? now })
       }
       scheduleTerminalIdleTransition(terminalSession)
     }
@@ -2487,9 +2492,7 @@ function attachTerminalSession(
     // Only on a real exit: the suspend branch above returns early so a frozen,
     // resumable view keeps its phase.
     terminalSession.agentState =
-      terminalSession.kind === 'agent'
-        ? { phase: 'exited', since: Date.now(), source: 'lifecycle' }
-        : undefined
+      terminalSession.kind === 'agent' ? { phase: 'exited', since: Date.now(), source: 'lifecycle' } : undefined
     // Nothing survives the process it ran under: a subagent count left standing
     // would render as live work on a dead session (the stall watchdog that
     // otherwise clears it is disarmed on this path).
@@ -2579,262 +2582,271 @@ async function spawnTerminalFromIpc(
     connectorLaunch,
     spawnSkillId,
     agentRecord,
-  }: TerminalSpawnPayload
+  }: TerminalSpawnPayload,
 ): Promise<TerminalSpawnResult> {
-    const existingSession = terminals.get(sessionId)
-    if (existingSession && !existingSession.isDisposed) {
-      logMainPerfEvent('TerminalRuntime', 'terminal-reattach-existing-session', {
+  const existingSession = terminals.get(sessionId)
+  if (existingSession && !existingSession.isDisposed) {
+    logMainPerfEvent('TerminalRuntime', 'terminal-reattach-existing-session', {
+      sessionId,
+      workspaceId: workspaceId ?? existingSession.workspaceId,
+      agentId: agentId ?? existingSession.agentId,
+      terminalId: terminalId ?? existingSession.terminalId,
+      kind: kind ?? existingSession.kind,
+      processAlive: isTerminalProcessAlive(existingSession),
+      resumeRequested: resume,
+      visible,
+    })
+    existingSession.sender = sender
+    existingSession.workspaceId = workspaceId ?? existingSession.workspaceId
+    existingSession.agentId = agentId ?? existingSession.agentId
+    existingSession.agentName = agentName ?? existingSession.agentName
+    existingSession.terminalId = terminalId ?? existingSession.terminalId
+    existingSession.kind = kind ?? existingSession.kind
+    existingSession.executionMode = executionMode ?? existingSession.executionMode
+    existingSession.worktreeId = worktreeId ?? existingSession.worktreeId
+    existingSession.worktreePath = worktreePath ?? existingSession.worktreePath
+    existingSession.agentSession =
+      materializeAgentSessionIdentity(sessionId, workspaceId, agentSession) ?? existingSession.agentSession
+    recordTerminalVisibility(existingSession, visible)
+    // Only resize a live pty. A suspended session (pty killed, view kept
+    // painted) is being re-viewed here, not relaunched — resume happens via
+    // `resumeTerminal` on keystroke. Resizing its dead pty would be a no-op at
+    // best, so guard on liveness rather than `!hasExited`.
+    if (isTerminalProcessAlive(existingSession)) {
+      safeResizeTerminal(sessionId, cols, rows)
+    }
+    // Prefer a suspended session's faithful screen snapshot over the raw stream.
+    const replay = existingSession.replaySnapshot ?? materializeTerminalReplay(existingSession)
+    if (replay) {
+      sendTerminalEvent(sender, `terminal:replay:${sessionId}`, replay)
+      logMainPerfEvent('TerminalRuntime', 'terminal-replay-sent', {
         sessionId,
         workspaceId: workspaceId ?? existingSession.workspaceId,
         agentId: agentId ?? existingSession.agentId,
         terminalId: terminalId ?? existingSession.terminalId,
         kind: kind ?? existingSession.kind,
-        processAlive: isTerminalProcessAlive(existingSession),
-        resumeRequested: resume,
-        visible,
+        replayChars: replay.length,
+        replayBytes: Buffer.byteLength(replay, 'utf8'),
       })
-      existingSession.sender = sender
-      existingSession.workspaceId = workspaceId ?? existingSession.workspaceId
-      existingSession.agentId = agentId ?? existingSession.agentId
-      existingSession.agentName = agentName ?? existingSession.agentName
-      existingSession.terminalId = terminalId ?? existingSession.terminalId
-      existingSession.kind = kind ?? existingSession.kind
-      existingSession.executionMode = executionMode ?? existingSession.executionMode
-      existingSession.worktreeId = worktreeId ?? existingSession.worktreeId
-      existingSession.worktreePath = worktreePath ?? existingSession.worktreePath
-      existingSession.agentSession = materializeAgentSessionIdentity(sessionId, workspaceId, agentSession) ?? existingSession.agentSession
-      recordTerminalVisibility(existingSession, visible)
-      // Only resize a live pty. A suspended session (pty killed, view kept
-      // painted) is being re-viewed here, not relaunched — resume happens via
-      // `resumeTerminal` on keystroke. Resizing its dead pty would be a no-op at
-      // best, so guard on liveness rather than `!hasExited`.
-      if (isTerminalProcessAlive(existingSession)) {
-        safeResizeTerminal(sessionId, cols, rows)
-      }
-      // Prefer a suspended session's faithful screen snapshot over the raw stream.
-      const replay = existingSession.replaySnapshot ?? materializeTerminalReplay(existingSession)
-      if (replay) {
-        sendTerminalEvent(sender, `terminal:replay:${sessionId}`, replay)
-        logMainPerfEvent('TerminalRuntime', 'terminal-replay-sent', {
-          sessionId,
-          workspaceId: workspaceId ?? existingSession.workspaceId,
-          agentId: agentId ?? existingSession.agentId,
-          terminalId: terminalId ?? existingSession.terminalId,
-          kind: kind ?? existingSession.kind,
-          replayChars: replay.length,
-          replayBytes: Buffer.byteLength(replay, 'utf8'),
-        })
-      }
-      if (existingSession.hasExited) {
-        sendTerminalEvent(sender, `terminal:exit:${sessionId}`, existingSession.exitCode ?? 0)
-      }
-      broadcastTerminalSessionsChanged()
-      return { ok: true, sessionId } satisfies TerminalSpawnResult
     }
+    if (existingSession.hasExited) {
+      sendTerminalEvent(sender, `terminal:exit:${sessionId}`, existingSession.exitCode ?? 0)
+    }
+    broadcastTerminalSessionsChanged()
+    return { ok: true, sessionId } satisfies TerminalSpawnResult
+  }
 
-    // An omitted `cli` used to default to codex: a payload that named no agent
-    // silently launched a different one, and reported success. Refuse instead of
-    // guessing. Reattaching above needs no CLI, and plain shells carry none.
-    if (!shellOnly && !cli) {
-      return {
-        ok: false,
-        sessionId,
-        message: 'This agent terminal did not say which CLI to launch, so nothing was started.',
-        exitCode: 1,
-      } satisfies TerminalSpawnResult
-    }
-    // Hooks-only selectability (decision of record 2026-08-31): a KNOWN plugin
-    // whose manifest declares no agentStateSpec cannot report agent status and
-    // is refused as an agent — never silently substituted. This is the last
-    // door, so every launch path (renderer picker fallback, persisted
-    // defaults, MCP, automations) is covered even if an upstream gate missed.
-    // An id the registry doesn't know at all falls through — the launch render
-    // rejects it with its own unknown-plugin error, and refusing here would
-    // also refuse during a registry reload window.
-    if (!shellOnly && cli && getPluginById(pluginIdForCli(cli)) && !agentStateSupportsCli(cli)) {
-      return {
-        ok: false,
-        sessionId,
-        message: `Agent CLI "${cli}" cannot report agent status (its plugin declares no lifecycle-hook support), so it is not selectable as an agent.`,
-        exitCode: 1,
-      } satisfies TerminalSpawnResult
-    }
-    // Non-null on every path that reads it: a fresh agent spawn with no CLI
-    // returned above, and shell-only spawns never reach an agent-CLI consumer.
-    const agentCli = cli as AgentCli
-
-    disposeTerminal(sessionId)
-    logMainPerfEvent('TerminalRuntime', 'terminal-spawn-fresh', {
+  // An omitted `cli` used to default to codex: a payload that named no agent
+  // silently launched a different one, and reported success. Refuse instead of
+  // guessing. Reattaching above needs no CLI, and plain shells carry none.
+  if (!shellOnly && !cli) {
+    return {
+      ok: false,
       sessionId,
-      workspaceId,
-      agentId,
-      terminalId,
-      kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
-      resumeRequested: resume,
-      visible,
-    })
+      message: 'This agent terminal did not say which CLI to launch, so nothing was started.',
+      exitCode: 1,
+    } satisfies TerminalSpawnResult
+  }
+  // Hooks-only selectability (decision of record 2026-08-31): a KNOWN plugin
+  // whose manifest declares no agentStateSpec cannot report agent status and
+  // is refused as an agent — never silently substituted. This is the last
+  // door, so every launch path (renderer picker fallback, persisted
+  // defaults, MCP, automations) is covered even if an upstream gate missed.
+  // An id the registry doesn't know at all falls through — the launch render
+  // rejects it with its own unknown-plugin error, and refusing here would
+  // also refuse during a registry reload window.
+  if (!shellOnly && cli && getPluginById(pluginIdForCli(cli)) && !agentStateSupportsCli(cli)) {
+    return {
+      ok: false,
+      sessionId,
+      message: `Agent CLI "${cli}" cannot report agent status (its plugin declares no lifecycle-hook support), so it is not selectable as an agent.`,
+      exitCode: 1,
+    } satisfies TerminalSpawnResult
+  }
+  // Non-null on every path that reads it: a fresh agent spawn with no CLI
+  // returned above, and shell-only spawns never reach an agent-CLI consumer.
+  const agentCli = cli as AgentCli
 
-    const workingDirectory = cwd || process.cwd()
-    try {
-      // Resolve the agent's binary before this launch touches anything, and
-      // refuse the spawn when the CLI is definitively absent. Both halves
-      // matter: the launch shell does not source the interactive config the
-      // probe does, so an installed CLI is executed by its probed absolute path
-      // rather than a name the launch shell cannot resolve; and a missing one
-      // fails here — ahead of the sibling-session dispose, the MCP sync, skill
-      // installs and the pty — instead of dropping the user into a bare shell
-      // reported as a successful start.
-      let resolvedBinaryPath: string | undefined
-      if (!shellOnly) {
-        const preflight = await preflightAgentCliLaunch(
-          {
-            cli: agentCli,
-            cliRuntimes,
-            platform: agentCliPreflightOverrides.platform,
-            shell: agentCliPreflightOverrides.shell,
-          },
-          agentCliPreflightOverrides.deps ?? {},
-        )
-        const failure = agentCliLaunchFailureResult(preflight, sessionId)
-        if (failure) {
-          logMainPerfEvent('TerminalRuntime', 'agent-cli-preflight-missing', { sessionId, cli: agentCli })
-          return failure
-        }
-        if (preflight.status === 'resolved') resolvedBinaryPath = preflight.binaryPath
+  disposeTerminal(sessionId)
+  logMainPerfEvent('TerminalRuntime', 'terminal-spawn-fresh', {
+    sessionId,
+    workspaceId,
+    agentId,
+    terminalId,
+    kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
+    resumeRequested: resume,
+    visible,
+  })
+
+  const workingDirectory = cwd || process.cwd()
+  try {
+    // Resolve the agent's binary before this launch touches anything, and
+    // refuse the spawn when the CLI is definitively absent. Both halves
+    // matter: the launch shell does not source the interactive config the
+    // probe does, so an installed CLI is executed by its probed absolute path
+    // rather than a name the launch shell cannot resolve; and a missing one
+    // fails here — ahead of the sibling-session dispose, the MCP sync, skill
+    // installs and the pty — instead of dropping the user into a bare shell
+    // reported as a successful start.
+    let resolvedBinaryPath: string | undefined
+    if (!shellOnly) {
+      const preflight = await preflightAgentCliLaunch(
+        {
+          cli: agentCli,
+          cliRuntimes,
+          platform: agentCliPreflightOverrides.platform,
+          shell: agentCliPreflightOverrides.shell,
+        },
+        agentCliPreflightOverrides.deps ?? {},
+      )
+      const failure = agentCliLaunchFailureResult(preflight, sessionId)
+      if (failure) {
+        logMainPerfEvent('TerminalRuntime', 'agent-cli-preflight-missing', { sessionId, cli: agentCli })
+        return failure
       }
+      if (preflight.status === 'resolved') resolvedBinaryPath = preflight.binaryPath
+    }
 
-      if ((kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
-        disposeOtherAgentSessions(sessionId, workspaceId, agentId)
-      }
+    if ((kind ?? (shellOnly ? 'terminal' : 'agent')) === 'agent') {
+      disposeOtherAgentSessions(sessionId, workspaceId, agentId)
+    }
 
-      if (!shellOnly && syncMcpConfig) {
-        const syncResult = await syncMcpConfig({
-          workspaceRoot: workingDirectory,
-          settings: mcpSettings ?? { syncEnabled: false, servers: {} },
-          clients: [agentCli],
-          // A connector launch (connectorLaunch set, paired with the
-          // single-server connectorMcpSettings) writes an isolated worktree
-          // config that must contain only the connector — prune any MCP server
-          // the base repo committed into the worktree, never merge it in.
-          // connectorLaunch is the ONLY isolation signal: spawnSkillId is the
-          // orthogonal skill-install concern and must never imply pruning
-          // (a skill-only spawn would otherwise wipe the workspace's MCP
-          // config).
-          pruneUnlistedServers: connectorLaunch === true,
+    if (!shellOnly && syncMcpConfig) {
+      const syncResult = await syncMcpConfig({
+        workspaceRoot: workingDirectory,
+        settings: mcpSettings ?? { syncEnabled: false, servers: {} },
+        clients: [agentCli],
+        // A connector launch (connectorLaunch set, paired with the
+        // single-server connectorMcpSettings) writes an isolated worktree
+        // config that must contain only the connector — prune any MCP server
+        // the base repo committed into the worktree, never merge it in.
+        // connectorLaunch is the ONLY isolation signal: spawnSkillId is the
+        // orthogonal skill-install concern and must never imply pruning
+        // (a skill-only spawn would otherwise wipe the workspace's MCP
+        // config).
+        pruneUnlistedServers: connectorLaunch === true,
+      })
+      if (!syncResult.ok) {
+        retainFailedTerminalSession({
+          sessionId,
+          sender,
+          message: syncResult.message,
+          kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
+          workspaceId,
+          agentId,
+          agentName,
+          terminalId,
+          cli: shellOnly ? undefined : cli,
+          cwd: workingDirectory,
+          executionMode,
+          worktreeId,
+          worktreePath,
+          agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
+          visible,
         })
-        if (!syncResult.ok) {
-          retainFailedTerminalSession({
-            sessionId,
-            sender,
-            message: syncResult.message,
-            kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
-            workspaceId,
-            agentId,
-            agentName,
-            terminalId,
-            cli: shellOnly ? undefined : cli,
-            cwd: workingDirectory,
-            executionMode,
-            worktreeId,
-            worktreePath,
-            agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
-            visible,
-          })
-          sendTerminalEvent(sender, `terminal:error:${sessionId}`, syncResult.message)
-          sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
-          return {
-            ok: false,
-            sessionId,
-            message: syncResult.message,
-            exitCode: 1,
-          } satisfies TerminalSpawnResult
-        }
+        sendTerminalEvent(sender, `terminal:error:${sessionId}`, syncResult.message)
+        sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
+        return {
+          ok: false,
+          sessionId,
+          message: syncResult.message,
+          exitCode: 1,
+        } satisfies TerminalSpawnResult
       }
+    }
 
-      // Debug Mode delivers the `debug` skill's full state-machine contract by
-      // ensuring it is installed into the session CLI's native skill dir before
-      // launch, so the injected /debug invocation resolves to a present skill.
-      // Best-effort: a failure falls back to the always-present inline directive
-      // rather than blocking the spawn.
-      if (debugMode && !shellOnly && ensureBuiltinSkillInstalled) {
+    // Debug Mode delivers the `debug` skill's full state-machine contract by
+    // ensuring it is installed into the session CLI's native skill dir before
+    // launch, so the injected /debug invocation resolves to a present skill.
+    // Best-effort: a failure falls back to the always-present inline directive
+    // rather than blocking the spawn.
+    if (debugMode && !shellOnly && ensureBuiltinSkillInstalled) {
+      try {
+        await ensureBuiltinSkillInstalled(workingDirectory, 'debug')
+      } catch (error) {
+        logMainPerfEvent('TerminalRuntime', 'debug-skill-install-failed', {
+          sessionId,
+          cli,
+          message: getErrorMessage(error),
+        })
+      }
+    }
+
+    // Skill-at-spawn: install the attached builtin skill (the composer's
+    // "+ Skill" attachment, or a scheduled automation's skill) into the
+    // working directory so the prefilled invocation resolves to a present
+    // skill. Independent of connector isolation — only connector launches get
+    // the MCP-config exclusion below. Best-effort like the debug install — a
+    // failure is logged and never blocks the spawn.
+    if (spawnSkillId && !shellOnly && ensureBuiltinSkillInstalled) {
+      try {
+        await ensureBuiltinSkillInstalled(workingDirectory, spawnSkillId)
+      } catch (error) {
+        logMainPerfEvent('TerminalRuntime', 'spawn-skill-install-failed', {
+          sessionId,
+          cli,
+          spawnSkillId,
+          message: getErrorMessage(error),
+        })
+      }
+    }
+    if (connectorLaunch && !shellOnly) {
+      if (excludeWorktreeMcpConfig) {
         try {
-          await ensureBuiltinSkillInstalled(workingDirectory, 'debug')
+          await excludeWorktreeMcpConfig(workingDirectory)
         } catch (error) {
-          logMainPerfEvent('TerminalRuntime', 'debug-skill-install-failed', {
+          logMainPerfEvent('TerminalRuntime', 'connector-mcp-exclude-failed', {
             sessionId,
             cli,
             message: getErrorMessage(error),
           })
         }
       }
+    }
 
-      // Skill-at-spawn: install the attached builtin skill (the composer's
-      // "+ Skill" attachment, or a scheduled automation's skill) into the
-      // working directory so the prefilled invocation resolves to a present
-      // skill. Independent of connector isolation — only connector launches get
-      // the MCP-config exclusion below. Best-effort like the debug install — a
-      // failure is logged and never blocks the spawn.
-      if (spawnSkillId && !shellOnly && ensureBuiltinSkillInstalled) {
-        try {
-          await ensureBuiltinSkillInstalled(workingDirectory, spawnSkillId)
-        } catch (error) {
-          logMainPerfEvent('TerminalRuntime', 'spawn-skill-install-failed', {
-            sessionId,
-            cli,
-            spawnSkillId,
-            message: getErrorMessage(error),
-          })
-        }
-      }
-      if (connectorLaunch && !shellOnly) {
-        if (excludeWorktreeMcpConfig) {
-          try {
-            await excludeWorktreeMcpConfig(workingDirectory)
-          } catch (error) {
-            logMainPerfEvent('TerminalRuntime', 'connector-mcp-exclude-failed', {
-              sessionId,
-              cli,
-              message: getErrorMessage(error),
-            })
-          }
-        }
-      }
-
-      // The launch command's session id is the agent's own CLI/harness id when
-      // resuming — `claude --resume <id>` / `codex resume <id>`. Prefer the
-      // renderer-supplied (persisted) id, then any id captured on the session
-      // being relaunched, then fall back to our terminal key ONLY for CLIs that
-      // resume with the id we minted (Claude). For a self-id CLI (Codex) with no
-      // captured id, pass empty so the manifest renders a bare `resume` (last
-      // session) rather than `resume <terminal-key>`. Fresh launch: terminal key.
-      const launchSessionId =
-        resume
-          ? (cliSessionId
-            ?? existingSession?.cliSessionId
-            ?? (cliResumesWithCallerSessionId(cli) ? sessionId : ''))
-          : sessionId
-      // Resolve a CLI auth token (only CLIs whose manifest declares `auth`, e.g.
-      // Z.AI, return one) from the shared credential store so the manifest's
-      // `launch.env` `{{secret}}` resolves into the spawned process env. Skipped
-      // for plain shells (no agent CLI to authenticate).
-      const cliAuthSecret = shellOnly ? null : await getSharedCredentialStore().resolveSecret(agentCli)
-      const cliAuthToken = cliAuthSecret?.ok ? cliAuthSecret.value : undefined
-      // If this CLI requires an API key (declares `auth`, e.g. Z.AI) and none is
-      // configured, don't launch it into an auth error — return a clear,
-      // actionable message. The renderer surfaces it and leaves the terminal
-      // unstarted (see TerminalView spawn-failure handling).
-      if (!shellOnly && cliAuthSecret) {
-        const authPlugin = getPluginById(agentCli)
-        const block = cliCredentialLaunchBlock({
-          displayName: authPlugin?.manifest.displayName ?? agentCli,
-          auth: authPlugin?.manifest.auth,
-          secretConfigured: cliAuthSecret.ok,
-        })
-        if (block) return { ok: false, sessionId, message: block.message, exitCode: 1 }
-      }
-      const { command, args, cwd: launchCwd, pathStyle, initialInput, env, startupScriptPath, hostContextPath, managed, reapExempt } = shellOnly
-        ? getPlainShellLaunchConfig(workingDirectory, sessionId)
-        : getShellLaunchConfig(
+    // The launch command's session id is the agent's own CLI/harness id when
+    // resuming — `claude --resume <id>` / `codex resume <id>`. Prefer the
+    // renderer-supplied (persisted) id, then any id captured on the session
+    // being relaunched, then fall back to our terminal key ONLY for CLIs that
+    // resume with the id we minted (Claude). For a self-id CLI (Codex) with no
+    // captured id, pass empty so the manifest renders a bare `resume` (last
+    // session) rather than `resume <terminal-key>`. Fresh launch: terminal key.
+    const launchSessionId = resume
+      ? (cliSessionId ?? existingSession?.cliSessionId ?? (cliResumesWithCallerSessionId(cli) ? sessionId : ''))
+      : sessionId
+    // Resolve a CLI auth token (only CLIs whose manifest declares `auth`, e.g.
+    // Z.AI, return one) from the shared credential store so the manifest's
+    // `launch.env` `{{secret}}` resolves into the spawned process env. Skipped
+    // for plain shells (no agent CLI to authenticate).
+    const cliAuthSecret = shellOnly ? null : await getSharedCredentialStore().resolveSecret(agentCli)
+    const cliAuthToken = cliAuthSecret?.ok ? cliAuthSecret.value : undefined
+    // If this CLI requires an API key (declares `auth`, e.g. Z.AI) and none is
+    // configured, don't launch it into an auth error — return a clear,
+    // actionable message. The renderer surfaces it and leaves the terminal
+    // unstarted (see TerminalView spawn-failure handling).
+    if (!shellOnly && cliAuthSecret) {
+      const authPlugin = getPluginById(agentCli)
+      const block = cliCredentialLaunchBlock({
+        displayName: authPlugin?.manifest.displayName ?? agentCli,
+        auth: authPlugin?.manifest.auth,
+        secretConfigured: cliAuthSecret.ok,
+      })
+      if (block) return { ok: false, sessionId, message: block.message, exitCode: 1 }
+    }
+    const {
+      command,
+      args,
+      cwd: launchCwd,
+      pathStyle,
+      initialInput,
+      env,
+      startupScriptPath,
+      hostContextPath,
+      managed,
+      reapExempt,
+    } = shellOnly
+      ? getPlainShellLaunchConfig(workingDirectory, sessionId)
+      : getShellLaunchConfig(
           workingDirectory,
           launchSessionId,
           resume,
@@ -2849,105 +2861,105 @@ async function spawnTerminalFromIpc(
           debugMode,
           cliAuthToken,
           cliReasoning,
-          resolvedBinaryPath
+          resolvedBinaryPath,
         )
-      // Install the authoritative-agent-state reporter into the workspace before
-      // launching a supported agent, so its lifecycle hooks report phase the
-      // moment it starts. Awaited so the hooks exist when the CLI reads its
-      // settings; best-effort inside (never throws), so it cannot fail a launch.
-      if (!shellOnly && agentStateSupportsCli(cli)) {
-        await prepareAgentStateHook?.(launchCwd ?? workingDirectory, cli)
-      }
-
-      const initialSize = getTerminalSize(cols, rows)
-      const termProcess = pty.spawn(command, args, {
-        name: 'xterm-256color',
-        cols: initialSize.cols,
-        rows: initialSize.rows,
-        cwd: launchCwd ?? workingDirectory,
-        // Expose this agent's identity so a typed Backlog handoff can record the
-        // item ↔ agent link. Strips any inherited identity first, so plain
-        // terminals carry none and a moved/relaunched session never keeps a
-        // stale id.
-        env: applyAgentIdentityEnv(env ?? getTerminalEnv(), { workspaceId, agentId, agentName }),
-      })
-      const startedAt = Date.now()
-      const terminalSession: TerminalSession = {
-        sessionId,
-        process: termProcess,
-        sender,
-        isReady: process.platform !== 'win32',
-        hasExited: false,
-        exitedAt: null,
-        isDisposed: false,
-        activity: createInitialTerminalActivity(startedAt),
-        agentState: createInitialAgentState(kind ?? (shellOnly ? 'terminal' : 'agent'), startedAt),
-        lastTurnEndedAt: takeResumeTurnEnd(sessionId),
-        observedCheckout: takeResumeObservedCheckout(sessionId),
-        outputChunks: [],
-        outputChunkBytes: [],
-        outputChunkStart: 0,
-        outputBytes: 0,
-        outputLength: 0,
-        kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
-        pathStyle,
-        workspaceId,
-        agentId,
-        agentName,
-        terminalId,
-        // Seed the harness session id from the resume payload so it is known
-        // (and snapshotted) immediately; the lifecycle hook refreshes it once
-        // the relaunched agent reports its own id.
-        cliSessionId: cliSessionId ?? undefined,
-        cli: shellOnly ? undefined : cli,
-        cwd: launchCwd ?? workingDirectory,
-        managed: managed === true,
-        ...(reapExempt ? { reapExempt: true } : {}),
-        executionMode,
-        worktreeId,
-        worktreePath,
-        agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
-        agentRecord,
-        visible,
-        startedAt,
-        lastOutputAt: startedAt,
-        lastInputAt: null,
-        lastVisibleAt: visible ? startedAt : null,
-        startupScriptPath,
-        hostContextPath,
-      }
-
-      attachTerminalSession(sessionId, terminalSession, initialInput)
-
-      return { ok: true, sessionId } satisfies TerminalSpawnResult
-    } catch (error) {
-      const message = getTerminalErrorMessage(error)
-      retainFailedTerminalSession({
-        sessionId,
-        sender,
-        message,
-        kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
-        workspaceId,
-        agentId,
-        agentName,
-        terminalId,
-        cli: shellOnly ? undefined : cli,
-        cwd: cwd || process.cwd(),
-        executionMode,
-        worktreeId,
-        worktreePath,
-        agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
-        visible,
-      })
-      sendTerminalEvent(sender, `terminal:error:${sessionId}`, message)
-      sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
-      return {
-        ok: false,
-        sessionId,
-        message,
-        exitCode: 1,
-      } satisfies TerminalSpawnResult
+    // Install the authoritative-agent-state reporter into the workspace before
+    // launching a supported agent, so its lifecycle hooks report phase the
+    // moment it starts. Awaited so the hooks exist when the CLI reads its
+    // settings; best-effort inside (never throws), so it cannot fail a launch.
+    if (!shellOnly && agentStateSupportsCli(cli)) {
+      await prepareAgentStateHook?.(launchCwd ?? workingDirectory, cli)
     }
+
+    const initialSize = getTerminalSize(cols, rows)
+    const termProcess = pty.spawn(command, args, {
+      name: 'xterm-256color',
+      cols: initialSize.cols,
+      rows: initialSize.rows,
+      cwd: launchCwd ?? workingDirectory,
+      // Expose this agent's identity so a typed Backlog handoff can record the
+      // item ↔ agent link. Strips any inherited identity first, so plain
+      // terminals carry none and a moved/relaunched session never keeps a
+      // stale id.
+      env: applyAgentIdentityEnv(env ?? getTerminalEnv(), { workspaceId, agentId, agentName }),
+    })
+    const startedAt = Date.now()
+    const terminalSession: TerminalSession = {
+      sessionId,
+      process: termProcess,
+      sender,
+      isReady: process.platform !== 'win32',
+      hasExited: false,
+      exitedAt: null,
+      isDisposed: false,
+      activity: createInitialTerminalActivity(startedAt),
+      agentState: createInitialAgentState(kind ?? (shellOnly ? 'terminal' : 'agent'), startedAt),
+      lastTurnEndedAt: takeResumeTurnEnd(sessionId),
+      observedCheckout: takeResumeObservedCheckout(sessionId),
+      outputChunks: [],
+      outputChunkBytes: [],
+      outputChunkStart: 0,
+      outputBytes: 0,
+      outputLength: 0,
+      kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
+      pathStyle,
+      workspaceId,
+      agentId,
+      agentName,
+      terminalId,
+      // Seed the harness session id from the resume payload so it is known
+      // (and snapshotted) immediately; the lifecycle hook refreshes it once
+      // the relaunched agent reports its own id.
+      cliSessionId: cliSessionId ?? undefined,
+      cli: shellOnly ? undefined : cli,
+      cwd: launchCwd ?? workingDirectory,
+      managed: managed === true,
+      ...(reapExempt ? { reapExempt: true } : {}),
+      executionMode,
+      worktreeId,
+      worktreePath,
+      agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
+      agentRecord,
+      visible,
+      startedAt,
+      lastOutputAt: startedAt,
+      lastInputAt: null,
+      lastVisibleAt: visible ? startedAt : null,
+      startupScriptPath,
+      hostContextPath,
+    }
+
+    attachTerminalSession(sessionId, terminalSession, initialInput)
+
+    return { ok: true, sessionId } satisfies TerminalSpawnResult
+  } catch (error) {
+    const message = getTerminalErrorMessage(error)
+    retainFailedTerminalSession({
+      sessionId,
+      sender,
+      message,
+      kind: kind ?? (shellOnly ? 'terminal' : 'agent'),
+      workspaceId,
+      agentId,
+      agentName,
+      terminalId,
+      cli: shellOnly ? undefined : cli,
+      cwd: cwd || process.cwd(),
+      executionMode,
+      worktreeId,
+      worktreePath,
+      agentSession: materializeAgentSessionIdentity(sessionId, workspaceId, agentSession),
+      visible,
+    })
+    sendTerminalEvent(sender, `terminal:error:${sessionId}`, message)
+    sendTerminalEvent(sender, `terminal:exit:${sessionId}`, 1)
+    return {
+      ok: false,
+      sessionId,
+      message,
+      exitCode: 1,
+    } satisfies TerminalSpawnResult
+  }
 }
 
 // Raw retained output for a session, for in-process readers. A disposed session

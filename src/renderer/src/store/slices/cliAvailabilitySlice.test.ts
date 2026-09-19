@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { AgentCliAvailabilityMap } from '../../../../shared/electron-api'
-import {
-  createCliAvailabilitySlice,
-  type CliAvailabilitySliceState,
-} from './cliAvailabilitySlice'
+import { createCliAvailabilitySlice, type CliAvailabilitySliceState } from './cliAvailabilitySlice'
 
 function availability(map: Record<string, boolean>): AgentCliAvailabilityMap {
   const out: AgentCliAvailabilityMap = {}

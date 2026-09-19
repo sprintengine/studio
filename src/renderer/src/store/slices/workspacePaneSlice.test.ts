@@ -77,17 +77,28 @@ run('a layout with Files and Git docked comes back as an open pane with both tab
     layout: {
       type: 'row',
       children: [
-        { type: 'tabset', children: [{ type: 'tab', component: 'explorer' }, { type: 'tab', component: 'git' }] },
+        {
+          type: 'tabset',
+          children: [
+            { type: 'tab', component: 'explorer' },
+            { type: 'tab', component: 'git' },
+          ],
+        },
         { type: 'tabset', children: [{ type: 'tab', component: 'agent' }] },
       ],
     },
   })
   assert.ok(seeded)
   assert.equal(seeded.open, true)
-  assert.deepEqual(seeded.tabs.map((tab) => tab.kind), ['files', 'git'])
+  assert.deepEqual(
+    seeded.tabs.map((tab) => tab.kind),
+    ['files', 'git'],
+  )
   assert.equal(seeded.activeTabId, seeded.tabs[0].id)
   assert.equal(
-    paneStateFromLegacyLayout({ layout: { type: 'row', children: [{ type: 'tabset', children: [{ type: 'tab', component: 'agent' }] }] } }),
+    paneStateFromLegacyLayout({
+      layout: { type: 'row', children: [{ type: 'tabset', children: [{ type: 'tab', component: 'agent' }] }] },
+    }),
     undefined,
     'a layout without either surface seeds nothing',
   )
@@ -108,7 +119,10 @@ const layoutWithBacklogRail = {
 run('a paneless record with a Backlog rail seeds an open pane on the backlog tab', () => {
   const seeded = paneStateFromLegacyLayout(layoutWithBacklogRail)
   assert.ok(seeded)
-  assert.deepEqual(seeded.tabs.map((tab) => tab.kind), ['backlog'])
+  assert.deepEqual(
+    seeded.tabs.map((tab) => tab.kind),
+    ['backlog'],
+  )
   assert.equal(seeded.open, true)
   assert.equal(seeded.activeTabId, seeded.tabs[0].id)
 })
@@ -117,7 +131,11 @@ run('a closed pane adopts the Backlog rail and opens on it', () => {
   const before: WorkspacePaneState = { open: false, activeTabId: 'f', tabs: [{ id: 'f', kind: 'files' }] }
   const after = adoptLegacyBacklogTab(layoutWithBacklogRail, before)
   assert.notEqual(after, before)
-  assert.deepEqual(after.tabs.map((tab) => tab.kind), ['files', 'backlog'], 'existing tabs keep their order')
+  assert.deepEqual(
+    after.tabs.map((tab) => tab.kind),
+    ['files', 'backlog'],
+    'existing tabs keep their order',
+  )
   assert.equal(after.open, true)
   assert.equal(after.activeTabId, after.tabs[1].id, 'the rail was on screen, so the backlog is what shows')
 })
@@ -126,7 +144,10 @@ run('an open pane adopts the Backlog rail behind the tab it is showing', () => {
   const before: WorkspacePaneState = { open: true, activeTabId: 'g', tabs: [{ id: 'g', kind: 'git' }] }
   const after = adoptLegacyBacklogTab(layoutWithBacklogRail, before)
   assert.equal(after.activeTabId, 'g')
-  assert.deepEqual(after.tabs.map((tab) => tab.kind), ['git', 'backlog'])
+  assert.deepEqual(
+    after.tabs.map((tab) => tab.kind),
+    ['git', 'backlog'],
+  )
 })
 
 run('a Backlog parked behind the editor joins the pane quietly, without opening it', () => {
@@ -134,25 +155,41 @@ run('a Backlog parked behind the editor joins the pane quietly, without opening 
     layout: {
       type: 'row',
       children: [
-        { type: 'tabset', selected: 0, children: [{ type: 'tab', component: 'editor' }, { type: 'tab', component: 'backlog' }] },
+        {
+          type: 'tabset',
+          selected: 0,
+          children: [
+            { type: 'tab', component: 'editor' },
+            { type: 'tab', component: 'backlog' },
+          ],
+        },
         { type: 'tabset', children: [{ type: 'tab', component: 'agent' }] },
       ],
     },
   }
   const closed: WorkspacePaneState = { open: false, activeTabId: 'g', tabs: [{ id: 'g', kind: 'git' }] }
   const adopted = adoptLegacyBacklogTab(parked, closed)
-  assert.deepEqual(adopted.tabs.map((tab) => tab.kind), ['git', 'backlog'])
+  assert.deepEqual(
+    adopted.tabs.map((tab) => tab.kind),
+    ['git', 'backlog'],
+  )
   assert.equal(adopted.open, false, 'nothing Backlog-related was on screen, so nothing pops open')
   assert.equal(adopted.activeTabId, 'g')
   const seeded = paneStateFromLegacyLayout(parked)
   assert.equal(seeded?.open, false, 'the paneless seed makes the same call')
-  assert.deepEqual(seeded?.tabs.map((tab) => tab.kind), ['backlog'])
+  assert.deepEqual(
+    seeded?.tabs.map((tab) => tab.kind),
+    ['backlog'],
+  )
 })
 
 run('a torn pane record without a tabs array is repaired, not thrown on', () => {
   const torn = { open: true } as unknown as WorkspacePaneState
   const adopted = adoptLegacyBacklogTab(layoutWithBacklogRail, torn)
-  assert.deepEqual(adopted.tabs.map((tab) => tab.kind), ['backlog'])
+  assert.deepEqual(
+    adopted.tabs.map((tab) => tab.kind),
+    ['backlog'],
+  )
   assert.equal(adopted.open, true)
   assert.equal(adopted.activeTabId, adopted.tabs[0].id)
 })
@@ -161,11 +198,17 @@ run('a full pane keeps its tabs and warns instead of adopting', () => {
   const full: WorkspacePaneState = {
     open: true,
     activeTabId: 't0',
-    tabs: Array.from({ length: 24 }, (_, index) => ({ id: `t${index}`, kind: 'terminal' as const, terminalId: `pty-${index}` })),
+    tabs: Array.from({ length: 24 }, (_, index) => ({
+      id: `t${index}`,
+      kind: 'terminal' as const,
+      terminalId: `pty-${index}`,
+    })),
   }
   const warned: string[] = []
   const originalWarn = console.warn
-  console.warn = (message: unknown) => { warned.push(String(message)) }
+  console.warn = (message: unknown) => {
+    warned.push(String(message))
+  }
   try {
     assert.equal(adoptLegacyBacklogTab(layoutWithBacklogRail, full), full)
   } finally {
@@ -178,7 +221,9 @@ run('adoption is a reference-preserving no-op when there is nothing to adopt', (
   const hasOne: WorkspacePaneState = { open: true, activeTabId: 'b', tabs: [{ id: 'b', kind: 'backlog' }] }
   assert.equal(adoptLegacyBacklogTab(layoutWithBacklogRail, hasOne), hasOne, 'already has a backlog tab')
   const empty: WorkspacePaneState = { open: false, activeTabId: null, tabs: [] }
-  const noRail = { layout: { type: 'row', children: [{ type: 'tabset', children: [{ type: 'tab', component: 'agent' }] }] } }
+  const noRail = {
+    layout: { type: 'row', children: [{ type: 'tabset', children: [{ type: 'tab', component: 'agent' }] }] },
+  }
   assert.equal(adoptLegacyBacklogTab(noRail, empty), empty, 'the layout docks no backlog')
   const adopted = adoptLegacyBacklogTab(layoutWithBacklogRail, empty)
   assert.equal(adopted.open, true)
@@ -347,7 +392,10 @@ run('one tab per board, and one picker', () => {
     normalized?.tabs.map((tab) => tab.canvas?.path),
     ['diagrams/a.excalidraw', 'diagrams/b.excalidraw', undefined],
   )
-  assert.deepEqual(normalized?.tabs.map((tab) => tab.id), ['a', 'c', 'd'])
+  assert.deepEqual(
+    normalized?.tabs.map((tab) => tab.id),
+    ['a', 'c', 'd'],
+  )
 })
 
 run('opening a board that already has a tab focuses it instead of opening a second', () => {
@@ -381,12 +429,18 @@ run('picking a board on the picker names the tab, and switching board un-names i
 run('the toggle opens a Canvas tab on the picker, brings it forward, then closes it', () => {
   const { slice, pane } = carrierWith()
   assert.equal(slice.togglePaneKind(WS, 'canvas'), true)
-  assert.deepEqual(pane().tabs.map((tab) => tab.kind), ['canvas'])
+  assert.deepEqual(
+    pane().tabs.map((tab) => tab.kind),
+    ['canvas'],
+  )
   assert.equal(pane().tabs[0].canvas, undefined, 'with no board named, the tab is the picker')
   assert.equal(slice.togglePaneKind(WS, 'files'), true)
   assert.equal(slice.togglePaneKind(WS, 'canvas'), true, 'behind Files: brought forward')
   assert.equal(slice.togglePaneKind(WS, 'canvas'), false, 'showing: closed')
-  assert.deepEqual(pane().tabs.map((tab) => tab.kind), ['files'])
+  assert.deepEqual(
+    pane().tabs.map((tab) => tab.kind),
+    ['files'],
+  )
 })
 
 run('a Canvas tab survives a persist round trip with its board', () => {
@@ -404,7 +458,11 @@ run('picking a board another tab already holds brings that tab forward', () => {
   assert.equal(pane().activeTabId, picker)
 
   slice.setPaneTabBoard(WS, picker, 'diagrams/arch.excalidraw')
-  assert.deepEqual(pane().tabs.map((tab) => tab.id), [held], 'the picker closed rather than becoming a second editor')
+  assert.deepEqual(
+    pane().tabs.map((tab) => tab.id),
+    [held],
+    'the picker closed rather than becoming a second editor',
+  )
   assert.equal(pane().activeTabId, held, 'and the person is looking at the board they picked')
 
   // A board nobody holds is written onto the tab as before.
@@ -437,7 +495,10 @@ run('two spellings of one board are one tab on a case-insensitive platform', () 
         { id: 'b', kind: 'canvas', canvas: { path: 'diagrams/arch.excalidraw' } },
       ],
     })
-    assert.deepEqual(normalized?.tabs.map((tab) => tab.id), ['z', 'a'])
+    assert.deepEqual(
+      normalized?.tabs.map((tab) => tab.id),
+      ['z', 'a'],
+    )
     assert.equal(normalized?.activeTabId, 'a', 'the dropped duplicate hands its focus to the tab that survived')
   } finally {
     if (hadWindow) anyGlobal.window = previous

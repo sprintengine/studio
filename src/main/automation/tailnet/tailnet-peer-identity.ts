@@ -22,17 +22,20 @@ export type TailnetPeerResolver = {
   resolve(remoteAddress: string): Promise<string | null>
 }
 
-export function createTailnetPeerResolver(options: {
-  now?: () => number
-  timeoutMs?: number
-  cacheTtlMs?: number
-  /** Injected in tests; production runs `tailscale whois --json <addr>`. */
-  runWhois?: (remoteAddress: string) => Promise<string | null>
-  log?: (message: string) => void
-} = {}): TailnetPeerResolver {
+export function createTailnetPeerResolver(
+  options: {
+    now?: () => number
+    timeoutMs?: number
+    cacheTtlMs?: number
+    /** Injected in tests; production runs `tailscale whois --json <addr>`. */
+    runWhois?: (remoteAddress: string) => Promise<string | null>
+    log?: (message: string) => void
+  } = {},
+): TailnetPeerResolver {
   const now = options.now ?? (() => Date.now())
   const cacheTtlMs = options.cacheTtlMs ?? DEFAULT_CACHE_TTL_MS
-  const runWhois = options.runWhois ?? ((address: string) => whoisViaCli(address, options.timeoutMs ?? DEFAULT_TIMEOUT_MS))
+  const runWhois =
+    options.runWhois ?? ((address: string) => whoisViaCli(address, options.timeoutMs ?? DEFAULT_TIMEOUT_MS))
   const cache = new Map<string, { value: string | null; expiresAt: number }>()
 
   return {

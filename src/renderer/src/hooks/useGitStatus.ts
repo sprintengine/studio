@@ -57,14 +57,7 @@ const GIT_STATUS_RECOVERY_MAX_MS = 300_000
 const GIT_STATUS_WATCH_REFRESH_DEBOUNCE_MS = 1_000
 const GIT_STATUS_WATCH_REFRESH_MIN_INTERVAL_MS = 10_000
 const GIT_STATUS_DEFAULT_REFRESH_DEBOUNCE_MS = 250
-const GIT_STATUS_WATCH_IGNORED_SEGMENTS = new Set([
-  '.git',
-  'node_modules',
-  'out',
-  'dist',
-  '.vite',
-  '__pycache__',
-])
+const GIT_STATUS_WATCH_IGNORED_SEGMENTS = new Set(['.git', 'node_modules', 'out', 'dist', '.vite', '__pycache__'])
 const gitStatusSubscriptions = new Map<string, GitStatusSubscription>()
 const gitRepoRootLookups = new Map<string, Promise<string | null>>()
 let gitStatusVisibilityListenerInstalled = false
@@ -81,12 +74,7 @@ export function getGitEntry(status: GitStatusSnapshot | null, path: string | nul
 function normalizeStatusSnapshot(snapshot: GitStatusSnapshot): GitStatusSnapshot {
   return {
     ...snapshot,
-    files: Object.fromEntries(
-      Object.values(snapshot.files).map((entry) => [
-        normalizePathKey(entry.path),
-        entry,
-      ])
-    ),
+    files: Object.fromEntries(Object.values(snapshot.files).map((entry) => [normalizePathKey(entry.path), entry])),
   }
 }
 
@@ -97,19 +85,17 @@ function parentPathKey(pathKey: string): string | null {
   return trimmed.slice(0, index)
 }
 
-function mergeGitStatusPriority(
-  current: GitFileStatus | null | undefined,
-  next: GitFileStatus
-): GitFileStatus {
+function mergeGitStatusPriority(current: GitFileStatus | null | undefined, next: GitFileStatus): GitFileStatus {
   if (current === 'conflicted' || next === 'conflicted') return 'conflicted'
   if (
-    current === 'modified'
-    || current === 'renamed'
-    || current === 'deleted'
-    || next === 'modified'
-    || next === 'renamed'
-    || next === 'deleted'
-  ) return 'modified'
+    current === 'modified' ||
+    current === 'renamed' ||
+    current === 'deleted' ||
+    next === 'modified' ||
+    next === 'renamed' ||
+    next === 'deleted'
+  )
+    return 'modified'
   return 'new'
 }
 
@@ -165,10 +151,7 @@ function resetGitStatusRecoveryDelay(subscription: GitStatusSubscription): void 
 }
 
 function backOffGitStatusRecovery(subscription: GitStatusSubscription): void {
-  subscription.recoveryDelayMs = Math.min(
-    subscription.recoveryDelayMs * 2,
-    GIT_STATUS_RECOVERY_MAX_MS
-  )
+  subscription.recoveryDelayMs = Math.min(subscription.recoveryDelayMs * 2, GIT_STATUS_RECOVERY_MAX_MS)
 }
 
 function scheduleGitStatusRecovery(subscription: GitStatusSubscription): void {
@@ -207,7 +190,7 @@ function ensureGitStatusVisibilityListener(): void {
 
 async function refreshGitStatusSubscription(
   subscription: GitStatusSubscription,
-  cause: GitStatusRefreshCause
+  cause: GitStatusRefreshCause,
 ): Promise<void> {
   if (subscription.refreshPromise) {
     subscription.refreshAgain = true
@@ -288,9 +271,7 @@ function scheduleGitStatusRefresh(subscription: GitStatusSubscription, cause: Gi
     window.clearTimeout(subscription.refreshTimer)
   }
 
-  const delayMs = cause === 'watch'
-    ? GIT_STATUS_WATCH_REFRESH_DEBOUNCE_MS
-    : GIT_STATUS_DEFAULT_REFRESH_DEBOUNCE_MS
+  const delayMs = cause === 'watch' ? GIT_STATUS_WATCH_REFRESH_DEBOUNCE_MS : GIT_STATUS_DEFAULT_REFRESH_DEBOUNCE_MS
 
   subscription.refreshTimer = window.setTimeout(() => {
     subscription.refreshTimer = null
@@ -319,31 +300,32 @@ function startGitStatusWatch(subscription: GitStatusSubscription): void {
   }
 
   subscription.watchStarting = true
-  window.api.watchPath(subscription.repoRoot, (event) => {
-    if (shouldIgnoreGitStatusWatchPath(event.path)) {
-      logPerfEvent('GitStatus', 'watch-ignored', {
-        repoRoot: subscription.repoRoot,
-        path: event.path,
-      })
-      return
-    }
-    logPerfEvent('GitStatus', 'watch', {
-      repoRoot: subscription.repoRoot,
-      path: event.path,
-      eventType: event.eventType,
-    })
-    const now = Date.now()
-    if (now - subscription.lastWatchRefreshAt < GIT_STATUS_WATCH_REFRESH_MIN_INTERVAL_MS) {
-      logPerfEvent('GitStatus', 'watch-throttled', {
+  window.api
+    .watchPath(subscription.repoRoot, (event) => {
+      if (shouldIgnoreGitStatusWatchPath(event.path)) {
+        logPerfEvent('GitStatus', 'watch-ignored', {
+          repoRoot: subscription.repoRoot,
+          path: event.path,
+        })
+        return
+      }
+      logPerfEvent('GitStatus', 'watch', {
         repoRoot: subscription.repoRoot,
         path: event.path,
         eventType: event.eventType,
       })
-      return
-    }
-    subscription.lastWatchRefreshAt = now
-    scheduleGitStatusRefresh(subscription, 'watch')
-  })
+      const now = Date.now()
+      if (now - subscription.lastWatchRefreshAt < GIT_STATUS_WATCH_REFRESH_MIN_INTERVAL_MS) {
+        logPerfEvent('GitStatus', 'watch-throttled', {
+          repoRoot: subscription.repoRoot,
+          path: event.path,
+          eventType: event.eventType,
+        })
+        return
+      }
+      subscription.lastWatchRefreshAt = now
+      scheduleGitStatusRefresh(subscription, 'watch')
+    })
     .then((cleanup) => {
       subscription.watchStarting = false
       if (gitStatusSubscriptions.get(normalizePathKey(subscription.repoRoot)) !== subscription) {
@@ -445,7 +427,8 @@ function resolveSharedGitRepoRoot(rootPath: string): Promise<string | null> {
   const existing = gitRepoRootLookups.get(key)
   if (existing) return existing
 
-  const lookup = window.api.getGitRepoRoot(rootPath)
+  const lookup = window.api
+    .getGitRepoRoot(rootPath)
     .catch(() => null)
     .finally(() => {
       gitRepoRootLookups.delete(key)
@@ -508,13 +491,12 @@ export function useGitStatus(rootPath: string | null): UseGitStatusResult {
       return
     }
 
-    resolveSharedGitRepoRoot(rootPath)
-      .then((nextRepoRoot) => {
-        if (cancelled) return
-        repoRootRef.current = nextRepoRoot
-        setRepoRoot(nextRepoRoot)
-        if (!nextRepoRoot) setRepoState('not-git')
-      })
+    resolveSharedGitRepoRoot(rootPath).then((nextRepoRoot) => {
+      if (cancelled) return
+      repoRootRef.current = nextRepoRoot
+      setRepoRoot(nextRepoRoot)
+      if (!nextRepoRoot) setRepoState('not-git')
+    })
 
     return () => {
       cancelled = true

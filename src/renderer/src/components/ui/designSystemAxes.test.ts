@@ -39,7 +39,7 @@ function walk(dir: string, out: string[] = []): string[] {
     const full = join(dir, name)
     if (statSync(full).isDirectory()) {
       walk(full, out)
-    } else if (/\.(tsx|ts)$/.test(name) && !/\.test\./.test(name) && !/\.d\.ts$/.test(name)) {
+    } else if (/\.(tsx|ts)$/.test(name) && !/\.test\./.test(name) && !name.endsWith('.d.ts')) {
       // `.d.ts` is build output, not source. A stray `tsc` run beside the
       // sources re-declares every exported class constant as a string literal,
       // so the same off-ramp is counted twice and a directory nobody edited
@@ -529,13 +529,7 @@ const MENU_CANON = join(KIT, 'menuClasses.ts')
 // object at a different role: same chrome, same row geometry, same highlight —
 // its option keeps `text-body` to match the trigger it echoes, which is a
 // ruling (design-system/components/select), not a drift.
-const MENU_HOSTS = [
-  'ContextMenu.tsx',
-  'OverflowMenu.tsx',
-  'FilterMenu.tsx',
-  'SplitButton.tsx',
-  'Select.tsx',
-] as const
+const MENU_HOSTS = ['ContextMenu.tsx', 'OverflowMenu.tsx', 'FilterMenu.tsx', 'SplitButton.tsx', 'Select.tsx'] as const
 
 run('the menu canon is stated once, with the ruled values', () => {
   const canon = code(MENU_CANON)
@@ -552,10 +546,7 @@ run('the menu canon is stated once, with the ruled values', () => {
   assert.match(canon, /text-meta/, 'menu items are chrome (12px), not body copy')
   assert.match(canon, /--border-subtle/, 'the divider separates siblings inside a bordered surface')
   assert.match(canon, /FOCUS_RING_INSET_CLASS/, 'a full-bleed row would clip an outset ring')
-  assert.ok(
-    !/\bp-1\b/.test(canon),
-    'vertical padding only — horizontal surface padding is what forces an inset fill',
-  )
+  assert.ok(!/\bp-1\b/.test(canon), 'vertical padding only — horizontal surface padding is what forces an inset fill')
   assert.ok(
     !/\brounded\b/.test(canon.replace(/rounded-\[7px\]/g, '')),
     'a menu item with its own radius is the inset-fill shape the spec rules out',
@@ -610,11 +601,7 @@ run('a group label never outweighs the rows it heads', () => {
     'and it carries no weight of its own',
   )
   for (const file of ['ContextMenu.tsx', 'FilterMenu.tsx']) {
-    assert.match(
-      code(join(KIT, file)),
-      /MENU_GROUP_LABEL_CLASS/,
-      `${file} takes its group heading from the canon`,
-    )
+    assert.match(code(join(KIT, file)), /MENU_GROUP_LABEL_CLASS/, `${file} takes its group heading from the canon`)
   }
 })
 
@@ -633,7 +620,9 @@ run('no sanctioned exception has gone stale', () => {
   // the record for code that has moved on — and the next person reads it as
   // describing the file in front of them. Same discipline as the ratchet: an
   // exception has to be spent when it stops being true.
-  for (const [axis, entries] of Object.entries(ALLOWED) as Array<[Axis, Record<string, { count: number; why: string }>]>) {
+  for (const [axis, entries] of Object.entries(ALLOWED) as Array<
+    [Axis, Record<string, { count: number; why: string }>]
+  >) {
     for (const [file, entry] of Object.entries(entries)) {
       const full = join(RENDERER, file)
       assert.ok(
@@ -711,7 +700,8 @@ run('no tone-coloured left bar survives, outside its ruling', () => {
 })
 
 /** A component whose NAME claims the empty-state job. */
-const EMPTY_STATE_COMPONENT = /(?:function|const)\s+(?:[A-Z]\w*)?(?:Empty\w*|Centered(?:Message|State|Error)\w*)\s*[({=]/g
+const EMPTY_STATE_COMPONENT =
+  /(?:function|const)\s+(?:[A-Z]\w*)?(?:Empty\w*|Centered(?:Message|State|Error)\w*)\s*[({=]/g
 
 /** Named like an empty state, ruled to be something else. */
 const EMPTY_STATE_RULED: Record<string, string> = {
@@ -749,7 +739,11 @@ run('no notice or empty-state ruling has gone stale', () => {
     const full = join(RENDERER, file)
     assert.ok(rendererFiles.includes(full), `${file} is ruled on but no longer exists — drop the entry`)
     const found = code(full).match(LEFT_TONE_BAR)?.length ?? 0
-    assert.equal(found, entry.count, `${file} is ruled for ${entry.count} left bars but has ${found} — re-count or re-rule`)
+    assert.equal(
+      found,
+      entry.count,
+      `${file} is ruled for ${entry.count} left bars but has ${found} — re-count or re-rule`,
+    )
   }
   for (const file of Object.keys(EMPTY_STATE_RULED)) {
     const full = join(RENDERER, file)

@@ -41,10 +41,11 @@ async function withHarness(body: (harness: Harness) => Promise<void>): Promise<v
       diagnostics,
       // A fresh instance with the same userData dir is an app restart: no
       // in-memory state survives, only the file.
-      create: () => createAgentLaunchSettingsMirror({
-        resolveUserDataDir: () => userDataDir,
-        logDiagnostic: (input) => diagnostics.push({ title: input.title, details: input.details }),
-      }),
+      create: () =>
+        createAgentLaunchSettingsMirror({
+          resolveUserDataDir: () => userDataDir,
+          logDiagnostic: (input) => diagnostics.push({ title: input.title, details: input.details }),
+        }),
     })
   } finally {
     await rm(userDataDir, { recursive: true, force: true })

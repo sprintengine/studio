@@ -117,7 +117,9 @@ export function searchAcrossSources<T>(input: {
  * "searched everything", and the person deciding whether a plugin exists
  * needs to know which one they are reading.
  */
-export function crossSourceStateLine(result: Pick<CrossSourceSearch<unknown>, 'query' | 'searched' | 'sourceCount'>): string {
+export function crossSourceStateLine(
+  result: Pick<CrossSourceSearch<unknown>, 'query' | 'searched' | 'sourceCount'>,
+): string {
   const scope =
     result.searched === result.sourceCount
       ? `all ${result.sourceCount} ${result.sourceCount === 1 ? 'source' : 'sources'}`

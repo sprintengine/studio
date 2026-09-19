@@ -62,7 +62,11 @@ run('a plain element without React or a crop still produces a well-formed block'
   )
   assert.equal(
     block,
-    ['<browser_element url="http://localhost:3000/" selector="#root > div:nth-of-type(2)">', '<html><div class="a"></div></html>', '</browser_element>'].join('\n'),
+    [
+      '<browser_element url="http://localhost:3000/" selector="#root > div:nth-of-type(2)">',
+      '<html><div class="a"></div></html>',
+      '</browser_element>',
+    ].join('\n'),
   )
 })
 
@@ -83,7 +87,11 @@ run('attribute values are escaped so a quote in a selector cannot break the bloc
     },
     null,
   )
-  assert.ok(block.startsWith('<browser_element url="http://localhost/" selector="[data-testid=&quot;say \\&quot;hi\\&quot;&quot;]">'))
+  assert.ok(
+    block.startsWith(
+      '<browser_element url="http://localhost/" selector="[data-testid=&quot;say \\&quot;hi\\&quot;&quot;]">',
+    ),
+  )
 })
 
 run('0.0.0.0 is rewritten to localhost; other hosts are untouched', () => {
@@ -100,8 +108,24 @@ run('normalizePickedElement drops malformed payloads and caps every field', () =
   assert.equal(normalizePickedElement(null), null)
   assert.equal(normalizePickedElement('string'), null)
   assert.equal(normalizePickedElement({ url: 'http://x/', selector: 'a', tagName: 'a' }), null) // no rect
-  assert.equal(normalizePickedElement({ url: 'http://x/', selector: 'a', tagName: 'a', rect: { x: Number.NaN, y: 0, width: 1, height: 1 } }), null)
-  assert.equal(normalizePickedElement({ url: 'http://x/', selector: 'a', tagName: 'a', rect: { x: 1e300, y: 0, width: 1, height: 1 } }), null)
+  assert.equal(
+    normalizePickedElement({
+      url: 'http://x/',
+      selector: 'a',
+      tagName: 'a',
+      rect: { x: Number.NaN, y: 0, width: 1, height: 1 },
+    }),
+    null,
+  )
+  assert.equal(
+    normalizePickedElement({
+      url: 'http://x/',
+      selector: 'a',
+      tagName: 'a',
+      rect: { x: 1e300, y: 0, width: 1, height: 1 },
+    }),
+    null,
+  )
 
   const hostile = normalizePickedElement({
     url: 'http://localhost:5173/',

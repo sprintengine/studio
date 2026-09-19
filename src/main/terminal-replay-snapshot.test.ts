@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict'
 import { Terminal } from '@xterm/headless'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
-import {
-  TERMINAL_CELL_GEOMETRY_OPTIONS,
-  TERMINAL_UNICODE_VERSION,
-} from '../shared/terminal-options'
+import { TERMINAL_CELL_GEOMETRY_OPTIONS, TERMINAL_UNICODE_VERSION } from '../shared/terminal-options'
 import { buildReplaySnapshot } from './terminal-replay-snapshot'
 
 const ESC = '\x1b'
@@ -76,7 +73,7 @@ function layoutOf(
   data: string,
   cols: number,
   rows: number,
-  { paneWidths = true }: { paneWidths?: boolean } = {}
+  { paneWidths = true }: { paneWidths?: boolean } = {},
 ): Promise<Array<{ text: string; wrapped: boolean }>> {
   return new Promise((resolve) => {
     const term = paneWidths
@@ -162,7 +159,10 @@ async function main(): Promise<void> {
 
     assert.deepEqual(replayed, live, 'replayed rows must wrap exactly as the live pane did')
     // Not vacuous: the frame really does soft-wrap at this width.
-    assert.ok(live.some((row) => row.wrapped), 'the fixture must actually wrap')
+    assert.ok(
+      live.some((row) => row.wrapped),
+      'the fixture must actually wrap',
+    )
   })
 
   await run('the wrap agreement is the Unicode version, not a coincidence', async () => {
@@ -182,7 +182,7 @@ async function main(): Promise<void> {
     assert.notDeepEqual(
       onDefaultWidths,
       live,
-      'a Unicode 6 reader must NOT reproduce a Unicode 11 layout, or this suite proves nothing'
+      'a Unicode 6 reader must NOT reproduce a Unicode 11 layout, or this suite proves nothing',
     )
   })
 

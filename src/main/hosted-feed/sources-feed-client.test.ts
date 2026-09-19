@@ -59,7 +59,7 @@ const json = (body: unknown, init: ResponseInit = {}): Response =>
   new Response(typeof body === 'string' ? body : JSON.stringify(body), {
     status: 200,
     ...init,
-    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    headers: { 'content-type': 'application/json', ...init.headers },
   })
 
 async function withDir(run: (dir: string) => Promise<void>): Promise<void> {
@@ -82,7 +82,10 @@ async function main(): Promise<void> {
   {
     const good = parseHostedSourcesFeed(JSON.stringify(feed('2026-09-08T00:00:00Z', ['anthropics/skills'])))
     assert.ok(good.ok)
-    assert.deepEqual(good.feed.sources.map((source) => source.repo), ['anthropics/skills'])
+    assert.deepEqual(
+      good.feed.sources.map((source) => source.repo),
+      ['anthropics/skills'],
+    )
 
     const refuses = (body: unknown, pattern: RegExp): void => {
       const result = parseHostedSourcesFeed(typeof body === 'string' ? body : JSON.stringify(body))
@@ -95,16 +98,28 @@ async function main(): Promise<void> {
     refuses({ schemaVersion: 1, updatedAt: '2026-09-08T00:00:00Z' }, /`sources` array/)
     // A repository, never a URL, and never a path that could climb out of one.
     refuses(
-      { schemaVersion: 1, updatedAt: '2026-09-08T00:00:00Z', sources: [{ id: 'x', repo: 'https://github.com/a/b', kind: 'claude-marketplace', description: 'x' }] },
+      {
+        schemaVersion: 1,
+        updatedAt: '2026-09-08T00:00:00Z',
+        sources: [{ id: 'x', repo: 'https://github.com/a/b', kind: 'claude-marketplace', description: 'x' }],
+      },
       /owner\/name/,
     )
     refuses(
-      { schemaVersion: 1, updatedAt: '2026-09-08T00:00:00Z', sources: [{ id: 'x', repo: '../..', kind: 'claude-marketplace', description: 'x' }] },
+      {
+        schemaVersion: 1,
+        updatedAt: '2026-09-08T00:00:00Z',
+        sources: [{ id: 'x', repo: '../..', kind: 'claude-marketplace', description: 'x' }],
+      },
       /owner\/name/,
     )
     // The `kind` vocabulary is the one `deriveShape` returns, and nothing else.
     refuses(
-      { schemaVersion: 1, updatedAt: '2026-09-08T00:00:00Z', sources: [{ id: 'x', repo: 'a/b', kind: 'mcp-catalogue', description: 'x' }] },
+      {
+        schemaVersion: 1,
+        updatedAt: '2026-09-08T00:00:00Z',
+        sources: [{ id: 'x', repo: 'a/b', kind: 'mcp-catalogue', description: 'x' }],
+      },
       /kind/,
     )
     // Two rows for one repository would offer the same Add twice, and the
@@ -133,7 +148,11 @@ async function main(): Promise<void> {
     )
     // A row with nothing to say about itself is a row nobody can judge.
     refuses(
-      { schemaVersion: 1, updatedAt: '2026-09-08T00:00:00Z', sources: [{ id: 'x', repo: 'a/b', kind: 'skills', description: '  ' }] },
+      {
+        schemaVersion: 1,
+        updatedAt: '2026-09-08T00:00:00Z',
+        sources: [{ id: 'x', repo: 'a/b', kind: 'skills', description: '  ' }],
+      },
       /no description/,
     )
   }
@@ -159,7 +178,9 @@ async function main(): Promise<void> {
     // Case-folded: GitHub treats `WsHobson` and `wshobson` as one owner, and a
     // rule that did not would be one capital letter from listing it twice.
     assert.deepEqual(
-      recommendedSourcesToAdd(list, ['github:WsHobson/Agents']).map((source) => source.repo).sort(),
+      recommendedSourcesToAdd(list, ['github:WsHobson/Agents'])
+        .map((source) => source.repo)
+        .sort(),
       ['anthropics/claude-plugins-official', 'sprintengine/studio-releases'],
     )
     // A local folder source shares no id space with a repository, so it never
@@ -182,7 +203,10 @@ async function main(): Promise<void> {
     assert.equal(result.source, 'network')
     assert.equal(result.changed, true)
     assert.equal(result.etag, '"v1"')
-    assert.deepEqual(result.feed.sources.map((source) => source.repo), ['anthropics/skills'])
+    assert.deepEqual(
+      result.feed.sources.map((source) => source.repo),
+      ['anthropics/skills'],
+    )
     assert.equal(calls.length, 1)
     assert.equal(calls[0]!.headers['if-none-match'], undefined)
 
@@ -239,7 +263,10 @@ async function main(): Promise<void> {
       assert.equal(result.state, 'degraded')
       assert.equal(result.source, 'cache')
       assert.ok(result.message && result.message.length > 0)
-      assert.deepEqual(result.feed.sources.map((source) => source.repo), ['anthropics/skills'])
+      assert.deepEqual(
+        result.feed.sources.map((source) => source.repo),
+        ['anthropics/skills'],
+      )
       assert.equal(await readFile(cachePath, 'utf8'), before, 'a rejected body never reaches the cache')
     }
   })
@@ -283,7 +310,9 @@ async function main(): Promise<void> {
     // A seed newer than the cache outranks it, so a release can correct the
     // recommended list before the next successful fetch.
     const { fetcher: served } = fetcherFor(() => json(feed('2026-09-08T00:00:00Z', ['old/one'])))
-    await new HostedSourcesFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: served, now }).read({ forceRefresh: true })
+    await new HostedSourcesFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: served, now }).read({
+      forceRefresh: true,
+    })
     await writeFile(seedPath, JSON.stringify(feed('2026-09-20T00:00:00Z', ['new/one'])), 'utf8')
     const seedWins = await new HostedSourcesFeedClient({
       feedUrl: FEED_URL,
@@ -294,7 +323,10 @@ async function main(): Promise<void> {
     }).read({ cachedOnly: true })
     assert.ok(seedWins.ok)
     assert.equal(seedWins.source, 'seed')
-    assert.deepEqual(seedWins.feed.sources.map((source) => source.repo), ['new/one'])
+    assert.deepEqual(
+      seedWins.feed.sources.map((source) => source.repo),
+      ['new/one'],
+    )
   })
 
   // ── The URL and the seed's whereabouts ────────────────────────────────────
@@ -318,10 +350,9 @@ async function main(): Promise<void> {
       sourcesFeedSeedCandidates({ isPackaged: true, resourcesPath: '/app/Resources', appPath: '/app/app.asar' }),
       ['/app/Resources/sources.json', '/app/app.asar/resources/sources.json'],
     )
-    assert.deepEqual(
-      sourcesFeedSeedCandidates({ isPackaged: false, cwd: '/repo', appPath: null }),
-      ['/repo/resources/sources.json'],
-    )
+    assert.deepEqual(sourcesFeedSeedCandidates({ isPackaged: false, cwd: '/repo', appPath: null }), [
+      '/repo/resources/sources.json',
+    ])
   }
 
   console.log('sources feed client tests passed')

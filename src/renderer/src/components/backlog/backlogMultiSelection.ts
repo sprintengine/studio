@@ -36,10 +36,7 @@ export function collapseBacklogSelectionTo(key: string | null): BacklogMultiSele
 }
 
 /** The rows a mutation or context action targets: the multi set, else the cursor. */
-export function effectiveBacklogSelection(
-  state: BacklogMultiSelection,
-  cursorKey: string | null,
-): ReadonlySet<string> {
+export function effectiveBacklogSelection(state: BacklogMultiSelection, cursorKey: string | null): ReadonlySet<string> {
   if (state.keys) return state.keys
   return cursorKey ? new Set([cursorKey]) : new Set()
 }

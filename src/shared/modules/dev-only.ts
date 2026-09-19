@@ -33,11 +33,7 @@ export function isDevOnlyModule(id: string): boolean {
  * modules are dropped. Generic over anything exposing a module id so it serves
  * both `CapabilityModule[]` (via accessor) and `CapabilityManifest[]`.
  */
-export function activeForChannel<T>(
-  items: readonly T[],
-  getId: (item: T) => string,
-  includeDevOnly: boolean
-): T[] {
+export function activeForChannel<T>(items: readonly T[], getId: (item: T) => string, includeDevOnly: boolean): T[] {
   if (includeDevOnly) return [...items]
   return items.filter((item) => !isDevOnlyModule(getId(item)))
 }

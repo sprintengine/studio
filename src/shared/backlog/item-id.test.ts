@@ -80,10 +80,7 @@ run('formatBacklogDisplayId composes KEY-number with no padding', () => {
 })
 
 run('formatBacklogDisplayId: an external identity wins', () => {
-  assert.equal(
-    formatBacklogDisplayId({ key: 'MC', numericId: 240, external: { displayId: 'PROJ-17' } }),
-    'PROJ-17',
-  )
+  assert.equal(formatBacklogDisplayId({ key: 'MC', numericId: 240, external: { displayId: 'PROJ-17' } }), 'PROJ-17')
   // An empty/blank external id falls back to the native scheme.
   assert.equal(formatBacklogDisplayId({ key: 'MC', numericId: 9, external: { displayId: '  ' } }), 'MC-9')
 })

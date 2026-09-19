@@ -9,11 +9,7 @@ import assert from 'node:assert/strict'
 // vouch for — hooks, an unread linked repository, a choice of skills, a
 // first-party registry entry — must come back as a deep link, never an install.
 
-import type {
-  AgentSkillTarget,
-  TerminalSessionSnapshot,
-  WorkspaceSkill,
-} from '../../../../shared/electron-api'
+import type { AgentSkillTarget, TerminalSessionSnapshot, WorkspaceSkill } from '../../../../shared/electron-api'
 import {
   decidePaletteTarget,
   installPluginRow,
@@ -70,12 +66,20 @@ const WRITTEN: AgentSkillTarget = {
 
 function fakeBridge(overrides: Record<string, unknown> = {}) {
   const calls: Call[] = []
-  const record = <T>(name: string, result: T) => async (input?: unknown) => {
-    calls.push({ name, input })
-    return result
-  }
+  const record =
+    <T>(name: string, result: T) =>
+    async (input?: unknown) => {
+      calls.push({ name, input })
+      return result
+    }
   const api = {
-    skillsInstall: record('skillsInstall', { ok: true, dirName: 'review', harnesses: ['claude'], paths: [], fileCount: 3 }),
+    skillsInstall: record('skillsInstall', {
+      ok: true,
+      dirName: 'review',
+      harnesses: ['claude'],
+      paths: [],
+      fileCount: 3,
+    }),
     skillsInstallPlugin: record('skillsInstallPlugin', {
       ok: true,
       plugin: {},
@@ -86,7 +90,10 @@ function fakeBridge(overrides: Record<string, unknown> = {}) {
       pluginFileCount: 0,
       warnings: [],
     }),
-    workspaceSkillsList: record('workspaceSkillsList', { ok: true, skills: [REVIEW, { ...REVIEW, id: 'send', name: 'send' }] }),
+    workspaceSkillsList: record('workspaceSkillsList', {
+      ok: true,
+      skills: [REVIEW, { ...REVIEW, id: 'send', name: 'send' }],
+    }),
     agentSkillAttach: record('agentSkillAttach', { ok: true, skillId: 'review', targets: [WRITTEN] }),
     terminalList: record('terminalList', [LIVE_SESSION]),
     terminalWrite: record('terminalWrite', undefined),
@@ -161,8 +168,14 @@ run('a skill the workspace already has is not installed again', async () => {
     api,
   })
   assert.equal(used.ok, true)
-  assert.equal(calls.some((call) => call.name === 'skillsInstall'), false)
-  assert.equal(calls.some((call) => call.name === 'terminalWrite'), true)
+  assert.equal(
+    calls.some((call) => call.name === 'skillsInstall'),
+    false,
+  )
+  assert.equal(
+    calls.some((call) => call.name === 'terminalWrite'),
+    true,
+  )
 })
 
 run('the inventory is resolved by the DIRECTORY the install reported, not the source path', async () => {
@@ -194,7 +207,10 @@ run('a failed install stops before anything is pasted, and says why', async () =
   })
   assert.equal(used.ok, false)
   assert.equal(used.ok === false ? used.message : '', 'That repository could not be read.')
-  assert.equal(calls.some((call) => call.name === 'terminalWrite'), false)
+  assert.equal(
+    calls.some((call) => call.name === 'terminalWrite'),
+    false,
+  )
 })
 
 run('with no folder open there is nowhere to install to, and it says so', async () => {
@@ -277,7 +293,10 @@ run('the install receipt outranks the scan on which directory now exists', async
   })
   assert.equal(resolved.ok, true)
   assert.equal(resolved.ok ? resolved.skill.id : '', 'send')
-  assert.equal(calls.some((call) => call.name === 'workspaceSkillsList'), true)
+  assert.equal(
+    calls.some((call) => call.name === 'workspaceSkillsList'),
+    true,
+  )
 })
 
 // ── Which agent ──────────────────────────────────────────────────────────────
@@ -302,10 +321,7 @@ run('a named pane that has exited is a question with a reason, not a guess at th
 
 run('with no pane named, the focused agent wins, then a lone live agent, then a question', () => {
   const two = [live('s1', 'a1'), live('s2', 'a2')]
-  assert.equal(
-    (decidePaletteTarget(two, null, 'a2') as { session: LiveAgentSession }).session.sessionId,
-    's2',
-  )
+  assert.equal((decidePaletteTarget(two, null, 'a2') as { session: LiveAgentSession }).session.sessionId, 's2')
   assert.equal(
     (decidePaletteTarget([live('s1', 'a1')], null, undefined) as { session: LiveAgentSession }).session.sessionId,
     's1',

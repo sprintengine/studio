@@ -1,20 +1,9 @@
 import assert from 'node:assert/strict'
-import {
-  cpSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  designSystemRegistrationId,
-  normaliseRegistryPath,
-} from '../../shared/design-system/library'
+import { designSystemRegistrationId, normaliseRegistryPath } from '../../shared/design-system/library'
 import {
   defaultDesignSystemLibraryRoot,
   defaultDesignSystemRegistryPath,
@@ -338,10 +327,7 @@ run('ids are stable per folder, and paths normalise to one spelling', async () =
   assert.notEqual(designSystemRegistrationId('/work/a'), designSystemRegistrationId('/work/b'))
   assert.equal(normaliseRegistryPath('C:\\work\\brand\\'), 'C:/work/brand')
   // Case is NOT folded: two genuinely different Linux folders must stay two.
-  assert.notEqual(
-    designSystemRegistrationId('/work/Brand'),
-    designSystemRegistrationId('/work/brand'),
-  )
+  assert.notEqual(designSystemRegistrationId('/work/Brand'), designSystemRegistrationId('/work/brand'))
 })
 
 async function main(): Promise<void> {

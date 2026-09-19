@@ -113,9 +113,7 @@ export function BacklogMockupsSection({
       // No hairline: padding and the heading separate this section from the next
       // (MC-2047 — "space groups, rules do not").
       className="shrink-0 pb-2"
-      action={
-        <AttachMockupEditor folderPath={folderPath} attached={attached} onAttach={attachPath} />
-      }
+      action={<AttachMockupEditor folderPath={folderPath} attached={attached} onAttach={attachPath} />}
     >
       {/* An empty section is the heading and its "Attach mockup…" action, and
           nothing else. The sentence that used to sit here named that control and
@@ -199,7 +197,9 @@ function MockupRow({
         absolutePath={optimistic.absolutePath}
         relativePath={entry.path}
         title={title}
-        onOpen={() => onOpen({ path: entry.path, relativePath: optimistic.relativePath, absolutePath: optimistic.absolutePath })}
+        onOpen={() =>
+          onOpen({ path: entry.path, relativePath: optimistic.relativePath, absolutePath: optimistic.absolutePath })
+        }
       />
       {entry.source === 'detected' ? (
         <span className="px-1 text-micro text-[color:var(--text-subtle)]">Found in this item</span>
@@ -374,8 +374,12 @@ function AttachMockupEditor({
         : event.key === 'End'
           ? options[options.length - 1]
           : event.key === 'ArrowDown'
-            ? index < 0 ? options[0] : options[(index + 1) % options.length]
-            : index < 0 ? options[options.length - 1] : options[(index - 1 + options.length) % options.length]
+            ? index < 0
+              ? options[0]
+              : options[(index + 1) % options.length]
+            : index < 0
+              ? options[options.length - 1]
+              : options[(index - 1 + options.length) % options.length]
     next?.focus()
   }
 

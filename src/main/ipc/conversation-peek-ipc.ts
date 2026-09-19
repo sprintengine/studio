@@ -20,10 +20,7 @@ export type ConversationPeekIpcDependencies = {
 /** Cap on an id off the wire. Session and attachment ids are uuid-shaped; this is an abuse guard. */
 const MAX_ID_LENGTH = 512
 
-export function registerConversationPeekIpc(
-  ipcMain: IpcMain,
-  deps: ConversationPeekIpcDependencies,
-): void {
+export function registerConversationPeekIpc(ipcMain: IpcMain, deps: ConversationPeekIpcDependencies): void {
   ipcMain.handle('conversation-peek:read', (_event, sessionId: unknown): Promise<ConversationPeek> => {
     // A malformed payload is our bug or a hostile caller — never a statement
     // about the runtime, so `unknown` rather than the `none` that would tell

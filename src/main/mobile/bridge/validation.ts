@@ -24,7 +24,10 @@ type _AssertCapabilityListComplete = [
   Exclude<MobileControlCapability, (typeof MOBILE_CONTROL_CAPABILITIES)[number]>,
 ] extends [never]
   ? true
-  : ['MOBILE_CONTROL_CAPABILITIES is missing', Exclude<MobileControlCapability, (typeof MOBILE_CONTROL_CAPABILITIES)[number]>]
+  : [
+      'MOBILE_CONTROL_CAPABILITIES is missing',
+      Exclude<MobileControlCapability, (typeof MOBILE_CONTROL_CAPABILITIES)[number]>,
+    ]
 const _capabilityListComplete: _AssertCapabilityListComplete = true
 void _capabilityListComplete
 
@@ -38,17 +41,19 @@ void _capabilityListComplete
 export function isMobileControlDevice(input: unknown): input is MobileControlDevice {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return false
   const device = input as Partial<MobileControlDevice>
-  return isSupportedMobileControlProtocolVersion(device.protocolVersion)
-    && typeof device.deviceId === 'string'
-    && typeof device.displayName === 'string'
-    && (device.platform === 'ios' || device.platform === 'android' || device.platform === 'web')
-    && typeof device.appVersion === 'string'
-    && typeof device.pairedAt === 'string'
-    && Number.isFinite(Date.parse(device.pairedAt))
-    && (device.lastSeenAt === undefined || Number.isFinite(Date.parse(device.lastSeenAt)))
-    && (device.revokedAt === undefined || Number.isFinite(Date.parse(device.revokedAt)))
-    && Array.isArray(device.capabilities)
-    && device.capabilities.every(isMobileControlCapability)
+  return (
+    isSupportedMobileControlProtocolVersion(device.protocolVersion) &&
+    typeof device.deviceId === 'string' &&
+    typeof device.displayName === 'string' &&
+    (device.platform === 'ios' || device.platform === 'android' || device.platform === 'web') &&
+    typeof device.appVersion === 'string' &&
+    typeof device.pairedAt === 'string' &&
+    Number.isFinite(Date.parse(device.pairedAt)) &&
+    (device.lastSeenAt === undefined || Number.isFinite(Date.parse(device.lastSeenAt))) &&
+    (device.revokedAt === undefined || Number.isFinite(Date.parse(device.revokedAt))) &&
+    Array.isArray(device.capabilities) &&
+    device.capabilities.every(isMobileControlCapability)
+  )
 }
 
 export function isMobileControlCapability(input: unknown): input is MobileControlCapability {
@@ -58,16 +63,18 @@ export function isMobileControlCapability(input: unknown): input is MobileContro
 export function isMobilePushRegistration(input: unknown): input is MobilePushRegistration {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return false
   const registration = input as Partial<MobilePushRegistration>
-  return isSupportedMobileControlProtocolVersion(registration.protocolVersion)
-    && typeof registration.registrationId === 'string'
-    && typeof registration.deviceId === 'string'
-    && isMobilePushProvider(registration.provider)
-    && typeof registration.tokenHash === 'string'
-    && /^[a-f0-9]{64}$/u.test(registration.tokenHash)
-    && typeof registration.registeredAt === 'string'
-    && Number.isFinite(Date.parse(registration.registeredAt))
-    && (registration.lastUsedAt === undefined || Number.isFinite(Date.parse(registration.lastUsedAt)))
-    && (registration.revokedAt === undefined || Number.isFinite(Date.parse(registration.revokedAt)))
+  return (
+    isSupportedMobileControlProtocolVersion(registration.protocolVersion) &&
+    typeof registration.registrationId === 'string' &&
+    typeof registration.deviceId === 'string' &&
+    isMobilePushProvider(registration.provider) &&
+    typeof registration.tokenHash === 'string' &&
+    /^[a-f0-9]{64}$/u.test(registration.tokenHash) &&
+    typeof registration.registeredAt === 'string' &&
+    Number.isFinite(Date.parse(registration.registeredAt)) &&
+    (registration.lastUsedAt === undefined || Number.isFinite(Date.parse(registration.lastUsedAt))) &&
+    (registration.revokedAt === undefined || Number.isFinite(Date.parse(registration.revokedAt)))
+  )
 }
 
 export function isMobilePushProvider(input: unknown): input is MobilePushProvider {

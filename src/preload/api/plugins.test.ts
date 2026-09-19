@@ -8,8 +8,26 @@ async function main(): Promise<void> {
   const listResponse: PluginRegistryListResult = {
     ok: true,
     plugins: [
-      { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
-      { id: 'opencode', displayName: 'OpenCode', source: 'user', version: 1, binary: 'opencode', resumeSession: false, sessionIdFromCaller: false, agentStateCapable: true },
+      {
+        id: 'codex',
+        displayName: 'Codex',
+        source: 'bundled',
+        version: 1,
+        binary: 'codex',
+        resumeSession: true,
+        sessionIdFromCaller: false,
+        agentStateCapable: true,
+      },
+      {
+        id: 'opencode',
+        displayName: 'OpenCode',
+        source: 'user',
+        version: 1,
+        binary: 'opencode',
+        resumeSession: false,
+        sessionIdFromCaller: false,
+        agentStateCapable: true,
+      },
     ],
   }
   const installResponse: PluginInstallResult = { ok: true, id: 'opencode', kind: 'cli', displayName: 'OpenCode' }
@@ -30,7 +48,7 @@ async function main(): Promise<void> {
 
   assert.deepEqual(
     calls.map((call) => call.channel),
-    ['plugins:list', 'plugins:install-folder']
+    ['plugins:list', 'plugins:install-folder'],
   )
   assert.deepEqual(calls[1].args, ['/tmp/some-cli'])
 

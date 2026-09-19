@@ -28,11 +28,7 @@ import {
 } from '../workspace/globalSurface/extensions/catalogue/pluginArtwork'
 import { skillPluginFolder } from '../workspace/globalSurface/extensions/skills/skillsSurfaceModel'
 import { resolveIconUrl } from '../settings/BrowseStorefront'
-import {
-  commandMatchesQuery,
-  orderPaletteCommands,
-  type PaletteCommandGroup,
-} from '../commandPaletteSearch'
+import { commandMatchesQuery, orderPaletteCommands, type PaletteCommandGroup } from '../commandPaletteSearch'
 import type { PaletteCommand, PaletteResultProvider, PaletteRowIcon } from './paletteProvider'
 
 /** The slot size the palette draws a row's mark at (an avatar asks for 2×). */
@@ -114,9 +110,7 @@ export async function loadExtensionsCatalogue(
   return { ...sources, ...registry }
 }
 
-async function loadSourceScans(
-  api: ExtensionsCatalogueApi,
-): Promise<Pick<ExtensionsCatalogue, 'sources' | 'unread'>> {
+async function loadSourceScans(api: ExtensionsCatalogueApi): Promise<Pick<ExtensionsCatalogue, 'sources' | 'unread'>> {
   let listed: Awaited<ReturnType<ExtensionsCatalogueApi['skillsListSources']>>
   try {
     listed = await api.skillsListSources()
@@ -360,7 +354,9 @@ function registryRow(entry: MarketplacePluginEntry, registryUrl: string | null):
     hooks: false,
     mcp: false,
     componentsKnown: true,
-    skillDirNames: (entry.skills ?? []).map((skill: { path?: string; name: string }) => skillDirName(skill.path ?? skill.name)),
+    skillDirNames: (entry.skills ?? []).map((skill: { path?: string; name: string }) =>
+      skillDirName(skill.path ?? skill.name),
+    ),
   }
 }
 

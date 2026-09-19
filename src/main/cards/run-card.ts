@@ -146,7 +146,11 @@ export type CardRunDeps = {
    * the card carries none of them: a commitSha on a card goes stale the moment
    * the marketplace is republished, and a stale one installs the wrong bytes.
    */
-  installPlugin: (input: { sourceId: string; pluginId: string; workspaceRoot: string }) => Promise<SkillPluginInstallOutcome>
+  installPlugin: (input: {
+    sourceId: string
+    pluginId: string
+    workspaceRoot: string
+  }) => Promise<SkillPluginInstallOutcome>
   /** `skillsService.listInstalledPlugins()` — the receipts that make a second Go a no-op. */
   listInstalledPlugins: (input: { workspaceRoot: string }) => Promise<SkillInstalledPluginsOutcome>
   /** `skills/sync.ts` `installedSkillCopies()`, keyed by directory name. */
@@ -184,7 +188,7 @@ export type CardRunDeps = {
   >
   /** `marketplacePluginLifecycle.installFromRegistry()` — the one install path. */
   installMarketplaceEntry: (
-    input: MarketplacePluginRegistryInstallInput
+    input: MarketplacePluginRegistryInstallInput,
   ) => Promise<MarketplacePluginRegistryInstallResult>
 }
 
@@ -204,12 +208,7 @@ function marketplaceEntryTier(entry: MarketplacePluginEntry): 'verified' | 'comm
 /** `owner/name` and nothing else, re-checked here rather than taken on the parser's word. */
 const REPO_NAME = /^[A-Za-z0-9._-]+\/[A-Za-z0-9._-]+$/
 
-const SURFACE_VIEWS: readonly CardSurfaceView[] = [
-  'home',
-  'plugins',
-  'skills',
-  'agent-clis',
-]
+const SURFACE_VIEWS: readonly CardSurfaceView[] = ['home', 'plugins', 'skills', 'agent-clis']
 
 export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<CardRunResult> {
   const actions = [...input.actions]
@@ -475,7 +474,10 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     // downloaded — the same rule every other id in this file follows.
     const registry = await deps.readMarketplaceRegistry()
     if (!registry.ok) {
-      return { status: 'failed', message: registry.message || 'The marketplace could not be read, so nothing was installed.' }
+      return {
+        status: 'failed',
+        message: registry.message || 'The marketplace could not be read, so nothing was installed.',
+      }
     }
     const entry = registry.marketplace.plugins.find((plugin) => plugin.id === action.id)
     if (!entry) return { status: 'failed', message: `${action.id} is not in this build's marketplace.` }
@@ -524,9 +526,7 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     }
   }
 
-  function openChat(
-    action: Extract<CardAction, { verb: 'open.chat' }>,
-  ): Omit<CardActionOutcome, 'index' | 'verb'> {
+  function openChat(action: Extract<CardAction, { verb: 'open.chat' }>): Omit<CardActionOutcome, 'index' | 'verb'> {
     const prompt = action.prompt.trim()
     if (prompt.length === 0) return { status: 'failed', message: 'This card has no prompt to send.' }
     // The executor boundary for the argv hole described at the top of this
@@ -536,7 +536,11 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     // agent CLI's command line with no `--` in front of it. Neither check is
     // allowed to be the only one.
     if (prompt.startsWith('-')) {
-      return { status: 'failed', message: 'This card’s prompt begins with a dash, which an agent CLI would read as an option, so it was not sent.' }
+      return {
+        status: 'failed',
+        message:
+          'This card’s prompt begins with a dash, which an agent CLI would read as an option, so it was not sent.',
+      }
     }
     // Names, not paths: `skills` are installed skill directory names, and the
     // renderer attaches them by matching what the workspace already has —
@@ -599,11 +603,11 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     const [, repoName = ''] = repo.split('/')
     const folderName = (action.folderName ?? repoName).trim()
     if (
-      folderName.length === 0
-      || folderName === '.'
-      || folderName === '..'
-      || /[/\\]/.test(folderName)
-      || folderName.includes('\0')
+      folderName.length === 0 ||
+      folderName === '.' ||
+      folderName === '..' ||
+      /[/\\]/.test(folderName) ||
+      folderName.includes('\0')
     ) {
       return { status: 'failed', message: 'That card asks to clone into a folder name this app will not use.' }
     }

@@ -1,5 +1,10 @@
 import type { AgentLaunchRequest, AgentLaunchResult } from '../../shared/agent-launch'
-import type { ActionContext, AutomationActionProvider, AutomationCliPermissionPreset, AutomationRun } from '../../shared/automations/contracts'
+import type {
+  ActionContext,
+  AutomationActionProvider,
+  AutomationCliPermissionPreset,
+  AutomationRun,
+} from '../../shared/automations/contracts'
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 
 import type { Workspace, WorkspaceMode } from '../../renderer/src/types/workspace'
@@ -83,7 +88,10 @@ class AutomationActionBlockedError extends Error {
 export type RunWorktreeUnavailableReason = 'not_a_git_repository' | 'worktree_creation_failed'
 
 export class RunWorktreeUnavailableError extends Error {
-  constructor(readonly reason: RunWorktreeUnavailableReason, message: string) {
+  constructor(
+    readonly reason: RunWorktreeUnavailableReason,
+    message: string,
+  ) {
     super(message)
     this.name = 'RunWorktreeUnavailableError'
   }
@@ -96,17 +104,19 @@ const DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS = 150
 const DEFAULT_EXECUTION_ID_TIMEOUT_MS = 10_000
 
 export function createLocalAutomationExecutor(options: LocalAutomationExecutorOptions): AutomationRunExecutor {
-  const builtInRegistry = options.actionProviders
-    || options.getActionProviders
-    || options.actionProviderRegistrations
-    || options.getActionProviderRegistrations
-    ? null
-    : createBuiltInAutomationProviderRegistry()
-  const staticProviders = options.actionProviders ?? builtInRegistry?.listActionProviders() ?? createBuiltInAutomationActionProviders()
+  const builtInRegistry =
+    options.actionProviders ||
+    options.getActionProviders ||
+    options.actionProviderRegistrations ||
+    options.getActionProviderRegistrations
+      ? null
+      : createBuiltInAutomationProviderRegistry()
+  const staticProviders =
+    options.actionProviders ?? builtInRegistry?.listActionProviders() ?? createBuiltInAutomationActionProviders()
   const getActionProviders = options.getActionProviders ?? (() => staticProviders)
   const staticRegistrations = options.actionProviderRegistrations ?? builtInRegistry?.listActionProviderRegistrations()
-  const getActionProviderRegistrations = options.getActionProviderRegistrations
-    ?? (staticRegistrations ? () => staticRegistrations : undefined)
+  const getActionProviderRegistrations =
+    options.getActionProviderRegistrations ?? (staticRegistrations ? () => staticRegistrations : undefined)
   const checkProviderPermission = options.checkProviderPermission ?? allowAutomationProvider
   return async (input) => {
     const registrations = getActionProviderRegistrations?.()
@@ -125,7 +135,7 @@ async function runLocalAutomationAction(
   input: AutomationRunExecutionInput,
   providers: AutomationActionProvider[],
   options: LocalAutomationExecutorOptions,
-  registrations?: RegisteredAutomationProvider<AutomationActionProvider>[]
+  registrations?: RegisteredAutomationProvider<AutomationActionProvider>[],
 ): Promise<Partial<AutomationRun>> {
   const provider = providers.find((candidate) => candidate.kind === input.definition.action.kind)
   if (!provider) {
@@ -172,10 +182,7 @@ async function runLocalAutomationAction(
         // out, preserving the connector-chat isolation invariant.
         const wantsWorktree = spawnInput.connectorId != null || input.definition.runInWorktree !== false
         const worktree = wantsWorktree ? await ensureRunWorktree(input, options, spawnInput.connectorId) : null
-        const launched = await spawnAgent(
-          { ...spawnInput, worktreePath: worktree?.worktreePath },
-          options,
-        )
+        const launched = await spawnAgent({ ...spawnInput, worktreePath: worktree?.worktreePath }, options)
         return { ...launched, worktreePath: worktree?.worktreePath, branch: worktree?.branch }
       },
       requireIntegration: context.requireIntegration,
@@ -185,11 +192,12 @@ async function runLocalAutomationAction(
     const firstPartyResolvedProvider = registration
       ? provider === registration.provider && isFirstPartyAutomationProviderModule(registration.moduleId)
       : false
-    const providerResult = firstPartyResolvedProvider && provider.kind === 'spawn-agent'
-      ? await runSpawnAgentAction(input.definition.action.config, runtime)
-      : firstPartyResolvedProvider && provider.kind === 'run-skill-loop'
-        ? await runSkillLoopAction(input.definition.action.config, runtime)
-        : await provider.run(input.definition.action.config, context)
+    const providerResult =
+      firstPartyResolvedProvider && provider.kind === 'spawn-agent'
+        ? await runSpawnAgentAction(input.definition.action.config, runtime)
+        : firstPartyResolvedProvider && provider.kind === 'run-skill-loop'
+          ? await runSkillLoopAction(input.definition.action.config, runtime)
+          : await provider.run(input.definition.action.config, context)
 
     return Object.assign({}, ...progress, providerResult)
   } catch (error) {
@@ -210,7 +218,7 @@ async function runLocalAutomationAction(
 function createActionContext(
   input: AutomationRunExecutionInput,
   options: LocalAutomationExecutorOptions,
-  reportProgress: (patch: Partial<AutomationRun>) => void
+  reportProgress: (patch: Partial<AutomationRun>) => void,
 ): ActionContext {
   return {
     automationId: input.definition.id,
@@ -219,12 +227,15 @@ function createActionContext(
     triggerPayload: input.triggerPayload,
     spawnAgent: (spawnInput) => spawnAgent(spawnInput, options),
     runCommand: async () => {
-      throw new AutomationActionBlockedError('run-command is deferred from Phase 1 and is not available as a built-in action.')
+      throw new AutomationActionBlockedError(
+        'run-command is deferred from Phase 1 and is not available as a built-in action.',
+      )
     },
     reportProgress,
     requireIntegration: (id) => {
       const available = options.isIntegrationAvailable?.(id)
-      if (available !== true) throw new AutomationActionBlockedError(`Required integration is unavailable or unverified: ${id}`)
+      if (available !== true)
+        throw new AutomationActionBlockedError(`Required integration is unavailable or unverified: ${id}`)
     },
   }
 }
@@ -243,16 +254,21 @@ async function spawnAgent(
     spawnSkillId?: string
     resolvedTarget?: SpawnAgentResolvedTarget
   },
-  options: LocalAutomationExecutorOptions
+  options: LocalAutomationExecutorOptions,
 ): Promise<{ workspaceId: string; agentId: string; executionId?: string }> {
   const target = input.resolvedTarget ?? resolveLaunchTarget(input, options)
   // The host is the durable per-project Automations workspace, so it carries the
   // stable surface name — never the launching run's agent name, which would brand
   // the shared host after whichever automation happened to create it.
-  const workspaceId = target.workspaceId ?? createWorkspace({
-    folderPath: target.folderPath,
-    name: 'Automations',
-  }, options)
+  const workspaceId =
+    target.workspaceId ??
+    createWorkspace(
+      {
+        folderPath: target.folderPath,
+        name: 'Automations',
+      },
+      options,
+    )
 
   const launched = await options.launchAgent({
     workspaceId,
@@ -278,12 +294,12 @@ async function spawnAgent(
   // as a poll: best-effort, and a permanent miss must not fail the launch — the
   // run still correlates on (workspaceId, agentId).
   const executionId = options.resolveAgentExecutionId
-    ? await waitFor(
+    ? ((await waitFor(
         options.executionIdTimeoutMs ?? DEFAULT_EXECUTION_ID_TIMEOUT_MS,
         options.launchConfirmPollIntervalMs ?? DEFAULT_LAUNCH_CONFIRM_POLL_INTERVAL_MS,
         options,
-        () => options.resolveAgentExecutionId?.({ workspaceId, agentId }) ?? null
-      ) ?? undefined
+        () => options.resolveAgentExecutionId?.({ workspaceId, agentId }) ?? null,
+      )) ?? undefined)
     : undefined
 
   return { workspaceId, agentId, executionId }
@@ -296,7 +312,7 @@ async function spawnAgent(
 async function ensureRunWorktree(
   input: AutomationRunExecutionInput,
   options: LocalAutomationExecutorOptions,
-  connectorId: string | undefined
+  connectorId: string | undefined,
 ): Promise<RunWorktree> {
   const creator = options.createRunWorktree ?? defaultCreateRunWorktree
   try {
@@ -311,18 +327,17 @@ async function ensureRunWorktree(
     const subject = connectorId
       ? `Connector automation run for "${connectorId}" requires an isolated worktree`
       : 'This automation runs in its own git worktree'
-    const cause = error instanceof RunWorktreeUnavailableError && error.reason === 'not_a_git_repository'
-      ? `${input.workspaceRoot} is not a git repository`
-      : `worktree creation failed: ${error instanceof Error ? error.message : 'unknown error'}`
+    const cause =
+      error instanceof RunWorktreeUnavailableError && error.reason === 'not_a_git_repository'
+        ? `${input.workspaceRoot} is not a git repository`
+        : `worktree creation failed: ${error instanceof Error ? error.message : 'unknown error'}`
     throw new AutomationActionBlockedError(
-      `${subject}, but ${cause}. The run was blocked rather than launched in the workspace checkout.`
+      `${subject}, but ${cause}. The run was blocked rather than launched in the workspace checkout.`,
     )
   }
 }
 
-export async function defaultCreateRunWorktree(
-  input: { workspaceRoot: string; runId: string }
-): Promise<RunWorktree> {
+export async function defaultCreateRunWorktree(input: { workspaceRoot: string; runId: string }): Promise<RunWorktree> {
   const branchName = `automations/${input.runId}`
   const created = await createGitWorktree({
     repoRoot: input.workspaceRoot,
@@ -338,13 +353,11 @@ export async function defaultCreateRunWorktree(
   const repoRoot = await resolveRepoRoot(input.workspaceRoot)
   throw new RunWorktreeUnavailableError(
     repoRoot.ok ? 'worktree_creation_failed' : 'not_a_git_repository',
-    created.message
+    created.message,
   )
 }
 
-export async function defaultRemoveRunWorktree(
-  input: { workspaceRoot: string; worktreePath: string }
-): Promise<void> {
+export async function defaultRemoveRunWorktree(input: { workspaceRoot: string; worktreePath: string }): Promise<void> {
   await removeGitWorktree({ repoRoot: input.workspaceRoot, path: input.worktreePath, force: true })
 }
 
@@ -353,7 +366,7 @@ export async function defaultRemoveRunWorktree(
 // hidden automations-host workspace for the run's folder.
 function resolveLaunchTarget(
   input: { workspaceId?: string; folderPath: string; name?: string },
-  options: LocalAutomationExecutorOptions
+  options: LocalAutomationExecutorOptions,
 ): SpawnAgentResolvedTarget {
   return input.workspaceId
     ? resolveStandardLaunchTarget(input.workspaceId, input.folderPath, options)
@@ -365,12 +378,10 @@ function resolveLaunchTarget(
 // `createWorkspace` creates a fresh host — never a standard workspace.
 function resolveHostLaunchTarget(
   folderPath: string,
-  options: LocalAutomationExecutorOptions
+  options: LocalAutomationExecutorOptions,
 ): SpawnAgentResolvedTarget {
   const host = findHostWorkspaceByFolder(options.getWorkspaceSyncSnapshot(), folderPath)
-  return host
-    ? { workspaceId: host.id, folderPath: host.folderPath?.trim() || folderPath }
-    : { folderPath }
+  return host ? { workspaceId: host.id, folderPath: host.folderPath?.trim() || folderPath } : { folderPath }
 }
 
 // Explicit config workspaceId (legacy/MCP): launch into that named standard
@@ -379,7 +390,7 @@ function resolveHostLaunchTarget(
 function resolveStandardLaunchTarget(
   workspaceId: string,
   folderPath: string,
-  options: LocalAutomationExecutorOptions
+  options: LocalAutomationExecutorOptions,
 ): SpawnAgentResolvedTarget {
   const snapshot = options.getWorkspaceSyncSnapshot()
   const explicitWorkspace = findWorkspaceById(snapshot, workspaceId)
@@ -405,7 +416,7 @@ function resolveStandardLaunchTarget(
 
 function createWorkspace(
   input: { folderPath: string; name?: string },
-  options: LocalAutomationExecutorOptions
+  options: LocalAutomationExecutorOptions,
 ): string {
   const created = options.createWorkspace(
     {
@@ -419,8 +430,8 @@ function createWorkspace(
   const workspace = created.result.workspace
   if (!isAutomationsHostWorkspace(workspace)) {
     throw new Error(
-      `Created workspace "${workspace.id}" is a ${workspace.mode} workspace; `
-      + 'automation agent launch requires an automations-host workspace.'
+      `Created workspace "${workspace.id}" is a ${workspace.mode} workspace; ` +
+        'automation agent launch requires an automations-host workspace.',
     )
   }
   return workspace.id
@@ -433,17 +444,21 @@ function findWorkspaceById(snapshot: WorkspaceSyncSnapshot, workspaceId: string)
 function findStandardWorkspaceByFolder(snapshot: WorkspaceSyncSnapshot, folderPath: string): Workspace | null {
   const key = normalizeFolderKey(folderPath)
   if (!key) return null
-  return snapshot.state.workspaces.find((workspace) =>
-    isStandardWorkspace(workspace) && normalizeFolderKey(workspace.folderPath) === key
-  ) ?? null
+  return (
+    snapshot.state.workspaces.find(
+      (workspace) => isStandardWorkspace(workspace) && normalizeFolderKey(workspace.folderPath) === key,
+    ) ?? null
+  )
 }
 
 function findHostWorkspaceByFolder(snapshot: WorkspaceSyncSnapshot, folderPath: string): Workspace | null {
   const key = normalizeFolderKey(folderPath)
   if (!key) return null
-  return snapshot.state.workspaces.find((workspace) =>
-    isAutomationsHostWorkspace(workspace) && normalizeFolderKey(workspace.folderPath) === key
-  ) ?? null
+  return (
+    snapshot.state.workspaces.find(
+      (workspace) => isAutomationsHostWorkspace(workspace) && normalizeFolderKey(workspace.folderPath) === key,
+    ) ?? null
+  )
 }
 
 function isStandardWorkspace(workspace: Workspace): boolean {
@@ -469,7 +484,7 @@ async function waitFor<T>(
   timeoutMs: number,
   pollIntervalMs: number,
   options: Pick<LocalAutomationExecutorOptions, 'now' | 'sleep'>,
-  probe: () => T | null
+  probe: () => T | null,
 ): Promise<T | null> {
   const now = options.now ?? Date.now
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)))

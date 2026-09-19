@@ -71,7 +71,7 @@ export function recordThirdPartyMainLaunchReport(moduleIds: readonly string[], r
     errors: new Map(
       report.errors
         .filter((error) => thirdPartyIds.has(error.id))
-        .map((error) => [error.id, sanitizeLaunchMessage(error.message)])
+        .map((error) => [error.id, sanitizeLaunchMessage(error.message)]),
     ),
   }
 }
@@ -83,9 +83,7 @@ export function readThirdPartyMainLaunchSnapshot(): ThirdPartyMainLaunchSnapshot
 function rejectionToLoadError(rejection: ModuleRejection): MainModuleLoadError {
   return {
     id: rejection.path,
-    message: rejection.issues
-      .map((issue) => `${issue.path ? `${issue.path}: ` : ''}${issue.message}`)
-      .join('; '),
+    message: rejection.issues.map((issue) => `${issue.path ? `${issue.path}: ` : ''}${issue.message}`).join('; '),
   }
 }
 

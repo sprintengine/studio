@@ -73,7 +73,7 @@ async function installsWholeDirectory(): Promise<void> {
     assert.deepEqual(
       (await readdir(root)).sort(),
       [SKILL_PROVENANCE_FILE, 'SKILL.md', 'agents', 'reference', 'scripts'],
-      'the copy carries the provenance marker alongside the skill it installed'
+      'the copy carries the provenance marker alongside the skill it installed',
     )
     assert.deepEqual(await readSkillProvenance(root), PROVENANCE)
   }
@@ -95,7 +95,7 @@ async function reinstallReplacesRatherThanMerges(): Promise<void> {
   assert.deepEqual(
     await readdir(reference),
     ['new.md'],
-    'a file the skill no longer ships must not survive a reinstall'
+    'a file the skill no longer ships must not survive a reinstall',
   )
 }
 
@@ -272,7 +272,7 @@ async function theProvenanceMarkerStaysOutOfTheReadersFileList(): Promise<void> 
     assert.deepEqual(
       scan.skills.map((entry) => entry.files.map((skillFile) => skillFile.path)),
       [['SKILL.md']],
-      'the source lists the skill it holds, and the marker is not one of its files'
+      'the source lists the skill it holds, and the marker is not one of its files',
     )
   }
   assert.ok(existsSync(join(workspace, '.agents', 'skills', 'writer', SKILL_PROVENANCE_FILE)))
@@ -295,7 +295,10 @@ async function aLocalEntryWithNoDescriptionIsSkippedAndCounted(): Promise<void> 
   await writeFile(join(root, 'empty', 'SKILL.md'), '')
 
   const scan = await scanLocalSkillSource(root)
-  assert.deepEqual(scan.skills.map((entry) => entry.id), ['keeper'])
+  assert.deepEqual(
+    scan.skills.map((entry) => entry.id),
+    ['keeper'],
+  )
   assert.equal(scan.skippedNoDescription, 2)
   assert.equal(scan.fileCount, 1, 'the skipped directories take their files with them')
 }

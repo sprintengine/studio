@@ -66,11 +66,7 @@ function sortByRecentFocus(first: Candidate, second: Candidate): number {
   return first.mountedIndex - second.mountedIndex
 }
 
-function candidateFor(
-  workspaceId: string,
-  mountedIndex: number,
-  input: WorkspaceLayoutRetentionInput
-): Candidate {
+function candidateFor(workspaceId: string, mountedIndex: number, input: WorkspaceLayoutRetentionInput): Candidate {
   return {
     workspaceId,
     busy: input.busyWorkspaceIds.has(workspaceId),
@@ -80,13 +76,11 @@ function candidateFor(
 }
 
 export function computeRetainedWorkspaceLayoutIds(
-  input: WorkspaceLayoutRetentionInput
+  input: WorkspaceLayoutRetentionInput,
 ): WorkspaceLayoutRetentionResult {
   const visibleWorkspaceIds = new Set(input.visibleWorkspaceIds)
   const activeWorkspaceId =
-    input.activeWorkspaceId && visibleWorkspaceIds.has(input.activeWorkspaceId)
-      ? input.activeWorkspaceId
-      : null
+    input.activeWorkspaceId && visibleWorkspaceIds.has(input.activeWorkspaceId) ? input.activeWorkspaceId : null
   const retained: WorkspaceLayoutRetentionDecision[] = []
   const evicted: WorkspaceLayoutEvictionDecision[] = []
   const retainedIds = new Set<string>()
@@ -119,9 +113,7 @@ export function computeRetainedWorkspaceLayoutIds(
     visibleCandidates.push(candidate)
   }
 
-  const busyCandidates = visibleCandidates
-    .filter((candidate) => candidate.busy)
-    .sort(sortByRecentFocus)
+  const busyCandidates = visibleCandidates.filter((candidate) => candidate.busy).sort(sortByRecentFocus)
   const retainedBusy = busyCandidates.slice(0, Math.max(0, input.busyLimit))
   const retainedBusyIds = new Set(retainedBusy.map((candidate) => candidate.workspaceId))
 
@@ -186,4 +178,3 @@ export function computeRetainedWorkspaceLayoutIds(
     evicted,
   }
 }
-

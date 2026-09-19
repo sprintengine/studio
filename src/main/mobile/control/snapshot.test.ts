@@ -4,11 +4,7 @@ import { readFileSync } from 'node:fs'
 import { mkdir, mkdtemp, writeFile } from 'fs/promises'
 import { join } from 'path'
 import { tmpdir } from 'os'
-import {
-  defaultMobileSnapshotCommands,
-  MobileControlSnapshotService,
-  sanitizeMobileSnapshotForRelay,
-} from './snapshot'
+import { defaultMobileSnapshotCommands, MobileControlSnapshotService, sanitizeMobileSnapshotForRelay } from './snapshot'
 import { deriveWorkspaceId } from './workspace-id'
 import { relayResultSummaryMaxBytes, relaySummaryByteLength, summarizeCommandResult } from '../bridge/command-results'
 import { dispatchSnapshotRequest } from '../bridge/snapshot-request'
@@ -169,7 +165,7 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
   await writeFile(
     join(workspaceRoot, 'backlog', '2026-06-11-widget.md'),
     '---\ntype: feature\n---\n\n# Ship the widget\n\nUsers need the widget on the phone.\n',
-    'utf8'
+    'utf8',
   )
   await mkdir(join(workspaceRoot, '.sprintengine', 'backlog'), { recursive: true })
   await writeFile(
@@ -202,7 +198,7 @@ async function assertSnapshotIncludesWorkspaceBacklog(): Promise<void> {
         },
       ],
     }),
-    'utf8'
+    'utf8',
   )
   const service = new MobileControlSnapshotService()
 
@@ -280,7 +276,10 @@ async function assertTopLevelSnapshotVersionIsContentStableAcrossReads(): Promis
     status: 'enabled',
     // Interval cadence renders with no timezone suffix, so even the cadence string
     // carries no wall-clock — the whole automation projection is content-only.
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' },
+    },
     action: { kind: 'agent-run', config: { prompt: 'sweep' } },
     nextRunAt: null,
     lastRunAt: generatedAt,
@@ -295,8 +294,11 @@ async function assertTopLevelSnapshotVersionIsContentStableAcrossReads(): Promis
   // The two reads stamped different `generatedAt` values (proving the read is
   // live), yet the content-derived version is byte-identical.
   assert.notEqual(first.generatedAt, second.generatedAt)
-  assert.equal(second.snapshotVersion, first.snapshotVersion,
-    'the top-level snapshotVersion is content-derived and stable across idle reads')
+  assert.equal(
+    second.snapshotVersion,
+    first.snapshotVersion,
+    'the top-level snapshotVersion is content-derived and stable across idle reads',
+  )
   service.shutdown()
 }
 
@@ -308,7 +310,11 @@ async function assertBacklogOnlyChangeBumpsTopLevelSnapshotVersion(): Promise<vo
   await writeBacklogFixture(workspaceRoot, 'backlog_bump', 'Backlog bump item')
   const service = new MobileControlSnapshotService()
 
-  const before = await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt })
+  const before = await service.readSnapshot({
+    desktopSessionId: 'desktop_1',
+    workspaceRoots: [workspaceRoot],
+    generatedAt,
+  })
   await writeFile(
     join(workspaceRoot, '.sprintengine', 'backlog', 'items.json'),
     JSON.stringify({
@@ -326,12 +332,19 @@ async function assertBacklogOnlyChangeBumpsTopLevelSnapshotVersion(): Promise<vo
         },
       ],
     }),
-    'utf8'
+    'utf8',
   )
-  const after = await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt })
+  const after = await service.readSnapshot({
+    desktopSessionId: 'desktop_1',
+    workspaceRoots: [workspaceRoot],
+    generatedAt,
+  })
 
-  assert.notEqual(after.snapshotVersion, before.snapshotVersion,
-    'a backlog-only change produces a new top-level snapshotVersion')
+  assert.notEqual(
+    after.snapshotVersion,
+    before.snapshotVersion,
+    'a backlog-only change produces a new top-level snapshotVersion',
+  )
   service.shutdown()
 }
 
@@ -343,7 +356,10 @@ async function assertAutomationsOnlyChangeBumpsTopLevelSnapshotVersion(): Promis
     id: 'nightly',
     name: 'Nightly sweep',
     status: 'enabled',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' },
+    },
     action: { kind: 'agent-run', config: { prompt: 'sweep' } },
     nextRunAt: null,
     lastRunAt: generatedAt,
@@ -353,12 +369,19 @@ async function assertAutomationsOnlyChangeBumpsTopLevelSnapshotVersion(): Promis
   })
   const service = new MobileControlSnapshotService()
 
-  const before = await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt })
+  const before = await service.readSnapshot({
+    desktopSessionId: 'desktop_1',
+    workspaceRoots: [workspaceRoot],
+    generatedAt,
+  })
   const paused = await store.updateDefinition({
     id: 'nightly',
     name: 'Nightly sweep',
     status: 'paused',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' },
+    },
     action: { kind: 'agent-run', config: { prompt: 'sweep' } },
     nextRunAt: null,
     lastRunAt: generatedAt,
@@ -367,10 +390,17 @@ async function assertAutomationsOnlyChangeBumpsTopLevelSnapshotVersion(): Promis
     updatedAt: generatedAt,
   })
   assert.equal(paused.ok, true)
-  const after = await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt })
+  const after = await service.readSnapshot({
+    desktopSessionId: 'desktop_1',
+    workspaceRoots: [workspaceRoot],
+    generatedAt,
+  })
 
-  assert.notEqual(after.snapshotVersion, before.snapshotVersion,
-    'an automations-only change produces a new top-level snapshotVersion')
+  assert.notEqual(
+    after.snapshotVersion,
+    before.snapshotVersion,
+    'an automations-only change produces a new top-level snapshotVersion',
+  )
   service.shutdown()
 }
 
@@ -393,7 +423,10 @@ async function assertCappedAutomationsFitTheRelayResultBudget(): Promise<void> {
       id: automationId,
       name: `Automation ${index}`,
       status: 'enabled',
-      trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
+      trigger: {
+        kind: 'schedule',
+        config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' },
+      },
       action: { kind: 'agent-run', config: { prompt: 'sweep' } },
       nextRunAt: null,
       lastRunAt: generatedAt,
@@ -441,7 +474,7 @@ async function assertCappedAutomationsFitTheRelayResultBudget(): Promise<void> {
   assert.equal(
     relaySummaryByteLength(summarizeCommandResult(result)) <= relayResultSummaryMaxBytes,
     true,
-    'a project at full automations cap must fit the relay result-summary budget'
+    'a project at full automations cap must fit the relay result-summary budget',
   )
   assert.equal(validateMobileControlSnapshot(snapshot).ok, true)
   service.shutdown()
@@ -456,7 +489,7 @@ async function assertShedDropsRecentRunsWhenTheSnapshotIsOversized(): Promise<vo
   const workspaceRoot = await makeWorkspaceRoot('crowded')
   const service = new MobileControlSnapshotService()
   const base = sanitizeMobileSnapshotForRelay(
-    await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt })
+    await service.readSnapshot({ desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt }),
   )
   const oversized: MobileControlSnapshot = {
     ...base,
@@ -465,7 +498,7 @@ async function assertShedDropsRecentRunsWhenTheSnapshotIsOversized(): Promise<vo
   assert.equal(
     relaySummaryByteLength(oversized) > relayResultSummaryMaxBytes,
     true,
-    'fixture must actually exceed the budget, or the ladder is never exercised'
+    'fixture must actually exceed the budget, or the ladder is never exercised',
   )
 
   const result = await dispatchSnapshotRequest({
@@ -478,16 +511,22 @@ async function assertShedDropsRecentRunsWhenTheSnapshotIsOversized(): Promise<vo
 
   // Every automation is still on the wire — only its run history went.
   assert.equal(shed.automations?.length, oversized.automations?.length)
-  assert.equal(shed.automations?.some((automation) => automation.recentRuns !== undefined), false)
+  assert.equal(
+    shed.automations?.some((automation) => automation.recentRuns !== undefined),
+    false,
+  )
   // Shedding is omission, not an empty array: the wire field is optional and the
   // validator would reject a nulled one.
-  assert.equal(shed.automations?.every((automation) => !('recentRuns' in automation)), true)
+  assert.equal(
+    shed.automations?.every((automation) => !('recentRuns' in automation)),
+    true,
+  )
   assert.equal(shed.automations?.[0]?.name, oversized.automations?.[0]?.name)
 
   assert.equal(
     relaySummaryByteLength(summarizeCommandResult(result)) <= relayResultSummaryMaxBytes,
     true,
-    'dropping recentRuns must be enough to bring four capped projects back inside the budget'
+    'dropping recentRuns must be enough to bring four capped projects back inside the budget',
   )
   assert.equal(validateMobileControlSnapshot(shed).ok, true)
   service.shutdown()
@@ -621,7 +660,12 @@ async function assertScopedRequestSkipsSheddingLadder(): Promise<void> {
   assert.equal(relaySummaryByteLength(oversized) > relayResultSummaryMaxBytes, true, 'fixture must exceed the budget')
 
   const result = await dispatchSnapshotRequest({
-    command: { type: 'snapshot.request', commandId: 'c-scoped', deviceId: 'd1', payload: { workspacePath: deriveWorkspaceId(workspaceRoot) } } as never,
+    command: {
+      type: 'snapshot.request',
+      commandId: 'c-scoped',
+      deviceId: 'd1',
+      payload: { workspacePath: deriveWorkspaceId(workspaceRoot) },
+    } as never,
     snapshotService: { readSnapshot: async () => oversized } as never,
     desktopSessionId: 'desktop_1',
     workspaceRootsProvider: async () => [workspaceRoot],
@@ -630,7 +674,10 @@ async function assertScopedRequestSkipsSheddingLadder(): Promise<void> {
   const returned = (result.ok ? result.data : null) as MobileControlSnapshot
   // No shedding: every automation keeps its run history despite the over-budget size.
   assert.equal(returned.automations?.length, oversized.automations?.length)
-  assert.equal(returned.automations?.every((automation) => automation.recentRuns !== undefined), true)
+  assert.equal(
+    returned.automations?.every((automation) => automation.recentRuns !== undefined),
+    true,
+  )
 }
 
 // Item 1600 part 2: a `workspacePath`-scoped request (the phone sends the relay-safe
@@ -642,7 +689,12 @@ async function assertWorkspacePathScopingReturnsOnlyThatRoot(): Promise<void> {
 
   const service = new MobileControlSnapshotService()
   const result = await dispatchSnapshotRequest({
-    command: { type: 'snapshot.request', commandId: 'c-ws', deviceId: 'd1', payload: { workspacePath: deriveWorkspaceId(rootA) } } as never,
+    command: {
+      type: 'snapshot.request',
+      commandId: 'c-ws',
+      deviceId: 'd1',
+      payload: { workspacePath: deriveWorkspaceId(rootA) },
+    } as never,
     snapshotService: service,
     desktopSessionId: 'desktop_1',
     workspaceRootsProvider: async () => [rootA, rootB],
@@ -663,7 +715,10 @@ async function assertIncludeScopingOmitsUnrequestedCollections(): Promise<void> 
     id: 'nightly',
     name: 'Nightly sweep',
     status: 'enabled',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 90 }, timezone: 'UTC' },
+    },
     action: { kind: 'agent-run', config: { prompt: 'sweep' } },
     nextRunAt: null,
     lastRunAt: generatedAt,
@@ -674,13 +729,19 @@ async function assertIncludeScopingOmitsUnrequestedCollections(): Promise<void> 
   const service = new MobileControlSnapshotService()
 
   const onlyBacklog = await service.readSnapshot({
-    desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt, include: ['backlog'],
+    desktopSessionId: 'desktop_1',
+    workspaceRoots: [workspaceRoot],
+    generatedAt,
+    include: ['backlog'],
   })
   assert.equal(onlyBacklog.backlog?.length, 1)
   assert.equal(onlyBacklog.automations, undefined)
 
   const onlyAutomations = await service.readSnapshot({
-    desktopSessionId: 'desktop_1', workspaceRoots: [workspaceRoot], generatedAt, include: ['automations'],
+    desktopSessionId: 'desktop_1',
+    workspaceRoots: [workspaceRoot],
+    generatedAt,
+    include: ['automations'],
   })
   assert.equal(onlyAutomations.automations?.length, 1)
   assert.equal(onlyAutomations.backlog, undefined)
@@ -720,7 +781,11 @@ async function makeWorkspaceRoot(label: string): Promise<string> {
 
 async function writeBacklogFixture(workspaceRoot: string, itemId: string, title: string): Promise<void> {
   await mkdir(join(workspaceRoot, 'backlog'), { recursive: true })
-  await writeFile(join(workspaceRoot, 'backlog', `${itemId}.md`), `---\ntype: feature\n---\n\n# ${title}\n\nBody.\n`, 'utf8')
+  await writeFile(
+    join(workspaceRoot, 'backlog', `${itemId}.md`),
+    `---\ntype: feature\n---\n\n# ${title}\n\nBody.\n`,
+    'utf8',
+  )
   await mkdir(join(workspaceRoot, '.sprintengine', 'backlog'), { recursive: true })
   await writeFile(
     join(workspaceRoot, '.sprintengine', 'backlog', 'items.json'),
@@ -739,6 +804,6 @@ async function writeBacklogFixture(workspaceRoot: string, itemId: string, title:
         },
       ],
     }),
-    'utf8'
+    'utf8',
   )
 }

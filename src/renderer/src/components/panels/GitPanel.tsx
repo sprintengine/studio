@@ -8,17 +8,40 @@ import { openFileSurface } from '../../utils/openFileSurface'
 import { openGitDiff } from '../../utils/openGitDiff'
 import { openDiffWindow } from '../auxWindows/openDiffWindow'
 import { basename, samePath, trimPath } from '../../utils/paths'
-import {
-  fileExplorerSelectionFromVerticalRange,
-  fileExplorerSelectionRange,
-} from '../../utils/fileExplorerSelection'
+import { fileExplorerSelectionFromVerticalRange, fileExplorerSelectionRange } from '../../utils/fileExplorerSelection'
 import { findHealthyWorktreeScope, resolveWorkspaceWorktree, workspaceProjectRoot } from '../../utils/workspaceWorktree'
 import WorktreeManager from '../worktree/WorktreeManager'
 import PlainTerminalPanel from './PlainTerminalPanel'
-import { EmptyState, FOCUS_RING_CLASS, FileTypeGlyph, GhostButton, IconButton, InboxRow, InlineNotice, PrimaryButton, RefreshIcon, Select, Skeleton, StashGlyph, TabPanel, Tabs, TabsScroller, Textarea, Tooltip, TruncatedText, type LifecycleState, type TabItem } from '../ui'
+import {
+  EmptyState,
+  FOCUS_RING_CLASS,
+  FileTypeGlyph,
+  GhostButton,
+  IconButton,
+  InboxRow,
+  InlineNotice,
+  PrimaryButton,
+  RefreshIcon,
+  Select,
+  Skeleton,
+  StashGlyph,
+  TabPanel,
+  Tabs,
+  TabsScroller,
+  Textarea,
+  Tooltip,
+  TruncatedText,
+  type LifecycleState,
+  type TabItem,
+} from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 import { MODAL_SURFACE_SELECTOR } from '../ui/Modal'
-import { buildChangeGroupMenu, buildChangeRowMenu, type ChangelistActions, type CopyPathKind } from './git/changeRowMenu'
+import {
+  buildChangeGroupMenu,
+  buildChangeRowMenu,
+  type ChangelistActions,
+  type CopyPathKind,
+} from './git/changeRowMenu'
 import { applyChangelistHunks, changelistHunkTargets } from './git/changelistHunks'
 import { ChangelistDialog, type ChangelistDialogValue } from './git/ChangelistDialog'
 import { GitChangesList } from './git/GitChangesList'
@@ -96,7 +119,11 @@ function SyncArrowIcon({ direction }: { direction: 'up' | 'down' }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
       <path
-        d={direction === 'down' ? 'M8 3.25v9.5m0 0 3.25-3.25M8 12.75 4.75 9.5' : 'M8 12.75v-9.5m0 0 3.25 3.25M8 3.25 4.75 6.5'}
+        d={
+          direction === 'down'
+            ? 'M8 3.25v9.5m0 0 3.25-3.25M8 12.75 4.75 9.5'
+            : 'M8 12.75v-9.5m0 0 3.25 3.25M8 3.25 4.75 6.5'
+        }
         stroke="currentColor"
         strokeWidth="1.4"
         strokeLinecap="round"
@@ -148,8 +175,20 @@ function LogViewGlyph({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" aria-hidden="true" className={className} fill="none">
       <path d="M2.75 8a5.25 5.25 0 1 0 1.55-3.72" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-      <path d="M2.6 2.5v2.95h2.95" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M8 5.1V8.2l2.2 1.35" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M2.6 2.5v2.95h2.95"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M8 5.1V8.2l2.2 1.35"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -189,7 +228,12 @@ function scopeId(kind: GitScopeKind, pathValue: string): string {
 }
 
 function terminalIdPart(value: string): string {
-  return value.replace(/[^A-Za-z0-9_-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'repo'
+  return (
+    value
+      .replace(/[^A-Za-z0-9_-]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'repo'
+  )
 }
 
 function formatScopeOptionLabel(scope: GitScopeOption): string {
@@ -203,15 +247,18 @@ function isSafeGitRefForShell(ref: string): boolean {
   return /^[A-Za-z0-9._/@{}~^:-]+$/.test(ref)
 }
 
-function resolveReviewDiffTarget(branches: GitBranchSnapshot | null, activeScope: GitScopeOption | null): ReviewDiffTarget {
+function resolveReviewDiffTarget(
+  branches: GitBranchSnapshot | null,
+  activeScope: GitScopeOption | null,
+): ReviewDiffTarget {
   const currentBranch = branches?.branches.find((branch) => branch.current) ?? null
   if (currentBranch?.upstream) {
     return { baseRef: currentBranch.upstream, reason: 'using the current branch upstream' }
   }
 
   const fallbackBranches = ['main', 'master', 'develop', 'trunk']
-  const fallback = branches?.branches.find((branch) =>
-    fallbackBranches.includes(branch.name) && branch.name !== branches.current
+  const fallback = branches?.branches.find(
+    (branch) => fallbackBranches.includes(branch.name) && branch.name !== branches.current,
   )
   if (fallback) {
     return { baseRef: fallback.name, reason: 'using the nearest standard local base branch' }
@@ -301,9 +348,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     [workspaceId],
   )
   const [scopeOptions, setScopeOptions] = useState<GitScopeOption[]>([])
-  const [activeScopeId, setActiveScopeId] = useState(() =>
-    initialGitPanelState?.activeScopeId
-    ?? (worktreeGitRoot ? scopeId('worktree', worktreeGitRoot) : 'main')
+  const [activeScopeId, setActiveScopeId] = useState(
+    () => initialGitPanelState?.activeScopeId ?? (worktreeGitRoot ? scopeId('worktree', worktreeGitRoot) : 'main'),
   )
   const activeScope = useMemo(() => {
     const byId = scopeOptions.find((scope) => scope.id === activeScopeId)
@@ -327,9 +373,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const [loadingMoreGraph, setLoadingMoreGraph] = useState(false)
   const [message, setMessage] = useState<GitPanelMessage | null>(null)
   const [commitMessage, setCommitMessage] = useState(() =>
-    initialGitPanelState
-      ? initialGitPanelState.commitDraftsByScopeId[initialGitPanelState.activeScopeId] ?? ''
-      : '',
+    initialGitPanelState ? (initialGitPanelState.commitDraftsByScopeId[initialGitPanelState.activeScopeId] ?? '') : '',
   )
   const [busy, setBusy] = useState<string | null>(null)
   const [activeView, setActiveView] = useState<GitPanelView>(() => initialGitPanelState?.activeView ?? 'changes')
@@ -389,7 +433,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
               prunable: worktree.prunable,
             }
             return { ...scope, label: formatScopeOptionLabel(scope) }
-          })
+          }),
       )
 
       const scopes = [mainScope, ...worktreeScopes]
@@ -427,10 +471,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       // (a worktree can be declared a tick after mount), but never override an
       // explicit user/persisted choice — main stays selectable.
       if (
-        !userSelectedScopeRef.current
-        && desiredWorktreeScope
-        && desiredWorktreeScope.id !== mainScope?.id
-        && activeScopeId === mainScope?.id
+        !userSelectedScopeRef.current &&
+        desiredWorktreeScope &&
+        desiredWorktreeScope.id !== mainScope?.id &&
+        activeScopeId === mainScope?.id
       ) {
         setActiveScopeId(desiredWorktreeScope.id)
       }
@@ -455,9 +499,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // state undefined; a no-op mount write would defeat that).
   useEffect(() => {
     const isDefault = activeView === 'changes' && activeScopeId === 'main'
-    const hasRecord = Boolean(
-      useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.gitPanelState,
-    )
+    const hasRecord = Boolean(useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.gitPanelState)
     if (isDefault && !hasRecord) return
     setGitPanelState(workspaceId, { activeView, activeScopeId })
   }, [activeView, activeScopeId, workspaceId, setGitPanelState])
@@ -492,8 +534,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
     setGitCommitDraft(workspaceId, draftScopeRef.current, commitMessageRef.current)
     const incoming =
-      useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.gitPanelState
-        ?.commitDraftsByScopeId[activeScopeId] ?? ''
+      useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.gitPanelState?.commitDraftsByScopeId[
+        activeScopeId
+      ] ?? ''
     setCommitMessage(incoming)
     draftScopeRef.current = activeScopeId
   }, [activeScopeId, workspaceId, setGitCommitDraft])
@@ -533,31 +576,34 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
   }, [repoRoot])
 
-  const refreshGraph = useCallback(async (showLoading = true) => {
-    if (!repoRoot || typeof window.api.getGitCommitGraph !== 'function') {
-      setGraph({
-        status: 'error',
-        message: 'Restart the app to enable the commit graph.',
-      })
-      return
-    }
+  const refreshGraph = useCallback(
+    async (showLoading = true) => {
+      if (!repoRoot || typeof window.api.getGitCommitGraph !== 'function') {
+        setGraph({
+          status: 'error',
+          message: 'Restart the app to enable the commit graph.',
+        })
+        return
+      }
 
-    if (showLoading) setGraph({ status: 'loading' })
-    try {
-      const snapshot = await window.api.getGitCommitGraph(repoRoot, { limit: graphLimitRef.current })
-      const nextGraph: GitGraphState = { status: 'ready', snapshot }
-      setGraph(nextGraph)
-      gitGraphCache.set(gitRepoCacheKey(repoRoot), { state: nextGraph, limit: graphLimitRef.current })
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error)
-      setGraph({
-        status: 'error',
-        message: message.includes("No handler registered for 'git:get-commit-graph'")
-          ? 'Restart the app to enable the commit graph.'
-          : 'Unable to load the commit graph.',
-      })
-    }
-  }, [repoRoot])
+      if (showLoading) setGraph({ status: 'loading' })
+      try {
+        const snapshot = await window.api.getGitCommitGraph(repoRoot, { limit: graphLimitRef.current })
+        const nextGraph: GitGraphState = { status: 'ready', snapshot }
+        setGraph(nextGraph)
+        gitGraphCache.set(gitRepoCacheKey(repoRoot), { state: nextGraph, limit: graphLimitRef.current })
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error)
+        setGraph({
+          status: 'error',
+          message: message.includes("No handler registered for 'git:get-commit-graph'")
+            ? 'Restart the app to enable the commit graph.'
+            : 'Unable to load the commit graph.',
+        })
+      }
+    },
+    [repoRoot],
+  )
 
   const handleLoadMoreGraph = useCallback(async () => {
     graphLimitRef.current += GIT_GRAPH_PAGE_SIZE
@@ -569,27 +615,37 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     }
   }, [refreshGraph])
 
-  const refreshAll = useCallback(async (showHistoryLoading = true) => {
-    if (refreshAllInFlightRef.current) {
-      refreshAllQueuedHistoryLoadingRef.current = Boolean(refreshAllQueuedHistoryLoadingRef.current) || showHistoryLoading
-      return
-    }
-
-    refreshAllInFlightRef.current = true
-    try {
-      let shouldShowHistoryLoading = showHistoryLoading
-      while (true) {
-        refreshAllQueuedHistoryLoadingRef.current = null
-        await Promise.all([refresh(), refreshBranches(), refreshStashes(), refreshGraph(shouldShowHistoryLoading), refreshWorktreeScopes()])
-
-        const queuedShowHistoryLoading = refreshAllQueuedHistoryLoadingRef.current
-        if (queuedShowHistoryLoading === null) break
-        shouldShowHistoryLoading = queuedShowHistoryLoading
+  const refreshAll = useCallback(
+    async (showHistoryLoading = true) => {
+      if (refreshAllInFlightRef.current) {
+        refreshAllQueuedHistoryLoadingRef.current =
+          Boolean(refreshAllQueuedHistoryLoadingRef.current) || showHistoryLoading
+        return
       }
-    } finally {
-      refreshAllInFlightRef.current = false
-    }
-  }, [refresh, refreshBranches, refreshStashes, refreshGraph, refreshWorktreeScopes])
+
+      refreshAllInFlightRef.current = true
+      try {
+        let shouldShowHistoryLoading = showHistoryLoading
+        while (true) {
+          refreshAllQueuedHistoryLoadingRef.current = null
+          await Promise.all([
+            refresh(),
+            refreshBranches(),
+            refreshStashes(),
+            refreshGraph(shouldShowHistoryLoading),
+            refreshWorktreeScopes(),
+          ])
+
+          const queuedShowHistoryLoading = refreshAllQueuedHistoryLoadingRef.current
+          if (queuedShowHistoryLoading === null) break
+          shouldShowHistoryLoading = queuedShowHistoryLoading
+        }
+      } finally {
+        refreshAllInFlightRef.current = false
+      }
+    },
+    [refresh, refreshBranches, refreshStashes, refreshGraph, refreshWorktreeScopes],
+  )
 
   useEffect(() => {
     // Reset graph pagination whenever the scope/repo changes.
@@ -625,7 +681,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const statusEntries = useMemo(() => Object.values(status?.files ?? {}), [status])
   const conflictEntries = useMemo(
     () => sortedEntries(statusEntries.filter((entry) => entry.status === 'conflicted')),
-    [statusEntries]
+    [statusEntries],
   )
   const allEntries = useMemo(() => sortedEntries(statusEntries), [statusEntries])
   // The changelists: the app's own division of this repository's changes, read
@@ -645,18 +701,15 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // the untracked files at the bottom — and nothing below this line knows which.
   const changeGroups = useMemo(
     () => buildGitChangeGroups(statusEntries, { changelists, grouping }),
-    [statusEntries, changelists, grouping]
+    [statusEntries, changelists, grouping],
   )
-  const checklistGroups = useMemo(
-    () => changeGroups.filter((group) => group.checked !== null),
-    [changeGroups]
-  )
+  const checklistGroups = useMemo(() => changeGroups.filter((group) => group.checked !== null), [changeGroups])
   // The files git has never heard of, by repo-relative path. "Add to git" is
   // offered on exactly these and on nothing else — a staged addition is already
   // added, and offering it there would be a control that cannot act.
   const untrackedPaths = useMemo(
     () => new Set(statusEntries.filter(isUntrackedEntry).map((entry) => entry.relativePath)),
-    [statusEntries]
+    [statusEntries],
   )
   // "Move to another changelist" is a no-op for a file drawn in the UNTRACKED
   // group — it is filed in a list already and rendered in that group whatever
@@ -666,12 +719,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // off the groups the panel actually built.
   const untrackedGroupPaths = useMemo(
     () =>
-      new Set(
-        (changeGroups.find((group) => group.kind === 'untracked')?.allRows ?? []).map(
-          (row) => row.relativePath,
-        ),
-      ),
-    [changeGroups]
+      new Set((changeGroups.find((group) => group.kind === 'untracked')?.allRows ?? []).map((row) => row.relativePath)),
+    [changeGroups],
   )
   // The commit message box, so "Commit files…" can hand it the caret after it
   // stages what was named.
@@ -699,15 +748,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const ahead = branches?.ahead ?? 0
   const behind = branches?.behind ?? 0
   const syncSummary = branchSyncSummary(branches, hasUpstream)
-  const reviewDiffTarget = useMemo(
-    () => resolveReviewDiffTarget(branches, activeScope),
-    [activeScope, branches]
-  )
+  const reviewDiffTarget = useMemo(() => resolveReviewDiffTarget(branches, activeScope), [activeScope, branches])
 
   const runAction = async (
     label: string,
     action: () => Promise<GitCommandResult>,
-    success: string
+    success: string,
   ): Promise<GitCommandResult | null> => {
     if (busy) return null
     setBusy(label)
@@ -731,13 +777,13 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     runAction(
       'Staging files',
       () => window.api.stageGitPaths(repoRoot!, paths),
-      paths.length > 1 ? `Staged ${paths.length} files.` : 'Staged file.'
+      paths.length > 1 ? `Staged ${paths.length} files.` : 'Staged file.',
     )
   const unstagePaths = (paths: string[]) =>
     runAction(
       'Unstaging files',
       () => window.api.unstageGitPaths(repoRoot!, paths),
-      paths.length > 1 ? `Unstaged ${paths.length} files.` : 'Unstaged file.'
+      paths.length > 1 ? `Unstaged ${paths.length} files.` : 'Unstaged file.',
     )
   /**
    * Stage or unstage a set of ROWS, which since agent changelists is two calls
@@ -763,9 +809,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       label,
       async () => {
         if (paths.length > 0) {
-          const staged = intent === 'stage'
-            ? await window.api.stageGitPaths(repoRoot!, paths)
-            : await window.api.unstageGitPaths(repoRoot!, paths)
+          const staged =
+            intent === 'stage'
+              ? await window.api.stageGitPaths(repoRoot!, paths)
+              : await window.api.unstageGitPaths(repoRoot!, paths)
           // The whole files first, and a failure there stops the hunks: the
           // person asked for one thing, and half of it having worked is a
           // message, not a success.
@@ -793,19 +840,18 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     return result
   }
 
-  const filesAndHunks = (verb: string) => (moved: { files: number; hunks: number }): string => {
-    const parts: string[] = []
-    if (moved.files > 0) parts.push(moved.files === 1 ? '1 file' : `${moved.files} files`)
-    if (moved.hunks > 0) parts.push(moved.hunks === 1 ? '1 hunk' : `${moved.hunks} hunks`)
-    return `${verb} ${parts.length > 0 ? parts.join(' and ') : 'nothing'}.`
-  }
+  const filesAndHunks =
+    (verb: string) =>
+    (moved: { files: number; hunks: number }): string => {
+      const parts: string[] = []
+      if (moved.files > 0) parts.push(moved.files === 1 ? '1 file' : `${moved.files} files`)
+      if (moved.hunks > 0) parts.push(moved.hunks === 1 ? '1 hunk' : `${moved.hunks} hunks`)
+      return `${verb} ${parts.length > 0 ? parts.join(' and ') : 'nothing'}.`
+    }
 
   // Discard. Takes rows rather than status entries because the checklist is what
   // asks for it now, and a row already carries both spellings of the path.
-  const revertEntries = async (
-    entries: Array<{ path: string; relativePath: string }>,
-    skippedPartial = 0,
-  ) => {
+  const revertEntries = async (entries: Array<{ path: string; relativePath: string }>, skippedPartial = 0) => {
     const seen = new Set<string>()
     const unique = entries.filter((entry) => {
       if (seen.has(entry.path)) return false
@@ -818,19 +864,17 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       title: many ? `Discard changes in ${unique.length} files?` : `Discard changes to ${unique[0].relativePath}?`,
       body: (
         <>
-          This throws away every change to{' '}
-          {many ? `these ${unique.length} files` : unique[0].relativePath} in {activeScopeLabel}. The action
-          cannot be undone from here.
+          This throws away every change to {many ? `these ${unique.length} files` : unique[0].relativePath} in{' '}
+          {activeScopeLabel}. The action cannot be undone from here.
           {/* There is no per-hunk revert in the git layer, and `git checkout --`
               takes the whole file — so a file this list only owns a piece of is
               LEFT ALONE rather than discarded on another list's behalf, and the
               dialog says so before the person agrees to anything. */}
           {skippedPartial > 0 ? (
             <div className="mt-2">
-              {skippedPartial === 1 ? '1 file is' : `${skippedPartial} files are`} skipped: this changelist
-              owns only part of {skippedPartial === 1 ? 'it' : 'them'}, and discarding would throw away
-              another list’s lines too. Discard {skippedPartial === 1 ? 'it' : 'them'} from the file’s own
-              row.
+              {skippedPartial === 1 ? '1 file is' : `${skippedPartial} files are`} skipped: this changelist owns only
+              part of {skippedPartial === 1 ? 'it' : 'them'}, and discarding would throw away another list’s lines too.
+              Discard {skippedPartial === 1 ? 'it' : 'them'} from the file’s own row.
             </div>
           ) : null}
           <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
@@ -843,8 +887,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
     return runAction(
       'Discarding changes',
-      () => window.api.revertGitPaths(repoRoot!, unique.map((entry) => entry.path)),
-      many ? `Discarded changes in ${unique.length} files.` : 'Discarded changes.'
+      () =>
+        window.api.revertGitPaths(
+          repoRoot!,
+          unique.map((entry) => entry.path),
+        ),
+      many ? `Discarded changes in ${unique.length} files.` : 'Discarded changes.',
     )
   }
 
@@ -859,13 +907,13 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   const focusedGroupIdRef = useRef<string | null>(null)
   const expandedGroupIds = useMemo(
     () => new Set(checklistGroups.filter((group) => !collapsedGroupIds.has(group.id)).map((group) => group.id)),
-    [checklistGroups, collapsedGroupIds]
+    [checklistGroups, collapsedGroupIds],
   )
   // Every row on screen, in visual order: the keyboard walk, the marquee's
   // geometry and the shift range are all this one list.
   const visibleRows = useMemo(
     () => visibleChangeRows(checklistGroups, (id) => expandedGroupIds.has(id)),
-    [checklistGroups, expandedGroupIds]
+    [checklistGroups, expandedGroupIds],
   )
   const visibleRowsRef = useRef(visibleRows)
   const changeRowNodesRef = useRef<Record<string, HTMLElement | null>>({})
@@ -939,8 +987,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     // the marquee's — a band click that cleared the selection would make the
     // group checkbox unusable with a selection in hand.
     if (
-      event.target instanceof Element
-      && event.target.closest('[data-git-change-row="true"], [data-git-group-header="true"]')
+      event.target instanceof Element &&
+      event.target.closest('[data-git-change-row="true"], [data-git-group-header="true"]')
     ) {
       return
     }
@@ -965,7 +1013,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       const keys = fileExplorerSelectionRange(
         visibleRowsRef.current.map((visible) => visible.key),
         anchor,
-        row.key
+        row.key,
       )
       if (keys.length) setSelectedRowKeys(new Set(keys))
       setCursorRowKey(row.key)
@@ -994,7 +1042,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       const keys = fileExplorerSelectionRange(
         visibleRowsRef.current.map((visible) => visible.key),
         anchor,
-        rowKey
+        rowKey,
       )
       setSelectedRowKeys(new Set(keys.length ? keys : [rowKey]))
     } else {
@@ -1063,9 +1111,9 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // The row the toolbar's single-file actions mean: the cursor, or the first
   // row of the selection when the cursor is off the list.
   const toolbarTargetRow =
-    (cursorRowKey ? visibleRows.find((row) => row.key === cursorRowKey) : undefined)
-    ?? visibleRows.find((row) => selectedRowKeys.has(row.key))
-    ?? null
+    (cursorRowKey ? visibleRows.find((row) => row.key === cursorRowKey) : undefined) ??
+    visibleRows.find((row) => selectedRowKeys.has(row.key)) ??
+    null
 
   // Every file the band's actions would touch is untracked. Only "move to
   // another changelist" cares: an untracked file renders in the untracked group
@@ -1115,11 +1163,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       // different list from the one the row is standing in.
       if (row.changelistId) return row.changelistId
       const relative = normalizeChangelistPath(row.relativePath)
-      return changelists.find((list) => list.paths.includes(relative))?.id
-        ?? activeChangelist?.id
-        ?? DEFAULT_CHANGELIST_ID
+      return (
+        changelists.find((list) => list.paths.includes(relative))?.id ?? activeChangelist?.id ?? DEFAULT_CHANGELIST_ID
+      )
     },
-    [changelists, activeChangelist]
+    [changelists, activeChangelist],
   )
 
   // The list an action on a SET of rows means: the one they share, or the
@@ -1139,8 +1187,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     paths: string[]
   } | null>(null)
 
-  const changelistName = (id: string): string =>
-    changelists.find((list) => list.id === id)?.name ?? 'this changelist'
+  const changelistName = (id: string): string => changelists.find((list) => list.id === id)?.name ?? 'this changelist'
 
   /**
    * Say what happened, and only if it happened. `runChangelistCall` swallows the
@@ -1164,7 +1211,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const handleMoveToChangelist = async (changelistId: string, rows: GitChangeRow[]): Promise<void> => {
     if (!repoRoot || rows.length === 0) return
-    const result = await moveChangelistPathsFor(repoRoot, changelistId, rows.map((row) => row.path))
+    const result = await moveChangelistPathsFor(
+      repoRoot,
+      changelistId,
+      rows.map((row) => row.path),
+    )
     const files = rows.length === 1 ? '1 file' : `${rows.length} files`
     await reportChangelistResult(
       result,
@@ -1234,8 +1285,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       body: (
         <>
           The list goes; the {shownCount === 1 ? 'file' : `${shownCount} files`} in it{' '}
-          {shownCount === 1 ? 'returns' : 'return'} to Changes. Nothing on disk is touched and nothing
-          is unstaged.
+          {shownCount === 1 ? 'returns' : 'return'} to Changes. Nothing on disk is touched and nothing is unstaged.
         </>
       ),
       confirmLabel: 'Delete changelist',
@@ -1262,10 +1312,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
   // composer. It does NOT commit: the message is still unwritten, and a menu
   // item that committed on the strength of a right-click would be the one
   // irreversible thing in this menu.
-  const handleCommitFiles = async (
-    rows: GitChangeRow[],
-    label = 'Staging files',
-  ): Promise<void> => {
+  const handleCommitFiles = async (rows: GitChangeRow[], label = 'Staging files'): Promise<void> => {
     if (rows.length === 0) return
     // A guest row is staged a hunk at a time and a whole file with `git add`;
     // `stageRows` is the one place that knows which is which. A fully staged
@@ -1338,8 +1385,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       title: many ? `Delete ${rows.length} files?` : `Delete ${rows[0].relativePath}?`,
       body: (
         <>
-          This removes {many ? `these ${rows.length} files` : 'the file'} from disk in {activeScopeLabel}. It is
-          not a git operation and it cannot be undone from here.
+          This removes {many ? `these ${rows.length} files` : 'the file'} from disk in {activeScopeLabel}. It is not a
+          git operation and it cannot be undone from here.
           <div className="mt-2 font-mono text-meta text-[color:var(--text-muted)]">Scope path: {activeScopePath}</div>
         </>
       ),
@@ -1362,7 +1409,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           ? { ok: false, stdout: '', stderr: failures.join('\n'), message: failures[0] }
           : { ok: true, stdout: '', stderr: '', message: null }
       },
-      many ? `Deleted ${rows.length} files.` : 'Deleted file.'
+      many ? `Deleted ${rows.length} files.` : 'Deleted file.',
     )
     setSelectedRowKeys(new Set())
   }
@@ -1377,7 +1424,11 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     // the side the rows are actually on is what keeps "create patch" from
     // handing back an empty file for a fully staged selection.
     const cached = rows.every((row) => row.checked === true)
-    const result = await window.api.createGitPatch(repoRoot, rows.map((row) => row.path), cached)
+    const result = await window.api.createGitPatch(
+      repoRoot,
+      rows.map((row) => row.path),
+      cached,
+    )
     if (!result.ok) {
       setMessage({ tone: 'error', text: result.message ?? 'Could not build the patch.' })
       return null
@@ -1394,7 +1445,10 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     if (patch === null) return
     try {
       await window.api.clipboardWriteText(patch)
-      setMessage({ tone: 'success', text: `Copied a patch of ${rows.length === 1 ? '1 file' : `${rows.length} files`}.` })
+      setMessage({
+        tone: 'success',
+        text: `Copied a patch of ${rows.length === 1 ? '1 file' : `${rows.length} files`}.`,
+      })
     } catch (error) {
       setMessage({ tone: 'error', text: error instanceof Error ? error.message : 'Could not copy to the clipboard.' })
     }
@@ -1433,7 +1487,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     const result = await runAction(
       'Committing',
       () => window.api.commitGitChanges(repoRoot, commitMessage),
-      'Committed changes.'
+      'Committed changes.',
     )
     if (!result?.ok) return false
     if (commitDraftTimerRef.current) {
@@ -1474,7 +1528,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Pulling',
       () => window.api.pullGitBranchWithStash(repoRoot),
-      'Pulled branch and reapplied local changes.'
+      'Pulled branch and reapplied local changes.',
     )
   }
 
@@ -1558,8 +1612,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
 
   const handleSwitchBranch = async (branchName: string) => {
     if (!repoRoot || !branchName || branchName === branches?.current) return
-    const checkedOutElsewhere = scopeOptions.find((scope) =>
-      scope.branch === branchName && !samePath(scope.path, repoRoot)
+    const checkedOutElsewhere = scopeOptions.find(
+      (scope) => scope.branch === branchName && !samePath(scope.path, repoRoot),
     )
     if (checkedOutElsewhere) {
       const confirmed = await dialog.confirm({
@@ -1575,14 +1629,17 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         tone: 'danger',
       })
       if (!confirmed) {
-        setMessage({ tone: 'neutral', text: `Branch switch cancelled. ${branchName} is checked out at ${checkedOutElsewhere.path}.` })
+        setMessage({
+          tone: 'neutral',
+          text: `Branch switch cancelled. ${branchName} is checked out at ${checkedOutElsewhere.path}.`,
+        })
         return
       }
     }
     await runAction(
       'Switching branch',
       () => window.api.switchGitBranch(repoRoot, branchName),
-      `Switched to ${branchName}.`
+      `Switched to ${branchName}.`,
     )
   }
 
@@ -1598,13 +1655,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       return
     }
 
-    const subject = target.kind === 'commit'
-      ? (
+    const subject =
+      target.kind === 'commit' ? (
         <>
           commit <span className="font-mono">{target.commit.shortHash}</span>
         </>
-      )
-      : (
+      ) : (
         <>
           <span className="font-mono">{target.label}</span>
         </>
@@ -1627,7 +1683,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       () => window.api.mergeGitRef(repoRoot, target.ref),
       target.kind === 'commit'
         ? `Merged ${target.commit.shortHash} into ${currentBranch}.`
-        : `Merged ${target.label} into ${currentBranch}.`
+        : `Merged ${target.label} into ${currentBranch}.`,
     )
   }
 
@@ -1665,7 +1721,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Rebasing',
       () => window.api.rebaseGitBranch(repoRoot, target.ref),
-      `Rebased ${currentBranch} onto ${subjectLabel}.`
+      `Rebased ${currentBranch} onto ${subjectLabel}.`,
     )
   }
 
@@ -1692,7 +1748,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Cherry-picking',
       () => window.api.cherryPickGitCommit(repoRoot, commit.hash),
-      `Cherry-picked ${commit.shortHash} into ${currentBranch}.`
+      `Cherry-picked ${commit.shortHash} into ${currentBranch}.`,
     )
   }
 
@@ -1700,11 +1756,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     if (!repoRoot || !requireApi(window.api.revertGitCommit, 'Git revert')) return
     const confirmed = await dialog.confirm({
       title: `Revert ${commit.shortHash}?`,
-      body: (
-        <>
-          This creates a new commit that undoes “{commit.subject}”. History is kept; nothing is rewritten.
-        </>
-      ),
+      body: <>This creates a new commit that undoes “{commit.subject}”. History is kept; nothing is rewritten.</>,
       confirmLabel: 'Revert commit',
     })
     if (!confirmed) return
@@ -1712,7 +1764,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Reverting commit',
       () => window.api.revertGitCommit(repoRoot, commit.hash),
-      `Reverted ${commit.shortHash}.`
+      `Reverted ${commit.shortHash}.`,
     )
   }
 
@@ -1747,7 +1799,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Resetting branch',
       () => window.api.resetGitBranchToCommit(repoRoot, commit.hash, mode),
-      `Reset ${currentBranch} to ${commit.shortHash} (${mode}).`
+      `Reset ${currentBranch} to ${commit.shortHash} (${mode}).`,
     )
   }
 
@@ -1757,8 +1809,8 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       title: `Delete branch ${branchName}?`,
       body: (
         <>
-          This deletes the local branch <span className="font-mono">{branchName}</span>. Its commits stay reachable
-          from other refs; a branch with unmerged commits is refused unless you force-delete it.
+          This deletes the local branch <span className="font-mono">{branchName}</span>. Its commits stay reachable from
+          other refs; a branch with unmerged commits is refused unless you force-delete it.
         </>
       ),
       confirmLabel: 'Delete branch',
@@ -1769,7 +1821,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     const result = await runAction(
       'Deleting branch',
       () => window.api.deleteGitBranch(repoRoot, branchName),
-      `Deleted ${branchName}.`
+      `Deleted ${branchName}.`,
     )
     if (!result || result.ok) return
 
@@ -1794,7 +1846,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Force-deleting branch',
       () => window.api.deleteGitBranch(repoRoot, branchName, true),
-      `Deleted ${branchName}.`
+      `Deleted ${branchName}.`,
     )
   }
 
@@ -1812,7 +1864,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Renaming branch',
       () => window.api.renameGitBranch(repoRoot, branchName, newName),
-      `Renamed ${branchName} to ${newName.trim()}.`
+      `Renamed ${branchName} to ${newName.trim()}.`,
     )
   }
 
@@ -1823,7 +1875,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Continuing',
       () => window.api.continueGitOperation(repoRoot, operationInProgress),
-      `Continued the ${operationInProgress.replace('-', ' ')}.`
+      `Continued the ${operationInProgress.replace('-', ' ')}.`,
     )
   }
 
@@ -1840,7 +1892,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Aborting',
       () => window.api.abortGitOperation(repoRoot, operationInProgress),
-      `Aborted the ${label}.`
+      `Aborted the ${label}.`,
     )
   }
 
@@ -1855,11 +1907,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     })
     if (stashMessage === null) return
 
-    await runAction(
-      'Stashing changes',
-      () => window.api.pushGitStash(repoRoot, stashMessage, true),
-      'Stashed changes.'
-    )
+    await runAction('Stashing changes', () => window.api.pushGitStash(repoRoot, stashMessage, true), 'Stashed changes.')
   }
 
   const handleStashApply = async (entry: GitStashEntry, pop: boolean) => {
@@ -1867,7 +1915,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       pop ? 'Popping stash' : 'Applying stash',
       () => window.api.applyGitStash(repoRoot, entry.index, entry.hash, pop),
-      pop ? `Popped ${entry.ref}.` : `Applied ${entry.ref}.`
+      pop ? `Popped ${entry.ref}.` : `Applied ${entry.ref}.`,
     )
   }
 
@@ -1875,11 +1923,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     if (!repoRoot || !requireApi(window.api.dropGitStash, 'Git stash drop')) return
     const confirmed = await dialog.confirm({
       title: `Drop ${entry.ref}?`,
-      body: (
-        <>
-          This deletes the stash entry “{entry.message}”. The action cannot be undone from here.
-        </>
-      ),
+      body: <>This deletes the stash entry “{entry.message}”. The action cannot be undone from here.</>,
       confirmLabel: 'Drop stash',
       tone: 'danger',
     })
@@ -1887,7 +1931,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Dropping stash',
       () => window.api.dropGitStash(repoRoot, entry.index, entry.hash),
-      `Dropped ${entry.ref}.`
+      `Dropped ${entry.ref}.`,
     )
   }
 
@@ -1907,7 +1951,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Checking out commit',
       () => window.api.checkoutGitCommit(repoRoot, commit.hash),
-      `Checked out ${commit.shortHash} (detached HEAD).`
+      `Checked out ${commit.shortHash} (detached HEAD).`,
     )
   }
 
@@ -1925,7 +1969,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Creating branch',
       () => window.api.checkoutGitCommitAsBranch(repoRoot, name, commit.hash),
-      `Created and switched to ${name.trim()}.`
+      `Created and switched to ${name.trim()}.`,
     )
   }
 
@@ -1943,7 +1987,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
     await runAction(
       'Creating tag',
       () => window.api.createGitTagFromCommit(repoRoot, name, commit.hash),
-      `Tagged ${commit.shortHash} as ${name.trim()}.`
+      `Tagged ${commit.shortHash} as ${name.trim()}.`,
     )
   }
 
@@ -2007,7 +2051,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         kind: 'terminal',
         workspaceId,
         terminalId,
-      }
+      },
     )
 
     if (!result.ok) {
@@ -2175,9 +2219,7 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       label: 'Log',
       icon: LogViewGlyph,
       tooltip:
-        totalCommitCount === 1
-          ? 'Log \u00b7 1 commit'
-          : `Log \u00b7 ${totalCommitCount.toLocaleString()} commits`,
+        totalCommitCount === 1 ? 'Log \u00b7 1 commit' : `Log \u00b7 ${totalCommitCount.toLocaleString()} commits`,
     },
     {
       id: 'stashes',
@@ -2222,55 +2264,61 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
           />
         </TabsScroller>
         <div className="flex shrink-0 items-center gap-1">
-            {behind > 0 ? (
-              <Tooltip content={`Pull ${behind} commit${behind === 1 ? '' : 's'}${upstreamLabel ? ` from ${upstreamLabel}` : ''}`} placement="bottom">
-                <GhostButton
-                  size="xs"
-                  onClick={() => void handlePull()}
-                  disabled={Boolean(busy)}
-                  className="tabular-nums"
-                  aria-label={`Pull ${behind} commit${behind === 1 ? '' : 's'}`}
-                >
-                  <SyncArrowIcon direction="down" />
-                  {behind}
-                </GhostButton>
-              </Tooltip>
-            ) : null}
-            {ahead > 0 ? (
-              <Tooltip content={`Push ${ahead} commit${ahead === 1 ? '' : 's'}${upstreamLabel ? ` to ${upstreamLabel}` : ''}`} placement="bottom">
-                <GhostButton
-                  size="xs"
-                  onClick={() => void handlePush()}
-                  disabled={Boolean(busy)}
-                  className="tabular-nums"
-                  aria-label={`Push ${ahead} commit${ahead === 1 ? '' : 's'}`}
-                >
-                  <SyncArrowIcon direction="up" />
-                  {ahead}
-                </GhostButton>
-              </Tooltip>
-            ) : null}
-            {/* The resting sync line the retired header subtitle carried
+          {behind > 0 ? (
+            <Tooltip
+              content={`Pull ${behind} commit${behind === 1 ? '' : 's'}${upstreamLabel ? ` from ${upstreamLabel}` : ''}`}
+              placement="bottom"
+            >
+              <GhostButton
+                size="xs"
+                onClick={() => void handlePull()}
+                disabled={Boolean(busy)}
+                className="tabular-nums"
+                aria-label={`Pull ${behind} commit${behind === 1 ? '' : 's'}`}
+              >
+                <SyncArrowIcon direction="down" />
+                {behind}
+              </GhostButton>
+            </Tooltip>
+          ) : null}
+          {ahead > 0 ? (
+            <Tooltip
+              content={`Push ${ahead} commit${ahead === 1 ? '' : 's'}${upstreamLabel ? ` to ${upstreamLabel}` : ''}`}
+              placement="bottom"
+            >
+              <GhostButton
+                size="xs"
+                onClick={() => void handlePush()}
+                disabled={Boolean(busy)}
+                className="tabular-nums"
+                aria-label={`Push ${ahead} commit${ahead === 1 ? '' : 's'}`}
+              >
+                <SyncArrowIcon direction="up" />
+                {ahead}
+              </GhostButton>
+            </Tooltip>
+          ) : null}
+          {/* The resting sync line the retired header subtitle carried
                 ("Up to date", "No upstream", "Checking branch") rides this
                 tooltip: it states the calm cases, which are exactly the cases
                 where the Pull/Push buttons beside it are absent, so it is
                 already next to the thing it explains. */}
-            <Tooltip
-              content={
-                syncSummary
-                  ? `Fetch remotes and refresh Git status \u00b7 ${syncSummary}`
-                  : 'Fetch remotes and refresh Git status'
-              }
-              placement="bottom"
+          <Tooltip
+            content={
+              syncSummary
+                ? `Fetch remotes and refresh Git status \u00b7 ${syncSummary}`
+                : 'Fetch remotes and refresh Git status'
+            }
+            placement="bottom"
+          >
+            <IconButton
+              aria-label="Fetch remotes and refresh Git status"
+              onClick={() => void handleFetch()}
+              disabled={Boolean(busy)}
             >
-              <IconButton
-                aria-label="Fetch remotes and refresh Git status"
-                onClick={() => void handleFetch()}
-                disabled={Boolean(busy)}
-              >
-                <RefreshIcon />
-              </IconButton>
-            </Tooltip>
+              <RefreshIcon />
+            </IconButton>
+          </Tooltip>
         </div>
       </div>
       {/*
@@ -2288,61 +2336,61 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
         </div>
       ) : null}
       <div className="space-y-1 border-b border-[color:var(--border-subtle)] px-3 pb-2 pt-2">
-          <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2">
-            <span className="text-micro text-[color:var(--text-subtle)]">Branch</span>
+        <div className="grid grid-cols-[4rem_minmax(0,1fr)] items-center gap-2">
+          <span className="text-micro text-[color:var(--text-subtle)]">Branch</span>
+          <Select<string>
+            ariaLabel="Current branch"
+            items={
+              branchOptions.length === 0
+                ? [{ value: '', label: branches?.current ?? 'detached' }]
+                : branchOptions.map((branch) => ({ value: branch.name, label: branch.name }))
+            }
+            value={branches?.current ?? ''}
+            onChange={(next) => void handleSwitchBranch(next)}
+            disabled={Boolean(busy) || branchOptions.length === 0}
+            className="w-full"
+            triggerMinWidthClassName="min-w-0"
+          />
+        </div>
+        {/*
+         * The worktree picker chooses which checkout the Changes / Log /
+         * Terminal tabs operate on, so it only earns space when extra worktrees
+         * exist and the user isn't already on the Worktrees tab (which manages
+         * them all). "Review changes" rides alongside it and appears only on a
+         * worktree scope, where comparing the branch against its base is the
+         * point — never as a permanently greyed-out button.
+         */}
+        {worktreeCount > 0 && activeView !== 'worktrees' ? (
+          <div
+            className={`grid ${activeScope?.kind === 'worktree' ? 'grid-cols-[4rem_minmax(0,1fr)_auto]' : 'grid-cols-[4rem_minmax(0,1fr)]'} items-center gap-2`}
+          >
+            <span className="text-micro text-[color:var(--text-subtle)]">Worktree</span>
             <Select<string>
-              ariaLabel="Current branch"
-              items={
-                branchOptions.length === 0
-                  ? [{ value: '', label: branches?.current ?? 'detached' }]
-                  : branchOptions.map((branch) => ({ value: branch.name, label: branch.name }))
-              }
-              value={branches?.current ?? ''}
-              onChange={(next) => void handleSwitchBranch(next)}
-              disabled={Boolean(busy) || branchOptions.length === 0}
+              ariaLabel="Active worktree"
+              items={scopeOptions.map((scope) => ({
+                value: scope.id,
+                label: scope.label,
+                disabled: scope.missing || scope.locked || scope.prunable,
+              }))}
+              value={activeScope?.id ?? 'main'}
+              onChange={(next) => {
+                userSelectedScopeRef.current = true
+                setActiveScopeId(next)
+              }}
+              disabled={Boolean(busy)}
               className="w-full"
               triggerMinWidthClassName="min-w-0"
             />
+            {activeScope?.kind === 'worktree' ? (
+              <Tooltip content={`Review this branch's changes against ${reviewDiffTarget.baseRef}`} placement="bottom">
+                <GhostButton size="xs" onClick={() => void handleReviewDiff()} disabled={Boolean(busy) || !repoRoot}>
+                  Review changes
+                </GhostButton>
+              </Tooltip>
+            ) : null}
           </div>
-          {/*
-           * The worktree picker chooses which checkout the Changes / Log /
-           * Terminal tabs operate on, so it only earns space when extra worktrees
-           * exist and the user isn't already on the Worktrees tab (which manages
-           * them all). "Review changes" rides alongside it and appears only on a
-           * worktree scope, where comparing the branch against its base is the
-           * point — never as a permanently greyed-out button.
-           */}
-          {worktreeCount > 0 && activeView !== 'worktrees' ? (
-            <div
-              className={`grid ${activeScope?.kind === 'worktree' ? 'grid-cols-[4rem_minmax(0,1fr)_auto]' : 'grid-cols-[4rem_minmax(0,1fr)]'} items-center gap-2`}
-            >
-              <span className="text-micro text-[color:var(--text-subtle)]">Worktree</span>
-              <Select<string>
-                ariaLabel="Active worktree"
-                items={scopeOptions.map((scope) => ({
-                  value: scope.id,
-                  label: scope.label,
-                  disabled: scope.missing || scope.locked || scope.prunable,
-                }))}
-                value={activeScope?.id ?? 'main'}
-                onChange={(next) => {
-                  userSelectedScopeRef.current = true
-                  setActiveScopeId(next)
-                }}
-                disabled={Boolean(busy)}
-                className="w-full"
-                triggerMinWidthClassName="min-w-0"
-              />
-              {activeScope?.kind === 'worktree' ? (
-                <Tooltip content={`Review this branch's changes against ${reviewDiffTarget.baseRef}`} placement="bottom">
-                  <GhostButton size="xs" onClick={() => void handleReviewDiff()} disabled={Boolean(busy) || !repoRoot}>
-                    Review changes
-                  </GhostButton>
-                </Tooltip>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+        ) : null}
+      </div>
 
       {operationInProgress ? (
         <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-3 py-2">
@@ -2369,158 +2417,166 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
       {/* The strip that switches these panels is the panel's chrome row at the
           top; only the bodies live here. */}
       <div className="flex min-h-0 flex-1 flex-col">
-        <TabPanel idPrefix={gitTabsIdPrefix} tabId="changes" active={activeView === 'changes'} className="flex min-h-0 flex-1 flex-col">
-            {/* This band belongs to the list beneath it rather
+        <TabPanel
+          idPrefix={gitTabsIdPrefix}
+          tabId="changes"
+          active={activeView === 'changes'}
+          className="flex min-h-0 flex-1 flex-col"
+        >
+          {/* This band belongs to the list beneath it rather
                 than to the pane — which is why it is borderless under the view
                 strip's own hairline. */}
-            <GitChangesToolbar
-              busy={Boolean(busy)}
-              hasTarget={Boolean(toolbarTargetRow)}
-              changelists={changelists}
-              currentChangelistId={
-                toolbarTargetRow ? changelistIdForRows(changeActionRows(toolbarTargetRow)) : null
-              }
-              untrackedOnly={toolbarTargetUntrackedOnly}
-              grouping={grouping}
-              onRefresh={() => void refreshAll()}
-              onDiscard={() => void handleChangeRowsRevert(changeActionRows(toolbarTargetRow ?? undefined))}
-              onStash={() => void handleStashPush()}
-              onShowDiff={(placement) => {
-                if (toolbarTargetRow) openChangeDiff(toolbarTargetRow, placement)
-              }}
-              onMoveToChangelist={(changelistId) =>
-                void handleMoveToChangelist(changelistId, changeActionRows(toolbarTargetRow ?? undefined))
-              }
-              onMoveToNewChangelist={() =>
-                openNewChangelistDialog(changeActionRows(toolbarTargetRow ?? undefined).map((row) => row.path))
-              }
-              onGroupingChange={setGrouping}
-              onExpandAll={() => setCollapsedGroupIds(new Set())}
-              onCollapseAll={() => setCollapsedGroupIds(new Set(checklistGroups.map((group) => group.id)))}
-            />
-            {/* Full-bleed: the rows carry their own 8px inset and their fill
+          <GitChangesToolbar
+            busy={Boolean(busy)}
+            hasTarget={Boolean(toolbarTargetRow)}
+            changelists={changelists}
+            currentChangelistId={toolbarTargetRow ? changelistIdForRows(changeActionRows(toolbarTargetRow)) : null}
+            untrackedOnly={toolbarTargetUntrackedOnly}
+            grouping={grouping}
+            onRefresh={() => void refreshAll()}
+            onDiscard={() => void handleChangeRowsRevert(changeActionRows(toolbarTargetRow ?? undefined))}
+            onStash={() => void handleStashPush()}
+            onShowDiff={(placement) => {
+              if (toolbarTargetRow) openChangeDiff(toolbarTargetRow, placement)
+            }}
+            onMoveToChangelist={(changelistId) =>
+              void handleMoveToChangelist(changelistId, changeActionRows(toolbarTargetRow ?? undefined))
+            }
+            onMoveToNewChangelist={() =>
+              openNewChangelistDialog(changeActionRows(toolbarTargetRow ?? undefined).map((row) => row.path))
+            }
+            onGroupingChange={setGrouping}
+            onExpandAll={() => setCollapsedGroupIds(new Set())}
+            onCollapseAll={() => setCollapsedGroupIds(new Set(checklistGroups.map((group) => group.id)))}
+          />
+          {/* Full-bleed: the rows carry their own 8px inset and their fill
                 runs to the pane's edges, the way a file list's does. */}
-            <div className="min-h-0 flex-1 overflow-y-auto py-1" onMouseDown={beginChangeMarquee}>
-              {allEntries.length === 0 ? (
-                <div className="px-3 py-2 text-meta text-[color:var(--text-subtle)]">Working tree clean</div>
-              ) : (
-                <>
-                  {conflictEntries.length > 0 ? (
-                    <div className="px-3 pt-1">
-                      <ConflictGroup
-                        entries={conflictEntries}
-                        busy={busy}
-                        onOpenFile={handleOpenFileInEditor}
-                        onResolve={handleResolveConflict}
-                      />
-                    </div>
-                  ) : null}
-                  <GitChangesList
-                    listId={`git-changes-${workspaceId}`}
-                    groups={checklistGroups}
-                    visibleRows={visibleRows}
-                    expandedGroupIds={expandedGroupIds}
-                    onExpandedChange={(groupId, next) =>
-                      setCollapsedGroupIds((current) => {
-                        const updated = new Set(current)
-                        if (next) updated.delete(groupId)
-                        else updated.add(groupId)
-                        return updated
-                      })
-                    }
-                    selectedRowKeys={selectedRowKeys}
-                    cursorRowKey={cursorRowKey}
-                    onToggleRow={handleToggleChangeRow}
-                    onToggleGroup={handleToggleChangeGroup}
-                    onRowClick={handleChangeRowClick}
-                    onActivateRow={(row) => openChangeDiff(row)}
-                    onMoveCursor={handleMoveCursor}
-                    onSelectAll={() => setSelectedRowKeys(new Set(visibleRows.map((row) => row.key)))}
-                    onContextSelect={handleChangeRowContextSelect}
-                    registerRowNode={registerChangeRowNode}
-                    onOpenInEditor={(row) => void handleOpenFileInEditor(row)}
-                    onDeleteFiles={(row) => void handleDeleteFiles(changeActionRows(row))}
-                    onAddToGit={(row) => void handleAddToGit(changeActionRows(row))}
-                    onEditChangelist={(row) => openEditChangelistDialog(changelistIdForRow(row))}
-                    onGroupHeaderFocus={(groupId) => {
-                      focusedGroupIdRef.current = groupId
-                    }}
-                    buildMenu={(row) => {
-                      const rows = changeActionRows(row)
-                      return buildChangeRowMenu({
-                        ...changelistActionsFor(changelistIdForRows(rows), rows),
-                        row,
-                        selectedCount: rows.length,
-                        busy: Boolean(busy),
-                        untracked: untrackedPaths.has(row.relativePath),
-                        untrackedOnly: rows.every((entry) => untrackedGroupPaths.has(entry.relativePath)),
-                        partialOnly: rows.every((entry) => entry.partial === true),
-                        onCommitFiles: () => void handleCommitFiles(rows),
-                        onDiscard: () => void handleChangeRowsRevert(rows),
-                        onShowDiff: () => openChangeDiff(row),
-                        onOpenInEditor: () => void handleOpenFileInEditor(row),
-                        onCopyPath: (kind) => void handleCopyPath(rows, kind),
-                        onDeleteFiles: () => void handleDeleteFiles(rows),
-                        onAddToGit: () => void handleAddToGit(rows),
-                        onCreatePatch: () => void handleCreatePatch(rows),
-                        onCopyAsPatch: () => void handleCopyAsPatch(rows),
-                        onStash: () => void handleStashPush(),
-                        onRefresh: () => void refreshAll(),
-                      })
-                    }}
-                    buildGroupMenu={(group) =>
-                      buildChangeGroupMenu({
-                        // The band's actions act on every row the group holds —
-                        // the ones past the render cap included, exactly as its
-                        // checkbox does.
-                        ...changelistActionsFor(
-                          group.changelistId ?? activeChangelist?.id ?? DEFAULT_CHANGELIST_ID,
-                          group.allRows
-                        ),
-                        group,
-                        busy: Boolean(busy),
-                        onStageAll: () => handleToggleChangeGroup(group, true),
-                        onUnstageAll: () => handleToggleChangeGroup(group, false),
-                        onDiscardAll: () => void handleChangeRowsRevert(group.allRows),
-                        onCommitChangelist: () => void handleCommitChangelist(group),
-                        onShowChangelistDiff: () => openChangelistDiff(group),
-                        onRefresh: () => void refreshAll(),
-                      })
-                    }
-                  />
-                </>
-              )}
-            </div>
+          <div className="min-h-0 flex-1 overflow-y-auto py-1" onMouseDown={beginChangeMarquee}>
+            {allEntries.length === 0 ? (
+              <div className="px-3 py-2 text-meta text-[color:var(--text-subtle)]">Working tree clean</div>
+            ) : (
+              <>
+                {conflictEntries.length > 0 ? (
+                  <div className="px-3 pt-1">
+                    <ConflictGroup
+                      entries={conflictEntries}
+                      busy={busy}
+                      onOpenFile={handleOpenFileInEditor}
+                      onResolve={handleResolveConflict}
+                    />
+                  </div>
+                ) : null}
+                <GitChangesList
+                  listId={`git-changes-${workspaceId}`}
+                  groups={checklistGroups}
+                  visibleRows={visibleRows}
+                  expandedGroupIds={expandedGroupIds}
+                  onExpandedChange={(groupId, next) =>
+                    setCollapsedGroupIds((current) => {
+                      const updated = new Set(current)
+                      if (next) updated.delete(groupId)
+                      else updated.add(groupId)
+                      return updated
+                    })
+                  }
+                  selectedRowKeys={selectedRowKeys}
+                  cursorRowKey={cursorRowKey}
+                  onToggleRow={handleToggleChangeRow}
+                  onToggleGroup={handleToggleChangeGroup}
+                  onRowClick={handleChangeRowClick}
+                  onActivateRow={(row) => openChangeDiff(row)}
+                  onMoveCursor={handleMoveCursor}
+                  onSelectAll={() => setSelectedRowKeys(new Set(visibleRows.map((row) => row.key)))}
+                  onContextSelect={handleChangeRowContextSelect}
+                  registerRowNode={registerChangeRowNode}
+                  onOpenInEditor={(row) => void handleOpenFileInEditor(row)}
+                  onDeleteFiles={(row) => void handleDeleteFiles(changeActionRows(row))}
+                  onAddToGit={(row) => void handleAddToGit(changeActionRows(row))}
+                  onEditChangelist={(row) => openEditChangelistDialog(changelistIdForRow(row))}
+                  onGroupHeaderFocus={(groupId) => {
+                    focusedGroupIdRef.current = groupId
+                  }}
+                  buildMenu={(row) => {
+                    const rows = changeActionRows(row)
+                    return buildChangeRowMenu({
+                      ...changelistActionsFor(changelistIdForRows(rows), rows),
+                      row,
+                      selectedCount: rows.length,
+                      busy: Boolean(busy),
+                      untracked: untrackedPaths.has(row.relativePath),
+                      untrackedOnly: rows.every((entry) => untrackedGroupPaths.has(entry.relativePath)),
+                      partialOnly: rows.every((entry) => entry.partial === true),
+                      onCommitFiles: () => void handleCommitFiles(rows),
+                      onDiscard: () => void handleChangeRowsRevert(rows),
+                      onShowDiff: () => openChangeDiff(row),
+                      onOpenInEditor: () => void handleOpenFileInEditor(row),
+                      onCopyPath: (kind) => void handleCopyPath(rows, kind),
+                      onDeleteFiles: () => void handleDeleteFiles(rows),
+                      onAddToGit: () => void handleAddToGit(rows),
+                      onCreatePatch: () => void handleCreatePatch(rows),
+                      onCopyAsPatch: () => void handleCopyAsPatch(rows),
+                      onStash: () => void handleStashPush(),
+                      onRefresh: () => void refreshAll(),
+                    })
+                  }}
+                  buildGroupMenu={(group) =>
+                    buildChangeGroupMenu({
+                      // The band's actions act on every row the group holds —
+                      // the ones past the render cap included, exactly as its
+                      // checkbox does.
+                      ...changelistActionsFor(
+                        group.changelistId ?? activeChangelist?.id ?? DEFAULT_CHANGELIST_ID,
+                        group.allRows,
+                      ),
+                      group,
+                      busy: Boolean(busy),
+                      onStageAll: () => handleToggleChangeGroup(group, true),
+                      onUnstageAll: () => handleToggleChangeGroup(group, false),
+                      onDiscardAll: () => void handleChangeRowsRevert(group.allRows),
+                      onCommitChangelist: () => void handleCommitChangelist(group),
+                      onShowChangelistDiff: () => openChangelistDiff(group),
+                      onRefresh: () => void refreshAll(),
+                    })
+                  }
+                />
+              </>
+            )}
+          </div>
 
-            <CommitComposer
-              busy={busy}
-              commitMessage={commitMessage}
-              readyToCommit={readyToCommit}
-              countsLabel={formatCommitCounts(changeCounts)}
-              onCommit={handleCommit}
-              onCommitAndPush={handleCommitAndPush}
-              onCommitMessageChange={handleCommitMessageChange}
-              scopeLabel={activeScopeLabel}
-              scopePath={activeScopePath}
-              inputRef={composerRef}
-              // A changelist comment can supply a useful commit message: the active list's comment is the sentence this commit is
-              // probably about, offered as the placeholder rather than typed in
-              // — a prefilled message would be one nobody wrote.
-              placeholder={activeChangelist?.comment || undefined}
+          <CommitComposer
+            busy={busy}
+            commitMessage={commitMessage}
+            readyToCommit={readyToCommit}
+            countsLabel={formatCommitCounts(changeCounts)}
+            onCommit={handleCommit}
+            onCommitAndPush={handleCommitAndPush}
+            onCommitMessageChange={handleCommitMessageChange}
+            scopeLabel={activeScopeLabel}
+            scopePath={activeScopePath}
+            inputRef={composerRef}
+            // A changelist comment can supply a useful commit message: the active list's comment is the sentence this commit is
+            // probably about, offered as the placeholder rather than typed in
+            // — a prefilled message would be one nobody wrote.
+            placeholder={activeChangelist?.comment || undefined}
+          />
+          {changelistDialog ? (
+            <ChangelistDialog
+              open
+              mode={changelistDialog.mode}
+              initial={changelistDialog.initial}
+              fileCount={changelistDialog.paths.length}
+              busy={Boolean(busy)}
+              onCancel={() => setChangelistDialog(null)}
+              onSubmit={(value) => void submitChangelistDialog(value)}
             />
-            {changelistDialog ? (
-              <ChangelistDialog
-                open
-                mode={changelistDialog.mode}
-                initial={changelistDialog.initial}
-                fileCount={changelistDialog.paths.length}
-                busy={Boolean(busy)}
-                onCancel={() => setChangelistDialog(null)}
-                onSubmit={(value) => void submitChangelistDialog(value)}
-              />
-            ) : null}
+          ) : null}
         </TabPanel>
-        <TabPanel idPrefix={gitTabsIdPrefix} tabId="worktrees" active={activeView === 'worktrees'} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <TabPanel
+          idPrefix={gitTabsIdPrefix}
+          tabId="worktrees"
+          active={activeView === 'worktrees'}
+          className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        >
           <WorktreeManager
             workspaceId={workspaceId}
             repoRoot={mainRepoRoot ?? repoRoot}
@@ -2529,18 +2585,19 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             // symlinked root would not match the parent workspace's folderPath.
             // For a worktree-backed workspace it resolves to ITS parent, which
             // is where a worktree cut from here belongs too.
-            projectRoot={
-              (workspace ? workspaceProjectRoot(workspace) : null)
-              ?? mainRepoRoot
-              ?? repoRoot
-            }
+            projectRoot={(workspace ? workspaceProjectRoot(workspace) : null) ?? mainRepoRoot ?? repoRoot}
             currentBranch={branches?.current ?? null}
             branchOptions={branchOptions.map((branch) => branch.name)}
             mode="tab"
             onChanged={refreshAll}
           />
         </TabPanel>
-        <TabPanel idPrefix={gitTabsIdPrefix} tabId="log" active={activeView === 'log'} className="flex min-h-0 flex-1 flex-col">
+        <TabPanel
+          idPrefix={gitTabsIdPrefix}
+          tabId="log"
+          active={activeView === 'log'}
+          className="flex min-h-0 flex-1 flex-col"
+        >
           <GitGraphView
             state={graph}
             currentBranch={branches?.current ?? null}
@@ -2552,7 +2609,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             onRetry={() => void refreshGraph()}
           />
         </TabPanel>
-        <TabPanel idPrefix={gitTabsIdPrefix} tabId="stashes" active={activeView === 'stashes'} className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <TabPanel
+          idPrefix={gitTabsIdPrefix}
+          tabId="stashes"
+          active={activeView === 'stashes'}
+          className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+        >
           <StashList
             stashes={stashes}
             busy={busy}
@@ -2560,7 +2622,12 @@ export default function GitPanel({ workspaceId }: { workspaceId: string }) {
             onDrop={(entry) => void handleStashDrop(entry)}
           />
         </TabPanel>
-        <TabPanel idPrefix={gitTabsIdPrefix} tabId="terminal" active={activeView === 'terminal'} className="flex min-h-0 flex-1 flex-col">
+        <TabPanel
+          idPrefix={gitTabsIdPrefix}
+          tabId="terminal"
+          active={activeView === 'terminal'}
+          className="flex min-h-0 flex-1 flex-col"
+        >
           <GitTerminalView
             key={`${workspaceId}:${repoRoot}`}
             workspaceId={workspaceId}
@@ -2605,7 +2672,10 @@ function GitPanelSkeleton(): JSX.Element {
       <span role="status" className="sr-only">
         Loading Git status…
       </span>
-      <div aria-hidden="true" className="border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]">
+      <div
+        aria-hidden="true"
+        className="border-b border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)]"
+      >
         <div className="flex h-8 items-center justify-between gap-2 px-3">
           <Skeleton className="h-3 w-24 rounded bg-[color:var(--skeleton-shimmer-high)]" />
           <Skeleton className="h-5 w-5 shrink-0 rounded bg-[color:var(--skeleton-shimmer-high)]" />
@@ -2639,12 +2709,7 @@ function GitTerminalView({
 }) {
   return (
     <div className="min-h-0 flex-1 border-t border-[color:var(--bg-hover)] bg-[color:var(--bg-app)]">
-      <PlainTerminalPanel
-        workspaceId={workspaceId}
-        terminalId={terminalId}
-        cwdOverride={repoRoot}
-        killOnUnmount
-      />
+      <PlainTerminalPanel workspaceId={workspaceId} terminalId={terminalId} cwdOverride={repoRoot} killOnUnmount />
     </div>
   )
 }
@@ -2665,9 +2730,7 @@ function ConflictGroup({
   return (
     <section className="mb-4">
       <div className="mb-1 flex h-6 items-center justify-between gap-2">
-        <div className="text-meta font-semibold text-[color:var(--tone-error)]">
-          Conflicts ({entries.length})
-        </div>
+        <div className="text-meta font-semibold text-[color:var(--tone-error)]">Conflicts ({entries.length})</div>
       </div>
       <div className="space-y-1">
         {entries.map((entry) => {
@@ -2677,7 +2740,9 @@ function ConflictGroup({
           // name first, directory after in muted ink.
           const title = (
             <span className="flex min-w-0 items-baseline gap-2 font-mono">
-              <span className={`min-w-0 max-w-full shrink-0 truncate font-semibold ${appearance.textClass}`}>{pathParts.filename}</span>
+              <span className={`min-w-0 max-w-full shrink-0 truncate font-semibold ${appearance.textClass}`}>
+                {pathParts.filename}
+              </span>
               {pathParts.directory ? (
                 <span className="min-w-0 shrink truncate text-micro font-normal text-[color:var(--text-muted)]">
                   {pathParts.directory}
@@ -2689,7 +2754,12 @@ function ConflictGroup({
             <div key={`conflict:${entry.path}`} className="flex items-center gap-1">
               <div className="min-w-0 flex-1">
                 <InboxRow
-                  leading={<FileTypeGlyph name={pathParts.filename} className="icon-sm shrink-0 text-[color:var(--text-muted)]" />}
+                  leading={
+                    <FileTypeGlyph
+                      name={pathParts.filename}
+                      className="icon-sm shrink-0 text-[color:var(--text-muted)]"
+                    />
+                  }
                   title={title}
                   trailing={<span className="font-mono text-micro font-semibold opacity-80">!</span>}
                   onSelect={() => void onOpenFile(entry)}
@@ -2756,24 +2826,42 @@ function StashList({
                 <span className="shrink-0 font-mono text-[color:var(--text-muted)]">{entry.ref}</span>
                 {entry.branch ? (
                   <>
-                    <span aria-hidden="true" className="shrink-0">·</span>
+                    <span aria-hidden="true" className="shrink-0">
+                      ·
+                    </span>
                     <span className="min-w-0 truncate">on {entry.branch}</span>
                   </>
                 ) : null}
               </span>
               <div className="ml-auto flex shrink-0 items-center gap-1 opacity-70 group-hover/row:opacity-100">
                 <Tooltip content={`Reapply ${entry.ref} and drop it`}>
-                  <GhostButton size="xs" onClick={() => onApply(entry, true)} disabled={Boolean(busy)} aria-label={`Pop ${entry.ref}`}>
+                  <GhostButton
+                    size="xs"
+                    onClick={() => onApply(entry, true)}
+                    disabled={Boolean(busy)}
+                    aria-label={`Pop ${entry.ref}`}
+                  >
                     Pop
                   </GhostButton>
                 </Tooltip>
                 <Tooltip content={`Reapply ${entry.ref} and keep it`}>
-                  <GhostButton size="xs" onClick={() => onApply(entry, false)} disabled={Boolean(busy)} aria-label={`Apply ${entry.ref}`}>
+                  <GhostButton
+                    size="xs"
+                    onClick={() => onApply(entry, false)}
+                    disabled={Boolean(busy)}
+                    aria-label={`Apply ${entry.ref}`}
+                  >
                     Apply
                   </GhostButton>
                 </Tooltip>
                 <Tooltip content={`Delete ${entry.ref}`}>
-                  <GhostButton size="xs" tone="danger" onClick={() => onDrop(entry)} disabled={Boolean(busy)} aria-label={`Drop ${entry.ref}`}>
+                  <GhostButton
+                    size="xs"
+                    tone="danger"
+                    onClick={() => onDrop(entry)}
+                    disabled={Boolean(busy)}
+                    aria-label={`Drop ${entry.ref}`}
+                  >
                     Drop
                   </GhostButton>
                 </Tooltip>
@@ -2819,7 +2907,9 @@ function CommitComposer({
     <section className="shrink-0 border-t border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-3 py-3">
       <div className="mb-2 min-w-0 text-micro text-[color:var(--text-subtle)]">
         <span className="font-medium text-[color:var(--text-muted)]">Commit scope</span>
-        <span className="mx-1.5 text-[color:var(--text-disabled)]" aria-hidden="true">/</span>
+        <span className="mx-1.5 text-[color:var(--text-disabled)]" aria-hidden="true">
+          /
+        </span>
         {/* The full path is a product tooltip on a keyboard-reachable trigger,
             not a native `title` on a span nobody can tab to. */}
         <Tooltip content={scopePath} multiline>

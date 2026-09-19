@@ -12,12 +12,10 @@ import { join } from 'node:path'
 // way `designSystemConformance.test.tsx` reads class lists rather than computed
 // boxes. Two rows are held to it: the root row and the entry row.
 
-const SOURCE = readFileSync(
-  join(process.cwd(), 'src/renderer/src/components/panels/FileExplorer.tsx'),
-  'utf8'
-)
+const SOURCE = readFileSync(join(process.cwd(), 'src/renderer/src/components/panels/FileExplorer.tsx'), 'utf8')
 
-const ROW_CLASS = /group flex (min-h-\[[^\]]+\]) cursor-pointer select-none items-center gap-2 rounded-md (px-2) (py-[\d.]+) text-meta/g
+const ROW_CLASS =
+  /group flex (min-h-\[[^\]]+\]) cursor-pointer select-none items-center gap-2 rounded-md (px-2) (py-[\d.]+) text-meta/g
 const rows = Array.from(SOURCE.matchAll(ROW_CLASS))
 
 assert.equal(rows.length, 2, 'the tree has exactly two row class strings: the root row and the entry row')
@@ -32,11 +30,7 @@ const PADDING_PX: Record<string, number> = { 'py-0': 0, 'py-0.5': 2, 'py-1': 4, 
 const CONTENT_PX = 20
 
 for (const [whole, floor, , padding] of rows) {
-  assert.equal(
-    floor,
-    'min-h-[var(--hit-target-min)]',
-    `the floor is the token, not a literal: ${whole}`
-  )
+  assert.equal(floor, 'min-h-[var(--hit-target-min)]', `the floor is the token, not a literal: ${whole}`)
   const pad = PADDING_PX[padding]
   assert.ok(pad !== undefined, `unrecognised vertical padding ${padding}`)
 

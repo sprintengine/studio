@@ -56,7 +56,8 @@ function Glyph({ d }: { d: string }) {
 
 // A globe for "publish on the tailnet", a struck globe for "stop", a pair of
 // sheets for "copy link".
-const SHARE = 'M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM1.5 8h13M8 1.5c1.7 1.8 2.6 4.1 2.6 6.5S9.7 12.7 8 14.5C6.3 12.7 5.4 10.4 5.4 8S6.3 3.3 8 1.5Z'
+const SHARE =
+  'M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM1.5 8h13M8 1.5c1.7 1.8 2.6 4.1 2.6 6.5S9.7 12.7 8 14.5C6.3 12.7 5.4 10.4 5.4 8S6.3 3.3 8 1.5Z'
 const UNSHARE = 'M13.5 2.5l-11 11M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13ZM1.5 8h13'
 const COPY = 'M5.5 5.5V3.5h7v7h-2M3.5 5.5h7v7h-7v-7Z'
 
@@ -68,7 +69,6 @@ function hostOf(url: string): string {
     return url
   }
 }
-
 
 type BrowserStartPageProps = {
   workspaceId: string
@@ -164,7 +164,7 @@ export function BrowserStartPage({ workspaceId, active, recentUrls, onOpen }: Br
                           showToast(
                             result.ok
                               ? { tone: 'good', title: `localhost:${server.port} is off the tailnet` }
-                              : { tone: 'error', title: 'Could not stop sharing', description: result.message }
+                              : { tone: 'error', title: 'Could not stop sharing', description: result.message },
                           )
                           return
                         }
@@ -172,7 +172,7 @@ export function BrowserStartPage({ workspaceId, active, recentUrls, onOpen }: Br
                         showToast(
                           result.ok && result.url
                             ? { tone: 'good', title: 'Shared on your tailnet', description: result.url }
-                            : { tone: 'error', title: 'Could not share this server', description: result.message }
+                            : { tone: 'error', title: 'Could not share this server', description: result.message },
                         )
                       })()
                     }}
@@ -192,7 +192,9 @@ export function BrowserStartPage({ workspaceId, active, recentUrls, onOpen }: Br
           ) : null}
           {recentUrls.map((url) => (
             <RowButton key={url} density="nav" onClick={() => onOpen(url)}>
-              <span className="min-w-0 truncate font-mono text-meta text-[color:var(--text-default)]">{hostOf(url)}</span>
+              <span className="min-w-0 truncate font-mono text-meta text-[color:var(--text-default)]">
+                {hostOf(url)}
+              </span>
             </RowButton>
           ))}
         </section>

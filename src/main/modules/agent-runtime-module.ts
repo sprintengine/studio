@@ -21,10 +21,7 @@ import {
 } from '../module-host/service-tokens'
 import type { CapabilityModule } from '../module-host/load-modules'
 import { createModuleStorageRegistry } from '../module-host/module-storage'
-import {
-  createCompanionAgentService,
-  createCompanionAgentsModuleRegistry,
-} from '../companion-agent-service'
+import { createCompanionAgentService, createCompanionAgentsModuleRegistry } from '../companion-agent-service'
 import { createAgentSessionsModuleRegistry } from '../agent-sessions-module-service'
 import { findBuiltinSkill } from '../builtin-skills'
 import { getPluginById } from '../plugin-registry-instance'
@@ -58,15 +55,14 @@ export const AGENT_RUNTIME_MANIFEST: CapabilityManifest = {
   version: 1,
   publisher: 'multicode',
   category: 'core',
-  summary:
-    'Terminals, agent launch, and the session runtime that every other capability builds on. Always on.',
+  summary: 'Terminals, agent launch, and the session runtime that every other capability builds on. Always on.',
   defaultEnabled: true,
   core: true,
 }
 
 export function createAgentRuntimeModule(
   services: AppServices,
-  options: { getModulePermissions: ModulePermissionsResolver }
+  options: { getModulePermissions: ModulePermissionsResolver },
 ): CapabilityModule {
   return {
     manifest: AGENT_RUNTIME_MANIFEST,
@@ -84,19 +80,19 @@ export function createAgentRuntimeModule(
       // A module can create a workspace with no window open; the id it gets
       // back is the one main just committed.
       host.provideService(WorkspaceServiceToken, () =>
-        createModuleWorkspaceService({ workspaceSync: services.workspaceSyncService })
+        createModuleWorkspaceService({ workspaceSync: services.workspaceSyncService }),
       )
       // Read-only workspace context (id → root/name/mode), read from the same
       // registry the create flow writes.
       host.provideService(WorkspaceContextToken, () =>
         createModuleWorkspaceContextService({
           getWorkspaceSyncSnapshot: () => services.workspaceSyncService.getSnapshot(),
-        })
+        }),
       )
       // Per-module, per-workspace JSON storage (SDK getModuleStorage): the
       // host owns file placement so modules stop inventing locations.
       host.provideService(ModuleStorageToken, () =>
-        createModuleStorageRegistry({ userDataDir: () => app.getPath('userData') })
+        createModuleStorageRegistry({ userDataDir: () => app.getPath('userData') }),
       )
       // Companion agents: workspace-bound background agents driven through the
       // shared conversation runtime. The core service is app-internal
@@ -111,7 +107,7 @@ export function createAgentRuntimeModule(
         createCompanionAgentsModuleRegistry({
           service: companionAgentService,
           getModulePermissions: options.getModulePermissions,
-        })
+        }),
       )
       // Agent sessions: ordinary agent TERMINALS a module owns (D5). Composed
       // through the same AgentLaunchService every app-level launch uses, so a
@@ -125,8 +121,7 @@ export function createAgentRuntimeModule(
           kill: (sessionId) => services.terminalRuntime.ipcHandlers.killTerminal(sessionId),
           setReapExempt: (sessionId, exempt) =>
             services.terminalRuntime.ipcHandlers.setTerminalReapExempt(sessionId, exempt),
-          onAgentSessionExit: (listener) =>
-            services.terminalRuntime.registerAgentSessionExitListener(listener),
+          onAgentSessionExit: (listener) => services.terminalRuntime.registerAgentSessionExitListener(listener),
         },
         sendPrompt: async (sessionId, text) => {
           const result = await services.agentControlPlane.send({ sessionId }, text, { submit: true })

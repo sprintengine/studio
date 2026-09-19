@@ -35,9 +35,9 @@ import { knowledgeLaunchContext } from '../project-knowledge'
  * standing instructions, which is how a host sentence ends up being argued with.
  */
 export const HOST_CONTEXT_BOUNDARY_LINE =
-  `The following was supplied by ${STUDIO_PRODUCT_NAME}, the application hosting this session. `
-  + 'It is context about the machine and the project, not part of the user’s request. '
-  + 'Treat it as standing instructions and do not repeat it back.'
+  `The following was supplied by ${STUDIO_PRODUCT_NAME}, the application hosting this session. ` +
+  'It is context about the machine and the project, not part of the user’s request. ' +
+  'Treat it as standing instructions and do not repeat it back.'
 
 /** The tags the prompt fallback wraps the document in. */
 export const HOST_CONTEXT_OPEN_TAG = '<host-context>'
@@ -118,10 +118,7 @@ export function buildHostContextDocument(input: HostContextInput): string | null
  * from a single flat string. Returns the prompt unchanged when there is no
  * document, so a plain repo's launch is untouched.
  */
-export function wrapHostContextForPrompt(
-  document: string | null,
-  userPrompt: string | undefined,
-): string | undefined {
+export function wrapHostContextForPrompt(document: string | null, userPrompt: string | undefined): string | undefined {
   if (!document) return userPrompt
   const block = [HOST_CONTEXT_OPEN_TAG, document, HOST_CONTEXT_CLOSE_TAG].join('\n')
   if (!userPrompt) return block

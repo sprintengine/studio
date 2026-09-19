@@ -10,10 +10,7 @@ import type { InstalledModule } from '../modules/user-module-registry'
 import { createFakeIpcMain } from './ipc-main-fake.test-helper'
 import { loadMainModules, type CapabilityModule } from './load-modules'
 import { createServiceToken } from './main-host'
-import {
-  collectLaunchContributions,
-  resetLaunchContributionsForTest,
-} from './launch-contributions'
+import { collectLaunchContributions, resetLaunchContributionsForTest } from './launch-contributions'
 
 async function main(): Promise<void> {
   testEnabledModulesRegisterInDependencyOrder()
@@ -289,7 +286,7 @@ async function testTrustedThirdPartyMainRegistersThroughHost(): Promise<void> {
   const moduleRoot = await createThirdPartyModuleRoot('trusted')
   await writeFile(
     join(moduleRoot, 'main.cjs'),
-    "exports.registerMain = (host) => host.registerIpc('trusted:ping', () => 'pong')\n"
+    "exports.registerMain = (host) => host.registerIpc('trusted:ping', () => 'pong')\n",
   )
   const planned = planThirdPartyMainModules({
     modules: [installedThirdPartyModule({ id: 'trusted', moduleRoot, trust: 'trusted', main: 'main.cjs' })],
@@ -311,8 +308,8 @@ async function testUntrustedAndInvalidThirdPartyMainNeverImports(): Promise<void
   const invalidRoot = await createThirdPartyModuleRoot('invalid')
   await Promise.all(
     [unsignedRoot, signedRoot, invalidRoot].map((moduleRoot) =>
-      writeFile(join(moduleRoot, 'main.cjs'), "throw new Error('entry must not import')\n")
-    )
+      writeFile(join(moduleRoot, 'main.cjs'), "throw new Error('entry must not import')\n"),
+    ),
   )
   const planned = planThirdPartyMainModules({
     modules: [
@@ -334,7 +331,7 @@ async function testUntrustedAndInvalidThirdPartyMainNeverImports(): Promise<void
       { id: 'invalid', message: 'Module "invalid" has an invalid signature and will not load.' },
       { id: 'signed', message: 'Module "signed" is not trusted yet; trust it in Settings → Modules to enable.' },
       { id: 'unsigned', message: 'Module "unsigned" is not trusted yet; trust it in Settings → Modules to enable.' },
-    ]
+    ],
   )
 }
 
@@ -374,10 +371,13 @@ async function testThirdPartyPathSafetyAndBadEntriesAreLaunchErrors(): Promise<v
   assert.deepEqual(report.manifestOnly, ['manifest-only'])
   assert.deepEqual(handled, [MODULE_BRIDGE_INVOKE_CHANNEL, 'good:ping'])
   assert.equal(report.errors.length, 3)
-  assert.equal(report.errors.find((error) => error.id === 'escaped')?.message, 'entry.main must resolve inside the module root.')
+  assert.equal(
+    report.errors.find((error) => error.id === 'escaped')?.message,
+    'entry.main must resolve inside the module root.',
+  )
   assert.equal(
     report.errors.find((error) => error.id === 'bad-export')?.message,
-    'entry.main must export a callable registerMain(host).'
+    'entry.main must export a callable registerMain(host).',
   )
   assert.match(report.errors.find((error) => error.id === 'import-failure')?.message ?? '', /Cannot find module/)
 }
@@ -436,7 +436,7 @@ async function testThirdPartyIneligibleDependencyCascades(): Promise<void> {
   const dependencyRoot = await createThirdPartyModuleRoot('dependency')
   const dependentRoot = await createThirdPartyModuleRoot('dependent')
   await writeFile(join(dependencyRoot, 'main.cjs'), "throw new Error('dependency must not import')\n")
-  await writeFile(join(dependentRoot, 'main.cjs'), "exports.registerMain = () => undefined\n")
+  await writeFile(join(dependentRoot, 'main.cjs'), 'exports.registerMain = () => undefined\n')
   const planned = planThirdPartyMainModules({
     modules: [
       installedThirdPartyModule({ id: 'dependency', moduleRoot: dependencyRoot, trust: 'unsigned', main: 'main.cjs' }),
@@ -458,9 +458,12 @@ async function testThirdPartyIneligibleDependencyCascades(): Promise<void> {
   assert.deepEqual(
     report.errors.map((error) => ({ id: error.id, message: error.message })),
     [
-      { id: 'dependency', message: 'Module "dependency" is not trusted yet; trust it in Settings → Modules to enable.' },
+      {
+        id: 'dependency',
+        message: 'Module "dependency" is not trusted yet; trust it in Settings → Modules to enable.',
+      },
       { id: 'dependent', message: 'Module "dependent" requires "dependency", which is not enabled.' },
-    ]
+    ],
   )
 }
 

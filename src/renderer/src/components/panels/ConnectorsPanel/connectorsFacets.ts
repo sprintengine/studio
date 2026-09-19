@@ -15,10 +15,7 @@
 
 import type { McpServerConfig, McpServerListing } from '../../../../../shared/electron-api'
 import type { AgentComposerConnector } from '../../workspace/agentComposer/useAgentComposer'
-import type {
-  MarketplaceComponentKind,
-  MarketplacePluginEntry,
-} from '../../../../../shared/marketplace/manifest'
+import type { MarketplaceComponentKind, MarketplacePluginEntry } from '../../../../../shared/marketplace/manifest'
 import { componentKindLabels } from '../../settings/storefrontView'
 import { connectorCanLaunch } from '../../../../../shared/connector-launch'
 
@@ -74,7 +71,10 @@ const FACET_RULES: ReadonlyArray<{ facet: NamedFacet; test: RegExp }> = [
     facet: 'Infrastructure',
     test: /deploy|infra|host|server|cloud|devops|ci\/?cd|container|docker|kubernet|observab|monitor|logging|testing|develop|\bcode\b|security/i,
   },
-  { facet: 'Data', test: /data|\bdb\b|sql|warehouse|analytic|search|vector|storage|\bmaps?\b|geospatial|\bai\b|\bmodels?\b/i },
+  {
+    facet: 'Data',
+    test: /data|\bdb\b|sql|warehouse|analytic|search|vector|storage|\bmaps?\b|geospatial|\bai\b|\bmodels?\b/i,
+  },
   {
     facet: 'Productivity',
     test: /plan|project|issue|task|ticket|knowledge|doc|design|calendar|email|chat|note|productiv|crm|communicat|market/i,
@@ -216,7 +216,4 @@ export function sectionConnectors(entries: ConnectorEntry[]): ConnectorSection[]
 // Per-source async load. `undefined`-free: each source resolves to loading, a
 // reachable failure, or ready data, so a partial failure (one source down) is a
 // first-class state rather than a silent empty grid.
-export type SourceLoad<T> =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; data: T }
+export type SourceLoad<T> = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; data: T }

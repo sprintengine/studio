@@ -30,12 +30,7 @@ import { app, type IpcMain } from 'electron'
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import type {
-  CardRunInput,
-  CardRunResult,
-  McpServerConfig,
-  CliPermissionPreset,
-} from '../../shared/electron-api'
+import type { CardRunInput, CardRunResult, McpServerConfig, CliPermissionPreset } from '../../shared/electron-api'
 import { parseCardAction, type CardAction } from '../../shared/hosted-card-feed'
 import { normalizeMcpServerConfig } from '../../shared/mcp/normalize-server'
 import { detectCli } from '../cli-runtime-install'
@@ -103,8 +98,7 @@ export function registerCardsIpc(
     },
     // The token never crosses IPC: it is resolved on this side, exactly as
     // `github-repos-ipc.ts` does for the clone picker.
-    cloneRepo: async (input) =>
-      cloneGitHubRepo({ ...input, token: await services.githubTokenStore.resolveToken() }),
+    cloneRepo: async (input) => cloneGitHubRepo({ ...input, token: await services.githubTokenStore.resolveToken() }),
     pathExists: (path) => existsSync(path),
     // Strictly `origin`, and strictly GitHub. `getGitHubRepoRef` would answer
     // from any remote it can parse, which is the wrong question here: a
@@ -176,7 +170,8 @@ function parseRequest(raw: unknown): ParsedRequest {
     const parsed = parseCardAction(entry)
     // One unreadable action refuses the whole card. A partially run card is the
     // state nobody can see and nobody can undo.
-    if (!parsed.ok) return { ok: false, message: `That card asks for something this build cannot do: ${parsed.message}` }
+    if (!parsed.ok)
+      return { ok: false, message: `That card asks for something this build cannot do: ${parsed.message}` }
     actions.push(parsed.action)
   }
 
@@ -250,4 +245,3 @@ function absolutePathOrNull(value: unknown): string | null {
   if (path.length === 0) return null
   return path.startsWith('/') || /^[A-Za-z]:[\\/]/.test(path) ? path : null
 }
-

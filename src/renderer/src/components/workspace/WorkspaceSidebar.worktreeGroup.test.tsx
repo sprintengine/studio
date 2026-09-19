@@ -96,18 +96,29 @@ async function main(): Promise<void> {
       description: 'Test-only workspace type that always reports a running glyph.',
       icon: () => null,
       hiddenFromPicker: true,
-      createTemplate: () => ({ id: 'worktree-glyph-probe', name: 'Glyph probe', model: { global: {}, layout: { type: 'row', children: [] } } }),
+      createTemplate: () => ({
+        id: 'worktree-glyph-probe',
+        name: 'Glyph probe',
+        model: { global: {}, layout: { type: 'row', children: [] } },
+      }),
       deriveRunGlyph: () => ({ state: 'running', live: true, label: 'Run in progress' }),
     } as never)
 
   type SidebarProps = Parameters<typeof WorkspaceSidebar>[0]
   const workspace = (id: string, name: string, folderPath: string | null, extra?: Record<string, unknown>) =>
-    ({ id, name, mode: 'standard', folderPath, layoutModel: { layout: { type: 'row', children: [] } }, ...extra }) as unknown
+    ({
+      id,
+      name,
+      mode: 'standard',
+      folderPath,
+      layoutModel: { layout: { type: 'row', children: [] } },
+      ...extra,
+    }) as unknown
 
   assert.equal(
     deriveWorkspaceRunGlyph({ mode: 'worktree-glyph-probe' } as never)?.label,
     'Run in progress',
-    'the probe type really is registered and enabled — otherwise the case below proves nothing'
+    'the probe type really is registered and enabled — otherwise the case below proves nothing',
   )
 
   const noop = () => {}
@@ -167,14 +178,14 @@ async function main(): Promise<void> {
     // portals out of the section — so open it and read it off the document.
     const folderMenuItems = (header: Element) => {
       const overflow = [...header.closest('header')!.querySelectorAll('button')].find((button) =>
-        (button.getAttribute('aria-label') ?? '').startsWith('Folder actions')
+        (button.getAttribute('aria-label') ?? '').startsWith('Folder actions'),
       )!
       act(() => {
         overflow.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
       const menu = dom.window.document.querySelector('[role="menu"]')
       const items = [...(menu?.querySelectorAll('[role="menuitem"]') ?? [])].map(
-        (item) => item.textContent?.trim() ?? ''
+        (item) => item.textContent?.trim() ?? '',
       )
       act(() => {
         dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
@@ -184,7 +195,7 @@ async function main(): Promise<void> {
     // A row's own menu, opened from the actions button its seat reveals.
     const openRowMenu = (row: Element) => {
       const actions = [...row.querySelectorAll('button')].find(
-        (button) => button.getAttribute('aria-label') === 'Workspace actions'
+        (button) => button.getAttribute('aria-label') === 'Workspace actions',
       )!
       act(() => {
         actions.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
@@ -222,10 +233,10 @@ async function main(): Promise<void> {
       assert.deepEqual(
         headers.map((header) => header.textContent?.trim() ?? ''),
         ['multicode'],
-        'one header, the project — not a second one named after the slug'
+        'one header, the project — not a second one named after the slug',
       )
       const rows = [...headers[0]!.closest('section')!.querySelectorAll('[role="treeitem"]')].map(
-        (row) => row.textContent ?? ''
+        (row) => row.textContent ?? '',
       )
       assert.equal(rows.length, 2, 'both chats are rows of the project')
       assert.ok(rows.some((text) => text.includes('Alpha')) && rows.some((text) => text.includes('Perf review')))
@@ -244,7 +255,10 @@ async function main(): Promise<void> {
     ])
     const headers = view.headers()
     check('a worktree chat alone still heads its project, with live actions', () => {
-      assert.deepEqual(headers.map((header) => header.textContent?.trim() ?? ''), ['multicode'])
+      assert.deepEqual(
+        headers.map((header) => header.textContent?.trim() ?? ''),
+        ['multicode'],
+      )
       assert.ok(detected.includes(PARENT), 'the header asks the disk about the project')
       assert.ok(!detected.includes(WORKTREE), 'never about the worktree it was cut into')
       const items = view.folderMenuItems(headers[0]!)
@@ -268,18 +282,18 @@ async function main(): Promise<void> {
     const headers = view.headers()
     check('a pruned worktree row does not mark its project missing', () => {
       const header = headers[0]!
-      assert.ok(
-        !(header.closest('header')!.textContent ?? '').includes('Missing'),
-        'the project is right where it was'
-      )
+      assert.ok(!(header.closest('header')!.textContent ?? '').includes('Missing'), 'the project is right where it was')
       const items = view.folderMenuItems(header)
       assert.ok(items.includes('New chat in project'), 'so the header keeps its New chat')
       assert.ok(items.includes('Reveal folder'))
       const section = header.closest('section')!
       const worktreeRow = [...section.querySelectorAll('[role="treeitem"]')].find((row) =>
-        (row.textContent ?? '').includes('Perf review')
+        (row.textContent ?? '').includes('Perf review'),
       )!
-      assert.ok(worktreeRow.querySelector('[aria-label="Folder missing"]'), 'the row itself still says its folder is gone')
+      assert.ok(
+        worktreeRow.querySelector('[aria-label="Folder missing"]'),
+        'the row itself still says its folder is gone',
+      )
       // And the row's own menu keeps New chat, because what went missing is
       // the worktree, not the project the item would create into.
       newChatCalls.length = 0
@@ -328,12 +342,12 @@ async function main(): Promise<void> {
     ])
     check('a parked worktree row with a run glyph draws it once', () => {
       const row = [...view.container.querySelectorAll('[role="treeitem"]')].find((candidate) =>
-        (candidate.textContent ?? '').includes('Perf review')
+        (candidate.textContent ?? '').includes('Perf review'),
       )!
       assert.equal(
         row.querySelectorAll('[role="img"][aria-label^="Run in progress"]').length,
         1,
-        'one run glyph, on the seat that line 2 now carries'
+        'one run glyph, on the seat that line 2 now carries',
       )
     })
     view.unmount()

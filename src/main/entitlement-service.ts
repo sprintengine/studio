@@ -78,7 +78,7 @@ export class EntitlementService {
 
   constructor(
     private readonly provider: EntitlementProvider,
-    options: EntitlementServiceOptions
+    options: EntitlementServiceOptions,
   ) {
     this.product = options.product
     this.graceMs = options.graceMs ?? ENTITLEMENT_GRACE_MS
@@ -128,7 +128,7 @@ export class EntitlementService {
         value,
         'expired',
         'Multicode premium access needs a fresh entitlement check.',
-        limit
+        limit,
       )
     }
 
@@ -143,7 +143,7 @@ export class EntitlementService {
         'offline_grace',
         'This premium action needs online entitlement verification.',
         limit,
-        graceExpiresAt
+        graceExpiresAt,
       )
     }
 
@@ -164,7 +164,7 @@ export class EntitlementService {
       value,
       'missing',
       'Upgrade this organization or switch to one with Multicode premium access.',
-      limit
+      limit,
     )
   }
 
@@ -209,7 +209,7 @@ export function isEntitlementSnapshotFresh(snapshot: EntitlementSnapshot): boole
 // The cache's age does not enter this — it is a separate stop, below.
 export function entitlementGraceExpiresAt(
   cache: CachedEntitlementSnapshot,
-  graceMs: number = ENTITLEMENT_GRACE_MS
+  graceMs: number = ENTITLEMENT_GRACE_MS,
 ): string | null {
   const snapshotExpiresAt = Date.parse(cache.snapshot.expiresAt)
   if (!Number.isFinite(snapshotExpiresAt)) return null
@@ -223,7 +223,7 @@ export function entitlementGraceExpiresAt(
 // evidence of a recent check.
 export function isEntitlementCacheTooStale(
   cache: CachedEntitlementSnapshot,
-  maxCacheAgeMs: number = ENTITLEMENT_MAX_CACHE_AGE_MS
+  maxCacheAgeMs: number = ENTITLEMENT_MAX_CACHE_AGE_MS,
 ): boolean {
   const lastRefreshAt = Date.parse(cache.lastRefreshAt)
   if (!Number.isFinite(lastRefreshAt)) return true
@@ -234,7 +234,7 @@ export function isEntitlementCacheTooStale(
 export function entitlementCacheStatus(
   cache: CachedEntitlementSnapshot,
   graceMs: number = ENTITLEMENT_GRACE_MS,
-  maxCacheAgeMs: number = ENTITLEMENT_MAX_CACHE_AGE_MS
+  maxCacheAgeMs: number = ENTITLEMENT_MAX_CACHE_AGE_MS,
 ): EntitlementCacheStatus {
   // The ceiling is checked first so it holds regardless of snapshot expiry —
   // a long-lived grant cannot coast forever on one successful fetch.
@@ -267,30 +267,29 @@ export function offlineGraceMessage(graceExpiresAt: string | null | undefined): 
 // discarded rather than trusted — a malformed snapshot must not grant anything.
 export function isEntitlementSnapshot(
   input: unknown,
-  product: EntitlementSnapshot['product']
+  product: EntitlementSnapshot['product'],
 ): input is EntitlementSnapshot {
   if (!input || typeof input !== 'object') return false
   const snapshot = input as Partial<EntitlementSnapshot>
-  return snapshot.product === product
-    && snapshot.schemaVersion === 1
-    && typeof snapshot.userId === 'string'
-    && typeof snapshot.organizationId === 'string'
+  return (
+    snapshot.product === product &&
+    snapshot.schemaVersion === 1 &&
+    typeof snapshot.userId === 'string' &&
+    typeof snapshot.organizationId === 'string' &&
     // `typeof null === 'object'`, so these need the null guard: a snapshot with
     // a null map passed the old check and then threw on the `in` test inside
     // entitlementValue — a crash on the gate path instead of a discard.
-    && isRecord(snapshot.features)
-    && isRecord(snapshot.limits)
-    && typeof snapshot.issuedAt === 'string'
-    && typeof snapshot.expiresAt === 'string'
+    isRecord(snapshot.features) &&
+    isRecord(snapshot.limits) &&
+    typeof snapshot.issuedAt === 'string' &&
+    typeof snapshot.expiresAt === 'string'
+  )
 }
 
 // Not exported: reading a value out of a snapshot is the seam's own job. An
 // adapter that needed this would be making a decision, which is the thing this
 // file exists to stop.
-function entitlementValue(
-  snapshot: EntitlementSnapshot,
-  featureKey: string
-): FeatureValue | undefined {
+function entitlementValue(snapshot: EntitlementSnapshot, featureKey: string): FeatureValue | undefined {
   if (featureKey in snapshot.features) return snapshot.features[featureKey]
   if (featureKey in snapshot.limits) return snapshot.limits[featureKey]
   return undefined
@@ -301,16 +300,14 @@ function allowed(
   value: FeatureValue,
   status: 'fresh' | 'offline_grace',
   graceExpiresAt: string | null,
-  limit?: number
+  limit?: number,
 ): PremiumAccessDecision {
   return {
     allowed: true,
     featureKey,
     value,
     status,
-    message: status === 'offline_grace'
-      ? offlineGraceMessage(graceExpiresAt)
-      : 'Access granted.',
+    message: status === 'offline_grace' ? offlineGraceMessage(graceExpiresAt) : 'Access granted.',
     ...(limit !== undefined ? { limit } : {}),
     ...(graceExpiresAt ? { graceExpiresAt } : {}),
   }
@@ -322,7 +319,7 @@ function denied(
   status: PremiumAccessDecision['status'],
   message: string,
   limit?: number,
-  graceExpiresAt?: string | null
+  graceExpiresAt?: string | null,
 ): PremiumAccessDecision {
   return {
     allowed: false,

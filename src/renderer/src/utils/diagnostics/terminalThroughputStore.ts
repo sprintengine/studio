@@ -35,7 +35,7 @@ export function getTerminalWriteSamples(): TerminalWriteSample[] {
 
 export function summarizeTerminalThroughput(
   input: readonly TerminalWriteSample[],
-  options: { hiddenSessionIds: ReadonlySet<string>; windowMs?: number; now?: number }
+  options: { hiddenSessionIds: ReadonlySet<string>; windowMs?: number; now?: number },
 ): TerminalThroughput {
   const now = options.now ?? Date.now()
   const windowMs = options.windowMs ?? 5_000

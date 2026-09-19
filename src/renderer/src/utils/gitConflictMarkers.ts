@@ -24,11 +24,7 @@ function findMarkers(content: string): MarkerMatch[] {
 
   while ((match = markerPattern.exec(content)) !== null) {
     const text = match[1] ?? ''
-    const kind = text.startsWith('<<<<<<<')
-      ? 'start'
-      : text.startsWith('>>>>>>>')
-        ? 'end'
-        : 'separator'
+    const kind = text.startsWith('<<<<<<<') ? 'start' : text.startsWith('>>>>>>>') ? 'end' : 'separator'
     markers.push({
       kind,
       label: (match[2] ?? match[3] ?? '').trim(),
@@ -56,8 +52,14 @@ export function parseGitConflictBlocks(content: string): GitConflictBlock[] {
       endOffset: end.end,
       oursLabel: start.label || 'Pulled version',
       theirsLabel: end.label || 'Your stashed changes',
-      ours: content.slice(start.end, separator.start).replace(/^\r?\n/, '').replace(/\r?\n$/, ''),
-      theirs: content.slice(separator.end, end.start).replace(/^\r?\n/, '').replace(/\r?\n$/, ''),
+      ours: content
+        .slice(start.end, separator.start)
+        .replace(/^\r?\n/, '')
+        .replace(/\r?\n$/, ''),
+      theirs: content
+        .slice(separator.end, end.start)
+        .replace(/^\r?\n/, '')
+        .replace(/\r?\n$/, ''),
     })
     index += 2
   }
@@ -69,15 +71,10 @@ export function hasGitConflictMarkers(content: string): boolean {
   return parseGitConflictBlocks(content).length > 0
 }
 
-export function replaceGitConflictBlock(
-  content: string,
-  target: GitConflictBlock,
-  replacement: string
-): string {
+export function replaceGitConflictBlock(content: string, target: GitConflictBlock, replacement: string): string {
   const lineEnding = content.includes('\r\n') ? '\r\n' : '\n'
-  const normalizedReplacement = replacement.endsWith('\n') || replacement.endsWith('\r\n')
-    ? replacement
-    : `${replacement}${lineEnding}`
+  const normalizedReplacement =
+    replacement.endsWith('\n') || replacement.endsWith('\r\n') ? replacement : `${replacement}${lineEnding}`
 
   return `${content.slice(0, target.startOffset)}${normalizedReplacement}${content.slice(target.endOffset)}`
 }

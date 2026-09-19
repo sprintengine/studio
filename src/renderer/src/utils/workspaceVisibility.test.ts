@@ -1,15 +1,7 @@
 import assert from 'node:assert/strict'
-import {
-  AUTOMATIONS_HOST_WORKSPACE_MODE,
-  STANDARD_WORKSPACE_MODE,
-  type BundledWorkspaceMode,
-} from '../types/workspace'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE, STANDARD_WORKSPACE_MODE, type BundledWorkspaceMode } from '../types/workspace'
 import { isModeHiddenFromRail } from '../../../shared/workspace-mode'
-import {
-  isAutomationsHostWorkspace,
-  isHiddenFromRail,
-  isRailHiddenModuleWorkspace,
-} from './workspaceVisibility'
+import { isAutomationsHostWorkspace, isHiddenFromRail, isRailHiddenModuleWorkspace } from './workspaceVisibility'
 import { getRendererHost } from '../modules'
 
 function run(name: string, body: () => void): void {
@@ -57,21 +49,23 @@ run('isHiddenFromRail hides exactly the bundled modes flagged hidden', () => {
 // residency for that module's terminals. No bundled type declares it today, so
 // the rule is exercised against a type registered here.
 const HIDDEN_TYPE_ID = 'rail-hidden-probe'
-getRendererHost().hostFor('automations').registerWorkspaceType({
-  id: HIDDEN_TYPE_ID,
-  label: 'Rail-hidden probe',
-  description: 'Test-only workspace type.',
-  icon: () => null,
-  hiddenFromPicker: true,
-  hiddenFromRail: true,
-  createTemplate: () => ({
+getRendererHost()
+  .hostFor('automations')
+  .registerWorkspaceType({
     id: HIDDEN_TYPE_ID,
-    name: 'Rail-hidden probe',
+    label: 'Rail-hidden probe',
     description: 'Test-only workspace type.',
-    previewSlots: [],
-    layout: { global: {}, borders: [], layout: { type: 'row', children: [] } },
-  }),
-} as never)
+    icon: () => null,
+    hiddenFromPicker: true,
+    hiddenFromRail: true,
+    createTemplate: () => ({
+      id: HIDDEN_TYPE_ID,
+      name: 'Rail-hidden probe',
+      description: 'Test-only workspace type.',
+      previewSlots: [],
+      layout: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+    }),
+  } as never)
 
 run('a registered rail-hidden workspace is hidden while its module is on', () => {
   assert.equal(isRailHiddenModuleWorkspace({ mode: HIDDEN_TYPE_ID }), true)

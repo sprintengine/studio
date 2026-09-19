@@ -11,7 +11,8 @@ import {
   type BrowserPickedElement,
   type BrowserTabState,
 } from '../../../../../../shared/browser'
-import { normalizeBrowserViewport,
+import {
+  normalizeBrowserViewport,
   DEFAULT_BROWSER_DEVICE_PRESET_ID,
   fitViewportScale,
   presetViewport,
@@ -108,7 +109,12 @@ function InspectGlyph() {
 function CameraGlyph() {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-      <path d="M2.5 5.5A1.5 1.5 0 0 1 4 4h1.5l1-1.5h3l1 1.5H12a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5v-6z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+      <path
+        d="M2.5 5.5A1.5 1.5 0 0 1 4 4h1.5l1-1.5h3l1 1.5H12a1.5 1.5 0 0 1 1.5 1.5v6A1.5 1.5 0 0 1 12 13H4a1.5 1.5 0 0 1-1.5-1.5v-6z"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinejoin="round"
+      />
       <circle cx="8" cy="8.5" r="2.25" stroke="currentColor" strokeWidth="1.5" />
     </svg>
   )
@@ -236,7 +242,10 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
     })
     const offKey = window.api.onBrowserHostKey((payload) => {
       if (payload.tabId !== tab.id) return
-      const zoom = zoomDirectionFor(payload.key.key, window.api.platform === 'darwin' ? payload.key.meta : payload.key.ctrl)
+      const zoom = zoomDirectionFor(
+        payload.key.key,
+        window.api.platform === 'darwin' ? payload.key.meta : payload.key.ctrl,
+      )
       if (zoom !== null) {
         void window.api.browserZoomStep(tab.id, zoom)
         return
@@ -384,7 +393,11 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
     async (intent: 'copy' | 'save' | 'send') => {
       if (intent === 'copy') {
         const result = await window.api.browserCopyScreenshot(tab.id)
-        showToast(result.ok ? { tone: 'good', title: 'Screenshot copied' } : { tone: 'error', title: 'Screenshot failed', description: result.message })
+        showToast(
+          result.ok
+            ? { tone: 'good', title: 'Screenshot copied' }
+            : { tone: 'error', title: 'Screenshot failed', description: result.message },
+        )
         return
       }
       if (!workspaceRoot) {
@@ -417,7 +430,9 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
   const canCapture = hasPage && !state?.error
   // Before the first state arrives, a restored tab is loading its remembered
   // page: no empty state over it.
-  const showEmpty = state ? !state.error && (!state.url || state.url === 'about:blank') : initialSrcRef.current === 'about:blank'
+  const showEmpty = state
+    ? !state.error && (!state.url || state.url === 'about:blank')
+    : initialSrcRef.current === 'about:blank'
   const framed = viewport.mode !== 'fill'
   const scale = framed ? fitViewportScale(viewport, canvasSize) : 1
   // The guest sits in ONE frame element in both modes; only the frame's
@@ -494,9 +509,24 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
               ariaLabel="Screenshot"
               trigger={() => <CameraGlyph />}
               items={[
-                { id: 'copy', label: 'Copy screenshot', onSelect: () => void capturePage('copy'), disabled: !canCapture },
-                { id: 'save', label: 'Save to workspace', onSelect: () => void capturePage('save'), disabled: !canCapture || !workspaceRoot },
-                { id: 'send', label: 'Send to agent', onSelect: () => void capturePage('send'), disabled: !canCapture || !workspaceRoot },
+                {
+                  id: 'copy',
+                  label: 'Copy screenshot',
+                  onSelect: () => void capturePage('copy'),
+                  disabled: !canCapture,
+                },
+                {
+                  id: 'save',
+                  label: 'Save to workspace',
+                  onSelect: () => void capturePage('save'),
+                  disabled: !canCapture || !workspaceRoot,
+                },
+                {
+                  id: 'send',
+                  label: 'Send to agent',
+                  onSelect: () => void capturePage('send'),
+                  disabled: !canCapture || !workspaceRoot,
+                },
               ]}
             />
             <BrowserViewMenu

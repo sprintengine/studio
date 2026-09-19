@@ -113,9 +113,7 @@ export function ComposerAttachmentStrip({
         </li>
       ))}
       {reading > 0 ? (
-        <li className="text-meta leading-5 text-[color:var(--text-muted)]">
-          Reading {attachmentCountLabel(reading)}…
-        </li>
+        <li className="text-meta leading-5 text-[color:var(--text-muted)]">Reading {attachmentCountLabel(reading)}…</li>
       ) : null}
     </ul>
   )

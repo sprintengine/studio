@@ -25,13 +25,7 @@ const AUTOMATIONS_STORE_LABEL = sidecarRelativePath(SIDECAR_DIR_NAME, 'automatio
 const AUTOMATION_RUN_HISTORY_LIMIT = 50
 
 export type AutomationStoreProblemCode =
-  | 'already_exists'
-  | 'invalid_id'
-  | 'invalid_json'
-  | 'invalid_payload'
-  | 'missing'
-  | 'read_failed'
-  | 'write_failed'
+  'already_exists' | 'invalid_id' | 'invalid_json' | 'invalid_payload' | 'missing' | 'read_failed' | 'write_failed'
 
 export type AutomationStoreProblem = {
   code: AutomationStoreProblemCode
@@ -73,7 +67,7 @@ export class AutomationsStore {
 
   constructor(
     private readonly workspaceRoot: string,
-    private readonly options: { runHistoryLimit?: number } = {}
+    private readonly options: { runHistoryLimit?: number } = {},
   ) {
     this.rootPath = workspaceSidecarPath(workspaceRoot, 'automations')
   }
@@ -129,7 +123,7 @@ export class AutomationsStore {
         error: this.problem(
           code === 'ENOENT' ? 'missing' : 'write_failed',
           target.path,
-          error instanceof Error ? error.message : `Failed to delete automation definition "${automationId}".`
+          error instanceof Error ? error.message : `Failed to delete automation definition "${automationId}".`,
         ),
       }
     }
@@ -147,7 +141,12 @@ export class AutomationsStore {
     if (!files.ok) {
       const error = files.errors[0]
       if (error?.code === 'missing') return { ok: true, values: [] }
-      return { ok: false, errors: [this.problem(error?.code ?? 'read_failed', directory, error?.message ?? 'Failed to read definitions.')] }
+      return {
+        ok: false,
+        errors: [
+          this.problem(error?.code ?? 'read_failed', directory, error?.message ?? 'Failed to read definitions.'),
+        ],
+      }
     }
 
     const definitions: AutomationDefinition[] = []
@@ -202,7 +201,10 @@ export class AutomationsStore {
     if (!files.ok) {
       const error = files.errors[0]
       if (error?.code === 'missing') return { ok: true, values: [] }
-      return { ok: false, errors: [this.problem(error?.code ?? 'read_failed', directory, error?.message ?? 'Failed to read runs.')] }
+      return {
+        ok: false,
+        errors: [this.problem(error?.code ?? 'read_failed', directory, error?.message ?? 'Failed to read runs.')],
+      }
     }
 
     const runs: AutomationRun[] = []
@@ -225,7 +227,10 @@ export class AutomationsStore {
     if (!files.ok) {
       const error = files.errors[0]
       if (error?.code === 'missing') return { ok: true, values: [] }
-      return { ok: false, errors: [this.problem(error?.code ?? 'read_failed', directory, error?.message ?? 'Failed to read runs.')] }
+      return {
+        ok: false,
+        errors: [this.problem(error?.code ?? 'read_failed', directory, error?.message ?? 'Failed to read runs.')],
+      }
     }
 
     const runs: AutomationRun[] = []
@@ -267,7 +272,9 @@ export class AutomationsStore {
     return join(this.rootPath, 'runs')
   }
 
-  private runsDirectory(automationId: string): { ok: true; path: string } | { ok: false; error: AutomationStoreProblem } {
+  private runsDirectory(
+    automationId: string,
+  ): { ok: true; path: string } | { ok: false; error: AutomationStoreProblem } {
     const safeId = this.safeId(automationId)
     if (!safeId.ok) return safeId
     return this.containedPath(this.runsRootDirectory(), automationId)
@@ -277,7 +284,9 @@ export class AutomationsStore {
     return join(this.rootPath, 'state.json')
   }
 
-  private definitionPath(automationId: string): { ok: true; path: string } | { ok: false; error: AutomationStoreProblem } {
+  private definitionPath(
+    automationId: string,
+  ): { ok: true; path: string } | { ok: false; error: AutomationStoreProblem } {
     const safeId = this.safeId(automationId)
     if (!safeId.ok) return safeId
     return this.containedPath(this.definitionsDirectory(), `${automationId}.json`)
@@ -285,7 +294,7 @@ export class AutomationsStore {
 
   private runPath(
     automationId: string,
-    runId: string
+    runId: string,
   ): { ok: true; path: string } | { ok: false; error: AutomationStoreProblem } {
     const safeAutomationId = this.safeId(automationId)
     if (!safeAutomationId.ok) return safeAutomationId
@@ -311,7 +320,7 @@ export class AutomationsStore {
 
   private containedPath(
     directory: string,
-    childName: string
+    childName: string,
   ): { ok: true; path: string } | { ok: false; error: AutomationStoreProblem } {
     const parent = resolve(directory)
     const target = resolve(directory, childName)
@@ -331,7 +340,7 @@ export class AutomationsStore {
   // once the record is rewritten the legacy key is gone from the file too.
   private async writeDefinition(
     definition: AutomationDefinition,
-    path: string
+    path: string,
   ): Promise<AutomationStoreWriteResult<AutomationDefinition>> {
     const persisted = withoutWriteUpOnlyMarker(definition)
     const written = await this.writeJson(path, persisted)
@@ -352,7 +361,11 @@ export class AutomationsStore {
     } catch (error) {
       return {
         ok: false,
-        error: this.problem('write_failed', path, error instanceof Error ? error.message : 'Failed to write automations store file.'),
+        error: this.problem(
+          'write_failed',
+          path,
+          error instanceof Error ? error.message : 'Failed to write automations store file.',
+        ),
       }
     }
   }
@@ -382,7 +395,7 @@ export class AutomationsStore {
         error: this.problem(
           code === 'ENOENT' ? 'missing' : 'read_failed',
           path,
-          error instanceof Error ? error.message : 'Failed to read automations store file.'
+          error instanceof Error ? error.message : 'Failed to read automations store file.',
         ),
       }
     }
@@ -395,7 +408,9 @@ export class AutomationsStore {
         error: this.problem(
           'invalid_json',
           path,
-          error instanceof Error ? `Automations store file is not valid JSON: ${error.message}` : 'Automations store file is not valid JSON.'
+          error instanceof Error
+            ? `Automations store file is not valid JSON: ${error.message}`
+            : 'Automations store file is not valid JSON.',
         ),
       }
     }
@@ -403,20 +418,23 @@ export class AutomationsStore {
 
   private validateDefinition(
     value: unknown,
-    path: string
+    path: string,
   ): AutomationStoreReadResult<AutomationDefinition> | AutomationStoreWriteResult<AutomationDefinition> {
     if (isAutomationDefinition(value)) return { ok: true, value }
     return { ok: false, error: this.problem('invalid_payload', path, 'Automation definition payload is malformed.') }
   }
 
-  private validateRun(value: unknown, path: string): AutomationStoreReadResult<AutomationRun> | AutomationStoreWriteResult<AutomationRun> {
+  private validateRun(
+    value: unknown,
+    path: string,
+  ): AutomationStoreReadResult<AutomationRun> | AutomationStoreWriteResult<AutomationRun> {
     if (isAutomationRun(value)) return { ok: true, value }
     return { ok: false, error: this.problem('invalid_payload', path, 'Automation run payload is malformed.') }
   }
 
   private validateState(
     value: unknown,
-    path: string
+    path: string,
   ): AutomationStoreReadResult<AutomationStoreState> | AutomationStoreWriteResult<AutomationStoreState> {
     if (!isAutomationStoreState(value)) {
       return { ok: false, error: this.problem('invalid_payload', path, 'Automation state payload is malformed.') }
@@ -425,21 +443,38 @@ export class AutomationsStore {
     for (const automationId of Object.keys(value.nextRunAtByAutomationId)) {
       const safeId = this.safeId(automationId)
       if (!safeId.ok) {
-        return { ok: false, error: this.problem('invalid_payload', path, `Automation state contains invalid id "${automationId}".`) }
+        return {
+          ok: false,
+          error: this.problem('invalid_payload', path, `Automation state contains invalid id "${automationId}".`),
+        }
       }
     }
 
     for (const automationId of Object.keys(value.triggerEventDedupByAutomationId ?? {})) {
       const safeId = this.safeId(automationId)
       if (!safeId.ok) {
-        return { ok: false, error: this.problem('invalid_payload', path, `Automation trigger-event state contains invalid id "${automationId}".`) }
+        return {
+          ok: false,
+          error: this.problem(
+            'invalid_payload',
+            path,
+            `Automation trigger-event state contains invalid id "${automationId}".`,
+          ),
+        }
       }
     }
 
     for (const automationId of Object.keys(value.triggerBlockedReasonByAutomationId ?? {})) {
       const safeId = this.safeId(automationId)
       if (!safeId.ok) {
-        return { ok: false, error: this.problem('invalid_payload', path, `Automation trigger-blocked state contains invalid id "${automationId}".`) }
+        return {
+          ok: false,
+          error: this.problem(
+            'invalid_payload',
+            path,
+            `Automation trigger-blocked state contains invalid id "${automationId}".`,
+          ),
+        }
       }
     }
 
@@ -464,7 +499,7 @@ export class AutomationsStore {
           error: this.problem(
             'write_failed',
             target.path,
-            error instanceof Error ? error.message : `Failed to prune stale automation run "${staleRun.id}".`
+            error instanceof Error ? error.message : `Failed to prune stale automation run "${staleRun.id}".`,
           ),
         }
       }
@@ -535,54 +570,50 @@ function aggregateProblems(errors: AutomationStoreProblem[]): AutomationStorePro
 function isAutomationDefinition(value: unknown): value is AutomationDefinition {
   if (!isRecord(value)) return false
   return (
-    typeof value.id === 'string'
-    && typeof value.name === 'string'
-    && isAutomationStatus(value.status)
-    && isKindConfig(value.trigger)
-    && (value.condition === undefined || isKindConfig(value.condition))
-    && isKindConfig(value.action)
-    && isOptionalString(value.ownerModuleId)
-    && isNullableString(value.nextRunAt)
-    && isNullableString(value.lastRunAt)
-    && isNullableString(value.lastRunId)
-    && typeof value.createdAt === 'string'
-    && typeof value.updatedAt === 'string'
+    typeof value.id === 'string' &&
+    typeof value.name === 'string' &&
+    isAutomationStatus(value.status) &&
+    isKindConfig(value.trigger) &&
+    (value.condition === undefined || isKindConfig(value.condition)) &&
+    isKindConfig(value.action) &&
+    isOptionalString(value.ownerModuleId) &&
+    isNullableString(value.nextRunAt) &&
+    isNullableString(value.lastRunAt) &&
+    isNullableString(value.lastRunId) &&
+    typeof value.createdAt === 'string' &&
+    typeof value.updatedAt === 'string'
   )
 }
 
 function isAutomationRun(value: unknown): value is AutomationRun {
   if (!isRecord(value)) return false
   return (
-    typeof value.id === 'string'
-    && typeof value.automationId === 'string'
-    && isAutomationRunStatus(value.status)
-    && typeof value.dueAt === 'string'
-    && isNullableString(value.startedAt)
-    && isNullableString(value.completedAt)
-    && isOptionalString(value.blockedReason)
-    && isOptionalString(value.workspaceId)
-    && isOptionalString(value.agentId)
-    && isOptionalString(value.executionId)
-    && isOptionalString(value.promptFingerprint)
-    && isOptionalStringArray(value.touchedFiles)
-    && isOptionalStringArray(value.commandsRan)
-    && isOptionalString(value.summary)
+    typeof value.id === 'string' &&
+    typeof value.automationId === 'string' &&
+    isAutomationRunStatus(value.status) &&
+    typeof value.dueAt === 'string' &&
+    isNullableString(value.startedAt) &&
+    isNullableString(value.completedAt) &&
+    isOptionalString(value.blockedReason) &&
+    isOptionalString(value.workspaceId) &&
+    isOptionalString(value.agentId) &&
+    isOptionalString(value.executionId) &&
+    isOptionalString(value.promptFingerprint) &&
+    isOptionalStringArray(value.touchedFiles) &&
+    isOptionalStringArray(value.commandsRan) &&
+    isOptionalString(value.summary)
   )
 }
 
 function isAutomationStoreState(value: unknown): value is AutomationStoreState {
   return (
-    isRecord(value)
-    && isNextRunAtCache(value.nextRunAtByAutomationId)
-    && (
-      value.triggerEventDedupByAutomationId === undefined
-      || isTriggerEventDedupCache(value.triggerEventDedupByAutomationId)
-    )
-    && (
-      value.triggerBlockedReasonByAutomationId === undefined
-      || isTriggerBlockedReasonCache(value.triggerBlockedReasonByAutomationId)
-    )
-    && (value.lock === null || isAutomationStoreLock(value.lock))
+    isRecord(value) &&
+    isNextRunAtCache(value.nextRunAtByAutomationId) &&
+    (value.triggerEventDedupByAutomationId === undefined ||
+      isTriggerEventDedupCache(value.triggerEventDedupByAutomationId)) &&
+    (value.triggerBlockedReasonByAutomationId === undefined ||
+      isTriggerBlockedReasonCache(value.triggerBlockedReasonByAutomationId)) &&
+    (value.lock === null || isAutomationStoreLock(value.lock))
   )
 }
 
@@ -592,9 +623,9 @@ function isNextRunAtCache(value: unknown): value is Record<string, string | null
 
 function isTriggerEventDedupCache(value: unknown): value is Record<string, Record<string, string>> {
   return (
-    isRecord(value)
-    && Object.values(value).every((entry) =>
-      isRecord(entry) && Object.values(entry).every((seenAt) => typeof seenAt === 'string')
+    isRecord(value) &&
+    Object.values(value).every(
+      (entry) => isRecord(entry) && Object.values(entry).every((seenAt) => typeof seenAt === 'string'),
     )
   )
 }
@@ -603,13 +634,12 @@ function isTriggerBlockedReasonCache(value: unknown): value is Record<string, st
   return isRecord(value) && Object.values(value).every((entry) => isNullableString(entry))
 }
 
-
 function isAutomationStoreLock(value: unknown): value is AutomationStoreLock {
   return (
-    isRecord(value)
-    && typeof value.ownerId === 'string'
-    && typeof value.acquiredAt === 'string'
-    && typeof value.expiresAt === 'string'
+    isRecord(value) &&
+    typeof value.ownerId === 'string' &&
+    typeof value.acquiredAt === 'string' &&
+    typeof value.expiresAt === 'string'
   )
 }
 

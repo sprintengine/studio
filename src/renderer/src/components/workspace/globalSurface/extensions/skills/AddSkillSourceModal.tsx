@@ -141,11 +141,7 @@ export function AddSkillSourceModal({
 
   return (
     <Modal open={open} onClose={onClose} labelledBy="add-skill-source-title" size="standard">
-      <ModalHeader
-        titleId="add-skill-source-title"
-        title="Add a source from GitHub"
-        onClose={onClose}
-      />
+      <ModalHeader titleId="add-skill-source-title" title="Add a source from GitHub" onClose={onClose} />
       <ModalBody className="flex flex-col gap-4">
         <Input
           value={repo}
@@ -213,11 +209,7 @@ export function AddSkillSourceModal({
             {/* No Remove for a tab the studio always has: the store refuses it,
                 so the button's only possible outcome is a failure. */}
             {phase.mergedIntoBuiltin ? null : (
-              <GhostButton
-                size="md"
-                disabled={removing}
-                onClick={() => void remove(phase.source.id)}
-              >
+              <GhostButton size="md" disabled={removing} onClick={() => void remove(phase.source.id)}>
                 {removing ? 'Removing…' : 'Remove source'}
               </GhostButton>
             )}

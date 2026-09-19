@@ -27,7 +27,7 @@ type FakeWindow = DockDiffTarget & { sent: DockDiffRequest[] }
 /** A window that records what it was asked, and answers however told to. */
 function fakeWindow(
   id: string,
-  behaviour: (request: DockDiffRequest, ack: (from: unknown, requestId: unknown) => void) => void = () => {}
+  behaviour: (request: DockDiffRequest, ack: (from: unknown, requestId: unknown) => void) => void = () => {},
 ): FakeWindow {
   const win: FakeWindow = {
     id,
@@ -135,7 +135,10 @@ async function assertTheWholeHandOffIsBudgeted(): Promise<void> {
   const started = Date.now()
   assert.equal(await offer(windows, { waitMs: 20, totalMs: 60 }), false)
   assert.ok(Date.now() - started < 200, 'the offer stops at its budget rather than walking every window')
-  assert.ok(windows.some((win) => win.sent.length === 0), 'and the later windows were never reached')
+  assert.ok(
+    windows.some((win) => win.sent.length === 0),
+    'and the later windows were never reached',
+  )
   console.log('ok - the hand-off has a budget for the whole walk, not only per window')
 }
 

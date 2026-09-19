@@ -19,10 +19,7 @@ export type HostedCardFeedIpcHandlers = {
 // whether it actually does unless `forceRefresh` is set. A read that changed
 // the feed is pushed to every window as `hosted-card-feed:changed` by the
 // service, so callers do not re-broadcast.
-export function registerHostedCardFeedIpc(
-  ipcMain: IpcMain,
-  overrides: Partial<HostedCardFeedIpcHandlers> = {},
-): void {
+export function registerHostedCardFeedIpc(ipcMain: IpcMain, overrides: Partial<HostedCardFeedIpcHandlers> = {}): void {
   const read = overrides.read ?? ((input?: HostedCardFeedReadInput) => readHostedCardFeed(input))
 
   ipcMain.handle('hosted-card-feed:get', async (): Promise<HostedCardFeedReadResult> => {
@@ -51,4 +48,3 @@ function failure(error: unknown): HostedCardFeedReadResult {
     message: error instanceof Error ? error.message : String(error),
   }
 }
-

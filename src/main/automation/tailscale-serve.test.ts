@@ -44,18 +44,25 @@ function check(name: string, run: () => void | Promise<void>): void {
 
 const STATUS_JSON = JSON.stringify({
   BackendState: 'Running',
-  Self: { ID: 'self', DNSName: 'studio-mac.tail1a2b.ts.net.', HostName: 'studio-mac', TailscaleIPs: ['100.101.102.103'] },
+  Self: {
+    ID: 'self',
+    DNSName: 'studio-mac.tail1a2b.ts.net.',
+    HostName: 'studio-mac',
+    TailscaleIPs: ['100.101.102.103'],
+  },
   Peer: {},
 })
 
 const okRun = (): Promise<TailscaleRun> => Promise.resolve({ ok: true, stdout: '' })
-const failRun = (stderr: string, timedOut = false): (() => Promise<TailscaleRun>) => () =>
-  Promise.resolve({ ok: false, stdout: '', stderr, timedOut })
+const failRun =
+  (stderr: string, timedOut = false): (() => Promise<TailscaleRun>) =>
+  () =>
+    Promise.resolve({ ok: false, stdout: '', stderr, timedOut })
 
 check('stderr classifies into the diagnostics a person can act on', () => {
   assert.equal(
     classifyServeStderr('error: HTTPS is not enabled on your tailnet; see https://tailscale.com/s/https'),
-    'https-not-enabled'
+    'https-not-enabled',
   )
   assert.equal(classifyServeStderr('not logged in, run tailscale up'), 'not-logged-in')
   assert.equal(classifyServeStderr('permission denied'), 'permission-denied')
@@ -94,7 +101,7 @@ check('a failed share reports the reason and never the raw text', async () => {
     {
       read: async () => STATUS_JSON,
       run: failRun('tskey-auth-SECRET: HTTPS is not enabled on your tailnet'),
-    }
+    },
   )
   assert.equal(result.ok, false)
   if (result.ok) return
@@ -105,7 +112,7 @@ check('a failed share reports the reason and never the raw text', async () => {
 check('a timeout is a timeout, not a misread stderr', async () => {
   const result = await shareLocalPort(
     { localPort: 5173, servePort: 8443 },
-    { read: async () => STATUS_JSON, run: failRun('permission denied', true) }
+    { read: async () => STATUS_JSON, run: failRun('permission denied', true) },
   )
   assert.equal(result.ok, false)
   if (result.ok) return
@@ -124,7 +131,7 @@ check('a share publishes the machine name Tailscale reports', async () => {
         args.push([...called])
         return { ok: true, stdout: '' }
       },
-    }
+    },
   )
   assert.equal(result.ok, true)
   if (!result.ok) return

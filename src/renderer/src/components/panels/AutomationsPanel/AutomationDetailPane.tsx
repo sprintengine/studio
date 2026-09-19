@@ -19,7 +19,11 @@ import { ModuleAttribution } from './ModuleAttribution'
 // `window.api` automations bridge; reloads whenever the definition's lastRunId
 // changes (e.g. after a run-now).
 export function AutomationDetailPane({
-  definition, workspaceRoot, now, onOpenAgent, onViewReport,
+  definition,
+  workspaceRoot,
+  now,
+  onOpenAgent,
+  onViewReport,
 }: {
   definition: AutomationDefinition
   workspaceRoot: string
@@ -28,10 +32,14 @@ export function AutomationDetailPane({
   /** Open a run's report in the in-app viewer. */
   onViewReport: (run: AutomationRun) => void
 }) {
-  const { runs, state, error, finalizingRunId, reload: loadRuns, finalize: finalizeRun } = useAutomationRunHistory(
-    workspaceRoot,
-    definition,
-  )
+  const {
+    runs,
+    state,
+    error,
+    finalizingRunId,
+    reload: loadRuns,
+    finalize: finalizeRun,
+  } = useAutomationRunHistory(workspaceRoot, definition)
 
   const nextAt = parseTime(definition.nextRunAt)
   const lastAt = parseTime(definition.lastRunAt)
@@ -62,8 +70,20 @@ export function AutomationDetailPane({
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-micro">
           <Meta label="Trigger" value={cadenceSummary(definition.trigger)} />
           <Meta label="Action" value={actionLabel(definition.action.kind)} />
-          <Meta label="Next run" value={nextAt !== null ? `${relativeFromNow(nextAt, now)} (${absoluteTime(nextAt)})` : definition.status === 'enabled' ? 'Pending' : 'Paused'} />
-          <Meta label="Last run" value={lastAt !== null ? `${relativeFromNow(lastAt, now)} (${absoluteTime(lastAt)})` : 'Never run'} />
+          <Meta
+            label="Next run"
+            value={
+              nextAt !== null
+                ? `${relativeFromNow(nextAt, now)} (${absoluteTime(nextAt)})`
+                : definition.status === 'enabled'
+                  ? 'Pending'
+                  : 'Paused'
+            }
+          />
+          <Meta
+            label="Last run"
+            value={lastAt !== null ? `${relativeFromNow(lastAt, now)} (${absoluteTime(lastAt)})` : 'Never run'}
+          />
         </dl>
         {definition.status === 'blocked' ? (
           <div className="mt-2">
@@ -74,7 +94,15 @@ export function AutomationDetailPane({
         ) : null}
       </div>
 
-      <Section title="Run history" count={state === 'ready' ? runs.length : undefined} action={<GhostButton onClick={() => void loadRuns()} className="h-6 px-2 text-micro">Refresh</GhostButton>}>
+      <Section
+        title="Run history"
+        count={state === 'ready' ? runs.length : undefined}
+        action={
+          <GhostButton onClick={() => void loadRuns()} className="h-6 px-2 text-micro">
+            Refresh
+          </GhostButton>
+        }
+      >
         {state === 'loading' || state === 'idle' ? (
           <div className="flex items-center gap-2 py-3 text-micro text-[color:var(--text-muted)]">
             <Spinner size={12} label="Loading runs" /> Loading runs…
@@ -85,7 +113,10 @@ export function AutomationDetailPane({
           </InlineNotice>
         ) : runs.length === 0 ? (
           <p className="py-3 text-micro leading-5 text-[color:var(--text-muted)]">
-            No runs yet. {definition.status === 'enabled' ? 'The first run will appear here when the schedule fires or you run it now.' : 'Enable the automation to schedule runs.'}
+            No runs yet.{' '}
+            {definition.status === 'enabled'
+              ? 'The first run will appear here when the schedule fires or you run it now.'
+              : 'Enable the automation to schedule runs.'}
           </p>
         ) : (
           <ol className="flex flex-col">
@@ -111,7 +142,9 @@ function Meta({ label, value }: { label: string; value: string }) {
   return (
     <>
       <dt className="text-[color:var(--text-subtle)]">{label}</dt>
-      <dd className="min-w-0 truncate text-[color:var(--text-default)]" title={value}>{value}</dd>
+      <dd className="min-w-0 truncate text-[color:var(--text-default)]" title={value}>
+        {value}
+      </dd>
     </>
   )
 }
@@ -119,7 +152,14 @@ function Meta({ label, value }: { label: string; value: string }) {
 // Run row: leading lifecycle glyph (shape-coded), identifier in
 // mono, timing in tabular figures, and a trailing "Open agent" when a run
 // launched one.
-function RunRow({ run, now, onOpenAgent, onViewReport, onFinalize, finalizing }: {
+function RunRow({
+  run,
+  now,
+  onOpenAgent,
+  onViewReport,
+  onFinalize,
+  finalizing,
+}: {
   run: AutomationRun
   now: number
   onOpenAgent: (workspaceId: string, agentId?: string) => void
@@ -133,9 +173,7 @@ function RunRow({ run, now, onOpenAgent, onViewReport, onFinalize, finalizing }:
   const stamp = completedAt ?? startedAt ?? dueAt
 
   return (
-    <li
-      className="flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-2 last:border-b-0"
-    >
+    <li className="flex items-start gap-2 border-b border-[color:var(--border-subtle)] py-2 last:border-b-0">
       <LifecycleGlyph
         state={RUN_LIFECYCLE[run.status]}
         live={run.status === 'running'}
@@ -146,7 +184,10 @@ function RunRow({ run, now, onOpenAgent, onViewReport, onFinalize, finalizing }:
         <div className="flex items-baseline justify-between gap-2">
           <span className="text-micro font-medium text-[color:var(--text-strong)]">{RUN_STATUS_LABEL[run.status]}</span>
           {stamp !== null ? (
-            <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-subtle)]" title={absoluteTime(stamp)}>
+            <span
+              className="shrink-0 tabular-nums text-micro text-[color:var(--text-subtle)]"
+              title={absoluteTime(stamp)}
+            >
               {relativeFromNow(stamp, now)}
             </span>
           ) : null}
@@ -162,7 +203,13 @@ function RunRow({ run, now, onOpenAgent, onViewReport, onFinalize, finalizing }:
         {run.blockedReason ? (
           <p className="mt-0.5 text-micro leading-4 text-[color:var(--tone-warn)]">{run.blockedReason}</p>
         ) : null}
-        <AutomationRunActions run={run} onOpenAgent={onOpenAgent} onViewReport={onViewReport} onFinalize={onFinalize} finalizing={finalizing} />
+        <AutomationRunActions
+          run={run}
+          onOpenAgent={onOpenAgent}
+          onViewReport={onViewReport}
+          onFinalize={onFinalize}
+          finalizing={finalizing}
+        />
       </div>
     </li>
   )

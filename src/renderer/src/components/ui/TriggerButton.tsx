@@ -86,30 +86,28 @@ export type TriggerButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> &
   open?: boolean
 }
 
-export const TriggerButton = React.forwardRef<HTMLButtonElement, TriggerButtonProps>(
-  function TriggerButton(
-    { className, variant = 'field', size = 'sm', open, type, children, ...rest },
-    ref,
-  ) {
-    return (
-      <button
-        ref={ref}
-        type={type ?? 'button'}
-        {...rest}
-        className={[
-          // `justify-between`, because a trigger's face is a value on one side
-          // and a chevron on the other. No `control-edge`: see the header.
-          'interactive inline-flex w-full items-center justify-between gap-2 rounded-sm',
-          'text-left text-body transition-colors',
-          SIZE[size],
-          open === true ? OPEN : RESTING[variant],
-          'disabled:cursor-not-allowed disabled:opacity-45',
-          FOCUS_RING_CLASS,
-          className ?? '',
-        ].join(' ')}
-      >
-        {children}
-      </button>
-    )
-  },
-)
+export const TriggerButton = React.forwardRef<HTMLButtonElement, TriggerButtonProps>(function TriggerButton(
+  { className, variant = 'field', size = 'sm', open, type, children, ...rest },
+  ref,
+) {
+  return (
+    <button
+      ref={ref}
+      type={type ?? 'button'}
+      {...rest}
+      className={[
+        // `justify-between`, because a trigger's face is a value on one side
+        // and a chevron on the other. No `control-edge`: see the header.
+        'interactive inline-flex w-full items-center justify-between gap-2 rounded-sm',
+        'text-left text-body transition-colors',
+        SIZE[size],
+        open === true ? OPEN : RESTING[variant],
+        'disabled:cursor-not-allowed disabled:opacity-45',
+        FOCUS_RING_CLASS,
+        className ?? '',
+      ].join(' ')}
+    >
+      {children}
+    </button>
+  )
+})

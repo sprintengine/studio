@@ -42,8 +42,16 @@ assert.deepEqual(
   ],
   'installed doors follow the fixed product rows, while rail, fixed, and nameless surfaces stay out',
 )
-assert.deepEqual(rows.map((row) => row.rowId), [null, null, null], 'contributed rows do not claim fixed notification keys')
-assert.deepEqual(rows.map((row) => row.active), [false, false, true], 'only the open view reads selected')
+assert.deepEqual(
+  rows.map((row) => row.rowId),
+  [null, null, null],
+  'contributed rows do not claim fixed notification keys',
+)
+assert.deepEqual(
+  rows.map((row) => row.active),
+  [false, false, true],
+  'only the open view reads selected',
+)
 
 rows[0]?.open()
 assert.deepEqual(

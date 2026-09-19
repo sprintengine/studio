@@ -25,18 +25,12 @@ const FLEET_SURFACE: TerminalSurface = { kind: 'fleet' }
 
 // ---------- scheme allowlist ----------
 
-assert.deepEqual(
-  resolveTerminalOscLink('https://example.com/a', LOCAL),
-  { kind: 'url', url: 'https://example.com/a' },
-)
-assert.deepEqual(
-  resolveTerminalOscLink('http://example.com/a', LOCAL),
-  { kind: 'url', url: 'http://example.com/a' },
-)
-assert.deepEqual(
-  resolveTerminalOscLink('file:///Users/dev/notes.md', LOCAL),
-  { kind: 'file', path: '/Users/dev/notes.md' },
-)
+assert.deepEqual(resolveTerminalOscLink('https://example.com/a', LOCAL), { kind: 'url', url: 'https://example.com/a' })
+assert.deepEqual(resolveTerminalOscLink('http://example.com/a', LOCAL), { kind: 'url', url: 'http://example.com/a' })
+assert.deepEqual(resolveTerminalOscLink('file:///Users/dev/notes.md', LOCAL), {
+  kind: 'file',
+  path: '/Users/dev/notes.md',
+})
 
 // Everything else is refused, silently. `javascript:` is the one that would
 // execute; the rest would each hand a different subsystem something it should
@@ -58,23 +52,16 @@ for (const hostile of [
   '',
   '   ',
 ]) {
-  assert.equal(
-    resolveTerminalOscLink(hostile, LOCAL),
-    null,
-    `refused off the allowlist: ${JSON.stringify(hostile)}`,
-  )
+  assert.equal(resolveTerminalOscLink(hostile, LOCAL), null, `refused off the allowlist: ${JSON.stringify(hostile)}`)
 }
 
 // A scheme is matched case-insensitively by the URL parser, so the allowlist
 // cannot be walked past by shouting.
-assert.deepEqual(
-  resolveTerminalOscLink('HTTPS://example.com/a', LOCAL),
-  { kind: 'url', url: 'https://example.com/a' },
-)
-assert.deepEqual(
-  resolveTerminalOscLink('FILE:///Users/dev/notes.md', LOCAL),
-  { kind: 'file', path: '/Users/dev/notes.md' },
-)
+assert.deepEqual(resolveTerminalOscLink('HTTPS://example.com/a', LOCAL), { kind: 'url', url: 'https://example.com/a' })
+assert.deepEqual(resolveTerminalOscLink('FILE:///Users/dev/notes.md', LOCAL), {
+  kind: 'file',
+  path: '/Users/dev/notes.md',
+})
 
 // ---------- a file: URI naming another host ----------
 
@@ -87,10 +74,10 @@ assert.equal(resolveTerminalOscLink('file://evil.example.com/tmp/x', LOCAL), nul
 
 // `localhost` IS this machine, and the URL parser normalises it to no host at
 // all — which is exactly the spelling the empty-host rule accepts.
-assert.deepEqual(
-  resolveTerminalOscLink('file://localhost/Users/dev/notes.md', LOCAL),
-  { kind: 'file', path: '/Users/dev/notes.md' },
-)
+assert.deepEqual(resolveTerminalOscLink('file://localhost/Users/dev/notes.md', LOCAL), {
+  kind: 'file',
+  path: '/Users/dev/notes.md',
+})
 
 // ---------- a fleet pane never resolves a local path ----------
 
@@ -101,17 +88,14 @@ assert.equal(
 )
 assert.equal(resolveTerminalOscLink('file://localhost/etc/hosts', FLEET), null)
 // A URL means the same thing from either machine, so it still resolves.
-assert.deepEqual(
-  resolveTerminalOscLink('https://example.com/a', FLEET),
-  { kind: 'url', url: 'https://example.com/a' },
-)
+assert.deepEqual(resolveTerminalOscLink('https://example.com/a', FLEET), { kind: 'url', url: 'https://example.com/a' })
 
 // ---------- decoding ----------
 
-assert.deepEqual(
-  resolveTerminalOscLink('file:///Users/dev/my%20notes.md', LOCAL),
-  { kind: 'file', path: '/Users/dev/my notes.md' },
-)
+assert.deepEqual(resolveTerminalOscLink('file:///Users/dev/my%20notes.md', LOCAL), {
+  kind: 'file',
+  path: '/Users/dev/my notes.md',
+})
 assert.deepEqual(
   resolveTerminalOscLink('file:///a/b/../c', LOCAL),
   { kind: 'file', path: '/a/c' },
@@ -327,14 +311,11 @@ assert.equal(
 
 assert.equal(parseTerminalOscCwd('file:///Users/dev/project', LOCAL), '/Users/dev/project')
 assert.equal(parseTerminalOscCwd('file://localhost/Users/dev/project', LOCAL), '/Users/dev/project')
-assert.equal(
-  parseTerminalOscCwd('file:///Users/dev/my%20project', LOCAL),
-  '/Users/dev/my project',
-)
+assert.equal(parseTerminalOscCwd('file:///Users/dev/my%20project', LOCAL), '/Users/dev/my project')
 assert.equal(
   parseTerminalOscCwd('file://other-machine/Users/dev/project', LOCAL),
   null,
-  'another machine cannot set this pane\'s resolution base',
+  "another machine cannot set this pane's resolution base",
 )
 assert.equal(
   parseTerminalOscCwd('https://example.com/', LOCAL),
@@ -342,11 +323,7 @@ assert.equal(
   'OSC 7 is defined as a file: URI; anything else is malformed, not a link',
 )
 assert.equal(parseTerminalOscCwd('/Users/dev/project', LOCAL), null, 'a bare path is not a URI')
-assert.equal(
-  parseTerminalOscCwd('file:///Users/dev/project', FLEET),
-  null,
-  'a fleet pane has no local base to set',
-)
+assert.equal(parseTerminalOscCwd('file:///Users/dev/project', FLEET), null, 'a fleet pane has no local base to set')
 
 async function main(): Promise<void> {
   await testAnAgentPaneOpensOnlyWhatSurvivesTheGate()

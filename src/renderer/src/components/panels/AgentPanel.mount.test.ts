@@ -31,6 +31,7 @@ const dom = new JSDOM('<!doctype html><html><body></body></html>', {
 function inert(): unknown {
   const handle = (() => {}) as (() => void) & { then?: unknown; catch?: unknown; finally?: unknown }
   const settled = Promise.resolve(undefined)
+  // oxlint-disable-next-line unicorn/no-thenable -- the fake handle stands in for a promise-like one
   handle.then = settled.then.bind(settled)
   handle.catch = settled.catch.bind(settled)
   handle.finally = settled.finally.bind(settled)
@@ -107,7 +108,9 @@ async function main(): Promise<void> {
       pluginCatalogStatus: 'ready',
       pluginCatalogEntries: agentCliUnavailable
         ? []
-        : [{ id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' }] as never,
+        : ([
+            { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' },
+          ] as never),
       cliAvailabilityStatus: 'loading',
     } as never)
   }
@@ -163,7 +166,11 @@ async function main(): Promise<void> {
       true,
       `the missing-CLI pane offers the CLI install row (rendered: ${JSON.stringify(labels)})`,
     )
-    assert.equal(labels.some((label) => label.startsWith('Spawn')), false, 'no Spawn button remains')
+    assert.equal(
+      labels.some((label) => label.startsWith('Spawn')),
+      false,
+      'no Spawn button remains',
+    )
     assert.equal(labels.includes('Resume paused agent — click or type to resume'), false)
     assert.match(missing.container.textContent ?? '', /is not installed/)
   } finally {

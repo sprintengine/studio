@@ -1,10 +1,13 @@
-import { createServer, type IncomingHttpHeaders, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
+import {
+  createServer,
+  type IncomingHttpHeaders,
+  type IncomingMessage,
+  type Server,
+  type ServerResponse,
+} from 'node:http'
 
 import type { AutomationTriggerPollEvent } from '../../shared/automations/contracts'
-import {
-  AutomationsStore,
-  type AutomationStoreProblem,
-} from './store'
+import { AutomationsStore, type AutomationStoreProblem } from './store'
 import type {
   AutomationsEngineProblem,
   AutomationsEngineTriggerEventDeliveryResult,
@@ -48,14 +51,14 @@ export type AutomationWebhookDeliveryInput = {
 
 export type AutomationWebhookDeliveryResult =
   | {
-    ok: true
-    status: 'delivered' | 'duplicate' | 'ignored'
-    fired: number
-    duplicates: number
-    ignored: number
-    inFlight: number
-    runIds: string[]
-  }
+      ok: true
+      status: 'delivered' | 'duplicate' | 'ignored'
+      fired: number
+      duplicates: number
+      ignored: number
+      inFlight: number
+      runIds: string[]
+    }
   | { ok: false; statusCode: number; code: string; message: string }
 
 type AutomationWebhookDeliveryFailure = Extract<AutomationWebhookDeliveryResult, { ok: false }>
@@ -114,7 +117,7 @@ export class AutomationWebhookReceiver {
   }
 
   async refresh(): Promise<AutomationWebhookReceiverStatus> {
-    const generation = this.mutationGeneration += 1
+    const generation = (this.mutationGeneration += 1)
     return this.enqueueMutation(async () => this.refreshLatest(generation))
   }
 
@@ -175,7 +178,10 @@ export class AutomationWebhookReceiver {
     const runIds: string[] = []
 
     for (const target of targets) {
-      if (!target.config.secret || !verifyWebhookSignature({ secret: target.config.secret, rawBody: input.rawBody, signature })) {
+      if (
+        !target.config.secret ||
+        !verifyWebhookSignature({ secret: target.config.secret, rawBody: input.rawBody, signature })
+      ) {
         continue
       }
       authorized += 1
@@ -215,11 +221,7 @@ export class AutomationWebhookReceiver {
       return failDelivery(401, 'webhook_unauthorized', 'Webhook signature is missing or invalid.')
     }
 
-    const status = fired > 0
-      ? 'delivered'
-      : duplicates > 0 || inFlight > 0
-        ? 'duplicate'
-        : 'ignored'
+    const status = fired > 0 ? 'delivered' : duplicates > 0 || inFlight > 0 ? 'duplicate' : 'ignored'
     return { ok: true, status, fired, duplicates, ignored, inFlight, runIds }
   }
 
@@ -261,7 +263,10 @@ export class AutomationWebhookReceiver {
 
   private enqueueMutation<T>(operation: () => Promise<T>): Promise<T> {
     const run = this.operationQueue.then(operation, operation)
-    this.operationQueue = run.then(() => undefined, () => undefined)
+    this.operationQueue = run.then(
+      () => undefined,
+      () => undefined,
+    )
     return run
   }
 
@@ -325,7 +330,7 @@ export class AutomationWebhookReceiver {
           config,
         }
         const key = routeKey(config.port, config.path)
-        routes.set(key, [...routes.get(key) ?? [], target])
+        routes.set(key, [...(routes.get(key) ?? []), target])
         targetCount += 1
       }
     }
@@ -385,7 +390,7 @@ export class AutomationWebhookReceiver {
   private async handleHttpRequest(
     configuredPort: number,
     request: IncomingMessage,
-    response: ServerResponse
+    response: ServerResponse,
   ): Promise<void> {
     if (request.method !== 'POST') {
       writeJson(response, 405, { ok: false, code: 'method_not_allowed', message: 'Webhook requests must use POST.' })
@@ -441,16 +446,19 @@ function normalizeDeliveryPath(value: string): string | null {
 
 function headerValue(
   headers: IncomingHttpHeaders | Record<string, string | string[] | undefined>,
-  name: string
+  name: string,
 ): string | undefined {
   const direct = headers[name]
-  const value = direct === undefined
-    ? Object.entries(headers).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1]
-    : direct
+  const value =
+    direct === undefined
+      ? Object.entries(headers).find(([key]) => key.toLowerCase() === name.toLowerCase())?.[1]
+      : direct
   return Array.isArray(value) ? value[0] : value
 }
 
-function parseWebhookBody(rawBody: string | Buffer): { ok: true; value: Record<string, unknown> } | AutomationWebhookDeliveryFailure {
+function parseWebhookBody(
+  rawBody: string | Buffer,
+): { ok: true; value: Record<string, unknown> } | AutomationWebhookDeliveryFailure {
   const bodyLength = Buffer.isBuffer(rawBody) ? rawBody.length : Buffer.byteLength(rawBody)
   if (bodyLength > MAX_WEBHOOK_BODY_BYTES) {
     return failDelivery(413, 'payload_too_large', `Webhook request body cannot exceed ${MAX_WEBHOOK_BODY_BYTES} bytes.`)
@@ -470,7 +478,7 @@ function parseWebhookBody(rawBody: string | Buffer): { ok: true; value: Record<s
 
 function normalizeEventTime(
   value: string | undefined,
-  fallback: string
+  fallback: string,
 ): { ok: true; value: string } | AutomationWebhookDeliveryFailure {
   if (!value) return { ok: true, value: fallback }
   const parsed = Date.parse(value)
@@ -480,11 +488,7 @@ function normalizeEventTime(
   return { ok: true, value: new Date(parsed).toISOString() }
 }
 
-function failDelivery(
-  statusCode: number,
-  code: string,
-  message: string
-): AutomationWebhookDeliveryFailure {
+function failDelivery(statusCode: number, code: string, message: string): AutomationWebhookDeliveryFailure {
   return { ok: false, statusCode, code, message }
 }
 
@@ -513,8 +517,5 @@ function storeProblemMessage(error: AutomationStoreProblem): string {
 }
 
 function defaultDeliveryProblemLogger(problem: AutomationsEngineProblem): void {
-  console.warn(
-    `[automations:webhook] delivery failed (${problem.code})`,
-    problem.message
-  )
+  console.warn(`[automations:webhook] delivery failed (${problem.code})`, problem.message)
 }

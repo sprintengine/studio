@@ -302,7 +302,10 @@ function testDisposeReleasesEveryMarker(): void {
   assert.equal(terminal.markers.length, 6, 'three markers per cycle: A, B, C')
 
   tracker.dispose()
-  assert.equal(terminal.markers.every((marker) => marker.disposed), true)
+  assert.equal(
+    terminal.markers.every((marker) => marker.disposed),
+    true,
+  )
   assert.deepEqual(tracker.promptLines(), [])
   assert.deepEqual(tracker.finishedCommands(), [])
 }

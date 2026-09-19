@@ -1,15 +1,9 @@
 import { app } from 'electron'
 import { mkdir, readFile, writeFile } from 'fs/promises'
 import { dirname, join } from 'path'
-import type {
-  MobileControlDevice,
-  MobilePushRegistration,
-} from './index'
+import type { MobileControlDevice, MobilePushRegistration } from './index'
 import { randomBase64Url } from './crypto'
-import {
-  isMobileControlDevice,
-  isMobilePushRegistration,
-} from './validation'
+import { isMobileControlDevice, isMobilePushRegistration } from './validation'
 
 export type MobileBridgeStoredState = {
   enabled: boolean
@@ -37,9 +31,10 @@ export async function readMobileBridgeStore(storePath: string): Promise<MobileBr
     return {
       enabled: payload.enabled === true,
       relayUrl: normalizeStoredRelayUrl(payload.relayUrl),
-      desktopInstanceId: typeof payload.desktopInstanceId === 'string' && payload.desktopInstanceId
-        ? payload.desktopInstanceId
-        : `mdi_${randomBase64Url(18)}`,
+      desktopInstanceId:
+        typeof payload.desktopInstanceId === 'string' && payload.desktopInstanceId
+          ? payload.desktopInstanceId
+          : `mdi_${randomBase64Url(18)}`,
       pairedDevices: Array.isArray(payload.pairedDevices)
         ? payload.pairedDevices.flatMap((device) => {
             return isMobileControlDevice(device) ? [device] : []

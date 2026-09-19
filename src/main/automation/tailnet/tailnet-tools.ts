@@ -65,17 +65,17 @@ export function createTailnetTools(options: {
 }): McpToolRegistration[] {
   const unavailable = toolError(
     'tailnet_unavailable',
-    'Tailnet remote control is not wired up in this process yet. Retry once the app has finished starting.'
+    'Tailnet remote control is not wired up in this process yet. Retry once the app has finished starting.',
   )
   const front = (): TailnetToolsFrontDoor | null => options.resolveTailnet()
 
   const status: McpToolRegistration = {
     name: 'tailnet.status',
     description:
-      'Read tailnet remote control on this machine: whether it is enabled, whether the listener is actually running '
-      + 'and on what endpoint, this machine\'s Tailscale address, the paired devices, the outstanding pairing offer '
-      + '(its scopes and expiry — never the code itself), and any pairing requests from other machines waiting to be '
-      + 'answered here. Served only over the local socket.',
+      'Read tailnet remote control on this machine: whether it is enabled, whether the listener is actually running ' +
+      "and on what endpoint, this machine's Tailscale address, the paired devices, the outstanding pairing offer " +
+      '(its scopes and expiry — never the code itself), and any pairing requests from other machines waiting to be ' +
+      'answered here. Served only over the local socket.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
       const service = front()
@@ -87,10 +87,10 @@ export function createTailnetTools(options: {
   const setEnabled: McpToolRegistration = {
     name: 'tailnet.set_enabled',
     description:
-      'Turn tailnet remote control on or off on this machine. Turning it on starts the listener only if Tailscale is '
-      + 'up — with no tailnet interface the setting persists and the call reports why nothing is listening. Turning it '
-      + 'off stops the listener and drops any outstanding pairing offer; already-paired devices keep their tokens '
-      + '(use tailnet.revoke_device for those). Served only over the local socket.',
+      'Turn tailnet remote control on or off on this machine. Turning it on starts the listener only if Tailscale is ' +
+      'up — with no tailnet interface the setting persists and the call reports why nothing is listening. Turning it ' +
+      'off stops the listener and drops any outstanding pairing offer; already-paired devices keep their tokens ' +
+      '(use tailnet.revoke_device for those). Served only over the local socket.',
     inputSchema: {
       type: 'object',
       properties: { enabled: { type: 'boolean', description: 'True to start the listener, false to stop it.' } },
@@ -110,7 +110,7 @@ export function createTailnetTools(options: {
       if (args.enabled && !next.running) {
         return toolError(
           'tailnet_listener_not_running',
-          `The setting is saved, but nothing is listening. ${next.lastError ?? 'The listener did not start.'}`
+          `The setting is saved, but nothing is listening. ${next.lastError ?? 'The listener did not start.'}`,
         )
       }
       return toolSuccess({ status: next })
@@ -120,10 +120,10 @@ export function createTailnetTools(options: {
   const offerPairing: McpToolRegistration = {
     name: 'tailnet.offer_pairing',
     description:
-      'Mint a one-time pairing code for another machine to redeem, valid for 30 days. Returns the code and the '
-      + 'multicode-tailnet:// pairing URL ONCE — neither is re-readable afterwards, and neither is ever returned by '
-      + 'tailnet.status. Replaces any outstanding offer, including one a person is part-way through using in Settings. '
-      + 'The code does not survive an app restart. Served only over the local socket.',
+      'Mint a one-time pairing code for another machine to redeem, valid for 30 days. Returns the code and the ' +
+      'multicode-tailnet:// pairing URL ONCE — neither is re-readable afterwards, and neither is ever returned by ' +
+      'tailnet.status. Replaces any outstanding offer, including one a person is part-way through using in Settings. ' +
+      'The code does not survive an app restart. Served only over the local socket.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -131,9 +131,9 @@ export function createTailnetTools(options: {
           type: 'array',
           items: { type: 'string', enum: [...TAILNET_SCOPES] },
           description:
-            'Scopes to grant the device that redeems this code. Defaults to the structured-command set '
-            + `(${TAILNET_STRUCTURED_SCOPES.join(', ')}). The terminal tier means arbitrary shell on this machine and `
-            + 'is only ever granted by naming it here.',
+            'Scopes to grant the device that redeems this code. Defaults to the structured-command set ' +
+            `(${TAILNET_STRUCTURED_SCOPES.join(', ')}). The terminal tier means arbitrary shell on this machine and ` +
+            'is only ever granted by naming it here.',
         },
       },
       additionalProperties: false,
@@ -152,7 +152,7 @@ export function createTailnetTools(options: {
           'tailnet_not_running',
           current.enabled
             ? `Tailnet remote control is enabled but not listening, so a pairing code would point at nothing. ${current.lastError ?? 'Check that Tailscale is up.'}`
-            : 'Tailnet remote control is off. Turn it on with tailnet.set_enabled first — a pairing code is a link to a listener.'
+            : 'Tailnet remote control is off. Turn it on with tailnet.set_enabled first — a pairing code is a link to a listener.',
         )
       }
       // The device that redeems this code records that an agent minted it,
@@ -181,8 +181,8 @@ export function createTailnetTools(options: {
   const cancelPairing: McpToolRegistration = {
     name: 'tailnet.cancel_pairing',
     description:
-      'Withdraw the outstanding pairing offer so the code can no longer be redeemed. Devices already paired are '
-      + 'unaffected. Succeeds whether or not an offer was outstanding. Served only over the local socket.',
+      'Withdraw the outstanding pairing offer so the code can no longer be redeemed. Devices already paired are ' +
+      'unaffected. Succeeds whether or not an offer was outstanding. Served only over the local socket.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
       const service = front()
@@ -194,8 +194,8 @@ export function createTailnetTools(options: {
   const revokeDevice: McpToolRegistration = {
     name: 'tailnet.revoke_device',
     description:
-      'Revoke a paired device by id (from tailnet.status). Its token stops working on the very next request and any '
-      + 'live terminal stream it holds is closed immediately. Served only over the local socket.',
+      'Revoke a paired device by id (from tailnet.status). Its token stops working on the very next request and any ' +
+      'live terminal stream it holds is closed immediately. Served only over the local socket.',
     inputSchema: {
       type: 'object',
       properties: { deviceId: { type: 'string', description: 'Device id from tailnet.status.' } },
@@ -220,25 +220,26 @@ export function createTailnetTools(options: {
   const approvePairRequest: McpToolRegistration = {
     name: 'tailnet.approve_pair_request',
     description:
-      'Approve a pairing request another machine has made (see tailnet.status for the waiting ones), granting exactly '
-      + 'the scopes named here. Requires the six-digit code shown on the ASKING machine\'s screen — ask the person for '
-      + 'it; it is not in tailnet.status. Three wrong codes decline the request. The requesting machine collects its '
-      + 'device token on its next poll. The scopes are NOT the ones the requester asked for — it cannot influence what '
-      + 'approving it grants. Served only over the local socket.',
+      'Approve a pairing request another machine has made (see tailnet.status for the waiting ones), granting exactly ' +
+      "the scopes named here. Requires the six-digit code shown on the ASKING machine's screen — ask the person for " +
+      'it; it is not in tailnet.status. Three wrong codes decline the request. The requesting machine collects its ' +
+      'device token on its next poll. The scopes are NOT the ones the requester asked for — it cannot influence what ' +
+      'approving it grants. Served only over the local socket.',
     inputSchema: {
       type: 'object',
       properties: {
         requestId: { type: 'string', description: 'Request id from tailnet.status.' },
         code: {
           type: 'string',
-          description: 'The six digits shown on the asking machine\'s screen. Required; typed by the person, never guessed.',
+          description:
+            "The six digits shown on the asking machine's screen. Required; typed by the person, never guessed.",
         },
         scopes: {
           type: 'array',
           items: { type: 'string', enum: [...TAILNET_SCOPES] },
           description:
-            'Scopes to grant. Defaults to the structured-command set. The terminal tier means arbitrary shell on this '
-            + 'machine and is only ever granted by naming it here.',
+            'Scopes to grant. Defaults to the structured-command set. The terminal tier means arbitrary shell on this ' +
+            'machine and is only ever granted by naming it here.',
         },
       },
       required: ['requestId', 'code'],
@@ -248,7 +249,8 @@ export function createTailnetTools(options: {
       const service = front()
       if (!service) return unavailable
       const requestId = typeof args.requestId === 'string' ? args.requestId.trim() : ''
-      if (!requestId) return toolError('invalid_request_id', '"requestId" must be a non-empty string from tailnet.status.')
+      if (!requestId)
+        return toolError('invalid_request_id', '"requestId" must be a non-empty string from tailnet.status.')
       const code = typeof args.code === 'string' ? args.code.trim() : ''
       if (!code) {
         return toolError('code_required', '"code" must be the six digits shown on the asking machine\'s screen.')
@@ -273,8 +275,8 @@ export function createTailnetTools(options: {
   const denyPairRequest: McpToolRegistration = {
     name: 'tailnet.deny_pair_request',
     description:
-      'Decline a pairing request another machine has made. The requester is told it was declined, and that peer cannot '
-      + 'ask again for a short cooldown. Served only over the local socket.',
+      'Decline a pairing request another machine has made. The requester is told it was declined, and that peer cannot ' +
+      'ask again for a short cooldown. Served only over the local socket.',
     inputSchema: {
       type: 'object',
       properties: { requestId: { type: 'string', description: 'Request id from tailnet.status.' } },
@@ -285,7 +287,8 @@ export function createTailnetTools(options: {
       const service = front()
       if (!service) return unavailable
       const requestId = typeof args.requestId === 'string' ? args.requestId.trim() : ''
-      if (!requestId) return toolError('invalid_request_id', '"requestId" must be a non-empty string from tailnet.status.')
+      if (!requestId)
+        return toolError('invalid_request_id', '"requestId" must be a non-empty string from tailnet.status.')
       const before = service.getTailnetStatus()
       if (!before.pairRequests.some((request) => request.id === requestId)) {
         return toolError('unknown_request', `No pairing request "${requestId}" is waiting on this machine.`)
@@ -297,9 +300,9 @@ export function createTailnetTools(options: {
   const listPeers: McpToolRegistration = {
     name: 'tailnet.list_peers',
     description:
-      'List the machines on this tailnet, as Tailscale itself reports them, and which of them answer as a '
-      + 'SprintEngine Studio. Never a network scan. Works with this machine\'s own listener off — finding somewhere to '
-      + 'connect to does not require having opened your own door. Served only over the local socket.',
+      'List the machines on this tailnet, as Tailscale itself reports them, and which of them answer as a ' +
+      "SprintEngine Studio. Never a network scan. Works with this machine's own listener off — finding somewhere to " +
+      'connect to does not require having opened your own door. Served only over the local socket.',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
     handler: async () => {
       const service = front()

@@ -29,7 +29,11 @@ const note = (over: Partial<AppNotification>): AppNotification => ({
 
 // ── Home ──────────────────────────────────────────────────────────────────────
 assert.equal(homeRailBadge({ needsInput: 0, failed: 0, finished: 0 }), null, 'nothing wanting you is no badge, not a 0')
-assert.deepEqual(homeRailBadge({ needsInput: 0, failed: 0, finished: 1 }), { count: 1, tone: 'good', label: '1 chat wants you' })
+assert.deepEqual(homeRailBadge({ needsInput: 0, failed: 0, finished: 1 }), {
+  count: 1,
+  tone: 'good',
+  label: '1 chat wants you',
+})
 assert.deepEqual(
   homeRailBadge({ needsInput: 1, failed: 1, finished: 2 }),
   { count: 4, tone: 'warn', label: '4 chats want you' },
@@ -46,26 +50,59 @@ const list = [
   note({ id: 'e', source: 'terminal', level: 'error' }),
   note({ id: 'f', source: 'cli' }),
 ]
-assert.deepEqual(unreadNotificationsFrom(list, AUTOMATIONS_NOTIFICATION_SOURCES).map((n) => n.id), ['a'], 'read rows do not count')
-assert.deepEqual(unreadNotificationsFrom(list, EXTENSIONS_NOTIFICATION_SOURCES).map((n) => n.id), ['c', 'd', 'f'])
-assert.ok(!EXTENSIONS_NOTIFICATION_SOURCES.has('terminal') && !AUTOMATIONS_NOTIFICATION_SOURCES.has('terminal'), 'a terminal crash badges no section')
+assert.deepEqual(
+  unreadNotificationsFrom(list, AUTOMATIONS_NOTIFICATION_SOURCES).map((n) => n.id),
+  ['a'],
+  'read rows do not count',
+)
+assert.deepEqual(
+  unreadNotificationsFrom(list, EXTENSIONS_NOTIFICATION_SOURCES).map((n) => n.id),
+  ['c', 'd', 'f'],
+)
+assert.ok(
+  !EXTENSIONS_NOTIFICATION_SOURCES.has('terminal') && !AUTOMATIONS_NOTIFICATION_SOURCES.has('terminal'),
+  'a terminal crash badges no section',
+)
 
 // ── Automations ───────────────────────────────────────────────────────────────
 assert.equal(automationsRailBadge([]), null)
-assert.deepEqual(automationsRailBadge([note({ id: 'x' })]), { count: 1, tone: 'accent', label: '1 automation run to look at' })
+assert.deepEqual(automationsRailBadge([note({ id: 'x' })]), {
+  count: 1,
+  tone: 'accent',
+  label: '1 automation run to look at',
+})
 assert.equal(automationsRailBadge([note({ id: 'x' }), note({ id: 'y', level: 'warning' })])?.tone, 'warn')
-assert.equal(automationsRailBadge([note({ id: 'x', level: 'warning' }), note({ id: 'y', level: 'error' })])?.tone, 'error', 'the loudest level wins')
+assert.equal(
+  automationsRailBadge([note({ id: 'x', level: 'warning' }), note({ id: 'y', level: 'error' })])?.tone,
+  'error',
+  'the loudest level wins',
+)
 
 // ── Cards since last seen ─────────────────────────────────────────────────────
 // With artwork this build ships: a card it cannot draw is not on the page and
 // so is never counted (the home's own rule, which this counter delegates to).
-const card = (slug: string, publishedAt: string): HostedCard => ({ slug, publishedAt, art: 'browser' } as unknown as HostedCard)
+const card = (slug: string, publishedAt: string): HostedCard =>
+  ({ slug, publishedAt, art: 'browser' }) as unknown as HostedCard
 const cards = [card('old', '2026-09-01'), card('new', '2026-09-06T12:00:00Z'), card('bad', 'not a date')]
-assert.equal(unseenCardCount(cards, undefined), 0, 'never looked is nothing new — the host stamps the first feed as seen')
-assert.equal(unseenCardCount(cards, '2026-09-03T00:00:00Z'), 1, 'only cards published after the last look count; an unparseable date never does')
+assert.equal(
+  unseenCardCount(cards, undefined),
+  0,
+  'never looked is nothing new — the host stamps the first feed as seen',
+)
+assert.equal(
+  unseenCardCount(cards, '2026-09-03T00:00:00Z'),
+  1,
+  'only cards published after the last look count; an unparseable date never does',
+)
 assert.equal(unseenCardCount(cards, 'garbage'), 0)
 assert.equal(
-  unseenCardCount([...cards, { slug: 'unknown-art', publishedAt: '2026-09-07', art: 'nothing-this-build-has' } as unknown as HostedCard], '2026-09-03T00:00:00Z'),
+  unseenCardCount(
+    [
+      ...cards,
+      { slug: 'unknown-art', publishedAt: '2026-09-07', art: 'nothing-this-build-has' } as unknown as HostedCard,
+    ],
+    '2026-09-03T00:00:00Z',
+  ),
   1,
   'a card whose artwork this build cannot draw is not counted — the home would show no chip for it',
 )
@@ -75,7 +112,11 @@ assert.equal(
 // decides the row unless the emitter said which.
 assert.equal(extensionsRowOfNotification(note({ source: 'cli' })), 'agent-clis')
 assert.equal(extensionsRowOfNotification(note({ source: 'models' })), 'agent-clis')
-assert.equal(extensionsRowOfNotification(note({ source: 'marketplace' })), 'plugins', 'the drift notice says "Open Plugins"')
+assert.equal(
+  extensionsRowOfNotification(note({ source: 'marketplace' })),
+  'plugins',
+  'the drift notice says "Open Plugins"',
+)
 assert.equal(
   extensionsRowOfNotification(note({ source: 'agents' })),
   null,
@@ -86,11 +127,23 @@ assert.equal(
   'skills',
   'an unnamed notice falls to the module’s own row via the contributed source map',
 )
-assert.equal(extensionsRowOfNotification(note({ source: 'agents', extensionsRow: 'design' })), 'design', 'an emitter that knows wins')
+assert.equal(
+  extensionsRowOfNotification(note({ source: 'agents', extensionsRow: 'design' })),
+  'design',
+  'an emitter that knows wins',
+)
 assert.equal(extensionsRowOfNotification(note({ source: 'marketplace', extensionsRow: 'skills' })), 'skills')
-assert.equal(extensionsRowOfNotification(note({ source: 'marketplace', extensionsRow: 'nonsense' })), 'plugins', 'an unknown row name falls back to the source rule')
+assert.equal(
+  extensionsRowOfNotification(note({ source: 'marketplace', extensionsRow: 'nonsense' })),
+  'plugins',
+  'an unknown row name falls back to the source rule',
+)
 assert.equal(extensionsRowOfNotification(note({ source: 'terminal' })), null, 'a terminal crash badges no row')
-assert.equal(extensionsRowOfNotification(note({ source: 'terminal', extensionsRow: 'design' })), 'design', 'any source may name a row')
+assert.equal(
+  extensionsRowOfNotification(note({ source: 'terminal', extensionsRow: 'design' })),
+  'design',
+  'any source may name a row',
+)
 assert.equal(CORE_NOTIFICATION_SOURCE_ROWS.agents, undefined, 'the core map has no module rows')
 
 const MODULE_SOURCE_ROWS = { agents: 'skills' as const }
@@ -112,10 +165,12 @@ assert.deepEqual(
 
 // ── One row's count ───────────────────────────────────────────────────────────
 assert.equal(extensionsRowBadge({ label: 'Plugins', unread: [] }), null, 'nothing is no badge, not a 0')
-assert.deepEqual(
-  extensionsRowBadge({ label: 'Plugins', unread: [note({ id: 'c', source: 'marketplace' })] }),
-  { count: 1, tone: 'accent', label: 'Plugins: 1 new', detail: '1 new' },
-)
+assert.deepEqual(extensionsRowBadge({ label: 'Plugins', unread: [note({ id: 'c', source: 'marketplace' })] }), {
+  count: 1,
+  tone: 'accent',
+  label: 'Plugins: 1 new',
+  detail: '1 new',
+})
 assert.deepEqual(
   extensionsRowBadge({ label: 'Skills', unread: [note({ id: 'd', source: 'marketplace' })], waiting: 2 }),
   { count: 3, tone: 'warn', label: 'Skills: 2 waiting on you, 1 new', detail: '2 waiting on you, 1 new' },
@@ -127,11 +182,15 @@ assert.deepEqual(
   'entries arrived since the last look are news',
 )
 assert.equal(
-  extensionsRowBadge({ label: 'Agent CLIs', unread: [note({ id: 'e', level: 'error', source: 'cli' })], waiting: 1 })?.tone,
+  extensionsRowBadge({ label: 'Agent CLIs', unread: [note({ id: 'e', level: 'error', source: 'cli' })], waiting: 1 })
+    ?.tone,
   'error',
   'a failure still outranks a wait',
 )
-assert.equal(extensionsRowBadge({ label: 'Agent CLIs', unread: [note({ id: 'w', level: 'warning', source: 'models' })] })?.tone, 'warn')
+assert.equal(
+  extensionsRowBadge({ label: 'Agent CLIs', unread: [note({ id: 'w', level: 'warning', source: 'models' })] })?.tone,
+  'warn',
+)
 
 // ── Extensions: the sum of its rows ──────────────────────────────────────────
 assert.equal(extensionsRailBadge({ rows: {}, unseenCards: 0 }), null)
@@ -144,7 +203,10 @@ assert.deepEqual(
   'the square counts what its rows count, plus the cards the home will mark',
 )
 assert.equal(
-  extensionsRailBadge({ rows: { skills: { count: 1, tone: 'warn', label: 'Skills: 1 waiting on you' } }, unseenCards: 0 })?.tone,
+  extensionsRailBadge({
+    rows: { skills: { count: 1, tone: 'warn', label: 'Skills: 1 waiting on you' } },
+    unseenCards: 0,
+  })?.tone,
   'warn',
   'a row waiting on you is gold',
 )
@@ -159,9 +221,10 @@ assert.equal(
   'error',
   'the loudest row decides the square',
 )
-assert.deepEqual(
-  extensionsRailBadge({ rows: {}, unseenCards: 1 }),
-  { count: 1, tone: 'accent', label: '1 new in Extensions' },
-)
+assert.deepEqual(extensionsRailBadge({ rows: {}, unseenCards: 1 }), {
+  count: 1,
+  tone: 'accent',
+  label: '1 new in Extensions',
+})
 
 console.log('railBadges.test.ts: ok')

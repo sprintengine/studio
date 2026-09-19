@@ -130,14 +130,7 @@ export type CanvasSceneFile = {
 }
 
 /** The element kinds an agent can author. See `toSkeleton` for the rest. */
-export type CanvasSkeletonType =
-  | 'rectangle'
-  | 'ellipse'
-  | 'diamond'
-  | 'text'
-  | 'arrow'
-  | 'line'
-  | 'frame'
+export type CanvasSkeletonType = 'rectangle' | 'ellipse' | 'diamond' | 'text' | 'arrow' | 'line' | 'frame'
 
 /**
  * The agent-facing element: what `canvas.find` returns and `canvas.edit` takes.

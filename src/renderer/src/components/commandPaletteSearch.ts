@@ -47,14 +47,7 @@ export function commandMatchesQuery(command: CommandSearchFields, query: string)
  *  the palette a project search rather than only a launcher; `extensions` is
  *  every plugin in every configured source, which is what makes it a search
  *  for things you have not installed yet. */
-export type PaletteCommandGroup =
-  | 'agents'
-  | 'skills'
-  | 'extensions'
-  | 'commands'
-  | 'actions'
-  | 'files'
-  | 'content'
+export type PaletteCommandGroup = 'agents' | 'skills' | 'extensions' | 'commands' | 'actions' | 'files' | 'content'
 
 /**
  * The vertical order of the groups, and therefore the tie-break when two rows
@@ -257,11 +250,7 @@ export type PaletteRankable = CommandSearchFields & {
 }
 
 /** Score first, then what you already have, then the canonical group order. */
-export function comparePaletteMatches(
-  a: PaletteRankable,
-  b: PaletteRankable,
-  query: string,
-): number {
+export function comparePaletteMatches(a: PaletteRankable, b: PaletteRankable, query: string): number {
   const scoreDelta = scoreCommandMatch(b, query) - scoreCommandMatch(a, query)
   if (scoreDelta !== 0) return scoreDelta
   if (a.installed !== undefined && b.installed !== undefined) {
@@ -282,10 +271,7 @@ export function comparePaletteMatches(
  * n·log(n) times over. Same order as `comparePaletteMatches`, by construction —
  * that function stays the statement of the rule and the thing the tests read.
  */
-export function orderPaletteCommands<T extends PaletteRankable>(
-  commands: readonly T[],
-  query: string,
-): T[] {
+export function orderPaletteCommands<T extends PaletteRankable>(commands: readonly T[], query: string): T[] {
   return commands
     .map((command, index) => ({ command, index, score: scoreCommandMatch(command, query) }))
     .sort((a, b) => {

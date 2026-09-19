@@ -1,11 +1,6 @@
 import assert from 'node:assert/strict'
 import { getCommandDefinition } from './commandRegistry'
-import {
-  isCommandAvailable,
-  isCommandEnabled,
-  isCommandIdEnabled,
-  isCommandInScope,
-} from './availability'
+import { isCommandAvailable, isCommandEnabled, isCommandIdEnabled, isCommandInScope } from './availability'
 import type { CommandScope } from './types'
 
 function def(id: string) {
@@ -54,7 +49,11 @@ assert.equal(isCommandEnabled(refreshBoard, moduleScopes, {}), false, 'no contex
 // A throwing predicate fails closed instead of unwinding the caller.
 assert.equal(
   isCommandAvailable(
-    { availabilityPredicate: () => { throw new Error('module bug') } },
+    {
+      availabilityPredicate: () => {
+        throw new Error('module bug')
+      },
+    },
     {},
     { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'notebook' },
   ),
@@ -79,7 +78,10 @@ assert.equal(
   true,
 )
 assert.equal(isCommandIdEnabled('panel.canvas.toggle', workspaceScopes, { activeWorkspace: true }), false)
-assert.equal(isCommandIdEnabled('panel.canvas.toggle', ['global'], { activeWorkspace: true, canvasEnabled: true }), false)
+assert.equal(
+  isCommandIdEnabled('panel.canvas.toggle', ['global'], { activeWorkspace: true, canvasEnabled: true }),
+  false,
+)
 
 // Git refresh/fetch/commit run real Git-panel handlers — only available while
 // the Git panel is mounted (gitPanelActive), in addition to an active workspace.
@@ -105,9 +107,6 @@ for (const id of ['terminal.focus', 'terminal.stop']) {
 assert.equal(isCommandIdEnabled('does.not.exist', workspaceScopes, { activeWorkspace: true }), false)
 
 // isCommandEnabled mirrors isCommandIdEnabled for a resolved definition.
-assert.equal(
-  isCommandEnabled(def('terminal.new'), workspaceScopes, { activeWorkspace: true }),
-  true,
-)
+assert.equal(isCommandEnabled(def('terminal.new'), workspaceScopes, { activeWorkspace: true }), true)
 
 console.log('availability.test.ts passed')

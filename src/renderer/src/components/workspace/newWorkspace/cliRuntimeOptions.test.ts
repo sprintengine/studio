@@ -34,7 +34,7 @@ function availabilityMap(map: Record<string, boolean>): AgentCliAvailabilityMap 
 // hooks-only gate.
 const cliEntry = (
   entry: Omit<PluginCatalogEntry, 'resumeSession' | 'sessionIdFromCaller' | 'agentStateCapable'> &
-    Partial<Pick<PluginCatalogEntry, 'agentStateCapable'>>
+    Partial<Pick<PluginCatalogEntry, 'agentStateCapable'>>,
 ): PluginCatalogEntry => ({ resumeSession: false, sessionIdFromCaller: false, agentStateCapable: true, ...entry })
 
 const plugins: PluginCatalogEntry[] = [
@@ -82,14 +82,19 @@ assert.deepEqual(
 assert.ok(
   buildAgentCliCatalog(null, {
     codex: { command: 'codex-next', useWsl: true, models: ['custom-codex'] },
-  }).find((option) => option.value === 'codex')?.modelSelection?.options.some((model) => model.id === 'custom-codex'),
+  })
+    .find((option) => option.value === 'codex')
+    ?.modelSelection?.options.some((model) => model.id === 'custom-codex'),
   'fallback bundled Codex model metadata includes user-added model ids',
 )
-assert.deepEqual(buildCliRuntimeOptions(undefined).map(({ value, label }) => ({ value, label })), [
-  { value: 'codex', label: 'Codex' },
-  { value: 'claude-code', label: 'Claude Code' },
-  { value: 'opencode', label: 'OpenCode' },
-])
+assert.deepEqual(
+  buildCliRuntimeOptions(undefined).map(({ value, label }) => ({ value, label })),
+  [
+    { value: 'codex', label: 'Codex' },
+    { value: 'claude-code', label: 'Claude Code' },
+    { value: 'opencode', label: 'OpenCode' },
+  ],
+)
 assert.deepEqual(buildAgentCliCatalog([]), [], 'loaded empty registry does not invent fallback entries')
 
 assert.deepEqual(
@@ -107,8 +112,22 @@ assert.deepEqual(
 assert.deepEqual(
   buildAgentCliCatalog([
     cliEntry({ id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude' }),
-    cliEntry({ id: 'no-hooks-cli', displayName: 'No Hooks', source: 'user', version: 1, binary: 'nh', agentStateCapable: false }),
-    cliEntry({ id: 'muse', displayName: 'Muse Code', source: 'bundled', version: 1, binary: 'muse', agentStateCapable: false }),
+    cliEntry({
+      id: 'no-hooks-cli',
+      displayName: 'No Hooks',
+      source: 'user',
+      version: 1,
+      binary: 'nh',
+      agentStateCapable: false,
+    }),
+    cliEntry({
+      id: 'muse',
+      displayName: 'Muse Code',
+      source: 'bundled',
+      version: 1,
+      binary: 'muse',
+      agentStateCapable: false,
+    }),
   ]).map(({ value }) => value),
   ['claude-code'],
   'a CLI without agent-state capability is not offered as an agent',
@@ -128,7 +147,15 @@ assert.deepEqual(
 // registry refreshes, rather than emptying every picker.
 assert.deepEqual(
   buildAgentCliCatalog([
-    { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: false, sessionIdFromCaller: false } as unknown as PluginCatalogEntry,
+    {
+      id: 'codex',
+      displayName: 'Codex',
+      source: 'bundled',
+      version: 1,
+      binary: 'codex',
+      resumeSession: false,
+      sessionIdFromCaller: false,
+    } as unknown as PluginCatalogEntry,
   ]).map(({ value }) => value),
   ['codex'],
   'an entry missing the flag (older snapshot) stays offered until refreshed',
@@ -163,8 +190,9 @@ assert.deepEqual(
   'ready status surfaces installed plugins (incl. opencode) before user entries',
 )
 assert.deepEqual(
-  selectAgentCliCatalog('loading', plugins, { opencode: { command: 'opencode', useWsl: false } })
-    .map(({ value, label }) => ({ value, label })),
+  selectAgentCliCatalog('loading', plugins, { opencode: { command: 'opencode', useWsl: false } }).map(
+    ({ value, label }) => ({ value, label }),
+  ),
   [
     { value: 'codex', label: 'Codex' },
     { value: 'claude-code', label: 'Claude Code' },
@@ -190,14 +218,16 @@ assert.deepEqual(
 // loading/error fallback catalog — both catalog paths apply the picker hidden
 // set, so the automation editor's fail-closed cli check never sees it as valid.
 assert.deepEqual(
-  selectAgentCliCatalog('loading', plugins, { 'generic-shell': { command: 'sh', useWsl: false } })
-    .map((option) => option.value),
+  selectAgentCliCatalog('loading', plugins, { 'generic-shell': { command: 'sh', useWsl: false } }).map(
+    (option) => option.value,
+  ),
   ['codex', 'claude-code', 'opencode'],
   'loading fallback drops a configured generic-shell runtime key (hidden id)',
 )
 assert.deepEqual(
-  selectAgentCliCatalog('error', null, { 'generic-shell': { command: 'sh', useWsl: false } })
-    .map((option) => option.value),
+  selectAgentCliCatalog('error', null, { 'generic-shell': { command: 'sh', useWsl: false } }).map(
+    (option) => option.value,
+  ),
   ['codex', 'claude-code', 'opencode'],
   'error fallback drops a configured generic-shell runtime key (hidden id)',
 )
@@ -274,7 +304,10 @@ const modelPlugins: PluginCatalogEntry[] = [
     version: 1,
     binary: 'claude',
     modelSelection: {
-      options: [{ id: 'opus', label: 'Opus' }, { id: 'sonnet', label: 'Sonnet' }],
+      options: [
+        { id: 'opus', label: 'Opus' },
+        { id: 'sonnet', label: 'Sonnet' },
+      ],
       allowCustomId: true,
     },
   }),
@@ -335,9 +368,9 @@ const userAddedClaudeModels = { 'claude-code': { command: '', useWsl: false, mod
 const claudeModelRows = (
   discovered: Parameters<typeof buildAgentCliCatalog>[2],
 ): { id: string; label?: string; origin: string }[] =>
-  buildAgentCliCatalog(discoveryPlugins, userAddedClaudeModels, discovered)
-    .find((option) => option.value === 'claude-code')
-    ?.modelSelection?.options ?? []
+  buildAgentCliCatalog(discoveryPlugins, userAddedClaudeModels, discovered).find(
+    (option) => option.value === 'claude-code',
+  )?.modelSelection?.options ?? []
 
 const firstProbe = claudeModelRows({
   'claude-code': {
@@ -407,11 +440,7 @@ assert.deepEqual(
   ],
   'with no discovered catalog the picker shows exactly the manifest seed plus the user list',
 )
-assert.deepEqual(
-  claudeModelRows({}),
-  noDiscoveryRows,
-  'an empty catalog renders the same rows as no catalog at all',
-)
+assert.deepEqual(claudeModelRows({}), noDiscoveryRows, 'an empty catalog renders the same rows as no catalog at all')
 assert.deepEqual(
   claudeModelRows({
     'claude-code': { models: undefined, fetchedAt: '2026-07-26T00:00:00Z', source: 'agent-sdk' },
@@ -497,21 +526,30 @@ assert.equal(
 const availCatalog = buildAgentCliCatalog(plugins) // codex, claude-code, opencode
 // Only codex installed -> claude-code + opencode hidden; codex annotated.
 assert.deepEqual(
-  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: true, 'claude-code': false, opencode: false }), 'ready')
-    .map((option) => option.value),
+  filterCatalogByAvailability(
+    availCatalog,
+    availabilityMap({ codex: true, 'claude-code': false, opencode: false }),
+    'ready',
+  ).map((option) => option.value),
   ['codex'],
   'ready availability hides CLIs whose binary is not installed',
 )
 assert.equal(
-  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: true, 'claude-code': false, opencode: false }), 'ready')
-    .find((option) => option.value === 'codex')?.installed,
+  filterCatalogByAvailability(
+    availCatalog,
+    availabilityMap({ codex: true, 'claude-code': false, opencode: false }),
+    'ready',
+  ).find((option) => option.value === 'codex')?.installed,
   true,
   'surviving options are annotated with installed state',
 )
 // Loading status must not filter (never-empty guard) even if map says nothing installed.
 assert.deepEqual(
-  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: false, 'claude-code': false, opencode: false }), 'loading')
-    .map((option) => option.value),
+  filterCatalogByAvailability(
+    availCatalog,
+    availabilityMap({ codex: false, 'claude-code': false, opencode: false }),
+    'loading',
+  ).map((option) => option.value),
   ['codex', 'claude-code', 'opencode'],
   'loading status shows all registered CLIs (never an empty picker)',
 )
@@ -519,16 +557,22 @@ assert.deepEqual(
 // catalog empties and the surfaces render their install state, instead of the
 // old escape hatch handing back eight uninstalled CLIs that all read launchable.
 assert.deepEqual(
-  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: false, 'claude-code': false, opencode: false }), 'ready')
-    .map((option) => option.value),
+  filterCatalogByAvailability(
+    availCatalog,
+    availabilityMap({ codex: false, 'claude-code': false, opencode: false }),
+    'ready',
+  ).map((option) => option.value),
   [],
   'a ready probe with nothing installed yields an empty catalog, not the unfiltered one',
 )
 // The case the escape hatch was written for still degrades gracefully: CLIs
 // exist, the probe did not finish, and the picker keeps the last known list.
 assert.deepEqual(
-  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: false, 'claude-code': false, opencode: false }), 'error')
-    .map((option) => option.value),
+  filterCatalogByAvailability(
+    availCatalog,
+    availabilityMap({ codex: false, 'claude-code': false, opencode: false }),
+    'error',
+  ).map((option) => option.value),
   ['codex', 'claude-code', 'opencode'],
   'a failed probe keeps the annotated catalog — "we do not know" is not "none installed"',
 )
@@ -539,8 +583,7 @@ assert.deepEqual(
 )
 // An option with no availability entry stays visible (unknown != not-installed).
 assert.deepEqual(
-  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: true }), 'ready')
-    .map((option) => option.value),
+  filterCatalogByAvailability(availCatalog, availabilityMap({ codex: true }), 'ready').map((option) => option.value),
   ['codex', 'claude-code', 'opencode'],
   'options without a probe entry are not hidden',
 )
@@ -569,7 +612,11 @@ assert.equal(
   'a remembered claude-code lastSelectedCli remaps to codex on a codex-only machine',
 )
 // One CLI installed and the rest not: the existing filtering is unchanged.
-assert.deepEqual(codexOnly.map((option) => option.value), ['codex'], 'only the installed CLI survives filtering')
+assert.deepEqual(
+  codexOnly.map((option) => option.value),
+  ['codex'],
+  'only the installed CLI survives filtering',
+)
 
 // --- the zero-CLI machine (MC-2093) ---------------------------------------
 const nothingInstalled = selectAgentCliCatalog('ready', plugins, undefined, {
@@ -636,9 +683,9 @@ const hostedRows = (
   hosted: Parameters<typeof buildAgentCliCatalog>[3],
   discovered?: Parameters<typeof buildAgentCliCatalog>[2],
 ): { id: string; label?: string; origin: string; releasedAt?: string }[] =>
-  buildAgentCliCatalog(discoveryPlugins, userAddedClaudeModels, discovered, hosted)
-    .find((option) => option.value === 'claude-code')
-    ?.modelSelection?.options ?? []
+  buildAgentCliCatalog(discoveryPlugins, userAddedClaudeModels, discovered, hosted).find(
+    (option) => option.value === 'claude-code',
+  )?.modelSelection?.options ?? []
 
 const firstFeed = hostedRows({
   'claude-code': [
@@ -706,8 +753,4 @@ assert.deepEqual(
   "a retired feed row does not override the CLI's own word: an id discovery still lists stays, as discovered",
 )
 
-assert.deepEqual(
-  hostedRows(undefined),
-  hostedRows({}),
-  'no feed and an empty feed render the same catalog',
-)
+assert.deepEqual(hostedRows(undefined), hostedRows({}), 'no feed and an empty feed render the same catalog')

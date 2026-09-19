@@ -24,8 +24,7 @@ import type { InstalledModule, UserModuleListResult } from './user-module-regist
 const READ_FAILURE_MESSAGE = 'entry.renderer bundle could not be read.'
 
 type RendererEntryResolution =
-  | { servable: true; entryPath: string }
-  | { servable: false; view: ThirdPartyRendererEntryView }
+  { servable: true; entryPath: string } | { servable: false; view: ThirdPartyRendererEntryView }
 
 // Pure availability check used both by the launch view (Settings → Modules)
 // and by the serving path below, so what the UI reports and what actually
@@ -71,7 +70,7 @@ export function rendererEntryView(installed: InstalledModule): ThirdPartyRendere
 export async function collectThirdPartyRendererEntries(
   modules: readonly InstalledModule[],
   trustContext?: ModuleTrustContext,
-  assetOrigin?: (moduleId: string) => string
+  assetOrigin?: (moduleId: string) => string,
 ): Promise<ThirdPartyRendererEntriesResult> {
   const result: ThirdPartyRendererEntriesResult = { entries: [], failures: {} }
   for (const installed of modules) {
@@ -113,7 +112,7 @@ export function registerThirdPartyRendererEntryIpc(
     discoverModules: () => Promise<UserModuleListResult>
     trustContext?: () => ModuleTrustContext
     assetOrigin?: (moduleId: string) => string
-  }
+  },
 ): void {
   host.registerIpc(THIRD_PARTY_RENDERER_ENTRIES_CHANNEL, async (): Promise<ThirdPartyRendererEntriesResult> => {
     const { modules } = await options.discoverModules()

@@ -1,5 +1,16 @@
 import assert from 'node:assert/strict'
-import { cpSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -128,7 +139,11 @@ run('browsed-folder attach validates the bundle first and preserves existing pro
     source.provenance.releasedAt = '2026-06-30T00:00:00.000Z'
     writeFileSync(join(folder, 'design-system.json'), JSON.stringify(source, null, 2))
 
-    const result = await attachDesignSystemBundle({ kind: 'folder', path: folder }, workspace, libraryPathsFor(libraryRoot))
+    const result = await attachDesignSystemBundle(
+      { kind: 'folder', path: folder },
+      workspace,
+      libraryPathsFor(libraryRoot),
+    )
     assert.equal(result.ok, true, JSON.stringify(result))
     if (!result.ok) return
 
@@ -151,7 +166,11 @@ run('an invalid browsed source fails typed with nothing written', async () => {
   const notABundle = mkdtempSync(join(tmpdir(), 'ds-attach-junk-'))
   try {
     // Missing manifest entirely.
-    const missing = await attachDesignSystemBundle({ kind: 'folder', path: notABundle }, workspace, libraryPathsFor(libraryRoot))
+    const missing = await attachDesignSystemBundle(
+      { kind: 'folder', path: notABundle },
+      workspace,
+      libraryPathsFor(libraryRoot),
+    )
     assert.equal(missing.ok, false)
     if (!missing.ok) {
       assert.equal(missing.stage, 'source')
@@ -160,7 +179,11 @@ run('an invalid browsed source fails typed with nothing written', async () => {
 
     // Invalid manifest.
     writeFileSync(join(notABundle, 'design-system.json'), '{ "schemaVersion": "nope" }')
-    const invalid = await attachDesignSystemBundle({ kind: 'folder', path: notABundle }, workspace, libraryPathsFor(libraryRoot))
+    const invalid = await attachDesignSystemBundle(
+      { kind: 'folder', path: notABundle },
+      workspace,
+      libraryPathsFor(libraryRoot),
+    )
     assert.equal(invalid.ok, false)
     if (!invalid.ok) assert.equal(invalid.stage, 'source')
 
@@ -203,7 +226,11 @@ run('a bundle with symlinks escaping the source is a typed source refusal with n
     // Absolute symlink shape: foundations/tokens.css -> <outside file>.
     const absoluteLink = join(bundle, 'foundations', 'stolen.css')
     symlinkSync(join(outer, 'secret.txt'), absoluteLink)
-    const absolute = await attachDesignSystemBundle({ kind: 'folder', path: bundle }, workspace, libraryPathsFor(libraryRoot))
+    const absolute = await attachDesignSystemBundle(
+      { kind: 'folder', path: bundle },
+      workspace,
+      libraryPathsFor(libraryRoot),
+    )
     assert.equal(absolute.ok, false)
     if (!absolute.ok) {
       assert.equal(absolute.stage, 'source')
@@ -216,7 +243,11 @@ run('a bundle with symlinks escaping the source is a typed source refusal with n
     // Relative ../ symlink shape escaping the bundle root.
     const relativeLink = join(bundle, 'components', 'button', 'escape.md')
     symlinkSync(join('..', '..', '..', 'secret.txt'), relativeLink)
-    const relative = await attachDesignSystemBundle({ kind: 'folder', path: bundle }, workspace, libraryPathsFor(libraryRoot))
+    const relative = await attachDesignSystemBundle(
+      { kind: 'folder', path: bundle },
+      workspace,
+      libraryPathsFor(libraryRoot),
+    )
     assert.equal(relative.ok, false)
     if (!relative.ok) assert.equal(relative.stage, 'source')
     assert.deepEqual(readdirSync(workspace), [])
@@ -225,7 +256,11 @@ run('a bundle with symlinks escaping the source is a typed source refusal with n
     // A relative link confined to the bundle stays attachable, and the landed
     // copy contains no link that resolves outside design-system/.
     symlinkSync('tokens.css', join(bundle, 'foundations', 'alias.css'))
-    const confined = await attachDesignSystemBundle({ kind: 'folder', path: bundle }, workspace, libraryPathsFor(libraryRoot))
+    const confined = await attachDesignSystemBundle(
+      { kind: 'folder', path: bundle },
+      workspace,
+      libraryPathsFor(libraryRoot),
+    )
     assert.equal(confined.ok, true, JSON.stringify(confined))
     const landedLink = join(workspace, DESIGN_SYSTEM_ATTACH_DIRNAME, 'foundations', 'alias.css')
     assert.ok(lstatSync(landedLink).isSymbolicLink())

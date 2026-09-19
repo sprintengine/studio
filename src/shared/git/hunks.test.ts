@@ -68,7 +68,8 @@ run('the function context after the second @@ is not mistaken for content', () =
 })
 
 run('a CRLF file keeps its carriage returns, because they are the content', () => {
-  const crlf = 'diff --git a/c.txt b/c.txt\nindex 415a78b..ce5d508 100644\n--- a/c.txt\n+++ b/c.txt\n@@ -2 +2 @@ x\n-y\r\n+Y\r\n'
+  const crlf =
+    'diff --git a/c.txt b/c.txt\nindex 415a78b..ce5d508 100644\n--- a/c.txt\n+++ b/c.txt\n@@ -2 +2 @@ x\n-y\r\n+Y\r\n'
   const [file] = parseUnifiedDiff(crlf)
   assert.deepEqual(file.hunks[0].lines, ['-y\r', '+Y\r'])
   // And the fingerprint round-trips them, so the patch built from it matches
@@ -90,12 +91,7 @@ run('the no-newline marker belongs to the hunk it follows', () => {
     '',
   ].join('\n')
   const [file] = parseUnifiedDiff(noEol)
-  assert.deepEqual(file.hunks[0].lines, [
-    '-q',
-    '\\ No newline at end of file',
-    '+Q',
-    '\\ No newline at end of file',
-  ])
+  assert.deepEqual(file.hunks[0].lines, ['-q', '\\ No newline at end of file', '+Q', '\\ No newline at end of file'])
 })
 
 run('a new file has no a/ side and a deletion has no b/ side', () => {
@@ -151,8 +147,14 @@ run('an empty diff is no files at all', () => {
 })
 
 run('a hunk header is written back the way git writes it', () => {
-  const hunk = (patch: Partial<DiffHunk>): DiffHunk =>
-    ({ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: [], ...patch })
+  const hunk = (patch: Partial<DiffHunk>): DiffHunk => ({
+    oldStart: 1,
+    oldLines: 1,
+    newStart: 1,
+    newLines: 1,
+    lines: [],
+    ...patch,
+  })
   assert.equal(formatHunkHeader(hunk({})), '@@ -1 +1 @@')
   assert.equal(formatHunkHeader(hunk({ oldStart: 3, oldLines: 1, newStart: 2, newLines: 0 })), '@@ -3 +2,0 @@')
   assert.equal(formatHunkHeader(hunk({ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2 })), '@@ -0,0 +1,2 @@')

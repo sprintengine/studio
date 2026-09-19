@@ -56,7 +56,7 @@ export function resolveFocusedAgentId(
   workspaceId: WorkspaceId,
   focused: AgentId | undefined,
   agentIds: ReadonlySet<AgentId> | ReadonlyArray<AgentId>,
-  sessions: ReadonlyArray<FocusFallbackSession>
+  sessions: ReadonlyArray<FocusFallbackSession>,
 ): AgentId | null {
   const known = agentIds instanceof Set ? agentIds : new Set(agentIds)
   if (focused && known.has(focused)) return focused

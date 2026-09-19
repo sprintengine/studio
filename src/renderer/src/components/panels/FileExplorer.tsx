@@ -106,7 +106,7 @@ function flattenTree(
   entries: Entry[],
   depth: number,
   expanded: Record<string, boolean>,
-  childrenByPath: Record<string, Entry[]>
+  childrenByPath: Record<string, Entry[]>,
 ): TreeRow[] {
   const rows: TreeRow[] = []
 
@@ -146,7 +146,7 @@ function buildSearchTreeRows(rootPath: string, entries: Entry[]): TreeRow[] {
   const getOrCreateDirectory = (
     children: Map<string, SearchTreeNode>,
     name: string,
-    parentPath: string
+    parentPath: string,
   ): SearchTreeNode => {
     const path = `${parentPath}${parentPath.endsWith(separator) ? '' : separator}${name}`
     const existing = children.get(path)
@@ -231,7 +231,13 @@ function FileIcon({ name, dimmed = false }: { name: string; dimmed?: boolean }) 
   )
 }
 
-function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React.MouseEventHandler<HTMLButtonElement> }) {
+function ChevronIcon({
+  expanded,
+  onClick,
+}: {
+  expanded: boolean
+  onClick?: React.MouseEventHandler<HTMLButtonElement>
+}) {
   return (
     <IconButton
       size="xs"
@@ -255,7 +261,13 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
         className={`icon-xs transition-transform ${expanded ? 'rotate-90' : ''}`}
         fill="none"
       >
-        <path d="M4.25 2.5 7.75 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M4.25 2.5 7.75 6l-3.5 3.5"
+          stroke="currentColor"
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     </IconButton>
   )
@@ -275,7 +287,8 @@ function ChevronIcon({ expanded, onClick }: { expanded: boolean; onClick?: React
 // a category code on every row rather than a mark on the one that was chosen.
 function FolderIcon({ role }: { role?: FolderRole | null }) {
   const ink = role ? folderRoleInk(role) : null
-  const badge = role === 'generated' ? 'generated' : role === 'resources' || role === 'test-resources' ? 'resources' : undefined
+  const badge =
+    role === 'generated' ? 'generated' : role === 'resources' || role === 'test-resources' ? 'resources' : undefined
   return (
     <span className={`inline-flex size-icon-sm shrink-0 items-center justify-center ${ink ?? ''}`}>
       <FolderGlyph badge={badge} />
@@ -302,7 +315,12 @@ function RevealActiveFileIcon() {
     <svg viewBox="0 0 16 16" aria-hidden="true" className="icon-sm" fill="none">
       <circle cx="8" cy="8" r="4.75" stroke="currentColor" strokeWidth="1.35" />
       <circle cx="8" cy="8" r="1.45" fill="currentColor" />
-      <path d="M8 1.75v2M8 12.25v2M14.25 8h-2M3.75 8h-2" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
+      <path
+        d="M8 1.75v2M8 12.25v2M14.25 8h-2M3.75 8h-2"
+        stroke="currentColor"
+        strokeWidth="1.35"
+        strokeLinecap="round"
+      />
     </svg>
   )
 }
@@ -316,7 +334,13 @@ function NewFileIcon() {
         strokeWidth="1.3"
         strokeLinejoin="round"
       />
-      <path d="M9.5 1.9v2.25h2.25M5.5 8h4M7.5 6v4" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M9.5 1.9v2.25h2.25M5.5 8h4M7.5 6v4"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -344,7 +368,7 @@ function remapPath(path: string, fromPath: string, toPath: string): string {
 
 function topLevelEntries(entries: Entry[]): Entry[] {
   return entries.filter(
-    (entry) => !entries.some((candidate) => candidate.path !== entry.path && isPathOrChild(entry.path, candidate.path))
+    (entry) => !entries.some((candidate) => candidate.path !== entry.path && isPathOrChild(entry.path, candidate.path)),
   )
 }
 
@@ -363,14 +387,15 @@ function parseExplorerMovePayload(dataTransfer: DataTransfer): ExplorerMovePaylo
     }
     if (!Array.isArray(value.entries)) return null
 
-    const entries = value.entries.filter((entry): entry is Entry => (
-      Boolean(entry)
-      && typeof entry.name === 'string'
-      && typeof entry.path === 'string'
-      && typeof entry.parentPath === 'string'
-      && typeof entry.isDir === 'boolean'
-      && entry.path.trim().length > 0
-    ))
+    const entries = value.entries.filter(
+      (entry): entry is Entry =>
+        Boolean(entry) &&
+        typeof entry.name === 'string' &&
+        typeof entry.path === 'string' &&
+        typeof entry.parentPath === 'string' &&
+        typeof entry.isDir === 'boolean' &&
+        entry.path.trim().length > 0,
+    )
     if (!entries.length) return null
 
     return {
@@ -477,17 +502,14 @@ function mergeGitDeletedEntries(entries: Entry[], dirPath: string, gitStatus: Gi
   return nextEntries.sort((a, b) => (a.isDir !== b.isDir ? (a.isDir ? -1 : 1) : a.name.localeCompare(b.name)))
 }
 
-function getDirectoryGitStatus(
-  directoryStatus: Record<string, GitFileStatus>,
-  dirPath: string
-): GitFileStatus | null {
+function getDirectoryGitStatus(directoryStatus: Record<string, GitFileStatus>, dirPath: string): GitFileStatus | null {
   return directoryStatus[normalizePathKey(dirPath)] ?? null
 }
 
 function getEntryGitStatus(
   gitStatus: GitStatusSnapshot | null,
   directoryStatus: Record<string, GitFileStatus>,
-  entry: Entry
+  entry: Entry,
 ): GitFileStatus | null {
   if (entry.gitDeleted) return 'deleted'
   const exactStatus = getGitEntry(gitStatus, entry.path)?.status ?? null
@@ -498,7 +520,7 @@ function getEntryGitStatus(
 function remapChildrenByPath(
   childrenByPath: Record<string, Entry[]>,
   fromPath: string,
-  toPath: string
+  toPath: string,
 ): Record<string, Entry[]> {
   return Object.fromEntries(
     Object.entries(childrenByPath).map(([key, entries]) => [
@@ -508,17 +530,17 @@ function remapChildrenByPath(
         path: remapPath(entry.path, fromPath, toPath),
         parentPath: remapPath(entry.parentPath, fromPath, toPath),
       })),
-    ])
+    ]),
   )
 }
 
 function remapExpandedPaths(
   expandedPaths: Record<string, boolean>,
   fromPath: string,
-  toPath: string
+  toPath: string,
 ): Record<string, boolean> {
   return Object.fromEntries(
-    Object.entries(expandedPaths).map(([key, value]) => [remapPath(key, fromPath, toPath), value])
+    Object.entries(expandedPaths).map(([key, value]) => [remapPath(key, fromPath, toPath), value]),
   )
 }
 
@@ -527,7 +549,7 @@ function expandedPathRecordFromList(paths: string[], rootPath: string): Record<s
   return Object.fromEntries(
     Array.from(candidatePaths)
       .filter((path) => parentDirectoriesForPath(rootPath, path).every((parentPath) => candidatePaths.has(parentPath)))
-      .map((path) => [path, true])
+      .map((path) => [path, true]),
   )
 }
 
@@ -541,7 +563,7 @@ async function searchFiles(
   rootPath: string,
   query: string,
   gitStatus: GitStatusSnapshot | null,
-  limit = 200
+  limit = 200,
 ): Promise<FileSearchResponse> {
   const lowerQuery = query.toLowerCase().trim()
   if (!lowerQuery) return { entries: [], diagnostics: null }
@@ -653,21 +675,25 @@ function ExplorerTree({
   // Subscribed rather than read from a ref: marking a folder has to repaint
   // the tree beneath it on the same tick.
   const folderRoles = useWorkspaceStore(
-    (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState?.folderRoles
+    (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState?.folderRoles,
   ) as FolderRoleMap | undefined
   const moduleOverrides = useWorkspaceStore((s) => s.appSettings.modules)
   const dialog = useConfirmDialog()
-  const readPersistedExpandedPaths = useCallback(() => (
-    useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState?.expandedPaths
-    ?? EMPTY_EXPANDED_PATHS
-  ), [workspaceId])
-  const readPersistedSelectedPath = useCallback(() => (
-    useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState?.selectedPath
-    ?? null
-  ), [workspaceId])
+  const readPersistedExpandedPaths = useCallback(
+    () =>
+      useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState
+        ?.expandedPaths ?? EMPTY_EXPANDED_PATHS,
+    [workspaceId],
+  )
+  const readPersistedSelectedPath = useCallback(
+    () =>
+      useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.fileExplorerState
+        ?.selectedPath ?? null,
+    [workspaceId],
+  )
   const initialExpandedPaths = useMemo(
     () => expandedPathRecordFromList(readPersistedExpandedPaths(), rootPath),
-    [readPersistedExpandedPaths, rootPath]
+    [readPersistedExpandedPaths, rootPath],
   )
 
   const [rootEntries, setRootEntries] = useState<Entry[]>([])
@@ -697,15 +723,12 @@ function ExplorerTree({
   const selectionAnchorPathRef = useRef<string | null>(null)
   const activeRowsRef = useRef<TreeRow[]>([])
   const activeMoveDragRef = useRef<ExplorerMovePayload | null>(null)
-  const dragSelectionRef = useRef<
-    | { kind: 'background'; startY: number; active: boolean }
-    | null
-  >(null)
+  const dragSelectionRef = useRef<{ kind: 'background'; startY: number; active: boolean } | null>(null)
   const completedDragSelectionRef = useRef(false)
 
   const visibleRows = useMemo(
     () => flattenTree(rootEntries, 0, expandedPaths, childrenByPath),
-    [rootEntries, expandedPaths, childrenByPath]
+    [rootEntries, expandedPaths, childrenByPath],
   )
 
   // The root row (owner 2026-09-05): the folder
@@ -717,22 +740,16 @@ function ExplorerTree({
   const [rootCollapsed, setRootCollapsed] = useState(false)
 
   const isSearching = query.trim().length > 0
-  const searchRows = useMemo(
-    () => buildSearchTreeRows(rootPath, searchResults),
-    [rootPath, searchResults]
-  )
-  const activeRows = isSearching
-    ? searchRows
-    : rootCollapsed
-      ? EMPTY_TREE_ROWS
-      : visibleRows
+  const searchRows = useMemo(() => buildSearchTreeRows(rootPath, searchResults), [rootPath, searchResults])
+  const activeRows = isSearching ? searchRows : rootCollapsed ? EMPTY_TREE_ROWS : visibleRows
   const selectedEntries = useMemo(
     () => activeRows.filter((row) => selectedPaths.has(row.entry.path)).map((row) => row.entry),
-    [activeRows, selectedPaths]
+    [activeRows, selectedPaths],
   )
-  const searchDiagnosticsTitle = import.meta.env.DEV && searchDiagnostics
-    ? `Search used ${searchDiagnostics.engine} in ${searchDiagnostics.elapsedMs} ms (${searchDiagnostics.resultCount}${searchDiagnostics.truncated ? '+' : ''} results)`
-    : undefined
+  const searchDiagnosticsTitle =
+    import.meta.env.DEV && searchDiagnostics
+      ? `Search used ${searchDiagnostics.engine} in ${searchDiagnostics.elapsedMs} ms (${searchDiagnostics.resultCount}${searchDiagnostics.truncated ? '+' : ''} results)`
+      : undefined
 
   useEffect(() => {
     latestSearchQueryRef.current = query
@@ -761,7 +778,7 @@ function ExplorerTree({
           })
           .filter((row): row is { path: string; top: number; bottom: number } => Boolean(row)),
         dragSelection.startY,
-        clientY
+        clientY,
       )
 
       completedDragSelectionRef.current = rangePaths.length > 0
@@ -792,18 +809,22 @@ function ExplorerTree({
 
   const renamingPath = renameDraft?.entry.path ?? null
 
-  const commitExpandedPaths = useCallback((next: Record<string, boolean>) => {
-    latestExpandedPathsRef.current = next
-    setExpandedPathsState(next)
-    setFileExplorerExpandedPaths(workspaceId, expandedPathListFromRecord(next))
-  }, [setFileExplorerExpandedPaths, workspaceId])
+  const commitExpandedPaths = useCallback(
+    (next: Record<string, boolean>) => {
+      latestExpandedPathsRef.current = next
+      setExpandedPathsState(next)
+      setFileExplorerExpandedPaths(workspaceId, expandedPathListFromRecord(next))
+    },
+    [setFileExplorerExpandedPaths, workspaceId],
+  )
 
-  const setExpandedPaths = useCallback((
-    update: Record<string, boolean> | ((current: Record<string, boolean>) => Record<string, boolean>)
-  ) => {
-    const current = latestExpandedPathsRef.current
-    commitExpandedPaths(typeof update === 'function' ? update(current) : update)
-  }, [commitExpandedPaths])
+  const setExpandedPaths = useCallback(
+    (update: Record<string, boolean> | ((current: Record<string, boolean>) => Record<string, boolean>)) => {
+      const current = latestExpandedPathsRef.current
+      commitExpandedPaths(typeof update === 'function' ? update(current) : update)
+    },
+    [commitExpandedPaths],
+  )
 
   const showError = useCallback((error: unknown, fallback?: string) => {
     // Through the app's one toast region (design-system/components/toast):
@@ -813,22 +834,25 @@ function ExplorerTree({
     showToast({
       tone: 'error',
       title: 'File action failed',
-      description: error instanceof Error ? error.message : fallback ?? String(error),
+      description: error instanceof Error ? error.message : (fallback ?? String(error)),
     })
   }, [])
 
-  const applySearchResponse = useCallback((response: FileSearchResponse) => {
-    setSearchResults(response.entries)
-    setSearchDiagnostics(response.diagnostics)
+  const applySearchResponse = useCallback(
+    (response: FileSearchResponse) => {
+      setSearchResults(response.entries)
+      setSearchDiagnostics(response.diagnostics)
 
-    if (response.diagnostics) {
-      logPerfEvent('FileExplorer', 'search-files', {
-        rootPath,
-        query: latestSearchQueryRef.current,
-        ...response.diagnostics,
-      })
-    }
-  }, [rootPath])
+      if (response.diagnostics) {
+        logPerfEvent('FileExplorer', 'search-files', {
+          rootPath,
+          query: latestSearchQueryRef.current,
+          ...response.diagnostics,
+        })
+      }
+    },
+    [rootPath],
+  )
 
   useEffect(() => {
     if (!renamingPath) return
@@ -840,26 +864,32 @@ function ExplorerTree({
 
   const { isIgnored, checkDirectory: checkIgnoredDirectory } = useIgnoredPaths(
     gitStatus?.repoRoot ?? null,
-    refreshToken
+    refreshToken,
   )
 
-  const loadDirectory = useCallback(async (dirPath: string) => {
-    const raw = await window.api.readdir(dirPath)
-    const entries = mergeGitDeletedEntries(toEntries(raw, dirPath), dirPath, latestGitStatusRef.current)
+  const loadDirectory = useCallback(
+    async (dirPath: string) => {
+      const raw = await window.api.readdir(dirPath)
+      const entries = mergeGitDeletedEntries(toEntries(raw, dirPath), dirPath, latestGitStatusRef.current)
 
-    // One `check-ignore` per directory, here rather than per row: the whole
-    // listing is in hand exactly once, which is what keeps this to a single
-    // spawn per folder the person actually opens.
-    checkIgnoredDirectory(dirPath, entries.map((entry) => entry.path))
+      // One `check-ignore` per directory, here rather than per row: the whole
+      // listing is in hand exactly once, which is what keeps this to a single
+      // spawn per folder the person actually opens.
+      checkIgnoredDirectory(
+        dirPath,
+        entries.map((entry) => entry.path),
+      )
 
-    if (dirPath === rootPath) {
-      setRootEntries(entries)
-    } else {
-      setChildrenByPath((current) => ({ ...current, [dirPath]: entries }))
-    }
+      if (dirPath === rootPath) {
+        setRootEntries(entries)
+      } else {
+        setChildrenByPath((current) => ({ ...current, [dirPath]: entries }))
+      }
 
-    return entries
-  }, [rootPath, checkIgnoredDirectory])
+      return entries
+    },
+    [rootPath, checkIgnoredDirectory],
+  )
 
   const ensureDirectoryLoaded = async (dirPath: string) => {
     if (dirPath === rootPath || childrenByPath[dirPath]) return
@@ -880,7 +910,7 @@ function ExplorerTree({
     const rangePaths = fileExplorerSelectionRange(
       activeRowsRef.current.map((row) => row.entry.path),
       anchorPath,
-      targetPath
+      targetPath,
     )
 
     if (!rangePaths.length) {
@@ -932,49 +962,52 @@ function ExplorerTree({
     await loadDirectory(parentPath)
   }
 
-  const refreshTree = useCallback(async (cause: RefreshTreeCause = 'manual') => {
-    const startedAt = performance.now()
-    const expandedDirectories = Object.entries(latestExpandedPathsRef.current)
-      .filter(([, expanded]) => expanded)
-      .map(([dirPath]) => dirPath)
+  const refreshTree = useCallback(
+    async (cause: RefreshTreeCause = 'manual') => {
+      const startedAt = performance.now()
+      const expandedDirectories = Object.entries(latestExpandedPathsRef.current)
+        .filter(([, expanded]) => expanded)
+        .map(([dirPath]) => dirPath)
 
-    const directories = Array.from(new Set([rootPath, ...expandedDirectories]))
-    let loadedDirectoryCount = 0
-    await Promise.all(
-      directories.map(async (dirPath) => {
-        try {
-          await loadDirectory(dirPath)
-          loadedDirectoryCount += 1
-        } catch (error) {
-          if (dirPath === rootPath) {
-            throw error
+      const directories = Array.from(new Set([rootPath, ...expandedDirectories]))
+      let loadedDirectoryCount = 0
+      await Promise.all(
+        directories.map(async (dirPath) => {
+          try {
+            await loadDirectory(dirPath)
+            loadedDirectoryCount += 1
+          } catch (error) {
+            if (dirPath === rootPath) {
+              throw error
+            }
+
+            setChildrenByPath((current) => {
+              if (!(dirPath in current)) return current
+              const next = { ...current }
+              delete next[dirPath]
+              return next
+            })
+            setExpandedPaths((current) => {
+              if (!(dirPath in current)) return current
+              const next = { ...current }
+              delete next[dirPath]
+              return next
+            })
           }
+        }),
+      )
 
-          setChildrenByPath((current) => {
-            if (!(dirPath in current)) return current
-            const next = { ...current }
-            delete next[dirPath]
-            return next
-          })
-          setExpandedPaths((current) => {
-            if (!(dirPath in current)) return current
-            const next = { ...current }
-            delete next[dirPath]
-            return next
-          })
-        }
+      logPerfEvent('FileExplorer', 'refresh-tree', {
+        cause,
+        rootPath,
+        elapsedMs: Math.round(performance.now() - startedAt),
+        expandedDirectoryCount: expandedDirectories.length,
+        loadedDirectoryCount,
+        isSearching: latestSearchQueryRef.current.trim().length > 0,
       })
-    )
-
-    logPerfEvent('FileExplorer', 'refresh-tree', {
-      cause,
-      rootPath,
-      elapsedMs: Math.round(performance.now() - startedAt),
-      expandedDirectoryCount: expandedDirectories.length,
-      loadedDirectoryCount,
-      isSearching: latestSearchQueryRef.current.trim().length > 0,
-    })
-  }, [loadDirectory, rootPath])
+    },
+    [loadDirectory, rootPath],
+  )
 
   const scheduleRefresh = useCallback(() => {
     if (refreshTimeoutRef.current) {
@@ -998,9 +1031,7 @@ function ExplorerTree({
         return { ...current, [entry.path]: true }
       }
 
-      return Object.fromEntries(
-        Object.entries(current).filter(([path]) => !isPathOrChild(path, entry.path))
-      )
+      return Object.fromEntries(Object.entries(current).filter(([path]) => !isPathOrChild(path, entry.path)))
     })
   }
 
@@ -1031,9 +1062,7 @@ function ExplorerTree({
 
     try {
       const newPath =
-        kind === 'file'
-          ? await window.api.createFile(targetDir, name)
-          : await window.api.createDir(targetDir, name)
+        kind === 'file' ? await window.api.createFile(targetDir, name) : await window.api.createDir(targetDir, name)
 
       if (targetDir !== rootPath) {
         setExpandedPaths((current) => ({ ...current, [targetDir]: true }))
@@ -1097,11 +1126,7 @@ function ExplorerTree({
 
       await refreshParentDirectory(entry.parentPath)
       if (isSearching) {
-        applySearchResponse(await searchFiles(
-          rootPath,
-          latestSearchQueryRef.current,
-          latestGitStatusRef.current
-        ))
+        applySearchResponse(await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current))
       }
       selectionAnchorPathRef.current = nextPath
       setSelectedPath(nextPath)
@@ -1142,13 +1167,17 @@ function ExplorerTree({
     }
 
     const topLevelEntries = deletableEntries.filter(
-      (entry) => !deletableEntries.some((candidate) => candidate.path !== entry.path && isPathOrChild(entry.path, candidate.path))
+      (entry) =>
+        !deletableEntries.some(
+          (candidate) => candidate.path !== entry.path && isPathOrChild(entry.path, candidate.path),
+        ),
     )
-    const targetLabel = topLevelEntries.length === 1
-      ? topLevelEntries[0].isDir
-        ? `folder "${topLevelEntries[0].name}" and its contents`
-        : `file "${topLevelEntries[0].name}"`
-      : `${topLevelEntries.length} selected items`
+    const targetLabel =
+      topLevelEntries.length === 1
+        ? topLevelEntries[0].isDir
+          ? `folder "${topLevelEntries[0].name}" and its contents`
+          : `file "${topLevelEntries[0].name}"`
+        : `${topLevelEntries.length} selected items`
     const confirmed = await dialog.confirm({
       title: 'Move to Trash?',
       body: `This moves ${targetLabel} to the system Trash. You can restore it from Trash until it is emptied.`,
@@ -1166,23 +1195,25 @@ function ExplorerTree({
 
       setChildrenByPath((current) =>
         Object.fromEntries(
-          Object.entries(current).filter(([path]) => !topLevelEntries.some((entry) => isPathOrChild(path, entry.path)))
-        )
+          Object.entries(current).filter(([path]) => !topLevelEntries.some((entry) => isPathOrChild(path, entry.path))),
+        ),
       )
       setExpandedPaths((current) =>
         Object.fromEntries(
-          Object.entries(current).filter(([path]) => !topLevelEntries.some((entry) => isPathOrChild(path, entry.path)))
-        )
+          Object.entries(current).filter(([path]) => !topLevelEntries.some((entry) => isPathOrChild(path, entry.path))),
+        ),
       )
       setSearchResults((current) =>
-        current.filter((result) => !topLevelEntries.some((entry) => isPathOrChild(result.path, entry.path)))
+        current.filter((result) => !topLevelEntries.some((entry) => isPathOrChild(result.path, entry.path))),
       )
       setClipboard((current) =>
-        current && topLevelEntries.some((entry) => isPathOrChild(current.path, entry.path)) ? null : current
+        current && topLevelEntries.some((entry) => isPathOrChild(current.path, entry.path)) ? null : current,
       )
 
-      await Promise.all(Array.from(new Set(topLevelEntries.map((entry) => entry.parentPath))).map(refreshParentDirectory))
-      const nextSelection = isSearching ? null : topLevelEntries[0]?.parentPath ?? null
+      await Promise.all(
+        Array.from(new Set(topLevelEntries.map((entry) => entry.parentPath))).map(refreshParentDirectory),
+      )
+      const nextSelection = isSearching ? null : (topLevelEntries[0]?.parentPath ?? null)
       selectionAnchorPathRef.current = nextSelection
       setSelectedPath(nextSelection)
       setSelectedPaths(nextSelection ? new Set([nextSelection]) : new Set())
@@ -1204,8 +1235,7 @@ function ExplorerTree({
     }
 
     const dragEntries = topLevelEntries(
-      (selectedPaths.has(entry.path) ? selectedEntries : [entry])
-        .filter((selectedEntry) => !selectedEntry.gitDeleted)
+      (selectedPaths.has(entry.path) ? selectedEntries : [entry]).filter((selectedEntry) => !selectedEntry.gitDeleted),
     )
     if (!dragEntries.length) {
       event.preventDefault()
@@ -1247,19 +1277,22 @@ function ExplorerTree({
   }
 
   const canDropMovePayload = (payload: ExplorerMovePayload, targetDir: string): boolean => {
-    return payload.entries.some((entry) => (
-      !entry.gitDeleted
-      && entry.parentPath !== targetDir
-      && entry.path !== targetDir
-      && !isPathOrChild(targetDir, entry.path)
-    ))
+    return payload.entries.some(
+      (entry) =>
+        !entry.gitDeleted &&
+        entry.parentPath !== targetDir &&
+        entry.path !== targetDir &&
+        !isPathOrChild(targetDir, entry.path),
+    )
   }
 
   const moveEntriesIntoDirectory = async (entries: Entry[], targetDir: string) => {
     const movableEntries = topLevelEntries(entries.filter((entry) => !entry.gitDeleted))
     if (!movableEntries.length) return
 
-    const invalidTarget = movableEntries.find((entry) => entry.path === targetDir || isPathOrChild(targetDir, entry.path))
+    const invalidTarget = movableEntries.find(
+      (entry) => entry.path === targetDir || isPathOrChild(targetDir, entry.path),
+    )
     if (invalidTarget) {
       showError(`Cannot move "${invalidTarget.name}" into itself.`)
       return
@@ -1290,25 +1323,21 @@ function ExplorerTree({
 
       setChildrenByPath((current) =>
         movedEntries.reduce(
-          (next, moved) => moved.entry.isDir ? remapChildrenByPath(next, moved.entry.path, moved.nextPath) : next,
-          current
-        )
+          (next, moved) => (moved.entry.isDir ? remapChildrenByPath(next, moved.entry.path, moved.nextPath) : next),
+          current,
+        ),
       )
       setExpandedPaths((current) => ({
         ...movedEntries.reduce(
-          (next, moved) => moved.entry.isDir ? remapExpandedPaths(next, moved.entry.path, moved.nextPath) : next,
-          current
+          (next, moved) => (moved.entry.isDir ? remapExpandedPaths(next, moved.entry.path, moved.nextPath) : next),
+          current,
         ),
         [targetDir]: true,
       }))
 
       await Promise.all(Array.from(parentDirectories).map(refreshParentDirectory))
       if (isSearching) {
-        applySearchResponse(await searchFiles(
-          rootPath,
-          latestSearchQueryRef.current,
-          latestGitStatusRef.current
-        ))
+        applySearchResponse(await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current))
       }
 
       selectMovedEntries()
@@ -1319,11 +1348,7 @@ function ExplorerTree({
       if (movedEntries.length) {
         await Promise.all(Array.from(parentDirectories).map(refreshParentDirectory))
         if (isSearching) {
-          applySearchResponse(await searchFiles(
-            rootPath,
-            latestSearchQueryRef.current,
-            latestGitStatusRef.current
-          ))
+          applySearchResponse(await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current))
         }
         selectMovedEntries()
         void refreshGitStatus()
@@ -1357,11 +1382,7 @@ function ExplorerTree({
     setExpandedPaths((current) => ({ ...current, [targetDir]: true }))
     await refreshParentDirectory(targetDir)
     if (isSearching) {
-      applySearchResponse(await searchFiles(
-        rootPath,
-        latestSearchQueryRef.current,
-        latestGitStatusRef.current
-      ))
+      applySearchResponse(await searchFiles(rootPath, latestSearchQueryRef.current, latestGitStatusRef.current))
     }
 
     if (copiedPaths.length) {
@@ -1410,7 +1431,11 @@ function ExplorerTree({
   const handleFolderDrop = (event: React.DragEvent<HTMLDivElement>, entry: Entry) => {
     if (!entry.isDir || entry.gitDeleted) return
 
-    if (hasNativeFileDrop(event.dataTransfer) && !hasExplorerMovePayload(event.dataTransfer) && !activeMoveDragRef.current) {
+    if (
+      hasNativeFileDrop(event.dataTransfer) &&
+      !hasExplorerMovePayload(event.dataTransfer) &&
+      !activeMoveDragRef.current
+    ) {
       event.preventDefault()
       event.stopPropagation()
       setDropTargetPath(null)
@@ -1476,14 +1501,17 @@ function ExplorerTree({
     }
 
     const targetDir = entry ? (entry.isDir ? entry.path : entry.parentPath) : rootPath
-    const canUsePathCommands = contextSelection.length > 0 && contextSelection.every((selectedEntry) => !selectedEntry.gitDeleted)
+    const canUsePathCommands =
+      contextSelection.length > 0 && contextSelection.every((selectedEntry) => !selectedEntry.gitDeleted)
     const isSingleSelection = contextSelection.length === 1
-    const gitDiffEntry = isSingleSelection && entry && !entry.isDir
-      ? getGitEntry(latestGitStatusRef.current, entry.path)
-      : null
+    const gitDiffEntry =
+      isSingleSelection && entry && !entry.isDir ? getGitEntry(latestGitStatusRef.current, entry.path) : null
     const canViewGitDiff = Boolean(
-      isSingleSelection && entry && !entry.isDir && latestGitStatusRef.current?.repoRoot
-      && (gitDiffEntry || entry.gitDeleted)
+      isSingleSelection &&
+      entry &&
+      !entry.isDir &&
+      latestGitStatusRef.current?.repoRoot &&
+      (gitDiffEntry || entry.gitDeleted),
     )
     const canDeletePath = canUsePathCommands && typeof window.api.deletePath === 'function'
     const fileActions = visibleFileExplorerModuleActions({
@@ -1496,13 +1524,14 @@ function ExplorerTree({
         entries: contextSelection,
       },
     })
-    const deleteLabel = contextSelection.length > 1
-      ? canDeletePath
-        ? `Delete ${contextSelection.length} items`
-        : 'Delete items (restart app)'
-      : canDeletePath
-        ? 'Delete'
-        : 'Delete (restart app)'
+    const deleteLabel =
+      contextSelection.length > 1
+        ? canDeletePath
+          ? `Delete ${contextSelection.length} items`
+          : 'Delete items (restart app)'
+        : canDeletePath
+          ? 'Delete'
+          : 'Delete (restart app)'
 
     setContextMenu({
       x: event.clientX,
@@ -1565,7 +1594,9 @@ function ExplorerTree({
     }
     if (command.startsWith('file-action:')) {
       const actionId = command.slice('file-action:'.length)
-      const action = getRendererHost().getFileActions().find((candidate) => candidate.id === actionId)
+      const action = getRendererHost()
+        .getFileActions()
+        .find((candidate) => candidate.id === actionId)
       if (!action) return
       try {
         await action.run({
@@ -1633,14 +1664,16 @@ function ExplorerTree({
       const existingExpandedPaths = { ...restoredExpandedPaths }
       let loadedDirectoryCount = 1
 
-      await Promise.all(expandedDirectories.map(async (dirPath) => {
-        try {
-          await loadDirectory(dirPath)
-          loadedDirectoryCount += 1
-        } catch {
-          delete existingExpandedPaths[dirPath]
-        }
-      }))
+      await Promise.all(
+        expandedDirectories.map(async (dirPath) => {
+          try {
+            await loadDirectory(dirPath)
+            loadedDirectoryCount += 1
+          } catch {
+            delete existingExpandedPaths[dirPath]
+          }
+        }),
+      )
       if (cancelled) return
 
       if (Object.keys(existingExpandedPaths).length !== Object.keys(restoredExpandedPaths).length) {
@@ -1791,10 +1824,11 @@ function ExplorerTree({
     let disposed = false
     let unsubscribe: (() => Promise<void>) | undefined
 
-    window.api.watchPath(rootPath, (event) => {
-      if (isIgnoredExplorerWatchPath(event.path)) return
-      scheduleRefresh()
-    })
+    window.api
+      .watchPath(rootPath, (event) => {
+        if (isIgnoredExplorerWatchPath(event.path)) return
+        scheduleRefresh()
+      })
       .then((cleanup) => {
         if (disposed) {
           void cleanup()
@@ -1876,7 +1910,7 @@ function ExplorerTree({
 
     const currentIndex = Math.max(
       activeRows.findIndex((row) => row.entry.path === selectedPath),
-      0
+      0,
     )
     const currentEntry = activeRows[currentIndex].entry
     const moveSelection = (nextIndex: number) => {
@@ -1961,7 +1995,7 @@ function ExplorerTree({
         size="none"
         value={renameDraft.value}
         onChange={(event) =>
-          setRenameDraft((current) => current ? { ...current, value: event.target.value } : current)
+          setRenameDraft((current) => (current ? { ...current, value: event.target.value } : current))
         }
         onBlur={() => void commitRename()}
         onClick={(event) => event.stopPropagation()}
@@ -2144,10 +2178,10 @@ function ExplorerTree({
                 isDropTarget
                   ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)] ring-1 ring-[color:var(--accent-primary)]'
                   : isSelected
-                  ? isFocused
-                    ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                    : 'bg-[color:var(--bg-selected-resting)] text-[color:var(--text-strong)]'
-                  : `${ignored ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-default)]'} ${washClassName} hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`
+                    ? isFocused
+                      ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                      : 'bg-[color:var(--bg-selected-resting)] text-[color:var(--text-strong)]'
+                    : `${ignored ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-default)]'} ${washClassName} hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]`
               }`}
               // The indent, said out loud rather than left as arithmetic
               // (principles.md: an indent that aligns to a reserved glyph slot
@@ -2179,7 +2213,9 @@ function ExplorerTree({
                     <span className={`truncate font-medium ${nameClassName}`}>{entry.name}</span>
                   )}
                   {gitAppearance.badge && (
-                    <span className="ml-auto shrink-0 font-mono text-micro font-semibold text-current opacity-80">{gitAppearance.badge}</span>
+                    <span className="ml-auto shrink-0 font-mono text-micro font-semibold text-current opacity-80">
+                      {gitAppearance.badge}
+                    </span>
                   )}
                 </>
               ) : (
@@ -2192,7 +2228,9 @@ function ExplorerTree({
                     <span className={`truncate ${gitAppearance.textClass}`}>{entry.name}</span>
                   )}
                   {gitAppearance.badge && (
-                    <span className="ml-auto shrink-0 font-mono text-micro font-semibold text-current opacity-80">{gitAppearance.badge}</span>
+                    <span className="ml-auto shrink-0 font-mono text-micro font-semibold text-current opacity-80">
+                      {gitAppearance.badge}
+                    </span>
                   )}
                 </>
               )}
@@ -2222,9 +2260,7 @@ function ExplorerTree({
             </MenuItem>
           ) : null}
           {contextMenu.canViewGitDiff ? (
-            <MenuItem onClick={() => void runContextMenuCommand('view-git-diff', contextMenu)}>
-              View Git diff
-            </MenuItem>
+            <MenuItem onClick={() => void runContextMenuCommand('view-git-diff', contextMenu)}>View Git diff</MenuItem>
           ) : null}
           {contextMenu.folderRoleTarget ? (
             <MenuFlyoutItem label="Mark directory as" ariaLabel="Mark directory as" surfaceClassName="min-w-[196px]">
@@ -2256,7 +2292,7 @@ function ExplorerTree({
               ) : null}
             </MenuFlyoutItem>
           ) : null}
-          {groupFileExplorerModuleActions(contextMenu.fileActions).map((group) => (
+          {groupFileExplorerModuleActions(contextMenu.fileActions).map((group) =>
             group.actions.length === 1 && group.actions[0] ? (
               <MenuItem
                 key={group.actions[0].id}
@@ -2282,12 +2318,15 @@ function ExplorerTree({
                   </MenuItem>
                 ))}
               </MenuFlyoutItem>
-            )
-          ))}
+            ),
+          )}
           {contextMenu.directoryToggle ? (
             <MenuItem
               onClick={() =>
-                void runContextMenuCommand(contextMenu.directoryToggle === 'collapse' ? 'collapse' : 'expand', contextMenu)
+                void runContextMenuCommand(
+                  contextMenu.directoryToggle === 'collapse' ? 'collapse' : 'expand',
+                  contextMenu,
+                )
               }
             >
               {contextMenu.directoryToggle === 'collapse' ? 'Collapse' : 'Expand'}
@@ -2351,7 +2390,10 @@ function FileExplorerSkeleton(): JSX.Element {
             style={{ paddingLeft: 12 + row.indent * 14 }}
           >
             <Skeleton className="h-3.5 w-3.5 shrink-0 rounded bg-[color:var(--skeleton-shimmer-high)]" />
-            <Skeleton className="h-3 rounded bg-[color:var(--skeleton-shimmer-high)]" style={{ width: `${row.width}%` }} />
+            <Skeleton
+              className="h-3 rounded bg-[color:var(--skeleton-shimmer-high)]"
+              style={{ width: `${row.width}%` }}
+            />
           </div>
         ))}
       </div>
@@ -2364,16 +2406,11 @@ interface Props {
 }
 
 export default function FileExplorer({ workspaceId }: Props) {
-  const {
-    folderPath,
-    folderReadyPath,
-    folderMissing,
-    checkingFolder,
-    recheckFolder,
-  } = useWorkspaceFolderStatus(workspaceId)
+  const { folderPath, folderReadyPath, folderMissing, checkingFolder, recheckFolder } =
+    useWorkspaceFolderStatus(workspaceId)
   const setFolderPath = useWorkspaceStore((s) => s.setFolderPath)
   const activeFilePath = useWorkspaceStore(
-    (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.editorState?.activeFilePath ?? null
+    (s) => s.workspaces.find((workspace) => workspace.id === workspaceId)?.editorState?.activeFilePath ?? null,
   )
   const [query, setQuery] = useState('')
   const [refreshToken, setRefreshToken] = useState(0)
@@ -2382,12 +2419,10 @@ export default function FileExplorer({ workspaceId }: Props) {
   // Takes precedence over the active file for as long as it is set.
   const [externalRevealPath, setExternalRevealPath] = useState<string | null>(null)
   const [createRequest, setCreateRequest] = useState<CreateEntryRequest | null>(null)
-  const {
-    status: gitStatus,
-    directoryStatus,
-    refresh: refreshGitStatus,
-  } = useGitStatus(folderReadyPath)
-  const canRevealActiveFile = Boolean(folderReadyPath && activeFilePath && isPathOrChild(activeFilePath, folderReadyPath))
+  const { status: gitStatus, directoryStatus, refresh: refreshGitStatus } = useGitStatus(folderReadyPath)
+  const canRevealActiveFile = Boolean(
+    folderReadyPath && activeFilePath && isPathOrChild(activeFilePath, folderReadyPath),
+  )
 
   const handleOpen = async () => {
     const dir = await window.api.openDir()
@@ -2479,12 +2514,7 @@ export default function FileExplorer({ workspaceId }: Props) {
       {folderReadyPath && (
         <div className="flex h-[36px] shrink-0 items-center gap-1 border-b border-[color:var(--border-default)] pl-2 pr-1.5">
           <div className="flex min-w-0 flex-1">
-            <InboxSearchInput
-              value={query}
-              onChange={setQuery}
-              ariaLabel="Search files"
-              placeholder="Search files…"
-            />
+            <InboxSearchInput value={query} onChange={setQuery} ariaLabel="Search files" placeholder="Search files…" />
           </div>
           <div className="flex shrink-0 items-center gap-0.5">
             <Tooltip content="New file" placement="bottom">
@@ -2497,12 +2527,11 @@ export default function FileExplorer({ workspaceId }: Props) {
                 <NewFolderIcon />
               </IconButton>
             </Tooltip>
-            <Tooltip content={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'} placement="bottom">
-              <IconButton
-                aria-label="Reveal active file"
-                onClick={revealActiveFile}
-                disabled={!canRevealActiveFile}
-              >
+            <Tooltip
+              content={canRevealActiveFile ? 'Reveal active file' : 'No active file to reveal'}
+              placement="bottom"
+            >
+              <IconButton aria-label="Reveal active file" onClick={revealActiveFile} disabled={!canRevealActiveFile}>
                 <RevealActiveFileIcon />
               </IconButton>
             </Tooltip>
@@ -2554,10 +2583,7 @@ export default function FileExplorer({ workspaceId }: Props) {
             }
           />
         ) : (
-          <EmptyState
-            title="No folder open"
-            action={<PrimaryButton onClick={handleOpen}>Open folder</PrimaryButton>}
-          />
+          <EmptyState title="No folder open" action={<PrimaryButton onClick={handleOpen}>Open folder</PrimaryButton>} />
         )}
       </div>
     </div>

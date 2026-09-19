@@ -5,7 +5,12 @@ import { tmpdir } from 'os'
 import { join } from 'path'
 
 import { canonicalManifestPayload, validateThirdPartyModuleManifest } from '../../shared/modules/third-party-manifest'
-import { isSignedByTrustedPublisher, manifestFingerprint, type ModuleTrustContext, type SignedManifest } from './module-signature'
+import {
+  isSignedByTrustedPublisher,
+  manifestFingerprint,
+  type ModuleTrustContext,
+  type SignedManifest,
+} from './module-signature'
 import { readTrustedModulesSync, setModuleTrust } from './trust-store'
 
 async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
@@ -46,11 +51,7 @@ async function testWriteReportsPreviousFingerprint(): Promise<void> {
 // Two rapid trust writes must not lose an update (read-modify-write is serialized).
 async function testConcurrentWritesDoNotClobber(): Promise<void> {
   await withTempDir(async (dir) => {
-    await Promise.all([
-      setModuleTrust(dir, 'x', 'fx'),
-      setModuleTrust(dir, 'y', 'fy'),
-      setModuleTrust(dir, 'z', 'fz'),
-    ])
+    await Promise.all([setModuleTrust(dir, 'x', 'fx'), setModuleTrust(dir, 'y', 'fy'), setModuleTrust(dir, 'z', 'fz')])
     const trusted = readTrustedModulesSync(dir)
     assert.deepEqual([...trusted.keys()].sort(), ['x', 'y', 'z'])
   })
@@ -83,7 +84,9 @@ function signedReservedManifest(): { manifest: SignedManifest; fingerprint: stri
       signature: {
         algorithm: 'ed25519' as const,
         publicKey: publicKeyDer.toString('base64'),
-        signature: sign(null, Buffer.from(canonicalManifestPayload(validated.manifest), 'utf8'), privateKey).toString('base64'),
+        signature: sign(null, Buffer.from(canonicalManifestPayload(validated.manifest), 'utf8'), privateKey).toString(
+          'base64',
+        ),
       },
     },
     fingerprint: createHash('sha256').update(publicKeyDer).digest('hex'),
@@ -105,12 +108,12 @@ function testPublisherLockBindsToVerifiedSignerKey(): void {
   assert.equal(
     isSignedByTrustedPublisher(firstParty.manifest, publisherCtx),
     true,
-    'locked id + verified first-party signer is accepted'
+    'locked id + verified first-party signer is accepted',
   )
   assert.equal(
     isSignedByTrustedPublisher(impostor.manifest, publisherCtx),
     false,
-    'locked id + wrong signer is rejected even with a valid signature'
+    'locked id + wrong signer is rejected even with a valid signature',
   )
 
   // Id-trusting the impostor's exact manifest content must not satisfy the lock.

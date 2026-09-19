@@ -20,10 +20,7 @@ function daysAgo(days: number): string {
   return new Date(NOW.getTime() - days * 24 * 60 * 60 * 1000).toISOString()
 }
 
-function bundle(
-  bundleId: string,
-  addedAt: Record<string, string>,
-): DesignSystemBundleArrivals {
+function bundle(bundleId: string, addedAt: Record<string, string>): DesignSystemBundleArrivals {
   return { bundleId, path: `/repos/${bundleId}/design-system`, addedAt }
 }
 
@@ -97,10 +94,7 @@ run('an empty library is zero, not a badge', () => {
   assert.equal(designSystemNewEntryCount({ bundles: [], seen: {}, now: NOW }), 0)
   // A seen stamp for a bundle that is no longer registered is inert rather than
   // an error: forgetting a folder leaves its stamp behind in settings forever.
-  assert.equal(
-    designSystemNewEntryCount({ bundles: [], seen: { cccc3333: daysAgo(1) }, now: NOW }),
-    0,
-  )
+  assert.equal(designSystemNewEntryCount({ bundles: [], seen: { cccc3333: daysAgo(1) }, now: NOW }), 0)
 })
 
 for (const test of tests) {

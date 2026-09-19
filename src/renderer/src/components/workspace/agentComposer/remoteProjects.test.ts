@@ -24,7 +24,12 @@ const repo = (name: string) => ({
   name,
 })
 
-const chat = (id: string, name: string, folderPath: string | null, repository = null as FleetWorkspace['repository']): FleetWorkspace => ({
+const chat = (
+  id: string,
+  name: string,
+  folderPath: string | null,
+  repository = null as FleetWorkspace['repository'],
+): FleetWorkspace => ({
   id,
   name,
   mode: 'standard',
@@ -80,10 +85,7 @@ check('a chat with no folder is not a project', () => {
 })
 
 check('the repository is taken from whichever chat in the folder could answer', () => {
-  const projects = remoteProjectsOf([
-    chat('w1', 'a', '/srv/app', null),
-    chat('w2', 'b', '/srv/app', repo('app')),
-  ])
+  const projects = remoteProjectsOf([chat('w1', 'a', '/srv/app', null), chat('w2', 'b', '/srv/app', repo('app'))])
   assert.equal(projects[0]!.repository?.canonicalKey, 'github.com/acme/app')
 })
 
@@ -93,7 +95,10 @@ check('projects come back in name order', () => {
     chat('w2', 'b', '/srv/apple'),
     chat('w3', 'c', '/srv/mango'),
   ])
-  assert.deepEqual(projects.map((project) => project.name), ['apple', 'mango', 'zebra'])
+  assert.deepEqual(
+    projects.map((project) => project.name),
+    ['apple', 'mango', 'zebra'],
+  )
 })
 
 check('a machine copy found by repository resolves to the folder it stands in', () => {
@@ -104,7 +109,11 @@ check('a machine copy found by repository resolves to the folder it stands in', 
   const projects = remoteProjectsOf(workspaces)
   const found = remoteProjectOfWorkspace(projects, workspaces, 'w2')
   assert.equal(found?.name, 'multicode')
-  assert.equal(remoteProjectOfWorkspace(projects, workspaces, 'nope'), null, 'an id the read no longer holds resolves to nothing')
+  assert.equal(
+    remoteProjectOfWorkspace(projects, workspaces, 'nope'),
+    null,
+    'an id the read no longer holds resolves to nothing',
+  )
 })
 
 if (failures > 0) {

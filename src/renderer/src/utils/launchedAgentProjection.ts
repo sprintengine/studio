@@ -143,10 +143,7 @@ export function resetLaunchedAgentProjectionForTest(): void {
  * had — and, with `cliStartupPrompt` still set, treat this as live launch intent
  * and spawn a second process alongside the one it is looking at.
  */
-export function agentStateFromLaunchRecord(
-  record: AgentLaunchRecord,
-  session: TerminalSessionSnapshot,
-): AgentState {
+export function agentStateFromLaunchRecord(record: AgentLaunchRecord, session: TerminalSessionSnapshot): AgentState {
   return {
     id: record.agentId,
     name: record.name,

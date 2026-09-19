@@ -51,8 +51,7 @@ export function isLegacyV44WorkspaceEnvelope(raw: string | null): boolean {
     if (!parsed?.state) return false
     if ((parsed.version ?? 0) >= WORKSPACE_REGISTRY_VERSION) return false
     // Settings fields present inside the registry envelope = legacy.
-    return parsed.state.appSettings !== undefined
-      || parsed.state.sidebarCollapsed !== undefined
+    return parsed.state.appSettings !== undefined || parsed.state.sidebarCollapsed !== undefined
   } catch {
     return false
   }

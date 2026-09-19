@@ -28,7 +28,7 @@ export type MarketplaceUpdateAvailability =
 
 export function marketplaceUpdateAvailability(
   installedVersion: number,
-  registryLatest: number | undefined
+  registryLatest: number | undefined,
 ): MarketplaceUpdateAvailability {
   if (registryLatest === undefined) {
     return { state: 'unknown', installedVersion, reason: 'not-in-registry' }

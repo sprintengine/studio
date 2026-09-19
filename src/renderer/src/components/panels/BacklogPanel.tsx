@@ -141,8 +141,12 @@ import {
   EpicProgressMeter,
 } from '../backlog/BacklogRow'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
-import type { BacklogItemAction, BacklogItemActionContext, BacklogLinkProvider, WorkspacePanelProps } from '../../modules/renderer-host'
-
+import type {
+  BacklogItemAction,
+  BacklogItemActionContext,
+  BacklogLinkProvider,
+  WorkspacePanelProps,
+} from '../../modules/renderer-host'
 
 // Backlog panel: capture / browse / triage / start surface for the lightweight
 // items (rough ideas, notes, feature sketches, imported markdown, mockups)
@@ -159,7 +163,6 @@ import type { BacklogItemAction, BacklogItemActionContext, BacklogLinkProvider, 
 // The row-level action vocabulary (BacklogActions), the size/priority choice
 // lists, and the row context menu live in ../backlog/BacklogItemContextMenu so
 // the panel composes them rather than hosting another ~250 lines of menu UI.
-
 
 // Lenses double as filters: the named views express the difficulty/criticality
 // ranges a single-value dropdown can't (XS/S, L/XL), and the terminal Completed
@@ -272,9 +275,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
   // workspace on this project) via the backlog view store, so the backlog reads
   // as one list per project instead of diverging per window. Reading through a
   // useShallow selector keeps re-renders to actual value changes.
-  const { view, sort, group } = useBacklogViewStore(
-    useShallow((state) => selectBacklogProjectView(state, folderPath)),
-  )
+  const { view, sort, group } = useBacklogViewStore(useShallow((state) => selectBacklogProjectView(state, folderPath)))
   const setProjectView = useBacklogViewStore((state) => state.setProjectView)
   const handleViewChange = useCallback(
     (next: BacklogView) => setProjectView(folderPath, { view: next }),
@@ -404,10 +405,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     const stateById = new Map<string, BacklogDependencyState>()
     const blocked = new Set<string>()
     for (const node of dependencyGraph.nodes) {
-      const state = backlogDependencyState(
-        node,
-        node.item.isEpic ? epicBlockedBySlug.get(node.slug) : undefined,
-      )
+      const state = backlogDependencyState(node, node.item.isEpic ? epicBlockedBySlug.get(node.slug) : undefined)
       if (!state) continue
       stateById.set(node.item.id, state)
       if (state === 'blocked') blocked.add(node.item.relativePath)
@@ -449,9 +447,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     // The status and best sorts demote derived-blocked items (they cannot be
     // acted on); the accessor keys off relativePath, the one identity field the
     // comparator's Triageable view carries.
-    return matched.sort((a, b) =>
-      compareBacklogItems(a, b, sort, (entry) => blockedPaths.has(entry.relativePath)),
-    )
+    return matched.sort((a, b) => compareBacklogItems(a, b, sort, (entry) => blockedPaths.has(entry.relativePath)))
   }, [items, search, view, sort, dependencyGraph, blockedPaths])
 
   // Epic grouping is an orthogonal axis layered over the filtered+sorted list.
@@ -468,8 +464,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
   // the same in every lens.
   const isGroupCollapsed = useCallback(
     (epicGroup: BacklogEpicGroup) => {
-      const defaultCollapsed =
-        (view === 'archived' || view === 'completed') && epicGroup.kind === 'epic'
+      const defaultCollapsed = (view === 'archived' || view === 'completed') && epicGroup.kind === 'epic'
       const flipped = collapsedGroups.has(epicGroupKey(epicGroup))
       return flipped ? !defaultCollapsed : defaultCollapsed
     },
@@ -588,16 +583,13 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     setMultiSelection((prev) => pruneBacklogSelection(prev, new Set(filtered.map((item) => item.id))))
   }, [filtered])
 
-  const selected = useMemo(
-    () => filtered.find((item) => item.id === selectedId) ?? null,
-    [filtered, selectedId],
-  )
+  const selected = useMemo(() => filtered.find((item) => item.id === selectedId) ?? null, [filtered, selectedId])
   // During a multi-selection the detail pane binds to the anchor (last-clicked)
   // row rather than the roving range end; single mode keeps the cursor binding.
   const detailItem = useMemo(() => {
     if (!multiSelection.keys) return selected
     const anchor = multiSelection.anchorKey
-      ? filtered.find((item) => item.id === multiSelection.anchorKey) ?? null
+      ? (filtered.find((item) => item.id === multiSelection.anchorKey) ?? null)
       : null
     return anchor ?? selected
   }, [multiSelection, filtered, selected])
@@ -640,9 +632,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
   // deferred to a `pendingReveal` that is matched once the scan loads (below),
   // rather than dropped if the scan isn't ready when the signal arrives. The
   // initial value drains the latch for a reveal dispatched before mount.
-  const [pendingReveal, setPendingReveal] = useState<string | null>(() =>
-    consumePendingBacklogReveal(workspaceId),
-  )
+  const [pendingReveal, setPendingReveal] = useState<string | null>(() => consumePendingBacklogReveal(workspaceId))
   useEffect(() => {
     return subscribeBacklogReveal((detail) => {
       if (detail.workspaceId !== workspaceId) return
@@ -653,9 +643,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
   useEffect(() => {
     if (!pendingReveal) return
     const wanted = pendingReveal.replace(/\\/g, '/').toLowerCase()
-    const item = items.find(
-      (candidate) => candidate.relativePath.replace(/\\/g, '/').toLowerCase() === wanted,
-    )
+    const item = items.find((candidate) => candidate.relativePath.replace(/\\/g, '/').toLowerCase() === wanted)
     if (item) {
       // `selected` derives from `filtered`, so reset search and widen the lens to
       // one that contains the item (its terminal view if completed/archived, else
@@ -686,9 +674,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
       return
     }
     const wanted = restorePending.replace(/\\/g, '/').toLowerCase()
-    const item = items.find(
-      (candidate) => candidate.relativePath.replace(/\\/g, '/').toLowerCase() === wanted,
-    )
+    const item = items.find((candidate) => candidate.relativePath.replace(/\\/g, '/').toLowerCase() === wanted)
     if (item) {
       setSelectedId(item.id)
       setRestorePending(null)
@@ -716,9 +702,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     if (snapshot.restorePending != null) return
     // Don't create a record just by opening the panel for an untouched workspace;
     // only persist once there is a selection to remember (or a record exists).
-    const hasRecord = Boolean(
-      useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.backlogState,
-    )
+    const hasRecord = Boolean(useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)?.backlogState)
     if (!snapshot.selectedRelativePath && !hasRecord) return
     setBacklogViewState(workspaceId, {
       selectedRelativePath: snapshot.selectedRelativePath,
@@ -772,7 +756,9 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
           extendSelectionByStep(1)
           return
         }
-        setMultiSelection((prev) => (prev.keys === null && prev.anchorKey === null ? prev : collapseBacklogSelectionTo(null)))
+        setMultiSelection((prev) =>
+          prev.keys === null && prev.anchorKey === null ? prev : collapseBacklogSelectionTo(null),
+        )
         selectAt(currentIndex < 0 ? 0 : Math.min(currentIndex + 1, navOrder.length - 1))
       } else if (event.key === 'k' || event.key === 'ArrowUp') {
         event.preventDefault()
@@ -780,7 +766,9 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
           extendSelectionByStep(-1)
           return
         }
-        setMultiSelection((prev) => (prev.keys === null && prev.anchorKey === null ? prev : collapseBacklogSelectionTo(null)))
+        setMultiSelection((prev) =>
+          prev.keys === null && prev.anchorKey === null ? prev : collapseBacklogSelectionTo(null),
+        )
         selectAt(currentIndex < 0 ? 0 : Math.max(currentIndex - 1, 0))
       } else if (event.key === 'Enter' || event.key === 'ArrowRight') {
         // On a group header the primary action is collapse/expand; on a leaf it
@@ -1393,7 +1381,6 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     [epicMeta, folderPath, runAction, runScan],
   )
 
-
   // Refresh sits in this menu rather than beside the plus: the band carries
   // ONE primary action, and stacking a second glyph beside it is what gave
   // every panel a different action cluster (2112). Creating an item is the
@@ -1411,9 +1398,10 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
       ]
     : []
 
-  const backlogOverflow = backlogOverflowItems.length > 0 ? (
-    <OverflowMenu ariaLabel="Backlog actions" items={backlogOverflowItems} />
-  ) : undefined
+  const backlogOverflow =
+    backlogOverflowItems.length > 0 ? (
+      <OverflowMenu ariaLabel="Backlog actions" items={backlogOverflowItems} />
+    ) : undefined
 
   // A bare plus. The word is redundant next to a panel that already says
   // Backlog, and at panel widths it was the thing that squeezed the title into
@@ -1479,11 +1467,8 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
   // backlog" and carry no scope word; every narrowing lens (Completed, Archived,
   // the triage presets) labels its scope so a bare number never reads as the
   // whole backlog (T16 AC3).
-  const headerScopeLabel = view !== 'all' && view !== 'active'
-    ? VIEW_SCOPE_LABEL[view]
-    : search.trim() !== ''
-      ? 'filtered'
-      : undefined
+  const headerScopeLabel =
+    view !== 'all' && view !== 'active' ? VIEW_SCOPE_LABEL[view] : search.trim() !== '' ? 'filtered' : undefined
 
   const backlogActionContext = useCallback(
     (item: BacklogItem): BacklogItemActionContext | null => {
@@ -1526,34 +1511,34 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     [folderPath, runScan, workspaceId],
   )
 
-  const externalActionsForItem = useCallback((
-    item: BacklogItem,
-    selectionItems?: ReadonlyArray<BacklogItem>,
-  ) => {
-    const base = backlogActionContext(item)
-    if (!base) return []
-    // The whole-selection context (MC-2060): the menu was opened inside a
-    // multi-selection, so module actions read every selected item plus the full
-    // scan for epic expansion. Single-item callers pass nothing and the context
-    // is byte-identical to before.
-    const context = selectionItems
-      ? { ...base, selection: { items: selectionItems, projectItems: items } }
-      : base
-    return getRendererHost().getBacklogItemActions()
-      .filter((action) => selectModuleEnabled(moduleOverrides, action.moduleId))
-      .filter((action) => action.isVisible ? action.isVisible(context) : true)
-      .map((action) => ({
-        action,
-        label: action.getLabel?.(context) ?? action.label,
-        disabled: action.getState?.(context) === 'disabled',
-        run: () => runAction(async () => {
-          await action.run(context)
-        }),
-      }))
-  }, [backlogActionContext, items, moduleOverrides, runAction])
+  const externalActionsForItem = useCallback(
+    (item: BacklogItem, selectionItems?: ReadonlyArray<BacklogItem>) => {
+      const base = backlogActionContext(item)
+      if (!base) return []
+      // The whole-selection context (MC-2060): the menu was opened inside a
+      // multi-selection, so module actions read every selected item plus the full
+      // scan for epic expansion. Single-item callers pass nothing and the context
+      // is byte-identical to before.
+      const context = selectionItems ? { ...base, selection: { items: selectionItems, projectItems: items } } : base
+      return getRendererHost()
+        .getBacklogItemActions()
+        .filter((action) => selectModuleEnabled(moduleOverrides, action.moduleId))
+        .filter((action) => (action.isVisible ? action.isVisible(context) : true))
+        .map((action) => ({
+          action,
+          label: action.getLabel?.(context) ?? action.label,
+          disabled: action.getState?.(context) === 'disabled',
+          run: () =>
+            runAction(async () => {
+              await action.run(context)
+            }),
+        }))
+    },
+    [backlogActionContext, items, moduleOverrides, runAction],
+  )
 
   const externalActions = useMemo(
-    () => detailItem ? externalActionsForItem(detailItem) : [],
+    () => (detailItem ? externalActionsForItem(detailItem) : []),
     [externalActionsForItem, detailItem],
   )
 
@@ -1655,7 +1640,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     [folderPath, runAction, workspaceId],
   )
 
-  const menuItem = rowMenu ? filtered.find((item) => item.id === rowMenu.itemId) ?? null : null
+  const menuItem = rowMenu ? (filtered.find((item) => item.id === rowMenu.itemId) ?? null) : null
   // The rows the open menu acts on, in list order — only when it was opened
   // inside a live multi-selection.
   const menuSelectionItems = useMemo(() => {
@@ -1663,16 +1648,17 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     return filtered.filter((item) => multiSelection.keys?.has(item.id))
   }, [rowMenu, menuItem, multiSelection, filtered])
   const menuItemActions = useMemo(
-    () => menuItem
-      ? externalActionsForItem(menuItem, menuSelectionItems ?? undefined).map(({ action, label, disabled, run }) => ({
-          id: action.id,
-          label,
-          category: action.category,
-          order: action.order,
-          disabled,
-          run,
-        }))
-      : [],
+    () =>
+      menuItem
+        ? externalActionsForItem(menuItem, menuSelectionItems ?? undefined).map(({ action, label, disabled, run }) => ({
+            id: action.id,
+            label,
+            category: action.category,
+            order: action.order,
+            disabled,
+            run,
+          }))
+        : [],
     [externalActionsForItem, menuItem, menuSelectionItems],
   )
 
@@ -1690,7 +1676,11 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
   const backlogRootNote =
     backlogLocation && !backlogLocation.isDefault ? (
       <div className="flex items-center gap-2 border-t border-[color:var(--border-subtle)] px-3 py-1.5 text-micro text-[color:var(--text-subtle)]">
-        <TruncatedText as="span" text={`Backlog folder: ${backlogLocation.root}`} className="min-w-0 flex-1 font-mono" />
+        <TruncatedText
+          as="span"
+          text={`Backlog folder: ${backlogLocation.root}`}
+          className="min-w-0 flex-1 font-mono"
+        />
         <GhostButton size="sm" onClick={chooseBacklogFolder}>
           Change
         </GhostButton>
@@ -1743,12 +1733,10 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
       epicChoices={epicChoices}
       items={items}
       epicMetaBySlug={epicMeta}
-      dependencyNode={detailItem ? dependencyGraph.byItemId.get(detailItem.id) ?? null : null}
-      dependencyState={detailItem ? dependencyStateById.get(detailItem.id) ?? null : null}
+      dependencyNode={detailItem ? (dependencyGraph.byItemId.get(detailItem.id) ?? null) : null}
+      dependencyState={detailItem ? (dependencyStateById.get(detailItem.id) ?? null) : null}
       dependencyStateById={dependencyStateById}
-      epicBlockedRollup={
-        detailItem?.isEpic ? epicBlockedBySlug.get(epicSlug(detailItem)) : undefined
-      }
+      epicBlockedRollup={detailItem?.isEpic ? epicBlockedBySlug.get(epicSlug(detailItem)) : undefined}
       dependencyChoices={dependencyChoices}
       onNavigate={navigateToBacklogItem}
       agentTargets={agentTargets}
@@ -1846,7 +1834,8 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
       {partialErrors ? (
         <div className="shrink-0 px-3 py-2">
           <InlineNotice tone="warn">
-            {partialErrors.length} {partialErrors.length === 1 ? 'item' : 'items'} couldn’t be read and {partialErrors.length === 1 ? 'is' : 'are'} not listed
+            {partialErrors.length} {partialErrors.length === 1 ? 'item' : 'items'} couldn’t be read and{' '}
+            {partialErrors.length === 1 ? 'is' : 'are'} not listed
             {': '}
             <span className="font-mono text-meta tabular-nums">
               {partialErrors.map((error) => error.relativePath).join(', ')}
@@ -1858,7 +1847,8 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
       {duplicateIdWarnings ? (
         <div className="shrink-0 px-3 py-2">
           <InlineNotice tone="warn">
-            {duplicateIdWarnings.length === 1 ? 'A duplicate id' : 'Duplicate ids'} from concurrent edits — resolve by re-allocating one side:
+            {duplicateIdWarnings.length === 1 ? 'A duplicate id' : 'Duplicate ids'} from concurrent edits — resolve by
+            re-allocating one side:
             {duplicateIdWarnings.map((warning) => (
               <span key={warning.label} className="mt-0.5 block font-mono text-meta tabular-nums">
                 {warning.label}: {warning.paths.join(', ')}
@@ -1915,7 +1905,6 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
           onClose={() => setRowMenu(null)}
         />
       ) : null}
-
     </section>
   )
 }
@@ -1949,16 +1938,10 @@ function BacklogListSkeleton(): JSX.Element {
           <div key={index} className="px-3 py-1.5">
             <div className="flex items-center gap-2">
               <Skeleton className="h-3.5 w-3.5 shrink-0 rounded-full bg-[color:var(--skeleton-shimmer-high)]" />
-              <Skeleton
-                className="h-3 rounded bg-[color:var(--skeleton-shimmer-high)]"
-                style={{ width: row.title }}
-              />
+              <Skeleton className="h-3 rounded bg-[color:var(--skeleton-shimmer-high)]" style={{ width: row.title }} />
             </div>
             <div className="mt-1 pl-[22px]">
-              <Skeleton
-                className="h-2.5 rounded bg-[color:var(--skeleton-shimmer-high)]"
-                style={{ width: row.meta }}
-              />
+              <Skeleton className="h-2.5 rounded bg-[color:var(--skeleton-shimmer-high)]" style={{ width: row.meta }} />
             </div>
           </div>
         ))}
@@ -2036,7 +2019,7 @@ function BacklogList({
 
   // The option index is the row's position in the flattened nav order; it equals
   // the list index in flat mode, so `backlog-opt-<n>` ids stay byte-identical.
-  const activeIndex = selectedId != null ? navIndexById.get(selectedId) ?? -1 : -1
+  const activeIndex = selectedId != null ? (navIndexById.get(selectedId) ?? -1) : -1
 
   return (
     <ul
@@ -2097,11 +2080,7 @@ function BacklogList({
               // resolves its OWN, so the banner treatment (tinted glyph, meter
               // colour, full-row wash) rides the same prop.
               epicMeta={
-                item.epic
-                  ? epicMetaBySlug.get(item.epic)
-                  : item.isEpic
-                    ? epicMetaBySlug.get(epicSlug(item))
-                    : undefined
+                item.epic ? epicMetaBySlug.get(item.epic) : item.isEpic ? epicMetaBySlug.get(epicSlug(item)) : undefined
               }
               epicProgress={item.isEpic ? epicProgressBySlug.get(epicSlug(item)) : undefined}
               dependencyState={dependencyStateById?.get(item.id) ?? null}
@@ -2173,16 +2152,16 @@ function BacklogOptionRow({
       draggable={Boolean(onItemDragStart)}
       onDragStart={onItemDragStart ? (event) => onItemDragStart(event, item) : undefined}
       onContextMenu={onItemContextMenu ? (event) => onItemContextMenu(event, item) : undefined}
-      onClick={(event) =>
-        onSelect(item.id, { toggle: event.metaKey || event.ctrlKey, range: event.shiftKey })
-      }
+      onClick={(event) => onSelect(item.id, { toggle: event.metaKey || event.ctrlKey, range: event.shiftKey })}
       // A shift-click is a selection gesture, not a text-selection start.
       onMouseDown={(event) => {
         if (event.shiftKey) event.preventDefault()
       }}
-      className={`cursor-pointer ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${
-        backlogRowPaintClass({ color: stripeColor, litFill, selected })
-      } ${archived ? 'opacity-70' : ''}`}
+      className={`cursor-pointer ${indented ? 'pl-6 pr-3' : 'px-3'} py-1.5 transition-colors ${backlogRowPaintClass({
+        color: stripeColor,
+        litFill,
+        selected,
+      })} ${archived ? 'opacity-70' : ''}`}
     >
       {/* The whole row carries one styled hover card (full title, status, id,
           path) in place of the old native `title` path tooltip. A calm 600ms
@@ -2190,13 +2169,7 @@ function BacklogOptionRow({
           keeps the clipped-title tooltip from stacking a second popover. The
           wrapper is presentational so the listbox's option semantics hold. */}
       <Tooltip
-        content={
-          <BacklogRowHoverCard
-            item={item}
-            epicProgress={epicProgress}
-            dependencyState={dependencyState}
-          />
-        }
+        content={<BacklogRowHoverCard item={item} epicProgress={epicProgress} dependencyState={dependencyState} />}
         placement="top"
         openDelayMs={600}
         wrapperClassName="block"
@@ -2212,11 +2185,7 @@ function BacklogOptionRow({
             epicProgress={epicProgress}
             plainTitle
             selected={selected}
-            onOpenEpic={
-              onOpenEpic && item.epic && !item.isEpic
-                ? () => onOpenEpic(item.epic as string)
-                : undefined
-            }
+            onOpenEpic={onOpenEpic && item.epic && !item.isEpic ? () => onOpenEpic(item.epic as string) : undefined}
           />
         </div>
       </Tooltip>
@@ -2437,9 +2406,7 @@ export function BacklogDetail({
         }
         cta={
           <div className="flex flex-wrap items-center justify-center gap-2">
-            {redirected ? null : (
-              <PrimaryButton onClick={actions.createFolder}>Create backlog folder</PrimaryButton>
-            )}
+            {redirected ? null : <PrimaryButton onClick={actions.createFolder}>Create backlog folder</PrimaryButton>}
             {actions.chooseFolder ? (
               <GhostButton onClick={actions.chooseFolder}>
                 {redirected ? 'Choose a different folder' : 'Choose a folder…'}
@@ -2520,12 +2487,13 @@ export function BacklogDetail({
   // replaces the Ready glyph and word.
   const selectedBlocked = dependencyState === 'blocked'
   const isEpic = selected.isEpic
-  const parentEpic = !isEpic && selected.epic
-    ? items.find((candidate) => candidate.isEpic && epicSlug(candidate) === selected.epic) ?? null
-    : null
-  const parentEpicColor = parentEpic && selected.epic ? epicMetaBySlug.get(selected.epic)?.color ?? null : null
+  const parentEpic =
+    !isEpic && selected.epic
+      ? (items.find((candidate) => candidate.isEpic && epicSlug(candidate) === selected.epic) ?? null)
+      : null
+  const parentEpicColor = parentEpic && selected.epic ? (epicMetaBySlug.get(selected.epic)?.color ?? null) : null
   const epicChildren = isEpic ? childrenOfEpic(items, epicSlug(selected)) : []
-  const currentEpicColor = isEpic ? epicMetaBySlug.get(epicSlug(selected))?.color ?? null : null
+  const currentEpicColor = isEpic ? (epicMetaBySlug.get(epicSlug(selected))?.color ?? null) : null
   // Whether this item can be handed to a fresh agent from the action band. The
   // predicate is shared with the button itself, so the band's layout decision
   // and the control's own gate can never disagree about an item.
@@ -2572,7 +2540,13 @@ export function BacklogDetail({
           {showBack ? (
             <IconButton onClick={onBack} aria-label="Back to list" className="-ml-1.5 -mt-0.5 shrink-0">
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-                <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+                <path
+                  d="M10 4L6 8l4 4"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
             </IconButton>
           ) : null}
@@ -2626,7 +2600,9 @@ export function BacklogDetail({
                 <span className="whitespace-nowrap font-mono tabular-nums text-[color:var(--text-subtle)]">
                   {basename(selected.relativePath)}
                 </span>
-                <span aria-hidden="true" className="text-[color:var(--text-disabled)]">·</span>
+                <span aria-hidden="true" className="text-[color:var(--text-disabled)]">
+                  ·
+                </span>
               </>
             )}
             <Tooltip content={modifiedAbsolute} placement="top" wrapperClassName="inline-flex">
@@ -2778,7 +2754,13 @@ export function BacklogDetail({
                 },
                 { kind: 'separator' as const, id: 'sep-triage' },
                 ...(selected.status !== 'archived' && selected.status !== 'completed'
-                  ? [{ id: 'mark-completed', label: 'Mark completed', onSelect: () => actions.setStatus(selected, 'completed') }]
+                  ? [
+                      {
+                        id: 'mark-completed',
+                        label: 'Mark completed',
+                        onSelect: () => actions.setStatus(selected, 'completed'),
+                      },
+                    ]
                   : []),
                 {
                   id: 'star',
@@ -2840,15 +2822,9 @@ export function BacklogDetail({
             live in the menus, not here (owner ruling 2026-09-15). */}
         {canHandToAgent || showOpenAgent ? (
           <div className="mt-3 flex flex-wrap items-center gap-1.5">
-            {canHandToAgent ? (
-              <BacklogHandToAgentButton item={selected} workspaceRoot={folderPath} />
-            ) : null}
+            {canHandToAgent ? <BacklogHandToAgentButton item={selected} workspaceRoot={folderPath} /> : null}
             {showOpenAgent ? (
-              <BacklogOpenAgentButton
-                item={selected}
-                workspaceId={workspaceId}
-                workspaceRoot={folderPath}
-              />
+              <BacklogOpenAgentButton item={selected} workspaceId={workspaceId} workspaceRoot={folderPath} />
             ) : null}
           </div>
         ) : null}
@@ -2936,15 +2912,7 @@ function BacklogDetailSkeleton(): JSX.Element {
   )
 }
 
-function DetailState({
-  heading,
-  body,
-  cta,
-}: {
-  heading?: string
-  body: string
-  cta?: React.ReactNode
-}): JSX.Element {
+function DetailState({ heading, body, cta }: { heading?: string; body: string; cta?: React.ReactNode }): JSX.Element {
   return <EmptyState title={heading ?? body} body={heading ? body : undefined} action={cta} />
 }
 
@@ -3012,39 +2980,41 @@ function BacklogEpicChildren({
               // row.
               const childBlocked = dependencyStateById?.get(child.id) === 'blocked'
               return (
-              <li key={child.id}>
-                {/* The member's path rides the product tooltip on the row button
+                <li key={child.id}>
+                  {/* The member's path rides the product tooltip on the row button
                     (its own focusable trigger), not a native `title`. */}
-                <Tooltip content={child.relativePath} placement="top" openDelayMs={600} wrapperClassName="block">
-                <RowButton onClick={() => onNavigate(child.id)}>
-                  <Tooltip
-                    content={childBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[child.status]}
-                    placement="top"
-                  >
-                    <LifecycleGlyph
-                      state={childBlocked ? 'blocked' : backlogStatusToLifecycle(child.status)}
-                      // A bare in_progress status renders the static quarter
-                      // arc: the item file is a record, not a live signal.
-                      live={false}
-                    />
+                  <Tooltip content={child.relativePath} placement="top" openDelayMs={600} wrapperClassName="block">
+                    <RowButton onClick={() => onNavigate(child.id)}>
+                      <Tooltip
+                        content={childBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[child.status]}
+                        placement="top"
+                      >
+                        <LifecycleGlyph
+                          state={childBlocked ? 'blocked' : backlogStatusToLifecycle(child.status)}
+                          // A bare in_progress status renders the static quarter
+                          // arc: the item file is a record, not a live signal.
+                          live={false}
+                        />
+                      </Tooltip>
+                      {child.displayId ? (
+                        <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
+                          {child.displayId}
+                        </span>
+                      ) : null}
+                      <TruncatedText
+                        as="span"
+                        text={child.title}
+                        className={`min-w-0 flex-1 text-meta ${
+                          child.status === 'completed'
+                            ? 'text-[color:var(--text-muted)]'
+                            : 'text-[color:var(--text-default)]'
+                        }`}
+                      />
+                      <DifficultyIndicator difficulty={child.difficulty} />
+                      <CriticalityIndicator criticality={child.criticality} />
+                    </RowButton>
                   </Tooltip>
-                  {child.displayId ? (
-                    <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-subtle)]">
-                      {child.displayId}
-                    </span>
-                  ) : null}
-                  <TruncatedText
-                    as="span"
-                    text={child.title}
-                    className={`min-w-0 flex-1 text-meta ${
-                      child.status === 'completed' ? 'text-[color:var(--text-muted)]' : 'text-[color:var(--text-default)]'
-                    }`}
-                  />
-                  <DifficultyIndicator difficulty={child.difficulty} />
-                  <CriticalityIndicator criticality={child.criticality} />
-                </RowButton>
-                </Tooltip>
-              </li>
+                </li>
               )
             })}
           </ul>
@@ -3119,8 +3089,21 @@ function BacklogEpicSearchEditor({
           className="min-w-[140px]"
         >
           <span className="min-w-0 flex-1 truncate">{currentLabel}</span>
-          <svg width="10" height="10" viewBox="0 0 10 10" aria-hidden="true" className="shrink-0 text-[color:var(--text-muted)]">
-            <path d="M2 4l3 3 3-3" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round" />
+          <svg
+            width="10"
+            height="10"
+            viewBox="0 0 10 10"
+            aria-hidden="true"
+            className="shrink-0 text-[color:var(--text-muted)]"
+          >
+            <path
+              d="M2 4l3 3 3-3"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              fill="none"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
           </svg>
         </TriggerButton>
       )}
@@ -3196,11 +3179,7 @@ function BacklogPreviewBody({ item }: { item: BacklogItem }): JSX.Element {
     // cap is a descendant selector, so it outweighs the ramp's own `text-title`
     // whatever the class order. h1 and h2 stay a step apart — 14px vs 13px plus
     // the ramp's own spacing — so the ladder survives the cap.
-    return (
-      <div className="markdown-body [&_h1]:text-heading">
-        {renderMarkdown(body, { density: 'compact' })}
-      </div>
-    )
+    return <div className="markdown-body [&_h1]:text-heading">{renderMarkdown(body, { density: 'compact' })}</div>
   }
   if (isHtml) {
     // Mockups render through the shared sandboxed frame (scripts off by default,

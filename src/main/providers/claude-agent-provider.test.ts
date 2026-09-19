@@ -88,7 +88,10 @@ type FakeSdkHooks = {
   onSetPermissionMode?: (mode: string) => void
 }
 
-function createFakeSdk(handler: FakeQueryHandler, hooks: FakeSdkHooks = {}): {
+function createFakeSdk(
+  handler: FakeQueryHandler,
+  hooks: FakeSdkHooks = {},
+): {
   loadQuery: () => Promise<never>
   capturedOptions: Record<string, unknown>[]
   permissionModes: string[]
@@ -129,7 +132,10 @@ function createFakeSdk(handler: FakeQueryHandler, hooks: FakeSdkHooks = {}): {
   }
 }
 
-function createAdapter(handler: FakeQueryHandler, hooks: FakeSdkHooks = {}): {
+function createAdapter(
+  handler: FakeQueryHandler,
+  hooks: FakeSdkHooks = {},
+): {
   adapter: ClaudeAgentProviderAdapter
   capturedOptions: Record<string, unknown>[]
   permissionModes: string[]
@@ -165,7 +171,7 @@ function turnInput(overrides: Partial<MockAdapterTurnInput> = {}): MockAdapterTu
 
 async function collect(
   stream: AsyncIterable<ConversationEvent> | ConversationEvent[],
-  onEvent?: (event: ConversationEvent) => void | Promise<void>
+  onEvent?: (event: ConversationEvent) => void | Promise<void>,
 ): Promise<ConversationEvent[]> {
   const events: ConversationEvent[] = []
   if (Array.isArray(stream)) return stream
@@ -220,9 +226,7 @@ function testBuildUserMessageContent(): void {
   const imageOnly = buildUserMessageContent('', [
     { id: 'a1', mediaType: 'image/jpeg', dataBase64: 'BBBB', byteLength: 3 },
   ])
-  assert.deepEqual(imageOnly, [
-    { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'BBBB' } },
-  ])
+  assert.deepEqual(imageOnly, [{ type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'BBBB' } }])
 }
 
 function testMapSdkMessageCoversCanonicalShapes(): void {
@@ -238,7 +242,10 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     model: 'sonnet',
     apiKeySource: 'none',
   })
-  assert.deepEqual(init.map((event) => event.type), ['session_updated'])
+  assert.deepEqual(
+    init.map((event) => event.type),
+    ['session_updated'],
+  )
   assert.equal(init[0]?.payload?.providerSessionId, 'sdk-session-1')
   assert.equal(init[0]?.payload?.apiKeySource, 'none')
   assert.equal(state.providerSessionId, 'sdk-session-1')
@@ -252,7 +259,10 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     model: 'sonnet',
     apiKeySource: 'ANTHROPIC_API_KEY',
   })
-  assert.deepEqual(keyedInit.map((event) => event.type), ['session_updated'])
+  assert.deepEqual(
+    keyedInit.map((event) => event.type),
+    ['session_updated'],
+  )
   assert.equal(keyedInit[0]?.payload?.apiKeySource, 'ANTHROPIC_API_KEY')
 
   const text = mapSdkMessage(state, {
@@ -261,7 +271,10 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     parent_tool_use_id: null,
     event: { type: 'content_block_delta', delta: { type: 'text_delta', text: 'Hi' } },
   })
-  assert.deepEqual(text.map((event) => event.type), ['content_delta'])
+  assert.deepEqual(
+    text.map((event) => event.type),
+    ['content_delta'],
+  )
   assert.equal(text[0]?.payload?.text, 'Hi')
   assert.equal(text[0]?.payload?.turnId, 'turn_9')
 
@@ -271,7 +284,10 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     parent_tool_use_id: null,
     event: { type: 'content_block_delta', delta: { type: 'thinking_delta', thinking: 'hmm' } },
   })
-  assert.deepEqual(thinking.map((event) => event.type), ['reasoning_delta'])
+  assert.deepEqual(
+    thinking.map((event) => event.type),
+    ['reasoning_delta'],
+  )
 
   // Subagent text must not leak into the parent's streaming bubble.
   const subagent = mapSdkMessage(state, {
@@ -288,7 +304,10 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     parent_tool_use_id: null,
     message: { content: [{ type: 'tool_use', id: 'tu_1', name: 'Bash', input: { command: 'ls' } }] },
   })
-  assert.deepEqual(toolUse.map((event) => event.type), ['tool_started'])
+  assert.deepEqual(
+    toolUse.map((event) => event.type),
+    ['tool_started'],
+  )
   assert.equal(toolUse[0]?.payload?.tool, 'Bash')
   assert.equal(toolUse[0]?.payload?.toolCallId, 'tu_1')
   assert.equal('addedLines' in (toolUse[0]?.payload ?? {}), false, 'non-edit tools ship no diff counts')
@@ -300,7 +319,12 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     parent_tool_use_id: null,
     message: {
       content: [
-        { type: 'tool_use', id: 'tu_2', name: 'Edit', input: { file_path: 'a.ts', old_string: 'x\ny', new_string: 'x\ny\nz' } },
+        {
+          type: 'tool_use',
+          id: 'tu_2',
+          name: 'Edit',
+          input: { file_path: 'a.ts', old_string: 'x\ny', new_string: 'x\ny\nz' },
+        },
         { type: 'tool_use', id: 'tu_3', name: 'Write', input: { file_path: 'b.ts', content: 'one\ntwo\nthree' } },
       ],
     },
@@ -316,7 +340,10 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     parent_tool_use_id: null,
     message: { content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: [{ type: 'text', text: 'file-a' }] }] },
   })
-  assert.deepEqual(toolResult.map((event) => event.type), ['tool_output'])
+  assert.deepEqual(
+    toolResult.map((event) => event.type),
+    ['tool_output'],
+  )
   assert.equal(toolResult[0]?.payload?.output, 'file-a')
   assert.equal('parentToolUseId' in (toolResult[0]?.payload ?? {}), false, 'top-level tools carry no parent link')
   assert.equal('subagentLane' in (toolUse[0]?.payload ?? {}), false, 'ordinary tools are not subagent lanes')
@@ -327,10 +354,20 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     session_id: 'sdk-session-1',
     parent_tool_use_id: null,
     message: {
-      content: [{ type: 'tool_use', id: 'task_1', name: 'Task', input: { subagent_type: 'Explore', description: 'map the router' } }],
+      content: [
+        {
+          type: 'tool_use',
+          id: 'task_1',
+          name: 'Task',
+          input: { subagent_type: 'Explore', description: 'map the router' },
+        },
+      ],
     },
   })
-  assert.deepEqual(laneHeader.map((event) => event.type), ['tool_started'])
+  assert.deepEqual(
+    laneHeader.map((event) => event.type),
+    ['tool_started'],
+  )
   assert.equal(laneHeader[0]?.payload?.toolCallId, 'task_1')
   assert.equal(laneHeader[0]?.payload?.subagentLane, true)
   assert.equal(laneHeader[0]?.payload?.subagentType, 'Explore')
@@ -345,7 +382,10 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     parent_tool_use_id: 'task_1',
     message: { content: [{ type: 'tool_use', id: 'child_1', name: 'Grep', input: { pattern: 'router' } }] },
   })
-  assert.deepEqual(childStart.map((event) => event.type), ['tool_started'])
+  assert.deepEqual(
+    childStart.map((event) => event.type),
+    ['tool_started'],
+  )
   assert.equal(childStart[0]?.payload?.parentToolUseId, 'task_1')
   assert.equal(childStart[0]?.payload?.toolCallId, 'child_1')
   assert.equal(childStart[0]?.payload?.turnId, 'turn_9', 'child rows stay attached to the turn that owns the lane')
@@ -356,7 +396,10 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     parent_tool_use_id: 'task_1',
     message: { content: [{ type: 'tool_result', tool_use_id: 'child_1', content: '12 matches' }] },
   })
-  assert.deepEqual(childOutput.map((event) => event.type), ['tool_output'])
+  assert.deepEqual(
+    childOutput.map((event) => event.type),
+    ['tool_output'],
+  )
   assert.equal(childOutput[0]?.payload?.parentToolUseId, 'task_1')
   assert.equal(childOutput[0]?.payload?.output, '12 matches')
 
@@ -365,7 +408,9 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     type: 'assistant',
     session_id: 'sdk-session-1',
     parent_tool_use_id: 'task_1',
-    message: { content: [{ type: 'tool_use', id: 'task_2', name: 'Agent', input: { description: 'check the tests' } }] },
+    message: {
+      content: [{ type: 'tool_use', id: 'task_2', name: 'Agent', input: { description: 'check the tests' } }],
+    },
   })
   assert.equal(nestedLane[0]?.payload?.parentToolUseId, 'task_1')
   assert.equal(nestedLane[0]?.payload?.subagentLane, true)
@@ -378,7 +423,10 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     session_id: 'sdk-session-1',
     usage: { input_tokens: 10, cache_read_input_tokens: 5, output_tokens: 3 },
   })
-  assert.deepEqual(success.map((event) => event.type), ['usage_updated', 'turn_completed'])
+  assert.deepEqual(
+    success.map((event) => event.type),
+    ['usage_updated', 'turn_completed'],
+  )
   assert.equal(success[0]?.payload?.inputTokens, 15)
   assert.equal(success[0]?.payload?.outputTokens, 3)
 
@@ -390,7 +438,10 @@ function testMapSdkMessageCoversCanonicalShapes(): void {
     usage: { input_tokens: 1, output_tokens: 1 },
     errors: ['boom'],
   })
-  assert.deepEqual(failure.map((event) => event.type), ['usage_updated', 'turn_failed'])
+  assert.deepEqual(
+    failure.map((event) => event.type),
+    ['usage_updated', 'turn_failed'],
+  )
   assert.equal(failure[1]?.payload?.reason, 'error_during_execution')
   assert.equal(failure[1]?.payload?.message, 'boom')
 
@@ -430,13 +481,24 @@ async function testTurnStreamsDeltasToolsUsageAndCompletion(): Promise<void> {
   })
 
   const startEvents = await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
-  assert.deepEqual(startEvents.map((event) => event.type), ['session_started', 'session_ready'])
+  assert.deepEqual(
+    startEvents.map((event) => event.type),
+    ['session_started', 'session_ready'],
+  )
   assert.equal(startEvents[0]?.payload?.resumed, false)
 
   const events = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
   assert.deepEqual(
     events.map((event) => event.type),
-    ['turn_started', 'session_updated', 'content_delta', 'tool_started', 'tool_output', 'usage_updated', 'turn_completed']
+    [
+      'turn_started',
+      'session_updated',
+      'content_delta',
+      'tool_started',
+      'tool_output',
+      'usage_updated',
+      'turn_completed',
+    ],
   )
   const options = capturedOptions[0]
   assert.equal(options?.cwd, '/tmp/workspace')
@@ -475,10 +537,13 @@ async function testImageAttachmentsBecomeMultimodalContent(): Promise<void> {
       turnInput({
         message: 'describe this',
         attachments: [{ id: 'img-1', mediaType: 'image/png', dataBase64: 'Zm9v', byteLength: 3 }],
-      })
-    ) as AsyncIterable<ConversationEvent>
+      }),
+    ) as AsyncIterable<ConversationEvent>,
   )
-  assert.deepEqual(events.map((event) => event.type), ['turn_started', 'session_updated', 'usage_updated', 'turn_completed'])
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['turn_started', 'session_updated', 'usage_updated', 'turn_completed'],
+  )
   assert.deepEqual(capturedContent, [
     { type: 'text', text: 'describe this' },
     { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'Zm9v' } },
@@ -499,7 +564,7 @@ async function testResumeCursorIsPassedToTheSdkAndSessionUpdatesEmit(): Promise<
   })
 
   const startEvents = await collect(
-    adapter.startSession({ ...SESSION_INPUT, resumeSessionId: 'previous-1' }) as ConversationEvent[]
+    adapter.startSession({ ...SESSION_INPUT, resumeSessionId: 'previous-1' }) as ConversationEvent[],
   )
   assert.equal(startEvents[0]?.payload?.providerSessionId, 'previous-1')
   assert.equal(startEvents[0]?.payload?.resumed, true)
@@ -516,7 +581,7 @@ async function testCanUseToolApprovalFlowApproveAndDeny(): Promise<void> {
     const canUseTool = context.options.canUseTool as (
       toolName: string,
       input: Record<string, unknown>,
-      options: { signal?: AbortSignal }
+      options: { signal?: AbortSignal },
     ) => Promise<Record<string, unknown>>
     const text = (userMessage.message as { content: string }).content
     const decision = await canUseTool('Bash', { command: `run ${text}` }, {})
@@ -541,28 +606,40 @@ async function testCanUseToolApprovalFlowApproveAndDeny(): Promise<void> {
         assert.equal(event.payload?.action, 'Bash')
         assert.equal(event.payload?.summary, 'Bash: run first')
         void collect(
-          adapter.resolveApproval({ ...SESSION_INPUT, turnId: 'turn_1', requestId: 'approval_1', approved: true }) as ConversationEvent[]
+          adapter.resolveApproval({
+            ...SESSION_INPUT,
+            turnId: 'turn_1',
+            requestId: 'approval_1',
+            approved: true,
+          }) as ConversationEvent[],
         )
       }
-    }
+    },
   )
   assert.deepEqual(
     approvedEvents.map((event) => event.type),
-    ['turn_started', 'approval_requested', 'approval_resolved', 'session_updated', 'usage_updated', 'turn_completed']
+    ['turn_started', 'approval_requested', 'approval_resolved', 'session_updated', 'usage_updated', 'turn_completed'],
   )
   assert.equal(approvedEvents[2]?.payload?.approved, true)
   assert.equal(decisions[0]?.behavior, 'allow')
 
   // Deny (second turn on the same live session).
   const deniedEvents = await collect(
-    adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2', message: 'second' })) as AsyncIterable<ConversationEvent>,
+    adapter.sendTurn(
+      turnInput({ turnId: 'turn_2', requestId: 'approval_2', message: 'second' }),
+    ) as AsyncIterable<ConversationEvent>,
     (event) => {
       if (event.type === 'approval_requested') {
         void collect(
-          adapter.resolveApproval({ ...SESSION_INPUT, turnId: 'turn_2', requestId: 'approval_2', approved: false }) as ConversationEvent[]
+          adapter.resolveApproval({
+            ...SESSION_INPUT,
+            turnId: 'turn_2',
+            requestId: 'approval_2',
+            approved: false,
+          }) as ConversationEvent[],
         )
       }
-    }
+    },
   )
   assert.equal(deniedEvents.find((event) => event.type === 'approval_resolved')?.payload?.approved, false)
   assert.equal(decisions[1]?.behavior, 'deny')
@@ -587,7 +664,7 @@ async function testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack(): Promi
     const canUseTool = context.options.canUseTool as (
       toolName: string,
       input: Record<string, unknown>,
-      options: { signal?: AbortSignal }
+      options: { signal?: AbortSignal },
     ) => Promise<Record<string, unknown>>
     decisions.push(await canUseTool('AskUserQuestion', questionInput, {}))
     context.emit({
@@ -600,28 +677,25 @@ async function testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack(): Promi
   })
 
   await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
-  const events = await collect(
-    adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>,
-    (event) => {
-      if (event.type === 'approval_requested') {
-        assert.equal(event.payload?.kind, 'question')
-        assert.equal(event.payload?.summary, 'Which auth method?')
-        const questions = event.payload?.questions as Array<Record<string, unknown>>
-        assert.equal(questions.length, 1)
-        assert.equal((questions[0]?.options as unknown[]).length, 2)
-        assert.equal(questions[0]?.allowFreeText, true)
-        void collect(
-          adapter.resolveApproval({
-            ...SESSION_INPUT,
-            turnId: 'turn_1',
-            requestId: 'approval_1',
-            approved: true,
-            answers: { 'Which auth method?': 'OAuth' },
-          }) as ConversationEvent[]
-        )
-      }
+  const events = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>, (event) => {
+    if (event.type === 'approval_requested') {
+      assert.equal(event.payload?.kind, 'question')
+      assert.equal(event.payload?.summary, 'Which auth method?')
+      const questions = event.payload?.questions as Array<Record<string, unknown>>
+      assert.equal(questions.length, 1)
+      assert.equal((questions[0]?.options as unknown[]).length, 2)
+      assert.equal(questions[0]?.allowFreeText, true)
+      void collect(
+        adapter.resolveApproval({
+          ...SESSION_INPUT,
+          turnId: 'turn_1',
+          requestId: 'approval_1',
+          approved: true,
+          answers: { 'Which auth method?': 'OAuth' },
+        }) as ConversationEvent[],
+      )
     }
-  )
+  })
   const resolved = events.find((event) => event.type === 'approval_resolved')
   assert.deepEqual(resolved?.payload?.answers, { 'Which auth method?': 'OAuth' })
   assert.equal(decisions[0]?.behavior, 'allow')
@@ -633,7 +707,7 @@ async function testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack(): Promi
     const canUseTool = context.options.canUseTool as (
       toolName: string,
       input: Record<string, unknown>,
-      options: { signal?: AbortSignal }
+      options: { signal?: AbortSignal },
     ) => Promise<Record<string, unknown>>
     dismissed.push(await canUseTool('AskUserQuestion', questionInput, {}))
     context.emit({
@@ -648,7 +722,12 @@ async function testAskUserQuestionBecomesQuestionCardAndAnswersFlowBack(): Promi
   await collect(adapter2.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>, (event) => {
     if (event.type === 'approval_requested') {
       void collect(
-        adapter2.resolveApproval({ ...SESSION_INPUT, turnId: 'turn_1', requestId: 'approval_1', approved: false }) as ConversationEvent[]
+        adapter2.resolveApproval({
+          ...SESSION_INPUT,
+          turnId: 'turn_1',
+          requestId: 'approval_1',
+          approved: false,
+        }) as ConversationEvent[],
       )
     }
   })
@@ -661,7 +740,7 @@ async function testExitPlanModeBecomesPlanCard(): Promise<void> {
     const canUseTool = context.options.canUseTool as (
       toolName: string,
       input: Record<string, unknown>,
-      options: { signal?: AbortSignal }
+      options: { signal?: AbortSignal },
     ) => Promise<Record<string, unknown>>
     decisions.push(await canUseTool('ExitPlanMode', { plan: '## Plan\n1. Do the thing' }, {}))
     context.emit({
@@ -678,11 +757,19 @@ async function testExitPlanModeBecomesPlanCard(): Promise<void> {
       assert.equal(event.payload?.kind, 'plan')
       assert.equal(event.payload?.plan, '## Plan\n1. Do the thing')
       void collect(
-        adapter.resolveApproval({ ...SESSION_INPUT, turnId: 'turn_1', requestId: 'approval_1', approved: true }) as ConversationEvent[]
+        adapter.resolveApproval({
+          ...SESSION_INPUT,
+          turnId: 'turn_1',
+          requestId: 'approval_1',
+          approved: true,
+        }) as ConversationEvent[],
       )
     }
   })
-  assert.equal(events.some((event) => event.type === 'approval_resolved' && event.payload?.approved === true), true)
+  assert.equal(
+    events.some((event) => event.type === 'approval_resolved' && event.payload?.approved === true),
+    true,
+  )
   assert.equal(decisions[0]?.behavior, 'allow')
 }
 
@@ -731,29 +818,33 @@ async function testLivePermissionPresetReachesTheChildAndSurvivesRespawn(): Prom
 
   // Before the child exists the preset is only recorded — it lands at spawn,
   // including the bypass opt-in flag the SDK requires.
-  assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), { ok: true })
+  assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
+    ok: true,
+  })
   assert.deepEqual(live.permissionModes, [], 'no control request without a child')
   await collect(live.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
   assert.equal(live.capturedOptions[0]?.permissionMode, 'bypassPermissions')
   assert.equal(live.capturedOptions[0]?.allowDangerouslySkipPermissions, true)
 
   // With the child running the switch rides the control channel.
-  assert.deepEqual(
-    await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto' }),
-    { ok: true }
-  )
+  assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'auto' }), { ok: true })
   assert.deepEqual(live.permissionModes, ['auto'])
 
   // The recorded preset carries into the respawn after idle disposal.
   assert.equal(live.adapter.disposeChildProcess('conv_1'), true)
-  await collect(live.adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
+  await collect(
+    live.adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>,
+  )
   assert.equal(live.capturedOptions[1]?.permissionMode, 'auto')
   assert.equal(live.capturedOptions[1]?.allowDangerouslySkipPermissions, undefined)
 
-  assert.deepEqual(await live.adapter.setPermissionPreset({ ...SESSION_INPUT, sessionId: 'conv_missing', permissionPreset: 'manual' }), {
-    ok: false,
-    message: 'Conversation session is not registered with the Claude provider.',
-  })
+  assert.deepEqual(
+    await live.adapter.setPermissionPreset({ ...SESSION_INPUT, sessionId: 'conv_missing', permissionPreset: 'manual' }),
+    {
+      ok: false,
+      message: 'Conversation session is not registered with the Claude provider.',
+    },
+  )
   await collect(live.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
 
   // A child that refuses the mode: the failure is surfaced and the preset stays
@@ -772,7 +863,11 @@ async function testLivePermissionPresetReachesTheChildAndSurvivesRespawn(): Prom
     message: 'Claude Code refused the permission change: permission mode auto is unavailable in this CLI build',
   })
   assert.equal(refusing.adapter.disposeChildProcess('conv_1'), true)
-  await collect(refusing.adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
+  await collect(
+    refusing.adapter.sendTurn(
+      turnInput({ turnId: 'turn_2', requestId: 'approval_2' }),
+    ) as AsyncIterable<ConversationEvent>,
+  )
   assert.equal(refusing.capturedOptions[1]?.permissionMode, 'default', 'the refused preset was not recorded')
   await collect(refusing.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
 }
@@ -794,9 +889,12 @@ async function testAbortSignalEndsTheTurnStream(): Promise<void> {
     adapter.sendTurn(turnInput({ signal: abort.signal })) as AsyncIterable<ConversationEvent>,
     (event) => {
       if (event.type === 'content_delta') abort.abort()
-    }
+    },
   )
-  assert.deepEqual(events.map((event) => event.type), ['turn_started', 'session_updated', 'content_delta'])
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['turn_started', 'session_updated', 'content_delta'],
+  )
 }
 
 async function testSpawnFailureSurfacesAsTurnFailed(): Promise<void> {
@@ -810,7 +908,10 @@ async function testSpawnFailureSurfacesAsTurnFailed(): Promise<void> {
   })
   await collect(adapter.startSession(SESSION_INPUT) as ConversationEvent[])
   const events = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
-  assert.deepEqual(events.map((event) => event.type), ['turn_started', 'turn_failed'])
+  assert.deepEqual(
+    events.map((event) => event.type),
+    ['turn_started', 'turn_failed'],
+  )
   assert.equal(events[1]?.payload?.reason, 'spawn')
   assert.equal(events[1]?.payload?.message, 'Claude Code CLI is not installed.')
 }
@@ -838,13 +939,18 @@ async function testDisposeChildKeepsSessionAndCursorForRespawn(): Promise<void> 
   assert.equal(live?.providerSessionId, 'cursor-1')
 
   // Next turn respawns with the kept cursor.
-  const events = await collect(adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
+  const events = await collect(
+    adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>,
+  )
   assert.equal(events.at(-1)?.type, 'turn_completed')
   assert.equal(capturedOptions.length, 2)
   assert.equal(capturedOptions[1]?.resume, 'cursor-1')
 
   const closed = await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
-  assert.deepEqual(closed.map((event) => event.type), ['session_closed'])
+  assert.deepEqual(
+    closed.map((event) => event.type),
+    ['session_closed'],
+  )
   assert.equal(adapter.listLiveSessions().length, 0)
 }
 
@@ -857,21 +963,38 @@ async function testToolAfterResultOpensContinuationInsteadOfDenying(): Promise<v
   const decisions: Array<Record<string, unknown>> = []
   const { adapter } = createAdapter(async (_userMessage, context) => {
     // The turn completes and its sendTurn stream ends.
-    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+    context.emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 's1',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
     // The child keeps working: only once the test has confirmed the turn
     // resolved does a post-`result` tool fire (a background subagent completed).
     await gate.promise
     const canUseTool = context.options.canUseTool as (
       toolName: string,
       input: Record<string, unknown>,
-      options: { signal?: AbortSignal }
+      options: { signal?: AbortSignal },
     ) => Promise<Record<string, unknown>>
     decisions.push(await canUseTool('Bash', { command: 'ls' }, {}))
-    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+    context.emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 's1',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
   })
 
   const continuation: ConversationEvent[] = []
-  await collect(adapter.startSession({ ...SESSION_INPUT, onSessionEvent: (event) => continuation.push(event) }) as ConversationEvent[])
+  await collect(
+    adapter.startSession({
+      ...SESSION_INPUT,
+      onSessionEvent: (event) => continuation.push(event),
+    }) as ConversationEvent[],
+  )
 
   const turnEvents = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
   assert.equal(turnEvents.at(-1)?.type, 'turn_completed', 'the turn resolves at `result`, freeing the composer')
@@ -883,20 +1006,25 @@ async function testToolAfterResultOpensContinuationInsteadOfDenying(): Promise<v
   assert.deepEqual(
     continuation.slice(0, 2).map((event) => event.type),
     ['turn_started', 'approval_requested'],
-    'the continuation announces its turn before the approval card'
+    'the continuation announces its turn before the approval card',
   )
   const contTurnId = continuation[0]?.payload?.turnId
   assert.equal(typeof contTurnId === 'string' && contTurnId.includes('_cont_'), true)
 
   await collect(
-    adapter.resolveApproval({ ...SESSION_INPUT, turnId: contTurnId as string, requestId, approved: true }) as ConversationEvent[]
+    adapter.resolveApproval({
+      ...SESSION_INPUT,
+      turnId: contTurnId as string,
+      requestId,
+      approved: true,
+    }) as ConversationEvent[],
   )
   await waitForContinuationEvent(continuation, 'turn_completed')
 
   assert.equal(decisions[0]?.behavior, 'allow', 'the post-`result` tool was approved, not auto-denied')
   assert.deepEqual(
     continuation.map((event) => event.type),
-    ['turn_started', 'approval_requested', 'approval_resolved', 'usage_updated', 'turn_completed']
+    ['turn_started', 'approval_requested', 'approval_resolved', 'usage_updated', 'turn_completed'],
   )
   assert.equal(continuation.find((event) => event.type === 'approval_resolved')?.payload?.approved, true)
 
@@ -915,7 +1043,13 @@ async function testSubagentEventsAfterResultRideTheContinuationChannel(): Promis
       parent_tool_use_id: null,
       message: { content: [{ type: 'tool_use', id: 'task_1', name: 'Task', input: { subagent_type: 'Explore' } }] },
     })
-    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+    context.emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 's1',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
     await gate.promise
     context.emit({
       type: 'assistant',
@@ -929,11 +1063,22 @@ async function testSubagentEventsAfterResultRideTheContinuationChannel(): Promis
       parent_tool_use_id: 'task_1',
       message: { content: [{ type: 'tool_result', tool_use_id: 'child_1', content: 'file body' }] },
     })
-    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+    context.emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 's1',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
   })
 
   const continuation: ConversationEvent[] = []
-  await collect(adapter.startSession({ ...SESSION_INPUT, onSessionEvent: (event) => continuation.push(event) }) as ConversationEvent[])
+  await collect(
+    adapter.startSession({
+      ...SESSION_INPUT,
+      onSessionEvent: (event) => continuation.push(event),
+    }) as ConversationEvent[],
+  )
 
   const turnEvents = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
   const lane = turnEvents.find((event) => event.type === 'tool_started')
@@ -943,10 +1088,14 @@ async function testSubagentEventsAfterResultRideTheContinuationChannel(): Promis
   await waitForContinuationEvent(continuation, 'turn_completed')
   assert.deepEqual(
     continuation.map((event) => event.type),
-    ['turn_started', 'tool_started', 'tool_output', 'usage_updated', 'turn_completed']
+    ['turn_started', 'tool_started', 'tool_output', 'usage_updated', 'turn_completed'],
   )
   const childStart = continuation[1]
-  assert.equal(childStart?.payload?.parentToolUseId, 'task_1', 'the child stays linked to its lane after the turn closed')
+  assert.equal(
+    childStart?.payload?.parentToolUseId,
+    'task_1',
+    'the child stays linked to its lane after the turn closed',
+  )
   assert.equal(childStart?.payload?.tool, 'Read')
   assert.equal(continuation[2]?.payload?.parentToolUseId, 'task_1')
   const contTurnId = continuation[0]?.payload?.turnId
@@ -971,13 +1120,19 @@ async function testAskUserQuestionAfterResultReachesTheUserAndAnswersFlowBack():
       parent_tool_use_id: null,
       message: { content: [{ type: 'tool_use', id: 'task_1', name: 'Task', input: { subagent_type: 'Explore' } }] },
     })
-    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+    context.emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 's1',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
     await gate.promise
     // The subagent finished and the model came back with a question for the user.
     const canUseTool = context.options.canUseTool as (
       toolName: string,
       input: Record<string, unknown>,
-      options: { signal?: AbortSignal }
+      options: { signal?: AbortSignal },
     ) => Promise<Record<string, unknown>>
     decisions.push(
       await canUseTool(
@@ -995,14 +1150,25 @@ async function testAskUserQuestionAfterResultReachesTheUserAndAnswersFlowBack():
             },
           ],
         },
-        {}
-      )
+        {},
+      ),
     )
-    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 's1', usage: { input_tokens: 1, output_tokens: 1 } })
+    context.emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 's1',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
   })
 
   const continuation: ConversationEvent[] = []
-  await collect(adapter.startSession({ ...SESSION_INPUT, onSessionEvent: (event) => continuation.push(event) }) as ConversationEvent[])
+  await collect(
+    adapter.startSession({
+      ...SESSION_INPUT,
+      onSessionEvent: (event) => continuation.push(event),
+    }) as ConversationEvent[],
+  )
   const turnEvents = await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
   assert.equal(turnEvents.at(-1)?.type, 'turn_completed', 'the fan-out turn resolves at `result`')
 
@@ -1022,7 +1188,7 @@ async function testAskUserQuestionAfterResultReachesTheUserAndAnswersFlowBack():
       requestId,
       approved: true,
       answers: { 'Ship the fix or keep digging?': 'Ship it' },
-    }) as ConversationEvent[]
+    }) as ConversationEvent[],
   )
   await waitForContinuationEvent(continuation, 'turn_completed')
 
@@ -1030,12 +1196,11 @@ async function testAskUserQuestionAfterResultReachesTheUserAndAnswersFlowBack():
   assert.deepEqual(
     (decisions[0]?.updatedInput as Record<string, unknown>).answers,
     { 'Ship the fix or keep digging?': 'Ship it' },
-    "the human's answer reaches the tool"
+    "the human's answer reaches the tool",
   )
-  assert.deepEqual(
-    continuation.find((event) => event.type === 'approval_resolved')?.payload?.answers,
-    { 'Ship the fix or keep digging?': 'Ship it' }
-  )
+  assert.deepEqual(continuation.find((event) => event.type === 'approval_resolved')?.payload?.answers, {
+    'Ship the fix or keep digging?': 'Ship it',
+  })
 
   await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
 }
@@ -1051,7 +1216,13 @@ async function testTurnTakeoverEndsTheReplacedContinuationQueue(): Promise<void>
   const { adapter } = createAdapter(async (_userMessage, context) => {
     turns += 1
     context.emit({ type: 'system', subtype: 'init', session_id: 'cursor-1', model: 'sonnet' })
-    context.emit({ type: 'result', subtype: 'success', is_error: false, session_id: 'cursor-1', usage: { input_tokens: 1, output_tokens: 1 } })
+    context.emit({
+      type: 'result',
+      subtype: 'success',
+      is_error: false,
+      session_id: 'cursor-1',
+      usage: { input_tokens: 1, output_tokens: 1 },
+    })
     if (turns > 1) return
     // The first turn's child keeps working: a post-`result` tool opens a
     // continuation turn and blocks on its approval.
@@ -1059,13 +1230,18 @@ async function testTurnTakeoverEndsTheReplacedContinuationQueue(): Promise<void>
     const canUseTool = context.options.canUseTool as (
       toolName: string,
       input: Record<string, unknown>,
-      options: { signal?: AbortSignal }
+      options: { signal?: AbortSignal },
     ) => Promise<Record<string, unknown>>
     decisions.push(await canUseTool('Bash', { command: 'ls' }, {}))
   })
 
   const continuation: ConversationEvent[] = []
-  await collect(adapter.startSession({ ...SESSION_INPUT, onSessionEvent: (event) => continuation.push(event) }) as ConversationEvent[])
+  await collect(
+    adapter.startSession({
+      ...SESSION_INPUT,
+      onSessionEvent: (event) => continuation.push(event),
+    }) as ConversationEvent[],
+  )
   await collect(adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
 
   gate.resolve()
@@ -1073,10 +1249,12 @@ async function testTurnTakeoverEndsTheReplacedContinuationQueue(): Promise<void>
 
   // The composer flushes a queued message into that window (the runtime guard
   // normally rejects this; the provider must survive it either way).
-  const takeover = collect(adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
+  const takeover = collect(
+    adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>,
+  )
   const events = await withTimeout(
     takeover,
-    'the replaced continuation queue was left open: its drain never ended, so its permission never resolved'
+    'the replaced continuation queue was left open: its drain never ended, so its permission never resolved',
   )
 
   assert.equal(events.at(-1)?.type, 'turn_completed', 'the taking-over turn streams and completes normally')
@@ -1084,7 +1262,7 @@ async function testTurnTakeoverEndsTheReplacedContinuationQueue(): Promise<void>
   assert.deepEqual(
     continuation.map((event) => event.type),
     ['turn_started', 'approval_requested'],
-    'the ended queue forwards nothing further to the session channel'
+    'the ended queue forwards nothing further to the session channel',
   )
 
   await collect(adapter.stopSession(SESSION_INPUT) as ConversationEvent[])
@@ -1118,13 +1296,17 @@ async function testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused(): P
   assert.equal(idle.capturedOptions[0]?.permissionMode, 'default')
   assert.equal(idle.adapter.listLiveSessions()[0]?.hasChildProcess, true)
 
-  assert.deepEqual(await idle.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), { ok: true })
+  assert.deepEqual(await idle.adapter.setPermissionPreset({ ...SESSION_INPUT, permissionPreset: 'bypass' }), {
+    ok: true,
+  })
   assert.deepEqual(idle.permissionModes, [], 'the child is replaced, not asked')
   const disposed = idle.adapter.listLiveSessions()[0]
   assert.equal(disposed?.hasChildProcess, false, 'the query is disposed so the next turn respawns')
   assert.equal(disposed?.providerSessionId, 'cursor-1', 'the resume cursor is kept')
 
-  await collect(idle.adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
+  await collect(
+    idle.adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>,
+  )
   assert.equal(idle.capturedOptions[1]?.permissionMode, 'bypassPermissions')
   assert.equal(idle.capturedOptions[1]?.allowDangerouslySkipPermissions, true)
   assert.equal(idle.capturedOptions[1]?.resume, 'cursor-1', 'the conversation continues in the same provider session')
@@ -1154,7 +1336,8 @@ async function testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused(): P
   await collect(inFlight.adapter.startSession({ ...SESSION_INPUT, permissionPreset: 'auto' }) as ConversationEvent[])
   const streamed: ConversationEvent[] = []
   const streaming = (async () => {
-    for await (const event of inFlight.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>) streamed.push(event)
+    for await (const event of inFlight.adapter.sendTurn(turnInput()) as AsyncIterable<ConversationEvent>)
+      streamed.push(event)
   })()
   await waitForContinuationEvent(streamed, 'content_delta')
 
@@ -1168,8 +1351,16 @@ async function testSwitchingToBypassMidSessionRespawnsInsteadOfBeingRefused(): P
   await withTimeout(streaming, 'the in-flight turn never completed')
   assert.equal(streamed.at(-1)?.type, 'turn_completed')
 
-  await collect(inFlight.adapter.sendTurn(turnInput({ turnId: 'turn_2', requestId: 'approval_2' })) as AsyncIterable<ConversationEvent>)
-  assert.equal(inFlight.capturedOptions[1]?.permissionMode, 'bypassPermissions', 'the next turn runs under the recorded preset')
+  await collect(
+    inFlight.adapter.sendTurn(
+      turnInput({ turnId: 'turn_2', requestId: 'approval_2' }),
+    ) as AsyncIterable<ConversationEvent>,
+  )
+  assert.equal(
+    inFlight.capturedOptions[1]?.permissionMode,
+    'bypassPermissions',
+    'the next turn runs under the recorded preset',
+  )
   assert.equal(inFlight.capturedOptions[1]?.allowDangerouslySkipPermissions, true)
   assert.equal(inFlight.capturedOptions[1]?.resume, 'cursor-1')
   await collect(inFlight.adapter.stopSession(SESSION_INPUT) as ConversationEvent[])

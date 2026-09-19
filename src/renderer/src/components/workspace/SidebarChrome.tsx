@@ -122,12 +122,7 @@ function BrandButton({ onNewChat, visibility }: { onNewChat: () => void; visibil
           ground and the `--bg-hover` lift, exactly what this row spelled. The
           tone's ink never reaches the mark — the wordmark paints its own two
           colours — so the button is the ground and the mark is the label. */}
-      <GhostButton
-        size="xs"
-        onClick={onNewChat}
-        aria-label="New chat"
-        className={`app-no-drag ${visibility}`}
-      >
+      <GhostButton size="xs" onClick={onNewChat} aria-label="New chat" className={`app-no-drag ${visibility}`}>
         <SprintEngineWordmark />
       </GhostButton>
     </Tooltip>
@@ -189,7 +184,12 @@ export function AppMenuButton<MenuItem extends string>({
             {...triggerProps}
           >
             <svg viewBox="0 0 16 16" fill="none" className="icon-sm" aria-hidden="true">
-              <path d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+              <path
+                d="M2.5 4.5h11M2.5 8h11M2.5 11.5h11"
+                stroke="currentColor"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
             </svg>
           </IconButton>
         </Tooltip>
@@ -246,11 +246,12 @@ export function SidebarChrome<MenuItem extends string>({
   //
   // Literal class strings, never interpolated: Tailwind generates a container
   // query only from a variant it can see in the source text.
-  const wordmarkVisibility = trafficLightInset > 0
-    ? 'hidden @[240px]:inline-flex' // 22 + 100 + 118
-    : isMac
-      ? 'hidden @[218px]:inline-flex' // 0 + 100 + 118
-      : 'hidden @[252px]:inline-flex' // 34 + 100 + 118
+  const wordmarkVisibility =
+    trafficLightInset > 0
+      ? 'hidden @[240px]:inline-flex' // 22 + 100 + 118
+      : isMac
+        ? 'hidden @[218px]:inline-flex' // 0 + 100 + 118
+        : 'hidden @[252px]:inline-flex' // 34 + 100 + 118
 
   return (
     // ONE row (owner, 2026-07-30): one chrome row per content region. Height-
@@ -264,7 +265,9 @@ export function SidebarChrome<MenuItem extends string>({
     // control). The four icon buttons are the row's floor — they are the
     // functional controls and never drop.
     <div className="chrome-bar @container app-drag flex h-[36px] shrink-0 items-center">
-      {trafficLightInset > 0 ? <div aria-hidden="true" className="shrink-0" style={{ width: trafficLightInset }} /> : null}
+      {trafficLightInset > 0 ? (
+        <div aria-hidden="true" className="shrink-0" style={{ width: trafficLightInset }} />
+      ) : null}
       {!isMac ? (
         <div className="flex shrink-0 items-center pl-1">
           <AppMenuButton menuItems={menuItems} onShowMenu={onShowMenu} />

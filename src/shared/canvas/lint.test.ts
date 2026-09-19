@@ -110,14 +110,10 @@ run('a correctly drawn two-box diagram lints clean and scores 100', () => {
 })
 
 run('one_way_binding: an arrow the shape does not list, and the reverse', () => {
-  const missingOnShape = boundPair().map((entry) =>
-    entry.id === 'to' ? { ...entry, boundElements: [] } : entry,
-  )
+  const missingOnShape = boundPair().map((entry) => (entry.id === 'to' ? { ...entry, boundElements: [] } : entry))
   assertFlags(missingOnShape, 'one_way_binding')
 
-  const missingOnArrow = boundPair().map((entry) =>
-    entry.id === 'arrow' ? { ...entry, endBinding: null } : entry,
-  )
+  const missingOnArrow = boundPair().map((entry) => (entry.id === 'arrow' ? { ...entry, endBinding: null } : entry))
   assertFlags(missingOnArrow, 'one_way_binding')
 
   const labelNotListed = boundPair().map((entry) =>
@@ -220,16 +216,17 @@ run('overlap forgives an arrow and the shapes it is bound to', () => {
     }),
   ]
   const overlaps = lintScene(elements).issues.filter((issue) => issue.type === 'overlap')
-  assert.deepEqual(overlaps.map((issue) => issue.elementIds), [['from', 'to']], 'only the two boxes are flagged')
+  assert.deepEqual(
+    overlaps.map((issue) => issue.elementIds),
+    [['from', 'to']],
+    'only the two boxes are flagged',
+  )
 })
 
 run('overlap forgives containment, grouped or not', () => {
   assertClean([box('outer', 0, 0, 400, 300), box('inner', 50, 50, 100, 60)], 'overlap')
   assertClean(
-    [
-      box('bg', 0, 0, 400, 300, { groupIds: ['g'] }),
-      box('card', 50, 50, 100, 60, { groupIds: ['g'] }),
-    ],
+    [box('bg', 0, 0, 400, 300, { groupIds: ['g'] }), box('card', 50, 50, 100, 60, { groupIds: ['g'] })],
     'overlap',
   )
 })

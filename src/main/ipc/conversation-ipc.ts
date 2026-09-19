@@ -78,14 +78,14 @@ export function createConversationIpcHandlers(
   // The app passes its shared runtime (owned by app-services so shutdown and
   // diagnostics reach it); constructing one here keeps tests/legacy callers
   // working standalone.
-  runtime: ConversationRuntime = new ConversationRuntime({ secretStore: getSharedCredentialStore() })
+  runtime: ConversationRuntime = new ConversationRuntime({ secretStore: getSharedCredentialStore() }),
 ): ConversationIpcHandlers {
   const secretStore = getSharedCredentialStore()
   const cliChecks = new Map<string, { at: number; installed: boolean }>()
 
   async function isHarnessCliInstalled(
     cli: 'claude-code',
-    cliRuntimes?: ConversationCliRuntimeOverrides
+    cliRuntimes?: ConversationCliRuntimeOverrides,
   ): Promise<boolean> {
     const override = cliRuntimes?.[cli]
     const cacheKey = `${cli}:${override?.command?.trim() ?? ''}:${override?.useWsl === true}`
@@ -176,13 +176,16 @@ export function createConversationIpcHandlers(
 
 export function registerConversationIpc(
   ipcMain: IpcMain,
-  handlers: ConversationIpcHandlers = createConversationIpcHandlers()
+  handlers: ConversationIpcHandlers = createConversationIpcHandlers(),
 ): void {
   let nextSubscriptionId = 0
-  const eventSubscriptions = new Map<string, {
-    unsubscribe: () => void
-    removeDestroyedListener: () => void
-  }>()
+  const eventSubscriptions = new Map<
+    string,
+    {
+      unsubscribe: () => void
+      removeDestroyedListener: () => void
+    }
+  >()
 
   ipcMain.handle('conversation:providers:list', async (_, input: unknown): Promise<ConversationProviderListResult> => {
     if (input !== undefined && !isRecord(input)) return { ok: false, message: 'Provider list input must be an object.' }
@@ -193,28 +196,28 @@ export function registerConversationIpc(
     }
   })
 
-  ipcMain.handle('conversation:providers:models', async (_, input: unknown): Promise<ConversationProviderModelsResult> => {
+  ipcMain.handle(
+    'conversation:providers:models',
+    async (_, input: unknown): Promise<ConversationProviderModelsResult> => {
+      const parsed = parseProviderInput(input)
+      if (!parsed.ok) return parsed
+      try {
+        return await handlers.listProviderModels(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
+  )
+
+  ipcMain.handle('conversation:secrets:status', async (_, input: unknown): Promise<ConversationSecretStatusResult> => {
     const parsed = parseProviderInput(input)
     if (!parsed.ok) return parsed
     try {
-      return await handlers.listProviderModels(parsed.input)
+      return handlers.getSecretStatus(parsed.input)
     } catch (err) {
       return { ok: false, message: formatError(err) }
     }
   })
-
-  ipcMain.handle(
-    'conversation:secrets:status',
-    async (_, input: unknown): Promise<ConversationSecretStatusResult> => {
-      const parsed = parseProviderInput(input)
-      if (!parsed.ok) return parsed
-      try {
-        return handlers.getSecretStatus(parsed.input)
-      } catch (err) {
-        return { ok: false, message: formatError(err) }
-      }
-    }
-  )
 
   ipcMain.handle('conversation:secrets:set', async (_, input: unknown): Promise<ConversationSecretSetResult> => {
     const parsed = parseSecretSetInput(input)
@@ -246,25 +249,31 @@ export function registerConversationIpc(
     }
   })
 
-  ipcMain.handle('conversation:sessions:send-turn', async (_, input: unknown): Promise<ConversationSessionActionResult> => {
-    const parsed = parseSendTurnInput(input)
-    if (!parsed.ok) return parsed
-    try {
-      return handlers.sendTurn(parsed.input)
-    } catch (err) {
-      return { ok: false, message: formatError(err) }
-    }
-  })
+  ipcMain.handle(
+    'conversation:sessions:send-turn',
+    async (_, input: unknown): Promise<ConversationSessionActionResult> => {
+      const parsed = parseSendTurnInput(input)
+      if (!parsed.ok) return parsed
+      try {
+        return handlers.sendTurn(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
+  )
 
-  ipcMain.handle('conversation:sessions:interrupt', async (_, input: unknown): Promise<ConversationSessionActionResult> => {
-    const parsed = parseSessionIdInput(input)
-    if (!parsed.ok) return parsed
-    try {
-      return handlers.interrupt(parsed.input)
-    } catch (err) {
-      return { ok: false, message: formatError(err) }
-    }
-  })
+  ipcMain.handle(
+    'conversation:sessions:interrupt',
+    async (_, input: unknown): Promise<ConversationSessionActionResult> => {
+      const parsed = parseSessionIdInput(input)
+      if (!parsed.ok) return parsed
+      try {
+        return handlers.interrupt(parsed.input)
+      } catch (err) {
+        return { ok: false, message: formatError(err) }
+      }
+    },
+  )
 
   ipcMain.handle(
     'conversation:sessions:respond-to-request',
@@ -276,7 +285,7 @@ export function registerConversationIpc(
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }
-    }
+    },
   )
 
   ipcMain.handle(
@@ -289,7 +298,7 @@ export function registerConversationIpc(
       } catch (err) {
         return { ok: false, message: formatError(err) }
       }
-    }
+    },
   )
 
   ipcMain.handle('conversation:sessions:stop', async (_, input: unknown): Promise<ConversationSessionActionResult> => {
@@ -346,37 +355,39 @@ export function registerConversationIpc(
     return { ok: true, subscriptionId }
   })
 
-  ipcMain.handle('conversation:events:unsubscribe', (_event, input: unknown): { ok: true } | { ok: false; message: string } => {
-    if (!isRecord(input) || typeof input.subscriptionId !== 'string') {
-      return { ok: false, message: 'subscriptionId is required.' }
-    }
-    const subscription = eventSubscriptions.get(input.subscriptionId)
-    if (subscription) {
-      eventSubscriptions.delete(input.subscriptionId)
-      subscription.removeDestroyedListener()
-      subscription.unsubscribe()
-    }
-    return { ok: true }
-  })
+  ipcMain.handle(
+    'conversation:events:unsubscribe',
+    (_event, input: unknown): { ok: true } | { ok: false; message: string } => {
+      if (!isRecord(input) || typeof input.subscriptionId !== 'string') {
+        return { ok: false, message: 'subscriptionId is required.' }
+      }
+      const subscription = eventSubscriptions.get(input.subscriptionId)
+      if (subscription) {
+        eventSubscriptions.delete(input.subscriptionId)
+        subscription.removeDestroyedListener()
+        subscription.unsubscribe()
+      }
+      return { ok: true }
+    },
+  )
 }
 
 function formatError(err: unknown): string {
   return err instanceof Error ? err.message : String(err)
 }
 
-function parseProviderInput(input: unknown):
-  | { ok: true; input: ConversationSecretStatusInput }
-  | { ok: false; message: string } {
+function parseProviderInput(
+  input: unknown,
+): { ok: true; input: ConversationSecretStatusInput } | { ok: false; message: string } {
   if (!isRecord(input) || typeof input.providerId !== 'string') {
     return { ok: false, message: 'providerId is required.' }
   }
   return { ok: true, input: { providerId: input.providerId } }
 }
 
-
-function parseSecretSetInput(input: unknown):
-  | { ok: true; input: ConversationSecretSetInput }
-  | { ok: false; message: string } {
+function parseSecretSetInput(
+  input: unknown,
+): { ok: true; input: ConversationSecretSetInput } | { ok: false; message: string } {
   const parsed = parseProviderInput(input)
   if (!parsed.ok) return parsed
   if (!isRecord(input) || typeof input.value !== 'string') {
@@ -385,11 +396,12 @@ function parseSecretSetInput(input: unknown):
   return { ok: true, input: { providerId: parsed.input.providerId, value: input.value } }
 }
 
-function parseStartSessionInput(input: unknown):
-  | { ok: true; input: ConversationStartSessionInput }
-  | { ok: false; message: string } {
+function parseStartSessionInput(
+  input: unknown,
+): { ok: true; input: ConversationStartSessionInput } | { ok: false; message: string } {
   if (!isRecord(input)) return { ok: false, message: 'Start session input must be an object.' }
-  const { workspaceRoot, workspaceId, agentId, providerId, modelId, cliRuntimes, permissionPreset, allowedTools } = input
+  const { workspaceRoot, workspaceId, agentId, providerId, modelId, cliRuntimes, permissionPreset, allowedTools } =
+    input
   if (typeof workspaceRoot !== 'string') return { ok: false, message: 'workspaceRoot is required.' }
   if (typeof workspaceId !== 'string') return { ok: false, message: 'workspaceId is required.' }
   if (typeof agentId !== 'string') return { ok: false, message: 'agentId is required.' }
@@ -402,8 +414,8 @@ function parseStartSessionInput(input: unknown):
     return { ok: false, message: PERMISSION_PRESET_ERROR }
   }
   if (
-    allowedTools !== undefined
-    && (!Array.isArray(allowedTools) || allowedTools.some((tool) => typeof tool !== 'string'))
+    allowedTools !== undefined &&
+    (!Array.isArray(allowedTools) || allowedTools.some((tool) => typeof tool !== 'string'))
   ) {
     return { ok: false, message: 'allowedTools must be an array of tool names.' }
   }
@@ -422,9 +434,9 @@ function parseStartSessionInput(input: unknown):
   }
 }
 
-function parseTranscriptInput(input: unknown):
-  | { ok: true; input: ConversationTranscriptInput }
-  | { ok: false; message: string } {
+function parseTranscriptInput(
+  input: unknown,
+): { ok: true; input: ConversationTranscriptInput } | { ok: false; message: string } {
   if (!isRecord(input)) return { ok: false, message: 'Transcript input must be an object.' }
   const { workspaceRoot, workspaceId, agentId } = input
   if (typeof workspaceRoot !== 'string') return { ok: false, message: 'workspaceRoot is required.' }
@@ -448,9 +460,9 @@ function base64ByteLength(base64: string): number {
   return Math.floor((base64.length * 3) / 4) - padding
 }
 
-function parseImageAttachments(raw: unknown):
-  | { ok: true; attachments: ConversationImageAttachment[] }
-  | { ok: false; message: string } {
+function parseImageAttachments(
+  raw: unknown,
+): { ok: true; attachments: ConversationImageAttachment[] } | { ok: false; message: string } {
   if (!Array.isArray(raw)) return { ok: false, message: 'attachments must be an array when present.' }
   if (raw.length > MAX_ATTACHMENTS_PER_TURN) {
     return { ok: false, message: `A turn can carry at most ${MAX_ATTACHMENTS_PER_TURN} attachments.` }
@@ -463,7 +475,12 @@ function parseImageAttachments(raw: unknown):
     if (typeof mediaType !== 'string' || !ALLOWED_IMAGE_MEDIA_TYPES.has(mediaType)) {
       return { ok: false, message: 'Attachments must be PNG, JPEG, WebP, or GIF images.' }
     }
-    if (typeof dataBase64 !== 'string' || !dataBase64 || !BASE64_PATTERN.test(dataBase64) || dataBase64.length % 4 !== 0) {
+    if (
+      typeof dataBase64 !== 'string' ||
+      !dataBase64 ||
+      !BASE64_PATTERN.test(dataBase64) ||
+      dataBase64.length % 4 !== 0
+    ) {
       return { ok: false, message: 'Attachment image data must be base64-encoded.' }
     }
     if (name !== undefined && typeof name !== 'string') {
@@ -488,9 +505,9 @@ function parseImageAttachments(raw: unknown):
   return { ok: true, attachments }
 }
 
-function parseSendTurnInput(input: unknown):
-  | { ok: true; input: ConversationSendTurnInput }
-  | { ok: false; message: string } {
+function parseSendTurnInput(
+  input: unknown,
+): { ok: true; input: ConversationSendTurnInput } | { ok: false; message: string } {
   const session = parseSessionIdInput(input)
   if (!session.ok) return session
   if (!isRecord(input) || typeof input.message !== 'string') return { ok: false, message: 'message is required.' }
@@ -514,9 +531,9 @@ function parseSendTurnInput(input: unknown):
   }
 }
 
-function parseSessionIdInput(input: unknown):
-  | { ok: true; input: ConversationInterruptInput }
-  | { ok: false; message: string } {
+function parseSessionIdInput(
+  input: unknown,
+): { ok: true; input: ConversationInterruptInput } | { ok: false; message: string } {
   if (!isRecord(input) || typeof input.sessionId !== 'string') return { ok: false, message: 'sessionId is required.' }
   return { ok: true, input: { sessionId: input.sessionId } }
 }
@@ -527,9 +544,9 @@ function isPermissionPreset(value: unknown): value is ConversationPermissionPres
   return typeof value === 'string' && CONVERSATION_PERMISSION_PRESETS.includes(value as ConversationPermissionPreset)
 }
 
-function parseSetPermissionInput(input: unknown):
-  | { ok: true; input: ConversationSetPermissionInput }
-  | { ok: false; message: string } {
+function parseSetPermissionInput(
+  input: unknown,
+): { ok: true; input: ConversationSetPermissionInput } | { ok: false; message: string } {
   const session = parseSessionIdInput(input)
   if (!session.ok) return session
   const permissionPreset = isRecord(input) ? input.permissionPreset : undefined
@@ -537,9 +554,9 @@ function parseSetPermissionInput(input: unknown):
   return { ok: true, input: { sessionId: session.input.sessionId, permissionPreset } }
 }
 
-function parseRespondToRequestInput(input: unknown):
-  | { ok: true; input: ConversationRespondToRequestInput }
-  | { ok: false; message: string } {
+function parseRespondToRequestInput(
+  input: unknown,
+): { ok: true; input: ConversationRespondToRequestInput } | { ok: false; message: string } {
   const session = parseSessionIdInput(input)
   if (!session.ok) return session
   if (!isRecord(input) || typeof input.requestId !== 'string') return { ok: false, message: 'requestId is required.' }

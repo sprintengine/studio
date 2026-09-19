@@ -93,11 +93,7 @@ run('a label appearing or vanishing is still the container being relabelled', ()
 
 run('changes are grouped added, removed, geometry, relabelled', () => {
   const before = [...labelled('a', 'Keep', 0, 0), ...labelled('b', 'Old', 0, 200), ...labelled('c', 'Move', 0, 400)]
-  const after = [
-    ...labelled('a', 'Kept', 0, 0),
-    ...labelled('c', 'Move', 500, 400),
-    ...labelled('d', 'New', 0, 600),
-  ]
+  const after = [...labelled('a', 'Kept', 0, 0), ...labelled('c', 'Move', 500, 400), ...labelled('d', 'New', 0, 600)]
   assert.deepEqual(summariseChanges(before, after), [
     'Added rectangle "New" at (0,600)',
     'Removed "Old"',

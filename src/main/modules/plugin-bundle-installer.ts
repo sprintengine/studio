@@ -115,7 +115,7 @@ export type MarketplacePluginInstallOptions = {
 export async function installMarketplacePlugin(
   input: MarketplacePluginInstallInput,
   services: MarketplacePluginInstallerServices,
-  options: MarketplacePluginInstallOptions = {}
+  options: MarketplacePluginInstallOptions = {},
 ): Promise<MarketplacePluginInstallResult> {
   const installed: MarketplacePluginInstalledComponent[] = []
   const preflight = await buildInstallPlan(input, services.trustContext(), options)
@@ -162,7 +162,7 @@ function installRequiresRestart(installed: MarketplacePluginInstalledComponent[]
 async function buildInstallPlan(
   input: MarketplacePluginInstallInput,
   trustContext: ModuleTrustContext,
-  options: MarketplacePluginInstallOptions
+  options: MarketplacePluginInstallOptions,
 ): Promise<
   | { ok: true; manifest: MarketplacePluginAuthoringManifest; plan: ResolvedInstallPlan }
   | { ok: false; result: MarketplacePluginInstallResult }
@@ -188,20 +188,30 @@ async function buildInstallPlan(
 
   const trust = classifyModuleTrust(manifest, trustContext)
   if (trust.status === 'invalid') {
-    return failure('Plugin bundle signature is invalid.', undefined, [{ path: 'signature', message: 'Invalid signature.' }], {
-      trust: trust.status,
-      loadEligible: false,
-    })
+    return failure(
+      'Plugin bundle signature is invalid.',
+      undefined,
+      [{ path: 'signature', message: 'Invalid signature.' }],
+      {
+        trust: trust.status,
+        loadEligible: false,
+      },
+    )
   }
   // Mirror the download gate (defense in depth): an unsigned module/cli must
   // never install, so a bypassed download cannot slip code past this point.
   // Unsigned mcp/skills-only bundles are permitted (loadEligible false). Gate on
   // signature presence so id-trust cannot promote an unsigned code component.
   if (!manifest.signature && hasCodeBearingComponent(manifest.components)) {
-    return failure('Plugin bundle is unsigned and cannot be installed.', undefined, [{ path: 'signature', message: 'signature is required.' }], {
-      trust: trust.status,
-      loadEligible: false,
-    })
+    return failure(
+      'Plugin bundle is unsigned and cannot be installed.',
+      undefined,
+      [{ path: 'signature', message: 'signature is required.' }],
+      {
+        trust: trust.status,
+        loadEligible: false,
+      },
+    )
   }
 
   const digestMismatch = marketplaceComponentDigestMismatchIssuesSync(bundleRoot.path, manifest, {
@@ -219,10 +229,15 @@ async function buildInstallPlan(
   // payload, checked before any component is prepared or written.
   const automationIssues = marketplaceAutomationPayloadIssuesSync(bundleRoot.path, manifest.components)
   if (automationIssues.length > 0) {
-    return failure('Plugin bundle automation payload is not a valid automation definition.', 'automation', automationIssues, {
-      trust: trust.status,
-      loadEligible: isLoadEligible(trust.status),
-    })
+    return failure(
+      'Plugin bundle automation payload is not a valid automation definition.',
+      'automation',
+      automationIssues,
+      {
+        trust: trust.status,
+        loadEligible: isLoadEligible(trust.status),
+      },
+    )
   }
 
   const resolvedComponents: ResolvedComponent[] = []
@@ -246,7 +261,7 @@ async function installComponent(
   component: ResolvedComponent,
   input: MarketplacePluginInstallInput,
   services: MarketplacePluginInstallerServices,
-  installed: MarketplacePluginInstalledComponent[]
+  installed: MarketplacePluginInstalledComponent[],
 ): Promise<
   | { ok: true; installed: MarketplacePluginInstalledComponent; mcpSettings?: McpSettings }
   | { ok: false; result: MarketplacePluginInstallResult }
@@ -281,8 +296,10 @@ function installMcpComponent(
   component: Extract<ResolvedComponent, { kind: 'mcp' }>,
   input: MarketplacePluginInstallInput,
   service: McpConfigService,
-  installed: MarketplacePluginInstalledComponent[]
-): { ok: true; installed: MarketplacePluginInstalledComponent; mcpSettings: McpSettings } | { ok: false; result: MarketplacePluginInstallResult } {
+  installed: MarketplacePluginInstalledComponent[],
+):
+  | { ok: true; installed: MarketplacePluginInstalledComponent; mcpSettings: McpSettings }
+  | { ok: false; result: MarketplacePluginInstallResult } {
   const workspaceRoot = input.workspaceRoot?.trim()
   if (!workspaceRoot) {
     return componentFailure('mcp', 'Workspace root is required to install MCP components.', installed)
@@ -291,14 +308,14 @@ function installMcpComponent(
   const nextSettings: McpSettings = {
     syncEnabled: true,
     servers: {
-      ...(input.mcpSettings?.servers ?? {}),
+      ...input.mcpSettings?.servers,
       ...Object.fromEntries(component.servers.map((server) => [server.id, server])),
     },
   }
   const clients = normalizeMcpClients(
     input.mcpClients?.length
       ? input.mcpClients
-      : component.servers.flatMap((server) => server.clients) as McpClientTarget[]
+      : (component.servers.flatMap((server) => server.clients) as McpClientTarget[]),
   )
   const result = service.sync({ workspaceRoot, settings: nextSettings, clients, write: true })
   if (!result.ok) {
@@ -321,7 +338,7 @@ function installMcpComponent(
       mergeMarketplaceIssues([
         ...coverageFailures.map(mcpCoverageFailureIssue),
         ...(mcpIssuesToMarketplaceIssues(syncIssues) ?? []),
-      ])
+      ]),
     )
   }
 
@@ -339,10 +356,9 @@ function installMcpComponent(
 async function installSkillComponent(
   component: Extract<ResolvedComponent, { kind: 'skills' }>,
   input: MarketplacePluginInstallInput,
-  installed: MarketplacePluginInstalledComponent[]
+  installed: MarketplacePluginInstalledComponent[],
 ): Promise<
-  | { ok: true; installed: MarketplacePluginInstalledComponent }
-  | { ok: false; result: MarketplacePluginInstallResult }
+  { ok: true; installed: MarketplacePluginInstalledComponent } | { ok: false; result: MarketplacePluginInstallResult }
 > {
   const workspaceRoot = input.workspaceRoot?.trim()
   if (!workspaceRoot) {
@@ -372,13 +388,16 @@ async function installSkillComponent(
 async function installModuleComponent(
   component: Extract<ResolvedComponent, { kind: 'module' }>,
   services: MarketplacePluginInstallerServices,
-  installed: MarketplacePluginInstalledComponent[]
+  installed: MarketplacePluginInstalledComponent[],
 ): Promise<
-  | { ok: true; installed: MarketplacePluginInstalledComponent }
-  | { ok: false; result: MarketplacePluginInstallResult }
+  { ok: true; installed: MarketplacePluginInstalledComponent } | { ok: false; result: MarketplacePluginInstallResult }
 > {
   const installer = services.installModuleFolder ?? installCapabilityModuleFolder
-  const result = await installer(component.path, (services.moduleRoot ?? defaultUserModuleRoot)(), services.trustContext())
+  const result = await installer(
+    component.path,
+    (services.moduleRoot ?? defaultUserModuleRoot)(),
+    services.trustContext(),
+  )
   if (!result.ok) {
     return componentFailure('module', result.message, installed, result.rejected.issues)
   }
@@ -404,10 +423,9 @@ async function installModuleComponent(
 async function installCliComponent(
   component: Extract<ResolvedComponent, { kind: 'cli' }>,
   services: MarketplacePluginInstallerServices,
-  installed: MarketplacePluginInstalledComponent[]
+  installed: MarketplacePluginInstalledComponent[],
 ): Promise<
-  | { ok: true; installed: MarketplacePluginInstalledComponent }
-  | { ok: false; result: MarketplacePluginInstallResult }
+  { ok: true; installed: MarketplacePluginInstalledComponent } | { ok: false; result: MarketplacePluginInstallResult }
 > {
   const installer = services.installPluginFolder ?? installCliPluginFolder
   const result = await installer(component.path, (services.pluginRoot ?? getPluginRegistryUserRoot)())
@@ -430,17 +448,24 @@ async function installAutomationComponent(
   component: Extract<ResolvedComponent, { kind: 'automation' }>,
   input: MarketplacePluginInstallInput,
   services: MarketplacePluginInstallerServices,
-  installed: MarketplacePluginInstalledComponent[]
+  installed: MarketplacePluginInstalledComponent[],
 ): Promise<
-  | { ok: true; installed: MarketplacePluginInstalledComponent }
-  | { ok: false; result: MarketplacePluginInstallResult }
+  { ok: true; installed: MarketplacePluginInstalledComponent } | { ok: false; result: MarketplacePluginInstallResult }
 > {
   const workspaceRoot = input.workspaceRoot?.trim()
   if (!workspaceRoot) {
-    return componentFailure('automation', 'Open the project this automation should run in, then add it again.', installed)
+    return componentFailure(
+      'automation',
+      'Open the project this automation should run in, then add it again.',
+      installed,
+    )
   }
   if (!services.installAutomationDefinition) {
-    return componentFailure('automation', 'Automations are switched off, so this automation cannot be added.', installed)
+    return componentFailure(
+      'automation',
+      'Automations are switched off, so this automation cannot be added.',
+      installed,
+    )
   }
 
   const result = await services.installAutomationDefinition({
@@ -469,8 +494,10 @@ async function prepareComponent(
   input: MarketplacePluginInstallInput,
   manifest: MarketplacePluginAuthoringManifest,
   trustContext: ModuleTrustContext,
-  options: MarketplacePluginInstallOptions
-): Promise<{ ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }> {
+  options: MarketplacePluginInstallOptions,
+): Promise<
+  { ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }
+> {
   switch (kind) {
     case 'mcp':
       return prepareMcpComponent(path, input)
@@ -493,8 +520,10 @@ async function prepareComponent(
 async function prepareAutomationComponent(
   path: string,
   input: MarketplacePluginInstallInput,
-  manifest: MarketplacePluginAuthoringManifest
-): Promise<{ ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }> {
+  manifest: MarketplacePluginAuthoringManifest,
+): Promise<
+  { ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }
+> {
   const source = await readText(path, 'automation component')
   if (!source.ok) return { ok: false, message: 'Automation component could not be read.', issues: source.issues }
 
@@ -512,7 +541,8 @@ async function prepareAutomationComponent(
   if (automationNeedsFallbackCli(payload) && !input.automationDefaultCli?.trim()) {
     return {
       ok: false,
-      message: 'This automation runs an agent, and no CLI is selected for agents to launch with. Choose one in Settings, then add it again.',
+      message:
+        'This automation runs an agent, and no CLI is selected for agents to launch with. Choose one in Settings, then add it again.',
       issues: [{ path: 'action.config.cli', message: 'No CLI was requested and no last-selected CLI is configured.' }],
     }
   }
@@ -538,8 +568,10 @@ function automationNeedsFallbackCli(payload: unknown): boolean {
 
 async function prepareMcpComponent(
   path: string,
-  input: MarketplacePluginInstallInput
-): Promise<{ ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }> {
+  input: MarketplacePluginInstallInput,
+): Promise<
+  { ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }
+> {
   const source = await readText(path, 'MCP component')
   if (!source.ok) return { ok: false, message: 'MCP component could not be read.', issues: source.issues }
 
@@ -566,7 +598,11 @@ async function prepareMcpComponent(
   return { ok: true, component: { kind: 'mcp', path, servers } }
 }
 
-async function prepareSkillComponent(path: string): Promise<{ ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }> {
+async function prepareSkillComponent(
+  path: string,
+): Promise<
+  { ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }
+> {
   const info = await stat(path).catch(() => null)
   if (!info?.isDirectory()) {
     return { ok: false, message: 'Skill component must be a directory.' }
@@ -586,10 +622,13 @@ async function prepareModuleComponent(
   path: string,
   trustContext: ModuleTrustContext,
   bundleManifest: MarketplacePluginAuthoringManifest,
-  options: MarketplacePluginInstallOptions
-): Promise<{ ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }> {
+  options: MarketplacePluginInstallOptions,
+): Promise<
+  { ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }
+> {
   const manifest = await readText(join(path, 'manifest.json'), 'module manifest')
-  if (!manifest.ok) return { ok: false, message: 'No manifest.json found in module component.', issues: manifest.issues }
+  if (!manifest.ok)
+    return { ok: false, message: 'No manifest.json found in module component.', issues: manifest.issues }
 
   const parsed = parseThirdPartyModuleManifest(manifest.source)
   if (!parsed.ok) return { ok: false, message: 'Module component manifest is invalid.', issues: parsed.issues }
@@ -612,9 +651,9 @@ async function prepareModuleComponent(
     return {
       ok: false,
       message:
-        `Module "${parsed.manifest.id}" is inside a verified first-party plugin, so its own manifest must be `
-        + `signed by a trusted publisher; this one is ${trust.status}. `
-        + 'A first-party module manifest must be signed by a trusted publisher.',
+        `Module "${parsed.manifest.id}" is inside a verified first-party plugin, so its own manifest must be ` +
+        `signed by a trusted publisher; this one is ${trust.status}. ` +
+        'A first-party module manifest must be signed by a trusted publisher.',
       issues: [
         {
           path: 'signature',
@@ -643,7 +682,11 @@ async function prepareModuleComponent(
   return { ok: true, component: { kind: 'module', path, id: parsed.manifest.id, trust } }
 }
 
-async function prepareCliComponent(path: string): Promise<{ ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }> {
+async function prepareCliComponent(
+  path: string,
+): Promise<
+  { ok: true; component: ResolvedComponent } | { ok: false; message: string; issues?: MarketplaceManifestIssue[] }
+> {
   const manifest = await readText(join(path, 'plugin.json'), 'CLI plugin manifest')
   if (!manifest.ok) return { ok: false, message: 'No plugin.json found in CLI component.', issues: manifest.issues }
 
@@ -662,7 +705,7 @@ async function prepareCliComponent(path: string): Promise<{ ok: true; component:
 function extractMcpServers(
   value: unknown,
   inputClients: McpClientTarget[] | undefined,
-  issues: MarketplaceManifestIssue[]
+  issues: MarketplaceManifestIssue[],
 ): McpServerConfig[] {
   const fallbackClients = inputClients?.length ? inputClients : DEFAULT_MCP_CLIENTS
   const rawServers = rawMcpServerEntries(value, issues)
@@ -696,7 +739,7 @@ function normalizeMcpServer(
   value: unknown,
   path: string,
   fallbackClients: McpClientTarget[],
-  issues: MarketplaceManifestIssue[]
+  issues: MarketplaceManifestIssue[],
 ): McpServerConfig | null {
   if (!isRecord(value)) {
     issues.push({ path, message: 'MCP server must be an object.' })
@@ -727,7 +770,7 @@ async function resolveBundleRoot(path: string): Promise<{ ok: true; path: string
 
 async function resolveComponent(
   bundleRoot: string,
-  component: ComponentPath
+  component: ComponentPath,
 ): Promise<{ ok: true; path: string } | { ok: false; message: string }> {
   const candidate = resolve(bundleRoot, component.path)
   if (!isInsideOrEqual(bundleRoot, candidate)) {
@@ -742,12 +785,15 @@ async function resolveComponent(
 }
 
 function componentPaths(components: MarketplacePluginComponents): ComponentPath[] {
-  return MARKETPLACE_COMPONENT_KINDS
-    .map((kind) => components[kind] ? { kind, path: components[kind]!.path } : null)
-    .filter((component): component is ComponentPath => component !== null)
+  return MARKETPLACE_COMPONENT_KINDS.map((kind) =>
+    components[kind] ? { kind, path: components[kind]!.path } : null,
+  ).filter((component): component is ComponentPath => component !== null)
 }
 
-async function readText(path: string, label: string): Promise<{ ok: true; source: string } | { ok: false; issues: MarketplaceManifestIssue[] }> {
+async function readText(
+  path: string,
+  label: string,
+): Promise<{ ok: true; source: string } | { ok: false; issues: MarketplaceManifestIssue[] }> {
   try {
     return { ok: true, source: await readFile(path, 'utf8') }
   } catch (error) {
@@ -759,16 +805,19 @@ function failure(
   message: string,
   component?: MarketplaceComponentKind,
   issues?: MarketplaceManifestIssue[],
-  extra?: Pick<Extract<MarketplacePluginInstallResult, { ok: false }>, 'trust' | 'loadEligible'>
+  extra?: Pick<Extract<MarketplacePluginInstallResult, { ok: false }>, 'trust' | 'loadEligible'>,
 ): { ok: false; result: MarketplacePluginInstallResult } {
-  return { ok: false, result: { ok: false, message, ...(component ? { component } : {}), ...(issues ? { issues } : {}), ...(extra ?? {}) } }
+  return {
+    ok: false,
+    result: { ok: false, message, ...(component ? { component } : {}), ...(issues ? { issues } : {}), ...extra },
+  }
 }
 
 function componentFailure(
   component: MarketplaceComponentKind,
   message: string,
   installed: MarketplacePluginInstalledComponent[],
-  issues?: MarketplaceManifestIssue[]
+  issues?: MarketplaceManifestIssue[],
 ): { ok: false; result: MarketplacePluginInstallResult } {
   return {
     ok: false,
@@ -805,7 +854,7 @@ function mcpTargetsIncludeServers(targets: McpSyncTarget[], servers: McpServerCo
 function mcpClientSyncCoverageFailures(
   servers: McpServerConfig[],
   clients: McpClientTarget[],
-  targets: McpSyncTarget[]
+  targets: McpSyncTarget[],
 ): Array<{ client: McpClientTarget; serverIds: string[] }> {
   const targetServerIdsByClient = new Map<McpClientTarget, Set<string>>()
   for (const target of targets) {
@@ -816,9 +865,7 @@ function mcpClientSyncCoverageFailures(
 
   const failures: Array<{ client: McpClientTarget; serverIds: string[] }> = []
   for (const client of clients) {
-    const expectedServerIds = servers
-      .filter((server) => server.clients.includes(client))
-      .map((server) => server.id)
+    const expectedServerIds = servers.filter((server) => server.clients.includes(client)).map((server) => server.id)
     if (expectedServerIds.length === 0) continue
 
     const syncedServerIds = targetServerIdsByClient.get(client) ?? new Set<string>()
@@ -831,13 +878,13 @@ function mcpClientSyncCoverageFailures(
 function relevantMcpSyncIssues(
   issues: McpValidationIssue[] | undefined,
   servers: McpServerConfig[],
-  clients: McpClientTarget[]
+  clients: McpClientTarget[],
 ): McpValidationIssue[] {
   if (!issues?.length) return []
 
   const serverIds = new Set(servers.map((server) => server.id))
   const componentClients = new Set(
-    clients.filter((client) => servers.some((server) => server.clients.includes(client)))
+    clients.filter((client) => servers.some((server) => server.clients.includes(client))),
   )
   return issues.filter((issue) => {
     if (issue.serverId && serverIds.has(issue.serverId)) return true
@@ -847,9 +894,7 @@ function relevantMcpSyncIssues(
 }
 
 function formatMcpCoverageFailures(failures: Array<{ client: McpClientTarget; serverIds: string[] }>): string {
-  return failures
-    .map((failure) => `${failure.client} (${failure.serverIds.join(', ')})`)
-    .join('; ')
+  return failures.map((failure) => `${failure.client} (${failure.serverIds.join(', ')})`).join('; ')
 }
 
 function mcpCoverageFailureIssue(failure: { client: McpClientTarget; serverIds: string[] }): MarketplaceManifestIssue {
@@ -873,7 +918,7 @@ function mergeMarketplaceIssues(issues: MarketplaceManifestIssue[]): Marketplace
 }
 
 function mcpIssuesToMarketplaceIssues(
-  issues: Array<{ serverId?: string; client?: string; message: string }> | undefined
+  issues: Array<{ serverId?: string; client?: string; message: string }> | undefined,
 ): MarketplaceManifestIssue[] | undefined {
   if (!issues?.length) return undefined
   return issues.map((issue) => ({

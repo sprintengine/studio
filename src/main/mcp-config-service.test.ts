@@ -85,24 +85,28 @@ async function main(): Promise<void> {
   })
   assert.equal(codexFileConflictResult.ok, false)
   assert.equal(
-    codexFileConflictResult.ok === false
-      && codexFileConflictResult.message.includes('.codex')
-      && codexFileConflictResult.message.includes('directory')
-      && codexFileConflictResult.message.includes('file'),
+    codexFileConflictResult.ok === false &&
+      codexFileConflictResult.message.includes('.codex') &&
+      codexFileConflictResult.message.includes('directory') &&
+      codexFileConflictResult.message.includes('file'),
     true,
-    `Codex config parent file conflict should be reported as an actionable sync failure, got: ${JSON.stringify(codexFileConflictResult)}`
+    `Codex config parent file conflict should be reported as an actionable sync failure, got: ${JSON.stringify(codexFileConflictResult)}`,
   )
 
   const claudePath = join(workspaceRoot, '.mcp.json')
   await writeFile(
     claudePath,
-    JSON.stringify({
-      mcpServers: {
-        unmanaged: { type: 'http', url: 'https://example.com/mcp' },
-        context7: { type: 'stdio', command: 'old', args: [] },
+    JSON.stringify(
+      {
+        mcpServers: {
+          unmanaged: { type: 'http', url: 'https://example.com/mcp' },
+          context7: { type: 'stdio', command: 'old', args: [] },
+        },
       },
-    }, null, 2),
-    'utf-8'
+      null,
+      2,
+    ),
+    'utf-8',
   )
 
   const claudeSettings: McpSettings = {
@@ -149,12 +153,16 @@ async function main(): Promise<void> {
   await mkdir(join(workspaceRoot, '.claude'), { recursive: true })
   await writeFile(
     join(workspaceRoot, '.claude', 'settings.local.json'),
-    JSON.stringify({
-      theme: 'dark',
-      enabledMcpjsonServers: ['user-server', STUDIO_MCP_SERVER_ID],
-      disabledMcpjsonServers: ['disabled-user-server', STUDIO_MCP_SERVER_ID],
-    }, null, 2),
-    'utf-8'
+    JSON.stringify(
+      {
+        theme: 'dark',
+        enabledMcpjsonServers: ['user-server', STUDIO_MCP_SERVER_ID],
+        disabledMcpjsonServers: ['disabled-user-server', STUDIO_MCP_SERVER_ID],
+      },
+      null,
+      2,
+    ),
+    'utf-8',
   )
   const studioClaudeResult = service.sync({
     workspaceRoot,
@@ -180,7 +188,7 @@ async function main(): Promise<void> {
   })
   assert.equal(studioClaudeResult.ok, true, JSON.stringify(studioClaudeResult))
   const claudeLocalSettings = JSON.parse(
-    await readFile(join(workspaceRoot, '.claude', 'settings.local.json'), 'utf-8')
+    await readFile(join(workspaceRoot, '.claude', 'settings.local.json'), 'utf-8'),
   ) as Record<string, unknown>
   assert.equal(claudeLocalSettings.theme, 'dark', 'unrelated Claude settings are preserved')
   assert.deepEqual(claudeLocalSettings.enabledMcpjsonServers, ['user-server', STUDIO_MCP_SERVER_ID])
@@ -193,12 +201,16 @@ async function main(): Promise<void> {
   // Pre-existing user config: a top-level key and a user-authored server that must survive sync.
   await writeFile(
     opencodeConfigPath,
-    JSON.stringify({
-      $schema: 'https://opencode.ai/config.json',
-      model: 'anthropic/claude-opus-4',
-      mcp: { 'user-remote': { type: 'remote', url: 'https://user.example.com/mcp' } },
-    }, null, 2),
-    'utf-8'
+    JSON.stringify(
+      {
+        $schema: 'https://opencode.ai/config.json',
+        model: 'anthropic/claude-opus-4',
+        mcp: { 'user-remote': { type: 'remote', url: 'https://user.example.com/mcp' } },
+      },
+      null,
+      2,
+    ),
+    'utf-8',
   )
   const opencodeService = createMcpConfigService({
     lookupPlugin,
@@ -276,10 +288,7 @@ async function main(): Promise<void> {
   const opencodeConfigRerun = JSON.parse(await readFile(opencodeConfigPath, 'utf-8')) as {
     mcp: Record<string, unknown>
   }
-  assert.deepEqual(
-    Object.keys(opencodeConfigRerun.mcp).sort(),
-    ['local-helper', 'user-remote', 'env-remote'].sort()
-  )
+  assert.deepEqual(Object.keys(opencodeConfigRerun.mcp).sort(), ['local-helper', 'user-remote', 'env-remote'].sort())
 
   // Forgetting a server takes its entry out and leaves the user's own alone.
   const opencodeForget = opencodeService.sync({
@@ -300,11 +309,15 @@ async function main(): Promise<void> {
   await mkdir(opencodeSoloRoot, { recursive: true })
   await writeFile(
     join(opencodeSoloRoot, 'opencode.json'),
-    JSON.stringify({
-      $schema: 'https://opencode.ai/config.json',
-      mcp: { 'env-remote': { type: 'remote', url: 'http://127.0.0.1:1/mcp' } },
-    }, null, 2),
-    'utf-8'
+    JSON.stringify(
+      {
+        $schema: 'https://opencode.ai/config.json',
+        mcp: { 'env-remote': { type: 'remote', url: 'http://127.0.0.1:1/mcp' } },
+      },
+      null,
+      2,
+    ),
+    'utf-8',
   )
   const opencodeSoloCleanup = opencodeService.sync({
     workspaceRoot: opencodeSoloRoot,
@@ -313,7 +326,10 @@ async function main(): Promise<void> {
     forgetServerIds: ['env-remote'],
   })
   assert.equal(opencodeSoloCleanup.ok, true)
-  const opencodeSolo = JSON.parse(await readFile(join(opencodeSoloRoot, 'opencode.json'), 'utf-8')) as Record<string, unknown>
+  const opencodeSolo = JSON.parse(await readFile(join(opencodeSoloRoot, 'opencode.json'), 'utf-8')) as Record<
+    string,
+    unknown
+  >
   assert.equal('mcp' in opencodeSolo, false, 'an emptied block is stripped, not left as {}')
   assert.equal(opencodeSolo.$schema, 'https://opencode.ai/config.json')
 
@@ -342,11 +358,11 @@ async function main(): Promise<void> {
   assert.equal(opencodeUnsupported.ok, false)
   const opencodeUnsupportedIssues = opencodeUnsupported.issues ?? []
   assert.equal(
-    opencodeUnsupportedIssues.some((issue) =>
-      issue.level === 'error' && issue.serverId === 'sse-server' && issue.message.includes('SSE')
+    opencodeUnsupportedIssues.some(
+      (issue) => issue.level === 'error' && issue.serverId === 'sse-server' && issue.message.includes('SSE'),
     ),
     true,
-    `unsupported SSE shape should emit an error issue, got: ${JSON.stringify(opencodeUnsupportedIssues)}`
+    `unsupported SSE shape should emit an error issue, got: ${JSON.stringify(opencodeUnsupportedIssues)}`,
   )
 
   const blocked = service.sync({
@@ -426,7 +442,10 @@ async function main(): Promise<void> {
     clients: ['third-party-codex'],
   })
   assert.equal(pluginResult.ok, true)
-  assert.deepEqual(pluginResult.targets.map((target) => target.client), ['third-party-codex'])
+  assert.deepEqual(
+    pluginResult.targets.map((target) => target.client),
+    ['third-party-codex'],
+  )
   const pluginConfig = await readFile(join(workspaceRoot, '.third-party-codex', 'config.toml'), 'utf-8')
   assert.match(pluginConfig, /\[mcp_servers\.plugin-context\]/)
 
@@ -453,34 +472,32 @@ async function main(): Promise<void> {
   assert.equal(unsupportedResult.ok, true)
   assert.deepEqual(unsupportedResult.targets, [])
   assert.equal(
-    unsupportedResult.issues.some((issue) =>
-      issue.level === 'warning'
-      && issue.client === 'generic-agent'
-      && issue.message.includes('format "generic"')
+    unsupportedResult.issues.some(
+      (issue) =>
+        issue.level === 'warning' && issue.client === 'generic-agent' && issue.message.includes('format "generic"'),
     ),
-    true
+    true,
   )
 
   const siblingRoot = join(temp, 'sibling-workspace')
   await mkdir(join(siblingRoot, '.codex'), { recursive: true })
   await writeFile(
     join(siblingRoot, '.codex', 'config.toml'),
-    [
-      '[mcp_servers.unmanaged]',
-      'url = "https://example.com/mcp"',
-      'enabled = true',
-      '',
-    ].join('\n'),
-    'utf-8'
+    ['[mcp_servers.unmanaged]', 'url = "https://example.com/mcp"', 'enabled = true', ''].join('\n'),
+    'utf-8',
   )
   await writeFile(
     join(siblingRoot, '.mcp.json'),
-    JSON.stringify({
-      mcpServers: {
-        unmanaged: { type: 'http', url: 'https://example.com/mcp' },
+    JSON.stringify(
+      {
+        mcpServers: {
+          unmanaged: { type: 'http', url: 'https://example.com/mcp' },
+        },
       },
-    }, null, 2),
-    'utf-8'
+      null,
+      2,
+    ),
+    'utf-8',
   )
   const managedService = createMcpConfigService({
     lookupPlugin,
@@ -532,7 +549,7 @@ async function main(): Promise<void> {
   assert.doesNotMatch(managedHttpCodexConfig, /Authorization/)
   assert.doesNotMatch(managedHttpCodexConfig, /env_http_headers/)
   const managedHttpClaudeConfig = JSON.parse(await readFile(join(siblingRoot, '.mcp.json'), 'utf-8')) as {
-    mcpServers: Record<string, { type: string, url: string, headers?: Record<string, string> }>
+    mcpServers: Record<string, { type: string; url: string; headers?: Record<string, string> }>
   }
   // Claude Code interpolates ${VAR}; again the value stays in the environment.
   assert.deepEqual(managedHttpClaudeConfig.mcpServers['env-bearer'], {
@@ -586,13 +603,14 @@ async function main(): Promise<void> {
   assert.equal(noMcpResult.ok, false)
   const noMcpIssues = noMcpResult.issues ?? []
   assert.equal(
-    noMcpIssues.some((issue) =>
-      issue.level === 'error'
-      && issue.message.includes('no MCP config writer')
-      && issue.message.includes('Studio-launched agents require')
+    noMcpIssues.some(
+      (issue) =>
+        issue.level === 'error' &&
+        issue.message.includes('no MCP config writer') &&
+        issue.message.includes('Studio-launched agents require'),
     ),
     true,
-    `missing-mcpConfig plugin should fail required sync, got: ${JSON.stringify(noMcpIssues)}`
+    `missing-mcpConfig plugin should fail required sync, got: ${JSON.stringify(noMcpIssues)}`,
   )
 
   const noMcpCapabilityLookup: PluginLookup = (id) => {
@@ -627,13 +645,14 @@ async function main(): Promise<void> {
   assert.equal(noMcpCapabilityResult.ok, false)
   const noMcpCapabilityIssues = noMcpCapabilityResult.issues ?? []
   assert.equal(
-    noMcpCapabilityIssues.some((issue) =>
-      issue.level === 'error'
-      && issue.message.includes('managed MCP servers')
-      && issue.message.includes('Studio-launched agents require MCP support')
+    noMcpCapabilityIssues.some(
+      (issue) =>
+        issue.level === 'error' &&
+        issue.message.includes('managed MCP servers') &&
+        issue.message.includes('Studio-launched agents require MCP support'),
     ),
     true,
-    `missing MCP capability should fail required sync, got: ${JSON.stringify(noMcpCapabilityIssues)}`
+    `missing MCP capability should fail required sync, got: ${JSON.stringify(noMcpCapabilityIssues)}`,
   )
 
   const unsupportedFormatLookup: PluginLookup = (id) => {
@@ -668,13 +687,14 @@ async function main(): Promise<void> {
   assert.equal(unsupportedFormatResult.ok, false)
   const unsupportedFormatIssues = unsupportedFormatResult.issues ?? []
   assert.equal(
-    unsupportedFormatIssues.some((issue) =>
-      issue.level === 'error'
-      && issue.message.includes('Studio-launched agents require')
-      && issue.message.includes('workspace stdio MCP config writer')
+    unsupportedFormatIssues.some(
+      (issue) =>
+        issue.level === 'error' &&
+        issue.message.includes('Studio-launched agents require') &&
+        issue.message.includes('workspace stdio MCP config writer'),
     ),
     true,
-    `unsupported format should fail required sync, got: ${JSON.stringify(unsupportedFormatIssues)}`
+    `unsupported format should fail required sync, got: ${JSON.stringify(unsupportedFormatIssues)}`,
   )
 
   // Connector-scoped write (pruneUnlistedServers) must leave the worktree config
@@ -686,15 +706,29 @@ async function main(): Promise<void> {
   await mkdir(join(connectorRoot, '.codex'), { recursive: true })
   await writeFile(
     join(connectorRoot, '.mcp.json'),
-    JSON.stringify({
-      mcpServers: { 'legacy-committed': { type: 'http', url: 'https://legacy.example.com/mcp' } },
-    }, null, 2),
-    'utf-8'
+    JSON.stringify(
+      {
+        mcpServers: { 'legacy-committed': { type: 'http', url: 'https://legacy.example.com/mcp' } },
+      },
+      null,
+      2,
+    ),
+    'utf-8',
   )
   await writeFile(
     join(connectorRoot, '.codex', 'config.toml'),
-    ['model = "gpt-5-codex"', '', '[mcp_servers.legacy_committed]', 'command = "legacy"', 'args = []', '', '[profiles.default]', 'approval_policy = "never"', ''].join('\n'),
-    'utf-8'
+    [
+      'model = "gpt-5-codex"',
+      '',
+      '[mcp_servers.legacy_committed]',
+      'command = "legacy"',
+      'args = []',
+      '',
+      '[profiles.default]',
+      'approval_policy = "never"',
+      '',
+    ].join('\n'),
+    'utf-8',
   )
   const connectorServer = (clients: McpSettings['servers'][string]['clients']): McpSettings => ({
     syncEnabled: true,
@@ -714,10 +748,20 @@ async function main(): Promise<void> {
   })
 
   // Control: without the flag, the committed server survives (merge).
-  const mergeClaude = service.sync({ workspaceRoot: connectorRoot, settings: connectorServer(['claude-code']), clients: ['claude-code'] })
+  const mergeClaude = service.sync({
+    workspaceRoot: connectorRoot,
+    settings: connectorServer(['claude-code']),
+    clients: ['claude-code'],
+  })
   assert.equal(mergeClaude.ok, true)
-  const mergedClaudeConfig = JSON.parse(await readFile(join(connectorRoot, '.mcp.json'), 'utf-8')) as { mcpServers: Record<string, unknown> }
-  assert.equal(Boolean(mergedClaudeConfig.mcpServers['legacy-committed']), true, 'default sync merges: committed server survives')
+  const mergedClaudeConfig = JSON.parse(await readFile(join(connectorRoot, '.mcp.json'), 'utf-8')) as {
+    mcpServers: Record<string, unknown>
+  }
+  assert.equal(
+    Boolean(mergedClaudeConfig.mcpServers['legacy-committed']),
+    true,
+    'default sync merges: committed server survives',
+  )
 
   const connectorClaude = service.sync({
     workspaceRoot: connectorRoot,
@@ -726,11 +770,13 @@ async function main(): Promise<void> {
     pruneUnlistedServers: true,
   })
   assert.equal(connectorClaude.ok, true)
-  const connectorClaudeConfig = JSON.parse(await readFile(join(connectorRoot, '.mcp.json'), 'utf-8')) as { mcpServers: Record<string, unknown> }
+  const connectorClaudeConfig = JSON.parse(await readFile(join(connectorRoot, '.mcp.json'), 'utf-8')) as {
+    mcpServers: Record<string, unknown>
+  }
   assert.deepEqual(
     Object.keys(connectorClaudeConfig.mcpServers).sort(),
     ['railway'],
-    'connector-scoped write must prune the committed server and leave only the connector'
+    'connector-scoped write must prune the committed server and leave only the connector',
   )
 
   const connectorCodex = service.sync({
@@ -741,10 +787,22 @@ async function main(): Promise<void> {
   })
   assert.equal(connectorCodex.ok, true)
   const connectorCodexConfig = await readFile(join(connectorRoot, '.codex', 'config.toml'), 'utf-8')
-  assert.doesNotMatch(connectorCodexConfig, /\[mcp_servers\.legacy_committed\]/, 'committed codex MCP server must be pruned')
+  assert.doesNotMatch(
+    connectorCodexConfig,
+    /\[mcp_servers\.legacy_committed\]/,
+    'committed codex MCP server must be pruned',
+  )
   assert.match(connectorCodexConfig, /\[mcp_servers\.railway\]/, 'connector server must be written to codex config')
-  assert.match(connectorCodexConfig, /\[profiles\.default\]/, 'unrelated codex config must be preserved through a connector-scoped prune')
-  assert.match(connectorCodexConfig, /model = "gpt-5-codex"/, 'unrelated codex config must be preserved through a connector-scoped prune')
+  assert.match(
+    connectorCodexConfig,
+    /\[profiles\.default\]/,
+    'unrelated codex config must be preserved through a connector-scoped prune',
+  )
+  assert.match(
+    connectorCodexConfig,
+    /model = "gpt-5-codex"/,
+    'unrelated codex config must be preserved through a connector-scoped prune',
+  )
 
   await sourceInstalledServerSyncsAndKeepsItsProvenance(service, temp)
   await aForgottenServerLeavesTheConfig(service, temp)
@@ -760,7 +818,7 @@ async function main(): Promise<void> {
  */
 async function sourceInstalledServerSyncsAndKeepsItsProvenance(
   service: ReturnType<typeof createMcpConfigService>,
-  temp: string
+  temp: string,
 ): Promise<void> {
   const { normalizeMcpServerConfig } = await import('./mcp-config-service')
   const root = join(temp, 'source-owned')
@@ -806,7 +864,7 @@ async function sourceInstalledServerSyncsAndKeepsItsProvenance(
  */
 async function aForgottenServerLeavesTheConfig(
   service: ReturnType<typeof createMcpConfigService>,
-  temp: string
+  temp: string,
 ): Promise<void> {
   const root = join(temp, 'forgotten')
   await mkdir(root, { recursive: true })
@@ -872,24 +930,28 @@ async function aForgottenServerLeavesTheConfig(
  */
 async function theRetiredSprintEngineServerIsForgottenByTheStudioSync(
   service: ReturnType<typeof createMcpConfigService>,
-  temp: string
+  temp: string,
 ): Promise<void> {
   const root = join(temp, 'retired-sprintengine')
   await mkdir(join(root, '.claude'), { recursive: true })
   await writeFile(
     join(root, '.mcp.json'),
-    `${JSON.stringify({
-      mcpServers: {
-        [RETIRED_SPRINTENGINE_MCP_SERVER_ID]: { type: 'http', url: 'http://127.0.0.1:49152/mcp/run-1' },
-        mine: { command: 'npx', args: ['-y', 'mine'] },
+    `${JSON.stringify(
+      {
+        mcpServers: {
+          [RETIRED_SPRINTENGINE_MCP_SERVER_ID]: { type: 'http', url: 'http://127.0.0.1:49152/mcp/run-1' },
+          mine: { command: 'npx', args: ['-y', 'mine'] },
+        },
       },
-    }, null, 2)}\n`,
-    'utf-8'
+      null,
+      2,
+    )}\n`,
+    'utf-8',
   )
   await writeFile(
     join(root, '.claude', 'settings.local.json'),
     `${JSON.stringify({ enabledMcpjsonServers: [RETIRED_SPRINTENGINE_MCP_SERVER_ID, 'mine'] }, null, 2)}\n`,
-    'utf-8'
+    'utf-8',
   )
 
   const result = await syncStudioMcpConfig(
@@ -897,14 +959,16 @@ async function theRetiredSprintEngineServerIsForgottenByTheStudioSync(
     {
       mcpConfigService: service,
       studioGateway: () => ({ command: process.execPath, bridgeScriptPath: '/app/bridge.mjs', userDataDir: '/data' }),
-    }
+    },
   )
   assert.equal(result.ok, true, result.ok ? '' : result.message)
-  const written = JSON.parse(await readFile(join(root, '.mcp.json'), 'utf-8')) as { mcpServers: Record<string, unknown> }
+  const written = JSON.parse(await readFile(join(root, '.mcp.json'), 'utf-8')) as {
+    mcpServers: Record<string, unknown>
+  }
   assert.deepEqual(
     Object.keys(written.mcpServers).sort(),
     ['mine', STUDIO_MCP_SERVER_ID].sort(),
-    'the retired server is gone; the user server and the gateway stay'
+    'the retired server is gone; the user server and the gateway stay',
   )
   const claudeSettings = JSON.parse(await readFile(join(root, '.claude', 'settings.local.json'), 'utf-8')) as {
     enabledMcpjsonServers: string[]

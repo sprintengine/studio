@@ -27,7 +27,6 @@
  * row's copy cannot drift onto the wrong row: the same string routes the click.
  */
 
-
 /**
  * The one-line summary under each tile's name. Not in the registry: a module
  * declares what its surface is CALLED, and this is what it is FOR, which is
@@ -74,11 +73,7 @@ export function mcpServerCountLine(count: number): string {
  * every source has been scanned — a partial sum presented as the total would
  * be a lie, which is the rule that surface already follows.
  */
-export function skillsCountLine(input: {
-  ready: boolean
-  sourceCount: number
-  skillCount: number
-}): string | null {
+export function skillsCountLine(input: { ready: boolean; sourceCount: number; skillCount: number }): string | null {
   if (!input.ready) return null
   if (input.sourceCount === 0) return 'No sources'
   if (input.skillCount === 0) return 'No skills'
@@ -94,11 +89,7 @@ export function skillsCountLine(input: {
  * carry news. It is dropped for a different reason when version checking is
  * off — the app has not looked, so it must not report "none".
  */
-export function agentCliCountLine(input: {
-  ready: boolean
-  installed: number
-  updates: number
-}): string | null {
+export function agentCliCountLine(input: { ready: boolean; installed: number; updates: number }): string | null {
   if (!input.ready) return null
   if (input.installed === 0) return 'None installed'
   const installed = `${input.installed} installed`

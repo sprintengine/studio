@@ -149,8 +149,8 @@ function ensureOverlay(): { host: HTMLElement; box: HTMLElement; chip: HTMLEleme
   box.style.cssText = 'position:fixed;box-sizing:border-box;pointer-events:none;border:1px solid transparent;'
   const chip = document.createElement('div')
   chip.style.cssText =
-    'position:fixed;pointer-events:none;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;'
-    + 'padding:2px 6px;border-radius:3px;border:1px solid transparent;white-space:nowrap;max-width:60vw;overflow:hidden;text-overflow:ellipsis;'
+    'position:fixed;pointer-events:none;font:11px ui-monospace,SFMono-Regular,Menlo,monospace;' +
+    'padding:2px 6px;border-radius:3px;border:1px solid transparent;white-space:nowrap;max-width:60vw;overflow:hidden;text-overflow:ellipsis;'
   shadow.append(box, chip)
   document.documentElement.append(host)
   overlay = { host, box, chip }
@@ -174,7 +174,10 @@ function paint(element: Element | null): void {
   box.style.borderColor = theme.accent
   box.style.background = theme.accentSoft
   const id = element.id ? `#${element.id}` : ''
-  const classes = Array.from(element.classList).slice(0, 2).map((name) => `.${name}`).join('')
+  const classes = Array.from(element.classList)
+    .slice(0, 2)
+    .map((name) => `.${name}`)
+    .join('')
   chip.textContent = `${element.tagName.toLowerCase()}${id}${classes} · ${Math.round(rect.width)} × ${Math.round(rect.height)}`
   chip.style.display = 'block'
   chip.style.background = theme.chipBackground

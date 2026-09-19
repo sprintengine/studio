@@ -21,8 +21,7 @@ import type { CapabilityManifest, CapabilityPermission, ModuleEntry, ModuleSigna
 export type PermissionValidationIssue = { path: string; message: string }
 
 export type PermissionValidationResult =
-  | { ok: true; permissions: CapabilityPermission[] }
-  | { ok: false; issues: PermissionValidationIssue[] }
+  { ok: true; permissions: CapabilityPermission[] } | { ok: false; issues: PermissionValidationIssue[] }
 
 // Validate a manifest's declared permissions array: every entry must be a
 // non-empty string. Unknown scopes are allowed (forward-compatible) but the
@@ -52,8 +51,7 @@ export function validateCapabilityPermissions(value: unknown, path = 'permission
 export type ThirdPartyManifestIssue = { path: string; message: string }
 
 export type ThirdPartyManifestResult =
-  | { ok: true; manifest: CapabilityManifest }
-  | { ok: false; issues: ThirdPartyManifestIssue[] }
+  { ok: true; manifest: CapabilityManifest } | { ok: false; issues: ThirdPartyManifestIssue[] }
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,62}$/
 
@@ -70,11 +68,7 @@ export function isSafeManifestRelativePath(value: unknown): value is string {
   return !segments.some((segment) => segment === '..' || segment === '.' || segment.length === 0)
 }
 
-function validateStringArray(
-  value: unknown,
-  path: string,
-  issues: ThirdPartyManifestIssue[]
-): string[] | undefined {
+function validateStringArray(value: unknown, path: string, issues: ThirdPartyManifestIssue[]): string[] | undefined {
   if (value === undefined) return undefined
   if (!Array.isArray(value)) {
     issues.push({ path, message: `${path} must be an array of strings.` })

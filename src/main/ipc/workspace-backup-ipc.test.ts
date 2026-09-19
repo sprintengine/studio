@@ -57,9 +57,10 @@ async function main(): Promise<void> {
   assert.equal(readResult.payload?.data, 'from-disk')
 
   // 4. write channel rejects malformed input without forwarding.
-  const rejected = (await ipcMain.handlers
-    .get('workspace-backup:write')
-    ?.(null, null)) as { ok: boolean; message?: string }
+  const rejected = (await ipcMain.handlers.get('workspace-backup:write')?.(null, null)) as {
+    ok: boolean
+    message?: string
+  }
   assert.equal(rejected.ok, false)
   assert.equal(rejected.message, 'invalid_payload')
   assert.equal(writeCalls.length, 1, 'malformed payload should NOT reach the bridge')

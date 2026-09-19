@@ -14,7 +14,10 @@ import type {
 // renderer surface — Agents CLI settings, the chat Providers tab, future ones —
 // reads/writes credentials through one mechanism.
 type CredentialIpcRenderer = {
-  invoke(channel: 'credential:secrets:status', input: CredentialSecretStatusInput): Promise<CredentialSecretStatusResult>
+  invoke(
+    channel: 'credential:secrets:status',
+    input: CredentialSecretStatusInput,
+  ): Promise<CredentialSecretStatusResult>
   invoke(channel: 'credential:secrets:set', input: CredentialSecretSetInput): Promise<CredentialSecretSetResult>
   invoke(channel: 'credential:secrets:clear', input: CredentialSecretClearInput): Promise<CredentialSecretClearResult>
 }
@@ -27,10 +30,7 @@ export function createCredentialApi(renderer: CredentialIpcRenderer) {
       renderer.invoke('credential:secrets:set', input),
     credentialSecretClear: (input: CredentialSecretClearInput): Promise<CredentialSecretClearResult> =>
       renderer.invoke('credential:secrets:clear', input),
-  } satisfies Pick<
-    ElectronApi,
-    'credentialSecretStatus' | 'credentialSecretSet' | 'credentialSecretClear'
-  >
+  } satisfies Pick<ElectronApi, 'credentialSecretStatus' | 'credentialSecretSet' | 'credentialSecretClear'>
 }
 
 export const credentialApi = createCredentialApi(ipcRenderer)

@@ -12,9 +12,10 @@ function failResult(stderr: string): CommandResult {
 
 type RecordedCall = { tool: 'git' | 'gh'; args: string[] }
 
-function recordingDeps(
-  responder: (call: RecordedCall) => CommandResult,
-): { deps: PullRequestDeps; calls: RecordedCall[] } {
+function recordingDeps(responder: (call: RecordedCall) => CommandResult): {
+  deps: PullRequestDeps
+  calls: RecordedCall[]
+} {
   const calls: RecordedCall[] = []
   const deps: PullRequestDeps = {
     runGit: async (_cwd, args) => {
@@ -97,7 +98,8 @@ async function assertGhCreateFailureReturnsReason(): Promise<void> {
   const { deps } = recordingDeps((call) => {
     if (call.tool === 'git' && call.args[0] === 'status') return okResult('')
     if (call.tool === 'gh' && call.args[1] === 'view') return failResult('no pull requests found')
-    if (call.tool === 'gh' && call.args[1] === 'create') return failResult('GraphQL: No commits between main and automations/run-1')
+    if (call.tool === 'gh' && call.args[1] === 'create')
+      return failResult('GraphQL: No commits between main and automations/run-1')
     return okResult()
   })
 

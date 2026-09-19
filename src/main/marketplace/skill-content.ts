@@ -44,7 +44,7 @@ const MAX_BUNDLED_FILE_BYTES = 8 * 1024 * 1024
 export async function verifyBundledSkillFolder(
   folderPath: string,
   files: readonly MarketplacePluginSkillFile[],
-  contentDigest: string
+  contentDigest: string,
 ): Promise<SkillFolderVerification> {
   if (files.length === 0) return { ok: false, message: 'Digest listing is empty.' }
   if (skillContentDigest(files) !== contentDigest) {
@@ -93,12 +93,21 @@ export async function verifyBundledSkillFolder(
   const expected = new Set(files.map((file) => file.path))
   const extra = found.filter((path) => !expected.has(path))
   if (extra.length > 0) {
-    return { ok: false, message: `Bundled content has files the digest listing does not: ${extra.slice(0, 3).join(', ')}.` }
+    return {
+      ok: false,
+      message: `Bundled content has files the digest listing does not: ${extra.slice(0, 3).join(', ')}.`,
+    }
   }
   const foundSet = new Set(found)
   const missing = files.filter((file) => !foundSet.has(file.path))
   if (missing.length > 0) {
-    return { ok: false, message: `Bundled content is missing listed files: ${missing.slice(0, 3).map((file) => file.path).join(', ')}.` }
+    return {
+      ok: false,
+      message: `Bundled content is missing listed files: ${missing
+        .slice(0, 3)
+        .map((file) => file.path)
+        .join(', ')}.`,
+    }
   }
 
   for (const file of files) {

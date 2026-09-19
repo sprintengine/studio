@@ -13,11 +13,7 @@ async function writeSkillSource(root: string, skillId: string, body = `${skillId
   await writeFile(join(skillRoot, 'SKILL.md'), body, 'utf-8')
 }
 
-function createService(input: {
-  homeRoot: string
-  sourceRoot: string
-  syncCalls?: McpSyncInput[]
-}) {
+function createService(input: { homeRoot: string; sourceRoot: string; syncCalls?: McpSyncInput[] }) {
   const syncCalls = input.syncCalls ?? []
   return createAgentConfigImportService({
     homeDir: () => input.homeRoot,
@@ -47,26 +43,26 @@ async function writeCodexMcp(homeRoot: string): Promise<void> {
 
 async function writeCodexConfig(homeRoot: string, lines: string[]): Promise<void> {
   await mkdir(join(homeRoot, '.codex'), { recursive: true })
-  await writeFile(
-    join(homeRoot, '.codex', 'config.toml'),
-    lines.join('\n'),
-    'utf-8',
-  )
+  await writeFile(join(homeRoot, '.codex', 'config.toml'), lines.join('\n'), 'utf-8')
 }
 
 async function writeClaudeMcp(homeRoot: string): Promise<void> {
   await mkdir(join(homeRoot, '.claude'), { recursive: true })
   await writeFile(
     join(homeRoot, '.claude', '.mcp.json'),
-    `${JSON.stringify({
-      mcpServers: {
-        sentry: {
-          type: 'http',
-          url: 'https://mcp.sentry.example/mcp',
-          headers: { Authorization: 'Bearer SECRET_HEADER_VALUE' },
+    `${JSON.stringify(
+      {
+        mcpServers: {
+          sentry: {
+            type: 'http',
+            url: 'https://mcp.sentry.example/mcp',
+            headers: { Authorization: 'Bearer SECRET_HEADER_VALUE' },
+          },
         },
       },
-    }, null, 2)}\n`,
+      null,
+      2,
+    )}\n`,
     'utf-8',
   )
 }
@@ -152,7 +148,10 @@ async function testAdoptUsesExistingSyncPaths(): Promise<void> {
   assert.equal(syncCalls[0]!.settings.servers.sentry?.headers?.Authorization, 'Bearer SECRET_HEADER_VALUE')
   assert.deepEqual(result.ok && result.adoptedMcpServers.map((server) => server.id).sort(), ['context7', 'sentry'])
   assert.deepEqual(result.ok && result.adoptedSkills, [{ id: 'backlog', status: 'installed' }])
-  assert.equal(await readFile(join(workspaceRoot, '.agents', 'skills', 'backlog', 'SKILL.md'), 'utf-8'), 'backlog source\n')
+  assert.equal(
+    await readFile(join(workspaceRoot, '.agents', 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
+    'backlog source\n',
+  )
   assert.equal(JSON.stringify(result).includes('SECRET'), false, 'adopt result must not echo token-like values')
 }
 

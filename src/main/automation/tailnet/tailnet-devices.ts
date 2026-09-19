@@ -105,7 +105,11 @@ type TailnetPairingOffer = {
 
 type TailnetPairingResult =
   | { ok: true; device: TailnetDevice; deviceToken: string }
-  | { ok: false; code: 'pairing_not_offered' | 'pairing_expired' | 'pairing_invalid' | 'invalid_device_name'; message: string }
+  | {
+      ok: false
+      code: 'pairing_not_offered' | 'pairing_expired' | 'pairing_invalid' | 'invalid_device_name'
+      message: string
+    }
 
 type TailnetPairRequestResult =
   | { ok: true; request: TailnetPairRequest }
@@ -273,7 +277,7 @@ export function createTailnetDeviceStore(options: {
   function mintDevice(
     name: string,
     scopes: TailnetScope[],
-    origin: TailnetDeviceOrigin
+    origin: TailnetDeviceOrigin,
   ): { device: TailnetDevice; deviceToken: string } {
     const deviceToken = `mctn_${randomBytes(32).toString('base64url')}`
     const stored: StoredDevice = {
@@ -326,7 +330,12 @@ export function createTailnetDeviceStore(options: {
       const token = `mcpair_${randomBytes(24).toString('base64url')}`
       const scopes = normalizeTailnetScopes(input.scopes)
       const expiresAtMs = now().getTime() + Math.max(1000, input.ttlMs ?? DEFAULT_PAIRING_TTL_MS)
-      pairing = { tokenHash: hashSecret(token), scopes, expiresAtMs, origin: input.origin ?? { kind: 'code', by: null } }
+      pairing = {
+        tokenHash: hashSecret(token),
+        scopes,
+        expiresAtMs,
+        origin: input.origin ?? { kind: 'code', by: null },
+      }
       return { token, scopes, expiresAt: new Date(expiresAtMs).toISOString() }
     },
 
@@ -346,11 +355,19 @@ export function createTailnetDeviceStore(options: {
 
     redeemPairing(input): TailnetPairingResult {
       if (!pairing) {
-        return { ok: false, code: 'pairing_not_offered', message: 'No pairing is being offered. Generate a pairing code in Settings first.' }
+        return {
+          ok: false,
+          code: 'pairing_not_offered',
+          message: 'No pairing is being offered. Generate a pairing code in Settings first.',
+        }
       }
       if (pairing.expiresAtMs <= now().getTime()) {
         pairing = null
-        return { ok: false, code: 'pairing_expired', message: 'That pairing code has expired. Generate a new one in Settings.' }
+        return {
+          ok: false,
+          code: 'pairing_expired',
+          message: 'That pairing code has expired. Generate a new one in Settings.',
+        }
       }
       const presented = typeof input.token === 'string' ? input.token : ''
       if (!secretsMatch(hashSecret(presented), pairing.tokenHash)) {
@@ -361,7 +378,11 @@ export function createTailnetDeviceStore(options: {
       }
       const name = typeof input.deviceName === 'string' ? input.deviceName.trim().slice(0, 120) : ''
       if (!name) {
-        return { ok: false, code: 'invalid_device_name', message: 'A device name is required so the pairing is identifiable in Settings.' }
+        return {
+          ok: false,
+          code: 'invalid_device_name',
+          message: 'A device name is required so the pairing is identifiable in Settings.',
+        }
       }
       const { scopes, origin } = pairing
       // One-time by construction: the offer is consumed whether or not the
@@ -676,7 +697,9 @@ function readDevices(userDataDir: string, log?: (message: string) => void): Stor
     // scopes: an unreadable grant is not a grant.
     return entries.flatMap((entry) => (isStoredDevice(entry) ? [normalizeStored(entry)] : []))
   } catch (error) {
-    log?.(`${TAILNET_DEVICES_FILENAME} is not valid JSON (${message(error)}); no tailnet device is trusted until it is fixed.`)
+    log?.(
+      `${TAILNET_DEVICES_FILENAME} is not valid JSON (${message(error)}); no tailnet device is trusted until it is fixed.`,
+    )
     return []
   }
 }

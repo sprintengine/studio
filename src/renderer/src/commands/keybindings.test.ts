@@ -20,10 +20,10 @@ assert.equal(normalizeKeybinding('Space'), 'space')
 assert.equal(normalizeKeybinding('G then I'), 'g i')
 assert.equal(normalizeKeybinding('Ctrl+K, Ctrl+S'), 'ctrl+k ctrl+s')
 
-assert.deepEqual(
-  collapseDuplicateKeybindings(['CmdOrCtrl+K', 'Primary + K', 'Ctrl+K', 'Ctrl + K']),
-  ['primary+k', 'ctrl+k']
-)
+assert.deepEqual(collapseDuplicateKeybindings(['CmdOrCtrl+K', 'Primary + K', 'Ctrl+K', 'Ctrl + K']), [
+  'primary+k',
+  'ctrl+k',
+])
 
 assert.equal(parseKeybinding('Ctrl+K then Ctrl+S then Ctrl+P').ok, false)
 assert.equal(parseKeybinding('Ctrl+K+S').ok, false)
@@ -48,10 +48,10 @@ assert.equal(normalizeKeybinding('Shift then Shift'), 'shift shift')
 assert.equal(normalizeKeybinding(normalizeKeybinding('Shift Shift') ?? ''), 'shift shift')
 const tapChord = parseKeybinding('Shift Shift')
 assert.equal(tapChord.ok, true)
-assert.deepEqual(
-  tapChord.ok ? tapChord.chord.strokes : null,
-  [{ modifiers: [], key: 'shift' }, { modifiers: [], key: 'shift' }],
-)
+assert.deepEqual(tapChord.ok ? tapChord.chord.strokes : null, [
+  { modifiers: [], key: 'shift' },
+  { modifiers: [], key: 'shift' },
+])
 assert.equal(normalizeKeybinding('Ctrl Ctrl'), 'ctrl ctrl')
 
 // A modifier is only a key when it is the WHOLE stroke: a decorated stroke

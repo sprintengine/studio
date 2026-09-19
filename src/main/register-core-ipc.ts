@@ -52,7 +52,13 @@ import { registerWindowIpc } from './ipc/window-ipc'
 import { registerBrowserIpc } from './ipc/browser-ipc'
 import { registerCanvasIpc } from './ipc/canvas-ipc'
 import { registerWorkspaceSyncIpc } from './ipc/workspace-sync-ipc'
-import { confirmWorkspaceWindowClose, createDiagnosticsWindow, createMainWindow, isAuxWindow, openAuxWindow } from './window-factory'
+import {
+  confirmWorkspaceWindowClose,
+  createDiagnosticsWindow,
+  createMainWindow,
+  isAuxWindow,
+  openAuxWindow,
+} from './window-factory'
 import { registerWorkspaceBackupIpc } from './ipc/workspace-backup-ipc'
 import type { AppServices } from './app-services'
 import { createFilesystemMutationHandlers } from './filesystem-mutation-handlers'
@@ -69,7 +75,7 @@ export function registerCoreIpc(
   ipcMain: IpcMain,
   services: AppServices,
   diagnosticsEnabled: boolean,
-  options: CoreIpcOptions = {}
+  options: CoreIpcOptions = {},
 ): void {
   registerWindowIpc(ipcMain, {
     createWorkspaceWindow: ({ windowId, bounds, isMaximized }) => {
@@ -144,7 +150,7 @@ export function registerCoreIpc(
     {
       userDataDir: app.getPath('userData'),
       onChangelistsChanged: services.broadcastGitChangelistsChanged,
-    }
+    },
   )
   registerVersionControlIpc(ipcMain)
   registerGitHubTokenIpc(ipcMain, services.githubTokenStore)

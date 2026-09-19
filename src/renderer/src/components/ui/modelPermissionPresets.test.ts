@@ -44,7 +44,11 @@ async function main(): Promise<void> {
     'manual',
     'an unrecognised preset falls back rather than launching on nothing',
   )
-  assert.equal(resolveModelPermissionPreset('claude-code', 'claude-sonnet-5', 'manual'), 'auto', 'its neighbour survives')
+  assert.equal(
+    resolveModelPermissionPreset('claude-code', 'claude-sonnet-5', 'manual'),
+    'auto',
+    'its neighbour survives',
+  )
 
   __resetModelPermissionPresetsForTest()
 

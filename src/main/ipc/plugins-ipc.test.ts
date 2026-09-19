@@ -4,10 +4,7 @@ import { join } from 'node:path'
 import { registerPluginIpc } from './plugins-ipc'
 import type { PluginRegistryListResult } from '../../shared/electron-api'
 import { createPluginRegistry } from '../plugin-registry'
-import {
-  __resetPluginRegistryForTest,
-  __setPluginRegistryForTest,
-} from '../plugin-registry-instance'
+import { __resetPluginRegistryForTest, __setPluginRegistryForTest } from '../plugin-registry-instance'
 
 type Handler = (event: unknown, ...args: unknown[]) => unknown
 
@@ -45,10 +42,20 @@ async function testReturnsBundledAndFixtureUserEntries(): Promise<void> {
   assert.equal(result.ok, true)
   if (!result.ok) return
 
-  assert.deepEqual(
-    result.plugins.map((p) => p.id).sort(),
-    ['aider', 'claude-code', 'codex', 'cursor', 'generic-shell', 'grok', 'kimi-claude', 'kimi-code', 'muse', 'opencode', 'pi', 'zai']
-  )
+  assert.deepEqual(result.plugins.map((p) => p.id).sort(), [
+    'aider',
+    'claude-code',
+    'codex',
+    'cursor',
+    'generic-shell',
+    'grok',
+    'kimi-claude',
+    'kimi-code',
+    'muse',
+    'opencode',
+    'pi',
+    'zai',
+  ])
   assert.equal(result.plugins.find((p) => p.id === 'codex')?.source, 'bundled')
   assert.equal(result.plugins.find((p) => p.id === 'opencode')?.source, 'user')
 

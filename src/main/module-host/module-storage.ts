@@ -12,15 +12,9 @@ import { workspaceSidecarPath } from '../workspace-sidecar'
 // Disclosure permission: `storage` (install-time, like every v1 scope).
 
 export type ModuleStorageErrorCode =
-  | 'invalid_key'
-  | 'invalid_value'
-  | 'value_too_large'
-  | 'invalid_workspace_root'
-  | 'io_error'
+  'invalid_key' | 'invalid_value' | 'value_too_large' | 'invalid_workspace_root' | 'io_error'
 
-export type ModuleStorageResult<T> =
-  | ({ ok: true } & T)
-  | { ok: false; code: ModuleStorageErrorCode; message: string }
+export type ModuleStorageResult<T> = ({ ok: true } & T) | { ok: false; code: ModuleStorageErrorCode; message: string }
 
 type ModuleStorageScope = {
   /**
@@ -31,15 +25,18 @@ type ModuleStorageScope = {
 }
 
 export type ModuleStorageRegistry = {
-  get(moduleId: string, input: ModuleStorageScope & { key: string }): Promise<
-    ModuleStorageResult<{ value: unknown; found: boolean }>
-  >
-  set(moduleId: string, input: ModuleStorageScope & { key: string; value: unknown }): Promise<
-    ModuleStorageResult<object>
-  >
-  delete(moduleId: string, input: ModuleStorageScope & { key: string }): Promise<
-    ModuleStorageResult<{ deleted: boolean }>
-  >
+  get(
+    moduleId: string,
+    input: ModuleStorageScope & { key: string },
+  ): Promise<ModuleStorageResult<{ value: unknown; found: boolean }>>
+  set(
+    moduleId: string,
+    input: ModuleStorageScope & { key: string; value: unknown },
+  ): Promise<ModuleStorageResult<object>>
+  delete(
+    moduleId: string,
+    input: ModuleStorageScope & { key: string },
+  ): Promise<ModuleStorageResult<{ deleted: boolean }>>
   list(moduleId: string, input?: ModuleStorageScope): Promise<ModuleStorageResult<{ keys: string[] }>>
 }
 
@@ -74,7 +71,7 @@ export function createModuleStorageRegistry(options: { userDataDir: () => string
 
   const resolveDir = (
     moduleId: string,
-    scope: ModuleStorageScope | undefined
+    scope: ModuleStorageScope | undefined,
   ): { ok: true; dir: string } | { ok: false; code: ModuleStorageErrorCode; message: string } => {
     if (UNSAFE_SEGMENT.test(moduleId) || moduleId.trim().length === 0) {
       return { ok: false, code: 'io_error', message: `Module id "${moduleId}" is not usable as a storage folder.` }

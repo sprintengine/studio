@@ -74,9 +74,7 @@ function workspaceKey(workspaceRoot: string): string {
  */
 let resolveUnknownSidecarDirName: ((workspaceRoot: string) => SidecarDirName) | null = null
 
-export function setUnknownSidecarDirNameResolver(
-  resolver: ((workspaceRoot: string) => SidecarDirName) | null,
-): void {
+export function setUnknownSidecarDirNameResolver(resolver: ((workspaceRoot: string) => SidecarDirName) | null): void {
   resolveUnknownSidecarDirName = resolver
 }
 

@@ -15,7 +15,7 @@ export const TRANSCRIBE_TARGET_SAMPLE_RATE = 16000
 export function downsampleFloat32(
   input: Float32Array,
   inputRate: number,
-  targetRate: number = TRANSCRIBE_TARGET_SAMPLE_RATE
+  targetRate: number = TRANSCRIBE_TARGET_SAMPLE_RATE,
 ): Float32Array {
   if (targetRate >= inputRate || input.length === 0) return input
   const ratio = inputRate / targetRate

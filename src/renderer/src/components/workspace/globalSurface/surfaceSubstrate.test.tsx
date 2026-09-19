@@ -100,8 +100,7 @@ async function main(): Promise<void> {
     )
   }
 
-  const slotOf = (container: HTMLElement): HTMLElement | null =>
-    container.querySelector('[data-rail-icon-slot="true"]')
+  const slotOf = (container: HTMLElement): HTMLElement | null => container.querySelector('[data-rail-icon-slot="true"]')
 
   // ── 1. two doors, two glyph sizes, one slot ────────────────────────────────
   // The Design door's 12px identity chip and a 16px lifecycle
@@ -240,9 +239,7 @@ async function main(): Promise<void> {
     // A row that passes none renders the title exactly as it always did — no
     // wrapper, so every other door's rail markup is untouched.
     const plainRow = rail.container.querySelectorAll('li')[1]
-    const plainTitle = [...plainRow!.querySelectorAll('span')].find(
-      (node) => node.textContent === 'Plain',
-    )
+    const plainTitle = [...plainRow!.querySelectorAll('span')].find((node) => node.textContent === 'Plain')
     assert.ok(plainTitle, 'the unmarked row renders its title')
     assert.equal(
       plainTitle!.parentElement?.querySelectorAll('span').length,
@@ -276,7 +273,7 @@ async function main(): Promise<void> {
     const rowClasses = rowButton!.getAttribute('class') ?? ''
     const rowInset = px(rowClasses, 'px')
     const rowGap = px(rowClasses, 'gap')
-    assert.equal(scrollInset, 4, 'scrollport inset is space.2xs (4px) — the pattern\'s .rail-rows padding')
+    assert.equal(scrollInset, 4, "scrollport inset is space.2xs (4px) — the pattern's .rail-rows padding")
     assert.equal(rowInset, 8, 'row padding is space.sm (8px) — .cr-row, unchanged')
     assert.equal(rowGap, 8, 'the icon-to-title gap is space.sm (8px) — .cr-row, unchanged')
     assert.equal(
@@ -332,7 +329,7 @@ async function main(): Promise<void> {
     assert.equal(
       notice!.previousElementSibling,
       null,
-      'and it is the scrollport\'s first child, so it sits under the head where the rows would have been',
+      "and it is the scrollport's first child, so it sits under the head where the rows would have been",
     )
     assert.equal(
       notice!.getAttribute('class')?.match(/(?:^|\s)px-(\d+)/)?.[1],

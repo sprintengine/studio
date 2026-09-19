@@ -5,10 +5,7 @@ export type GitLineChange = {
   deletedCount?: number
 }
 
-type DiffOp =
-  | { kind: 'equal'; text: string }
-  | { kind: 'insert'; text: string }
-  | { kind: 'delete'; text: string }
+type DiffOp = { kind: 'equal'; text: string } | { kind: 'insert'; text: string } | { kind: 'delete'; text: string }
 
 const MAX_LCS_CELLS = 2_000_000
 
@@ -39,9 +36,10 @@ function diffLineOpsLcs(baseLines: string[], currentLines: string[]): DiffOp[] {
 
   for (let baseIndex = baseLines.length - 1; baseIndex >= 0; baseIndex -= 1) {
     for (let currentIndex = currentLines.length - 1; currentIndex >= 0; currentIndex -= 1) {
-      table[baseIndex][currentIndex] = baseLines[baseIndex] === currentLines[currentIndex]
-        ? table[baseIndex + 1][currentIndex + 1] + 1
-        : Math.max(table[baseIndex + 1][currentIndex], table[baseIndex][currentIndex + 1])
+      table[baseIndex][currentIndex] =
+        baseLines[baseIndex] === currentLines[currentIndex]
+          ? table[baseIndex + 1][currentIndex + 1] + 1
+          : Math.max(table[baseIndex + 1][currentIndex], table[baseIndex][currentIndex + 1])
     }
   }
 
@@ -82,7 +80,7 @@ function findUniqueCommonAnchor(
   baseStart: number,
   baseEnd: number,
   currentStart: number,
-  currentEnd: number
+  currentEnd: number,
 ): { baseIndex: number; currentIndex: number } | null {
   const basePositions = new Map<string, number>()
 
@@ -125,21 +123,16 @@ function findUniqueCommonAnchor(
 function diffLineOps(baseLines: string[], currentLines: string[]): DiffOp[] {
   const ops: DiffOp[] = []
 
-  const appendRange = (
-    baseStart: number,
-    baseEnd: number,
-    currentStart: number,
-    currentEnd: number
-  ) => {
+  const appendRange = (baseStart: number, baseEnd: number, currentStart: number, currentEnd: number) => {
     let nextBaseStart = baseStart
     let nextCurrentStart = currentStart
     let nextBaseEnd = baseEnd
     let nextCurrentEnd = currentEnd
 
     while (
-      nextBaseStart < nextBaseEnd
-      && nextCurrentStart < nextCurrentEnd
-      && baseLines[nextBaseStart] === currentLines[nextCurrentStart]
+      nextBaseStart < nextBaseEnd &&
+      nextCurrentStart < nextCurrentEnd &&
+      baseLines[nextBaseStart] === currentLines[nextCurrentStart]
     ) {
       ops.push({ kind: 'equal', text: currentLines[nextCurrentStart] })
       nextBaseStart += 1
@@ -148,9 +141,9 @@ function diffLineOps(baseLines: string[], currentLines: string[]): DiffOp[] {
 
     let commonSuffixLength = 0
     while (
-      nextBaseStart < nextBaseEnd
-      && nextCurrentStart < nextCurrentEnd
-      && baseLines[nextBaseEnd - 1] === currentLines[nextCurrentEnd - 1]
+      nextBaseStart < nextBaseEnd &&
+      nextCurrentStart < nextCurrentEnd &&
+      baseLines[nextBaseEnd - 1] === currentLines[nextCurrentEnd - 1]
     ) {
       nextBaseEnd -= 1
       nextCurrentEnd -= 1
@@ -172,8 +165,8 @@ function diffLineOps(baseLines: string[], currentLines: string[]): DiffOp[] {
       ops.push(
         ...diffLineOpsLcs(
           baseLines.slice(nextBaseStart, nextBaseEnd),
-          currentLines.slice(nextCurrentStart, nextCurrentEnd)
-        )
+          currentLines.slice(nextCurrentStart, nextCurrentEnd),
+        ),
       )
     } else {
       const anchor = findUniqueCommonAnchor(
@@ -182,7 +175,7 @@ function diffLineOps(baseLines: string[], currentLines: string[]): DiffOp[] {
         nextBaseStart,
         nextBaseEnd,
         nextCurrentStart,
-        nextCurrentEnd
+        nextCurrentEnd,
       )
 
       if (anchor) {

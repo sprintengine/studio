@@ -52,7 +52,7 @@ export const PLUGIN_ROOT_VARIABLE = 'CLAUDE_PLUGIN_ROOT'
  */
 const PLUGIN_ROOT_PATTERN = new RegExp(
   `\\$\\{${PLUGIN_ROOT_VARIABLE}(?::[-=?+][^}]*)?\\}|\\$${PLUGIN_ROOT_VARIABLE}(?![A-Za-z0-9_])`,
-  'g'
+  'g',
 )
 
 /** True when this text names the plugin root in any of its spellings. */
@@ -64,13 +64,7 @@ export function textReferencesPluginRoot(value: string): boolean {
 
 /** Every string a server's declaration can hide the variable in. */
 function declaredStrings(server: ScannedMcpServer): string[] {
-  return [
-    server.command,
-    ...server.args,
-    server.url,
-    ...Object.values(server.env),
-    ...Object.values(server.headers),
-  ]
+  return [server.command, ...server.args, server.url, ...Object.values(server.env), ...Object.values(server.headers)]
 }
 
 /**
@@ -83,9 +77,7 @@ export function referencesPluginRoot(server: ScannedMcpServer): boolean {
 }
 
 /** True when any server this plugin declares needs the plugin's own files. */
-export function pluginNeedsOwnFiles(plugin: {
-  components: { mcpServers: readonly ScannedMcpServer[] }
-}): boolean {
+export function pluginNeedsOwnFiles(plugin: { components: { mcpServers: readonly ScannedMcpServer[] } }): boolean {
   return plugin.components.mcpServers.some(referencesPluginRoot)
 }
 

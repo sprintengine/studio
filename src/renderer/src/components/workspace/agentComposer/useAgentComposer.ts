@@ -15,10 +15,7 @@ import { useWorkspaceStore } from '../../../store/workspaceStore'
 // selection and read from the store's remembered defaults, so a confirm only
 // needs the agent identity plus the resolved CLI — the model round-trips
 // through the defaults.
-export type AgentComposerSelection =
-  | { kind: 'terminal' }
-  | { kind: 'general' }
-  | { kind: 'conversation' }
+export type AgentComposerSelection = { kind: 'terminal' } | { kind: 'general' } | { kind: 'conversation' }
 
 export type AgentComposerConfirm = (
   | { kind: 'terminal' }
@@ -50,9 +47,7 @@ export type AgentComposerConnector = { id: string; name: string; icon?: string }
 
 // One roster row. Arrow keys rove this flat list so navigation is uniform.
 export type ComposerRow =
-  | { key: string; kind: 'terminal' }
-  | { key: string; kind: 'general' }
-  | { key: string; kind: 'conversation' }
+  { key: string; kind: 'terminal' } | { key: string; kind: 'general' } | { key: string; kind: 'conversation' }
 
 export function rowMatchesSelection(row: ComposerRow, selection: AgentComposerSelection): boolean {
   return selection.kind === row.kind
@@ -104,11 +99,7 @@ export type EngineNames = { cliLabel: string; modelLabel: string | null }
 // The engine's display names, from the catalog that produced the option. A
 // model id with no catalog row keeps its id rather than borrowing a neighbour's
 // label — an unlabelled model is shown as what it is, never renamed.
-export function engineNames(
-  options: AgentCliCatalogOption[],
-  cli: AgentCli,
-  model: string | undefined,
-): EngineNames {
+export function engineNames(options: AgentCliCatalogOption[], cli: AgentCli, model: string | undefined): EngineNames {
   const option = options.find((entry) => entry.value === cli)
   return {
     cliLabel: option?.label ?? cli,
@@ -170,11 +161,25 @@ export function useAgentComposer({
 
   const agentCliOptions = React.useMemo(
     () =>
-      selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
-        map: cliAvailability,
-        status: cliAvailabilityStatus,
-      }, undefined, hostedModelCatalogs),
-    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus, hostedModelCatalogs],
+      selectAgentCliCatalog(
+        pluginCatalogStatus,
+        pluginCatalogEntries,
+        cliRuntimes,
+        {
+          map: cliAvailability,
+          status: cliAvailabilityStatus,
+        },
+        undefined,
+        hostedModelCatalogs,
+      ),
+    [
+      pluginCatalogStatus,
+      pluginCatalogEntries,
+      cliRuntimes,
+      cliAvailability,
+      cliAvailabilityStatus,
+      hostedModelCatalogs,
+    ],
   )
   // This machine has no agent CLI (MC-2093). The catalog is availability-
   // filtered, so an empty one on a READY registry is the honest answer — a

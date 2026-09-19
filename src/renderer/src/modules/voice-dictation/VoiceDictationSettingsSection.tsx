@@ -54,11 +54,7 @@ function VoiceDictationSettingsSection() {
         />
       </Field>
 
-      <Field
-        label="Auth token"
-        htmlFor="voice-auth-token"
-        help="Optional."
-      >
+      <Field label="Auth token" htmlFor="voice-auth-token" help="Optional.">
         <Input
           id="voice-auth-token"
           type="password"

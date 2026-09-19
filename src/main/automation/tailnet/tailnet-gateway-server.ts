@@ -4,7 +4,12 @@ import type { Duplex } from 'stream'
 
 import { SUPPORTED_MCP_PROTOCOL_VERSIONS } from '../../../shared/mcp/protocol'
 import { STUDIO_MCP_SERVER_NAME } from '../../../shared/product-identity'
-import { toolError, type McpConnectionContext, type McpToolRegistration, type McpToolResult } from '../../../shared/modules/mcp-tools'
+import {
+  toolError,
+  type McpConnectionContext,
+  type McpToolRegistration,
+  type McpToolResult,
+} from '../../../shared/modules/mcp-tools'
 import {
   createMcpDispatcher,
   declaredProtocolVersion,
@@ -276,8 +281,11 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     // it missed compares revisions and re-reads without waiting for the next.
     socket.write(
       encodeTextFrame(
-        JSON.stringify({ type: 'hello', revisions: { terminals: changeRevisions.terminals, workspaces: changeRevisions.workspaces } })
-      )
+        JSON.stringify({
+          type: 'hello',
+          revisions: { terminals: changeRevisions.terminals, workspaces: changeRevisions.workspaces },
+        }),
+      ),
     )
     if (head?.length) consume(head)
     socket.on('data', consume)
@@ -316,7 +324,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     // misconfigured address can never produce even a momentarily-open port.
     if (!isAllowedTailnetBindAddress(options.bindAddress)) {
       throw new Error(
-        `Refusing to bind the tailnet gateway to ${options.bindAddress || '(empty)'}: only a Tailscale address (100.64.0.0/10 or fd7a:115c:a1e0::/48) or loopback is allowed.`
+        `Refusing to bind the tailnet gateway to ${options.bindAddress || '(empty)'}: only a Tailscale address (100.64.0.0/10 or fd7a:115c:a1e0::/48) or loopback is allowed.`,
       )
     }
     const next = createServer((request, response) => {
@@ -398,7 +406,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     request: IncomingMessage,
     response: ServerResponse,
     device: TailnetDevice,
-    url: URL
+    url: URL,
   ): Promise<void> {
     // Writing a file into someone's project is a mutation on the terminal
     // family, so it takes the tier that types rather than the one that watches.
@@ -454,7 +462,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       // Drained before the answer, not after: see `drainRefusedBody`.
       if (await drainRefusedBody(request)) {
         writeJson(response, 413, {
-          error: { code: 'too_large', message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.` },
+          error: {
+            code: 'too_large',
+            message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.`,
+          },
         })
       }
       return
@@ -468,7 +479,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         // Drained before the answer, not after: see `drainRefusedBody`.
         if (await drainRefusedBody(request)) {
           writeJson(response, 413, {
-            error: { code: 'too_large', message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.` },
+            error: {
+              code: 'too_large',
+              message: `That file is over the ${Math.floor(UPLOAD_MAX_BYTES / (1024 * 1024))}MB limit.`,
+            },
           })
         }
         return
@@ -485,7 +499,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     // Refusing outright is the honest rule; there is no origin to allow.
     if (request.headers.origin) {
       writeJson(response, 403, {
-        error: { code: 'origin_not_allowed', message: 'Browser-originated requests are not accepted on this transport.' },
+        error: {
+          code: 'origin_not_allowed',
+          message: 'Browser-originated requests are not accepted on this transport.',
+        },
       })
       return
     }
@@ -602,14 +619,21 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         })
         return
       }
-      const answer = await handleMessage(body, contextFor(device, peerNode), device, headerOf(request, 'mcp-protocol-version'))
+      const answer = await handleMessage(
+        body,
+        contextFor(device, peerNode),
+        device,
+        headerOf(request, 'mcp-protocol-version'),
+      )
       // A notification has no answer; 202 says "accepted, nothing to return".
       if (!answer) writeJson(response, 202, {})
       else writeJson(response, 200, answer)
       return
     }
 
-    writeJson(response, 404, { error: { code: 'not_found', message: `No tailnet gateway route for ${method} ${path}.` } })
+    writeJson(response, 404, {
+      error: { code: 'not_found', message: `No tailnet gateway route for ${method} ${path}.` },
+    })
   }
 
   /** Run one JSON-RPC message; returns the response object, or null for a notification. */
@@ -622,11 +646,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
    * records is the one this transport established — `whois` on the socket's own
    * address — never anything the body claimed.
    */
-  async function handlePairRequest(
-    request: IncomingMessage,
-    response: ServerResponse,
-    method: string
-  ): Promise<void> {
+  async function handlePairRequest(request: IncomingMessage, response: ServerResponse, method: string): Promise<void> {
     if (method === 'GET') {
       const query = parseUrl(request.url ?? '').searchParams
       const outcome = options.devices.collectPairRequest(query.get('id') ?? '', query.get('secret') ?? '')
@@ -656,8 +676,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     if (!outcome.ok) {
       // 429 for the caps, 400 for a malformed request: a client must be able to
       // tell "ask again later" from "you sent the wrong thing".
-      const status =
-        outcome.code === 'invalid_device_name' || outcome.code === 'invalid_collect_hash' ? 400 : 429
+      const status = outcome.code === 'invalid_device_name' || outcome.code === 'invalid_collect_hash' ? 400 : 429
       writeJson(response, status, { error: { code: outcome.code, message: outcome.message } })
       return
     }
@@ -701,7 +720,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     const record = isRecord(body) ? body : {}
     const outcome = options.devices.collectPairRequest(
       typeof record.id === 'string' ? record.id : '',
-      typeof record.secret === 'string' ? record.secret : ''
+      typeof record.secret === 'string' ? record.secret : '',
     )
     if (outcome.status === 'approved' && outcome.asker && isRecord(record.reverse)) {
       const peerAddress = normalizeAddress(request.socket.remoteAddress)
@@ -714,8 +733,8 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         })
       } else {
         options.log?.(
-          `tailnet gateway ignored a reverse grant from ${peerAddress || 'an unknown address'}: `
-          + 'its endpoint was not the asker\'s own address or it was malformed.'
+          `tailnet gateway ignored a reverse grant from ${peerAddress || 'an unknown address'}: ` +
+            "its endpoint was not the asker's own address or it was malformed.",
         )
       }
     }
@@ -726,10 +745,14 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     parsed: unknown,
     context: McpConnectionContext,
     device: TailnetDevice,
-    protocolHeader: string | null
+    protocolHeader: string | null,
   ): Promise<Record<string, unknown> | null> {
     if (!isRecord(parsed) || parsed.jsonrpc !== '2.0' || typeof parsed.method !== 'string') {
-      return jsonRpcErrorResponse(jsonRpcIdOf(parsed), JSONRPC_INVALID_REQUEST, 'Request is not a JSON-RPC 2.0 message.')
+      return jsonRpcErrorResponse(
+        jsonRpcIdOf(parsed),
+        JSONRPC_INVALID_REQUEST,
+        'Request is not a JSON-RPC 2.0 message.',
+      )
     }
     const id = jsonRpcIdOf(parsed)
     const isNotification = id === null && !('id' in parsed)
@@ -769,14 +792,14 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         if (isLocalOnlyGatewayTool(toolName)) {
           return toolError(
             'tailnet_local_only',
-            `"${toolName}" configures who may drive this machine and is served only on its owner-only local socket, never over the tailnet. Run it from an agent on that machine.`
+            `"${toolName}" configures who may drive this machine and is served only on its owner-only local socket, never over the tailnet. Run it from an agent on that machine.`,
           )
         }
         return scopeAllows(toolName)
           ? null
           : toolError(
               'tailnet_scope_required',
-              `This device is not granted "${requiredScopeForTool(toolName, options.isMutation(toolName))}", which "${toolName}" requires. Re-pair the device with that scope in Settings.`
+              `This device is not granted "${requiredScopeForTool(toolName, options.isMutation(toolName))}", which "${toolName}" requires. Re-pair the device with that scope in Settings.`,
             )
       },
     }
@@ -805,8 +828,10 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     if (path !== TAILNET_STREAM_PATH && path !== TAILNET_TERMINAL_PATH && path !== TAILNET_EVENTS_PATH) {
       return rejectUpgrade(socket, 404, 'not_found')
     }
-    if ((headerOf(request, 'upgrade') ?? '').toLowerCase() !== 'websocket') return rejectUpgrade(socket, 400, 'not_a_websocket_upgrade')
-    if ((headerOf(request, 'sec-websocket-version') ?? '') !== '13') return rejectUpgrade(socket, 400, 'unsupported_websocket_version')
+    if ((headerOf(request, 'upgrade') ?? '').toLowerCase() !== 'websocket')
+      return rejectUpgrade(socket, 400, 'not_a_websocket_upgrade')
+    if ((headerOf(request, 'sec-websocket-version') ?? '') !== '13')
+      return rejectUpgrade(socket, 400, 'unsupported_websocket_version')
     const key = headerOf(request, 'sec-websocket-key')
     if (!key) return rejectUpgrade(socket, 400, 'missing_websocket_key')
 
@@ -984,7 +1009,8 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
       if (terminal.deviceId === deviceId) terminal.close(WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
     }
     for (const stream of [...eventStreams]) {
-      if (stream.deviceId === deviceId) closeEventStream(stream, WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
+      if (stream.deviceId === deviceId)
+        closeEventStream(stream, WEBSOCKET_CLOSE_REVOKED, 'This device has been revoked.')
     }
     for (const [ticket, entry] of tickets) if (entry.deviceId === deviceId) tickets.delete(ticket)
   }
@@ -999,7 +1025,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
         `Sec-WebSocket-Accept: ${computeWebSocketAcceptKey(key)}`,
         '',
         '',
-      ].join('\r\n')
+      ].join('\r\n'),
     )
   }
 
@@ -1028,7 +1054,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
   async function readJsonBody(
     request: IncomingMessage,
     response: ServerResponse,
-    maxBytes: number
+    maxBytes: number,
   ): Promise<unknown | undefined> {
     const chunks: Buffer[] = []
     let size = 0
@@ -1115,7 +1141,10 @@ function readReverseGrant(value: Record<string, unknown>, peerAddress: string): 
 function writeUnauthorized(response: ServerResponse): void {
   response.setHeader('WWW-Authenticate', 'Bearer realm="sprintengine-studio-tailnet"')
   writeJson(response, 401, {
-    error: { code: 'unauthorized', message: 'A paired device token is required. Pair this machine in Settings → Remote.' },
+    error: {
+      code: 'unauthorized',
+      message: 'A paired device token is required. Pair this machine in Settings → Remote.',
+    },
   })
 }
 
@@ -1287,7 +1316,7 @@ class UploadTooLarge extends Error {}
  */
 async function streamUploadToDisk(
   request: IncomingMessage,
-  destination: { directory: string; path: string }
+  destination: { directory: string; path: string },
 ): Promise<number> {
   const { mkdir, rm, writeFile } = await import('node:fs/promises')
   const { createWriteStream, existsSync } = await import('node:fs')

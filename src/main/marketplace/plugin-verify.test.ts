@@ -8,10 +8,7 @@ import { join } from 'node:path'
 import type { MarketplacePluginEntry, MarketplacePluginManifest } from '../../shared/marketplace'
 import { validateMarketplacePluginAuthoringManifest } from '../../shared/marketplace'
 import type { CapabilityPermission } from '../../shared/modules/permissions'
-import {
-  generateModuleSigningKeyPair,
-  signManifest,
-} from '../../../packages/module-sdk/src/signing'
+import { generateModuleSigningKeyPair, signManifest } from '../../../packages/module-sdk/src/signing'
 import { createMarketplacePluginVerifier } from './plugin-verify'
 import { skillContentDigest } from './skill-content'
 import type { MarketplacePluginDownloadFetch } from './plugin-download'
@@ -57,11 +54,13 @@ async function withTempDir<T>(fn: (dir: string) => Promise<T>): Promise<T> {
   }
 }
 
-function createFixture(options: {
-  permissions?: CapabilityPermission[]
-  omitPermissions?: boolean
-  publisherVerified?: boolean
-} = {}): Fixture {
+function createFixture(
+  options: {
+    permissions?: CapabilityPermission[]
+    omitPermissions?: boolean
+    publisherVerified?: boolean
+  } = {},
+): Fixture {
   const keyPair = generateModuleSigningKeyPair()
   const mcpSource = mcpComponentSource()
   const unsigned = {
@@ -262,7 +261,6 @@ async function testInvalidPreviewBlocksWithoutPermissions(): Promise<void> {
     assertNoInstallSideEffects(temp, stagingRoot)
   })
 }
-
 
 async function testClaudePluginPreviewDisclosesSkillListing(): Promise<void> {
   const temp = await mkdtemp(join(tmpdir(), 'mc-verify-claude-'))

@@ -8,12 +8,23 @@ import type { UserModuleListResult, InstalledModule } from './user-module-regist
 
 export const MODULE_ASSET_MAX_BYTES = 128 * 1024 * 1024
 const CONTENT_TYPES: Record<string, string> = {
-  '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
-  '.mjs': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8',
-  '.json': 'application/json', '.wasm': 'application/wasm', '.zip': 'application/zip',
-  '.png': 'image/png', '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg', '.svg': 'image/svg+xml',
-  '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2',
-  '.ogg': 'audio/ogg', '.wav': 'audio/wav', '.mp3': 'audio/mpeg',
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.wasm': 'application/wasm',
+  '.zip': 'application/zip',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.svg': 'image/svg+xml',
+  '.ico': 'image/x-icon',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2',
+  '.ogg': 'audio/ogg',
+  '.wav': 'audio/wav',
+  '.mp3': 'audio/mpeg',
 }
 
 export type ModuleAssetBackends = {
@@ -29,14 +40,18 @@ export function createModuleAssetHandler(backends: ModuleAssetBackends) {
     let file: Awaited<ReturnType<typeof open>> | undefined
     try {
       const url = new URL(request.url)
-      if (url.protocol !== `${MODULE_ASSET_SCHEME}:` || url.username || url.password || url.port) return new Response(null, { status: 400 })
+      if (url.protocol !== `${MODULE_ASSET_SCHEME}:` || url.username || url.password || url.port)
+        return new Response(null, { status: 400 })
       const { modules } = await backends.discoverModules()
-      const installed = modules.find((module) => new URL(backends.assetOrigin(module.manifest.id)).hostname === url.hostname)
+      const installed = modules.find(
+        (module) => new URL(backends.assetOrigin(module.manifest.id)).hostname === url.hostname,
+      )
       if (!installed || !isLoadEligible(installed.trust.status) || !backends.isEnabled(installed, modules)) {
         return new Response(null, { status: 403 })
       }
       const path = decodeURIComponent(url.pathname.slice(1))
-      if (!path || /[\\\0]/.test(path) || path.split('/').some((part) => !part || part === '.' || part === '..')) return new Response(null, { status: 400 })
+      if (!path || /[\\\0]/.test(path) || path.split('/').some((part) => !part || part === '.' || part === '..'))
+        return new Response(null, { status: 400 })
       const root = await realpath(installed.moduleRoot)
       const target = await realpath(resolveContainedPath(root, path, 'asset'))
       const within = relative(root, target)
@@ -76,8 +91,12 @@ export function isAllowedModuleAssetRequest(
     try {
       const candidate = new URL(value)
       const shell = new URL(shellUrl)
-      return candidate.protocol === shell.protocol && candidate.host === shell.host && candidate.pathname === shell.pathname
-    } catch { return false }
+      return (
+        candidate.protocol === shell.protocol && candidate.host === shell.host && candidate.pathname === shell.pathname
+      )
+    } catch {
+      return false
+    }
   }
   try {
     const target = new URL(details.url)
@@ -91,5 +110,7 @@ export function isAllowedModuleAssetRequest(
     if (isShell(frame.url)) return true
     const source = new URL(frame.url)
     return source.protocol === target.protocol && source.host === target.host
-  } catch { return false }
+  } catch {
+    return false
+  }
 }

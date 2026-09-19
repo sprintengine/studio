@@ -81,16 +81,14 @@ export function remoteProjectsOf(workspaces: readonly FleetWorkspace[]): RemoteP
     if (workspace.id < existing.workspaceId) existing.workspaceId = workspace.id
     if (!existing.repository && workspace.repository) existing.repository = workspace.repository
   }
-  return [...byFolder.values()].sort(
-    (a, b) => a.name.localeCompare(b.name) || a.folderPath.localeCompare(b.folderPath)
-  )
+  return [...byFolder.values()].sort((a, b) => a.name.localeCompare(b.name) || a.folderPath.localeCompare(b.folderPath))
 }
 
 /** The project a picked workspace id belongs to, or null when the read no longer holds it. */
 export function remoteProjectOfWorkspace(
   projects: readonly RemoteProject[],
   workspaces: readonly FleetWorkspace[],
-  workspaceId: string
+  workspaceId: string,
 ): RemoteProject | null {
   const workspace = workspaces.find((entry) => entry.id === workspaceId)
   const folderPath = workspace?.folderPath?.trim()

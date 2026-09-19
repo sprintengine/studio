@@ -108,9 +108,7 @@ console.log('published declarations contain no `any`')
 // than anything the repository's own node_modules might happen to carry.
 const require = createRequire(join(fixtureDir, 'package.json'))
 const commonjs = require('@sprintengine/mobile-control-protocol')
-const esm = await import(
-  pathToFileURL(join(installedDir, manifest.exports['.'].import.default)).href
-)
+const esm = await import(pathToFileURL(join(installedDir, manifest.exports['.'].import.default)).href)
 for (const [label, loaded] of [
   ['require', commonjs],
   ['import', esm],
@@ -131,7 +129,7 @@ if (packageMajor !== commonjs.mobileControlProtocolVersion) {
   throw new Error(
     `package version ${manifest.version} has major ${packageMajor}, but ` +
       `mobileControlProtocolVersion is ${commonjs.mobileControlProtocolVersion}. ` +
-      'See docs/compatibility.md — the major tracks the wire version.'
+      'See docs/compatibility.md — the major tracks the wire version.',
   )
 }
 console.log(`package major ${packageMajor} matches mobileControlProtocolVersion`)

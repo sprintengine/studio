@@ -100,7 +100,7 @@ function testSourceDirResolvesAgainstTheModuleRoot(): void {
         dirs: [join(REVIEW_ROOT, 'skills', 'review-guide'), join(REVIEW_ROOT, 'skills', 'studio-review')],
       },
     ],
-    'the host hands the registry absolute directories inside the module root'
+    'the host hands the registry absolute directories inside the module root',
   )
   assert.deepEqual(
     [...kernel.ownedSkills()],
@@ -108,7 +108,7 @@ function testSourceDirResolvesAgainstTheModuleRoot(): void {
       ['review-guide', 'review'],
       ['studio-review', 'review'],
     ],
-    'the kernel records which module owns which skill id'
+    'the kernel records which module owns which skill id',
   )
 }
 
@@ -124,7 +124,7 @@ function testSourceDirMayNotEscapeTheModuleRoot(): void {
     assert.throws(
       () => host.registerSkills([{ id: 'escapee', sourceDir: escape, targetPolicy: 'agents', description: 'no' }]),
       /must (resolve inside the module root|be a non-empty path)/,
-      `"${escape}" must not resolve to a skill directory`
+      `"${escape}" must not resolve to a skill directory`,
     )
   }
   assert.deepEqual(recorder.registered, [], 'a rejected registration lands nothing')
@@ -137,7 +137,7 @@ function testSourceDirMayNotEscapeTheModuleRoot(): void {
         { id: 'ok', sourceDir: 'skills/ok', targetPolicy: 'agents', description: 'fine' },
         { id: 'bad', sourceDir: '../outside', targetPolicy: 'agents', description: 'nope' },
       ]),
-    /must resolve inside the module root/
+    /must resolve inside the module root/,
   )
   assert.deepEqual(recorder.registered, [], 'a batch with one escape registers none of it')
 }
@@ -151,8 +151,9 @@ function testBundledModulesPassAbsolutePaths(): void {
   // A bundled module's code is the app's; it has no install folder to be
   // contained by, so an absolute path is the only thing there is to resolve.
   assert.throws(
-    () => host.registerSkills([{ id: 'shipped', sourceDir: 'skills/shipped', targetPolicy: 'agents', description: 'x' }]),
-    /must be an absolute path for a module with no module root/
+    () =>
+      host.registerSkills([{ id: 'shipped', sourceDir: 'skills/shipped', targetPolicy: 'agents', description: 'x' }]),
+    /must be an absolute path for a module with no module root/,
   )
   host.registerSkills([{ id: 'shipped', sourceDir: shipped, targetPolicy: 'agents', description: 'x' }])
   assert.equal(recorder.registered[0]?.registrations[0]?.sourceDir, shipped)
@@ -167,14 +168,18 @@ function testOwnershipIsTracked(): void {
 
   kernel
     .hostFor('review')
-    .registerSkills([{ id: 'review-guide', sourceDir: 'skills/review-guide', targetPolicy: 'all-native', description: 'a' }])
+    .registerSkills([
+      { id: 'review-guide', sourceDir: 'skills/review-guide', targetPolicy: 'all-native', description: 'a' },
+    ])
   assert.throws(
     () =>
       kernel
         .hostFor('impostor')
-        .registerSkills([{ id: 'review-guide', sourceDir: 'skills/review-guide', targetPolicy: 'agents', description: 'b' }]),
+        .registerSkills([
+          { id: 'review-guide', sourceDir: 'skills/review-guide', targetPolicy: 'agents', description: 'b' },
+        ]),
     /already registered by module "review"/,
-    'one skill id, one owner'
+    'one skill id, one owner',
   )
 }
 
@@ -196,7 +201,7 @@ async function testEnsureSkillInstalledDelegates(): Promise<void> {
   assert.deepEqual(
     await host.ensureSkillInstalled('/work/project', 'never-heard-of-it'),
     { ok: false, status: 'unknown-skill', message: 'Unknown skill: never-heard-of-it' },
-    'an unknown id answers loudly rather than resolving to nothing'
+    'an unknown id answers loudly rather than resolving to nothing',
   )
   assert.deepEqual(recorder.ensured, [
     { workspaceRoot: '/work/project', skillId: 'studio-review' },
@@ -212,7 +217,9 @@ async function testUnloadingAModuleTakesItsSkills(): Promise<void> {
   })
   kernel
     .hostFor('review')
-    .registerSkills([{ id: 'review-guide', sourceDir: 'skills/review-guide', targetPolicy: 'all-native', description: 'a' }])
+    .registerSkills([
+      { id: 'review-guide', sourceDir: 'skills/review-guide', targetPolicy: 'all-native', description: 'a' },
+    ])
 
   await kernel.unregisterModule('review')
 
@@ -221,7 +228,9 @@ async function testUnloadingAModuleTakesItsSkills(): Promise<void> {
   // The id is free again: the same skill may come back when the module reloads.
   kernel
     .hostFor('review')
-    .registerSkills([{ id: 'review-guide', sourceDir: 'skills/review-guide', targetPolicy: 'all-native', description: 'a' }])
+    .registerSkills([
+      { id: 'review-guide', sourceDir: 'skills/review-guide', targetPolicy: 'all-native', description: 'a' },
+    ])
   assert.deepEqual([...kernel.ownedSkills()], [['review-guide', 'review']])
 }
 
@@ -229,7 +238,14 @@ function testModuleRootsFlowThroughLoadMainModules(): void {
   const recorder = createRecordingSkillRegistry()
   const modules: CapabilityModule[] = [
     {
-      manifest: { id: 'review', displayName: 'Reviews', version: 1, category: 'orchestration', source: 'third-party', defaultEnabled: true },
+      manifest: {
+        id: 'review',
+        displayName: 'Reviews',
+        version: 1,
+        category: 'orchestration',
+        source: 'third-party',
+        defaultEnabled: true,
+      },
       registerMain: (host) => {
         host.registerSkills([
           { id: 'review-guide', sourceDir: 'skills/review-guide', targetPolicy: 'all-native', description: 'a' },

@@ -40,7 +40,7 @@ type TerminalOutputBufferOptions = {
     session: TerminalSession | undefined,
     cause: TerminalOutputCause,
     chunkCount: number,
-    byteCount: number
+    byteCount: number,
   ): void
   /** Viewers attached beyond the renderer; empty for every session nobody remote is watching. */
   resolveExtraSinks?(sessionId: string): TerminalOutputSink[]
@@ -163,7 +163,7 @@ export function createTerminalOutputBuffer({
 function trimPendingTerminalChunks(
   chunks: string[],
   maxBytes: number,
-  notice?: string
+  notice?: string,
 ): { chunks: string[]; bytes: number; dropped: boolean } {
   let bytes = 0
   const retained: string[] = []
@@ -197,11 +197,9 @@ function trimPendingTerminalChunks(
 }
 
 function getTerminalDataBatchDelay(session: TerminalSession, data: string): number {
-  const recentInput = session.lastInputAt !== null
-    && Date.now() - session.lastInputAt <= TERMINAL_RECENT_INPUT_WINDOW_MS
+  const recentInput =
+    session.lastInputAt !== null && Date.now() - session.lastInputAt <= TERMINAL_RECENT_INPUT_WINDOW_MS
   const smallOutput = Buffer.byteLength(data) <= TERMINAL_INTERACTIVE_DATA_LIMIT
 
-  return recentInput && smallOutput
-    ? TERMINAL_INTERACTIVE_DATA_BATCH_MS
-    : TERMINAL_DATA_BATCH_MS
+  return recentInput && smallOutput ? TERMINAL_INTERACTIVE_DATA_BATCH_MS : TERMINAL_DATA_BATCH_MS
 }

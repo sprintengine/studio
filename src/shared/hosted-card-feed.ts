@@ -56,18 +56,9 @@ const CARD_KINDS: readonly HostedCardKind[] = ['mcp', 'skill', 'plugin', 'automa
 //
 // Restated here rather than imported because src/shared may not reach into the
 // renderer. Added to, never renamed: this union is a permanent contract.
-export type CardSurfaceView =
-  | 'home'
-  | 'plugins'
-  | 'skills'
-  | 'agent-clis'
+export type CardSurfaceView = 'home' | 'plugins' | 'skills' | 'agent-clis'
 
-const CARD_SURFACE_VIEWS: readonly CardSurfaceView[] = [
-  'home',
-  'plugins',
-  'skills',
-  'agent-clis',
-]
+const CARD_SURFACE_VIEWS: readonly CardSurfaceView[] = ['home', 'plugins', 'skills', 'agent-clis']
 
 // The closed verb set, and it is closed against the call sites rather than
 // against an imagination of them. The first cut of this union carried thirteen
@@ -400,7 +391,9 @@ export function parseCardAction(raw: unknown): { ok: true; action: CardAction } 
     }
     case 'install.module': {
       const id = text(raw.id)
-      return id ? { ok: true, action: { verb, id } } : { ok: false, message: 'install.module needs a marketplace entry id.' }
+      return id
+        ? { ok: true, action: { verb, id } }
+        : { ok: false, message: 'install.module needs a marketplace entry id.' }
     }
     case 'install.skill':
     case 'install.plugin': {
@@ -422,7 +415,10 @@ export function parseCardAction(raw: unknown): { ok: true; action: CardAction } 
       // the first character. (The `--` separator the manifests should also carry
       // is backlog/2026-09-06-agent-cli-argv-ends-with-a-separator.md.)
       if (prompt.startsWith('-')) {
-        return { ok: false, message: 'open.chat prompt must not begin with "-" — a leading dash is an option to a CLI, not a sentence.' }
+        return {
+          ok: false,
+          message: 'open.chat prompt must not begin with "-" — a leading dash is an option to a CLI, not a sentence.',
+        }
       }
       // Required, and required to be a boolean: a card that forgets to say
       // whether Go sends the prompt is a card nobody can read, and defaulting

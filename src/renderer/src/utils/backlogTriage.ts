@@ -87,15 +87,7 @@ const URGENT: ReadonlySet<BacklogCriticality> = new Set<BacklogCriticality>(['hi
 
 type Triageable = Pick<
   BacklogItem,
-  | 'difficulty'
-  | 'criticality'
-  | 'risk'
-  | 'status'
-  | 'modifiedAt'
-  | 'createdAtMs'
-  | 'relativePath'
-  | 'isEpic'
-  | 'epic'
+  'difficulty' | 'criticality' | 'risk' | 'status' | 'modifiedAt' | 'createdAtMs' | 'relativePath' | 'isEpic' | 'epic'
 >
 
 // Missing either axis is the "unestimated" signal — a calm prompt to size or
@@ -132,14 +124,21 @@ export function matchesBacklogView(item: Triageable, view: BacklogView): boolean
     case 'active':
       return true
     case 'quick_wins':
-      return item.difficulty != null && SMALL.has(item.difficulty)
-        && item.criticality != null && URGENT.has(item.criticality)
+      return (
+        item.difficulty != null &&
+        SMALL.has(item.difficulty) &&
+        item.criticality != null &&
+        URGENT.has(item.criticality)
+      )
     case 'strategic_bets':
-      return item.difficulty != null && LARGE.has(item.difficulty)
-        && item.criticality != null && URGENT.has(item.criticality)
+      return (
+        item.difficulty != null &&
+        LARGE.has(item.difficulty) &&
+        item.criticality != null &&
+        URGENT.has(item.criticality)
+      )
     case 'defer':
-      return item.difficulty != null && LARGE.has(item.difficulty)
-        && item.criticality === 'low'
+      return item.difficulty != null && LARGE.has(item.difficulty) && item.criticality === 'low'
     case 'unestimated':
       return isBacklogUnestimated(item)
     default:
@@ -263,10 +262,7 @@ const RISK_COLOR_GRID: Record<BacklogRisk, Record<BacklogDifficulty, BacklogHigh
 // One palette color (or null) for a risk×difficulty pair. Either axis missing is
 // the unestimated signal: no derived color, so an unsized item stays calm rather
 // than guessing a heat it can't justify.
-export function deriveRiskColor(
-  risk?: BacklogRisk,
-  difficulty?: BacklogDifficulty,
-): BacklogHighlightColor | null {
+export function deriveRiskColor(risk?: BacklogRisk, difficulty?: BacklogDifficulty): BacklogHighlightColor | null {
   if (!risk || !difficulty) return null
   return RISK_COLOR_GRID[risk][difficulty]
 }

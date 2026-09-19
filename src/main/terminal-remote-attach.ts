@@ -53,8 +53,7 @@ export type TerminalAttachment = {
 }
 
 export type TerminalAttachResult =
-  | { ok: true; attachment: TerminalAttachment }
-  | { ok: false; code: string; message: string }
+  { ok: true; attachment: TerminalAttachment } | { ok: false; code: string; message: string }
 
 export type TerminalRemoteHost = {
   listSessions(): TerminalSessionSnapshot[]
@@ -120,7 +119,7 @@ export function splitTerminalAttachFrame(frame: TerminalAttachFrame): TerminalAt
     parts.push(
       parts.length === 0 && frame.type === 'replay'
         ? { type: 'replay', data: piece, reason: frame.reason }
-        : { type: 'output', data: piece }
+        : { type: 'output', data: piece },
     )
     offset = end
   }

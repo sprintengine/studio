@@ -48,7 +48,9 @@ type AutomationsIpcRenderer = {
 // Renderer → main bridge for the Automations engine IPC registered by the main
 // automations module (src/main/ipc/automations-ipc.ts). The renderer never
 // touches the on-disk store; every read and write goes through these channels.
-export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
+export function createAutomationsApi(
+  renderer: AutomationsIpcRenderer,
+): Pick<
   ElectronApi,
   | 'listAutomations'
   | 'listInstanceAutomations'
@@ -96,7 +98,8 @@ export function createAutomationsApi(renderer: AutomationsIpcRenderer): Pick<
       return () => renderer.removeListener(AUTOMATIONS_RUN_EVENT_CHANNEL, handler)
     },
     onAutomationsDefinitionsChanged: (cb: (event: AutomationsDefinitionsChangedEvent) => void): (() => void) => {
-      const handler = (_event: IpcRendererEvent, payload: unknown): void => cb(payload as AutomationsDefinitionsChangedEvent)
+      const handler = (_event: IpcRendererEvent, payload: unknown): void =>
+        cb(payload as AutomationsDefinitionsChangedEvent)
       renderer.on(AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL, handler)
       return () => renderer.removeListener(AUTOMATIONS_DEFINITIONS_CHANGED_CHANNEL, handler)
     },

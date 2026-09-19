@@ -14,7 +14,9 @@ export function trimPath(pathValue: string): string {
 }
 
 export function basename(pathValue: string): string {
-  const parts = trimPath(pathValue).split(/[\\/]+/).filter(Boolean)
+  const parts = trimPath(pathValue)
+    .split(/[\\/]+/)
+    .filter(Boolean)
   return parts.at(-1) ?? pathValue
 }
 

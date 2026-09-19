@@ -186,9 +186,7 @@ function cardSpecimen(view: DesignSystemBundleView, mode: PreviewMode): string {
         `<span style="flex:1;background:${escapeAttribute(mode === 'dark' ? swatch.dark : swatch.light)}"></span>`,
     )
     .join('')
-  const family = view.specimen.fontFamilyUi
-    ? `font-family:${escapeAttribute(view.specimen.fontFamilyUi)};`
-    : ''
+  const family = view.specimen.fontFamilyUi ? `font-family:${escapeAttribute(view.specimen.fontFamilyUi)};` : ''
   return composePreviewSrcDoc({
     tokensCss: view.specimen.tokensCss,
     componentCss: `
@@ -208,9 +206,7 @@ function cardSpecimen(view: DesignSystemBundleView, mode: PreviewMode): string {
 
 /** Third-party strings never reach markup or a style attribute unescaped. */
 function escapeText(value: string): string {
-  return value.replace(/[&<>]/g, (character) =>
-    character === '&' ? '&amp;' : character === '<' ? '&lt;' : '&gt;',
-  )
+  return value.replace(/[&<>]/g, (character) => (character === '&' ? '&amp;' : character === '<' ? '&lt;' : '&gt;'))
 }
 
 function escapeAttribute(value: string): string {

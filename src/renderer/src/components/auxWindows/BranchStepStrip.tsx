@@ -28,7 +28,7 @@ export function BranchStepStrip({
 }) {
   const selectedIndex = Math.max(
     0,
-    entries.findIndex((entry) => sameSelection(entry.selection, selection))
+    entries.findIndex((entry) => sameSelection(entry.selection, selection)),
   )
 
   // A tablist is a SINGLE tab stop whose arrows move between tabs — the role we
@@ -108,12 +108,7 @@ export function BranchStepStrip({
         // tooltip says it in a sentence, this says it where the files are.
         <Tooltip content={note} placement="bottom">
           <p className="flex items-start gap-2 px-3 pb-2 pt-1 text-meta leading-snug text-[color:var(--text-subtle)]">
-            <svg
-              viewBox="0 0 16 16"
-              fill="none"
-              aria-hidden="true"
-              className="mt-[2px] size-icon-xs shrink-0"
-            >
+            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-[2px] size-icon-xs shrink-0">
               <path d="M8 1.5 15 14H1L8 1.5Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
               <path d="M8 6.5v3M8 11.6v.01" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             </svg>

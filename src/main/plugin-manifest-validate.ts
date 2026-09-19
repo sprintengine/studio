@@ -50,7 +50,7 @@ export function validateManifestStructure(value: unknown): PluginManifestValidat
 
 function validateProviderManifestStructure(
   value: Record<string, unknown>,
-  issues: PluginManifestValidationIssue[]
+  issues: PluginManifestValidationIssue[],
 ): PluginManifestValidationResult {
   requireString(value, 'id', issues, /^[a-z0-9][a-z0-9-]{0,62}[a-z0-9]$/)
   requireString(value, 'displayName', issues)
@@ -59,8 +59,8 @@ function validateProviderManifestStructure(
   if ('publisher' in value) requireString(value, 'publisher', issues)
 
   if (
-    typeof value.providerType !== 'string'
-    || !PROVIDER_TYPES.includes(value.providerType as ConversationProviderType)
+    typeof value.providerType !== 'string' ||
+    !PROVIDER_TYPES.includes(value.providerType as ConversationProviderType)
   ) {
     issues.push({
       path: 'providerType',
@@ -107,8 +107,8 @@ function validateProviderAdapter(value: unknown, issues: PluginManifestValidatio
     return
   }
   if (
-    typeof value.kind !== 'string'
-    || !PROVIDER_ADAPTER_KINDS.includes(value.kind as ConversationProviderAdapterKind)
+    typeof value.kind !== 'string' ||
+    !PROVIDER_ADAPTER_KINDS.includes(value.kind as ConversationProviderAdapterKind)
   ) {
     issues.push({
       path: 'adapter.kind',
@@ -155,9 +155,9 @@ function validateOpenAiCompatible(value: unknown, issues: PluginManifestValidati
   }
   if ('chatCompletionsPath' in value && value.chatCompletionsPath !== undefined) {
     if (
-      typeof value.chatCompletionsPath !== 'string'
-      || !value.chatCompletionsPath.startsWith('/')
-      || value.chatCompletionsPath.includes('..')
+      typeof value.chatCompletionsPath !== 'string' ||
+      !value.chatCompletionsPath.startsWith('/') ||
+      value.chatCompletionsPath.includes('..')
     ) {
       issues.push({
         path: 'openaiCompatible.chatCompletionsPath',
@@ -166,11 +166,7 @@ function validateOpenAiCompatible(value: unknown, issues: PluginManifestValidati
     }
   }
   if ('modelsPath' in value && value.modelsPath !== undefined) {
-    if (
-      typeof value.modelsPath !== 'string'
-      || !value.modelsPath.startsWith('/')
-      || value.modelsPath.includes('..')
-    ) {
+    if (typeof value.modelsPath !== 'string' || !value.modelsPath.startsWith('/') || value.modelsPath.includes('..')) {
       issues.push({
         path: 'openaiCompatible.modelsPath',
         message: 'openaiCompatible.modelsPath must be an absolute URL path.',
@@ -222,10 +218,7 @@ function validateProviderAuth(value: unknown, issues: PluginManifestValidationIs
     issues.push({ path: 'auth', message: 'auth must be an object when present.' })
     return
   }
-  if (
-    typeof value.type !== 'string'
-    || !(PROVIDER_AUTH_TYPES as readonly string[]).includes(value.type)
-  ) {
+  if (typeof value.type !== 'string' || !(PROVIDER_AUTH_TYPES as readonly string[]).includes(value.type)) {
     issues.push({
       path: 'auth.type',
       message: `auth.type must be one of: ${PROVIDER_AUTH_TYPES.join(', ')}.`,
@@ -282,7 +275,7 @@ function requireString(
   key: string,
   issues: PluginManifestValidationIssue[],
   pattern?: RegExp,
-  rootPath?: string
+  rootPath?: string,
 ): void {
   const path = rootPath ? `${rootPath}.${key}` : key
   const v = value[key]
@@ -295,11 +288,7 @@ function requireString(
   }
 }
 
-function requireNumber(
-  value: Record<string, unknown>,
-  key: string,
-  issues: PluginManifestValidationIssue[]
-): void {
+function requireNumber(value: Record<string, unknown>, key: string, issues: PluginManifestValidationIssue[]): void {
   const v = value[key]
   if (typeof v !== 'number') {
     issues.push({ path: key, message: `${key} is required and must be a number.` })

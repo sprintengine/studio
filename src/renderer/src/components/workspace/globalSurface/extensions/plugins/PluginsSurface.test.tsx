@@ -58,7 +58,9 @@ function pane(over: Partial<PluginDetailPaneProps> = {}): string {
       plugin={plugin('security-guidance', {
         components: {
           ...emptyPluginComponents(),
-          hooks: [{ event: 'PreToolUse', matcher: 'Edit|Write', command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/check.js"' }],
+          hooks: [
+            { event: 'PreToolUse', matcher: 'Edit|Write', command: 'node "${CLAUDE_PLUGIN_ROOT}/hooks/check.js"' },
+          ],
         },
       })}
       reading={false}
@@ -84,9 +86,15 @@ function pane(over: Partial<PluginDetailPaneProps> = {}): string {
 
 run('the pane discloses hook commands verbatim and does not gate item install on them', () => {
   const markup = pane()
-  assert.ok(markup.includes('PreToolUse on Edit|Write: node &quot;${CLAUDE_PLUGIN_ROOT}/hooks/check.js&quot;'), 'the command, verbatim')
+  assert.ok(
+    markup.includes('PreToolUse on Edit|Write: node &quot;${CLAUDE_PLUGIN_ROOT}/hooks/check.js&quot;'),
+    'the command, verbatim',
+  )
   assert.ok(markup.includes('declares a hook command'), 'the warning names what the plugin carries')
-  assert.ok(markup.includes('Installing a skill or server here copies no hooks'), 'and what an install here does with it')
+  assert.ok(
+    markup.includes('Installing a skill or server here copies no hooks'),
+    'and what an install here does with it',
+  )
   assert.equal(markup.includes('type="checkbox"'), false, 'no acknowledgement gate — hooks are not copied')
   assert.equal(markup.includes('Install to this workspace'), false, 'there is no all-in install')
   assert.equal(markup.includes('Enabled as security-guidance@claude-plugins-official'), false)
@@ -99,7 +107,14 @@ run('the pane discloses hook commands verbatim and does not gate item install on
 run('an unread linked plugin says its components are unknown, not empty', () => {
   const markup = pane({
     plugin: plugin('42crunch', {
-      origin: { kind: 'linked', repo: '42Crunch-AI/claude-plugins', ref: 'v1', sha: '', path: 'plugins/x', url: 'https://github.com/42Crunch-AI/claude-plugins.git' },
+      origin: {
+        kind: 'linked',
+        repo: '42Crunch-AI/claude-plugins',
+        ref: 'v1',
+        sha: '',
+        path: 'plugins/x',
+        url: 'https://github.com/42Crunch-AI/claude-plugins.git',
+      },
       componentsKnown: false,
     }),
     reading: true,
@@ -114,8 +129,24 @@ run('each skill is its own install, and Use in agent appears only once it is in 
     components: {
       ...emptyPluginComponents(),
       skills: [
-        { id: 'plugins/code-review/skills/review', name: 'review', description: 'Review a diff', group: '', files: [], allowedTools: [], hasExecutables: false },
-        { id: 'plugins/code-review/skills/triage', name: 'triage', description: '', group: '', files: [], allowedTools: [], hasExecutables: false },
+        {
+          id: 'plugins/code-review/skills/review',
+          name: 'review',
+          description: 'Review a diff',
+          group: '',
+          files: [],
+          allowedTools: [],
+          hasExecutables: false,
+        },
+        {
+          id: 'plugins/code-review/skills/triage',
+          name: 'triage',
+          description: '',
+          group: '',
+          files: [],
+          allowedTools: [],
+          hasExecutables: false,
+        },
       ],
     },
   })
@@ -126,7 +157,10 @@ run('each skill is its own install, and Use in agent appears only once it is in 
     availability: { enabled: true, reason: null },
   })
   assert.ok(available.includes('>review<') && available.includes('>triage<'), 'each skill by name')
-  assert.ok(available.includes('aria-label="Install review"') && available.includes('aria-label="Install triage"'), 'each skill installs itself')
+  assert.ok(
+    available.includes('aria-label="Install review"') && available.includes('aria-label="Install triage"'),
+    'each skill installs itself',
+  )
   assert.equal(available.includes('>Use in agent<'), false, 'nothing to use until it is copied')
   assert.ok(available.includes('Review a diff'), 'the description the agent matches on rides along')
 

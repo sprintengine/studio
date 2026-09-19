@@ -32,8 +32,7 @@ function buildMutatedExample(mutate?: (root: string) => void): BuildResult & { h
     cpSync(exampleRoot, root, { recursive: true })
     if (mutate) mutate(root)
     const result = runBuild(root)
-    const html =
-      result.status === 0 ? readFileSync(join(root, 'catalog', 'index.html'), 'utf8') : ''
+    const html = result.status === 0 ? readFileSync(join(root, 'catalog', 'index.html'), 'utf8') : ''
     return { ...result, html: () => html }
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -102,10 +101,7 @@ run('nav covers Foundations / Components / Patterns via CSS-only radio views', (
   // (fragments resolve against the parent base URL), and the
   // base=about:srcdoc workaround breaks the same links opened standalone.
   assert.ok(!/<a[\s>]/i.test(html), 'catalog must not contain link elements')
-  assert.ok(
-    html.includes('id="ds-view-foundations" checked'),
-    'Foundations must be the default checked view',
-  )
+  assert.ok(html.includes('id="ds-view-foundations" checked'), 'Foundations must be the default checked view')
   assert.ok(html.includes('id="ds-view-component-button"'), 'missing component view radio')
   assert.ok(
     html.includes('<label class="catalog-nav-item" for="ds-view-component-button">'),
@@ -123,9 +119,7 @@ run('the CSS-only mode toggle re-declares dark overrides and restores pinned-lig
   const checkedRule = html.indexOf('#ds-mode-dark:checked ~ .ds-catalog {')
   assert.ok(checkedRule > 0, 'missing checked dark-override rule')
   assert.ok(
-    html
-      .slice(checkedRule)
-      .includes('--sem-color-bg-app: var(--ref-color-neutral-950);'),
+    html.slice(checkedRule).includes('--sem-color-bg-app: var(--ref-color-neutral-950);'),
     'dark override values must be re-declared under the toggle',
   )
   assert.ok(
@@ -157,10 +151,7 @@ run('an added component directory surfaces on regeneration without manifest or h
   })
   assert.equal(built.status, 0, built.stderr)
   assert.ok(built.html().includes('id="component-chip"'), 'new component dir must gain a section')
-  assert.ok(
-    built.html().includes('for="ds-view-component-chip"'),
-    'new component dir must gain a nav entry',
-  )
+  assert.ok(built.html().includes('for="ds-view-component-chip"'), 'new component dir must gain a nav entry')
 })
 
 // --- Empty-state skeleton -------------------------------------------------------------

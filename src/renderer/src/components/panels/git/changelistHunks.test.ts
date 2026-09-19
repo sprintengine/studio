@@ -73,7 +73,6 @@ const TARGET = { path: '/repo/src/a.ts', relativePath: 'src/a.ts', changelistId:
 // One `async main`, because the runner bundles to CJS and a top-level await
 // is not a thing there. Every block below is one question.
 async function main(): Promise<void> {
-
   // ── staging takes this list's hunks, and only the ones not already in ────────
   {
     const { api, calls, reads } = fakeApi([NADIA_HUNK, HOME_HUNK, NADIA_STAGED])
@@ -136,7 +135,12 @@ async function main(): Promise<void> {
         id: 'agent:nadia',
         name: 'Nadia',
         paths: [],
-        spans: { 'src/a.ts': [{ start: 10, lines: 3 }, { start: 50, lines: 2 }] },
+        spans: {
+          'src/a.ts': [
+            { start: 10, lines: 3 },
+            { start: 50, lines: 2 },
+          ],
+        },
         active: false,
         owner: { kind: 'agent', agentId: 'nadia', name: 'Nadia' },
       },
@@ -167,15 +171,18 @@ async function main(): Promise<void> {
       getGitFileHunks: async (_root, filePath) =>
         filePath.endsWith('b.ts')
           ? ({ ok: false, message: 'not a git repository' } satisfies GitFileHunksResult)
-          : ({ ok: true, scope: 'unstaged', hunks: [NADIA_HUNK], summary: null, unsupported: null } satisfies GitFileHunksResult),
+          : ({
+              ok: true,
+              scope: 'unstaged',
+              hunks: [NADIA_HUNK],
+              summary: null,
+              unsupported: null,
+            } satisfies GitFileHunksResult),
     })
     const outcome = await applyChangelistHunks({
       repoRoot: '/repo',
       changelists: LISTS,
-      targets: [
-        { path: '/repo/src/b.ts', relativePath: 'src/b.ts', changelistId: 'agent:nadia' },
-        TARGET,
-      ],
+      targets: [{ path: '/repo/src/b.ts', relativePath: 'src/b.ts', changelistId: 'agent:nadia' }, TARGET],
       intent: 'stage',
       api,
     })
@@ -189,7 +196,7 @@ async function main(): Promise<void> {
   {
     const { api, calls } = fakeApi([], {
       getGitFileHunks: async () =>
-        ({ ok: true, scope: 'unstaged', hunks: [], summary: null, unsupported: 'binary' } satisfies GitFileHunksResult),
+        ({ ok: true, scope: 'unstaged', hunks: [], summary: null, unsupported: 'binary' }) satisfies GitFileHunksResult,
     })
     const outcome = await applyChangelistHunks({
       repoRoot: '/repo',
@@ -219,7 +226,6 @@ async function main(): Promise<void> {
       'whole-file rows stay out of the hunk loop, and one file per list is read once',
     )
   }
-
 }
 
 void main().then(() => {

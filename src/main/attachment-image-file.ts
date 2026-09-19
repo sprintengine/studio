@@ -55,10 +55,7 @@ export function safeImageFileName(rawName: unknown, fallbackStem: string, extens
 // Each write gets its own directory rather than a unique file name, so the file
 // itself can keep the name the person knows it by: two saves in the same
 // instant are two directories, never one silently overwriting the other.
-export async function writeAttachmentImageFile(
-  input: AttachmentImageInput,
-  fallbackStem: string,
-): Promise<string> {
+export async function writeAttachmentImageFile(input: AttachmentImageInput, fallbackStem: string): Promise<string> {
   const mediaType = typeof input?.mediaType === 'string' ? input.mediaType : ''
   const extension = ATTACHMENT_IMAGE_EXTENSIONS[mediaType]
   if (!extension) throw new Error('Only PNG, JPEG, WebP, and GIF images can be attached.')

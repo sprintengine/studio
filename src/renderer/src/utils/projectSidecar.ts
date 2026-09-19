@@ -1,8 +1,4 @@
-import {
-  rememberSidecarDirName,
-  sidecarCandidates,
-  SIDECAR_DIR_NAME,
-} from '../../../shared/workspace-sidecar'
+import { rememberSidecarDirName, sidecarCandidates, SIDECAR_DIR_NAME } from '../../../shared/workspace-sidecar'
 
 // Which sidecar directory each project uses, answered once per project per
 // session and recorded in the shared registry the path builders read.

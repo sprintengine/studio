@@ -61,9 +61,7 @@ let pendingTarget: ExtensionsSurfaceTarget | null = null
 export function dispatchExtensionsSurfaceTarget(target: ExtensionsSurfaceTarget): void {
   pendingTarget = target
   if (typeof window !== 'undefined') {
-    window.dispatchEvent(
-      new CustomEvent<ExtensionsSurfaceTarget>(EXTENSIONS_SURFACE_TARGET_EVENT, { detail: target }),
-    )
+    window.dispatchEvent(new CustomEvent<ExtensionsSurfaceTarget>(EXTENSIONS_SURFACE_TARGET_EVENT, { detail: target }))
   }
 }
 
@@ -90,9 +88,7 @@ export function consumePendingExtensionsSurfaceTarget(): ExtensionsSurfaceTarget
 // Subscribe to live target events. The handler should clear the latch (via
 // consumePendingExtensionsSurfaceTarget) so the live path and the mount-drain
 // path don't double-fire. Returns an unsubscribe fn.
-export function subscribeExtensionsSurfaceTarget(
-  handler: (target: ExtensionsSurfaceTarget) => void,
-): () => void {
+export function subscribeExtensionsSurfaceTarget(handler: (target: ExtensionsSurfaceTarget) => void): () => void {
   const listener = (event: Event): void => {
     const target = (event as CustomEvent<ExtensionsSurfaceTarget>).detail
     if (target && VIEWS.includes(target.view)) handler(target)

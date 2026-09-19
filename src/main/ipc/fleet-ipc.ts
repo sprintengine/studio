@@ -80,7 +80,7 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
   // Reachability on demand (the row's Retry): main already checks on start,
   // wake, and a timer; this is the person asking for one more, now.
   ipcMain.handle(FLEET_CHECK_REACHABILITY_CHANNEL, (_event, connectionId: unknown) =>
-    service.fleet().checkReachability(typeof connectionId === 'string' ? connectionId : undefined)
+    service.fleet().checkReachability(typeof connectionId === 'string' ? connectionId : undefined),
   )
   ipcMain.handle(FLEET_CANCEL_PAIRING_CHANNEL, (_event, requestId: unknown) => {
     service.fleet().cancelPairing(requestId)
@@ -143,4 +143,3 @@ export function registerFleetIpc(ipcMain: IpcMain, service: AutomationService): 
     service.fleet().resizeTerminal(record?.attachId, record?.cols, record?.rows)
   })
 }
-

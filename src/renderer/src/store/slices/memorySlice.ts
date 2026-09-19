@@ -1,7 +1,4 @@
-import {
-  DEFAULT_GRAPH_SETTINGS,
-  normalizeGraphSettings,
-} from '../../components/memory/memoryGraphTypes'
+import { DEFAULT_GRAPH_SETTINGS, normalizeGraphSettings } from '../../components/memory/memoryGraphTypes'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
 import type {
   AppSettings,
@@ -28,7 +25,7 @@ export function normalizeMemoryRelativeRoot(value: unknown): string | null {
 }
 
 export function normalizeWorkspaceMemoryConfig(
-  input: Partial<WorkspaceMemoryConfig> | null | undefined
+  input: Partial<WorkspaceMemoryConfig> | null | undefined,
 ): WorkspaceMemoryConfig {
   return {
     relativeRoot: normalizeMemoryRelativeRoot(input?.relativeRoot),
@@ -36,10 +33,7 @@ export function normalizeWorkspaceMemoryConfig(
   }
 }
 
-export function normalizeProjectKnowledgeRoots(
-  roots: unknown,
-  workspaces: Workspace[]
-): Record<string, string | null> {
+export function normalizeProjectKnowledgeRoots(roots: unknown, workspaces: Workspace[]): Record<string, string | null> {
   const normalized: Record<string, string | null> = {}
 
   if (roots && typeof roots === 'object') {
@@ -67,7 +61,7 @@ interface MemorySliceActions {
     workspaceId: WorkspaceId,
     update:
       | Partial<MemoryGraphSettings>
-      | ((current: MemoryGraphSettings) => Partial<MemoryGraphSettings> | MemoryGraphSettings)
+      | ((current: MemoryGraphSettings) => Partial<MemoryGraphSettings> | MemoryGraphSettings),
   ) => void
   setProjectKnowledgeRoot: (projectRoot: string, relativeRoot: string | null) => void
 }
@@ -109,7 +103,7 @@ export function createMemorySlice(set: MemorySliceSet): MemorySlice {
         const normalizedRoot = normalizeMemoryRelativeRoot(relativeRoot)
         state.appSettings.projectKnowledgeRoots = normalizeProjectKnowledgeRoots(
           state.appSettings.projectKnowledgeRoots,
-          state.workspaces
+          state.workspaces,
         )
         if (normalizedRoot) {
           state.appSettings.projectKnowledgeRoots[key] = normalizedRoot

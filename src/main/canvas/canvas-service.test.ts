@@ -10,7 +10,13 @@
  */
 import assert from 'node:assert/strict'
 
-import { createCanvasService, mergeFromDisk, type CanvasDirEntry, type CanvasFileStat, type CanvasFs } from './canvas-service'
+import {
+  createCanvasService,
+  mergeFromDisk,
+  type CanvasDirEntry,
+  type CanvasFileStat,
+  type CanvasFs,
+} from './canvas-service'
 import type { CanvasWorkerHost } from './canvas-worker-host'
 import { canvasReaderKey } from './canvas-service-types'
 import type { CanvasElement } from '../../shared/canvas/types'
@@ -98,7 +104,8 @@ function createMemoryFs(): MemoryFs {
         }
       }
       for (const file of files.keys()) {
-        if (parentOf(file) === path) entries.push({ name: file.slice(path.length + 1), isDirectory: false, isFile: true })
+        if (parentOf(file) === path)
+          entries.push({ name: file.slice(path.length + 1), isDirectory: false, isFile: true })
       }
       return entries
     },
@@ -110,7 +117,8 @@ function createMemoryFs(): MemoryFs {
   }
 }
 
-type WorkerAnswer = { ok: true; value: Record<string, unknown> } | { ok: false; error: { code: string; message: string } }
+type WorkerAnswer =
+  { ok: true; value: Record<string, unknown> } | { ok: false; error: { code: string; message: string } }
 
 type FakeWorker = {
   host: CanvasWorkerHost
@@ -252,7 +260,10 @@ async function assertReadCreateAndRefusals(): Promise<void> {
   assert.ok(created.ok, 'create writes an empty scene')
   assert.equal(created.value.elements.length, 0)
   assert.equal(created.value.revision, 0, 'a board starts at revision zero')
-  assert.ok(harness.fs.ops.some((op) => op.startsWith('mkdir ')), 'the folder is made first')
+  assert.ok(
+    harness.fs.ops.some((op) => op.startsWith('mkdir ')),
+    'the folder is made first',
+  )
   assert.ok(
     harness.fs.ops.some((op) => op.includes(`rename ${BOARD_FILE}.`)),
     'the write lands through a rename, not in place',
@@ -314,7 +325,11 @@ async function assertEditPipeline(): Promise<void> {
   assert.deepEqual(result.value.result.tempIds, { a: 'box-1' })
   assert.ok(result.value.result.lint, 'the lint report rides along with the result')
   assert.equal(result.value.state.revision, 1, 'an accepted write bumps the revision')
-  assert.deepEqual(sceneOnDisk(harness).map((item) => item.id), ['box-1'], 'the element is on disk')
+  assert.deepEqual(
+    sceneOnDisk(harness).map((item) => item.id),
+    ['box-1'],
+    'the element is on disk',
+  )
   assert.deepEqual(result.value.state.files, { 'image-1': { id: 'image-1' } }, 'files from the worker are merged in')
 
   const scene = harness.pushes.filter((push) => push.channel === 'canvas:scene')
@@ -394,14 +409,14 @@ async function assertHumanCommitEcho(): Promise<void> {
   assert.deepEqual(
     merged.value.files,
     { blob: 1 },
-    'a blob an element names is merged by key, and one nothing names is not carried for the board\'s life',
+    "a blob an element names is merged by key, and one nothing names is not carried for the board's life",
   )
 
   // Two saves inside the coalescing window are one line in the log.
   const log = harness.service.actions(ref)
   assert.equal(log.length, 1, 'a burst of the person saving is one action entry')
   assert.equal(log[0].actor, 'human')
-  console.log("ok - a commit merges, echoes only when the merge differs, and never pushes to its own sender")
+  console.log('ok - a commit merges, echoes only when the merge differs, and never pushes to its own sender')
 }
 
 async function assertQueueOrdersAgentAndHuman(): Promise<void> {
@@ -437,7 +452,11 @@ async function assertQueueOrdersAgentAndHuman(): Promise<void> {
   })
 
   const edit = harness.service
-    .edit(ref, { create: [{ tempId: 'b', type: 'rectangle', x: 10, y: 10 }] }, { kind: 'agent', workspaceId: WORKSPACE })
+    .edit(
+      ref,
+      { create: [{ tempId: 'b', type: 'rectangle', x: 10, y: 10 }] },
+      { kind: 'agent', workspaceId: WORKSPACE },
+    )
     .then((answer) => {
       order.push('agent applied')
       return answer
@@ -486,7 +505,13 @@ async function assertRecomputeOnceThenInterrupted(): Promise<void> {
         humanVersion += 1
         // The person drags the very element this edit is about to update.
         await harness.service.commitScene(
-          { ...ref, baseRevision: 1, elements: [element('a', { version: humanVersion, x: humanVersion * 10 })], appState: {}, files: {} },
+          {
+            ...ref,
+            baseRevision: 1,
+            elements: [element('a', { version: humanVersion, x: humanVersion * 10 })],
+            appState: {},
+            files: {},
+          },
           1,
         )
       }
@@ -593,7 +618,13 @@ async function assertRepairedShapeCountsAsContested(): Promise<void> {
     await flush()
     // The person drags X off the same base: one version up, a different nonce.
     const committed = await harness.service.commitScene(
-      { ...ref, baseRevision: 1, elements: [element('X', { version: 6, versionNonce: 999, x: 400 })], appState: {}, files: {} },
+      {
+        ...ref,
+        baseRevision: 1,
+        elements: [element('X', { version: 6, versionNonce: 999, x: 400 })],
+        appState: {},
+        files: {},
+      },
       1,
     )
     assert.ok(committed.ok)
@@ -606,7 +637,10 @@ async function assertRepairedShapeCountsAsContested(): Promise<void> {
     const shape = final.find((item) => item.id === 'X')
     assert.equal(shape?.x, 400, "the person's drag survives")
     assert.deepEqual(shape?.boundElements, [{ id: 'A', type: 'arrow' }], 'and the arrow is still listed on it')
-    assert.ok(final.some((item) => item.id === 'A'), 'the arrow was drawn')
+    assert.ok(
+      final.some((item) => item.id === 'A'),
+      'the arrow was drawn',
+    )
   }
   console.log('ok - a shape the worker repaired but the edit never named still counts as contested')
 }
@@ -649,8 +683,15 @@ async function assertDiskChangesAndOwnWrites(): Promise<void> {
   assert.equal(pushed[0].payload.origin, 'disk')
   const elements = pushed[0].payload.elements as CanvasElement[]
   assert.equal(elements.find((item) => item.id === 'kept')?.x, 400, 'the disk wins for an element it carries')
-  assert.equal(elements.find((item) => item.id === 'gone')?.isDeleted, true, 'an element missing from the file is a deletion')
-  assert.ok(elements.some((item) => item.id === 'fresh'), 'and a new one arrives')
+  assert.equal(
+    elements.find((item) => item.id === 'gone')?.isDeleted,
+    true,
+    'an element missing from the file is a deletion',
+  )
+  assert.ok(
+    elements.some((item) => item.id === 'fresh'),
+    'and a new one arrives',
+  )
 
   // The file disappearing is survivable: memory stands and the next write puts
   // it back.
@@ -710,7 +751,10 @@ async function assertDiskChangeInsideTheDebounce(): Promise<void> {
 
   const onDisk = sceneOnDisk(harness)
   assert.equal(onDisk.find((item) => item.id === 'X')?.x, 900, 'the disk edit survived the commit on top of it')
-  assert.ok(onDisk.some((item) => item.id === 'Y'), 'and so did the element it brought')
+  assert.ok(
+    onDisk.some((item) => item.id === 'Y'),
+    'and so did the element it brought',
+  )
 
   // The narrower window: the change is made but the watcher has not told us
   // yet, which on a real filesystem is the first few milliseconds of every
@@ -734,7 +778,11 @@ async function assertDiskChangeInsideTheDebounce(): Promise<void> {
   )
   assert.ok(silent.ok)
   const second = sceneOnDisk(harness)
-  assert.equal(second.find((item) => item.id === 'X')?.x, 1_200, 'a change the watcher has not reported yet is still read first')
+  assert.equal(
+    second.find((item) => item.id === 'X')?.x,
+    1_200,
+    'a change the watcher has not reported yet is still read first',
+  )
   assert.ok(second.some((item) => item.id === 'Z'))
   console.log('ok - a disk change that lands inside the watcher debounce is merged, not discarded')
 }
@@ -766,7 +814,14 @@ async function assertUnparseableDiskStopsTheWrite(): Promise<void> {
   // Repaired on disk: the next write reads it and goes through.
   harness.fs.files.set(
     BOARD_FILE,
-    JSON.stringify({ type: 'excalidraw', version: 2, source: 'git', elements: [element('X', { version: 9, x: 900 })], appState: {}, files: {} }),
+    JSON.stringify({
+      type: 'excalidraw',
+      version: 2,
+      source: 'git',
+      elements: [element('X', { version: 9, x: 900 })],
+      appState: {},
+      files: {},
+    }),
   )
   const accepted = await harness.service.commitScene(
     { ...ref, baseRevision: 1, elements: [element('X', { version: 6, x: 1 })], appState: {}, files: {} },
@@ -824,7 +879,12 @@ async function assertScreenshotBudget(): Promise<void> {
 
   const image = (bytes: number, mimeType: 'image/png' | 'image/jpeg'): WorkerAnswer => ({
     ok: true,
-    value: { kind: 'export-image', requestId: 'r', ok: true, image: { data: 'x'.repeat(bytes), mimeType, width: 100, height: 100 } },
+    value: {
+      kind: 'export-image',
+      requestId: 'r',
+      ok: true,
+      image: { data: 'x'.repeat(bytes), mimeType, width: 100, height: 100 },
+    },
   })
 
   // PNG over budget, JPEG over budget, and the smaller retry fits.
@@ -850,7 +910,9 @@ async function assertScreenshotBudget(): Promise<void> {
   assert.ok((await harness.service.screenshot(ref, { maxEdge: 400 })).ok)
   assert.equal(harness.worker.calls[0].maxEdge, 400)
 
-  harness.worker.answer((request) => image(request.format === 'png' ? 700 * 1024 : 950 * 1024, request.format === 'png' ? 'image/png' : 'image/jpeg'))
+  harness.worker.answer((request) =>
+    image(request.format === 'png' ? 700 * 1024 : 950 * 1024, request.format === 'png' ? 'image/png' : 'image/jpeg'),
+  )
   const tooLarge = await harness.service.screenshot(ref, {})
   assert.equal(tooLarge.ok === false && tooLarge.error.code, 'too_large')
   console.log('ok - a screenshot walks the budget down and reports too_large rather than blowing the line limit')
@@ -921,7 +983,13 @@ async function assertAgentDoesNotSeeItsOwnEdits(): Promise<void> {
 
   // The person's own edit is still news to the agent that drew before it.
   await harness.service.commitScene(
-    { ...ref, baseRevision: edited.value.state.revision, elements: [element('drawn', { version: 1 })], appState: {}, files: {} },
+    {
+      ...ref,
+      baseRevision: edited.value.state.revision,
+      elements: [element('drawn', { version: 1 })],
+      appState: {},
+      files: {},
+    },
     1,
   )
   const afterPerson = harness.service.changesSinceLastRead(ref, mine)
@@ -932,7 +1000,7 @@ async function assertAgentDoesNotSeeItsOwnEdits(): Promise<void> {
   // colliding with a named one.
   assert.equal(canvasReaderKey(WORKSPACE, undefined), canvasReaderKey(WORKSPACE, ''))
   assert.notEqual(canvasReaderKey(WORKSPACE, 'agent-1'), canvasReaderKey('workspace-2', 'agent-1'))
-  console.log('ok - an agent is never told its own edits were somebody else\'s')
+  console.log("ok - an agent is never told its own edits were somebody else's")
 }
 
 async function assertRequestOpen(): Promise<void> {
@@ -1080,7 +1148,11 @@ async function assertHousekeeping(): Promise<void> {
   await harness.fs.writeFile(`${ROOT}/diagrams/canvas.excalidraw.in-flight.tmp`, 'half a scene')
 
   await harness.service.readBoard(ref, { create: true })
-  assert.equal(harness.fs.files.has(`${ROOT}/diagrams/canvas.excalidraw.old-crash.tmp`), false, 'the stale temp is swept')
+  assert.equal(
+    harness.fs.files.has(`${ROOT}/diagrams/canvas.excalidraw.old-crash.tmp`),
+    false,
+    'the stale temp is swept',
+  )
   assert.ok(harness.fs.files.has(`${ROOT}/diagrams/canvas.excalidraw.in-flight.tmp`), 'a write in flight is left alone')
   assert.ok(harness.fs.files.has(`${ROOT}/diagrams/notes.txt`), 'and nothing else in the folder is touched')
 
@@ -1088,10 +1160,7 @@ async function assertHousekeeping(): Promise<void> {
   for (let reader = 0; reader < 20; reader += 1) {
     harness.service.changesSinceLastRead(ref, `reader-${reader}`)
   }
-  await harness.service.commitScene(
-    { ...ref, baseRevision: 0, elements: [element('a')], appState: {}, files: {} },
-    1,
-  )
+  await harness.service.commitScene({ ...ref, baseRevision: 0, elements: [element('a')], appState: {}, files: {} }, 1)
   assert.deepEqual(
     harness.service.changesSinceLastRead(ref, 'reader-0'),
     [],
@@ -1143,7 +1212,10 @@ async function assertFontWarningReachesEveryWrite(): Promise<void> {
     { kind: 'agent', workspaceId: WORKSPACE },
   )
   assert.ok(laid.ok)
-  assert.ok(laid.value.warnings.some((warning) => /fallback font/.test(warning)), 'and so does a layout')
+  assert.ok(
+    laid.value.warnings.some((warning) => /fallback font/.test(warning)),
+    'and so does a layout',
+  )
 
   // A worker with every family loaded says nothing.
   harness.worker.setFontReport({ loaded: ['Excalifont', 'Nunito'], missing: [], errors: [] })
@@ -1194,7 +1266,14 @@ async function assertCaseFoldedBoards(): Promise<void> {
     await harness.fs.mkdir(`${ROOT}/diagrams`)
     await harness.fs.writeFile(
       `${ROOT}/diagrams/Arch.excalidraw`,
-      JSON.stringify({ type: 'excalidraw', version: 2, source: 'git', elements: [element('a')], appState: {}, files: {} }),
+      JSON.stringify({
+        type: 'excalidraw',
+        version: 2,
+        source: 'git',
+        elements: [element('a')],
+        appState: {},
+        files: {},
+      }),
     )
     const read = await harness.service.readBoard(lower)
     assert.ok(read.ok, 'the board on disk is found under the other spelling')
@@ -1225,7 +1304,10 @@ async function assertCaseFoldedBoards(): Promise<void> {
 
 async function assertListBoards(): Promise<void> {
   const harness = createHarness()
-  harness.fs.files.set(`${ROOT}/diagrams/one.excalidraw`, JSON.stringify({ type: 'excalidraw', elements: [element('a'), element('b')] }))
+  harness.fs.files.set(
+    `${ROOT}/diagrams/one.excalidraw`,
+    JSON.stringify({ type: 'excalidraw', elements: [element('a'), element('b')] }),
+  )
   harness.fs.files.set(`${ROOT}/docs/two.excalidraw`, JSON.stringify({ type: 'excalidraw', elements: [] }))
   harness.fs.files.set(`${ROOT}/node_modules/pkg/three.excalidraw`, '{}')
   harness.fs.files.set(`${ROOT}/.git/four.excalidraw`, '{}')
@@ -1237,7 +1319,10 @@ async function assertListBoards(): Promise<void> {
 
   const listed = await harness.service.listBoards(WORKSPACE)
   assert.ok(listed.ok)
-  assert.deepEqual(listed.value.map((board) => board.path), ['diagrams/one.excalidraw', 'docs/two.excalidraw'])
+  assert.deepEqual(
+    listed.value.map((board) => board.path),
+    ['diagrams/one.excalidraw', 'docs/two.excalidraw'],
+  )
   assert.equal(listed.value[0].name, 'one')
   assert.equal(listed.value[0].elementCount, 2)
 
@@ -1288,7 +1373,11 @@ async function assertSubscriberDropped(): Promise<void> {
 }
 
 function assertDiskMerge(): void {
-  const local = [element('same', { version: 4 }), element('older', { version: 1 }), element('local-only', { version: 2 })]
+  const local = [
+    element('same', { version: 4 }),
+    element('older', { version: 1 }),
+    element('local-only', { version: 2 }),
+  ]
   const disk = [element('same', { version: 4, x: 900 }), element('older', { version: 5, x: 50 }), element('disk-only')]
   const merged = mergeFromDisk(local, disk, 5_000)
 

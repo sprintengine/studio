@@ -2,10 +2,7 @@ import type { IJsonModel } from 'flexlayout-react'
 import { railSideOfComponents } from '../../utils/modelRegistry'
 import { adoptLegacyBacklogTab, paneStateFromLegacyLayout } from './workspacePaneSlice'
 import { workspaceSyncClient } from '../workspaceSyncClient'
-import type {
-  Workspace,
-  WorkspaceId,
-} from '../../types/workspace'
+import type { Workspace, WorkspaceId } from '../../types/workspace'
 
 export function modelContainsComponent(value: unknown, component: string): boolean {
   if (!value) return false
@@ -44,17 +41,15 @@ function stripComponentTabsFromLayoutNode(node: unknown, component: string): unk
   // that runs on every hydration is a no-op by reference when there is nothing
   // to do (the store's merge() and the registry snapshot rely on that).
   if (
-    nextChildren.length === rawChildren.length
-    && nextChildren.every((child, index) => child === rawChildren[index])
+    nextChildren.length === rawChildren.length &&
+    nextChildren.every((child, index) => child === rawChildren[index])
   ) {
     return record
   }
 
   const next: Record<string, unknown> = { ...record, children: nextChildren }
   if (record.type === 'tabset' && typeof record.selected === 'number') {
-    next.selected = nextChildren.length === 0
-      ? 0
-      : Math.max(0, Math.min(record.selected, nextChildren.length - 1))
+    next.selected = nextChildren.length === 0 ? 0 : Math.max(0, Math.min(record.selected, nextChildren.length - 1))
   }
   return next
 }
@@ -184,9 +179,7 @@ function hideNavRailTabStripInNode(node: unknown): unknown {
 // mixed tabsets (e.g. a nav tab parked beside the editor) — those keep their
 // strip and self-heal on the next toggle. Kept under its original name: four
 // store modules import it.
-export function hideNavRailTabStrip(
-  layoutModel: IJsonModel | null | undefined
-): IJsonModel | null | undefined {
+export function hideNavRailTabStrip(layoutModel: IJsonModel | null | undefined): IJsonModel | null | undefined {
   if (!layoutModel || typeof layoutModel !== 'object') return layoutModel
   const layout = layoutModel.layout
   if (!layout) return layoutModel

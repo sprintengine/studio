@@ -45,7 +45,7 @@ async function main(): Promise<void> {
 function ev(
   input: MockAdapterSessionInput,
   type: ConversationEventType,
-  payload?: Record<string, unknown>
+  payload?: Record<string, unknown>,
 ): ConversationEvent {
   return {
     id: '',
@@ -63,10 +63,7 @@ function ev(
 // An autonomous companion provider: each turn completes on its own with the
 // next scripted response as content (no approval card). Mirrors a companion
 // session running with an autonomous permission posture.
-function scriptedProvider(script: {
-  responses: string[]
-  seenMessages: string[]
-}): ConversationProviderAdapter {
+function scriptedProvider(script: { responses: string[]; seenMessages: string[] }): ConversationProviderAdapter {
   let turn = 0
   return {
     id: 'companion-mock',
@@ -107,7 +104,8 @@ function gatedProvider(gate: { promise: Promise<void> }): ConversationProviderAd
   }
 }
 
-function unusedSecretStore(): Pick<ProviderSecretStore, 'getStatus'> & Partial<Pick<ProviderSecretStore, 'resolveSecret'>> {
+function unusedSecretStore(): Pick<ProviderSecretStore, 'getStatus'> &
+  Partial<Pick<ProviderSecretStore, 'resolveSecret'>> {
   return {
     getStatus: async () => ({ ok: false, message: 'unused' }),
     resolveSecret: async () => ({ ok: false, message: 'unused' }),
@@ -170,7 +168,7 @@ async function testFirstRunStructuredSpawnsAndResolvesTyped(): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'companion-'))
   try {
     const runtime = companionRuntime(
-      scriptedProvider({ responses: ['{"score": 42, "label": "ok"}'], seenMessages: [] })
+      scriptedProvider({ responses: ['{"score": 42, "label": "ok"}'], seenMessages: [] }),
     )
     const service = companionService(runtime)
     const handle = service.attach({ ...SPEC_BASE, workspaceRoot })
@@ -271,7 +269,7 @@ async function testInvalidTwiceRejectsWithValidatorErrors(): Promise<void> {
         assert.ok(error instanceof CompanionValidationError)
         assert.deepEqual(error.errors, ['expected ok=true'])
         return true
-      }
+      },
     )
     // Default retries = 1, so exactly two attempts.
     assert.equal(script.seenMessages.length, 2)
@@ -357,7 +355,9 @@ async function testDisposeEndsSessionAndReattachWorks(): Promise<void> {
     const reattached = service.attach({ ...SPEC_BASE, workspaceRoot })
     assert.equal(reattached.status(), 'absent')
     await reattached.runStructured({ prompt: 'Again.', validate: (raw) => ({ ok: true, value: raw }) })
-    const secondSessionId = okSessions(runtime.listSessions({ workspaceId: 'workspace' })).find((session) => session.status !== 'stopped')?.sessionId
+    const secondSessionId = okSessions(runtime.listSessions({ workspaceId: 'workspace' })).find(
+      (session) => session.status !== 'stopped',
+    )?.sessionId
     assert.ok(secondSessionId)
     assert.notEqual(secondSessionId, firstSessionId)
     service.dispose()
@@ -403,7 +403,7 @@ async function testMockProviderApprovalIsAutoResolvedForStructuredRun(): Promise
 
     await assert.rejects(
       handle.runStructured({ prompt: 'Anything.', validate: () => ({ ok: false, errors: ['n/a'] }) }),
-      (error: unknown) => error instanceof CompanionValidationError
+      (error: unknown) => error instanceof CompanionValidationError,
     )
     // The approval was auto-resolved and the turn completed.
     assert.ok(events.includes('approval_requested'))
@@ -424,9 +424,23 @@ async function testColdLoadPersistedRecordDoesNotSpawnUntilIntent(): Promise<voi
     const dir = join(workspaceRoot, '.sprintengine', 'conversations', 'workspace')
     await mkdir(dir, { recursive: true })
     const prior = [
-      { id: 'p1', sessionId: 'conv_old', workspaceId: 'workspace', agentId: 'review-guide', providerId: 'companion-mock', modelId: 'companion-model', type: 'session_started', createdAt: 1, payload: {} },
+      {
+        id: 'p1',
+        sessionId: 'conv_old',
+        workspaceId: 'workspace',
+        agentId: 'review-guide',
+        providerId: 'companion-mock',
+        modelId: 'companion-model',
+        type: 'session_started',
+        createdAt: 1,
+        payload: {},
+      },
     ]
-    await writeFile(join(dir, 'review-guide.jsonl'), prior.map((event) => JSON.stringify(event)).join('\n') + '\n', 'utf-8')
+    await writeFile(
+      join(dir, 'review-guide.jsonl'),
+      prior.map((event) => JSON.stringify(event)).join('\n') + '\n',
+      'utf-8',
+    )
 
     const runtime = companionRuntime(scriptedProvider({ responses: ['{"ok":true}'], seenMessages: [] }))
     const service = companionService(runtime)
@@ -455,7 +469,12 @@ async function testEventStreamHasNoSecrets(): Promise<void> {
       startSession: (input) => [ev(input, 'session_started'), ev(input, 'session_ready')],
       sendTurn: (input: MockAdapterTurnInput) => [
         ev(input, 'turn_started', { turnId: input.turnId }),
-        ev(input, 'tool_output', { turnId: input.turnId, apiKey: 'sk-super-secret', authorization: 'Bearer abc', note: 'safe' }),
+        ev(input, 'tool_output', {
+          turnId: input.turnId,
+          apiKey: 'sk-super-secret',
+          authorization: 'Bearer abc',
+          note: 'safe',
+        }),
         ev(input, 'content_delta', { turnId: input.turnId, text: '{"ok":true}' }),
         ev(input, 'turn_completed', { turnId: input.turnId }),
       ],
@@ -500,10 +519,7 @@ async function testModuleRegistryEnforcesCompanionPermission(): Promise<void> {
     })
     const spec = { ...SPEC_BASE, workspaceRoot }
 
-    assert.throws(
-      () => registry.attach('no-perm', spec),
-      /must declare the "agents:companion" permission/
-    )
+    assert.throws(() => registry.attach('no-perm', spec), /must declare the "agents:companion" permission/)
     assert.throws(() => registry.attach('unknown-module', spec), /agents:companion/)
     const handle = registry.attach('with-perm', spec)
     assert.equal(handle.status(), 'absent')
@@ -522,7 +538,16 @@ function testExtractJsonVariants(): void {
   assert.equal(extractJson('no json here'), undefined)
   assert.equal(extractJson(''), undefined)
   // redactEvent leaves payload-free events untouched.
-  const bare: ConversationEvent = { id: 'x', sessionId: 's', workspaceId: 'w', agentId: 'a', providerId: 'p', modelId: 'm', type: 'session_ready', createdAt: 0 }
+  const bare: ConversationEvent = {
+    id: 'x',
+    sessionId: 's',
+    workspaceId: 'w',
+    agentId: 'a',
+    providerId: 'p',
+    modelId: 'm',
+    type: 'session_ready',
+    createdAt: 0,
+  }
   assert.equal(redactEvent(bare), bare)
 }
 

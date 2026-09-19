@@ -66,11 +66,7 @@ export function focusAgentTab(workspaceId: string, agentId: string): boolean {
   return true
 }
 
-function updateAgentTabConfig(
-  model: Model,
-  agentId: string,
-  config: Record<string, unknown> | undefined,
-): void {
+function updateAgentTabConfig(model: Model, agentId: string, config: Record<string, unknown> | undefined): void {
   if (!config) return
 
   let targetTabId: string | null = null
@@ -147,12 +143,7 @@ function agentTileLocation(targetTabset: TabSetNode): DockLocation {
   return DockLocation.RIGHT
 }
 
-function agentTabNode(
-  agentId: string,
-  name: string,
-  config?: Record<string, unknown>,
-  options?: { flash?: boolean }
-) {
+function agentTabNode(agentId: string, name: string, config?: Record<string, unknown>, options?: { flash?: boolean }) {
   const flash = options?.flash ?? true
   return {
     type: 'tab',
@@ -164,7 +155,7 @@ function agentTabNode(
           contentClassName: AGENT_TAB_SPAWN_FLASH_PANEL_CLASS,
         }
       : {}),
-    config: { agentId, ...(config ?? {}) },
+    config: { agentId, ...config },
   }
 }
 
@@ -203,9 +194,8 @@ function clearAgentSpawnFlash(model: Model, agentId: string): void {
   model.doAction(
     Actions.updateNodeAttributes(targetTabId, {
       className: withoutClass(node.getClassName(), AGENT_TAB_SPAWN_FLASH_CLASS) || undefined,
-      contentClassName:
-        withoutClass(node.getContentClassName(), AGENT_TAB_SPAWN_FLASH_PANEL_CLASS) || undefined,
-    })
+      contentClassName: withoutClass(node.getContentClassName(), AGENT_TAB_SPAWN_FLASH_PANEL_CLASS) || undefined,
+    }),
   )
 }
 
@@ -225,7 +215,7 @@ function applyAgentSpawnFlash(model: Model, agentId: string): boolean {
     Actions.updateNodeAttributes(targetTabId, {
       className: withClass(node.getClassName(), AGENT_TAB_SPAWN_FLASH_CLASS),
       contentClassName: withClass(node.getContentClassName(), AGENT_TAB_SPAWN_FLASH_PANEL_CLASS),
-    })
+    }),
   )
   window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
   return true
@@ -265,7 +255,7 @@ export function addAgentTabTiled(
   // The fifth arg to Actions.addNode is `select`: true foregrounds the new tab,
   // false docks it in place without stealing focus. An automatic launch passes
   // false so a background agent never yanks you off what you were reading.
-  select = true
+  select = true,
 ): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
@@ -279,25 +269,13 @@ export function addAgentTabTiled(
     const terminalHost = firstTerminalLikeTabset(model)
     if (terminalHost) {
       model.doAction(
-        Actions.addNode(
-          agentTabNode(agentId, name, config),
-          terminalHost.getId(),
-          DockLocation.CENTER,
-          -1,
-          select
-        )
+        Actions.addNode(agentTabNode(agentId, name, config), terminalHost.getId(), DockLocation.CENTER, -1, select),
       )
       window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
       return true
     }
     model.doAction(
-      Actions.addNode(
-        agentTabNode(agentId, name, config),
-        model.getRoot().getId(),
-        DockLocation.RIGHT,
-        -1,
-        select
-      )
+      Actions.addNode(agentTabNode(agentId, name, config), model.getRoot().getId(), DockLocation.RIGHT, -1, select),
     )
     window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
     return true
@@ -309,13 +287,7 @@ export function addAgentTabTiled(
   const targetTabset = activeContentTabset(model)
   if (!targetTabset) {
     model.doAction(
-      Actions.addNode(
-        agentTabNode(agentId, name, config),
-        model.getRoot().getId(),
-        DockLocation.RIGHT,
-        -1,
-        select
-      )
+      Actions.addNode(agentTabNode(agentId, name, config), model.getRoot().getId(), DockLocation.RIGHT, -1, select),
     )
     window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
     return true
@@ -327,8 +299,8 @@ export function addAgentTabTiled(
       targetTabset.getId(),
       agentTileLocation(targetTabset),
       -1,
-      select
-    )
+      select,
+    ),
   )
   window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
   return true
@@ -343,10 +315,7 @@ export function focusOrAddAgentTab(
   return applyAgentTerminalRevealPolicy(workspaceId, agentId, name, 'reveal', config)
 }
 
-export function revealAgentTab(
-  target: AgentTabRevealTarget,
-  ports: AgentTabRevealPorts,
-): boolean {
+export function revealAgentTab(target: AgentTabRevealTarget, ports: AgentTabRevealPorts): boolean {
   const workspace = ports.getWorkspace(target.workspaceId)
   const agent = workspace?.agents[target.agentId]
   if (!workspace || !agent) return false
@@ -361,10 +330,7 @@ export function revealAgentTab(
   }
 
   try {
-    ports.updateLayout(
-      workspace.id,
-      ensureAgentTabInLayoutModel(workspace.layoutModel, target.agentId, name)
-    )
+    ports.updateLayout(workspace.id, ensureAgentTabInLayoutModel(workspace.layoutModel, target.agentId, name))
     flashAgentTab(workspace.id, target.agentId)
     return true
   } catch {
@@ -428,11 +394,7 @@ export function removeAgentTab(workspaceId: string, agentId: string): boolean {
   return tabIds.length > 0
 }
 
-export function ensureAgentTabInLayoutModel(
-  layoutModel: IJsonModel,
-  agentId: string,
-  name: string
-): IJsonModel {
+export function ensureAgentTabInLayoutModel(layoutModel: IJsonModel, agentId: string, name: string): IJsonModel {
   const model = Model.fromJson(layoutModel)
 
   let targetTabId: string | null = null
@@ -464,8 +426,8 @@ export function ensureAgentTabInLayoutModel(
         targetTabset.getId(),
         agentTileLocation(targetTabset),
         -1,
-        true
-      )
+        true,
+      ),
     )
   } else {
     model.doAction(
@@ -474,8 +436,8 @@ export function ensureAgentTabInLayoutModel(
         model.getRoot().getId(),
         DockLocation.RIGHT,
         -1,
-        true
-      )
+        true,
+      ),
     )
   }
 
@@ -506,9 +468,9 @@ function firstTerminalLikeTabset(model: Model): TabSetNode | null {
     if (component !== 'agent' && component !== 'terminal') return
     const parent = node.getParent()
     if (!(parent instanceof TabSetNode)) return
-    const hostsControlPanel = parent.getChildren().some(
-      (child) => child instanceof TabNode && AGENT_DOCK_RIGHT_COMPONENTS.has(child.getComponent() ?? '')
-    )
+    const hostsControlPanel = parent
+      .getChildren()
+      .some((child) => child instanceof TabNode && AGENT_DOCK_RIGHT_COMPONENTS.has(child.getComponent() ?? ''))
     if (hostsControlPanel) return
     found = parent
   })
@@ -518,29 +480,30 @@ function firstTerminalLikeTabset(model: Model): TabSetNode | null {
 function firstEditorSurfaceTabset(model: Model): TabSetNode | null {
   const activeTabset = model.getActiveTabset()
   if (activeTabset) {
-    const hasEditorSurface = activeTabset.getChildren().some((child) =>
-      child instanceof TabNode
-      && (child.getComponent() === 'file-editor' || child.getComponent() === 'editor')
-    )
+    const hasEditorSurface = activeTabset
+      .getChildren()
+      .some(
+        (child) =>
+          child instanceof TabNode && (child.getComponent() === 'file-editor' || child.getComponent() === 'editor'),
+      )
     if (hasEditorSurface) return activeTabset
   }
 
   let targetTabset: TabSetNode | null = null
   model.visitNodes((node) => {
     if (targetTabset || !(node instanceof TabSetNode)) return
-    const hasEditorSurface = node.getChildren().some((child) =>
-      child instanceof TabNode
-      && (child.getComponent() === 'file-editor' || child.getComponent() === 'editor')
-    )
+    const hasEditorSurface = node
+      .getChildren()
+      .some(
+        (child) =>
+          child instanceof TabNode && (child.getComponent() === 'file-editor' || child.getComponent() === 'editor'),
+      )
     if (hasEditorSurface) targetTabset = node
   })
   return targetTabset
 }
 
-function addEditorSurfaceNode(
-  model: Model,
-  tabJson: Record<string, unknown>
-): boolean {
+function addEditorSurfaceNode(model: Model, tabJson: Record<string, unknown>): boolean {
   const editorTabset = firstEditorSurfaceTabset(model)
   if (editorTabset) {
     model.doAction(Actions.addNode(tabJson, editorTabset.getId(), DockLocation.CENTER, -1, true))
@@ -613,11 +576,7 @@ export const NEW_AGENT_TAB_COMPONENT = 'new-agent'
  *
  * Returns the new tab's id, which the caller holds to retype it on spawn.
  */
-export function addNewAgentTab(
-  workspaceId: string,
-  agentName: string,
-  hostTabsetId?: string,
-): string | null {
+export function addNewAgentTab(workspaceId: string, agentName: string, hostTabsetId?: string): string | null {
   const model = models.get(workspaceId)
   if (!model) return null
 
@@ -689,7 +648,7 @@ export function convertNewAgentTabToAgent(
     Actions.updateNodeAttributes(tabId, {
       name,
       component: 'agent',
-      config: { agentId, ...(config ?? {}) },
+      config: { agentId, ...config },
       className: withClass(node.getClassName(), AGENT_TAB_SPAWN_FLASH_CLASS),
       contentClassName: withClass(node.getContentClassName(), AGENT_TAB_SPAWN_FLASH_PANEL_CLASS),
     }),
@@ -715,9 +674,7 @@ export function convertNewAgentTabToTerminal(
   const node = model.getNodeById(tabId)
   if (!(node instanceof TabNode) || node.getComponent() !== NEW_AGENT_TAB_COMPONENT) return false
 
-  model.doAction(
-    Actions.updateNodeAttributes(tabId, { name, component: 'terminal', config: { terminalId } }),
-  )
+  model.doAction(Actions.updateNodeAttributes(tabId, { name, component: 'terminal', config: { terminalId } }))
   model.doAction(Actions.selectTab(tabId))
   return true
 }
@@ -738,11 +695,7 @@ export function removeNewAgentTab(workspaceId: string, tabId: string): boolean {
 // plain terminals stack into it (or dock a fresh tabset on the right edge of
 // the root) so the control panel stays visible; everywhere else the active
 // tabset is used.
-export function addTerminalTab(
-  workspaceId: string,
-  terminalId: string,
-  name = 'Terminal'
-): boolean {
+export function addTerminalTab(workspaceId: string, terminalId: string, name = 'Terminal'): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
 
@@ -751,22 +704,16 @@ export function addTerminalTab(
   if (modelDocksAgentsRight(model)) {
     const terminalHost = firstTerminalLikeTabset(model)
     if (terminalHost) {
-      model.doAction(
-        Actions.addNode(tabJson, terminalHost.getId(), DockLocation.CENTER, -1, true)
-      )
+      model.doAction(Actions.addNode(tabJson, terminalHost.getId(), DockLocation.CENTER, -1, true))
       return true
     }
-    model.doAction(
-      Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true)
-    )
+    model.doAction(Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true))
     return true
   }
 
   const existingTerminalTabset = firstTerminalTabset(model)
   if (existingTerminalTabset) {
-    model.doAction(
-      Actions.addNode(tabJson, existingTerminalTabset.getId(), DockLocation.CENTER, -1, true)
-    )
+    model.doAction(Actions.addNode(tabJson, existingTerminalTabset.getId(), DockLocation.CENTER, -1, true))
     return true
   }
 
@@ -776,23 +723,15 @@ export function addTerminalTab(
   // the RIGHT edge of the root so terminals always open to the right of it.
   const targetTabset = activeContentTabset(model)
   if (targetTabset) {
-    model.doAction(
-      Actions.addNode(tabJson, targetTabset.getId(), DockLocation.CENTER, -1, true)
-    )
+    model.doAction(Actions.addNode(tabJson, targetTabset.getId(), DockLocation.CENTER, -1, true))
     return true
   }
 
-  model.doAction(
-    Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true)
-  )
+  model.doAction(Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true))
   return true
 }
 
-export function focusOrAddTerminalTab(
-  workspaceId: string,
-  terminalId: string,
-  name = 'Terminal'
-): boolean {
+export function focusOrAddTerminalTab(workspaceId: string, terminalId: string, name = 'Terminal'): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
 
@@ -861,7 +800,7 @@ export function remapFileTabsForPath(workspaceId: string, fromPath: string, toPa
       tabId: node.getId(),
       name: basename(nextPath),
       config: {
-        ...((node.getConfig() as Record<string, unknown> | undefined) ?? {}),
+        ...(node.getConfig() as Record<string, unknown> | undefined),
         filePath: nextPath,
       },
     })
@@ -890,11 +829,7 @@ export function removeFileTabsForPath(workspaceId: string, path: string): boolea
   return tabIds.length > 0
 }
 
-export function focusOrAddFileTab(
-  workspaceId: string,
-  filePath: string,
-  name: string
-): boolean {
+export function focusOrAddFileTab(workspaceId: string, filePath: string, name: string): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
 
@@ -931,7 +866,7 @@ export function focusOrAddGitConflictTab(
   workspaceId: string,
   repoRoot: string,
   filePath: string,
-  name: string
+  name: string,
 ): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
@@ -971,8 +906,8 @@ export function focusOrAddGitConflictTab(
       targetTabset.getId(),
       DockLocation.CENTER,
       -1,
-      true
-    )
+      true,
+    ),
   )
   return true
 }
@@ -1080,9 +1015,7 @@ export function focusedAgentTabInLayout(
 }
 
 /** A terminal-bearing tab that is actually on screen: an agent pane or a plain terminal. */
-export type VisibleTerminalTab =
-  | { kind: 'agent'; agentId: string }
-  | { kind: 'terminal'; terminalId: string }
+export type VisibleTerminalTab = { kind: 'agent'; agentId: string } | { kind: 'terminal'; terminalId: string }
 
 /**
  * The terminal a workspace is showing right now, or null when none is visible.
@@ -1098,9 +1031,7 @@ export type VisibleTerminalTab =
  * falls back to the first visible terminal in document order — which is what makes
  * a freshly-opened workspace, where no tabset is active yet, still answer.
  */
-export function visibleTerminalTabInLayout(
-  model: IJsonModel | undefined | null,
-): VisibleTerminalTab | null {
+export function visibleTerminalTabInLayout(model: IJsonModel | undefined | null): VisibleTerminalTab | null {
   if (!model) return null
 
   const selectedTerminalOf = (tabset: JsonLayoutNode): VisibleTerminalTab | null => {
@@ -1149,11 +1080,7 @@ export function removeComponentTab(workspaceId: string, component: string): bool
   return true
 }
 
-export function toggleComponentTab(
-  workspaceId: string,
-  component: string,
-  name: string
-): boolean {
+export function toggleComponentTab(workspaceId: string, component: string, name: string): boolean {
   if (hasComponentTab(workspaceId, component)) {
     return removeComponentTab(workspaceId, component)
   }
@@ -1177,20 +1104,21 @@ export type RailSide = 'left'
 // document tab strip so multiple open files stay switchable (see
 // toggleEditorRailComponent). The side-keyed machinery below stays generic so
 // a second nav component can come back without a rewrite.
-export const NAV_RAIL_COMPONENTS = new Set<string>([
-  'memory-graph',
-])
+export const NAV_RAIL_COMPONENTS = new Set<string>(['memory-graph'])
 
-const RAILS: Record<RailSide, {
-  components: Set<string>
-  dock: DockLocation
-  // Width in px the rail takes the first time it docks, and the floor the
-  // splitter will not cross. The left rail deliberately has neither: it has
-  // shipped on flexlayout's default sizing, and pinning it here would silently
-  // resize the Backlog pane in every existing workspace.
-  defaultWidthPx?: number
-  minWidthPx?: number
-}> = {
+const RAILS: Record<
+  RailSide,
+  {
+    components: Set<string>
+    dock: DockLocation
+    // Width in px the rail takes the first time it docks, and the floor the
+    // splitter will not cross. The left rail deliberately has neither: it has
+    // shipped on flexlayout's default sizing, and pinning it here would silently
+    // resize the Backlog pane in every existing workspace.
+    defaultWidthPx?: number
+    minWidthPx?: number
+  }
+> = {
   left: { components: NAV_RAIL_COMPONENTS, dock: DockLocation.LEFT },
 }
 
@@ -1222,11 +1150,7 @@ function railSideOfTabset(tabset: TabSetNode): RailSide | null {
 // PanelSwitches click handler (also the command-palette/menu toggle route). Rail
 // switches route to their edge's exclusive strip-less pane; the Editor keeps
 // standard document-tab semantics so its open files stay switchable.
-export function togglePanelRailComponent(
-  workspaceId: string,
-  component: string,
-  name: string
-): boolean {
+export function togglePanelRailComponent(workspaceId: string, component: string, name: string): boolean {
   const side = railSideOfComponent(component)
   if (side) return toggleRailComponent(workspaceId, component, name, side)
   // Only the Editor has a non-rail toggle. A retired rail component (or any
@@ -1375,12 +1299,7 @@ function applyRailDefaultWidth(model: Model, rail: TabSetNode, side: RailSide): 
 // Reveals a rail switch in its edge's exclusive strip-less pane: focuses it when
 // it's already open, swaps it in when another switch on the SAME edge is
 // showing, or docks a fresh column on that edge when none is.
-function revealRailComponent(
-  workspaceId: string,
-  component: string,
-  name: string,
-  side: RailSide
-): boolean {
+function revealRailComponent(workspaceId: string, component: string, name: string, side: RailSide): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
 
@@ -1396,15 +1315,7 @@ function revealRailComponent(
   const railTabset = findRailTabset(model, side)
   const targetId = railTabset ? railTabset.getId() : model.getRoot().getId()
   const location = railTabset ? DockLocation.CENTER : RAILS[side].dock
-  model.doAction(
-    Actions.addNode(
-      { type: 'tab', name, component },
-      targetId,
-      location,
-      -1,
-      true,
-    ),
-  )
+  model.doAction(Actions.addNode({ type: 'tab', name, component }, targetId, location, -1, true))
 
   // Enforce single-select on this edge, then hide the strip on whichever tabset
   // now holds the lone switch.
@@ -1420,12 +1331,7 @@ function revealRailComponent(
 // Exclusive toggle into one edge's strip-less pane. Clicking the open switch
 // closes it (the pane collapses when it empties); clicking another switch on the
 // same edge swaps it in.
-function toggleRailComponent(
-  workspaceId: string,
-  component: string,
-  name: string,
-  side: RailSide
-): boolean {
+function toggleRailComponent(workspaceId: string, component: string, name: string, side: RailSide): boolean {
   if (hasComponentTab(workspaceId, component)) {
     return removeComponentTab(workspaceId, component)
   }
@@ -1437,11 +1343,7 @@ function toggleRailComponent(
 // their own strip); when no welcome tab is open it reveals the editor surface
 // without stacking a second one: it focuses an existing open file, else docks a
 // fresh welcome editor center-stage, to the RIGHT of the nav pane.
-function toggleEditorRailComponent(
-  workspaceId: string,
-  component: string,
-  name: string
-): boolean {
+function toggleEditorRailComponent(workspaceId: string, component: string, name: string): boolean {
   if (hasComponentTab(workspaceId, component)) {
     return removeComponentTab(workspaceId, component)
   }
@@ -1459,11 +1361,7 @@ function toggleEditorRailComponent(
   return addEditorSurfaceNode(model, { type: 'tab', name, component })
 }
 
-export function focusOrAddComponentTab(
-  workspaceId: string,
-  component: string,
-  name: string
-): boolean {
+export function focusOrAddComponentTab(workspaceId: string, component: string, name: string): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
   if (focusComponentTab(workspaceId, component)) return true
@@ -1478,15 +1376,7 @@ export function focusOrAddComponentTab(
   }
   if (!targetTabset) return false
 
-  model.doAction(
-    Actions.addNode(
-      { type: 'tab', name, component },
-      targetTabset.getId(),
-      DockLocation.CENTER,
-      -1,
-      true
-    )
-  )
+  model.doAction(Actions.addNode({ type: 'tab', name, component }, targetTabset.getId(), DockLocation.CENTER, -1, true))
   return true
 }
 
@@ -1497,10 +1387,7 @@ export type CrossWorkspaceTabSpec = {
   className: string | null
 }
 
-export function extractTabSpec(
-  workspaceId: string,
-  tabId: string
-): CrossWorkspaceTabSpec | null {
+export function extractTabSpec(workspaceId: string, tabId: string): CrossWorkspaceTabSpec | null {
   const model = models.get(workspaceId)
   if (!model) return null
   const node = model.getNodeById(tabId)
@@ -1510,19 +1397,12 @@ export function extractTabSpec(
   return {
     component: node.getComponent() ?? '',
     name: node.getName(),
-    config:
-      rawConfig && typeof rawConfig === 'object'
-        ? (rawConfig as Record<string, unknown>)
-        : null,
+    config: rawConfig && typeof rawConfig === 'object' ? (rawConfig as Record<string, unknown>) : null,
     className: node.getClassName() ?? null,
   }
 }
 
-export function removeTab(
-  workspaceId: string,
-  tabId: string,
-  options?: { preserveRuntime?: boolean }
-): boolean {
+export function removeTab(workspaceId: string, tabId: string, options?: { preserveRuntime?: boolean }): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
   const node = model.getNodeById(tabId)
@@ -1550,10 +1430,7 @@ function buildTabJson(spec: CrossWorkspaceTabSpec): Record<string, unknown> {
 // Adds a tab as a new tabset docked on the right edge of the workspace's root,
 // producing a side-by-side tile. Used for cross-workspace tab moves where the
 // caller has chosen "tile, don't stack" semantics.
-export function addTabAsNewColumn(
-  workspaceId: string,
-  spec: CrossWorkspaceTabSpec
-): boolean {
+export function addTabAsNewColumn(workspaceId: string, spec: CrossWorkspaceTabSpec): boolean {
   const model = models.get(workspaceId)
   if (!model) return false
 
@@ -1563,8 +1440,8 @@ export function addTabAsNewColumn(
       model.getRoot().getId(),
       DockLocation.RIGHT,
       -1,
-      true
-    )
+      true,
+    ),
   )
   return true
 }
@@ -1574,10 +1451,7 @@ export function addTabAsNewColumn(
 // tile. Used when the destination workspace's live flexlayout Model is not
 // mounted (so we cannot dispatch addNode); the next mount will pick up the
 // new tab from this JSON.
-export function appendTabAsNewColumnInJson(
-  layoutModel: IJsonModel,
-  spec: CrossWorkspaceTabSpec
-): IJsonModel {
+export function appendTabAsNewColumnInJson(layoutModel: IJsonModel, spec: CrossWorkspaceTabSpec): IJsonModel {
   const tabJson = buildTabJson(spec)
   const root = layoutModel.layout
   const newTabset = { type: 'tabset', weight: 50, children: [tabJson] }

@@ -15,9 +15,7 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 
 type ModuleWorkspaceCreateInput = WorkspaceCreateRequest
 
-type ModuleWorkspaceCreateResult =
-  | { ok: true; workspaceId: string }
-  | { ok: false; code: string; message: string }
+type ModuleWorkspaceCreateResult = { ok: true; workspaceId: string } | { ok: false; code: string; message: string }
 
 export type ModuleWorkspaceService = {
   create(input: ModuleWorkspaceCreateInput): Promise<ModuleWorkspaceCreateResult>
@@ -27,9 +25,7 @@ export type ModuleWorkspaceServiceBackends = {
   workspaceSync: Pick<WorkspaceSyncService, 'createWorkspace'>
 }
 
-export function createModuleWorkspaceService(
-  backends: ModuleWorkspaceServiceBackends
-): ModuleWorkspaceService {
+export function createModuleWorkspaceService(backends: ModuleWorkspaceServiceBackends): ModuleWorkspaceService {
   return {
     async create(input): Promise<ModuleWorkspaceCreateResult> {
       const outcome = backends.workspaceSync.createWorkspace(input, 'module')
@@ -60,13 +56,11 @@ export type ModuleWorkspaceContextBackends = {
 }
 
 export function createModuleWorkspaceContextService(
-  backends: ModuleWorkspaceContextBackends
+  backends: ModuleWorkspaceContextBackends,
 ): ModuleWorkspaceContextService {
   return {
     async get(workspaceId): Promise<ModuleWorkspaceView | null> {
-      const workspace = backends
-        .getWorkspaceSyncSnapshot()
-        .state.workspaces.find((entry) => entry.id === workspaceId)
+      const workspace = backends.getWorkspaceSyncSnapshot().state.workspaces.find((entry) => entry.id === workspaceId)
       if (!workspace) return null
       return toModuleWorkspaceView(workspace)
     },

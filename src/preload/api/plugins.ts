@@ -17,19 +17,13 @@ type PluginsIpcRenderer = {
     input?: PluginDetectAvailabilityInput,
   ): Promise<PluginAvailabilityResult>
   invoke(channel: 'plugins:install-folder', srcDir: string): Promise<PluginInstallResult>
-  invoke(
-    channel: 'plugins:launch-preview',
-    input: AgentLaunchPreviewInput,
-  ): Promise<AgentLaunchPreviewResult>
+  invoke(channel: 'plugins:launch-preview', input: AgentLaunchPreviewInput): Promise<AgentLaunchPreviewResult>
 }
 
 export function createPluginsApi(renderer: PluginsIpcRenderer) {
   return {
-    pluginsList: (): Promise<PluginRegistryListResult> =>
-      renderer.invoke('plugins:list'),
-    pluginsDetectAvailability: (
-      input?: PluginDetectAvailabilityInput,
-    ): Promise<PluginAvailabilityResult> =>
+    pluginsList: (): Promise<PluginRegistryListResult> => renderer.invoke('plugins:list'),
+    pluginsDetectAvailability: (input?: PluginDetectAvailabilityInput): Promise<PluginAvailabilityResult> =>
       renderer.invoke('plugins:detect-availability', input),
     installPluginFolder: (srcDir: string): Promise<PluginInstallResult> =>
       renderer.invoke('plugins:install-folder', srcDir),

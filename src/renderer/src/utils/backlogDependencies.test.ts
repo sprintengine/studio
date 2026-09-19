@@ -107,10 +107,16 @@ run('reverse edges: a prerequisite knows the items it blocks', () => {
 })
 
 run('waiting vs resolved: active prerequisite blocks, completed prerequisite frees', () => {
-  const active = [mk('backlog/a.md', { status: 'in_progress' }), mk('backlog/b.md', { status: 'idea', dependsOn: ['a'] })]
+  const active = [
+    mk('backlog/a.md', { status: 'in_progress' }),
+    mk('backlog/b.md', { status: 'idea', dependsOn: ['a'] }),
+  ]
   assert.equal(node(active, 'backlog/b.md').isWaiting, true)
 
-  const completed = [mk('backlog/a.md', { status: 'completed' }), mk('backlog/b.md', { status: 'idea', dependsOn: ['a'] })]
+  const completed = [
+    mk('backlog/a.md', { status: 'completed' }),
+    mk('backlog/b.md', { status: 'idea', dependsOn: ['a'] }),
+  ]
   const resolved = node(completed, 'backlog/b.md')
   assert.equal(resolved.isWaiting, false)
   assert.equal(resolved.prerequisites[0].resolved, true)
@@ -202,10 +208,7 @@ run('two cycles bridged by a connector: the connector is NOT a cycle member', ()
     mk('backlog/c.md', { status: 'idea', dependsOn: ['a'] }),
   ]
   const graph = deriveBacklogDependencies(items)
-  assert.deepEqual(
-    [...graph.cycleItemIds].sort(),
-    ['backlog/a.md', 'backlog/b.md', 'backlog/g.md', 'backlog/h.md'],
-  )
+  assert.deepEqual([...graph.cycleItemIds].sort(), ['backlog/a.md', 'backlog/b.md', 'backlog/g.md', 'backlog/h.md'])
   const connector = graph.nodes.find((entry) => entry.item.relativePath === 'backlog/c.md') as BacklogDependencyNode
   assert.equal(connector.inCycle, false)
   // c depends on the active cycle member a, so it is still honestly waiting.
@@ -344,10 +347,7 @@ run('dangling epic slugs roll up too, so an Unknown-epic header stays accurate',
 })
 
 run('orderItemsByDependencies matches the graph order', () => {
-  const items = [
-    mk('backlog/c.md', { status: 'idea', dependsOn: ['a'] }),
-    mk('backlog/a.md', { status: 'idea' }),
-  ]
+  const items = [mk('backlog/c.md', { status: 'idea', dependsOn: ['a'] }), mk('backlog/a.md', { status: 'idea' })]
   assert.deepEqual(paths(orderItemsByDependencies(items)), paths(deriveBacklogDependencies(items).order))
 })
 

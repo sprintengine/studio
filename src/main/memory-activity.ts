@@ -36,12 +36,9 @@ export type ActivityStatus = {
 }
 
 export type ActivityInstallResult =
-  | { ok: true; settingsPath: string; hookScriptPath: string }
-  | { ok: false; message: string }
+  { ok: true; settingsPath: string; hookScriptPath: string } | { ok: false; message: string }
 
-export type ActivityUninstallResult =
-  | { ok: true }
-  | { ok: false; message: string }
+export type ActivityUninstallResult = { ok: true } | { ok: false; message: string }
 
 type SessionState = {
   lastNodeId: string | null
@@ -128,10 +125,7 @@ function buildHookCommand(memoryRelativeRoot: string): string {
   return `node "${scriptRel}" --knowledge-root "${memoryRel}"`
 }
 
-function ensureMatcherBlock(
-  blocks: ClaudeMatcherBlock[],
-  matcher: string
-): ClaudeMatcherBlock {
+function ensureMatcherBlock(blocks: ClaudeMatcherBlock[], matcher: string): ClaudeMatcherBlock {
   const found = blocks.find((b) => b.matcher === matcher)
   if (found) {
     if (!Array.isArray(found.hooks)) found.hooks = []
@@ -146,10 +140,7 @@ function isMulticodeEntry(entry: ClaudeHookEntry): boolean {
   return entry?._multicode === HOOK_TAG || entry?._multicode === LEGACY_HOOK_TAG
 }
 
-async function mergeMulticodeHook(
-  settingsPath: string,
-  hookCommand: string
-): Promise<void> {
+async function mergeMulticodeHook(settingsPath: string, hookCommand: string): Promise<void> {
   const existing = (await readJsonIfExists<ClaudeSettings>(settingsPath)) ?? {}
   const settings: ClaudeSettings = { ...existing }
   if (!settings.hooks || typeof settings.hooks !== 'object') settings.hooks = {}
@@ -195,7 +186,7 @@ async function unmergeMulticodeHook(settingsPath: string): Promise<void> {
 
 export async function installMemoryActivityHook(
   workspaceRoot: string,
-  memoryRelativeRoot: string
+  memoryRelativeRoot: string,
 ): Promise<ActivityInstallResult> {
   if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
   if (!memoryRelativeRoot?.trim()) {
@@ -231,7 +222,7 @@ export async function installMemoryActivityHook(
     await writeFile(
       resolve(workspaceRoot, INSTALLED_RECORD_REL),
       JSON.stringify(installedRecord, null, 2) + '\n',
-      'utf8'
+      'utf8',
     )
 
     const state = ensureWorkspaceState(workspaceRoot, memoryRelativeRoot)
@@ -246,9 +237,7 @@ export async function installMemoryActivityHook(
   }
 }
 
-export async function uninstallMemoryActivityHook(
-  workspaceRoot: string
-): Promise<ActivityUninstallResult> {
+export async function uninstallMemoryActivityHook(workspaceRoot: string): Promise<ActivityUninstallResult> {
   if (!workspaceRoot?.trim()) return { ok: false, message: 'Workspace root is required.' }
 
   try {
@@ -309,10 +298,7 @@ function broadcast(channel: string, payload: unknown): void {
   }
 }
 
-async function readJsonlFromOffset(
-  path: string,
-  offset: number
-): Promise<{ lines: string[]; nextOffset: number }> {
+async function readJsonlFromOffset(path: string, offset: number): Promise<{ lines: string[]; nextOffset: number }> {
   let handle: FileHandle | null = null
   try {
     handle = await fsOpen(path, 'r')
@@ -334,11 +320,7 @@ async function readJsonlFromOffset(
   }
 }
 
-function processEventLine(
-  state: WorkspaceState,
-  sessionId: string,
-  line: string
-): ActivityEvent | null {
+function processEventLine(state: WorkspaceState, sessionId: string, line: string): ActivityEvent | null {
   let parsed: { sessionId?: string; tool?: string; file?: string; ts?: number } | null = null
   try {
     parsed = JSON.parse(line)
@@ -388,7 +370,7 @@ function processEventLine(
 async function tailSessionFile(
   state: WorkspaceState,
   fileName: string,
-  options: { broadcastEvents: boolean } = { broadcastEvents: true }
+  options: { broadcastEvents: boolean } = { broadcastEvents: true },
 ): Promise<void> {
   if (!fileName.endsWith('.jsonl')) return
   const sessionId = fileName.replace(/\.jsonl$/u, '')
@@ -427,10 +409,7 @@ async function rebuildFromDisk(state: WorkspaceState): Promise<void> {
   }
 }
 
-export async function startMemoryActivityWatcher(
-  workspaceRoot: string,
-  memoryRelativeRoot: string
-): Promise<void> {
+export async function startMemoryActivityWatcher(workspaceRoot: string, memoryRelativeRoot: string): Promise<void> {
   if (!workspaceRoot?.trim() || !memoryRelativeRoot?.trim()) return
   const state = ensureWorkspaceState(workspaceRoot, memoryRelativeRoot)
   if (state.watcher) return
@@ -465,11 +444,7 @@ export function stopMemoryActivityWatcher(workspaceRoot: string): void {
 function isToday(ts: number, now: number): boolean {
   const a = new Date(ts)
   const b = new Date(now)
-  return (
-    a.getFullYear() === b.getFullYear()
-    && a.getMonth() === b.getMonth()
-    && a.getDate() === b.getDate()
-  )
+  return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate()
 }
 
 export function getMemoryActivityStatus(workspaceRoot: string | null): ActivityStatus {

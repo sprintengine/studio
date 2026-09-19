@@ -69,7 +69,7 @@ function call(
   port: number,
   method: string,
   path: string,
-  options: { token?: string; body?: unknown } = {}
+  options: { token?: string; body?: unknown } = {},
 ): Promise<HttpAnswer> {
   return new Promise((resolve, reject) => {
     const payload = options.body === undefined ? undefined : JSON.stringify(options.body)
@@ -100,7 +100,7 @@ function call(
           }
           resolve({ status: response.statusCode ?? 0, body: (body ?? {}) as Record<string, unknown> })
         })
-      }
+      },
     )
     request.on('error', reject)
     if (payload) request.write(payload)
@@ -165,7 +165,7 @@ check('a machine asks, a person allows it with the terminal tier, and the token 
     const early = await call(
       harness.port,
       'GET',
-      `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=${credential.secret}`
+      `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=${credential.secret}`,
     )
     assert.equal(early.body.status, 'pending', 'before the answer, the asker is told to keep waiting')
 
@@ -180,7 +180,7 @@ check('a machine asks, a person allows it with the terminal tier, and the token 
     const collected = await call(
       harness.port,
       'GET',
-      `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=${credential.secret}`
+      `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=${credential.secret}`,
     )
     assert.equal(collected.body.status, 'approved')
     const deviceToken = collected.body.deviceToken as string
@@ -188,7 +188,7 @@ check('a machine asks, a person allows it with the terminal tier, and the token 
     assert.deepEqual(
       collected.body.scopes,
       ['workspace:read', 'terminal:control'],
-      'the grant is the one the approver chose, including the terminal tier'
+      'the grant is the one the approver chose, including the terminal tier',
     )
 
     // And it actually works: the whole point is a device that can now drive this machine.
@@ -198,7 +198,11 @@ check('a machine asks, a person allows it with the terminal tier, and the token 
         jsonrpc: '2.0',
         id: 1,
         method: 'initialize',
-        params: { protocolVersion: SUPPORTED_MCP_PROTOCOL_VERSIONS[0], capabilities: {}, clientInfo: { name: 't', version: '1' } },
+        params: {
+          protocolVersion: SUPPORTED_MCP_PROTOCOL_VERSIONS[0],
+          capabilities: {},
+          clientInfo: { name: 't', version: '1' },
+        },
       },
     })
     assert.equal(call1.status, 200, 'the minted token authenticates against the gateway')
@@ -215,15 +219,15 @@ check('the token can only be collected by the machine that asked', async () => {
       body: { deviceName: 'Laptop', collectHash: credential.hash },
     })
     const requestId = asked.body.requestId as string
-    harness.service.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code: asked.body.comparisonCode as string })
+    harness.service.approvePairRequest({
+      id: requestId,
+      scopes: ['workspace:read'],
+      code: asked.body.comparisonCode as string,
+    })
 
     // Someone who learned the id but not the secret is told exactly what a
     // caller with an invented id is told — so they cannot even confirm it is real.
-    const stolen = await call(
-      harness.port,
-      'GET',
-      `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=wrong-secret`
-    )
+    const stolen = await call(harness.port, 'GET', `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=wrong-secret`)
     assert.equal(stolen.body.status, 'expired', 'a wrong secret learns nothing')
     assert.equal(stolen.body.deviceToken, undefined, 'and takes no token')
 
@@ -231,7 +235,7 @@ check('the token can only be collected by the machine that asked', async () => {
     const rightful = await call(
       harness.port,
       'GET',
-      `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=${credential.secret}`
+      `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=${credential.secret}`,
     )
     assert.equal(rightful.body.status, 'approved', 'the machine that asked still collects')
     assert.ok(rightful.body.deviceToken, 'and gets its token')
@@ -248,18 +252,22 @@ check('the token is handed over exactly once', async () => {
       body: { deviceName: 'Laptop', collectHash: credential.hash },
     })
     const requestId = asked.body.requestId as string
-    harness.service.approvePairRequest({ id: requestId, scopes: ['workspace:read'], code: asked.body.comparisonCode as string })
+    harness.service.approvePairRequest({
+      id: requestId,
+      scopes: ['workspace:read'],
+      code: asked.body.comparisonCode as string,
+    })
 
     const first = await call(
       harness.port,
       'GET',
-      `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=${credential.secret}`
+      `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=${credential.secret}`,
     )
     assert.equal(first.body.status, 'approved')
     const second = await call(
       harness.port,
       'GET',
-      `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=${credential.secret}`
+      `${TAILNET_PAIR_REQUEST_PATH}?id=${requestId}&secret=${credential.secret}`,
     )
     assert.equal(second.body.status, 'expired', 'a replay of the collect gets nothing')
   } finally {
@@ -363,7 +371,7 @@ check('the asker cannot influence what approving it grants', async () => {
   assert.deepEqual(
     approved.ok ? approved.device.origin : null,
     { kind: 'approval', by: '100.64.0.9' },
-    'the device records that a person here approved it, and from where'
+    'the device records that a person here approved it, and from where',
   )
 })
 
@@ -414,7 +422,11 @@ check('the third wrong code declines the request and starts the cooldown', async
   const second = wrong()
   assert.equal(second.ok === false && second.code === 'code_mismatch' ? second.attemptsLeft : -1, 1)
   const third = wrong()
-  assert.equal(third.ok === false && third.code === 'code_mismatch' ? third.declined : false, true, 'the third declines')
+  assert.equal(
+    third.ok === false && third.code === 'code_mismatch' ? third.declined : false,
+    true,
+    'the third declines',
+  )
   assert.equal(store.listPairRequests().length, 0, 'nothing is left waiting')
   assert.equal(store.collectPairRequest(requestId, 's').status, 'denied', 'the asker is told it was declined')
   assert.equal(store.listDevices().length, 0, 'and nothing was granted')
@@ -441,21 +453,33 @@ check('a device says where it came from: a code, an approval, an agent, or the r
   const agentDevice = store.redeemPairing({ token: byAgent.token, deviceName: 'claude-diagnostic' })
   assert.deepEqual(agentDevice.ok ? agentDevice.device.origin : null, { kind: 'agent', by: 'Niamh Mann' })
 
-  const reverse = store.mintDevice({ name: 'Mac mini', scopes: ['backlog:read'], origin: { kind: 'reverse', by: 'Mac mini' } })
+  const reverse = store.mintDevice({
+    name: 'Mac mini',
+    scopes: ['backlog:read'],
+    origin: { kind: 'reverse', by: 'Mac mini' },
+  })
   assert.deepEqual(reverse.device.origin, { kind: 'reverse', by: 'Mac mini' })
   assert.ok(store.authenticate(reverse.deviceToken), 'a reverse device authenticates like any other')
 
   // Persisted, and a record from before origins were kept reads as unknown.
   const reread = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
   assert.deepEqual(
-    reread.listDevices().map((device) => device.origin.kind).sort(),
-    ['agent', 'code', 'reverse']
+    reread
+      .listDevices()
+      .map((device) => device.origin.kind)
+      .sort(),
+    ['agent', 'code', 'reverse'],
   )
-  const legacy = JSON.parse(readFileSync(join(dir, 'tailnet-remote-devices.json'), 'utf8')) as { devices: Array<Record<string, unknown>> }
+  const legacy = JSON.parse(readFileSync(join(dir, 'tailnet-remote-devices.json'), 'utf8')) as {
+    devices: Array<Record<string, unknown>>
+  }
   for (const device of legacy.devices) delete device.origin
   writeFileSync(join(dir, 'tailnet-remote-devices.json'), JSON.stringify(legacy))
   const older = createTailnetDeviceStore({ resolveUserDataDir: () => dir })
-  assert.ok(older.listDevices().every((device) => device.origin.kind === 'unknown'), 'no origin guessed for an older record')
+  assert.ok(
+    older.listDevices().every((device) => device.origin.kind === 'unknown'),
+    'no origin guessed for an older record',
+  )
 })
 
 void queue.then(() => {

@@ -24,10 +24,7 @@ export const SKILL_SEARCH_DEBOUNCE_MS = 700
  * request is armed and will fire after the quiet window — never that one is in
  * flight, which only the caller's own request state knows.
  */
-export type SkillSearchIntent =
-  | { kind: 'empty' }
-  | { kind: 'too_short'; minLength: number }
-  | { kind: 'pending' }
+export type SkillSearchIntent = { kind: 'empty' } | { kind: 'too_short'; minLength: number } | { kind: 'pending' }
 
 export type SkillSearchScheduler = {
   /** Feed the current input; returns what the surface should show right now. */
@@ -106,8 +103,7 @@ export function skillSearchEmptyLine(query: string): string {
   return `No SKILL.md on GitHub matches “${query.trim()}”.`
 }
 
-export const POPULAR_REPOS_EMPTY_LINE =
-  'GitHub returned no repositories tagged as skill collections.'
+export const POPULAR_REPOS_EMPTY_LINE = 'GitHub returned no repositories tagged as skill collections.'
 
 /** Star counts sit in a dense row, so the long ones fold: 52,341 → 52k. */
 export function formatStars(stars: number): string {

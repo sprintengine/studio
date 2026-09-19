@@ -65,16 +65,14 @@ export type AutomationsEngineEvaluationResult = {
 }
 
 export type AutomationsEngineRunNowResult =
-  | { ok: true; definition: AutomationDefinition; run: AutomationRun }
-  | { ok: false; problem: AutomationsEngineProblem }
+  { ok: true; definition: AutomationDefinition; run: AutomationRun } | { ok: false; problem: AutomationsEngineProblem }
 
 export type AutomationsEngineTriggerEventDeliveryResult =
   | { ok: true; definition: AutomationDefinition; delivery: Exclude<TriggerEventRunResult, { status: 'problem' }> }
   | { ok: false; problem: AutomationsEngineProblem }
 
 export type AutomationsEngineFinalizeResult =
-  | { ok: true; run: AutomationRun }
-  | { ok: false; problem: AutomationsEngineProblem }
+  { ok: true; run: AutomationRun } | { ok: false; problem: AutomationsEngineProblem }
 
 export type AutomationRunPullRequestOpener = (input: {
   workspaceRoot: string
@@ -84,18 +82,12 @@ export type AutomationRunPullRequestOpener = (input: {
   body: string
 }) => Promise<AutomationPullRequestResult>
 
-export type AutomationRunWorktreeRemover = (input: {
-  workspaceRoot: string
-  worktreePath: string
-}) => Promise<void>
+export type AutomationRunWorktreeRemover = (input: { workspaceRoot: string; worktreePath: string }) => Promise<void>
 
 // Disposes the run's spawned agent (kill terminal + drop tab + delete record) at
 // finalize, so a one-shot automation agent never outlives its torn-down worktree
 // and loop-relaunches into the dead cwd. Best-effort and idempotent.
-export type AutomationRunAgentDisposer = (input: {
-  workspaceId: string
-  agentId: string
-}) => Promise<void>
+export type AutomationRunAgentDisposer = (input: { workspaceId: string; agentId: string }) => Promise<void>
 
 export type AutomationsEngineOptions = {
   getProjectFolders?: () => AutomationsProjectFolder[] | Promise<AutomationsProjectFolder[]>
@@ -387,17 +379,21 @@ export class AutomationsEngine {
           definition,
           run,
           triggerPayload: input.triggerPayload ?? { kind: 'manual', dueAt },
-          workspaceId: input.workspaceId ?? await this.resolveWorkspaceIdForRoot(input.workspaceRoot) ?? undefined,
+          workspaceId: input.workspaceId ?? (await this.resolveWorkspaceIdForRoot(input.workspaceRoot)) ?? undefined,
         })
         const completedAt = patch.completedAt ?? new Date(this.now()).toISOString()
         finalRun = completeRun(run, patch, completedAt)
       } catch (error) {
         const failedAt = new Date(this.now()).toISOString()
-        finalRun = completeRun(run, {
-          status: 'failed',
-          completedAt: failedAt,
-          summary: error instanceof Error ? error.message : 'Automation action failed.',
-        }, failedAt)
+        finalRun = completeRun(
+          run,
+          {
+            status: 'failed',
+            completedAt: failedAt,
+            summary: error instanceof Error ? error.message : 'Automation action failed.',
+          },
+          failedAt,
+        )
       }
 
       const completed = await store.recordRun(finalRun)
@@ -405,9 +401,7 @@ export class AutomationsEngine {
         return { ok: false, problem: storeProblem(input.workspaceRoot, completed.error, definition.id) }
       }
       const eventWorkspaceId =
-        input.workspaceId
-        ?? await this.resolveWorkspaceIdForRoot(input.workspaceRoot)
-        ?? finalRun.workspaceId
+        input.workspaceId ?? (await this.resolveWorkspaceIdForRoot(input.workspaceRoot)) ?? finalRun.workspaceId
       this.trackPendingAgentRun(input.workspaceRoot, finalRun, eventWorkspaceId)
       this.emitRunEvent({
         workspaceId: eventWorkspaceId,
@@ -430,7 +424,7 @@ export class AutomationsEngine {
         completedAt,
         result,
         // Manual "Run now" does not consume a once-off's single triggered fire.
-        { consumeOnceOffShot: false }
+        { consumeOnceOffShot: false },
       )
       if (!updated) {
         return {
@@ -516,8 +510,9 @@ export class AutomationsEngine {
       }
     }
 
-    const missingIntegrations = (provider.requiredIntegrations ?? [])
-      .filter((id) => this.isIntegrationAvailable?.(id) !== true)
+    const missingIntegrations = (provider.requiredIntegrations ?? []).filter(
+      (id) => this.isIntegrationAvailable?.(id) !== true,
+    )
     if (missingIntegrations.length > 0) {
       return {
         ok: false,
@@ -536,7 +531,7 @@ export class AutomationsEngine {
     }
     const state: AutomationStoreState = stateResult.value ?? { nextRunAtByAutomationId: {}, lock: null }
     const result = emptyEvaluationResult()
-    const workspaceId = input.workspaceId ?? await this.resolveWorkspaceIdForRoot(input.workspaceRoot) ?? ''
+    const workspaceId = input.workspaceId ?? (await this.resolveWorkspaceIdForRoot(input.workspaceRoot)) ?? ''
     const delivery = await enqueueTriggerEventRun({
       store,
       state,
@@ -672,8 +667,8 @@ export class AutomationsEngine {
   }): Promise<void> {
     const executionId = input.executionId?.trim()
     const pending =
-      (executionId ? this.findPendingRunByExecutionId(executionId) : undefined)
-      ?? this.findPendingRunByAgent(input.workspaceId ?? null, input.agentId ?? '')
+      (executionId ? this.findPendingRunByExecutionId(executionId) : undefined) ??
+      this.findPendingRunByAgent(input.workspaceId ?? null, input.agentId ?? '')
     if (!pending) return
 
     if (pending.armedTurnEnd) {
@@ -734,7 +729,7 @@ export class AutomationsEngine {
     const summary =
       armed.outcome === 'failed'
         ? 'The agent hit an error and stopped before it finished.'
-        : transcriptSummary ?? 'The agent finished, but left no summary of what it did.'
+        : (transcriptSummary ?? 'The agent finished, but left no summary of what it did.')
     await this.finalizeRun({
       workspaceRoot: pending.workspaceRoot,
       automationId: pending.automationId,
@@ -762,7 +757,7 @@ export class AutomationsEngine {
       workspaceId?: string
       eventTrigger?: AutomationRunEventTrigger
     },
-    store: AutomationsStore
+    store: AutomationsStore,
   ): Promise<AutomationsEngineFinalizeResult> {
     const runResult = await store.getRun(input.automationId, input.runId)
     if (!runResult.ok) {
@@ -836,10 +831,7 @@ export class AutomationsEngine {
     const emitTerminalEvent = eventTrigger === 'manual' || finalRun.status === 'failed'
     if (definitionResult.ok && emitTerminalEvent) {
       const eventWorkspaceId =
-        input.workspaceId
-        ?? run.workspaceId
-        ?? await this.resolveWorkspaceIdForRoot(input.workspaceRoot)
-        ?? undefined
+        input.workspaceId ?? run.workspaceId ?? (await this.resolveWorkspaceIdForRoot(input.workspaceRoot)) ?? undefined
       this.emitRunEvent({
         workspaceId: eventWorkspaceId,
         definition: definitionResult.value,
@@ -864,9 +856,7 @@ export class AutomationsEngine {
       await this.reconcileOrphanedAgentRuns()
     }
     const pollContext = createTriggerPollContext()
-    const triggerProvidersByKind = new Map(
-      this.getTriggerProviders().map((provider) => [provider.kind, provider])
-    )
+    const triggerProvidersByKind = new Map(this.getTriggerProviders().map((provider) => [provider.kind, provider]))
 
     for (const projectFolder of projectFolders) {
       await this.evaluateProject(projectFolder, mode, now, pollContext, triggerProvidersByKind, result)
@@ -1015,7 +1005,7 @@ export class AutomationsEngine {
     now: number,
     pollContext: AutomationTriggerPollContext,
     triggerProvidersByKind: ReadonlyMap<string, AutomationTriggerProvider>,
-    result: AutomationsEngineEvaluationResult
+    result: AutomationsEngineEvaluationResult,
   ): Promise<void> {
     const workspaceRoot = projectFolder.folderPath
     const store = this.createStore(workspaceRoot)
@@ -1044,7 +1034,7 @@ export class AutomationsEngine {
         now,
         pollContext,
         triggerProvidersByKind,
-        result
+        result,
       )
     }
   }
@@ -1058,7 +1048,7 @@ export class AutomationsEngine {
     now: number,
     pollContext: AutomationTriggerPollContext,
     triggerProvidersByKind: ReadonlyMap<string, AutomationTriggerProvider>,
-    result: AutomationsEngineEvaluationResult
+    result: AutomationsEngineEvaluationResult,
   ): Promise<void> {
     const workspaceRoot = projectFolder.folderPath
     if (definition.status !== 'enabled') return
@@ -1137,7 +1127,7 @@ export class AutomationsEngine {
     definition: AutomationDefinition,
     config: ScheduleTriggerConfig,
     after: number,
-    result: AutomationsEngineEvaluationResult
+    result: AutomationsEngineEvaluationResult,
   ): Promise<void> {
     const nextRunAt = nextRunIso(config, after)
     if (!nextRunAt) {
@@ -1180,7 +1170,7 @@ export class AutomationsEngine {
     config: ScheduleTriggerConfig,
     dueAt: string,
     now: number,
-    result: AutomationsEngineEvaluationResult
+    result: AutomationsEngineEvaluationResult,
   ): Promise<void> {
     const completedAt = new Date(now).toISOString()
     const run = this.runRecord(workspaceRoot, definition.id, dueAt, {
@@ -1197,7 +1187,17 @@ export class AutomationsEngine {
     }
 
     const nextRunAt = nextRunIso(config, now)
-    const updated = await this.updateDefinitionAfterRun(store, state, workspaceRoot, definition, config, run, nextRunAt, now, result)
+    const updated = await this.updateDefinitionAfterRun(
+      store,
+      state,
+      workspaceRoot,
+      definition,
+      config,
+      run,
+      nextRunAt,
+      now,
+      result,
+    )
     if (updated) result.skipped.push({ workspaceRoot, automationId: definition.id, runId: run.id, status: run.status })
   }
 
@@ -1208,7 +1208,7 @@ export class AutomationsEngine {
     definition: AutomationDefinition,
     config: ScheduleTriggerConfig,
     dueAt: string,
-    result: AutomationsEngineEvaluationResult
+    result: AutomationsEngineEvaluationResult,
   ): Promise<void> {
     const workspaceRoot = projectFolder.folderPath
     const inFlightKey = this.inFlightKey(workspaceRoot, definition.id)
@@ -1255,15 +1255,30 @@ export class AutomationsEngine {
       })
 
       const nextRunAt = nextRunIso(config, Date.parse(completedAt))
-      const updated = await this.updateDefinitionAfterRun(store, state, workspaceRoot, definition, config, finalRun, nextRunAt, Date.parse(completedAt), result)
-      if (updated) result.fired.push({ workspaceRoot, automationId: definition.id, runId: finalRun.id, status: finalRun.status })
+      const updated = await this.updateDefinitionAfterRun(
+        store,
+        state,
+        workspaceRoot,
+        definition,
+        config,
+        finalRun,
+        nextRunAt,
+        Date.parse(completedAt),
+        result,
+      )
+      if (updated)
+        result.fired.push({ workspaceRoot, automationId: definition.id, runId: finalRun.id, status: finalRun.status })
     } catch (error) {
       const failedAt = new Date(this.now()).toISOString()
-      const failedRun = completeRun(run, {
-        status: 'failed',
-        completedAt: failedAt,
-        summary: error instanceof Error ? error.message : 'Automation action failed.',
-      }, failedAt)
+      const failedRun = completeRun(
+        run,
+        {
+          status: 'failed',
+          completedAt: failedAt,
+          summary: error instanceof Error ? error.message : 'Automation action failed.',
+        },
+        failedAt,
+      )
       const recorded = await store.recordRun(failedRun)
       if (!recorded.ok) result.problems.push(storeProblem(workspaceRoot, recorded.error, definition.id))
       else {
@@ -1276,8 +1291,19 @@ export class AutomationsEngine {
       }
 
       const nextRunAt = nextRunIso(config, Date.parse(failedAt))
-      const updated = await this.updateDefinitionAfterRun(store, state, workspaceRoot, definition, config, failedRun, nextRunAt, Date.parse(failedAt), result)
-      if (updated) result.fired.push({ workspaceRoot, automationId: definition.id, runId: failedRun.id, status: failedRun.status })
+      const updated = await this.updateDefinitionAfterRun(
+        store,
+        state,
+        workspaceRoot,
+        definition,
+        config,
+        failedRun,
+        nextRunAt,
+        Date.parse(failedAt),
+        result,
+      )
+      if (updated)
+        result.fired.push({ workspaceRoot, automationId: definition.id, runId: failedRun.id, status: failedRun.status })
     } finally {
       this.inFlight.delete(inFlightKey)
     }
@@ -1295,15 +1321,14 @@ export class AutomationsEngine {
     result: AutomationsEngineEvaluationResult,
     // `runNow` passes false: a once-off (`disableAfterRun`) pauses after one
     // *triggered* fire — a manual run never consumes the shot.
-    options?: { consumeOnceOffShot?: boolean }
+    options?: { consumeOnceOffShot?: boolean },
   ): Promise<boolean> {
     // Once-off consumption: pause instead of rescheduling. A skipped overdue run
     // routes through here too, so a missed once-off records its `skipped` run and
     // then pauses (the documented missed-run rule). A failed run also consumed
     // the shot — the user re-enables to arm it again.
-    const pauseAfterRun = options?.consumeOnceOffShot !== false
-      && definition.disableAfterRun === true
-      && definition.status === 'enabled'
+    const pauseAfterRun =
+      options?.consumeOnceOffShot !== false && definition.disableAfterRun === true && definition.status === 'enabled'
     if (!pauseAfterRun && !nextRunAt && !scheduleCadenceCanExhaust(config)) {
       result.problems.push({
         workspaceRoot,
@@ -1338,7 +1363,8 @@ export class AutomationsEngine {
       result.problems.push(storeProblem(workspaceRoot, stateWrite.error, definition.id))
       return false
     }
-    if (persistedNextRunAt) result.scheduled.push({ workspaceRoot, automationId: definition.id, nextRunAt: persistedNextRunAt })
+    if (persistedNextRunAt)
+      result.scheduled.push({ workspaceRoot, automationId: definition.id, nextRunAt: persistedNextRunAt })
     return true
   }
 
@@ -1346,7 +1372,7 @@ export class AutomationsEngine {
     workspaceRoot: string,
     automationId: string,
     dueAt: string,
-    fields: Pick<AutomationRun, 'status' | 'startedAt' | 'completedAt'> & Partial<AutomationRun>
+    fields: Pick<AutomationRun, 'status' | 'startedAt' | 'completedAt'> & Partial<AutomationRun>,
   ): AutomationRun {
     return {
       id: this.createRunId({ workspaceRoot, automationId, dueAt }),
@@ -1393,7 +1419,11 @@ export class AutomationsEngine {
           ? projectFoldersFromWorkspaceSyncSnapshot(await this.getWorkspaceSnapshot())
           : []
       const normalizedRoot = normalizeWorkspaceRoot(workspaceRoot)
-      return dedupeProjectFolders(projectFolders).find((folder) => normalizeWorkspaceRoot(folder.folderPath) === normalizedRoot)?.workspaceId ?? null
+      return (
+        dedupeProjectFolders(projectFolders).find(
+          (folder) => normalizeWorkspaceRoot(folder.folderPath) === normalizedRoot,
+        )?.workspaceId ?? null
+      )
     } catch {
       return null
     }
@@ -1409,7 +1439,7 @@ export function projectFoldersFromWorkspaceSyncSnapshot(snapshot: WorkspaceSyncS
     snapshot.state.workspaces.flatMap((workspace) => {
       const folderPath = workspace.folderPath?.trim()
       return folderPath ? [{ workspaceId: workspace.id, folderPath }] : []
-    })
+    }),
   )
 }
 
@@ -1466,7 +1496,11 @@ function normalizeWorkspaceRoot(workspaceRoot: string): string {
   return workspaceRoot.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
 }
 
-function storeProblem(workspaceRoot: string, error: AutomationStoreProblem, automationId?: string): AutomationsEngineProblem {
+function storeProblem(
+  workspaceRoot: string,
+  error: AutomationStoreProblem,
+  automationId?: string,
+): AutomationsEngineProblem {
   return {
     workspaceRoot,
     automationId,

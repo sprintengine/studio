@@ -63,7 +63,11 @@ run('an empty prompt with an attached image or a pick still counts as content; d
   writeNewChatDraft('w1', { skills: [], mcpServers: [connector('railway')] })
   assert.equal(newChatDraftHasContent(readNewChatDraft('w1')), true, 'so is a picked MCP server')
   writeNewChatDraft('w1', { mcpServers: [], selection: { kind: 'general' }, folderPath: '/w/app' })
-  assert.equal(newChatDraftHasContent(readNewChatDraft('w1')), false, 'an engine row and a project are defaults, not content')
+  assert.equal(
+    newChatDraftHasContent(readNewChatDraft('w1')),
+    false,
+    'an engine row and a project are defaults, not content',
+  )
 })
 
 run('clearing forgets the draft entirely', () => {
@@ -102,10 +106,10 @@ run('rescoping a window with no draft mints nothing', () => {
 })
 
 run('reopening onto a connector leads with it and never doubles a parked chip', () => {
-  assert.deepEqual(
-    mergeDraftConnectors([connector('railway')], [connector('github'), connector('railway')]),
-    [connector('railway'), connector('github')],
-  )
+  assert.deepEqual(mergeDraftConnectors([connector('railway')], [connector('github'), connector('railway')]), [
+    connector('railway'),
+    connector('github'),
+  ])
   assert.deepEqual(mergeDraftConnectors(null, [connector('github')]), [connector('github')])
   assert.deepEqual(mergeDraftConnectors(undefined, undefined), [])
 })

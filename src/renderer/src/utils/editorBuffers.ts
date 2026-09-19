@@ -40,7 +40,7 @@ export function remapEditorBuffers(workspaceId: string, fromPath: string, toPath
 
   for (const [key, content] of [...buffers.entries()]) {
     const [bufferWorkspaceId, path] = key.split('\u0000')
-    if (bufferWorkspaceId !== workspaceId || (!path || (path !== fromPath && !path.startsWith(fromPrefix)))) {
+    if (bufferWorkspaceId !== workspaceId || !path || (path !== fromPath && !path.startsWith(fromPrefix))) {
       continue
     }
 
@@ -53,11 +53,7 @@ export function remapEditorBuffers(workspaceId: string, fromPath: string, toPath
   }
 }
 
-export function moveEditorBuffer(
-  sourceWorkspaceId: string,
-  destWorkspaceId: string,
-  path: string
-): void {
+export function moveEditorBuffer(sourceWorkspaceId: string, destWorkspaceId: string, path: string): void {
   if (sourceWorkspaceId === destWorkspaceId) return
   const sourceKey = bufferKey(sourceWorkspaceId, path)
   if (!buffers.has(sourceKey)) return
@@ -77,11 +73,7 @@ export function removeEditorBuffersForPath(workspaceId: string, path: string): v
   }
 }
 
-export function subscribeEditorBuffer(
-  workspaceId: string,
-  path: string,
-  listener: EditorBufferListener
-): () => void {
+export function subscribeEditorBuffer(workspaceId: string, path: string, listener: EditorBufferListener): () => void {
   const key = bufferKey(workspaceId, path)
   const bucket = listeners.get(key) ?? new Set<EditorBufferListener>()
   bucket.add(listener)

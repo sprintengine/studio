@@ -142,7 +142,10 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
     socket.on('data', (chunk: string) => {
       buffer += chunk
       if (buffer.length > MAX_LINE_BYTES) {
-        respond(socket, jsonRpcErrorResponse(null, JSONRPC_INVALID_REQUEST, 'Request frame exceeds the 1 MiB line limit.'))
+        respond(
+          socket,
+          jsonRpcErrorResponse(null, JSONRPC_INVALID_REQUEST, 'Request frame exceeds the 1 MiB line limit.'),
+        )
         socket.destroy()
         return
       }
@@ -173,7 +176,10 @@ export function createMcpSocketServer(options: McpSocketServerOptions): McpSocke
       return
     }
     if (!isRecord(parsed) || parsed.jsonrpc !== '2.0' || typeof parsed.method !== 'string') {
-      respond(socket, jsonRpcErrorResponse(idOf(parsed), JSONRPC_INVALID_REQUEST, 'Request is not a JSON-RPC 2.0 message.'))
+      respond(
+        socket,
+        jsonRpcErrorResponse(idOf(parsed), JSONRPC_INVALID_REQUEST, 'Request is not a JSON-RPC 2.0 message.'),
+      )
       return
     }
     const id = idOf(parsed)
@@ -240,7 +246,11 @@ function respond(socket: Socket, payload: Record<string, unknown>): void {
     line = JSON.stringify({
       jsonrpc: '2.0',
       id: payload.id,
-      result: { content: [{ type: 'text', text: JSON.stringify(structured) }], structuredContent: structured, isError: true },
+      result: {
+        content: [{ type: 'text', text: JSON.stringify(structured) }],
+        structuredContent: structured,
+        isError: true,
+      },
     })
   }
   socket.write(`${line}\n`)

@@ -130,8 +130,7 @@ export type CanvasWorkerRequestOf<K extends CanvasWorkerRequestKind> = Extract<C
 
 /** What a caller of one kind may get back: that kind's success, or a failure. */
 export type CanvasWorkerResponseOf<K extends CanvasWorkerRequestKind> =
-  | Extract<CanvasWorkerSuccess, { kind: K }>
-  | CanvasWorkerFailure
+  Extract<CanvasWorkerSuccess, { kind: K }> | CanvasWorkerFailure
 
 export function isCanvasWorkerFailure(response: CanvasWorkerResponse): response is CanvasWorkerFailure {
   return response.ok === false

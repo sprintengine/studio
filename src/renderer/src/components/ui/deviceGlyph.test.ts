@@ -10,13 +10,8 @@ import assert from 'node:assert/strict'
 
 async function main(): Promise<void> {
   const { deviceGlyphFor } = await import('./deviceGlyph')
-  const {
-    DeviceDesktopGlyph,
-    DeviceLaptopGlyph,
-    DeviceMacGlyph,
-    DevicePhoneGlyph,
-    RemoteMachineGlyph,
-  } = await import('../AppIcons')
+  const { DeviceDesktopGlyph, DeviceLaptopGlyph, DeviceMacGlyph, DevicePhoneGlyph, RemoteMachineGlyph } =
+    await import('../AppIcons')
 
   let failures = 0
   function run(name: string, fn: () => void): void {
@@ -32,11 +27,7 @@ async function main(): Promise<void> {
 
   run('a macOS desktop is named like one', () => {
     for (const hostName of ['Office-Mac-mini', 'IMAC-OFFICE', 'Mac-Studio-01', 'mac-pro']) {
-      assert.equal(
-        deviceGlyphFor({ os: 'macOS', hostName }),
-        DeviceMacGlyph,
-        `${hostName} should draw the flat box`,
-      )
+      assert.equal(deviceGlyphFor({ os: 'macOS', hostName }), DeviceMacGlyph, `${hostName} should draw the flat box`)
     }
   })
 

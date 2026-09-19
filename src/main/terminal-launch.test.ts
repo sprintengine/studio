@@ -1,5 +1,16 @@
 import assert from 'node:assert/strict'
-import { closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, readSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  closeSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  readFileSync,
+  readSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { execFileSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -81,16 +92,16 @@ function testWindowsPowerShellHandsTheExeEveryArgumentIntact(): void {
     'C:\\my dir\\',
     '',
   ]
-  const script = [
-    `$command = 'node'`,
-    `$arguments = @()`,
-    ...buildNativeWindowsInvocation(args),
-  ].join('\r\n')
+  const script = [`$command = 'node'`, `$arguments = @()`, ...buildNativeWindowsInvocation(args)].join('\r\n')
   const dir = mkdtempSync(join(tmpdir(), 'se-winargs-'))
   try {
     const scriptPath = join(dir, 'launch.ps1')
     writeFileSync(scriptPath, script, 'utf8')
-    const output = execFileSync('powershell.exe', ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath], { encoding: 'utf8' })
+    const output = execFileSync(
+      'powershell.exe',
+      ['-NoLogo', '-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', scriptPath],
+      { encoding: 'utf8' },
+    )
     assert.deepEqual(JSON.parse(output.trim()), args.slice(3))
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -108,7 +119,7 @@ function testNoOpWithoutProviderEnv(): void {
 function testProviderEnvWinsOnCollision(): void {
   const out = mergeProviderLaunchEnv(
     { ANTHROPIC_BASE_URL: 'https://api.anthropic.com', FOO: 'base' },
-    { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', FOO: 'provider' }
+    { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', FOO: 'provider' },
   )
   assert.equal(out.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic')
   assert.equal(out.FOO, 'provider')
@@ -120,7 +131,7 @@ function testProviderEnvWinsOnCollision(): void {
 function testStripsApiKeyOnBaseUrlRedirectWithoutToken(): void {
   const out = mergeProviderLaunchEnv(
     { ANTHROPIC_API_KEY: 'real-anthropic-key', PATH: '/bin' },
-    { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.2' }
+    { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', ANTHROPIC_DEFAULT_SONNET_MODEL: 'glm-5.2' },
   )
   assert.equal('ANTHROPIC_API_KEY' in out, false, 'inherited real key must not survive an endpoint redirect')
   assert.equal(out.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic')
@@ -130,7 +141,7 @@ function testStripsApiKeyOnBaseUrlRedirectWithoutToken(): void {
 function testStripsApiKeyWhenTokenSet(): void {
   const out = mergeProviderLaunchEnv(
     { ANTHROPIC_API_KEY: 'real-anthropic-key' },
-    { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', ANTHROPIC_AUTH_TOKEN: 'zai-token' }
+    { ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic', ANTHROPIC_AUTH_TOKEN: 'zai-token' },
   )
   assert.equal('ANTHROPIC_API_KEY' in out, false)
   assert.equal(out.ANTHROPIC_AUTH_TOKEN, 'zai-token')
@@ -139,10 +150,7 @@ function testStripsApiKeyWhenTokenSet(): void {
 // A provider env that does not touch the Anthropic endpoint must leave an
 // inherited ANTHROPIC_API_KEY alone (no over-stripping).
 function testKeepsApiKeyWhenNoAnthropicRedirect(): void {
-  const out = mergeProviderLaunchEnv(
-    { ANTHROPIC_API_KEY: 'real-anthropic-key' },
-    { SOME_OTHER_VAR: 'x' }
-  )
+  const out = mergeProviderLaunchEnv({ ANTHROPIC_API_KEY: 'real-anthropic-key' }, { SOME_OTHER_VAR: 'x' })
   assert.equal(out.ANTHROPIC_API_KEY, 'real-anthropic-key')
   assert.equal(out.SOME_OTHER_VAR, 'x')
 }
@@ -157,10 +165,10 @@ function testNeverOverridesProtectedKeys(): void {
       FORCE_HYPERLINK: '0',
       MULTICODE_AGENT_ID: 'spoofed',
       ANTHROPIC_BASE_URL: 'https://api.z.ai/api/anthropic',
-    }
+    },
   )
   assert.equal(out.TERM, 'xterm-256color', 'TERM is protected')
-  assert.equal(out.FORCE_HYPERLINK, '1', 'the hyperlink capability is the pane\'s to declare, not a manifest\'s')
+  assert.equal(out.FORCE_HYPERLINK, '1', "the hyperlink capability is the pane's to declare, not a manifest's")
   assert.equal(out.MULTICODE_AGENT_ID, 'agent-1', 'agent identity is protected')
   assert.equal(out.ANTHROPIC_BASE_URL, 'https://api.z.ai/api/anthropic', 'non-protected keys still apply')
 }
@@ -185,7 +193,7 @@ function testStripsInheritedAgentStateSocket(): void {
   assert.notEqual(
     agent.MULTICODE_AGENT_STATE_SOCKET,
     '/tmp/other-instance.sock',
-    'inherited socket address must never survive onto an agent launch'
+    'inherited socket address must never survive onto an agent launch',
   )
 }
 
@@ -194,7 +202,7 @@ function testStripsInheritedAgentStateSocket(): void {
 function testSocketNeverClobberedByProviderEnv(): void {
   const out = mergeProviderLaunchEnv(
     { MULTICODE_AGENT_STATE_SOCKET: '/tmp/ours.sock', PATH: '/bin' },
-    { MULTICODE_AGENT_STATE_SOCKET: '/tmp/theirs.sock' }
+    { MULTICODE_AGENT_STATE_SOCKET: '/tmp/theirs.sock' },
   )
   assert.equal(out.MULTICODE_AGENT_STATE_SOCKET, '/tmp/ours.sock', 'socket address is protected')
 }
@@ -225,7 +233,7 @@ function delivery(overrides: Partial<HostContextDelivery> = {}): HostContextDeli
 function testJsonEnvValuesMergeInsteadOfClobbering(): void {
   const out = mergeProviderLaunchEnv(
     { OPENCODE_CONFIG_CONTENT: '{"theme":"tokyonight","instructions":["AGENTS.md"]}' },
-    { OPENCODE_CONFIG_CONTENT: '{"instructions":["/ctx/s1.md"]}' }
+    { OPENCODE_CONFIG_CONTENT: '{"instructions":["/ctx/s1.md"]}' },
   )
   const merged = JSON.parse(out.OPENCODE_CONFIG_CONTENT) as { theme: string; instructions: string[] }
   assert.equal(merged.theme, 'tokyonight', "the user's own keys survive")
@@ -264,7 +272,7 @@ function testContributionEnvIsAppliedAfterCoreAndStripsIdentityKeys(): void {
   const applied = applyMergedLaunchContribution(
     { PATH: '/usr/bin', MODULE_ID: 'stale', TERM: 'xterm-256color' },
     merged,
-    'posix'
+    'posix',
   )
   assert.equal(applied.MODULE_ID, undefined, 'contribution identity keys are stripped first')
   assert.equal(applied.MODULE_ROOT, '/Users/dev/mod')
@@ -341,7 +349,11 @@ function testWslAndWindowsNormalizeTheContextPaths(): void {
   assert.ok(!wsl.contextText?.includes('C:/repo'), 'no Windows path survives into a WSL document')
 
   const windows = hostContextRenderInputs(
-    { mode: 'argv', document: buildHostContextDocument({ designSystem: { bundlePath: '/mnt/c/repo/design-system' } }), filePath: '/mnt/c/ctx/s1.md' },
+    {
+      mode: 'argv',
+      document: buildHostContextDocument({ designSystem: { bundlePath: '/mnt/c/repo/design-system' } }),
+      filePath: '/mnt/c/ctx/s1.md',
+    },
     'windows',
     ['/mnt/c/repo'],
   )
@@ -390,10 +402,7 @@ function testOsc7ReportsAnEmptyHostAndEscapesWhatWouldChangeTheMeaning(): void {
     /printf '\\033\]7;file:\/\/%s\\033\\\\' "\$__multicode_osc7"/u,
     'an empty host, and $PWD (already absolute) supplies the leading slash',
   )
-  assert.ok(
-    !/file:\/\/\$\{?HOST/u.test(OSC7_BASH_PROMPT_COMMAND),
-    'never the hostname form other terminals emit',
-  )
+  assert.ok(!/file:\/\/\$\{?HOST/u.test(OSC7_BASH_PROMPT_COMMAND), 'never the hostname form other terminals emit')
 
   const escapes = [...OSC7_BASH_PROMPT_COMMAND.matchAll(/%([0-9A-F]{2})\}/gu)].map((match) => match[1])
   assert.deepEqual(
@@ -417,7 +426,10 @@ function testTheZshShimHandsEveryStageBackToTheUsersOwnFiles(): void {
       shim.includes(`if [[ -f "$ZDOTDIR/${fileName}" ]]; then source "$ZDOTDIR/${fileName}"; fi`),
       `${fileName} sources the user's own copy — zsh takes the WHOLE set from $ZDOTDIR, so a missing shim silently drops that file`,
     )
-    assert.ok(shim.includes('ZDOTDIR=${SPRINTENGINE_USER_ZDOTDIR:-$HOME}'), `${fileName} runs it with their own $ZDOTDIR`)
+    assert.ok(
+      shim.includes('ZDOTDIR=${SPRINTENGINE_USER_ZDOTDIR:-$HOME}'),
+      `${fileName} runs it with their own $ZDOTDIR`,
+    )
     assert.ok(
       shim.includes('if [[ $ZDOTDIR == "$SPRINTENGINE_ZDOTDIR_SELF" ]]; then ZDOTDIR=$HOME; fi'),
       `${fileName} refuses to source itself if a relaunch pointed us at ourselves`,
@@ -457,11 +469,15 @@ function testOnlyTheShellsWeCanReachThroughEnvAreArmed(): void {
   const zsh = buildShellIntegrationSetup('zsh', '/profile/shell-integration/zsh')
   assert.equal(
     zsh,
-    'if [ "${ZDOTDIR:-}" != \'/profile/shell-integration/zsh\' ]; then export SPRINTENGINE_USER_ZDOTDIR="${ZDOTDIR:-$HOME}"; fi; '
-    + "export ZDOTDIR='/profile/shell-integration/zsh'",
+    'if [ "${ZDOTDIR:-}" != \'/profile/shell-integration/zsh\' ]; then export SPRINTENGINE_USER_ZDOTDIR="${ZDOTDIR:-$HOME}"; fi; ' +
+      "export ZDOTDIR='/profile/shell-integration/zsh'",
   )
 
-  assert.equal(buildShellIntegrationSetup('zsh', null), null, 'no shim directory (unwritable profile) means no OSC 7, not a broken $ZDOTDIR')
+  assert.equal(
+    buildShellIntegrationSetup('zsh', null),
+    null,
+    'no shim directory (unwritable profile) means no OSC 7, not a broken $ZDOTDIR',
+  )
   assert.equal(buildShellIntegrationSetup('sh', '/profile/shell-integration/zsh'), null)
   assert.equal(buildShellIntegrationSetup('fish', '/profile/shell-integration/zsh'), null)
   assert.equal(buildShellIntegrationSetup(undefined, '/profile/shell-integration/zsh'), null)
@@ -503,7 +519,7 @@ function testOsc133RidesTheSamePromptCommandAndCapturesTheStatusFirst(): void {
     OSC133_BASH_PROMPT_COMMAND.includes(
       "case ${PS0-} in *'\\033]133;C\\033\\\\'*) ;; *) PS0=${PS0-}'\\033]133;C\\033\\\\' ;; esac",
     ),
-    'C rides PS0 — no DEBUG trap, which would clobber the user\'s own',
+    "C rides PS0 — no DEBUG trap, which would clobber the user's own",
   )
   assert.ok(
     OSC133_BASH_PROMPT_COMMAND.endsWith('case $__multicode_status in 0) ;; *) ( exit $__multicode_status ) ;; esac'),
@@ -523,7 +539,7 @@ function testOsc133ZshHooksRunFirstAndHandTheStatusBack(): void {
 
   assert.ok(
     zshrc.includes('precmd_functions=(__multicode_osc133_precmd "${(@)precmd_functions:#__multicode_osc133_precmd}")'),
-    'prepended, not appended — a hook behind another one sees that one\'s status, not the command\'s',
+    "prepended, not appended — a hook behind another one sees that one's status, not the command's",
   )
   assert.ok(
     zshrc.includes('__multicode_osc133_precmd() {\n  local __multicode_ret=$?\n  emulate -L zsh'),
@@ -547,7 +563,7 @@ function testOsc133ZshHooksRunFirstAndHandTheStatusBack(): void {
   )
   assert.ok(
     zshrc.includes('if [[ -o promptpercent ]]; then __multicode_osc133_prompt_percent=1; fi'),
-    'and the option is read at file scope — `emulate -L zsh` inside the hook would report zsh\'s defaults, not the user\'s',
+    "and the option is read at file scope — `emulate -L zsh` inside the hook would report zsh's defaults, not the user's",
   )
   assert.ok(
     zshrc.includes('if (( __multicode_osc133_prompt_percent )) && [[ $PS1 != '),
@@ -557,7 +573,7 @@ function testOsc133ZshHooksRunFirstAndHandTheStatusBack(): void {
   // OSC 7 is unchanged by all of the above: same hook, same registration, and
   // it is still the interactive stage alone that installs anything.
   assert.ok(zshrc.includes('precmd_functions+=(__multicode_osc7_cwd)'), 'OSC 7 still registers its own hook')
-  assert.ok(zshrc.includes("printf '\\033]7;file://%s\\033\\\\' \"$d\""), 'OSC 7 still emits')
+  assert.ok(zshrc.includes('printf \'\\033]7;file://%s\\033\\\\\' "$d"'), 'OSC 7 still emits')
   for (const fileName of ['.zshenv', '.zprofile', '.zlogin'] as const) {
     const shim = buildShellIntegrationZshShim(fileName)
     assert.ok(!shim.includes('__multicode_osc133'), `${fileName} installs no mark hook — the interactive stage owns it`)
@@ -575,7 +591,7 @@ function testTheMarksAreArmedForShellsOnly(): void {
   assert.equal(
     bash.match(/PROMPT_COMMAND=/gu)?.length,
     2,
-    'and in exactly one variable — the capture of the user\'s own, then ours',
+    "and in exactly one variable — the capture of the user's own, then ours",
   )
   assert.ok(bash.endsWith('; export PROMPT_COMMAND'), 'exported, or it would not survive the exec')
 
@@ -592,7 +608,6 @@ function testTheMarksAreArmedForShellsOnly(): void {
     )
   }
 }
-
 
 // The right side of `==` inside `[[ ]]` is a GLOB unless it is quoted, and under
 // `setopt globsubst` — which a user's own .zshenv can set, and which is in
@@ -627,8 +642,10 @@ function testBashKeepsTheUsersOwnPromptCommand(): void {
   const bash = buildShellIntegrationSetup('bash', null) ?? ''
 
   assert.ok(
-    bash.startsWith('case "${PROMPT_COMMAND:-}" in *__multicode_status*) ;; *) '
-      + 'SPRINTENGINE_USER_PROMPT_COMMAND=${PROMPT_COMMAND:-}; export SPRINTENGINE_USER_PROMPT_COMMAND ;; esac; '),
+    bash.startsWith(
+      'case "${PROMPT_COMMAND:-}" in *__multicode_status*) ;; *) ' +
+        'SPRINTENGINE_USER_PROMPT_COMMAND=${PROMPT_COMMAND:-}; export SPRINTENGINE_USER_PROMPT_COMMAND ;; esac; ',
+    ),
     'the inherited value is captured before it is replaced',
   )
   assert.ok(

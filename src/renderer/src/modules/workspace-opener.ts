@@ -41,7 +41,10 @@ export function createWorkspaceOpener(ports: WorkspaceOpenerPorts) {
     })()
     pending.set(typeId, opening)
     // Clear on both outcomes without manufacturing an unhandled rejection.
-    void opening.then(() => pending.delete(typeId), () => pending.delete(typeId))
+    void opening.then(
+      () => pending.delete(typeId),
+      () => pending.delete(typeId),
+    )
     return opening
   }
 

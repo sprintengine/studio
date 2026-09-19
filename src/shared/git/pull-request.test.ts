@@ -79,9 +79,18 @@ function pr(overrides: Partial<BranchPullRequest> & { number: number }): BranchP
     pr({ number: 7, state: 'merged' }),
   ]
   const groups = groupPullRequests(list)
-  assert.deepEqual(groups.open.map((entry) => entry.number), [9, 5])
-  assert.deepEqual(groups.merged.map((entry) => entry.number), [7, 1])
-  assert.deepEqual(groups.closed.map((entry) => entry.number), [3])
+  assert.deepEqual(
+    groups.open.map((entry) => entry.number),
+    [9, 5],
+  )
+  assert.deepEqual(
+    groups.merged.map((entry) => entry.number),
+    [7, 1],
+  )
+  assert.deepEqual(
+    groups.closed.map((entry) => entry.number),
+    [3],
+  )
   assert.equal(
     groups.open.length + groups.merged.length + groups.closed.length,
     list.length,
@@ -90,7 +99,10 @@ function pr(overrides: Partial<BranchPullRequest> & { number: number }): BranchP
   assert.deepEqual(groupPullRequests([]), { open: [], merged: [], closed: [] })
 
   // The tooltip's "Earlier:" lines: everything but the one on the mark.
-  assert.deepEqual(earlierPullRequests(list).map((entry) => entry.number), [7, 5, 3, 1])
+  assert.deepEqual(
+    earlierPullRequests(list).map((entry) => entry.number),
+    [7, 5, 3, 1],
+  )
   assert.deepEqual(earlierPullRequests([]), [])
   assert.deepEqual(earlierPullRequests([pr({ number: 2 })]), [], 'the only one is the primary, so nothing is earlier')
 }
@@ -129,7 +141,7 @@ function pr(overrides: Partial<BranchPullRequest> & { number: number }): BranchP
   assert.deepEqual(
     pullRequestRepository('https://github.com/Acme/App/pull/12/files?w=1'),
     { repoKey: 'github.com/acme/app', repoName: 'app' },
-    'case and the URL\'s trailing cruft do not make a second repository',
+    "case and the URL's trailing cruft do not make a second repository",
   )
   assert.deepEqual(pullRequestRepository('https://ghe.corp.example.com/acme/app/pull/3'), {
     repoKey: 'ghe.corp.example.com/acme/app',
@@ -152,10 +164,20 @@ function pr(overrides: Partial<BranchPullRequest> & { number: number }): BranchP
 {
   const onBranch = [pr({ number: 5 }), pr({ number: 3, state: 'merged' })]
   const captured = [
-    { ...pr({ number: 9 }), url: 'https://github.com/acme/website/pull/9', repoKey: 'github.com/acme/website', repoName: 'website', openedBySessionId: 'session-a' },
+    {
+      ...pr({ number: 9 }),
+      url: 'https://github.com/acme/website/pull/9',
+      repoKey: 'github.com/acme/website',
+      repoName: 'website',
+      openedBySessionId: 'session-a',
+    },
   ]
   const union = unionPullRequests(onBranch, captured)
-  assert.deepEqual(union.map((entry) => entry.number), [9, 5, 3], 'both sources, newest first')
+  assert.deepEqual(
+    union.map((entry) => entry.number),
+    [9, 5, 3],
+    'both sources, newest first',
+  )
   assert.deepEqual(
     [...new Set(union.map((entry) => entry.repoName))].sort(),
     ['app', 'website'],

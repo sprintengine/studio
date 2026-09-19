@@ -47,11 +47,7 @@ function testTieredIpcScopesAreKnownAndDescribed(): void {
   for (const tier of tiers) {
     assert.equal(isKnownCapabilityPermission(tier), true, `${tier} is a known scope`)
     assert.equal(isBroadCapabilityPermission(tier), false, `${tier} is not flagged broad`)
-    assert.doesNotMatch(
-      describeCapabilityPermission(tier),
-      /Unrecognized/,
-      `${tier} has a real consent description`
-    )
+    assert.doesNotMatch(describeCapabilityPermission(tier), /Unrecognized/, `${tier} has a real consent description`)
   }
   const result = validateCapabilityPermissions(tiers)
   assert.equal(result.ok, true, 'tiered scopes validate')
@@ -63,11 +59,7 @@ function testBacklogScopesAreKnownAndDisclosureOnly(): void {
   for (const scope of scopes) {
     assert.equal(isKnownCapabilityPermission(scope), true, `${scope} is a known scope`)
     assert.equal(isBroadCapabilityPermission(scope), false, `${scope} is not flagged broad`)
-    assert.doesNotMatch(
-      describeCapabilityPermission(scope),
-      /Unrecognized/,
-      `${scope} has a real consent description`
-    )
+    assert.doesNotMatch(describeCapabilityPermission(scope), /Unrecognized/, `${scope} has a real consent description`)
   }
   assert.match(describeCapabilityPermission('backlog.read'), /Read Backlog/)
   assert.match(describeCapabilityPermission('backlog.write'), /Change Backlog/)
@@ -94,7 +86,7 @@ function testDescriptionsNeverImplyEnforcement(): void {
     assert.doesNotMatch(
       describeCapabilityPermission(permission),
       /sandbox|enforce|prevent|restrict|block/i,
-      `${permission} consent string stays disclosure-only`
+      `${permission} consent string stays disclosure-only`,
     )
   }
 }

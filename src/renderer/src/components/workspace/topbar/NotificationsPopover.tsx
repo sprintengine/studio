@@ -6,7 +6,16 @@
 
 import React, { useMemo, useState } from 'react'
 import type { AppNotification, DiagnosticLevel } from '../../../types/workspace'
-import { ChipButton, EmptyState, GhostButton, LifecycleGlyph, OutlineButton, PanelHeader, TruncatedText, type LifecycleState } from '../../ui'
+import {
+  ChipButton,
+  EmptyState,
+  GhostButton,
+  LifecycleGlyph,
+  OutlineButton,
+  PanelHeader,
+  TruncatedText,
+  type LifecycleState,
+} from '../../ui'
 
 type RuntimeClipboardApi = {
   clipboardWriteText?: (text: string) => Promise<void>
@@ -134,7 +143,7 @@ export function NotificationsPopover({
       byBucket[notificationDayBucket(notification.timestamp, now)].push(notification)
     }
     return DAY_BUCKET_ORDER.map((bucket) => ({ bucket, items: byBucket[bucket] })).filter(
-      (group) => group.items.length > 0
+      (group) => group.items.length > 0,
     )
   }, [visibleNotifications])
 
@@ -196,7 +205,11 @@ export function NotificationsPopover({
                       key={level}
                       tone="neutral"
                       pressed={active}
-                      aria-label={active ? `Showing only ${LEVEL_NOUN[level]} notifications` : `Show only ${LEVEL_NOUN[level]} notifications`}
+                      aria-label={
+                        active
+                          ? `Showing only ${LEVEL_NOUN[level]} notifications`
+                          : `Show only ${LEVEL_NOUN[level]} notifications`
+                      }
                       onClick={() => toggleLevel(level)}
                     >
                       {glyph ? <LifecycleGlyph state={glyph} live={false} /> : null}
@@ -244,72 +257,76 @@ export function NotificationsPopover({
               {group.items.map((notification) => {
                 const rowActions = resolveActions?.(notification) ?? []
                 return (
-                <div
-                  key={notification.id}
-                  className={`rounded px-2.5 py-2.5 ${
-                    notification.read
-                      ? 'text-[color:var(--text-muted)]'
-                      : 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)]'
-                  }`}
-                >
-                  <div className="flex items-start gap-2">
-                    <NotificationSeverityGlyph level={notification.level} />
-                    <div className="min-w-0 flex-1">
-                      <div className="flex min-w-0 items-center justify-between gap-3">
-                        <TruncatedText as="div" text={notification.title} className="text-body font-semibold text-[color:var(--text-strong)]" />
-                        <div className="shrink-0 tabular-nums text-micro text-[color:var(--text-disabled)]">
-                          {formatNotificationTime(notification.timestamp)}
+                  <div
+                    key={notification.id}
+                    className={`rounded px-2.5 py-2.5 ${
+                      notification.read
+                        ? 'text-[color:var(--text-muted)]'
+                        : 'bg-[color:var(--bg-surface-raised)] text-[color:var(--text-default)]'
+                    }`}
+                  >
+                    <div className="flex items-start gap-2">
+                      <NotificationSeverityGlyph level={notification.level} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center justify-between gap-3">
+                          <TruncatedText
+                            as="div"
+                            text={notification.title}
+                            className="text-body font-semibold text-[color:var(--text-strong)]"
+                          />
+                          <div className="shrink-0 tabular-nums text-micro text-[color:var(--text-disabled)]">
+                            {formatNotificationTime(notification.timestamp)}
+                          </div>
                         </div>
-                      </div>
-                      <div className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">
-                        {notification.message}
-                      </div>
-                      {notification.workspaceName || notification.agentId || notification.sessionId ? (
-                        <TruncatedText
-                          as="div"
-                          text={[notification.workspaceName, notification.agentId, notification.sessionId]
-                            .filter(Boolean)
-                            .join(' / ')}
-                          className="mt-1 font-mono text-micro text-[color:var(--text-disabled)]"
-                        />
-                      ) : null}
-                      <div className="mt-2 flex items-center gap-1.5">
-                        {/* The row's actions are the kit's outline button at the
+                        <div className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">
+                          {notification.message}
+                        </div>
+                        {notification.workspaceName || notification.agentId || notification.sessionId ? (
+                          <TruncatedText
+                            as="div"
+                            text={[notification.workspaceName, notification.agentId, notification.sessionId]
+                              .filter(Boolean)
+                              .join(' / ')}
+                            className="mt-1 font-mono text-micro text-[color:var(--text-disabled)]"
+                          />
+                        ) : null}
+                        <div className="mt-2 flex items-center gap-1.5">
+                          {/* The row's actions are the kit's outline button at the
                             dense step: same radius, hover, disabled and focus
                             treatment as every other secondary action. */}
-                        {rowActions.map((action) => (
-                          <OutlineButton
-                            key={action.id}
-                            size="xs"
-                            onClick={() => {
-                              onMarkRead(notification.id)
-                              void action.run()
-                            }}
-                          >
-                            {action.label}
+                          {rowActions.map((action) => (
+                            <OutlineButton
+                              key={action.id}
+                              size="xs"
+                              onClick={() => {
+                                onMarkRead(notification.id)
+                                void action.run()
+                              }}
+                            >
+                              {action.label}
+                            </OutlineButton>
+                          ))}
+                          <OutlineButton size="xs" onClick={() => void copyNotification(notification)}>
+                            Copy
                           </OutlineButton>
-                        ))}
-                        <OutlineButton size="xs" onClick={() => void copyNotification(notification)}>
-                          Copy
-                        </OutlineButton>
-                        {copyErrorId === notification.id ? (
-                          <span
-                            role="status"
-                            aria-live="polite"
-                            className="text-micro font-semibold text-[color:var(--tone-error)]"
-                          >
-                            Could not copy
-                          </span>
-                        ) : null}
-                        {notification.logPath ? (
-                          <OutlineButton size="xs" onClick={() => openLogsForNotification(notification)}>
-                            Open logs
-                          </OutlineButton>
-                        ) : null}
+                          {copyErrorId === notification.id ? (
+                            <span
+                              role="status"
+                              aria-live="polite"
+                              className="text-micro font-semibold text-[color:var(--tone-error)]"
+                            >
+                              Could not copy
+                            </span>
+                          ) : null}
+                          {notification.logPath ? (
+                            <OutlineButton size="xs" onClick={() => openLogsForNotification(notification)}>
+                              Open logs
+                            </OutlineButton>
+                          ) : null}
+                        </div>
                       </div>
                     </div>
                   </div>
-                </div>
                 )
               })}
             </div>

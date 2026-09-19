@@ -21,7 +21,14 @@ export type { HostedModel, HostedModelFeed, HostedCliModelCatalogs } from './hos
 import type { CardAction, CardActionVerb, CardSurfaceView, HostedCardFeed } from './hosted-card-feed'
 import type { HostedSourcesFeed } from './hosted-sources-feed'
 export type { HostedSource, HostedSourceKind, HostedSourcesFeed } from './hosted-sources-feed'
-export type { CardAction, CardActionVerb, CardSurfaceView, HostedCard, HostedCardFeed, HostedCardKind } from './hosted-card-feed'
+export type {
+  CardAction,
+  CardActionVerb,
+  CardSurfaceView,
+  HostedCard,
+  HostedCardFeed,
+  HostedCardKind,
+} from './hosted-card-feed'
 // The build-identity shape a window reports; re-exported because it is part of
 // this IPC contract like the rest of the surface below.
 import type { BuildStamp } from './build-stamp'
@@ -49,11 +56,7 @@ import type {
   CanvasScenePush,
 } from './canvas/types'
 import type { CanvasWorkerReport, CanvasWorkerRequest, CanvasWorkerResponse } from './canvas/worker-protocol'
-import type {
-  FolderOpenRequest,
-  FolderOpenResult,
-  FolderOpenTargetAvailability,
-} from './folder-open-targets'
+import type { FolderOpenRequest, FolderOpenResult, FolderOpenTargetAvailability } from './folder-open-targets'
 // Re-exported because these shapes are the open-in-editor IPC contract itself:
 // the renderer reads them off this module like the rest of the API surface.
 export type {
@@ -146,18 +149,24 @@ import type {
 import type { DesignSystemBundleLintRunResult } from './design-system/bundle-lint-run'
 import type { DesignSystemScaffoldResult } from './design-system/bundle-scaffold'
 import type { DesignSystemBundleReadResult } from './design-system/bundle-view'
-import type {
-  DesignSystemLibraryListResult,
-  DesignSystemRegisterResult,
-} from './design-system/library'
+import type { DesignSystemLibraryListResult, DesignSystemRegisterResult } from './design-system/library'
 import type { DesignSystemArrivalsResult } from './design-system/arrivals'
 import type {
   DesignSystemAttachResult,
   DesignSystemAttachSource,
   DesignSystemDetachResult,
 } from './design-system/attach'
-import type { ConversationProviderListEntry, ConversationProviderModel, PluginRegistryListEntry } from './plugin-manifest'
-import type { MarketplaceComponentKind, MarketplaceIndex, MarketplaceManifestIssue, MarketplacePluginEntry } from './marketplace/manifest'
+import type {
+  ConversationProviderListEntry,
+  ConversationProviderModel,
+  PluginRegistryListEntry,
+} from './plugin-manifest'
+import type {
+  MarketplaceComponentKind,
+  MarketplaceIndex,
+  MarketplaceManifestIssue,
+  MarketplacePluginEntry,
+} from './marketplace/manifest'
 import type { MarketplaceUpdateStateEntry } from './marketplace/update-state'
 import type { CapabilityPermission } from './modules/permissions'
 import type {
@@ -185,10 +194,7 @@ import type {
   ThirdPartyModuleTrustResult,
   ThirdPartyRendererEntriesResult,
 } from './modules/manifest'
-import type {
-  ModuleRegistrySnapshot,
-  ModuleRegistrySnapshotWriteResult,
-} from './modules/registry-snapshot'
+import type { ModuleRegistrySnapshot, ModuleRegistrySnapshotWriteResult } from './modules/registry-snapshot'
 import type {
   WorkspaceSyncCommand,
   WorkspaceSyncCommandResult,
@@ -354,12 +360,9 @@ export type MemoryActivityStatus = {
 }
 
 export type MemoryActivityInstallResult =
-  | { ok: true; settingsPath: string; hookScriptPath: string }
-  | { ok: false; message: string }
+  { ok: true; settingsPath: string; hookScriptPath: string } | { ok: false; message: string }
 
-export type MemoryActivityUninstallResult =
-  | { ok: true }
-  | { ok: false; message: string }
+export type MemoryActivityUninstallResult = { ok: true } | { ok: false; message: string }
 
 export type MemoryActivitySynapsesPayload = {
   workspaceRoot: string
@@ -405,19 +408,56 @@ export type StudioPluginStatus = {
 
 export type BuiltinSkillStatus =
   | { ok: true; status: 'missing'; skill: BuiltinSkill; destinationPath: string; targets: BuiltinSkillTargetState[] }
-  | { ok: true; status: 'installed'; skill: BuiltinSkill; destinationPath: string; installedVersion: string; targets: BuiltinSkillTargetState[] }
-  | { ok: true; status: 'update-available'; skill: BuiltinSkill; destinationPath: string; installedVersion: string; targets: BuiltinSkillTargetState[] }
-  | { ok: true; status: 'modified'; skill: BuiltinSkill; destinationPath: string; installedVersion: string; targets: BuiltinSkillTargetState[] }
-  | { ok: true; status: 'local'; skill: BuiltinSkill; destinationPath: string; message: string; targets: BuiltinSkillTargetState[] }
+  | {
+      ok: true
+      status: 'installed'
+      skill: BuiltinSkill
+      destinationPath: string
+      installedVersion: string
+      targets: BuiltinSkillTargetState[]
+    }
+  | {
+      ok: true
+      status: 'update-available'
+      skill: BuiltinSkill
+      destinationPath: string
+      installedVersion: string
+      targets: BuiltinSkillTargetState[]
+    }
+  | {
+      ok: true
+      status: 'modified'
+      skill: BuiltinSkill
+      destinationPath: string
+      installedVersion: string
+      targets: BuiltinSkillTargetState[]
+    }
+  | {
+      ok: true
+      status: 'local'
+      skill: BuiltinSkill
+      destinationPath: string
+      message: string
+      targets: BuiltinSkillTargetState[]
+    }
   | { ok: false; status: 'unknown-skill' | 'missing-workspace' | 'missing-source'; skillId: string; message: string }
 
 export type BuiltinSkillInstallResult =
-  | { ok: true; status: 'installed' | 'updated'; skill: BuiltinSkill; destinationPath: string; skipped?: BuiltinSkillTargetState[] }
-  | { ok: false; status: 'unknown-skill' | 'missing-workspace' | 'missing-source' | 'modified' | 'local'; skillId: string; message: string }
+  | {
+      ok: true
+      status: 'installed' | 'updated'
+      skill: BuiltinSkill
+      destinationPath: string
+      skipped?: BuiltinSkillTargetState[]
+    }
+  | {
+      ok: false
+      status: 'unknown-skill' | 'missing-workspace' | 'missing-source' | 'modified' | 'local'
+      skillId: string
+      message: string
+    }
 
-export type PluginRegistryListResult =
-  | { ok: true; plugins: PluginRegistryListEntry[] }
-  | { ok: false; message: string }
+export type PluginRegistryListResult = { ok: true; plugins: PluginRegistryListEntry[] } | { ok: false; message: string }
 
 // Whether a single agent CLI's binary is actually installed/runnable on this
 // machine, distinct from whether its plugin manifest is registered. Bundled
@@ -434,8 +474,7 @@ export type CliAvailability = {
 export type AgentCliAvailabilityMap = Record<AgentCli, CliAvailability>
 
 export type PluginAvailabilityResult =
-  | { ok: true; availability: AgentCliAvailabilityMap }
-  | { ok: false; message: string }
+  { ok: true; availability: AgentCliAvailabilityMap } | { ok: false; message: string }
 
 // The invocation a spawn would make, rendered for display before it happens
 // (MC-2147 — the new-agent tab's receipt line). Main renders it through the
@@ -463,9 +502,7 @@ export type AgentLaunchPreview = {
   display: string
 }
 
-export type AgentLaunchPreviewResult =
-  | { ok: true; preview: AgentLaunchPreview }
-  | { ok: false; message: string }
+export type AgentLaunchPreviewResult = { ok: true; preview: AgentLaunchPreview } | { ok: false; message: string }
 
 // Per-CLI runtime overrides the renderer forwards into a batch availability
 // probe so detection runs against the same command/WSL mode each CLI launches
@@ -945,16 +982,14 @@ export type MarketplaceUpdateStatesResult =
   | { ok: false; message: string }
 
 export type ConversationProviderListResult =
-  | { ok: true; providers: ConversationProviderListEntry[] }
-  | { ok: false; message: string }
+  { ok: true; providers: ConversationProviderListEntry[] } | { ok: false; message: string }
 
 export type ConversationProviderModelsInput = {
   providerId: string
 }
 
 export type ConversationProviderModelsResult =
-  | { ok: true; models: ConversationProviderModel[] }
-  | { ok: false; message: string }
+  { ok: true; models: ConversationProviderModel[] } | { ok: false; message: string }
 
 export type ConversationSecretStatus = {
   providerId: string
@@ -976,8 +1011,7 @@ export type ConversationSecretSetInput = ConversationSecretStatusInput & {
 export type ConversationSecretClearInput = ConversationSecretStatusInput
 
 export type ConversationSecretStatusResult =
-  | { ok: true; status: ConversationSecretStatus }
-  | { ok: false; message: string }
+  { ok: true; status: ConversationSecretStatus } | { ok: false; message: string }
 
 export type ConversationSecretSetResult = ConversationSecretStatusResult
 
@@ -1294,9 +1328,7 @@ export type WorkspaceSkillsListInput = {
   workspaceRoot: string
 }
 
-export type WorkspaceSkillsListResult =
-  | { ok: true; skills: WorkspaceSkill[] }
-  | { ok: false; message: string }
+export type WorkspaceSkillsListResult = { ok: true; skills: WorkspaceSkill[] } | { ok: false; message: string }
 
 // Attaching a skill to the agents that can use it, and removing it again.
 // src/main/agent-skill-installer.ts owns the behaviour; these are the IPC
@@ -1341,8 +1373,7 @@ export type AgentSkillWriteInput = {
  * nothing to copy. Anything that reached the directories reports per target.
  */
 export type AgentSkillWriteResult =
-  | { ok: true; skillId: string; targets: AgentSkillTarget[] }
-  | { ok: false; message: string }
+  { ok: true; skillId: string; targets: AgentSkillTarget[] } | { ok: false; message: string }
 
 // Skill sources (src/shared/skills.ts owns the shapes; these are the IPC
 // envelopes). Sources are app-level; installing is workspace-level, so
@@ -1406,21 +1437,15 @@ export type SkillAddLocalSourceInput = {
 
 export type SkillRemoveSourceInput = { sourceId: string }
 
-export type SkillRemoveSourceResult =
-  | { ok: true; sourceId: string }
-  | { ok: false; message: string }
+export type SkillRemoveSourceResult = { ok: true; sourceId: string } | { ok: false; message: string }
 
 export type SkillScanInput = { sourceId: string }
 
-export type SkillScanOutcome =
-  | { ok: true; source: SkillSource; scan: ScanResult }
-  | { ok: false; message: string }
+export type SkillScanOutcome = { ok: true; source: SkillSource; scan: ScanResult } | { ok: false; message: string }
 
 export type SkillReadFileInput = { sourceId: string; skillId: string; path: string }
 
-export type SkillReadFileResult =
-  | { ok: true; path: string; content: string }
-  | { ok: false; message: string }
+export type SkillReadFileResult = { ok: true; path: string; content: string } | { ok: false; message: string }
 
 export type SkillInstallInput = { sourceId: string; skillId: string; workspaceRoot: string }
 
@@ -1436,8 +1461,7 @@ export type SkillInstallOutcome =
 export type SkillUninstallInput = { workspaceRoot: string; dirName: string }
 
 export type SkillUninstallOutcome =
-  | { ok: true; dirName: string; removedPaths: string[] }
-  | { ok: false; message: string }
+  { ok: true; dirName: string; removedPaths: string[] } | { ok: false; message: string }
 
 /** The workspace whose installed copies get re-copied; null with no workspace open. */
 export type SkillSyncSourceInput = {
@@ -1501,8 +1525,7 @@ export type SkillPopularReposOutcome = SkillDiscoveryResult<SkillRepoHit>
 export type SkillPluginScanLinkedInput = { sourceId: string; pluginId: string }
 
 export type SkillPluginScanLinkedOutcome =
-  | { ok: true; source: SkillSource; scan: ScanResult; plugin: ScannedPlugin }
-  | { ok: false; message: string }
+  { ok: true; source: SkillSource; scan: ScanResult; plugin: ScannedPlugin } | { ok: false; message: string }
 
 export type SkillPluginInstallInput = {
   sourceId: string
@@ -1597,8 +1620,7 @@ export type InstalledPluginRecord = {
 export type SkillInstalledPluginsInput = { workspaceRoot: string }
 
 export type SkillInstalledPluginsOutcome =
-  | { ok: true; plugins: InstalledPluginRecord[] }
-  | { ok: false; message: string }
+  { ok: true; plugins: InstalledPluginRecord[] } | { ok: false; message: string }
 
 /** One repository source, as the hourly update check saw it. */
 export type SkillSourceUpdateEntry = {
@@ -1715,14 +1737,7 @@ export type SessionActivity =
 // `awaiting_input` (blocked on a permission/prompt) apart from `idle` (turn
 // finished) — a distinction output-scraping structurally cannot make.
 export type AgentPhase =
-  | 'starting'
-  | 'thinking'
-  | 'tool_use'
-  | 'awaiting_input'
-  | 'idle'
-  | 'exited'
-  | 'failed'
-  | 'stalled'
+  'starting' | 'thinking' | 'tool_use' | 'awaiting_input' | 'idle' | 'exited' | 'failed' | 'stalled'
 
 /** Main's answer to a window's one-time registry hydration offer. */
 export type WorkspaceRegistryHydrateResult = {
@@ -2039,8 +2054,7 @@ export type IpcStatsSnapshot = {
 }
 
 export type TerminalSpawnResult =
-  | { ok: true; sessionId: string }
-  | { ok: false; sessionId: string; message: string; exitCode: number }
+  { ok: true; sessionId: string } | { ok: false; sessionId: string; message: string; exitCode: number }
 
 export type GitFileStatus = 'new' | 'modified' | 'deleted' | 'renamed' | 'conflicted'
 
@@ -2159,10 +2173,7 @@ export type BranchStepsSnapshot = {
 }
 
 /** Which slice of the branch a viewer is showing. */
-export type BranchStepSelection =
-  | { kind: 'span' }
-  | { kind: 'uncommitted' }
-  | { kind: 'commit'; hash: string }
+export type BranchStepSelection = { kind: 'span' } | { kind: 'uncommitted' } | { kind: 'commit'; hash: string }
 
 export type BranchStepFile = {
   path: string
@@ -2174,10 +2185,7 @@ export type BranchStepFile = {
 }
 
 /** One side of a step's diff, read at a revision. */
-export type RevFileResult =
-  | { kind: 'content'; content: string }
-  | { kind: 'absent' }
-  | { kind: 'too-large' }
+export type RevFileResult = { kind: 'content'; content: string } | { kind: 'absent' } | { kind: 'too-large' }
 
 export type BranchStepDiff = {
   files: BranchStepFile[]
@@ -2202,9 +2210,7 @@ export type GitStashListSnapshot = {
   updatedAt: number
 }
 
-export type GitFileBaseResult =
-  | { ok: true; content: string }
-  | { ok: false; message: string }
+export type GitFileBaseResult = { ok: true; content: string } | { ok: false; message: string }
 
 // Which stored version of a file the diff viewer reads. `head` is the committed
 // version (`git show HEAD:<p>`); `index` is the staged version (`git show :0:<p>`).
@@ -2239,8 +2245,7 @@ export type GitPatchResult = { ok: boolean; patch: string; message: string | nul
 export type GitPatchSaveResult = { ok: boolean; path: string | null; message: string | null }
 
 export type GitFileStageResult =
-  | { ok: true; exists: boolean; content: string; binary: boolean; tooLarge: boolean }
-  | { ok: false; message: string }
+  { ok: true; exists: boolean; content: string; binary: boolean; tooLarge: boolean } | { ok: false; message: string }
 
 export type GitBranch = {
   name: string
@@ -2363,9 +2368,7 @@ export type GitHubCloneInput = {
   folderName: string
 }
 
-export type GitHubCloneResult =
-  | { ok: true; path: string }
-  | { ok: false; message: string }
+export type GitHubCloneResult = { ok: true; path: string } | { ok: false; message: string }
 
 export type GitConflictFileContent = {
   path: string
@@ -2377,7 +2380,18 @@ export type GitConflictFileContent = {
 }
 
 export type DiagnosticLevel = 'info' | 'warning' | 'error'
-export type DiagnosticSource = 'agents' | 'auth' | 'automations' | 'cli' | 'filesystem' | 'marketplace' | 'models' | 'terminal' | 'update' | 'voice' | 'workspace'
+export type DiagnosticSource =
+  | 'agents'
+  | 'auth'
+  | 'automations'
+  | 'cli'
+  | 'filesystem'
+  | 'marketplace'
+  | 'models'
+  | 'terminal'
+  | 'update'
+  | 'voice'
+  | 'workspace'
 
 // Serializable deep-focus target for a notification's Open action. Mirrors the
 // renderer `NotificationNavigationTarget` (src/renderer/src/types/workspace.ts);
@@ -2474,9 +2488,7 @@ export type CreateWorkspaceWindowInput = {
   isMaximized?: boolean
 }
 
-export type CreateWorkspaceWindowResult =
-  | { ok: true; windowId: string }
-  | { ok: false; message: string }
+export type CreateWorkspaceWindowResult = { ok: true; windowId: string } | { ok: false; message: string }
 
 // Lightweight auxiliary windows (diff viewer, external file editor). Unlike
 // workspace windows they do not mount the workspace shell or join workspace
@@ -2495,9 +2507,7 @@ export type OpenAuxWindowInput = {
   bounds?: WindowBounds | null
 }
 
-export type OpenAuxWindowResult =
-  | { ok: true; retargeted: boolean }
-  | { ok: false; message: string }
+export type OpenAuxWindowResult = { ok: true; retargeted: boolean } | { ok: false; message: string }
 
 export type AuxWindowRetargetPayload = {
   kind: AuxWindowKind
@@ -2536,18 +2546,10 @@ export type DockDiffToWorkspacePayload = DockDiffToWorkspaceInput & { requestId:
  *  own window up and says so, rather than closing into nothing. */
 export type DockDiffToWorkspaceResult = { accepted: boolean }
 
-export type OpenExternalResult =
-  | { ok: true }
-  | { ok: false; message: string }
+export type OpenExternalResult = { ok: true } | { ok: false; message: string }
 
 export type AppUpdateStatus =
-  | 'idle'
-  | 'checking'
-  | 'available'
-  | 'downloading'
-  | 'downloaded'
-  | 'not_available'
-  | 'error'
+  'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not_available' | 'error'
 
 export type AppUpdateChannel = 'dev' | 'preview' | 'stable'
 
@@ -2574,9 +2576,7 @@ export type AppUpdateState = {
 }
 
 export type AppUpdateCheckResult =
-  | { ok: true; state: AppUpdateState; message: string }
-  | { ok: false; state: AppUpdateState; message: string }
-
+  { ok: true; state: AppUpdateState; message: string } | { ok: false; state: AppUpdateState; message: string }
 
 export type SessionUser = {
   id: string
@@ -2665,11 +2665,7 @@ export type SessionSnapshot =
 // `src/main/mobile/bridge/index.ts` (protocol v4, unchanged since v3). The two lists change
 // together, and only together with the phone.
 export type MobileControlCommandType =
-  | 'snapshot.request'
-  | 'device.revoke'
-  | 'backlog.update'
-  | 'backlog.create'
-  | 'automations.control'
+  'snapshot.request' | 'device.revoke' | 'backlog.update' | 'backlog.create' | 'automations.control'
 
 export type MobileControlCapability =
   | 'snapshots.read'
@@ -2873,9 +2869,7 @@ export type BacklogItemRecordInput = {
   criticality?: BacklogCriticalityPayload
 }
 
-export type BacklogReadResult =
-  | { ok: true; store: BacklogObjectStorePayload }
-  | { ok: false; message: string }
+export type BacklogReadResult = { ok: true; store: BacklogObjectStorePayload } | { ok: false; message: string }
 
 // Scan-time id allocation: the renderer hands the main process every scanned
 // item with its current frontmatter id (or null), and the service writes the
@@ -2893,8 +2887,7 @@ export type BacklogEnsureIdsInput = {
 }
 
 export type BacklogEnsureIdsResult =
-  | { ok: true; key: string; assignments: Record<string, number> }
-  | { ok: false; message: string }
+  { ok: true; key: string; assignments: Record<string, number> } | { ok: false; message: string }
 
 /**
  * Where a workspace's backlog items live. `root` is `<workspaceRoot>/backlog`
@@ -2912,9 +2905,7 @@ export type BacklogLocationInfo = {
   exists: boolean
 }
 
-export type BacklogLocationResult =
-  | { ok: true; location: BacklogLocationInfo }
-  | { ok: false; message: string }
+export type BacklogLocationResult = { ok: true; location: BacklogLocationInfo } | { ok: false; message: string }
 
 /** `root: null` resets the workspace to the default `<workspaceRoot>/backlog`. */
 export type BacklogSetRootInput = {
@@ -2922,9 +2913,7 @@ export type BacklogSetRootInput = {
   root: string | null
 }
 
-export type BacklogMutationResult =
-  | { ok: true; store: BacklogObjectStorePayload }
-  | { ok: false; message: string }
+export type BacklogMutationResult = { ok: true; store: BacklogObjectStorePayload } | { ok: false; message: string }
 
 export type BacklogStatusInput = {
   workspaceRoot: string
@@ -3040,9 +3029,7 @@ export type BacklogEpicColorInput = {
   color: BacklogHighlightColorPayload | null
 }
 
-export type BacklogCreateEpicResult =
-  | { ok: true; slug: string; relativePath: string }
-  | { ok: false; message: string }
+export type BacklogCreateEpicResult = { ok: true; slug: string; relativePath: string } | { ok: false; message: string }
 
 export type ElectronApi = {
   platform: string
@@ -3091,7 +3078,9 @@ export type ElectronApi = {
   /** Tell main which tab the person is looking at in a workspace's pane (agent tools target it). */
   browserNoteActive: (workspaceId: string, tabId: string | null) => Promise<void>
   /** An agent asked for a URL in this workspace's pane (browser.open); the renderer opens or navigates a tab. */
-  onBrowserOpenRequest: (cb: (payload: { workspaceId: string; url: string | null; tabId: string | null }) => void) => () => void
+  onBrowserOpenRequest: (
+    cb: (payload: { workspaceId: string; url: string | null; tabId: string | null }) => void,
+  ) => () => void
   /** The agent's pointer is about to act at a point in a tab's viewport (the cursor overlay). */
   onBrowserPointer: (cb: (event: BrowserPointerEvent) => void) => () => void
   /** An agent asked for a device viewport on a tab (browser.resize); the renderer owns viewport state. */
@@ -3208,16 +3197,17 @@ export type ElectronApi = {
    * omitted, and an id that is already gone is not an error — the result says
    * which halves were actually ended.
    */
-  tailnetForgetMachine: (input: {
-    deviceId?: string
-    connectionId?: string
-  }) => Promise<TailnetForgetMachineResult>
+  tailnetForgetMachine: (input: { deviceId?: string; connectionId?: string }) => Promise<TailnetForgetMachineResult>
   /**
    * Answer a pairing request from another machine (MC-2233). The scopes are the
    * ones chosen here, and this is the only surface that can grant the terminal
    * tier to a person rather than to an agent on the local socket.
    */
-  tailnetApprovePairRequest: (id: string, scopes: TailnetScope[], code: string) => Promise<TailnetApprovePairRequestView>
+  tailnetApprovePairRequest: (
+    id: string,
+    scopes: TailnetScope[],
+    code: string,
+  ) => Promise<TailnetApprovePairRequestView>
   tailnetDenyPairRequest: (id: string) => Promise<TailnetRemoteStatus>
   /**
    * Main asks the chrome to open the Remote popover — the click on an OS
@@ -3273,7 +3263,7 @@ export type ElectronApi = {
       scopes?: TailnetScope[]
       /** What that machine may do HERE, granted in the same exchange. Omitted asks one way only. */
       reverseScopes?: TailnetScope[]
-    }
+    },
   ) => Promise<FleetRequestPairingResult>
   fleetCancelPairing: (requestId: string) => Promise<void>
   /** Re-check whether one paired machine (or every one, with no id) answers right now (phase 4). */
@@ -3385,34 +3375,28 @@ export type ElectronApi = {
   detectProjectLogo: (folderPath: string) => Promise<ProjectLogo | null>
   memoryResolveRoot: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryRootStatus>
   memoryIndex: (input: { workspaceRoot: string | null; relativeRoot: string | null }) => Promise<MemoryGraphIndexResult>
-  memoryReadPreview: (
-    input: { workspaceRoot: string | null; relativeRoot: string | null; relativePath: string }
-  ) => Promise<MemoryPreviewResult>
-  memoryActivityInstall: (
-    input: { workspaceRoot: string | null; memoryRelativeRoot: string | null }
-  ) => Promise<MemoryActivityInstallResult>
-  memoryActivityUninstall: (
-    input: { workspaceRoot: string | null }
-  ) => Promise<MemoryActivityUninstallResult>
-  memoryActivityStartWatching: (
-    input: { workspaceRoot: string | null; memoryRelativeRoot: string | null }
-  ) => Promise<{ ok: true }>
-  memoryActivityGetStatus: (
-    input: { workspaceRoot: string | null }
-  ) => Promise<MemoryActivityStatus>
-  memoryActivityGetSynapses: (
-    input: { workspaceRoot: string | null }
-  ) => Promise<MemoryActivitySynapse[]>
-  memoryActivityIsInstalled: (
-    input: { workspaceRoot: string | null }
-  ) => Promise<boolean>
+  memoryReadPreview: (input: {
+    workspaceRoot: string | null
+    relativeRoot: string | null
+    relativePath: string
+  }) => Promise<MemoryPreviewResult>
+  memoryActivityInstall: (input: {
+    workspaceRoot: string | null
+    memoryRelativeRoot: string | null
+  }) => Promise<MemoryActivityInstallResult>
+  memoryActivityUninstall: (input: { workspaceRoot: string | null }) => Promise<MemoryActivityUninstallResult>
+  memoryActivityStartWatching: (input: {
+    workspaceRoot: string | null
+    memoryRelativeRoot: string | null
+  }) => Promise<{ ok: true }>
+  memoryActivityGetStatus: (input: { workspaceRoot: string | null }) => Promise<MemoryActivityStatus>
+  memoryActivityGetSynapses: (input: { workspaceRoot: string | null }) => Promise<MemoryActivitySynapse[]>
+  memoryActivityIsInstalled: (input: { workspaceRoot: string | null }) => Promise<boolean>
   onMemoryActivityEvent: (cb: (event: MemoryActivityEvent) => void) => () => void
   onMemoryActivityStatus: (cb: (status: MemoryActivityStatus) => void) => () => void
   onMemoryActivitySynapses: (cb: (payload: MemoryActivitySynapsesPayload) => void) => () => void
   builtinSkillsList: () => Promise<BuiltinSkill[]>
-  builtinSkillStatus: (
-    input: { workspaceRoot: string | null; skillId: string }
-  ) => Promise<BuiltinSkillStatus>
+  builtinSkillStatus: (input: { workspaceRoot: string | null; skillId: string }) => Promise<BuiltinSkillStatus>
   /**
    * The app's own plugin: what this build ships against what the open workspace
    * holds. Read-only — the built-in plugin has no Install and no Remove.
@@ -3449,8 +3433,12 @@ export type ElectronApi = {
   onCliVersionAdvisoriesChanged: (cb: (result: CliVersionAdvisoriesResult) => void) => () => void
   installPluginFolder: (srcDir: string) => Promise<PluginInstallResult>
   verifyMarketplacePlugin: (entry: MarketplacePluginEntry) => Promise<MarketplacePluginVerifyResult>
-  installMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
-  updateMarketplacePluginFromRegistry: (input: MarketplacePluginRegistryInstallInput) => Promise<MarketplacePluginRegistryInstallResult>
+  installMarketplacePluginFromRegistry: (
+    input: MarketplacePluginRegistryInstallInput,
+  ) => Promise<MarketplacePluginRegistryInstallResult>
+  updateMarketplacePluginFromRegistry: (
+    input: MarketplacePluginRegistryInstallInput,
+  ) => Promise<MarketplacePluginRegistryInstallResult>
   // Removes an installed marketplace plugin: its module folders, CLI plugins
   // and skill copies, its MCP servers out of the synced configs, and its module
   // trust grants. `pluginId` is the marketplace entry's id, or the id of a
@@ -3470,13 +3458,11 @@ export type ElectronApi = {
   conversationSessionSendTurn: (input: ConversationSendTurnInput) => Promise<ConversationSessionActionResult>
   conversationSessionInterrupt: (input: ConversationInterruptInput) => Promise<ConversationSessionActionResult>
   conversationSessionRespondToRequest: (
-    input: ConversationRespondToRequestInput
+    input: ConversationRespondToRequestInput,
   ) => Promise<ConversationSessionActionResult>
   // Live tool-permission switch on a running conversation session (takes effect
   // on the agent's next tool call).
-  conversationSessionSetPermission: (
-    input: ConversationSetPermissionInput
-  ) => Promise<ConversationSessionActionResult>
+  conversationSessionSetPermission: (input: ConversationSetPermissionInput) => Promise<ConversationSessionActionResult>
   conversationSessionStop: (input: ConversationStopSessionInput) => Promise<ConversationSessionActionResult>
   conversationSessionsList: (input?: ConversationListSessionsInput) => Promise<ConversationListSessionsResult>
   conversationTranscript: (input: ConversationTranscriptInput) => Promise<ConversationTranscriptResult>
@@ -3528,10 +3514,7 @@ export type ElectronApi = {
   showMenubarMenu: (label: string, position?: { x?: number; y?: number }) => Promise<boolean>
   clipboardReadText: () => Promise<string>
   clipboardWriteText: (text: string) => Promise<void>
-  voiceTranscribe: (
-    wav: ArrayBuffer,
-    settings: TranscriptionRequestSettings
-  ) => Promise<VoiceTranscribeResponse>
+  voiceTranscribe: (wav: ArrayBuffer, settings: TranscriptionRequestSettings) => Promise<VoiceTranscribeResponse>
   // What this machine actually has: probed `git`/`gh` versions plus gh's own
   // auth login. Read-only and argument-free — see src/shared/version-control.ts.
   probeVersionControlProviders: () => Promise<VersionControlProviderProbe[]>
@@ -3560,10 +3543,7 @@ export type ElectronApi = {
    */
   getBranchSteps: (checkoutPath: string) => Promise<BranchStepsSnapshot>
   /** The files and line counts for one step, or for the whole span. */
-  getBranchStepDiff: (
-    checkoutPath: string,
-    selection: BranchStepSelection
-  ) => Promise<BranchStepDiff>
+  getBranchStepDiff: (checkoutPath: string, selection: BranchStepSelection) => Promise<BranchStepDiff>
   /**
    * A file's content at a revision, for one side of a step's diff. `absent` is
    * the correct original side for an addition and modified side for a deletion —
@@ -3632,12 +3612,12 @@ export type ElectronApi = {
   setActiveGitChangelist: (repoRoot: string, id: string) => Promise<Changelist[]>
   createGitChangelist: (
     repoRoot: string,
-    input: { name: string; comment?: string; activate?: boolean; paths?: string[] }
+    input: { name: string; comment?: string; activate?: boolean; paths?: string[] },
   ) => Promise<Changelist[]>
   renameGitChangelist: (
     repoRoot: string,
     id: string,
-    input: { name: string; comment?: string }
+    input: { name: string; comment?: string },
   ) => Promise<Changelist[]>
   /** Delete a list; its paths return to the default, which cannot be deleted. */
   deleteGitChangelist: (repoRoot: string, id: string) => Promise<Changelist[]>
@@ -3705,7 +3685,12 @@ export type ElectronApi = {
   // had. See src/shared/text-generation/contract.ts.
   generateChatTitle: (request: ChatTitleRequest) => Promise<TextGenerationResult>
   /** Create a new design-system bundle in a user-chosen folder — seeded from an existing bundle, or bare from the shipped templates. Never overwrites; rolls back on failure. */
-  seedDesignSystemBundle: (sourceDir: string | null, targetDir: string, name: string, summary: string) => Promise<DesignSystemScaffoldResult>
+  seedDesignSystemBundle: (
+    sourceDir: string | null,
+    targetDir: string,
+    name: string,
+    summary: string,
+  ) => Promise<DesignSystemScaffoldResult>
   /**
    * Run a bundle's own scripts/lint.mjs on demand (the bundle author's
    * contribution gate). NO CALLER as of 2026-09-08 — the orphan sweep found the
@@ -3727,7 +3712,10 @@ export type ElectronApi = {
   /** Drop a registration. Removes the reference only; the user's folder is untouched. */
   forgetDesignSystemFolder: (id: string) => Promise<{ ok: true; forgotten: boolean }>
   /** Attach a design-system bundle (library entry or browsed folder) to a workspace as a one-time copy at design-system/, provenance stamped. Refuses if design-system/ already exists. */
-  attachDesignSystemBundle: (source: DesignSystemAttachSource, workspaceRoot: string) => Promise<DesignSystemAttachResult>
+  attachDesignSystemBundle: (
+    source: DesignSystemAttachSource,
+    workspaceRoot: string,
+  ) => Promise<DesignSystemAttachResult>
   /** Remove the workspace's design-system/ copy. Idempotent; the caller owns the destructive confirmation. */
   detachDesignSystemBundle: (workspaceRoot: string) => Promise<DesignSystemDetachResult>
   /** List installed third-party capability modules with trust, permissions, and launch readiness. */
@@ -3754,7 +3742,7 @@ export type ElectronApi = {
     initialPrompt?: string,
     cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
     shellOnly?: boolean,
-    metadata?: TerminalSpawnMetadata
+    metadata?: TerminalSpawnMetadata,
   ) => Promise<TerminalSpawnResult>
   terminalWrite: (sessionId: string, data: string) => Promise<void>
   terminalWriteFast: (sessionId: string, data: string) => void
@@ -3776,7 +3764,7 @@ export type ElectronApi = {
     initialPrompt?: string,
     cliRuntimes?: Partial<Record<AgentCli, Partial<CliRuntimeSettings>>>,
     shellOnly?: boolean,
-    metadata?: TerminalSpawnMetadata
+    metadata?: TerminalSpawnMetadata,
   ) => Promise<TerminalSpawnResult>
   terminalKill: (sessionId: string) => Promise<void>
   // Push the user's "Pause idle terminals after" setting (ms) to the main reap
@@ -3816,9 +3804,7 @@ export type ElectronApi = {
    * for a finished agent had no way to learn it still had a pull request open
    * (owner, 2026-09-10). Conversations with nothing are absent from the answer.
    */
-  listPullRequestsForWorkspaces: (
-    workspaceIds: readonly string[],
-  ) => Promise<Record<string, BranchPullRequest[]>>
+  listPullRequestsForWorkspaces: (workspaceIds: readonly string[]) => Promise<Record<string, BranchPullRequest[]>>
   /** Which conversations' lists moved; the ids only, never the lists. */
   onPullRequestWorkspacesChanged: (listener: (workspaceIds: string[]) => void) => () => void
   // Open an attachment the peek just handed out: an image goes to the OS image

@@ -176,11 +176,7 @@ export type BacklogLinkControl = {
 // Pure render decision for one resolved link, so the Backlog detail pane never
 // embeds link-status branching inline and the choices stay unit-testable.
 export function backlogLinkControlModel(link: BacklogResolvedLink): BacklogLinkControl {
-  const detail =
-    link.unavailableReason
-    ?? link.target.path
-    ?? link.target.url
-    ?? link.target.id
+  const detail = link.unavailableReason ?? link.target.path ?? link.target.url ?? link.target.id
   return {
     label: link.label,
     statusText: BACKLOG_LINK_STATUS_TEXT[link.status],

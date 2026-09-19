@@ -34,7 +34,10 @@ function collectTokens(node: unknown, path: string[], out: DtcgToken[]): void {
     return
   }
   for (const [key, child] of Object.entries(record)) {
-    assert.ok(SEGMENT_PATTERN.test(key), `token group segment "${key}" violates the naming grammar at ${path.join('.')}`)
+    assert.ok(
+      SEGMENT_PATTERN.test(key),
+      `token group segment "${key}" violates the naming grammar at ${path.join('.')}`,
+    )
     collectTokens(child, [...path, key], out)
   }
 }
@@ -112,7 +115,11 @@ run('every contents entry points at a real file in the bundle', () => {
 })
 
 run('derived files that exist carry the generated banner and never appear in contents', () => {
-  const authored = new Set([...manifest.contents.foundations, ...manifest.contents.patterns, ...manifest.contents.glyphs])
+  const authored = new Set([
+    ...manifest.contents.foundations,
+    ...manifest.contents.patterns,
+    ...manifest.contents.glyphs,
+  ])
   const derivedPaths = Object.keys(manifest.derived)
   assert.ok(derivedPaths.includes('foundations/tokens.css'))
   assert.ok(derivedPaths.includes('catalog/index.html'))
@@ -123,7 +130,10 @@ run('derived files that exist carry the generated banner and never appear in con
     const head = readFileSync(path, 'utf8').slice(0, 200)
     assert.ok(/GENERATED/i.test(head), `derived file lacks a generated banner: ${derived}`)
   }
-  assert.ok(existsSync(join(bundleRoot, 'foundations', 'tokens.css')), 'foundations/tokens.css must ship in the example')
+  assert.ok(
+    existsSync(join(bundleRoot, 'foundations', 'tokens.css')),
+    'foundations/tokens.css must ship in the example',
+  )
 })
 
 // --- Tokens -------------------------------------------------------------------
@@ -136,8 +146,13 @@ run('token file parses as DTCG: explicit $type, valid $value forms, resolving al
     assert.ok($value !== undefined, `${token.path}: missing $value`)
     assertValueResolves($value, token.path)
     if (typeof $value === 'string' && !ALIAS_PATTERN.test($value)) {
-      if ($type === 'color') assert.ok(HEX_COLOR_PATTERN.test($value), `${token.path}: color literal must be lowercase hex, got ${$value}`)
-      if ($type === 'dimension') assert.ok(PX_DIMENSION_PATTERN.test($value), `${token.path}: dimension literal must be a px string, got ${$value}`)
+      if ($type === 'color')
+        assert.ok(HEX_COLOR_PATTERN.test($value), `${token.path}: color literal must be lowercase hex, got ${$value}`)
+      if ($type === 'dimension')
+        assert.ok(
+          PX_DIMENSION_PATTERN.test($value),
+          `${token.path}: dimension literal must be a px string, got ${$value}`,
+        )
     }
     if ($type === 'fontWeight' && typeof $value === 'number') {
       assert.ok($value >= 1 && $value <= 1000, `${token.path}: fontWeight out of range`)
@@ -170,8 +185,16 @@ run('mode-carrying tokens declare exactly light and dark, with light matching $v
     const modes = tokenModes(token)
     if (!modes) continue
     modeCarrying += 1
-    assert.deepEqual(Object.keys(modes).sort(), ['dark', 'light'], `${token.path}: modes must be exactly light and dark`)
-    assert.deepEqual(modes.light, token.node.$value, `${token.path}: modes.light must equal $value (light is the default mode)`)
+    assert.deepEqual(
+      Object.keys(modes).sort(),
+      ['dark', 'light'],
+      `${token.path}: modes must be exactly light and dark`,
+    )
+    assert.deepEqual(
+      modes.light,
+      token.node.$value,
+      `${token.path}: modes.light must equal $value (light is the default mode)`,
+    )
     assertValueResolves(modes.light, `${token.path} modes.light`)
     assertValueResolves(modes.dark, `${token.path} modes.dark`)
   }
@@ -199,11 +222,20 @@ run('a seeded starter output validates like from-scratch output', () => {
   for (const token of seededTokens) {
     assert.equal(typeof token.node.$type, 'string', `${token.path}: seeded token missing explicit $type`)
     const description = token.node.$description
-    assert.ok(typeof description === 'string' && description.trim().length > 0, `${token.path}: seeded token missing $description`)
+    assert.ok(
+      typeof description === 'string' && description.trim().length > 0,
+      `${token.path}: seeded token missing $description`,
+    )
     if (!token.path.startsWith('sem.')) continue
     const vendor = vendorExtension(token)
-    assert.ok(typeof vendor?.role === 'string' && vendor.role.length > 0, `${token.path}: seeded token lost its semantic role`)
-    assert.ok(typeof vendor?.use === 'string' && vendor.use.length > 0, `${token.path}: seeded token lost its semantic use`)
+    assert.ok(
+      typeof vendor?.role === 'string' && vendor.role.length > 0,
+      `${token.path}: seeded token lost its semantic role`,
+    )
+    assert.ok(
+      typeof vendor?.use === 'string' && vendor.use.length > 0,
+      `${token.path}: seeded token lost its semantic use`,
+    )
     assert.equal(vendor?.seeded, true, `${token.path}: seeded marker must survive alongside the semantics`)
     const modes = vendor?.modes
     if (typeof modes === 'object' && modes !== null) {

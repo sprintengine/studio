@@ -33,9 +33,7 @@ import { FOCUS_RING_CLASS } from './tokens'
 export type CardVariant = 'plain' | 'bordered'
 
 const RESTING: Record<CardVariant, string> = {
-  plain:
-    'bg-transparent hover:bg-[color:var(--bg-hover)] ' +
-    'disabled:hover:bg-transparent',
+  plain: 'bg-transparent hover:bg-[color:var(--bg-hover)] ' + 'disabled:hover:bg-transparent',
   bordered:
     'border border-[color:var(--border-default)] bg-[color:var(--bg-surface)] ' +
     'hover:border-[color:var(--border-strong)] hover:bg-[color:var(--bg-hover)] ' +

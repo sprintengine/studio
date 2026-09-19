@@ -8,18 +8,9 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs'
 import { extname, join, resolve, sep } from 'node:path'
 
-const SOURCE_ROOTS = [
-  'src',
-  'packages',
-]
+const SOURCE_ROOTS = ['src', 'packages']
 const SOURCE_EXTENSIONS = new Set(['.js', '.jsx', '.mjs', '.ts', '.tsx', '.py'])
-const EXCLUDED_DIRS = new Set([
-  '__pycache__',
-  'dist',
-  'dist-electron',
-  'node_modules',
-  'out',
-])
+const EXCLUDED_DIRS = new Set(['__pycache__', 'dist', 'dist-electron', 'node_modules', 'out'])
 const DEFAULT_THRESHOLDS = [800, 1200, 2000]
 
 function parseThresholds(argv) {
@@ -51,7 +42,12 @@ function walk(dir, repoRoot) {
     if (!entry.isFile()) continue
     if (!SOURCE_EXTENSIONS.has(extname(entry.name))) continue
     const fullPath = join(dir, entry.name)
-    out.push(fullPath.slice(repoRoot.length + 1).split(sep).join('/'))
+    out.push(
+      fullPath
+        .slice(repoRoot.length + 1)
+        .split(sep)
+        .join('/'),
+    )
   }
   return out
 }

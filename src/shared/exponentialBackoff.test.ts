@@ -30,7 +30,10 @@ assert.equal(backoffDelayMs(5, oddCap), null) // 32 > 30
 
 // Non-doubling factors work too.
 const triple = { baseMs: 1000, factor: 3, maxMs: 100_000 }
-assert.deepEqual([0, 1, 2, 3].map((n) => backoffDelayMs(n, triple)), [1000, 3000, 9000, 27_000])
+assert.deepEqual(
+  [0, 1, 2, 3].map((n) => backoffDelayMs(n, triple)),
+  [1000, 3000, 9000, 27_000],
+)
 
 // Guards: negative and non-integer attempts return null.
 assert.equal(backoffDelayMs(-1, prBackoff), null)

@@ -82,7 +82,15 @@ async function testWorkspaceFileWatch(): Promise<void> {
 
 async function testAgentSessionWatch(): Promise<void> {
   let sessions: Array<Record<string, unknown>> = [
-    { sessionId: 's-1', workspaceId: 'ws-1', agentId: 'a-1', agentName: 'Poet', kind: 'agent', processAlive: true, agentSession: { system: 'atlas', executionId: 'run-1' } },
+    {
+      sessionId: 's-1',
+      workspaceId: 'ws-1',
+      agentId: 'a-1',
+      agentName: 'Poet',
+      kind: 'agent',
+      processAlive: true,
+      agentSession: { system: 'atlas', executionId: 'run-1' },
+    },
     { sessionId: 's-2', workspaceId: 'ws-2', kind: 'terminal', processAlive: true },
   ]
   const listeners = new Set<() => void>()
@@ -96,15 +104,23 @@ async function testAgentSessionWatch(): Promise<void> {
 
   const emissions: unknown[] = []
   const stop = watcher('ws-1', (views) => emissions.push(views))
-  assert.deepEqual(emissions, [[{
-    sessionId: 's-1',
-    agentId: 'a-1',
-    name: 'Poet',
-    kind: 'agent',
-    system: 'atlas',
-    executionId: 'run-1',
-    isLive: true,
-  }]], 'fires once with the workspace-filtered snapshot')
+  assert.deepEqual(
+    emissions,
+    [
+      [
+        {
+          sessionId: 's-1',
+          agentId: 'a-1',
+          name: 'Poet',
+          kind: 'agent',
+          system: 'atlas',
+          executionId: 'run-1',
+          isLive: true,
+        },
+      ],
+    ],
+    'fires once with the workspace-filtered snapshot',
+  )
 
   // A change in ANOTHER workspace does not re-fire (deduped by view signature).
   sessions = [...sessions, { sessionId: 's-3', workspaceId: 'ws-2', kind: 'terminal', processAlive: true }]
@@ -124,9 +140,30 @@ async function testAgentSessionWatch(): Promise<void> {
   // namespaces. That narrowing is the whole reason the unscoped mode is
   // answerable: without it, a module would be watching the machine.
   sessions = [
-    { sessionId: 's-1', workspaceId: 'ws-1', agentId: 'review-guide-abc', agentName: 'Review guide', kind: 'agent', processAlive: true },
-    { sessionId: 's-2', workspaceId: 'ws-2', agentId: 'review-guide-def', agentName: 'Review guide', kind: 'agent', processAlive: true },
-    { sessionId: 's-3', workspaceId: 'ws-2', agentId: 'agent-someone-else', agentName: 'Poet', kind: 'agent', processAlive: true },
+    {
+      sessionId: 's-1',
+      workspaceId: 'ws-1',
+      agentId: 'review-guide-abc',
+      agentName: 'Review guide',
+      kind: 'agent',
+      processAlive: true,
+    },
+    {
+      sessionId: 's-2',
+      workspaceId: 'ws-2',
+      agentId: 'review-guide-def',
+      agentName: 'Review guide',
+      kind: 'agent',
+      processAlive: true,
+    },
+    {
+      sessionId: 's-3',
+      workspaceId: 'ws-2',
+      agentId: 'agent-someone-else',
+      agentName: 'Poet',
+      kind: 'agent',
+      processAlive: true,
+    },
     { sessionId: 's-4', workspaceId: 'ws-1', kind: 'terminal', processAlive: true },
   ]
   const mine: unknown[] = []
@@ -134,7 +171,7 @@ async function testAgentSessionWatch(): Promise<void> {
   assert.deepEqual(
     (mine[0] as Array<{ sessionId: string }>).map((view) => view.sessionId),
     ['s-1', 's-2'],
-    'an unscoped watch crosses workspaces but stays inside the module\'s namespaces',
+    "an unscoped watch crosses workspaces but stays inside the module's namespaces",
   )
   stopMine()
 
@@ -175,26 +212,33 @@ async function testAgentSpawn(): Promise<void> {
 
   // Structured failures, never throws.
   assert.deepEqual((await spawner.spawnAgent({ workspaceId: 'ws-x' })).ok, false)
-  assert.equal((await spawner.spawnAgent({ workspaceId: 'ws-x' }) as { code: string }).code, 'unknown_workspace')
-  assert.equal((await spawner.spawnAgent({ workspaceId: 'ws-folderless' }) as { code: string }).code, 'missing_folder')
+  assert.equal(((await spawner.spawnAgent({ workspaceId: 'ws-x' })) as { code: string }).code, 'unknown_workspace')
   assert.equal(
-    (await spawner.spawnAgent({ workspaceId: 'ws-1', cli: 'not-installed' }) as { code: string }).code,
+    ((await spawner.spawnAgent({ workspaceId: 'ws-folderless' })) as { code: string }).code,
+    'missing_folder',
+  )
+  assert.equal(
+    ((await spawner.spawnAgent({ workspaceId: 'ws-1', cli: 'not-installed' })) as { code: string }).code,
     'unknown_runtime',
   )
 
   // Happy path: record first, spawn through the shared runtime, focus the tab.
   const result = await spawner.spawnAgent({ workspaceId: 'ws-1', prompt: 'Say hello' })
   assert.deepEqual(result, { ok: true, agentId: 'agent-new' })
-  assert.deepEqual(upserts, [{ workspaceId: 'ws-1', agentId: 'agent-new', patch: { name: 'Sailor', cli: 'claude', cliModel: undefined } }])
-  assert.deepEqual(spawns, [{
-    sessionId: 'session-new',
-    cwd: '/repo',
-    cli: 'claude',
-    prompt: 'Say hello',
-    workspaceId: 'ws-1',
-    agentId: 'agent-new',
-    cliModel: undefined,
-  }])
+  assert.deepEqual(upserts, [
+    { workspaceId: 'ws-1', agentId: 'agent-new', patch: { name: 'Sailor', cli: 'claude', cliModel: undefined } },
+  ])
+  assert.deepEqual(spawns, [
+    {
+      sessionId: 'session-new',
+      cwd: '/repo',
+      cli: 'claude',
+      prompt: 'Say hello',
+      workspaceId: 'ws-1',
+      agentId: 'agent-new',
+      cliModel: undefined,
+    },
+  ])
   assert.deepEqual(reveals, [{ workspaceId: 'ws-1', agentId: 'agent-new', name: 'Sailor' }])
 
   // focus: false skips the reveal; a failed spawn reports spawn_failed AND
@@ -202,7 +246,7 @@ async function testAgentSpawn(): Promise<void> {
   await spawner.spawnAgent({ workspaceId: 'ws-1', focus: false })
   assert.equal(reveals.length, 1)
   spawnOk = false
-  assert.equal((await spawner.spawnAgent({ workspaceId: 'ws-1' }) as { code: string }).code, 'spawn_failed')
+  assert.equal(((await spawner.spawnAgent({ workspaceId: 'ws-1' })) as { code: string }).code, 'spawn_failed')
   assert.deepEqual(removals, [{ workspaceId: 'ws-1', agentId: 'agent-new' }])
   spawnOk = true
 
@@ -238,15 +282,9 @@ const worktreeBackedWorkspace: WorkingRootInput = {
 
 async function testEffectiveWorkingRoot(): Promise<void> {
   // Worktree-backed workspace: live work happens under the worktree.
-  assert.equal(
-    workspaceWorkingRoot(worktreeBackedWorkspace),
-    '/Users/example/.multicode-worktrees/project/auth'
-  )
+  assert.equal(workspaceWorkingRoot(worktreeBackedWorkspace), '/Users/example/.multicode-worktrees/project/auth')
   // Plain workspace: the primary checkout IS the working root.
-  assert.equal(
-    workspaceWorkingRoot({ folderPath: '/Users/example/project', worktree: null }),
-    '/Users/example/project'
-  )
+  assert.equal(workspaceWorkingRoot({ folderPath: '/Users/example/project', worktree: null }), '/Users/example/project')
   // Folderless: null, never a fallback.
   assert.equal(workspaceWorkingRoot({ folderPath: null, worktree: null }), null)
 
@@ -266,7 +304,7 @@ async function testEffectiveWorkingRoot(): Promise<void> {
   assert.equal(
     watchedPaths[0],
     '/Users/example/.multicode-worktrees/project/auth/state',
-    'the watch attaches under the worktree, not the primary checkout'
+    'the watch attaches under the worktree, not the primary checkout',
   )
   stop()
 }
@@ -315,7 +353,10 @@ async function testAgentRuntimeGate(): Promise<void> {
   await assert.rejects(() => host.watchWorkspaceFile('ws-1', 'a.json', () => {}), /Agent Runtime module is disabled/)
   assert.throws(() => host.watchAgentSessions('ws-1', () => {}), /Agent Runtime module is disabled/)
   await assert.rejects(() => host.spawnAgent({ workspaceId: 'ws-1' }), /Agent Runtime module is disabled/)
-  assert.throws(() => host.focusTab({ workspaceId: 'ws-1', kind: 'agent', id: 'a-1' }), /Agent Runtime module is disabled/)
+  assert.throws(
+    () => host.focusTab({ workspaceId: 'ws-1', kind: 'agent', id: 'a-1' }),
+    /Agent Runtime module is disabled/,
+  )
   assert.throws(() => host.listAgentRuntimes(), /Agent Runtime module is disabled/)
 
   // Enabled: calls route through to the backends, and an active session watch
@@ -343,7 +384,7 @@ async function testAgentRuntimeGate(): Promise<void> {
   kernel.hostFor('other-module').registerAgentIdNamespace({ prefix: 'other-guide-', label: 'Other' })
   host.watchAgentSessions(undefined, () => {})()
   assert.equal(watchScopes.at(-1), undefined, 'an unscoped watch passes no workspace through')
-  assert.deepEqual(watchPrefixes.at(-1), ['test-guide-'], 'and exactly the calling module\'s prefixes')
+  assert.deepEqual(watchPrefixes.at(-1), ['test-guide-'], "and exactly the calling module's prefixes")
   host.watchAgentSessions('ws-1', () => {})()
   assert.equal(watchPrefixes.at(-1), undefined, 'a workspace-scoped watch is not namespace-narrowed')
 }

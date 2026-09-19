@@ -1,0 +1,18 @@
+node_modules/
+out/
+dist/
+build/
+release/
+resources/runtime/
+package-lock.json
+*.tsbuildinfo
+# Built, not edited: rebuilt by design-system/scripts/build-catalog.mjs.
+design-system/catalog/index.html
+design-system/foundations/tokens.css
+# Signed bytes: the signature is taken over these exact files.
+resources/marketplace/
+# Committed build output of the two published packages.
+packages/*/dist/
+# Mirrored byte-for-byte into the phone app's repository and pinned by hash in
+# src/main/mobile/control/snapshot.test.ts; it keeps the style it is mirrored in.
+packages/mobile-control-protocol/

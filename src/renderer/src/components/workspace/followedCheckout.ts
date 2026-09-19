@@ -27,7 +27,7 @@ export type FollowedCheckoutWorkspace = Pick<Workspace, 'id' | 'folderPath' | 'w
 function sessionOfAgent(
   workspaceId: string,
   agentId: AgentId,
-  sessions: ReadonlyArray<TerminalSessionSnapshot>
+  sessions: ReadonlyArray<TerminalSessionSnapshot>,
 ): TerminalSessionSnapshot | undefined {
   let best: TerminalSessionSnapshot | undefined
   for (const session of sessions) {
@@ -46,7 +46,7 @@ function sessionOfAgent(
 export function followedCheckoutOf(
   workspace: FollowedCheckoutWorkspace,
   focusedAgentId: AgentId | undefined,
-  sessions: ReadonlyArray<TerminalSessionSnapshot>
+  sessions: ReadonlyArray<TerminalSessionSnapshot>,
 ): FollowedCheckout {
   const worktree = resolveWorkspaceWorktree(workspace)
   const own: FollowedCheckout = {

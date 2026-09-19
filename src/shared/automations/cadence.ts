@@ -25,7 +25,10 @@ function scheduleCadenceSummary(config: ScheduleTriggerConfig): string {
     case 'daily':
       return `Daily at ${cadence.timeLocal}`
     case 'weekly': {
-      const days = [...cadence.daysOfWeek].sort((a, b) => a - b).map((day) => WEEKDAY_SHORT[day] ?? day).join(', ')
+      const days = [...cadence.daysOfWeek]
+        .sort((a, b) => a - b)
+        .map((day) => WEEKDAY_SHORT[day] ?? day)
+        .join(', ')
       return `Weekly · ${days} at ${cadence.timeLocal}`
     }
     case 'at':
@@ -85,10 +88,7 @@ export function scheduleCadenceSummaryForReader(
  * the same schedule. Null when it is the reader's zone (nothing to qualify) or
  * when the config names no zone.
  */
-export function foreignScheduleTimeZone(
-  config: ScheduleTriggerConfig,
-  readerTimeZone: string,
-): string | null {
+export function foreignScheduleTimeZone(config: ScheduleTriggerConfig, readerTimeZone: string): string | null {
   const written = config.timezone.trim()
   if (!written) return null
   return written.toLowerCase() === readerTimeZone.trim().toLowerCase() ? null : written

@@ -49,9 +49,20 @@ run of one takes a while and needs network access.
 npm run test                                # the unit and contract suite
 node scripts/testing/run-tests.mjs <file>   # one test file, or a name fragment
 npm run typecheck:all                       # app and test projects
-npm run lint                                # the design-system and composition lints
+npm run lint                                # oxlint, then the design-system and composition lints
+npm run format                              # format with Prettier (format:check only checks)
 npm run verify:app                          # everything CI runs, in one command
 ```
+
+Formatting is Prettier's and is checked in CI; run `npm run format` before you
+commit rather than arguing with it. The linter is oxlint, configured in
+`.oxlintrc.json`, where every rule that is off says why. `exhaustive-deps`
+findings are warnings: fix the one you touched, but a dependency array is a
+behaviour decision, so do not change one only to silence the linter.
+
+The tree was reformatted in one commit, listed in `.git-blame-ignore-revs`.
+GitHub's blame view skips it on its own; locally, run
+`git config blame.ignoreRevsFile .git-blame-ignore-revs` once.
 
 `npm run verify:app` is the one that matters: it chains the typecheck of both
 the app and the test projects, the lints, the test suite, the SDK drift and

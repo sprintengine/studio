@@ -80,9 +80,8 @@ export function parseSceneFile(text: string): CanvasResult<CanvasSceneFile> {
       if (isRecord(candidate) && typeof candidate.id === 'string') elements.push(candidate as CanvasElement)
     }
   }
-  const version = typeof parsed.version === 'number' && Number.isFinite(parsed.version)
-    ? parsed.version
-    : CANVAS_SCENE_VERSION
+  const version =
+    typeof parsed.version === 'number' && Number.isFinite(parsed.version) ? parsed.version : CANVAS_SCENE_VERSION
   return canvasOk({
     type: CANVAS_SCENE_TYPE,
     version,
@@ -110,9 +109,7 @@ export function reduceAppState(appState: Record<string, unknown> | undefined | n
         ? source.gridStep
         : DEFAULT_APP_STATE.gridStep,
     gridModeEnabled:
-      typeof source.gridModeEnabled === 'boolean'
-        ? source.gridModeEnabled
-        : DEFAULT_APP_STATE.gridModeEnabled,
+      typeof source.gridModeEnabled === 'boolean' ? source.gridModeEnabled : DEFAULT_APP_STATE.gridModeEnabled,
   }
 }
 

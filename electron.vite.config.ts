@@ -113,9 +113,9 @@ function canvasSceneFontFiles(): Array<{ urlPath: string; filePath: string }> {
   const missing = CANVAS_FONTS_REQUIRED_FAMILIES.filter((family) => !present.has(family))
   if (missing.length > 0) {
     throw new Error(
-      `The canvas scene fonts are missing ${missing.join(', ')} in ${CANVAS_FONTS_DIR}. `
-        + `The editor package's font directories have been renamed; update CANVAS_FONTS_REQUIRED_FAMILIES `
-        + `and the family names in src/renderer/src/canvasWorker/skeletonMap.ts together.`,
+      `The canvas scene fonts are missing ${missing.join(', ')} in ${CANVAS_FONTS_DIR}. ` +
+        `The editor package's font directories have been renamed; update CANVAS_FONTS_REQUIRED_FAMILIES ` +
+        `and the family names in src/renderer/src/canvasWorker/skeletonMap.ts together.`,
     )
   }
 
@@ -132,9 +132,9 @@ function canvasSceneFontFiles(): Array<{ urlPath: string; filePath: string }> {
     }
     if (familyBytes > CANVAS_FONTS_MAX_FAMILY_BYTES) {
       throw new Error(
-        `The canvas scene font family ${family.name} is ${Math.round(familyBytes / (1024 * 1024))} MB, `
-          + `over the ${CANVAS_FONTS_MAX_FAMILY_BYTES / (1024 * 1024)} MB one family may be. `
-          + `A large family belongs in CANVAS_FONTS_SKIPPED_FAMILIES, not in every installer.`,
+        `The canvas scene font family ${family.name} is ${Math.round(familyBytes / (1024 * 1024))} MB, ` +
+          `over the ${CANVAS_FONTS_MAX_FAMILY_BYTES / (1024 * 1024)} MB one family may be. ` +
+          `A large family belongs in CANVAS_FONTS_SKIPPED_FAMILIES, not in every installer.`,
       )
     }
     files.push(...inFamily)
@@ -213,8 +213,8 @@ function assertReleasesRepoMatchesManifest(): void {
   const declared = /export const RELEASES_REPO = '([^']+)'/u.exec(source)?.[1]
   if (declared !== fromManifest) {
     throw new Error(
-      `RELEASES_REPO is '${declared}' but package.json build.publish names '${fromManifest}'. `
-        + 'Update src/shared/releases-repo.ts so the in-app link and the updater follow the same repository.',
+      `RELEASES_REPO is '${declared}' but package.json build.publish names '${fromManifest}'. ` +
+        'Update src/shared/releases-repo.ts so the in-app link and the updater follow the same repository.',
     )
   }
 }

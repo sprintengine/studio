@@ -4,10 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
-import type {
-  AutomationsBuiltinInstallResult,
-  AutomationsBuiltinListResult,
-} from '../../shared/automations/contracts'
+import type { AutomationsBuiltinInstallResult, AutomationsBuiltinListResult } from '../../shared/automations/contracts'
 import {
   AUTOMATIONS_BUILTIN_INSTALL_CHANNEL,
   AUTOMATIONS_BUILTIN_LIST_CHANNEL,
@@ -56,7 +53,8 @@ function createFakeHost({ workspaceRoots }: { workspaceRoots: string[] }): Handl
     {
       engine: createAutomationsEngine({
         createStore: (workspaceRoot) => new AutomationsStore(workspaceRoot),
-        getProjectFolders: () => workspaceRoots.map((folderPath, index) => ({ workspaceId: `ws-${index + 1}`, folderPath })),
+        getProjectFolders: () =>
+          workspaceRoots.map((folderPath, index) => ({ workspaceId: `ws-${index + 1}`, folderPath })),
         runAutomation: async () => ({ status: 'completed', summary: 'ran' }),
         now: () => NOW,
         createRunId: ({ automationId, dueAt }) => `${automationId}-${Date.parse(dueAt)}`,
@@ -73,7 +71,7 @@ function createFakeHost({ workspaceRoots }: { workspaceRoots: string[] }): Handl
 async function invoke<T>(handlers: HandlerMap, channel: string, input?: unknown): Promise<T> {
   const handler = handlers.get(channel)
   assert.ok(handler, `expected handler for ${channel}`)
-  return await handler({} as never, input) as T
+  return (await handler({} as never, input)) as T
 }
 
 async function withWorkspaceRoot(): Promise<string> {
@@ -119,7 +117,11 @@ async function testBuiltinListAndAddGoThroughTheCatalogueWrite(): Promise<void> 
   assert.equal(wrongProject.ok, false)
   if (!wrongProject.ok) assert.equal(wrongProject.code, 'workspace_root_untrusted')
   const outsideDefinitions = await new AutomationsStore(outsideRoot).listDefinitions()
-  assert.equal(outsideDefinitions.ok && outsideDefinitions.values.length, 0, 'a project the app does not have open is never written to')
+  assert.equal(
+    outsideDefinitions.ok && outsideDefinitions.values.length,
+    0,
+    'a project the app does not have open is never written to',
+  )
 
   const added = await invoke<AutomationsBuiltinInstallResult>(handlers, AUTOMATIONS_BUILTIN_INSTALL_CHANNEL, {
     workspaceRoot: knownRoot,

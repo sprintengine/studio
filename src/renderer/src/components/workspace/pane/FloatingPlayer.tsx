@@ -30,15 +30,18 @@ export type FloatRect = { left: number; top: number; width: number; height: numb
 
 function clampRect(
   rect: { x: number; y: number; width: number; height: number },
-  viewport: { width: number; height: number }
+  viewport: { width: number; height: number },
 ): FloatRect {
   // Size first: a rect saved on a wide monitor and read on a laptop must shrink
   // to fit before its position is judged, or it would be pinned to the top-left
   // and still overflow.
-  const width = Math.min(Math.max(rect.width, FLOAT_MIN_WIDTH), Math.min(FLOAT_MAX_WIDTH, viewport.width - EDGE_GAP * 2))
+  const width = Math.min(
+    Math.max(rect.width, FLOAT_MIN_WIDTH),
+    Math.min(FLOAT_MAX_WIDTH, viewport.width - EDGE_GAP * 2),
+  )
   const height = Math.min(
     Math.max(rect.height, FLOAT_MIN_HEIGHT),
-    Math.min(FLOAT_MAX_HEIGHT, viewport.height - EDGE_GAP * 2)
+    Math.min(FLOAT_MAX_HEIGHT, viewport.height - EDGE_GAP * 2),
   )
   const maxLeft = Math.max(EDGE_GAP, viewport.width - width - EDGE_GAP)
   const maxTop = Math.max(EDGE_GAP, viewport.height - height - EDGE_GAP)
@@ -51,7 +54,12 @@ function clampRect(
 }
 
 /** The default corner: bottom-right, where a video player parks. */
-function defaultRect(viewport: { width: number; height: number }): { x: number; y: number; width: number; height: number } {
+function defaultRect(viewport: { width: number; height: number }): {
+  x: number
+  y: number
+  width: number
+  height: number
+} {
   return {
     x: viewport.width - FLOAT_DEFAULT_WIDTH - EDGE_GAP,
     y: viewport.height - FLOAT_DEFAULT_HEIGHT - EDGE_GAP,
@@ -107,7 +115,7 @@ export function FloatingPlayerChrome({ workspaceId, tab, rect }: ChromeProps) {
         float: { x: next.left, y: next.top, width: next.width, height: next.height },
       })
     },
-    [updatePaneTab, workspaceId, tab.id]
+    [updatePaneTab, workspaceId, tab.id],
   )
 
   const onPointerDown = useCallback(
@@ -118,7 +126,7 @@ export function FloatingPlayerChrome({ workspaceId, tab, rect }: ChromeProps) {
       event.currentTarget.setPointerCapture(event.pointerId)
       gesture.current = { kind, startX: event.clientX, startY: event.clientY, rect }
     },
-    [rect]
+    [rect],
   )
 
   const onPointerMove = useCallback((event: React.PointerEvent<HTMLElement>) => {
@@ -129,7 +137,12 @@ export function FloatingPlayerChrome({ workspaceId, tab, rect }: ChromeProps) {
     const viewport = { width: window.innerWidth, height: window.innerHeight }
     const next =
       current.kind === 'move'
-        ? { x: current.rect.left + dx, y: current.rect.top + dy, width: current.rect.width, height: current.rect.height }
+        ? {
+            x: current.rect.left + dx,
+            y: current.rect.top + dy,
+            width: current.rect.width,
+            height: current.rect.height,
+          }
         : {
             x: current.rect.left,
             y: current.rect.top,
@@ -167,7 +180,7 @@ export function FloatingPlayerChrome({ workspaceId, tab, rect }: ChromeProps) {
         height: Math.round(box.height),
       })
     },
-    [commit]
+    [commit],
   )
 
   return (

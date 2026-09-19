@@ -60,23 +60,23 @@ export type MarketplacePluginDownloadOptions = {
 
 export type MarketplacePluginDownloadResult =
   | {
-    ok: true
-    classification: MarketplacePluginTrustClassification
-    sourceUrl: string
-    stagedBundlePath: string
-    manifest: MarketplacePluginAuthoringManifest
-    trust: ModuleTrust
-    loadEligible: boolean
-  }
+      ok: true
+      classification: MarketplacePluginTrustClassification
+      sourceUrl: string
+      stagedBundlePath: string
+      manifest: MarketplacePluginAuthoringManifest
+      trust: ModuleTrust
+      loadEligible: boolean
+    }
   | {
-    ok: false
-    classification?: MarketplacePluginTrustClassification
-    sourceUrl: string
-    message: string
-    statusCode?: number
-    issues?: MarketplaceManifestIssue[]
-    trust?: ModuleTrust
-  }
+      ok: false
+      classification?: MarketplacePluginTrustClassification
+      sourceUrl: string
+      message: string
+      statusCode?: number
+      issues?: MarketplaceManifestIssue[]
+      trust?: ModuleTrust
+    }
 
 type DownloadLimits = {
   maxFiles: number
@@ -117,7 +117,7 @@ export function defaultMarketplacePluginStagingRoot(userDataDir?: string): strin
 }
 
 export async function downloadMarketplacePluginBundle(
-  options: MarketplacePluginDownloadOptions
+  options: MarketplacePluginDownloadOptions,
 ): Promise<MarketplacePluginDownloadResult> {
   // Bundle download requires a `source`; inline-MCP registry entries carry no
   // bundle and never reach this path, but `source` is optional on the entry type.
@@ -155,7 +155,7 @@ export async function downloadMarketplacePluginBundle(
           github,
           options.entry.id,
           stage,
-          packagedResourceResolver
+          packagedResourceResolver,
         )
         if (!copiedSeedBundle) throw error
       }
@@ -272,7 +272,10 @@ export async function downloadMarketplacePluginBundle(
   }
 }
 
-function classifyMarketplaceTrust(entry: MarketplacePluginEntry, trust: ModuleTrust): MarketplacePluginTrustClassification {
+function classifyMarketplaceTrust(
+  entry: MarketplacePluginEntry,
+  trust: ModuleTrust,
+): MarketplacePluginTrustClassification {
   if (trust.status === 'invalid') return 'invalid'
   if (trust.status === 'unsigned') return 'unsigned'
   if (entry.publisher.verified && trust.status === 'trusted') return 'verified'
@@ -283,7 +286,7 @@ async function copyPackagedMarketplacePluginBundle(
   source: GithubTreeSource,
   entryId: string,
   stage: string,
-  resolver: MarketplaceResourceResolver
+  resolver: MarketplaceResourceResolver,
 ): Promise<boolean> {
   const relativePath = packagedMarketplacePluginRelativePath(source, entryId)
   if (!relativePath) return false
@@ -322,7 +325,13 @@ function isSourceUnavailableStatus(statusCode: number): boolean {
 
 type ResolvedDownloadedManifest =
   | { ok: true; manifest: MarketplacePluginAuthoringManifest; trust: ModuleTrust }
-  | { ok: false; classification: 'unsigned' | 'invalid'; trust?: ModuleTrust; message: string; issues?: MarketplaceManifestIssue[] }
+  | {
+      ok: false
+      classification: 'unsigned' | 'invalid'
+      trust?: ModuleTrust
+      message: string
+      issues?: MarketplaceManifestIssue[]
+    }
 
 // Resolve a downloaded plugin.json under the shared optionally-signed contract,
 // then layer trust classification on top. A resolved manifest carries its trust
@@ -335,9 +344,20 @@ function resolveDownloadedManifest(source: string, trustContext: ModuleTrustCont
   }
   const unsigned = classifyUnsignedManifest(source, trustContext)
   if (unsigned) {
-    return { ok: false, classification: 'unsigned', trust: unsigned, message: 'Downloaded plugin bundle is unsigned.', issues: resolved.issues }
+    return {
+      ok: false,
+      classification: 'unsigned',
+      trust: unsigned,
+      message: 'Downloaded plugin bundle is unsigned.',
+      issues: resolved.issues,
+    }
   }
-  return { ok: false, classification: 'invalid', message: 'Downloaded plugin bundle plugin.json is invalid.', issues: resolved.issues }
+  return {
+    ok: false,
+    classification: 'invalid',
+    message: 'Downloaded plugin bundle plugin.json is invalid.',
+    issues: resolved.issues,
+  }
 }
 
 function classifyUnsignedManifest(source: string, trustContext: ModuleTrustContext): ModuleTrust | null {
@@ -357,7 +377,7 @@ function classifyUnsignedManifest(source: string, trustContext: ModuleTrustConte
 
 function registryMismatchIssues(
   entry: MarketplacePluginEntry,
-  manifest: MarketplacePluginAuthoringManifest
+  manifest: MarketplacePluginAuthoringManifest,
 ): MarketplaceManifestIssue[] {
   const issues: MarketplaceManifestIssue[] = []
   if (entry.id !== manifest.id) issues.push({ path: 'id', message: `expected ${entry.id}, got ${manifest.id}.` })
@@ -386,7 +406,7 @@ async function downloadGithubTree(
   stage: string,
   fetcher: MarketplacePluginDownloadFetch,
   timeoutMs: number | undefined,
-  limits: DownloadLimits
+  limits: DownloadLimits,
 ): Promise<void> {
   const state: DownloadState = { files: 0, bytes: 0, dirRequests: 0 }
   const rootUrl = githubContentsUrl(source)
@@ -402,7 +422,7 @@ async function downloadGithubContentsDirectory(
   timeoutMs: number | undefined,
   limits: DownloadLimits,
   state: DownloadState,
-  depth = 0
+  depth = 0,
 ): Promise<void> {
   if (depth > MAX_GITHUB_DIR_DEPTH) {
     throw new Error(`Plugin source directory tree is nested deeper than ${MAX_GITHUB_DIR_DEPTH} levels.`)
@@ -411,13 +431,29 @@ async function downloadGithubContentsDirectory(
     throw new Error(`Plugin source directory tree needs more than ${MAX_GITHUB_DIR_REQUESTS} listing requests.`)
   }
   state.dirRequests += 1
-  const body = await fetchText(apiUrl, fetcher, timeoutMs, { accept: 'application/vnd.github+json' }, limits.maxFileBytes)
+  const body = await fetchText(
+    apiUrl,
+    fetcher,
+    timeoutMs,
+    { accept: 'application/vnd.github+json' },
+    limits.maxFileBytes,
+  )
   const parsed = JSON.parse(body) as GithubContentsEntry | GithubContentsEntry[]
   const entries = Array.isArray(parsed) ? parsed : [parsed]
   for (const entry of entries) {
     if (entry.type === 'dir') {
       if (!entry.url) throw new Error(`GitHub directory ${entry.path ?? currentPath} is missing a contents URL.`)
-      await downloadGithubContentsDirectory(entry.url, basePath, entry.path ?? currentPath, stage, fetcher, timeoutMs, limits, state, depth + 1)
+      await downloadGithubContentsDirectory(
+        entry.url,
+        basePath,
+        entry.path ?? currentPath,
+        stage,
+        fetcher,
+        timeoutMs,
+        limits,
+        state,
+        depth + 1,
+      )
       continue
     }
     if (entry.type !== 'file') {
@@ -460,24 +496,24 @@ export type ClaudeCodePluginDownloadOptions = {
 
 export type ClaudeCodePluginDownloadResult =
   | {
-    ok: true
-    sourceUrl: string
-    /** Staged copy of the plugin subtree (`.claude-plugin/` + `skills/`). */
-    stagedPath: string
-    /** Skill folder names under the plugin's skills/ dir (each has a SKILL.md). */
-    skillDirs: string[]
-    /** The plugin's own name from .claude-plugin/plugin.json. */
-    claudeName: string
-    /** The commit actually fetched (mutable refs resolve to a sha up front). */
-    resolvedRef: string
-    /**
-     * Names of skills the entry lists but that shipped metadata-only (no
-     * bundled content — a snapshot capture cap), so the install can tell the
-     * user which listed skills it did NOT install rather than silently
-     * dropping them.
-     */
-    metadataOnlySkills: string[]
-  }
+      ok: true
+      sourceUrl: string
+      /** Staged copy of the plugin subtree (`.claude-plugin/` + `skills/`). */
+      stagedPath: string
+      /** Skill folder names under the plugin's skills/ dir (each has a SKILL.md). */
+      skillDirs: string[]
+      /** The plugin's own name from .claude-plugin/plugin.json. */
+      claudeName: string
+      /** The commit actually fetched (mutable refs resolve to a sha up front). */
+      resolvedRef: string
+      /**
+       * Names of skills the entry lists but that shipped metadata-only (no
+       * bundled content — a snapshot capture cap), so the install can tell the
+       * user which listed skills it did NOT install rather than silently
+       * dropping them.
+       */
+      metadataOnlySkills: string[]
+    }
   | { ok: false; sourceUrl: string; message: string; statusCode?: number }
 
 const CLAUDE_PLUGIN_NOT_BUNDLED_MESSAGE =
@@ -491,7 +527,9 @@ const CLAUDE_PLUGIN_NOT_BUNDLED_MESSAGE =
  * back through the trust prompt, not silently install different content).
  */
 function bundledClaudeContentRef(contentDigests: readonly string[]): string {
-  const digest = createHash('sha256').update([...contentDigests].sort().join('\n'), 'utf8').digest('hex')
+  const digest = createHash('sha256')
+    .update([...contentDigests].sort().join('\n'), 'utf8')
+    .digest('hex')
   return `bundled:${digest.slice(0, 16)}`
 }
 
@@ -507,14 +545,14 @@ function bundledClaudeContentRef(contentDigests: readonly string[]): string {
  * the one component the studio can honestly deliver today.
  */
 export async function downloadClaudeCodePluginSource(
-  options: ClaudeCodePluginDownloadOptions
+  options: ClaudeCodePluginDownloadOptions,
 ): Promise<ClaudeCodePluginDownloadResult> {
   const log = options.log ?? (() => undefined)
   const entry = options.entry
   const sourceUrl = entry.source?.trim() ?? ''
 
   const bundledSkills = (entry.skills ?? []).filter(
-    (skill) => skill.files !== undefined && skill.contentDigest !== undefined && typeof skill.path === 'string'
+    (skill) => skill.files !== undefined && skill.contentDigest !== undefined && typeof skill.path === 'string',
   )
   log('claude-plugin:resolve', {
     entryId: entry.id,
@@ -546,14 +584,22 @@ export async function downloadClaudeCodePluginSource(
       // the validator guarantees a safe path on digest-bearing skills, but
       // re-derive and containment-check here so a mis-generated catalogue can
       // never make cp read or write outside the payload/staging roots.
-      const folder = (skill.path as string).split('/').filter((segment) => segment.length > 0).pop() ?? ''
+      const folder =
+        (skill.path as string)
+          .split('/')
+          .filter((segment) => segment.length > 0)
+          .pop() ?? ''
       if (folder === '' || folder === '.' || folder === '..' || folder.includes('\\')) {
         return { ok: false, sourceUrl, message: `Skill “${skill.name}” has an unusable bundled folder path.` }
       }
       const payloadDir = resolve(resourceRoot, folder)
       const stageDir = resolve(stageSkillsRoot, folder)
       if (!payloadDir.startsWith(`${resourceRoot}${sep}`) || !stageDir.startsWith(`${stageSkillsRoot}${sep}`)) {
-        return { ok: false, sourceUrl, message: `Skill “${skill.name}” resolves outside its bundled payload directory.` }
+        return {
+          ok: false,
+          sourceUrl,
+          message: `Skill “${skill.name}” resolves outside its bundled payload directory.`,
+        }
       }
       const verification = await verifyBundledSkillFolder(payloadDir, skill.files ?? [], skill.contentDigest ?? '')
       if (!verification.ok) {
@@ -571,7 +617,12 @@ export async function downloadClaudeCodePluginSource(
 
     const skillDirs = await stagedSkillDirs(join(stage, 'skills'))
     if (skillDirs.length === 0) {
-      return { ok: false, sourceUrl, message: 'This Claude Code plugin bundles no skills. Multicode installs plugin skills only; its commands run inside Claude Code sessions.' }
+      return {
+        ok: false,
+        sourceUrl,
+        message:
+          'This Claude Code plugin bundles no skills. Multicode installs plugin skills only; its commands run inside Claude Code sessions.',
+      }
     }
 
     const resolvedRef = bundledClaudeContentRef(contentDigests)
@@ -580,7 +631,8 @@ export async function downloadClaudeCodePluginSource(
       return {
         ok: false,
         sourceUrl,
-        message: 'The bundled skill content changed since it was verified (the app or its catalogue updated). Review and trust the plugin again.',
+        message:
+          'The bundled skill content changed since it was verified (the app or its catalogue updated). Review and trust the plugin again.',
       }
     }
 
@@ -588,9 +640,7 @@ export async function downloadClaudeCodePluginSource(
     // cap) install nothing — name them so the caller can disclose the gap
     // instead of the storefront listing a skill the user never receives.
     const bundledNames = new Set(bundledSkills.map((skill) => skill.name))
-    const metadataOnlySkills = (entry.skills ?? [])
-      .map((skill) => skill.name)
-      .filter((name) => !bundledNames.has(name))
+    const metadataOnlySkills = (entry.skills ?? []).map((skill) => skill.name).filter((name) => !bundledNames.has(name))
     if (metadataOnlySkills.length > 0) {
       log('claude-plugin:metadata-only-skills', { entryId: entry.id, skills: metadataOnlySkills })
     }
@@ -640,10 +690,12 @@ async function downloadGenericPluginSource(
   stage: string,
   fetcher: MarketplacePluginDownloadFetch,
   timeoutMs: number | undefined,
-  limits: DownloadLimits
+  limits: DownloadLimits,
 ): Promise<void> {
   const state: DownloadState = { files: 0, bytes: 0, dirRequests: 0 }
-  const pluginUrl = source.pathname.endsWith('/plugin.json') ? source : new URL(`${ensureTrailingSlash(source.toString())}plugin.json`)
+  const pluginUrl = source.pathname.endsWith('/plugin.json')
+    ? source
+    : new URL(`${ensureTrailingSlash(source.toString())}plugin.json`)
   await downloadFile(pluginUrl.toString(), join(stage, 'plugin.json'), fetcher, timeoutMs, limits, state)
   // Parse without requiring a signature so an unsigned (mcp/skills-only) bundle
   // still enumerates its component files; the strict signature/kind gate runs
@@ -663,7 +715,7 @@ async function downloadFile(
   fetcher: MarketplacePluginDownloadFetch,
   timeoutMs: number | undefined,
   limits: DownloadLimits,
-  state: DownloadState
+  state: DownloadState,
 ): Promise<void> {
   if (state.files >= limits.maxFiles) throw new Error(`Plugin bundle contains more than ${limits.maxFiles} files.`)
   const body = await fetchBytes(url, fetcher, timeoutMs, { accept: '*/*' }, limits.maxFileBytes)
@@ -681,7 +733,7 @@ async function fetchText(
   fetcher: MarketplacePluginDownloadFetch,
   timeoutMs: number | undefined,
   headers: Record<string, string>,
-  maxBytes: number
+  maxBytes: number,
 ): Promise<string> {
   return (await fetchBytes(url, fetcher, timeoutMs, headers, maxBytes)).toString('utf8')
 }
@@ -691,7 +743,7 @@ async function fetchBytes(
   fetcher: MarketplacePluginDownloadFetch,
   timeoutMs: number | undefined,
   headers: Record<string, string>,
-  maxBytes: number
+  maxBytes: number,
 ): Promise<Buffer> {
   const parsed = parseHttpsUrl(url)
   if (!parsed.ok) throw new Error(parsed.message)
@@ -708,7 +760,7 @@ async function fetchBytes(
       throw new DownloadHttpError(
         `Marketplace plugin download failed with HTTP ${response.status}.`,
         response.status,
-        parsed.url.toString()
+        parsed.url.toString(),
       )
     }
     let arrayBuffer: ArrayBuffer
@@ -717,7 +769,7 @@ async function fetchBytes(
     } catch (error) {
       throw new DownloadNetworkError(
         `Marketplace plugin download response could not be read. ${formatError(error)}`,
-        parsed.url.toString()
+        parsed.url.toString(),
       )
     }
     const body = Buffer.from(arrayBuffer)
@@ -749,7 +801,7 @@ function relativeGithubPath(basePath: string, path: string | undefined): string 
   // already bundle-relative; the safety check below still applies.
   const relPath =
     basePath === ''
-      ? path ?? ''
+      ? (path ?? '')
       : (() => {
           if (!path?.startsWith(`${basePath}/`) && path !== basePath) {
             throw new Error(`GitHub file path ${path ?? '(missing)'} is outside the plugin source path.`)
@@ -787,13 +839,20 @@ async function defaultFetch(url: string, init: RequestInit): Promise<Response> {
 }
 
 class DownloadHttpError extends Error {
-  constructor(message: string, readonly statusCode: number, readonly url: string) {
+  constructor(
+    message: string,
+    readonly statusCode: number,
+    readonly url: string,
+  ) {
     super(message)
   }
 }
 
 class DownloadNetworkError extends Error {
-  constructor(message: string, readonly url: string) {
+  constructor(
+    message: string,
+    readonly url: string,
+  ) {
     super(message)
   }
 }

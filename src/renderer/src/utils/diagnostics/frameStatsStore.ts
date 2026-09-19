@@ -96,7 +96,7 @@ function percentile(sortedAsc: readonly number[], p: number): number | null {
 
 export function summarizeFrameStats(
   input: readonly FrameSample[],
-  options: { windowMs?: number; now?: number } = {}
+  options: { windowMs?: number; now?: number } = {},
 ): FrameStatsSummary {
   const now = options.now ?? Date.now()
   const windowMs = options.windowMs ?? 5_000

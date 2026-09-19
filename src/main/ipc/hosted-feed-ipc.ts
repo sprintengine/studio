@@ -72,4 +72,3 @@ function failure(error: unknown): HostedModelFeedReadResult {
     message: error instanceof Error ? error.message : String(error),
   }
 }
-

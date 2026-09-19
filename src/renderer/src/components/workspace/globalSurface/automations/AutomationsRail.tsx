@@ -33,7 +33,18 @@ import { builtinRowId, builtinStateLine } from './builtinAutomations'
 // semantics, ↑/↓ + j/k keyboard navigation, and row layout are the substrate's;
 // this maps automation entries onto it and keeps the salience ordering upstream.
 export function AutomationsRail({
-  entries, builtins, addedBuiltinIds, selectedId, now, onSelect, onCreate, search, filter, emptyNotice, builtinNotice, providers,
+  entries,
+  builtins,
+  addedBuiltinIds,
+  selectedId,
+  now,
+  onSelect,
+  onCreate,
+  search,
+  filter,
+  emptyNotice,
+  builtinNotice,
+  providers,
 }: {
   entries: AutomationsInstanceEntry[]
   /** The shipped five, as main reports them. Empty while the read is in flight or

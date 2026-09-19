@@ -64,12 +64,7 @@ export type CursorErrorPopoverProps = {
  * with copy. It dismisses on Escape, on a click anywhere outside, or on the
  * auto-dismiss timer — whichever comes first.
  */
-export function CursorErrorPopover({
-  message,
-  anchor,
-  onDismiss,
-  autoDismissMs = 3500,
-}: CursorErrorPopoverProps) {
+export function CursorErrorPopover({ message, anchor, onDismiss, autoDismissMs = 3500 }: CursorErrorPopoverProps) {
   const boxRef = useRef<HTMLDivElement>(null)
   const copiedTimerRef = useRef<number | null>(null)
   const [expanded, setExpanded] = useState(false)
@@ -88,10 +83,7 @@ export function CursorErrorPopover({
       const vw = window.innerWidth
       const vh = window.innerHeight
       const left = Math.max(VIEWPORT_EDGE, Math.min(anchor.x - width / 2, vw - width - VIEWPORT_EDGE))
-      const caretLeft = Math.max(
-        CARET_EDGE_MARGIN,
-        Math.min(anchor.x - left, width - CARET_EDGE_MARGIN),
-      )
+      const caretLeft = Math.max(CARET_EDGE_MARGIN, Math.min(anchor.x - left, width - CARET_EDGE_MARGIN))
       const spaceAbove = anchor.y - CURSOR_GAP - VIEWPORT_EDGE
       const spaceBelow = vh - anchor.y - CURSOR_GAP - VIEWPORT_EDGE
       const placeAbove = spaceAbove >= PREFER_ABOVE_THRESHOLD || spaceAbove >= spaceBelow
@@ -181,7 +173,9 @@ export function CursorErrorPopover({
         // Hidden until measured so the first paint never flashes at 0,0.
         visibility: placement ? 'visible' : 'hidden',
       }}
-      className={['cursor-error-popover z-[var(--z-popover)]', expanded ? 'cursor-default' : 'cursor-pointer'].join(' ')}
+      className={['cursor-error-popover z-[var(--z-popover)]', expanded ? 'cursor-default' : 'cursor-pointer'].join(
+        ' ',
+      )}
     >
       {placement ? (
         <>

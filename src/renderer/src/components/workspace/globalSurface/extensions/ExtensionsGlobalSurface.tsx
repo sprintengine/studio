@@ -33,12 +33,7 @@ import { PluginsCatalogue } from './plugins/PluginsCatalogue'
 import { AddSkillSourceModal } from './skills/AddSkillSourceModal'
 import { SkillsCatalogue } from './skills/SkillsCatalogue'
 import { useSkillSources } from './skills/useSkillSources'
-import {
-  landingFromTarget,
-  targetNamesPlace,
-  targetTabId,
-  type CatalogueLanding,
-} from './catalogue/catalogueLanding'
+import { landingFromTarget, targetNamesPlace, targetTabId, type CatalogueLanding } from './catalogue/catalogueLanding'
 import {
   consumePendingExtensionsSurfaceTarget,
   peekPendingExtensionsSurfaceTarget,
@@ -241,7 +236,11 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
       for (const id of serverIds) removeMcpServer(id)
       if (!activeWorkspaceRoot || !settings.syncEnabled || typeof window.api.mcpSync !== 'function') return
       void window.api
-        .mcpSync({ workspaceRoot: activeWorkspaceRoot, settings: { ...settings, servers }, forgetServerIds: [...serverIds] })
+        .mcpSync({
+          workspaceRoot: activeWorkspaceRoot,
+          settings: { ...settings, servers },
+          forgetServerIds: [...serverIds],
+        })
         .catch(() => {})
     },
     [activeWorkspaceRoot, connectors.mcpSettings, removeMcpServer],
@@ -250,10 +249,13 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   // The query is deliberately KEPT: the tab is selected, which is what reads
   // the new source, and a search that was on when the person went and added a
   // source is a search they want the new source's answer to.
-  const openAddedSource = useCallback((source: SkillSource) => {
-    sources.refreshSources()
-    setTabId(source.id)
-  }, [sources])
+  const openAddedSource = useCallback(
+    (source: SkillSource) => {
+      sources.refreshSources()
+      setTabId(source.id)
+    },
+    [sources],
+  )
 
   /**
    * "Add from folder…": a folder on this machine. The picker is the app's own

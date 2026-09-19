@@ -8,10 +8,7 @@ import type { MountedWorkspaceTypeSupervisor } from './workspace-type-supervisor
 // WorkspaceManager tree into a white window), and any visible output is
 // neutralized by the display:none host so module code cannot draw into shell
 // chrome. Mirrors ModuleSettingsSectionHost's per-contribution boundary.
-class SupervisorBoundary extends React.Component<
-  { supervisorKey: string; children: ReactNode },
-  { failed: boolean }
-> {
+class SupervisorBoundary extends React.Component<{ supervisorKey: string; children: ReactNode }, { failed: boolean }> {
   state = { failed: false }
 
   static getDerivedStateFromError(): { failed: boolean } {

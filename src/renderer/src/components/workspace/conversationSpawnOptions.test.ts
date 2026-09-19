@@ -103,7 +103,11 @@ assert.deepEqual(buildConversationSpawnOptions(null), [], 'missing result yields
 // Default-option resolution: remembered pair wins when still installed, else the
 // first available option; no options yields null.
 const options = buildConversationSpawnOptions(populated)
-assert.equal(resolveDefaultConversationOption([], { providerId: 'openai-compatible', modelId: 'gpt-4o' }), null, 'no options yields null')
+assert.equal(
+  resolveDefaultConversationOption([], { providerId: 'openai-compatible', modelId: 'gpt-4o' }),
+  null,
+  'no options yields null',
+)
 assert.equal(
   resolveDefaultConversationOption(options, null)?.modelId,
   'gpt-4o-mini',
@@ -139,10 +143,8 @@ assert.deepEqual(
   'a remembered live-only model on a dynamic provider seeds the spawn',
 )
 assert.equal(
-  resolveDefaultConversationOption(
-    options,
-    { providerId: 'openai-compatible', modelId: 'anthropic/claude-live-only' },
-  )?.modelId,
+  resolveDefaultConversationOption(options, { providerId: 'openai-compatible', modelId: 'anthropic/claude-live-only' })
+    ?.modelId,
   'gpt-4o-mini',
   'without the dynamic flag, an unknown remembered model still falls back to the first option',
 )
@@ -235,11 +237,7 @@ const onlyUnavailableMetered = buildConversationSpawnOptions({
     }),
   ],
 })
-assert.equal(
-  resolveDefaultConversationOption(onlyUnavailableMetered, null),
-  null,
-  'no available options yields null',
-)
+assert.equal(resolveDefaultConversationOption(onlyUnavailableMetered, null), null, 'no available options yields null')
 
 // The spawn patch opts the agent into the conversation runtime and clears every
 // terminal field, so a spawned agent never starts a CLI session.

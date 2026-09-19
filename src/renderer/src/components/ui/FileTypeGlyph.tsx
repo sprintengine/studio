@@ -143,7 +143,6 @@ const JAVA_TEST_SUFFIX = /(?:Test|Tests|IT)$/
 // is called — `tests/foo.py` carries no marker of its own.
 const TEST_DIRECTORIES = new Set(['test', 'tests', '__tests__', 'spec', 'specs', 'testing'])
 
-
 /**
  * Does this file name follow a test-naming convention? Basename only, and
  * gated on the extension — a file that is a test purely because of the folder
@@ -299,7 +298,13 @@ const NotchedTile = () => (
 )
 
 const TestTick = () => (
-  <path d="M10.5 12.4l1.5 1.6 2.75-3.1" stroke="currentColor" strokeWidth={LETTER} strokeLinecap="round" strokeLinejoin="round" />
+  <path
+    d="M10.5 12.4l1.5 1.6 2.75-3.1"
+    stroke="currentColor"
+    strokeWidth={LETTER}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  />
 )
 
 const LetterS = ({ dx = 0 }: { dx?: number }) => (
@@ -312,10 +317,17 @@ const LetterS = ({ dx = 0 }: { dx?: number }) => (
   />
 )
 
-const LetterT = () => <path d="M3.1 4.9h4.2M5.2 4.9v6.35" stroke="currentColor" strokeWidth={LETTER} strokeLinecap="round" />
+const LetterT = () => (
+  <path d="M3.1 4.9h4.2M5.2 4.9v6.35" stroke="currentColor" strokeWidth={LETTER} strokeLinecap="round" />
+)
 
 const LetterJ = () => (
-  <path d="M7 4.9v4.45c0 1.15-.75 1.9-1.8 1.9-.9 0-1.55-.45-1.85-1.15" stroke="currentColor" strokeWidth={LETTER} strokeLinecap="round" />
+  <path
+    d="M7 4.9v4.45c0 1.15-.75 1.9-1.8 1.9-.9 0-1.55-.45-1.85-1.15"
+    stroke="currentColor"
+    strokeWidth={LETTER}
+    strokeLinecap="round"
+  />
 )
 
 const LettersPy = () => (
@@ -357,8 +369,24 @@ const LettersGo = () => (
 const ReactAtom = ({ strokeWidth = '1.1' }: { strokeWidth?: string }) => (
   <>
     <ellipse cx="8" cy="8" rx="6.25" ry="2.45" stroke="currentColor" strokeWidth={strokeWidth} />
-    <ellipse cx="8" cy="8" rx="6.25" ry="2.45" transform="rotate(60 8 8)" stroke="currentColor" strokeWidth={strokeWidth} />
-    <ellipse cx="8" cy="8" rx="6.25" ry="2.45" transform="rotate(120 8 8)" stroke="currentColor" strokeWidth={strokeWidth} />
+    <ellipse
+      cx="8"
+      cy="8"
+      rx="6.25"
+      ry="2.45"
+      transform="rotate(60 8 8)"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+    />
+    <ellipse
+      cx="8"
+      cy="8"
+      rx="6.25"
+      ry="2.45"
+      transform="rotate(120 8 8)"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+    />
     <circle cx="8" cy="8" r="1.15" fill="currentColor" />
   </>
 )
@@ -371,7 +399,13 @@ const DocumentOutline = () => (
       strokeWidth={LINE}
       strokeLinejoin="round"
     />
-    <path d="M9.5 1.9v2.25h2.25" stroke="currentColor" strokeWidth={LINE} strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M9.5 1.9v2.25h2.25"
+      stroke="currentColor"
+      strokeWidth={LINE}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   </>
 )
 
@@ -430,8 +464,20 @@ const BODY: Record<FileTypeKind, () => JSX.Element> = {
   ),
   markdown: () => (
     <>
-      <path d="M2 11.25V4.9l2.95 3.5L7.9 4.9v6.35" stroke="currentColor" strokeWidth={MARK} strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M11.75 4.9v6.1M9.55 8.85l2.2 2.3 2.2-2.3" stroke="currentColor" strokeWidth={MARK} strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M2 11.25V4.9l2.95 3.5L7.9 4.9v6.35"
+        stroke="currentColor"
+        strokeWidth={MARK}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M11.75 4.9v6.1M9.55 8.85l2.2 2.3 2.2-2.3"
+        stroke="currentColor"
+        strokeWidth={MARK}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </>
   ),
   yaml: () => (
@@ -443,11 +489,30 @@ const BODY: Record<FileTypeKind, () => JSX.Element> = {
     />
   ),
   html: () => (
-    <path d="M5.5 4.5 2.25 8l3.25 3.5M10.5 4.5 13.75 8l-3.25 3.5" stroke="currentColor" strokeWidth={MARK} strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M5.5 4.5 2.25 8l3.25 3.5M10.5 4.5 13.75 8l-3.25 3.5"
+      stroke="currentColor"
+      strokeWidth={MARK}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   ),
-  css: () => <path d="M6.4 3 5.1 13M10.9 3 9.6 13M3.25 6.2h10M2.75 9.8h10" stroke="currentColor" strokeWidth={MARK} strokeLinecap="round" />,
+  css: () => (
+    <path
+      d="M6.4 3 5.1 13M10.9 3 9.6 13M3.25 6.2h10M2.75 9.8h10"
+      stroke="currentColor"
+      strokeWidth={MARK}
+      strokeLinecap="round"
+    />
+  ),
   shell: () => (
-    <path d="M2.75 4.25 6.5 8l-3.75 3.75M8.25 11.75h5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    <path
+      d="M2.75 4.25 6.5 8l-3.75 3.75M8.25 11.75h5"
+      stroke="currentColor"
+      strokeWidth="1.5"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    />
   ),
   python: () => (
     <>
@@ -531,7 +596,12 @@ const BODY: Record<FileTypeKind, () => JSX.Element> = {
   text: () => (
     <>
       <DocumentOutline />
-      <path d="M5.25 7.25h4M5.25 9.75h4M5.25 12.25h2.5" stroke="currentColor" strokeWidth={LINE} strokeLinecap="round" />
+      <path
+        d="M5.25 7.25h4M5.25 9.75h4M5.25 12.25h2.5"
+        stroke="currentColor"
+        strokeWidth={LINE}
+        strokeLinecap="round"
+      />
     </>
   ),
   generic: () => <DocumentOutline />,
@@ -643,7 +713,12 @@ const FolderBadgeMark = ({ badge }: { badge: FolderBadge }) =>
       strokeLinecap="round"
     />
   ) : (
-    <path d="M10.2 9.4h3.9M10.2 11.1h3.9M10.2 12.8h3.9" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" />
+    <path
+      d="M10.2 9.4h3.9M10.2 11.1h3.9M10.2 12.8h3.9"
+      stroke="currentColor"
+      strokeWidth="1.15"
+      strokeLinecap="round"
+    />
   )
 
 /**

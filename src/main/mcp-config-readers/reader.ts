@@ -41,8 +41,7 @@ export type RawMcpServer = {
  * a syntax error as "no servers" would be a lie.
  */
 export type ReadServersResult =
-  | { ok: true; servers: RawMcpServer[] }
-  | { ok: false; reason: 'missing' | 'unreadable' | 'malformed'; message: string }
+  { ok: true; servers: RawMcpServer[] } | { ok: false; reason: 'missing' | 'unreadable' | 'malformed'; message: string }
 
 export interface McpConfigReader {
   format: PluginMcpConfigFormat

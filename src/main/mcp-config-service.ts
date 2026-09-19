@@ -21,11 +21,7 @@ import type { PluginManifest, PluginMcpConfigSpec } from '../shared/plugin-manif
 // MCP server-config normalization lives in shared/mcp so node-free consumers
 // (the marketplace registry validator) apply identical rules; re-exported here
 // to keep this module's public surface stable for existing callers.
-import {
-  normalizeMcpClients,
-  normalizeMcpServerConfig,
-  normalizeServer,
-} from '../shared/mcp/normalize-server'
+import { normalizeMcpClients, normalizeMcpServerConfig, normalizeServer } from '../shared/mcp/normalize-server'
 import { pluginIdForCli } from './agent-launch-render'
 import { commandOnPath } from './command-on-path'
 import { getPluginById } from './plugin-registry-instance'
@@ -198,7 +194,11 @@ function validateServer(server: McpServerConfig): McpValidationIssue[] {
     if (!command) {
       issues.push({ level: 'error', serverId: server.id, message: `${server.name} is missing a command.` })
     } else if (!commandOnPath(command)) {
-      issues.push({ level: server.required ? 'error' : 'warning', serverId: server.id, message: `${server.name} command was not found: ${command}` })
+      issues.push({
+        level: server.required ? 'error' : 'warning',
+        serverId: server.id,
+        message: `${server.name} command was not found: ${command}`,
+      })
     }
   }
   if ((server.transport === 'http' || server.transport === 'sse') && !server.url?.trim()) {
@@ -206,7 +206,11 @@ function validateServer(server: McpServerConfig): McpValidationIssue[] {
   }
   for (const envVar of server.envVarNames ?? []) {
     if (!process.env[envVar]) {
-      issues.push({ level: server.required ? 'error' : 'warning', serverId: server.id, message: `${server.name} expects environment variable ${envVar}.` })
+      issues.push({
+        level: server.required ? 'error' : 'warning',
+        serverId: server.id,
+        message: `${server.name} expects environment variable ${envVar}.`,
+      })
     }
   }
   return issues
@@ -223,7 +227,7 @@ export function resolveMcpConfigPath(
   spec: PluginMcpConfigSpec,
   scope: McpScope,
   workspaceRoot: string,
-  homeDir: () => string
+  homeDir: () => string,
 ): string | null {
   const template = scope === 'user' ? spec.userPath : spec.path
   if (!template) return null
@@ -308,8 +312,10 @@ function syncCodex(input: SyncForFormatInput): {
       : prepared.previous
     writeFileSync(
       resolved,
-      servers.length ? replaceManagedBlock(base, renderCodexManagedBlock(servers)) : removeCodexManagedServers(base, knownServerIds),
-      'utf8'
+      servers.length
+        ? replaceManagedBlock(base, renderCodexManagedBlock(servers))
+        : removeCodexManagedServers(base, knownServerIds),
+      'utf8',
     )
   }
   return { target, issues: [] }
@@ -359,9 +365,10 @@ function syncClaude(input: SyncForFormatInput): {
         }
       }
     }
-    const currentServers = existing.mcpServers && typeof existing.mcpServers === 'object'
-      ? existing.mcpServers as Record<string, unknown>
-      : {}
+    const currentServers =
+      existing.mcpServers && typeof existing.mcpServers === 'object'
+        ? (existing.mcpServers as Record<string, unknown>)
+        : {}
     // Connector-scoped write starts empty so any server the repo committed into
     // the worktree .mcp.json is dropped, not merged; the normal path preserves
     // the user's other servers and only replaces the ones we manage.
@@ -406,7 +413,7 @@ function enableStudioMcpForClaudeWorkspace(
   workspaceRoot: string,
   client: McpClientTarget,
   mcpJsonPath: string,
-  expectedServer: unknown
+  expectedServer: unknown,
 ): McpValidationIssue | null {
   try {
     const parsed = JSON.parse(readFileSync(mcpJsonPath, 'utf8')) as Record<string, unknown>
@@ -511,9 +518,10 @@ function syncOpencode(input: SyncForFormatInput): {
         return { target: { client, path, serverIds }, issues }
       }
     }
-    const currentServers = existing.mcp && typeof existing.mcp === 'object' && !Array.isArray(existing.mcp)
-      ? existing.mcp as Record<string, unknown>
-      : {}
+    const currentServers =
+      existing.mcp && typeof existing.mcp === 'object' && !Array.isArray(existing.mcp)
+        ? (existing.mcp as Record<string, unknown>)
+        : {}
     // Connector-scoped write drops any repo-committed server (start empty); the
     // normal path keeps the user's servers and only replaces the managed ones.
     const nextServers: Record<string, unknown> = pruneUnlisted ? {} : { ...currentServers }
@@ -565,10 +573,8 @@ function opencodeRemoteHeaders(server: McpServerConfig): Record<string, string> 
   // token replaces any caller-supplied Authorization header so the literal
   // secret is never written to disk.
   const headers: Record<string, string> = server.envVarNames?.length
-    ? Object.fromEntries(
-        Object.entries(server.headers ?? {}).filter(([key]) => key.toLowerCase() !== 'authorization')
-      )
-    : { ...(server.headers ?? {}) }
+    ? Object.fromEntries(Object.entries(server.headers ?? {}).filter(([key]) => key.toLowerCase() !== 'authorization'))
+    : { ...server.headers }
   if (server.envVarNames?.[0]) {
     headers.Authorization = `Bearer {env:${server.envVarNames[0]}}`
   }
@@ -576,8 +582,7 @@ function opencodeRemoteHeaders(server: McpServerConfig): Record<string, string> 
 }
 
 type WritableConfigFileResult =
-  | { ok: true, previous: string, existed: boolean }
-  | { ok: false, issue: McpValidationIssue }
+  { ok: true; previous: string; existed: boolean } | { ok: false; issue: McpValidationIssue }
 
 function prepareWritableConfigFile(path: string, client: McpClientTarget): WritableConfigFileResult {
   const directory = dirname(path)
@@ -635,8 +640,8 @@ function removeCodexManagedServers(previous: string, serverIds: string[]): strin
   const lines = block.split(/\r?\n/)
   const inner = lines.slice(1, -1)
   const preamble: string[] = []
-  const sections: Array<{ id: string, lines: string[] }> = []
-  let current: { id: string, lines: string[] } | null = null
+  const sections: Array<{ id: string; lines: string[] }> = []
+  let current: { id: string; lines: string[] } | null = null
 
   for (const line of inner) {
     const section = line.match(/^\[mcp_servers\.([a-z0-9_-]+)\]$/)
@@ -676,7 +681,11 @@ function removeCommittedCodexMcpServers(text: string): string {
   for (const line of text.split(/\r?\n/)) {
     const header = line.match(/^\s*\[\[?\s*([^\]]+?)\s*\]\]?\s*$/)
     if (header) {
-      dropping = header[1]!.trim().replace(/^["']|["']$/g, '').split('.')[0] === 'mcp_servers'
+      dropping =
+        header[1]!
+          .trim()
+          .replace(/^["']|["']$/g, '')
+          .split('.')[0] === 'mcp_servers'
     }
     if (!dropping) out.push(line)
   }
@@ -698,14 +707,26 @@ function renderCodexServer(server: McpServerConfig): string[] {
     lines.push(`command = ${tomlString(server.command ?? '')}`)
     if (server.args?.length) lines.push(`args = [${server.args.map(tomlString).join(', ')}]`)
     if (server.envVarNames?.length) lines.push(`env_vars = [${server.envVarNames.map(tomlString).join(', ')}]`)
-    if (server.env) lines.push(`env = { ${Object.entries(server.env).map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`).join(', ')} }`)
+    if (server.env)
+      lines.push(
+        `env = { ${Object.entries(server.env)
+          .map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`)
+          .join(', ')} }`,
+      )
   } else {
     lines.push(`url = ${tomlString(server.url ?? '')}`)
     if (server.envVarNames?.length) lines.push(`bearer_token_env_var = ${tomlString(server.envVarNames[0])}`)
     const headers = server.envVarNames?.length
-      ? Object.fromEntries(Object.entries(server.headers ?? {}).filter(([key]) => key.toLowerCase() !== 'authorization'))
+      ? Object.fromEntries(
+          Object.entries(server.headers ?? {}).filter(([key]) => key.toLowerCase() !== 'authorization'),
+        )
       : server.headers
-    if (headers && Object.keys(headers).length) lines.push(`http_headers = { ${Object.entries(headers).map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`).join(', ')} }`)
+    if (headers && Object.keys(headers).length)
+      lines.push(
+        `http_headers = { ${Object.entries(headers)
+          .map(([key, value]) => `${tomlString(key)} = ${tomlString(value)}`)
+          .join(', ')} }`,
+      )
   }
   lines.push(`enabled = ${server.enabled ? 'true' : 'false'}`)
   if (server.required) lines.push('required = true')
@@ -717,9 +738,10 @@ function toClaudeServer(server: McpServerConfig): Record<string, unknown> {
     return {
       type: 'stdio',
       command: process.platform === 'win32' && server.command === 'npx' ? 'cmd' : server.command,
-      args: process.platform === 'win32' && server.command === 'npx'
-        ? ['/c', 'npx', ...(server.args ?? [])]
-        : server.args ?? [],
+      args:
+        process.platform === 'win32' && server.command === 'npx'
+          ? ['/c', 'npx', ...(server.args ?? [])]
+          : (server.args ?? []),
       ...(server.env ? { env: server.env } : {}),
     }
   }
@@ -731,7 +753,7 @@ function toClaudeServer(server: McpServerConfig): Record<string, unknown> {
 }
 
 function httpHeadersForClaude(server: McpServerConfig): { headers?: Record<string, string> } {
-  const headers = { ...(server.headers ?? {}) }
+  const headers = { ...server.headers }
   if (!headers.Authorization && server.envVarNames?.[0]) {
     headers.Authorization = `Bearer \${${server.envVarNames[0]}}`
   }

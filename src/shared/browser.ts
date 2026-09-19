@@ -51,8 +51,7 @@ export type BrowserPickedElement = {
 }
 
 export type BrowserScreenshotResult =
-  | { ok: true; path: string; width: number; height: number }
-  | { ok: false; message: string }
+  { ok: true; path: string; width: number; height: number } | { ok: false; message: string }
 
 export const BROWSER_MAX_OUTER_HTML = 4000
 export const BROWSER_PICK_CROP_PADDING = 20

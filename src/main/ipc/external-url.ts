@@ -1,6 +1,4 @@
-export type SafeExternalUrl =
-  | { ok: true; url: string }
-  | { ok: false; message: string }
+export type SafeExternalUrl = { ok: true; url: string } | { ok: false; message: string }
 
 // Terminal output is untrusted: only hand http/https to the OS so that schemes
 // like file:, vscode:, or custom protocol handlers cannot be triggered by

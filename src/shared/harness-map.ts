@@ -12,11 +12,7 @@
 // out of the declared `installTargets[].path` template, never written as a
 // literal. Node-free so main and renderer share one map.
 
-import type {
-  PluginRegistryListEntry,
-  PluginSkillFormat,
-  PluginSkillSupport,
-} from './plugin-manifest'
+import type { PluginRegistryListEntry, PluginSkillFormat, PluginSkillSupport } from './plugin-manifest'
 
 export type HarnessBinding = {
   harnessId: string

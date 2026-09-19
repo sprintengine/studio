@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 
-import {
-  createExternalFileTab,
-  isExternalFileBufferDirty,
-  loadExternalFileBuffer,
-} from './externalEditorFile'
+import { createExternalFileTab, isExternalFileBufferDirty, loadExternalFileBuffer } from './externalEditorFile'
 
 void main()
 
@@ -18,10 +14,12 @@ async function main(): Promise<void> {
 }
 
 function testClassifiesSvgAsImage(): void {
-  assert.deepEqual(
-    createExternalFileTab({ path: '/workspace/logo.svg', name: 'logo.svg', workspaceId: 'ws-1' }),
-    { path: '/workspace/logo.svg', name: 'logo.svg', workspaceId: 'ws-1', kind: 'image' }
-  )
+  assert.deepEqual(createExternalFileTab({ path: '/workspace/logo.svg', name: 'logo.svg', workspaceId: 'ws-1' }), {
+    path: '/workspace/logo.svg',
+    name: 'logo.svg',
+    workspaceId: 'ws-1',
+    kind: 'image',
+  })
 }
 
 async function testImageFilesUseImageDataUrlReader(): Promise<void> {

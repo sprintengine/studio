@@ -4,6 +4,4 @@
 // inline; `error` means the lint could not run at all (missing script,
 // misconfiguration), which reads differently to the user.
 export type DesignSystemBundleLintRunResult =
-  | { ok: true }
-  | { ok: false; kind: 'findings'; findings: string }
-  | { ok: false; kind: 'error'; message: string }
+  { ok: true } | { ok: false; kind: 'findings'; findings: string } | { ok: false; kind: 'error'; message: string }

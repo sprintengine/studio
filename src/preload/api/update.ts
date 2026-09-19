@@ -6,8 +6,7 @@ export const updateApi = {
   updateCheck: (): Promise<AppUpdateCheckResult> => ipcRenderer.invoke('update:check'),
   updateDownload: (): Promise<AppUpdateCheckResult> => ipcRenderer.invoke('update:download'),
   updateQuitAndInstall: (): Promise<AppUpdateCheckResult> => ipcRenderer.invoke('update:quit-and-install'),
-  updateOpenReleaseNotes: (): Promise<{ opened: true; url: string }> =>
-    ipcRenderer.invoke('update:open-release-notes'),
+  updateOpenReleaseNotes: (): Promise<{ opened: true; url: string }> => ipcRenderer.invoke('update:open-release-notes'),
   onUpdateStateChanged: (cb: (state: AppUpdateState) => void): (() => void) => {
     const ch = 'update:state-changed'
     const handler = (_: IpcRendererEvent, state: AppUpdateState) => cb(state)

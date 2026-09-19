@@ -21,7 +21,9 @@ export function registerCliVersionIpc(ipcMain: IpcMain, overrides: Partial<CliVe
     const parsed = isRecord(input) ? input : {}
     const request: CliVersionAdvisoriesInput = {
       ...(parsed.force === true ? { force: true } : {}),
-      ...(isRecord(parsed.cliRuntimes) ? { cliRuntimes: parsed.cliRuntimes as CliVersionAdvisoriesInput['cliRuntimes'] } : {}),
+      ...(isRecord(parsed.cliRuntimes)
+        ? { cliRuntimes: parsed.cliRuntimes as CliVersionAdvisoriesInput['cliRuntimes'] }
+        : {}),
     }
     try {
       return await read(request)
@@ -34,4 +36,3 @@ export function registerCliVersionIpc(ipcMain: IpcMain, overrides: Partial<CliVe
     enabled: setEnabled(enabled === true),
   }))
 }
-

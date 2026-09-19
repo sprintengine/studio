@@ -19,7 +19,7 @@ export type ResolveInstalledSkillHarnessesDeps = {
 }
 
 export async function resolveInstalledSkillHarnesses(
-  deps: ResolveInstalledSkillHarnessesDeps = {}
+  deps: ResolveInstalledSkillHarnessesDeps = {},
 ): Promise<SkillHarness[]> {
   const listEntries = deps.listEntries ?? listPluginRegistryEntries
   // Probed without per-CLI command overrides (those live in renderer

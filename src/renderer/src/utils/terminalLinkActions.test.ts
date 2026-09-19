@@ -42,10 +42,7 @@ assert.equal(
 
 // ---------- backlogRelativePath ----------
 
-assert.equal(
-  backlogRelativePath(`${ROOT}/backlog/2026-07-26-thing.md`, ROOT),
-  'backlog/2026-07-26-thing.md',
-)
+assert.equal(backlogRelativePath(`${ROOT}/backlog/2026-07-26-thing.md`, ROOT), 'backlog/2026-07-26-thing.md')
 assert.equal(
   backlogRelativePath(`${ROOT}/backlog/archived/2026-06-13-thing.md`, ROOT),
   'backlog/archived/2026-06-13-thing.md',
@@ -61,11 +58,7 @@ assert.equal(
   null,
   'nothing under backlog/mockups/ is an item, whatever its extension',
 )
-assert.equal(
-  backlogRelativePath(`${ROOT}/backlog/items.json`, ROOT),
-  null,
-  'only markdown files are items',
-)
+assert.equal(backlogRelativePath(`${ROOT}/backlog/items.json`, ROOT), null, 'only markdown files are items')
 assert.equal(backlogRelativePath(`${ROOT}/src/backlog/x.md`, ROOT), null, 'must be the top-level backlog/')
 assert.equal(backlogRelativePath('/elsewhere/backlog/x.md', ROOT), null, 'outside the workspace')
 

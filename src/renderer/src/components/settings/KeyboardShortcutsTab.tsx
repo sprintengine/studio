@@ -26,14 +26,7 @@ import {
 import { getRendererHost, onThirdPartyRendererModulesLoaded, selectModuleEnabled } from '../../modules'
 import type { KeybindingSettings } from '../../types/workspace'
 import { SettingCard, SettingsPageHeader, SettingsSectionTitle } from './SettingsAtoms'
-import {
-  GhostButton,
-  IconButton,
-  InboxSearchInput,
-  KbdChord,
-  StatusDot,
-  Tooltip,
-} from '../ui'
+import { GhostButton, IconButton, InboxSearchInput, KbdChord, StatusDot, Tooltip } from '../ui'
 import { ResetIcon } from '../AppIcons'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
@@ -81,13 +74,12 @@ export function buildShortcutRows(
     // A migrated command's persisted override/disable may still live under
     // its legacy id — read both so this tab shows what dispatch actually does.
     const legacyId = LEGACY_COMMAND_ID_ALIASES[def.id]
-    const rawOverride = keybindings.overrides[def.id]
-      ?? (legacyId ? keybindings.overrides[legacyId] : undefined)
+    const rawOverride = keybindings.overrides[def.id] ?? (legacyId ? keybindings.overrides[legacyId] : undefined)
     const collapsedOverride = Array.isArray(rawOverride) ? collapseDuplicateKeybindings(rawOverride) : []
     const overrides = collapsedOverride.length > 0 ? collapsedOverride : null
-    const disabled = keybindings.disabled[def.id] === true
-      || (legacyId ? keybindings.disabled[legacyId] === true : false)
-    const effective = disabled ? [] : overrides ?? defaults
+    const disabled =
+      keybindings.disabled[def.id] === true || (legacyId ? keybindings.disabled[legacyId] === true : false)
+    const effective = disabled ? [] : (overrides ?? defaults)
     return {
       id: def.id,
       title: def.title,
@@ -142,9 +134,7 @@ export function retiredKeybindingIds(
   keybindings: KeybindingSettings,
   retired: readonly string[] = RETIRED_COMMAND_IDS,
 ): string[] {
-  return retired.filter(
-    (id) => Boolean(keybindings.overrides[id]) || keybindings.disabled[id] === true,
-  )
+  return retired.filter((id) => Boolean(keybindings.overrides[id]) || keybindings.disabled[id] === true)
 }
 
 function toCandidate(row: ShortcutRow): KeybindingConflictCandidate {

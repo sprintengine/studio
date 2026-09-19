@@ -7,19 +7,11 @@ import {
 } from './command-cache'
 import { validateMobileControlCommand } from './command-validation'
 import { uniqueResolved } from './path-utils'
-import {
-  getMobileControlCommandErrorMessage,
-  MobileControlCommandError,
-} from './command-error'
+import { getMobileControlCommandErrorMessage, MobileControlCommandError } from './command-error'
 import { MobileControlCommandResultRecorder } from './command-results'
 import { validateMobileWorkspacePath } from './workspace'
 import { assertBacklogRelativePath } from './backlog'
-import {
-  createBacklogItem,
-  updateBacklogStatus,
-  updateBacklogTriage,
-  updateBacklogType,
-} from '../../backlog-service'
+import { createBacklogItem, updateBacklogStatus, updateBacklogTriage, updateBacklogType } from '../../backlog-service'
 import type {
   BacklogCriticalityPayload,
   BacklogDifficultyPayload,
@@ -73,7 +65,9 @@ type MobileAutomationControlAccepted = {
 }
 
 export type MobileAutomationsController = {
-  setStatus(request: MobileAutomationControlRequest & { status: 'enabled' | 'paused' }): Promise<MobileAutomationControlResult>
+  setStatus(
+    request: MobileAutomationControlRequest & { status: 'enabled' | 'paused' },
+  ): Promise<MobileAutomationControlResult>
   runNow(request: MobileAutomationControlRequest): Promise<MobileAutomationControlResult>
 }
 
@@ -223,7 +217,10 @@ export class MobileControlCommandService {
     return this.resultRecorder.getAuditLog()
   }
 
-  async dispatch(input: unknown, options: MobileControlCommandDispatchOptions = {}): Promise<MobileControlCommandResult> {
+  async dispatch(
+    input: unknown,
+    options: MobileControlCommandDispatchOptions = {},
+  ): Promise<MobileControlCommandResult> {
     const validated = validateMobileControlCommand(input)
     if (!validated.ok) {
       return this.resultRecorder.rejectUnknown(validated.error)
@@ -231,11 +228,21 @@ export class MobileControlCommandService {
 
     const command = validated.value
     if (!allowedCommandTypes.has(command.type)) {
-      return this.resultRecorder.reject(command, 'command_not_supported', `Mobile command ${command.type} is not available on this desktop.`, false)
+      return this.resultRecorder.reject(
+        command,
+        'command_not_supported',
+        `Mobile command ${command.type} is not available on this desktop.`,
+        false,
+      )
     }
 
     if (!command.idempotencyKey) {
-      return this.resultRecorder.reject(command, 'invalid_payload', 'idempotencyKey is required for mobile mutation commands.', false)
+      return this.resultRecorder.reject(
+        command,
+        'invalid_payload',
+        'idempotencyKey is required for mobile mutation commands.',
+        false,
+      )
     }
 
     const idempotencyKey = idempotencyKeyForCommand(this.workspaceRoot, command)
@@ -261,7 +268,12 @@ export class MobileControlCommandService {
         rememberCommandResult(idempotencyKey, requestHash, result)
         return result
       }
-      const result = this.resultRecorder.reject(command, 'internal_error', getMobileControlCommandErrorMessage(error), false)
+      const result = this.resultRecorder.reject(
+        command,
+        'internal_error',
+        getMobileControlCommandErrorMessage(error),
+        false,
+      )
       rememberCommandResult(idempotencyKey, requestHash, result)
       return result
     }
@@ -269,7 +281,7 @@ export class MobileControlCommandService {
 
   private async executeCommand(
     command: MobileControlCommand,
-    scope: MobileControlCommandScope
+    scope: MobileControlCommandScope,
   ): Promise<MobileControlCommandResult> {
     switch (command.type) {
       case 'backlog.update':
@@ -286,20 +298,25 @@ export class MobileControlCommandService {
       // reaches the command service.
       case 'snapshot.request':
       case 'device.revoke':
-        return this.resultRecorder.reject(command, 'command_not_supported', `Mobile command ${command.type} is not available on this desktop.`, false)
+        return this.resultRecorder.reject(
+          command,
+          'command_not_supported',
+          `Mobile command ${command.type} is not available on this desktop.`,
+          false,
+        )
     }
   }
 
   private async executeAutomationsControlCommand(
     command: Extract<MobileControlCommand, { type: 'automations.control' }>,
-    scope: MobileControlCommandScope
+    scope: MobileControlCommandScope,
   ): Promise<MobileControlCommandResult> {
     if (!this.automationsController) {
       return this.resultRecorder.reject(
         command,
         'command_not_supported',
         'Controlling automations is not supported by this desktop build.',
-        false
+        false,
       )
     }
 
@@ -320,12 +337,13 @@ export class MobileControlCommandService {
       commandId: command.commandId,
     }
 
-    const result = action === 'runNow'
-      ? await this.automationsController.runNow(request)
-      : await this.automationsController.setStatus({
-        ...request,
-        status: action === 'enable' ? 'enabled' : 'paused',
-      })
+    const result =
+      action === 'runNow'
+        ? await this.automationsController.runNow(request)
+        : await this.automationsController.setStatus({
+            ...request,
+            status: action === 'enable' ? 'enabled' : 'paused',
+          })
 
     if (!result.ok) {
       const { code, retryable } = mobileAutomationError(result.error.code)
@@ -336,13 +354,13 @@ export class MobileControlCommandService {
       command,
       result.value,
       workspacePath,
-      'Mobile automation control was applied by the desktop automations engine.'
+      'Mobile automation control was applied by the desktop automations engine.',
     )
   }
 
   private async executeBacklogUpdateCommand(
     command: Extract<MobileControlCommand, { type: 'backlog.update' }>,
-    scope: MobileControlCommandScope
+    scope: MobileControlCommandScope,
   ): Promise<MobileControlCommandResult> {
     const workspacePath = await validateMobileWorkspacePath({
       workspacePath: command.payload.workspacePath,
@@ -352,7 +370,13 @@ export class MobileControlCommandService {
     const relativePath = assertBacklogRelativePath(command.payload.relativePath)
     const { status, type, difficulty, criticality } = command.payload
     if (status === undefined && type === undefined && difficulty === undefined && criticality === undefined) {
-      return this.resultRecorder.reject(command, 'invalid_payload', 'Backlog updates require at least one of status, type, difficulty, or criticality.', false, workspacePath)
+      return this.resultRecorder.reject(
+        command,
+        'invalid_payload',
+        'Backlog updates require at least one of status, type, difficulty, or criticality.',
+        false,
+        workspacePath,
+      )
     }
 
     // The store mutations are sequential on purpose: each one is a full
@@ -360,18 +384,24 @@ export class MobileControlCommandService {
     // race on the file.
     const mutations: Array<() => Promise<BacklogMutationResult>> = []
     if (status !== undefined) {
-      mutations.push(() => updateBacklogStatus({ workspaceRoot: workspacePath, relativePath, status: status as BacklogItemStatusPayload }))
+      mutations.push(() =>
+        updateBacklogStatus({ workspaceRoot: workspacePath, relativePath, status: status as BacklogItemStatusPayload }),
+      )
     }
     if (type !== undefined) {
-      mutations.push(() => updateBacklogType({ workspaceRoot: workspacePath, relativePath, type: type as BacklogTypePayload }))
+      mutations.push(() =>
+        updateBacklogType({ workspaceRoot: workspacePath, relativePath, type: type as BacklogTypePayload }),
+      )
     }
     if (difficulty !== undefined || criticality !== undefined) {
-      mutations.push(() => updateBacklogTriage({
-        workspaceRoot: workspacePath,
-        relativePath,
-        ...(difficulty !== undefined ? { difficulty: difficulty as BacklogDifficultyPayload } : {}),
-        ...(criticality !== undefined ? { criticality: criticality as BacklogCriticalityPayload } : {}),
-      }))
+      mutations.push(() =>
+        updateBacklogTriage({
+          workspaceRoot: workspacePath,
+          relativePath,
+          ...(difficulty !== undefined ? { difficulty: difficulty as BacklogDifficultyPayload } : {}),
+          ...(criticality !== undefined ? { criticality: criticality as BacklogCriticalityPayload } : {}),
+        }),
+      )
     }
 
     let store: BacklogObjectStorePayload | null = null
@@ -383,18 +413,19 @@ export class MobileControlCommandService {
       store = result.store
     }
 
-    const item = store?.items.find((record) => record.source.relativePath.toLowerCase() === relativePath.toLowerCase()) ?? null
+    const item =
+      store?.items.find((record) => record.source.relativePath.toLowerCase() === relativePath.toLowerCase()) ?? null
     return this.resultRecorder.acceptWorkspaceCommand(
       command,
       { item },
       workspacePath,
-      'Mobile backlog update was applied to the workspace backlog store.'
+      'Mobile backlog update was applied to the workspace backlog store.',
     )
   }
 
   private async executeBacklogCreateCommand(
     command: Extract<MobileControlCommand, { type: 'backlog.create' }>,
-    scope: MobileControlCommandScope
+    scope: MobileControlCommandScope,
   ): Promise<MobileControlCommandResult> {
     const workspacePath = await validateMobileWorkspacePath({
       workspacePath: command.payload.workspacePath,
@@ -403,7 +434,13 @@ export class MobileControlCommandService {
     })
     const title = command.payload.title.trim()
     if (!title) {
-      return this.resultRecorder.reject(command, 'invalid_payload', 'Backlog item creation requires a non-empty title.', false, workspacePath)
+      return this.resultRecorder.reject(
+        command,
+        'invalid_payload',
+        'Backlog item creation requires a non-empty title.',
+        false,
+        workspacePath,
+      )
     }
 
     const result = await createBacklogItem({
@@ -423,7 +460,7 @@ export class MobileControlCommandService {
       command,
       { id: result.id, relativePath: result.relativePath, item },
       workspacePath,
-      'Mobile backlog item was created in the workspace backlog store.'
+      'Mobile backlog item was created in the workspace backlog store.',
     )
   }
 
@@ -458,13 +495,18 @@ export class MobileControlCommandService {
   private replayCachedResult(
     command: MobileControlCommand,
     key: string,
-    requestHash: string
+    requestHash: string,
   ): MobileControlCommandResult | null {
     const remembered = rememberedCommandResult(key, requestHash)
     if (remembered.status === 'miss') return null
 
     if (remembered.status === 'conflict') {
-      return this.resultRecorder.reject(command, 'duplicate_idempotency_key', 'This idempotency key was already used for a different command body.', false)
+      return this.resultRecorder.reject(
+        command,
+        'duplicate_idempotency_key',
+        'This idempotency key was already used for a different command body.',
+        false,
+      )
     }
 
     const replayed = remembered.result
@@ -492,5 +534,4 @@ export class MobileControlCommandService {
           audit,
         }
   }
-
 }

@@ -44,8 +44,7 @@ type WebSocketFrame =
   | { kind: 'close'; code: number; reason: string }
 
 type WebSocketDecodeResult =
-  | { kind: 'frames'; frames: WebSocketFrame[] }
-  | { kind: 'error'; code: number; reason: string }
+  { kind: 'frames'; frames: WebSocketFrame[] } | { kind: 'error'; code: number; reason: string }
 
 export type WebSocketFrameDecoder = {
   /** Feed received bytes; returns whole frames, or the failure that must close the socket. */
@@ -65,7 +64,7 @@ export type WebSocketDecoderRole = 'server' | 'client'
 
 export function createWebSocketFrameDecoder(
   maxMessageBytes: number = MAX_WEBSOCKET_MESSAGE_BYTES,
-  role: WebSocketDecoderRole = 'server'
+  role: WebSocketDecoderRole = 'server',
 ): WebSocketFrameDecoder {
   let buffer: Buffer = Buffer.alloc(0)
 
@@ -88,7 +87,11 @@ export function createWebSocketFrameDecoder(
           // Reserved bits are only meaningful for an extension, and this server
           // negotiates none — so a peer setting them is speaking a dialect we
           // did not agree to, not something to interpret optimistically.
-          return { kind: 'error', code: WEBSOCKET_CLOSE_PROTOCOL_ERROR, reason: 'Reserved frame bits are set but no extension was negotiated.' }
+          return {
+            kind: 'error',
+            code: WEBSOCKET_CLOSE_PROTOCOL_ERROR,
+            reason: 'Reserved frame bits are set but no extension was negotiated.',
+          }
         }
         if (!masked && role === 'server') {
           // RFC 6455 §5.1: a client MUST mask. An unmasked client frame is a
@@ -103,13 +106,21 @@ export function createWebSocketFrameDecoder(
           if (buffer.length < offset + 8) return { kind: 'frames', frames }
           const extended = buffer.readBigUInt64BE(offset)
           if (extended > BigInt(maxMessageBytes)) {
-            return { kind: 'error', code: WEBSOCKET_CLOSE_MESSAGE_TOO_BIG, reason: `Frame exceeds the ${maxMessageBytes}-byte limit.` }
+            return {
+              kind: 'error',
+              code: WEBSOCKET_CLOSE_MESSAGE_TOO_BIG,
+              reason: `Frame exceeds the ${maxMessageBytes}-byte limit.`,
+            }
           }
           length = Number(extended)
           offset += 8
         }
         if (length > maxMessageBytes) {
-          return { kind: 'error', code: WEBSOCKET_CLOSE_MESSAGE_TOO_BIG, reason: `Frame exceeds the ${maxMessageBytes}-byte limit.` }
+          return {
+            kind: 'error',
+            code: WEBSOCKET_CLOSE_MESSAGE_TOO_BIG,
+            reason: `Frame exceeds the ${maxMessageBytes}-byte limit.`,
+          }
         }
         const maskLength = masked ? 4 : 0
         if (buffer.length < offset + maskLength + length) return { kind: 'frames', frames }
@@ -124,7 +135,8 @@ export function createWebSocketFrameDecoder(
           return {
             kind: 'error',
             code: WEBSOCKET_CLOSE_PROTOCOL_ERROR,
-            reason: 'Fragmented messages are not supported on this transport; send each JSON-RPC message as one final frame.',
+            reason:
+              'Fragmented messages are not supported on this transport; send each JSON-RPC message as one final frame.',
           }
         }
         switch (opcode) {

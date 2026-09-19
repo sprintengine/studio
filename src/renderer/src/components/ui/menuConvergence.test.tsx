@@ -63,7 +63,12 @@ function run(name: string, fn: () => void): void {
 
 // The properties the audit measured as divergent, each expressed as the class
 // that carries it. A menu "agrees" when every host answers all six the same way.
-const SURFACE_AXES = ['rounded-[7px]', 'border-[color:var(--border-strong)]', 'bg-[color:var(--bg-surface-raised)]', 'py-1'] as const
+const SURFACE_AXES = [
+  'rounded-[7px]',
+  'border-[color:var(--border-strong)]',
+  'bg-[color:var(--bg-surface-raised)]',
+  'py-1',
+] as const
 const ITEM_AXES = [
   'text-meta',
   'px-2.5',
@@ -119,7 +124,9 @@ async function main(): Promise<void> {
   // how TerminalLinkMenu's suite sat green-then-red without anyone noticing.
   const surface = () => document.querySelector('[role="menu"], [role="listbox"]')
   const firstRow = () =>
-    document.querySelector('[data-menu-item="true"], [data-overflow-item="true"], [data-filter-option="true"], [role="option"]')
+    document.querySelector(
+      '[data-menu-item="true"], [data-overflow-item="true"], [data-filter-option="true"], [role="option"]',
+    )
 
   /** Open a Popover-hosted menu by clicking its trigger. */
   function openTrigger(): void {
@@ -265,9 +272,7 @@ async function main(): Promise<void> {
       // jsdom ships no types, so annotate: without it every element off this
       // query degrades to `unknown` and nothing below is checked.
       const dividers: Element[] = Array.from(document.querySelectorAll('[role="separator"]'))
-      const tokens = dividers.map((divider) =>
-        classesOf(divider).filter((cls) => cls.includes('--border')),
-      )
+      const tokens = dividers.map((divider) => classesOf(divider).filter((cls) => cls.includes('--border')))
       view.unmount()
       assert.ok(dividers.length > 0, `${name} renders its separator`)
       for (const token of tokens) {

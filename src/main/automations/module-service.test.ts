@@ -31,7 +31,7 @@ const FIXTURE_ACTION: AutomationActionProvider = {
 
 function registration<T extends AutomationTriggerProvider | AutomationActionProvider>(
   providerType: 'trigger' | 'action',
-  provider: T
+  provider: T,
 ): RegisteredAutomationProvider<T> {
   return {
     providerId: provider.kind,
@@ -108,7 +108,11 @@ function runEvent(automationId: string): AutomationsRunEvent {
   }
 }
 
-async function ownedIds(registry: ModuleAutomationsRegistry, moduleId: string, workspaceRoot: string): Promise<string[]> {
+async function ownedIds(
+  registry: ModuleAutomationsRegistry,
+  moduleId: string,
+  workspaceRoot: string,
+): Promise<string[]> {
   const listed = await registry.list(moduleId, { workspaceRoot })
   assert.equal(listed.ok, true, listed.ok ? '' : listed.message)
   return listed.ok ? listed.automations.map((definition) => definition.id).sort() : []
@@ -136,7 +140,7 @@ async function testCreateStampsOwnerAndListFilters(): Promise<void> {
   assert.deepEqual(
     await ownedIds(registry, 'weather-deck', workspaceRoot),
     ['owned-1', 'owned-2'],
-    'list returns only the calling module\'s automations'
+    "list returns only the calling module's automations",
   )
 }
 
@@ -147,7 +151,7 @@ async function testCreateRefusesForeignOwner(): Promise<void> {
     draft: draft({ ownerModuleId: 'someone-else' }),
   })
   assert.equal(result.ok, false)
-  assert.equal(!result.ok && result.code, 'invalid_draft', 'claiming another module\'s identity is refused')
+  assert.equal(!result.ok && result.code, 'invalid_draft', "claiming another module's identity is refused")
 }
 
 async function testWorkspaceRootMustBeKnown(): Promise<void> {
@@ -169,7 +173,7 @@ async function testPostWriteHookFailureDoesNotFailModuleWrites(): Promise<void> 
   assert.equal(
     created.ok,
     true,
-    'a post-write refresh failure never fails the write — the record persisted; failing would wedge idempotent retries on already_exists'
+    'a post-write refresh failure never fails the write — the record persisted; failing would wedge idempotent retries on already_exists',
   )
   assert.deepEqual(await ownedIds(registry, 'weather-deck', workspaceRoot), ['persisted'])
 }
@@ -273,8 +277,8 @@ async function testRunEventsAreOwnershipScoped(): Promise<void> {
   registry.deliverRunEvent(runEvent('other-auto'), definitionRecord('other-auto', 'other-module'))
   registry.deliverRunEvent(runEvent('user-auto'), definitionRecord('user-auto'))
 
-  assert.deepEqual(seenByWeatherDeck, ['owned-auto'], 'a module sees only its own automations\' events')
-  assert.deepEqual(seenByOther, ['other-auto'], 'other modules\' subscriptions are scoped the same way')
+  assert.deepEqual(seenByWeatherDeck, ['owned-auto'], "a module sees only its own automations' events")
+  assert.deepEqual(seenByOther, ['other-auto'], "other modules' subscriptions are scoped the same way")
 
   offWeatherDeck()
   registry.deliverRunEvent(runEvent('owned-auto'), definitionRecord('owned-auto', 'weather-deck'))
@@ -310,7 +314,7 @@ function testEnabledPastAtCadenceSavesWithNoUpcomingRun(): void {
     [registration('trigger', scheduleTriggerProvider)],
     [registration('action', FIXTURE_ACTION)],
     allowAutomationProvider,
-    Date.parse('2026-06-17T10:00:00.000Z')
+    Date.parse('2026-06-17T10:00:00.000Z'),
   )
   assert.equal(prepared.ok, true, prepared.ok ? '' : prepared.message)
   if (prepared.ok) assert.equal(prepared.value.nextRunAt, null, 'no upcoming run, not an error')

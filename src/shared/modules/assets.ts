@@ -6,7 +6,12 @@ export function moduleAssetHost(moduleId: string): string {
 }
 
 export function moduleAssetUrl(moduleId: string, relativePath: string, origin?: string): string {
-  if (typeof relativePath !== 'string' || !relativePath || relativePath.startsWith('/') || /[\\\0?#]/.test(relativePath)) {
+  if (
+    typeof relativePath !== 'string' ||
+    !relativePath ||
+    relativePath.startsWith('/') ||
+    /[\\\0?#]/.test(relativePath)
+  ) {
     throw new Error('Asset path must be a module-relative file path.')
   }
   const parts = relativePath.split('/')

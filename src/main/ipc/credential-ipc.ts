@@ -45,7 +45,6 @@ function parseSet(input: unknown): SetParse {
 }
 
 export function registerCredentialIpc(ipcMain: IpcMain, store: CredentialIpcStore = getSharedCredentialStore()): void {
-
   ipcMain.handle('credential:secrets:status', async (_, input: unknown): Promise<CredentialSecretStatusResult> => {
     const parsed = parseId(input)
     if (!parsed.ok) return parsed

@@ -1,16 +1,6 @@
-import type {
-  GitCommandResult,
-  GitStatusEntry,
-  GitStatusSnapshot,
-} from './git'
+import type { GitCommandResult, GitStatusEntry, GitStatusSnapshot } from './git'
 import { getGitStatus } from './git-status'
-import {
-  getRelativeGitPath,
-  runGitCommand,
-  toAbsolutePath,
-  toPathspec,
-  toPosixPath,
-} from './git-utils'
+import { getRelativeGitPath, runGitCommand, toAbsolutePath, toPathspec, toPosixPath } from './git-utils'
 import { isAbsolute } from 'path'
 
 // Everything after `--` is a pathspec, so every renderer-supplied path goes
@@ -44,7 +34,7 @@ function getSelectedStatusEntries(snapshot: GitStatusSnapshot, paths: string[]):
         const absolutePath = isAbsolute(path) ? path : toAbsolutePath(snapshot.repoRoot, toPosixPath(path))
         return snapshot.files[absolutePath]
       })
-      .filter((entry): entry is GitStatusEntry => Boolean(entry))
+      .filter((entry): entry is GitStatusEntry => Boolean(entry)),
   )
 }
 
@@ -58,7 +48,10 @@ function isStagedAddition(entry: GitStatusEntry): boolean {
 
 /** The selected entries as pathspecs — literal, for the reason above. */
 function entryPathspecs(repoRoot: string, entries: GitStatusEntry[]): string[] {
-  return pathspecsFor(repoRoot, entries.map((entry) => entry.path))
+  return pathspecsFor(
+    repoRoot,
+    entries.map((entry) => entry.path),
+  )
 }
 
 function combineCommandResults(results: GitCommandResult[], emptyMessage: string): GitCommandResult {
@@ -71,8 +64,14 @@ function combineCommandResults(results: GitCommandResult[], emptyMessage: string
 
   return {
     ok: true,
-    stdout: results.map((result) => result.stdout).filter(Boolean).join('\n'),
-    stderr: results.map((result) => result.stderr).filter(Boolean).join('\n'),
+    stdout: results
+      .map((result) => result.stdout)
+      .filter(Boolean)
+      .join('\n'),
+    stderr: results
+      .map((result) => result.stderr)
+      .filter(Boolean)
+      .join('\n'),
     message: null,
   }
 }
@@ -86,11 +85,21 @@ export async function revertGitPaths(repoRoot: string, paths: string[]): Promise
   const results: GitCommandResult[] = []
 
   if (trackedEntries.length) {
-    results.push(await runGitCommand(repoRoot, ['restore', '--staged', '--worktree', '--', ...entryPathspecs(repoRoot, trackedEntries)]))
+    results.push(
+      await runGitCommand(repoRoot, [
+        'restore',
+        '--staged',
+        '--worktree',
+        '--',
+        ...entryPathspecs(repoRoot, trackedEntries),
+      ]),
+    )
   }
 
   if (stagedAdditions.length) {
-    results.push(await runGitCommand(repoRoot, ['restore', '--staged', '--', ...entryPathspecs(repoRoot, stagedAdditions)]))
+    results.push(
+      await runGitCommand(repoRoot, ['restore', '--staged', '--', ...entryPathspecs(repoRoot, stagedAdditions)]),
+    )
   }
 
   const cleanEntries = uniqueEntries([...untrackedEntries, ...stagedAdditions])

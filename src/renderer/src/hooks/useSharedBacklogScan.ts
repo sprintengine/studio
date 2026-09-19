@@ -174,9 +174,7 @@ function emit(subscription: BacklogScanSubscription): void {
 function mergeMetadataError(scan: BacklogScanResult, folderPath: string, message: string): BacklogScanResult {
   const relativePath = sidecarRelativePath(knownSidecarDirName(folderPath), 'backlog', 'items.json')
   const errors = [...scan.errors, { relativePath, message }]
-  return scan.items.length > 0
-    ? { state: 'partial', items: scan.items, errors }
-    : { state: 'error', items: [], errors }
+  return scan.items.length > 0 ? { state: 'partial', items: scan.items, errors } : { state: 'error', items: [], errors }
 }
 
 // One scan pass. Commits the result only if this subscription is still the live
@@ -314,7 +312,7 @@ export type SubscribeBacklogScanOptions = {
 export function subscribeBacklogScan(
   folderPath: string,
   subscriber: BacklogScanSubscriber,
-  options: SubscribeBacklogScanOptions = {}
+  options: SubscribeBacklogScanOptions = {},
 ): () => void {
   const key = subscriptionKey(folderPath)
   const subscription = getSubscription(folderPath, options.startWatcher !== false)

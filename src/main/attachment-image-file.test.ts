@@ -14,13 +14,13 @@ async function main(): Promise<void> {
 
   const namedPath = await writeAttachmentImageFile(
     { mediaType: 'image/png', dataBase64: base64, name: 'Screenshot 2026-09-07 at 21.48.06.png' },
-    'image'
+    'image',
   )
   try {
     assert.equal(
       basename(namedPath),
       'Screenshot 2026-09-07 at 21.48.06.png',
-      'the image keeps the name the person knows it by — the OS viewer titles its window with it'
+      'the image keeps the name the person knows it by — the OS viewer titles its window with it',
     )
     assert.deepEqual(await readFile(namedPath), pngBytes, 'the file holds the decoded bytes')
   } finally {
@@ -32,7 +32,7 @@ async function main(): Promise<void> {
     assert.equal(
       basename(unnamedPath),
       'pasted.jpg',
-      'a clipboard paste has no name of its own, so it falls back to the caller stem and its media type'
+      'a clipboard paste has no name of its own, so it falls back to the caller stem and its media type',
     )
   } finally {
     await rm(dirname(unnamedPath), { recursive: true, force: true })
@@ -40,8 +40,14 @@ async function main(): Promise<void> {
 
   // Two writes in the same instant are two directories, so neither silently
   // overwrites the other even when both carry the same name.
-  const first = await writeAttachmentImageFile({ mediaType: 'image/png', dataBase64: base64, name: 'shot.png' }, 'image')
-  const second = await writeAttachmentImageFile({ mediaType: 'image/png', dataBase64: base64, name: 'shot.png' }, 'image')
+  const first = await writeAttachmentImageFile(
+    { mediaType: 'image/png', dataBase64: base64, name: 'shot.png' },
+    'image',
+  )
+  const second = await writeAttachmentImageFile(
+    { mediaType: 'image/png', dataBase64: base64, name: 'shot.png' },
+    'image',
+  )
   try {
     assert.notEqual(first, second, 'a repeated name does not collide')
     assert.equal(basename(first), basename(second), 'both still wear the name they were given')
@@ -53,12 +59,12 @@ async function main(): Promise<void> {
   await assert.rejects(
     () => writeAttachmentImageFile({ mediaType: 'image/svg+xml', dataBase64: base64 }, 'image'),
     /Only PNG, JPEG, WebP, and GIF/,
-    'a media type the composer never stages is refused rather than written'
+    'a media type the composer never stages is refused rather than written',
   )
   await assert.rejects(
     () => writeAttachmentImageFile({ mediaType: 'image/png', dataBase64: '' }, 'image'),
     /could not be read/,
-    'an empty payload is refused rather than written as a zero-byte file'
+    'an empty payload is refused rather than written as a zero-byte file',
   )
 
   // The name is a suggestion, never a path: it cannot climb out of the
@@ -66,24 +72,24 @@ async function main(): Promise<void> {
   assert.equal(
     safeImageFileName('../../etc/passwd.png', 'image', 'png'),
     'passwd.png',
-    'a traversal in the name is reduced to its basename'
+    'a traversal in the name is reduced to its basename',
   )
   assert.equal(
     safeImageFileName('.hidden.png', 'image', 'png'),
     'hidden.png',
-    'a leading dot cannot make the written file hidden'
+    'a leading dot cannot make the written file hidden',
   )
   assert.equal(
     safeImageFileName('a/b:c*d?.png', 'image', 'png'),
     'b c d.png',
-    'separators and reserved characters are dropped rather than passed to the filesystem'
+    'separators and reserved characters are dropped rather than passed to the filesystem',
   )
   assert.equal(safeImageFileName('   .  ', 'image', 'png'), 'image.png', 'a name with nothing left falls back')
   assert.equal(safeImageFileName(undefined, 'pasted', 'webp'), 'pasted.webp', 'an absent name falls back')
   assert.equal(
     safeImageFileName('report.jpeg', 'image', 'png'),
     'report.png',
-    'the extension comes from the media type, not from whatever the name claimed'
+    'the extension comes from the media type, not from whatever the name claimed',
   )
 
   console.log('ok - attachment image files are written under a safe, recognizable name')

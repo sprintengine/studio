@@ -8,7 +8,7 @@ import type {
 } from './mock-conversation-provider'
 
 export type ProviderSecretResolver = (
-  providerId: string
+  providerId: string,
 ) => Promise<{ ok: true; value: string } | { ok: false; message: string }>
 
 export type OpenAiCompatibleProviderOptions = {
@@ -33,10 +33,7 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
     id: 'openai-compatible-api',
     listModels: () => [],
     startSession(input) {
-      return [
-        event(input, 'session_started'),
-        event(input, 'session_ready'),
-      ]
+      return [event(input, 'session_started'), event(input, 'session_ready')]
     },
     sendTurn(input) {
       return streamTurn(input, options, fetchImpl)
@@ -56,7 +53,7 @@ export function createOpenAiCompatibleProvider(options: OpenAiCompatibleProvider
 async function* streamTurn(
   input: MockAdapterTurnInput,
   options: OpenAiCompatibleProviderOptions,
-  fetchImpl: typeof fetch
+  fetchImpl: typeof fetch,
 ): AsyncIterable<ConversationEvent> {
   yield event(input, 'turn_started', { turnId: input.turnId })
   const provider = options.getProviderById(input.providerId)
@@ -179,7 +176,9 @@ async function* parseSse(body: ReadableStream<Uint8Array>, signal?: AbortSignal)
   }
 }
 
-function resolveEndpoint(provider: LoadedConversationProvider): { ok: true; url: string } | { ok: false; message: string } {
+function resolveEndpoint(
+  provider: LoadedConversationProvider,
+): { ok: true; url: string } | { ok: false; message: string } {
   const config = provider.manifest.openaiCompatible
   if (!config) return { ok: false, message: 'OpenAI-compatible provider config is missing.' }
   try {
@@ -305,8 +304,9 @@ async function readProviderErrorDetail(response: Response): Promise<string | und
     if (!text.trim()) return undefined
     try {
       const json = JSON.parse(text) as { error?: { message?: unknown }; message?: unknown }
-      const message = (typeof json.error?.message === 'string' && json.error.message)
-        || (typeof json.message === 'string' && json.message)
+      const message =
+        (typeof json.error?.message === 'string' && json.error.message) ||
+        (typeof json.message === 'string' && json.message)
       if (message && message.trim()) return message.trim().slice(0, 300)
     } catch {
       // Not JSON — fall through to the raw snippet.
@@ -351,7 +351,7 @@ function failure(input: MockAdapterTurnInput, reason: ChatCompletionErrorKind, m
 function event(
   input: MockAdapterSessionInput,
   type: ConversationEvent['type'],
-  payload?: Record<string, unknown>
+  payload?: Record<string, unknown>,
 ): ConversationEvent {
   return {
     id: '',
@@ -365,4 +365,3 @@ function event(
     payload,
   }
 }
-

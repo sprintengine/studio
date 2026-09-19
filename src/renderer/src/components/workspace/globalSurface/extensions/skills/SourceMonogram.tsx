@@ -4,13 +4,7 @@
 
 import React from 'react'
 
-export function SourceMonogram({
-  monogram,
-  size = 'sm',
-}: {
-  monogram: string
-  size?: 'sm' | 'lg'
-}): JSX.Element {
+export function SourceMonogram({ monogram, size = 'sm' }: { monogram: string; size?: 'sm' | 'lg' }): JSX.Element {
   return (
     <span
       aria-hidden="true"

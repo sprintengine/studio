@@ -24,7 +24,7 @@ function main(): void {
   assertHookPhaseDrivesStatus()
   assertOutputRecencyFallback()
   assertFailedRetentionAndPrecedence()
-  
+
   assertLastActivityIsMaxOfOutputAndInput()
   assertAttentionFirstOrdering()
   assertAttentionToneNeverLies()
@@ -84,7 +84,13 @@ function assertDetachedBucketsTrailRealWorkspaces(): void {
     { ...item({ status: 'idle', lastActivityAt: 2 }), group: workspaceGroup('ws-a', 'Alpha') },
     { ...item({ status: 'needs-input' }), group: workspaceGroup('ws-a', 'Alpha') },
   ]
-  const grouped = groupSessionItems(rows, new Map([['ws-a', 0], ['ws-b', 1]]))
+  const grouped = groupSessionItems(
+    rows,
+    new Map([
+      ['ws-a', 0],
+      ['ws-b', 1],
+    ]),
+  )
   assert.deepEqual(
     grouped.map((entry) => entry.group.label),
     ['Alpha', 'Bravo', 'Notebooks', 'Other sessions'],
@@ -316,7 +322,7 @@ function assertHookPhaseDrivesStatus(): void {
     snap({
       activity: { kind: 'working', since: 10 },
       agentState: { phase: 'awaiting_input', since: 500, source: 'hook' },
-    })
+    }),
   )
   assert.equal(awaiting.status, 'needs-input')
   assert.equal(awaiting.source, 'hook')
@@ -329,7 +335,7 @@ function assertHookPhaseDrivesStatus(): void {
       processAlive: false,
       activity: { kind: 'exited', at: 700, exitCode: 0 },
       agentState: { phase: 'awaiting_input', since: 500, source: 'hook' },
-    })
+    }),
   )
   assert.notEqual(deadAwaiting.status, 'needs-input', 'dead awaiting_input does not surface as needs-input')
 
@@ -370,7 +376,7 @@ function assertFailedRetentionAndPrecedence(): void {
     snap({
       activity: { kind: 'failed', at: 1234, exitCode: 137 },
       agentState: { phase: 'thinking', since: 1, source: 'hook' },
-    })
+    }),
   )
   assert.equal(failed.status, 'failed')
   assert.equal(failed.exitCode, 137)
@@ -390,7 +396,11 @@ function assertLastActivityIsMaxOfOutputAndInput(): void {
   )
 }
 
-function item(partial: { status: SessionItem['status']; activitySince?: number; lastActivityAt?: number | null }): SessionItem {
+function item(partial: {
+  status: SessionItem['status']
+  activitySince?: number
+  lastActivityAt?: number | null
+}): SessionItem {
   return {
     status: partial.status,
     activitySince: partial.activitySince ?? 0,
@@ -408,13 +418,13 @@ function assertAttentionFirstOrdering(): void {
     item({ status: 'needs-input' }),
     item({ status: 'idle', lastActivityAt: 900 }),
   ]
-  const sorted = rows.slice().sort(compareSessionItemsByAttention).map((row) => row.status)
+  const sorted = rows
+    .slice()
+    .sort(compareSessionItemsByAttention)
+    .map((row) => row.status)
   assert.deepEqual(sorted, ['needs-input', 'failed', 'working', 'idle', 'idle'])
 
-  const idleByRecency = [
-    item({ status: 'idle', lastActivityAt: 100 }),
-    item({ status: 'idle', lastActivityAt: 900 }),
-  ]
+  const idleByRecency = [item({ status: 'idle', lastActivityAt: 100 }), item({ status: 'idle', lastActivityAt: 900 })]
     .sort(compareSessionItemsByAttention)
     .map((row) => row.lastActivityAt)
   assert.deepEqual(idleByRecency, [900, 100], 'more recent idle first')

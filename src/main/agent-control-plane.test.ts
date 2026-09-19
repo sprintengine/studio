@@ -1,11 +1,7 @@
 import assert from 'node:assert/strict'
 import type { AgentPhase, TerminalSessionSnapshot } from '../shared/electron-api'
 import type { ConversationSessionSummary } from '../shared/conversation-runtime'
-import {
-  createAgentControlPlane,
-  parseTarget,
-  type ControlPlaneConversationPort,
-} from './agent-control-plane'
+import { createAgentControlPlane, parseTarget, type ControlPlaneConversationPort } from './agent-control-plane'
 
 const tests: Array<{ name: string; body: () => Promise<void> | void }> = []
 function run(name: string, body: () => Promise<void> | void): void {
@@ -39,9 +35,7 @@ function agentSession(overrides: Partial<TerminalSessionSnapshot> = {}): Termina
   }
 }
 
-function conversationSession(
-  overrides: Partial<ConversationSessionSummary> = {}
-): ConversationSessionSummary {
+function conversationSession(overrides: Partial<ConversationSessionSummary> = {}): ConversationSessionSummary {
   return {
     sessionId: 'chat-1',
     workspaceId: 'ws-1',
@@ -82,7 +76,7 @@ function makeHarness(
     output?: Map<string, string>
     onWrite?: (sessionId: string, data: string) => void
     throwOnWrite?: string
-  } = {}
+  } = {},
 ): Harness {
   const sessions = options.sessions ?? [agentSession()]
   const writes: Array<{ sessionId: string; data: string }> = []
@@ -102,7 +96,7 @@ function makeHarness(
         options.onWrite?.(sessionId, data)
       },
       read: (sessionId) =>
-        sessions.some((entry) => entry.sessionId === sessionId) ? output.get(sessionId) ?? '' : undefined,
+        sessions.some((entry) => entry.sessionId === sessionId) ? (output.get(sessionId) ?? '') : undefined,
     },
     ...(options.conversation ? { conversation: options.conversation } : {}),
     now: clock.now,
@@ -230,7 +224,10 @@ run('submit sends the deferred carriage return on its own', async () => {
   const result = await harness.plane.submit('session-1')
 
   assert.equal(result.ok, true)
-  assert.deepEqual(harness.writes.map((write) => write.data), [`${PASTE_START}draft${PASTE_END}`, '\r'])
+  assert.deepEqual(
+    harness.writes.map((write) => write.data),
+    [`${PASTE_START}draft${PASTE_END}`, '\r'],
+  )
 })
 
 run('interrupt sends Ctrl-C', async () => {
@@ -254,7 +251,7 @@ run('concurrent sends to one session never interleave their bytes', async () => 
   assert.deepEqual(
     harness.writes.map((write) => write.data),
     [`${PASTE_START}first${PASTE_END}`, '\r', `${PASTE_START}second${PASTE_END}`, '\r'],
-    'the second prompt waits for the first turn to be submitted'
+    'the second prompt waits for the first turn to be submitted',
   )
 })
 
@@ -266,7 +263,7 @@ run('a raw write queues behind a send instead of splitting its paste and submit'
 
   assert.deepEqual(
     harness.writes.map((write) => write.data),
-    [`${PASTE_START}prompt${PASTE_END}`, '\r', 'x']
+    [`${PASTE_START}prompt${PASTE_END}`, '\r', 'x'],
   )
 })
 

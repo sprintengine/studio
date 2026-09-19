@@ -139,9 +139,7 @@ export type TerminalShellMarkTracker = {
   dispose: () => void
 }
 
-export function createTerminalShellMarkTracker(
-  terminal: TerminalShellMarkTerminal,
-): TerminalShellMarkTracker {
+export function createTerminalShellMarkTracker(terminal: TerminalShellMarkTerminal): TerminalShellMarkTracker {
   const blocks: PromptBlock[] = []
 
   const currentBlock = (): PromptBlock | null => {

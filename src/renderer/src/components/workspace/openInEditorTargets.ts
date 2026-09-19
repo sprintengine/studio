@@ -23,9 +23,7 @@ export function availableFolderOpenTargets(
   availability: readonly FolderOpenTargetAvailability[] | null,
 ): FolderOpenTargetId[] {
   if (!availability) return []
-  return FOLDER_OPEN_TARGET_IDS.filter((id) =>
-    availability.some((entry) => entry.id === id && entry.available),
-  )
+  return FOLDER_OPEN_TARGET_IDS.filter((id) => availability.some((entry) => entry.id === id && entry.available))
 }
 
 /**

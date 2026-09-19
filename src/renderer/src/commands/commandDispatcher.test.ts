@@ -67,86 +67,82 @@ const settings: KeybindingSettings = {
 
 const dispatcher = new RendererCommandDispatcher(500)
 
-let result = dispatcher.resolve(
-  key({ key: 'k', code: 'KeyK', ctrlKey: true }),
-  { activeScopes: ['global'], platform: 'linux', keybindingOverrides: settings.overrides, disabledCommandIds: new Set(), now: 0 },
-)
+let result = dispatcher.resolve(key({ key: 'k', code: 'KeyK', ctrlKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  keybindingOverrides: settings.overrides,
+  disabledCommandIds: new Set(),
+  now: 0,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'commandPalette.open')
 
-result = dispatcher.resolve(
-  key({ key: 'p', code: 'KeyP', ctrlKey: true, shiftKey: true }),
-  { activeScopes: ['global'], platform: 'linux', now: 10 },
-)
+result = dispatcher.resolve(key({ key: 'p', code: 'KeyP', ctrlKey: true, shiftKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  now: 10,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'commandPalette.open')
 
-result = dispatcher.resolve(
-  key({ key: 'p', code: 'KeyP', ctrlKey: true }),
-  { activeScopes: ['global'], platform: 'linux', now: 20 },
-)
+result = dispatcher.resolve(key({ key: 'p', code: 'KeyP', ctrlKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  now: 20,
+})
 assert.equal(result.kind, 'unmatched')
 
-result = dispatcher.resolve(
-  key({ key: 'ArrowRight', code: 'ArrowRight', metaKey: true, altKey: true }),
-  {
-    activeScopes: ['global', 'workspace', 'workspace-navigation'],
-    platform: 'darwin',
-    availability: { activeWorkspace: true },
-    now: 25,
-  },
-)
+result = dispatcher.resolve(key({ key: 'ArrowRight', code: 'ArrowRight', metaKey: true, altKey: true }), {
+  activeScopes: ['global', 'workspace', 'workspace-navigation'],
+  platform: 'darwin',
+  availability: { activeWorkspace: true },
+  now: 25,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'workspace.switch.next')
 
-result = dispatcher.resolve(
-  key({ key: ',', code: 'Comma', ctrlKey: true }),
-  {
-    activeScopes: ['global', 'workspace', 'panel:notebook'],
-    platform: 'linux',
-    availability: { activeWorkspace: true, notebookWorkspace: true },
-    commands: withNotebook,
-    now: 30,
-  },
-)
+result = dispatcher.resolve(key({ key: ',', code: 'Comma', ctrlKey: true }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: { activeWorkspace: true, notebookWorkspace: true },
+  commands: withNotebook,
+  now: 30,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'notebook.open.settings')
 
-result = dispatcher.resolve(
-  key({ key: ',', code: 'Comma', ctrlKey: true }),
-  { activeScopes: ['global', 'workspace'], platform: 'linux', now: 40 },
-)
+result = dispatcher.resolve(key({ key: ',', code: 'Comma', ctrlKey: true }), {
+  activeScopes: ['global', 'workspace'],
+  platform: 'linux',
+  now: 40,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'app.settings.open')
 
-result = dispatcher.resolve(
-  key({ key: 'k', code: 'KeyK', ctrlKey: true }),
-  {
-    activeScopes: ['global'],
-    platform: 'linux',
-    disabledCommandIds: new Set(['commandPalette.open']),
-    now: 50,
-  },
-)
+result = dispatcher.resolve(key({ key: 'k', code: 'KeyK', ctrlKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  disabledCommandIds: new Set(['commandPalette.open']),
+  now: 50,
+})
 assert.equal(result.kind, 'unmatched')
 
-result = dispatcher.resolve(
-  key({ key: 'l', code: 'KeyL', ctrlKey: true }),
-  {
-    activeScopes: ['global'],
-    platform: 'linux',
-    keybindingOverrides: { 'commandPalette.open': ['Primary+L'] },
-    now: 60,
-  },
-)
+result = dispatcher.resolve(key({ key: 'l', code: 'KeyL', ctrlKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  keybindingOverrides: { 'commandPalette.open': ['Primary+L'] },
+  now: 60,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'commandPalette.open')
 
 const suppressed = () => true
-result = dispatcher.resolve(
-  key({ key: 'k', code: 'KeyK', ctrlKey: true }),
-  { activeScopes: ['global'], platform: 'linux', isSuppressedTarget: suppressed, now: 70 },
-)
+result = dispatcher.resolve(key({ key: 'k', code: 'KeyK', ctrlKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  isSuppressedTarget: suppressed,
+  now: 70,
+})
 assert.equal(result.kind, 'unmatched')
 
 // The voice toggle is a module contribution now (MC-1861): it matches only
@@ -160,73 +156,93 @@ const voiceModuleContribution = {
   defaultKeybindings: ['Primary+Shift+1'],
   allowInEditableTarget: true,
 }
-result = dispatcher.resolve(
-  key({ key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }),
-  {
-    activeScopes: ['global'],
-    platform: 'linux',
-    commands: [...COMMAND_REGISTRY, voiceModuleContribution],
-    isSuppressedTarget: suppressed,
-    now: 80,
-  },
-)
+result = dispatcher.resolve(key({ key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  commands: [...COMMAND_REGISTRY, voiceModuleContribution],
+  isSuppressedTarget: suppressed,
+  now: 80,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'voice-dictation.toggle')
 
 // The binding stays unmatched when the module is disabled (its contribution
 // is filtered out of the command universe), so the keystroke falls through
 // instead of firing a silent no-op.
-result = dispatcher.resolve(
-  key({ key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }),
-  { activeScopes: ['global'], platform: 'linux', isSuppressedTarget: suppressed, now: 85 },
-)
+result = dispatcher.resolve(key({ key: '!', code: 'Digit1', ctrlKey: true, shiftKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  isSuppressedTarget: suppressed,
+  now: 85,
+})
 assert.equal(result.kind, 'unmatched')
 
 const notebookChord = { activeWorkspace: true, notebookWorkspace: true }
 const chordDispatcher = new RendererCommandDispatcher(500)
-result = chordDispatcher.resolve(
-  key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 100 },
-)
+result = chordDispatcher.resolve(key({ key: 'g', code: 'KeyG' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 100,
+})
 assert.equal(result.kind, 'pending')
-result = chordDispatcher.resolve(
-  key({ key: 'i', code: 'KeyI' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 300 },
-)
+result = chordDispatcher.resolve(key({ key: 'i', code: 'KeyI' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 300,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'notebook.goto.inbox')
 
 // G then R resolves to the second navigation chord in the same panel.
-result = chordDispatcher.resolve(
-  key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 320 },
-)
+result = chordDispatcher.resolve(key({ key: 'g', code: 'KeyG' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 320,
+})
 assert.equal(result.kind, 'pending')
-result = chordDispatcher.resolve(
-  key({ key: 'r', code: 'KeyR' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 360 },
-)
+result = chordDispatcher.resolve(key({ key: 'r', code: 'KeyR' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 360,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'notebook.goto.recent')
 
 const timedOutDispatcher = new RendererCommandDispatcher(100)
-result = timedOutDispatcher.resolve(
-  key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 1000 },
-)
+result = timedOutDispatcher.resolve(key({ key: 'g', code: 'KeyG' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 1000,
+})
 assert.equal(result.kind, 'pending')
-result = timedOutDispatcher.resolve(
-  key({ key: 'i', code: 'KeyI' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 1201 },
-)
+result = timedOutDispatcher.resolve(key({ key: 'i', code: 'KeyI' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 1201,
+})
 assert.equal(result.kind, 'unmatched')
 
 // The module chord stays inert outside the panel scope even with the
 // availability flags set.
-result = chordDispatcher.resolve(
-  key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 1300 },
-)
+result = chordDispatcher.resolve(key({ key: 'g', code: 'KeyG' }), {
+  activeScopes: ['global', 'workspace'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 1300,
+})
 assert.equal(result.kind, 'unmatched')
 
 // Chord revalidation against the live context. A chord started in the module
@@ -234,48 +250,59 @@ assert.equal(result.kind, 'unmatched')
 // timeout — the second stroke re-derives candidates from the current context
 // rather than reusing the set captured on the first stroke.
 const scopeLostMidChord = new RendererCommandDispatcher(500)
-result = scopeLostMidChord.resolve(
-  key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 2000 },
-)
+result = scopeLostMidChord.resolve(key({ key: 'g', code: 'KeyG' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 2000,
+})
 assert.equal(result.kind, 'pending')
-result = scopeLostMidChord.resolve(
-  key({ key: 'r', code: 'KeyR' }),
-  { activeScopes: ['global', 'workspace'], platform: 'linux', availability: { activeWorkspace: true }, now: 2100 },
-)
+result = scopeLostMidChord.resolve(key({ key: 'r', code: 'KeyR' }), {
+  activeScopes: ['global', 'workspace'],
+  platform: 'linux',
+  availability: { activeWorkspace: true },
+  now: 2100,
+})
 assert.equal(result.kind, 'unmatched')
 
 // Same protection when the command is disabled between strokes.
 const disabledMidChord = new RendererCommandDispatcher(500)
-result = disabledMidChord.resolve(
-  key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 2200 },
-)
+result = disabledMidChord.resolve(key({ key: 'g', code: 'KeyG' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 2200,
+})
 assert.equal(result.kind, 'pending')
-result = disabledMidChord.resolve(
-  key({ key: 'r', code: 'KeyR' }),
-  {
-    activeScopes: ['global', 'workspace', 'panel:notebook'],
-    platform: 'linux',
-    availability: notebookChord,
-    commands: withNotebook,
-    disabledCommandIds: new Set(['notebook.goto.recent']),
-    now: 2300,
-  },
-)
+result = disabledMidChord.resolve(key({ key: 'r', code: 'KeyR' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  disabledCommandIds: new Set(['notebook.goto.recent']),
+  now: 2300,
+})
 assert.equal(result.kind, 'unmatched')
 
 // And when availability is lost mid-chord while the scope is still active.
 const availabilityLostMidChord = new RendererCommandDispatcher(500)
-result = availabilityLostMidChord.resolve(
-  key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 2400 },
-)
+result = availabilityLostMidChord.resolve(key({ key: 'g', code: 'KeyG' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 2400,
+})
 assert.equal(result.kind, 'pending')
-result = availabilityLostMidChord.resolve(
-  key({ key: 'r', code: 'KeyR' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: {}, commands: withNotebook, now: 2500 },
-)
+result = availabilityLostMidChord.resolve(key({ key: 'r', code: 'KeyR' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: {},
+  commands: withNotebook,
+  now: 2500,
+})
 assert.equal(result.kind, 'unmatched')
 
 // T13: git.worktrees.open must be reachable by a bound shortcut, not only the
@@ -283,43 +310,43 @@ assert.equal(result.kind, 'unmatched')
 // WorkspaceManager.runCommand route added in T13 actually fires instead of
 // silently no-opping (T8 review finding A10).
 const worktreeDispatcher = new RendererCommandDispatcher(500)
-result = worktreeDispatcher.resolve(
-  key({ key: 'w', code: 'KeyW', ctrlKey: true, altKey: true }),
-  {
-    activeScopes: ['global', 'workspace'],
-    platform: 'linux',
-    availability: { activeWorkspace: true },
-    keybindingOverrides: { 'git.worktrees.open': ['Primary+Alt+W'] },
-    now: 4000,
-  },
-)
+result = worktreeDispatcher.resolve(key({ key: 'w', code: 'KeyW', ctrlKey: true, altKey: true }), {
+  activeScopes: ['global', 'workspace'],
+  platform: 'linux',
+  availability: { activeWorkspace: true },
+  keybindingOverrides: { 'git.worktrees.open': ['Primary+Alt+W'] },
+  now: 4000,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'git.worktrees.open')
 
 // Without an active workspace the binding stays unmatched, so the shortcut never
 // fires a silent no-op in a workspace-less window (availability: activeWorkspace).
-result = worktreeDispatcher.resolve(
-  key({ key: 'w', code: 'KeyW', ctrlKey: true, altKey: true }),
-  {
-    activeScopes: ['global', 'workspace'],
-    platform: 'linux',
-    keybindingOverrides: { 'git.worktrees.open': ['Primary+Alt+W'] },
-    now: 4100,
-  },
-)
+result = worktreeDispatcher.resolve(key({ key: 'w', code: 'KeyW', ctrlKey: true, altKey: true }), {
+  activeScopes: ['global', 'workspace'],
+  platform: 'linux',
+  keybindingOverrides: { 'git.worktrees.open': ['Primary+Alt+W'] },
+  now: 4100,
+})
 assert.equal(result.kind, 'unmatched')
 
 // A still-valid chord completes normally after the revalidation refactor.
 const stillValidChord = new RendererCommandDispatcher(500)
-result = stillValidChord.resolve(
-  key({ key: 'g', code: 'KeyG' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 2600 },
-)
+result = stillValidChord.resolve(key({ key: 'g', code: 'KeyG' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 2600,
+})
 assert.equal(result.kind, 'pending')
-result = stillValidChord.resolve(
-  key({ key: 'k', code: 'KeyK' }),
-  { activeScopes: ['global', 'workspace', 'panel:notebook'], platform: 'linux', availability: notebookChord, commands: withNotebook, now: 2650 },
-)
+result = stillValidChord.resolve(key({ key: 'k', code: 'KeyK' }), {
+  activeScopes: ['global', 'workspace', 'panel:notebook'],
+  platform: 'linux',
+  availability: notebookChord,
+  commands: withNotebook,
+  now: 2650,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'notebook.goto.kanban')
 
@@ -338,10 +365,12 @@ const moduleCommand: CommandContribution = {
 const enabledCommands: readonly CommandContribution[] = [...COMMAND_REGISTRY, moduleCommand]
 
 const moduleDispatcher = new RendererCommandDispatcher(500)
-result = moduleDispatcher.resolve(
-  key({ key: 'h', code: 'KeyH', ctrlKey: true, altKey: true }),
-  { activeScopes: ['global'], platform: 'linux', commands: enabledCommands, now: 5000 },
-)
+result = moduleDispatcher.resolve(key({ key: 'h', code: 'KeyH', ctrlKey: true, altKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  commands: enabledCommands,
+  now: 5000,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(
   result.kind === 'matched' ? result.commandId : null,
@@ -351,23 +380,22 @@ assert.equal(
 
 // Module disabled -> the merge point omits the command, so the binding is gone
 // from key dispatch without any dispatcher-side special case.
-result = moduleDispatcher.resolve(
-  key({ key: 'h', code: 'KeyH', ctrlKey: true, altKey: true }),
-  { activeScopes: ['global'], platform: 'linux', commands: COMMAND_REGISTRY, now: 5100 },
-)
+result = moduleDispatcher.resolve(key({ key: 'h', code: 'KeyH', ctrlKey: true, altKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  commands: COMMAND_REGISTRY,
+  now: 5100,
+})
 assert.equal(result.kind, 'unmatched', 'disabling the module removes its key dispatch')
 
 // User override persisted by command id re-attaches when the module returns.
-result = moduleDispatcher.resolve(
-  key({ key: 'j', code: 'KeyJ', ctrlKey: true, altKey: true }),
-  {
-    activeScopes: ['global'],
-    platform: 'linux',
-    commands: enabledCommands,
-    keybindingOverrides: { 'demo-module.hello': ['Primary+Alt+J'] },
-    now: 5200,
-  },
-)
+result = moduleDispatcher.resolve(key({ key: 'j', code: 'KeyJ', ctrlKey: true, altKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  commands: enabledCommands,
+  keybindingOverrides: { 'demo-module.hello': ['Primary+Alt+J'] },
+  now: 5200,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(
   result.kind === 'matched' ? result.commandId : null,
@@ -386,10 +414,12 @@ const shadowingCommand: CommandContribution = {
   scopes: ['global'],
   defaultKeybindings: ['Primary+K'],
 }
-result = moduleDispatcher.resolve(
-  key({ key: 'k', code: 'KeyK', ctrlKey: true }),
-  { activeScopes: ['global'], platform: 'linux', commands: [...COMMAND_REGISTRY, shadowingCommand], now: 5300 },
-)
+result = moduleDispatcher.resolve(key({ key: 'k', code: 'KeyK', ctrlKey: true }), {
+  activeScopes: ['global'],
+  platform: 'linux',
+  commands: [...COMMAND_REGISTRY, shadowingCommand],
+  now: 5300,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(
   result.kind === 'matched' ? result.commandId : null,
@@ -409,38 +439,29 @@ const predicateCommand: CommandContribution = {
   availabilityPredicate: (context) => context.activeWorkspaceMode === 'calendar',
 }
 const predicateDispatcher = new RendererCommandDispatcher()
-result = predicateDispatcher.resolve(
-  key({ key: '9', code: 'Digit9', ctrlKey: true }),
-  {
-    activeScopes: ['global', 'workspace', 'panel:calendar'],
-    platform: 'linux',
-    commands: [predicateCommand],
-    moduleContext: { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'calendar' },
-    now: 6000,
-  },
-)
+result = predicateDispatcher.resolve(key({ key: '9', code: 'Digit9', ctrlKey: true }), {
+  activeScopes: ['global', 'workspace', 'panel:calendar'],
+  platform: 'linux',
+  commands: [predicateCommand],
+  moduleContext: { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'calendar' },
+  now: 6000,
+})
 assert.equal(result.kind, 'matched')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'calendar.open.settings')
-result = predicateDispatcher.resolve(
-  key({ key: '9', code: 'Digit9', ctrlKey: true }),
-  {
-    activeScopes: ['global', 'workspace', 'panel:calendar'],
-    platform: 'linux',
-    commands: [predicateCommand],
-    moduleContext: { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'standard' },
-    now: 6100,
-  },
-)
+result = predicateDispatcher.resolve(key({ key: '9', code: 'Digit9', ctrlKey: true }), {
+  activeScopes: ['global', 'workspace', 'panel:calendar'],
+  platform: 'linux',
+  commands: [predicateCommand],
+  moduleContext: { activeWorkspaceId: 'ws-1', activeWorkspaceMode: 'standard' },
+  now: 6100,
+})
 assert.equal(result.kind, 'unmatched', 'predicate false refuses the binding')
-result = predicateDispatcher.resolve(
-  key({ key: '9', code: 'Digit9', ctrlKey: true }),
-  {
-    activeScopes: ['global', 'workspace', 'panel:calendar'],
-    platform: 'linux',
-    commands: [predicateCommand],
-    now: 6200,
-  },
-)
+result = predicateDispatcher.resolve(key({ key: '9', code: 'Digit9', ctrlKey: true }), {
+  activeScopes: ['global', 'workspace', 'panel:calendar'],
+  platform: 'linux',
+  commands: [predicateCommand],
+  now: 6200,
+})
 assert.equal(result.kind, 'unmatched', 'no module context wired fails closed')
 
 // Persisted overrides keyed by a migrated command's LEGACY id keep firing the
@@ -451,16 +472,13 @@ const migratedCommand: CommandContribution = {
   category: 'voice',
   scopes: ['global'],
 }
-result = predicateDispatcher.resolve(
-  key({ key: 'r', code: 'KeyR', ctrlKey: true, shiftKey: true }),
-  {
-    activeScopes: ['global', 'workspace'],
-    platform: 'linux',
-    commands: [migratedCommand],
-    keybindingOverrides: { 'voice.toggle': ['Primary+Shift+R'] },
-    now: 6300,
-  },
-)
+result = predicateDispatcher.resolve(key({ key: 'r', code: 'KeyR', ctrlKey: true, shiftKey: true }), {
+  activeScopes: ['global', 'workspace'],
+  platform: 'linux',
+  commands: [migratedCommand],
+  keybindingOverrides: { 'voice.toggle': ['Primary+Shift+R'] },
+  now: 6300,
+})
 assert.equal(result.kind, 'matched', 'legacy-id override still binds')
 assert.equal(result.kind === 'matched' ? result.commandId : null, 'voice-dictation.toggle')
 
@@ -572,7 +590,8 @@ assert.equal(result.kind === 'matched' ? result.commandId : null, 'search.everyw
 // ⌘K in that same suppressed target stays withheld — the exemption is the
 // gesture's, not the command's.
 assert.equal(
-  inTerminal.resolve(key({ key: 'k', code: 'KeyK', ctrlKey: true }), globalAt(7200, { isSuppressedTarget: suppressed })).kind,
+  inTerminal.resolve(key({ key: 'k', code: 'KeyK', ctrlKey: true }), globalAt(7200, { isSuppressedTarget: suppressed }))
+    .kind,
   'unmatched',
 )
 
@@ -588,10 +607,12 @@ assert.equal(
 // …and disabling the gesture leaves ⌘K alone, which is the whole reason the
 // two are separate commands (skills-everywhere, 2026-09-10).
 assert.equal(
-  new RendererCommandDispatcher().resolve(
-    key({ key: 'k', code: 'KeyK', metaKey: true }),
-    { activeScopes: ['global'], platform: 'darwin', disabledCommandIds: new Set(['search.everywhere']), now: 8200 },
-  ).kind,
+  new RendererCommandDispatcher().resolve(key({ key: 'k', code: 'KeyK', metaKey: true }), {
+    activeScopes: ['global'],
+    platform: 'darwin',
+    disabledCommandIds: new Set(['search.everywhere']),
+    now: 8200,
+  }).kind,
   'matched',
 )
 
@@ -605,10 +626,7 @@ blurred.resolve(shiftDown(), globalAt(9020))
 assert.equal(blurred.resolveKeyUp(shiftUp(), globalAt(9030)).kind, 'unmatched')
 
 // A non-modifier keyup is never the gesture.
-assert.equal(
-  blurred.resolveKeyUp(key({ key: 'a', code: 'KeyA' }), globalAt(9100)).kind,
-  'unmatched',
-)
+assert.equal(blurred.resolveKeyUp(key({ key: 'a', code: 'KeyA' }), globalAt(9100)).kind, 'unmatched')
 
 // A held Shift auto-repeats its keydown on Windows and Linux. A repeat is not a
 // fresh press: after a letter typed under the held Shift has disarmed the tap,
@@ -638,7 +656,11 @@ heldTap.resolve(shiftDown({ repeat: true }), globalAt(11050))
 assert.equal(heldTap.resolveKeyUp(shiftUp(), globalAt(11100)).kind, 'unmatched')
 heldTap.resolve(shiftDown(), globalAt(11200))
 heldTap.resolve(shiftDown({ repeat: true }), globalAt(11250))
-assert.equal(heldTap.resolveKeyUp(shiftUp(), globalAt(11300)).kind, 'matched', 'two taps, each with repeats inside, still fire')
+assert.equal(
+  heldTap.resolveKeyUp(shiftUp(), globalAt(11300)).kind,
+  'matched',
+  'two taps, each with repeats inside, still fire',
+)
 
 // Inside an IME composition a Shift release belongs to the IME, not to us.
 const composing = new RendererCommandDispatcher(500, 400)

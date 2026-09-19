@@ -95,12 +95,7 @@ import { PrimaryButton } from '../../../../ui/Buttons'
 import { NewChip } from '../../../../ui/NewChip'
 import { Popover } from '../../../../ui/Popover'
 import { CardArt } from './cardArt'
-import {
-  CardGoPicker,
-  cardRunsAModel,
-  useCardLaunchDefaults,
-  type CardLaunchChoice,
-} from './CardGoPicker'
+import { CardGoPicker, cardRunsAModel, useCardLaunchDefaults, type CardLaunchChoice } from './CardGoPicker'
 import { CardSplash, CardSplashScrim, CardSplashStamp, CardSplashTitle } from './cardSplash'
 
 /**
@@ -552,9 +547,7 @@ export function CardPoster({
                   {card.dek}
                 </p>
                 {card.credit ? (
-                  <p className="m-0 mt-1.5 truncate text-micro text-[color:var(--text-subtle)]">
-                    {card.credit}
-                  </p>
+                  <p className="m-0 mt-1.5 truncate text-micro text-[color:var(--text-subtle)]">{card.credit}</p>
                 ) : null}
               </div>
               {go}
@@ -595,9 +588,7 @@ export function CardPoster({
                 wrapped, because it tells somebody who knows the tool that this
                 is the tool and tells everybody else nothing they need. */}
             {card.credit ? (
-              <span className="min-w-0 flex-1 truncate text-micro text-[color:var(--text-subtle)]">
-                {card.credit}
-              </span>
+              <span className="min-w-0 flex-1 truncate text-micro text-[color:var(--text-subtle)]">{card.credit}</span>
             ) : null}
             {go ? <span className="ml-auto flex shrink-0">{go}</span> : null}
           </div>

@@ -23,10 +23,7 @@ export function isWorkspaceIdToken(value: string): boolean {
 // Reverse a workspace token to its absolute root by matching it against the known
 // candidate roots. Returns null when nothing matches (fail closed: the caller
 // surfaces path_not_allowed rather than guessing a root).
-export function resolveWorkspaceIdToRoot(
-  workspaceId: string,
-  candidateRoots: readonly string[]
-): string | null {
+export function resolveWorkspaceIdToRoot(workspaceId: string, candidateRoots: readonly string[]): string | null {
   for (const root of candidateRoots) {
     if (deriveWorkspaceId(root) === workspaceId) {
       return resolve(root)

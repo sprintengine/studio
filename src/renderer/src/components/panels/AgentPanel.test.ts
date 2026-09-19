@@ -5,8 +5,26 @@ import { conversationAgentRuntimePatch } from '../workspace/conversationSpawnOpt
 import type { AgentState, PluginCatalogEntry } from '../../types/workspace'
 
 const installedPlugins: PluginCatalogEntry[] = [
-  { id: 'codex', displayName: 'Codex', source: 'bundled', version: 1, binary: 'codex', resumeSession: true, sessionIdFromCaller: false, agentStateCapable: true },
-  { id: 'claude-code', displayName: 'Claude Code', source: 'bundled', version: 1, binary: 'claude', resumeSession: true, sessionIdFromCaller: true, agentStateCapable: true },
+  {
+    id: 'codex',
+    displayName: 'Codex',
+    source: 'bundled',
+    version: 1,
+    binary: 'codex',
+    resumeSession: true,
+    sessionIdFromCaller: false,
+    agentStateCapable: true,
+  },
+  {
+    id: 'claude-code',
+    displayName: 'Claude Code',
+    source: 'bundled',
+    version: 1,
+    binary: 'claude',
+    resumeSession: true,
+    sessionIdFromCaller: true,
+    agentStateCapable: true,
+  },
 ]
 
 assert.equal(
@@ -112,12 +130,10 @@ assert.equal(
 )
 
 assert.equal(
-  resolveAgentRuntimeKind(
-    { runtimeKind: 'conversation', conversation: { providerId: '', modelId: '' } } as Pick<
-      AgentState,
-      'runtimeKind' | 'conversation'
-    >,
-  ),
+  resolveAgentRuntimeKind({ runtimeKind: 'conversation', conversation: { providerId: '', modelId: '' } } as Pick<
+    AgentState,
+    'runtimeKind' | 'conversation'
+  >),
   'terminal',
   'a conversation kind without a valid provider/model pair falls back to terminal',
 )

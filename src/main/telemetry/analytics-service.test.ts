@@ -208,9 +208,9 @@ async function main(): Promise<void> {
     failing = false
     await service.flush()
     assert.deepEqual(
-      captures.slice(1).flatMap((capture) =>
-        capture.body.batch.map((event) => (event.properties as { seq: number }).seq),
-      ),
+      captures
+        .slice(1)
+        .flatMap((capture) => capture.body.batch.map((event) => (event.properties as { seq: number }).seq)),
       [1, 2],
       'the buffered events are resent, still in order',
     )

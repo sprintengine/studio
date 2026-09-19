@@ -22,17 +22,36 @@ anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
 anyGlobal.getComputedStyle = dom.window.getComputedStyle
 anyGlobal.localStorage = dom.window.localStorage
 anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
-class FakeResizeObserver { observe() {} unobserve() {} disconnect() {} }
+class FakeResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
 anyGlobal.ResizeObserver = FakeResizeObserver
 domWindow.ResizeObserver = FakeResizeObserver
-dom.window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener: () => {}, removeEventListener: () => {}, addListener: () => {}, removeListener: () => {} })) as unknown as typeof dom.window.matchMedia
+dom.window.matchMedia = ((q: string) => ({
+  matches: false,
+  media: q,
+  addEventListener: () => {},
+  removeEventListener: () => {},
+  addListener: () => {},
+  removeListener: () => {},
+})) as unknown as typeof dom.window.matchMedia
 domWindow.api = {}
 
 import React from 'react'
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
 import type { RegisteredGlobalSurface } from '../../modules/renderer-host'
-import { APP_RAIL_WIDTH, AppRail, RAIL_SURFACE_IDS, TRAFFIC_LIGHT_RESERVE, railSurfacesOf, type RailBadges, type RailSurface } from './AppRail'
+import {
+  APP_RAIL_WIDTH,
+  AppRail,
+  RAIL_SURFACE_IDS,
+  TRAFFIC_LIGHT_RESERVE,
+  railSurfacesOf,
+  type RailBadges,
+  type RailSurface,
+} from './AppRail'
 import { TITLE_BAR_HEIGHT, TITLE_BAR_HEIGHT_PX } from './AppTitleBar'
 
 const surface = (id: string, label: string): RegisteredGlobalSurface => ({
@@ -48,8 +67,16 @@ const surface = (id: string, label: string): RegisteredGlobalSurface => ({
 // UNDER Extensions, not a thing standing beside it.
 assert.deepEqual([...RAIL_SURFACE_IDS], ['automations'], 'Automations is the rail’s one promoted surface')
 {
-  const picked = railSurfacesOf([surface('design', 'Design'), surface('extensions', 'Plugins'), surface('automations', 'Automations')])
-  assert.deepEqual(picked.map((s) => s.id), ['automations'], 'only the promoted surface is taken, whatever else is registered')
+  const picked = railSurfacesOf([
+    surface('design', 'Design'),
+    surface('extensions', 'Plugins'),
+    surface('automations', 'Automations'),
+  ])
+  assert.deepEqual(
+    picked.map((s) => s.id),
+    ['automations'],
+    'only the promoted surface is taken, whatever else is registered',
+  )
   // A disabled automations module leaves the host's list without it, and the
   // rail simply has no glyph for it — never a dead square.
   assert.deepEqual(railSurfacesOf([surface('extensions', 'Plugins')]), [])
@@ -62,7 +89,10 @@ assert.deepEqual([...RAIL_SURFACE_IDS], ['automations'], 'Automations is the rai
     'a door with no label or glyph contributes no rail square',
   )
 }
-assert.ok(APP_RAIL_WIDTH < TRAFFIC_LIGHT_RESERVE, 'the rail is narrower than the traffic lights, so the sidebar chrome insets for the rest')
+assert.ok(
+  APP_RAIL_WIDTH < TRAFFIC_LIGHT_RESERVE,
+  'the rail is narrower than the traffic lights, so the sidebar chrome insets for the rest',
+)
 
 // ── The rendered rail ─────────────────────────────────────────────────────────
 const selected: string[] = []
@@ -99,7 +129,10 @@ assert.deepEqual(
   ['Home', 'Automations', 'Extensions'],
   'three named glyphs: Home, Automations, Extensions',
 )
-assert.ok(buttons().every((b) => (b.textContent ?? '').trim() === ''), 'a glyph spells no caption: its name is the tooltip and the accessible name')
+assert.ok(
+  buttons().every((b) => (b.textContent ?? '').trim() === ''),
+  'a glyph spells no caption: its name is the tooltip and the accessible name',
+)
 assert.ok(
   buttons().every((b) => (b.getAttribute('class') ?? '').includes('size-control-lg')),
   'every square is the rail’s own control-lg step (owner, 2026-09-07: large control step, found rather than read)',
@@ -111,11 +144,23 @@ assert.ok(
 )
 assert.equal(buttons()[0]?.getAttribute('aria-current'), 'page', 'the showing section reads current')
 assert.equal(buttons()[2]?.getAttribute('aria-current'), null)
-assert.equal(buttons()[1]?.getAttribute('aria-pressed'), 'false', 'a surface glyph reads unpressed while its surface is closed')
+assert.equal(
+  buttons()[1]?.getAttribute('aria-pressed'),
+  'false',
+  'a surface glyph reads unpressed while its surface is closed',
+)
 
-act(() => { buttons()[2]?.click() })
-assert.deepEqual(selected, ['extensions'], 'the Extensions glyph selects its section (the host opens the Extensions home with it)')
-act(() => { buttons()[1]?.click() })
+act(() => {
+  buttons()[2]?.click()
+})
+assert.deepEqual(
+  selected,
+  ['extensions'],
+  'the Extensions glyph selects its section (the host opens the Extensions home with it)',
+)
+act(() => {
+  buttons()[1]?.click()
+})
 assert.deepEqual(opened, ['automations'], 'the Automations glyph opens its surface')
 
 // ── The badges ───────────────────────────────────────────────────────────────
@@ -130,8 +175,15 @@ render('home', null, undefined, {
 {
   const badgeIn = (b: HTMLElement | undefined) => b?.querySelector('[role="status"]') as HTMLElement | null
   assert.equal(badgeIn(buttons()[0])?.textContent, '3', 'Home wears the count of chats wanting you')
-  assert.equal(badgeIn(buttons()[0])?.getAttribute('aria-label'), '3 chats want you', 'and the badge is named, not a bare number')
-  assert.ok((buttons()[0]?.getAttribute('class') ?? '').includes('relative'), 'the square is the badge’s positioning context')
+  assert.equal(
+    badgeIn(buttons()[0])?.getAttribute('aria-label'),
+    '3 chats want you',
+    'and the badge is named, not a bare number',
+  )
+  assert.ok(
+    (buttons()[0]?.getAttribute('class') ?? '').includes('relative'),
+    'the square is the badge’s positioning context',
+  )
   assert.equal(badgeIn(buttons()[1])?.textContent, '99+', 'a surface square wears its own count, capped')
   assert.equal(badgeIn(buttons()[2]), null, 'a null badge draws nothing')
   assert.equal(buttons()[0]?.getAttribute('aria-label'), 'Home', 'the glyph’s own name is unchanged by its badge')
@@ -162,7 +214,11 @@ assert.ok(!(nav().getAttribute('class') ?? '').includes('border-r'), 'the rail d
 dom.window.document.body.innerHTML = ''
 render('extensions', 'automations')
 assert.equal(buttons()[2]?.getAttribute('aria-current'), 'page')
-assert.equal(buttons()[1]?.getAttribute('aria-pressed'), 'true', 'Automations reads pressed while its door holds the card region')
+assert.equal(
+  buttons()[1]?.getAttribute('aria-pressed'),
+  'true',
+  'Automations reads pressed while its door holds the card region',
+)
 
 // ── A disabled module takes its glyph with it ─────────────────────────────────
 dom.window.document.body.innerHTML = ''

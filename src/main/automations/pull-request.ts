@@ -9,9 +9,7 @@ import { sharedGhRunner, type GhRunner } from '../github/gh'
 // no remote, or no changes returns a reason instead of faking a PR link — the run
 // still completes, just without a linked PR.
 
-export type AutomationPullRequestResult =
-  | { ok: true; url: string; created: boolean }
-  | { ok: false; reason: string }
+export type AutomationPullRequestResult = { ok: true; url: string; created: boolean } | { ok: false; reason: string }
 
 export type CommandResult = { ok: boolean; stdout: string; stderr: string }
 
@@ -47,11 +45,7 @@ export async function openAutomationRunPullRequest(
   if (hasWorkingDiff) {
     const add = await deps.runGit(worktreePath, ['add', '-A'])
     if (!add.ok) return { ok: false, reason: commandReason('stage changes', add) }
-    const commit = await deps.runGit(worktreePath, [
-      'commit',
-      '-m',
-      input.commitMessage?.trim() || input.title,
-    ])
+    const commit = await deps.runGit(worktreePath, ['commit', '-m', input.commitMessage?.trim() || input.title])
     if (!commit.ok) return { ok: false, reason: commandReason('commit changes', commit) }
   }
 
@@ -121,10 +115,11 @@ export function createGhCommandRunner(gh: GhRunner) {
 }
 
 const defaultPullRequestDeps: PullRequestDeps = {
-  runGit: (cwd, args) => runGitCommand(cwd, args).then((result) => ({
-    ok: result.ok,
-    stdout: result.stdout,
-    stderr: result.stderr,
-  })),
+  runGit: (cwd, args) =>
+    runGitCommand(cwd, args).then((result) => ({
+      ok: result.ok,
+      stdout: result.stdout,
+      stderr: result.stderr,
+    })),
   runGh: createGhCommandRunner(sharedGhRunner()),
 }

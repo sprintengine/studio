@@ -47,15 +47,10 @@ function snapshot(patch: Partial<BranchStepsSnapshot> = {}): BranchStepsSnapshot
 function strip(
   snap: BranchStepsSnapshot | null,
   selection: BranchStepSelection = { kind: 'span' },
-  note: string | null = null
+  note: string | null = null,
 ): string {
   return renderToStaticMarkup(
-    <BranchStepStrip
-      entries={stripEntriesFrom(snap)}
-      selection={selection}
-      onSelect={() => {}}
-      note={note}
-    />
+    <BranchStepStrip entries={stripEntriesFrom(snap)} selection={selection} onSelect={() => {}} note={note} />,
   )
 }
 
@@ -82,7 +77,10 @@ run('every tab points at the panel it controls, and only one is selected', () =>
 })
 
 run('the strip names itself for a screen reader', () => {
-  assert.match(strip(snapshot()), /role="tablist"[^>]*aria-label="Branch steps"|aria-label="Branch steps"[^>]*role="tablist"/)
+  assert.match(
+    strip(snapshot()),
+    /role="tablist"[^>]*aria-label="Branch steps"|aria-label="Branch steps"[^>]*role="tablist"/,
+  )
 })
 
 run('a merge chip is marked, and a commit shows its hash beside its subject', () => {
@@ -112,7 +110,7 @@ run('a checkout that cannot claim exactness still says so', () => {
   const markup = strip(
     snapshot({ steps: [], hasUncommitted: false, scope: 'folder' }),
     { kind: 'span' },
-    'Working on main. There is no branch to measure.'
+    'Working on main. There is no branch to measure.',
   )
   assert.match(markup, /Working on main/, 'the note renders even with no chips')
   assert.doesNotMatch(markup, /role="tablist"/, 'and brings no tablist with it')

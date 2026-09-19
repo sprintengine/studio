@@ -168,11 +168,23 @@ function useFleetToastBridge(): void {
         // answers a person may have walked away from get a toast each.
         const machine = event.request.machineName
         if (event.phase === 'denied') {
-          showToast({ tone: 'error', title: `${machine} declined`, description: event.detail ?? 'Someone there said no.' })
+          showToast({
+            tone: 'error',
+            title: `${machine} declined`,
+            description: event.detail ?? 'Someone there said no.',
+          })
         } else if (event.phase === 'expired') {
-          showToast({ tone: 'neutral', title: `${machine} did not answer in time`, description: 'Ask again when someone is at it.' })
+          showToast({
+            tone: 'neutral',
+            title: `${machine} did not answer in time`,
+            description: 'Ask again when someone is at it.',
+          })
         } else if (event.phase === 'failed') {
-          showToast({ tone: 'error', title: `Pairing with ${machine} did not complete`, description: event.detail ?? '' })
+          showToast({
+            tone: 'error',
+            title: `Pairing with ${machine} did not complete`,
+            description: event.detail ?? '',
+          })
         }
         return
       }

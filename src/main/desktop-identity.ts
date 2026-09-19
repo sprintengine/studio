@@ -20,10 +20,7 @@ export const CLERK_IDENTITY_PROVIDER = 'clerk' as const
 
 export type IdentityProviderKind = typeof MULTIAUTH_IDENTITY_PROVIDER | typeof CLERK_IDENTITY_PROVIDER
 
-const IDENTITY_PROVIDER_KINDS: readonly IdentityProviderKind[] = [
-  MULTIAUTH_IDENTITY_PROVIDER,
-  CLERK_IDENTITY_PROVIDER,
-]
+const IDENTITY_PROVIDER_KINDS: readonly IdentityProviderKind[] = [MULTIAUTH_IDENTITY_PROVIDER, CLERK_IDENTITY_PROVIDER]
 
 type MultiauthIdentityConfig = {
   provider: typeof MULTIAUTH_IDENTITY_PROVIDER
@@ -102,7 +99,9 @@ export function parseIdentityDiscovery(payload: unknown, clientName: string): Id
 
   const schemaVersion = payload['schemaVersion']
   if (schemaVersion !== undefined && schemaVersion !== 1) {
-    throw new IdentityDiscoveryError(`Identity discovery schema ${String(schemaVersion)} is not understood by this build.`)
+    throw new IdentityDiscoveryError(
+      `Identity discovery schema ${String(schemaVersion)} is not understood by this build.`,
+    )
   }
 
   const provider = payload['provider']
@@ -117,7 +116,7 @@ export function parseIdentityDiscovery(payload: unknown, clientName: string): Id
   const issuer = readHttpsUrl(payload['issuer'], 'issuer')
   const authorizationEndpoint = readHttpsUrl(
     payload['authorizationEndpoint'] ?? `${issuer}${CLERK_AUTHORIZE_PATH}`,
-    'authorizationEndpoint'
+    'authorizationEndpoint',
   )
   const tokenEndpoint = readHttpsUrl(payload['tokenEndpoint'] ?? `${issuer}${CLERK_TOKEN_PATH}`, 'tokenEndpoint')
 
@@ -130,9 +129,10 @@ export function parseIdentityDiscovery(payload: unknown, clientName: string): Id
     throw new IdentityDiscoveryError(`Identity discovery has no Clerk client id for "${clientName}".`)
   }
 
-  const scopes = Array.isArray(payload['scopes']) && payload['scopes'].every((scope) => typeof scope === 'string')
-    ? (payload['scopes'] as string[])
-    : CLERK_DESKTOP_SCOPES
+  const scopes =
+    Array.isArray(payload['scopes']) && payload['scopes'].every((scope) => typeof scope === 'string')
+      ? (payload['scopes'] as string[])
+      : CLERK_DESKTOP_SCOPES
   // The desktop keeps the refresh token; without offline_access there is
   // none, and the browser sign-in would succeed only for the exchange to fail.
   if (!scopes.includes('offline_access')) {
@@ -200,7 +200,7 @@ export function resolveIdentityOverride(env: IdentityEnvironment): IdentityConfi
 
   if (provider !== CLERK_IDENTITY_PROVIDER) {
     throw new IdentityDiscoveryError(
-      `SPRINTENGINE_IDENTITY_PROVIDER must be "multiauth" or "clerk", not "${provider}".`
+      `SPRINTENGINE_IDENTITY_PROVIDER must be "multiauth" or "clerk", not "${provider}".`,
     )
   }
 
@@ -239,7 +239,7 @@ export type MultiauthAuthorizationOptions = {
 // `returnTo=desktop`; unchanged from before the migration.
 export function buildMultiauthAuthorizationUrl(
   request: AuthorizationRequest,
-  options: MultiauthAuthorizationOptions
+  options: MultiauthAuthorizationOptions,
 ): string {
   const search = new URLSearchParams({
     returnTo: 'desktop',
@@ -389,7 +389,7 @@ export function isIdentityProviderKind(value: unknown): value is IdentityProvide
 // resume the other issuer's session.
 export function refreshProviderOrder(
   marker: IdentityProviderKind | null,
-  override: IdentityConfig | null
+  override: IdentityConfig | null,
 ): IdentityProviderKind[] {
   if (override) return [override.provider]
   const preferred = marker ?? MULTIAUTH_IDENTITY_PROVIDER

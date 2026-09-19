@@ -3,11 +3,7 @@ import type { IpcMain } from 'electron'
 import type { VersionControlProviderProbe } from '../../shared/version-control'
 import { probeBinaryVersion } from '../cli-runtime-install'
 import { createDefaultGhRunner } from '../github/gh'
-import {
-  parseGhAuthLogin,
-  probeVersionControlProviders,
-  type VersionControlProbeDeps,
-} from './version-control-probe'
+import { parseGhAuthLogin, probeVersionControlProviders, type VersionControlProbeDeps } from './version-control-probe'
 
 // The real probes: the same machinery agent-CLI detection uses for versions, and
 // the same gh runner the review paths use for auth (so a GUI-launched app finds a

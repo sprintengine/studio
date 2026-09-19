@@ -2,11 +2,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-import {
-  TERMINAL_CELL_GEOMETRY_OPTIONS,
-  TERMINAL_UNICODE_VERSION,
-  terminalRenderContract,
-} from './terminal-options'
+import { TERMINAL_CELL_GEOMETRY_OPTIONS, TERMINAL_UNICODE_VERSION, terminalRenderContract } from './terminal-options'
 
 // What a REMOTE renderer is told about how this process measures a cell.
 //
@@ -42,10 +38,7 @@ assert.deepEqual(JSON.parse(JSON.stringify(contract)), contract, 'the contract m
 // A unit test on the builder proves nothing if the `attached` frame stops
 // carrying it, and that frame is assembled inline rather than through a typed
 // factory, so the source is what there is to assert against.
-const streamSource = readFileSync(
-  join(process.cwd(), 'src/main/automation/tailnet/tailnet-terminal-stream.ts'),
-  'utf8',
-)
+const streamSource = readFileSync(join(process.cwd(), 'src/main/automation/tailnet/tailnet-terminal-stream.ts'), 'utf8')
 const attachedFrame = streamSource.slice(streamSource.indexOf("type: 'attached'"))
 assert.ok(
   /render: terminalRenderContract\(\)/.test(attachedFrame.slice(0, 400)),

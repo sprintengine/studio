@@ -77,10 +77,7 @@ const MAX_KEEP_RECENT_TERMINALS_ALIVE = 20
 // when it isn't a usable finite number. Pure; reused on both sides.
 export function clampKeepRecentTerminalsAlive(value: unknown): number {
   if (typeof value !== 'number' || !Number.isFinite(value)) return DEFAULT_KEEP_RECENT_TERMINALS_ALIVE
-  return Math.max(
-    MIN_KEEP_RECENT_TERMINALS_ALIVE,
-    Math.min(MAX_KEEP_RECENT_TERMINALS_ALIVE, Math.round(value))
-  )
+  return Math.max(MIN_KEEP_RECENT_TERMINALS_ALIVE, Math.min(MAX_KEEP_RECENT_TERMINALS_ALIVE, Math.round(value)))
 }
 
 // Phases in which the agent is actively doing work. Reaping one would kill an
@@ -177,7 +174,7 @@ export type ReapExplanation =
 // Order is cheap-checks-first; `isSessionReapable` is the boolean projection.
 export function explainSessionReapDecision(
   candidate: ReapCandidate,
-  options: { now: number; idleThresholdMs: number }
+  options: { now: number; idleThresholdMs: number },
 ): ReapExplanation {
   const restingSince = Math.max(candidate.lastInteractionAt, candidate.idleSince ?? 0)
   const restingForMs = options.now - restingSince
@@ -213,25 +210,21 @@ export function explainSessionReapDecision(
 // is the conjunction either way.
 export function isSessionReapable(
   candidate: ReapCandidate,
-  options: { now: number; idleThresholdMs: number }
+  options: { now: number; idleThresholdMs: number },
 ): boolean {
   return explainSessionReapDecision(candidate, options).verdict === 'reapable'
 }
 
 export function selectReapableSessions(
   candidates: readonly ReapCandidate[],
-  options: ReapPolicyOptions = {}
+  options: ReapPolicyOptions = {},
 ): ReapDecision {
   const now = options.now ?? Date.now()
   const idleThresholdMs = options.idleThresholdMs ?? DEFAULT_SUSPEND_IDLE_AFTER_MS
   const keepRecentAliveCount =
-    options.keepRecentAliveCount === undefined
-      ? 0
-      : clampKeepRecentTerminalsAlive(options.keepRecentAliveCount)
+    options.keepRecentAliveCount === undefined ? 0 : clampKeepRecentTerminalsAlive(options.keepRecentAliveCount)
 
-  const reapable = candidates.filter((candidate) =>
-    isSessionReapable(candidate, { now, idleThresholdMs })
-  )
+  const reapable = candidates.filter((candidate) => isSessionReapable(candidate, { now, idleThresholdMs }))
 
   // Recency floor: cap how many of the reapable set are acted on so at least
   // `keepRecentAliveCount` live agent terminals remain after the sweep. The
@@ -246,7 +239,7 @@ export function selectReapableSessions(
   const managedReapable = reapable.filter((candidate) => candidate.managed)
   const userReapable = reapable.filter((candidate) => !candidate.managed)
   const liveUserAgentCount = candidates.filter(
-    (candidate) => candidate.processAlive && candidate.kind === 'agent' && !candidate.managed
+    (candidate) => candidate.processAlive && candidate.kind === 'agent' && !candidate.managed,
   ).length
   const maxUserReapable = Math.max(0, liveUserAgentCount - keepRecentAliveCount)
 

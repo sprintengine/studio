@@ -185,8 +185,7 @@ async function main(): Promise<void> {
     assert.deepEqual(copy, {
       title: 'Extensions icon carries its unread count',
       lines: [`Pull request ${num(418)} · open · 12 minutes ago`, 'Open it on GitHub'],
-      ariaLabel:
-        'Pull request 418, open: Extensions icon carries its unread count. Open it on GitHub',
+      ariaLabel: 'Pull request 418, open: Extensions icon carries its unread count. Open it on GitHub',
     })
   })
 
@@ -223,10 +222,7 @@ async function main(): Promise<void> {
     )
     const [group] = pullRequestMenuGroups([captured, pr({ number: 411, state: 'merged' })], NOW)
     assert.equal(group?.rows[0]?.title, '', 'the menu row is the number alone')
-    assert.equal(
-      group?.rows[0]?.ariaLabel,
-      `Pull request 418, ${state}. Open it on GitHub`,
-    )
+    assert.equal(group?.rows[0]?.ariaLabel, `Pull request 418, ${state}. Open it on GitHub`)
     // An hour later, still untitled, the age has something to say and joins the
     // state on the line under the identity.
     const older = peekMarkCopy([{ ...captured, openedAt: NOW - HOUR }], NOW)
@@ -235,15 +231,9 @@ async function main(): Promise<void> {
   })
 
   await run('the moment GitHub answers with a title, the title leads again', () => {
-    const copy = peekMarkCopy(
-      [pr({ number: 418, title: 'Gate OSC 52 writes', openedAt: NOW - 12 * MINUTE })],
-      NOW,
-    )
+    const copy = peekMarkCopy([pr({ number: 418, title: 'Gate OSC 52 writes', openedAt: NOW - 12 * MINUTE })], NOW)
     assert.equal(copy?.title, 'Gate OSC 52 writes')
-    assert.ok(
-      copy?.lines[0]?.startsWith(`Pull request ${num(418)} · `),
-      'the identity moves back down',
-    )
+    assert.ok(copy?.lines[0]?.startsWith(`Pull request ${num(418)} · `), 'the identity moves back down')
     assert.match(copy?.ariaLabel ?? '', /: Gate OSC 52 writes\. Open it on GitHub$/)
   })
 
@@ -262,15 +252,22 @@ async function main(): Promise<void> {
       groups.map((group) => group.label),
       ['Open · 2', 'Merged · 2', 'Closed · 1'],
     )
-    assert.deepEqual(groups[0]?.rows.map((row) => row.number), [num(409), num(406)])
-    assert.deepEqual(groups[1]?.rows.map((row) => row.number), [num(401), num(398)])
-    assert.equal(groups[0]?.rows[0]?.age, '1d', 'the age rides the hint slot, terse')
-    assert.equal(
-      groups[0]?.rows[0]?.ariaLabel,
-      'Pull request 409, open: Gate OSC 52 writes. Open it on GitHub',
+    assert.deepEqual(
+      groups[0]?.rows.map((row) => row.number),
+      [num(409), num(406)],
     )
+    assert.deepEqual(
+      groups[1]?.rows.map((row) => row.number),
+      [num(401), num(398)],
+    )
+    assert.equal(groups[0]?.rows[0]?.age, '1d', 'the age rides the hint slot, terse')
+    assert.equal(groups[0]?.rows[0]?.ariaLabel, 'Pull request 409, open: Gate OSC 52 writes. Open it on GitHub')
     const noneClosed = pullRequestMenuGroups([pr({ number: 1 })], NOW)
-    assert.deepEqual(noneClosed.map((group) => group.id), ['open'], 'no heading over nothing')
+    assert.deepEqual(
+      noneClosed.map((group) => group.id),
+      ['open'],
+      'no heading over nothing',
+    )
   })
 
   await run('an agent line with a branch is worth a lookup — mark or no mark', () => {
@@ -380,9 +377,7 @@ async function main(): Promise<void> {
     Array.from(menuSurface()?.querySelectorAll<HTMLElement>('[data-menu-item="true"]') ?? [])
 
   await run('one pull request is a link with no chevron; two grow the split control', () => {
-    const single = mount(
-      React.createElement(PullRequestPeekMark, { pullRequests: [pr({ number: 418 })], now: NOW }),
-    )
+    const single = mount(React.createElement(PullRequestPeekMark, { pullRequests: [pr({ number: 418 })], now: NOW }))
     assert.equal(
       single.host.querySelector('[aria-haspopup="menu"]'),
       null,
@@ -395,10 +390,7 @@ async function main(): Promise<void> {
     const chevron = many.host.querySelector('[aria-haspopup="menu"]')
     assert.ok(chevron, 'two or more grow the chevron')
     assert.equal(chevron?.getAttribute('aria-expanded'), 'false')
-    assert.equal(
-      chevron?.getAttribute('aria-label'),
-      'All pull requests from this conversation, 3',
-    )
+    assert.equal(chevron?.getAttribute('aria-label'), 'All pull requests from this conversation, 3')
     many.unmount()
   })
 
@@ -412,9 +404,7 @@ async function main(): Promise<void> {
     // where an optional part was empty, and that is not a difference in chrome.
     const chrome = (el: Element | null | undefined): string =>
       (el?.getAttribute('class') ?? '').split(/\s+/).filter(Boolean).sort().join(' ')
-    const single = mount(
-      React.createElement(PullRequestPeekMark, { pullRequests: [pr({ number: 418 })], now: NOW }),
-    )
+    const single = mount(React.createElement(PullRequestPeekMark, { pullRequests: [pr({ number: 418 })], now: NOW }))
     const soloArm = single.host.querySelector('[data-pull-request-mark]')
     const soloGroup = soloArm?.parentElement
     assert.equal(soloArm?.tagName, 'BUTTON', 'a control, not an anchor')
@@ -512,9 +502,7 @@ async function main(): Promise<void> {
     })
     assert.ok(menuSurface(), 'precondition: the menu is open')
     await act(async () => {
-      document.dispatchEvent(
-        new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
-      )
+      document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
       await sleep(0)
     })
     assert.equal(menuSurface(), null)
@@ -531,9 +519,11 @@ async function main(): Promise<void> {
 
   const { PointerPopover, Popover } = await import('../ui')
 
-  function mountInCard(
-    pullRequests: BranchPullRequest[],
-  ): { host: Element; closes: () => number; unmount: () => void } {
+  function mountInCard(pullRequests: BranchPullRequest[]): {
+    host: Element
+    closes: () => number
+    unmount: () => void
+  } {
     let closes = 0
     const view = mount(
       React.createElement(PointerPopover, {
@@ -650,9 +640,7 @@ async function main(): Promise<void> {
     )
     assert.deepEqual(refreshed, [], 'a tab nobody has looked at asks nothing')
     await act(async () => {
-      view.host.firstElementChild!.dispatchEvent(
-        new dom.window.FocusEvent('focusin', { bubbles: true }),
-      )
+      view.host.firstElementChild!.dispatchEvent(new dom.window.FocusEvent('focusin', { bubbles: true }))
       await sleep(0)
     })
     assert.deepEqual(refreshed, ['a21ac8e7-548f-6f89'], 'the card opening is the ask')
@@ -661,9 +649,7 @@ async function main(): Promise<void> {
 
   await run('the mark opens its own pull request through the app’s external opener', async () => {
     opened.length = 0
-    const view = mount(
-      React.createElement(PullRequestPeekMark, { pullRequests: [pr({ number: 418 })], now: NOW }),
-    )
+    const view = mount(React.createElement(PullRequestPeekMark, { pullRequests: [pr({ number: 418 })], now: NOW }))
     await act(async () => {
       view.host.querySelector<HTMLElement>('[data-pull-request-mark]')!.click()
     })
@@ -733,11 +719,7 @@ async function main(): Promise<void> {
     document.body.append(host)
     const root = createRoot(host)
     act(() => root.render(<ProjectPullRequestMark openCount={3} projectName="multicode" />))
-    assert.equal(
-      host.querySelector('button'),
-      null,
-      'a button here would steal the folder header\'s own click',
-    )
+    assert.equal(host.querySelector('button'), null, "a button here would steal the folder header's own click")
     act(() => root.unmount())
     host.remove()
   })

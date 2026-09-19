@@ -245,8 +245,8 @@ export function ReportViewBody({
         <InlineNotice tone="warn">
           <p className="font-semibold">This report can run code</p>
           <p className="mt-0.5">
-            It’s HTML written by an automation agent and opens in your external browser, where its
-            scripts run with access to local files. Open it only if you trust this run.
+            It’s HTML written by an automation agent and opens in your external browser, where its scripts run with
+            access to local files. Open it only if you trust this run.
           </p>
         </InlineNotice>
         {onOpenHtml ? <PrimaryButton onClick={onOpenHtml}>Open anyway</PrimaryButton> : null}
@@ -257,9 +257,7 @@ export function ReportViewBody({
   if (state.kind === 'html-opened') {
     return (
       <div className="flex flex-col items-start gap-3 py-6">
-        <p className="text-body leading-6 text-[color:var(--text-default)]">
-          This report opened in your browser.
-        </p>
+        <p className="text-body leading-6 text-[color:var(--text-default)]">This report opened in your browser.</p>
         {onOpenHtml ? <GhostButton onClick={onOpenHtml}>Open again</GhostButton> : null}
       </div>
     )

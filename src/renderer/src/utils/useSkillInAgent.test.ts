@@ -121,12 +121,9 @@ function installWindowApiStub(input: {
         },
         agentSkillAttach: async (attachInput: unknown) => {
           attachCalls.push(attachInput)
-          return (
-            input.attach ?? { ok: true as const, skillId: 'backlog', targets: [target({})] }
-          )
+          return input.attach ?? { ok: true as const, skillId: 'backlog', targets: [target({})] }
         },
-        workspaceSkillsList: async () =>
-          input.skillsResult ?? { ok: true as const, skills: input.skills ?? [SKILL] },
+        workspaceSkillsList: async () => input.skillsResult ?? { ok: true as const, skills: input.skills ?? [SKILL] },
         builtinSkillStatus: async () => ({ ok: false as const, message: 'not a builtin' }),
       },
     },
@@ -314,10 +311,7 @@ async function main(): Promise<void> {
       clis: CLIS,
     })
     assert.equal(result.ok && result.restartRequired, true)
-    assert.deepEqual(
-      result.ok ? result.harnesses.map((harness) => harness.harnessId) : [],
-      ['claude', 'opencode'],
-    )
+    assert.deepEqual(result.ok ? result.harnesses.map((harness) => harness.harnessId) : [], ['claude', 'opencode'])
     const toast = skillRestartToast(result, 'Backlog')
     assert.equal(toast?.tone, 'warn')
     assert.equal(toast?.title, 'Installed for OpenCode', 'only the CLIs that need it are named')
@@ -337,14 +331,11 @@ async function main(): Promise<void> {
   }
   // `unchanged` is a CLI that already had the skill: nothing new to notice, so
   // no restart to mention and nothing to report as written.
-  assert.deepEqual(
-    describeHarnessWrites([target({ status: 'unchanged', restartRequired: true })]),
-    [],
-  )
-  assert.deepEqual(
-    describeHarnessWrites([target({ pluginIds: ['claude-code', 'unknown-cli'] })], CLIS)[0].labels,
-    ['Claude Code', 'unknown-cli'],
-  )
+  assert.deepEqual(describeHarnessWrites([target({ status: 'unchanged', restartRequired: true })]), [])
+  assert.deepEqual(describeHarnessWrites([target({ pluginIds: ['claude-code', 'unknown-cli'] })], CLIS)[0].labels, [
+    'Claude Code',
+    'unknown-cli',
+  ])
 
   // ── Refusals say why ─────────────────────────────────────────────────────
   {

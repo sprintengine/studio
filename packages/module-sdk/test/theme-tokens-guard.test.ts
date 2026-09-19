@@ -57,7 +57,10 @@ function main(): void {
   for (const block of topLevelBlocks(css)) {
     if (block.selector.startsWith('@')) continue
     const props = customProps(block.body)
-    for (const part of block.selector.split(',').map((piece) => piece.trim()).filter(Boolean)) {
+    for (const part of block.selector
+      .split(',')
+      .map((piece) => piece.trim())
+      .filter(Boolean)) {
       if (part === ':root') {
         props.forEach((prop) => base.add(prop))
         continue
@@ -79,22 +82,18 @@ function main(): void {
   // the captured set covers every app theme id, so a selector rewrite that
   // this parser cannot read fails loudly instead of dropping the theme from
   // the gate. 'system' resolves to another theme and has no CSS block.
-  const expectedThemes = APP_THEMES
-    .map((theme) => theme.id)
-    .filter((id) => id !== 'system')
+  const expectedThemes = APP_THEMES.map((theme) => theme.id).filter((id) => id !== 'system')
   const unparsed = expectedThemes.filter((id) => !themes.has(id))
   assert.deepEqual(
     unparsed,
     [],
-    `app themes missing from the parsed index.css blocks (selector drift?): ${unparsed.join(', ')}`
+    `app themes missing from the parsed index.css blocks (selector drift?): ${unparsed.join(', ')}`,
   )
 
   const failures: string[] = []
   for (const token of THEME_TOKENS) {
     if (base.has(token)) continue
-    const missingIn = [...themes.entries()]
-      .filter(([, props]) => !props.has(token))
-      .map(([theme]) => theme)
+    const missingIn = [...themes.entries()].filter(([, props]) => !props.has(token)).map(([theme]) => theme)
     if (missingIn.length > 0) {
       failures.push(`${token} — not in top-level base :root and missing from theme(s): ${missingIn.join(', ')}`)
     }
@@ -103,7 +102,7 @@ function main(): void {
   assert.deepEqual(
     failures,
     [],
-    `published THEME_TOKENS entries are not guaranteed in every theme:\n  ${failures.join('\n  ')}`
+    `published THEME_TOKENS entries are not guaranteed in every theme:\n  ${failures.join('\n  ')}`,
   )
 
   console.log(`theme tokens guard passed (${THEME_TOKENS.length} tokens across ${themes.size} themes + base)`)

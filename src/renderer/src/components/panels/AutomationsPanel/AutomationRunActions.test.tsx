@@ -34,7 +34,13 @@ function makeRun(overrides: Partial<AutomationRun> = {}): AutomationRun {
 const noop = () => {}
 function markup(run: AutomationRun, onViewReport?: (run: AutomationRun) => void): string {
   return renderToStaticMarkup(
-    <AutomationRunActions run={run} onOpenAgent={noop} onViewReport={onViewReport} onFinalize={noop} finalizing={false} />,
+    <AutomationRunActions
+      run={run}
+      onOpenAgent={noop}
+      onViewReport={onViewReport}
+      onFinalize={noop}
+      finalizing={false}
+    />,
   )
 }
 
@@ -111,7 +117,9 @@ run('clicking "View report" invokes onViewReport with the run', () => {
   const tree = AutomationRunActions({
     run,
     onOpenAgent: noop,
-    onViewReport: (r) => { received = r },
+    onViewReport: (r) => {
+      received = r
+    },
     onFinalize: noop,
     finalizing: false,
   })

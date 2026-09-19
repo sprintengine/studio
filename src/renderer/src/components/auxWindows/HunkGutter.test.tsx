@@ -114,7 +114,11 @@ async function main(): Promise<void> {
     })
   }
 
-  function mount(node: React.ReactNode): { container: HTMLElement; render: (next: React.ReactNode) => void; unmount: () => void } {
+  function mount(node: React.ReactNode): {
+    container: HTMLElement
+    render: (next: React.ReactNode) => void
+    unmount: () => void
+  } {
     const container = document.createElement('div')
     document.body.appendChild(container)
     const root = createRoot(container)
@@ -129,7 +133,7 @@ async function main(): Promise<void> {
     }
   }
 
-  run('one widget per hunk, at the hunk\'s own line on the modified side', () => {
+  run("one widget per hunk, at the hunk's own line on the modified side", () => {
     const editor = fakeEditor()
     const view = mount(<HunkGutter editor={editor.host} boxes={boxesFor([4, 19])} onToggle={() => {}} />)
     assert.equal(editor.widgets.size, 2)
@@ -233,7 +237,7 @@ async function main(): Promise<void> {
     const view = mount(<HunkGutter editor={editor.host} boxes={boxesFor([4, 19, 30])} onToggle={() => {}} />)
     assert.equal(editor.widgets.size, 3)
     view.unmount()
-    assert.equal(editor.widgets.size, 0, 'a leftover widget is the next file\'s boxes')
+    assert.equal(editor.widgets.size, 0, "a leftover widget is the next file's boxes")
     assert.equal(editor.margin.children.length, 0)
   })
 

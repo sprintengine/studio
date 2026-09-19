@@ -19,9 +19,7 @@ export const WEBHOOK_DELIVERY_ID_HEADER = 'x-multicode-delivery-id'
 export const WEBHOOK_EVENT_TIME_HEADER = 'x-multicode-event-time'
 export const WEBHOOK_ROUTE_PREFIX = '/automations/webhooks/'
 
-type WebhookTriggerValidationResult =
-  | { ok: true; value: WebhookTriggerConfig }
-  | { ok: false; error: string }
+type WebhookTriggerValidationResult = { ok: true; value: WebhookTriggerConfig } | { ok: false; error: string }
 
 const WEBHOOK_PATH_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u
 const MAX_DELIVERY_ID_LENGTH = 200
@@ -154,9 +152,10 @@ export function buildWebhookTriggerEvent(input: {
   occurredAt: string
   receivedAt: string
 }): AutomationTriggerPollEvent {
-  const eventType = typeof input.rawPayload.eventType === 'string' && input.rawPayload.eventType.trim()
-    ? input.rawPayload.eventType.trim()
-    : input.config.eventType
+  const eventType =
+    typeof input.rawPayload.eventType === 'string' && input.rawPayload.eventType.trim()
+      ? input.rawPayload.eventType.trim()
+      : input.config.eventType
   return {
     id: [WEBHOOK_TRIGGER_KIND, input.config.path, input.deliveryId].join(':'),
     occurredAt: input.occurredAt,
@@ -173,10 +172,7 @@ export function buildWebhookTriggerEvent(input: {
   }
 }
 
-export function webhookPayloadMatchesConfig(
-  payload: Record<string, unknown>,
-  config: WebhookTriggerConfig
-): boolean {
+export function webhookPayloadMatchesConfig(payload: Record<string, unknown>, config: WebhookTriggerConfig): boolean {
   if (!config.eventType) return true
   return typeof payload.eventType === 'string' && payload.eventType.trim() === config.eventType
 }

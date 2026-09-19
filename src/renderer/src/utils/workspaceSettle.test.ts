@@ -38,59 +38,74 @@ assert.equal(workspaceLastActiveAt(ws({})), NOW - 10 * DAY, 'creation when nothi
 assert.equal(
   workspaceLastActiveAt(ws({ lastTerminalActivityAt: NOW - 2 * DAY, lastTurnEndedAt: NOW - 5 * DAY })),
   NOW - 2 * DAY,
-  'typing later than the turn end wins'
+  'typing later than the turn end wins',
 )
 assert.equal(
   workspaceLastActiveAt(ws({ lastTerminalActivityAt: NOW - 5 * DAY, lastTurnEndedAt: NOW - DAY })),
   NOW - DAY,
-  'a turn that ended after the last keystroke counts as activity'
+  'a turn that ended after the last keystroke counts as activity',
 )
 
 // The 3-day idle rule, measured from last activity.
 assert.equal(shouldAutoSettleWorkspace(ws({}), NOW), true, 'idle 10 days settles')
 assert.equal(shouldAutoSettleWorkspace(ws({ lastTerminalActivityAt: NOW - DAY }), NOW), false, 'typed yesterday stays')
-assert.equal(shouldAutoSettleWorkspace(ws({ lastTurnEndedAt: NOW - DAY }), NOW), false, 'an agent that finished yesterday stays')
+assert.equal(
+  shouldAutoSettleWorkspace(ws({ lastTurnEndedAt: NOW - DAY }), NOW),
+  false,
+  'an agent that finished yesterday stays',
+)
 assert.equal(
   shouldAutoSettleWorkspace(ws({ createdAt: NOW - WORKSPACE_AUTO_SETTLE_AFTER_MS + 1 }), NOW),
   false,
-  'just inside the window stays'
+  'just inside the window stays',
 )
 assert.equal(
   shouldAutoSettleWorkspace(ws({ createdAt: NOW - WORKSPACE_AUTO_SETTLE_AFTER_MS }), NOW),
   true,
-  'exactly at the threshold settles'
+  'exactly at the threshold settles',
 )
 
 // Exempt for good: already resting, a hand decision, starred, remote-born, the hosts.
 assert.equal(shouldAutoSettleWorkspace(ws({ settledAt: NOW - DAY }), NOW), false, 'never re-settle')
-assert.equal(shouldAutoSettleWorkspace(ws({ settledOverride: 'active' }), NOW), false, 'a manual Un-settle holds the row active')
-assert.equal(shouldAutoSettleWorkspace(ws({ settledOverride: 'settled' }), NOW), false, "a manual Settle is not the sweep's to touch")
+assert.equal(
+  shouldAutoSettleWorkspace(ws({ settledOverride: 'active' }), NOW),
+  false,
+  'a manual Un-settle holds the row active',
+)
+assert.equal(
+  shouldAutoSettleWorkspace(ws({ settledOverride: 'settled' }), NOW),
+  false,
+  "a manual Settle is not the sweep's to touch",
+)
 // A running snooze is a hand decision about the near future; the sweep never
 // overrules one (snooze, 2026-09-10). A SPENT one holds nothing off.
 assert.equal(
   shouldAutoSettleWorkspace(ws({ snoozedUntil: NOW + 60 * 60 * 1000 }), NOW),
   false,
-  'a sleeping row is not settled out from under its own wake time'
+  'a sleeping row is not settled out from under its own wake time',
 )
 assert.equal(
   shouldAutoSettleWorkspace(ws({ snoozedUntil: NOW - 1 }), NOW),
   true,
-  'once the snooze is spent the usual idle rule resumes'
+  'once the snooze is spent the usual idle rule resumes',
 )
 assert.equal(
   shouldAutoSettleWorkspace(ws({ highlight: { starred: true, color: null } }), NOW),
   false,
-  'starred never settles'
+  'starred never settles',
 )
 assert.equal(
-  shouldAutoSettleWorkspace(ws({ remoteOrigin: { connectionId: 'c', machineName: 'm' } as unknown as Workspace['remoteOrigin'] }), NOW),
+  shouldAutoSettleWorkspace(
+    ws({ remoteOrigin: { connectionId: 'c', machineName: 'm' } as unknown as Workspace['remoteOrigin'] }),
+    NOW,
+  ),
   false,
-  "a row born on a paired machine is the Remote band's, not the sweep's"
+  "a row born on a paired machine is the Remote band's, not the sweep's",
 )
 assert.equal(
   shouldAutoSettleWorkspace(ws({ mode: 'automations-host' as Workspace['mode'] }), NOW),
   false,
-  'automations host never settles'
+  'automations host never settles',
 )
 
 // A row whose MODULE reports a run still in flight never settles on its own,
@@ -125,22 +140,22 @@ assert.equal(
   assert.equal(
     shouldAutoSettleWorkspace(ws({ mode: 'settle-probe-running' as Workspace['mode'] }), NOW),
     false,
-    'a run still in flight never settles'
+    'a run still in flight never settles',
   )
   assert.equal(
     shouldAutoSettleWorkspace(ws({ mode: 'settle-probe-waiting' as Workspace['mode'] }), NOW),
     false,
-    'a run waiting on the person never settles'
+    'a run waiting on the person never settles',
   )
   assert.equal(
     shouldAutoSettleWorkspace(ws({ mode: 'settle-probe-done' as Workspace['mode'] }), NOW),
     true,
-    'a finished run settles once idle'
+    'a finished run settles once idle',
   )
   assert.equal(
     shouldAutoSettleWorkspace(ws({ mode: 'settle-probe-quiet' as Workspace['mode'] }), NOW),
     true,
-    'a provider reporting no run signal pins nothing'
+    'a provider reporting no run signal pins nothing',
   )
 }
 
@@ -164,17 +179,17 @@ assert.equal(decide(ws({ settledAt: NOW - DAY }), { busy: true }), 'wake', 'a re
 assert.equal(
   decide(ws({ settledAt: NOW - DAY, settledOverride: 'settled' }), { busy: true }),
   'wake',
-  'activity wakes even a hand-settled row — new activity resumes the usual rules'
+  'activity wakes even a hand-settled row — new activity resumes the usual rules',
 )
 assert.equal(
   decide(ws({ settledAt: NOW - DAY, settledOverride: 'settled' }), { held: true }),
   'none',
-  'the unseen mark is a thing to look at, not activity: it never undoes a hand Settle'
+  'the unseen mark is a thing to look at, not activity: it never undoes a hand Settle',
 )
 assert.equal(
   decide(ws({ settledAt: NOW - DAY }), { held: true }),
   'wake',
-  'but a row the SWEEP settled that wants the person comes back — it was settled on a reading taken too early'
+  'but a row the SWEEP settled that wants the person comes back — it was settled on a reading taken too early',
 )
 assert.equal(decide(ws({ settledOverride: 'active' })), 'none', 'a hand Un-settle holds against the sweep')
 
@@ -182,19 +197,16 @@ assert.equal(decide(ws({ settledOverride: 'active' })), 'none', 'a hand Un-settl
 // clock so main is never behind the decision; a wake clears the stamp and
 // sets (or spends) the hand decision. Rest also supersedes sleep, so a settle
 // tombstones any snooze underneath it (snooze, 2026-09-10).
-assert.deepEqual(
-  settleWorkspacePatch(ws({ lastTerminalActivityAt: NOW - 5 * DAY }), NOW, 'settled'),
-  {
-    snoozedUntil: null,
-    settledAt: NOW,
-    settledOverride: 'settled',
-    lastTerminalActivityAt: NOW - 5 * DAY,
-  }
-)
+assert.deepEqual(settleWorkspacePatch(ws({ lastTerminalActivityAt: NOW - 5 * DAY }), NOW, 'settled'), {
+  snoozedUntil: null,
+  settledAt: NOW,
+  settledOverride: 'settled',
+  lastTerminalActivityAt: NOW - 5 * DAY,
+})
 assert.deepEqual(
   settleWorkspacePatch(ws({}), NOW, null),
   { snoozedUntil: null, settledAt: NOW, settledOverride: null },
-  'no input clock, no clock in the patch (absent is "no opinion")'
+  'no input clock, no clock in the patch (absent is "no opinion")',
 )
 assert.deepEqual(wakeWorkspacePatch('active'), { settledAt: null, settledOverride: 'active' })
 assert.deepEqual(wakeWorkspacePatch(null), { settledAt: null, settledOverride: null })

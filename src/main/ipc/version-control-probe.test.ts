@@ -38,7 +38,10 @@ async function main(): Promise<void> {
     { id: 'gh', resolved: true, version: GH_VERSION_FIXTURE, auth: { login: 'octocat' } },
   ])
   // Exactly the providers the product integrates — no row for anything else.
-  assert.deepEqual(withAuth.map((provider) => provider.id), ['git', 'gh'])
+  assert.deepEqual(
+    withAuth.map((provider) => provider.id),
+    ['git', 'gh'],
+  )
 
   // Resolved without auth: an installed but unauthenticated gh omits `auth`
   // rather than carrying an empty login.

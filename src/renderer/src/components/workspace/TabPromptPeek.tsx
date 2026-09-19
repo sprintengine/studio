@@ -137,11 +137,7 @@ export function TabPromptPeek({ prompt, children, tabLabel }: TabPromptPeekProps
         className="min-w-0"
         surfaceClassName="w-[320px]"
         renderTrigger={({ ref, triggerProps }) => (
-          <span
-            ref={ref as unknown as React.Ref<HTMLSpanElement>}
-            {...triggerProps}
-            className="inline-flex min-w-0"
-          >
+          <span ref={ref as unknown as React.Ref<HTMLSpanElement>} {...triggerProps} className="inline-flex min-w-0">
             {children}
           </span>
         )}

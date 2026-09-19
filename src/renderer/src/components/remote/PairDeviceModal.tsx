@@ -60,7 +60,7 @@ export function PairDeviceModal({
       // Vocabulary order on the way out, whatever order the rows were ticked
       // in, so the pills on the code card and the stored device read the same.
       TAILNET_SCOPES.filter((scope) => scopes.includes(scope)),
-      target
+      target,
     )
   }
 

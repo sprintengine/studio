@@ -4,11 +4,7 @@ import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  revertGitPaths,
-  stageGitPaths,
-  unstageGitPaths,
-} from './git-file-actions'
+import { revertGitPaths, stageGitPaths, unstageGitPaths } from './git-file-actions'
 
 // Everything after `--` is a pathspec, so a file really named `src/[id].tsx` is
 // a character class that also matches `src/i.tsx`. Staging the wrong file is

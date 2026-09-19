@@ -76,10 +76,7 @@ export function managedNodeEnv(base: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv 
 const PATH_DELIMITER = delimiter
 
 function pathKeyFor(env: Record<string, string>, platform: NodeJS.Platform): string {
-  return (
-    Object.keys(env).find((key) => key.toLowerCase() === 'path')
-    ?? (platform === 'win32' ? 'Path' : 'PATH')
-  )
+  return Object.keys(env).find((key) => key.toLowerCase() === 'path') ?? (platform === 'win32' ? 'Path' : 'PATH')
 }
 
 /**
@@ -183,12 +180,9 @@ export function ensureManagedRuntimeShims(env: RuntimeEnv = currentRuntimeEnv())
       )
       writeFileSync(
         join(shimDir, 'npm.cmd'),
-        [
-          '@echo off',
-          'set ELECTRON_RUN_AS_NODE=1',
-          `"${node}" "${npmCli}" --prefix "${prefixDir}" %*`,
-          '',
-        ].join('\r\n'),
+        ['@echo off', 'set ELECTRON_RUN_AS_NODE=1', `"${node}" "${npmCli}" --prefix "${prefixDir}" %*`, ''].join(
+          '\r\n',
+        ),
         'utf8',
       )
     } else {

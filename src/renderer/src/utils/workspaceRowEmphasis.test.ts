@@ -7,9 +7,7 @@ import { workspaceRowEmphasis, type WorkspaceRowEmphasis } from './workspaceRowE
 // and no clock: bold for the chats with an agent in them, dim ink for the
 // records. The sidebar owns how a tier is drawn; this owns which tier a row is.
 
-const emphasisOf = (
-  overrides: Partial<Parameters<typeof workspaceRowEmphasis>[0]> = {}
-): WorkspaceRowEmphasis =>
+const emphasisOf = (overrides: Partial<Parameters<typeof workspaceRowEmphasis>[0]> = {}): WorkspaceRowEmphasis =>
   workspaceRowEmphasis({
     resident: false,
     selected: false,
@@ -28,20 +26,16 @@ assert.equal(emphasisOf({ wantsYou: true }), 'active', 'a row blocked on you, or
 
 // The line that decides the rest: no agent left in the chat. Nothing a row can
 // say about WHEN it last moved brings it back to the foreground.
-assert.equal(
-  emphasisOf(),
-  'quiet',
-  'a chat with no agent in it is background, however recently it was touched'
-)
+assert.equal(emphasisOf(), 'quiet', 'a chat with no agent in it is background, however recently it was touched')
 assert.equal(
   emphasisOf({ resident: false, selected: true }),
   'active',
-  'selecting an agentless chat still brings it to the front — residency never overrules selection'
+  'selecting an agentless chat still brings it to the front — residency never overrules selection',
 )
 assert.equal(
   emphasisOf({ resident: false, wantsYou: true }),
   'active',
-  'a chat whose agent finished and exited still carries its unseen mark — being asked for outlives the session'
+  'a chat whose agent finished and exited still carries its unseen mark — being asked for outlives the session',
 )
 
 console.log('ok - workspace row emphasis: bold for the chats with an agent in them, dim ink for the rest')

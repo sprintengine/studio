@@ -59,11 +59,18 @@ async function main(): Promise<void> {
     await clock.advance(1)
     assert.deepEqual(calls.sort(), [`feed@${POLLER_FIRST_TICK_MS}`, `versions@${POLLER_FIRST_TICK_MS}`])
     await clock.advance(POLLER_UPDATE_INTERVAL_MS - POLLER_FIRST_TICK_MS)
-    assert.ok(calls.includes(`updates@${POLLER_UPDATE_INTERVAL_MS}`), 'the update leg waits a full interval (the boot leg already checked)')
+    assert.ok(
+      calls.includes(`updates@${POLLER_UPDATE_INTERVAL_MS}`),
+      'the update leg waits a full interval (the boot leg already checked)',
+    )
     await clock.advance(POLLER_UPDATE_INTERVAL_MS)
     assert.ok(calls.includes(`updates@${2 * POLLER_UPDATE_INTERVAL_MS}`), 'updates repeat every four minutes')
     await clock.advance(POLLER_FEED_INTERVAL_MS)
-    assert.equal(calls.filter((c) => c.startsWith('feed@')).length, 2, 'the feed leg repeats hourly (jitter 0 at random 0.5)')
+    assert.equal(
+      calls.filter((c) => c.startsWith('feed@')).length,
+      2,
+      'the feed leg repeats hourly (jitter 0 at random 0.5)',
+    )
     poller.stop()
     assert.equal(clock.pending(), 0, 'stop clears every timer')
     const before = calls.length

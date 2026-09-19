@@ -21,11 +21,7 @@ import {
 import { composeSpawnAgentPrompt } from './automations/actions/spawn-agent'
 import { createPluginRegistry } from './plugin-registry'
 import { buildCodexLegacyNativeAgentLaunchPowerShellScript } from './terminal-launch'
-import {
-  __resetPluginRegistryForTest,
-  __setPluginRegistryForTest,
-  getPluginById,
-} from './plugin-registry-instance'
+import { __resetPluginRegistryForTest, __setPluginRegistryForTest, getPluginById } from './plugin-registry-instance'
 
 // The CLI-native debug skill invocation each bundled manifest declares via
 // skillIntegration.invocation.explicitTemplate, rendered for skillId "debug".
@@ -101,7 +97,7 @@ async function usingBundledRegistry(fn: () => Promise<void> | void): Promise<voi
   assert.deepEqual(
     report.rejected,
     [],
-    `bundled manifests should load clean: ${JSON.stringify(report.rejected, null, 2)}`
+    `bundled manifests should load clean: ${JSON.stringify(report.rejected, null, 2)}`,
   )
   __setPluginRegistryForTest(registry, report)
   try {
@@ -149,7 +145,7 @@ function testLaunchPluginDirsReachLaunchAndResume(): void {
   assert.deepEqual(pluginDirFlags(renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1' }).argv), [])
   assert.deepEqual(
     renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1' }).argv,
-    renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1', pluginDirs: [] }).argv
+    renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1', pluginDirs: [] }).argv,
   )
 }
 
@@ -181,12 +177,12 @@ function testLaunchSettingsReachLaunchAndResume(): void {
   assert.deepEqual(
     settingsDocument(launch.argv),
     { theme: 'dark', statusLine },
-    'the status line rides the same --settings document as the theme'
+    'the status line rides the same --settings document as the theme',
   )
   assert.equal(
     launch.argv.filter((token) => token === '--settings').length,
     1,
-    'one --settings, never two: repeating the flag is undocumented'
+    'one --settings, never two: repeating the flag is undocumented',
   )
 
   const resumed = renderAgentLaunchArgv({
@@ -199,7 +195,7 @@ function testLaunchSettingsReachLaunchAndResume(): void {
   assert.deepEqual(
     settingsDocument(resumed.argv),
     { theme: 'dark', statusLine },
-    'a resumed session reports its context usage too'
+    'a resumed session reports its context usage too',
   )
 
   // The other CLIs running the same `claude` binary declare the same slot.
@@ -211,7 +207,7 @@ function testLaunchSettingsReachLaunchAndResume(): void {
   // And a launch that resolved none renders exactly the argv it always did.
   assert.deepEqual(
     renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1', colorScheme: 'dark', launchSettings: {} }).argv,
-    renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1', colorScheme: 'dark' }).argv
+    renderAgentLaunchArgv({ cli: 'claude-code', sessionId: 's1', colorScheme: 'dark' }).argv,
   )
 }
 
@@ -345,15 +341,7 @@ function testClaudeCodeRenderWithReasoning(): void {
     cliModel: 'claude-opus-5',
     cliReasoning: 'max',
   })
-  assert.deepEqual(withModel.argv, [
-    'claude',
-    '--model',
-    'claude-opus-5',
-    '--effort',
-    'max',
-    '--session-id',
-    'sid_cr2',
-  ])
+  assert.deepEqual(withModel.argv, ['claude', '--model', 'claude-opus-5', '--effort', 'max', '--session-id', 'sid_cr2'])
 
   // No declared default means every declared level renders a flag, and only a
   // blank/absent level renders none — the picker's contract.
@@ -569,14 +557,7 @@ function testCodexRenderWithAutoWorkspace(): void {
     initialPrompt: 'fix it',
     cliPermissionPreset: 'auto',
   })
-  assert.deepEqual(out.argv, [
-    'codex',
-    '--ask-for-approval',
-    'never',
-    '--sandbox',
-    'workspace-write',
-    'fix it',
-  ])
+  assert.deepEqual(out.argv, ['codex', '--ask-for-approval', 'never', '--sandbox', 'workspace-write', 'fix it'])
 }
 
 function testCodexRenderResume(): void {
@@ -624,14 +605,7 @@ function testOpenCodeRenderWithBypassAndModel(): void {
     cliPermissionPreset: 'bypass',
     cliModel: 'anthropic/claude-opus-4',
   })
-  assert.deepEqual(out.argv, [
-    'opencode',
-    'run',
-    '--auto',
-    '--model',
-    'anthropic/claude-opus-4',
-    'build the auth flow',
-  ])
+  assert.deepEqual(out.argv, ['opencode', 'run', '--auto', '--model', 'anthropic/claude-opus-4', 'build the auth flow'])
 }
 
 // OpenCode resume: targeted reattach to a known session id via
@@ -644,14 +618,7 @@ function testOpenCodeRenderResume(): void {
     resume: true,
     initialPrompt: 'keep going',
   })
-  assert.deepEqual(out.argv, [
-    'opencode',
-    'run',
-    '--continue',
-    '--session',
-    'sid_oc3',
-    'keep going',
-  ])
+  assert.deepEqual(out.argv, ['opencode', 'run', '--continue', '--session', 'sid_oc3', 'keep going'])
 }
 
 function testQuoteTokenLeavesSafeStringsBare(): void {
@@ -676,10 +643,7 @@ function testArgvToPosixShellCommand(): void {
     'sid_42',
     'build the auth flow',
   ])
-  assert.equal(
-    shell,
-    `claude --permission-mode bypassPermissions --session-id sid_42 'build the auth flow'`
-  )
+  assert.equal(shell, `claude --permission-mode bypassPermissions --session-id sid_42 'build the auth flow'`)
 }
 
 function testBuildAgentShellCommandClaudeCode(): void {
@@ -691,7 +655,7 @@ function testBuildAgentShellCommandClaudeCode(): void {
   })
   assert.equal(
     out,
-    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; claude --permission-mode bypassPermissions --session-id sid_42 'hello there'`
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; claude --permission-mode bypassPermissions --session-id sid_42 'hello there'`,
   )
 
   const resumeOut = buildAgentShellCommand({
@@ -701,14 +665,14 @@ function testBuildAgentShellCommandClaudeCode(): void {
   })
   assert.equal(
     resumeOut,
-    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; claude --resume sid_42`
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; claude --resume sid_42`,
   )
 
   // The level survives quoting into the shell command every posix/WSL launch
   // runs — the layer between the rendered argv and the spawned process.
   assert.equal(
     buildAgentShellCommand({ cli: 'claude-code', sessionId: 'sid_43', cliReasoning: 'xhigh' }),
-    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; claude --effort xhigh --session-id sid_43`
+    `if ! command -v claude >/dev/null 2>&1; then echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; claude --effort xhigh --session-id sid_43`,
   )
   assert.equal(
     buildAgentShellCommand({ cli: 'claude-code', sessionId: 'sid_43', resume: true, cliReasoning: 'xhigh' }),
@@ -729,13 +693,7 @@ function testRenderArgvIncludesBinaryAsFirstElement(): void {
     cliPermissionPreset: 'auto',
   })
   assert.equal(claude.argv[0], 'claude')
-  assert.deepEqual(claude.argv.slice(1), [
-    '--permission-mode',
-    'auto',
-    '--session-id',
-    'sid_win',
-    'do it',
-  ])
+  assert.deepEqual(claude.argv.slice(1), ['--permission-mode', 'auto', '--session-id', 'sid_win', 'do it'])
 
   const claudeOverride = renderAgentLaunchArgv({
     cli: 'claude-code',
@@ -755,7 +713,7 @@ function testBuildAgentShellCommandCodex(): void {
   })
   assert.equal(
     out,
-    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.' >&2; exit 127; fi; codex --ask-for-approval never --sandbox workspace-write 'fix it'`
+    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.' >&2; exit 127; fi; codex --ask-for-approval never --sandbox workspace-write 'fix it'`,
   )
 
   const resumeOut = buildAgentShellCommand({
@@ -765,7 +723,7 @@ function testBuildAgentShellCommandCodex(): void {
   })
   assert.equal(
     resumeOut,
-    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.' >&2; exit 127; fi; codex resume sid_y`
+    `if ! command -v codex >/dev/null 2>&1; then echo 'Codex CLI was not found. Check the codex command in Settings.' >&2; exit 127; fi; codex resume sid_y`,
   )
 }
 
@@ -785,9 +743,9 @@ function testLaunchExecutesProbedPathAndGuardFailsHard(): void {
   })
   assert.equal(
     resolved,
-    `if ! command -v /Users/dev/.nvm/versions/node/v22.3.0/bin/claude >/dev/null 2>&1; then `
-      + `echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; `
-      + `/Users/dev/.nvm/versions/node/v22.3.0/bin/claude --session-id sid_probed`,
+    `if ! command -v /Users/dev/.nvm/versions/node/v22.3.0/bin/claude >/dev/null 2>&1; then ` +
+      `echo 'Claude CLI was not found. Check the claude-code command in Settings.' >&2; exit 127; fi; ` +
+      `/Users/dev/.nvm/versions/node/v22.3.0/bin/claude --session-id sid_probed`,
     'both the guard and the invocation use the probed absolute path',
   )
 
@@ -801,7 +759,10 @@ function testLaunchExecutesProbedPathAndGuardFailsHard(): void {
     quoted.startsWith(`if ! command -v '/Applications/My Tools/codex' >/dev/null 2>&1;`),
     `probed path must be quoted in the guard: ${quoted}`,
   )
-  assert.ok(quoted.endsWith(`'/Applications/My Tools/codex'`), `probed path must be quoted in the invocation: ${quoted}`)
+  assert.ok(
+    quoted.endsWith(`'/Applications/My Tools/codex'`),
+    `probed path must be quoted in the invocation: ${quoted}`,
+  )
 
   // The probe runs against the user's command override, so its resolved path IS
   // that override made absolute and outranks the bare override name.
@@ -882,7 +843,12 @@ function testDebugModeOrthogonality(): void {
   const prompt = 'investigate the crash'
   for (const cli of ['claude-code', 'codex'] as const) {
     for (const preset of presets) {
-      const off = renderAgentLaunchArgv({ cli, sessionId: 'sid_dbg', initialPrompt: prompt, cliPermissionPreset: preset })
+      const off = renderAgentLaunchArgv({
+        cli,
+        sessionId: 'sid_dbg',
+        initialPrompt: prompt,
+        cliPermissionPreset: preset,
+      })
       const on = renderAgentLaunchArgv({
         cli,
         sessionId: 'sid_dbg',
@@ -965,7 +931,15 @@ function testCodexLegacyWindowsReasoning(): void {
   const script = (reasoning?: string): string[] =>
     decodeWindowsScriptArgs(
       buildCodexLegacyNativeAgentLaunchPowerShellScript(
-        'sid_legacy_r', false, cwd, 'go', runtime, 'manual', 'gpt-5.6-sol', false, reasoning,
+        'sid_legacy_r',
+        false,
+        cwd,
+        'go',
+        runtime,
+        'manual',
+        'gpt-5.6-sol',
+        false,
+        reasoning,
       ),
     )
 
@@ -977,11 +951,7 @@ function testCodexLegacyWindowsReasoning(): void {
   const baseline = script(undefined)
   assert.deepEqual(baseline, ['--model', 'gpt-5.6-sol', '-C', cwd, 'go'])
   for (const level of [undefined, '', 'medium', 'bogus']) {
-    assert.deepEqual(
-      script(level),
-      baseline,
-      `codex-legacy passes no effort flag for ${JSON.stringify(level)}`,
-    )
+    assert.deepEqual(script(level), baseline, `codex-legacy passes no effort flag for ${JSON.stringify(level)}`)
   }
 
   // Resume re-passes nothing: this path builds one arg list for both launch and
@@ -990,7 +960,15 @@ function testCodexLegacyWindowsReasoning(): void {
   const resumeArgs = (reasoning?: string): string[] =>
     decodeWindowsScriptArgs(
       buildCodexLegacyNativeAgentLaunchPowerShellScript(
-        'sid_legacy_r', true, cwd, undefined, runtime, 'manual', 'gpt-5.6-sol', false, reasoning,
+        'sid_legacy_r',
+        true,
+        cwd,
+        undefined,
+        runtime,
+        'manual',
+        'gpt-5.6-sol',
+        false,
+        reasoning,
       ),
     )
   assert.deepEqual(
@@ -1018,10 +996,24 @@ function testCodexLegacyWindowsDebugInjection(): void {
 
   for (const preset of presets) {
     const off = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-      'sid_legacy', false, cwd, prompt, runtime, preset, 'gpt-5-codex', false,
+      'sid_legacy',
+      false,
+      cwd,
+      prompt,
+      runtime,
+      preset,
+      'gpt-5-codex',
+      false,
     )
     const on = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-      'sid_legacy', false, cwd, prompt, runtime, preset, 'gpt-5-codex', true,
+      'sid_legacy',
+      false,
+      cwd,
+      prompt,
+      runtime,
+      preset,
+      'gpt-5-codex',
+      true,
     )
     const offArgs = decodeWindowsScriptArgs(off)
     const onArgs = decodeWindowsScriptArgs(on)
@@ -1054,19 +1046,30 @@ function testCodexLegacyWindowsDebugInjection(): void {
       onArgs.at(-1)?.includes(DEBUG_DIRECTIVE),
       `codex-legacy/${preset}: directive present after the invocation`,
     )
-    assert.ok(
-      onArgs.at(-1)?.includes(prompt),
-      `codex-legacy/${preset}: original prompt preserved after the directive`,
-    )
+    assert.ok(onArgs.at(-1)?.includes(prompt), `codex-legacy/${preset}: original prompt preserved after the directive`)
   }
 
   // Resume carries no prompt arg on this path, so debug on vs off renders an
   // identical script — the directive only rides an initial prompt.
   const resumeOff = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-    'sid_legacy', true, cwd, undefined, runtime, 'manual', undefined, false,
+    'sid_legacy',
+    true,
+    cwd,
+    undefined,
+    runtime,
+    'manual',
+    undefined,
+    false,
   )
   const resumeOn = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-    'sid_legacy', true, cwd, undefined, runtime, 'manual', undefined, true,
+    'sid_legacy',
+    true,
+    cwd,
+    undefined,
+    runtime,
+    'manual',
+    undefined,
+    true,
   )
   assert.equal(resumeOn, resumeOff, 'codex-legacy resume: debug toggle is a no-op without an initial prompt')
 
@@ -1074,7 +1077,14 @@ function testCodexLegacyWindowsDebugInjection(): void {
   // directive as the sole prompt arg, matching
   // applyDebugDirective('', true, 'Use $debug.').
   const noPromptOn = buildCodexLegacyNativeAgentLaunchPowerShellScript(
-    'sid_legacy', false, cwd, '', runtime, 'manual', undefined, true,
+    'sid_legacy',
+    false,
+    cwd,
+    '',
+    runtime,
+    'manual',
+    undefined,
+    true,
   )
   // This legacy path escapes real newlines to literal "\n" in the codex prompt
   // arg (nativeWindowsCodexPromptArg), so build the expected value by applying
@@ -1199,13 +1209,7 @@ function testClaudeCodeTakesTheContextFileOnLaunchAndResume(): void {
     contextFile: HOST_CONTEXT_FILE,
     contextText: HOST_CONTEXT_TEXT,
   })
-  assert.deepEqual(launch.argv, [
-    'claude',
-    '--append-system-prompt-file',
-    HOST_CONTEXT_FILE,
-    '--session-id',
-    'sid_ctx',
-  ])
+  assert.deepEqual(launch.argv, ['claude', '--append-system-prompt-file', HOST_CONTEXT_FILE, '--session-id', 'sid_ctx'])
   // Being re-told on resume is the whole reason this moved off the first user
   // message: the old prompt append was skipped entirely when resuming.
   const resume = renderAgentLaunchArgv({
@@ -1215,13 +1219,7 @@ function testClaudeCodeTakesTheContextFileOnLaunchAndResume(): void {
     contextFile: HOST_CONTEXT_FILE,
     contextText: HOST_CONTEXT_TEXT,
   })
-  assert.deepEqual(resume.argv, [
-    'claude',
-    '--append-system-prompt-file',
-    HOST_CONTEXT_FILE,
-    '--resume',
-    'sid_ctx',
-  ])
+  assert.deepEqual(resume.argv, ['claude', '--append-system-prompt-file', HOST_CONTEXT_FILE, '--resume', 'sid_ctx'])
   // The two hosted-model runtimes run the same binary and take the same flag.
   for (const cli of ['kimi-claude', 'zai'] as const) {
     const hosted = renderAgentLaunchArgv({
@@ -1244,10 +1242,7 @@ function testCodexTakesTheContextAsAnEscapedTomlOverride(): void {
   const override = launch.argv[launch.argv.indexOf('-c') + 1]
   // `-c` parses its value as TOML: a raw newline would be a parse error, and a
   // raw quote would silently truncate the document.
-  assert.equal(
-    override,
-    'developer_instructions="Host context.\\nA design system is attached at `design-system/`."',
-  )
+  assert.equal(override, 'developer_instructions="Host context.\\nA design system is attached at `design-system/`."')
   assert.ok(!override.includes('\n'), 'no literal newline reaches codex’s TOML parser')
 
   // Codex persists its own per-session config, so re-passing the override on
@@ -1280,13 +1275,7 @@ function testGrokTakesTheContextTextOnLaunchAndResume(): void {
 }
 
 function testAModuleHostContextSectionRidesTheDeclaredChannel(): void {
-  const text = [
-    HOST_CONTEXT_TEXT,
-    '',
-    '## Weather Deck',
-    '',
-    'Use the weather CLI for forecast tools.',
-  ].join('\n')
+  const text = [HOST_CONTEXT_TEXT, '', '## Weather Deck', '', 'Use the weather CLI for forecast tools.'].join('\n')
   const grok = renderAgentLaunchArgv({
     cli: 'grok',
     sessionId: 'sid_mod',
@@ -1307,7 +1296,7 @@ function testAModuleHostContextSectionRidesTheDeclaredChannel(): void {
   assert.deepEqual(
     [claude.argv[claude.argv.indexOf('--append-system-prompt-file') + 1]],
     [HOST_CONTEXT_FILE],
-    'claude still takes the file; the extra section lives in the document, not the argv'
+    'claude still takes the file; the extra section lives in the document, not the argv',
   )
 }
 
@@ -1374,14 +1363,7 @@ function testCursorTakesTheContextAsAPluginDirOnLaunchAndResume(): void {
     contextFile: pluginDir,
     contextText: HOST_CONTEXT_TEXT,
   })
-  assert.deepEqual(resume.argv, [
-    'cursor-agent',
-    '--plugin-dir',
-    pluginDir,
-    '--continue',
-    '--resume',
-    'sid_ctx',
-  ])
+  assert.deepEqual(resume.argv, ['cursor-agent', '--plugin-dir', pluginDir, '--continue', '--resume', 'sid_ctx'])
 }
 
 // The receipt line previews the flags a launch would carry. Host context is not

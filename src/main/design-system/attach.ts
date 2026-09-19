@@ -60,9 +60,7 @@ async function resolveAttachSource(
       // Provenance is stamped only when the source really has both coordinates;
       // a registered folder whose manifest we could read always does.
       libraryCoords:
-        read.entry.name && read.entry.version
-          ? { name: read.entry.name, version: read.entry.version }
-          : null,
+        read.entry.name && read.entry.version ? { name: read.entry.name, version: read.entry.version } : null,
     }
   }
 
@@ -77,9 +75,7 @@ async function resolveAttachSource(
   }
   let manifest: DesignSystemManifest
   try {
-    manifest = parseDesignSystemManifest(
-      await readFile(join(source.path, DESIGN_SYSTEM_MANIFEST_FILENAME), 'utf8'),
-    )
+    manifest = parseDesignSystemManifest(await readFile(join(source.path, DESIGN_SYSTEM_MANIFEST_FILENAME), 'utf8'))
   } catch (error) {
     return {
       failure: {
@@ -148,9 +144,7 @@ export async function attachDesignSystemBundle(
   const attachedAt = new Date().toISOString()
   manifest.provenance = {
     ...manifest.provenance,
-    ...(libraryCoords
-      ? { sourceLibraryId: libraryCoords.name, sourceLibraryVersion: libraryCoords.version }
-      : {}),
+    ...(libraryCoords ? { sourceLibraryId: libraryCoords.name, sourceLibraryVersion: libraryCoords.version } : {}),
     attachedAt,
   }
   const stampedJson = `${JSON.stringify(manifest, null, 2)}\n`
@@ -209,9 +203,7 @@ export async function attachDesignSystemBundle(
  * `design-system/` removes the LINK only (lstat, not stat), never the folder
  * it points at; nothing here ever writes outside the workspace root.
  */
-export async function detachDesignSystemBundle(
-  workspaceRoot: string,
-): Promise<DesignSystemDetachResult> {
+export async function detachDesignSystemBundle(workspaceRoot: string): Promise<DesignSystemDetachResult> {
   if ((await statKind(workspaceRoot)) !== 'dir') {
     return { ok: false, message: `The workspace folder does not exist: ${workspaceRoot}` }
   }

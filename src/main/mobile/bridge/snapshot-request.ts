@@ -1,8 +1,15 @@
 import { resolve } from 'path'
 import type { MobileControlCommand, MobileControlCommandResult } from '../control/command'
-import { MobileControlSnapshotService, sanitizeMobileSnapshotForRelay, type MobileControlSnapshot } from '../control/snapshot'
+import {
+  MobileControlSnapshotService,
+  sanitizeMobileSnapshotForRelay,
+  type MobileControlSnapshot,
+} from '../control/snapshot'
 import { isWorkspaceIdToken, resolveWorkspaceIdToRoot } from '../control/workspace-id'
-import { mobileSnapshotCollections, type MobileSnapshotCollection } from '../../../../packages/mobile-control-protocol/src/index'
+import {
+  mobileSnapshotCollections,
+  type MobileSnapshotCollection,
+} from '../../../../packages/mobile-control-protocol/src/index'
 import {
   acceptedBridgeCommand,
   relayResultSummaryMaxBytes,
@@ -35,11 +42,13 @@ export async function dispatchSnapshotRequest(input: {
   // on-demand command-result path (workspace open / backlog refresh) does not go
   // through the publish emit() chokepoint, so sanitize here too or the relay
   // rejects the result for carrying local paths.
-  const snapshot = sanitizeMobileSnapshotForRelay(await snapshotService.readSnapshot({
-    desktopSessionId,
-    workspaceRoots: scope.workspaceRoots,
-    ...(include ? { include } : {}),
-  }))
+  const snapshot = sanitizeMobileSnapshotForRelay(
+    await snapshotService.readSnapshot({
+      desktopSessionId,
+      workspaceRoots: scope.workspaceRoots,
+      ...(include ? { include } : {}),
+    }),
+  )
 
   // If-None-Match on the read path (item 1599). Building to compare is cheap —
   // the cost we shed is the up-to-256 KB ledger write and transfer, not the
@@ -106,7 +115,7 @@ function readIncludeCollections(value: unknown): MobileSnapshotCollection[] | un
     return undefined
   }
   const collections = value.filter((entry): entry is MobileSnapshotCollection =>
-    (mobileSnapshotCollections as readonly string[]).includes(entry as string)
+    (mobileSnapshotCollections as readonly string[]).includes(entry as string),
   )
   // Empty (unspecified or all-invalid) → default composition, never an empty snapshot.
   return collections.length > 0 ? collections : undefined

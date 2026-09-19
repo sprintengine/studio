@@ -11,9 +11,13 @@ export function createModuleAssetOriginResolver(userData: string): (moduleId: st
   mkdirSync(userData, { recursive: true })
   const secretPath = join(userData, 'module-asset-origin-secret')
   let secret: Buffer
-  try { secret = readFileSync(secretPath) } catch (error) {
+  try {
+    secret = readFileSync(secretPath)
+  } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
-    try { writeFileSync(secretPath, randomBytes(32), { flag: 'wx', mode: 0o600 }) } catch (writeError) {
+    try {
+      writeFileSync(secretPath, randomBytes(32), { flag: 'wx', mode: 0o600 })
+    } catch (writeError) {
       if ((writeError as NodeJS.ErrnoException).code !== 'EEXIST') throw writeError
     }
     secret = readFileSync(secretPath)

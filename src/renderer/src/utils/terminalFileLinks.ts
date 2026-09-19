@@ -90,7 +90,7 @@ export type TerminalFileLinkDrop = {
 export type TerminalFileLinkRoot = string | null | (() => string | null)
 
 function readTerminalFileLinkRoot(root: TerminalFileLinkRoot | undefined): string | null {
-  return typeof root === 'function' ? root() : root ?? null
+  return typeof root === 'function' ? root() : (root ?? null)
 }
 
 export type TerminalFileLinkProviderOptions = {
@@ -109,7 +109,7 @@ export type TerminalFileLinkProviderOptions = {
 }
 
 const FILE_REFERENCE_PATTERN =
-  /(^|[\s"'(<{\[])([A-Za-z]:[\\/][^\s"'<>`)\]}]+|\/[^\s"'<>`)\]}]+|\.{1,2}[\\/][^\s"'<>`)\]}]+|(?:[\w@.+-]+[\\/])+[\w@.+-][^\s"'<>`]*)/gu
+  /(^|[\s"'(<{[])([A-Za-z]:[\\/][^\s"'<>`)\]}]+|\/[^\s"'<>`)\]}]+|\.{1,2}[\\/][^\s"'<>`)\]}]+|(?:[\w@.+-]+[\\/])+[\w@.+-][^\s"'<>`]*)/gu
 
 const TRAILING_PUNCTUATION_PATTERN = /[.,;!?]+$/u
 
@@ -201,7 +201,7 @@ export function normalizePath(pathValue: string): string {
  */
 export function resolveTerminalFileReferencePath(
   filePath: string,
-  roots: { executionRoot?: string | null; workspaceRoot?: string | null }
+  roots: { executionRoot?: string | null; workspaceRoot?: string | null },
 ): string | null {
   if (isRemoteOrShellReference(filePath)) return null
   if (isAbsoluteFilePath(filePath)) return normalizePath(filePath)
@@ -214,7 +214,7 @@ export function resolveTerminalFileReferencePath(
 export function findTerminalFileReferences(
   lineText: string,
   roots: { executionRoot?: string | null; workspaceRoot?: string | null },
-  onDrop?: (drop: TerminalFileLinkDrop) => void
+  onDrop?: (drop: TerminalFileLinkDrop) => void,
 ): TerminalFileReference[] {
   const references: TerminalFileReference[] = []
 
@@ -258,7 +258,7 @@ export function findTerminalFileReferences(
 
 export function rangeForTerminalFileReference(
   reference: Pick<TerminalFileReference, 'startIndex' | 'endIndex'>,
-  segments: TerminalFileLinkSegment[]
+  segments: TerminalFileLinkSegment[],
 ): ILink['range'] | null {
   if (segments.length === 0 || reference.endIndex <= reference.startIndex) return null
 
@@ -269,10 +269,7 @@ export function rangeForTerminalFileReference(
   return { start, end }
 }
 
-function positionForOffset(
-  offset: number,
-  segments: TerminalFileLinkSegment[]
-): ILink['range']['start'] | null {
+function positionForOffset(offset: number, segments: TerminalFileLinkSegment[]): ILink['range']['start'] | null {
   for (const segment of segments) {
     const segmentEnd = segment.startIndex + segment.text.length
     if (offset >= segment.startIndex && offset < segmentEnd) {
@@ -328,7 +325,7 @@ function readLineWithColumns(
   line: IBufferLine,
   trimRight: boolean,
   startColumn: number,
-  endColumn: number
+  endColumn: number,
 ): { text: string; columns: number[] } {
   const cell = line.getCell(startColumn)
   const end = trimRight ? Math.min(endColumn, trimmedCellLength(line, endColumn)) : endColumn
@@ -373,7 +370,7 @@ function trimmedCellLength(line: IBufferLine, cols: number): number {
 
 export function readWrappedLogicalLine(
   terminal: Terminal,
-  bufferLineNumber: number
+  bufferLineNumber: number,
 ): { text: string; segments: TerminalFileLinkSegment[] } | null {
   const buffer = terminal.buffer.active
   const currentLine = buffer.getLine(bufferLineNumber - 1)
@@ -424,7 +421,7 @@ export function readWrappedLogicalLine(
 function readHangingWrapContinuations(
   terminal: Terminal,
   endY: number,
-  bottomText: string
+  bottomText: string,
 ): Array<Omit<TerminalFileLinkSegment, 'startIndex'>> {
   const buffer = terminal.buffer.active
   const cols = terminal.cols
@@ -493,7 +490,7 @@ export function createTerminalFileLinkProvider({
           executionRoot: readTerminalFileLinkRoot(executionRoot),
           workspaceRoot: readTerminalFileLinkRoot(workspaceRoot),
         },
-        onDrop
+        onDrop,
       )
       if (references.length === 0) {
         callback(undefined)
@@ -512,38 +509,39 @@ export function createTerminalFileLinkProvider({
           return []
         }
 
-        return [{
-          text: reference.text,
-          range,
-          decorations: {
-            pointerCursor: true,
-            underline: true,
-          },
-          activate: (event) => {
-            const anchor = { x: event.clientX, y: event.clientY }
-            void (async () => {
-              try {
-                const info = await inspectPath(reference.resolvedPath)
-                if (!info.exists) {
-                  onOpenError?.(`File does not exist: ${reference.resolvedPath}`, anchor)
-                  return
+        return [
+          {
+            text: reference.text,
+            range,
+            decorations: {
+              pointerCursor: true,
+              underline: true,
+            },
+            activate: (event) => {
+              const anchor = { x: event.clientX, y: event.clientY }
+              void (async () => {
+                try {
+                  const info = await inspectPath(reference.resolvedPath)
+                  if (!info.exists) {
+                    onOpenError?.(`File does not exist: ${reference.resolvedPath}`, anchor)
+                    return
+                  }
+                  await onActivate(
+                    {
+                      resolvedPath: reference.resolvedPath,
+                      name: basename(reference.resolvedPath),
+                      isDirectory: info.isDirectory,
+                      line: reference.line,
+                      column: reference.column,
+                    },
+                    anchor,
+                  )
+                } catch (error) {
+                  onOpenError?.(error instanceof Error ? error.message : 'Could not open terminal file link.', anchor)
                 }
-                await onActivate({
-                  resolvedPath: reference.resolvedPath,
-                  name: basename(reference.resolvedPath),
-                  isDirectory: info.isDirectory,
-                  line: reference.line,
-                  column: reference.column,
-                }, anchor)
-              } catch (error) {
-                onOpenError?.(
-                  error instanceof Error ? error.message : 'Could not open terminal file link.',
-                  anchor,
-                )
-              }
-            })()
+              })()
+            },
           },
-        },
         ]
       })
 

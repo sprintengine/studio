@@ -66,11 +66,7 @@ import {
 } from '../../workspace/globalSurface/extensions/catalogue/cataloguePaging'
 import { groupInstalledBySource } from '../../workspace/globalSurface/extensions/catalogue/installedGroups'
 import { ConnectorRow, ConnectorSectionHeading } from './ConnectorRow'
-import {
-  ModuleUpdateBanner,
-  type ModuleUpdateFlow,
-  type ModuleUpdateNotice,
-} from './ExtensionUpdateBanner'
+import { ModuleUpdateBanner, type ModuleUpdateFlow, type ModuleUpdateNotice } from './ExtensionUpdateBanner'
 import { cliOnlyRegistryIds, deriveManageUpdateBanner } from './extensionUpdates'
 
 // Per-row actions, all optional: the host wires only the handlers that exist
@@ -264,9 +260,9 @@ export function InstalledExtensionsInventory({
         pending = rest
         const entry = registryPlugins?.find((plugin) => plugin.id === id)
         if (
-          !entry
-          || typeof window.api.verifyMarketplacePlugin !== 'function'
-          || typeof window.api.updateMarketplacePluginFromRegistry !== 'function'
+          !entry ||
+          typeof window.api.verifyMarketplacePlugin !== 'function' ||
+          typeof window.api.updateMarketplacePluginFromRegistry !== 'function'
         ) {
           setUpdateRun({ status: 'idle' })
           setUpdateNotice({
@@ -776,9 +772,7 @@ function InstalledRow({
       name={item.name}
       summary={item.summary}
       chips={item.chips}
-      status={
-        item.kind === 'mcp' || (item.kind === 'module' && item.trust) ? <RowStatus item={item} /> : undefined
-      }
+      status={item.kind === 'mcp' || (item.kind === 'module' && item.trust) ? <RowStatus item={item} /> : undefined}
       actions={rowActions.length > 0 ? rowActions : undefined}
     />
   )

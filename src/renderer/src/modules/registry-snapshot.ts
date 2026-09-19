@@ -62,7 +62,7 @@ export function collectModuleSurfaces(registry: ModuleSurfaceRegistry): Record<s
   }
   const collect = (
     kind: keyof ModuleContributedSurfaces,
-    registered: ReadonlyArray<{ id: string; moduleId: string }>
+    registered: ReadonlyArray<{ id: string; moduleId: string }>,
   ): void => {
     for (const entry of registered) surfacesFor(entry.moduleId)[kind].push(entry.id)
   }

@@ -238,9 +238,8 @@ export function pickRandomAgentName(takenNames: Iterable<string> = []): string {
     if (!taken.has(normalizeName(agentNameAt(index)))) availableIndexes.push(index)
   }
 
-  const pool = availableIndexes.length > 0
-    ? availableIndexes
-    : Array.from({ length: AGENT_NAME_COUNT }, (_, index) => index)
+  const pool =
+    availableIndexes.length > 0 ? availableIndexes : Array.from({ length: AGENT_NAME_COUNT }, (_, index) => index)
   const baseName = agentNameAt(pool[Math.floor(Math.random() * pool.length)])
 
   if (!taken.has(normalizeName(baseName))) return baseName

@@ -135,11 +135,7 @@ export function changelistOwnerId(agentId: string): string {
  *  enters the model goes through this, so two spellings of one path can never
  *  end up in two different lists. */
 export function normalizeChangelistPath(value: string): string {
-  return value
-    .replace(/\\/g, '/')
-    .replace(/^\.\//, '')
-    .replace(/\/+$/, '')
-    .trim()
+  return value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/\/+$/, '').trim()
 }
 
 function normalizeName(value: unknown, fallback: string): string {
@@ -462,8 +458,7 @@ export function reconcileChangelists(
     orphans.length === 0
       ? pruned
       : pruned.map((list) => {
-          const gained =
-            list.id === activeId ? toActive : list.id === DEFAULT_CHANGELIST_ID ? toDefault : []
+          const gained = list.id === activeId ? toActive : list.id === DEFAULT_CHANGELIST_ID ? toDefault : []
           return gained.length > 0 ? { ...list, paths: [...list.paths, ...gained].sort() } : list
         })
 
@@ -485,10 +480,7 @@ export function reconcileChangelists(
   })
 
   const isSpentOwnedList = (list: Changelist): boolean =>
-    !isDefaultChangelist(list) &&
-    list.owner?.exited === true &&
-    list.paths.length === 0 &&
-    !hasSpans(list)
+    !isDefaultChangelist(list) && list.owner?.exited === true && list.paths.length === 0 && !hasSpans(list)
   const survivors = settled.filter((list) => !isSpentOwnedList(list))
   return survivors.length === settled.length ? settled : withOneActive(survivors)
 }
@@ -611,9 +603,7 @@ export function moveChangelistPaths(lists: Changelist[], targetId: string, paths
   return normalizeChangelists(
     normalized.map((list) => {
       const kept = list.paths.filter((path) => !moving.has(path))
-      const spans = Object.fromEntries(
-        Object.entries(list.spans ?? {}).filter(([path]) => !moving.has(path)),
-      )
+      const spans = Object.fromEntries(Object.entries(list.spans ?? {}).filter(([path]) => !moving.has(path)))
       const cleared = withSpanRecord(list, spans)
       if (list.id !== targetId) return { ...cleared, paths: kept }
       return { ...cleared, paths: [...new Set([...kept, ...moving])].sort() }
@@ -644,12 +634,7 @@ export function moveChangelistPaths(lists: Changelist[], targetId: string, paths
  * the tests), and when they are not, the derived one is the one the rest of the
  * spans were moved to match.
  */
-export function recordEdit(
-  lists: Changelist[],
-  editorListId: string,
-  path: string,
-  edits: Edit[],
-): Changelist[] {
+export function recordEdit(lists: Changelist[], editorListId: string, path: string, edits: Edit[]): Changelist[] {
   const normalized = normalizeChangelists(lists)
   const target = normalizeChangelistPath(path)
   if (!target) return normalized
@@ -662,9 +647,7 @@ export function recordEdit(
     // in it is theirs by the remainder rule. No spans needed, ever, until
     // somebody else edits it.
     return normalizeChangelists(
-      normalized.map((list) =>
-        list.id === editor.id ? { ...list, paths: [...list.paths, target].sort() } : list,
-      ),
+      normalized.map((list) => (list.id === editor.id ? { ...list, paths: [...list.paths, target].sort() } : list)),
     )
   }
 
@@ -683,9 +666,7 @@ export function recordEdit(
     .sort((a, b) => a.oldStart - b.oldStart)
   if (clean.length === 0) return normalized
 
-  const working = new Map<string, OwnedSpan[]>(
-    normalized.map((list) => [list.id, [...spansOf(list, target)]]),
-  )
+  const working = new Map<string, OwnedSpan[]>(normalized.map((list) => [list.id, [...spansOf(list, target)]]))
   const isGuest = editor.id !== home.id
 
   let offset = 0
@@ -713,7 +694,7 @@ export function recordEdit(
 
   return normalizeChangelists(
     normalized.map((list) => {
-      const spans = { ...(list.spans ?? {}) }
+      const spans = { ...list.spans }
       const owned = mergeSpans(working.get(list.id) ?? [])
       if (owned.length > 0) spans[target] = owned
       else delete spans[target]

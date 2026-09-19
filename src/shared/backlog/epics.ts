@@ -77,7 +77,10 @@ export function groupItemsByEpic(items: BacklogItem[]): BacklogEpicGroup[] {
 
   const epicGroups = Array.from(epicBySlug, ([slug, epic]) => {
     const meta = parseEpicMeta(epic)
-    return { group: buildGroup('epic', epic, slug, epic.title, childrenOfEpic(items, slug), meta.color), order: meta.order }
+    return {
+      group: buildGroup('epic', epic, slug, epic.title, childrenOfEpic(items, slug), meta.color),
+      order: meta.order,
+    }
   })
   epicGroups.sort((a, b) => a.order - b.order || a.group.title.localeCompare(b.group.title))
 

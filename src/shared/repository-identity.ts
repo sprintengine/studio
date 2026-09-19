@@ -68,7 +68,11 @@ function repositoryNameFromKey(canonicalKey: string): string {
 export function repositoryIdentityFromRemote(remoteUrl: string): RepositoryIdentity | null {
   const canonicalKey = canonicalRepositoryKey(remoteUrl)
   if (!canonicalKey) return null
-  return { canonicalKey, remoteUrl: stripRemoteCredentials(remoteUrl.trim()), name: repositoryNameFromKey(canonicalKey) }
+  return {
+    canonicalKey,
+    remoteUrl: stripRemoteCredentials(remoteUrl.trim()),
+    name: repositoryNameFromKey(canonicalKey),
+  }
 }
 
 /**
@@ -89,7 +93,7 @@ export function stripRemoteCredentials(remoteUrl: string): string {
  * taken alphabetically, so the answer is stable rather than first-listed.
  */
 export function pickPrimaryRemote(
-  remotes: ReadonlyMap<string, string>
+  remotes: ReadonlyMap<string, string>,
 ): { remoteName: string; remoteUrl: string } | null {
   for (const preferred of ['upstream', 'origin']) {
     const remoteUrl = remotes.get(preferred)
@@ -141,7 +145,7 @@ export type RepositoryIdentityRead = {
  */
 export function sameRepository(
   left: Pick<RepositoryIdentity, 'canonicalKey'> | null | undefined,
-  right: Pick<RepositoryIdentity, 'canonicalKey'> | null | undefined
+  right: Pick<RepositoryIdentity, 'canonicalKey'> | null | undefined,
 ): boolean {
   return Boolean(left?.canonicalKey && right?.canonicalKey && left.canonicalKey === right.canonicalKey)
 }

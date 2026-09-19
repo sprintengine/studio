@@ -16,12 +16,7 @@ import { SettingsPageHeader } from './SettingsAtoms'
 // be findable without knowing it is an MCP.
 export function TicketTrackersTab(): JSX.Element {
   return (
-    <div
-      role="tabpanel"
-      id="settings-panel-trackers"
-      aria-labelledby="settings-tab-trackers"
-      className="space-y-6"
-    >
+    <div role="tabpanel" id="settings-panel-trackers" aria-labelledby="settings-tab-trackers" className="space-y-6">
       <SettingsPageHeader title="Ticket trackers" />
       <TicketTrackerSection />
     </div>

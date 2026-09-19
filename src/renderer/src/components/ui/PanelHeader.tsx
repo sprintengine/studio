@@ -69,9 +69,7 @@ export function PanelHeader({
   divider = true,
 }: PanelHeaderProps) {
   const acceptedPct =
-    progress && progress.total > 0
-      ? Math.min(Math.max(progress.value, 0), progress.total) / progress.total
-      : 0
+    progress && progress.total > 0 ? Math.min(Math.max(progress.value, 0), progress.total) / progress.total : 0
   const warnPct =
     progress && progress.total > 0 && progress.warnValue
       ? Math.min(Math.max(progress.warnValue, 0), progress.total) / progress.total

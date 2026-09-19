@@ -49,7 +49,7 @@ export type ProviderSecretView =
 
 export function deriveProviderTabState(
   result: ConversationProviderListResult | null,
-  ipcAvailable: boolean
+  ipcAvailable: boolean,
 ): ProviderTabState {
   if (!ipcAvailable) {
     return {
@@ -67,11 +67,8 @@ export function deriveProviderTabState(
 
 // Bundled providers first, then user providers, each group alphabetical by
 // display name — same ordering intent as the installed-plugin (Agents) table.
-export function orderProviders(
-  providers: ConversationProviderListEntry[]
-): ConversationProviderListEntry[] {
-  const sourceRank = (source: ConversationProviderListEntry['source']): number =>
-    source === 'bundled' ? 0 : 1
+export function orderProviders(providers: ConversationProviderListEntry[]): ConversationProviderListEntry[] {
+  const sourceRank = (source: ConversationProviderListEntry['source']): number => (source === 'bundled' ? 0 : 1)
   return [...providers].sort((a, b) => {
     const rank = sourceRank(a.source) - sourceRank(b.source)
     if (rank !== 0) return rank
@@ -79,9 +76,7 @@ export function orderProviders(
   })
 }
 
-export function deriveProviderSecretView(
-  result: ConversationSecretStatusResult
-): ProviderSecretView {
+export function deriveProviderSecretView(result: ConversationSecretStatusResult): ProviderSecretView {
   if (!result.ok) {
     if (result.message.toLowerCase().includes(NO_SECRET_DECLARED_FRAGMENT)) {
       return { kind: 'none-required' }

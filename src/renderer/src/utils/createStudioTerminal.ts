@@ -8,29 +8,15 @@ import { WebglAddon } from '@xterm/addon-webgl'
 import '@xterm/xterm/css/xterm.css'
 
 import { TERMINAL_RECENT_SCROLLBACK_LINES } from '../../../shared/terminal-history'
-import {
-  TERMINAL_CELL_GEOMETRY_OPTIONS,
-  TERMINAL_UNICODE_VERSION,
-} from '../../../shared/terminal-options'
+import { TERMINAL_CELL_GEOMETRY_OPTIONS, TERMINAL_UNICODE_VERSION } from '../../../shared/terminal-options'
 import { MONO_FONT_STACK } from './fonts'
 import { logPerfEvent } from './perfDiagnostics'
 import { attachTerminalOsc52Clipboard } from './terminalOsc52Clipboard'
 import { createTerminalSearchHandle, type TerminalSearchHandle } from './terminalSearch'
-import {
-  createTerminalSurfaceOscLinkHandler,
-  type TerminalSurfaceOscLinkCallbacks,
-} from './terminalOscLinks'
-import {
-  terminalSurfaceLinkRoots,
-  type TerminalLinkRoots,
-  type TerminalSurface,
-} from './terminalSurfaces'
+import { createTerminalSurfaceOscLinkHandler, type TerminalSurfaceOscLinkCallbacks } from './terminalOscLinks'
+import { terminalSurfaceLinkRoots, type TerminalLinkRoots, type TerminalSurface } from './terminalSurfaces'
 import { bindTerminalTheme, getTerminalTheme } from './terminalTheme'
-import {
-  attachWebglRenderer,
-  type WebglRendererHandle,
-  type WebglRendererState,
-} from './terminalWebglRenderer'
+import { attachWebglRenderer, type WebglRendererHandle, type WebglRendererState } from './terminalWebglRenderer'
 
 /**
  * One place constructs a terminal.

@@ -119,13 +119,13 @@ async function main(): Promise<void> {
     )
   }
 
-  run('an item IS the kit\'s icon button, at the 26px step', () => {
+  run("an item IS the kit's icon button, at the 26px step", () => {
     // The band composes rather than restyles: an item that hovered differently
     // from a button would be a second button.
     const view = mount(band())
     const classes = view.band.querySelector('button')?.getAttribute('class') ?? ''
     assert.match(classes, /size-control-xs/, 'IconButton size sm — the 26px square')
-    assert.match(classes, /interactive/, 'and the button family\'s own press behaviour')
+    assert.match(classes, /interactive/, "and the button family's own press behaviour")
     assert.match(classes, /focus-visible:focus-ring/, 'and the one shared focus treatment')
     view.unmount()
   })
@@ -178,7 +178,7 @@ async function main(): Promise<void> {
     view.unmount()
   })
 
-  run('focus landing on an item makes it the band\'s tab stop', () => {
+  run("focus landing on an item makes it the band's tab stop", () => {
     const view = mount(band())
     const items = Array.from(view.band.querySelectorAll('button'))
     act(() => {
@@ -379,11 +379,7 @@ async function main(): Promise<void> {
     const focusable = Array.from(view.band.querySelectorAll('button')) as HTMLElement[]
     assert.equal(focusable.length, 6, 'two items, two segments, two chevrons')
     const stops = focusable.filter((item) => item.tabIndex === 0)
-    assert.equal(
-      stops.length,
-      1,
-      'a radiogroup and a stepper that kept their own tab stops would make the band three',
-    )
+    assert.equal(stops.length, 1, 'a radiogroup and a stepper that kept their own tab stops would make the band three')
     assert.equal(stops[0]?.getAttribute('aria-label'), 'Previous difference', 'and it is the first item')
 
     // Both composites hang off the band's own hook rather than being skipped.
@@ -393,7 +389,7 @@ async function main(): Promise<void> {
     assert.deepEqual(
       walked,
       ['Previous difference', 'Side by side', 'Previous', 'Next', 'Open in editor'],
-      'the SELECTED segment and both chevrons join the walk; the unselected segment is the radiogroup\'s own business',
+      "the SELECTED segment and both chevrons join the walk; the unselected segment is the radiogroup's own business",
     )
     view.unmount()
   })
@@ -427,7 +423,7 @@ async function main(): Promise<void> {
     assert.equal(
       (document.activeElement as HTMLElement).getAttribute('aria-label'),
       'Next',
-      'the stepper\'s chevrons are ordinary items in the walk',
+      "the stepper's chevrons are ordinary items in the walk",
     )
     view.unmount()
   })
@@ -499,7 +495,10 @@ async function main(): Promise<void> {
     act(() => {
       items[2].focus()
     })
-    assert.deepEqual(items.map((item) => item.tabIndex), [-1, -1, 0])
+    assert.deepEqual(
+      items.map((item) => item.tabIndex),
+      [-1, -1, 0],
+    )
 
     act(() => {
       outside.focus()

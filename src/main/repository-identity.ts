@@ -59,7 +59,7 @@ const defaultReaders: RepositoryIdentityReaders = {
  */
 export async function readRepositoryIdentityRead(
   folderPath: string,
-  options: { now?: () => number; readers?: RepositoryIdentityReaders } = {}
+  options: { now?: () => number; readers?: RepositoryIdentityReaders } = {},
 ): Promise<RepositoryIdentityRead> {
   const trimmed = folderPath.trim()
   // An empty path is not a folder anyone can ask about, and saying so is an
@@ -127,7 +127,7 @@ export async function readRepositoryIdentityRead(
  */
 export async function readRepositoryIdentity(
   folderPath: string,
-  options: { now?: () => number; readers?: RepositoryIdentityReaders } = {}
+  options: { now?: () => number; readers?: RepositoryIdentityReaders } = {},
 ): Promise<RepositoryIdentity | null> {
   return (await readRepositoryIdentityRead(folderPath, options)).identity
 }

@@ -18,10 +18,7 @@ assert.deepEqual(
   'an unknown mode id resolves without throwing',
 )
 assert.ok(host.bg.includes('--bg-selected'), 'the selected row wears the canonical selection fill')
-assert.ok(
-  !Object.values(host).some((value) => value.includes('border-l-')),
-  'no row accent field carries a left bar'
-)
+assert.ok(!Object.values(host).some((value) => value.includes('border-l-')), 'no row accent field carries a left bar')
 
 // A highlight color still overrides the row accent: user-set identity, not
 // selection, so it replaces both the fill and the ink.

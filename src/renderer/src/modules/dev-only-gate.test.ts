@@ -26,7 +26,7 @@ for (const id of DEV_ONLY_MODULE_IDS) {
 assert.deepEqual(
   [...COMING_SOON_MODULE_MANIFESTS.map((m) => m.id)].sort(),
   [...DEV_ONLY_MODULE_IDS].sort(),
-  'coming-soon modules in production must be exactly the dev-only set'
+  'coming-soon modules in production must be exactly the dev-only set',
 )
 
 // 2. The expected production survivors are present (sanity that we didn't drop
@@ -41,7 +41,11 @@ for (const id of ['agent-runtime', 'backlog', 'dev-tools', 'git', 'memory-graph'
 //    the self-gating surfaces (top-bar mic, Voice/Mobile settings tabs) hide.
 for (const id of DEV_ONLY_MODULE_IDS) {
   assert.equal(selectModuleEnabled({}, id), false, `${id} must be disabled with no overrides in production`)
-  assert.equal(selectModuleEnabled({ [id]: true }, id), false, `${id} must stay disabled even if an override tries to enable it in production`)
+  assert.equal(
+    selectModuleEnabled({ [id]: true }, id),
+    false,
+    `${id} must stay disabled even if an override tries to enable it in production`,
+  )
 }
 
 // 4. The full bundled manifest list is NOT narrowed by the channel — it stays

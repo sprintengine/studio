@@ -60,11 +60,7 @@ function releaseResults(subscription: IDisposable | null): null {
   return null
 }
 
-export function useTerminalFind({
-  workspaceId,
-  containerRef,
-  terminalRef,
-}: UseTerminalFindInput): TerminalFind {
+export function useTerminalFind({ workspaceId, containerRef, terminalRef }: UseTerminalFindInput): TerminalFind {
   const [open, setOpen] = useState(false)
   const [query, setQueryState] = useState('')
   const [results, setResults] = useState<TerminalSearchResults>(NO_RESULTS)
@@ -114,30 +110,36 @@ export function useTerminalFind({
     return searchRef.current
   }, [terminalRef])
 
-  const runFind = useCallback((direction: 'next' | 'previous') => {
-    const handle = search()
-    const term = queryRef.current
-    if (!handle || !term) {
-      setResults(NO_RESULTS)
-      return
-    }
-    if (direction === 'next') handle.findNext(term)
-    else handle.findPrevious(term)
-  }, [search])
+  const runFind = useCallback(
+    (direction: 'next' | 'previous') => {
+      const handle = search()
+      const term = queryRef.current
+      if (!handle || !term) {
+        setResults(NO_RESULTS)
+        return
+      }
+      if (direction === 'next') handle.findNext(term)
+      else handle.findPrevious(term)
+    },
+    [search],
+  )
 
-  const setQuery = useCallback((next: string) => {
-    queryRef.current = next
-    setQueryState(next)
-    if (!next) {
-      search()?.clear()
-      setResults(NO_RESULTS)
-      return
-    }
-    // Typing walks forward from where the caret is, the way every find field
-    // does — a person types three characters and expects to be looking at the
-    // first hit, not to have to press Enter to start.
-    runFind('next')
-  }, [runFind, search])
+  const setQuery = useCallback(
+    (next: string) => {
+      queryRef.current = next
+      setQueryState(next)
+      if (!next) {
+        search()?.clear()
+        setResults(NO_RESULTS)
+        return
+      }
+      // Typing walks forward from where the caret is, the way every find field
+      // does — a person types three characters and expects to be looking at the
+      // first hit, not to have to press Enter to start.
+      runFind('next')
+    },
+    [runFind, search],
+  )
 
   const close = useCallback(() => {
     setOpen(false)
@@ -171,9 +173,12 @@ export function useTerminalFind({
 
   // The last subscription outlives the last `search()` call, so it is released
   // when the hook goes rather than when the handle is next replaced.
-  useEffect(() => () => {
-    resultsSubscriptionRef.current = releaseResults(resultsSubscriptionRef.current)
-  }, [])
+  useEffect(
+    () => () => {
+      resultsSubscriptionRef.current = releaseResults(resultsSubscriptionRef.current)
+    },
+    [],
+  )
 
   // Registered while mounted, not while open: the whole point is that the
   // command can OPEN a bar that is currently closed.
@@ -189,15 +194,18 @@ export function useTerminalFind({
     })
   }, [containerRef, openFind, workspaceId])
 
-  return useMemo((): TerminalFind => ({
-    open,
-    query,
-    results,
-    setQuery,
-    findNext: () => runFind('next'),
-    findPrevious: () => runFind('previous'),
-    clearActive: () => search()?.clearActive(),
-    close,
-    inputRef,
-  }), [close, open, query, results, runFind, search, setQuery])
+  return useMemo(
+    (): TerminalFind => ({
+      open,
+      query,
+      results,
+      setQuery,
+      findNext: () => runFind('next'),
+      findPrevious: () => runFind('previous'),
+      clearActive: () => search()?.clearActive(),
+      close,
+      inputRef,
+    }),
+    [close, open, query, results, runFind, search, setQuery],
+  )
 }

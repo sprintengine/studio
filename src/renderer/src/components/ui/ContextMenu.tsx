@@ -2,12 +2,7 @@ import React, { useCallback, useEffect, useLayoutEffect, useRef, useState } from
 import { createPortal } from 'react-dom'
 import { Tooltip } from './Tooltip'
 import { FOCUS_RING_CLASS } from './tokens'
-import {
-  MENU_DIVIDER_CLASS,
-  MENU_GROUP_LABEL_CLASS,
-  MENU_ITEM_CLASS,
-  MENU_SURFACE_CLASS,
-} from './menuClasses'
+import { MENU_DIVIDER_CLASS, MENU_GROUP_LABEL_CLASS, MENU_ITEM_CLASS, MENU_SURFACE_CLASS } from './menuClasses'
 import { HIGHLIGHT_COLORS, getHighlightSwatch } from '../../utils/highlight'
 import {
   PROJECT_COLOR_PRESETS,
@@ -112,21 +107,16 @@ export function useClampedMenuPosition(
 // flyout have a nearer role="menu" ancestor and are excluded, so each surface
 // roves only its own level.
 function menuItemsOf(surface: HTMLElement): HTMLElement[] {
-  return Array.from(
-    surface.querySelectorAll<HTMLElement>('[data-menu-item="true"]:not([disabled])'),
-  ).filter((el) => el.closest('[role="menu"]') === surface)
+  return Array.from(surface.querySelectorAll<HTMLElement>('[data-menu-item="true"]:not([disabled])')).filter(
+    (el) => el.closest('[role="menu"]') === surface,
+  )
 }
 
 // Exported so a menu hosted in a Popover (SplitButton) reuses this nav rather
 // than growing a second copy. `surface` is the element carrying role="menu".
 export function roveMenuFocus(event: React.KeyboardEvent, surface: HTMLElement | null): void {
   if (!surface) return
-  if (
-    event.key !== 'ArrowDown' &&
-    event.key !== 'ArrowUp' &&
-    event.key !== 'Home' &&
-    event.key !== 'End'
-  ) {
+  if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') {
     return
   }
   const items = menuItemsOf(surface)
@@ -368,9 +358,7 @@ const SWATCH_DOT_SIZE_CLASS = 'h-5 w-5'
 export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: MenuSwatchRowProps) {
   return (
     <>
-      {label ? (
-        <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>{label}</div>
-      ) : null}
+      {label ? <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>{label}</div> : null}
       <div className="flex items-center gap-1 px-2 pb-1.5">
         <Tooltip content="Clear color">
           <button
@@ -484,13 +472,16 @@ export function ProjectColorSwatchRow({
 }: ProjectColorSwatchRowProps) {
   const swatches: Array<{ key: string; label: string; hue: ProjectColor; pick: ProjectColorSetting | null }> = [
     { key: 'automatic', label: 'Automatic', hue: automaticColor, pick: null },
-    ...PROJECT_COLOR_PRESETS.map((preset) => ({ key: preset.label, label: preset.label, hue: preset.hue, pick: preset.hue })),
+    ...PROJECT_COLOR_PRESETS.map((preset) => ({
+      key: preset.label,
+      label: preset.label,
+      hue: preset.hue,
+      pick: preset.hue,
+    })),
   ]
   return (
     <>
-      {label ? (
-        <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>{label}</div>
-      ) : null}
+      {label ? <div className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>{label}</div> : null}
       <div className="flex flex-wrap items-center gap-1 px-2 pb-1.5">
         {swatches.map((swatch) => {
           const selected = value === swatch.pick
@@ -733,8 +724,19 @@ export function MenuFlyoutItem({
       >
         {icon ?? null}
         <span className="min-w-0 flex-1 truncate">{label}</span>
-        <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-disabled)]" aria-hidden="true">
-          <path d="M6 4L10 8L6 12" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+        <svg
+          viewBox="0 0 16 16"
+          fill="none"
+          className="icon-xs shrink-0 text-[color:var(--text-disabled)]"
+          aria-hidden="true"
+        >
+          <path
+            d="M6 4L10 8L6 12"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
       </button>
       {anchor ? (

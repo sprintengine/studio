@@ -1,10 +1,7 @@
 import { stat } from 'node:fs/promises'
 import { isAbsolute } from 'node:path'
 
-import type {
-  ConversationPeekAttachment,
-  ConversationPeekMessage,
-} from '../../shared/conversation-peek'
+import type { ConversationPeekAttachment, ConversationPeekMessage } from '../../shared/conversation-peek'
 import {
   MAX_PEEK_ATTACHMENTS,
   MAX_PEEK_FIRST_CHARS,
@@ -240,10 +237,7 @@ export function clearTranscriptPeekCache(): void {
   cache.clear()
 }
 
-async function streamTranscriptPeek(
-  transcriptPath: string,
-  home: string | null,
-): Promise<TranscriptPeek | null> {
+async function streamTranscriptPeek(transcriptPath: string, home: string | null): Promise<TranscriptPeek | null> {
   // The whole answer, held while streaming: the message that started the chat,
   // and a rolling window of the most recent ones. Nothing between the two is
   // ever retained — a chat with two hundred messages costs the same as one with
@@ -342,8 +336,8 @@ function retainImages(message: RawMessage, retained: RetainedImages): void {
       continue
     }
     while (
-      retained.queue.length >= MAX_PEEK_ATTACHMENTS
-      || retained.bytes + image.data.length > MAX_RETAINED_IMAGE_BYTES
+      retained.queue.length >= MAX_PEEK_ATTACHMENTS ||
+      retained.bytes + image.data.length > MAX_RETAINED_IMAGE_BYTES
     ) {
       const oldest = retained.queue.shift()
       // Cannot happen after the ceiling check above — an empty queue always has
@@ -368,15 +362,9 @@ function releaseImages(message: RawMessage, retained: RetainedImages): void {
   }
 }
 
-async function assemblePeek(
-  head: RawMessage | null,
-  tail: RawMessage[],
-  home: string | null,
-): Promise<TranscriptPeek> {
+async function assemblePeek(head: RawMessage | null, tail: RawMessage[], home: string | null): Promise<TranscriptPeek> {
   const images = new Map<string, PeekImagePayload>()
-  const first = head
-    ? await toPeekMessage(head, { maxChars: MAX_PEEK_FIRST_CHARS, home, retainImages: images })
-    : null
+  const first = head ? await toPeekMessage(head, { maxChars: MAX_PEEK_FIRST_CHARS, home, retainImages: images }) : null
   const since = await Promise.all(
     tail.map((message) => toPeekMessage(message, { maxChars: MAX_PEEK_MESSAGE_CHARS, home, retainImages: images })),
   )
@@ -451,11 +439,7 @@ async function toPeekMessage(
  * signal available for a reference that was written relative to a directory
  * nobody recorded.
  */
-async function resolveExistingPeekPath(
-  token: string,
-  cwd: string | null,
-  home: string | null,
-): Promise<string | null> {
+async function resolveExistingPeekPath(token: string, cwd: string | null, home: string | null): Promise<string | null> {
   const candidate = resolvePeekPath(token, cwd, home)
   if (!candidate) return null
   return (await pathExists(candidate)) ? candidate : null
@@ -507,9 +491,7 @@ function personMessageFromRow(row: TranscriptRow): RawMessage | null {
 
   // Clipped HERE rather than at collapse time: a five-megabyte paste must not
   // sit in the rolling window waiting for assembly.
-  const text = parsed.text.length > MAX_RAW_MESSAGE_CHARS
-    ? parsed.text.slice(0, MAX_RAW_MESSAGE_CHARS)
-    : parsed.text
+  const text = parsed.text.length > MAX_RAW_MESSAGE_CHARS ? parsed.text.slice(0, MAX_RAW_MESSAGE_CHARS) : parsed.text
 
   return {
     // The row's own uuid, so an attachment id survives a re-read of a grown
@@ -571,7 +553,11 @@ function readUserContent(content: unknown): ParsedContent | null {
 function readImageBlock(block: { source?: unknown }): RawImage | null {
   const source = block.source
   if (!source || typeof source !== 'object') return null
-  const { type, media_type: mediaType, data } = source as {
+  const {
+    type,
+    media_type: mediaType,
+    data,
+  } = source as {
     type?: unknown
     media_type?: unknown
     data?: unknown
@@ -585,9 +571,10 @@ function readImageBlock(block: { source?: unknown }): RawImage | null {
     // `data` is an unbounded string in a file another process writes, and the
     // card's count must stay honest even when there is nothing to thumbnail.
     data: data.length > MAX_PEEK_IMAGE_BASE64_CHARS ? '' : data,
-    mediaType: typeof mediaType === 'string' && /^image\/[a-z0-9.+-]{1,32}$/i.test(mediaType)
-      ? mediaType.toLowerCase()
-      : 'image/png',
+    mediaType:
+      typeof mediaType === 'string' && /^image\/[a-z0-9.+-]{1,32}$/i.test(mediaType)
+        ? mediaType.toLowerCase()
+        : 'image/png',
   }
 }
 
@@ -598,17 +585,18 @@ function readImageBlock(block: { source?: unknown }): RawImage | null {
 function imageSourceLabels(row: TranscriptRow): string[] {
   if (row.type !== 'user' || row.isMeta !== true) return []
   const content = row.message?.content
-  const text = typeof content === 'string'
-    ? content
-    : Array.isArray(content)
+  const text =
+    typeof content === 'string'
       ? content
-          .map((block) =>
-            block && typeof block === 'object' && (block as { type?: unknown }).type === 'text'
-              ? String((block as { text?: unknown }).text ?? '')
-              : '',
-          )
-          .join('\n')
-      : ''
+      : Array.isArray(content)
+        ? content
+            .map((block) =>
+              block && typeof block === 'object' && (block as { type?: unknown }).type === 'text'
+                ? String((block as { text?: unknown }).text ?? '')
+                : '',
+            )
+            .join('\n')
+        : ''
   if (!text.includes('[Image: source:')) return []
   const labels: string[] = []
   for (const match of text.matchAll(/\[Image: source:\s*([^\]\n]{1,1024})\]/g)) {
@@ -649,9 +637,9 @@ function readTimestamp(value: unknown): number {
 
 function isAcceptableTranscriptPath(transcriptPath: unknown): transcriptPath is string {
   return (
-    typeof transcriptPath === 'string'
-    && transcriptPath.endsWith('.jsonl')
-    && !transcriptPath.includes('\0')
-    && isAbsolute(transcriptPath)
+    typeof transcriptPath === 'string' &&
+    transcriptPath.endsWith('.jsonl') &&
+    !transcriptPath.includes('\0') &&
+    isAbsolute(transcriptPath)
   )
 }

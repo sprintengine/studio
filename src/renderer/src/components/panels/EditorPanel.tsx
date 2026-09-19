@@ -7,12 +7,7 @@ import { getGitLineChanges, type GitLineChange } from '../../utils/gitDiff'
 import { renderMarkdown } from '../../utils/markdown'
 import { isImageFile } from '../../utils/files'
 import { basename, isPathOrChild, trimPath } from '../../utils/paths'
-import {
-  getEditorBuffer,
-  hasEditorBuffer,
-  setEditorBuffer,
-  subscribeEditorBuffer,
-} from '../../utils/editorBuffers'
+import { getEditorBuffer, hasEditorBuffer, setEditorBuffer, subscribeEditorBuffer } from '../../utils/editorBuffers'
 import { removeFileTabsForPath } from '../../utils/modelRegistry'
 import { EDITOR_FOCUS_EVENT } from '../../utils/editorFocus'
 import { MONO_FONT_STACK } from '../../utils/fonts'
@@ -69,34 +64,26 @@ function readCssVar(name: string): string {
 
 export default function EditorPanel({ workspaceId, filePath }: Props) {
   const monacoTheme = useMonacoBaseTheme()
-  const editorState = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.editorState
-  )
-  const folderPath = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null
-  )
-  const setActiveFile     = useWorkspaceStore((s) => s.setActiveFile)
-  const openFile          = useWorkspaceStore((s) => s.openFile)
+  const editorState = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.editorState)
+  const folderPath = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null)
+  const setActiveFile = useWorkspaceStore((s) => s.setActiveFile)
+  const openFile = useWorkspaceStore((s) => s.openFile)
   const updateFileContent = useWorkspaceStore((s) => s.updateFileContent)
-  const markFileClean     = useWorkspaceStore((s) => s.markFileClean)
-  const closeFile         = useWorkspaceStore((s) => s.closeFile)
+  const markFileClean = useWorkspaceStore((s) => s.markFileClean)
+  const closeFile = useWorkspaceStore((s) => s.closeFile)
   const { repoRoot, status: gitStatus, refresh: refreshGitStatus } = useGitStatus(folderPath)
 
   const openFiles = editorState?.openFiles ?? []
   const activeFilePath = filePath ?? editorState?.activeFilePath ?? null
   const activeFile = openFiles.find((f) => f.path === activeFilePath)
   const isImage = Boolean(activeFilePath && activeFile && isImageFile(activeFile.path || activeFile.name))
-  const activeFileHasRuntimeBuffer = activeFilePath
-    ? hasEditorBuffer(workspaceId, activeFilePath)
-    : false
-  const activeFileContentReady = !activeFilePath
-    || isImage
-    || activeFileHasRuntimeBuffer
-    || typeof activeFile?.content === 'string'
+  const activeFileHasRuntimeBuffer = activeFilePath ? hasEditorBuffer(workspaceId, activeFilePath) : false
+  const activeFileContentReady =
+    !activeFilePath || isImage || activeFileHasRuntimeBuffer || typeof activeFile?.content === 'string'
   const activeContent = useSyncExternalStore(
-    (listener) => activeFilePath ? subscribeEditorBuffer(workspaceId, activeFilePath, listener) : () => {},
-    () => activeFilePath ? getEditorBuffer(workspaceId, activeFilePath, activeFile?.content ?? '') : '',
-    () => ''
+    (listener) => (activeFilePath ? subscribeEditorBuffer(workspaceId, activeFilePath, listener) : () => {}),
+    () => (activeFilePath ? getEditorBuffer(workspaceId, activeFilePath, activeFile?.content ?? '') : ''),
+    () => '',
   )
   const editorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null)
   const monacoRef = useRef<MonacoApi | null>(null)
@@ -111,22 +98,16 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   const markdownPreviewTooLarge = isMarkdown && activeContent.length > MARKDOWN_PREVIEW_MAX_CHARS
   const showPreview = isMarkdown && markdownMode === 'preview' && !markdownPreviewTooLarge
   const canRestoreMissingActiveFile = Boolean(
-    filePath
-    && !activeFile
-    && folderPath
-    && isPathOrChild(filePath, trimPath(folderPath))
+    filePath && !activeFile && folderPath && isPathOrChild(filePath, trimPath(folderPath)),
   )
-  const activeGitEntry = useMemo(
-    () => getGitEntry(gitStatus, activeFilePath),
-    [activeFilePath, gitStatus]
-  )
+  const activeGitEntry = useMemo(() => getGitEntry(gitStatus, activeFilePath), [activeFilePath, gitStatus])
   const activeGitEntrySignature = activeGitEntry
     ? [
-      activeGitEntry.path,
-      activeGitEntry.status,
-      activeGitEntry.staged ? '1' : '0',
-      activeGitEntry.unstaged ? '1' : '0',
-    ].join('\u001f')
+        activeGitEntry.path,
+        activeGitEntry.status,
+        activeGitEntry.staged ? '1' : '0',
+        activeGitEntry.unstaged ? '1' : '0',
+      ].join('\u001f')
     : ''
   const previewGitLineChanges = useMemo(() => {
     if (!showPreview || !activeFile || gitBaseContent?.path !== activeFile.path) return []
@@ -134,14 +115,12 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     const lineCount = Math.max(activeContent.split(/\r\n|\r|\n/).length, 1)
     const baseLineCount = gitBaseContent.content.split(/\r\n|\r|\n/).length
     const tooLargeForDetailedDiff =
-      activeContent.length > GIT_DECORATION_MAX_CHARS
-      || gitBaseContent.content.length > GIT_DECORATION_MAX_CHARS
-      || lineCount > GIT_DECORATION_MAX_LINES
-      || baseLineCount > GIT_DECORATION_MAX_LINES
+      activeContent.length > GIT_DECORATION_MAX_CHARS ||
+      gitBaseContent.content.length > GIT_DECORATION_MAX_CHARS ||
+      lineCount > GIT_DECORATION_MAX_LINES ||
+      baseLineCount > GIT_DECORATION_MAX_LINES
 
-    return tooLargeForDetailedDiff
-      ? []
-      : getGitLineChanges(gitBaseContent.content, activeContent)
+    return tooLargeForDetailedDiff ? [] : getGitLineChanges(gitBaseContent.content, activeContent)
   }, [activeContent, activeFile?.path, gitBaseContent, showPreview])
 
   useEffect(() => {
@@ -150,7 +129,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
   useEffect(() => {
     if (!filePath || activeFile || !folderPath || !isPathOrChild(filePath, trimPath(folderPath))) {
-      setRestoringFilePath((path) => path === filePath ? null : path)
+      setRestoringFilePath((path) => (path === filePath ? null : path))
       return
     }
 
@@ -161,7 +140,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
     if (isImageFile(filePath || name)) {
       openFile(workspaceId, filePath, name, '')
-      setRestoringFilePath((path) => path === filePath ? null : path)
+      setRestoringFilePath((path) => (path === filePath ? null : path))
       return
     }
 
@@ -178,7 +157,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
         })
       } finally {
         if (!cancelled) {
-          setRestoringFilePath((path) => path === filePath ? null : path)
+          setRestoringFilePath((path) => (path === filePath ? null : path))
         }
       }
     }
@@ -220,7 +199,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
       return
     }
     if (activeFileContentReady) {
-      setContentLoadError((error) => error?.path === activeFilePath ? null : error)
+      setContentLoadError((error) => (error?.path === activeFilePath ? null : error))
       return
     }
 
@@ -256,7 +235,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
 
     let cancelled = false
     setContentLoadError(null)
-    setImageDataUrl((current) => current?.path === activeFilePath ? current : null)
+    setImageDataUrl((current) => (current?.path === activeFilePath ? current : null))
 
     const loadImage = async () => {
       try {
@@ -282,12 +261,14 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     if (showPreview) return
 
     const handleFocusRequest = (event: Event) => {
-      const detail = (event as CustomEvent<{
-        workspaceId?: string
-        filePath?: string
-        line?: number
-        column?: number
-      }>).detail
+      const detail = (
+        event as CustomEvent<{
+          workspaceId?: string
+          filePath?: string
+          line?: number
+          column?: number
+        }>
+      ).detail
       if (detail?.workspaceId !== workspaceId) return
       if (detail.filePath && detail.filePath !== activeFilePath) return
 
@@ -297,9 +278,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
         if (detail.line && Number.isSafeInteger(detail.line) && detail.line > 0) {
           editor.setPosition({
             lineNumber: detail.line,
-            column: detail.column && Number.isSafeInteger(detail.column) && detail.column > 0
-              ? detail.column
-              : 1,
+            column: detail.column && Number.isSafeInteger(detail.column) && detail.column > 0 ? detail.column : 1,
           })
           editor.revealLineInCenter(detail.line)
         }
@@ -425,16 +404,24 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     const decorations = gitDecorationsRef.current
     const model = editor?.getModel()
 
-    if (!editor || !monaco || !decorations || !model || !activeFile || gitBaseContent?.path !== activeFile.path || showPreview) {
+    if (
+      !editor ||
+      !monaco ||
+      !decorations ||
+      !model ||
+      !activeFile ||
+      gitBaseContent?.path !== activeFile.path ||
+      showPreview
+    ) {
       decorations?.clear()
       return
     }
 
     const lineCount = Math.max(model.getLineCount(), 1)
     const tooLargeForDetailedDiff =
-      activeContent.length > GIT_DECORATION_MAX_CHARS
-      || gitBaseContent.content.length > GIT_DECORATION_MAX_CHARS
-      || lineCount > GIT_DECORATION_MAX_LINES
+      activeContent.length > GIT_DECORATION_MAX_CHARS ||
+      gitBaseContent.content.length > GIT_DECORATION_MAX_CHARS ||
+      lineCount > GIT_DECORATION_MAX_LINES
 
     if (tooLargeForDetailedDiff) {
       decorations.clear()
@@ -450,21 +437,24 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
     const toDecoration = (change: GitLineChange): Monaco.editor.IModelDeltaDecoration => {
       const startLine = Math.min(Math.max(change.startLine, 1), lineCount)
       const endLine = Math.min(Math.max(change.endLine, startLine), lineCount)
-      const className = change.kind === 'added'
-        ? 'git-change-gutter git-change-added'
-        : change.kind === 'modified'
-          ? 'git-change-gutter git-change-modified'
-          : 'git-change-gutter git-change-deleted'
-      const color = change.kind === 'added'
-        ? readCssVar('--tone-good')
-        : change.kind === 'modified'
-          ? readCssVar('--tone-warn')
-          : readCssVar('--tone-error')
-      const label = change.kind === 'added'
-        ? 'Added lines'
-        : change.kind === 'modified'
-          ? 'Modified lines'
-          : `${change.deletedCount ?? 1} deleted line${change.deletedCount === 1 ? '' : 's'}`
+      const className =
+        change.kind === 'added'
+          ? 'git-change-gutter git-change-added'
+          : change.kind === 'modified'
+            ? 'git-change-gutter git-change-modified'
+            : 'git-change-gutter git-change-deleted'
+      const color =
+        change.kind === 'added'
+          ? readCssVar('--tone-good')
+          : change.kind === 'modified'
+            ? readCssVar('--tone-warn')
+            : readCssVar('--tone-error')
+      const label =
+        change.kind === 'added'
+          ? 'Added lines'
+          : change.kind === 'modified'
+            ? 'Modified lines'
+            : `${change.deletedCount ?? 1} deleted line${change.deletedCount === 1 ? '' : 's'}`
 
       return {
         range: new monaco.Range(startLine, 1, endLine, 1),
@@ -521,7 +511,13 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   const markdownModeToggle = isMarkdown ? (
     <div className="absolute right-3 top-3 z-10">
       <Tooltip
-        content={markdownPreviewTooLarge ? 'Markdown preview disabled for large files' : showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
+        content={
+          markdownPreviewTooLarge
+            ? 'Markdown preview disabled for large files'
+            : showPreview
+              ? 'Edit Markdown source'
+              : 'Preview Markdown'
+        }
         placement="bottom"
       >
         {/* Borderless, like every other IconButton. The override this carried —
@@ -537,12 +533,22 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
         >
           {showPreview ? (
             <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
-              <path d="M2.5 11.75L2.5 13.5h1.75L12 5.75 10.25 4 2.5 11.75z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              <path
+                d="M2.5 11.75L2.5 13.5h1.75L12 5.75 10.25 4 2.5 11.75z"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinejoin="round"
+              />
               <path d="M9.25 5L11 6.75" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             </svg>
           ) : (
             <svg viewBox="0 0 16 16" className="icon-sm" fill="none" aria-hidden="true">
-              <path d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4S1.5 8 1.5 8z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              <path
+                d="M1.5 8s2.5-4 6.5-4 6.5 4 6.5 4-2.5 4-6.5 4S1.5 8 1.5 8z"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinejoin="round"
+              />
               <circle cx="8" cy="8" r="1.75" stroke="currentColor" strokeWidth="1.4" />
             </svg>
           )}

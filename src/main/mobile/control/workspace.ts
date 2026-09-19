@@ -20,7 +20,7 @@ export async function validateMobileWorkspacePath(input: {
   if (isWorkspaceIdToken(requestedPath)) {
     const resolvedRoot = resolveWorkspaceIdToRoot(
       requestedPath,
-      input.workspaceRootCandidates ?? input.allowedWorkspaceRoots
+      input.workspaceRootCandidates ?? input.allowedWorkspaceRoots,
     )
     if (!resolvedRoot) {
       throw new MobileControlCommandError('path_not_allowed', 'Workspace is not available on this desktop.', false)
@@ -34,7 +34,11 @@ export async function validateMobileWorkspacePath(input: {
 
   const workspacePath = resolve(requestedPath)
   if (!isAllowedWorkspace(input.allowedWorkspaceRoots, workspacePath)) {
-    throw new MobileControlCommandError('path_not_allowed', 'Workspace path is outside the allowed workspace roots.', false)
+    throw new MobileControlCommandError(
+      'path_not_allowed',
+      'Workspace path is outside the allowed workspace roots.',
+      false,
+    )
   }
 
   try {

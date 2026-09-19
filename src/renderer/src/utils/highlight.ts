@@ -1,14 +1,6 @@
 import type { HighlightColor, Workspace, WorkspaceHighlight, WorkspaceMode } from '../types/workspace'
 
-export const HIGHLIGHT_COLORS: HighlightColor[] = [
-  'red',
-  'orange',
-  'amber',
-  'green',
-  'blue',
-  'purple',
-  'pink',
-]
+export const HIGHLIGHT_COLORS: HighlightColor[] = ['red', 'orange', 'amber', 'green', 'blue', 'purple', 'pink']
 
 type HighlightSwatch = {
   color: HighlightColor
@@ -37,10 +29,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'highlight-bg-red',
     dimBg: 'highlight-bg-dim-red',
     text: 'highlight-text-red',
-    shadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.24),0_0_10px_-6px_rgba(255,90,95,0.20)]',
-    collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.22),0_0_6px_-4px_rgba(255,90,95,0.14)]',
+    shadow: 'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.24),0_0_10px_-6px_rgba(255,90,95,0.20)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_rgba(255,90,95,0.22),0_0_6px_-4px_rgba(255,90,95,0.14)]',
     chip: 'bg-[#ff5a5f]/15',
     ringRgba: (a) => `rgba(255, 90, 95, ${a})`,
   },
@@ -52,10 +42,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'highlight-bg-orange',
     dimBg: 'highlight-bg-dim-orange',
     text: 'highlight-text-orange',
-    shadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.24),0_0_10px_-6px_rgba(255,140,66,0.18)]',
-    collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.22),0_0_6px_-4px_rgba(255,140,66,0.13)]',
+    shadow: 'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.24),0_0_10px_-6px_rgba(255,140,66,0.18)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_rgba(255,140,66,0.22),0_0_6px_-4px_rgba(255,140,66,0.13)]',
     chip: 'bg-[#ff8c42]/15',
     ringRgba: (a) => `rgba(255, 140, 66, ${a})`,
   },
@@ -67,10 +55,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'highlight-bg-amber',
     dimBg: 'highlight-bg-dim-amber',
     text: 'highlight-text-amber',
-    shadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.22),0_0_10px_-6px_rgba(255,191,47,0.18)]',
-    collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.22),0_0_6px_-4px_rgba(255,191,47,0.13)]',
+    shadow: 'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.22),0_0_10px_-6px_rgba(255,191,47,0.18)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_rgba(255,191,47,0.22),0_0_6px_-4px_rgba(255,191,47,0.13)]',
     chip: 'bg-[#ffbf2f]/15',
     ringRgba: (a) => `rgba(255, 191, 47, ${a})`,
   },
@@ -82,10 +68,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'highlight-bg-green',
     dimBg: 'highlight-bg-dim-green',
     text: 'highlight-text-green',
-    shadow:
-      'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.24),0_0_10px_-6px_rgba(48,209,88,0.18)]',
-    collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.22),0_0_6px_-4px_rgba(48,209,88,0.13)]',
+    shadow: 'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.24),0_0_10px_-6px_rgba(48,209,88,0.18)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_rgba(48,209,88,0.22),0_0_6px_-4px_rgba(48,209,88,0.13)]',
     chip: 'bg-[#30d158]/15',
     ringRgba: (a) => `rgba(48, 209, 88, ${a})`,
   },
@@ -97,10 +81,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'highlight-bg-blue',
     dimBg: 'highlight-bg-dim-blue',
     text: 'highlight-text-blue',
-    shadow:
-      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.26),0_0_10px_-6px_rgba(92,124,255,0.20)]',
-    collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.24),0_0_6px_-4px_rgba(92,124,255,0.14)]',
+    shadow: 'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.26),0_0_10px_-6px_rgba(92,124,255,0.20)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_rgba(92,124,255,0.24),0_0_6px_-4px_rgba(92,124,255,0.14)]',
     chip: 'bg-[#5c7cff]/18',
     ringRgba: (a) => `rgba(92, 124, 255, ${a})`,
   },
@@ -112,10 +94,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'highlight-bg-purple',
     dimBg: 'highlight-bg-dim-purple',
     text: 'highlight-text-purple',
-    shadow:
-      'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.28),0_0_10px_-6px_rgba(167,139,250,0.22)]',
-    collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.26),0_0_6px_-4px_rgba(167,139,250,0.16)]',
+    shadow: 'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.28),0_0_10px_-6px_rgba(167,139,250,0.22)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_rgba(167,139,250,0.26),0_0_6px_-4px_rgba(167,139,250,0.16)]',
     chip: 'bg-[#a78bfa]/18',
     ringRgba: (a) => `rgba(167, 139, 250, ${a})`,
   },
@@ -127,10 +107,8 @@ const swatches: Record<HighlightColor, HighlightSwatch> = {
     bg: 'highlight-bg-pink',
     dimBg: 'highlight-bg-dim-pink',
     text: 'highlight-text-pink',
-    shadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.26),0_0_10px_-6px_rgba(255,126,179,0.20)]',
-    collapsedShadow:
-      'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.24),0_0_6px_-4px_rgba(255,126,179,0.14)]',
+    shadow: 'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.26),0_0_10px_-6px_rgba(255,126,179,0.20)]',
+    collapsedShadow: 'shadow-[inset_0_0_0_1px_rgba(255,126,179,0.24),0_0_6px_-4px_rgba(255,126,179,0.14)]',
     chip: 'bg-[#ff7eb3]/15',
     ringRgba: (a) => `rgba(255, 126, 179, ${a})`,
   },
@@ -144,17 +122,13 @@ export function isStarred(highlight: WorkspaceHighlight | undefined | null): boo
   return highlight?.starred === true
 }
 
-function getHighlightColor(
-  highlight: WorkspaceHighlight | undefined | null
-): HighlightColor | null {
+function getHighlightColor(highlight: WorkspaceHighlight | undefined | null): HighlightColor | null {
   return highlight?.color ?? null
 }
 
 // True when the highlight should override the workspace's mode-accent
 // treatment (sidebar row, breadcrumb icon).
-export function hasHighlightOverride(
-  highlight: WorkspaceHighlight | undefined | null
-): boolean {
+export function hasHighlightOverride(highlight: WorkspaceHighlight | undefined | null): boolean {
   return getHighlightColor(highlight) !== null
 }
 
@@ -164,9 +138,7 @@ const WORKSPACE_MODE_ACCENT_HEX: Partial<Record<WorkspaceMode, string | null>> =
 // color wins; otherwise fall back to the workspace mode identity. Standard
 // workspaces without a highlight return null so callers can render a neutral
 // treatment instead of an arbitrary tint.
-export function getWorkspaceAccentHex(
-  workspace: Pick<Workspace, 'highlight' | 'mode'>
-): string | null {
+export function getWorkspaceAccentHex(workspace: Pick<Workspace, 'highlight' | 'mode'>): string | null {
   if (workspace.highlight?.color) return swatches[workspace.highlight.color].hex
   return WORKSPACE_MODE_ACCENT_HEX[workspace.mode] ?? null
 }

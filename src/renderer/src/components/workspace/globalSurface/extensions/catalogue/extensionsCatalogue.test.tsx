@@ -235,7 +235,14 @@ const HUB_SCAN: ScanResult = {
       strict: true,
       tags: [],
       keywords: [],
-      origin: { kind: 'linked', repo: 'acme/one', ref: '', sha: 'a'.repeat(40), path: '', url: 'https://github.com/acme/one' },
+      origin: {
+        kind: 'linked',
+        repo: 'acme/one',
+        ref: '',
+        sha: 'a'.repeat(40),
+        path: '',
+        url: 'https://github.com/acme/one',
+      },
       componentsKnown: true,
       readState: { status: 'read' },
       readCommit: 'a'.repeat(40),
@@ -260,10 +267,25 @@ const HUB_SCAN: ScanResult = {
       strict: true,
       tags: [],
       keywords: [],
-      origin: { kind: 'linked', repo: 'acme/two', ref: '', sha: 'b'.repeat(40), path: '', url: 'https://github.com/acme/two' },
+      origin: {
+        kind: 'linked',
+        repo: 'acme/two',
+        ref: '',
+        sha: 'b'.repeat(40),
+        path: '',
+        url: 'https://github.com/acme/two',
+      },
       componentsKnown: false,
       readState: { status: 'pending', reason: 'budget' },
-      components: { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], lspServers: [], missingSkills: [] },
+      components: {
+        skills: [],
+        commands: [],
+        agents: [],
+        hooks: [],
+        mcpServers: [],
+        lspServers: [],
+        missingSkills: [],
+      },
     },
     {
       id: 'listed-only',
@@ -276,12 +298,29 @@ const HUB_SCAN: ScanResult = {
       strict: true,
       tags: [],
       keywords: [],
-      origin: { kind: 'linked', repo: 'acme/four', ref: '', sha: 'd'.repeat(40), path: '', url: 'https://github.com/acme/four' },
+      origin: {
+        kind: 'linked',
+        repo: 'acme/four',
+        ref: '',
+        sha: 'd'.repeat(40),
+        path: '',
+        url: 'https://github.com/acme/four',
+      },
       componentsKnown: true,
       readState: { status: 'listed' },
       readCommit: 'd'.repeat(40),
       components: {
-        skills: [{ id: 'skills/one', name: 'one', description: '', group: '', files: [], allowedTools: [], hasExecutables: false }],
+        skills: [
+          {
+            id: 'skills/one',
+            name: 'one',
+            description: '',
+            group: '',
+            files: [],
+            allowedTools: [],
+            hasExecutables: false,
+          },
+        ],
         commands: [],
         agents: [],
         hooks: [],
@@ -304,7 +343,15 @@ const HUB_SCAN: ScanResult = {
       origin: { kind: 'linked', repo: '', ref: '', sha: '', path: '', url: 'https://gitlab.com/acme/three' },
       componentsKnown: false,
       readState: { status: 'unreadable', message: "Hosted on gitlab.com, which is not on this app's allowlist." },
-      components: { skills: [], commands: [], agents: [], hooks: [], mcpServers: [], lspServers: [], missingSkills: [] },
+      components: {
+        skills: [],
+        commands: [],
+        agents: [],
+        hooks: [],
+        mcpServers: [],
+        lspServers: [],
+        missingSkills: [],
+      },
     },
   ],
 }
@@ -377,7 +424,8 @@ const api: Record<string, unknown> = {
   // clause the one that offers to add one.
   getGitHubTokenStatus: async () => ({ configured: false, source: 'none', encryptionAvailable: true }),
   skillsScanLinkedPlugin: async ({ pluginId }: { pluginId: string }) => (
-    linkedReads.push(pluginId), { ok: false, message: 'not reachable in this test' }
+    linkedReads.push(pluginId),
+    { ok: false, message: 'not reachable in this test' }
   ),
   skillsGetScan: async ({ sourceId }: { sourceId: string }) => (
     scanCalls.push(sourceId),
@@ -474,9 +522,8 @@ async function main(): Promise<void> {
   root = createRoot(container as unknown as Element)
   const { useWorkspaceStore } = await import('../../../../../store/workspaceStore')
   const { default: ExtensionsGlobalSurface } = await import('../ExtensionsGlobalSurface')
-  const { dispatchExtensionsSurfaceTarget, consumePendingExtensionsSurfaceTarget } = await import(
-    '../extensionsSurfaceTarget'
-  )
+  const { dispatchExtensionsSurfaceTarget, consumePendingExtensionsSurfaceTarget } =
+    await import('../extensionsSurfaceTarget')
 
   const openView = async (view: 'plugins' | 'skills' | 'agent-clis'): Promise<void> => {
     consumePendingExtensionsSurfaceTarget()
@@ -579,11 +626,7 @@ async function main(): Promise<void> {
     // came to look at Skills. The sources the app can answer from disk are
     // still read on mount.
     assert.ok(scanCalls.includes(STUDIO_SKILL_SOURCE_ID), 'a source already scanned is answered from the store, now')
-    assert.equal(
-      scanCalls.includes(ACME_SOURCE.id),
-      false,
-      'an unscanned repository waits for the tab that shows it',
-    )
+    assert.equal(scanCalls.includes(ACME_SOURCE.id), false, 'an unscanned repository waits for the tab that shows it')
   })
 
   // ── A query reads every source, and reads none it does not already hold ────
@@ -604,7 +647,10 @@ async function main(): Promise<void> {
       false,
       'and a keystroke never spends a network read on a source nobody has opened',
     )
-    assert.ok(container.querySelector('nav[aria-label="Plugins across all sources"]'), 'the pager pages the door, not the tab')
+    assert.ok(
+      container.querySelector('nav[aria-label="Plugins across all sources"]'),
+      'the pager pages the door, not the tab',
+    )
   })
 
   await run('clearing the box from its own cross returns the tab', async () => {
@@ -707,10 +753,7 @@ async function main(): Promise<void> {
       tabNamed('acme/hub')?.click()
     })
     await settle()
-    assert.ok(
-      text().includes('add a GitHub token'),
-      'the clause and its button survive a status call that threw',
-    )
+    assert.ok(text().includes('add a GitHub token'), 'the clause and its button survive a status call that threw')
     api.getGitHubTokenStatus = async () => ({ configured: false, source: 'none', encryptionAvailable: true })
   })
 
@@ -832,7 +875,7 @@ async function main(): Promise<void> {
     )
   })
 
-  await run('a conversation provider that shares a CLI\'s name is not an agent CLI row', () => {
+  await run("a conversation provider that shares a CLI's name is not an agent CLI row", () => {
     const leaves = [...container.querySelectorAll('*')].filter(
       (el) => el.children.length === 0 && (el.textContent ?? '').trim() === 'Claude Code',
     )
@@ -936,7 +979,8 @@ async function main(): Promise<void> {
     })
     const installs: { sourceId: string; skillId: string }[] = []
     api.skillsInstall = async ({ sourceId, skillId }: { sourceId: string; skillId: string }) => (
-      installs.push({ sourceId, skillId }), { ok: true }
+      installs.push({ sourceId, skillId }),
+      { ok: true }
     )
     await settle()
     // Stand on our tab and ask for a skill only acme/skills lists.
@@ -994,7 +1038,11 @@ async function main(): Promise<void> {
     })
     await settle()
     assert.equal(dialog(), null, 'nothing opens')
-    assert.equal(tabNamed('acme/hub')?.getAttribute('aria-selected'), 'true', 'the tab is the nearest thing that exists')
+    assert.equal(
+      tabNamed('acme/hub')?.getAttribute('aria-selected'),
+      'true',
+      'the tab is the nearest thing that exists',
+    )
     assert.ok(
       text().includes('acme/hub no longer lists a plugin called nope'),
       `the notice says why (saw: ${text().slice(0, 300)})`,
@@ -1022,7 +1070,11 @@ async function main(): Promise<void> {
 
   await run('a link naming a source and a skill opens the skill’s page', async () => {
     await act(async () => {
-      dispatchExtensionsSurfaceTarget({ view: 'skills', sourceId: ACME_SOURCE.id, skillId: 'skills/engineering/skill-0' })
+      dispatchExtensionsSurfaceTarget({
+        view: 'skills',
+        sourceId: ACME_SOURCE.id,
+        skillId: 'skills/engineering/skill-0',
+      })
     })
     await settle()
     assert.equal(tabNamed('acme/skills')?.getAttribute('aria-selected'), 'true')
@@ -1054,7 +1106,14 @@ async function main(): Promise<void> {
   const LATE_SCAN: ScanResult = {
     ...HUB_SCAN,
     marketplaceName: 'late',
-    plugins: [{ ...HUB_SCAN.plugins![0], id: 'late-one', name: 'Late one', origin: { kind: 'in-tree', path: 'plugins/late-one' } }],
+    plugins: [
+      {
+        ...HUB_SCAN.plugins![0],
+        id: 'late-one',
+        name: 'Late one',
+        origin: { kind: 'in-tree', path: 'plugins/late-one' },
+      },
+    ],
   }
   let releaseLateScan: (() => void) | null = null
   api.skillsListSources = async () => ({
@@ -1108,7 +1167,6 @@ async function main(): Promise<void> {
   })
 
   console.log('extensions catalogue: ok')
-
 }
 
 void main().catch((error) => {

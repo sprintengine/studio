@@ -1,6 +1,16 @@
 import React from 'react'
 
-import { EmptyState, GhostButton, LifecycleGlyph, OverflowMenu, type OverflowMenuItem, PrimaryButton, RowButton, Spinner, TruncatedText } from '../../ui'
+import {
+  EmptyState,
+  GhostButton,
+  LifecycleGlyph,
+  OverflowMenu,
+  type OverflowMenuItem,
+  PrimaryButton,
+  RowButton,
+  Spinner,
+  TruncatedText,
+} from '../../ui'
 import type { AutomationDefinition } from '../../../../../shared/automations/contracts'
 import {
   DEFINITION_LIFECYCLE,
@@ -70,7 +80,15 @@ export const DefinitionList = React.forwardRef<HTMLUListElement, DefinitionListP
 })
 
 function DefinitionRow({
-  def, selected, busy, now, onSelect, onRunNow, onToggleStatus, onEdit, onDelete,
+  def,
+  selected,
+  busy,
+  now,
+  onSelect,
+  onRunNow,
+  onToggleStatus,
+  onEdit,
+  onDelete,
 }: {
   def: AutomationDefinition
   selected: boolean
@@ -119,9 +137,7 @@ function DefinitionRow({
         // the click convenience, and the trailing strip below matches the row's
         // inset with the same `px-2`.
         'group relative cursor-pointer border-b border-[color:var(--border-subtle)] transition-colors',
-        selected
-          ? 'bg-[color:var(--bg-selected)]'
-          : 'hover:bg-[color:var(--bg-hover)]',
+        selected ? 'bg-[color:var(--bg-selected)]' : 'hover:bg-[color:var(--bg-hover)]',
       ].join(' ')}
     >
       <RowButton density="flush" onClick={onSelect}>
@@ -162,17 +178,24 @@ function DefinitionRow({
             <span className="text-[color:var(--text-subtle)]">{triggerFamilyLabel(def.trigger)}</span>
             {detail !== null ? (
               <>
-                <span aria-hidden="true" className="mx-1.5 text-[color:var(--text-disabled)]">·</span>
+                <span aria-hidden="true" className="mx-1.5 text-[color:var(--text-disabled)]">
+                  ·
+                </span>
                 {detail}
               </>
             ) : null}
-            <span aria-hidden="true" className="mx-1.5 text-[color:var(--text-disabled)]">·</span>
+            <span aria-hidden="true" className="mx-1.5 text-[color:var(--text-disabled)]">
+              ·
+            </span>
             {nextAt !== null ? (
               <span className="tabular-nums" title={absoluteTime(nextAt)}>
-                {overdue ? 'Was due ' : 'Next '}{relativeFromNow(nextAt, now)}
+                {overdue ? 'Was due ' : 'Next '}
+                {relativeFromNow(nextAt, now)}
               </span>
             ) : lastAt !== null ? (
-              <span className="tabular-nums" title={absoluteTime(lastAt)}>Ran {relativeFromNow(lastAt, now)}</span>
+              <span className="tabular-nums" title={absoluteTime(lastAt)}>
+                Ran {relativeFromNow(lastAt, now)}
+              </span>
             ) : (
               <span>No upcoming run</span>
             )}
@@ -194,7 +217,10 @@ function DefinitionRow({
         ].join(' ')}
       >
         <GhostButton
-          onClick={(e) => { e.stopPropagation(); onRunNow() }}
+          onClick={(e) => {
+            e.stopPropagation()
+            onRunNow()
+          }}
           disabled={busy || def.status === 'paused'}
           size="xs"
         >

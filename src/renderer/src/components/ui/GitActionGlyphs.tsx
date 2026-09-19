@@ -111,12 +111,7 @@ export function GroupByGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
       <circle cx="8" cy="8" r="5.25" stroke="currentColor" strokeWidth="1.3" />
-      <path
-        d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"
-        stroke="currentColor"
-        strokeWidth="1.3"
-        strokeLinecap="round"
-      />
+      <path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>
   )
 }
@@ -279,7 +274,12 @@ export function GearGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
 export function WriteCommitMessageGlyph({ className = 'icon-sm' }: GlyphProps): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path d="M2.25 4.25h7.5M2.25 7.5h5.5M2.25 10.75h4" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+      <path
+        d="M2.25 4.25h7.5M2.25 7.5h5.5M2.25 10.75h4"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+      />
       <path d="M12.4 7.9v5.2M9.8 10.5h5.2" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
       <path d="M10.9 9 13.9 12M13.9 9 10.9 12" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
     </svg>

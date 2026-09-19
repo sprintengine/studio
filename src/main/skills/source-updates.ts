@@ -34,12 +34,7 @@
 // show the mark until the source is synced.
 
 import type { SkillSourceUpdateCheck, SkillSourceUpdateEntry } from '../../shared/electron-api'
-import {
-  sourceHasUpdate,
-  sourceUpdateIntervalMs,
-  sourceUpdateSkipMessage,
-  type SkillSource,
-} from '../../shared/skills'
+import { sourceHasUpdate, sourceUpdateIntervalMs, sourceUpdateSkipMessage, type SkillSource } from '../../shared/skills'
 import { parseSkillRepoRef, resolveSkillRepoCommit, type SkillGithubOptions } from './github-tree'
 import type { SkillRepoReader, SkillRepoTransport } from './repo-reader'
 import type { SkillSourceStore } from './source-store'
@@ -83,8 +78,8 @@ export function createSourceUpdateChecker(deps: SourceUpdateCheckerDeps): Source
   // that change once git is probed or installed (`SkillsServiceDeps`).
   const transportNow = (): SkillRepoTransport => deps.transport ?? (deps.repoReader ? 'git' : 'api')
   const resolveHead =
-    deps.resolveHead
-    ?? (async (source: SkillSource, token: string): Promise<string> => {
+    deps.resolveHead ??
+    (async (source: SkillSource, token: string): Promise<string> => {
       const ref = parseSkillRepoRef(source.repo)
       if (!ref) throw new Error(`${source.repo} is not a repository that can be checked.`)
       // The reader's own head resolution when there is one — one round trip
@@ -150,7 +145,7 @@ export function createSourceUpdateChecker(deps: SourceUpdateCheckerDeps): Source
       // not budged in a week must still record that it was asked.
       await deps.store.putSource(
         { ...source, headSha, headCheckedAt: now().toISOString() },
-        await deps.store.getScan(source.id)
+        await deps.store.getScan(source.id),
       )
       entries.push({ sourceId: source.id, name: source.repo || source.name, headSha, changed, checked: true })
     }

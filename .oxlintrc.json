@@ -1,0 +1,49 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "react-hooks", "import", "unicorn"],
+  "categories": { "correctness": "error" },
+  "env": { "browser": true, "node": true, "es2024": true },
+  "ignorePatterns": [
+    "node_modules/**",
+    "out/**",
+    "dist/**",
+    "build/**",
+    "resources/runtime/**",
+    "resources/marketplace/**",
+    "packages/*/dist/**",
+    "design-system/catalog/**"
+  ],
+  "rules": {
+    "react-hooks/exhaustive-deps": "warn",
+    "no-unused-vars": ["error", { "ignoreRestSiblings": true, "argsIgnorePattern": "^_", "varsIgnorePattern": "^_" }],
+
+    // The React Compiler's rules. They describe what the compiler can
+    // optimise, and this app is React 18 without the compiler.
+    "react/set-state-in-effect": "off",
+    "react/refs": "off",
+    "react/preserve-manual-memoization": "off",
+    "react/immutability": "off",
+    "react/purity": "off",
+    "react/globals": "off",
+    "react/static-components": "off",
+    "react/use-memo": "off",
+
+    // `for (const listener of [...listeners])` is a deliberate snapshot: a
+    // listener may unsubscribe while the loop dispatches.
+    "unicorn/no-useless-spread": "off",
+    // A terminal app matches escape sequences and control bytes on purpose.
+    "no-control-regex": "off",
+    // Stylistic: flags `createElement(tag, { children })` and
+    // `new Array(n).fill(...)`, both used deliberately.
+    "react/no-children-prop": "off",
+    "unicorn/no-new-array": "off"
+  },
+  "overrides": [
+    {
+      "files": ["**/*.test.ts", "**/*.test.tsx", "src/seams/**"],
+      // A TypeError from `(x?.y as T).z` in a test is a failed test, which is
+      // the outcome the assertion wanted anyway.
+      "rules": { "no-unsafe-optional-chaining": "off" }
+    }
+  ]
+}

@@ -62,9 +62,7 @@ export type HostedSourcesFeed = {
   sources: HostedSource[]
 }
 
-export type HostedSourcesFeedParse =
-  | { ok: true; feed: HostedSourcesFeed }
-  | { ok: false; message: string }
+export type HostedSourcesFeedParse = { ok: true; feed: HostedSourcesFeed } | { ok: false; message: string }
 
 /**
  * `owner/name`, and nothing else: no scheme, no host, no path beyond the two
@@ -100,7 +98,10 @@ export function parseHostedSourcesFeed(source: unknown): HostedSourcesFeedParse 
   }
   if (!isRecord(raw)) return { ok: false, message: 'The sources feed must be a JSON object.' }
   if (raw.schemaVersion !== HOSTED_SOURCES_FEED_SCHEMA_VERSION) {
-    return { ok: false, message: `The sources feed declares schemaVersion ${String(raw.schemaVersion)}; this build reads 1.` }
+    return {
+      ok: false,
+      message: `The sources feed declares schemaVersion ${String(raw.schemaVersion)}; this build reads 1.`,
+    }
   }
   const updatedAt = typeof raw.updatedAt === 'string' ? raw.updatedAt.trim() : ''
   if (!updatedAt || Number.isNaN(Date.parse(updatedAt))) {
@@ -126,7 +127,10 @@ export function parseHostedSourcesFeed(source: unknown): HostedSourcesFeedParse 
       return { ok: false, message: `sources[${index}] repeats the repository "${repo}".` }
     }
     if (!HOSTED_SOURCE_KINDS.includes(entry.kind as HostedSourceKind)) {
-      return { ok: false, message: `sources[${index}] ("${id}") has kind ${JSON.stringify(entry.kind)}; expected one of ${HOSTED_SOURCE_KINDS.join(', ')}.` }
+      return {
+        ok: false,
+        message: `sources[${index}] ("${id}") has kind ${JSON.stringify(entry.kind)}; expected one of ${HOSTED_SOURCE_KINDS.join(', ')}.`,
+      }
     }
     const description = typeof entry.description === 'string' ? entry.description.trim() : ''
     if (!description) return { ok: false, message: `sources[${index}] ("${id}") has no description.` }

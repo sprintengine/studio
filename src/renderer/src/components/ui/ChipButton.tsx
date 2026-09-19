@@ -90,8 +90,7 @@ const RESTING_GROUND: Record<ChipVariant, string> = {
     'bg-[color:var(--bg-surface-raised)] hover:bg-[color:var(--bg-hover)] ' +
     'disabled:hover:bg-[color:var(--bg-surface-raised)]',
   overlay:
-    'bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)] ' +
-    'disabled:hover:bg-[color:var(--bg-surface)]',
+    'bg-[color:var(--bg-surface)] hover:bg-[color:var(--bg-hover)] ' + 'disabled:hover:bg-[color:var(--bg-surface)]',
 }
 
 // The thrown fill, held under the pointer. Neutral for the two neutral tones,

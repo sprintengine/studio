@@ -20,7 +20,12 @@ import {
   type BrowserTabState,
   type LocalServer,
 } from '../../shared/browser'
-import { BROWSER_ZOOM_LEVELS, nextZoomLevel, type BrowserColorScheme, type BrowserViewport } from '../../shared/browser-devices'
+import {
+  BROWSER_ZOOM_LEVELS,
+  nextZoomLevel,
+  type BrowserColorScheme,
+  type BrowserViewport,
+} from '../../shared/browser-devices'
 import { safeExternalUrl } from '../ipc/external-url'
 import { parsePsTree, type ProcRow } from '../terminal-subtree-probe'
 import { workspaceSidecarPath } from '../workspace-sidecar'
@@ -123,7 +128,9 @@ async function applyColorScheme(tab: BrowserTab): Promise<void> {
     // agent off mid-action.
     if (wc.debugger.isAttached()) {
       try {
-        await wc.debugger.sendCommand('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value: '' }] })
+        await wc.debugger.sendCommand('Emulation.setEmulatedMedia', {
+          features: [{ name: 'prefers-color-scheme', value: '' }],
+        })
       } catch {
         // The target may be mid-navigation; the reset is best-effort.
       }
@@ -366,7 +373,10 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
     // capturePage can hang on a guest that is mid-teardown; a bounded wait
     // turns that into a reported failure instead of a stuck toolbar.
     return new Promise((resolvePromise, reject) => {
-      const timer = setTimeout(() => reject(new Error('The page did not answer the capture in time.')), CAPTURE_TIMEOUT_MS)
+      const timer = setTimeout(
+        () => reject(new Error('The page did not answer the capture in time.')),
+        CAPTURE_TIMEOUT_MS,
+      )
       ;(rect ? wc.capturePage(rect) : wc.capturePage()).then(
         (image) => {
           clearTimeout(timer)
@@ -398,7 +408,8 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       // than a generic subscription needs.
       ;(wc as unknown as NodeJS.EventEmitter).on(event, handler as (...args: unknown[]) => void)
       disposers.push(() => {
-        if (!wc.isDestroyed()) (wc as unknown as NodeJS.EventEmitter).off(event, handler as (...args: unknown[]) => void)
+        if (!wc.isDestroyed())
+          (wc as unknown as NodeJS.EventEmitter).off(event, handler as (...args: unknown[]) => void)
       })
     }
 
@@ -464,45 +475,51 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
         error: { code: 0, description: `RENDERER_${details.reason.toUpperCase()}`, url: tab.state.url },
       })
     })
-    on('before-input-event', (event: { preventDefault: () => void }, input: {
-      type: string
-      key: string
-      meta: boolean
-      control: boolean
-      alt: boolean
-      shift: boolean
-    }) => {
-      if (input.type !== 'keyDown') return
-      if (tab.agentInputDepth === 0) humanTookOver(tab)
-      const primary = process.platform === 'darwin' ? input.meta : input.control
-      if (!primary) return
-      const key = input.key.toLowerCase()
-      if (key === 'r' && !input.alt) {
-        event.preventDefault()
-        if (input.shift) wc.reloadIgnoringCache()
-        else wc.reload()
-        return
-      }
-      if (key === 'l' && !input.shift && !input.alt) {
-        event.preventDefault()
-        if (!tab.host.isDestroyed()) tab.host.send('browser:focus-url', { tabId: tab.tabId })
-        return
-      }
-      const forwarded = HOST_FORWARDED_CHORDS.some(
-        (chord) => chord.key === key && chord.shift === input.shift && chord.alt === input.alt,
-      )
-      if (forwarded) {
-        event.preventDefault()
-        const hostKey: BrowserHostKey = {
-          key: input.key,
-          meta: input.meta,
-          ctrl: input.control,
-          alt: input.alt,
-          shift: input.shift,
+    on(
+      'before-input-event',
+      (
+        event: { preventDefault: () => void },
+        input: {
+          type: string
+          key: string
+          meta: boolean
+          control: boolean
+          alt: boolean
+          shift: boolean
+        },
+      ) => {
+        if (input.type !== 'keyDown') return
+        if (tab.agentInputDepth === 0) humanTookOver(tab)
+        const primary = process.platform === 'darwin' ? input.meta : input.control
+        if (!primary) return
+        const key = input.key.toLowerCase()
+        if (key === 'r' && !input.alt) {
+          event.preventDefault()
+          if (input.shift) wc.reloadIgnoringCache()
+          else wc.reload()
+          return
         }
-        if (!tab.host.isDestroyed()) tab.host.send('browser:host-key', { tabId: tab.tabId, key: hostKey })
-      }
-    })
+        if (key === 'l' && !input.shift && !input.alt) {
+          event.preventDefault()
+          if (!tab.host.isDestroyed()) tab.host.send('browser:focus-url', { tabId: tab.tabId })
+          return
+        }
+        const forwarded = HOST_FORWARDED_CHORDS.some(
+          (chord) => chord.key === key && chord.shift === input.shift && chord.alt === input.alt,
+        )
+        if (forwarded) {
+          event.preventDefault()
+          const hostKey: BrowserHostKey = {
+            key: input.key,
+            meta: input.meta,
+            ctrl: input.control,
+            alt: input.alt,
+            shift: input.shift,
+          }
+          if (!tab.host.isDestroyed()) tab.host.send('browser:host-key', { tabId: tab.tabId, key: hostKey })
+        }
+      },
+    )
 
     // The popup policy (epic decision 2): a real `window.open` with the
     // new-window disposition and an http(s) URL — an OAuth flow — gets a
@@ -649,7 +666,10 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       const preferred = activeTabByWorkspace.get(workspaceId)
       const tab = preferred ? requireTab(preferred) : null
       if (tab && tab.workspaceId === workspaceId) return tab
-      return [...tabs.values()].find((candidate) => candidate.workspaceId === workspaceId && !candidate.wc.isDestroyed()) ?? null
+      return (
+        [...tabs.values()].find((candidate) => candidate.workspaceId === workspaceId && !candidate.wc.isDestroyed()) ??
+        null
+      )
     },
 
     /** The tab this agent is driving, or null when it holds none that still exists. */
@@ -775,7 +795,8 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       try {
         const full = await capturePage(tab.wc)
         const fullSize = full.getSize()
-        if (fullSize.width === 0 || fullSize.height === 0) return { ok: false, message: 'The page had nothing to capture.' }
+        if (fullSize.width === 0 || fullSize.height === 0)
+          return { ok: false, message: 'The page had nothing to capture.' }
         let image = full
         if (input.rect) {
           // The guest reports CSS px; the capture is in the view's DIP, which
@@ -966,8 +987,18 @@ export function createBrowserManager(deps: BrowserManagerDeps) {
       // `-a -p <pids>` scopes lsof to the terminals' own subtrees: a full
       // `-iTCP` walk of every process on the machine takes seconds on macOS.
       const runLsof =
-        deps.runLsofListening
-        ?? (() => execFileTextOrNull('lsof', ['-nP', '-iTCP', '-sTCP:LISTEN', '-a', '-p', candidatePids.join(','), '-F', 'pcn']))
+        deps.runLsofListening ??
+        (() =>
+          execFileTextOrNull('lsof', [
+            '-nP',
+            '-iTCP',
+            '-sTCP:LISTEN',
+            '-a',
+            '-p',
+            candidatePids.join(','),
+            '-F',
+            'pcn',
+          ]))
       const lsofOut = await runLsof()
       if (lsofOut === null) return []
       const sockets = parseListeningSockets(lsofOut)

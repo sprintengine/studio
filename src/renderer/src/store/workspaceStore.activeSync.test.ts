@@ -103,10 +103,7 @@ function seedTwoWindows(): void {
     workspaces: [workspace('wsA1'), workspace('wsA2'), workspace('wsB1'), workspace('wsB2')],
     activeWorkspaceId: 'wsA1',
     primaryWorkspaceWindowId: 'A',
-    workspaceWindows: [
-      windowState('A', ['wsA1', 'wsA2'], 'wsA1'),
-      windowState('B', ['wsB1', 'wsB2'], 'wsB1'),
-    ],
+    workspaceWindows: [windowState('A', ['wsA1', 'wsA2'], 'wsA1'), windowState('B', ['wsB1', 'wsB2'], 'wsB1')],
     workspaceRegistryEmptyState: null,
   })
 }
@@ -144,7 +141,11 @@ assert.equal(
   'applying a broadcast for another window must not write the registry to localStorage (no storage echo)',
 )
 const afterForeign = useWorkspaceStore.getState()
-assert.equal(afterForeign.activeWorkspaceId, 'wsA1', "current window's global active workspace is not flipped by a foreign event")
+assert.equal(
+  afterForeign.activeWorkspaceId,
+  'wsA1',
+  "current window's global active workspace is not flipped by a foreign event",
+)
 assert.equal(
   afterForeign.workspaceWindows.find((w) => w.id === 'B')?.activeWorkspaceId,
   'wsB2',
@@ -232,11 +233,7 @@ writesBefore = registryWriteCount
 useWorkspaceStore.getState().setSidebarCollapsed(true)
 await new Promise<void>((resolve) => setTimeout(resolve, 10))
 
-assert.equal(
-  registryWriteCount,
-  writesBefore,
-  'a settings-only mutation after an imported event writes no registry',
-)
+assert.equal(registryWriteCount, writesBefore, 'a settings-only mutation after an imported event writes no registry')
 assert.equal(
   stored[WORKSPACE_STORAGE_KEY],
   frozenRegistryRaw,
@@ -285,7 +282,10 @@ assert.equal(registryCommands[2]!.payload.workspaceId, 'wsA2')
 
 // The optimistic apply still happened locally; main's answer reconciles it.
 assert.equal(useWorkspaceStore.getState().workspaces.find((w) => w.id === 'wsA1')?.name, 'Typed by hand')
-assert.equal(useWorkspaceStore.getState().workspaces.some((w) => w.id === 'wsA2'), false)
+assert.equal(
+  useWorkspaceStore.getState().workspaces.some((w) => w.id === 'wsA2'),
+  false,
+)
 console.log('workspaceStore.activeSync.test.ts: registry edits dispatch stamped commands — ok')
 
 console.log('workspaceStore.activeSync.test.ts: ok')

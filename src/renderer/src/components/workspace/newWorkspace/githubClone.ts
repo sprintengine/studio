@@ -8,9 +8,7 @@ import { validateCloneUrl } from '../../../../../shared/git-clone-url'
 
 type CloneSource = { url: string; repoName: string; label: string }
 
-export type CloneSourceResolution =
-  | { source: CloneSource; error: null }
-  | { source: null; error: string | null }
+export type CloneSourceResolution = { source: CloneSource; error: null } | { source: null; error: string | null }
 
 /**
  * The active clone source: a picked repository wins (picking clears the URL
@@ -18,10 +16,7 @@ export type CloneSourceResolution =
  * A blank URL draft is "nothing chosen yet" (error: null); a non-blank draft
  * that does not parse carries the validation error for inline display.
  */
-export function resolveCloneSource(
-  selectedRepo: GitHubRepoSummary | null,
-  urlDraft: string,
-): CloneSourceResolution {
+export function resolveCloneSource(selectedRepo: GitHubRepoSummary | null, urlDraft: string): CloneSourceResolution {
   if (selectedRepo) {
     return {
       source: {
@@ -43,15 +38,10 @@ export function resolveCloneSource(
 }
 
 /** Case-insensitive substring filter over full name and description. */
-export function filterGitHubRepos(
-  repos: readonly GitHubRepoSummary[],
-  filter: string,
-): GitHubRepoSummary[] {
+export function filterGitHubRepos(repos: readonly GitHubRepoSummary[], filter: string): GitHubRepoSummary[] {
   const needle = filter.trim().toLowerCase()
   if (!needle) return [...repos]
   return repos.filter(
-    (repo) =>
-      repo.fullName.toLowerCase().includes(needle)
-      || (repo.description ?? '').toLowerCase().includes(needle),
+    (repo) => repo.fullName.toLowerCase().includes(needle) || (repo.description ?? '').toLowerCase().includes(needle),
   )
 }

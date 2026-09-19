@@ -190,9 +190,10 @@ export class MulticodeAccountClient {
     code: string
     codeVerifier: string
   }): Promise<TokenSet> {
-    const tokenSet = input.identity.provider === CLERK_IDENTITY_PROVIDER
-      ? await this.exchangeClerkCode(input.identity, input)
-      : await this.exchangeMultiauthCode(input)
+    const tokenSet =
+      input.identity.provider === CLERK_IDENTITY_PROVIDER
+        ? await this.exchangeClerkCode(input.identity, input)
+        : await this.exchangeMultiauthCode(input)
 
     // A completed sign-in supersedes whatever was in flight: a resume that
     // lands after this must not put the previous session back.
@@ -219,17 +220,20 @@ export class MulticodeAccountClient {
         throw new Error(`No desktop refresh token is available for ${identity.provider}.`)
       }
 
-      const tokenSet = identity.provider === CLERK_IDENTITY_PROVIDER
-        ? await this.refreshClerk(identity, refreshToken)
-        : await this.refreshMultiauth(refreshToken)
+      const tokenSet =
+        identity.provider === CLERK_IDENTITY_PROVIDER
+          ? await this.refreshClerk(identity, refreshToken)
+          : await this.refreshMultiauth(refreshToken)
 
       await this.installSession(identity, tokenSet, generation)
       return tokenSet
     })()
     this.refreshInFlight = { provider: identity.provider, promise }
-    promise.finally(() => {
-      if (this.refreshInFlight?.promise === promise) this.refreshInFlight = null
-    }).catch(() => {})
+    promise
+      .finally(() => {
+        if (this.refreshInFlight?.promise === promise) this.refreshInFlight = null
+      })
+      .catch(() => {})
 
     return promise
   }
@@ -275,8 +279,9 @@ export class MulticodeAccountClient {
 
       this.log('identity-resume-failed', failures)
       throw new Error(
-        Object.entries(failures).map(([provider, reason]) => `${provider}: ${reason}`).join('; ')
-          || 'No desktop session is stored.'
+        Object.entries(failures)
+          .map(([provider, reason]) => `${provider}: ${reason}`)
+          .join('; ') || 'No desktop session is stored.',
       )
     })().finally(() => {
       this.resumeInFlight = null
@@ -301,13 +306,19 @@ export class MulticodeAccountClient {
     if (multiauthRefreshToken) {
       const controller = new AbortController()
       const timeout = setTimeout(() => controller.abort(), this.discoveryTimeoutMs)
-      await this.request<{ loggedOut: true }>('/api/auth/logout', {
-        method: 'POST',
-        body: JSON.stringify({ refreshToken: multiauthRefreshToken }),
-        signal: controller.signal,
-      }, { bearer: false }).catch((error) => {
-        this.log('server-logout-failed-local-session-cleared', { message: getErrorMessage(error) })
-      }).finally(() => clearTimeout(timeout))
+      await this.request<{ loggedOut: true }>(
+        '/api/auth/logout',
+        {
+          method: 'POST',
+          body: JSON.stringify({ refreshToken: multiauthRefreshToken }),
+          signal: controller.signal,
+        },
+        { bearer: false },
+      )
+        .catch((error) => {
+          this.log('server-logout-failed-local-session-cleared', { message: getErrorMessage(error) })
+        })
+        .finally(() => clearTimeout(timeout))
     }
 
     return { loggedOut: true }
@@ -344,7 +355,7 @@ export class MulticodeAccountClient {
     await this.ensureFreshAccessToken()
     const snapshot = await this.request<EntitlementSnapshot>(
       `/api/entitlements?product=${encodeURIComponent(this.product)}`,
-      { method: 'GET' }
+      { method: 'GET' },
     )
 
     if (this.selectedOrganizationId && snapshot.organizationId !== this.selectedOrganizationId) {
@@ -379,7 +390,7 @@ export class MulticodeAccountClient {
   private async identityForResume(
     provider: IdentityProviderKind,
     override: IdentityConfig | null,
-    marker: IdentityMarker | null
+    marker: IdentityMarker | null,
   ): Promise<IdentityConfig | null> {
     if (override?.provider === provider) return override
     if (provider === MULTIAUTH_IDENTITY_PROVIDER) return { provider: MULTIAUTH_IDENTITY_PROVIDER }
@@ -398,45 +409,63 @@ export class MulticodeAccountClient {
     }
   }
 
-  private async exchangeMultiauthCode(input: { redirectUri: string; code: string; codeVerifier: string }): Promise<TokenSet> {
-    const payload = await this.request<unknown>('/api/auth/desktop/exchange', {
-      method: 'POST',
-      body: JSON.stringify({
-        clientId: this.clientId,
-        redirectUri: input.redirectUri,
-        code: input.code,
-        codeVerifier: input.codeVerifier,
-      }),
-    }, { bearer: false })
+  private async exchangeMultiauthCode(input: {
+    redirectUri: string
+    code: string
+    codeVerifier: string
+  }): Promise<TokenSet> {
+    const payload = await this.request<unknown>(
+      '/api/auth/desktop/exchange',
+      {
+        method: 'POST',
+        body: JSON.stringify({
+          clientId: this.clientId,
+          redirectUri: input.redirectUri,
+          code: input.code,
+          codeVerifier: input.codeVerifier,
+        }),
+      },
+      { bearer: false },
+    )
     return parseMultiauthTokenResponse(payload)
   }
 
   private async refreshMultiauth(refreshToken: string): Promise<TokenSet> {
-    const payload = await this.request<unknown>('/api/auth/refresh', {
-      method: 'POST',
-      body: JSON.stringify({ clientId: this.clientId, refreshToken }),
-    }, { bearer: false })
+    const payload = await this.request<unknown>(
+      '/api/auth/refresh',
+      {
+        method: 'POST',
+        body: JSON.stringify({ clientId: this.clientId, refreshToken }),
+      },
+      { bearer: false },
+    )
     return parseMultiauthTokenResponse(payload)
   }
 
   private async exchangeClerkCode(
     identity: ClerkIdentityConfig,
-    input: { redirectUri: string; code: string; codeVerifier: string }
+    input: { redirectUri: string; code: string; codeVerifier: string },
   ): Promise<TokenSet> {
-    const payload = await this.requestClerkToken(identity, buildClerkCodeExchangeBody({
-      clientId: identity.clientId,
-      redirectUri: input.redirectUri,
-      code: input.code,
-      codeVerifier: input.codeVerifier,
-    }))
+    const payload = await this.requestClerkToken(
+      identity,
+      buildClerkCodeExchangeBody({
+        clientId: identity.clientId,
+        redirectUri: input.redirectUri,
+        code: input.code,
+        codeVerifier: input.codeVerifier,
+      }),
+    )
     return parseClerkTokenResponse(payload)
   }
 
   private async refreshClerk(identity: ClerkIdentityConfig, refreshToken: string): Promise<TokenSet> {
-    const payload = await this.requestClerkToken(identity, buildClerkRefreshBody({
-      clientId: identity.clientId,
-      refreshToken,
-    }))
+    const payload = await this.requestClerkToken(
+      identity,
+      buildClerkRefreshBody({
+        clientId: identity.clientId,
+        refreshToken,
+      }),
+    )
     return parseClerkTokenResponse(payload, refreshToken)
   }
 
@@ -449,7 +478,7 @@ export class MulticodeAccountClient {
       },
       body: body.toString(),
     })
-    const payload = await response.json().catch(() => ({})) as unknown
+    const payload = (await response.json().catch(() => ({}))) as unknown
 
     if (!response.ok) {
       throw new Error(readTokenErrorMessage(payload, `Clerk token request failed (${response.status}).`))
@@ -479,7 +508,7 @@ export class MulticodeAccountClient {
       ...init,
       headers,
     })
-    const payload = await response.json().catch(() => ({})) as unknown
+    const payload = (await response.json().catch(() => ({}))) as unknown
 
     if (!response.ok) {
       throw new Error(readTokenErrorMessage(payload, 'Account service request failed.'))
@@ -530,7 +559,8 @@ function optionalString(value: unknown): string | null {
 export function parseAccountProfile(payload: unknown): AccountProfile | null {
   if (!payload || typeof payload !== 'object') return null
   const { user, selectedOrganization } = payload as { user?: unknown; selectedOrganization?: unknown }
-  if (!user || typeof user !== 'object' || !selectedOrganization || typeof selectedOrganization !== 'object') return null
+  if (!user || typeof user !== 'object' || !selectedOrganization || typeof selectedOrganization !== 'object')
+    return null
   const u = user as Record<string, unknown>
   const o = selectedOrganization as Record<string, unknown>
   if (typeof u.id !== 'string' || !u.id || typeof o.id !== 'string' || !o.id) return null

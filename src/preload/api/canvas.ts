@@ -9,11 +9,7 @@ import type {
   CanvasResult,
   CanvasScenePush,
 } from '../../shared/canvas/types'
-import type {
-  CanvasWorkerReport,
-  CanvasWorkerRequest,
-  CanvasWorkerResponse,
-} from '../../shared/canvas/worker-protocol'
+import type { CanvasWorkerReport, CanvasWorkerRequest, CanvasWorkerResponse } from '../../shared/canvas/worker-protocol'
 import type { ElectronApi } from '../../shared/electron-api'
 
 // The Canvas pane's passthrough. Two audiences share it: the workspace window's

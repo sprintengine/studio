@@ -53,10 +53,10 @@ run('counts long frames over the 50ms threshold and computes percent', () => {
 })
 
 run('windowMs excludes stale frames', () => {
-  const summary = summarizeFrameStats(
-    [frame(500, NOW - 30_000), frame(16, NOW - 1_000), frame(17, NOW - 500)],
-    { now: NOW, windowMs: 5_000 }
-  )
+  const summary = summarizeFrameStats([frame(500, NOW - 30_000), frame(16, NOW - 1_000), frame(17, NOW - 500)], {
+    now: NOW,
+    windowMs: 5_000,
+  })
   assert.equal(summary.frameCount, 2)
   assert.equal(summary.longFrameCount, 0)
   assert.equal(summary.maxMs, 17)

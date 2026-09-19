@@ -80,7 +80,7 @@ async function main(): Promise<void> {
     assert.match(
       triggers[0].getAttribute('aria-label') ?? '',
       /Collapse Changes/,
-      'the name says what collapses — it is read out of the band\'s context',
+      "the name says what collapses — it is read out of the band's context",
     )
     view.unmount()
   })
@@ -260,7 +260,11 @@ async function main(): Promise<void> {
       />,
     )
     assert.equal(view.band.hasAttribute('role'), false)
-    assert.equal(view.band.hasAttribute('tabindex'), false, 'three controls sit in it; a fourth wrapper would be a composite widget nobody asked for')
+    assert.equal(
+      view.band.hasAttribute('tabindex'),
+      false,
+      'three controls sit in it; a fourth wrapper would be a composite widget nobody asked for',
+    )
     view.unmount()
   })
 

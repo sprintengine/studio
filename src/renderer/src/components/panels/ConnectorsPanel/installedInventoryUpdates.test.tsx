@@ -118,11 +118,7 @@ const api: Record<string, unknown> = {
         ],
       }
     }
-    const state = aheadOfRegistry
-      ? 'ahead-of-registry'
-      : installedVersion < 2
-        ? 'update-available'
-        : 'current'
+    const state = aheadOfRegistry ? 'ahead-of-registry' : installedVersion < 2 ? 'update-available' : 'current'
     return {
       ok: true,
       checked: true,
@@ -161,7 +157,15 @@ const api: Record<string, unknown> = {
   },
   cliUpdate: async (cli: string) => {
     calls.cliUpdate.push(cli)
-    return { ok: true, cli, installed: true, version: '2.4.2', resolvedPath: '/usr/local/bin/claude', log: '', error: null }
+    return {
+      ok: true,
+      cli,
+      installed: true,
+      version: '2.4.2',
+      resolvedPath: '/usr/local/bin/claude',
+      log: '',
+      error: null,
+    }
   },
   terminalList: async () => [],
 }
@@ -197,9 +201,8 @@ const cursorEntry = {
 }
 
 function findButton(scope: ParentNode, label: RegExp): HTMLButtonElement | null {
-  return ([...scope.querySelectorAll('button')].find((candidate) =>
-    label.test(candidate.textContent ?? ''),
-  ) ?? null) as HTMLButtonElement | null
+  return ([...scope.querySelectorAll('button')].find((candidate) => label.test(candidate.textContent ?? '')) ??
+    null) as HTMLButtonElement | null
 }
 
 async function main(): Promise<void> {
@@ -434,14 +437,10 @@ async function sourceOwnedServersNameTheirSourceAndSayWhenTheyLeaveIt(): Promise
   // out of the row and clips itself.
   assert.match(text, /Active · No longer in source/, 'a server its source dropped says so on its state line')
   assert.match(text, /Departed/, 'and is still listed rather than deleted')
-  assert.equal(
-    (text.match(/No longer in source/g) ?? []).length,
-    1,
-    'only the server that actually left says it',
-  )
+  assert.equal((text.match(/No longer in source/g) ?? []).length, 1, 'only the server that actually left says it')
   // The state is on the row that lost its source, not on the group.
-  const rows = [...host.querySelectorAll('*')].filter(
-    (node) => (node.textContent ?? '').includes('No longer in source'),
+  const rows = [...host.querySelectorAll('*')].filter((node) =>
+    (node.textContent ?? '').includes('No longer in source'),
   )
   assert.ok(rows.length > 0)
   root.unmount()

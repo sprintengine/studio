@@ -320,7 +320,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
 export function resolveSocketPath(
   userDataDir: string,
   platform: NodeJS.Platform = process.platform,
-  temporaryDir: string = tmpdir()
+  temporaryDir: string = tmpdir(),
 ): string {
   if (platform === 'win32') {
     return `\\\\.\\pipe\\multicode-automation-${profileHash(userDataDir)}`
@@ -347,7 +347,7 @@ function writeServerInfo(userDataDir: string, socketPath: string, appVersion: st
       startedAt: new Date().toISOString(),
     },
     null,
-    2
+    2,
   )}\n`
   // Canonical discovery plus the legacy filename for existing bridge clients.
   for (const filename of [STUDIO_MCP_SERVER_INFO_FILENAME, AUTOMATION_SERVER_INFO_FILENAME]) {

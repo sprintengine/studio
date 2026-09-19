@@ -7,16 +7,11 @@ import type {
 } from '../../shared/electron-api'
 import type { AgentConfigImportService } from '../agent-config-import'
 
-export function registerAgentConfigImportIpc(
-  ipcMain: IpcMain,
-  service: AgentConfigImportService,
-): void {
-  ipcMain.handle(
-    'agent-config:detect',
-    (_, input?: AgentConfigDetectInput): Promise<AgentConfigDetectResult> => service.detect(input),
+export function registerAgentConfigImportIpc(ipcMain: IpcMain, service: AgentConfigImportService): void {
+  ipcMain.handle('agent-config:detect', (_, input?: AgentConfigDetectInput): Promise<AgentConfigDetectResult> =>
+    service.detect(input),
   )
-  ipcMain.handle(
-    'agent-config:adopt',
-    (_, input: AgentConfigAdoptInput): Promise<AgentConfigAdoptResult> => service.adopt(input),
+  ipcMain.handle('agent-config:adopt', (_, input: AgentConfigAdoptInput): Promise<AgentConfigAdoptResult> =>
+    service.adopt(input),
   )
 }

@@ -15,7 +15,9 @@ import type { GhResult, GhRunner } from './github/gh'
 import { emptyAgentLaunchSettings } from '../shared/launch-settings'
 
 type RuntimeModule = typeof import('./terminal-runtime')
-type SyncMcpConfig = NonNullable<Parameters<typeof import('./terminal-runtime')['createTerminalRuntime']>[0]['syncMcpConfig']>
+type SyncMcpConfig = NonNullable<
+  Parameters<(typeof import('./terminal-runtime'))['createTerminalRuntime']>[0]['syncMcpConfig']
+>
 type SyncInput = Parameters<SyncMcpConfig>[0]
 type SyncResult = Awaited<ReturnType<SyncMcpConfig>>
 type TerminalRuntime = ReturnType<RuntimeModule['createTerminalRuntime']>
@@ -35,9 +37,9 @@ type MockPtyProcess = {
   resize(cols: number, rows: number): void
   kill(): void
   onData(callback: (data: string) => void): { dispose(): void }
-  onExit(callback: (event: { exitCode: number, signal?: number }) => void): { dispose(): void }
+  onExit(callback: (event: { exitCode: number; signal?: number }) => void): { dispose(): void }
   emitData(data: string): void
-  emitExit(event?: { exitCode: number, signal?: number }): void
+  emitExit(event?: { exitCode: number; signal?: number }): void
   writes: string[]
   killed: boolean
 }
@@ -111,7 +113,7 @@ const originalLoad = moduleWithLoad._load
 moduleWithLoad._load = function loadWithMainProcessMocks(
   request: string,
   parent: NodeModule | null,
-  isMain: boolean
+  isMain: boolean,
 ): unknown {
   if (request === 'electron') return mockElectron
   if (request === 'node-pty') return mockPty
@@ -179,7 +181,7 @@ async function main(): Promise<void> {
 // shape — to the real code.
 function pinAgentCliPreflight(
   runtimeModule: RuntimeModule,
-  detect: { installed: boolean, resolvedPath?: string | null },
+  detect: { installed: boolean; resolvedPath?: string | null },
 ): void {
   runtimeModule.__setAgentCliPreflightForTest({
     platform: 'darwin',
@@ -271,14 +273,14 @@ async function assertPendingWakeupFrameHoldsIdleReaper(runtimeModule: RuntimeMod
     const restedButPending = scheduledAt + 30 * 60 * 1000
     assert.ok(
       !runtimeModule.runIdleAgentReapSweep(restedButPending).includes('session-wakeup'),
-      'an idle agent with a pending wakeup must be held by the pure policy'
+      'an idle agent with a pending wakeup must be held by the pure policy',
     )
 
     // 70 minutes on: the wake time passed with no re-arm — reaps normally.
     const wakeupExpired = scheduledAt + 70 * 60 * 1000
     assert.ok(
       runtimeModule.runIdleAgentReapSweep(wakeupExpired).includes('session-wakeup'),
-      'an expired wakeup must not park the session'
+      'an expired wakeup must not park the session',
     )
   } finally {
     runtime.ipcHandlers.killTerminal('session-wakeup')
@@ -313,9 +315,10 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
         return { gitRoot: workspaceRoot, repoRoot: workspaceRoot, branch: 'main', isLinkedWorktree: false }
       }
       if (cwd === '/unanswerable') return null
-      if (cwd === '/gone') return gone
-        ? { gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false, missing: true }
-        : { gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false }
+      if (cwd === '/gone')
+        return gone
+          ? { gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false, missing: true }
+          : { gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false }
       return { gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false }
     },
   })
@@ -385,12 +388,12 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
     assert.equal(snapshot()?.observedCheckout?.resolved, false)
     assert.ok(
       !mockSender.sent.some((event) => event.channel === 'terminal:sessions-changed'),
-      'the move itself does not broadcast (unresolved renders as launch intent — a flicker)'
+      'the move itself does not broadcast (unresolved renders as launch intent — a flicker)',
     )
     await settle()
     assert.ok(
       mockSender.sent.some((event) => event.channel === 'terminal:sessions-changed'),
-      'git answering broadcasts, even though thinking↔tool_use churn does not'
+      'git answering broadcasts, even though thinking↔tool_use churn does not',
     )
     const wt = snapshot()?.observedCheckout
     assert.equal(wt?.resolved, true)
@@ -408,7 +411,9 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
     // moves the cwd: the observation is applied before the phase drop.
     const t2 = t1 + 1000
     const insideSrc = join(workspaceRoot, 'src')
-    runtime.ingestAgentStateFrame(frame({ event: 'Notification', notificationType: 'idle_prompt', ts: t2, cwd: insideSrc }))
+    runtime.ingestAgentStateFrame(
+      frame({ event: 'Notification', notificationType: 'idle_prompt', ts: t2, cwd: insideSrc }),
+    )
     assert.equal(snapshot()?.observedCheckout?.cwd, insideSrc, 'a phase-dropped frame still observes the cwd')
     await settle()
     assert.equal(snapshot()?.observedCheckout?.gitRoot, workspaceRoot, 'a subdirectory resolves to its checkout')
@@ -446,7 +451,7 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
     assert.equal(snapshot()?.observedCheckout?.resolved, false, 'null from the resolver stays unresolved')
     assert.ok(
       mockSender.sent.some((event) => event.channel === 'terminal:sessions-changed'),
-      'an unanswerable move still broadcasts the unresolved observation'
+      'an unanswerable move still broadcasts the unresolved observation',
     )
 
     // A directory that vanished reads missing; when it comes back as a plain
@@ -463,7 +468,9 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
 
     // A slow resolution that finishes after a newer cwd arrived is discarded.
     let release: () => void = () => undefined
-    blockResolution = new Promise<void>((resolve) => { release = resolve })
+    blockResolution = new Promise<void>((resolve) => {
+      release = resolve
+    })
     const t4 = t3 + 1000
     runtime.ingestAgentStateFrame(frame({ ts: t4, cwd: '/race/wt' }))
     await settle()
@@ -500,7 +507,11 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
     })
     assert.equal(resumed.ok, true, JSON.stringify(resumed))
     assert.equal(snapshot()?.suspended, false)
-    assert.equal(snapshot()?.observedCheckout?.cwd, '/race/src', 'resume carries the observation onto the fresh session')
+    assert.equal(
+      snapshot()?.observedCheckout?.cwd,
+      '/race/src',
+      'resume carries the observation onto the fresh session',
+    )
     assert.equal(snapshot()?.observedCheckout?.gitRoot, workspaceRoot)
 
     // A second session launched into a directory another session answered
@@ -545,7 +556,7 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
       return false
     })
     await settle()
-    assert.ok(seen.includes(sessionId), 'every live session is offered to the record\'s filter')
+    assert.ok(seen.includes(sessionId), "every live session is offered to the record's filter")
     assert.equal(broadcasts(), broadcastsBeforeRecord, 'a change no live session is on never repaints a window')
 
     runtimeModule.notePullRequestRecordChanged((session) => session.sessionId === sessionId)
@@ -563,9 +574,7 @@ async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule
 // frame for a dead pty), and the wakeup a listener sees must be the one armed on
 // the SESSION — the turn-end frame that a consumer acts on never carries one, so
 // a passthrough of frame.wakeup would read "no wakeup" for every self-paced agent.
-async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
-  runtimeModule: RuntimeModule
-): Promise<void> {
+async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-phase-'))
   mockPty.spawnCalls = []
   mockSender.sent = []
@@ -605,7 +614,9 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
     return spawned
   }
 
-  const frame = (overrides: Partial<AgentStateFrame> & Pick<AgentStateFrame, 'phase' | 'event' | 'ts'>): AgentStateFrame => ({
+  const frame = (
+    overrides: Partial<AgentStateFrame> & Pick<AgentStateFrame, 'phase' | 'event' | 'ts'>,
+  ): AgentStateFrame => ({
     type: 'agent_state',
     agentId: 'agent-phase',
     workspaceId: 'ws-phase',
@@ -626,31 +637,31 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
 
     // Mid-turn: the ScheduleWakeup PostToolUse frame is the ONLY frame the
     // reporter ever attaches a wakeup to.
-    runtime.ingestAgentStateFrame(frame({
-      phase: 'thinking',
-      event: 'PostToolUse',
-      ts: scheduledAt,
-      wakeup: { delaySeconds: 20 * 60 },
-    }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        phase: 'thinking',
+        event: 'PostToolUse',
+        ts: scheduledAt,
+        wakeup: { delaySeconds: 20 * 60 },
+      }),
+    )
     // Turn end: carries no wakeup of its own, but must still report the armed one.
-    runtime.ingestAgentStateFrame(frame({
-      phase: 'idle',
-      event: 'Stop',
-      ts: scheduledAt + 1_000,
-      transcriptPath: '/tmp/transcript.jsonl',
-    }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        phase: 'idle',
+        event: 'Stop',
+        ts: scheduledAt + 1_000,
+        transcriptPath: '/tmp/transcript.jsonl',
+      }),
+    )
     await delay(20)
 
     assert.deepEqual(
       events.map((event) => event.event),
       ['PostToolUse', 'Stop'],
-      'the raw reporter event name must ride the event unmodified, and a throwing listener ahead of this one must not have suppressed delivery'
+      'the raw reporter event name must ride the event unmodified, and a throwing listener ahead of this one must not have suppressed delivery',
     )
-    assert.equal(
-      listenerFailures.length,
-      2,
-      'each faulting listener call must be reported, not swallowed'
-    )
+    assert.equal(listenerFailures.length, 2, 'each faulting listener call must be reported, not swallowed')
     assert.deepEqual(
       events[1],
       {
@@ -668,29 +679,33 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
         pendingWakeupAt: wakeupAt,
         transcriptPath: '/tmp/transcript.jsonl',
       },
-      'a turn end must report the session-resolved pending wakeup, not the frame’s (absent) one'
+      'a turn end must report the session-resolved pending wakeup, not the frame’s (absent) one',
     )
     assert.ok(
       (events[1]?.pendingWakeupAt ?? 0) > Date.now(),
-      'the armed wakeup must still be in the future on the turn-end event'
+      'the armed wakeup must still be in the future on the turn-end event',
     )
 
     // What the conversation peek reads off the session, left there by these same
     // frames: the transcript the turn end named, and every prompt seen since
     // launch. The prompt list is the peek's LIVE fallback — the only source for
     // a runtime that reports prompts but hands us no transcript.
-    runtime.ingestAgentStateFrame(frame({
-      phase: 'thinking',
-      event: 'UserPromptSubmit',
-      ts: scheduledAt + 2_000,
-      prompt: 'Check whether the prompt is persisted anywhere',
-    }))
-    runtime.ingestAgentStateFrame(frame({
-      phase: 'thinking',
-      event: 'UserPromptSubmit',
-      ts: scheduledAt + 3_000,
-      prompt: 'Use the design system for this',
-    }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        phase: 'thinking',
+        event: 'UserPromptSubmit',
+        ts: scheduledAt + 2_000,
+        prompt: 'Check whether the prompt is persisted anywhere',
+      }),
+    )
+    runtime.ingestAgentStateFrame(
+      frame({
+        phase: 'thinking',
+        event: 'UserPromptSubmit',
+        ts: scheduledAt + 3_000,
+        prompt: 'Use the design system for this',
+      }),
+    )
     assert.deepEqual(
       runtime.readConversationPeekSessionState('session-phase'),
       {
@@ -714,12 +729,12 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
           { text: 'Use the design system for this', at: scheduledAt + 3_000 },
         ],
       },
-      'the peek must see the turn end’s transcript, the launch cwd and every prompt since launch'
+      'the peek must see the turn end’s transcript, the launch cwd and every prompt since launch',
     )
     assert.equal(
       runtime.readConversationPeekSessionState('session-nonexistent'),
       null,
-      'a session that does not exist answers null, not an empty peek'
+      'a session that does not exist answers null, not an empty peek',
     )
 
     // A stale frame (older than the recorded phase) is rejected upstream of the
@@ -742,17 +757,19 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
     unregister()
     unregisterThrowing()
     const pty2 = await spawnAgentTerminal('session-phase-2', 'agent-phase-2')
-    runtime.ingestAgentStateFrame(frame({
-      agentId: 'agent-phase-2',
-      phase: 'idle',
-      event: 'Stop',
-      ts: Date.now(),
-    }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        agentId: 'agent-phase-2',
+        phase: 'idle',
+        event: 'Stop',
+        ts: Date.now(),
+      }),
+    )
     await delay(20)
     assert.equal(
       events.some((event) => event.agentId === 'agent-phase-2'),
       false,
-      'an unregistered listener must not receive further phase events'
+      'an unregistered listener must not receive further phase events',
     )
 
     // A consumer's reaction to a phase event is asynchronous — summarize the
@@ -769,12 +786,14 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
       await finalization
       finalizationCompleted = true
     })
-    runtime.ingestAgentStateFrame(frame({
-      agentId: 'agent-phase-2',
-      phase: 'idle',
-      event: 'Stop',
-      ts: Date.now(),
-    }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        agentId: 'agent-phase-2',
+        phase: 'idle',
+        event: 'Stop',
+        ts: Date.now(),
+      }),
+    )
 
     let shutdownSettled = false
     const shutdownComplete = runtime.shutdown().then(() => {
@@ -785,20 +804,12 @@ async function assertAgentPhaseListenerFiresOnlyForAcceptedFrames(
     await delay(20)
     pty2.emitExit({ exitCode: 0 })
     await delay(100)
-    assert.equal(
-      shutdownSettled,
-      false,
-      'shutdown must not settle while a phase listener is still finalizing'
-    )
+    assert.equal(shutdownSettled, false, 'shutdown must not settle while a phase listener is still finalizing')
 
     releaseFinalization()
     await shutdownComplete
     unregisterSlow()
-    assert.equal(
-      finalizationCompleted,
-      true,
-      'shutdown must drain in-flight phase-listener work'
-    )
+    assert.equal(finalizationCompleted, true, 'shutdown must drain in-flight phase-listener work')
   } finally {
     console.error = originalConsoleError
     unregister()
@@ -822,8 +833,7 @@ async function assertHeadlessSpawnAttachesToLaterWindow(runtimeModule: RuntimeMo
     logMainPerfEvent: () => undefined,
   })
 
-  const { createHeadlessTerminalSender } = require('./terminal-session') as
-    typeof import('./terminal-session')
+  const { createHeadlessTerminalSender } = require('./terminal-session') as typeof import('./terminal-session')
 
   const headless = await runtime.ipcHandlers.spawnTerminal(createHeadlessTerminalSender(), {
     sessionId: 'session-headless',
@@ -867,7 +877,7 @@ async function assertHeadlessSpawnAttachesToLaterWindow(runtimeModule: RuntimeMo
     assert.ok(replay, 'reattach replays scrollback to the newly attached window')
     assert.ok(
       String(replay?.payload ?? '').includes('headless output before any window'),
-      'replay carries output produced while headless'
+      'replay carries output produced while headless',
     )
   } finally {
     runtime.ipcHandlers.killTerminal('session-headless')
@@ -913,17 +923,19 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
   })
 
   try {
-    const launched = await withNoWindows(() => service.launch({
-      workspaceId: 'ws-headless-launch',
-      prompt: 'Audit the auth flow.',
-    }))
+    const launched = await withNoWindows(() =>
+      service.launch({
+        workspaceId: 'ws-headless-launch',
+        prompt: 'Audit the auth flow.',
+      }),
+    )
     assert.equal(launched.ok, true, JSON.stringify(launched))
     if (!launched.ok) return
     assert.equal(mockPty.spawnCalls.length, 1, 'a windowless agent.launch still creates the pty')
     assert.equal(
       (await runtime.ipcHandlers.getTerminalStatus(launched.sessionId)).processAlive,
       true,
-      'the launched session is live with no window open'
+      'the launched session is live with no window open',
     )
 
     // The composition main did, read off the real launch: the user's CLI and
@@ -974,7 +986,7 @@ async function assertAgentLaunchServiceLaunchesWithNoWindows(runtimeModule: Runt
     assert.ok(replay, 'the later window replays the headless launch scrollback')
     assert.ok(
       String(replay?.payload ?? '').includes('launched output before any window'),
-      'replay carries output produced while headless'
+      'replay carries output produced while headless',
     )
   } finally {
     // Restore the file-wide empty-registry pin, NOT `null`. Clearing the
@@ -1047,11 +1059,11 @@ async function assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule:
     })
     assert.ok(
       !heldSweep.idleReaped.includes('session-bg-shell'),
-      'an idle agent with a live background tool shell must be held, not reaped'
+      'an idle agent with a live background tool shell must be held, not reaped',
     )
     assert.ok(
       heldSweep.idleReaped.includes('session-guard-quiet'),
-      'an idle agent whose subtree probes clean must still reap in the same sweep'
+      'an idle agent whose subtree probes clean must still reap in the same sweep',
     )
     assert.equal(busyProcess.killed, false, 'holding must not touch the pty')
 
@@ -1066,7 +1078,7 @@ async function assertGuardedSweepHoldsSessionsWithLiveSubtreeWork(runtimeModule:
     })
     assert.ok(
       cleanSweep.idleReaped.includes('session-bg-shell'),
-      'once the background work finishes the held session must reap on the next sweep'
+      'once the background work finishes the held session must reap on the next sweep',
     )
   } finally {
     runtime.ipcHandlers.killTerminal('session-bg-shell')
@@ -1135,7 +1147,7 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
     assert.deepEqual(
       runtimeModule.runIdleAgentReapSweep(Date.now()),
       [],
-      'recently active agents must not be suspended'
+      'recently active agents must not be suspended',
     )
 
     // Past the idle threshold: both hookless idle agents reap; the awaiting_input
@@ -1145,7 +1157,7 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
     assert.deepEqual(
       reaped,
       ['session-idle-b', 'session-old'],
-      'every idle agent past the threshold reaps; the awaiting_input agent does not'
+      'every idle agent past the threshold reaps; the awaiting_input agent does not',
     )
 
     // Suspend finalizes when the killed pty reports exit.
@@ -1158,19 +1170,19 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
     assert.deepEqual(
       oldStatus,
       { processAlive: false, suspended: true },
-      'reaped agent must be suspended (frozen + resumable), not gone'
+      'reaped agent must be suspended (frozen + resumable), not gone',
     )
 
     const stillListed = runtime.ipcHandlers.listTerminals().map((session) => session.sessionId)
     assert.ok(
       stillListed.includes('session-old'),
-      'suspended session must be retained so its painted scrollback can replay on reopen'
+      'suspended session must be retained so its painted scrollback can replay on reopen',
     )
 
     assert.equal(
       mockSender.sent.some((event) => event.channel === 'terminal:exit:session-old'),
       false,
-      'a suspend is not an exit: the view must stay painted, so no terminal:exit is emitted'
+      'a suspend is not an exit: the view must stay painted, so no terminal:exit is emitted',
     )
 
     // The awaiting-input agent stays live: a terminal blocked on the user must
@@ -1178,7 +1190,7 @@ async function assertIdleSweepSuspendsRatherThanDisposes(runtimeModule: RuntimeM
     assert.deepEqual(
       await runtime.ipcHandlers.getTerminalStatus('session-awaiting'),
       { processAlive: true, suspended: false },
-      'an agent awaiting user input must never be suspended by the reaper'
+      'an agent awaiting user input must never be suspended by the reaper',
     )
   } finally {
     await runtime.shutdown()
@@ -1246,15 +1258,11 @@ async function assertSuspendSettlesAWorkingAgentToRest(runtimeModule: RuntimeMod
     const frozen = runtime.ipcHandlers.listTerminals().find((s) => s.sessionId === sessionId)
     assert.equal(frozen?.suspended, true, 'the session is still there, frozen and resumable')
     assert.equal(frozen?.processAlive, false)
-    assert.equal(
-      frozen?.activity.kind,
-      'idle',
-      'a paused chat must not keep claiming a turn in flight'
-    )
+    assert.equal(frozen?.activity.kind, 'idle', 'a paused chat must not keep claiming a turn in flight')
     assert.equal(
       frozen?.agentState?.phase,
       'idle',
-      'the phase describes a process that no longer exists; it settles with it'
+      'the phase describes a process that no longer exists; it settles with it',
     )
   } finally {
     await runtime.shutdown()
@@ -1329,7 +1337,7 @@ async function assertIdleSweepRecencyFloorSparesMostRecent(runtimeModule: Runtim
     assert.deepEqual(
       runtimeModule.runIdleAgentReapSweep(wellPastIdle),
       ['floor-old'],
-      'the sweep must reap only down to the keep-alive floor, oldest-rested first'
+      'the sweep must reap only down to the keep-alive floor, oldest-rested first',
     )
 
     // Finalize the suspend (the killed pty reports exit) so the suspended
@@ -1341,7 +1349,7 @@ async function assertIdleSweepRecencyFloorSparesMostRecent(runtimeModule: Runtim
     assert.deepEqual(
       runtimeModule.runIdleAgentReapSweep(wellPastIdle + 60_000),
       [],
-      'the spared agents form the floor and must stay alive on subsequent sweeps'
+      'the spared agents form the floor and must stay alive on subsequent sweeps',
     )
   } finally {
     runtimeModule.setKeepRecentTerminalsAlive(0)
@@ -1355,9 +1363,7 @@ async function assertIdleSweepRecencyFloorSparesMostRecent(runtimeModule: Runtim
 // 2. Revealing a suspended session resends the painted replay even when main
 //    already has visible=true (a renderer reload/remount can miss the unmount
 //    hide; edge-triggered reveal left the fresh xterm blank under "Paused").
-async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(
-  runtimeModule: RuntimeModule
-): Promise<void> {
+async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-lock-'))
   mockPty.spawnCalls = []
   mockSender.sent = []
@@ -1394,7 +1400,7 @@ async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(
     assert.equal(
       runtime.ipcHandlers.listTerminals().find((s) => s.sessionId === 'session-lock-a')?.reapExempt,
       true,
-      'the lock must surface on the session snapshot for the renderer control'
+      'the lock must surface on the session snapshot for the renderer control',
     )
 
     // Idle sweep well past the threshold: only the unlocked agent is suspended.
@@ -1402,14 +1408,14 @@ async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(
     assert.deepEqual(
       runtimeModule.runIdleAgentReapSweep(wellPastIdle),
       ['session-lock-b'],
-      'the locked agent must survive the idle sweep'
+      'the locked agent must survive the idle sweep',
     )
     mockPty.spawnCalls[1]?.process.emitExit({ exitCode: 0 })
     await delay(20)
-    assert.deepEqual(
-      await runtime.ipcHandlers.getTerminalStatus('session-lock-b'),
-      { processAlive: false, suspended: true }
-    )
+    assert.deepEqual(await runtime.ipcHandlers.getTerminalStatus('session-lock-b'), {
+      processAlive: false,
+      suspended: true,
+    })
 
     // Idempotent reveal: the first setVisible(true) is the hidden→visible edge;
     // the second finds visible already true and must STILL resend the replay —
@@ -1422,21 +1428,17 @@ async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(
     assert.equal(replays.length, 2, 'suspended reveal must resend the replay even when already visible')
     assert.ok(
       replays.every((event) => typeof event.payload === 'string' && event.payload.length > 0),
-      'suspended reveal replays must carry painted content'
+      'suspended reveal replays must carry painted content',
     )
 
     // 24h stale backstop: the locked agent is hidden and unseen well past the
     // stale window, but the lock is absolute — dispose is forbidden too.
     const wellPastStale = Date.now() + 25 * 60 * 60 * 1000
     const staleReaped = runtimeModule.reapStaleTerminals(wellPastStale)
-    assert.equal(
-      staleReaped.includes('session-lock-a'),
-      false,
-      'the locked agent must survive the stale backstop'
-    )
+    assert.equal(staleReaped.includes('session-lock-a'), false, 'the locked agent must survive the stale backstop')
     assert.ok(
       runtime.ipcHandlers.listTerminals().some((s) => s.sessionId === 'session-lock-a'),
-      'the locked agent must still be listed after the stale sweep'
+      'the locked agent must still be listed after the stale sweep',
     )
 
     // Unlock → the very next idle sweep reclaims it.
@@ -1444,7 +1446,7 @@ async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(
     assert.deepEqual(
       runtimeModule.runIdleAgentReapSweep(wellPastIdle),
       ['session-lock-a'],
-      'unlocking must make the agent reapable again'
+      'unlocking must make the agent reapable again',
     )
   } finally {
     await runtime.shutdown()
@@ -1457,7 +1459,7 @@ async function assertUserLockHoldsReaperAndSuspendedRevealIsIdempotent(
 // generic behavior — the runtime must not special-case a system, and the exit
 // payload must carry system + workspace identity for every agent session.
 async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
-  runtimeModule: RuntimeModule
+  runtimeModule: RuntimeModule,
 ): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-agent-exit-'))
   mockPty.spawnCalls = []
@@ -1474,7 +1476,7 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
   })
 
   const spawnAgent = async (
-    overrides: Pick<AgentSessionMetadata, 'executionId' | 'system'> & { workspaceId: string }
+    overrides: Pick<AgentSessionMetadata, 'executionId' | 'system'> & { workspaceId: string },
   ): Promise<MockPtyProcess> => {
     const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
       sessionId: overrides.executionId,
@@ -1517,7 +1519,7 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
     })
 
     const liveById = new Map(
-      runtime.getLiveAgentExecutionIds().map((execution) => [execution.executionId, execution.system])
+      runtime.getLiveAgentExecutionIds().map((execution) => [execution.executionId, execution.system]),
     )
     assert.deepEqual(
       liveById,
@@ -1525,7 +1527,7 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
         ['exec-manual', 'manual'],
         ['exec-module', 'weather-deck'],
       ]),
-      'getLiveAgentExecutionIds must return system-tagged entries for every live agent session, not a single-system id list'
+      'getLiveAgentExecutionIds must return system-tagged entries for every live agent session, not a single-system id list',
     )
 
     manualPty.emitExit({ exitCode: 7 })
@@ -1545,7 +1547,7 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
         executionId: 'exec-manual',
         exitCode: 7,
       },
-      'a manual session exit must fire the generic listener with the full system-tagged payload'
+      'a manual session exit must fire the generic listener with the full system-tagged payload',
     )
     assert.deepEqual(
       byExecution.get('exec-module'),
@@ -1557,7 +1559,7 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
         executionId: 'exec-module',
         exitCode: 0,
       },
-      'a second system must also fire the listener: filtering is the caller’s job, not the runtime’s'
+      'a second system must also fire the listener: filtering is the caller’s job, not the runtime’s',
     )
 
     // Unregister stops delivery — the registration seam is a real subscription.
@@ -1572,7 +1574,7 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
     assert.equal(
       events.some((event) => event.executionId === 'exec-after-unregister'),
       false,
-      'an unregistered listener must not receive further exit events'
+      'an unregistered listener must not receive further exit events',
     )
   } finally {
     unregister()
@@ -1580,9 +1582,7 @@ async function assertAgentSessionExitListenerFiresSystemTaggedForAnySystem(
   }
 }
 
-async function assertResolveAgentExecutionIdMatchesLiveSession(
-  runtimeModule: RuntimeModule
-): Promise<void> {
+async function assertResolveAgentExecutionIdMatchesLiveSession(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-resolve-exec-'))
   mockPty.spawnCalls = []
   mockSender.sent = []
@@ -1593,7 +1593,7 @@ async function assertResolveAgentExecutionIdMatchesLiveSession(
   })
 
   const spawnAgent = async (
-    overrides: Pick<AgentSessionMetadata, 'executionId' | 'system'> & { workspaceId: string }
+    overrides: Pick<AgentSessionMetadata, 'executionId' | 'system'> & { workspaceId: string },
   ): Promise<MockPtyProcess> => {
     const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
       sessionId: overrides.executionId,
@@ -1632,17 +1632,11 @@ async function assertResolveAgentExecutionIdMatchesLiveSession(
     assert.equal(
       runtime.resolveAgentExecutionId({ workspaceId: 'ws-resolve', agentId: 'exec-resolve-1' }),
       'exec-resolve-1',
-      'a live session must resolve its executionId by (workspaceId, agentId)'
+      'a live session must resolve its executionId by (workspaceId, agentId)',
     )
     // Wrong workspaceId or agentId yields no match.
-    assert.equal(
-      runtime.resolveAgentExecutionId({ workspaceId: 'ws-other', agentId: 'exec-resolve-1' }),
-      undefined
-    )
-    assert.equal(
-      runtime.resolveAgentExecutionId({ workspaceId: 'ws-resolve', agentId: 'no-such-agent' }),
-      undefined
-    )
+    assert.equal(runtime.resolveAgentExecutionId({ workspaceId: 'ws-other', agentId: 'exec-resolve-1' }), undefined)
+    assert.equal(runtime.resolveAgentExecutionId({ workspaceId: 'ws-resolve', agentId: 'no-such-agent' }), undefined)
 
     // After the pty exits, the session is no longer live and must not resolve.
     agentPty.emitExit({ exitCode: 0 })
@@ -1650,7 +1644,7 @@ async function assertResolveAgentExecutionIdMatchesLiveSession(
     assert.equal(
       runtime.resolveAgentExecutionId({ workspaceId: 'ws-resolve', agentId: 'exec-resolve-1' }),
       undefined,
-      'a dead session must not resolve an executionId'
+      'a dead session must not resolve an executionId',
     )
   } finally {
     await runtime.shutdown()
@@ -1690,7 +1684,10 @@ async function assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule: Run
     })
     assert.equal(visibleSpawn.ok, true, JSON.stringify(visibleSpawn))
 
-    const beforeSweep = runtime.ipcHandlers.listTerminals().map((session) => session.sessionId).sort()
+    const beforeSweep = runtime.ipcHandlers
+      .listTerminals()
+      .map((session) => session.sessionId)
+      .sort()
     assert.deepEqual(beforeSweep, ['session_stale_hidden', 'session_stale_visible'])
 
     const freshSweep = runtimeModule.reapStaleTerminals(Date.now())
@@ -1707,7 +1704,7 @@ async function assertStaleSweepReapsOnlyUnseenHiddenTerminals(runtimeModule: Run
     assert.equal(
       mockSender.sent.some((event) => event.channel === 'terminal:exit:session_stale_hidden'),
       false,
-      'reaped terminals must not emit terminal:exit so renderer launch flags survive for resume'
+      'reaped terminals must not emit terminal:exit so renderer launch flags survive for resume',
     )
   } finally {
     await runtime.shutdown()
@@ -1747,7 +1744,7 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
   const spawnAgent = async (
     runtime: TerminalRuntime,
     sessionId: string,
-    agentWorkspaceId: string
+    agentWorkspaceId: string,
   ): Promise<MockPtyProcess> => {
     const result = await runtime.ipcHandlers.spawnTerminal(mockSender as unknown as WebContents, {
       sessionId,
@@ -1803,7 +1800,7 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
     const frozenSidecar = sidecarStore.read('session-frozen')
     assert.ok(
       frozenSidecar?.snapshot?.includes('frozen painted output'),
-      'suspend must persist a serialized snapshot carrying the painted content'
+      'suspend must persist a serialized snapshot carrying the painted content',
     )
   } finally {
     await runtime.shutdown()
@@ -1813,7 +1810,7 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
   const liveSidecar = sidecarStore.read('session-live')
   assert.ok(
     liveSidecar?.rawReplay?.includes('live painted output'),
-    'runtime shutdown must dump each live agent terminal\'s retained stream to its sidecar'
+    "runtime shutdown must dump each live agent terminal's retained stream to its sidecar",
   )
 
   // ── "Run 2": a fresh runtime (empty terminals map = post-relaunch state). ──
@@ -1839,25 +1836,25 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
         reportsMessages: true,
         prompts: [{ text: 'Port voice dictation to Studio', at: promptAt }],
       },
-      'a parked session must still answer from its snapshot sidecar'
+      'a parked session must still answer from its snapshot sidecar',
     )
     assert.equal(
       runtime2.readConversationPeekSessionState('session-never-existed'),
       null,
-      'a session with neither a live record nor a sidecar answers null'
+      'a session with neither a live record nor a sidecar answers null',
     )
 
     assert.deepEqual(
       await runtime2.ipcHandlers.getTerminalStatus('session-frozen', mockSender as unknown as WebContents),
       { processAlive: false, suspended: true },
-      'a persisted suspend must rehydrate as suspended so the renderer pauses instead of launching'
+      'a persisted suspend must rehydrate as suspended so the renderer pauses instead of launching',
     )
     mockSender.sent = []
     runtime2.ipcHandlers.setTerminalVisible('session-frozen', true, mockSender as unknown as WebContents)
     const frozenReplay = mockSender.sent.find((event) => event.channel === 'terminal:replay:session-frozen')
     assert.ok(
       typeof frozenReplay?.payload === 'string' && frozenReplay.payload.includes('frozen painted output'),
-      'revealing the rehydrated terminal must replay the painted screen'
+      'revealing the rehydrated terminal must replay the painted screen',
     )
 
     // Quit-path sidecars carry raw bytes; rehydration renders them to a
@@ -1865,14 +1862,14 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
     assert.deepEqual(
       await runtime2.ipcHandlers.getTerminalStatus('session-live', mockSender as unknown as WebContents),
       { processAlive: false, suspended: true },
-      'a quit-dumped live agent must also rehydrate as suspended'
+      'a quit-dumped live agent must also rehydrate as suspended',
     )
     mockSender.sent = []
     runtime2.ipcHandlers.setTerminalVisible('session-live', true, mockSender as unknown as WebContents)
     const liveReplay = mockSender.sent.find((event) => event.channel === 'terminal:replay:session-live')
     assert.ok(
       typeof liveReplay?.payload === 'string' && liveReplay.payload.includes('live painted output'),
-      'revealing a quit-dumped terminal must replay its painted screen'
+      'revealing a quit-dumped terminal must replay its painted screen',
     )
 
     // Resume consumes the sidecar (dispose-then-respawn under the same id).
@@ -1894,7 +1891,7 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
     assert.equal(
       sidecarStore.read('session-frozen'),
       null,
-      'resume disposes the placeholder, which deletes the consumed sidecar'
+      'resume disposes the placeholder, which deletes the consumed sidecar',
     )
 
     // Dispose is terminal: killing the rehydrated placeholder deletes its sidecar.
@@ -1902,7 +1899,7 @@ async function assertSuspendSnapshotSidecarsSurviveRestart(runtimeModule: Runtim
     assert.equal(
       sidecarStore.read('session-live'),
       null,
-      'disposing a rehydrated placeholder must delete its sidecar (gone means gone)'
+      'disposing a rehydrated placeholder must delete its sidecar (gone means gone)',
     )
   } finally {
     await runtime2.shutdown()
@@ -1961,7 +1958,7 @@ async function assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule
     const sidecar = sidecarStore.read('session-selfexit')
     assert.ok(
       sidecar?.rawReplay?.includes('automation run MM-37 complete'),
-      'an agent pty that exits on its own must persist its painted content, so the tab reopens paused instead of relaunching'
+      'an agent pty that exits on its own must persist its painted content, so the tab reopens paused instead of relaunching',
     )
 
     // A deliberate dispose deletes the sidecar and then kills the pty. The exit
@@ -1975,7 +1972,7 @@ async function assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule
     assert.equal(
       sidecarStore.read('session-disposed'),
       null,
-      'a disposed terminal must not resurrect a sidecar on the exit that dispose itself triggered'
+      'a disposed terminal must not resurrect a sidecar on the exit that dispose itself triggered',
     )
 
     // Plain shells respawn fresh on reopen; painted-pause is an agent promise.
@@ -1984,11 +1981,7 @@ async function assertSelfExitedAgentWritesSidecarButDisposeDoesNot(runtimeModule
     await delay(20)
     shell.emitExit({ exitCode: 0 })
     await delay(20)
-    assert.equal(
-      sidecarStore.read('session-shell'),
-      null,
-      'a plain shell writes no sidecar on exit'
-    )
+    assert.equal(sidecarStore.read('session-shell'), null, 'a plain shell writes no sidecar on exit')
   } finally {
     await runtime.shutdown()
   }
@@ -2021,7 +2014,7 @@ async function assertTerminalReattachUsesReplayChannel(runtimeModule: RuntimeMod
     assert.equal(
       mockSender.sent.some((event) => event.channel === 'terminal:data:session_replay'),
       true,
-      'initial live output should still use terminal:data'
+      'initial live output should still use terminal:data',
     )
 
     mockSender.sent = []
@@ -2038,12 +2031,12 @@ async function assertTerminalReattachUsesReplayChannel(runtimeModule: RuntimeMod
     assert.equal(reattach.ok, true, JSON.stringify(reattach))
     assert.deepEqual(
       mockSender.sent.filter((event) => event.channel === 'terminal:replay:session_replay'),
-      [{ channel: 'terminal:replay:session_replay', payload: 'retained terminal output\r\n' }]
+      [{ channel: 'terminal:replay:session_replay', payload: 'retained terminal output\r\n' }],
     )
     assert.equal(
       mockSender.sent.some((event) => event.channel === 'terminal:data:session_replay'),
       false,
-      'reattached retained output must not be delivered as live terminal data'
+      'reattached retained output must not be delivered as live terminal data',
     )
   } finally {
     await runtime.shutdown()
@@ -2078,7 +2071,7 @@ async function assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeM
     assert.equal(
       mockSender.sent.some((event) => event.channel === 'terminal:data:session_hidden_replay'),
       false,
-      'hidden terminal output must not fan out over live terminal:data IPC'
+      'hidden terminal output must not fan out over live terminal:data IPC',
     )
 
     mockSender.sent = []
@@ -2096,7 +2089,7 @@ async function assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeM
     assert.equal(reattach.ok, true, JSON.stringify(reattach))
     assert.deepEqual(
       mockSender.sent.filter((event) => event.channel === 'terminal:replay:session_hidden_replay'),
-      [{ channel: 'terminal:replay:session_hidden_replay', payload: 'hidden terminal output\r\n' }]
+      [{ channel: 'terminal:replay:session_hidden_replay', payload: 'hidden terminal output\r\n' }],
     )
   } finally {
     await runtime.shutdown()
@@ -2114,9 +2107,7 @@ async function assertHiddenTerminalOutputSkipsLiveIpcAndReplaysOnAttach(runtimeM
 //     write path local input uses;
 //   - a slow consumer is dropped and resynced from the replay rather than
 //     stalling the pty or the local renderer.
-async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
-  runtimeModule: RuntimeModule
-): Promise<void> {
+async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-remote-attach-'))
   mockPty.spawnCalls = []
   mockSender.sent = []
@@ -2148,7 +2139,7 @@ async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
     const listed = runtime.remoteHost.listSessions()
     assert.ok(
       listed.some((session) => session.sessionId === sessionId && session.processAlive),
-      'the remote host lists the live session'
+      'the remote host lists the live session',
     )
 
     const watcher = createRecordingViewer('watcher')
@@ -2157,9 +2148,7 @@ async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
     if (!attached.ok) return
 
     // Replay first, and it carries what the session printed before the attach.
-    assert.deepEqual(watcher.frames, [
-      { type: 'replay', data: 'before anyone attached\r\n', reason: 'attach' },
-    ])
+    assert.deepEqual(watcher.frames, [{ type: 'replay', data: 'before anyone attached\r\n', reason: 'attach' }])
 
     watcher.frames = []
     pty.emitData('live line\r\n')
@@ -2174,7 +2163,7 @@ async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
     assert.equal(second.frames[0]?.type, 'replay')
     assert.ok(
       String((second.frames[0] as { data?: unknown }).data ?? '').includes('live line'),
-      "the late viewer's replay includes everything printed so far"
+      "the late viewer's replay includes everything printed so far",
     )
 
     watcher.frames = []
@@ -2186,10 +2175,10 @@ async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
     assert.deepEqual(second.frames, [{ type: 'output', data: 'seen by both\r\n' }])
     assert.equal(
       mockSender.sent.some(
-        (event) => event.channel === `terminal:data:${sessionId}` && event.payload === 'seen by both\r\n'
+        (event) => event.channel === `terminal:data:${sessionId}` && event.payload === 'seen by both\r\n',
       ),
       true,
-      'local window rendering is unaffected by the attached viewers'
+      'local window rendering is unaffected by the attached viewers',
     )
 
     // Hiding the local pane must gate ONLY the local sender.
@@ -2204,7 +2193,7 @@ async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
     assert.equal(
       mockSender.sent.some((event) => event.channel === `terminal:data:${sessionId}`),
       false,
-      'a hidden local pane still skips live terminal:data, exactly as before'
+      'a hidden local pane still skips live terminal:data, exactly as before',
     )
     runtime.ipcHandlers.setTerminalVisible(sessionId, true, mockSender as unknown as WebContents)
 
@@ -2234,7 +2223,7 @@ async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
     assert.equal(
       mockSender.sent.some((event) => event.channel === `terminal:data:${sessionId}`),
       true,
-      'the local renderer keeps receiving while the remote viewer is behind'
+      'the local renderer keeps receiving while the remote viewer is behind',
     )
 
     watcher.queued = 0
@@ -2246,7 +2235,7 @@ async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
     const resynced = String((watcher.frames[0] as { data?: unknown }).data ?? '')
     assert.ok(
       resynced.includes('dropped by the slow consumer') && resynced.includes('after the drain'),
-      'the resync replay carries both the dropped bytes and the batch that triggered it'
+      'the resync replay carries both the dropped bytes and the batch that triggered it',
     )
 
     // Detaching stops delivery without touching the other viewer or the pane.
@@ -2264,7 +2253,7 @@ async function assertRemoteViewersStreamIndependentlyOfTheLocalPane(
     await delay(30)
     assert.ok(
       watcher.frames.some((frame) => frame.type === 'exit' && frame.exitCode === 3),
-      'the viewer is told the process exited, with its code'
+      'the viewer is told the process exited, with its code',
     )
 
     watcher.frames = []
@@ -2335,15 +2324,12 @@ async function assertRemoteFramesNeverExceedTheWireCap(runtimeModule: RuntimeMod
       assert.equal(frame.type, 'output', 'every later slice is plain output')
     }
     for (const frame of viewer.frames) {
-      assert.ok(
-        String(frame.data).length <= TERMINAL_REMOTE_FRAME_CHUNK_CHARS,
-        'no slice exceeds the chunk'
-      )
+      assert.ok(String(frame.data).length <= TERMINAL_REMOTE_FRAME_CHUNK_CHARS, 'no slice exceeds the chunk')
     }
     assert.equal(
       viewer.frames.map((frame) => String(frame.data)).join(''),
       printed,
-      'the slices add up to exactly the retained output'
+      'the slices add up to exactly the retained output',
     )
   } finally {
     await runtime.shutdown()
@@ -2559,8 +2545,7 @@ async function assertContextUsageFollowsStatusLineFrames(runtimeModule: RuntimeM
     snapshotSidecars: sidecarStore,
   }
   const runtime = runtimeModule.createTerminalRuntime(runtimeOptions)
-  const snapshot = () =>
-    runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-context')
+  const snapshot = () => runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-context')
   const base = Date.now()
   const frame = (overrides: Partial<AgentStateFrame>): AgentStateFrame => ({
     type: 'agent_state',
@@ -2604,7 +2589,7 @@ async function assertContextUsageFollowsStatusLineFrames(runtimeModule: RuntimeM
       frame({
         ts: base + 100,
         statusLine: { usedPercentage: 8, contextWindowSize: 200_000, totalCostUsd: 0.5, model: 'Opus' },
-      })
+      }),
     )
     assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 8, at: base + 100 })
     assert.equal(await sentSessionsChanges(), 1, 'a context reading is broadcast-worthy on its own')
@@ -2612,7 +2597,7 @@ async function assertContextUsageFollowsStatusLineFrames(runtimeModule: RuntimeM
     // The same whole percent again is not news, however much the cost moved.
     mockSender.sent = []
     runtime.ingestAgentStateFrame(
-      frame({ ts: base + 200, statusLine: { usedPercentage: 8, totalCostUsd: 0.9, linesAdded: 40 } })
+      frame({ ts: base + 200, statusLine: { usedPercentage: 8, totalCostUsd: 0.9, linesAdded: 40 } }),
     )
     assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 8, at: base + 100 }, 'the timestamp holds too')
     assert.equal(await sentSessionsChanges(), 0, 'an unchanged percentage must not repaint every window')
@@ -2624,7 +2609,7 @@ async function assertContextUsageFollowsStatusLineFrames(runtimeModule: RuntimeM
     assert.deepEqual(
       snapshot()?.contextUsage,
       { usedPercentage: 8, at: base + 100 },
-      'a null percentage after a compact keeps the last known reading'
+      'a null percentage after a compact keeps the last known reading',
     )
     assert.equal(await sentSessionsChanges(), 0)
 
@@ -2659,9 +2644,7 @@ async function assertContextUsageFollowsStatusLineFrames(runtimeModule: RuntimeM
     // — the forwarder's event is in no manifest — but the frame type allows a
     // reading on any frame, and a plugin manifest is data.
     mockSender.sent = []
-    runtime.ingestAgentStateFrame(
-      frame({ ts: base + 700, event: 'PostToolUse', statusLine: { usedPercentage: 15 } })
-    )
+    runtime.ingestAgentStateFrame(frame({ ts: base + 700, event: 'PostToolUse', statusLine: { usedPercentage: 15 } }))
     assert.deepEqual(snapshot()?.contextUsage, { usedPercentage: 15, at: base + 700 })
     assert.equal(await sentSessionsChanges(), 1, 'an applied frame publishes its reading too')
 
@@ -2694,7 +2677,7 @@ async function assertContextUsageFollowsStatusLineFrames(runtimeModule: RuntimeM
     // now.
     assert.ok(
       rehydrated !== null && rehydrated !== undefined && rehydrated.at > base - 1 && rehydrated.at <= Date.now(),
-      `the persisted time came back clamped to arrival: ${JSON.stringify(rehydrated)}`
+      `the persisted time came back clamped to arrival: ${JSON.stringify(rehydrated)}`,
     )
   } finally {
     await runtime2.shutdown()
@@ -2719,8 +2702,7 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
     snapshotSidecars: sidecarStore,
   }
   const runtime = runtimeModule.createTerminalRuntime(runtimeOptions)
-  const snapshot = () =>
-    runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-ledger')
+  const snapshot = () => runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-ledger')
   const base = Date.now()
   const frame = (overrides: Partial<AgentStateFrame>): AgentStateFrame => ({
     type: 'agent_state',
@@ -2762,51 +2744,63 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
     const ledgerPty = await spawnLedgerAgent()
     assert.deepEqual(snapshot()?.fileChanges, [], 'a fresh session has edited nothing — empty, never absent')
     assert.equal(snapshot()?.activeSubagents, 0)
-    assert.equal(snapshot()?.contextUsage, null, 'nothing has read this session\'s status line yet')
+    assert.equal(snapshot()?.contextUsage, null, "nothing has read this session's status line yet")
 
     // Two edits of the same file SUM: the ledger measures the work, not the
     // tree's distance from HEAD, so a line edited twice counts twice.
     await sentSessionsChanges()
     mockSender.sent = []
-    runtime.ingestAgentStateFrame(frame({ ts: base + 100, fileChange: { path: '/repo/src/app.ts', additions: 12, deletions: 3 } }))
+    runtime.ingestAgentStateFrame(
+      frame({ ts: base + 100, fileChange: { path: '/repo/src/app.ts', additions: 12, deletions: 3 } }),
+    )
     assert.equal(await sentSessionsChanges(), 1, 'an edit alone is worth a broadcast: it is rendered')
-    runtime.ingestAgentStateFrame(frame({ ts: base + 200, fileChange: { path: '/repo/src/app.ts', additions: 5, deletions: 1 } }))
+    runtime.ingestAgentStateFrame(
+      frame({ ts: base + 200, fileChange: { path: '/repo/src/app.ts', additions: 5, deletions: 1 } }),
+    )
     await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
     assert.deepEqual(
       snapshot()?.fileChanges,
       [{ path: '/repo/src/app.ts', additions: 17, deletions: 4, edits: 2, lastEditedAt: base + 200 }],
-      'a second edit of the same file accumulates onto the first'
+      'a second edit of the same file accumulates onto the first',
     )
 
     // Newest-edited first, and re-editing an older file moves it back to the top.
-    runtime.ingestAgentStateFrame(frame({ ts: base + 300, fileChange: { path: '/repo/README.md', additions: 2, deletions: 0 } }))
+    runtime.ingestAgentStateFrame(
+      frame({ ts: base + 300, fileChange: { path: '/repo/README.md', additions: 2, deletions: 0 } }),
+    )
     await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
     assert.deepEqual(
       snapshot()?.fileChanges.map((change) => change.path),
       ['/repo/README.md', '/repo/src/app.ts'],
-      'the ledger reads newest-edited first'
+      'the ledger reads newest-edited first',
     )
-    runtime.ingestAgentStateFrame(frame({ ts: base + 400, fileChange: { path: '/repo/src/app.ts', additions: 1, deletions: 0 } }))
+    runtime.ingestAgentStateFrame(
+      frame({ ts: base + 400, fileChange: { path: '/repo/src/app.ts', additions: 1, deletions: 0 } }),
+    )
     await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
     assert.deepEqual(
       snapshot()?.fileChanges.map((change) => change.path),
       ['/repo/src/app.ts', '/repo/README.md'],
-      're-editing a file moves it back to the front'
+      're-editing a file moves it back to the front',
     )
 
     // A subagent's edit is the session's work. The reporter suppresses a
     // subagent's CWD (an isolated worktree is not where the session is) but
     // never its edits, and the runtime folds them in like any other.
-    runtime.ingestAgentStateFrame(frame({ ts: base + 500, fileChange: { path: '/repo/src/subagent.ts', additions: 40, deletions: 0 } }))
+    runtime.ingestAgentStateFrame(
+      frame({ ts: base + 500, fileChange: { path: '/repo/src/subagent.ts', additions: 40, deletions: 0 } }),
+    )
     // …including on a frame whose event this CLI's manifest does not name, which
     // drops before any phase is applied: the edit still happened.
     mockSender.sent = []
-    runtime.ingestAgentStateFrame(frame({
-      ts: base + 600,
-      event: 'Notification',
-      notificationType: 'idle_prompt',
-      fileChange: { path: '/repo/src/dropped-event.ts', additions: 7, deletions: 2 },
-    }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 600,
+        event: 'Notification',
+        notificationType: 'idle_prompt',
+        fileChange: { path: '/repo/src/dropped-event.ts', additions: 7, deletions: 2 },
+      }),
+    )
     assert.equal(await sentSessionsChanges(), 1, 'a dropped-phase frame still publishes the edit it carried')
     assert.deepEqual(
       snapshot()?.fileChanges.map((change) => [change.path, change.additions, change.deletions]),
@@ -2816,7 +2810,7 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
         ['/repo/src/app.ts', 18, 4],
         ['/repo/README.md', 2, 0],
       ],
-      'every reported edit lands, whatever fired it'
+      'every reported edit lands, whatever fired it',
     )
 
     // The subagent count main already keeps, surfaced for the renderer: it
@@ -2838,15 +2832,17 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
     // ordinary — and the guard that stops a stale frame rolling the PHASE back
     // must not take the edit with it, because an edit has no order to roll back.
     mockSender.sent = []
-    runtime.ingestAgentStateFrame(frame({
-      ts: base + 500,
-      fileChange: { path: '/repo/src/late.ts', additions: 3, deletions: 1 },
-    }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 500,
+        fileChange: { path: '/repo/src/late.ts', additions: 3, deletions: 1 },
+      }),
+    )
     assert.equal(await sentSessionsChanges(), 1, 'a stale-phase frame still publishes the edit it carried')
     assert.deepEqual(
       snapshot()?.fileChanges.find((change) => change.path === '/repo/src/late.ts'),
       { path: '/repo/src/late.ts', additions: 3, deletions: 1, edits: 1, lastEditedAt: base + 500 },
-      'the edit lands even though the frame is older than the recorded phase'
+      'the edit lands even though the frame is older than the recorded phase',
     )
 
     // The ledger is bounded: it rides every snapshot broadcast to every window,
@@ -2869,22 +2865,23 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
     })
     assert.equal(bulk.ok, true, JSON.stringify(bulk))
     for (let i = 0; i < 600; i += 1) {
-      runtime.ingestAgentStateFrame(frame({
-        agentId: 'agent-ledger-bulk',
-        ts: base + 2000 + i,
-        fileChange: { path: `/repo/bulk/file-${i}.ts`, additions: 1, deletions: 0 },
-      }))
+      runtime.ingestAgentStateFrame(
+        frame({
+          agentId: 'agent-ledger-bulk',
+          ts: base + 2000 + i,
+          fileChange: { path: `/repo/bulk/file-${i}.ts`, additions: 1, deletions: 0 },
+        }),
+      )
     }
     await delay(runtimeModule.TERMINAL_SESSIONS_BROADCAST_COALESCE_MS + 10)
     const capped =
-      runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-ledger-bulk')?.fileChanges
-      ?? []
+      runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-ledger-bulk')?.fileChanges ?? []
     assert.equal(capped.length, 500, 'the ledger is capped')
     assert.equal(capped[0]?.path, '/repo/bulk/file-599.ts', 'the newest edit is still at the front')
     assert.deepEqual(
       capped[capped.length - 1],
       { path: '/repo/bulk/file-100.ts', additions: 1, deletions: 0, edits: 1, lastEditedAt: base + 2100 },
-      'the least recent edits fell off the end, and a survivor keeps its own counts'
+      'the least recent edits fell off the end, and a survivor keeps its own counts',
     )
 
     // Nothing outlives the process it ran under: a session that dies owing
@@ -2903,7 +2900,7 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
     assert.equal(
       bulkSnapshot()?.fileChanges.length,
       500,
-      'but what it edited is still what it edited — the ledger outlives the turn, not the count of live work'
+      'but what it edited is still what it edited — the ledger outlives the turn, not the count of live work',
     )
     runtime.ipcHandlers.killTerminal('sess-ledger-bulk')
 
@@ -2932,7 +2929,7 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
         '/repo/src/app.ts',
         '/repo/README.md',
       ],
-      'the sidecar persists the ledger newest-first'
+      'the sidecar persists the ledger newest-first',
     )
   } finally {
     await runtime.shutdown()
@@ -2944,9 +2941,7 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
   const runtime2 = runtimeModule.createTerminalRuntime(runtimeOptions)
   try {
     await runtime2.ipcHandlers.getTerminalStatus('sess-ledger', mockSender as unknown as WebContents)
-    const rehydrated = runtime2.ipcHandlers
-      .listTerminals()
-      .find((session) => session.sessionId === 'sess-ledger')
+    const rehydrated = runtime2.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-ledger')
     assert.deepEqual(
       rehydrated?.fileChanges,
       [
@@ -2956,7 +2951,7 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
         { path: '/repo/src/app.ts', additions: 18, deletions: 4, edits: 3, lastEditedAt: base + 400 },
         { path: '/repo/README.md', additions: 2, deletions: 0, edits: 1, lastEditedAt: base + 300 },
       ],
-      'a session parked across a restart keeps its ledger, counts and order intact'
+      'a session parked across a restart keeps its ledger, counts and order intact',
     )
     assert.equal(rehydrated?.activeSubagents, 0, 'a placeholder owns no background work')
 
@@ -2977,7 +2972,7 @@ async function assertFileLedgerFollowsHookReportedEdits(runtimeModule: RuntimeMo
     assert.deepEqual(
       runtime2.ipcHandlers.listTerminals().find((session) => session.sessionId === 'sess-ledger')?.fileChanges,
       [],
-      'a respawned pty starts a fresh ledger — the count belongs to the process that did the work'
+      'a respawned pty starts a fresh ledger — the count belongs to the process that did the work',
     )
   } finally {
     await runtime2.shutdown()
@@ -3036,7 +3031,7 @@ async function assertAgentChangelistSeamsFire(runtimeModule: RuntimeModule): Pro
     assert.deepEqual(
       launched,
       [{ agentId: 'agent-changelists', agentName: 'Nadia', cwd: workspaceRoot }],
-      'a launched agent gets its changelist, named and rooted where it runs'
+      'a launched agent gets its changelist, named and rooted where it runs',
     )
 
     // A plain terminal has no agent and must never get an owned list.
@@ -3063,66 +3058,81 @@ async function assertAgentChangelistSeamsFire(runtimeModule: RuntimeModule): Pro
       ...overrides,
     })
 
-    runtime.ingestAgentStateFrame(frame({
-      ts: base + 100,
-      fileChange: {
-        path: '/repo/src/app.ts',
-        additions: 3,
-        deletions: 1,
-        edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 3 }],
-      },
-    }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 100,
+        fileChange: {
+          path: '/repo/src/app.ts',
+          additions: 3,
+          deletions: 1,
+          edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 3 }],
+        },
+      }),
+    )
     assert.deepEqual(
       edits,
-      [{
-        agentId: 'agent-changelists',
-        path: '/repo/src/app.ts',
-        edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 3 }],
-        ts: base + 100,
-      }],
-      'the reported regions reach the feed verbatim, with the session that wrote them'
+      [
+        {
+          agentId: 'agent-changelists',
+          path: '/repo/src/app.ts',
+          edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 3 }],
+          ts: base + 100,
+        },
+      ],
+      'the reported regions reach the feed verbatim, with the session that wrote them',
     )
 
     // An edit whose patch the reporter could not read still reaches the feed —
     // a file-level claim is a smaller lie than none.
     edits.length = 0
-    runtime.ingestAgentStateFrame(frame({
-      ts: base + 200,
-      fileChange: { path: '/repo/src/opaque.ts', additions: 0, deletions: 0 },
-    }))
-    assert.deepEqual(edits.map((edit) => [edit.path, edit.edits]), [['/repo/src/opaque.ts', undefined]])
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 200,
+        fileChange: { path: '/repo/src/opaque.ts', additions: 0, deletions: 0 },
+      }),
+    )
+    assert.deepEqual(
+      edits.map((edit) => [edit.path, edit.edits]),
+      [['/repo/src/opaque.ts', undefined]],
+    )
 
     // …and so does one on a frame the guards drop: a STALE frame moves no phase,
     // but the edit it carries already happened. Same for an event this CLI's
     // manifest does not name.
     edits.length = 0
-    runtime.ingestAgentStateFrame(frame({
-      ts: base + 50,
-      fileChange: { path: '/repo/src/late.ts', additions: 1, deletions: 0 },
-    }))
-    runtime.ingestAgentStateFrame(frame({
-      ts: base + 300,
-      event: 'Notification',
-      notificationType: 'idle_prompt',
-      fileChange: { path: '/repo/src/dropped.ts', additions: 1, deletions: 0 },
-    }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 50,
+        fileChange: { path: '/repo/src/late.ts', additions: 1, deletions: 0 },
+      }),
+    )
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 300,
+        event: 'Notification',
+        notificationType: 'idle_prompt',
+        fileChange: { path: '/repo/src/dropped.ts', additions: 1, deletions: 0 },
+      }),
+    )
     assert.deepEqual(
       edits.map((edit) => edit.path),
       ['/repo/src/late.ts', '/repo/src/dropped.ts'],
-      'an edit is order-independent: neither the stale guard nor a dropped event may eat it'
+      'an edit is order-independent: neither the stale guard nor a dropped event may eat it',
     )
 
     // A seam that throws is the feed's problem, never the session's.
     edits.length = 0
-    runtime.ingestAgentStateFrame(frame({
-      ts: base + 400,
-      fileChange: { path: '/repo/src/explode.ts', additions: 1, deletions: 0 },
-    }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 400,
+        fileChange: { path: '/repo/src/explode.ts', additions: 1, deletions: 0 },
+      }),
+    )
     assert.equal(edits.length, 1, 'the throwing seam was called')
     assert.equal(
       runtime.ipcHandlers.listTerminals().some((session) => session.sessionId === 'sess-changelists'),
       true,
-      'and the session survived it'
+      'and the session survived it',
     )
 
     // The duplicate-registration guard. The app registers the agent-state
@@ -3150,17 +3160,33 @@ async function assertAgentChangelistSeamsFire(runtimeModule: RuntimeModule): Pro
     runtime.ingestAgentStateFrame(frame({ ts: base + 500, toolUseId: 'toolu_same', fileChange: dupChange }))
     assert.equal(edits.length, 1, 'the second registration`s copy never reaches the changelist feed')
     assert.deepEqual(
-      [ledgerOf('/repo/src/dup.ts')?.additions, ledgerOf('/repo/src/dup.ts')?.deletions, ledgerOf('/repo/src/dup.ts')?.edits],
+      [
+        ledgerOf('/repo/src/dup.ts')?.additions,
+        ledgerOf('/repo/src/dup.ts')?.deletions,
+        ledgerOf('/repo/src/dup.ts')?.edits,
+      ],
       [4, 2, 1],
-      'and it is counted once in the ledger — +4/-2, not +8/-4'
+      'and it is counted once in the ledger — +4/-2, not +8/-4',
     )
 
     // A genuinely second edit is a second tool CALL, with its own id, and both
     // fold. (Claude Code's parallel edits share no id either — each call has
     // its own — so two concurrent edits both land.)
     edits.length = 0
-    runtime.ingestAgentStateFrame(frame({ ts: base + 600, toolUseId: 'toolu_a', fileChange: { path: '/repo/src/twice.ts', additions: 1, deletions: 0 } }))
-    runtime.ingestAgentStateFrame(frame({ ts: base + 601, toolUseId: 'toolu_b', fileChange: { path: '/repo/src/twice.ts', additions: 1, deletions: 0 } }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 600,
+        toolUseId: 'toolu_a',
+        fileChange: { path: '/repo/src/twice.ts', additions: 1, deletions: 0 },
+      }),
+    )
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 601,
+        toolUseId: 'toolu_b',
+        fileChange: { path: '/repo/src/twice.ts', additions: 1, deletions: 0 },
+      }),
+    )
     assert.equal(edits.length, 2, 'two different tool calls are two edits')
     assert.deepEqual([ledgerOf('/repo/src/twice.ts')?.additions, ledgerOf('/repo/src/twice.ts')?.edits], [2, 2])
 
@@ -3168,12 +3194,24 @@ async function assertAgentChangelistSeamsFire(runtimeModule: RuntimeModule): Pro
     // patch — arrives as N frames under ONE id. The key includes the path, so
     // every one of them folds.
     edits.length = 0
-    runtime.ingestAgentStateFrame(frame({ ts: base + 700, toolUseId: 'toolu_patch', fileChange: { path: '/repo/src/multi-a.ts', additions: 2, deletions: 0 } }))
-    runtime.ingestAgentStateFrame(frame({ ts: base + 700, toolUseId: 'toolu_patch', fileChange: { path: '/repo/src/multi-b.ts', additions: 3, deletions: 0 } }))
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 700,
+        toolUseId: 'toolu_patch',
+        fileChange: { path: '/repo/src/multi-a.ts', additions: 2, deletions: 0 },
+      }),
+    )
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 700,
+        toolUseId: 'toolu_patch',
+        fileChange: { path: '/repo/src/multi-b.ts', additions: 3, deletions: 0 },
+      }),
+    )
     assert.deepEqual(
       edits.map((edit) => edit.path),
       ['/repo/src/multi-a.ts', '/repo/src/multi-b.ts'],
-      'one tool call, two files: the path is what separates them'
+      'one tool call, two files: the path is what separates them',
     )
 
     // A reporter with no id at all (Cursor's `afterFileEdit`) falls back to the
@@ -3200,8 +3238,16 @@ async function assertAgentChangelistSeamsFire(runtimeModule: RuntimeModule): Pro
     runtime.ingestAgentStateFrame(frame({ ts: base + 20_000, toolUseId: 'toolu_mixed', fileChange: mixedChange }))
     runtime.ingestAgentStateFrame(frame({ ts: base + 20_005, fileChange: mixedChange }))
     assert.equal(edits.length, 1, 'an id-less twin of an id-bearing frame is the same edit')
-    runtime.ingestAgentStateFrame(frame({ ts: base + 21_000, fileChange: { ...mixedChange, path: '/repo/src/mixed2.ts' } }))
-    runtime.ingestAgentStateFrame(frame({ ts: base + 21_004, toolUseId: 'toolu_mixed2', fileChange: { ...mixedChange, path: '/repo/src/mixed2.ts' } }))
+    runtime.ingestAgentStateFrame(
+      frame({ ts: base + 21_000, fileChange: { ...mixedChange, path: '/repo/src/mixed2.ts' } }),
+    )
+    runtime.ingestAgentStateFrame(
+      frame({
+        ts: base + 21_004,
+        toolUseId: 'toolu_mixed2',
+        fileChange: { ...mixedChange, path: '/repo/src/mixed2.ts' },
+      }),
+    )
     assert.equal(edits.length, 2, 'and the other way round')
     assert.deepEqual([ledgerOf('/repo/src/mixed.ts')?.edits, ledgerOf('/repo/src/mixed2.ts')?.edits], [1, 1])
 
@@ -3439,7 +3485,9 @@ async function assertAgentSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule: 
       shellOnly: false,
       mcpSettings: { syncEnabled: false, servers: {} } satisfies McpSettings,
     })
-    const failedSnapshot = runtime.ipcHandlers.listTerminals().find((session) => session.sessionId === 'session_failure')
+    const failedSnapshot = runtime.ipcHandlers
+      .listTerminals()
+      .find((session) => session.sessionId === 'session_failure')
 
     assert.deepEqual(result, {
       ok: false,
@@ -3456,11 +3504,13 @@ async function assertAgentSpawnReportsSyncFailureWithoutPtySpawn(runtimeModule: 
       message: failureMessage,
     })
     assert.deepEqual(
-      mockSender.sent.filter((event) => event.channel.startsWith('terminal:error:') || event.channel.startsWith('terminal:exit:')),
+      mockSender.sent.filter(
+        (event) => event.channel.startsWith('terminal:error:') || event.channel.startsWith('terminal:exit:'),
+      ),
       [
         { channel: 'terminal:error:session_failure', payload: failureMessage },
         { channel: 'terminal:exit:session_failure', payload: 1 },
-      ]
+      ],
     )
   } finally {
     await runtime.shutdown()
@@ -3498,7 +3548,11 @@ function createOptionalMcpSettings(): McpSettings {
   }
 }
 
-function createMockWebContents(): { isDestroyed(): boolean, send(channel: string, payload: unknown): void, sent: SentEvent[] } {
+function createMockWebContents(): {
+  isDestroyed(): boolean
+  send(channel: string, payload: unknown): void
+  sent: SentEvent[]
+} {
   return {
     sent: [],
     isDestroyed: () => false,
@@ -3512,7 +3566,7 @@ let nextMockPtyPid = 50_000
 
 function createMockPtyProcess(): MockPtyProcess {
   const dataCallbacks = new Set<(data: string) => void>()
-  const exitCallbacks = new Set<(event: { exitCode: number, signal?: number }) => void>()
+  const exitCallbacks = new Set<(event: { exitCode: number; signal?: number }) => void>()
   return {
     pid: nextMockPtyPid++,
     writes: [],
@@ -3548,7 +3602,7 @@ function markAgentAtRest(
   runtime: { ingestAgentStateFrame: (frame: AgentStateFrame) => void },
   agentId: string,
   workspaceId: string,
-  ts = Date.now()
+  ts = Date.now(),
 ): void {
   runtime.ingestAgentStateFrame({ type: 'agent_state', agentId, workspaceId, sessionId: null, event: 'Stop', ts })
 }
@@ -3603,7 +3657,7 @@ async function assertDebugModeEnsureInstallsDebugSkill(runtimeModule: RuntimeMod
   assert.deepEqual(
     ensureCalls,
     [{ workspaceRoot, skillId: 'debug' }],
-    'debug on ensure-installs the debug skill into the session workspace before launch'
+    'debug on ensure-installs the debug skill into the session workspace before launch',
   )
 }
 
@@ -3611,9 +3665,7 @@ async function assertDebugModeEnsureInstallsDebugSkill(runtimeModule: RuntimeMod
 // — the worktree MCP-config git-exclude here (and the unlisted-server prune) —
 // and the two are orthogonal. A skill-only spawn must NOT exclude, a connector
 // launch excludes with or without a skill, and an ordinary spawn does neither.
-async function assertSpawnSkillInstallIsOrthogonalToMcpIsolation(
-  runtimeModule: RuntimeModule
-): Promise<void> {
+async function assertSpawnSkillInstallIsOrthogonalToMcpIsolation(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-connector-'))
   mockPty.spawnCalls = []
   mockSender.sent = []
@@ -3665,7 +3717,7 @@ async function assertSpawnSkillInstallIsOrthogonalToMcpIsolation(
   assert.deepEqual(
     ensureCalls,
     [{ workspaceRoot, skillId: 'debug-helper' }],
-    'skill-only spawn installs the named skill'
+    'skill-only spawn installs the named skill',
   )
   assert.deepEqual(excludeCalls, [], 'skill-only spawn must not exclude worktree MCP config')
 
@@ -3678,13 +3730,9 @@ async function assertSpawnSkillInstallIsOrthogonalToMcpIsolation(
       { workspaceRoot, skillId: 'debug-helper' },
       { workspaceRoot, skillId: 'debug-helper' },
     ],
-    'connector spawn installs the named skill into the worktree before launch'
+    'connector spawn installs the named skill into the worktree before launch',
   )
-  assert.deepEqual(
-    excludeCalls,
-    [workspaceRoot],
-    'connector spawn excludes the worktree MCP config from git'
-  )
+  assert.deepEqual(excludeCalls, [workspaceRoot], 'connector spawn excludes the worktree MCP config from git')
 
   // A skill-less connector launch (plain installed MCP): no skill install, but
   // the MCP isolation still applies.
@@ -3693,7 +3741,7 @@ async function assertSpawnSkillInstallIsOrthogonalToMcpIsolation(
   assert.deepEqual(
     excludeCalls,
     [workspaceRoot, workspaceRoot],
-    'skill-less connector launch still excludes the worktree MCP config'
+    'skill-less connector launch still excludes the worktree MCP config',
   )
 }
 
@@ -3701,9 +3749,7 @@ async function assertSpawnSkillInstallIsOrthogonalToMcpIsolation(
 // reported success: availability is probed through the user's interactive shell,
 // agents launch in a shell that never sources it, and the in-script guard echoed
 // and fell through. Both halves are asserted at the IPC the renderer calls.
-async function assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(
-  runtimeModule: RuntimeModule
-): Promise<void> {
+async function assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-preflight-'))
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
@@ -3749,20 +3795,18 @@ async function assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(
     const startupScript = await readFile(String(mockPty.spawnCalls[0].args.at(-1)), 'utf8')
     assert.ok(
       startupScript.includes(`if ! command -v ${probedPath} >/dev/null 2>&1;`),
-      `the guard must test the probed path: ${startupScript}`
+      `the guard must test the probed path: ${startupScript}`,
     )
     assert.ok(
       // The permission flag sits between the binary and --session-id since
       // MC-2210: an unnamed preset resolves to `manual`, which for Claude Code
       // is an explicit `--permission-mode default` rather than no flag at all.
-      startupScript.includes(
-        `${probedPath} --permission-mode default --session-id session-preflight-resolved`
-      ),
-      `the launch must execute the probed path: ${startupScript}`
+      startupScript.includes(`${probedPath} --permission-mode default --session-id session-preflight-resolved`),
+      `the launch must execute the probed path: ${startupScript}`,
     )
     assert.ok(
       /exit 127; fi;/.test(startupScript),
-      `the guard must exit rather than fall through to the shell exec: ${startupScript}`
+      `the guard must exit rather than fall through to the shell exec: ${startupScript}`,
     )
     runtime.ipcHandlers.killTerminal('session-preflight-resolved')
   } finally {
@@ -3779,9 +3823,7 @@ async function assertSpawnLaunchesProbedPathAndFailsHonestlyWhenAbsent(
 // An omitted `cli` defaulted to codex, so a payload that named no agent launched
 // a different one and reported success. Shell-only terminals legitimately carry
 // no CLI and must still spawn.
-async function assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(
-  runtimeModule: RuntimeModule
-): Promise<void> {
+async function assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-nocli-'))
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
@@ -3916,7 +3958,7 @@ async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeM
     // A tool call that opened a pull request in ANOTHER repository — the agent
     // ran `cd ../website && gh pr create`, which never moved this session's cwd.
     runtime.ingestAgentStateFrame(
-      frame({ ts: base + 100, pullRequest: { url: 'https://github.com/acme/website/pull/9/files?w=1' } })
+      frame({ ts: base + 100, pullRequest: { url: 'https://github.com/acme/website/pull/9/files?w=1' } }),
     )
     await record.flush()
     const captured = record.forSession('session-pr-capture')
@@ -3939,9 +3981,13 @@ async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeM
     assert.deepEqual(
       record.forBranch('github.com/acme/website', 'site/banner'),
       captured,
-      'the state read the capture scheduled learned its branch'
+      'the state read the capture scheduled learned its branch',
     )
-    assert.equal(record.forSession('some-other-session').length, 0, 'a capture belongs to the conversation that made it')
+    assert.equal(
+      record.forSession('some-other-session').length,
+      0,
+      'a capture belongs to the conversation that made it',
+    )
 
     // REVIEW FIX (finding 5). One session is resolved by id, not by building a
     // snapshot of every session — each of which reads the pull request record —
@@ -3962,9 +4008,12 @@ async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeM
     runtime.ingestAgentStateFrame(frame({ ts: base + 200, pullRequest: { url: 'https://github.com/acme/app/pull/4' } }))
     await record.flush()
     assert.deepEqual(
-      record.forSession('session-pr-capture').map((entry) => entry.number).sort((a, b) => a - b),
+      record
+        .forSession('session-pr-capture')
+        .map((entry) => entry.number)
+        .sort((a, b) => a - b),
       [4, 9],
-      'a frame dropped as stale still files the pull request it carried'
+      'a frame dropped as stale still files the pull request it carried',
     )
 
     // And a frame with no capture on it files nothing.
@@ -3993,9 +4042,7 @@ async function assertCapturedPullRequestReachesTheRecord(runtimeModule: RuntimeM
 // beta cannot deliver hooks) is refused here even if every upstream gate
 // missed. An id the registry does not know at all still falls through to the
 // launch render's own unknown-plugin error.
-async function assertSpawnRefusesAgentCliWithoutAgentStateSpec(
-  runtimeModule: RuntimeModule
-): Promise<void> {
+async function assertSpawnRefusesAgentCliWithoutAgentStateSpec(runtimeModule: RuntimeModule): Promise<void> {
   const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-terminal-runtime-nohooks-'))
   const runtime = runtimeModule.createTerminalRuntime({
     diagnosticsEnabled: false,
@@ -4019,9 +4066,9 @@ async function assertSpawnRefusesAgentCliWithoutAgentStateSpec(
     })
     assert.equal(result.ok, false, 'a hook-incapable CLI must not spawn as an agent')
     assert.match(
-      !result.ok ? result.message ?? '' : '',
+      !result.ok ? (result.message ?? '') : '',
       /cannot report agent status/,
-      'the refusal names the reason, never silently substitutes'
+      'the refusal names the reason, never silently substitutes',
     )
     assert.equal(mockPty.spawnCalls.length, 0, 'nothing is spawned for a refused CLI')
   } finally {

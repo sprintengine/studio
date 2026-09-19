@@ -84,14 +84,15 @@ export function SegmentedControl<V extends string = string>({
     (delta: number) => {
       const enabled = items.filter((item) => !item.disabled)
       if (enabled.length === 0) return
-      const currentIndex = Math.max(0, enabled.findIndex((item) => item.value === value))
+      const currentIndex = Math.max(
+        0,
+        enabled.findIndex((item) => item.value === value),
+      )
       const next = enabled[(currentIndex + delta + enabled.length) % enabled.length]
       onChange(next.value)
       // Selection follows focus: keep the focused element the selected segment.
       window.requestAnimationFrame(() => {
-        groupRef.current
-          ?.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="true"]')
-          ?.focus()
+        groupRef.current?.querySelector<HTMLButtonElement>('[role="radio"][aria-checked="true"]')?.focus()
       })
     },
     [items, value, onChange],
@@ -138,9 +139,11 @@ export function SegmentedControl<V extends string = string>({
             className={`
               interactive ${iconOnly ? ICON_ONLY_SEGMENT : SEGMENT_SIZE[size]} font-medium ${FOCUS_RING_CLASS}
               ${index > 0 ? 'border-l border-[color:var(--border-subtle)]' : ''}
-              ${checked
-                ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                : 'bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'}
+              ${
+                checked
+                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                  : 'bg-[color:var(--bg-surface)] text-[color:var(--text-muted)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+              }
               disabled:cursor-not-allowed disabled:opacity-45 disabled:hover:bg-[color:var(--bg-surface)]
             `}
           >

@@ -208,9 +208,7 @@ export function DesignSystemSettings({ workspaceRoot }: { workspaceRoot: string 
   )
 
   if (!workspaceRoot) {
-    return (
-      <p className="text-body leading-5 text-[color:var(--text-muted)]">Open a workspace first.</p>
-    )
+    return <p className="text-body leading-5 text-[color:var(--text-muted)]">Open a workspace first.</p>
   }
   if (bundle.kind === 'probing') return null
 
@@ -259,17 +257,9 @@ export function DesignSystemSettings({ workspaceRoot }: { workspaceRoot: string 
             {update?.version ? (
               <div className="flex items-center gap-3 px-3 py-2 text-meta text-[color:var(--text-muted)]">
                 <span>
-                  <span className="font-medium text-[color:var(--text-strong)]">
-                    v{update.version}
-                  </span>{' '}
-                  available
+                  <span className="font-medium text-[color:var(--text-strong)]">v{update.version}</span> available
                 </span>
-                <OutlineButton
-                  size="xs"
-                  className="ml-auto"
-                  onClick={() => void onUpdate(update)}
-                  disabled={busy}
-                >
+                <OutlineButton size="xs" className="ml-auto" onClick={() => void onUpdate(update)} disabled={busy}>
                   {pending === 'update' ? 'Updating…' : 'Update'}
                 </OutlineButton>
               </div>

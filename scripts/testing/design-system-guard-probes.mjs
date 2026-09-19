@@ -58,7 +58,7 @@
 // Usage:  node scripts/testing/design-system-guard-probes.mjs
 // Exit 0 when every probe behaved as specified; 1 otherwise.
 
-import { mkdtempSync, mkdirSync, copyFileSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, dirname, resolve } from 'node:path'
 import { spawnSync } from 'node:child_process'
@@ -169,7 +169,10 @@ const probes = [
         '  --bg-hover: var(--sem-color-bg-hover);',
         '  --bg-hover: var(--sem-color-bg-surface-raised);',
       ),
-    expect: { rule: 'app-token-restates-bundle', message: /aliases --sem-color-bg-surface-raised.*counterpart is --sem-color-bg-hover/ },
+    expect: {
+      rule: 'app-token-restates-bundle',
+      message: /aliases --sem-color-bg-surface-raised.*counterpart is --sem-color-bg-hover/,
+    },
   },
   {
     id: 'P2',
@@ -180,7 +183,11 @@ const probes = [
       `${css}\n:root {\n  --accent-primary: #3f9468;\n  --bg-hover: #18181c;\n  --border-strong: rgba(252, 252, 252, 0.12);\n}\n`,
     // All three, not just the first: the rule has to scan the block, not trip
     // over its opening line.
-    expect: { rule: 'app-token-restates-bundle', count: 3, message: /only the base dark and light blocks may carry a mapped name/ },
+    expect: {
+      rule: 'app-token-restates-bundle',
+      count: 3,
+      message: /only the base dark and light blocks may carry a mapped name/,
+    },
   },
   {
     id: 'P3',
@@ -194,11 +201,7 @@ const probes = [
       // restating the light one there is a *drift*, which is a different message
       // from a different half of the rule.
       const value = bundleValueInDarkBlock(read(dir, BUNDLE_CSS), '--sem-shadow-modal')
-      return replaceInBaseBlock(
-        css,
-        '  --shadow-modal: var(--sem-shadow-modal);',
-        `  --shadow-modal: ${value};`,
-      )
+      return replaceInBaseBlock(css, '  --shadow-modal: var(--sem-shadow-modal);', `  --shadow-modal: ${value};`)
     },
     expect: { rule: 'app-token-restates-bundle', message: /--shadow-modal restates --sem-shadow-modal/ },
   },
@@ -228,9 +231,7 @@ const probes = [
       // failure of the guard. It went stale exactly this way: `pill` was added
       // to the bundle AFTER this probe was written, and being the last key it
       // quietly became the thing the probe mutated.
-      const steps = Object.keys(parsed?.sem?.radius ?? {}).filter(
-        (k) => !k.startsWith('$') && k !== 'pill',
-      )
+      const steps = Object.keys(parsed?.sem?.radius ?? {}).filter((k) => !k.startsWith('$') && k !== 'pill')
       if (!steps.length) throw new Error('the bundle declares no sem.radius.* ramp steps')
       // The ramp step the guard's `largestRadiusPx` actually reads: the biggest
       // one. Pushing a smaller step to 20px would also trip the assertion, but
@@ -327,7 +328,9 @@ function main() {
       'the harness is clean before any probe',
       clean.code === 0 && clean.violations.length === 0,
       `exit=${clean.code} violations=${clean.violations.length}` +
-        (clean.violations.length ? `\n        ${clean.violations.map((v) => `${v.rule}: ${v.message}`).join('\n        ')}` : ''),
+        (clean.violations.length
+          ? `\n        ${clean.violations.map((v) => `${v.rule}: ${v.message}`).join('\n        ')}`
+          : ''),
     )
     // `process.exit` here would skip the `finally` and leak the harness
     // directory, so stop by not entering the loop.
@@ -388,7 +391,9 @@ function main() {
       'the primitive guard is clean before the raw-element probe',
       primitiveClean.code === 0,
       `exit=${primitiveClean.code}` +
-        (primitiveClean.code === 0 ? '' : `\n        ${primitiveClean.text.trim().split('\n').slice(-4).join('\n        ')}`),
+        (primitiveClean.code === 0
+          ? ''
+          : `\n        ${primitiveClean.text.trim().split('\n').slice(-4).join('\n        ')}`),
     )
 
     if (primitiveClean.code === 0) {
@@ -429,11 +434,7 @@ function main() {
 
       rmSync(join(dir, probeFile), { force: true })
       const afterRaw = runPrimitiveGuard(dir)
-      record(
-        'P6 — the primitive guard returns to green on revert',
-        afterRaw.code === 0,
-        `exit=${afterRaw.code}`,
-      )
+      record('P6 — the primitive guard returns to green on revert', afterRaw.code === 0, `exit=${afterRaw.code}`)
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })

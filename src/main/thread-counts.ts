@@ -50,11 +50,8 @@ export type ThreadCountDeps = {
 
 function defaultRunPs(pids: readonly number[]): Promise<string> {
   return new Promise((resolve) => {
-    execFile(
-      'ps',
-      ['-M', '-p', pids.join(',')],
-      { timeout: 2_000, maxBuffer: 4 * 1024 * 1024 },
-      (error, stdout) => resolve(error ? '' : stdout)
+    execFile('ps', ['-M', '-p', pids.join(',')], { timeout: 2_000, maxBuffer: 4 * 1024 * 1024 }, (error, stdout) =>
+      resolve(error ? '' : stdout),
     )
   })
 }
@@ -68,7 +65,7 @@ function defaultReadProcStatus(pid: number): Promise<string> {
 // got and the panel degrades to "—".
 export async function sampleThreadCounts(
   pids: readonly number[],
-  deps: ThreadCountDeps = {}
+  deps: ThreadCountDeps = {},
 ): Promise<Map<number, number>> {
   if (pids.length === 0) return new Map()
   const platform = deps.platform ?? process.platform
@@ -93,7 +90,7 @@ export async function sampleThreadCounts(
         } catch {
           // Process exited between sampling and read — skip it.
         }
-      })
+      }),
     )
     return counts
   }

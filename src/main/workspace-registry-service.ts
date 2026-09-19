@@ -44,7 +44,12 @@ import {
 import { resolveHeadlessLayoutTemplate } from '../shared/layouts/templates'
 import { isDefaultWorkspaceName } from '../shared/workspace-title'
 import { isRetiredWorkspaceMode } from '../shared/workspace-mode'
-import { applyWorkspaceSyncEvent, type WorkspaceSyncCommand, type WorkspaceSyncEvent, type WorkspaceSyncState } from '../shared/workspace-sync'
+import {
+  applyWorkspaceSyncEvent,
+  type WorkspaceSyncCommand,
+  type WorkspaceSyncEvent,
+  type WorkspaceSyncState,
+} from '../shared/workspace-sync'
 import type { Workspace, WorkspaceId, WorkspaceMode, WorkspaceWindowId } from '../renderer/src/types/workspace'
 import type { WorkspaceRegistryStore } from './workspace-registry-store'
 
@@ -81,19 +86,13 @@ export type WorkspaceCreateResult = {
 
 export type WorkspaceRegistryHydrateResult = {
   changed: boolean
-  reason:
-    | 'seeded'
-    | 'already_present'
-    | 'refused_dangerous_empty'
-    | 'seeded_empty_intent'
+  reason: 'seeded' | 'already_present' | 'refused_dangerous_empty' | 'seeded_empty_intent'
   classification: PersistedStateClassification
   seededWorkspaceCount: number
   droppedRecordIds: string[]
 }
 
-export type WorkspaceRegistryPrecheck =
-  | { ok: true }
-  | { ok: false; reason: string; message: string }
+export type WorkspaceRegistryPrecheck = { ok: true } | { ok: false; reason: string; message: string }
 
 export type WorkspaceRegistryService = ReturnType<typeof createWorkspaceRegistryService>
 
@@ -128,8 +127,8 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       level: 'warning',
       title: 'Workspace registry unreadable',
       message:
-        'The workspace registry could not be read. Workspaces are not lost: the app will re-seed from the '
-        + 'window registry on the next boot, and the legacy registry key is left untouched.',
+        'The workspace registry could not be read. Workspaces are not lost: the app will re-seed from the ' +
+        'window registry on the next boot, and the legacy registry key is left untouched.',
       details: loaded.details,
     })
   }
@@ -214,9 +213,10 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       // An empty registry is only ever intentional when the last removal said
       // so; anything else that empties it is a fault and must not be recorded
       // as intent (see the hydrate guard).
-      registryEmptyState: state.workspaces.length === 0
-        ? file.registryEmptyState ?? { reason: 'user_removed_all', updatedAt: new Date(at).toISOString() }
-        : null,
+      registryEmptyState:
+        state.workspaces.length === 0
+          ? (file.registryEmptyState ?? { reason: 'user_removed_all', updatedAt: new Date(at).toISOString() })
+          : null,
       tombstones,
     }
     seeded = true
@@ -302,8 +302,8 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
           ok: false,
           reason: 'stale_edit',
           message:
-            `A newer edit to "${field}" on workspace "${workspaceId}" is already applied; `
-            + 'this window is behind and converges on the current value.',
+            `A newer edit to "${field}" on workspace "${workspaceId}" is already applied; ` +
+            'this window is behind and converges on the current value.',
         }
       }
     }
@@ -315,8 +315,8 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
           ok: false,
           reason: 'stale_edit',
           message:
-            `A newer edit to agent "${command.payload.agentId}" in workspace "${workspaceId}" is already `
-            + 'applied; this window is behind and converges on the current value.',
+            `A newer edit to agent "${command.payload.agentId}" in workspace "${workspaceId}" is already ` +
+            'applied; this window is behind and converges on the current value.',
         }
       }
     }
@@ -368,8 +368,7 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
 
     const template = resolveHeadlessLayoutTemplate({ templateId: input.templateId, mode: input.mode })
     const createdAt = now()
-    const name = normalizeOptionalString(input.name)
-      ?? defaultWorkspaceName(template.name, getRecords().length + 1)
+    const name = normalizeOptionalString(input.name) ?? defaultWorkspaceName(template.name, getRecords().length + 1)
     const workspace: Workspace = {
       id: newWorkspaceId(),
       name,
@@ -459,7 +458,11 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
 
     if (rawWorkspaces.length === 0) {
       if (emptyIntent) {
-        file = { ...emptyWorkspaceRegistryFile(now()), revision: 1, registryEmptyState: { reason: 'user_removed_all', updatedAt: new Date(now()).toISOString() } }
+        file = {
+          ...emptyWorkspaceRegistryFile(now()),
+          revision: 1,
+          registryEmptyState: { reason: 'user_removed_all', updatedAt: new Date(now()).toISOString() },
+        }
         state = fileToState(file)
         seeded = true
         options.store.write(persistableFile(file))
@@ -476,9 +479,9 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
         level: 'warning',
         title: 'Workspace registry not seeded',
         message:
-          'A window offered an empty workspace list with no record of the user removing everything, so the '
-          + 'registry was left unseeded rather than written empty. Your workspaces are still in the previous '
-          + 'store and seeding retries on the next launch.',
+          'A window offered an empty workspace list with no record of the user removing everything, so the ' +
+          'registry was left unseeded rather than written empty. Your workspaces are still in the previous ' +
+          'store and seeding retries on the next launch.',
         details: `classification=${classification} dangerous=${isDangerousEmptyClassification(classification)}`,
       })
       return {
@@ -516,8 +519,8 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
         level: 'warning',
         title: 'Workspace registry not seeded',
         message:
-          'Every workspace in the offered registry failed validation, so nothing was seeded rather than '
-          + 'writing an empty registry. The previous store is untouched and seeding retries on the next launch.',
+          'Every workspace in the offered registry failed validation, so nothing was seeded rather than ' +
+          'writing an empty registry. The previous store is untouched and seeding retries on the next launch.',
         details: `classification=${classification} dropped=${droppedRecordIds.length}`,
       })
       return {
@@ -536,9 +539,10 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
       workspaceWindows: Array.isArray(payload.workspaceWindows)
         ? (payload.workspaceWindows as WorkspaceSyncState['workspaceWindows'])
         : [],
-      primaryWorkspaceWindowId: typeof payload.primaryWorkspaceWindowId === 'string' && payload.primaryWorkspaceWindowId
-        ? payload.primaryWorkspaceWindowId
-        : 'primary',
+      primaryWorkspaceWindowId:
+        typeof payload.primaryWorkspaceWindowId === 'string' && payload.primaryWorkspaceWindowId
+          ? payload.primaryWorkspaceWindowId
+          : 'primary',
       lastAppliedWorkspaceSyncSequence: state.lastAppliedWorkspaceSyncSequence,
     }
     const seedFile: WorkspaceRegistryFile = {
@@ -633,7 +637,8 @@ export function createWorkspaceRegistryService(options: WorkspaceRegistryService
     return {
       ...source,
       workspaces: source.workspaces.map((record) =>
-        toWorkspaceRegistryRecord(record, record.revision, record.fieldEditedAt)),
+        toWorkspaceRegistryRecord(record, record.revision, record.fieldEditedAt),
+      ),
       workspaceWindows: source.workspaceWindows.map((windowState) => ({
         ...windowState,
         workspaceIds: [...windowState.workspaceIds],
@@ -695,9 +700,7 @@ function registryCommandWorkspaceId(command: WorkspaceSyncCommand): WorkspaceId 
   }
 }
 
-function stampedFieldsForCommand(
-  command: WorkspaceSyncCommand
-): [WorkspaceRegistryStampedField, number][] {
+function stampedFieldsForCommand(command: WorkspaceSyncCommand): [WorkspaceRegistryStampedField, number][] {
   switch (command.type) {
     case 'workspace.rename':
       return [['name', command.payload.editedAt]]

@@ -67,12 +67,7 @@ async function main(): Promise<void> {
   const MINUTE = 60 * 1000
   const HOUR = 60 * MINUTE
   const now = Date.now()
-  const workspace = (
-    id: string,
-    name: string,
-    folderPath: string,
-    fields: Partial<Workspace> = {}
-  ): Workspace =>
+  const workspace = (id: string, name: string, folderPath: string, fields: Partial<Workspace> = {}): Workspace =>
     ({ id, name, mode: 'standard', folderPath, createdAt: now - 2 * HOUR, ...fields }) as unknown as Workspace
 
   // Three projects, ordered by when the PERSON last messaged each. Bravo is the
@@ -160,7 +155,7 @@ async function main(): Promise<void> {
     const starred = new Set(
       container.querySelector('#ws-starred-body')
         ? [...container.querySelector('#ws-starred-body')!.querySelectorAll('[role="treeitem"]')]
-        : []
+        : [],
     )
     return [...container.querySelectorAll('[role="treeitem"]')]
       .filter((row) => !starred.has(row))
@@ -170,7 +165,7 @@ async function main(): Promise<void> {
 
   const rowFor = (name: string): HTMLElement => {
     const row = [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')].find((el) =>
-      el.textContent?.includes(name)
+      el.textContent?.includes(name),
     )
     assert.ok(row, `row ${name} is rendered`)
     return row
@@ -197,18 +192,18 @@ async function main(): Promise<void> {
     assert.equal(useWorkspaceStore.getState().chatListView, 'projects', 'the tree is the default shape')
     assert.ok(
       folderHeadings().some((heading) => heading.includes('apples')),
-      `the tree draws a header per project (got ${folderHeadings().join(' | ')})`
+      `the tree draws a header per project (got ${folderHeadings().join(' | ')})`,
     )
     assert.equal(
       container.querySelector('[role="radio"]'),
       null,
-      'and the rail carries no view control of its own — the switch lives in Settings'
+      'and the rail carries no view control of its own — the switch lives in Settings',
     )
     assert.deepEqual(starredNames(), ['Echo'], 'a starred chat sits in Starred')
     assert.equal(
       streamOrFolderNames().includes('Echo'),
       false,
-      'and not also under its project — starring moves the row, it does not copy it'
+      'and not also under its project — starring moves the row, it does not copy it',
     )
     assert.equal(rowNames().filter((name) => name === 'Echo').length, 1, 'so it is drawn once')
 
@@ -228,7 +223,7 @@ async function main(): Promise<void> {
     assert.deepEqual(
       streamOrFolderNames(),
       ['Charlie', 'Alpha', 'Bravo'],
-      'most recently messaged first; an agent turn and a keystroke are not the person speaking'
+      'most recently messaged first; an agent turn and a keystroke are not the person speaking',
     )
 
     // Each row names the project it files under — the same name its folder
@@ -245,7 +240,7 @@ async function main(): Promise<void> {
 
     // One shelf for the whole stream, not one per project.
     const shelf = [...container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')].filter((button) =>
-      button.textContent?.startsWith('Settled')
+      button.textContent?.startsWith('Settled'),
     )
     assert.equal(shelf.length, 1, 'one Settled shelf at the foot of the stream')
     assert.match(shelf[0].textContent ?? '', /Settled\s*1/, 'holding the resting chats of every project')
@@ -261,7 +256,7 @@ async function main(): Promise<void> {
     assert.equal(useWorkspaceStore.getState().chatListView, 'projects')
     assert.ok(
       folderHeadings().some((heading) => heading.includes('pears')),
-      'the headers come back'
+      'the headers come back',
     )
     assert.deepEqual(starredNames(), ['Echo'], 'and Echo is still only in Starred')
     assert.equal(streamOrFolderNames().includes('Echo'), false, 'not under apples')

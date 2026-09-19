@@ -39,7 +39,7 @@ function fallbackEntry(input: DiagnosticLogInput): DiagnosticLogEntry {
 
 function withDiagnosticTimeout(
   promise: Promise<DiagnosticLogEntry>,
-  input: DiagnosticLogInput
+  input: DiagnosticLogInput,
 ): Promise<DiagnosticLogEntry> {
   let timeoutId: ReturnType<typeof setTimeout> | null = null
   const timeout = new Promise<DiagnosticLogEntry>((resolve) => {

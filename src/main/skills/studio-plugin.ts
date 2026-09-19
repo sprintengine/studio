@@ -264,7 +264,7 @@ export type StudioPluginTemplate = {
  * `.claude-plugin` holding nothing is worse than a workspace with none.
  */
 export async function readStudioPluginTemplate(
-  templateRoot: string
+  templateRoot: string,
 ): Promise<{ ok: true; template: StudioPluginTemplate } | { ok: false; message: string }> {
   const pluginDir = join(templateRoot, STUDIO_PLUGIN_ID)
   const manifestPath = join(pluginDir, '.claude-plugin', 'plugin.json')
@@ -405,9 +405,9 @@ async function neuterMaterialisedHooks(pluginRoot: string): Promise<void> {
         hooks: {},
       },
       null,
-      2
+      2,
     )}\n`,
-    'utf8'
+    'utf8',
   )
 }
 
@@ -548,9 +548,7 @@ export type StudioPluginInstallResult =
     }
   | { ok: false; message: string }
 
-export async function installStudioPlugin(
-  options: StudioPluginInstallOptions
-): Promise<StudioPluginInstallResult> {
+export async function installStudioPlugin(options: StudioPluginInstallOptions): Promise<StudioPluginInstallResult> {
   const workspaceRoot = options.workspaceRoot.trim()
   if (workspaceRoot === '') return { ok: false, message: 'Workspace root is required.' }
   if (!existsSync(workspaceRoot)) return { ok: false, message: 'That workspace folder no longer exists.' }
@@ -632,7 +630,9 @@ export async function installStudioPlugin(
     const registration =
       raw === null ? null : parsePluginHookRegistration(substituteStudioPluginTokens(raw, options.tokens))
     if (registration === null) {
-      warnings.push('The plugin declares no hook command this app can register, so agent state was left to the CLI installer.')
+      warnings.push(
+        'The plugin declares no hook command this app can register, so agent state was left to the CLI installer.',
+      )
     } else {
       const path = resolve(workspaceRoot, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
       try {
@@ -693,7 +693,9 @@ async function pruneUnshippedStudioSkills(workspaceRoot: string, shipped: readon
       try {
         await rm(directory, { recursive: true, force: true })
       } catch (error) {
-        warnings.push(`${join(harnessDir, 'skills', entry.name)} is no longer shipped and could not be removed: ${describe(error)}`)
+        warnings.push(
+          `${join(harnessDir, 'skills', entry.name)} is no longer shipped and could not be removed: ${describe(error)}`,
+        )
       }
     }
   }
@@ -759,7 +761,9 @@ export async function removeStudioPluginClaudeRegistration(workspaceRoot: string
     }
   }
 
-  if (await removeSettingsKey(resolve(root, CLAUDE_SETTINGS_RELATIVE_PATH), 'enabledPlugins', studioClaudePluginKey())) {
+  if (
+    await removeSettingsKey(resolve(root, CLAUDE_SETTINGS_RELATIVE_PATH), 'enabledPlugins', studioClaudePluginKey())
+  ) {
     removed.push(CLAUDE_SETTINGS_RELATIVE_PATH)
   }
   await removeSettingsKey(localPath, 'extraKnownMarketplaces', STUDIO_PLUGIN_MARKETPLACE_NAME)
@@ -849,7 +853,7 @@ async function enableStudioPluginInClaudeSettings(input: {
 }
 
 async function readJsonObject(
-  path: string
+  path: string,
 ): Promise<{ ok: true; value: Record<string, unknown>; raw: string } | { ok: false; message: string }> {
   let raw: string
   try {
@@ -874,7 +878,7 @@ async function writeJsonObject(
   path: string,
   value: Record<string, unknown>,
   /** What was read; an unchanged file is not rewritten. */
-  before?: string
+  before?: string,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   const next = `${JSON.stringify(value, null, 2)}\n`
   // `.claude/settings.json` is a file a project commits. Rewriting it with

@@ -135,13 +135,13 @@ if (isDiagnosticsWindow) {
       <React.Suspense fallback={null}>
         <DiagnosticsWindowApp />
       </React.Suspense>
-    </ConfirmDialogProvider>
+    </ConfirmDialogProvider>,
   )
 } else if (auxWindowKind) {
   ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
     <ConfirmDialogProvider>
       <AuxWindowApp />
-    </ConfirmDialogProvider>
+    </ConfirmDialogProvider>,
   )
 } else {
   void bootThirdPartyRendererModules().then(() => {
@@ -149,7 +149,7 @@ if (isDiagnosticsWindow) {
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <ConfirmDialogProvider>
         <WorkspaceManager />
-      </ConfirmDialogProvider>
+      </ConfirmDialogProvider>,
     )
     markStartup('renderer.root-rendered')
     // Only the primary workspace window reveals itself. The diagnostics and aux

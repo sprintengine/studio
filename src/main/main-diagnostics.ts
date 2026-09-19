@@ -14,7 +14,7 @@ export function createMainDiagnostics({ enabled }: MainDiagnosticsOptions) {
     scope: string,
     event: string,
     payload: Record<string, unknown>,
-    action: () => Promise<T>
+    action: () => Promise<T>,
   ): Promise<T> {
     const startedAt = Date.now()
     try {

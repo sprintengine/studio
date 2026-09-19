@@ -23,10 +23,7 @@ function htmlArtifactFrameSandbox(allowScripts: boolean): string {
   return allowScripts ? 'allow-scripts' : ''
 }
 
-type CardState =
-  | { kind: 'loading' }
-  | { kind: 'ready'; content: string }
-  | { kind: 'error' }
+type CardState = { kind: 'loading' } | { kind: 'ready'; content: string } | { kind: 'error' }
 
 type Props = {
   /** Absolute on-disk path read for the live render. */
@@ -43,15 +40,7 @@ type Props = {
   buttonRef?: (element: HTMLButtonElement | null) => void
 }
 
-export function HtmlPreviewCard({
-  absolutePath,
-  relativePath,
-  title,
-  onOpen,
-  tabIndex,
-  onFocus,
-  buttonRef,
-}: Props) {
+export function HtmlPreviewCard({ absolutePath, relativePath, title, onOpen, tabIndex, onFocus, buttonRef }: Props) {
   const [state, setState] = useState<CardState>({ kind: 'loading' })
   const [frameLoaded, setFrameLoaded] = useState(false)
 
@@ -82,11 +71,7 @@ export function HtmlPreviewCard({
       tabIndex={tabIndex}
       onFocus={onFocus}
       onClick={onOpen}
-      aria-label={
-        state.kind === 'error'
-          ? `${title} — the demo will not render; open to see the file`
-          : title
-      }
+      aria-label={state.kind === 'error' ? `${title} — the demo will not render; open to see the file` : title}
       className="
         flex w-full flex-col overflow-hidden rounded-md border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] text-left
         transition-colors hover:border-[color:var(--border-default)] hover:bg-[color:var(--bg-hover)]
@@ -135,11 +120,7 @@ export function HtmlPreviewCard({
       </span>
       <span className="flex flex-col gap-0.5 px-3 py-2">
         <span className="text-meta font-semibold text-[color:var(--text-strong)]">{title}</span>
-        <TruncatedText
-          as="span"
-          text={relativePath}
-          className="font-mono text-micro text-[color:var(--text-subtle)]"
-        />
+        <TruncatedText as="span" text={relativePath} className="font-mono text-micro text-[color:var(--text-subtle)]" />
       </span>
     </button>
   )

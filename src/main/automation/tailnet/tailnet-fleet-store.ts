@@ -188,7 +188,8 @@ function isStored(value: unknown): value is StoredFleetConnection {
 function normalize(value: StoredFleetConnection): StoredFleetConnection {
   return {
     id: value.id,
-    machineName: typeof value.machineName === 'string' && value.machineName ? value.machineName.slice(0, 120) : value.endpoint,
+    machineName:
+      typeof value.machineName === 'string' && value.machineName ? value.machineName.slice(0, 120) : value.endpoint,
     endpoint: value.endpoint,
     deviceId: value.deviceId,
     deviceName: typeof value.deviceName === 'string' ? value.deviceName.slice(0, 120) : '',

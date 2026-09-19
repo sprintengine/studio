@@ -44,7 +44,7 @@ const EMPTY_ENTRY: RemoteBrowseEntry = { browse: null, loading: false, error: nu
 function withEntry(
   current: ReadonlyMap<string, RemoteBrowseEntry>,
   connectionId: string,
-  update: (entry: RemoteBrowseEntry) => RemoteBrowseEntry
+  update: (entry: RemoteBrowseEntry) => RemoteBrowseEntry,
 ): ReadonlyMap<string, RemoteBrowseEntry> {
   const next = new Map(current)
   next.set(connectionId, update(current.get(connectionId) ?? EMPTY_ENTRY))
@@ -82,9 +82,9 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
               // answer replaces them.
               browse: result.reachable ? result : entry.browse,
               loading: false,
-              error: result.reachable ? null : result.unreachableReason ?? 'Not answering.',
+              error: result.reachable ? null : (result.unreachableReason ?? 'Not answering.'),
               at: Date.now(),
-            }))
+            })),
           )
         })
         .catch((error: unknown) => {
@@ -94,14 +94,14 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
               loading: false,
               error: error instanceof Error ? error.message : String(error),
               at: Date.now(),
-            }))
+            })),
           )
         })
         .finally(() => {
           inFlight.current.delete(connectionId)
         })
     },
-    [bridge]
+    [bridge],
   )
 
   const { fleet, fleetReachability, fleetAttachments, fleetRemoteChanges } = presence
@@ -175,7 +175,7 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
         .map((attachment) => `${attachment.connectionId}:${attachment.sessionId}:${attachment.state}`)
         .sort()
         .join('|'),
-    [fleetAttachments]
+    [fleetAttachments],
   )
   const lastSignature = useRef(attachmentSignature)
   useEffect(() => {
@@ -211,7 +211,7 @@ export function useRemoteSessions({ enabled: wanted }: { enabled: boolean }): Re
         if (connectionId || shouldBrowse(fleetReachability.get(connection.id))) browse(connection.id)
       }
     },
-    [fleet, fleetReachability, browse]
+    [fleet, fleetReachability, browse],
   )
 
   return { presence, browses, listening, link, refresh }

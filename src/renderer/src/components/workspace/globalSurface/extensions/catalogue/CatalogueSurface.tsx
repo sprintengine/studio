@@ -35,12 +35,7 @@ import { ConnectorSectionHeading } from '../../../../panels/ConnectorsPanel/Conn
 import { GlobalSurfaceShell } from '../../GlobalSurfaceShell'
 import { useSurfaceBackNav } from '../../surfaceBackNav'
 import { ADD_LOCAL_SKILL_SOURCE_LABEL } from '../../../../../../../shared/skills'
-import {
-  CATALOGUE_PAGE_SIZE,
-  deriveCataloguePage,
-  stepCataloguePage,
-  type CatalogueGroup,
-} from './cataloguePaging'
+import { CATALOGUE_PAGE_SIZE, deriveCataloguePage, stepCataloguePage, type CatalogueGroup } from './cataloguePaging'
 import { type CatalogueTab } from './catalogueTabs'
 
 const TABS_PREFIX = 'extensions-catalogue'
@@ -151,10 +146,7 @@ export function CatalogueSurface<T>({
     query: search.query,
     noun,
   })
-  const sectionByKey = useMemo(
-    () => new Map((sections ?? []).map((section) => [section.key, section])),
-    [sections],
-  )
+  const sectionByKey = useMemo(() => new Map((sections ?? []).map((section) => [section.key, section])), [sections])
 
   const items: TabItem[] = tabs.map((tab) => ({
     id: tab.id,
@@ -180,8 +172,7 @@ export function CatalogueSurface<T>({
     // moved on with nothing countable behind it yet — the scan has not been
     // taken, so there is no per-item answer to give.
     icon: tab.updateAvailable && tab.updateCount === 0 ? <UpdateMark /> : undefined,
-    ariaLabel:
-      tab.updateAvailable && tab.updateCount === 0 ? `${tab.label} — update available` : undefined,
+    ariaLabel: tab.updateAvailable && tab.updateCount === 0 ? `${tab.label} — update available` : undefined,
   }))
 
   const acrossSources = search.scope === 'sources'
@@ -311,7 +302,13 @@ function UpdateMark(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
       <circle cx="8" cy="8" r="5.75" stroke="currentColor" strokeWidth="1.3" />
-      <path d="M8 10.6V5.4M5.8 7.4 8 5.2l2.2 2.2" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M8 10.6V5.4M5.8 7.4 8 5.2l2.2 2.2"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }

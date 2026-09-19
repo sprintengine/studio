@@ -40,12 +40,9 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
     await writeFile(filePath, content, 'utf-8')
   })
 
-  ipcMain.handle(
-    'fs:save-dropped-image',
-    async (_, input: AttachmentImageInput): Promise<string> => {
-      return writeAttachmentImageFile(input, 'pasted')
-    }
-  )
+  ipcMain.handle('fs:save-dropped-image', async (_, input: AttachmentImageInput): Promise<string> => {
+    return writeAttachmentImageFile(input, 'pasted')
+  })
 
   // An image attached to a conversation turn lives as base64 in the renderer and
   // has no path to hand anyone, so opening it means writing it out first. The
@@ -105,22 +102,25 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
     return destinationPath
   })
 
-  ipcMain.handle('fs:copy-into', async (_, sourcePath: string, destinationDir: string, options?: { overwrite?: boolean }): Promise<string> => {
-    const destinationPath = join(destinationDir, basename(sourcePath))
-    const overwrite = options?.overwrite === true
+  ipcMain.handle(
+    'fs:copy-into',
+    async (_, sourcePath: string, destinationDir: string, options?: { overwrite?: boolean }): Promise<string> => {
+      const destinationPath = join(destinationDir, basename(sourcePath))
+      const overwrite = options?.overwrite === true
 
-    if (!overwrite && await deps.pathExists(destinationPath)) {
-      throw new Error(`A file or folder named "${basename(sourcePath)}" already exists.`)
-    }
+      if (!overwrite && (await deps.pathExists(destinationPath))) {
+        throw new Error(`A file or folder named "${basename(sourcePath)}" already exists.`)
+      }
 
-    await cp(sourcePath, destinationPath, {
-      errorOnExist: !overwrite,
-      force: overwrite,
-      recursive: true,
-    })
+      await cp(sourcePath, destinationPath, {
+        errorOnExist: !overwrite,
+        force: overwrite,
+        recursive: true,
+      })
 
-    return destinationPath
-  })
+      return destinationPath
+    },
+  )
 
   ipcMain.handle('fs:move', async (_, sourcePath: string, destinationDir: string): Promise<string> => {
     if (isPathInsideOrEqual(destinationDir, sourcePath)) {
@@ -130,7 +130,6 @@ export function registerFilesystemMutationIpc(ipcMain: IpcMain, deps: Filesystem
     const sourceName = basename(sourcePath)
     const destinationPath = join(destinationDir, sourceName)
     if (destinationPath === sourcePath) return sourcePath
-
 
     if (await deps.pathExists(destinationPath)) {
       throw new Error(`A file or folder named "${sourceName}" already exists.`)

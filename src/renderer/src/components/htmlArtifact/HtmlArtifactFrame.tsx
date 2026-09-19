@@ -23,10 +23,7 @@ type FrameState =
   | { kind: 'deleted' }
   | { kind: 'error'; reason: string }
 
-type BrowserOpenState =
-  | { kind: 'idle' }
-  | { kind: 'opening' }
-  | { kind: 'failed'; reason: string }
+type BrowserOpenState = { kind: 'idle' } | { kind: 'opening' } | { kind: 'failed'; reason: string }
 
 // Reviewing a responsive mockup needs real device widths, not whatever width
 // the pane happens to be. Fixed widths render the iframe on a centered,
@@ -71,10 +68,7 @@ export type HtmlArtifactView = {
   showsPreviewControls: boolean
 }
 
-function resolveHtmlArtifactView(
-  enableSourceView: boolean,
-  viewMode: HtmlArtifactViewMode,
-): HtmlArtifactView {
+function resolveHtmlArtifactView(enableSourceView: boolean, viewMode: HtmlArtifactViewMode): HtmlArtifactView {
   const mode: HtmlArtifactViewMode = enableSourceView ? viewMode : 'preview'
   const isSource = mode === 'source'
   return {
@@ -90,11 +84,7 @@ const HTML_ARTIFACT_VIEW_MODES: ReadonlyArray<{ id: HtmlArtifactViewMode; label:
   { id: 'source', label: 'Source' },
 ]
 
-function browserOpenFailureMessage(
-  relativePath: string,
-  failure: 'missing' | 'handler',
-  error?: unknown,
-): string {
+function browserOpenFailureMessage(relativePath: string, failure: 'missing' | 'handler', error?: unknown): string {
   if (failure === 'missing') {
     return `${relativePath} is missing on disk. Reload the preview or regenerate the mockup before opening it.`
   }
@@ -218,9 +208,7 @@ export function HtmlArtifactFrame({
         // The watch covers the whole directory, so sibling-file events re-read
         // this file; keep the previous state object when the content is
         // unchanged so those events don't re-render the pane.
-        setFrameState((prev) =>
-          prev.kind === 'ready' && prev.content === content ? prev : { kind: 'ready', content },
-        )
+        setFrameState((prev) => (prev.kind === 'ready' && prev.content === content ? prev : { kind: 'ready', content }))
       } catch (error) {
         if (cancelled) return
         setFrameState({
@@ -290,9 +278,7 @@ export function HtmlArtifactFrame({
   const pageTitle = htmlPreviewTitle(relativePath, frameState.kind === 'ready' ? frameState.content : null)
 
   return (
-    <div
-      className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]"
-    >
+    <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface)]">
       {/* flex-wrap: narrow hosts (e.g. a narrow detail pane) fit fewer
           controls than the full cluster — wrapping to a second row keeps every
           control reachable instead of clipping under overflow-hidden. */}
@@ -313,11 +299,7 @@ export function HtmlArtifactFrame({
           {view.showToggle ? (
             <span role="group" aria-label="View mode" className="flex items-center gap-0.5">
               {HTML_ARTIFACT_VIEW_MODES.map((option) => (
-                <ChipButton
-                  key={option.id}
-                  onClick={() => setViewMode(option.id)}
-                  pressed={view.mode === option.id}
-                >
+                <ChipButton key={option.id} onClick={() => setViewMode(option.id)} pressed={view.mode === option.id}>
                   {option.label}
                 </ChipButton>
               ))}
@@ -352,7 +334,13 @@ export function HtmlArtifactFrame({
             <IconButton size="xs" aria-label="Reload preview" onClick={() => setReloadNonce((nonce) => nonce + 1)}>
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <path d="M13 8a5 5 0 1 1-1.5-3.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-                <path d="M13 1.8v3h-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+                <path
+                  d="M13 1.8v3h-3"
+                  stroke="currentColor"
+                  strokeWidth="1.5"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                />
               </svg>
             </IconButton>
           </Tooltip>
@@ -360,7 +348,11 @@ export function HtmlArtifactFrame({
             <IconButton size="xs" aria-label="Copy path" onClick={() => void onCopyPath()}>
               <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                 <rect x="5.5" y="5.5" width="8" height="8" rx="1.5" stroke="currentColor" strokeWidth="1.4" />
-                <path d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1" stroke="currentColor" strokeWidth="1.4" />
+                <path
+                  d="M10.5 3.5v-1a1 1 0 0 0-1-1h-6a1 1 0 0 0-1 1v6a1 1 0 0 0 1 1h1"
+                  stroke="currentColor"
+                  strokeWidth="1.4"
+                />
               </svg>
             </IconButton>
           </Tooltip>
@@ -368,11 +360,7 @@ export function HtmlArtifactFrame({
             // The chip's `warn` tone: the standing warning the control itself
             // carries — scripts are running in this preview, and this is where
             // they are turned off (design-system/components/chip-button → Tone).
-            <ChipButton
-              tone="warn"
-              onClick={() => setAllowScripts((value) => !value)}
-              pressed={allowScripts}
-            >
+            <ChipButton tone="warn" onClick={() => setAllowScripts((value) => !value)} pressed={allowScripts}>
               {allowScripts ? (
                 <>
                   <span
@@ -415,11 +403,13 @@ export function HtmlArtifactFrame({
             {frameState.content}
           </pre>
         ) : frameState.kind === 'ready' ? (
-          <div
-            className={viewport === 'fit' ? 'h-full w-full' : 'flex min-h-full justify-center px-4 py-4'}
-          >
+          <div className={viewport === 'fit' ? 'h-full w-full' : 'flex min-h-full justify-center px-4 py-4'}>
             <div
-              className={viewport === 'fit' ? 'relative h-full w-full overflow-hidden' : 'relative h-full shrink-0 overflow-hidden rounded-md border border-[color:var(--border-strong)]'}
+              className={
+                viewport === 'fit'
+                  ? 'relative h-full w-full overflow-hidden'
+                  : 'relative h-full shrink-0 overflow-hidden rounded-md border border-[color:var(--border-strong)]'
+              }
               style={viewport === 'fit' ? undefined : { width: viewport * zoom }}
             >
               <iframe
@@ -523,9 +513,7 @@ function PreviewState({
       {path ? (
         <span className="max-w-full truncate font-mono text-micro text-[color:var(--text-subtle)]">{path}</span>
       ) : null}
-      {body ? (
-        <span className="max-w-[360px] text-meta leading-5 text-[color:var(--text-muted)]">{body}</span>
-      ) : null}
+      {body ? <span className="max-w-[360px] text-meta leading-5 text-[color:var(--text-muted)]">{body}</span> : null}
     </div>
   )
 }

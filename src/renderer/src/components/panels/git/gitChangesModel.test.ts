@@ -54,10 +54,7 @@ assert.deepEqual(splitGitPath('swap2-top.png'), { directory: '', filename: 'swap
 assert.deepEqual(splitGitPath('a/b/c.ts'), { directory: 'a/b', filename: 'c.ts' })
 
 // A wholly staged row has nothing outside the index, so its diff is HEAD↔index.
-assert.equal(
-  toGitChangeRow(entry({ relativePath: 'a.ts', staged: true, unstaged: false })).diffScope,
-  'staged',
-)
+assert.equal(toGitChangeRow(entry({ relativePath: 'a.ts', staged: true, unstaged: false })).diffScope, 'staged')
 assert.equal(
   toGitChangeRow(entry({ relativePath: 'a.ts', staged: true, unstaged: true })).diffScope,
   'unstaged',
@@ -99,7 +96,10 @@ assert.equal(groupToggleAction(groupRows, true).action, 'stage')
 assert.equal(groupToggleAction(groupRows, false).action, 'unstage')
 assert.deepEqual(groupToggleAction([], true), { action: 'stage', rows: [], paths: [], partialRows: [] })
 assert.deepEqual(
-  groupToggleAction([off, off].map((row, index) => ({ ...row, path: `/repo/${index}` })), false),
+  groupToggleAction(
+    [off, off].map((row, index) => ({ ...row, path: `/repo/${index}` })),
+    false,
+  ),
   { action: 'unstage', rows: [], paths: [], partialRows: [] },
   'unticking a group with nothing in the index asks git for nothing',
 )
@@ -120,18 +120,17 @@ assert.equal(isUntrackedEntry({ status: 'new', staged: true }), false, 'a staged
 assert.equal(isUntrackedEntry({ status: 'modified', staged: false }), false)
 
 const flat = buildGitChangeGroups(snapshot)
-assert.deepEqual(flat.map((group) => group.id), ['changes', 'untracked'])
+assert.deepEqual(
+  flat.map((group) => group.id),
+  ['changes', 'untracked'],
+)
 assert.equal(flat[0].kind, 'changes')
 assert.equal(flat[0].title, 'Changes')
 assert.equal(flat[0].totalCount, 3)
 assert.equal(flat[0].checked, 'mixed')
 assert.deepEqual(
   flat[0].rows.map((row) => row.relativePath),
-  [
-    'design-system/components/modal/component.css',
-    'src/main/app-services.ts',
-    'src/main/checkpoint-store.ts',
-  ],
+  ['design-system/components/modal/component.css', 'src/main/app-services.ts', 'src/main/checkpoint-store.ts'],
   'sorted by path, with the untracked file lifted out into its own group',
 )
 // The untracked group is last, and unchecked: nothing of it is in the index, so
@@ -139,7 +138,10 @@ assert.deepEqual(
 assert.equal(flat[1].kind, 'untracked')
 assert.equal(flat[1].title, 'Untracked files')
 assert.equal(flat[1].checked, false)
-assert.deepEqual(flat[1].rows.map((row) => row.relativePath), ['swap2-top.png'])
+assert.deepEqual(
+  flat[1].rows.map((row) => row.relativePath),
+  ['swap2-top.png'],
+)
 
 // Conflicts are their own group, above, and they carry NO box: a conflicted
 // file is resolved, not ticked.
@@ -147,7 +149,10 @@ const withConflict = buildGitChangeGroups([
   ...snapshot,
   entry({ relativePath: 'src/renderer/src/App.tsx', status: 'conflicted' }),
 ])
-assert.deepEqual(withConflict.map((group) => group.id), ['conflicts', 'changes', 'untracked'])
+assert.deepEqual(
+  withConflict.map((group) => group.id),
+  ['conflicts', 'changes', 'untracked'],
+)
 assert.equal(withConflict[0].checked, null, 'the conflicts group has no checkbox')
 assert.equal(withConflict[1].totalCount, 3, 'a conflicted file is not also a change row')
 
@@ -193,7 +198,10 @@ assert.deepEqual(
   ['design-system/components/modal/component.css', 'src/main/app-services.ts'],
   'the file no list claims lands in the ACTIVE one, beside the file that named it',
 )
-assert.deepEqual(byList[1].rows.map((row) => row.relativePath), ['src/main/checkpoint-store.ts'])
+assert.deepEqual(
+  byList[1].rows.map((row) => row.relativePath),
+  ['src/main/checkpoint-store.ts'],
+)
 assert.equal(
   byList.flatMap((group) => group.rows).length,
   4,
@@ -301,7 +309,13 @@ assert.equal(toggle.rows.length, 2, 'both buckets together are what the click ac
 const goneSpan = buildGitChangeGroups(snapshot, {
   changelists: [
     { id: 'default', name: 'Changes', paths: ['src/main/app-services.ts'], active: true },
-    { id: 'agent:otto', name: 'Otto', paths: [], spans: { 'src/main/gone.ts': [{ start: 1, lines: 2 }] }, active: false },
+    {
+      id: 'agent:otto',
+      name: 'Otto',
+      paths: [],
+      spans: { 'src/main/gone.ts': [{ start: 1, lines: 2 }] },
+      active: false,
+    },
   ],
 })
 assert.equal(
@@ -349,7 +363,10 @@ assert.deepEqual(
   const home = groupOf('changelist:default').rows[0]
   const other = groupOf('changelist:agent:nadia').rows[1]
   const split = revertableRows([other, guest])
-  assert.deepEqual(split.actionable.map((row) => row.relativePath), ['src/main/app-services.ts'])
+  assert.deepEqual(
+    split.actionable.map((row) => row.relativePath),
+    ['src/main/app-services.ts'],
+  )
   assert.equal(split.actionable[0].partial, undefined, 'only the whole-file row survives')
   assert.equal(split.skippedPartial, 1, 'and the guest row is counted, not silently dropped')
   assert.deepEqual(revertableRows([guest]), { actionable: [], skippedPartial: 1 })
@@ -364,9 +381,7 @@ assert.deepEqual(
 
 // Directory and None arrange FILES, so spans change nothing there.
 for (const grouping of ['directory', 'none'] as const) {
-  const rows = buildGitChangeGroups(snapshot, { grouping, changelists: spanLists }).flatMap(
-    (group) => group.rows,
-  )
+  const rows = buildGitChangeGroups(snapshot, { grouping, changelists: spanLists }).flatMap((group) => group.rows)
   assert.equal(rows.filter((row) => row.partial).length, 0, `${grouping} draws no partial rows`)
   assert.equal(
     rows.filter((row) => row.relativePath === 'src/main/checkpoint-store.ts').length,
@@ -384,7 +399,10 @@ assert.deepEqual(
   byDirectory.map((group) => group.title),
   ['design-system/components/modal', 'src/main', 'Untracked files'],
 )
-assert.deepEqual(byDirectory[1].rows.map((row) => row.filename), ['app-services.ts', 'checkpoint-store.ts'])
+assert.deepEqual(
+  byDirectory[1].rows.map((row) => row.filename),
+  ['app-services.ts', 'checkpoint-store.ts'],
+)
 assert.equal(
   buildGitChangeGroups([entry({ relativePath: 'top.ts' })], { grouping: 'directory' })[0].title,
   'Repository root',
@@ -392,7 +410,10 @@ assert.equal(
 )
 
 const ungrouped = buildGitChangeGroups(snapshot, { grouping: 'none', changelists: lists })
-assert.deepEqual(ungrouped.map((group) => group.id), ['changes', 'untracked'])
+assert.deepEqual(
+  ungrouped.map((group) => group.id),
+  ['changes', 'untracked'],
+)
 assert.equal(ungrouped[0].totalCount, 3, 'None means one list, whatever changelists exist')
 
 // The render cap holds rows back but never the group's verdict: the box governs
@@ -410,11 +431,7 @@ assert.equal(
   'mixed',
   'the one unstaged file is past the cap, and the box still says the group is partly staged',
 )
-assert.equal(
-  groupToggleAction(capped.allRows, true).paths.length,
-  1,
-  'ticking the group stages the file the cap hid',
-)
+assert.equal(groupToggleAction(capped.allRows, true).paths.length, 1, 'ticking the group stages the file the cap hid')
 
 // ── The composer's line ───────────────────────────────────────────────────────
 
@@ -423,15 +440,15 @@ assert.equal(formatCommitCounts(commitCounts(snapshot)), '1 of 4 files')
 assert.equal(formatCommitCounts({ checked: 0, total: 1 }), '0 of 1 file')
 assert.equal(formatCommitCounts({ checked: 0, total: 0 }), '0 of 0 files')
 // A partly staged file is counted as checked: part of it is what a commit takes.
-assert.deepEqual(
-  commitCounts([entry({ relativePath: 'a.ts', staged: true, unstaged: true })]),
-  { checked: 1, total: 1 },
-)
+assert.deepEqual(commitCounts([entry({ relativePath: 'a.ts', staged: true, unstaged: true })]), {
+  checked: 1,
+  total: 1,
+})
 // Conflicts are in neither number — they have no box to be counted by.
-assert.deepEqual(
-  commitCounts([entry({ relativePath: 'a.ts', status: 'conflicted', staged: false, unstaged: true })]),
-  { checked: 0, total: 0 },
-)
+assert.deepEqual(commitCounts([entry({ relativePath: 'a.ts', status: 'conflicted', staged: false, unstaged: true })]), {
+  checked: 0,
+  total: 0,
+})
 // The cap cannot make the line disagree with the button beside it.
 assert.deepEqual(commitCounts(many), { checked: 11, total: 12 })
 
@@ -441,11 +458,7 @@ const groups = buildGitChangeGroups([
   ...snapshot,
   entry({ relativePath: 'src/renderer/src/App.tsx', status: 'conflicted' }),
 ])
-assert.equal(
-  visibleChangeRows(groups, () => true).length,
-  4,
-  'the conflicts group is not part of the checklist walk',
-)
+assert.equal(visibleChangeRows(groups, () => true).length, 4, 'the conflicts group is not part of the checklist walk')
 assert.equal(
   visibleChangeRows(groups, () => false).length,
   0,

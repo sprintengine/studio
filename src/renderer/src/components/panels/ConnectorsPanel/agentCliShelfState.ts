@@ -18,11 +18,7 @@ import type {
   CliVersionAdvisoryMap,
 } from '../../../../../shared/electron-api'
 import type { PluginCatalogStatus } from '../../../types/workspace'
-import {
-  resolveCliProviderState,
-  type CliProbeStatus,
-  type CliProviderState,
-} from '../../ui/cliProviderState'
+import { resolveCliProviderState, type CliProbeStatus, type CliProviderState } from '../../ui/cliProviderState'
 import type { StatusTone } from '../../ui'
 
 // The per-CLI install-methods probe (`cliInstallMethods`): unknown until asked,
@@ -30,9 +26,7 @@ import type { StatusTone } from '../../ui'
 // "this platform has no install path" — the one state that must never render a
 // button.
 export type CliInstallMethodsLoad =
-  | { status: 'unknown' }
-  | { status: 'loading' }
-  | { status: 'ready'; methods: readonly CliInstallMethodInfo[] }
+  { status: 'unknown' } | { status: 'loading' } | { status: 'ready'; methods: readonly CliInstallMethodInfo[] }
 
 export type AgentCliShelfRowState = {
   tone: StatusTone
@@ -135,7 +129,6 @@ export function agentCliShelfRowState(input: {
   }
 }
 
-
 // ── Updates ─────────────────────────────────────────────────────────────────
 
 // A CLI is behind when the advisory says so and nothing else. `behind_latest`
@@ -155,10 +148,7 @@ export function cliUpdateAvailable(advisory: CliVersionAdvisory | undefined): bo
  * list giving two answers to one question, which is the failure the count on
  * the tab already avoids for its own noun (catalogueTabs).
  */
-export function countCliUpdates(
-  advisories: CliVersionAdvisoryMap,
-  cliIds: readonly string[],
-): number {
+export function countCliUpdates(advisories: CliVersionAdvisoryMap, cliIds: readonly string[]): number {
   const seen = new Set<string>()
   for (const id of cliIds) {
     if (seen.has(id)) continue

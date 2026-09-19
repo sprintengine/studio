@@ -6,12 +6,7 @@ import {
   parseTranscriptionResponse,
   TranscriptionError,
 } from '../../../shared/voiceTranscription'
-import {
-  downsampleFloat32,
-  encodeWav,
-  floatTo16BitPCM,
-  TRANSCRIBE_TARGET_SAMPLE_RATE,
-} from './voiceTranscription'
+import { downsampleFloat32, encodeWav, floatTo16BitPCM, TRANSCRIBE_TARGET_SAMPLE_RATE } from './voiceTranscription'
 import type { VoiceDictationSettings } from '../types/workspace'
 
 const baseSettings: VoiceDictationSettings = {
@@ -27,7 +22,7 @@ assert.equal(buildTranscriptionUrl('http://127.0.0.1:48173/'), 'http://127.0.0.1
 assert.equal(buildTranscriptionUrl('https://host.example.com/v1'), 'https://host.example.com/v1/transcriptions')
 assert.equal(
   buildTranscriptionUrl('https://host.example.com/v1/transcriptions'),
-  'https://host.example.com/v1/transcriptions'
+  'https://host.example.com/v1/transcriptions',
 )
 assert.throws(() => buildTranscriptionUrl('   '), TranscriptionError)
 

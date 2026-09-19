@@ -26,7 +26,7 @@ const WARNING_TOKEN: Record<TerminalDiagnosticsWarning, string> = {
   'hidden-but-visible': 'hidden-visible',
   'large-replay': 'big-replay',
   'long-idle': 'idle-6h',
-  'stale': 'stale-24h',
+  stale: 'stale-24h',
 }
 
 function table(headers: string[], rows: string[][]): string {
@@ -90,7 +90,19 @@ export function formatDiagnosticsReport(input: {
   scrollback?: ScrollbackFootprint | null
   now: number
 }): string {
-  const { aggregation, metrics, profiles, perfEvents, longTasks, frameStats, metricsTrend, ipc, terminalThroughput, scrollback, now } = input
+  const {
+    aggregation,
+    metrics,
+    profiles,
+    perfEvents,
+    longTasks,
+    frameStats,
+    metricsTrend,
+    ipc,
+    terminalThroughput,
+    scrollback,
+    now,
+  } = input
   const totals = aggregation.totals
 
   const sections: string[] = []
@@ -102,7 +114,7 @@ export function formatDiagnosticsReport(input: {
       `Terminals: ${totals.terminalCount} (live ${totals.liveTerminalCount}, runtime-visible ${totals.visibleTerminalCount}, hidden+visible ${totals.hiddenButVisibleCount})`,
       `Retained replay: ${formatBytes(totals.totalRetainedReplayBytes)} total, ${formatBytes(totals.largestRetainedReplayBytes)} largest`,
       `Warnings: ${totals.warningCount}`,
-    ].join('\n')
+    ].join('\n'),
   )
 
   sections.push('## Processes')
@@ -120,14 +132,14 @@ export function formatDiagnosticsReport(input: {
           process.heapUsedBytes !== undefined && process.heapTotalBytes !== undefined
             ? `${formatBytes(process.heapUsedBytes)} / ${formatBytes(process.heapTotalBytes)}`
             : '—',
-        ])
-      )
+        ]),
+      ),
     )
   } else {
     sections.push('Process metrics unavailable.')
   }
   sections.push(
-    'Memory note: Electron rows are working set; child rows are OS RSS. These are reported process-memory signals, not macOS physical footprint or pressure attribution. Activity Monitor Memory can differ, especially for GPU-owned IOSurfaces.'
+    'Memory note: Electron rows are working set; child rows are OS RSS. These are reported process-memory signals, not macOS physical footprint or pressure attribution. Activity Monitor Memory can differ, especially for GPU-owned IOSurfaces.',
   )
 
   if (metricsTrend && metricsTrend.current) {
@@ -151,13 +163,13 @@ export function formatDiagnosticsReport(input: {
           ? ` · estimated system utilization ${Math.round(peaks.systemUtilizationRatio * 100)}%${peaks.systemUsedBytes !== null ? ` (${formatBytes(peaks.systemUsedBytes)} non-reclaimable)` : ''}`
           : ''
       lines.push(
-        `Peak this session: reported process memory ${formatBytes(peaks.totalRssBytes)}${peaks.totalRssAt ? ` (${lastOutput(peaks.totalRssAt, now)})` : ''} · children ${formatBytes(peaks.childRssBytes)}${peakSystem}`
+        `Peak this session: reported process memory ${formatBytes(peaks.totalRssBytes)}${peaks.totalRssAt ? ` (${lastOutput(peaks.totalRssAt, now)})` : ''} · children ${formatBytes(peaks.childRssBytes)}${peakSystem}`,
       )
     }
     if (baseline) {
       const diff = diffMetricsSamples(baseline, current)
       lines.push(
-        `Baseline set ${lastOutput(baseline.sampledAt, now)} → Δ total ${signedBytes(diff.totalRssBytes)}, Δ renderer ${signedBytes(diff.rendererRssBytes)}, Δ heap ${diff.rendererHeapUsedBytes === null ? '—' : signedBytes(diff.rendererHeapUsedBytes)}, Δ renderer CPU ${diff.rendererCpuPercent > 0 ? '+' : ''}${diff.rendererCpuPercent}% over ${Math.round(diff.elapsedMs / 1000)}s`
+        `Baseline set ${lastOutput(baseline.sampledAt, now)} → Δ total ${signedBytes(diff.totalRssBytes)}, Δ renderer ${signedBytes(diff.rendererRssBytes)}, Δ heap ${diff.rendererHeapUsedBytes === null ? '—' : signedBytes(diff.rendererHeapUsedBytes)}, Δ renderer CPU ${diff.rendererCpuPercent > 0 ? '+' : ''}${diff.rendererCpuPercent}% over ${Math.round(diff.elapsedMs / 1000)}s`,
       )
     }
     sections.push(lines.join('\n'))
@@ -178,14 +190,26 @@ export function formatDiagnosticsReport(input: {
         formatBytes(workspace.totalRetainedReplayBytes),
         formatBytes(workspace.largestRetainedReplayBytes),
         lastOutput(workspace.lastOutputAt, now),
-      ])
-    )
+      ]),
+    ),
   )
 
   sections.push('## Terminals')
   sections.push(
     table(
-      ['Workspace', 'Agent/Term', 'Kind', 'Alive', 'Activity', 'Visible', 'Retained', 'Limit', 'Tier', 'Last output', 'Warnings'],
+      [
+        'Workspace',
+        'Agent/Term',
+        'Kind',
+        'Alive',
+        'Activity',
+        'Visible',
+        'Retained',
+        'Limit',
+        'Tier',
+        'Last output',
+        'Warnings',
+      ],
       aggregation.rows.map((row) => [
         row.workspaceName ?? row.workspaceId ?? '—',
         row.agentId ?? row.terminalId ?? row.sessionId,
@@ -198,8 +222,8 @@ export function formatDiagnosticsReport(input: {
         row.historyTier ?? '—',
         lastOutput(row.lastOutputAt, now),
         row.warnings.map((warning) => WARNING_TOKEN[warning]).join(', ') || '—',
-      ])
-    )
+      ]),
+    ),
   )
 
   const reapEvents = metrics?.reapEvents ?? []
@@ -221,8 +245,8 @@ export function formatDiagnosticsReport(input: {
           event.cli ? `${event.kind}·${event.cli}` : event.kind,
           event.reason,
           msWindow(event.idleMs ?? event.unseenMs ?? null),
-        ])
-      )
+        ]),
+      ),
     )
   }
 
@@ -235,7 +259,7 @@ export function formatDiagnosticsReport(input: {
         `Total blocking: ${longTasks.totalBlockingMs} ms`,
         `Max: ${msOrDash(longTasks.maxMs)} ms · p95: ${msOrDash(longTasks.p95Ms)} ms`,
         `Last: ${lastOutput(longTasks.lastAt, now)}`,
-      ].join('\n')
+      ].join('\n'),
     )
   }
 
@@ -248,7 +272,7 @@ export function formatDiagnosticsReport(input: {
         `Long frames (>50ms): ${frameStats.longFrameCount} (${frameStats.longFramePercent}%)`,
         `p95: ${msOrDash(frameStats.p95Ms)} ms · worst: ${msOrDash(frameStats.maxMs)} ms`,
         'Note: main-thread frame cadence; pure GPU draw stalls can read low here.',
-      ].join('\n')
+      ].join('\n'),
     )
   }
 
@@ -265,8 +289,8 @@ export function formatDiagnosticsReport(input: {
           msOrDash(row.p95Ms),
           msOrDash(row.maxMs),
           msOrDash(row.lastMs),
-        ])
-      )
+        ]),
+      ),
     )
   }
 
@@ -277,7 +301,7 @@ export function formatDiagnosticsReport(input: {
         `Instances: ${scrollback.instanceCount}`,
         `Total scrollback lines: ${scrollback.totalLines.toLocaleString()}`,
         `Estimated memory: ~${formatBytes(scrollback.estimatedBytes)} (rough: lines × cols × cell)`,
-      ].join('\n')
+      ].join('\n'),
     )
   }
 
@@ -289,7 +313,7 @@ export function formatDiagnosticsReport(input: {
         `Total: ${formatBytes(terminalThroughput.totalBytesPerSec)}/s`,
         `Hidden (rendering off-screen): ${formatBytes(terminalThroughput.hiddenBytesPerSec)}/s`,
         `Visible: ${formatBytes(terminalThroughput.visibleBytesPerSec)}/s`,
-      ].join('\n')
+      ].join('\n'),
     )
   }
 
@@ -307,8 +331,8 @@ export function formatDiagnosticsReport(input: {
             String(channel.inEventsPerSec),
             formatBytes(channel.inBytesPerSec),
             String(channel.totalCalls),
-          ])
-      )
+          ]),
+      ),
     )
   }
 
@@ -326,8 +350,8 @@ export function formatDiagnosticsReport(input: {
           String(profile.totalReplayMs),
           String(profile.maxWriteMs),
           String(profile.liveBufferedCount),
-        ])
-      )
+        ]),
+      ),
     )
   } else {
     sections.push('No replay profiles captured in this window.')

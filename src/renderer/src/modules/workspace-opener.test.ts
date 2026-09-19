@@ -3,14 +3,23 @@ import { createRendererHost, type RegisteredWorkspaceTypeDefinition } from './re
 import { createWorkspaceOpener, firstWorkspaceOpenedKey } from './workspace-opener'
 
 function fixture(ready = Promise.resolve()) {
-  const types: RegisteredWorkspaceTypeDefinition[] = [{
-    id: 'game', moduleId: 'game-module', label: 'Game', description: 'A game', icon: () => null,
-    openOnFirstLoad: true,
-    createTemplate: () => ({
-      id: 'game', name: 'Game', description: 'Game', previewSlots: [],
-      layout: { global: {}, borders: [], layout: { type: 'row', children: [] } },
-    }),
-  }]
+  const types: RegisteredWorkspaceTypeDefinition[] = [
+    {
+      id: 'game',
+      moduleId: 'game-module',
+      label: 'Game',
+      description: 'A game',
+      icon: () => null,
+      openOnFirstLoad: true,
+      createTemplate: () => ({
+        id: 'game',
+        name: 'Game',
+        description: 'Game',
+        previewSlots: [],
+        layout: { global: {}, borders: [], layout: { type: 'row', children: [] } },
+      }),
+    },
+  ]
   const workspaces = new Map<string, string>()
   const markers = new Set<string>()
   const focus: string[] = []
@@ -19,7 +28,10 @@ function fixture(ready = Promise.resolve()) {
   let enabled = true
   let primary = true
   const opener = createWorkspaceOpener({
-    ready, types: () => types, enabled: () => enabled, isPrimaryWindow: () => primary,
+    ready,
+    types: () => types,
+    enabled: () => enabled,
+    isPrimaryWindow: () => primary,
     findWorkspace: (typeId) => workspaces.get(typeId),
     createWorkspace: (type) => {
       type.createTemplate()
@@ -27,14 +39,32 @@ function fixture(ready = Promise.resolve()) {
       workspaces.set(type.id, id)
       return id
     },
-    focusWorkspace: (id) => { focus.push(id) },
+    focusWorkspace: (id) => {
+      focus.push(id)
+    },
     wasOpened: (moduleId, key) => markers.has(`${moduleId}/${key}`),
-    markOpened: (moduleId, key) => { markers.add(`${moduleId}/${key}`) },
-    onError: (_typeId, error) => { errors.push(error) },
+    markOpened: (moduleId, key) => {
+      markers.add(`${moduleId}/${key}`)
+    },
+    onError: (_typeId, error) => {
+      errors.push(error)
+    },
   })
-  return { opener, types, workspaces, markers, focus, errors,
-    created: () => created, enable: (value: boolean) => { enabled = value },
-    primary: (value: boolean) => { primary = value } }
+  return {
+    opener,
+    types,
+    workspaces,
+    markers,
+    focus,
+    errors,
+    created: () => created,
+    enable: (value: boolean) => {
+      enabled = value
+    },
+    primary: (value: boolean) => {
+      primary = value
+    },
+  }
 }
 
 async function main() {
@@ -74,7 +104,11 @@ async function main() {
   assert.equal(detached.created(), 1, 'explicit commands still work in detached windows')
 
   let finishHydration!: () => void
-  const delayed = fixture(new Promise<void>((resolve) => { finishHydration = resolve }))
+  const delayed = fixture(
+    new Promise<void>((resolve) => {
+      finishHydration = resolve
+    }),
+  )
   const delayedOpen = delayed.opener.openFirstLoads()
   assert.equal(delayed.created(), 0, 'wait for saved registry before creating')
   delayed.workspaces.set('game', 'saved-workspace')
@@ -84,7 +118,9 @@ async function main() {
   assert.deepEqual(delayed.focus, ['saved-workspace'], 'reuse restored workspace')
 
   const broken = fixture()
-  broken.types[0]!.createTemplate = () => { throw new Error('bad layout') }
+  broken.types[0]!.createTemplate = () => {
+    throw new Error('bad layout')
+  }
   await broken.opener.openFirstLoads()
   assert.equal(broken.markers.size, 0, 'failed creation is not persisted as success')
   assert.equal(broken.errors.length, 1)
@@ -108,4 +144,7 @@ async function main() {
   console.log('workspace opener tests passed')
 }
 
-void main().catch((error) => { console.error(error); process.exitCode = 1 })
+void main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})

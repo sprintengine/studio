@@ -4,11 +4,7 @@ import { mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promise
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import type {
-  PluginManifest,
-  PluginRegistryListEntry,
-  PluginSkillCatalog,
-} from '../shared/plugin-manifest'
+import type { PluginManifest, PluginRegistryListEntry, PluginSkillCatalog } from '../shared/plugin-manifest'
 import type { AgentCapabilitiesInvalidation } from '../shared/skills'
 import { createMcpServerResolver } from './mcp-config-readers/resolve-servers'
 import { createAgentCapabilityService, createFsSkillDirectoryReader } from './workspace-skills-service'
@@ -34,7 +30,7 @@ function entry(id: string, skillIntegration?: PluginSkillCatalog): PluginRegistr
     binary: id,
     resumeSession: false,
     sessionIdFromCaller: false,
-  agentStateCapable: true,
+    agentStateCapable: true,
     ...(skillIntegration ? { skillIntegration } : {}),
   }
 }
@@ -44,7 +40,12 @@ function nativeOn(harnessId: string, dir: string): PluginSkillCatalog {
     support: 'native',
     harnessId,
     installTargets: [
-      { scope: 'workspace', path: `{{workspaceRoot}}/${dir}/skills/{{skillId}}`, format: 'claude-code', restartRequired: true },
+      {
+        scope: 'workspace',
+        path: `{{workspaceRoot}}/${dir}/skills/{{skillId}}`,
+        format: 'claude-code',
+        restartRequired: true,
+      },
     ],
   }
 }
@@ -65,7 +66,14 @@ const PLUGINS: PluginRegistryListEntry[] = [
 const MANIFESTS = new Map<string, PluginManifest>([
   ['claude-code', manifest({ path: '{{workspaceRoot}}/.mcp.json', format: 'claude-code' })],
   ['zai', manifest({ path: '{{workspaceRoot}}/.mcp.json', format: 'claude-code' })],
-  ['codex', manifest({ path: '{{workspaceRoot}}/.codex/config.toml', userPath: '{{home}}/.codex/config.toml', format: 'codex' })],
+  [
+    'codex',
+    manifest({
+      path: '{{workspaceRoot}}/.codex/config.toml',
+      userPath: '{{home}}/.codex/config.toml',
+      format: 'codex',
+    }),
+  ],
   ['cursor', manifest({ path: '{{workspaceRoot}}/.cursor/mcp.json', format: 'claude-code' })],
 ])
 
@@ -202,7 +210,8 @@ async function testSkillCreationInvalidatesOnce(temp: string): Promise<void> {
   await mkdir(installed, { recursive: true })
   await Promise.all(
     Array.from({ length: 10 }, (_unused, index) =>
-      writeFile(join(installed, `file-${index}.md`), `body ${index}`, 'utf-8')),
+      writeFile(join(installed, `file-${index}.md`), `body ${index}`, 'utf-8'),
+    ),
   )
   await seen.waitFor(() => seen.events.length > afterCreate, 'the install to invalidate')
   await settle()
@@ -362,7 +371,10 @@ async function testFailedWatcherDegradesHonestly(temp: string): Promise<void> {
     diagnostics.some((diagnostic) => diagnostic.path === join(workspaceRoot, '.claude', 'skills')),
     'the diagnostic names the path it could not watch',
   )
-  assert.ok(diagnostics.every((diagnostic) => diagnostic.message.includes('focus')), 'it states the fallback')
+  assert.ok(
+    diagnostics.every((diagnostic) => diagnostic.message.includes('focus')),
+    'it states the fallback',
+  )
   assert.deepEqual(
     watcher.diagnosticsFor(workspaceRoot, 'codex'),
     watcher.diagnosticsFor(workspaceRoot, 'codex'),
@@ -439,12 +451,15 @@ async function testDegradeReachesTheCapabilityResult(temp: string): Promise<void
   const during = await capabilities.resolve({ workspaceRoot, pluginId: 'claude-code' })
   assert.ok(during.ok)
   assert.ok(
-    during.diagnostics.some((diagnostic) =>
-      diagnostic.capability === 'freshness' && diagnostic.reason === 'watch_unavailable'),
+    during.diagnostics.some(
+      (diagnostic) => diagnostic.capability === 'freshness' && diagnostic.reason === 'watch_unavailable',
+    ),
     'the surface can say the list may be stale',
   )
-  assert.ok(during.skills.length >= 0 && during.diagnostics.every((diagnostic) => diagnostic.reason !== 'unreadable'),
-    'a watch failure is not reported as a failed read')
+  assert.ok(
+    during.skills.length >= 0 && during.diagnostics.every((diagnostic) => diagnostic.reason !== 'unreadable'),
+    'a watch failure is not reported as a failed read',
+  )
   release()
 }
 
@@ -457,11 +472,7 @@ async function testNoPollingLoop(): Promise<void> {
   assert.ok(!/setInterval/.test(code), 'no interval')
   assert.ok(!/watchFile/.test(code), 'no fs.watchFile, which polls')
   assert.ok(!/while\s*\(\s*true\s*\)/.test(code), 'no spin loop')
-  assert.equal(
-    (code.match(/setTimeout/g) ?? []).length,
-    1,
-    'the only timer is the debounce',
-  )
+  assert.equal((code.match(/setTimeout/g) ?? []).length, 1, 'the only timer is the debounce')
 }
 
 // 11. A write the studio made itself says so, without waiting on the OS — and

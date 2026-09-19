@@ -42,7 +42,7 @@ export function diffIpcSnapshots(prev: IpcStatsSnapshot | null, current: IpcStat
   channels.sort(
     (a, b) =>
       b.outBytesPerSec + b.inBytesPerSec - (a.outBytesPerSec + a.inBytesPerSec) ||
-      b.callsPerSec + b.inEventsPerSec - (a.callsPerSec + a.inEventsPerSec)
+      b.callsPerSec + b.inEventsPerSec - (a.callsPerSec + a.inEventsPerSec),
   )
   return { elapsedMs, channels }
 }

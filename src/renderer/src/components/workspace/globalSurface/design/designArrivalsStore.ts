@@ -107,7 +107,7 @@ export function reportDesignArrivals(
 ): void {
   if (!bundleId || !addedAt) return
   const existing = snapshot.bundles.find((bundle) => bundle.bundleId === bundleId)
-  const merged = { ...(existing?.addedAt ?? {}), ...addedAt }
+  const merged = { ...existing?.addedAt, ...addedAt }
   if (existing && existing.path === path && sameDates(existing.addedAt, merged)) return
   const row: DesignSystemBundleArrivals = { bundleId, path, addedAt: merged }
   const bundles = existing
@@ -118,10 +118,7 @@ export function reportDesignArrivals(
   publish({ bundles, loadState: snapshot.loadState === 'error' ? 'error' : 'ready' })
 }
 
-function sameDates(
-  a: Readonly<Record<string, string>>,
-  b: Readonly<Record<string, string>>,
-): boolean {
+function sameDates(a: Readonly<Record<string, string>>, b: Readonly<Record<string, string>>): boolean {
   const keys = Object.keys(b)
   if (Object.keys(a).length !== keys.length) return false
   return keys.every((key) => a[key] === b[key])

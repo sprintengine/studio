@@ -365,8 +365,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       // Spawn the child ourselves (same command/args the SDK computed) so the
       // PID is known: process-tree diagnostics attribute the headless child to
       // this session, and the SDK exposes no PID of its own.
-      spawnClaudeCodeProcess: (spawnInput: SpawnOptions): SpawnedProcess =>
-        spawnTrackedChild(state, spawnInput, now),
+      spawnClaudeCodeProcess: (spawnInput: SpawnOptions): SpawnedProcess => spawnTrackedChild(state, spawnInput, now),
       ...(state.providerSessionId ? { resume: state.providerSessionId } : {}),
     }
     const q = sdkQuery({ prompt: inputQueue, options: queryOptions })
@@ -381,7 +380,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
     state: SessionState,
     toolName: string,
     toolInput: Record<string, unknown>,
-    signal?: AbortSignal
+    signal?: AbortSignal,
   ): Promise<PermissionResult> {
     // A tool that fires after the turn's `result` (e.g. once a background
     // subagent completes and the model resumes) has no open turn. Open a
@@ -402,7 +401,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
       requestId,
       action: toolName,
       summary: questions
-        ? questions[0]?.question ?? 'The agent has a question.'
+        ? (questions[0]?.question ?? 'The agent has a question.')
         : plan !== null
           ? 'The agent proposed a plan.'
           : summarizeToolInput(toolName, toolInput),
@@ -419,7 +418,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         () => {
           if (state.pendingPermissions.delete(requestId)) resolve({ approved: false })
         },
-        { once: true }
+        { once: true },
       )
     })
     state.pendingPermissions.delete(requestId)
@@ -429,7 +428,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
         requestId,
         approved: decision.approved,
         ...(decision.answers ? { answers: decision.answers } : {}),
-      })
+      }),
     )
     if (!decision.approved) {
       return {
@@ -589,8 +588,7 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
             // Bypass by the time this is read, so "current" would name the mode
             // that is NOT in force for the reply on screen. The permissions the
             // reply started under is the one phrase that stays true either way.
-            notice:
-              'Bypass starts with your next message — this reply finishes under the permissions it started with.',
+            notice: 'Bypass starts with your next message — this reply finishes under the permissions it started with.',
           }
         }
         disposeChild(state)
@@ -609,9 +607,10 @@ export function createClaudeAgentProvider(options: ClaudeAgentProviderOptions = 
           // preset it is not honoring.
           return {
             ok: false,
-            message: error instanceof Error && error.message.trim()
-              ? `Claude Code refused the permission change: ${error.message}`
-              : 'Claude Code refused the permission change.',
+            message:
+              error instanceof Error && error.message.trim()
+                ? `Claude Code refused the permission change: ${error.message}`
+                : 'Claude Code refused the permission change.',
           }
         }
       }
@@ -731,7 +730,7 @@ function readPlanText(toolInput: Record<string, unknown>): string {
 // boundary, so they are trusted here.
 export function buildUserMessageContent(
   message: string,
-  attachments: ConversationImageAttachment[] | undefined
+  attachments: ConversationImageAttachment[] | undefined,
 ): SDKUserMessage['message']['content'] {
   if (!attachments || attachments.length === 0) return message
   const blocks: Exclude<SDKUserMessage['message']['content'], string> = []
@@ -759,17 +758,13 @@ function withContinuationTurnId(event: ConversationEvent, turnId: string): Conve
   if (SESSION_SCOPED_EVENT_TYPES.has(event.type)) return event
   const current = event.payload?.turnId
   if (typeof current === 'string' && current) return event
-  return { ...event, payload: { ...(event.payload ?? {}), turnId } }
+  return { ...event, payload: { ...event.payload, turnId } }
 }
 
 // Spawn the SDK-computed command ourselves so the child PID lands on the
 // session state (the default SDK spawn hides it). Also owns stderr capture:
 // the SDK's `stderr` option only applies to its internal spawn path.
-function spawnTrackedChild(
-  state: SessionState,
-  spawnInput: SpawnOptions,
-  now: () => number
-): SpawnedProcess {
+function spawnTrackedChild(state: SessionState, spawnInput: SpawnOptions, now: () => number): SpawnedProcess {
   const child = spawn(spawnInput.command, spawnInput.args, {
     cwd: spawnInput.cwd,
     env: spawnInput.env as NodeJS.ProcessEnv,
@@ -810,7 +805,9 @@ async function defaultResolveExecutable(cliRuntimes?: ConversationCliRuntimeOver
   const { detectCli } = await import('../cli-runtime-install')
   const detection = await detectCli('claude-code', cliRuntimes?.['claude-code'])
   if (!detection.installed || !detection.resolvedPath) {
-    throw new Error('Claude Code CLI is not installed. Install it (or set a command override in Settings) to use Claude conversation agents.')
+    throw new Error(
+      'Claude Code CLI is not installed. Install it (or set a command override in Settings) to use Claude conversation agents.',
+    )
   }
   return detection.resolvedPath
 }
@@ -821,7 +818,11 @@ async function defaultResolveExecutable(cliRuntimes?: ConversationCliRuntimeOver
 // silently and bills API usage with no visible banner (headless chat shows no
 // CLI chrome). AUTH_TOKEN/BASE_URL redirect the CLI to third-party endpoints;
 // they belong to the terminal zai/GLM launch path, never to this provider.
-export const STRIPPED_ANTHROPIC_AUTH_ENV_KEYS = ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_BASE_URL'] as const
+export const STRIPPED_ANTHROPIC_AUTH_ENV_KEYS = [
+  'ANTHROPIC_API_KEY',
+  'ANTHROPIC_AUTH_TOKEN',
+  'ANTHROPIC_BASE_URL',
+] as const
 
 export function stripAnthropicAuthEnv(env: Record<string, string>): Record<string, string> {
   const next = { ...env }
@@ -860,7 +861,7 @@ export function mapSdkMessage(
     providerSessionId: string | null
     turn: { turnId: string } | null
   },
-  message: Record<string, unknown>
+  message: Record<string, unknown>,
 ): ConversationEvent[] {
   const turnId = state.turn?.turnId
   const events: ConversationEvent[] = []
@@ -881,7 +882,7 @@ export function mapSdkMessage(
       eventFor(state, 'session_updated', {
         providerSessionId: messageSessionId,
         ...(apiKeySource ? { apiKeySource } : {}),
-      })
+      }),
     )
   } else if (apiKeySource) {
     events.push(eventFor(state, 'session_updated', { providerSessionId: state.providerSessionId, apiKeySource }))
@@ -920,7 +921,7 @@ export function mapSdkMessage(
           toolCallId: typeof block.id === 'string' ? block.id : undefined,
           tool: block.name,
           summary: summarizeToolInput(block.name, toolInput),
-          ...(computeEditDiffCounts(block.name, toolInput) ?? {}),
+          ...computeEditDiffCounts(block.name, toolInput),
           ...(parentToolUseId ? { parentToolUseId } : {}),
           ...subagentLaneFields(block.name, toolInput),
         }
@@ -950,7 +951,9 @@ export function mapSdkMessage(
       const usage = asRecord(message.usage)
       if (usage) {
         const inputTokens =
-          numberOr(usage.input_tokens, 0) + numberOr(usage.cache_creation_input_tokens, 0) + numberOr(usage.cache_read_input_tokens, 0)
+          numberOr(usage.input_tokens, 0) +
+          numberOr(usage.cache_creation_input_tokens, 0) +
+          numberOr(usage.cache_read_input_tokens, 0)
         const outputTokens = numberOr(usage.output_tokens, 0)
         events.push(
           eventFor(state, 'usage_updated', {
@@ -958,7 +961,7 @@ export function mapSdkMessage(
             inputTokens,
             outputTokens,
             totalTokens: inputTokens + outputTokens,
-          })
+          }),
         )
       }
       const isError = message.is_error === true || message.subtype !== 'success'
@@ -970,7 +973,7 @@ export function mapSdkMessage(
             turnId,
             reason: typeof message.subtype === 'string' && message.subtype !== 'success' ? message.subtype : 'provider',
             message: errors.join('; ') || resultText || 'Claude Code reported an error for this turn.',
-          })
+          }),
         )
       } else {
         events.push(eventFor(state, 'turn_completed', { turnId }))
@@ -996,7 +999,7 @@ const SUBAGENT_TOOL_NAMES = new Set(['Task', 'Agent'])
 
 function subagentLaneFields(
   tool: string,
-  toolInput: Record<string, unknown>
+  toolInput: Record<string, unknown>,
 ): Pick<ConversationToolStartedPayload, 'subagentLane' | 'subagentType'> {
   if (!SUBAGENT_TOOL_NAMES.has(tool)) return {}
   const subagentType = typeof toolInput.subagent_type === 'string' ? toolInput.subagent_type.trim() : ''
@@ -1006,7 +1009,7 @@ function subagentLaneFields(
 function eventFor(
   state: { sessionId: string; workspaceId: string; agentId: string; providerId: string; modelId: string },
   type: ConversationEvent['type'],
-  payload?: Record<string, unknown>
+  payload?: Record<string, unknown>,
 ): ConversationEvent {
   return {
     id: '',
@@ -1041,7 +1044,7 @@ function turnFailure(input: MockAdapterTurnInput, reason: string, message: strin
 // here); unknown tools return null and ship no counts.
 function computeEditDiffCounts(
   tool: string,
-  input: Record<string, unknown>
+  input: Record<string, unknown>,
 ): { addedLines: number; removedLines?: number } | null {
   if (tool === 'Edit') {
     return { addedLines: countLines(input.new_string), removedLines: countLines(input.old_string) }

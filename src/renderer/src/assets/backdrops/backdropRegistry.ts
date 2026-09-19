@@ -8,17 +8,17 @@
 // files on disk against APP_THEMES), not at runtime — and `backdropFor` returns
 // null rather than throwing, so a panel renders without art instead of crashing.
 
-import { type ResolvedAppTheme } from "../../types/appTheme";
+import { type ResolvedAppTheme } from '../../types/appTheme'
 
 // Which creation surface a plate frames. The two plates per theme share one
 // palette and differ only in medium: the workspace plate is structured
 // paper-craft (the retired New workspace hub; kept for the next host), the chat plate is organic botanical
 // (AgentChatView empty state).
-export type BackdropSurface = "workspace" | "chat";
+export type BackdropSurface = 'workspace' | 'chat'
 
 export interface BackdropSources {
-  standard: string;
-  fourK: string;
+  standard: string
+  fourK: string
 }
 
 // Build-time URL map keyed by the glob-relative path, e.g.
@@ -28,38 +28,35 @@ export interface BackdropSources {
 // bundler the macro is absent, so the call throws at runtime — caught here to
 // degrade to an empty map. That path is only ever hit by tests, and the real
 // asset set is validated on disk by backdropRegistry.test.ts.
-let standardAssets: Record<string, string> = {};
-let fourKAssets: Record<string, string> = {};
+let standardAssets: Record<string, string> = {}
+let fourKAssets: Record<string, string> = {}
 try {
-  standardAssets = import.meta.glob("./backdrop-*.jpg", {
+  standardAssets = import.meta.glob('./backdrop-*.jpg', {
     eager: true,
-    query: "?url",
-    import: "default",
-  }) as Record<string, string>;
-  fourKAssets = import.meta.glob("./4k/backdrop-*.jpg", {
+    query: '?url',
+    import: 'default',
+  }) as Record<string, string>
+  fourKAssets = import.meta.glob('./4k/backdrop-*.jpg', {
     eager: true,
-    query: "?url",
-    import: "default",
-  }) as Record<string, string>;
+    query: '?url',
+    import: 'default',
+  }) as Record<string, string>
 } catch {
-  standardAssets = {};
-  fourKAssets = {};
+  standardAssets = {}
+  fourKAssets = {}
 }
 
 // Resolved-theme + surface → responsive plate URLs, or null when no standard
 // plate exists for that pair (the caller renders nothing). The 4K URL falls back
 // to the standard plate defensively; the completeness test requires both.
 // Always pass an already-resolved theme; 'system' has no plates.
-export function backdropFor(
-  theme: ResolvedAppTheme,
-  surface: BackdropSurface,
-): BackdropSources | null {
-  const filename = `backdrop-${theme}-${surface}.jpg`;
-  const standard = standardAssets[`./${filename}`];
-  if (!standard) return null;
+export function backdropFor(theme: ResolvedAppTheme, surface: BackdropSurface): BackdropSources | null {
+  const filename = `backdrop-${theme}-${surface}.jpg`
+  const standard = standardAssets[`./${filename}`]
+  if (!standard) return null
 
   return {
     standard,
     fourK: fourKAssets[`./4k/${filename}`] ?? standard,
-  };
+  }
 }

@@ -214,29 +214,27 @@ type SharedProps = {
 
 type InputProps = Omit<React.InputHTMLAttributes<HTMLInputElement>, 'size'> & SharedProps
 
-export const Input = React.forwardRef<HTMLInputElement, InputProps>(
-  function Input(
-    { className, type, size = 'sm', variant = 'default', fullWidth = true, ...rest },
-    ref,
-  ) {
-    return (
-      <input
-        ref={ref}
-        type={type ?? 'text'}
-        {...rest}
-        className={[
-          widthClass(variant, fullWidth),
-          SIZE[HOSTED.has(variant) ? 'none' : size],
-          VARIANT[variant],
-          CHROME,
-          className ?? '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
-      />
-    )
-  },
-)
+export const Input = React.forwardRef<HTMLInputElement, InputProps>(function Input(
+  { className, type, size = 'sm', variant = 'default', fullWidth = true, ...rest },
+  ref,
+) {
+  return (
+    <input
+      ref={ref}
+      type={type ?? 'text'}
+      {...rest}
+      className={[
+        widthClass(variant, fullWidth),
+        SIZE[HOSTED.has(variant) ? 'none' : size],
+        VARIANT[variant],
+        CHROME,
+        className ?? '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    />
+  )
+})
 
 type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> &
   SharedProps & {
@@ -259,27 +257,25 @@ type TextareaProps = React.TextareaHTMLAttributes<HTMLTextAreaElement> &
  * `y` is the default because a field whose content the author cannot see is a
  * worse failure than a form that reflows.
  */
-export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(
-  function Textarea(
-    { className, size = 'sm', variant = 'default', fullWidth = true, resize = 'y', ...rest },
-    ref,
-  ) {
-    return (
-      <textarea
-        ref={ref}
-        {...rest}
-        className={[
-          widthClass(variant, fullWidth),
-          resize === 'y' ? 'resize-y' : 'resize-none',
-          'leading-5',
-          TEXTAREA_SIZE[HOSTED.has(variant) ? 'none' : size],
-          VARIANT[variant],
-          CHROME,
-          className ?? '',
-        ]
-          .filter(Boolean)
-          .join(' ')}
-      />
-    )
-  },
-)
+export const Textarea = React.forwardRef<HTMLTextAreaElement, TextareaProps>(function Textarea(
+  { className, size = 'sm', variant = 'default', fullWidth = true, resize = 'y', ...rest },
+  ref,
+) {
+  return (
+    <textarea
+      ref={ref}
+      {...rest}
+      className={[
+        widthClass(variant, fullWidth),
+        resize === 'y' ? 'resize-y' : 'resize-none',
+        'leading-5',
+        TEXTAREA_SIZE[HOSTED.has(variant) ? 'none' : size],
+        VARIANT[variant],
+        CHROME,
+        className ?? '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    />
+  )
+})

@@ -24,7 +24,7 @@ export async function syncStudioMcpConfig(
       bridgeScriptPath: string
       userDataDir: string
     }
-  }
+  },
 ): Promise<StudioMcpSyncResult> {
   let syncInputs = [input]
 

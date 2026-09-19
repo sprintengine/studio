@@ -10,7 +10,7 @@ export async function restoreDetachedWorkspaceWindowsOnStartup(input: {
   const restoredWindowIds: WorkspaceWindowId[] = []
   const collapsedWindowIds: WorkspaceWindowId[] = []
   const persistedDetachedWindows = input.workspaceWindows.filter(
-    (windowState) => windowState.id !== input.primaryWorkspaceWindowId
+    (windowState) => windowState.id !== input.primaryWorkspaceWindowId,
   )
   for (const windowState of persistedDetachedWindows) {
     let restored = false

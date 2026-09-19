@@ -1,6 +1,12 @@
 import { isCommandAvailable, type CommandAvailabilityContext } from './availability'
 import { COMMAND_REGISTRY } from './commandRegistry'
-import { isModifierKeyToken, LEGACY_COMMAND_ID_ALIASES, parseKeybinding, type KeybindingPlatform, type KeybindingStroke } from './keybindings'
+import {
+  isModifierKeyToken,
+  LEGACY_COMMAND_ID_ALIASES,
+  parseKeybinding,
+  type KeybindingPlatform,
+  type KeybindingStroke,
+} from './keybindings'
 import type { CommandContribution, CommandScope, ModuleCommandContext } from './types'
 
 export type CommandDispatcherKeyEvent = {
@@ -200,12 +206,14 @@ function strokeSignature(stroke: KeybindingStroke, platform: KeybindingPlatform)
 }
 
 function signaturesMatch(a: StrokeSignature, b: StrokeSignature): boolean {
-  return a.key === b.key
-    && a.primary === b.primary
-    && a.ctrl === b.ctrl
-    && a.meta === b.meta
-    && a.alt === b.alt
-    && a.shift === b.shift
+  return (
+    a.key === b.key &&
+    a.primary === b.primary &&
+    a.ctrl === b.ctrl &&
+    a.meta === b.meta &&
+    a.alt === b.alt &&
+    a.shift === b.shift
+  )
 }
 
 function scopeSpecificity(command: CommandContribution, activeScopes: readonly CommandScope[]): number {
@@ -222,10 +230,13 @@ function commandIsActive(command: CommandContribution, activeScopes: readonly Co
   return scopeSpecificity(command, activeScopes) > 0
 }
 
-function effectiveKeybindings(command: CommandContribution, overrides?: Readonly<Record<string, readonly string[]>>): readonly string[] {
+function effectiveKeybindings(
+  command: CommandContribution,
+  overrides?: Readonly<Record<string, readonly string[]>>,
+): readonly string[] {
   const legacyId = LEGACY_COMMAND_ID_ALIASES[command.id]
   const override = overrides?.[command.id] ?? (legacyId ? overrides?.[legacyId] : undefined)
-  return override && override.length > 0 ? override : command.defaultKeybindings ?? []
+  return override && override.length > 0 ? override : (command.defaultKeybindings ?? [])
 }
 
 function activeBindings(context: CommandDispatcherContext): ActiveBinding[] {
@@ -250,13 +261,21 @@ function activeBindings(context: CommandDispatcherContext): ActiveBinding[] {
 }
 
 function isLoneModifierStroke(signature: StrokeSignature): boolean {
-  return isModifierKeyToken(signature.key)
-    && !signature.primary && !signature.ctrl && !signature.meta && !signature.alt && !signature.shift
+  return (
+    isModifierKeyToken(signature.key) &&
+    !signature.primary &&
+    !signature.ctrl &&
+    !signature.meta &&
+    !signature.alt &&
+    !signature.shift
+  )
 }
 
 function isModifierTapBinding(binding: ActiveBinding, key: string): boolean {
-  return binding.strokes.length === 2
-    && binding.strokes.every((stroke) => stroke.key === key && isLoneModifierStroke(stroke))
+  return (
+    binding.strokes.length === 2 &&
+    binding.strokes.every((stroke) => stroke.key === key && isLoneModifierStroke(stroke))
+  )
 }
 
 export class RendererCommandDispatcher {

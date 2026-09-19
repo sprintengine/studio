@@ -80,7 +80,7 @@ export function liveDiffEditorOptions(prefs: DiffEditorPrefs): Monaco.editor.IDi
  *  unified rather than flickering through side-by-side. */
 export function diffEditorOptions(
   prefs: DiffEditorPrefs,
-  fontFamily: string
+  fontFamily: string,
 ): Monaco.editor.IStandaloneDiffEditorConstructionOptions {
   return {
     readOnly: true,
@@ -204,9 +204,7 @@ export function includedHunkCount(input: IncludedHunkCountInput): number | null 
  * — the label below and its test — read the same number.
  */
 export function differenceTotal(input: IncludedHunkCountInput): number {
-  return includedHunkCount(input) !== null && input.hunkSummary
-    ? input.hunkSummary.total
-    : input.differenceCount
+  return includedHunkCount(input) !== null && input.hunkSummary ? input.hunkSummary.total : input.differenceCount
 }
 
 /** "2 differences, 1 included" — the mockup's counter, in the three states it
@@ -291,24 +289,15 @@ export function headerStripModel(item: DiffFileItem | null): HeaderStripModel | 
   if (item.kind === 'staged') {
     return {
       base: item.status === 'new' ? { text: 'New file', mono: false } : { text: 'HEAD', mono: true },
-      current:
-        item.status === 'deleted'
-          ? { text: 'Deleted', mono: false }
-          : { text: 'Staged version', mono: false },
+      current: item.status === 'deleted' ? { text: 'Deleted', mono: false } : { text: 'Staged version', mono: false },
       includable,
     }
   }
 
   // unstaged: the index is the baseline. An untracked file has nothing there.
   return {
-    base:
-      item.status === 'new'
-        ? { text: 'New file', mono: false }
-        : { text: 'Staged version', mono: false },
-    current:
-      item.status === 'deleted'
-        ? { text: 'Deleted', mono: false }
-        : { text: 'Current version', mono: false },
+    base: item.status === 'new' ? { text: 'New file', mono: false } : { text: 'Staged version', mono: false },
+    current: item.status === 'deleted' ? { text: 'Deleted', mono: false } : { text: 'Current version', mono: false },
     includable,
   }
 }

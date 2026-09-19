@@ -144,7 +144,9 @@ function harness(seedBoards: Array<[string, CanvasBoardState]> = []): Harness {
       return canvasOk({ state: state.boards.get(ref.path) ?? boardState(ref.path), result: state.editResult })
     },
     screenshot: async (ref, opts) => {
-      state.calls.push(`screenshot:${ref.path}:${opts.elementIds?.join(',') ?? 'all'}:${opts.maxEdge ?? '-'}:${opts.dark ?? '-'}`)
+      state.calls.push(
+        `screenshot:${ref.path}:${opts.elementIds?.join(',') ?? 'all'}:${opts.maxEdge ?? '-'}:${opts.dark ?? '-'}`,
+      )
       return failed<CanvasImage>('screenshot') ?? canvasOk(state.image)
     },
     requestOpen: async (ref) => {
@@ -236,8 +238,9 @@ async function main(): Promise<void> {
     }
     assert.deepEqual(problems, [])
     // The skeleton is the format an agent authors in, so the three traps are named.
-    const create = ((h.tools.get('canvas.edit')!.inputSchema as Record<string, never>).properties as Record<string, never>)
-      .create as Record<string, never>
+    const create = (
+      (h.tools.get('canvas.edit')!.inputSchema as Record<string, never>).properties as Record<string, never>
+    ).create as Record<string, never>
     const skeleton = (create.items as Record<string, never>).properties as Record<string, { description: string }>
     assert.match(skeleton.startElementId.description, /ONLY way to attach/)
     assert.match(skeleton.y.description, /downward/i)
@@ -269,7 +272,11 @@ async function main(): Promise<void> {
     const explicit = harness()
     await explicit.tools.get('canvas.open')!.handler({ board: 'architecture' }, bound)
     assert.ok(explicit.calls.includes('readBoard:diagrams/architecture.excalidraw:create'))
-    assert.equal(explicit.calls.some((call) => call.startsWith('listBoards')), false, 'a named board asks for no listing')
+    assert.equal(
+      explicit.calls.some((call) => call.startsWith('listBoards')),
+      false,
+      'a named board asks for no listing',
+    )
     const refused = await explicit.tools.get('canvas.open')!.handler({ board: '../escape.excalidraw' }, bound)
     assert.equal(errorOf(refused).code, 'invalid_path')
   })
@@ -295,7 +302,10 @@ async function main(): Promise<void> {
     h.summaries = [summary('diagrams/a.excalidraw', 1_000, 3), summary('diagrams/b.excalidraw', 5_000, 9)]
     const result = await h.tools.get('canvas.list')!.handler({}, bound)
     const boards = structured(result).boards as Array<Record<string, unknown>>
-    assert.deepEqual(boards.map((board) => board.path), ['diagrams/b.excalidraw', 'diagrams/a.excalidraw'])
+    assert.deepEqual(
+      boards.map((board) => board.path),
+      ['diagrams/b.excalidraw', 'diagrams/a.excalidraw'],
+    )
     assert.equal(boards[0].elementCount, 9)
     assert.equal(boards[0].modifiedAt, new Date(5_000).toISOString())
   })
@@ -317,7 +327,10 @@ async function main(): Promise<void> {
 
   await run('canvas.describe appends the lint, the person’s changes and the recent actions', async () => {
     const h = harness([
-      ['diagrams/canvas.excalidraw', boardState('diagrams/canvas.excalidraw', [element({ id: 'r1', type: 'rectangle', x: 0, y: 0 })])],
+      [
+        'diagrams/canvas.excalidraw',
+        boardState('diagrams/canvas.excalidraw', [element({ id: 'r1', type: 'rectangle', x: 0, y: 0 })]),
+      ],
     ])
     h.changes = ['Moved "Gateway".']
     h.actions = [
@@ -349,11 +362,17 @@ async function main(): Promise<void> {
 
   await run('canvas.describe full returns the skeleton, and swaps it for the outline when it is too big', async () => {
     const small = harness([
-      ['diagrams/canvas.excalidraw', boardState('diagrams/canvas.excalidraw', [element({ id: 'r1', type: 'rectangle' })])],
+      [
+        'diagrams/canvas.excalidraw',
+        boardState('diagrams/canvas.excalidraw', [element({ id: 'r1', type: 'rectangle' })]),
+      ],
     ])
     const full = structured(await small.tools.get('canvas.describe')!.handler({ detail: 'full' }, bound))
     assert.equal(full.detail, 'full')
-    assert.deepEqual((full.elements as Array<{ id: string }>).map((entry) => entry.id), ['r1'])
+    assert.deepEqual(
+      (full.elements as Array<{ id: string }>).map((entry) => entry.id),
+      ['r1'],
+    )
 
     const huge = harness([
       [
@@ -395,35 +414,48 @@ async function main(): Promise<void> {
     assert.equal(capped.omitted, 50)
 
     const byId = structured(await h.tools.get('canvas.find')!.handler({ ids: ['r7'] }, bound))
-    assert.deepEqual((byId.elements as Array<{ id: string }>).map((entry) => entry.id), ['r7'])
+    assert.deepEqual(
+      (byId.elements as Array<{ id: string }>).map((entry) => entry.id),
+      ['r7'],
+    )
 
     const badBox = await h.tools.get('canvas.find')!.handler({ bbox: { x: 0, y: 0, width: 10 } }, bound)
     assert.equal(errorOf(badBox).code, 'invalid')
   })
 
-  await run('canvas.edit passes the request through, creates the board, and reports ids, warnings and lint', async () => {
-    const h = harness()
-    h.editResult = editResultOf({ created: ['id-1'], tempIds: { api: 'id-1' }, warnings: ['Repaired a binding.'] })
-    const empty = await h.tools.get('canvas.edit')!.handler({}, named)
-    assert.equal(errorOf(empty).code, 'invalid_edit')
-    assert.equal(h.calls.length, 0, 'an empty edit never reaches the service')
+  await run(
+    'canvas.edit passes the request through, creates the board, and reports ids, warnings and lint',
+    async () => {
+      const h = harness()
+      h.editResult = editResultOf({ created: ['id-1'], tempIds: { api: 'id-1' }, warnings: ['Repaired a binding.'] })
+      const empty = await h.tools.get('canvas.edit')!.handler({}, named)
+      assert.equal(errorOf(empty).code, 'invalid_edit')
+      assert.equal(h.calls.length, 0, 'an empty edit never reaches the service')
 
-    const result = await h.tools.get('canvas.edit')!.handler(
-      { create: [{ tempId: 'api', type: 'rectangle', x: 0, y: 0 }], delete: ['gone'] },
-      named,
-    )
-    const body = structured(result)
-    assert.deepEqual(body.tempIds, { api: 'id-1' })
-    assert.deepEqual(body.created, ['id-1'])
-    assert.deepEqual(body.warnings, ['Repaired a binding.'])
-    assert.equal(typeof (body.lint as { score: number }).score, 'number')
-    assert.ok(h.calls.includes(`readBoard:${DEFAULT_CANVAS_BOARD_PATH}:create`), 'a mutation creates the board on demand')
-    const sent = h.calls.find((call) => call.startsWith('edit:'))!
-    assert.match(sent, /"delete":\["gone"\]/)
-    assert.match(sent, /"tempId":"api"/)
-    // The actor is built from the connection, so the action log can name the agent.
-    assert.deepEqual(h.actors[0], { kind: 'agent', workspaceId: 'ws-1', agentId: 'agent-a', agentName: 'Draughtsman' })
-  })
+      const result = await h.tools
+        .get('canvas.edit')!
+        .handler({ create: [{ tempId: 'api', type: 'rectangle', x: 0, y: 0 }], delete: ['gone'] }, named)
+      const body = structured(result)
+      assert.deepEqual(body.tempIds, { api: 'id-1' })
+      assert.deepEqual(body.created, ['id-1'])
+      assert.deepEqual(body.warnings, ['Repaired a binding.'])
+      assert.equal(typeof (body.lint as { score: number }).score, 'number')
+      assert.ok(
+        h.calls.includes(`readBoard:${DEFAULT_CANVAS_BOARD_PATH}:create`),
+        'a mutation creates the board on demand',
+      )
+      const sent = h.calls.find((call) => call.startsWith('edit:'))!
+      assert.match(sent, /"delete":\["gone"\]/)
+      assert.match(sent, /"tempId":"api"/)
+      // The actor is built from the connection, so the action log can name the agent.
+      assert.deepEqual(h.actors[0], {
+        kind: 'agent',
+        workspaceId: 'ws-1',
+        agentId: 'agent-a',
+        agentName: 'Draughtsman',
+      })
+    },
+  )
 
   await run('canvas.layout forwards one arrange operation and refuses one it cannot name', async () => {
     const h = harness()
@@ -431,14 +463,22 @@ async function main(): Promise<void> {
     assert.equal(ok.isError, undefined)
     assert.ok(h.calls.includes(`layout:${DEFAULT_CANVAS_BOARD_PATH}:stack:a,b:100`), h.calls.join(' '))
     assert.deepEqual(structured(ok).elementIds, ['a', 'b'])
-    assert.equal(errorOf(await h.tools.get('canvas.layout')!.handler({ op: 'shuffle', elementIds: ['a'] }, bound)).code, 'invalid')
-    assert.equal(errorOf(await h.tools.get('canvas.layout')!.handler({ op: 'align', elementIds: 'a' }, bound)).code, 'invalid')
+    assert.equal(
+      errorOf(await h.tools.get('canvas.layout')!.handler({ op: 'shuffle', elementIds: ['a'] }, bound)).code,
+      'invalid',
+    )
+    assert.equal(
+      errorOf(await h.tools.get('canvas.layout')!.handler({ op: 'align', elementIds: 'a' }, bound)).code,
+      'invalid',
+    )
   })
 
   await run('canvas.layout reports what it could not arrange rather than answering "done"', async () => {
     const h = harness()
     h.layoutWarnings = ['stroke-1 is a freedraw, which this format cannot re-describe; its geometry was left alone.']
-    const answer = await h.tools.get('canvas.layout')!.handler({ op: 'align', elementIds: ['stroke-1'], to: 'left' }, bound)
+    const answer = await h.tools
+      .get('canvas.layout')!
+      .handler({ op: 'align', elementIds: ['stroke-1'], to: 'left' }, bound)
     assert.equal(answer.isError, undefined)
     assert.deepEqual(structured(answer).warnings, h.layoutWarnings, 'the agent is told the align moved nothing')
   })
@@ -447,7 +487,8 @@ async function main(): Promise<void> {
     const h = harness()
     assert.equal(errorOf(await h.tools.get('canvas.import')!.handler({}, bound)).code, 'invalid')
     assert.equal(
-      errorOf(await h.tools.get('canvas.import')!.handler({ mermaid: 'flowchart TD', scene: { elements: [] } }, bound)).code,
+      errorOf(await h.tools.get('canvas.import')!.handler({ mermaid: 'flowchart TD', scene: { elements: [] } }, bound))
+        .code,
       'invalid',
     )
     assert.equal(h.calls.length, 0, 'neither refusal reached the service')
@@ -461,30 +502,33 @@ async function main(): Promise<void> {
     assert.ok(h.calls.includes(`import:${DEFAULT_CANVAS_BOARD_PATH}:replace:scene`))
   })
 
-  await run('canvas.screenshot answers with an image block and keeps the pixels out of the structured result', async () => {
-    const h = harness([
-      [
-        'diagrams/canvas.excalidraw',
-        boardState('diagrams/canvas.excalidraw', [
-          element({ id: 'r1', type: 'rectangle' }),
-          element({ id: 'r2', type: 'rectangle' }),
-          element({ id: 'gone', type: 'rectangle', isDeleted: true }),
-        ]),
-      ],
-    ])
-    const result = await h.tools.get('canvas.screenshot')!.handler({ maxEdge: 900, dark: true }, bound)
-    assert.equal(result.content.length, 2)
-    assert.equal(result.content[0].type, 'text')
-    assert.deepEqual(result.content[1], { type: 'image', data: 'UE5H', mimeType: 'image/png' })
-    const body = structured(result)
-    assert.equal(body.caption, 'canvas: 800x600 image/png, 2 element(s).')
-    assert.equal(JSON.stringify(body).includes('UE5H'), false, 'the base64 rides in the content block only')
-    assert.ok(h.calls.includes('screenshot:diagrams/canvas.excalidraw:all:900:true'))
+  await run(
+    'canvas.screenshot answers with an image block and keeps the pixels out of the structured result',
+    async () => {
+      const h = harness([
+        [
+          'diagrams/canvas.excalidraw',
+          boardState('diagrams/canvas.excalidraw', [
+            element({ id: 'r1', type: 'rectangle' }),
+            element({ id: 'r2', type: 'rectangle' }),
+            element({ id: 'gone', type: 'rectangle', isDeleted: true }),
+          ]),
+        ],
+      ])
+      const result = await h.tools.get('canvas.screenshot')!.handler({ maxEdge: 900, dark: true }, bound)
+      assert.equal(result.content.length, 2)
+      assert.equal(result.content[0].type, 'text')
+      assert.deepEqual(result.content[1], { type: 'image', data: 'UE5H', mimeType: 'image/png' })
+      const body = structured(result)
+      assert.equal(body.caption, 'canvas: 800x600 image/png, 2 element(s).')
+      assert.equal(JSON.stringify(body).includes('UE5H'), false, 'the base64 rides in the content block only')
+      assert.ok(h.calls.includes('screenshot:diagrams/canvas.excalidraw:all:900:true'))
 
-    const subset = await h.tools.get('canvas.screenshot')!.handler({ elementIds: ['r1'] }, bound)
-    assert.equal(structured(subset).capturedElements, 1)
-    assert.ok(h.calls.includes('screenshot:diagrams/canvas.excalidraw:r1:-:-'))
-  })
+      const subset = await h.tools.get('canvas.screenshot')!.handler({ elementIds: ['r1'] }, bound)
+      assert.equal(structured(subset).capturedElements, 1)
+      assert.ok(h.calls.includes('screenshot:diagrams/canvas.excalidraw:r1:-:-'))
+    },
+  )
 
   await run('a canvas error answers in its own words, and a missing board says how to make one', async () => {
     const h = harness()

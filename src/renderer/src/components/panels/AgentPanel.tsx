@@ -67,15 +67,8 @@ export function agentPaneMountsTerminal(input: { agentCliUnavailable: boolean })
   return !input.agentCliUnavailable
 }
 
-export default function AgentPanel({
-  workspaceId,
-  agentId,
-  sessionId,
-  shouldKillTerminalOnUnmount,
-}: Props) {
-  const agent = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId]
-  )
+export default function AgentPanel({ workspaceId, agentId, sessionId, shouldKillTerminalOnUnmount }: Props) {
+  const agent = useWorkspaceStore((s) => s.workspaces.find((w) => w.id === workspaceId)?.agents[agentId])
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
@@ -88,12 +81,20 @@ export default function AgentPanel({
     // Missing-CLI blocking is a terminal-runtime concern only; provider-backed
     // conversation agents do not launch a CLI and must not inherit it.
     () =>
-      !isConversationRuntime
-      && isStoredAgentCliUnavailable(cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
+      !isConversationRuntime &&
+      isStoredAgentCliUnavailable(cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
         map: cliAvailability,
         status: cliAvailabilityStatus,
       }),
-    [isConversationRuntime, cli, pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
+    [
+      isConversationRuntime,
+      cli,
+      pluginCatalogStatus,
+      pluginCatalogEntries,
+      cliRuntimes,
+      cliAvailability,
+      cliAvailabilityStatus,
+    ],
   )
   const hasStarted = agentPaneMountsTerminal({ agentCliUnavailable })
   // Freeze-the-view: when this agent's terminal has been suspended (process
@@ -107,10 +108,7 @@ export default function AgentPanel({
   // prop is why it never showed for normal agents.
   const effectiveSessionId = sessionId ?? agent?.cliSessionId
   const terminalSession = useSession(
-    useCallback(
-      (s) => Boolean(effectiveSessionId) && s.sessionId === effectiveSessionId,
-      [effectiveSessionId],
-    ),
+    useCallback((s) => Boolean(effectiveSessionId) && s.sessionId === effectiveSessionId, [effectiveSessionId]),
   )
   const isTerminalSuspended = Boolean(terminalSession?.suspended)
   // Resume-in-flight: TerminalView relaunches the CLI over a few seconds and
@@ -160,11 +158,10 @@ export default function AgentPanel({
   // backlog file-drop path — ensure-install writes the main checkout's harness
   // dirs, which a worktree CLI does not read.
   const workspaceFolderPath = useWorkspaceStore(
-    (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null
+    (s) => s.workspaces.find((w) => w.id === workspaceId)?.folderPath ?? null,
   )
   const isWorktreeAgent = agent?.execution.mode === 'worktree'
-  const canUseSkill =
-    canSuspendTerminal && !isConversationRuntime && !isWorktreeAgent && Boolean(workspaceFolderPath)
+  const canUseSkill = canSuspendTerminal && !isConversationRuntime && !isWorktreeAgent && Boolean(workspaceFolderPath)
   // The star opens the search-everywhere palette narrowed to skills and
   // plugins, aimed at THIS pane.
   //
@@ -194,9 +191,7 @@ export default function AgentPanel({
   // session id — same path as typing into the suspended terminal.
   const resumeTerminal = () => {
     if (!effectiveSessionId) return
-    window.dispatchEvent(
-      new CustomEvent('multicode:resume-terminal', { detail: { sessionId: effectiveSessionId } }),
-    )
+    window.dispatchEvent(new CustomEvent('multicode:resume-terminal', { detail: { sessionId: effectiveSessionId } }))
   }
   if (isConversationRuntime) {
     return (
@@ -275,7 +270,11 @@ export default function AgentPanel({
               >
                 <IconButton
                   onClick={toggleTerminalLock}
-                  aria-label={isTerminalLocked ? 'Unlock terminal — allow automatic pausing' : 'Lock terminal — never pause automatically'}
+                  aria-label={
+                    isTerminalLocked
+                      ? 'Unlock terminal — allow automatic pausing'
+                      : 'Lock terminal — never pause automatically'
+                  }
                   aria-pressed={isTerminalLocked}
                   // The fill and the ink of the pressed state belong to the
                   // primitive (`pressed`), not to this className: spelled here
@@ -292,13 +291,23 @@ export default function AgentPanel({
                     // Closed padlock: shackle seated on the body.
                     <svg viewBox="0 0 16 16" fill="none" className="size-icon-sm" aria-hidden="true">
                       <rect x="3.75" y="7" width="8.5" height="5.75" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-                      <path d="M5.75 7V5.4a2.25 2.25 0 0 1 4.5 0V7" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                      <path
+                        d="M5.75 7V5.4a2.25 2.25 0 0 1 4.5 0V7"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinecap="round"
+                      />
                     </svg>
                   ) : (
                     // Open padlock: right leg of the shackle lifted clear of the body.
                     <svg viewBox="0 0 16 16" fill="none" className="size-icon-sm" aria-hidden="true">
                       <rect x="3.75" y="7" width="8.5" height="5.75" rx="1.5" stroke="currentColor" strokeWidth="1.3" />
-                      <path d="M5.75 7V4.4a2.25 2.25 0 0 1 4.5 0v.35" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
+                      <path
+                        d="M5.75 7V4.4a2.25 2.25 0 0 1 4.5 0v.35"
+                        stroke="currentColor"
+                        strokeWidth="1.3"
+                        strokeLinecap="round"
+                      />
                     </svg>
                   )}
                 </IconButton>
@@ -372,11 +381,7 @@ export default function AgentPanel({
                 density="bleed"
                 onClick={resumeTerminal}
                 tabIndex={isTerminalSuspended ? 0 : -1}
-                aria-label={
-                  isResumePending
-                    ? 'Resuming agent'
-                    : 'Resume paused agent — click or type to resume'
-                }
+                aria-label={isResumePending ? 'Resuming agent' : 'Resume paused agent — click or type to resume'}
                 className="group text-micro"
               >
                 {/* Pause glyph, low-opacity — a status mark, not a call to action.
@@ -387,9 +392,7 @@ export default function AgentPanel({
                   viewBox="0 0 16 16"
                   fill="none"
                   className={`size-icon-xs opacity-60 ${
-                    isResumePending && isTerminalSuspended
-                      ? 'animate-pulse motion-reduce:animate-none'
-                      : ''
+                    isResumePending && isTerminalSuspended ? 'animate-pulse motion-reduce:animate-none' : ''
                   }`}
                   aria-hidden="true"
                 >

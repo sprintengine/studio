@@ -76,7 +76,8 @@ async function run(): Promise<void> {
   await writeLine(socketPath, 'not json\n')
   await writeLine(
     socketPath,
-    JSON.stringify({ type: 'agent_state', agentId: 'a1', workspaceId: 'w1', phase: 'tool_use', event: 'PreToolUse' }) + '\n'
+    JSON.stringify({ type: 'agent_state', agentId: 'a1', workspaceId: 'w1', phase: 'tool_use', event: 'PreToolUse' }) +
+      '\n',
   )
   await waitFor(() => received.length >= 1)
   assert.equal(received.length, 1)
@@ -159,7 +160,7 @@ async function run(): Promise<void> {
   await installSvc.installForWorkspace(workspaceRoot, 'grok')
   assert.equal(resolveCalls, 3)
   const grokHooksConfig = JSON.parse(
-    await readFile(join(workspaceRoot, '.grok', 'hooks', 'multicode-agent-state.json'), 'utf8')
+    await readFile(join(workspaceRoot, '.grok', 'hooks', 'multicode-agent-state.json'), 'utf8'),
   ) as { hooks?: Record<string, unknown> }
   assert.ok(grokHooksConfig.hooks?.SessionStart, 'grok reporter hook not installed')
   assert.ok(!grokHooksConfig.hooks?.PreToolUse, 'PreToolUse must not be installed for grok (trimmed)')
@@ -175,8 +176,14 @@ async function run(): Promise<void> {
   assert.equal(lastTemplateName, 'opencode-agent-state.mjs', 'template name comes from the manifest registration')
   assert.equal(resolveCalls, 3, 'opencode must not consume the shared stdin reporter resolver')
   const opencodePlugin = await readFile(join(workspaceRoot, '.opencode', 'plugin', 'multicode-agent-state.js'), 'utf8')
-  assert.ok(opencodePlugin.includes(JSON.stringify(installSvc.getSocketPath())), 'opencode plugin missing baked socket path')
-  assert.ok(!opencodePlugin.includes("'__SPRINTENGINE_AGENT_STATE_SOCKET__'"), 'opencode socket token left unsubstituted')
+  assert.ok(
+    opencodePlugin.includes(JSON.stringify(installSvc.getSocketPath())),
+    'opencode plugin missing baked socket path',
+  )
+  assert.ok(
+    !opencodePlugin.includes("'__SPRINTENGINE_AGENT_STATE_SOCKET__'"),
+    'opencode socket token left unsubstituted',
+  )
   // …and is install-once.
   await installSvc.installForWorkspace(workspaceRoot, 'opencode')
   assert.equal(templateResolveCalls, 1)
@@ -204,7 +211,7 @@ async function run(): Promise<void> {
   assert.equal(
     await readFile(join(injectedRoot, '.claude', 'settings.local.json'), 'utf8').catch(() => null),
     null,
-    'and must write nothing into the workspace'
+    'and must write nothing into the workspace',
   )
 
   // A CLI the launch does not inject still installs, so the predicate can never
@@ -278,7 +285,7 @@ async function run(): Promise<void> {
     const runReporter = (
       envSocket: string | undefined,
       argSocket: string,
-      payload: Record<string, unknown> = { hook_event_name: 'Stop', session_id: 'prec-session' }
+      payload: Record<string, unknown> = { hook_event_name: 'Stop', session_id: 'prec-session' },
     ): Promise<void> =>
       new Promise((resolve, reject) => {
         const child = spawn(process.execPath, [reporterScript, '--socket', argSocket], {
@@ -411,7 +418,7 @@ async function run(): Promise<void> {
     })
     await waitFor(() => cwdFrames.length >= 4)
     const cursorFrame = JSON.parse(cwdFrames[3]) as { cwd?: string; sessionId?: string }
-    assert.equal(cursorFrame.cwd, '/Users/me/proj', 'Cursor reports its launch root, not a command\'s working directory')
+    assert.equal(cursorFrame.cwd, '/Users/me/proj', "Cursor reports its launch root, not a command's working directory")
     assert.equal(cursorFrame.sessionId, 'cursor-chat')
     cwdServer.close()
 
@@ -476,7 +483,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       { ...editFrame.fileChange, edits: undefined },
       { path: '/repo/src/app.ts', additions: 4, deletions: 3, edits: undefined },
-      'every +/- line across every hunk counts; a "\\ No newline" marker counts as neither'
+      'every +/- line across every hunk counts; a "\\ No newline" marker counts as neither',
     )
     // The line RANGES the agent's changelist owns are the CHANGED lines, never
     // the hunk bounds: hunk one is `@@ -1,3 +1,4 @@` and claims old 2-3 → new
@@ -489,12 +496,12 @@ async function run(): Promise<void> {
         { oldStart: 2, oldLines: 2, newStart: 2, newLines: 3 },
         { oldStart: 41, oldLines: 1, newStart: 42, newLines: 1 },
       ],
-      'context advances both cursors and never enters an edit'
+      'context advances both cursors and never enters an edit',
     )
     assert.equal(
       JSON.stringify(editFrame).includes('new one'),
       false,
-      'the patch text must never ride the socket — the frame line cap is 64KB'
+      'the patch text must never ride the socket — the frame line cap is 64KB',
     )
 
     // A Write that CREATES a file carries an EMPTY structuredPatch: additions
@@ -523,7 +530,7 @@ async function run(): Promise<void> {
         // anchor before the first line of a file that did not exist.
         edits: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 3 }],
       },
-      'a created file counts its content lines, since there is no patch to count'
+      'a created file counts its content lines, since there is no patch to count',
     )
 
     // A file created with no `content` on the result: the tool's own input has
@@ -544,7 +551,7 @@ async function run(): Promise<void> {
         deletions: 0,
         edits: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2 }],
       },
-      'the content falls back to the tool input, and a file with no trailing newline is not short a line'
+      'the content falls back to the tool input, and a file with no trailing newline is not short a line',
     )
 
     // A FAILED edit reports nothing. A tool error comes back as a string (or an
@@ -561,7 +568,7 @@ async function run(): Promise<void> {
     assert.equal(
       (await nextFileChangeFrame(3)).fileChange,
       undefined,
-      'a failed edit is not an edit, however the CLI phrases the error'
+      'a failed edit is not an edit, however the CLI phrases the error',
     )
     await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
       hook_event_name: 'PostToolUse',
@@ -609,7 +616,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await nextFileChangeFrame(6)).fileChange,
       { path: '/repo/analysis.ipynb', additions: 0, deletions: 0 },
-      'an unverified result shape falls back to the input path with no counts'
+      'an unverified result shape falls back to the input path with no counts',
     )
 
     // The result's own path wins over the input's: the tool reports where it
@@ -633,7 +640,7 @@ async function run(): Promise<void> {
         // Inserted AFTER old line 1 — the context line the agent kept.
         edits: [{ oldStart: 1, oldLines: 0, newStart: 2, newLines: 1 }],
       },
-      'the result path wins over the input path, and a MultiEdit that carries a patch is counted like any other'
+      'the result path wins over the input path, and a MultiEdit that carries a patch is counted like any other',
     )
 
     // A non-editing tool carries no change at all, and neither does an editing
@@ -648,7 +655,7 @@ async function run(): Promise<void> {
     assert.equal(
       (await nextFileChangeFrame(8)).fileChange,
       undefined,
-      'Bash is deliberately not attributed, however file-shaped its result looks'
+      'Bash is deliberately not attributed, however file-shaped its result looks',
     )
     await runReporter(editSockPath, join(sockDir, 'unused.sock'), {
       hook_event_name: 'PostToolUse',
@@ -693,7 +700,7 @@ async function run(): Promise<void> {
     assert.equal(bigFrame.fileChange?.additions, 20_000, 'a 20k-line patch is counted')
     assert.ok(
       Buffer.byteLength(editFrames[11], 'utf8') < 8 * 1024,
-      'the frame carries the count, never the patch — it must stay a rounding error against the 64KB line cap'
+      'the frame carries the count, never the patch — it must stay a rounding error against the 64KB line cap',
     )
 
     // A PURE DELETION between context lines: the region has no new-side lines,
@@ -706,9 +713,7 @@ async function run(): Promise<void> {
       tool_input: { file_path: '/repo/src/cut.ts' },
       tool_response: {
         filePath: '/repo/src/cut.ts',
-        structuredPatch: [
-          { oldStart: 1, oldLines: 4, newStart: 1, newLines: 2, lines: [' a', '-b', '-c', ' d'] },
-        ],
+        structuredPatch: [{ oldStart: 1, oldLines: 4, newStart: 1, newLines: 2, lines: [' a', '-b', '-c', ' d'] }],
       },
     })
     assert.deepEqual(
@@ -719,7 +724,7 @@ async function run(): Promise<void> {
         deletions: 2,
         edits: [{ oldStart: 2, oldLines: 2, newStart: 1, newLines: 0 }],
       },
-      'a deletion is anchored after the new line that survives above it'
+      'a deletion is anchored after the new line that survives above it',
     )
 
     // CONTEXT-FREE hunks (context 0): the header's number is an ANCHOR on the
@@ -744,7 +749,7 @@ async function run(): Promise<void> {
         { oldStart: 4, oldLines: 0, newStart: 5, newLines: 2 },
         { oldStart: 9, oldLines: 2, newStart: 0, newLines: 0 },
       ],
-      'an insertion keeps its `-4,0` anchor, and a head-of-file deletion keeps `+0,0`'
+      'an insertion keeps its `-4,0` anchor, and a head-of-file deletion keeps `+0,0`',
     )
 
     // A patch whose SHAPE cannot be read: the file is still reported (it was
@@ -762,7 +767,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await nextFileChangeFrame(14)).fileChange,
       { path: '/repo/src/unreadable.ts', additions: 1, deletions: 1 },
-      'an unreadable patch drops the ranges, never the file'
+      'an unreadable patch drops the ranges, never the file',
     )
 
     editServer.close()
@@ -798,9 +803,9 @@ async function run(): Promise<void> {
     await writeFile(
       codexSample,
       Array.from({ length: 20 }, (_unused, index) =>
-        index === 4 ? 'hello' : `line ${index + 1}: original content number ${index + 1}`
+        index === 4 ? 'hello' : `line ${index + 1}: original content number ${index + 1}`,
       ).join('\n') + '\n',
-      'utf8'
+      'utf8',
     )
     await writeFile(codexGreeting, 'hello\nworld\n', 'utf8')
     await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
@@ -838,26 +843,39 @@ async function run(): Promise<void> {
         // and the context line is then walked off the region.
         edits: [{ oldStart: 5, oldLines: 1, newStart: 5, newLines: 1 }],
       },
-      'a V4A hunk is located in the file the CLI just wrote'
+      'a V4A hunk is located in the file the CLI just wrote',
     )
     assert.deepEqual(
       codexAddFrame.fileChange,
-      { path: codexGreeting, additions: 2, deletions: 0, edits: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2 }] },
-      'an Add File section is a whole-file creation, git`s `@@ -0,0 +1,N @@`'
+      {
+        path: codexGreeting,
+        additions: 2,
+        deletions: 0,
+        edits: [{ oldStart: 0, oldLines: 0, newStart: 1, newLines: 2 }],
+      },
+      'an Add File section is a whole-file creation, git`s `@@ -0,0 +1,N @@`',
     )
-    assert.equal(codexAddFrame.event, codexUpdateFrame.event, 'both frames carry the identical event so the phase fold stays idempotent')
+    assert.equal(
+      codexAddFrame.event,
+      codexUpdateFrame.event,
+      'both frames carry the identical event so the phase fold stays idempotent',
+    )
     assert.equal(codexAddFrame.ts, codexUpdateFrame.ts, 'and the identical ts, so re-ingesting the second is a no-op')
     assert.equal(
       JSON.stringify(codexUpdateFrame).includes('original content'),
       false,
-      'the patch text never rides the socket'
+      'the patch text never rides the socket',
     )
 
     // Two hunks in ONE file: the second hunk sat two lines higher before the
     // first one inserted, and its OLD-side coordinates must say so — that is
     // the number recordEdit walks every other agent`s spans through.
     const codexMulti = join(vocabDir, 'multi.txt')
-    await writeFile(codexMulti, 'alpha\ninserted one\ninserted two\nbeta\ngamma\ndelta\nreplaced epsilon\nzeta\n', 'utf8')
+    await writeFile(
+      codexMulti,
+      'alpha\ninserted one\ninserted two\nbeta\ngamma\ndelta\nreplaced epsilon\nzeta\n',
+      'utf8',
+    )
     await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
       session_id: 'codex-multi',
       cwd: vocabDir,
@@ -880,7 +898,8 @@ async function run(): Promise<void> {
           '*** End Patch',
         ].join('\n'),
       },
-      tool_response: 'Exit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nM ./multi.txt\n',
+      tool_response:
+        'Exit code: 0\nWall time: 0 seconds\nOutput:\nSuccess. Updated the following files:\nM ./multi.txt\n',
     })
     assert.deepEqual(
       (await nextVocabFrame(2)).fileChange,
@@ -895,7 +914,7 @@ async function run(): Promise<void> {
           { oldStart: 5, oldLines: 1, newStart: 7, newLines: 1 },
         ],
       },
-      'the second hunk`s old-side start is corrected by the lines the first one added'
+      'the second hunk`s old-side start is corrected by the lines the first one added',
     )
 
     // A patch that FAILED reports nothing: Codex`s response is the exec result,
@@ -939,7 +958,7 @@ async function run(): Promise<void> {
           { oldStart: 5, oldLines: 1, newStart: 6, newLines: 1 },
         ],
       },
-      'each Cursor edit is located in the FINAL file and its old-side start rolled back through the earlier ones'
+      'each Cursor edit is located in the FINAL file and its old-side start rolled back through the earlier ones',
     )
 
     // An AMBIGUOUS new string (the replacement text already occurs elsewhere in
@@ -957,7 +976,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await nextVocabFrame(5)).fileChange,
       { path: cursorDupe, additions: 1, deletions: 1 },
-      'two matches is no match: the file is still claimed, the lines are not'
+      'two matches is no match: the file is still claimed, the lines are not',
     )
 
     // A file OUTSIDE the workspace root is reported as itself — it is absolute,
@@ -974,8 +993,13 @@ async function run(): Promise<void> {
     })
     assert.deepEqual(
       (await nextVocabFrame(6)).fileChange,
-      { path: outsideFile, additions: 1, deletions: 1, edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1 }] },
-      'an edit outside the workspace root is still that agent`s edit'
+      {
+        path: outsideFile,
+        additions: 1,
+        deletions: 1,
+        edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1 }],
+      },
+      'an edit outside the workspace root is still that agent`s edit',
     )
 
     // Cursor`s postToolUse is deliberately NOT read for edits: its payload
@@ -1009,7 +1033,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await nextVocabFrame(8)).fileChange,
       { path: kimiFile, additions: 1, deletions: 1, edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1 }] },
-      'a CRLF file locates the same way: the ending is normalized, the line numbers are not'
+      'a CRLF file locates the same way: the ending is normalized, the line numbers are not',
     )
 
     // A whole-file write claims the FILE, never a line range: without the
@@ -1027,7 +1051,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await nextVocabFrame(9)).fileChange,
       { path: kimiWrite, additions: 0, deletions: 0 },
-      'a write with no content field is a file-level claim with nothing guessed'
+      'a write with no content field is a file-level claim with nothing guessed',
     )
 
     // === Grok Build: post_tool_use / search_replace ========================
@@ -1048,11 +1072,15 @@ async function run(): Promise<void> {
       toolInputTruncated: false,
     })
     const grokEditFrame = await nextVocabFrame(10)
-    assert.equal(grokEditFrame.event, 'post_tool_use', 'the raw event spelling is forwarded unmodified — main folds the case')
+    assert.equal(
+      grokEditFrame.event,
+      'post_tool_use',
+      'the raw event spelling is forwarded unmodified — main folds the case',
+    )
     assert.deepEqual(
       grokEditFrame.fileChange,
       { path: grokFile, additions: 1, deletions: 1, edits: [{ oldStart: 2, oldLines: 1, newStart: 2, newLines: 1 }] },
-      'the file-edit gate accepts the snake_case event spelling'
+      'the file-edit gate accepts the snake_case event spelling',
     )
 
     // An edit whose file was changed AGAIN before the hook ran: the new string
@@ -1070,9 +1098,8 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await nextVocabFrame(11)).fileChange,
       { path: racedFile, additions: 1, deletions: 1 },
-      'a file already rewritten under us degrades to a file-level claim, not a wrong range'
+      'a file already rewritten under us degrades to a file-level claim, not a wrong range',
     )
-
 
     // A Kimi call that FAILED (`isError`) is not an edit, even though the file
     // it names is real and its input reads exactly like a successful one.
@@ -1106,7 +1133,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       watchedFrame.fileChange,
       { path: watchedFile, additions: 0, deletions: 0 },
-      'a watched-file change is a touch: the file, no counts, no ranges'
+      'a watched-file change is a touch: the file, no counts, no ranges',
     )
     // A relative watcher path still resolves, and an unlink is still a touch.
     await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
@@ -1119,7 +1146,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await nextVocabFrame(14)).fileChange,
       { path: watchedFile, additions: 0, deletions: 0 },
-      'a deleted file is a change the agent made, and its path is still absolute'
+      'a deleted file is a change the agent made, and its path is still absolute',
     )
     await runReporter(vocabSockPath, join(sockDir, 'unused.sock'), {
       hook_event_name: 'FileChanged',
@@ -1182,11 +1209,15 @@ async function run(): Promise<void> {
     const codexIdA = await nextVocabFrame(17)
     const codexIdB = await nextVocabFrame(18)
     assert.equal(codexIdA.toolUseId, 'exec-08e5ecf6-8c44-429d-9598-8028ee8c8d67', 'Codex`s tool_use_id rides the frame')
-    assert.equal(codexIdB.toolUseId, codexIdA.toolUseId, 'both files of one patch carry the SAME id — the path is what separates them')
+    assert.equal(
+      codexIdB.toolUseId,
+      codexIdA.toolUseId,
+      'both files of one patch carry the SAME id — the path is what separates them',
+    )
     assert.deepEqual(
       [codexIdA.fileChange?.path, codexIdB.fileChange?.path].sort(),
       [idPatchA, idPatchB].sort(),
-      'one call, two files, two frames'
+      'one call, two files, two frames',
     )
 
     // Grok Build: camelCase `toolUseId`, on its own event spelling.
@@ -1200,7 +1231,11 @@ async function run(): Promise<void> {
       toolInput: { file_path: idGrok, old_string: 'g2', new_string: 'G TWO' },
       toolUseId: 'toolu_grok_dup_guard',
     })
-    assert.equal((await nextVocabFrame(19)).toolUseId, 'toolu_grok_dup_guard', 'Grok`s camelCase toolUseId rides the frame')
+    assert.equal(
+      (await nextVocabFrame(19)).toolUseId,
+      'toolu_grok_dup_guard',
+      'Grok`s camelCase toolUseId rides the frame',
+    )
 
     // Cursor's own edit event has no tool wrapper and so no id at all: the
     // field is ABSENT rather than empty, and main falls back to its
@@ -1251,7 +1286,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await nextPrFrame(0)).pullRequest,
       { url: 'https://github.com/acme/app/pull/12' },
-      'a `gh pr create` on Claude`s Bash tool captures the URL its result printed'
+      'a `gh pr create` on Claude`s Bash tool captures the URL its result printed',
     )
 
     // The same tool answering with a plain STRING (Claude collapses some Bash
@@ -1269,7 +1304,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await nextPrFrame(1)).pullRequest,
       { url: 'https://github.com/acme/website/pull/9' },
-      'the capture stops at the pull request number — a tab and a query are not part of it'
+      'the capture stops at the pull request number — a tab and a query are not part of it',
     )
 
     // Codex`s shell tool: `command` is the argv ARRAY, and the result is the
@@ -1287,7 +1322,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       (await nextPrFrame(2)).pullRequest,
       { url: 'https://github.example.com:8443/acme/app/pull/77' },
-      'Codex`s argv array is read as one command, and a GitHub Enterprise host with a port is a pull request too'
+      'Codex`s argv array is read as one command, and a GitHub Enterprise host with a port is a pull request too',
     )
 
     // Grok Build: camelCase envelope, `post_tool_use` event spelling.
@@ -1304,7 +1339,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       grokPrFrame.pullRequest,
       { url: 'https://github.com/acme/app/pull/31' },
-      'the snake_case event spelling and the camelCase field names both capture'
+      'the snake_case event spelling and the camelCase field names both capture',
     )
 
     // An enormous result — a push`s progress output with the URL at the very
@@ -1324,7 +1359,7 @@ async function run(): Promise<void> {
     assert.deepEqual(
       noisyFrame.pullRequest,
       { url: 'https://github.com/acme/app/pull/4242' },
-      'a result far past the scan cap is read at BOTH ends, because `gh` prints the URL last'
+      'a result far past the scan cap is read at BOTH ends, because `gh` prints the URL last',
     )
     assert.ok(prFrames[4].length < 2000, `only the URL rides the frame (${prFrames[4].length} bytes)`)
     assert.equal(prFrames[4].includes('Resolving deltas'), false, 'the raw output is never forwarded')
@@ -1378,7 +1413,11 @@ async function run(): Promise<void> {
         'https://github.com/acme/app/commit/9f2c1ab and https://github.com/acme/app/pull/12ab',
       ].join('\n'),
     })
-    assert.equal((await nextPrFrame(8)).pullRequest, undefined, 'an issue, a commit, `/pull/new/…` and `/pull/12ab` are none of them a pull request')
+    assert.equal(
+      (await nextPrFrame(8)).pullRequest,
+      undefined,
+      'an issue, a commit, `/pull/new/…` and `/pull/12ab` are none of them a pull request',
+    )
 
     // A plain shell that never ran the creation, and a file-editing tool: two
     // tool calls whose results are full of pull request URLs.
@@ -1390,17 +1429,29 @@ async function run(): Promise<void> {
       tool_input: { command: 'cat CHANGELOG.md' },
       tool_response: 'landed in https://github.com/acme/app/pull/8\n',
     })
-    assert.equal((await nextPrFrame(9)).pullRequest, undefined, 'a shell command that never opened one captures nothing')
+    assert.equal(
+      (await nextPrFrame(9)).pullRequest,
+      undefined,
+      'a shell command that never opened one captures nothing',
+    )
 
     await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
       hook_event_name: 'PostToolUse',
       session_id: 'pr-session',
       cwd: vocabDir,
       tool_name: 'Edit',
-      tool_input: { file_path: join(vocabDir, 'notes.md'), old_string: 'a', new_string: 'https://github.com/acme/app/pull/5' },
+      tool_input: {
+        file_path: join(vocabDir, 'notes.md'),
+        old_string: 'a',
+        new_string: 'https://github.com/acme/app/pull/5',
+      },
       tool_response: { filePath: join(vocabDir, 'notes.md'), structuredPatch: [] },
     })
-    assert.equal((await nextPrFrame(10)).pullRequest, undefined, 'an editing tool captures no pull request, whatever it wrote')
+    assert.equal(
+      (await nextPrFrame(10)).pullRequest,
+      undefined,
+      'an editing tool captures no pull request, whatever it wrote',
+    )
 
     // Cursor stays on the branch lookup: its `postToolUse` carries no tool
     // detail, so accepting the spelling would imply a support it cannot deliver.
@@ -1432,7 +1483,11 @@ async function run(): Promise<void> {
     const scanHalf = 32_768
     const straddledPrefix = 'https://github.com/acme/app/pull/12'
     const straddledOutput = `${'x'.repeat(scanHalf - straddledPrefix.length)}${straddledPrefix}3456\n${'y'.repeat(200_000)}`
-    assert.equal(straddledOutput.indexOf(straddledPrefix) + straddledPrefix.length, scanHalf, 'the fixture must cut mid-number')
+    assert.equal(
+      straddledOutput.indexOf(straddledPrefix) + straddledPrefix.length,
+      scanHalf,
+      'the fixture must cut mid-number',
+    )
     await runReporter(prSockPath, join(sockDir, 'unused.sock'), {
       hook_event_name: 'PostToolUse',
       session_id: 'pr-session',
@@ -1444,7 +1499,7 @@ async function run(): Promise<void> {
     assert.equal(
       (await nextPrFrame(13)).pullRequest,
       undefined,
-      'half a pull request number is a different pull request, so it is no capture at all'
+      'half a pull request number is a different pull request, so it is no capture at all',
     )
 
     prServer.close()
@@ -1485,15 +1540,13 @@ async function run(): Promise<void> {
       rate_limits: { five_hour: { used_percentage: 23.5, resets_at: 1_738_425_600 } },
     }
 
-    const runStatusLine = (
-      options: {
-        envSocket?: string | undefined
-        argSocket: string
-        payload: unknown
-        wrap?: { command: string }
-        agentId?: string | undefined
-      }
-    ): Promise<{ stdout: string; code: number | null }> =>
+    const runStatusLine = (options: {
+      envSocket?: string | undefined
+      argSocket: string
+      payload: unknown
+      wrap?: { command: string }
+      agentId?: string | undefined
+    }): Promise<{ stdout: string; code: number | null }> =>
       new Promise((resolve, reject) => {
         const args = [statusLineScript, '--socket', options.argSocket]
         if (options.wrap) {
@@ -1554,11 +1607,11 @@ async function run(): Promise<void> {
         model: 'Opus',
         sessionName: 'hook ledger',
       },
-      'only the reading rides the socket — never the transcript path, the cwd or the rate limits'
+      'only the reading rides the socket — never the transcript path, the cwd or the rate limits',
     )
     assert.ok(
       !slFrames[0].includes('transcript') && !slFrames[0].includes('rate_limits') && !slFrames[0].includes('/repo'),
-      'the forwarder must not leak the rest of the payload'
+      'the forwarder must not leak the rest of the payload',
     )
 
     // A null used_percentage (before the first API call, and again right after a
@@ -1635,7 +1688,7 @@ async function run(): Promise<void> {
     assert.equal(
       (JSON.parse(slFrames[framesBefore]) as { statusLine?: { sessionName?: string } }).statusLine?.sessionName,
       'sentinel-outside',
-      'no identity env: report nothing — the next frame is the sentinel, not the silent run'
+      'no identity env: report nothing — the next frame is the sentinel, not the silent run',
     )
 
     // A socket that is not there fails the connect outright; the status line
@@ -1665,7 +1718,7 @@ async function run(): Promise<void> {
     assert.equal(
       hostile.stdout,
       'a b"c$HOME;echo no',
-      'the wrapped command runs under their shell exactly as they wrote it, and nothing of ours is interpreted'
+      'the wrapped command runs under their shell exactly as they wrote it, and nothing of ours is interpreted',
     )
 
     // Junk on stdin is dropped without a frame and without a crash.
@@ -1706,7 +1759,7 @@ async function run(): Promise<void> {
     assert.equal(
       (JSON.parse(slFrames[beforeJunk]) as { statusLine?: { sessionName?: string } }).statusLine?.sessionName,
       'sentinel-junk',
-      'unparseable stdin and an over-cap payload both report nothing'
+      'unparseable stdin and an over-cap payload both report nothing',
     )
 
     // Claude Code kills a status-line command that runs too long. That used to
@@ -1720,7 +1773,13 @@ async function run(): Promise<void> {
       const trapping = `trap 'sleep 30' TERM; printf '%s' start > ${JSON.stringify(marker)}; sleep 30`
       const child = spawn(
         process.execPath,
-        [statusLineScript, '--socket', join(sockDir, 'unused.sock'), '--wrap', Buffer.from(JSON.stringify({ command: trapping }), 'utf8').toString('base64')],
+        [
+          statusLineScript,
+          '--socket',
+          join(sockDir, 'unused.sock'),
+          '--wrap',
+          Buffer.from(JSON.stringify({ command: trapping }), 'utf8').toString('base64'),
+        ],
         {
           env: {
             ...process.env,
@@ -1729,7 +1788,7 @@ async function run(): Promise<void> {
             SHELL: '/bin/sh',
           },
           stdio: ['pipe', 'ignore', 'ignore'],
-        }
+        },
       )
       child.stdin.end(JSON.stringify(statusLinePayload))
       await waitFor(() => existsSync(marker))
@@ -1739,12 +1798,18 @@ async function run(): Promise<void> {
       // resolves in well under the 30s the trapping command asked for.
       await Promise.race([
         closed,
-        new Promise<void>((_resolve, reject) => setTimeout(() => reject(new Error('the forwarder did not exit after SIGTERM')), 5_000)),
+        new Promise<void>((_resolve, reject) =>
+          setTimeout(() => reject(new Error('the forwarder did not exit after SIGTERM')), 5_000),
+        ),
       ])
       const survivors = await new Promise<string>((resolve) => {
-        const ps = spawn('/bin/sh', ['-c', `ps -eo pid,command | grep ${JSON.stringify(marker)} | grep -v grep || true`], {
-          stdio: ['ignore', 'pipe', 'ignore'],
-        })
+        const ps = spawn(
+          '/bin/sh',
+          ['-c', `ps -eo pid,command | grep ${JSON.stringify(marker)} | grep -v grep || true`],
+          {
+            stdio: ['ignore', 'pipe', 'ignore'],
+          },
+        )
         let out = ''
         ps.stdout.setEncoding('utf8')
         ps.stdout.on('data', (chunk: string) => {

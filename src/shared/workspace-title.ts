@@ -118,7 +118,9 @@ const LEADING_FILLER = [
 // filler ("please", "ok so") strips to empty and is rejected — rather than
 // surviving as a title because it had no separator after it.
 const LEADING_FILLER_PATTERN = new RegExp(
-  `^(?:${LEADING_FILLER.map(escapeRegExp).sort((a, b) => b.length - a.length).join('|')})(?:[\\s,:;-]+|$)`,
+  `^(?:${LEADING_FILLER.map(escapeRegExp)
+    .sort((a, b) => b.length - a.length)
+    .join('|')})(?:[\\s,:;-]+|$)`,
   'i',
 )
 

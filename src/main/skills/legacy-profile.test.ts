@@ -93,7 +93,11 @@ function writeStore(dir: string, state: PersistedState): void {
 async function main(): Promise<void> {
   run('the plan carries the sources a person added, with their scans', () => {
     const plan = planLegacySourceAdoption(emptyish(), {
-      sources: [ANTHROPIC_SKILLS, MATT, { ...repo('anthropics/claude-plugins-official'), id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID }],
+      sources: [
+        ANTHROPIC_SKILLS,
+        MATT,
+        { ...repo('anthropics/claude-plugins-official'), id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID },
+      ],
       scans: {
         [ANTHROPIC_SKILLS.id]: scanOf('anthropics/pdf'),
         [MATT.id]: scanOf('matt/tsconfig'),
@@ -208,7 +212,10 @@ async function main(): Promise<void> {
     const { current, legacy } = profiles()
     await mkdir(current, { recursive: true })
     await mkdir(legacy, { recursive: true })
-    const held: PersistedState = { sources: [ANTHROPIC_SKILLS], scans: { [ANTHROPIC_SKILLS.id]: scanOf('anthropics/pdf') } }
+    const held: PersistedState = {
+      sources: [ANTHROPIC_SKILLS],
+      scans: { [ANTHROPIC_SKILLS.id]: scanOf('anthropics/pdf') },
+    }
     writeStore(current, held)
     writeStore(legacy, { sources: [MATT], scans: {} })
     const path = join(current, 'skill-sources.json')
@@ -217,12 +224,19 @@ async function main(): Promise<void> {
     const outcome = adoptLegacySkillSources({ userDataDir: current, legacyDir: legacy, log: () => {} })
     chmodSync(path, 0o600)
     assert.equal(outcome.reason, 'failed', 'the rescue aborts')
-    assert.equal(existsSync(join(current, 'skill-sources-legacy-adoption.json')), false, 'and does not mark itself done')
+    assert.equal(
+      existsSync(join(current, 'skill-sources-legacy-adoption.json')),
+      false,
+      'and does not mark itself done',
+    )
     assert.deepEqual(JSON.parse(readFileSync(path, 'utf8')), held, 'the current store is exactly as it was')
 
     // Readable again next launch: the rescue runs, and a store already in use
     // is left alone — the marker records that.
-    assert.equal(adoptLegacySkillSources({ userDataDir: current, legacyDir: legacy, log: () => {} }).reason, 'nothing-to-carry')
+    assert.equal(
+      adoptLegacySkillSources({ userDataDir: current, legacyDir: legacy, log: () => {} }).reason,
+      'nothing-to-carry',
+    )
   })
 
   await run('current bytes that are not JSON are left for the store to quarantine', async () => {
@@ -253,8 +267,14 @@ async function main(): Promise<void> {
   })
 
   run('the gate is the profile name, so a dev instance is excluded and a dev run is not', () => {
-    assert.equal(isDefaultProfileDir('/Users/me/Library/Application Support/sprintengine-studio', 'sprintengine-studio'), true)
-    assert.equal(isDefaultProfileDir('/Users/me/Library/Application Support/multicode-dev-5174', 'sprintengine-studio'), false)
+    assert.equal(
+      isDefaultProfileDir('/Users/me/Library/Application Support/sprintengine-studio', 'sprintengine-studio'),
+      true,
+    )
+    assert.equal(
+      isDefaultProfileDir('/Users/me/Library/Application Support/multicode-dev-5174', 'sprintengine-studio'),
+      false,
+    )
   })
 
   console.log('legacy profile adoption tests passed')

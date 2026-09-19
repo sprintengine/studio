@@ -94,10 +94,7 @@ export type AttachTerminalOsc52ClipboardInput = {
  * ORDER IS THE WHOLE MECHANISM: the guard is registered second so it runs
  * first. Swapping these two lines re-enables clipboard exfiltration.
  */
-export function attachTerminalOsc52Clipboard({
-  terminal,
-  writeText,
-}: AttachTerminalOsc52ClipboardInput): IDisposable {
+export function attachTerminalOsc52Clipboard({ terminal, writeText }: AttachTerminalOsc52ClipboardInput): IDisposable {
   const addon = new ClipboardAddon(new Base64(), createWriteOnlyClipboardProvider(writeText))
   terminal.loadAddon(addon)
   const guard = terminal.parser.registerOscHandler(TERMINAL_OSC52_IDENTIFIER, createOsc52ReadGuard())

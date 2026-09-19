@@ -25,7 +25,13 @@ import type { McpServerConfig, SkillHarness } from '../../shared/electron-api'
 import { referencesPluginRoot, resolvePluginRoot } from '../../shared/mcp/plugin-root'
 import { isOwnedBySource, mcpServerConfigFromScanned } from '../../shared/mcp/server-from-scanned'
 import { SKILL_HARNESS_DIR, SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
-import { scanMcpServers, skillDirName, type ScanResult, type ScannedSkill, type SkillFileRef } from '../../shared/skills'
+import {
+  scanMcpServers,
+  skillDirName,
+  type ScanResult,
+  type ScannedSkill,
+  type SkillFileRef,
+} from '../../shared/skills'
 import { installSkill, readSkillProvenance } from './install'
 
 export type SkillSyncChanges = { added: string[]; removed: string[] }
@@ -63,9 +69,7 @@ export type InstalledSkillCopy = { harness: SkillHarness; sourceId: string }
  * says which source it came from, so nothing may overwrite it; installing it
  * from a source is what claims it, and that writes the marker.
  */
-export async function installedSkillCopies(
-  workspaceRoot: string
-): Promise<Map<string, InstalledSkillCopy[]>> {
+export async function installedSkillCopies(workspaceRoot: string): Promise<Map<string, InstalledSkillCopy[]>> {
   const byDirName = new Map<string, InstalledSkillCopy[]>()
   for (const harness of SKILL_PACK_HARNESSES) {
     const skillsDir = join(workspaceRoot, SKILL_HARNESS_DIR[harness], 'skills')
@@ -111,9 +115,7 @@ export async function refreshInstalledSkills(options: {
   const failures: SkillSyncCopyFailure[] = []
   for (const skill of options.scan.skills) {
     const copies = options.installedCopies.get(skillDirName(skill.id)) ?? []
-    const harnesses = copies
-      .filter((copy) => copy.sourceId === options.sourceId)
-      .map((copy) => copy.harness)
+    const harnesses = copies.filter((copy) => copy.sourceId === options.sourceId).map((copy) => copy.harness)
     if (harnesses.length === 0) continue
     // Sequential on purpose: each copy fetches every file of its skill, and a
     // fan-out of those reads is what a rate limit is for.
@@ -213,7 +215,7 @@ export function refreshSourceMcpServers(input: {
         itemId,
         commitSha: input.commitSha,
         ...(pluginRoot !== '' ? { pluginRoot } : {}),
-      }
+      },
     )
     const next: McpServerConfig = {
       ...fresh,
@@ -246,7 +248,7 @@ export function refreshSourceMcpServers(input: {
  * nothing, because the server no longer reads it.
  */
 function refreshedEnv(fresh: McpServerConfig, installed: McpServerConfig): Record<string, string> {
-  const next: Record<string, string> = { ...(fresh.env ?? {}) }
+  const next: Record<string, string> = { ...fresh.env }
   for (const name of fresh.envVarNames ?? []) {
     if (name in next) continue
     const filledIn = installed.env?.[name]

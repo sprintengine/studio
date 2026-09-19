@@ -61,9 +61,7 @@ type CanvasBoardPickerProps = {
 }
 
 type PickerState =
-  | { kind: 'loading' }
-  | { kind: 'ready'; boards: CanvasBoardSummary[] }
-  | { kind: 'error'; message: string }
+  { kind: 'loading' } | { kind: 'ready'; boards: CanvasBoardSummary[] } | { kind: 'error'; message: string }
 
 // One frozen array for every state that has no boards, so the memos below are
 // not invalidated by a fresh `[]` on each render.
@@ -80,13 +78,7 @@ function PlusGlyph({ className }: { className?: string }) {
 
 /** The plate every row wears: the pane kind's own mark in the kit's icon chip. */
 function BoardMark({ name }: { name: string }) {
-  return (
-    <ExtensionIcon
-      name={name}
-      size={32}
-      mark={<CanvasGlyph className="text-[color:var(--icon-chip-ink)]" />}
-    />
-  )
+  return <ExtensionIcon name={name} size={32} mark={<CanvasGlyph className="text-[color:var(--icon-chip-ink)]" />} />
 }
 
 export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoardPickerProps) {
@@ -119,11 +111,7 @@ export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoar
       try {
         const result = await window.api.canvasListBoards(workspaceId)
         if (cancelled) return
-        setState(
-          result.ok
-            ? { kind: 'ready', boards: result.value }
-            : { kind: 'error', message: result.error.message },
-        )
+        setState(result.ok ? { kind: 'ready', boards: result.value } : { kind: 'error', message: result.error.message })
       } catch {
         if (!cancelled) {
           setState({ kind: 'error', message: 'The list of boards could not be read.' })
@@ -154,10 +142,7 @@ export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoar
   const paths = useMemo(() => boards.map((board) => board.path), [boards])
   // The name the field opens on: `canvas`, then `canvas-2`, so opening it twice
   // never lands on the same file.
-  const suggested = useMemo(
-    () => uniqueCanvasBoardName(CANVAS_DEFAULT_NEW_BOARD_NAME, paths),
-    [paths],
-  )
+  const suggested = useMemo(() => uniqueCanvasBoardName(CANVAS_DEFAULT_NEW_BOARD_NAME, paths), [paths])
   // Clamped here rather than pushed back into state: a board removed under the
   // picker must not leave an empty card with a working "previous", and an
   // effect that corrected the state would render the empty card once first.
@@ -293,11 +278,7 @@ export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoar
       {nameError ? (
         // Under the field, inside the row it belongs to: the rows below move
         // down by one line and nothing else on the surface moves at all.
-        <p
-          id={nameErrorId}
-          role="alert"
-          className="px-4 pb-2 text-meta leading-4 text-[color:var(--tone-error)]"
-        >
+        <p id={nameErrorId} role="alert" className="px-4 pb-2 text-meta leading-4 text-[color:var(--tone-error)]">
           {nameError}
         </p>
       ) : null}
@@ -386,10 +367,7 @@ export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoar
   ))
 
   return (
-    <div
-      className="h-full min-h-0 overflow-y-auto bg-[color:var(--bg-surface)] p-6"
-      onKeyDown={onKeyDown}
-    >
+    <div className="h-full min-h-0 overflow-y-auto bg-[color:var(--bg-surface)] p-6" onKeyDown={onKeyDown}>
       <div className="mx-auto flex w-full max-w-[720px] flex-col gap-3">
         {/* The section heading the app's other lists wear: the label muted, the
             count beside it in mono. The card below is the group's edge, so the
@@ -397,9 +375,7 @@ export function CanvasBoardPicker({ workspaceId, onPick, openPaths }: CanvasBoar
         <div className="flex items-baseline gap-2">
           <span className="text-body font-medium text-[color:var(--text-muted)]">Boards</span>
           {state.kind === 'ready' ? (
-            <span className="font-mono text-meta tabular-nums text-[color:var(--text-subtle)]">
-              {boards.length}
-            </span>
+            <span className="font-mono text-meta tabular-nums text-[color:var(--text-subtle)]">{boards.length}</span>
           ) : null}
           {/* Hidden while the field is open rather than disabled: the field IS
               the button, moved into the card. Held back while the listing is

@@ -101,8 +101,14 @@ run('a fresh visit after going back truncates the forward branch', () => {
 
 run('back returns null at the start of history and leaves history unchanged', () => {
   const history = visits('a')
-  assert.equal(stepNavigationHistory(history, -1, () => true), null)
-  assert.equal(stepNavigationHistory(EMPTY_WORKSPACE_NAVIGATION_HISTORY, -1, () => true), null)
+  assert.equal(
+    stepNavigationHistory(history, -1, () => true),
+    null,
+  )
+  assert.equal(
+    stepNavigationHistory(EMPTY_WORKSPACE_NAVIGATION_HISTORY, -1, () => true),
+    null,
+  )
 })
 
 run('non-navigable entries (closed or re-routed workspaces, disabled doors) are skipped in one press', () => {

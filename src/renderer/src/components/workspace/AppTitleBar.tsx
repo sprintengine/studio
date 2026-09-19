@@ -1,5 +1,3 @@
-
-
 // The native traffic lights are pinned at y:11 by the hiddenInset frame
 // (window-factory.ts), so the strip stays 36px to keep them vertically
 // centered; the slimming comes from dropping the brand, not the height.

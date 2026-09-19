@@ -19,17 +19,14 @@ function run(name: string, fn: () => void): void {
   }
 }
 
-const probe = (
-  entries: Partial<Record<FolderOpenTargetAvailability['id'], boolean>>,
-): FolderOpenTargetAvailability[] =>
-  (Object.entries(entries) as [FolderOpenTargetAvailability['id'], boolean][]).map(
-    ([id, available]) => ({ id, available }),
-  )
+const probe = (entries: Partial<Record<FolderOpenTargetAvailability['id'], boolean>>): FolderOpenTargetAvailability[] =>
+  (Object.entries(entries) as [FolderOpenTargetAvailability['id'], boolean][]).map(([id, available]) => ({
+    id,
+    available,
+  }))
 
 run('an uninstalled editor is absent from the menu, not disabled in it', () => {
-  const available = availableFolderOpenTargets(
-    probe({ vscode: true, intellij: false, finder: true }),
-  )
+  const available = availableFolderOpenTargets(probe({ vscode: true, intellij: false, finder: true }))
   assert.deepEqual(available, ['vscode', 'finder'])
 })
 
@@ -52,37 +49,27 @@ run('an unprobed control offers nothing, so it does not render', () => {
 })
 
 run('first run with only the vscode target installed defaults to vscode', () => {
-  const available = availableFolderOpenTargets(
-    probe({ vscode: true, intellij: false, finder: true }),
-  )
+  const available = availableFolderOpenTargets(probe({ vscode: true, intellij: false, finder: true }))
   assert.equal(resolveFolderOpenPrimary(available, null), 'vscode')
 })
 
 run('first run with no editor installed defaults to the file manager', () => {
-  const available = availableFolderOpenTargets(
-    probe({ vscode: false, intellij: false, finder: true }),
-  )
+  const available = availableFolderOpenTargets(probe({ vscode: false, intellij: false, finder: true }))
   assert.equal(resolveFolderOpenPrimary(available, null), 'finder')
 })
 
 run('a remembered target wins over the preference order', () => {
-  const available = availableFolderOpenTargets(
-    probe({ vscode: true, intellij: true, finder: true }),
-  )
+  const available = availableFolderOpenTargets(probe({ vscode: true, intellij: true, finder: true }))
   assert.equal(resolveFolderOpenPrimary(available, 'intellij'), 'intellij')
 })
 
 run('a remembered target uninstalled since the pick falls back, never arms a dead click', () => {
-  const available = availableFolderOpenTargets(
-    probe({ vscode: true, intellij: false, finder: true }),
-  )
+  const available = availableFolderOpenTargets(probe({ vscode: true, intellij: false, finder: true }))
   assert.equal(resolveFolderOpenPrimary(available, 'intellij'), 'vscode')
 })
 
 run('with only the file manager resolving there is no menu to offer', () => {
-  const available = availableFolderOpenTargets(
-    probe({ vscode: false, intellij: false, finder: true }),
-  )
+  const available = availableFolderOpenTargets(probe({ vscode: false, intellij: false, finder: true }))
   assert.deepEqual(available, ['finder'])
   assert.equal(offersFolderOpenMenu(available), false)
 })

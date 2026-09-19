@@ -184,10 +184,7 @@ const FIXTURE = [
   for (const filename of ['a.ts', 'b.tsx']) {
     const option = options.find((candidate) => candidate.textContent?.includes(filename))
     assert.ok(option, `no row for ${filename}`)
-    assert.ok(
-      option!.querySelector('svg[data-tone="kind"]'),
-      `${filename} wears its language's hue`,
-    )
+    assert.ok(option!.querySelector('svg[data-tone="kind"]'), `${filename} wears its language's hue`)
   }
   assert.match(
     readFileSync(join(process.cwd(), 'src/renderer/src/components/panels/git/GitChangesList.tsx'), 'utf8'),
@@ -207,12 +204,9 @@ const FIXTURE = [
     assert.equal(
       option.querySelector('.font-mono.text-micro'),
       null,
-      'no trailing letter — the mockup\'s row ends at the directory',
+      "no trailing letter — the mockup's row ends at the directory",
     )
-    assert.ok(
-      option.querySelector('.sr-only'),
-      'so the status word travels with the name instead',
-    )
+    assert.ok(option.querySelector('.sr-only'), 'so the status word travels with the name instead')
   }
 
   const statuses = options.map((option) => option.querySelector('.sr-only')?.textContent?.trim())
@@ -286,10 +280,13 @@ const FIXTURE = [
   const home = row('src/a.ts')
   assert.notEqual(guest.key, home.key, 'two rows about one file are two keys')
 
-  const root = render([
-    group({ id: 'changelist:default', title: 'Changes', changelistId: 'default', rows: [home] }),
-    group({ id: 'changelist:agent:nadia', title: 'Nadia', changelistId: 'agent:nadia', rows: [guest] }),
-  ], { selectedRowKeys: new Set([guest.key]), cursorRowKey: guest.key })
+  const root = render(
+    [
+      group({ id: 'changelist:default', title: 'Changes', changelistId: 'default', rows: [home] }),
+      group({ id: 'changelist:agent:nadia', title: 'Nadia', changelistId: 'agent:nadia', rows: [guest] }),
+    ],
+    { selectedRowKeys: new Set([guest.key]), cursorRowKey: guest.key },
+  )
 
   const options = Array.from(root.querySelectorAll('[role="option"]'))
   assert.equal(options.length, 2, 'the file draws in both lists')
@@ -302,19 +299,9 @@ const FIXTURE = [
     'true',
     'the selection reached the guest row and not the home row',
   )
-  assert.equal(
-    options[0].getAttribute('aria-selected'),
-    'false',
-    'a selection keyed by path would have ticked both',
-  )
-  assert.ok(
-    partialOption.textContent?.includes('partial'),
-    'the guest row wears the partial chip',
-  )
-  assert.ok(
-    !options[0].textContent?.includes('partial'),
-    'and the home row does not',
-  )
+  assert.equal(options[0].getAttribute('aria-selected'), 'false', 'a selection keyed by path would have ticked both')
+  assert.ok(partialOption.textContent?.includes('partial'), 'the guest row wears the partial chip')
+  assert.ok(!options[0].textContent?.includes('partial'), 'and the home row does not')
   const spoken = Array.from(partialOption.querySelectorAll('.sr-only'))
     .map((node) => node.textContent ?? '')
     .join(' ')

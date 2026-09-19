@@ -139,10 +139,7 @@ run('a sync that could not update an installed skill names it', () => {
 })
 
 run('the source links out to the history that says what changed', () => {
-  assert.equal(
-    skillSourceCommitsUrl(source()),
-    'https://github.com/owner/repo/commits/b81f77abcdef0123',
-  )
+  assert.equal(skillSourceCommitsUrl(source()), 'https://github.com/owner/repo/commits/b81f77abcdef0123')
   // Nothing to link to for a source that is not a repository.
   assert.equal(skillSourceCommitsUrl(source({ id: 'local:/skills', kind: 'local', repo: '', path: '/skills' })), null)
 })
@@ -186,13 +183,7 @@ run('a skill is read entry first, then its own documents, then its subdirectorie
     file('agents/openai.yaml'),
     file('LOGIC.md'),
   ]).map((entry) => entry.path)
-  assert.deepEqual(ordered, [
-    'SKILL.md',
-    'LOGIC.md',
-    'UI.md',
-    'agents/openai.yaml',
-    'scripts/block-dangerous-git.sh',
-  ])
+  assert.deepEqual(ordered, ['SKILL.md', 'LOGIC.md', 'UI.md', 'agents/openai.yaml', 'scripts/block-dangerous-git.sh'])
   assert.equal(defaultSkillFilePath([file('UI.md'), file('SKILL.md')]), 'SKILL.md')
   // A skill whose scan carried no entry still opens on something readable.
   assert.equal(defaultSkillFilePath([file('UI.md'), file('LOGIC.md')]), 'LOGIC.md')

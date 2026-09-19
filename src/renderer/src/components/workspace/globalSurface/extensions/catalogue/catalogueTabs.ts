@@ -41,9 +41,7 @@ export const APP_CATALOGUE_LABEL = STUDIO_SKILL_SOURCE_NAME
 
 /** A source's count for one kind, or why there is none to state. */
 export type CatalogueCount =
-  | { status: 'ready'; count: number }
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
+  { status: 'ready'; count: number } | { status: 'loading' } | { status: 'error'; message: string }
 
 export type CatalogueTab = {
   /** `installed`, or the source id. */

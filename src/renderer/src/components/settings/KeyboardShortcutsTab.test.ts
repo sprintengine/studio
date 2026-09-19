@@ -114,11 +114,23 @@ function press(partial: Partial<RecorderKeyEvent> & { key: string }): RecorderKe
 // Save: platform primary accelerator maps to the abstract Primary modifier.
 assert.equal(eventToChordString(press({ key: 'k', metaKey: true }), 'darwin'), 'primary+k')
 assert.equal(eventToChordString(press({ key: 'k', ctrlKey: true }), 'windows'), 'primary+k')
-assert.equal(eventToChordString(press({ key: 'k', ctrlKey: true }), 'darwin'), 'ctrl+k', 'literal Control stays Ctrl on darwin')
+assert.equal(
+  eventToChordString(press({ key: 'k', ctrlKey: true }), 'darwin'),
+  'ctrl+k',
+  'literal Control stays Ctrl on darwin',
+)
 assert.equal(eventToChordString(press({ key: 'K', metaKey: true, shiftKey: true }), 'darwin'), 'primary+shift+k')
-assert.equal(eventToChordString(press({ key: ' ', ctrlKey: true }), 'darwin'), 'ctrl+space', 'space key is captured, not treated as +')
+assert.equal(
+  eventToChordString(press({ key: ' ', ctrlKey: true }), 'darwin'),
+  'ctrl+space',
+  'space key is captured, not treated as +',
+)
 assert.equal(eventToChordString(press({ key: '+', ctrlKey: true }), 'darwin'), 'ctrl++', 'literal plus is captured')
-assert.equal(eventToChordString(press({ key: ' ', ctrlKey: true }), 'linux'), 'primary+space', 'ctrl maps to Primary off darwin')
+assert.equal(
+  eventToChordString(press({ key: ' ', ctrlKey: true }), 'linux'),
+  'primary+space',
+  'ctrl maps to Primary off darwin',
+)
 // Cancel/wait: lone modifiers produce no chord.
 assert.equal(eventToChordString(press({ key: 'Shift', shiftKey: true }), 'darwin'), null)
 assert.equal(eventToChordString(press({ key: 'Meta', metaKey: true }), 'darwin'), null)
@@ -135,10 +147,7 @@ assert.equal(eventToChordString(press({ key: 'AltGraph', code: 'AltRight' }), 'l
 // or the saved override never matches at dispatch. Ctrl+Shift+/ produces key
 // '?' but code 'Slash'; it must record as primary+shift+/ and resolve through
 // the real RendererCommandDispatcher.
-const shiftedRecorded = eventToChordString(
-  press({ key: '?', code: 'Slash', ctrlKey: true, shiftKey: true }),
-  'linux',
-)
+const shiftedRecorded = eventToChordString(press({ key: '?', code: 'Slash', ctrlKey: true, shiftKey: true }), 'linux')
 assert.equal(shiftedRecorded, 'primary+shift+/', 'shifted punctuation records by physical key')
 const dispatcher = new RendererCommandDispatcher()
 const dispatched = dispatcher.resolve(
@@ -188,8 +197,9 @@ const customizedModuleSettings: KeybindingSettings = {
   overrides: { 'demo-module.hello': ['Primary+Alt+J'] },
   disabled: {},
 }
-const customizedModuleRow = buildShortcutRows(mergedCommands, customizedModuleSettings)
-  .find((row) => row.id === 'demo-module.hello')
+const customizedModuleRow = buildShortcutRows(mergedCommands, customizedModuleSettings).find(
+  (row) => row.id === 'demo-module.hello',
+)
 assert.deepEqual(customizedModuleRow?.effective, ['primary+alt+j'], 'module command overrides apply like built-ins')
 assert.equal(customizedModuleRow?.customized, true)
 
@@ -202,8 +212,9 @@ assert.equal(
   false,
   'disabling the module removes its row from shortcut editing',
 )
-const restoredModuleRow = buildShortcutRows(mergedCommands, customizedModuleSettings)
-  .find((row) => row.id === 'demo-module.hello')
+const restoredModuleRow = buildShortcutRows(mergedCommands, customizedModuleSettings).find(
+  (row) => row.id === 'demo-module.hello',
+)
 assert.deepEqual(
   restoredModuleRow?.effective,
   ['primary+alt+j'],
@@ -212,10 +223,9 @@ assert.deepEqual(
 
 // A module command bound onto a built-in's keys surfaces through the same
 // conflict pipeline as built-in duplicates — no silent shadowing.
-const shadowConflicts = computeConflicts(buildShortcutRows(
-  [...COMMAND_REGISTRY, { ...moduleHello, defaultKeybindings: ['Primary+K'] as const }],
-  EMPTY,
-))
+const shadowConflicts = computeConflicts(
+  buildShortcutRows([...COMMAND_REGISTRY, { ...moduleHello, defaultKeybindings: ['Primary+K'] as const }], EMPTY),
+)
 const moduleShadowConflicts = shadowConflicts.get('demo-module.hello') ?? []
 assert.ok(
   moduleShadowConflicts.some(

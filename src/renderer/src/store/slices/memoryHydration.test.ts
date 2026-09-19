@@ -21,10 +21,7 @@ assert.equal(
 )
 
 initialState.setLastSelectedCli('codex')
-assert.ok(
-  useWorkspaceStore.getState().workspaces.length > 0,
-  'workspaces survive setLastSelectedCli',
-)
+assert.ok(useWorkspaceStore.getState().workspaces.length > 0, 'workspaces survive setLastSelectedCli')
 assert.equal(
   readPersistedWorkspaces().length,
   initialState.workspaces.length,
@@ -32,10 +29,7 @@ assert.equal(
 )
 
 useWorkspaceStore.getState().setSidebarCollapsed(true)
-assert.ok(
-  useWorkspaceStore.getState().workspaces.length > 0,
-  'workspaces survive setSidebarCollapsed',
-)
+assert.ok(useWorkspaceStore.getState().workspaces.length > 0, 'workspaces survive setSidebarCollapsed')
 assert.equal(
   readPersistedWorkspaces().length,
   initialState.workspaces.length,
@@ -48,21 +42,12 @@ useWorkspaceStore.getState().setAuthState({
   authenticated: true,
   message: 'hydration regression',
 })
-assert.ok(
-  useWorkspaceStore.getState().workspaces.length > 0,
-  'workspaces survive setAuthState',
-)
+assert.ok(useWorkspaceStore.getState().workspaces.length > 0, 'workspaces survive setAuthState')
 
 useWorkspaceStore.getState().setAppearanceTheme('dark')
-assert.ok(
-  useWorkspaceStore.getState().workspaces.length > 0,
-  'workspaces survive app-settings writes',
-)
+assert.ok(useWorkspaceStore.getState().workspaces.length > 0, 'workspaces survive app-settings writes')
 const persistedAfterSettings = readPersistedWorkspaces()
-assert.ok(
-  persistedAfterSettings.length > 0,
-  'persisted workspaces still non-empty after app-settings writes',
-)
+assert.ok(persistedAfterSettings.length > 0, 'persisted workspaces still non-empty after app-settings writes')
 assert.equal(
   (persistedAfterSettings[0] as { id?: string }).id,
   hydrationWorkspaceId,

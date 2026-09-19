@@ -96,9 +96,7 @@ export type PluginTreeScan = {
 }
 
 export async function scanPluginTree(input: PluginTreeScanInput): Promise<PluginTreeScan> {
-  const blobs = new Set(
-    input.entries.filter((entry) => entry.type === 'blob').map((entry) => entry.path)
-  )
+  const blobs = new Set(input.entries.filter((entry) => entry.type === 'blob').map((entry) => entry.path))
   const pluginDirs = findPluginDirs(blobs)
   const marketplace = parseMarketplaceManifest(input.marketplaceManifest)
 
@@ -171,7 +169,7 @@ export async function scanPluginTree(input: PluginTreeScanInput): Promise<Plugin
  */
 function renamesOfDepartedNames(
   renames: Readonly<Record<string, string>>,
-  plugins: readonly ScannedPlugin[]
+  plugins: readonly ScannedPlugin[],
 ): Record<string, string> {
   const listed = new Set(plugins.map((plugin) => plugin.id))
   const kept: Record<string, string> = {}
@@ -193,9 +191,7 @@ export async function readPluginComponents(options: {
   /** Skill paths the marketplace entry named, relative to `dir`. */
   listedSkills?: readonly string[]
 }): Promise<PluginComponentRead> {
-  const blobs = new Set(
-    options.entries.filter((entry) => entry.type === 'blob').map((entry) => entry.path)
-  )
+  const blobs = new Set(options.entries.filter((entry) => entry.type === 'blob').map((entry) => entry.path))
   return readComponents(options.dir, blobs, options.skills, options.readFile, options.listedSkills ?? [], null)
 }
 
@@ -266,7 +262,7 @@ const LINKED_REPOSITORY_CONCURRENCY = 20
 export class LinkedPluginReadError extends Error {
   constructor(
     message: string,
-    readonly kind: 'rate-limited' | 'offline' | 'unreadable'
+    readonly kind: 'rate-limited' | 'offline' | 'unreadable',
   ) {
     super(message)
     this.name = 'LinkedPluginReadError'
@@ -339,9 +335,7 @@ export type FollowLinkedPluginsResult = {
  * across an unbounded second population, and it arrives when the plugin is
  * opened and its one repository is read properly (`scanLinkedPlugin`).
  */
-export async function followLinkedPlugins(
-  input: FollowLinkedPluginsInput
-): Promise<FollowLinkedPluginsResult> {
+export async function followLinkedPlugins(input: FollowLinkedPluginsInput): Promise<FollowLinkedPluginsResult> {
   const listedSkills = listedSkillsByPlugin(input.marketplaceManifest ?? null)
   const cached = new Map<string, ScannedPlugin>()
   for (const plugin of input.cached ?? []) cached.set(plugin.id, plugin)
@@ -394,8 +388,9 @@ export async function followLinkedPlugins(
     // review found — one whose reply halted the last pass. Left promoted, a
     // repository that always answers 403 is picked in the first batch of every
     // scan and halts it again, so the follow never finishes.
-    const spent = hit?.readState?.status === 'unreadable'
-      || (hit?.readState?.status === 'pending' && hit.readState.blocked === true)
+    const spent =
+      hit?.readState?.status === 'unreadable' ||
+      (hit?.readState?.status === 'pending' && hit.readState.blocked === true)
     if (group) {
       group.indexes.push(index)
       group.retryOnly = group.retryOnly && spent
@@ -422,69 +417,64 @@ export async function followLinkedPlugins(
   // unpinned entry costs before its tree can be asked for.
   let spent = affordable.length
   let cursor = 0
-  const workers = Array.from(
-    { length: Math.min(LINKED_REPOSITORY_CONCURRENCY, affordable.length) },
-    async () => {
-      while (cursor < affordable.length) {
-        const group = affordable[cursor]
-        cursor += 1
-        if (halted) {
-          for (const index of group.indexes) {
-            plugins[index] = markLinked(plugins[index], { status: 'pending', reason: halted })
-          }
-          continue
+  const workers = Array.from({ length: Math.min(LINKED_REPOSITORY_CONCURRENCY, affordable.length) }, async () => {
+    while (cursor < affordable.length) {
+      const group = affordable[cursor]
+      cursor += 1
+      if (halted) {
+        for (const index of group.indexes) {
+          plugins[index] = markLinked(plugins[index], { status: 'pending', reason: halted })
         }
-        try {
-          // Resolving a ref is one API request of its own — two when the entry
-          // names no ref and the default branch has to be looked up first — so
-          // it is charged against the budget before it is spent, not after
-          // (linked-plugins review, 2026-09-06). Twenty unpinned entries were
-          // otherwise able to spend the whole unauthenticated hour that a
-          // budget of twenty exists to protect.
-          if (group.sha === '') {
-            const cost = group.ref === '' ? 2 : 1
-            if (spent + cost > input.budget) {
-              for (const index of group.indexes) {
-                plugins[index] = markLinked(plugins[index], { status: 'pending', reason: 'budget' })
-              }
-              continue
+        continue
+      }
+      try {
+        // Resolving a ref is one API request of its own — two when the entry
+        // names no ref and the default branch has to be looked up first — so
+        // it is charged against the budget before it is spent, not after
+        // (linked-plugins review, 2026-09-06). Twenty unpinned entries were
+        // otherwise able to spend the whole unauthenticated hour that a
+        // budget of twenty exists to protect.
+        if (group.sha === '') {
+          const cost = group.ref === '' ? 2 : 1
+          if (spent + cost > input.budget) {
+            for (const index of group.indexes) {
+              plugins[index] = markLinked(plugins[index], { status: 'pending', reason: 'budget' })
             }
-            spent += cost
+            continue
           }
-          const sha = group.sha || (await input.reader.resolveCommit(group.repo, group.ref))
-          const entries = await input.reader.readTree(group.repo, sha)
-          repositoriesRead += 1
-          const tree = scanSkillTree({ entries: [...entries], commitSha: sha })
-          for (const index of group.indexes) {
-            plugins[index] = await readLinkedPlugin({
-              plugin: plugins[index],
-              sha,
-              entries,
-              skills: tree.skills,
-              listedSkills: listedSkills.get(plugins[index].id) ?? [],
-              readFile: (path) => input.reader.readFile(group.repo, sha, path),
-            })
-          }
-        } catch (error) {
-          const kind = error instanceof LinkedPluginReadError ? error.kind : 'unreadable'
-          if (kind !== 'unreadable') halted = kind
-          const state: PluginReadState =
-            kind === 'unreadable'
-              ? { status: 'unreadable', message: describeLinkedFailure(group, error) }
-              // `blocked`, because THIS is the repository whose reply stopped
+          spent += cost
+        }
+        const sha = group.sha || (await input.reader.resolveCommit(group.repo, group.ref))
+        const entries = await input.reader.readTree(group.repo, sha)
+        repositoriesRead += 1
+        const tree = scanSkillTree({ entries: [...entries], commitSha: sha })
+        for (const index of group.indexes) {
+          plugins[index] = await readLinkedPlugin({
+            plugin: plugins[index],
+            sha,
+            entries,
+            skills: tree.skills,
+            listedSkills: listedSkills.get(plugins[index].id) ?? [],
+            readFile: (path) => input.reader.readFile(group.repo, sha, path),
+          })
+        }
+      } catch (error) {
+        const kind = error instanceof LinkedPluginReadError ? error.kind : 'unreadable'
+        if (kind !== 'unreadable') halted = kind
+        const state: PluginReadState =
+          kind === 'unreadable'
+            ? { status: 'unreadable', message: describeLinkedFailure(group, error) }
+            : // `blocked`, because THIS is the repository whose reply stopped
               // the pass. The next pass ranks it behind everything else rather
               // than picking it first and stopping on it again.
-              : { status: 'pending', reason: kind, blocked: true }
-          for (const index of group.indexes) plugins[index] = markLinked(plugins[index], state)
-        }
+              { status: 'pending', reason: kind, blocked: true }
+        for (const index of group.indexes) plugins[index] = markLinked(plugins[index], state)
       }
     }
-  )
+  })
   await Promise.all(workers)
 
-  const followed = plugins.filter(
-    (plugin) => plugin.origin.kind === 'linked' && plugin.componentsKnown
-  )
+  const followed = plugins.filter((plugin) => plugin.origin.kind === 'linked' && plugin.componentsKnown)
   return {
     plugins,
     repositoriesRead,
@@ -506,16 +496,9 @@ export function linkedRepositoryBudget(token: string | undefined): number {
  * "no pin" means "whatever the ref points at today", which is not something a
  * cache can answer (linked-plugins review, 2026-09-06).
  */
-function sameLinkedBytes(
-  cached: ScannedPlugin,
-  origin: Extract<ScannedPluginOrigin, { kind: 'linked' }>
-): boolean {
+function sameLinkedBytes(cached: ScannedPlugin, origin: Extract<ScannedPluginOrigin, { kind: 'linked' }>): boolean {
   if (origin.sha === '' || cached.origin.kind !== 'linked') return false
-  return (
-    cached.origin.sha === origin.sha
-    && cached.origin.repo === origin.repo
-    && cached.origin.path === origin.path
-  )
+  return cached.origin.sha === origin.sha && cached.origin.repo === origin.repo && cached.origin.path === origin.path
 }
 
 async function readLinkedPlugin(options: {
@@ -558,9 +541,9 @@ async function readLinkedPlugin(options: {
     readState:
       read.unreadFiles.length > 0
         ? { status: 'partial', unread: read.unreadFiles }
-        // `listed`, not `read`: the components are real, but no skill's entry
-        // document was fetched, so the descriptions arrive when it is opened.
-        : { status: 'listed' },
+        : // `listed`, not `read`: the components are real, but no skill's entry
+          // document was fetched, so the descriptions arrive when it is opened.
+          { status: 'listed' },
     components: {
       ...read.components,
       mcpServers: read.components.mcpServers.map((server) => ({ ...server, declaredBy: plugin.id })),
@@ -585,7 +568,7 @@ function markLinked(plugin: ScannedPlugin, readState: PluginReadState): ScannedP
  */
 function hostRefusal(
   origin: Extract<ScannedPluginOrigin, { kind: 'linked' }>,
-  extraHosts: readonly string[]
+  extraHosts: readonly string[],
 ): string | null {
   if (origin.repo !== '') return null
   const host = hostnameOf(origin.url)
@@ -648,7 +631,7 @@ function pluginArtworkFields(icon: string, logo: string): Pick<ScannedPlugin, 'i
 async function realisePlan(
   plan: PluginPlan,
   input: PluginTreeScanInput,
-  blobs: ReadonlySet<string>
+  blobs: ReadonlySet<string>,
 ): Promise<ScannedPlugin> {
   const entry = plan.entry
   if (plan.dir === null && entry && entry.source.kind === 'linked') {
@@ -762,7 +745,7 @@ async function readComponents(
   skills: readonly ScannedSkill[],
   readFile: PluginFileReader,
   listedSkills: readonly string[],
-  declaredBy: string | null
+  declaredBy: string | null,
 ): Promise<PluginComponentRead> {
   const under = (relative: string): string => (dir === '' ? relative : `${dir}/${relative}`)
   const unreadFiles: string[] = []
@@ -876,9 +859,8 @@ export function parseLspServers(value: unknown, declaredIn: string, declaredBy: 
     if (!isRecord(raw) || !/^[A-Za-z0-9._-]+$/.test(id)) continue
     const command = stringOf(raw.command).trim()
     if (command === '') continue
-    const timeout = typeof raw.startupTimeout === 'number' && Number.isFinite(raw.startupTimeout)
-      ? raw.startupTimeout
-      : 0
+    const timeout =
+      typeof raw.startupTimeout === 'number' && Number.isFinite(raw.startupTimeout) ? raw.startupTimeout : 0
     servers.push({
       id,
       command,
@@ -941,14 +923,10 @@ export function parseHooks(value: unknown): ScannedPluginHook[] {
 
 // ── MCP servers ─────────────────────────────────────────────────────────────
 
-function readMcpServers(
-  raw: string | null,
-  path: string,
-  inline: unknown,
-  declaredBy: string
-): ScannedMcpServer[] {
+function readMcpServers(raw: string | null, path: string, inline: unknown, declaredBy: string): ScannedMcpServer[] {
   const servers: ScannedMcpServer[] = []
-  if (inline) servers.push(...parseMcpServers(inline, `${declaredBy || 'plugin'}/${CLAUDE_PLUGIN_MANIFEST_PATH}`, declaredBy))
+  if (inline)
+    servers.push(...parseMcpServers(inline, `${declaredBy || 'plugin'}/${CLAUDE_PLUGIN_MANIFEST_PATH}`, declaredBy))
   const parsed = parseJsonObject(raw)
   if (parsed) servers.push(...parseMcpServers(parsed, path, declaredBy))
   return dedupeScannedMcpServers(servers)
@@ -968,8 +946,7 @@ export function parseMcpServers(value: unknown, declaredIn: string, declaredBy: 
     const type = stringOf(raw.type).trim()
     const url = stringOf(raw.url).trim()
     const command = stringOf(raw.command).trim()
-    const transport: ScannedMcpServer['transport'] =
-      type === 'http' || type === 'sse' ? type : url ? 'http' : 'stdio'
+    const transport: ScannedMcpServer['transport'] = type === 'http' || type === 'sse' ? type : url ? 'http' : 'stdio'
     if (transport === 'stdio' && command === '') continue
     if (transport !== 'stdio' && url === '') continue
     const args = Array.isArray(raw.args) ? raw.args.filter((arg): arg is string => typeof arg === 'string') : []
@@ -1034,9 +1011,12 @@ export function parseMcpRegistryManifest(value: unknown, declaredIn: string): Sc
     const registry = stringOf(pkg.registryType ?? pkg.registry_type ?? pkg.registryName).toLowerCase()
     const identifier = stringOf(pkg.identifier ?? pkg.name).trim()
     if (identifier === '') continue
-    const launch = registry === 'npm' ? { command: 'npx', args: ['-y', identifier] }
-      : registry === 'pypi' ? { command: 'uvx', args: [identifier] }
-      : null
+    const launch =
+      registry === 'npm'
+        ? { command: 'npx', args: ['-y', identifier] }
+        : registry === 'pypi'
+          ? { command: 'uvx', args: [identifier] }
+          : null
     if (!launch) continue
     const envNames = Array.isArray(pkg.environmentVariables ?? pkg.environment_variables)
       ? ((pkg.environmentVariables ?? pkg.environment_variables) as unknown[])

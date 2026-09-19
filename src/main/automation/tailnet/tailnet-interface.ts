@@ -58,7 +58,7 @@ export function isAllowedTailnetBindAddress(address: string): boolean {
  * refuses to start on it rather than falling back to any other interface.
  */
 export function resolveTailnetInterface(
-  interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = networkInterfaces()
+  interfaces: NodeJS.Dict<NetworkInterfaceInfo[]> = networkInterfaces(),
 ): TailnetInterface | null {
   let ipv6: TailnetInterface | null = null
   for (const [interfaceName, entries] of Object.entries(interfaces)) {

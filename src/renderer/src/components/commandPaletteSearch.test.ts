@@ -51,7 +51,10 @@ run('workspaceKeywordsFromDefinition falls back to the raw mode id when unregist
 const kanbanRow = {
   label: 'Switch to: API cleanup',
   description: '/Users/dev/work/acme-platform',
-  keywords: workspaceKeywordsFromDefinition({ label: 'Notebook', searchTerms: ['pages', 'kanban', 'inbox'] }, 'notebook'),
+  keywords: workspaceKeywordsFromDefinition(
+    { label: 'Notebook', searchTerms: ['pages', 'kanban', 'inbox'] },
+    'notebook',
+  ),
 }
 
 run('commandMatchesQuery matches a mode search term carried in keywords', () => {
@@ -99,15 +102,7 @@ run('workspace mode search terms derive from the live registry registration', ()
 // The ⌘⇧F scope. `all` and `files` are one list filtered two ways, so the
 // predicate is the whole difference between the launcher and Find-in-Path —
 // and a group silently falling out of `all` would make ⌘K lose a source.
-const ALL_GROUPS: PaletteCommandGroup[] = [
-  'agents',
-  'skills',
-  'extensions',
-  'commands',
-  'actions',
-  'files',
-  'content',
-]
+const ALL_GROUPS: PaletteCommandGroup[] = ['agents', 'skills', 'extensions', 'commands', 'actions', 'files', 'content']
 
 run('the all scope admits every group, so ⌘K stays the full launcher', () => {
   ALL_GROUPS.forEach((group) => {
@@ -116,14 +111,20 @@ run('the all scope admits every group, so ⌘K stays the full launcher', () => {
 })
 
 run('the files scope admits exactly file names', () => {
-  assert.deepEqual(ALL_GROUPS.filter((group) => groupInScope(group, 'files')), ['files'])
+  assert.deepEqual(
+    ALL_GROUPS.filter((group) => groupInScope(group, 'files')),
+    ['files'],
+  )
 })
 
 // ⌘⇧F and "Search project contents": a snippet of code is ranked against
 // nothing but other lines of code — not a file whose name it happens to share
 // letters with, and not a command.
 run('the text scope admits exactly text in files', () => {
-  assert.deepEqual(ALL_GROUPS.filter((group) => groupInScope(group, 'text')), ['content'])
+  assert.deepEqual(
+    ALL_GROUPS.filter((group) => groupInScope(group, 'text')),
+    ['content'],
+  )
 })
 
 run('the files scope hides the launcher groups a code snippet would compete with', () => {
@@ -145,7 +146,10 @@ run('the skills scope admits exactly the skill and plugin groups', () => {
 })
 
 run('the conversations scope admits exactly the chats-and-workspaces group', () => {
-  assert.deepEqual(ALL_GROUPS.filter((group) => groupInScope(group, 'conversations')), ['agents'])
+  assert.deepEqual(
+    ALL_GROUPS.filter((group) => groupInScope(group, 'conversations')),
+    ['agents'],
+  )
 })
 
 run('the actions scope admits exactly what the product can do', () => {
@@ -202,7 +206,10 @@ run('a workspace with no switch row is skipped, not blanked', () => {
     { id: 'shown', lastUserMessageAt: 1, createdAt: 0 },
   ] as unknown as Parameters<typeof composeRestingPage>[1]
   const page = composeRestingPage([{ id: workspaceSwitchRowId('shown'), group: 'agents' as const }], workspaces)
-  assert.deepEqual(page.recent.map((row) => row.id), [workspaceSwitchRowId('shown')])
+  assert.deepEqual(
+    page.recent.map((row) => row.id),
+    [workspaceSwitchRowId('shown')],
+  )
 })
 
 run('every group is in the canonical order exactly once', () => {
@@ -308,16 +315,19 @@ run('group order is the last tie-break, not the first', () => {
   assert.equal(comparePaletteMatches(b, a, 'same') < 0, true)
 })
 
-run('ordering is stable, so a provider\'s own order survives a tie', () => {
+run("ordering is stable, so a provider's own order survives a tie", () => {
   const rows = ['one', 'two', 'three'].map((label) => row(label, 'skills'))
-  assert.deepEqual(orderPaletteCommands(rows, '').map((entry) => entry.label), ['one', 'two', 'three'])
+  assert.deepEqual(
+    orderPaletteCommands(rows, '').map((entry) => entry.label),
+    ['one', 'two', 'three'],
+  )
 })
 
 // What the scorer must NOT have changed for the people who already use the
 // palette: with nothing typed it is the launcher it was — canonical group
 // order, insertion order inside a group — and the obvious query for each of
 // the old first rows still puts that row first (review, 2026-09-10).
-run('an empty query keeps the old group order and each group\'s insertion order', () => {
+run("an empty query keeps the old group order and each group's insertion order", () => {
   const rows = [
     row('Toggle File Explorer', 'commands'),
     row('Switch to: beta', 'agents'),
@@ -366,7 +376,7 @@ run('the old first rows still come first for their obvious queries', () => {
   assert.equal(first('git'), 'git status')
 })
 
-run('a row\'s own name is scored at the label bands, past the palette\'s own verb', () => {
+run("a row's own name is scored at the label bands, past the palette's own verb", () => {
   const switchRow = { label: 'Switch to: croissant', searchLabel: 'croissant' }
   // Without `searchLabel` this is a word start (600), because "Switch to: "
   // sits in front of the only word anyone would type.
@@ -379,7 +389,7 @@ run('a row\'s own name is scored at the label bands, past the palette\'s own ver
   assert.equal(scored({ label: 'croissant', searchLabel: 'a croissant' }, 'croissant'), PALETTE_SCORE.labelExact)
 })
 
-run('typing a workspace\'s own name puts its switch row above a file that merely starts with it', () => {
+run("typing a workspace's own name puts its switch row above a file that merely starts with it", () => {
   const rows: PaletteRankable[] = [
     { label: 'croissant.config.ts', group: 'files' },
     { label: 'croissantry helper', group: 'content' },

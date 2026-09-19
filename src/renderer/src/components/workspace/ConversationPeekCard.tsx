@@ -151,25 +151,61 @@ const MAX_FILE_ROWS = 20
 
 const CopyGlyph = ({ done }: { done: boolean }) =>
   done ? (
-    <svg viewBox="0 0 24 24" className="icon-xs" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      className="icon-xs"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={2}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <path d="M4 12.5 9 17.5 20 6.5" />
     </svg>
   ) : (
-    <svg viewBox="0 0 24 24" className="icon-xs" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+    <svg
+      viewBox="0 0 24 24"
+      className="icon-xs"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.8}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+    >
       <rect x="9" y="9" width="11" height="11" rx="2" />
       <path d="M5 15V5a2 2 0 0 1 2-2h8" />
     </svg>
   )
 
 const FileGlyph = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" className={className ?? 'icon-xs'} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <svg
+    viewBox="0 0 24 24"
+    className={className ?? 'icon-xs'}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.8}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
     <path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z" />
     <path d="M14 3v5h5" />
   </svg>
 )
 
 const ImageGlyph = ({ className }: { className?: string }) => (
-  <svg viewBox="0 0 24 24" className={className ?? 'icon-xs'} fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <svg
+    viewBox="0 0 24 24"
+    className={className ?? 'icon-xs'}
+    fill="none"
+    stroke="currentColor"
+    strokeWidth={1.8}
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    aria-hidden="true"
+  >
     <rect x="3" y="5" width="18" height="14" rx="2" />
     <circle cx="8.5" cy="10" r="1.5" />
     <path d="m21 16-5-5-6 6" />
@@ -229,23 +265,13 @@ export function splitChangedPath(path: string): { name: string; folder: string }
  * more than "Working" — it says the agent is working AND what it is doing — so
  * a card that said both would be spending a line on the weaker half.
  */
-function LiveCorner({
-  status,
-  activeSubagents,
-}: {
-  status: ConversationPeekStatus
-  activeSubagents: number
-}) {
+function LiveCorner({ status, activeSubagents }: { status: ConversationPeekStatus; activeSubagents: number }) {
   const working = status.kind === 'working'
-  const label = working && activeSubagents > 0
-    ? `${activeSubagents} running`
-    : status.label
+  const label = working && activeSubagents > 0 ? `${activeSubagents} running` : status.label
   return (
     <span
       className={`ml-auto flex shrink-0 items-center gap-1 whitespace-nowrap text-meta ${
-        status.kind === 'idle'
-          ? 'text-[color:var(--text-subtle)]'
-          : 'text-[color:var(--text-muted)]'
+        status.kind === 'idle' ? 'text-[color:var(--text-subtle)]' : 'text-[color:var(--text-muted)]'
       }`}
     >
       {working ? (
@@ -450,11 +476,7 @@ function ImageStrip({
   const shown = images.slice(0, MAX_THUMBNAILS)
   const remainder = images.length - shown.length
   return (
-    <div
-      className="flex items-center gap-1.5 px-3 pt-2"
-      role="group"
-      aria-label="Images in this conversation"
-    >
+    <div className="flex items-center gap-1.5 px-3 pt-2" role="group" aria-label="Images in this conversation">
       {shown.map((image) => (
         <AttachmentThumbnail key={image.id} attachment={image} onOpen={onOpen} />
       ))}
@@ -499,15 +521,7 @@ export function messageTooltipParts(message: ConversationPeekMessage): {
  * multiline measure — the right component precisely BECAUSE it is not
  * interactive.
  */
-function ThreadRow({
-  message,
-  now,
-  newest,
-}: {
-  message: ConversationPeekMessage
-  now: number
-  newest: boolean
-}) {
+function ThreadRow({ message, now, newest }: { message: ConversationPeekMessage; now: number; newest: boolean }) {
   const attachmentCount = message.attachments.length
   const hasImage = message.attachments.some((attachment) => attachment.kind === 'image')
   const parts = messageTooltipParts(message)
@@ -581,13 +595,7 @@ function ThreadRow({
         // surface, and at the default tier it painted UNDER the card — which is
         // where it lands the moment the card is near a viewport edge and the
         // tooltip flips back onto it.
-        <Tooltip
-          content={tooltip}
-          placement="right"
-          multiline
-          layer="menu"
-          wrapperClassName="flex min-w-0"
-        >
+        <Tooltip content={tooltip} placement="right" multiline layer="menu" wrapperClassName="flex min-w-0">
           {row}
         </Tooltip>
       ) : (
@@ -629,12 +637,7 @@ function Thread({ messages, now }: { messages: ConversationPeekMessage[]; now: n
       }`}
     >
       {messages.map((message, index) => (
-        <ThreadRow
-          key={message.id}
-          message={message}
-          now={now}
-          newest={index === messages.length - 1}
-        />
+        <ThreadRow key={message.id} message={message} now={now} newest={index === messages.length - 1} />
       ))}
     </ol>
   )
@@ -642,11 +645,7 @@ function Thread({ messages, now }: { messages: ConversationPeekMessage[]; now: n
 
 /** The body's non-thread arms — a sentence, in the body's own inset. */
 function BodyNote({ children }: { children: React.ReactNode }) {
-  return (
-    <p className="m-0 px-3 pb-2.5 pt-2 text-meta leading-relaxed text-[color:var(--text-subtle)]">
-      {children}
-    </p>
-  )
+  return <p className="m-0 px-3 pb-2.5 pt-2 text-meta leading-relaxed text-[color:var(--text-subtle)]">{children}</p>
 }
 
 /**
@@ -690,9 +689,7 @@ export function ConversationPeekCard({
   return (
     <>
       <div className="flex items-center gap-2 border-b border-[color:var(--border-subtle)] px-3 py-2.5">
-        {agent.cli ? (
-          <CliIcon cli={agent.cli} className="icon-sm shrink-0 text-[color:var(--text-strong)]" />
-        ) : null}
+        {agent.cli ? <CliIcon cli={agent.cli} className="icon-sm shrink-0 text-[color:var(--text-strong)]" /> : null}
         {/* The name in full is what the row's own truncation tooltip used to
             show; this header takes that job, which is how the row keeps to one
             hover surface at a time. `TruncatedText` is the same primitive the
@@ -706,16 +703,12 @@ export function ConversationPeekCard({
         {/* Beside the title, before the corner. Absent — not zero — when
             nothing has reported a reading: a ring at 0% and a ring for a
             runtime that reports none are the same picture. */}
-        {agent.contextUsage ? (
-          <ContextRing usedPercentage={agent.contextUsage.usedPercentage} layer="menu" />
-        ) : null}
+        {agent.contextUsage ? <ContextRing usedPercentage={agent.contextUsage.usedPercentage} layer="menu" /> : null}
         {/* Right of the ring and left of the corner (mockup frame 3). Like the
             ring it never yields width — the title is the only thing on this
             line that does, and it already has an ellipsis. */}
         <PullRequestPeekMark pullRequests={agent.pullRequests} now={now} />
-        {identity.status ? (
-          <LiveCorner status={identity.status} activeSubagents={agent.activeSubagents} />
-        ) : null}
+        {identity.status ? <LiveCorner status={identity.status} activeSubagents={agent.activeSubagents} /> : null}
       </div>
 
       <div className="flex flex-wrap items-center gap-1.5 px-3 pb-1 pt-2.5">
@@ -776,9 +769,7 @@ export function ConversationPeekCard({
         // saying it here would tell someone their Claude Code chat cannot
         // report messages. This says what is actually true — the messages are
         // gone from OUR records, not from the chat.
-        <BodyNote>
-          No record of this chat’s messages any more. Open it and the next one will be here.
-        </BodyNote>
+        <BodyNote>No record of this chat’s messages any more. Open it and the next one will be here.</BodyNote>
       ) : peek && peek.source === 'none' ? (
         // Identity only: OpenCode, Muse and a plain shell report neither a
         // prompt nor a transcript.
@@ -802,8 +793,8 @@ export function ConversationPeekCard({
         // of prose would.
         peek.source === 'live' ? (
           <BodyNote>
-            Nothing sent since this app launched. This runtime hands us no transcript, so anything said
-            before that is not ours to show.
+            Nothing sent since this app launched. This runtime hands us no transcript, so anything said before that is
+            not ours to show.
           </BodyNote>
         ) : null
       ) : (

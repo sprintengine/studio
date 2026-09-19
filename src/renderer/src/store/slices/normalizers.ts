@@ -86,7 +86,7 @@ export function dedupeAutomationsHostWorkspaces(workspaces: Workspace[]): Worksp
     keptByFolder.set(
       key,
       group.reduce((earliest, candidate) =>
-        (candidate.createdAt ?? 0) < (earliest.createdAt ?? 0) ? candidate : earliest
+        (candidate.createdAt ?? 0) < (earliest.createdAt ?? 0) ? candidate : earliest,
       ),
     )
   }

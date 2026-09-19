@@ -97,7 +97,9 @@ if (!sources.some((source) => source.repo.toLowerCase() === OFFICIAL_PLUGINS_REP
 const offered = recommendedSourcesToAdd(parsed.feed, ALWAYS_PRESENT_SKILL_SOURCE_IDS)
 for (const alwaysPresent of ALWAYS_PRESENT_SKILL_SOURCE_IDS) {
   if (offered.some((source) => hostedSourceId(source.repo).toLowerCase() === alwaysPresent.toLowerCase())) {
-    errors.push(`${alwaysPresent} is offered as an Add, but the app already ships it and the store refuses to remove it`)
+    errors.push(
+      `${alwaysPresent} is offered as an Add, but the app already ships it and the store refuses to remove it`,
+    )
   }
 }
 

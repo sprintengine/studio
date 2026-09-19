@@ -12,13 +12,7 @@
 // throws, because the caller is a tool handler that has to answer with words the
 // agent can act on rather than a stack trace.
 
-import type {
-  CanvasEditRequest,
-  CanvasElement,
-  CanvasError,
-  CanvasSkeleton,
-  CanvasSkeletonType,
-} from './types'
+import type { CanvasEditRequest, CanvasElement, CanvasError, CanvasSkeleton, CanvasSkeletonType } from './types'
 import { canvasError } from './types'
 import { isRecord } from '../records'
 
@@ -444,7 +438,9 @@ export function validateEditRequest(input: unknown, existingIds: Iterable<string
   const errors: CanvasError[] = []
   for (const key of Object.keys(input)) {
     if (!EDIT_KEYS.has(key)) {
-      errors.push(canvasError('invalid_edit', `An edit has an unknown field "${key}". Known fields: delete, update, create.`))
+      errors.push(
+        canvasError('invalid_edit', `An edit has an unknown field "${key}". Known fields: delete, update, create.`),
+      )
     }
   }
   const known = new Set(existingIds)
@@ -530,7 +526,10 @@ export function validateEditRequest(input: unknown, existingIds: Iterable<string
       const value = entry[field]
       if (typeof value === 'string' && !resolvable(value)) {
         errors.push(
-          canvasError('unknown_element', `${label}.${field} names ${value}, which is neither on this board nor a tempId in this edit.`),
+          canvasError(
+            'unknown_element',
+            `${label}.${field} names ${value}, which is neither on this board nor a tempId in this edit.`,
+          ),
         )
       }
     }
@@ -539,7 +538,10 @@ export function validateEditRequest(input: unknown, existingIds: Iterable<string
       children.forEach((child, i) => {
         if (typeof child === 'string' && !resolvable(child)) {
           errors.push(
-            canvasError('unknown_element', `${label}.children[${i}] names ${child}, which is neither on this board nor a tempId in this edit.`),
+            canvasError(
+              'unknown_element',
+              `${label}.children[${i}] names ${child}, which is neither on this board nor a tempId in this edit.`,
+            ),
           )
         }
       })

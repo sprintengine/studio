@@ -29,11 +29,7 @@
  */
 import assert from 'node:assert/strict'
 
-import type {
-  McpServerConfig,
-  SkillInstalledPluginsOutcome,
-  SkillScanOutcome,
-} from '../../shared/electron-api'
+import type { McpServerConfig, SkillInstalledPluginsOutcome, SkillScanOutcome } from '../../shared/electron-api'
 import type { MarketplacePluginEntry } from '../../shared/marketplace'
 import type { CardAction } from '../../shared/hosted-card-feed'
 import type { ScanResult, ScannedPlugin, ScannedSkill, SkillSource } from '../../shared/skills'
@@ -232,7 +228,6 @@ const HAPPY: CardAction[] = [
 ]
 
 async function main(): Promise<void> {
-
   // ── 1. The happy path, in the card's own order ───────────────────────────────
   {
     const { calls, deps } = recorder()
@@ -552,10 +547,7 @@ async function main(): Promise<void> {
     assert.equal(traversal.ok, false, 'a repository name that is a relative path is refused')
     assert.ok(!calls.some((call) => call.startsWith('cloneRepo')), 'and git never sees it')
 
-    const escape = await run(
-      [{ verb: 'clone.repo', repo: 'owner/name', folderName: '../elsewhere' }],
-      deps,
-    )
+    const escape = await run([{ verb: 'clone.repo', repo: 'owner/name', folderName: '../elsewhere' }], deps)
     assert.equal(escape.ok, false, 'a folder name with a separator in it never reaches a path join')
   }
 
@@ -589,7 +581,7 @@ async function main(): Promise<void> {
     assert.match(
       result.message ?? '',
       /Settings → Agents/,
-      'Go says which CLI is missing and where to install it — one destination, the app\'s (MC-2093), never a second door of the card path\'s own',
+      "Go says which CLI is missing and where to install it — one destination, the app's (MC-2093), never a second door of the card path's own",
     )
     assert.deepEqual(calls, ['detectCli claude-code'], 'and it stops there')
   }
@@ -761,7 +753,11 @@ async function main(): Promise<void> {
     assert.equal(result.ok, true)
     assert.equal(result.outcomes[0].status, 'already')
     assert.equal(result.outcomes[0].message, 'Reviews is already installed.')
-    assert.equal(calls.includes('installMarketplaceEntry review trustGranted=false'), false, 'nothing was installed twice')
+    assert.equal(
+      calls.includes('installMarketplaceEntry review trustGranted=false'),
+      false,
+      'nothing was installed twice',
+    )
   }
 
   // An id nothing in this build's registry carries is refused by name, and
@@ -819,7 +815,10 @@ async function main(): Promise<void> {
     assert.equal(result.ok, false)
     assert.match(result.message ?? '', /asks you to trust it before it installs/)
     assert.match(result.message ?? '', /Extensions → Plugins/)
-    assert.equal(calls.some((call) => call.startsWith('installMarketplaceEntry')), false)
+    assert.equal(
+      calls.some((call) => call.startsWith('installMarketplaceEntry')),
+      false,
+    )
   }
 
   // A registry that cannot be read fails the action rather than reporting that

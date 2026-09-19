@@ -29,18 +29,30 @@ const CLERK: ClerkIdentityConfig = {
 function tokenStore(initial: string | null = null): SecureRefreshTokenStore & { value: string | null } {
   return {
     value: initial,
-    async readRefreshToken() { return this.value },
-    async writeRefreshToken(token) { this.value = token },
-    async clearRefreshToken() { this.value = null },
+    async readRefreshToken() {
+      return this.value
+    },
+    async writeRefreshToken(token) {
+      this.value = token
+    },
+    async clearRefreshToken() {
+      this.value = null
+    },
   }
 }
 
 function markerStore(initial: IdentityMarker | null = null): IdentityMarkerStore & { value: IdentityMarker | null } {
   return {
     value: initial,
-    async read() { return this.value },
-    async write(marker) { this.value = marker },
-    async clear() { this.value = null },
+    async read() {
+      return this.value
+    },
+    async write(marker) {
+      this.value = marker
+    },
+    async clear() {
+      this.value = null
+    },
   }
 }
 
@@ -53,7 +65,13 @@ class Backend {
   offline = new Set<string>()
   multiauthRefreshValid = new Set<string>(['ma_rt_1'])
   clerkRefreshValid = new Set<string>(['ck_rt_1'])
-  discovery: unknown = { provider: 'clerk', issuer: CLERK.issuer, clientIds: { 'multicode-desktop': 'client_desk' }, scopes: CLERK.scopes, schemaVersion: 1 }
+  discovery: unknown = {
+    provider: 'clerk',
+    issuer: CLERK.issuer,
+    clientIds: { 'multicode-desktop': 'client_desk' },
+    scopes: CLERK.scopes,
+    schemaVersion: 1,
+  }
   discoveryStatus = 200
   entitlementOrg = 'org_primary'
   serial = 0
@@ -70,17 +88,27 @@ class Backend {
     }
 
     if (url === `${BASE_URL}/api/auth/identity`) {
-      return this.discoveryStatus === 200 ? Response.json(this.discovery) : new Response('nope', { status: this.discoveryStatus })
+      return this.discoveryStatus === 200
+        ? Response.json(this.discovery)
+        : new Response('nope', { status: this.discoveryStatus })
     }
     if (url === `${BASE_URL}/api/auth/refresh`) {
       const { refreshToken } = JSON.parse(body ?? '{}') as { refreshToken: string }
       if (!this.multiauthRefreshValid.has(refreshToken)) {
-        return Response.json({ error: { code: 'REFRESH_TOKEN_REPLAYED', message: 'Refresh token was already used.' } }, { status: 401 })
+        return Response.json(
+          { error: { code: 'REFRESH_TOKEN_REPLAYED', message: 'Refresh token was already used.' } },
+          { status: 401 },
+        )
       }
       this.multiauthRefreshValid.delete(refreshToken)
       const next = `ma_rt_${++this.serial}`
       this.multiauthRefreshValid.add(next)
-      return Response.json({ accessToken: `ma_at_${this.serial}`, refreshToken: next, tokenType: 'Bearer', expiresIn: 600 })
+      return Response.json({
+        accessToken: `ma_at_${this.serial}`,
+        refreshToken: next,
+        tokenType: 'Bearer',
+        expiresIn: 600,
+      })
     }
     if (url === `${BASE_URL}/api/auth/desktop/exchange`) {
       return Response.json({ accessToken: 'ma_at_x', refreshToken: 'ma_rt_1', tokenType: 'Bearer', expiresIn: 600 })
@@ -105,7 +133,15 @@ class Backend {
       })
     }
     if (url === `${BASE_URL}/api/auth/me`) {
-      return Response.json({ user: { id: 'usr_1', email: 'a@b', displayName: 'A', avatarUrl: null }, selectedOrganization: { id: headers.get(ORGANIZATION_HEADER) ?? this.entitlementOrg, name: 'x', slug: 'x', type: 'team' } })
+      return Response.json({
+        user: { id: 'usr_1', email: 'a@b', displayName: 'A', avatarUrl: null },
+        selectedOrganization: {
+          id: headers.get(ORGANIZATION_HEADER) ?? this.entitlementOrg,
+          name: 'x',
+          slug: 'x',
+          type: 'team',
+        },
+      })
     }
     if (url === CLERK.tokenEndpoint) {
       const params = new URLSearchParams(body ?? '')
@@ -115,19 +151,27 @@ class Backend {
         }
         return Response.json({ access_token: `ck_at_${++this.serial}`, expires_in: 86400, token_type: 'bearer' })
       }
-      return Response.json({ access_token: 'ck_at_x', refresh_token: 'ck_rt_1', expires_in: 86400, token_type: 'bearer' })
+      return Response.json({
+        access_token: 'ck_at_x',
+        refresh_token: 'ck_rt_1',
+        expires_in: 86400,
+        token_type: 'bearer',
+      })
     }
     throw new Error(`Unexpected fetch: ${url}`)
   }
 }
 
-function client(backend: Backend, input: {
-  multiauth?: string | null
-  clerk?: string | null
-  marker?: IdentityMarker | null
-  env?: IdentityEnvironment
-  now?: () => number
-} = {}) {
+function client(
+  backend: Backend,
+  input: {
+    multiauth?: string | null
+    clerk?: string | null
+    marker?: IdentityMarker | null
+    env?: IdentityEnvironment
+    now?: () => number
+  } = {},
+) {
   const stores = { multiauth: tokenStore(input.multiauth ?? null), clerk: tokenStore(input.clerk ?? null) }
   const marker = markerStore(input.marker ?? null)
   const events: Array<{ event: string; data?: Record<string, unknown> }> = []
@@ -147,7 +191,11 @@ function client(backend: Backend, input: {
 
 async function resumesTheLastProviderAndPrefersItsStore(): Promise<void> {
   const backend = new Backend()
-  const { account, marker } = client(backend, { multiauth: 'ma_rt_1', clerk: 'ck_rt_1', marker: { provider: 'clerk', clerk: CLERK } })
+  const { account, marker } = client(backend, {
+    multiauth: 'ma_rt_1',
+    clerk: 'ck_rt_1',
+    marker: { provider: 'clerk', clerk: CLERK },
+  })
 
   await account.resumeStoredSession()
   assert.equal(account.currentIdentity()?.provider, 'clerk')
@@ -169,13 +217,20 @@ async function pinnedProviderRollsBackToTheRetainedToken(): Promise<void> {
   // Clerk was never contacted, and its token is still there for the flip forward.
   assert.equal(backend.calls.filter((call) => call.url === CLERK.tokenEndpoint).length, 0)
   assert.equal(stores.clerk.value, 'ck_rt_1')
-  assert.deepEqual(events.find((entry) => entry.event === 'identity-resumed')?.data, { provider: 'multiauth', pinned: true })
+  assert.deepEqual(events.find((entry) => entry.event === 'identity-resumed')?.data, {
+    provider: 'multiauth',
+    pinned: true,
+  })
 }
 
 async function clerkFailureFallsThroughToMultiauth(): Promise<void> {
   const backend = new Backend()
   backend.clerkRefreshValid.clear()
-  const { account, marker, events } = client(backend, { multiauth: 'ma_rt_1', clerk: 'ck_rt_1', marker: { provider: 'clerk', clerk: CLERK } })
+  const { account, marker, events } = client(backend, {
+    multiauth: 'ma_rt_1',
+    clerk: 'ck_rt_1',
+    marker: { provider: 'clerk', clerk: CLERK },
+  })
 
   await account.resumeStoredSession()
   assert.equal(account.currentIdentity()?.provider, 'multiauth')
@@ -215,7 +270,11 @@ async function overlappingRefreshesShareOneRoundTrip(): Promise<void> {
 
 async function logoutClearsEverythingEvenWhenTheServerIsGone(): Promise<void> {
   const backend = new Backend()
-  const { account, stores, marker, events } = client(backend, { multiauth: 'ma_rt_1', clerk: 'ck_rt_1', marker: { provider: 'clerk', clerk: CLERK } })
+  const { account, stores, marker, events } = client(backend, {
+    multiauth: 'ma_rt_1',
+    clerk: 'ck_rt_1',
+    marker: { provider: 'clerk', clerk: CLERK },
+  })
   await account.resumeStoredSession()
   backend.offline.add(BASE_URL)
 
@@ -230,7 +289,11 @@ async function logoutClearsEverythingEvenWhenTheServerIsGone(): Promise<void> {
 
 async function logoutRevokesARetainedMultiauthTokenEvenUnderClerk(): Promise<void> {
   const backend = new Backend()
-  const { account } = client(backend, { multiauth: 'ma_rt_1', clerk: 'ck_rt_1', marker: { provider: 'clerk', clerk: CLERK } })
+  const { account } = client(backend, {
+    multiauth: 'ma_rt_1',
+    clerk: 'ck_rt_1',
+    marker: { provider: 'clerk', clerk: CLERK },
+  })
   await account.resumeStoredSession()
   assert.equal(account.currentIdentity()?.provider, 'clerk')
 
@@ -250,7 +313,9 @@ async function selectedOrganisationRidesOnEveryBearerCall(): Promise<void> {
   assert.equal(snapshot.organizationId, 'org_team')
   const profile = await account.getProfile()
   assert.equal(profile.selectedOrganization.id, 'org_team')
-  for (const call of backend.calls.filter((entry) => entry.url.startsWith(`${BASE_URL}/api/`) && entry.headers.has('authorization'))) {
+  for (const call of backend.calls.filter(
+    (entry) => entry.url.startsWith(`${BASE_URL}/api/`) && entry.headers.has('authorization'),
+  )) {
     assert.equal(call.headers.get(ORGANIZATION_HEADER), 'org_team', call.url)
   }
 }
@@ -289,7 +354,12 @@ async function codeExchangeInstallsTheIssuerItCameFrom(): Promise<void> {
   const backend = new Backend()
   const { account, stores, marker } = client(backend)
 
-  await account.exchangeCode({ identity: CLERK, redirectUri: 'http://127.0.0.1:43110/callback', code: 'c', codeVerifier: 'v' })
+  await account.exchangeCode({
+    identity: CLERK,
+    redirectUri: 'http://127.0.0.1:43110/callback',
+    code: 'c',
+    codeVerifier: 'v',
+  })
   assert.equal(stores.clerk.value, 'ck_rt_1')
   assert.equal(stores.multiauth.value, null)
   assert.deepEqual(marker.value, { provider: 'clerk', clerk: CLERK, baseUrl: BASE_URL, organizationId: null })
@@ -297,7 +367,12 @@ async function codeExchangeInstallsTheIssuerItCameFrom(): Promise<void> {
   assert.equal(exchange?.headers.get('content-type'), 'application/x-www-form-urlencoded')
   assert.equal(new URLSearchParams(exchange?.body ?? '').get('grant_type'), 'authorization_code')
 
-  await account.exchangeCode({ identity: { provider: 'multiauth' }, redirectUri: 'http://127.0.0.1:43110/callback', code: 'c', codeVerifier: 'v' })
+  await account.exchangeCode({
+    identity: { provider: 'multiauth' },
+    redirectUri: 'http://127.0.0.1:43110/callback',
+    code: 'c',
+    codeVerifier: 'v',
+  })
   assert.equal(stores.multiauth.value, 'ma_rt_1')
   // The Clerk token is retained: rollback inside the window depends on it.
   assert.equal(stores.clerk.value, 'ck_rt_1')
@@ -307,7 +382,9 @@ async function codeExchangeInstallsTheIssuerItCameFrom(): Promise<void> {
 async function logoutDuringARefreshIsNotUndone(): Promise<void> {
   const backend = new Backend()
   let release: () => void = () => {}
-  const gate = new Promise<void>((resolve) => { release = resolve })
+  const gate = new Promise<void>((resolve) => {
+    release = resolve
+  })
   let holdTokenRequests = false
   const slowFetch: typeof fetch = async (input, init) => {
     const url = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url
@@ -318,8 +395,14 @@ async function logoutDuringARefreshIsNotUndone(): Promise<void> {
   const marker = markerStore({ provider: 'clerk', clerk: CLERK })
   let now = Date.now()
   const account = new MulticodeAccountClient({
-    baseUrl: BASE_URL, clientId: 'multicode-desktop', product: 'multicode',
-    refreshTokenStores: stores, identityMarker: marker, env: {}, fetch: slowFetch, now: () => now,
+    baseUrl: BASE_URL,
+    clientId: 'multicode-desktop',
+    product: 'multicode',
+    refreshTokenStores: stores,
+    identityMarker: marker,
+    env: {},
+    fetch: slowFetch,
+    now: () => now,
   })
   await account.resumeStoredSession()
   now += 2 * 86400 * 1000
@@ -374,16 +457,28 @@ const cases: Array<[string, () => Promise<void>]> = [
   ['the selected organisation survives a restart', selectedOrganisationSurvivesARestart],
   ['a marker from another account service is ignored', aMarkerFromAnotherAccountServiceIsIgnored],
   ['resumes the last provider and prefers its store', resumesTheLastProviderAndPrefersItsStore],
-  ['a pinned provider rolls back to the retained token without touching Clerk', pinnedProviderRollsBackToTheRetainedToken],
+  [
+    'a pinned provider rolls back to the retained token without touching Clerk',
+    pinnedProviderRollsBackToTheRetainedToken,
+  ],
   ['a Clerk refresh failure falls through to the retained Multiauth token', clerkFailureFallsThroughToMultiauth],
   ['an offline launch still yields a relay token once the network is back', offlineLaunchThenRelayTokenOnceOnline],
   ['overlapping refreshes share one round trip', overlappingRefreshesShareOneRoundTrip],
-  ['logout clears both stores and the marker even when the server is gone', logoutClearsEverythingEvenWhenTheServerIsGone],
-  ['logout revokes a retained Multiauth token even under a Clerk session', logoutRevokesARetainedMultiauthTokenEvenUnderClerk],
+  [
+    'logout clears both stores and the marker even when the server is gone',
+    logoutClearsEverythingEvenWhenTheServerIsGone,
+  ],
+  [
+    'logout revokes a retained Multiauth token even under a Clerk session',
+    logoutRevokesARetainedMultiauthTokenEvenUnderClerk,
+  ],
   ['the selected organisation rides on every bearer call', selectedOrganisationRidesOnEveryBearerCall],
   ['discovery decides the login issuer, and never guesses', discoveryDecidesTheLoginIssuer],
   ['a Clerk token with no marker resumes via discovery', clerkTokenWithoutMarkerResumesViaDiscovery],
-  ['a code exchange installs the issuer it came from and keeps the other store', codeExchangeInstallsTheIssuerItCameFrom],
+  [
+    'a code exchange installs the issuer it came from and keeps the other store',
+    codeExchangeInstallsTheIssuerItCameFrom,
+  ],
 ]
 
 // A hung case must fail loudly: with nothing left on the event loop Node

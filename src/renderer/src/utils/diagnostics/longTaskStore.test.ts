@@ -28,10 +28,7 @@ run('empty input summarizes to zeroes with null max/p95', () => {
 })
 
 run('computes count, total, blocking-time, max, p95', () => {
-  const summary = summarizeLongTasks(
-    [task(60, NOW - 3), task(120, NOW - 2), task(700, NOW - 1)],
-    { now: NOW }
-  )
+  const summary = summarizeLongTasks([task(60, NOW - 3), task(120, NOW - 2), task(700, NOW - 1)], { now: NOW })
   assert.equal(summary.count, 3)
   assert.equal(summary.totalMs, 880)
   // blocking = (60-50)+(120-50)+(700-50) = 10+70+650 = 730
@@ -42,10 +39,7 @@ run('computes count, total, blocking-time, max, p95', () => {
 })
 
 run('windowMs excludes stale tasks', () => {
-  const summary = summarizeLongTasks(
-    [task(500, NOW - 120_000), task(80, NOW - 1_000)],
-    { now: NOW, windowMs: 60_000 }
-  )
+  const summary = summarizeLongTasks([task(500, NOW - 120_000), task(80, NOW - 1_000)], { now: NOW, windowMs: 60_000 })
   assert.equal(summary.count, 1)
   assert.equal(summary.maxMs, 80)
   assert.equal(summary.totalBlockingMs, 30)

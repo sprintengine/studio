@@ -272,7 +272,10 @@ function assertInvariants(before: CanvasElement[], outcome: ApplyEditOutcome): v
     )
   }
   for (const id of changed) {
-    assert.ok(outcome.elements.some((item) => item.id === id), `${id} is reported changed but is not in the scene`)
+    assert.ok(
+      outcome.elements.some((item) => item.id === id),
+      `${id} is reported changed but is not in the scene`,
+    )
   }
 }
 
@@ -318,7 +321,16 @@ run('the same rule for a text and for another arrow created in the same request'
   const outcome = edit([], {
     create: [
       { tempId: 't', type: 'text', x: 0, y: 0, text: 'note' },
-      { tempId: 'a1', type: 'arrow', x: 0, y: 0, points: [[0, 0], [100, 0]] },
+      {
+        tempId: 'a1',
+        type: 'arrow',
+        x: 0,
+        y: 0,
+        points: [
+          [0, 0],
+          [100, 0],
+        ],
+      },
       { tempId: 'a2', type: 'arrow', x: 0, y: 0, startElementId: 't', endElementId: 'a1' },
     ],
   })
@@ -359,7 +371,7 @@ run('a child a frame names but the board does not have is said out loud', () => 
   )
 })
 
-run('updating a frame\'s children re-parents what joined and releases what left', () => {
+run("updating a frame's children re-parents what joined and releases what left", () => {
   const frame = element({ id: 'frame', type: 'frame', x: 0, y: 0, width: 500, height: 300, name: 'Section' })
   const inside = element({ id: 'inside', type: 'rectangle', x: 20, y: 20, frameId: 'frame' })
   const outside = element({ id: 'outside', type: 'rectangle', x: 300, y: 20 })
@@ -384,7 +396,10 @@ run('re-pointing an arrow detaches it from the shape it used to name', () => {
     y: 50,
     width: 200,
     height: 0,
-    points: [[0, 0], [200, 0]],
+    points: [
+      [0, 0],
+      [200, 0],
+    ],
     startBinding: { elementId: 'from', focus: 0, gap: 4 },
     endBinding: { elementId: 'was', focus: 0, gap: 4 },
   })
@@ -482,14 +497,24 @@ run('setting a field to the value it already has changes nothing', () => {
 })
 
 run('a delete tombstones the element, its label, and every reference to it', () => {
-  const box = element({ id: 'box', type: 'rectangle', boundElements: [{ id: 't', type: 'text' }, { id: 'arrow', type: 'arrow' }] })
+  const box = element({
+    id: 'box',
+    type: 'rectangle',
+    boundElements: [
+      { id: 't', type: 'text' },
+      { id: 'arrow', type: 'arrow' },
+    ],
+  })
   const label = element({ id: 't', type: 'text', containerId: 'box', text: 'Gone' })
   const arrow = element({
     id: 'arrow',
     type: 'arrow',
     x: 300,
     y: 0,
-    points: [[0, 0], [100, 0]],
+    points: [
+      [0, 0],
+      [100, 0],
+    ],
     startBinding: { elementId: 'box', focus: 0, gap: 4 },
   })
   const outcome = edit([box, label, arrow], { delete: ['box'] })

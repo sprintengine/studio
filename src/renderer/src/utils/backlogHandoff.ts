@@ -19,11 +19,7 @@ export { BACKLOG_SKILL_ID }
  * behind the first one's back. Those items show "Open agent" instead.
  */
 export function canHandBacklogItemToAgent(item: BacklogItem): boolean {
-  return (
-    item.status !== 'archived'
-    && item.status !== 'completed'
-    && !hasAgentLink(item)
-  )
+  return item.status !== 'archived' && item.status !== 'completed' && !hasAgentLink(item)
 }
 
 /**
@@ -43,9 +39,8 @@ export function backlogHandoffPrompt(input: {
   integration: SkillIntegrationLike | undefined
 }): string {
   const { relativePath, integration } = input
-  const template = integration && integration.support !== 'unsupported'
-    ? integration.invocation?.fileDropTemplate
-    : undefined
+  const template =
+    integration && integration.support !== 'unsupported' ? integration.invocation?.fileDropTemplate : undefined
   if (!template || relativePath.includes("'")) return backlogLifecycleHandoffPrompt(relativePath)
   return renderSkillInvocationTemplate(template, {
     skillId: BACKLOG_SKILL_ID,

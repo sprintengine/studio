@@ -247,7 +247,9 @@ export function PluginDetailPane(props: PluginDetailPaneProps): JSX.Element {
                 />
                 <ComponentRow
                   label="Hooks"
-                  values={hooks.map((hook) => `${hook.event}${hook.matcher ? ` on ${hook.matcher}` : ''}: ${hook.command}`)}
+                  values={hooks.map(
+                    (hook) => `${hook.event}${hook.matcher ? ` on ${hook.matcher}` : ''}: ${hook.command}`,
+                  )}
                   mono
                 />
               </dl>
@@ -407,13 +409,14 @@ function McpItemRow({
   onInstall: () => void
   onRemove: () => void
 }): JSX.Element {
-  const summary =
-    server.transport === 'stdio' ? `${server.command} ${server.args.join(' ')}`.trim() : server.url
+  const summary = server.transport === 'stdio' ? `${server.command} ${server.args.join(' ')}`.trim() : server.url
   return (
     <li className="flex items-center justify-between gap-3 border-b border-[color:var(--border-subtle)] pb-1.5 last:border-b-0 last:pb-0">
       <span className="min-w-0">
         <span className="block truncate text-meta text-[color:var(--text-default)]">{server.name || server.id}</span>
-        {summary ? <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">{summary}</span> : null}
+        {summary ? (
+          <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">{summary}</span>
+        ) : null}
       </span>
       <span className="flex shrink-0 items-center gap-1.5">
         {installed ? (
@@ -449,7 +452,9 @@ function ComponentRow({
   return (
     <div className="grid grid-cols-[112px_minmax(0,1fr)] gap-3">
       <dt className="text-[color:var(--text-muted)]">{label}</dt>
-      <dd className={`min-w-0 break-words ${muted ? 'text-[color:var(--text-subtle)]' : 'text-[color:var(--text-default)]'}`}>
+      <dd
+        className={`min-w-0 break-words ${muted ? 'text-[color:var(--text-subtle)]' : 'text-[color:var(--text-default)]'}`}
+      >
         {values.length === 0 ? (
           <span className="text-[color:var(--text-subtle)]">None</span>
         ) : (

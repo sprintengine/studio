@@ -39,15 +39,11 @@ const PALETTE_OPEN_REQUEST_EVENT = 'multicode:palette-open-request'
 
 export function requestPaletteOpen(request: PaletteOpenRequest): void {
   if (typeof window === 'undefined') return
-  window.dispatchEvent(
-    new CustomEvent<PaletteOpenRequest>(PALETTE_OPEN_REQUEST_EVENT, { detail: request }),
-  )
+  window.dispatchEvent(new CustomEvent<PaletteOpenRequest>(PALETTE_OPEN_REQUEST_EVENT, { detail: request }))
 }
 
 /** The shell subscribes on mount. Returns an unsubscribe fn. */
-export function subscribePaletteOpenRequest(
-  handler: (request: PaletteOpenRequest) => void,
-): () => void {
+export function subscribePaletteOpenRequest(handler: (request: PaletteOpenRequest) => void): () => void {
   const listener = (event: Event): void => {
     const request = (event as CustomEvent<PaletteOpenRequest>).detail
     if (request) handler(request)

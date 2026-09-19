@@ -19,11 +19,7 @@ import type {
   McpServerConfig,
   McpSettings,
 } from '../shared/electron-api'
-import {
-  normalizeMcpClients,
-  normalizeMcpServerConfig,
-  type McpConfigService,
-} from './mcp-config-service'
+import { normalizeMcpClients, normalizeMcpServerConfig, type McpConfigService } from './mcp-config-service'
 // One parser per config format, shared with the agent-capability read path
 // (src/main/mcp-config-readers). Two parsers for one file format would disagree
 // eventually, and the surface that lists a CLI's servers must see exactly what
@@ -71,9 +67,7 @@ type Discovery = {
   warnings: string[]
 }
 
-export function createAgentConfigImportService(
-  options: AgentConfigImportServiceOptions,
-): AgentConfigImportService {
+export function createAgentConfigImportService(options: AgentConfigImportServiceOptions): AgentConfigImportService {
   return {
     detect: async (input) => {
       const discovery = await discoverExistingAgentConfig(input, options)
@@ -161,10 +155,7 @@ async function adoptAgentConfig(
   return { ok: true, adoptedMcpServers, adoptedSkills, warnings }
 }
 
-function buildAdoptedMcpSettings(
-  servers: DiscoveredMcpServer[],
-  warnings: string[],
-): McpSettings {
+function buildAdoptedMcpSettings(servers: DiscoveredMcpServer[], warnings: string[]): McpSettings {
   const byId = new Map<string, McpServerConfig>()
   for (const discovered of servers) {
     const existing = byId.get(discovered.server.id)
@@ -174,7 +165,9 @@ function buildAdoptedMcpSettings(
     }
     existing.clients = normalizeMcpClients([...existing.clients, ...discovered.server.clients])
     if (!sameMcpServerTarget(existing, discovered.server)) {
-      warnings.push(`Duplicate MCP server "${existing.id}" was found in multiple agent configs; using the first config and merging clients.`)
+      warnings.push(
+        `Duplicate MCP server "${existing.id}" was found in multiple agent configs; using the first config and merging clients.`,
+      )
     }
   }
   return {
@@ -184,10 +177,12 @@ function buildAdoptedMcpSettings(
 }
 
 function sameMcpServerTarget(a: McpServerConfig, b: McpServerConfig): boolean {
-  return a.transport === b.transport
-    && (a.command ?? '') === (b.command ?? '')
-    && (a.url ?? '') === (b.url ?? '')
-    && JSON.stringify(a.args ?? []) === JSON.stringify(b.args ?? [])
+  return (
+    a.transport === b.transport &&
+    (a.command ?? '') === (b.command ?? '') &&
+    (a.url ?? '') === (b.url ?? '') &&
+    JSON.stringify(a.args ?? []) === JSON.stringify(b.args ?? [])
+  )
 }
 
 async function discoverExistingAgentConfig(
@@ -262,14 +257,13 @@ function normalizeSources(value: AgentConfigImportSource[] | undefined): AgentCo
   return Array.from(new Set(sources))
 }
 
-function dedupeMcpServers(
-  servers: DiscoveredMcpServer[],
-  warnings: string[],
-): DiscoveredMcpServer[] {
+function dedupeMcpServers(servers: DiscoveredMcpServer[], warnings: string[]): DiscoveredMcpServer[] {
   const byKey = new Map<string, DiscoveredMcpServer>()
   for (const server of servers) {
     if (byKey.has(server.entry.key)) {
-      warnings.push(`Duplicate MCP server "${server.entry.id}" was found in ${server.entry.source}; using the first detected config.`)
+      warnings.push(
+        `Duplicate MCP server "${server.entry.id}" was found in ${server.entry.source}; using the first detected config.`,
+      )
       continue
     }
     byKey.set(server.entry.key, server)
@@ -292,9 +286,7 @@ function readMcpConfigPath(
 
   try {
     const raw = readFileSync(configPath, 'utf8')
-    const servers = source.source === 'codex'
-      ? parseCodexMcpServers(raw)
-      : parseClaudeCodeMcpServers(raw)
+    const servers = source.source === 'codex' ? parseCodexMcpServers(raw) : parseClaudeCodeMcpServers(raw)
     return servers
       .map((server) => normalizeDetectedServer(source, sourceLabel, server))
       .filter((server): server is DiscoveredMcpServer => Boolean(server))
@@ -394,7 +386,11 @@ function hasStringRecord(value: Record<string, string> | undefined): boolean {
 }
 
 function normalizeStringSet(value: string[] | undefined): Set<string> {
-  return new Set((value ?? []).filter((item): item is string => typeof item === 'string' && item.trim().length > 0).map((item) => item.trim()))
+  return new Set(
+    (value ?? [])
+      .filter((item): item is string => typeof item === 'string' && item.trim().length > 0)
+      .map((item) => item.trim()),
+  )
 }
 
 function mcpServerKey(source: AgentConfigImportSource, id: string): string {

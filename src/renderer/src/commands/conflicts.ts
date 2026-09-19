@@ -25,9 +25,7 @@ export type KeybindingConflictCandidate = {
 // feature contexts can ride foreign modes — in which co-active cases the
 // dispatcher resolves the tie by registration order (shell first).
 // Editor/terminal keep their fixed exclusive pair.
-const MUTUALLY_EXCLUSIVE_SCOPE_GROUPS: readonly (readonly CommandScope[])[] = [
-  ['editor', 'terminal'],
-]
+const MUTUALLY_EXCLUSIVE_SCOPE_GROUPS: readonly (readonly CommandScope[])[] = [['editor', 'terminal']]
 
 function isPanelScope(scope: CommandScope): boolean {
   return scope.startsWith('panel:')
@@ -40,9 +38,9 @@ function scopesOverlap(a: readonly CommandScope[], b: readonly CommandScope[]): 
 function scopesAreMutuallyExclusive(a: readonly CommandScope[], b: readonly CommandScope[]): boolean {
   if (scopesOverlap(a, b)) return false
   if (a.some(isPanelScope) && b.some(isPanelScope)) return true
-  return MUTUALLY_EXCLUSIVE_SCOPE_GROUPS.some((group) => (
-    a.some((scope) => group.includes(scope)) && b.some((scope) => group.includes(scope))
-  ))
+  return MUTUALLY_EXCLUSIVE_SCOPE_GROUPS.some(
+    (group) => a.some((scope) => group.includes(scope)) && b.some((scope) => group.includes(scope)),
+  )
 }
 
 function toCandidate(command: CommandDefinition | KeybindingConflictCandidate): KeybindingConflictCandidate {
@@ -50,7 +48,7 @@ function toCandidate(command: CommandDefinition | KeybindingConflictCandidate): 
   return {
     commandId: isDefinition ? command.id : command.commandId,
     commandTitle: isDefinition ? command.title : command.commandTitle,
-    keybindings: isDefinition ? command.defaultKeybindings ?? [] : command.keybindings,
+    keybindings: isDefinition ? (command.defaultKeybindings ?? []) : command.keybindings,
     scopes: command.scopes,
   }
 }

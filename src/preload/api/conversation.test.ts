@@ -30,7 +30,8 @@ async function main(): Promise<void> {
     async invoke(channel: string): Promise<any> {
       calls.push(channel)
       if (channel === 'conversation:providers:list') return response
-      if (channel === 'conversation:events:subscribe') return { ok: true, subscriptionId: 'conversation-subscription-1' }
+      if (channel === 'conversation:events:subscribe')
+        return { ok: true, subscriptionId: 'conversation-subscription-1' }
       if (channel === 'conversation:events:unsubscribe') return { ok: true }
       if (channel === 'conversation:sessions:list') return { ok: true, sessions: [] }
       if (channel.startsWith('conversation:sessions:')) {
@@ -70,20 +71,17 @@ async function main(): Promise<void> {
 
   const result = await api.conversationProvidersList()
   assert.deepEqual(result, response)
-  assert.deepEqual(
-    await api.conversationSecretStatus({ providerId: 'openai-compatible' }),
-    {
-      ok: true,
-      status: {
-        providerId: 'openai-compatible',
-        configured: true,
-        source: 'settings',
-        persistence: 'encrypted',
-        encryptionAvailable: true,
-        label: 'API key',
-      },
-    }
-  )
+  assert.deepEqual(await api.conversationSecretStatus({ providerId: 'openai-compatible' }), {
+    ok: true,
+    status: {
+      providerId: 'openai-compatible',
+      configured: true,
+      source: 'settings',
+      persistence: 'encrypted',
+      encryptionAvailable: true,
+      label: 'API key',
+    },
+  })
   await api.conversationSecretSet({ providerId: 'openai-compatible', value: 'sk-test-secret' })
   await api.conversationSecretClear({ providerId: 'openai-compatible' })
   await api.conversationSessionStart({

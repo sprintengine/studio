@@ -55,7 +55,7 @@ export type AgentSessionWatchScope = {
 export type AgentSessionWatcher = (
   workspaceId: string | undefined,
   cb: (sessions: ModuleAgentSessionView[]) => void,
-  scope?: AgentSessionWatchScope
+  scope?: AgentSessionWatchScope,
 ) => () => void
 
 function toView(record: SessionRecord): ModuleAgentSessionView {
@@ -72,7 +72,10 @@ function toView(record: SessionRecord): ModuleAgentSessionView {
 
 function viewsSignature(views: ModuleAgentSessionView[]): string {
   return views
-    .map((view) => `${view.sessionId}\0${view.agentId}\0${view.name}\0${view.kind}\0${view.system}\0${view.executionId}\0${view.isLive}`)
+    .map(
+      (view) =>
+        `${view.sessionId}\0${view.agentId}\0${view.name}\0${view.kind}\0${view.system}\0${view.executionId}\0${view.isLive}`,
+    )
     .join('\u0001')
 }
 
@@ -86,13 +89,11 @@ export function createAgentSessionWatcher(ports: AgentSessionWatchPorts): AgentS
     // answer to that is nothing at all.
     const prefixes = scope?.agentIdPrefixes ?? []
     const matchesNamespace = (record: SessionRecord): boolean =>
-      record.agentId !== undefined
-      && prefixes.some((prefix) => record.agentId!.startsWith(prefix))
+      record.agentId !== undefined && prefixes.some((prefix) => record.agentId!.startsWith(prefix))
     const snapshot = (): ModuleAgentSessionView[] =>
-      ports.getSessions()
-        .filter((record) => (workspaceId === undefined
-          ? matchesNamespace(record)
-          : record.workspaceId === workspaceId))
+      ports
+        .getSessions()
+        .filter((record) => (workspaceId === undefined ? matchesNamespace(record) : record.workspaceId === workspaceId))
         .map(toView)
 
     let lastSignature: string | null = null

@@ -97,9 +97,8 @@ export const BROWSER_ZOOM_LEVELS: readonly number[] = [
 
 export function nextZoomLevel(current: number, direction: 1 | -1): number {
   const index = BROWSER_ZOOM_LEVELS.findIndex((level) => Math.abs(level - current) < 0.001)
-  const from = index === -1
-    ? BROWSER_ZOOM_LEVELS.findIndex((level) => level > current) - (direction === 1 ? 1 : 0)
-    : index
+  const from =
+    index === -1 ? BROWSER_ZOOM_LEVELS.findIndex((level) => level > current) - (direction === 1 ? 1 : 0) : index
   const next = Math.min(BROWSER_ZOOM_LEVELS.length - 1, Math.max(0, from + direction))
   return BROWSER_ZOOM_LEVELS[next] ?? 1
 }

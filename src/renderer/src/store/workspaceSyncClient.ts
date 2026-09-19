@@ -175,33 +175,30 @@ export type WorkspaceSyncClient = {
     workspaceId: WorkspaceId,
     fromWindowId: WorkspaceWindowId | null,
     toWindowId: WorkspaceWindowId,
-    makeActive: boolean
+    makeActive: boolean,
   ) => Promise<void>
   /** Dispatch a detached-window close with its fallback window. */
-  dispatchCloseWorkspaceWindow: (
-    windowId: WorkspaceWindowId,
-    fallbackWindowId: WorkspaceWindowId
-  ) => Promise<void>
+  dispatchCloseWorkspaceWindow: (windowId: WorkspaceWindowId, fallbackWindowId: WorkspaceWindowId) => Promise<void>
   /** Dispatch a (already debounced) window placement update. */
   dispatchUpdatePlacement: (placement: WindowPlacement & { windowId: WorkspaceWindowId }) => Promise<void>
   /** Dispatch a newly created workspace's window assignment. */
   dispatchCreateWorkspace: (
     workspace: Workspace,
     windowId: WorkspaceWindowId,
-    folderPath: string | null
+    folderPath: string | null,
   ) => Promise<void>
   /** Dispatch a verified terminal session assignment for an agent. */
   dispatchAssignTerminalSession: (
     workspaceId: WorkspaceId,
     agentId: AgentId,
     sessionId: string,
-    cli: AgentCli
+    cli: AgentCli,
   ) => Promise<void>
   /** Dispatch verified terminal launch-state changes for an agent. */
   dispatchUpdateTerminalLaunchState: (
     workspaceId: WorkspaceId,
     agentId: AgentId,
-    update: Omit<AgentTerminalLaunchStateApply, 'workspaceId' | 'agentId'>
+    update: Omit<AgentTerminalLaunchStateApply, 'workspaceId' | 'agentId'>,
   ) => Promise<void>
   /** Ask main to rename a workspace; stamped at the gesture for last-write-wins. */
   dispatchRenameWorkspace: (workspaceId: WorkspaceId, name: string, titleLocked?: boolean) => Promise<void>
@@ -213,7 +210,7 @@ export type WorkspaceSyncClient = {
   dispatchUpdateWorkspaceAgent: (
     workspaceId: WorkspaceId,
     agentId: AgentId,
-    patch: Partial<AgentState> | null
+    patch: Partial<AgentState> | null,
   ) => Promise<void>
   /** Ask main to remove a workspace and tombstone its id. */
   dispatchRemoveWorkspace: (workspaceId: WorkspaceId) => Promise<void>
@@ -341,7 +338,11 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
     try {
       replayed = await api.workspaceSyncGetEventsAfter(lastAppliedSequence)
     } catch {
-      log({ phase: 'replay', reason: 'replay_failed', message: 'Failed to replay missed workspace sync events after a sequence gap.' })
+      log({
+        phase: 'replay',
+        reason: 'replay_failed',
+        message: 'Failed to replay missed workspace sync events after a sequence gap.',
+      })
       await recoverSnapshotBaseline(api)
       return
     }
@@ -386,7 +387,11 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
       deps.applyRegistrySnapshot(snapshot)
       lastAppliedSequence = Math.max(lastAppliedSequence, snapshot.sequence)
     } catch {
-      log({ phase: 'snapshot', reason: 'snapshot_failed', message: 'Failed to read the workspace sync snapshot after replay recovery.' })
+      log({
+        phase: 'snapshot',
+        reason: 'snapshot_failed',
+        message: 'Failed to read the workspace sync snapshot after replay recovery.',
+      })
     }
   }
 
@@ -398,16 +403,22 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
     }
     const api = deps.getApi()
     if (!api) {
-      log({ phase: 'replay', reason: 'api_unavailable', message: 'Workspace sync API is unavailable; skipped noncontiguous workspace sync event.' })
+      log({
+        phase: 'replay',
+        reason: 'api_unavailable',
+        message: 'Workspace sync API is unavailable; skipped noncontiguous workspace sync event.',
+      })
       return
     }
     await recoverSequenceGap(api, event)
   }
 
   const enqueueEvent = (event: WorkspaceSyncEvent): Promise<void> => {
-    eventQueue = eventQueue.then(() => processEvent(event)).catch(() => {
-      log({ phase: 'listener', reason: 'event_apply_failed', message: 'Workspace sync event application failed.' })
-    })
+    eventQueue = eventQueue
+      .then(() => processEvent(event))
+      .catch(() => {
+        log({ phase: 'listener', reason: 'event_apply_failed', message: 'Workspace sync event application failed.' })
+      })
     return eventQueue
   }
 
@@ -416,7 +427,11 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
     started = true
     const api = deps.getApi()
     if (!api) {
-      log({ phase: 'listener', reason: 'api_unavailable', message: 'Workspace sync API is unavailable; multi-window selection events are disabled.' })
+      log({
+        phase: 'listener',
+        reason: 'api_unavailable',
+        message: 'Workspace sync API is unavailable; multi-window selection events are disabled.',
+      })
       return () => stop()
     }
 
@@ -424,7 +439,7 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
       unsubscribe = api.onWorkspaceSyncEvent((event) => {
         void enqueueEvent(event)
       })
-    } catch (error) {
+    } catch {
       log({ phase: 'listener', reason: 'subscribe_failed', message: 'Failed to subscribe to workspace sync events.' })
       unsubscribe = null
     }
@@ -470,7 +485,11 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
   const dispatchCommand = async (command: WorkspaceSyncCommand): Promise<void> => {
     const api = deps.getApi()
     if (!api) {
-      log({ phase: 'dispatch', reason: 'api_unavailable', message: `Workspace sync API is unavailable; ${command.type} stays local-only.` })
+      log({
+        phase: 'dispatch',
+        reason: 'api_unavailable',
+        message: `Workspace sync API is unavailable; ${command.type} stays local-only.`,
+      })
       return
     }
     let result: WorkspaceSyncCommandResult
@@ -495,17 +514,14 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
     await enqueueEvent(result.event)
   }
 
-  const dispatchSetActiveWorkspace = (
-    windowId: WorkspaceWindowId,
-    workspaceId: WorkspaceId
-  ): Promise<void> =>
+  const dispatchSetActiveWorkspace = (windowId: WorkspaceWindowId, workspaceId: WorkspaceId): Promise<void> =>
     dispatchCommand({ type: 'workspace_window.set_active', payload: { windowId, workspaceId } })
 
   const dispatchMoveWorkspaceToWindow = (
     workspaceId: WorkspaceId,
     fromWindowId: WorkspaceWindowId | null,
     toWindowId: WorkspaceWindowId,
-    makeActive: boolean
+    makeActive: boolean,
   ): Promise<void> =>
     dispatchCommand({
       type: 'workspace.move_to_window',
@@ -514,19 +530,16 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
 
   const dispatchCloseWorkspaceWindow = (
     windowId: WorkspaceWindowId,
-    fallbackWindowId: WorkspaceWindowId
-  ): Promise<void> =>
-    dispatchCommand({ type: 'workspace_window.close', payload: { windowId, fallbackWindowId } })
+    fallbackWindowId: WorkspaceWindowId,
+  ): Promise<void> => dispatchCommand({ type: 'workspace_window.close', payload: { windowId, fallbackWindowId } })
 
-  const dispatchUpdatePlacement = (
-    placement: WindowPlacement & { windowId: WorkspaceWindowId }
-  ): Promise<void> =>
+  const dispatchUpdatePlacement = (placement: WindowPlacement & { windowId: WorkspaceWindowId }): Promise<void> =>
     dispatchCommand({ type: 'workspace_window.update_placement', payload: placement })
 
   const dispatchCreateWorkspace = (
     workspace: Workspace,
     windowId: WorkspaceWindowId,
-    folderPath: string | null
+    folderPath: string | null,
   ): Promise<void> =>
     dispatchCommand({
       type: 'workspace.created',
@@ -537,7 +550,7 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
     workspaceId: WorkspaceId,
     agentId: AgentId,
     sessionId: string,
-    cli: AgentCli
+    cli: AgentCli,
   ): Promise<void> =>
     dispatchCommand({
       type: 'agent_terminal.assign_session',
@@ -547,7 +560,7 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
   const dispatchUpdateTerminalLaunchState = (
     workspaceId: WorkspaceId,
     agentId: AgentId,
-    update: Omit<AgentTerminalLaunchStateApply, 'workspaceId' | 'agentId'>
+    update: Omit<AgentTerminalLaunchStateApply, 'workspaceId' | 'agentId'>,
   ): Promise<void> =>
     dispatchCommand({
       type: 'agent_terminal.update_launch_state',
@@ -557,11 +570,7 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
   // `editedAt` is stamped HERE, at the user gesture, not on arrival in main:
   // a stamp assigned on arrival would make last-write-wins ordering depend on
   // IPC latency, which is the bug the rule exists to prevent.
-  const dispatchRenameWorkspace = (
-    workspaceId: WorkspaceId,
-    name: string,
-    titleLocked?: boolean
-  ): Promise<void> =>
+  const dispatchRenameWorkspace = (workspaceId: WorkspaceId, name: string, titleLocked?: boolean): Promise<void> =>
     dispatchCommand({
       type: 'workspace.rename',
       payload: { workspaceId, name, ...(titleLocked !== undefined ? { titleLocked } : {}), editedAt: Date.now() },
@@ -569,17 +578,14 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
 
   const dispatchUpdateWorkspaceLayout = (
     workspaceId: WorkspaceId,
-    layoutModel: Workspace['layoutModel']
+    layoutModel: Workspace['layoutModel'],
   ): Promise<void> =>
     dispatchCommand({
       type: 'workspace.update_layout',
       payload: { workspaceId, layoutModel, editedAt: Date.now() },
     })
 
-  const dispatchUpdateWorkspaceFields = (
-    workspaceId: WorkspaceId,
-    patch: WorkspaceFieldsPatch
-  ): Promise<void> =>
+  const dispatchUpdateWorkspaceFields = (workspaceId: WorkspaceId, patch: WorkspaceFieldsPatch): Promise<void> =>
     dispatchCommand({
       type: 'workspace.update_fields',
       payload: { workspaceId, patch, editedAt: Date.now() },
@@ -588,7 +594,7 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
   const dispatchUpdateWorkspaceAgent = (
     workspaceId: WorkspaceId,
     agentId: AgentId,
-    patch: Partial<AgentState> | null
+    patch: Partial<AgentState> | null,
   ): Promise<void> =>
     dispatchCommand({
       type: 'workspace.update_agent',
@@ -627,11 +633,11 @@ function defaultGetApi(): WorkspaceSyncClientApi | null {
   if (typeof window === 'undefined') return null
   const api = window.api
   if (
-    !api
-    || typeof api.workspaceSyncDispatch !== 'function'
-    || typeof api.workspaceSyncGetSnapshot !== 'function'
-    || typeof api.workspaceSyncGetEventsAfter !== 'function'
-    || typeof api.onWorkspaceSyncEvent !== 'function'
+    !api ||
+    typeof api.workspaceSyncDispatch !== 'function' ||
+    typeof api.workspaceSyncGetSnapshot !== 'function' ||
+    typeof api.workspaceSyncGetEventsAfter !== 'function' ||
+    typeof api.onWorkspaceSyncEvent !== 'function'
   ) {
     return null
   }

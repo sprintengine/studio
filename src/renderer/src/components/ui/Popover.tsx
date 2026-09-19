@@ -283,9 +283,7 @@ export function Popover({
       const surface = surfaceRef.current
       if (!anchor || !surface) return
       const triggerRect = anchor.getBoundingClientRect()
-      setPosition(
-        computeSurfacePosition(triggerRect, surface.offsetWidth, surface.offsetHeight, placement),
-      )
+      setPosition(computeSurfacePosition(triggerRect, surface.offsetWidth, surface.offsetHeight, placement))
     }
     // The surface scrolls its own content when it is taller than the viewport;
     // that scroll moves no trigger, so it is not a reason to re-measure.

@@ -1,11 +1,6 @@
 import assert from 'node:assert/strict'
 
-import {
-  buildShellGhDescriptor,
-  createDefaultGhRunner,
-  sharedGhRunner,
-  type GhSpawn,
-} from './gh'
+import { buildShellGhDescriptor, createDefaultGhRunner, sharedGhRunner, type GhSpawn } from './gh'
 import { createGhCommandRunner } from '../automations/pull-request'
 
 // Nothing here spawns a real `gh`: every case injects the spawn seam, so the
@@ -19,9 +14,10 @@ type Call = {
   killSignal?: NodeJS.Signals
 }
 
-function spawnStub(
-  respond: (call: Call) => Promise<{ stdout: string; stderr: string }>,
-): { spawn: GhSpawn; calls: Call[] } {
+function spawnStub(respond: (call: Call) => Promise<{ stdout: string; stderr: string }>): {
+  spawn: GhSpawn
+  calls: Call[]
+} {
   const calls: Call[] = []
   const spawn: GhSpawn = (file, args, options) => {
     const call: Call = {
@@ -59,9 +55,17 @@ async function main(): Promise<void> {
     assert.equal(result.found, true, 'gh found through the login shell is found')
     assert.equal(result.code, 0)
     assert.equal(result.stdout, 'gh version 2.55.0')
-    assert.deepEqual(calls.map((call) => call.file), ['gh', '/bin/zsh'], 'direct first, then the shell')
+    assert.deepEqual(
+      calls.map((call) => call.file),
+      ['gh', '/bin/zsh'],
+      'direct first, then the shell',
+    )
     assert.deepEqual(calls[1].args, ['-ilc', `'gh' 'pr' 'list' '--head' 'it'\\''s-a-branch'`])
-    assert.deepEqual(calls.map((call) => call.cwd), ['/repo', '/repo'], 'the cwd reaches both attempts')
+    assert.deepEqual(
+      calls.map((call) => call.cwd),
+      ['/repo', '/repo'],
+      'the cwd reaches both attempts',
+    )
   }
 
   // A quote in an argument must not break out of the shell command line.
@@ -117,21 +121,31 @@ async function main(): Promise<void> {
     const result = await runGh('/worktree', ['pr', 'view', 'feature', '--json', 'url'])
 
     assert.deepEqual(result, { ok: true, stdout: 'https://github.com/o/r/pull/7\n', stderr: '' })
-    assert.deepEqual(calls.map((call) => call.file), ['gh', '/bin/zsh'], 'the automations path gets the PATH fallback')
+    assert.deepEqual(
+      calls.map((call) => call.file),
+      ['gh', '/bin/zsh'],
+      'the automations path gets the PATH fallback',
+    )
     assert.equal(calls[1].cwd, '/worktree', 'and still runs in the run worktree')
   }
 
   // The automations path keeps its Fallback Discipline wording: a missing gh is a
   // reason, never a faked pull request.
   {
-    const missing = createGhCommandRunner({ available: async () => false, run: async () => ({ found: false, code: -1, stdout: '', stderr: '' }) })
+    const missing = createGhCommandRunner({
+      available: async () => false,
+      run: async () => ({ found: false, code: -1, stdout: '', stderr: '' }),
+    })
     assert.deepEqual(await missing('/worktree', ['pr', 'create']), {
       ok: false,
       stdout: '',
       stderr: 'the GitHub CLI (gh) is not installed or not on PATH',
     })
 
-    const failing = createGhCommandRunner({ available: async () => true, run: async () => ({ found: true, code: 1, stdout: '', stderr: '  ' }) })
+    const failing = createGhCommandRunner({
+      available: async () => true,
+      run: async () => ({ found: true, code: 1, stdout: '', stderr: '  ' }),
+    })
     assert.deepEqual(await failing('/worktree', ['pr', 'create']), {
       ok: false,
       stdout: '',
@@ -170,13 +184,15 @@ async function main(): Promise<void> {
     // code. The binary was found and ran, so this is never `found: false` — it
     // is a read that did not happen, and the caller must not write anything down.
     const { spawn } = spawnStub(() =>
-      Promise.reject(Object.assign(new Error('Command failed: gh pr list'), {
-        killed: true,
-        signal: 'SIGTERM',
-        code: null,
-        stdout: '',
-        stderr: '',
-      })),
+      Promise.reject(
+        Object.assign(new Error('Command failed: gh pr list'), {
+          killed: true,
+          signal: 'SIGTERM',
+          code: null,
+          stdout: '',
+          stderr: '',
+        }),
+      ),
     )
     const gh = createDefaultGhRunner({ spawn, shell: '/bin/zsh', platform: 'darwin' })
     const killed = await gh.run(['pr', 'list'], { timeoutMs: 1 })

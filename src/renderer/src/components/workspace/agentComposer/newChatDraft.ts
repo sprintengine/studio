@@ -97,10 +97,7 @@ export function rescopeNewChatDraft(key: string, folderPath: string | null): New
 export function newChatDraftHasContent(draft: NewChatDraft | null): boolean {
   if (!draft) return false
   return (
-    draft.prompt.trim().length > 0
-    || draft.images.length > 0
-    || draft.skills.length > 0
-    || draft.mcpServers.length > 0
+    draft.prompt.trim().length > 0 || draft.images.length > 0 || draft.skills.length > 0 || draft.mcpServers.length > 0
   )
 }
 

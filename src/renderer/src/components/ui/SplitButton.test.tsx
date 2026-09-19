@@ -92,10 +92,7 @@ run('quiet keeps the internal hairline — it is what says one object, two halve
     const primaryClass = primary.getAttribute('class') ?? ''
     const chevronClass = chevron.getAttribute('class') ?? ''
     assert.ok(chevronClass.includes('border-l'), `quiet=${quiet}: the menu half keeps the hairline`)
-    assert.ok(
-      chevronClass.includes('--border-subtle'),
-      `quiet=${quiet}: the hairline is the subtle border token`,
-    )
+    assert.ok(chevronClass.includes('--border-subtle'), `quiet=${quiet}: the hairline is the subtle border token`)
     assert.ok(!primaryClass.includes('border-l'), `quiet=${quiet}: only one hairline, and it is the seam`)
   }
 })
@@ -111,7 +108,11 @@ run('quiet changes no state treatment: hover, held-open and the inset focus ring
     const node = group({ quiet })
     assert.ok(node.getAttribute('class')?.includes('overflow-hidden'), `quiet=${quiet}: the group still clips`)
     const chevron = halves(node)[1]
-    assert.equal(chevron.getAttribute('aria-haspopup'), 'menu', `quiet=${quiet}: the menu half still announces its menu`)
+    assert.equal(
+      chevron.getAttribute('aria-haspopup'),
+      'menu',
+      `quiet=${quiet}: the menu half still announces its menu`,
+    )
     assert.equal(chevron.getAttribute('aria-expanded'), 'false', `quiet=${quiet}: and its live expanded state`)
   }
 })
@@ -151,11 +152,7 @@ run('fewer than two targets draw the primary half alone, in the same chrome', ()
     pair.getAttribute('class')?.trim(),
     'the same group: the hit-target floor, the chip radius, the overflow clip',
   )
-  assert.equal(
-    buttons[0].getAttribute('class'),
-    halves(pair)[0].getAttribute('class'),
-    'and the same half inside it',
-  )
+  assert.equal(buttons[0].getAttribute('class'), halves(pair)[0].getAttribute('class'), 'and the same half inside it')
   assert.equal(buttons[0].getAttribute('aria-label'), 'Open in VS Code')
   assert.equal(halves(group({ items: [] })).length, 1, 'no targets at all is the same shape')
 })
@@ -201,7 +198,9 @@ run('the primary half carries the host surface’s own marker when it is given o
     primaryData: { name: 'data-pull-request-mark', value: 'https://github.com/acme/app/pull/418' },
   })
   for (const items of [undefined, [{ id: 'one', label: 'One', onSelect: () => {} }]]) {
-    const node = items ? group({ quiet: true, items, primaryData: { name: 'data-pull-request-mark', value: 'x' } }) : marked
+    const node = items
+      ? group({ quiet: true, items, primaryData: { name: 'data-pull-request-mark', value: 'x' } })
+      : marked
     const primary = halves(node)[0]
     assert.ok(primary.hasAttribute('data-pull-request-mark'), 'on the half that is pressed, either shape')
   }

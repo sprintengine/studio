@@ -93,7 +93,11 @@ export function ProjectSourceMenu({
       })
       .catch((error: unknown) => {
         if (repoRequestSeq.current === seq) {
-          setRepoList({ status: 'error', reason: 'network', message: error instanceof Error ? error.message : String(error) })
+          setRepoList({
+            status: 'error',
+            reason: 'network',
+            message: error instanceof Error ? error.message : String(error),
+          })
         }
       })
   }, [])
@@ -217,9 +221,7 @@ export function ProjectSourceMenu({
       icon={<FolderTypeIcon className="mt-0.5 icon-xs shrink-0" color={colorOf?.(option.path) ?? null} />}
     >
       <span className="block truncate text-body font-medium">{option.label}</span>
-      <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">
-        {option.path}
-      </span>
+      <span className="block truncate font-mono text-micro text-[color:var(--text-subtle)]">{option.path}</span>
     </MenuOption>
   )
 
@@ -253,8 +255,17 @@ export function ProjectSourceMenu({
             onClose()
           }}
           icon={
-            <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--text-muted)]">
-              <path d="M2 5.5c0-.8.7-1.5 1.5-1.5h2.6l1.2 1.4h5.2c.8 0 1.5.7 1.5 1.5v5.1c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5V5.5Z" stroke="currentColor" strokeWidth="1.4" />
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+              className="mt-0.5 icon-xs shrink-0 text-[color:var(--text-muted)]"
+            >
+              <path
+                d="M2 5.5c0-.8.7-1.5 1.5-1.5h2.6l1.2 1.4h5.2c.8 0 1.5.7 1.5 1.5v5.1c0 .8-.7 1.5-1.5 1.5h-9c-.8 0-1.5-.7-1.5-1.5V5.5Z"
+                stroke="currentColor"
+                strokeWidth="1.4"
+              />
               <path d="M8 7.5v3M6.5 9h3" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
             </svg>
           }
@@ -264,20 +275,39 @@ export function ProjectSourceMenu({
         </MenuItem>
       ) : null}
       {onClone ? (
-      <MenuItem
-        aria-haspopup="true"
-        onClick={openGitStep}
-        icon={
-          <svg viewBox="0 0 16 16" fill="none" aria-hidden="true" className="mt-0.5 icon-xs shrink-0 text-[color:var(--text-muted)]">
-            <path d="M6.5 9.5a2.6 2.6 0 0 0 3.7 0l2.3-2.3a2.6 2.6 0 1 0-3.7-3.7l-1 1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-            <path d="M9.5 6.5a2.6 2.6 0 0 0-3.7 0L3.5 8.8a2.6 2.6 0 1 0 3.7 3.7l1-1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        }
-        trailing={<span aria-hidden="true" className="mt-0.5 shrink-0 text-micro text-[color:var(--text-disabled)]">›</span>}
-      >
-        <span className="block text-body font-medium">Import from Git</span>
-        <span className="block text-meta text-[color:var(--text-subtle)]">Clone a repository and open it here.</span>
-      </MenuItem>
+        <MenuItem
+          aria-haspopup="true"
+          onClick={openGitStep}
+          icon={
+            <svg
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-hidden="true"
+              className="mt-0.5 icon-xs shrink-0 text-[color:var(--text-muted)]"
+            >
+              <path
+                d="M6.5 9.5a2.6 2.6 0 0 0 3.7 0l2.3-2.3a2.6 2.6 0 1 0-3.7-3.7l-1 1"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+              <path
+                d="M9.5 6.5a2.6 2.6 0 0 0-3.7 0L3.5 8.8a2.6 2.6 0 1 0 3.7 3.7l1-1"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                strokeLinecap="round"
+              />
+            </svg>
+          }
+          trailing={
+            <span aria-hidden="true" className="mt-0.5 shrink-0 text-micro text-[color:var(--text-disabled)]">
+              ›
+            </span>
+          }
+        >
+          <span className="block text-body font-medium">Import from Git</span>
+          <span className="block text-meta text-[color:var(--text-subtle)]">Clone a repository and open it here.</span>
+        </MenuItem>
       ) : null}
       <div className={MENU_DIVIDER_CLASS} role="separator" />
       {visible.map(projectRow)}

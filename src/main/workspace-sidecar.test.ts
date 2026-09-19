@@ -57,7 +57,10 @@ run('when both directories exist the new one wins and the old one survives', () 
   writeFileSync(join(root, '.multi-code', 'marker'), 'kept', 'utf8')
   assert.equal(resolveWorkspaceSidecar(root).dirName, '.sprintengine')
   assert.equal(resolveWorkspaceSidecar(root).root, join(root, '.sprintengine'))
-  assert.doesNotThrow(() => rmSync(join(root, '.multi-code', 'marker')), 'the old directory must not be moved or removed')
+  assert.doesNotThrow(
+    () => rmSync(join(root, '.multi-code', 'marker')),
+    'the old directory must not be moved or removed',
+  )
 })
 
 run('a file named like a sidecar is not one', () => {

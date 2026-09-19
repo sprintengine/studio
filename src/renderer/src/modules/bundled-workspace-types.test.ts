@@ -26,19 +26,47 @@ assert.deepEqual(
   [],
   'disabling the automations module removes the automations-host workspace type from the picker',
 )
-assert.equal(host.getWorkspaceTypeModule('sprintengine'), undefined, 'the in-tree sprint workspace type retired with the engine')
-assert.equal(host.getWorkspaceTypeModule('review'), undefined, 'the review workspace type retired (MC-1708); the review module owns the instance-level Reviews surface + panel, not a workspace type')
-assert.equal(host.getWorkspaceTypeModule('roadmap'), undefined, 'the roadmap workspace type retired (MC-1692); the roadmap module owns the sidebar door, not a workspace type')
-assert.equal(host.getWorkspaceTypeModule('guided-brief'), undefined, 'the guided-brief workspace type retired with the Design Wizard (2026-09-08); its module id stays reserved but registers nothing')
-assert.equal(host.getWorkspaceTypeModule('automations-host'), 'automations', 'automations-host is owned by the automations module')
-assert.equal(host.getWorkspaceTypeModule('automations'), undefined, "the type id is 'automations-host', not 'automations'")
+assert.equal(
+  host.getWorkspaceTypeModule('sprintengine'),
+  undefined,
+  'the in-tree sprint workspace type retired with the engine',
+)
+assert.equal(
+  host.getWorkspaceTypeModule('review'),
+  undefined,
+  'the review workspace type retired (MC-1708); the review module owns the instance-level Reviews surface + panel, not a workspace type',
+)
+assert.equal(
+  host.getWorkspaceTypeModule('roadmap'),
+  undefined,
+  'the roadmap workspace type retired (MC-1692); the roadmap module owns the sidebar door, not a workspace type',
+)
+assert.equal(
+  host.getWorkspaceTypeModule('guided-brief'),
+  undefined,
+  'the guided-brief workspace type retired with the Design Wizard (2026-09-08); its module id stays reserved but registers nothing',
+)
+assert.equal(
+  host.getWorkspaceTypeModule('automations-host'),
+  'automations',
+  'automations-host is owned by the automations module',
+)
+assert.equal(
+  host.getWorkspaceTypeModule('automations'),
+  undefined,
+  "the type id is 'automations-host', not 'automations'",
+)
 
 // automations-host stays REGISTERED (the executor creates hidden host
 // workspaces at runtime), but is withheld from the creation picker: automations
 // are created from the full-page door now, not the new-workspace picker (item
 // 1707). This is the picker analog of isHiddenFromRail — unlike review/roadmap,
 // which retired their types entirely.
-assert.equal(host.getWorkspaceType('automations-host')?.hiddenFromPicker, true, 'automations-host is hidden from the creation picker')
+assert.equal(
+  host.getWorkspaceType('automations-host')?.hiddenFromPicker,
+  true,
+  'automations-host is hidden from the creation picker',
+)
 
 assert.deepEqual(
   ['automations-host'].map((id) => {
@@ -58,7 +86,8 @@ assert.deepEqual(
       id: 'automations-host',
       moduleId: 'automations',
       label: 'Automations',
-      description: 'Schedule agents and tasks on this project, with run history and the live run terminals hosted in one place.',
+      description:
+        'Schedule agents and tasks on this project, with run history and the live run terminals hosted in one place.',
       accentToken: '--accent-primary',
       creationStepsId: 'automations',
     },
@@ -127,7 +156,11 @@ assert.deepEqual(
   assert.equal(failed.source, 'automations', 'notification is source-automations')
   assert.equal(failed.level, 'error', 'failed run is error severity')
   assert.equal(failed.workspaceId, 'ws-project')
-  assert.equal(failed.navigationTarget?.kind, AUTOMATIONS_DOOR_TARGET_KIND, 'carries the full-page door deep-link target (item 1707), not the retired host-reveal kind')
+  assert.equal(
+    failed.navigationTarget?.kind,
+    AUTOMATIONS_DOOR_TARGET_KIND,
+    'carries the full-page door deep-link target (item 1707), not the retired host-reveal kind',
+  )
   assert.deepEqual(
     decodeRunRef(failed.navigationTarget!.ref),
     { automationId: 'auto-1', runId: 'run-9', folderPath: '/repo/app' },
@@ -143,9 +176,17 @@ assert.deepEqual(
     'manual runs are ignored (owned by T6, no double-toast)',
   )
   const completed = scheduledRunNotification({ ...baseEvent, status: 'completed' }, () => '/repo/app')
-  assert.equal(completed?.level, 'info', 'a completed scheduled run is an info row — the rail’s Automations badge counts it, the bell’s error count and the toast never see it')
+  assert.equal(
+    completed?.level,
+    'info',
+    'a completed scheduled run is an info row — the rail’s Automations badge counts it, the bell’s error count and the toast never see it',
+  )
   assert.equal(completed?.title, 'Automation finished: Nightly QA')
-  assert.equal(completed?.navigationTarget?.kind, AUTOMATIONS_DOOR_TARGET_KIND, 'and opens the door at the run like the others')
+  assert.equal(
+    completed?.navigationTarget?.kind,
+    AUTOMATIONS_DOOR_TARGET_KIND,
+    'and opens the door at the run like the others',
+  )
 }
 
 // T13 C7/C9/C10: the observer's delivered-event -> publish boundary (the path
@@ -178,8 +219,14 @@ assert.deepEqual(
   assert.equal(manualPublished.length, 0, 'manual events publish nothing (owned by T6)')
 
   const completedPublished: DiagnosticLogInput[] = []
-  handleAutomationRunEvent({ ...event, status: 'completed' }, resolveFolderPath, (input) => completedPublished.push(input))
-  assert.equal(completedPublished.length, 1, 'a completed timer run publishes an info row for the rail’s Automations badge')
+  handleAutomationRunEvent({ ...event, status: 'completed' }, resolveFolderPath, (input) =>
+    completedPublished.push(input),
+  )
+  assert.equal(
+    completedPublished.length,
+    1,
+    'a completed timer run publishes an info row for the rail’s Automations badge',
+  )
   assert.equal(completedPublished[0]?.level, 'info', 'info: the bell’s error count and the toast never see it')
 }
 
@@ -202,8 +249,7 @@ async function runSubscriptionBoundaryTest(): Promise<void> {
   }
   const published: DiagnosticLogInput[] = []
   // Mirrors the component's async store-backed resolver, kept out of the eager graph.
-  const loadResolveFolderPath = async () => (workspaceId: string) =>
-    workspaceId === 'ws-project' ? '/repo/app' : null
+  const loadResolveFolderPath = async () => (workspaceId: string) => (workspaceId === 'ws-project' ? '/repo/app' : null)
 
   const unsubscribe = subscribeAutomationRunNotifications(api, loadResolveFolderPath, (input) => published.push(input))
   assert.ok(captured, 'observer subscribes to onAutomationRunEvent synchronously on mount (no async gap)')

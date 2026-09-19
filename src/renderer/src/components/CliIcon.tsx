@@ -1,15 +1,7 @@
 import type { AgentCli } from '../types/workspace'
 
 export type CliIconKind =
-  | 'claude-code'
-  | 'codex'
-  | 'opencode'
-  | 'zai'
-  | 'grok'
-  | 'kimi'
-  | 'cursor'
-  | 'muse'
-  | 'terminal'
+  'claude-code' | 'codex' | 'opencode' | 'zai' | 'grok' | 'kimi' | 'cursor' | 'muse' | 'terminal'
 
 export function resolveCliIconKind(cli: AgentCli): CliIconKind {
   if (cli === 'claude-code') return 'claude-code'
@@ -54,11 +46,7 @@ export default function CliIcon({ cli, className }: { cli: AgentCli; className?:
         aria-hidden="true"
         xmlns="http://www.w3.org/2000/svg"
       >
-        <path
-          fillRule="evenodd"
-          clipRule="evenodd"
-          d="M384 416H128V96H384V416ZM320 160H192V352H320V160Z"
-        />
+        <path fillRule="evenodd" clipRule="evenodd" d="M384 416H128V96H384V416ZM320 160H192V352H320V160Z" />
         <path d="M320 224V352H192V224H320Z" />
       </svg>
     )
@@ -69,13 +57,7 @@ export default function CliIcon({ cli, className }: { cli: AgentCli; className?:
     // reads as the Z.AI runtime. Swap this branch's contents for Z.AI's official
     // brand SVG if/when one is bundled.
     return (
-      <svg
-        className={className}
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden="true"
-        xmlns="http://www.w3.org/2000/svg"
-      >
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
         <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
         <path
           d="M8.25 8.5H15.75L8.25 15.5H15.75"
@@ -93,13 +75,7 @@ export default function CliIcon({ cli, className }: { cli: AgentCli; className?:
     // reads as the Grok Build runtime. Swap this branch's contents for xAI's
     // official brand SVG if/when one is bundled.
     return (
-      <svg
-        className={className}
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden="true"
-        xmlns="http://www.w3.org/2000/svg"
-      >
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
         <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
         <path
           d="M14.75 7.75L9.25 16.25M9.25 7.75L12 12"
@@ -117,13 +93,7 @@ export default function CliIcon({ cli, className }: { cli: AgentCli; className?:
     // reads as the Kimi runtimes. Swap this branch's contents for Moonshot's
     // official brand SVG if/when one is bundled.
     return (
-      <svg
-        className={className}
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden="true"
-        xmlns="http://www.w3.org/2000/svg"
-      >
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
         <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
         <path
           d="M9.25 7.75V16.25M15 7.75L9.25 13.25M11.6 11L15 16.25"
@@ -141,13 +111,7 @@ export default function CliIcon({ cli, className }: { cli: AgentCli; className?:
     // that reads as the Cursor CLI. Swap this branch's contents for Anysphere's
     // official brand SVG if/when one is bundled.
     return (
-      <svg
-        className={className}
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden="true"
-        xmlns="http://www.w3.org/2000/svg"
-      >
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
         <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
         <path
           d="M9.25 7.75L15.5 12.1L12.4 13L11.2 16.25L9.25 7.75Z"
@@ -164,13 +128,7 @@ export default function CliIcon({ cli, className }: { cli: AgentCli; className?:
     // reads as the Muse Code runtime. Deliberately not Meta's own mark — swap
     // this branch's contents for the official brand SVG if/when one is bundled.
     return (
-      <svg
-        className={className}
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden="true"
-        xmlns="http://www.w3.org/2000/svg"
-      >
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
         <rect x="3.5" y="3.5" width="17" height="17" rx="5" stroke="currentColor" strokeWidth="1.7" />
         <path
           d="M8 16.25V7.75L12 12L16 7.75V16.25"
@@ -185,15 +143,15 @@ export default function CliIcon({ cli, className }: { cli: AgentCli; className?:
 
   if (iconKind === 'terminal') {
     return (
-      <svg
-        className={className}
-        viewBox="0 0 24 24"
-        fill="none"
-        aria-hidden="true"
-        xmlns="http://www.w3.org/2000/svg"
-      >
+      <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true" xmlns="http://www.w3.org/2000/svg">
         <rect x="3.75" y="5" width="16.5" height="14" rx="2.25" stroke="currentColor" strokeWidth="1.7" />
-        <path d="M7.5 9L10.75 12L7.5 15" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M7.5 9L10.75 12L7.5 15"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
         <path d="M12.75 15H16.75" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" />
       </svg>
     )

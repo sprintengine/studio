@@ -94,18 +94,13 @@ export function Tabs<T extends string = string>({
   const valueRef = useRef(value)
   valueRef.current = value
 
-  const focusTabAt = useCallback(
-    (index: number) => {
-      if (!listRef.current) return
-      const tabs = Array.from(
-        listRef.current.querySelectorAll<HTMLButtonElement>('[role="tab"]:not([disabled])'),
-      )
-      if (tabs.length === 0) return
-      const wrapped = (index + tabs.length) % tabs.length
-      tabs[wrapped]?.focus()
-    },
-    [],
-  )
+  const focusTabAt = useCallback((index: number) => {
+    if (!listRef.current) return
+    const tabs = Array.from(listRef.current.querySelectorAll<HTMLButtonElement>('[role="tab"]:not([disabled])'))
+    if (tabs.length === 0) return
+    const wrapped = (index + tabs.length) % tabs.length
+    tabs[wrapped]?.focus()
+  }, [])
 
   const onKey = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>) => {
@@ -167,7 +162,9 @@ export function Tabs<T extends string = string>({
         'flex items-center gap-0.5',
         borderless ? '' : 'border-b border-[color:var(--border-default)]',
         className ?? '',
-      ].filter(Boolean).join(' ')}
+      ]
+        .filter(Boolean)
+        .join(' ')}
     >
       {items.map((item) => {
         const selected = item.id === value
@@ -177,16 +174,14 @@ export function Tabs<T extends string = string>({
         // (the inline step) — the ramp's two answers to "is this glyph the
         // control, or a mark next to the word that is".
         const iconClass = iconOnly ? 'size-icon-sm shrink-0' : 'size-icon-xs shrink-0'
-        const iconNode =
-          typeof item.icon === 'function' ? item.icon({ className: iconClass }) : item.icon
+        const iconNode = typeof item.icon === 'function' ? item.icon({ className: iconClass }) : item.icon
         const closable = Boolean(onCloseItem && item.closeLabel)
         // An icon-only strip draws no badge: its tab is a 30px square with no
         // room to dock one clear of the glyph, and the tooltip is where that
         // strip already puts what the glyph cannot show. A closable tab draws
         // none either — its trailing padding is already spoken for by the close
         // glyph, and two things docked in one corner is neither of them.
-        const badged =
-          !iconOnly && !closable && typeof item.badgeCount === 'number' && item.badgeCount > 0
+        const badged = !iconOnly && !closable && typeof item.badgeCount === 'number' && item.badgeCount > 0
         const tab = (
           <button
             key={closable ? undefined : item.id}
@@ -208,8 +203,8 @@ export function Tabs<T extends string = string>({
             // contents, so the tab says its piece once and the counter keeps
             // announcing changes on its own.
             aria-label={
-              item.ariaLabel
-              ?? (badged
+              item.ariaLabel ??
+              (badged
                 ? (item.badgeLabel ?? `${item.label}: ${item.badgeCount} waiting`)
                 : iconOnly
                   ? item.label
@@ -247,11 +242,7 @@ export function Tabs<T extends string = string>({
               // collapsed to 12, and the close glyph was drawn on top of the
               // last letters of the label. Two utilities that never share an
               // edge cannot be reordered into a bug.
-              iconOnly
-                ? 'w-control-sm justify-center px-0'
-                : closable || badged
-                  ? 'pl-3'
-                  : 'px-3',
+              iconOnly ? 'w-control-sm justify-center px-0' : closable || badged ? 'pl-3' : 'px-3',
               'transition-colors disabled:cursor-not-allowed disabled:opacity-50',
               // The close glyph sits in this reserved trailing padding, so
               // revealing it never reflows the label. A closable tab is a
@@ -286,14 +277,16 @@ export function Tabs<T extends string = string>({
                 />
               </span>
             ) : null}
-            {iconNode ? <span aria-hidden="true" className="inline-flex">{iconNode}</span> : null}
+            {iconNode ? (
+              <span aria-hidden="true" className="inline-flex">
+                {iconNode}
+              </span>
+            ) : null}
             {iconOnly ? null : (
               <>
                 <span className={closable ? 'min-w-0 truncate' : undefined}>{item.label}</span>
                 {item.count !== undefined ? (
-                  <span className="tabular-nums text-micro text-[color:var(--text-muted)]">
-                    {item.count}
-                  </span>
+                  <span className="tabular-nums text-micro text-[color:var(--text-muted)]">{item.count}</span>
                 ) : null}
               </>
             )}

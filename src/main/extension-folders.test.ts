@@ -4,11 +4,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { test } from 'node:test'
 
-import {
-  ensureExtensionFolders,
-  MODULE_FOLDER_README,
-  PLUGIN_FOLDER_README,
-} from './extension-folders'
+import { ensureExtensionFolders, MODULE_FOLDER_README, PLUGIN_FOLDER_README } from './extension-folders'
 
 function tmpRoot(): string {
   return mkdtempSync(join(tmpdir(), 'multicode-ext-folders-'))

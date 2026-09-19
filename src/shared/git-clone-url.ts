@@ -9,10 +9,10 @@
  */
 
 export type CloneUrlValidation =
-  | { ok: true; url: string; httpsHost: string | null; repoName: string }
-  | { ok: false; error: string }
+  { ok: true; url: string; httpsHost: string | null; repoName: string } | { ok: false; error: string }
 
-const SCP_LIKE = /^([A-Za-z0-9_][A-Za-z0-9_.-]*)@([A-Za-z0-9][A-Za-z0-9.-]*):([A-Za-z0-9_.~-][A-Za-z0-9_./~-]*?)(\.git)?\/?$/
+const SCP_LIKE =
+  /^([A-Za-z0-9_][A-Za-z0-9_.-]*)@([A-Za-z0-9][A-Za-z0-9.-]*):([A-Za-z0-9_.~-][A-Za-z0-9_./~-]*?)(\.git)?\/?$/
 
 function repoNameFromPath(path: string): string {
   const segments = path.split('/').filter(Boolean)

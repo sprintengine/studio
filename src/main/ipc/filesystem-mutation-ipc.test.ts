@@ -26,7 +26,10 @@ async function main(): Promise<void> {
       throw new Error('copy is not used in this test')
     },
     async pathExists(targetPath) {
-      return stat(targetPath).then(() => true, () => false)
+      return stat(targetPath).then(
+        () => true,
+        () => false,
+      )
     },
     async trashItem() {},
   })
@@ -85,14 +88,31 @@ async function main(): Promise<void> {
     await mkdir(sourceSkillDir, { recursive: true })
     await mkdir(destinationManifestsDir, { recursive: true })
     await mkdir(destinationSkillsDir, { recursive: true })
-    await writeFile(join(sourceManifestsDir, 'marketer.json'), '{"id":"marketer","skills":["growth-copywriter"]}', 'utf-8')
+    await writeFile(
+      join(sourceManifestsDir, 'marketer.json'),
+      '{"id":"marketer","skills":["growth-copywriter"]}',
+      'utf-8',
+    )
     await writeFile(join(sourceSkillDir, 'SKILL.md'), '# Growth Copywriter\n', 'utf-8')
 
-    const copiedManifestPath = await copyInto(null, join(sourceManifestsDir, 'marketer.json'), destinationManifestsDir, { overwrite: true })
+    const copiedManifestPath = await copyInto(
+      null,
+      join(sourceManifestsDir, 'marketer.json'),
+      destinationManifestsDir,
+      { overwrite: true },
+    )
     const copiedSkillPath = await copyInto(null, sourceSkillDir, destinationSkillsDir, { overwrite: true })
 
-    assert.equal(copiedManifestPath, join(destinationManifestsDir, 'marketer.json'), 'manifests copy under their original file name')
-    assert.equal(copiedSkillPath, join(destinationSkillsDir, 'growth-copywriter'), 'skill folders copy under their original directory name')
+    assert.equal(
+      copiedManifestPath,
+      join(destinationManifestsDir, 'marketer.json'),
+      'manifests copy under their original file name',
+    )
+    assert.equal(
+      copiedSkillPath,
+      join(destinationSkillsDir, 'growth-copywriter'),
+      'skill folders copy under their original directory name',
+    )
     assert.equal(
       await readFile(join(destinationSkillsDir, 'growth-copywriter', 'SKILL.md'), 'utf-8'),
       '# Growth Copywriter\n',
@@ -124,7 +144,11 @@ async function main(): Promise<void> {
       /cannot end with a period or space/,
       'rename rejects trailing spaces before filesystem mutation',
     )
-    assert.equal(await readFile(renameSource, 'utf-8'), '# Plan\n', 'invalid rename attempts leave source file in place')
+    assert.equal(
+      await readFile(renameSource, 'utf-8'),
+      '# Plan\n',
+      'invalid rename attempts leave source file in place',
+    )
 
     const moveSourceDir = join(tempRoot, 'move-source')
     const moveDestinationDir = join(tempRoot, 'move-destination')
@@ -134,13 +158,13 @@ async function main(): Promise<void> {
     await writeFile(moveSourceFile, '# Notes\n', 'utf-8')
 
     const movedFilePath = await movePath(null, moveSourceFile, moveDestinationDir)
-    assert.equal(movedFilePath, join(moveDestinationDir, 'notes.md'), 'move returns the file path under the destination directory')
-    assert.equal(await readFile(movedFilePath, 'utf-8'), '# Notes\n', 'move carries file content to destination')
-    await assert.rejects(
-      () => stat(moveSourceFile),
-      /ENOENT/,
-      'move removes the original file path',
+    assert.equal(
+      movedFilePath,
+      join(moveDestinationDir, 'notes.md'),
+      'move returns the file path under the destination directory',
     )
+    assert.equal(await readFile(movedFilePath, 'utf-8'), '# Notes\n', 'move carries file content to destination')
+    await assert.rejects(() => stat(moveSourceFile), /ENOENT/, 'move removes the original file path')
 
     const collisionSource = join(moveSourceDir, 'notes.md')
     await writeFile(collisionSource, '# Collision\n', 'utf-8')

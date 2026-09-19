@@ -34,16 +34,29 @@ async function main(): Promise<void> {
   // The update command, in precedence order: the CLI's own updater, then
   // Homebrew, then npm.
   assert.deepEqual(
-    chooseCliUpdateCommand({ manifest: manifest({ binary: 'claude', update: { args: ['update'] }, package: { npm: '@anthropic-ai/claude-code', brew: 'claude-code' } }), resolvedPath: '/opt/homebrew/bin/claude' }),
+    chooseCliUpdateCommand({
+      manifest: manifest({
+        binary: 'claude',
+        update: { args: ['update'] },
+        package: { npm: '@anthropic-ai/claude-code', brew: 'claude-code' },
+      }),
+      resolvedPath: '/opt/homebrew/bin/claude',
+    }),
     { kind: 'cli-updater', command: 'claude update' },
     "the CLI's own updater wins even under Homebrew",
   )
   assert.deepEqual(
-    chooseCliUpdateCommand({ manifest: manifest({ package: { npm: '@openai/codex', brew: 'codex' } }), resolvedPath: '/opt/homebrew/bin/codex' }),
+    chooseCliUpdateCommand({
+      manifest: manifest({ package: { npm: '@openai/codex', brew: 'codex' } }),
+      resolvedPath: '/opt/homebrew/bin/codex',
+    }),
     { kind: 'brew', command: 'brew upgrade codex' },
   )
   assert.deepEqual(
-    chooseCliUpdateCommand({ manifest: manifest({ package: { npm: '@openai/codex', brew: 'codex' } }), resolvedPath: '/Users/me/.nvm/versions/node/v22/bin/codex' }),
+    chooseCliUpdateCommand({
+      manifest: manifest({ package: { npm: '@openai/codex', brew: 'codex' } }),
+      resolvedPath: '/Users/me/.nvm/versions/node/v22/bin/codex',
+    }),
     { kind: 'npm', command: 'npm install -g @openai/codex@latest' },
   )
   assert.deepEqual(
@@ -85,12 +98,22 @@ async function main(): Promise<void> {
     throw new Error('ENOTFOUND')
   }
   clearNpmLatestCache()
-  assert.equal(await fetchNpmLatestVersion('@openai/codex', { fetcher: throwing, now: () => clock }), null, 'a network error is unknown, not a throw')
+  assert.equal(
+    await fetchNpmLatestVersion('@openai/codex', { fetcher: throwing, now: () => clock }),
+    null,
+    'a network error is unknown, not a throw',
+  )
 
   // Advisories over an availability map.
   const manifests: Record<string, PluginManifest> = {
     codex: manifest({ package: { npm: '@openai/codex', brew: 'codex' } }),
-    'claude-code': manifest({ id: 'claude-code', displayName: 'Claude Code', binary: 'claude', update: { args: ['update'] }, package: { npm: '@anthropic-ai/claude-code', brew: 'claude-code' } }),
+    'claude-code': manifest({
+      id: 'claude-code',
+      displayName: 'Claude Code',
+      binary: 'claude',
+      update: { args: ['update'] },
+      package: { npm: '@anthropic-ai/claude-code', brew: 'claude-code' },
+    }),
     cursor: manifest({ id: 'cursor', displayName: 'Cursor', binary: 'cursor-agent' }),
   }
   const latest: Record<string, string | null> = { '@openai/codex': '0.153.3', '@anthropic-ai/claude-code': '2.1.261' }
@@ -98,8 +121,18 @@ async function main(): Promise<void> {
   const advisories = await resolveCliVersionAdvisories(
     {
       codex: { cli: 'codex', installed: true, resolvedPath: '/opt/homebrew/bin/codex', version: 'codex-cli 0.153.2' },
-      'claude-code': { cli: 'claude-code', installed: true, resolvedPath: '/Users/me/.local/bin/claude', version: '2.1.261 (Claude Code)' },
-      cursor: { cli: 'cursor', installed: true, resolvedPath: '/Users/me/.local/bin/cursor-agent', version: '2026.09.01' },
+      'claude-code': {
+        cli: 'claude-code',
+        installed: true,
+        resolvedPath: '/Users/me/.local/bin/claude',
+        version: '2.1.261 (Claude Code)',
+      },
+      cursor: {
+        cli: 'cursor',
+        installed: true,
+        resolvedPath: '/Users/me/.local/bin/cursor-agent',
+        version: '2026.09.01',
+      },
       grok: { cli: 'grok', installed: false, resolvedPath: null, version: null },
     },
     {
@@ -111,7 +144,11 @@ async function main(): Promise<void> {
       now: () => new Date('2026-09-04T12:00:00Z'),
     },
   )
-  assert.deepEqual(asked.sort(), ['@anthropic-ai/claude-code', '@openai/codex'], 'only installed CLIs with an npm package are asked')
+  assert.deepEqual(
+    asked.sort(),
+    ['@anthropic-ai/claude-code', '@openai/codex'],
+    'only installed CLIs with an npm package are asked',
+  )
   assert.equal(advisories.codex?.status, 'behind_latest')
   assert.equal(advisories.codex?.latestVersion, '0.153.3')
   assert.deepEqual(advisories.codex?.updateCommand, { kind: 'brew', command: 'brew upgrade codex' })
@@ -119,7 +156,10 @@ async function main(): Promise<void> {
   assert.equal(advisories.cursor?.status, 'unknown')
   assert.equal(advisories.cursor?.updateCommand, null)
   assert.equal(advisories.grok?.status, 'unknown', 'a CLI that is not installed is never behind')
-  assert.deepEqual(outdatedClis(advisories).map((entry) => entry.cli), ['codex'])
+  assert.deepEqual(
+    outdatedClis(advisories).map((entry) => entry.cli),
+    ['codex'],
+  )
 
   console.log('cli-version-advisory: ok')
 }

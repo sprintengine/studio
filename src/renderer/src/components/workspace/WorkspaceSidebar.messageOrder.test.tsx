@@ -209,27 +209,23 @@ async function main(): Promise<void> {
     assert.deepEqual(
       rowOrder(),
       ['Alpha', 'Charlie'],
-      'message order, newest first — Bravo and Delta have moved to Starred, and a running agent sits where the person left it'
+      'message order, newest first — Bravo and Delta have moved to Starred, and a running agent sits where the person left it',
     )
     assert.deepEqual(starredOrder(), ['Bravo', 'Delta'], 'starred chats live only in Starred, same clock')
 
     await render(afterBravoFinishes)
-    assert.deepEqual(
-      rowOrder(),
-      ['Alpha', 'Charlie'],
-      'the folder does not reflow when a starred row finishes'
-    )
+    assert.deepEqual(rowOrder(), ['Alpha', 'Charlie'], 'the folder does not reflow when a starred row finishes')
     assert.deepEqual(
       starredOrder(),
       ['Bravo', 'Delta'],
-      'the row that just finished goes green in place: same row above it, same row below'
+      'the row that just finished goes green in place: same row above it, same row below',
     )
     // "In place" is only half of it — the other half is that the row goes
     // green at all. Losing the tint with the banding would satisfy every
     // order assertion in this file, so check the mark is really on the row.
     assert.ok(
       rowFor('Bravo')?.className.includes('tone-good-faint'),
-      'the finished row wears the unseen-done tint (doneRowClass)'
+      'the finished row wears the unseen-done tint (doneRowClass)',
     )
 
     // Selecting Bravo clears its green mark. Nothing moved when the mark
@@ -243,11 +239,7 @@ async function main(): Promise<void> {
     await render({ ...afterBravoFinishes, activeWorkspaceId: 'w4' } as unknown as SidebarProps)
     assert.deepEqual(rowOrder(), ['Alpha', 'Charlie'], 'a row waiting on you keeps its seat too')
 
-    assert.deepEqual(
-      starredOrder(),
-      ['Bravo', 'Delta'],
-      'the Starred band reads the same clock as the folders'
-    )
+    assert.deepEqual(starredOrder(), ['Bravo', 'Delta'], 'the Starred band reads the same clock as the folders')
 
     // The one event that moves a row: the person sends a message in Delta,
     // which lifts it to the top of the Starred band. The folder is unchanged
@@ -255,7 +247,7 @@ async function main(): Promise<void> {
     const afterDeltaMessage = {
       ...afterBravoFinishes,
       workspaces: workspaces.map((ws) =>
-        ws.id === 'w4' ? ({ ...ws, lastUserMessageAt: Date.now() } as unknown as Workspace) : ws
+        ws.id === 'w4' ? ({ ...ws, lastUserMessageAt: Date.now() } as unknown as Workspace) : ws,
       ),
     } as unknown as SidebarProps
     await render(afterDeltaMessage)
@@ -267,14 +259,14 @@ async function main(): Promise<void> {
     const afterCharlieMessage = {
       ...afterDeltaMessage,
       workspaces: afterDeltaMessage.workspaces.map((ws) =>
-        ws.id === 'w3' ? ({ ...ws, lastUserMessageAt: Date.now() } as unknown as Workspace) : ws
+        ws.id === 'w3' ? ({ ...ws, lastUserMessageAt: Date.now() } as unknown as Workspace) : ws,
       ),
     } as unknown as SidebarProps
     await render(afterCharlieMessage)
     assert.deepEqual(
       rowOrder(),
       ['Charlie', 'Alpha'],
-      'sending a message is the only thing that moves a folder row, and it moves it to the top'
+      'sending a message is the only thing that moves a folder row, and it moves it to the top',
     )
   } finally {
     act(() => {

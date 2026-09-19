@@ -9,8 +9,7 @@ import type {
 } from '../../shared/electron-api'
 
 export const mobileBridgeApi = {
-  mobileBridgeGetState: (): Promise<MobileBridgeState> =>
-    ipcRenderer.invoke('mobile-bridge:get-state'),
+  mobileBridgeGetState: (): Promise<MobileBridgeState> => ipcRenderer.invoke('mobile-bridge:get-state'),
   mobileBridgeUpdateSettings: (input: MobileBridgeSettingsUpdate): Promise<MobileBridgeState> =>
     ipcRenderer.invoke('mobile-bridge:update-settings', input),
   mobileBridgeRequestPairingCode: (): Promise<MobileBridgePairingChallenge> =>

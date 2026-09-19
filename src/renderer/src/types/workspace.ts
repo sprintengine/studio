@@ -6,13 +6,7 @@ import type { CliPermissionPreset } from '../../../shared/cli-permission-preset'
 // documentation — live in `src/shared/agent-state.ts`; the imports pull in the
 // names this module still references and the re-export block below keeps every
 // existing renderer import site working unchanged.
-import type {
-  AgentCli,
-  AgentId,
-  AgentConversationRuntime,
-  AgentState,
-  McpSettings,
-} from '../../../shared/agent-state'
+import type { AgentCli, AgentId, AgentConversationRuntime, AgentState, McpSettings } from '../../../shared/agent-state'
 
 export type {
   AgentCli,
@@ -30,9 +24,7 @@ export type WorkspaceId = string
 export type WorkspaceWindowId = string
 export const STANDARD_WORKSPACE_MODE = 'standard'
 
-export type BundledWorkspaceMode =
-  | typeof STANDARD_WORKSPACE_MODE
-  | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
+export type BundledWorkspaceMode = typeof STANDARD_WORKSPACE_MODE | typeof AUTOMATIONS_HOST_WORKSPACE_MODE
 
 // Lifted to the shared layer so shared contracts can name the mode without
 // importing the renderer; `STANDARD_WORKSPACE_MODE` is its `'standard'` member.
@@ -41,10 +33,7 @@ export type BundledWorkspaceMode =
 // rail set `WorkspaceTypeDefinition.hiddenFromRail` instead. Imported here
 // (so this module's own references resolve) and re-exported so every existing
 // import site keeps resolving here.
-import {
-  AUTOMATIONS_HOST_WORKSPACE_MODE,
-  type WorkspaceMode,
-} from '../../../shared/workspace-mode'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE, type WorkspaceMode } from '../../../shared/workspace-mode'
 export { AUTOMATIONS_HOST_WORKSPACE_MODE }
 export type { WorkspaceMode }
 
@@ -203,14 +192,7 @@ export type WorkspaceWindowState = {
 
 // Whisper model ids understood by a Multivoice transcription host (the lowercase
 // WhisperModel enum from multivoice-tauri). The host loads/downloads the model.
-export type VoiceDictationModel =
-  | 'tiny'
-  | 'base'
-  | 'small'
-  | 'medium'
-  | 'large-v2'
-  | 'large-v3'
-  | 'large-v3-turbo'
+export type VoiceDictationModel = 'tiny' | 'base' | 'small' | 'medium' | 'large-v2' | 'large-v3' | 'large-v3-turbo'
 
 export type VoiceDictationSettings = {
   /** Base URL of the Multivoice transcription host (remote, LAN, or localhost). */
@@ -274,10 +256,7 @@ export type AgentCliModelSelection = {
 // remembered from the last pick in the agent picker. Only the kind is stored —
 // the CLI/model still resolves from `lastSelectedCli` and
 // `lastSelectedAgentModel` at spawn time, so a later CLI switch is honored.
-export type NewChatAgentChoice =
-  | { kind: 'general' }
-  | { kind: 'terminal' }
-  | { kind: 'conversation' }
+export type NewChatAgentChoice = { kind: 'general' } | { kind: 'terminal' } | { kind: 'conversation' }
 
 export type AppSettings = {
   cliRuntimes: Record<AgentCli, CliRuntimeSettings>
@@ -539,13 +518,7 @@ export type EditorState = {
 // persists it, for the same reason BacklogView is: the node tsconfig project
 // sees this module, and the renderer-only util that owns the behaviour
 // (utils/folderRoles.ts, which re-exports this as FolderRole) it does not.
-export type WorkspaceFolderRole =
-  | 'sources'
-  | 'test-sources'
-  | 'resources'
-  | 'test-resources'
-  | 'generated'
-  | 'excluded'
+export type WorkspaceFolderRole = 'sources' | 'test-sources' | 'resources' | 'test-resources' | 'generated' | 'excluded'
 
 export type WorkspaceFileExplorerState = {
   expandedPaths: string[]
@@ -566,30 +539,14 @@ export type WorkspaceFileExplorerState = {
 // renderer-only triage util into the node project. `utils/backlogTriage.ts`
 // re-exports these and owns their behavior (matchesBacklogView/compareBacklogItems).
 export type BacklogView =
-  | 'active'
-  | 'all'
-  | 'epics'
-  | 'quick_wins'
-  | 'strategic_bets'
-  | 'defer'
-  | 'unestimated'
-  | 'completed'
-  | 'archived'
+  'active' | 'all' | 'epics' | 'quick_wins' | 'strategic_bets' | 'defer' | 'unestimated' | 'completed' | 'archived'
 
 // `dependency` is "Dependency order": a whole-list topological transform
 // (prerequisites before dependents, unblocked frontier first) the panel applies
 // via orderItemsByDependencies, branching around the pairwise compareBacklogItems
 // the other sorts use.
 export type BacklogSort =
-  | 'best'
-  | 'recent'
-  | 'created'
-  | 'status'
-  | 'priority'
-  | 'largest'
-  | 'smallest'
-  | 'dependency'
-  | 'no_epic'
+  'best' | 'recent' | 'created' | 'status' | 'priority' | 'largest' | 'smallest' | 'dependency' | 'no_epic'
 
 // Backlog grouping axis, orthogonal to view/sort. `none` is the flat list;
 // `by_epic` renders collapsible epic headers with their children nested.

@@ -75,7 +75,10 @@ function definition(overrides: Partial<AutomationDefinition> = {}): AutomationDe
     id: 'nightly-review',
     name: 'Nightly review',
     status: 'enabled',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' },
+    },
     action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Review the repo.' } },
     nextRunAt: '2026-06-17T10:00:00.000Z',
     lastRunAt: null,
@@ -130,7 +133,7 @@ function executorHarness(
     createRunWorktree?: LocalAutomationExecutorOptions['createRunWorktree']
     resolveAgentExecutionId?: LocalAutomationExecutorOptions['resolveAgentExecutionId']
     executionIdTimeoutMs?: LocalAutomationExecutorOptions['executionIdTimeoutMs']
-  } = {}
+  } = {},
 ) {
   const workspaces = [...initialWorkspaces]
   // Both ports land in one ordered list so a test can still assert "created the
@@ -145,13 +148,21 @@ function executorHarness(
   const createWorkspace: LocalAutomationExecutorOptions['createWorkspace'] = (input, actor) => {
     requests.push({ kind: 'workspace.create', ...input, actor })
     const existing = input.mode
-      ? workspaces.find((candidate) =>
-        candidate.mode === input.mode
-        && (candidate.folderPath ?? null) === (input.folderPath ?? null))
+      ? workspaces.find(
+          (candidate) => candidate.mode === input.mode && (candidate.folderPath ?? null) === (input.folderPath ?? null),
+        )
       : undefined
     // Reuse is main's call and holds across callers, so the fake honours it too.
     if (existing) {
-      return { ok: true, result: { workspace: existing as never, windowId: 'primary', folderPath: input.folderPath ?? null, reused: true } }
+      return {
+        ok: true,
+        result: {
+          workspace: existing as never,
+          windowId: 'primary',
+          folderPath: input.folderPath ?? null,
+          reused: true,
+        },
+      }
     }
     const id = 'ws-created'
     const created = workspace(id, input.folderPath ?? null, {
@@ -159,7 +170,10 @@ function executorHarness(
       mode: input.mode ?? 'standard',
     })
     workspaces.push(created)
-    return { ok: true, result: { workspace: created as never, windowId: 'primary', folderPath: input.folderPath ?? null, reused: false } }
+    return {
+      ok: true,
+      result: { workspace: created as never, windowId: 'primary', folderPath: input.folderPath ?? null, reused: false },
+    }
   }
 
   // Stands in for the main-process AgentLaunchService: composes nothing, but
@@ -211,10 +225,12 @@ function executorHarness(
       // Hermetic by default: no real `git worktree` subprocess in unit tests, but
       // the run still gets the isolation it asked for — a run that cannot get a
       // worktree is blocked now, so "no worktree" is not a neutral default.
-      createRunWorktree: options.createRunWorktree ?? (async (input) => ({
-        worktreePath: `${input.workspaceRoot}/.sprintengine/automations/worktrees/${input.runId}`,
-        branch: `automations/${input.runId}`,
-      })),
+      createRunWorktree:
+        options.createRunWorktree ??
+        (async (input) => ({
+          worktreePath: `${input.workspaceRoot}/.sprintengine/automations/worktrees/${input.runId}`,
+          branch: `automations/${input.runId}`,
+        })),
       ...(options.actionProviders ? { actionProviders: options.actionProviders } : {}),
       ...(options.isIntegrationAvailable ? { isIntegrationAvailable: options.isIntegrationAvailable } : {}),
       ...(options.resolveAgentExecutionId ? { resolveAgentExecutionId: options.resolveAgentExecutionId } : {}),
@@ -239,19 +255,25 @@ async function assertDefaultRunCreatesHostWorkspaceAndLaunchesOnBus(): Promise<v
   assert.equal(result.agentId, 'agent-1')
   assert.equal(typeof result.promptFingerprint, 'string')
   assert.equal('prompt' in result, false, 'full prompt is not persisted on the run patch')
-  assert.deepEqual(harness.requests.map((request) => request.kind), ['workspace.create', 'agent.launch'])
+  assert.deepEqual(
+    harness.requests.map((request) => request.kind),
+    ['workspace.create', 'agent.launch'],
+  )
 
   const create = harness.requests[0]
   assert.equal(create.kind, 'workspace.create')
-  assert.equal(create.kind === 'workspace.create' ? create.mode : '', 'automations-host',
-    'host route creates the workspace with explicit automations-host mode')
+  assert.equal(
+    create.kind === 'workspace.create' ? create.mode : '',
+    'automations-host',
+    'host route creates the workspace with explicit automations-host mode',
+  )
   assert.equal(harness.workspaces.find((entry) => entry.id === 'ws-created')?.mode, 'automations-host')
 
   const launch = harness.requests[1]
   assert.equal(launch.kind, 'agent.launch')
   assert.match(
-    launch.kind === 'agent.launch' ? launch.prompt ?? '' : '',
-    /You may modify files only when the requested task requires it\./
+    launch.kind === 'agent.launch' ? (launch.prompt ?? '') : '',
+    /You may modify files only when the requested task requires it\./,
   )
   assert.equal(harness.workspaces.find((entry) => entry.id === 'ws-created')?.agents['agent-1']?.cliHasLaunched, true)
 }
@@ -271,7 +293,10 @@ async function assertDefaultRunReusesExistingHostWorkspace(): Promise<void> {
   assert.equal(result.status, 'running')
   assert.equal(result.workspaceId, 'ws-host')
   assert.equal(result.agentId, 'agent-1')
-  assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
+  assert.deepEqual(
+    harness.requests.map((request) => request.kind),
+    ['agent.launch'],
+  )
   const launch = harness.requests[0]
   assert.equal(launch.kind, 'agent.launch')
   assert.equal(launch.kind === 'agent.launch' ? launch.workspaceId : '', 'ws-host')
@@ -297,7 +322,11 @@ async function assertDefaultRunReusesRestartRestoredHost(): Promise<void> {
     triggerPayload: { kind: 'schedule' },
   })
 
-  assert.equal(result.status, 'running', `restored-host run must launch, got: ${result.summary ?? result.blockedReason ?? ''}`)
+  assert.equal(
+    result.status,
+    'running',
+    `restored-host run must launch, got: ${result.summary ?? result.blockedReason ?? ''}`,
+  )
   assert.equal(result.workspaceId, 'ws-restored-host')
   assert.deepEqual(
     harness.requests.map((request) => request.kind),
@@ -320,7 +349,10 @@ async function assertDefaultRunNeverHijacksStandardWorkspace(): Promise<void> {
 
   assert.equal(result.status, 'running')
   assert.equal(result.workspaceId, 'ws-created')
-  assert.deepEqual(harness.requests.map((request) => request.kind), ['workspace.create', 'agent.launch'])
+  assert.deepEqual(
+    harness.requests.map((request) => request.kind),
+    ['workspace.create', 'agent.launch'],
+  )
   assert.equal(harness.workspaces.find((entry) => entry.id === 'ws-created')?.mode, 'automations-host')
   assert.equal(Object.keys(standard.agents).length, 0, 'the standard workspace is never hijacked')
 }
@@ -342,7 +374,10 @@ async function assertExplicitConfigWorkspaceIdLaunchesIntoNamedWorkspace(): Prom
 
   assert.equal(result.status, 'running')
   assert.equal(result.workspaceId, 'ws-standard')
-  assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
+  assert.deepEqual(
+    harness.requests.map((request) => request.kind),
+    ['agent.launch'],
+  )
   assert.equal(Object.keys(host.agents).length, 0)
 }
 
@@ -476,7 +511,10 @@ async function assertConnectorRunForcesWorktreeAndThreadsConnectorId(): Promise<
     workspaceRoot: '/repo/a',
     definition: definition({
       runInWorktree: false,
-      action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Deploy the service.', connectorId: 'railway' } },
+      action: {
+        kind: 'spawn-agent',
+        config: { folderPath: '/repo/a', prompt: 'Deploy the service.', connectorId: 'railway' },
+      },
     }),
     run: run(),
     triggerPayload: { kind: 'schedule' },
@@ -508,7 +546,10 @@ async function assertConnectorRunWithoutWorktreeFailsClosed(): Promise<void> {
   const result = await harness.executor({
     workspaceRoot: '/repo/a',
     definition: definition({
-      action: { kind: 'spawn-agent', config: { folderPath: '/repo/a', prompt: 'Deploy the service.', connectorId: 'railway' } },
+      action: {
+        kind: 'spawn-agent',
+        config: { folderPath: '/repo/a', prompt: 'Deploy the service.', connectorId: 'railway' },
+      },
     }),
     run: run(),
     triggerPayload: { kind: 'schedule' },
@@ -569,7 +610,10 @@ async function assertDirtyWorkspaceNoLongerBlocksLaunch(): Promise<void> {
 
   assert.equal(result.status, 'running')
   assert.equal(result.agentId, 'agent-1')
-  assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
+  assert.deepEqual(
+    harness.requests.map((request) => request.kind),
+    ['agent.launch'],
+  )
 }
 
 async function assertNonGitWorkspaceNoLongerBlocksLaunch(): Promise<void> {
@@ -586,7 +630,10 @@ async function assertNonGitWorkspaceNoLongerBlocksLaunch(): Promise<void> {
   })
 
   assert.equal(result.status, 'running')
-  assert.deepEqual(harness.requests.map((request) => request.kind), ['agent.launch'])
+  assert.deepEqual(
+    harness.requests.map((request) => request.kind),
+    ['agent.launch'],
+  )
 }
 
 async function assertMissingIntegrationBlocksWithoutFakeSuccess(): Promise<void> {
@@ -670,15 +717,17 @@ async function assertDeniedKindCollisionUsesBlockedWrapperDispatch(): Promise<vo
       return { status: 'completed', summary: 'Denied third-party provider must not run.' }
     },
   }
-  const registrations: RegisteredAutomationProvider<AutomationActionProvider>[] = [{
-    providerId: 'weather-deck.spawn-agent',
-    moduleId: 'weather-deck',
-    providerType: 'action',
-    kind: 'spawn-agent',
-    configSchema: { type: 'object' },
-    requiredIntegrations: [],
-    provider: collisionProvider,
-  }]
+  const registrations: RegisteredAutomationProvider<AutomationActionProvider>[] = [
+    {
+      providerId: 'weather-deck.spawn-agent',
+      moduleId: 'weather-deck',
+      providerType: 'action',
+      kind: 'spawn-agent',
+      configSchema: { type: 'object' },
+      requiredIntegrations: [],
+      provider: collisionProvider,
+    },
+  ]
   const denyProvider: AutomationProviderPermissionChecker = () => ({
     ok: false,
     reason: 'Module "weather-deck" is not trusted in Settings -> Modules.',
@@ -779,10 +828,10 @@ async function assertRunSkillLoopIsPresetAndRunCommandIsNotRegistered(): Promise
   assert.equal(result.status, 'running')
   const launch = harness.requests[0]
   assert.equal(launch.kind, 'agent.launch')
-  assert.match(launch.kind === 'agent.launch' ? launch.prompt ?? '' : '', /^\/loop backlog/m)
+  assert.match(launch.kind === 'agent.launch' ? (launch.prompt ?? '') : '', /^\/loop backlog/m)
   assert.match(
-    launch.kind === 'agent.launch' ? launch.prompt ?? '' : '',
-    /You may modify files only when the requested task requires it\./
+    launch.kind === 'agent.launch' ? (launch.prompt ?? '') : '',
+    /You may modify files only when the requested task requires it\./,
   )
 }
 
@@ -794,14 +843,14 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
   assert.equal(builtIns.getActionProvider('automations.spawn-agent')?.kind, 'spawn-agent')
   assert.equal(builtIns.getActionProvider('automations.run-skill-loop')?.kind, 'run-skill-loop')
   assert.equal(builtIns.getActionProvider('other.spawn-agent'), undefined)
-  assert.deepEqual(builtIns.listTriggerProviders().map((provider) => provider.kind), [
-    'schedule',
-    WEBHOOK_TRIGGER_KIND,
-  ])
-  assert.deepEqual(builtIns.listActionProviders().map((provider) => provider.kind), [
-    'spawn-agent',
-    'run-skill-loop',
-  ])
+  assert.deepEqual(
+    builtIns.listTriggerProviders().map((provider) => provider.kind),
+    ['schedule', WEBHOOK_TRIGGER_KIND],
+  )
+  assert.deepEqual(
+    builtIns.listActionProviders().map((provider) => provider.kind),
+    ['spawn-agent', 'run-skill-loop'],
+  )
 
   const duplicateRegistry = createAutomationProviderRegistry()
   const duplicateProvider: AutomationActionProvider = {
@@ -812,9 +861,10 @@ function assertBuiltInProviderRegistryUsesNamespacedIdsAndRejectsDuplicates(): v
   assert.equal(duplicateRegistry.registerActionProvider('automations', duplicateProvider), 'automations.spawn-agent')
   assert.throws(
     () => duplicateRegistry.registerActionProvider('automations', duplicateProvider),
-    (error) => error instanceof AutomationProviderRegistrationError
-      && error.providerId === 'automations.spawn-agent'
-      && /Duplicate automation action provider registration/.test(error.message)
+    (error) =>
+      error instanceof AutomationProviderRegistrationError &&
+      error.providerId === 'automations.spawn-agent' &&
+      /Duplicate automation action provider registration/.test(error.message),
   )
 }
 
@@ -853,7 +903,7 @@ async function assertMcpConfigExcludedInRealWorktree(): Promise<void> {
     for (const entry of MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES) {
       assert.ok(
         content.split('\n').some((line) => line.trim() === entry),
-        `info/exclude must contain ${entry}, got: ${content}`
+        `info/exclude must contain ${entry}, got: ${content}`,
       )
     }
 
@@ -861,10 +911,7 @@ async function assertMcpConfigExcludedInRealWorktree(): Promise<void> {
     await writeFile(join(created!.worktreePath, '.mcp.json'), '{"servers":{}}\n', 'utf8')
     const status = await runGitCommand(created!.worktreePath, ['status', '--porcelain'])
     assert.ok(status.ok)
-    assert.ok(
-      !status.stdout.includes('.mcp.json'),
-      `.mcp.json must not appear in git status, got: ${status.stdout}`
-    )
+    assert.ok(!status.stdout.includes('.mcp.json'), `.mcp.json must not appear in git status, got: ${status.stdout}`)
 
     // Idempotent: a repeat call does not duplicate the entries.
     await excludeMcpConfigFromWorktree(created!.worktreePath)
@@ -873,7 +920,7 @@ async function assertMcpConfigExcludedInRealWorktree(): Promise<void> {
       assert.equal(
         after.split('\n').filter((line) => line.trim() === entry).length,
         1,
-        `${entry} must appear exactly once after repeats`
+        `${entry} must appear exactly once after repeats`,
       )
     }
   } finally {

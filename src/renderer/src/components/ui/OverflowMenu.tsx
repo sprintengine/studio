@@ -65,8 +65,7 @@ export type OverflowMenuItem =
 
 // Buttons that participate in roving focus: this menu's own items plus any
 // swatch buttons a MenuSwatchRow contributes (they carry data-menu-item).
-const FOCUSABLE_SELECTOR =
-  '[data-overflow-item="true"]:not([disabled]), [data-menu-item="true"]:not([disabled])'
+const FOCUSABLE_SELECTOR = '[data-overflow-item="true"]:not([disabled]), [data-menu-item="true"]:not([disabled])'
 
 type OverflowMenuProps = {
   /** Required accessible name (e.g. "Automation overflow"). */
@@ -93,10 +92,7 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
     () =>
       items.filter(
         (item) =>
-          item.kind !== 'separator'
-          && item.kind !== 'heading'
-          && item.kind !== 'swatch'
-          && item.kind !== 'flyout',
+          item.kind !== 'separator' && item.kind !== 'heading' && item.kind !== 'swatch' && item.kind !== 'flyout',
       ) as Extract<OverflowMenuItem, { kind?: 'item' }>[],
     [items],
   )
@@ -178,80 +174,78 @@ export function OverflowMenu({ ariaLabel, items, trigger, triggerTooltip, align 
         )
       }}
     >
-          {items.map((item) => {
-            if (item.kind === 'separator') {
-              return <MenuDivider key={item.id} />
-            }
-            if (item.kind === 'heading') {
-              return (
-                <div key={item.id} className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>
-                  {item.label}
-                </div>
-              )
-            }
-            if (item.kind === 'swatch') {
-              return (
-                <MenuSwatchRow
-                  key={item.id}
-                  label={item.label}
-                  value={item.value}
-                  onPick={item.onPick}
-                  onClear={item.onClear}
-                  onItemKeyDown={onItemKey}
-                />
-              )
-            }
-            if (item.kind === 'flyout') {
-              return (
-                <MenuFlyoutItem
-                  key={item.id}
-                  label={item.label}
-                  ariaLabel={item.ariaLabel}
-                  icon={item.icon}
-                  disabled={item.disabled}
-                  // No size pin. The flyout draws the shared menu surface, which
-                  // carries the type size — a host that re-pins it is rebuilding
-                  // the divergence the class pair exists to prevent.
-                  surfaceClassName={item.surfaceClassName}
-                  onItemKeyDown={onItemKey}
-                  onOpenChange={item.onOpenChange}
-                >
-                  {item.render(() => setOpen(false))}
-                </MenuFlyoutItem>
-              )
-            }
-            const isFirst = item.id === interactiveItems[0]?.id
-            return (
-              <button
-                key={item.id}
-                role="menuitem"
-                type="button"
-                data-overflow-item="true"
-                disabled={item.disabled}
-                tabIndex={isFirst ? 0 : -1}
-                onKeyDown={onItemKey}
-                onClick={() => {
-                  if (item.disabled) return
-                  item.onSelect()
-                  setOpen(false)
-                }}
-                className={[
-                  MENU_ITEM_CLASS,
-                  item.destructive
-                    ? 'text-[color:var(--tone-error)]'
-                    : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]',
-                ].join(' ')}
-              >
-                {item.icon ? <span className="shrink-0">{item.icon}</span> : null}
-                <TruncatedText as="span" text={item.label} className="min-w-0 flex-1" />
-                {item.shortcut ? (
-                  <span className="font-mono text-micro text-[color:var(--text-disabled)]">
-                    {item.shortcut}
-                  </span>
-                ) : null}
-              </button>
-            )
-          })}
+      {items.map((item) => {
+        if (item.kind === 'separator') {
+          return <MenuDivider key={item.id} />
+        }
+        if (item.kind === 'heading') {
+          return (
+            <div key={item.id} className={`${MENU_GROUP_LABEL_CLASS} pb-1 pt-1.5`}>
+              {item.label}
+            </div>
+          )
+        }
+        if (item.kind === 'swatch') {
+          return (
+            <MenuSwatchRow
+              key={item.id}
+              label={item.label}
+              value={item.value}
+              onPick={item.onPick}
+              onClear={item.onClear}
+              onItemKeyDown={onItemKey}
+            />
+          )
+        }
+        if (item.kind === 'flyout') {
+          return (
+            <MenuFlyoutItem
+              key={item.id}
+              label={item.label}
+              ariaLabel={item.ariaLabel}
+              icon={item.icon}
+              disabled={item.disabled}
+              // No size pin. The flyout draws the shared menu surface, which
+              // carries the type size — a host that re-pins it is rebuilding
+              // the divergence the class pair exists to prevent.
+              surfaceClassName={item.surfaceClassName}
+              onItemKeyDown={onItemKey}
+              onOpenChange={item.onOpenChange}
+            >
+              {item.render(() => setOpen(false))}
+            </MenuFlyoutItem>
+          )
+        }
+        const isFirst = item.id === interactiveItems[0]?.id
+        return (
+          <button
+            key={item.id}
+            role="menuitem"
+            type="button"
+            data-overflow-item="true"
+            disabled={item.disabled}
+            tabIndex={isFirst ? 0 : -1}
+            onKeyDown={onItemKey}
+            onClick={() => {
+              if (item.disabled) return
+              item.onSelect()
+              setOpen(false)
+            }}
+            className={[
+              MENU_ITEM_CLASS,
+              item.destructive
+                ? 'text-[color:var(--tone-error)]'
+                : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]',
+            ].join(' ')}
+          >
+            {item.icon ? <span className="shrink-0">{item.icon}</span> : null}
+            <TruncatedText as="span" text={item.label} className="min-w-0 flex-1" />
+            {item.shortcut ? (
+              <span className="font-mono text-micro text-[color:var(--text-disabled)]">{item.shortcut}</span>
+            ) : null}
+          </button>
+        )
+      })}
     </Popover>
   )
 }

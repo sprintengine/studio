@@ -1,19 +1,11 @@
 import type { BacklogHighlightColorPayload, FileSystemStat } from '../electron-api'
-import {
-  parseBacklogCsvList,
-  parseBacklogDependenciesPlanned,
-  parseBacklogFrontmatter,
-} from './frontmatter'
+import { parseBacklogCsvList, parseBacklogDependenciesPlanned, parseBacklogFrontmatter } from './frontmatter'
 import { parseBacklogNumericId } from './item-id'
 // Canonical object-store id, re-exported so existing importers of this module
 // keep working. See src/shared/backlog/object-id.ts for the FNV-1a contract.
 import { stableBacklogObjectId } from './object-id'
 import { isAbsoluteFilePath } from '../paths'
-import {
-  backlogHighlightFromFrontmatter,
-  durableBacklogLinksFromFrontmatter,
-  mergeBacklogLinks,
-} from './durable-links'
+import { backlogHighlightFromFrontmatter, durableBacklogLinksFromFrontmatter, mergeBacklogLinks } from './durable-links'
 import { parseBacklogMockups } from './mockups'
 import type { HighlightColor } from '../../renderer/src/types/workspace'
 import {
@@ -214,12 +206,27 @@ const ARCHIVED_PREFIX = 'backlog/archived/'
 const FRONTMATTER_RE = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)/
 const SOURCE_EXTENSION_RE = /\.(md|html?)$/i
 const HTML_EXTENSION_RE = /\.html?$/i
-const VALID_STATUS = new Set<BacklogItemStatus>(['idea', 'ready', 'in_progress', 'needs_input', 'completed', 'archived'])
+const VALID_STATUS = new Set<BacklogItemStatus>([
+  'idea',
+  'ready',
+  'in_progress',
+  'needs_input',
+  'completed',
+  'archived',
+])
 const VALID_TYPE = new Set<BacklogType>(['epic', 'feature', 'bug', 'mockup', 'spike'])
 const VALID_DIFFICULTY = new Set<BacklogDifficulty>(['xs', 's', 'm', 'l', 'xl'])
 const VALID_CRITICALITY = new Set<BacklogCriticality>(['low', 'normal', 'high', 'critical'])
 const VALID_RISK = new Set<BacklogRisk>(['low', 'normal', 'high'])
-const VALID_HIGHLIGHT_COLOR = new Set<BacklogHighlightColor>(['red', 'orange', 'amber', 'green', 'blue', 'purple', 'pink'])
+const VALID_HIGHLIGHT_COLOR = new Set<BacklogHighlightColor>([
+  'red',
+  'orange',
+  'amber',
+  'green',
+  'blue',
+  'purple',
+  'pink',
+])
 
 export function isBacklogType(value: unknown): value is BacklogType {
   return typeof value === 'string' && VALID_TYPE.has(value as BacklogType)
@@ -359,8 +366,9 @@ export async function scanBacklog(
   // path-sorted order and the same per-file error isolation as before — an
   // unreadable file becomes a BacklogScanError, never a thrown scan.
   const sortedFiles = files.sort(comparePaths)
-  const slotResults: Array<{ item: BacklogItem } | { error: BacklogScanError } | null> =
-    new Array(sortedFiles.length).fill(null)
+  const slotResults: Array<{ item: BacklogItem } | { error: BacklogScanError } | null> = new Array(
+    sortedFiles.length,
+  ).fill(null)
 
   let nextIndex = 0
   const readSlot = async (): Promise<void> => {
@@ -457,7 +465,7 @@ export function createBacklogItem(input: {
     path: input.path,
     relativePath,
     title,
-    status: archived ? 'archived' : frontmatterStatus ?? defaultBacklogStatus(),
+    status: archived ? 'archived' : (frontmatterStatus ?? defaultBacklogStatus()),
     numericId,
     type,
     rawType,
@@ -479,10 +487,7 @@ export function createBacklogItem(input: {
     // and never depend on a sidecar keyed by path. `input.object` is now the
     // volatile cache: it overlays resolved status onto those, and contributes the
     // agent-terminal link, which has no durable half.
-    links: mergeBacklogLinks(
-      durableBacklogLinksFromFrontmatter(fields),
-      input.object?.links ?? [],
-    ),
+    links: mergeBacklogLinks(durableBacklogLinksFromFrontmatter(fields), input.object?.links ?? []),
     objectUpdatedAt: input.object?.updatedAt,
     excerpt: backlogExcerpt(body, title),
     modifiedAt: resolveBacklogRecencyMs(frontmatterValue(fields, 'updated'), input.stats.modifiedAtMs),
@@ -512,11 +517,7 @@ function resolveBacklogRecencyMs(updated: string | undefined, mtimeMs: number): 
 // (undated epic files and unprefixed notes skip this), else the file mtime.
 // Keeps the recently-created sort meaningful even for items scanned before they
 // have an object record.
-function resolveBacklogCreatedMs(
-  objectCreatedAt: string | undefined,
-  relativePath: string,
-  mtimeMs: number,
-): number {
+function resolveBacklogCreatedMs(objectCreatedAt: string | undefined, relativePath: string, mtimeMs: number): number {
   if (objectCreatedAt) {
     const parsed = Date.parse(objectCreatedAt)
     if (!Number.isNaN(parsed)) return parsed
@@ -572,7 +573,10 @@ export function backlogExcerpt(content: string, leadingTitle = '', maxLength = 1
 function stripLeadingTitle(text: string, title: string): string {
   const needle = title.trim()
   if (!needle || !text.toLowerCase().startsWith(needle.toLowerCase())) return text
-  return text.slice(needle.length).replace(/^[\s:.,;–—-]+/, '').trim()
+  return text
+    .slice(needle.length)
+    .replace(/^[\s:.,;–—-]+/, '')
+    .trim()
 }
 
 // Markdown for the detail preview: drop the frontmatter block and a single
@@ -619,11 +623,10 @@ export function backlogItemSlugFromPath(relativePath: string): string {
   return name.replace(SOURCE_EXTENSION_RE, '')
 }
 
-export function nextArchiveRelativePath(
-  sourceRelativePath: string,
-  existingRelativePaths: Iterable<string>,
-): string {
-  const normalizedExisting = new Set(Array.from(existingRelativePaths, (pathValue) => normalizeRelativePath(pathValue).toLowerCase()))
+export function nextArchiveRelativePath(sourceRelativePath: string, existingRelativePaths: Iterable<string>): string {
+  const normalizedExisting = new Set(
+    Array.from(existingRelativePaths, (pathValue) => normalizeRelativePath(pathValue).toLowerCase()),
+  )
   const sourceName = normalizeRelativePath(sourceRelativePath).split('/').filter(Boolean).at(-1) ?? 'untitled.md'
   const dotIndex = sourceName.lastIndexOf('.')
   const stem = dotIndex > 0 ? sourceName.slice(0, dotIndex) : sourceName
@@ -719,7 +722,10 @@ function htmlHeadingTitle(content: string): string | null {
 }
 
 function cleanHtmlTitle(value: string | undefined): string | null {
-  const cleaned = (value ?? '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim()
+  const cleaned = (value ?? '')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim()
   return cleaned || null
 }
 

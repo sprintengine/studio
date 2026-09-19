@@ -1,15 +1,6 @@
 import assert from 'node:assert/strict'
 import { execFileSync } from 'node:child_process'
-import {
-  chmodSync,
-  cpSync,
-  mkdirSync,
-  mkdtempSync,
-  readdirSync,
-  readFileSync,
-  rmSync,
-  writeFileSync,
-} from 'node:fs'
+import { chmodSync, cpSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -223,7 +214,10 @@ run('the full view: specimen, manifest-ordered groups, real component previews',
     const declared = Object.entries(view.manifest.contents)
       .filter(([, value]) => Array.isArray(value) && value.length > 0)
       .map(([key]) => key)
-    assert.deepEqual(view.groups.map((group) => group.key), declared)
+    assert.deepEqual(
+      view.groups.map((group) => group.key),
+      declared,
+    )
     for (const group of view.groups) {
       assert.equal(group.count, group.entries.length)
       assert.ok(!/^[A-Z ]+$/.test(group.label), `sentence case, not shouting: ${group.label}`)
@@ -403,9 +397,7 @@ run('opening a system spawns no process and writes nothing', async () => {
     // nothing that can spawn a process or write a file. A future edit that forks
     // a bundle script fails here rather than in production.
     const source = readFileSync(join(process.cwd(), 'src/main/design-system/bundle-read.ts'), 'utf8')
-    const code = source
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^\s*\/\/.*$/gm, '')
+    const code = source.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
     for (const forbidden of [
       'child_process',
       'utilityProcess',
@@ -424,7 +416,10 @@ run('opening a system spawns no process and writes nothing', async () => {
     // And it imports only the read half of fs/promises.
     const fsImport = /import \{([^}]*)\} from 'fs\/promises'/.exec(code)
     assert.ok(fsImport, 'the module imports from fs/promises')
-    const imported = fsImport[1].split(',').map((name) => name.trim()).filter(Boolean)
+    const imported = fsImport[1]
+      .split(',')
+      .map((name) => name.trim())
+      .filter(Boolean)
     assert.deepEqual(imported.sort(), ['readFile', 'readdir', 'stat'], 'read-only fs surface')
 
     // The one module the read path reaches that DOES run a process is
@@ -432,13 +427,8 @@ run('opening a system spawns no process and writes nothing', async () => {
     // it may query git, and it may not write. A `git add`, a `git checkout`, or
     // any fs writer appearing there would be this module reaching into the
     // user's own repo on a path that opens every time the door does.
-    const addedAtSource = readFileSync(
-      join(process.cwd(), 'src/main/design-system/entry-added-at.ts'),
-      'utf8',
-    )
-    const addedAtCode = addedAtSource
-      .replace(/\/\*[\s\S]*?\*\//g, '')
-      .replace(/^\s*\/\/.*$/gm, '')
+    const addedAtSource = readFileSync(join(process.cwd(), 'src/main/design-system/entry-added-at.ts'), 'utf8')
+    const addedAtCode = addedAtSource.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '')
     for (const forbidden of [
       'writeFile',
       'mkdir',
@@ -462,7 +452,11 @@ run('opening a system spawns no process and writes nothing', async () => {
     const addedAtFsImport = /import \{([^}]*)\} from 'fs\/promises'/.exec(addedAtCode)
     assert.ok(addedAtFsImport, 'entry-added-at imports from fs/promises')
     assert.deepEqual(
-      addedAtFsImport[1].split(',').map((name) => name.trim()).filter(Boolean).sort(),
+      addedAtFsImport[1]
+        .split(',')
+        .map((name) => name.trim())
+        .filter(Boolean)
+        .sort(),
       ['stat'],
       'entry-added-at only stats',
     )

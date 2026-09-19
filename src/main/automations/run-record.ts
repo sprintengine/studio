@@ -12,7 +12,7 @@ import type { AutomationRun, AutomationRunStatus } from '../../shared/automation
 export function completeAutomationRun(
   run: AutomationRun,
   patch: Partial<AutomationRun>,
-  completedAt: string
+  completedAt: string,
 ): AutomationRun {
   const status = patch.status ?? 'completed'
   // An agent-backed run returns `running`: the action launched a long-lived

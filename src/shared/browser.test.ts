@@ -52,7 +52,12 @@ run('the strip label prefers the title, then the host, then the kind', () => {
 })
 
 run('viewports: presets resolve, rotation becomes freeform, junk is refused, sizes clamp', () => {
-  assert.deepEqual(presetViewport('iphone-12-pro'), { mode: 'preset', presetId: 'iphone-12-pro', width: 390, height: 844 })
+  assert.deepEqual(presetViewport('iphone-12-pro'), {
+    mode: 'preset',
+    presetId: 'iphone-12-pro',
+    width: 390,
+    height: 844,
+  })
   assert.deepEqual(rotateViewport(presetViewport('iphone-12-pro')), { mode: 'freeform', width: 844, height: 390 })
   assert.deepEqual(rotateViewport({ mode: 'fill' }), { mode: 'fill' })
   assert.deepEqual(normalizeBrowserViewport({ mode: 'preset', presetId: 'nope' }), undefined)

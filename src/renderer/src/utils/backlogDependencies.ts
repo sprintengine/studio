@@ -13,11 +13,7 @@
 //
 // No DOM/IPC imports: only the read model.
 
-import {
-  type BacklogItem,
-  type BacklogItemStatus,
-  backlogItemSlugFromPath,
-} from './backlog'
+import { type BacklogItem, type BacklogItemStatus, backlogItemSlugFromPath } from './backlog'
 
 // Active = still in flight, so a prerequisite pointing here is unresolved and a
 // dependent of it is "waiting". Mirror of the BacklogItemStatus union split.
@@ -30,10 +26,7 @@ const ACTIVE_STATUSES: ReadonlySet<BacklogItemStatus> = new Set<BacklogItemStatu
 
 // A prerequisite is resolved once its target leaves active work: `completed`
 // (done) or `archived` (removed from active work, no longer blocking). Plan D3.
-const RESOLVED_STATUSES: ReadonlySet<BacklogItemStatus> = new Set<BacklogItemStatus>([
-  'completed',
-  'archived',
-])
+const RESOLVED_STATUSES: ReadonlySet<BacklogItemStatus> = new Set<BacklogItemStatus>(['completed', 'archived'])
 
 // One prerequisite edge as the detail pane needs to render it: the declaring
 // item depends on `slug`. `target` is the resolved item, or null when the slug
@@ -163,8 +156,7 @@ export function deriveBacklogDependencies(items: BacklogItem[]): BacklogDependen
   const nodes: BacklogDependencyNode[] = items.map((item) => {
     const prerequisites = prerequisitesByItemId.get(item.id) ?? []
     const blocks = [...(blocksByItemId.get(item.id) ?? [])].sort(comparePath)
-    const isWaiting =
-      ACTIVE_STATUSES.has(item.status) && prerequisites.some((prerequisite) => !prerequisite.resolved)
+    const isWaiting = ACTIVE_STATUSES.has(item.status) && prerequisites.some((prerequisite) => !prerequisite.resolved)
     return {
       item,
       slug: backlogItemSlugFromPath(item.relativePath),
@@ -306,9 +298,7 @@ export type BacklogEpicBlockedRollup = {
 // slug -> rollup for every epic slug in the graph, keyed like epicProgressBySlug
 // (an epic concept file's own slug, plus any dangling slug children point at, so
 // an Unknown-epic header stays accurate). Childless epics resolve to 0/0.
-export function epicBlockedRollupBySlug(
-  graph: BacklogDependencyGraph,
-): Map<string, BacklogEpicBlockedRollup> {
+export function epicBlockedRollupBySlug(graph: BacklogDependencyGraph): Map<string, BacklogEpicBlockedRollup> {
   const map = new Map<string, BacklogEpicBlockedRollup>()
   const entryFor = (slug: string): BacklogEpicBlockedRollup => {
     const existing = map.get(slug)
@@ -352,11 +342,7 @@ export function backlogDependencyState(
   epicRollup?: BacklogEpicBlockedRollup,
 ): BacklogDependencyState | null {
   if (node.isBlocked) return 'blocked'
-  if (
-    node.item.isEpic
-    && ACTIVE_STATUSES.has(node.item.status)
-    && isEpicFullyBlocked(epicRollup)
-  ) {
+  if (node.item.isEpic && ACTIVE_STATUSES.has(node.item.status) && isEpicFullyBlocked(epicRollup)) {
     return 'blocked'
   }
   if (node.isWaiting) return 'waiting'

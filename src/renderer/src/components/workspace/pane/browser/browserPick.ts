@@ -1,4 +1,8 @@
-import { BROWSER_MAX_OUTER_HTML, type BrowserPickTheme, type BrowserPickedElement } from '../../../../../../shared/browser'
+import {
+  BROWSER_MAX_OUTER_HTML,
+  type BrowserPickTheme,
+  type BrowserPickedElement,
+} from '../../../../../../shared/browser'
 import { useWorkspaceStore } from '../../../../store/workspaceStore'
 import { focusedAgentTabInLayout } from '../../../../utils/modelRegistry'
 import { bracketedPaste } from '../../../../utils/terminalDrop'
@@ -72,7 +76,11 @@ export function normalizePickedElement(input: unknown): BrowserPickedElement | n
   if (url === null || selector === null || tagName === null || rect === null) return null
   const viewportRaw = raw.viewport as Record<string, unknown> | undefined
   const viewport =
-    viewportRaw && typeof viewportRaw.width === 'number' && typeof viewportRaw.height === 'number' && Number.isFinite(viewportRaw.width) && Number.isFinite(viewportRaw.height)
+    viewportRaw &&
+    typeof viewportRaw.width === 'number' &&
+    typeof viewportRaw.height === 'number' &&
+    Number.isFinite(viewportRaw.width) &&
+    Number.isFinite(viewportRaw.height)
       ? { width: viewportRaw.width, height: viewportRaw.height }
       : { width: 0, height: 0 }
   const styles: Record<string, string> = {}
@@ -82,7 +90,10 @@ export function normalizePickedElement(input: unknown): BrowserPickedElement | n
     }
   }
   const components = Array.isArray(raw.components)
-    ? raw.components.filter((c): c is string => typeof c === 'string').slice(0, MAX_COMPONENTS).map((c) => c.slice(0, MAX_COMPONENT_NAME))
+    ? raw.components
+        .filter((c): c is string => typeof c === 'string')
+        .slice(0, MAX_COMPONENTS)
+        .map((c) => c.slice(0, MAX_COMPONENT_NAME))
     : []
   return {
     url,
@@ -115,9 +126,10 @@ export async function sendTextToFocusedAgent(workspaceId: string, text: string):
     const sessions = await window.api.terminalList()
     const live = sessions.find(
       (session) =>
-        session.kind === 'agent'
-        && session.processAlive
-        && (session.sessionId === sessionId || (session.workspaceId === workspaceId && session.agentId === focused.agentId)),
+        session.kind === 'agent' &&
+        session.processAlive &&
+        (session.sessionId === sessionId ||
+          (session.workspaceId === workspaceId && session.agentId === focused.agentId)),
     )
     if (!live) return { ok: false, reason: 'no_session' }
     sessionId = live.sessionId

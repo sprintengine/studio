@@ -13,7 +13,9 @@ type WorkspaceSyncIpcRenderer = {
   removeListener(channel: string, listener: (event: IpcRendererEvent, ...args: unknown[]) => void): void
 }
 
-export function createWorkspaceSyncApi(renderer: WorkspaceSyncIpcRenderer): Pick<
+export function createWorkspaceSyncApi(
+  renderer: WorkspaceSyncIpcRenderer,
+): Pick<
   ElectronApi,
   | 'workspaceSyncDispatch'
   | 'workspaceSyncGetSnapshot'

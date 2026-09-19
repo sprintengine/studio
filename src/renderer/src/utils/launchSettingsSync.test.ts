@@ -14,17 +14,18 @@ type FakeApi = {
 function installFakeApi(): FakeApi {
   const fake: FakeApi = { hydrateCalls: [], pushCalls: [] }
   let revision = 0
-  const ack = (settings: AgentLaunchSettings): Promise<unknown> => Promise.resolve({
-    ok: true as const,
-    record: {
-      schemaVersion: 1 as const,
-      revision: ++revision,
-      settings,
-      changedAt: revision,
-      lastWrite: { actor: 'ui' as const, at: '' },
-    },
-    changed: true,
-  })
+  const ack = (settings: AgentLaunchSettings): Promise<unknown> =>
+    Promise.resolve({
+      ok: true as const,
+      record: {
+        schemaVersion: 1 as const,
+        revision: ++revision,
+        settings,
+        changedAt: revision,
+        lastWrite: { actor: 'ui' as const, at: '' },
+      },
+      changed: true,
+    })
   const api = {
     hydrateAgentLaunchSettings: (settings: AgentLaunchSettings) => {
       fake.hydrateCalls.push(settings)
@@ -64,16 +65,13 @@ function assertMountSeedsAndPushesEveryLaunchInput(): void {
   assert.equal(fakeApi.pushCalls.length, 1)
   const pushed = fakeApi.pushCalls[0]
   assert.ok(pushed)
-  assert.deepEqual(
-    Object.keys(pushed).sort(),
-    [
-      'cliRuntimes',
-      'lastAgentSpawnPermissionPreset',
-      'lastSelectedCli',
-      'mcp',
-      'projectKnowledgeRoots',
-    ],
-  )
+  assert.deepEqual(Object.keys(pushed).sort(), [
+    'cliRuntimes',
+    'lastAgentSpawnPermissionPreset',
+    'lastSelectedCli',
+    'mcp',
+    'projectKnowledgeRoots',
+  ])
 }
 
 // (2) The acceptance case: a setting changed in the UI is in main's next read,

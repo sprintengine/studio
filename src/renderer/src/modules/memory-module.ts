@@ -17,7 +17,8 @@ export const memoryRendererModule: RendererModule = {
     version: 1,
     publisher: 'multicode',
     category: 'insight',
-    summary: 'Force-directed visualization of the workspace knowledge graph. Disabling hides the panel; the knowledge-graph backend stays available to agents.',
+    summary:
+      'Force-directed visualization of the workspace knowledge graph. Disabling hides the panel; the knowledge-graph backend stays available to agents.',
     defaultEnabled: true,
   },
   registerRenderer(host) {

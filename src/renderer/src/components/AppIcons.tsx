@@ -16,10 +16,7 @@ const iconStroke = 1.7
 // presentation. The registry is read at render time — never during module init —
 // so the components→modules reference here does not create an initialization
 // cycle with the workspace-type modules that import these icon components.
-export function resolveEnabledWorkspaceType(
-  mode: Workspace['mode'],
-  moduleOverrides: ModuleEnablementOverrides,
-) {
+export function resolveEnabledWorkspaceType(mode: Workspace['mode'], moduleOverrides: ModuleEnablementOverrides) {
   const definition = getRendererHost().getWorkspaceType(mode)
   if (!definition) return undefined
   return selectModuleEnabled(moduleOverrides, definition.moduleId) ? definition : undefined
@@ -303,12 +300,7 @@ export function FolderTypeIcon({
 export function AutomationsWorkspaceTypeIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="M19.5 12a7.5 7.5 0 1 1-3.4-6.28"
-        stroke="currentColor"
-        strokeWidth={iconStroke}
-        strokeLinecap="round"
-      />
+      <path d="M19.5 12a7.5 7.5 0 1 1-3.4-6.28" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
       <path
         d="M12.6 7.3 9 12.4h2.7l-.7 4 3.6-5.1h-2.7l.7-4z"
         stroke="currentColor"
@@ -325,7 +317,13 @@ function StandardWorkspaceTypeIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="4" y="5.5" width="16" height="13" rx="2.2" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M7.25 10L10 12.5L7.25 15" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M7.25 10L10 12.5L7.25 15"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
       <path d="M12.5 15H16.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   )
@@ -357,7 +355,13 @@ export function NewChatIcon({ className }: IconProps) {
 export function ChevronDownIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M6 9.5L12 15L18 9.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M6 9.5L12 15L18 9.5"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -365,7 +369,13 @@ export function ChevronDownIcon({ className }: IconProps) {
 export function CheckIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M5 12.5L10 17L19 7.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M5 12.5L10 17L19 7.5"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -393,7 +403,13 @@ export function CopyIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="9" y="9" width="11" height="11" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5V5A2 2 0 0 1 5 3H13.5A1.5 1.5 0 0 1 15 4.5V5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M5 15H4.5A1.5 1.5 0 0 1 3 13.5V5A2 2 0 0 1 5 3H13.5A1.5 1.5 0 0 1 15 4.5V5"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -402,8 +418,19 @@ export function CopyIcon({ className }: IconProps) {
 export function ReleaseNotesIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M6 4.5h8.5L19 9v10.5A1.5 1.5 0 0 1 17.5 21h-11A1.5 1.5 0 0 1 5 19.5v-14A1 1 0 0 1 6 4.5z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
-      <path d="M14.5 4.5V9H19M8.5 13h7M8.5 16.5h7" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M6 4.5h8.5L19 9v10.5A1.5 1.5 0 0 1 17.5 21h-11A1.5 1.5 0 0 1 5 19.5v-14A1 1 0 0 1 6 4.5z"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinejoin="round"
+      />
+      <path
+        d="M14.5 4.5V9H19M8.5 13h7M8.5 16.5h7"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -413,7 +440,12 @@ export function ReleaseNotesIcon({ className }: IconProps) {
 export function FolderPlusIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4.2l2 2H19a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <path
+        d="M3.5 7A1.5 1.5 0 0 1 5 5.5h4.2l2 2H19a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 19H5a1.5 1.5 0 0 1-1.5-1.5z"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinejoin="round"
+      />
       <path d="M12 10.5v5M9.5 13h5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
     </svg>
   )
@@ -423,8 +455,20 @@ export function FolderPlusIcon({ className }: IconProps) {
 export function ResetIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M4 12a8 8 0 1 0 8-8 8.7 8.7 0 0 0-6 2.5L4 8.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M4 4v4.5h4.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M4 12a8 8 0 1 0 8-8 8.7 8.7 0 0 0-6 2.5L4 8.5"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path
+        d="M4 4v4.5h4.5"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -448,7 +492,12 @@ export function ProfileSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <circle cx="12" cy="8.4" r="3.5" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M5.6 19c0-3.3 2.9-5.4 6.4-5.4s6.4 2.1 6.4 5.4" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path
+        d="M5.6 19c0-3.3 2.9-5.4 6.4-5.4s6.4 2.1 6.4 5.4"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+      />
     </svg>
   )
 }
@@ -466,7 +515,12 @@ export function ShortcutsSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="3" y="6.5" width="18" height="11" rx="2" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M7 10.5h.01M11 10.5h.01M15 10.5h.01M7.5 14h9" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path
+        d="M7 10.5h.01M11 10.5h.01M15 10.5h.01M7.5 14h9"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+      />
     </svg>
   )
 }
@@ -486,7 +540,12 @@ export function ProvidersSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <path d="M8.5 3v3.5M15.5 3v3.5" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
-      <path d="M6.5 6.5h11V10a5.5 5.5 0 0 1-11 0Z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <path
+        d="M6.5 6.5h11V10a5.5 5.5 0 0 1-11 0Z"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinejoin="round"
+      />
       <path d="M12 15.5V21" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
     </svg>
   )
@@ -506,7 +565,12 @@ export function GithubSettingsIcon({ className }: IconProps) {
 export function TrackersSettingsIcon({ className }: IconProps) {
   return (
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path d="M4 6.5A1.5 1.5 0 0 1 5.5 5h9l4.5 4.5v8A1.5 1.5 0 0 1 17.5 19h-12A1.5 1.5 0 0 1 4 17.5z" stroke="currentColor" strokeWidth={iconStroke} strokeLinejoin="round" />
+      <path
+        d="M4 6.5A1.5 1.5 0 0 1 5.5 5h9l4.5 4.5v8A1.5 1.5 0 0 1 17.5 19h-12A1.5 1.5 0 0 1 4 17.5z"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinejoin="round"
+      />
       <circle cx="9" cy="12" r="1.4" stroke="currentColor" strokeWidth={iconStroke} />
       <path d="M11.5 12h4" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
     </svg>
@@ -519,7 +583,12 @@ export function KnowledgeGraphSettingsIcon({ className }: IconProps) {
       <circle cx="6" cy="7" r="2.2" stroke="currentColor" strokeWidth={iconStroke} />
       <circle cx="18" cy="7" r="2.2" stroke="currentColor" strokeWidth={iconStroke} />
       <circle cx="12" cy="17" r="2.2" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M8.2 7h7.6M7.6 8.7l3.1 6.6M16.4 8.7l-3.1 6.6" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path
+        d="M8.2 7h7.6M7.6 8.7l3.1 6.6M16.4 8.7l-3.1 6.6"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+      />
     </svg>
   )
 }
@@ -561,7 +630,12 @@ export function RemoteSettingsIcon({ className }: IconProps) {
     <svg className={className} viewBox="0 0 24 24" fill="none" aria-hidden="true">
       <rect x="3" y="5" width="8" height="6" rx="1.5" stroke="currentColor" strokeWidth={iconStroke} />
       <rect x="13" y="13" width="8" height="6" rx="1.5" stroke="currentColor" strokeWidth={iconStroke} />
-      <path d="M7 11v3.5a1.5 1.5 0 0 0 1.5 1.5H13" stroke="currentColor" strokeWidth={iconStroke} strokeLinecap="round" />
+      <path
+        d="M7 11v3.5a1.5 1.5 0 0 0 1.5 1.5H13"
+        stroke="currentColor"
+        strokeWidth={iconStroke}
+        strokeLinecap="round"
+      />
     </svg>
   )
 }

@@ -24,11 +24,7 @@ export { listGitWorktrees } from './git-worktree-list'
 export { getGitStatus } from './git-status'
 export { getGitBranches, getGitCommitGraph } from './git-read-models'
 export { applyGitStash, dropGitStash, listGitStashes, pushGitStash } from './git-stash'
-export {
-  revertGitPaths,
-  stageGitPaths,
-  unstageGitPaths,
-} from './git-file-actions'
+export { revertGitPaths, stageGitPaths, unstageGitPaths } from './git-file-actions'
 export {
   abortGitOperation,
   checkoutGitCommit,
@@ -88,9 +84,7 @@ export type GitStashListSnapshot = {
   updatedAt: number
 }
 
-export type GitFileBaseResult =
-  | { ok: true; content: string }
-  | { ok: false; message: string }
+export type GitFileBaseResult = { ok: true; content: string } | { ok: false; message: string }
 
 // Which stored version of a file to read for the diff viewer. `head` is the
 // committed version (`git show HEAD:<p>`); `index` is the staged version
@@ -98,8 +92,7 @@ export type GitFileBaseResult =
 export type GitFileStage = 'head' | 'index'
 
 export type GitFileStageResult =
-  | { ok: true; exists: boolean; content: string; binary: boolean; tooLarge: boolean }
-  | { ok: false; message: string }
+  { ok: true; exists: boolean; content: string; binary: boolean; tooLarge: boolean } | { ok: false; message: string }
 
 type GitBranch = {
   name: string
@@ -123,7 +116,6 @@ type GitCommit = {
   subject: string
   commitWebUrl: string | null
 }
-
 
 export type GitGraphCommit = GitCommit & {
   parents: string[]
@@ -225,7 +217,7 @@ export async function getGitRepoRoot(folderPath: string): Promise<string | null>
 }
 
 async function copyGitWorktreeIncludedFiles(
-  input: GitWorktreeCopyIncludedInput
+  input: GitWorktreeCopyIncludedInput,
 ): Promise<GitWorktreeOperationResult<GitWorktreeCopyIncludedResult>> {
   const root = await resolveRepoRoot(input.repoRoot)
   if (!root.ok) return root
@@ -235,7 +227,7 @@ async function copyGitWorktreeIncludedFiles(
   if (!worktrees.ok) return worktrees
 
   const registeredWorktree = worktrees.data.worktrees.find(
-    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath)
+    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath),
   )
   if (!registeredWorktree) {
     return {
@@ -288,7 +280,10 @@ async function copyGitWorktreeIncludedFiles(
     }
 
     if (/[*?[\]{}]/.test(entry)) {
-      result.skipped.push({ path: entry, reason: 'Glob patterns are not supported; list explicit files or directories.' })
+      result.skipped.push({
+        path: entry,
+        reason: 'Glob patterns are not supported; list explicit files or directories.',
+      })
       continue
     }
 
@@ -296,8 +291,8 @@ async function copyGitWorktreeIncludedFiles(
     const destinationPath = join(worktreePath, ...entry.split(/[\\/]+/))
 
     if (
-      !normalizeComparablePath(sourcePath).startsWith(`${normalizeComparablePath(root.data)}/`)
-      || !normalizeComparablePath(destinationPath).startsWith(`${normalizeComparablePath(worktreePath)}/`)
+      !normalizeComparablePath(sourcePath).startsWith(`${normalizeComparablePath(root.data)}/`) ||
+      !normalizeComparablePath(destinationPath).startsWith(`${normalizeComparablePath(worktreePath)}/`)
     ) {
       result.skipped.push({ path: entry, reason: 'Include path must stay inside the repository and target worktree.' })
       continue
@@ -331,7 +326,7 @@ async function copyGitWorktreeIncludedFiles(
 }
 
 export async function createGitWorktree(
-  input: GitWorktreeCreateInput
+  input: GitWorktreeCreateInput,
 ): Promise<GitWorktreeOperationResult<GitWorktreeEntry>> {
   const root = await resolveRepoRoot(input.repoRoot)
   if (!root.ok) return root
@@ -394,7 +389,7 @@ export async function createGitWorktree(
   if (!nextWorktrees.ok) return nextWorktrees
 
   const createdWorktree = nextWorktrees.data.worktrees.find(
-    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(destination.data.destinationPath)
+    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(destination.data.destinationPath),
   )
 
   if (!createdWorktree) {
@@ -416,7 +411,7 @@ export async function createGitWorktree(
 }
 
 export async function removeGitWorktree(
-  input: GitWorktreeRemoveInput
+  input: GitWorktreeRemoveInput,
 ): Promise<GitWorktreeOperationResult<GitCommandResult>> {
   const root = await resolveRepoRoot(input.repoRoot)
   if (!root.ok) return root
@@ -426,7 +421,7 @@ export async function removeGitWorktree(
   if (!worktrees.ok) return worktrees
 
   const registeredWorktree = worktrees.data.worktrees.find(
-    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath)
+    (worktree) => normalizeComparablePath(worktree.path) === normalizeComparablePath(worktreePath),
   )
   if (!registeredWorktree) {
     return {
@@ -509,7 +504,7 @@ const GIT_FILE_STAGE_MAX_BYTES = 5 * 1024 * 1024
 export async function getGitFileAtStage(
   repoRoot: string,
   filePath: string,
-  stage: GitFileStage
+  stage: GitFileStage,
 ): Promise<GitFileStageResult> {
   const absolutePath = isAbsolute(filePath) ? filePath : resolve(filePath)
   if (!isInsideRepo(repoRoot, absolutePath) && dirname(absolutePath) !== repoRoot) {
@@ -540,7 +535,10 @@ export async function getGitFileAtStage(
   }
 }
 
-function normalizeConflictFilePath(repoRoot: string, filePath: string): { absolutePath: string; relativePath: string } | null {
+function normalizeConflictFilePath(
+  repoRoot: string,
+  filePath: string,
+): { absolutePath: string; relativePath: string } | null {
   const absolutePath = isAbsolute(filePath) ? filePath : toAbsolutePath(repoRoot, toPosixPath(filePath))
   if (!isInsideRepo(repoRoot, absolutePath) && dirname(absolutePath) !== repoRoot) return null
 
@@ -585,7 +583,7 @@ export async function getGitConflictFile(repoRoot: string, filePath: string): Pr
 export async function resolveGitConflict(
   repoRoot: string,
   filePath: string,
-  content: string
+  content: string,
 ): Promise<GitCommandResult> {
   const normalized = normalizeConflictFilePath(repoRoot, filePath)
   if (!normalized) {
@@ -611,10 +609,7 @@ export const MCP_CONFIG_WORKTREE_EXCLUDE_ENTRIES = ['.mcp.json', '.codex/config.
  * entry: an already-present line is not duplicated. Throws if git or the write
  * fails.
  */
-async function appendWorktreeGitExcludes(
-  worktreePath: string,
-  entries: readonly string[]
-): Promise<void> {
+async function appendWorktreeGitExcludes(worktreePath: string, entries: readonly string[]): Promise<void> {
   const resolved = await runGitCommand(worktreePath, ['rev-parse', '--git-path', 'info/exclude'])
   if (!resolved.ok) {
     throw new Error(resolved.message ?? 'git rev-parse --git-path info/exclude failed.')

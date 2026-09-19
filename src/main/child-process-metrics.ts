@@ -67,7 +67,11 @@ export function classifyChildProcess(row: PsProcessRow): ChildProcessClassificat
   if (args.includes('/terminal-startup/') || ['zsh', 'bash', 'fish', 'sh'].includes(command)) {
     return { kind: 'terminal', name: 'Terminal shell' }
   }
-  if (['node', 'npm', 'npx', 'python', 'python3'].some((runtime) => command === runtime || command.startsWith(`${runtime}.`))) {
+  if (
+    ['node', 'npm', 'npx', 'python', 'python3'].some(
+      (runtime) => command === runtime || command.startsWith(`${runtime}.`),
+    )
+  ) {
     return { kind: 'helper', name: `${command} helper` }
   }
   return { kind: 'other', name: command || 'child process' }
@@ -76,7 +80,7 @@ export function classifyChildProcess(row: PsProcessRow): ChildProcessClassificat
 export function collectChildProcessMetrics(
   rows: readonly PsProcessRow[],
   rootPid: number,
-  excludedPids: ReadonlySet<number>
+  excludedPids: ReadonlySet<number>,
 ): ProcessMetricSample[] {
   const byParent = new Map<number, PsProcessRow[]>()
   for (const row of rows) {
@@ -114,7 +118,7 @@ function defaultRunPs(): Promise<string> {
       'ps',
       ['-axo', 'pid=,ppid=,rss=,pcpu=,comm=,args='],
       { timeout: 2_000, maxBuffer: 4 * 1024 * 1024 },
-      (error, stdout) => resolve(error ? '' : stdout)
+      (error, stdout) => resolve(error ? '' : stdout),
     )
   })
 }
@@ -122,17 +126,13 @@ function defaultRunPs(): Promise<string> {
 export async function sampleChildProcessMetrics(
   rootPid: number,
   excludedPids: readonly number[],
-  deps: ChildProcessMetricDeps = {}
+  deps: ChildProcessMetricDeps = {},
 ): Promise<ProcessMetricSample[]> {
   const platform = deps.platform ?? process.platform
   if (platform !== 'darwin' && platform !== 'linux') return []
   const runPs = deps.runPs ?? defaultRunPs
   try {
-    return collectChildProcessMetrics(
-      parsePsProcessRows(await runPs()),
-      rootPid,
-      new Set([rootPid, ...excludedPids])
-    )
+    return collectChildProcessMetrics(parsePsProcessRows(await runPs()), rootPid, new Set([rootPid, ...excludedPids]))
   } catch {
     return []
   }

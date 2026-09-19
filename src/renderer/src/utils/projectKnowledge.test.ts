@@ -1,9 +1,5 @@
 import assert from 'node:assert/strict'
-import {
-  listOpenProjectKnowledge,
-  relativePathBetween,
-  resolveProjectKnowledgeConfig,
-} from './projectKnowledge'
+import { listOpenProjectKnowledge, relativePathBetween, resolveProjectKnowledgeConfig } from './projectKnowledge'
 
 function run(name: string, body: () => void): void {
   try {
@@ -22,7 +18,10 @@ run('relativePathBetween resolves a sibling folder', () => {
 })
 
 run('relativePathBetween resolves a nested folder', () => {
-  assert.equal(relativePathBetween('/Users/x/workspace/multicode', '/Users/x/workspace/multicode/knowledge'), 'knowledge')
+  assert.equal(
+    relativePathBetween('/Users/x/workspace/multicode', '/Users/x/workspace/multicode/knowledge'),
+    'knowledge',
+  )
 })
 
 run('relativePathBetween returns "." for the same directory', () => {
@@ -71,7 +70,10 @@ run('listOpenProjectKnowledge sorts distinct projects by name', () => {
     { folderPath: '/Users/x/workspace/alpha', memory: { relativeRoot: null } },
   ]
   const entries = listOpenProjectKnowledge(workspaces, {})
-  assert.deepEqual(entries.map((entry) => entry.name), ['alpha', 'zeta'])
+  assert.deepEqual(
+    entries.map((entry) => entry.name),
+    ['alpha', 'zeta'],
+  )
 })
 
 run('listOpenProjectKnowledge skips workspaces without a folder', () => {
@@ -87,7 +89,7 @@ run('resolveProjectKnowledgeConfig prefers the deepest configured ancestor', () 
       '/Users/x/workspace': 'shared',
       '/Users/x/workspace/multicode': 'knowledge',
     },
-    null
+    null,
   )
   assert.equal(config?.projectRoot, '/Users/x/workspace/multicode')
   assert.equal(config?.relativeRoot, 'knowledge')

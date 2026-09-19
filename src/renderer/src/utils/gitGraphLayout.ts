@@ -70,7 +70,7 @@ function lastOccupiedColumn(lanes: (string | null)[]): number {
 
 export function computeGitGraphLayout(
   commits: GitGraphInputCommit[],
-  options: { headHash?: string | null } = {}
+  options: { headHash?: string | null } = {},
 ): GitGraphLayout {
   // Each slot holds the hash the lane is waiting to reach, or null when free.
   const activeLanes: (string | null)[] = []
@@ -158,11 +158,7 @@ export function computeGitGraphLayout(
 
     rows.push({ hash: commit.hash, column, colorIndex, lines })
 
-    const rowWidth = Math.max(
-      column + 1,
-      lastOccupiedColumn(lanesBefore) + 1,
-      lastOccupiedColumn(activeLanes) + 1
-    )
+    const rowWidth = Math.max(column + 1, lastOccupiedColumn(lanesBefore) + 1, lastOccupiedColumn(activeLanes) + 1)
     columns = Math.max(columns, rowWidth)
   }
 
@@ -174,8 +170,7 @@ export function computeGitGraphLayout(
     const headRow = rows.find((row) => row.hash === headHash)
     const headColor = headRow?.colorIndex ?? 0
     if (headRow && headColor !== 0) {
-      const swap = (color: number): number =>
-        color === headColor ? 0 : color === 0 ? headColor : color
+      const swap = (color: number): number => (color === headColor ? 0 : color === 0 ? headColor : color)
       for (const row of rows) {
         row.colorIndex = swap(row.colorIndex)
         for (const line of row.lines) line.colorIndex = swap(line.colorIndex)

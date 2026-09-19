@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 import type { BacklogObjectRecordPayload } from '../electron-api'
-import {
-  normalizeBacklogObjectPath,
-  reconcileBacklogObjectRecordIds,
-  stableBacklogObjectId,
-} from './object-id'
+import { normalizeBacklogObjectPath, reconcileBacklogObjectRecordIds, stableBacklogObjectId } from './object-id'
 
 const tests: Array<{ name: string; body: () => void }> = []
 
@@ -28,7 +24,7 @@ function referenceFnv1a(relativePath: string): string {
 function referenceDjb2(relativePath: string): string {
   let hash = 0
   for (let i = 0; i < relativePath.length; i += 1) {
-    hash = ((hash << 5) - hash) + relativePath.charCodeAt(i)
+    hash = (hash << 5) - hash + relativePath.charCodeAt(i)
     hash |= 0
   }
   return `backlog_${(hash >>> 0).toString(36)}`
@@ -61,10 +57,7 @@ run('the id is slash-agnostic and case-insensitive', () => {
     stableBacklogObjectId('backlog/epics/auth-revamp.md'),
   )
   // Duplicate separators and a leading slash normalize away.
-  assert.equal(
-    stableBacklogObjectId('/backlog//sub///item.md'),
-    stableBacklogObjectId('backlog/sub/item.md'),
-  )
+  assert.equal(stableBacklogObjectId('/backlog//sub///item.md'), stableBacklogObjectId('backlog/sub/item.md'))
 })
 
 run('the id is stable (all ids well-formed, no accidental collisions)', () => {
@@ -78,7 +71,9 @@ run('normalizeBacklogObjectPath preserves case but normalizes separators', () =>
   assert.equal(normalizeBacklogObjectPath('//backlog///x.md'), 'backlog/x.md')
 })
 
-function record(overrides: Partial<BacklogObjectRecordPayload> & { relativePath: string; id: string }): BacklogObjectRecordPayload {
+function record(
+  overrides: Partial<BacklogObjectRecordPayload> & { relativePath: string; id: string },
+): BacklogObjectRecordPayload {
   const { relativePath, ...rest } = overrides
   return {
     source: { type: 'file', relativePath },
@@ -113,7 +108,14 @@ run('reconcile merges djb2 + FNV twins: union links, newest updatedAt wins', () 
     createdAt: '2026-06-01T00:00:00.000Z',
     updatedAt: '2026-06-01T00:00:00.000Z',
     links: [
-      { id: 'agent-runtime:working-agent', moduleId: 'agent-runtime', type: 'agent', label: 'Agent: old', target: { kind: 'agent.terminal', id: 'ws/old' }, updatedAt: '2026-06-01T00:00:00.000Z' },
+      {
+        id: 'agent-runtime:working-agent',
+        moduleId: 'agent-runtime',
+        type: 'agent',
+        label: 'Agent: old',
+        target: { kind: 'agent.terminal', id: 'ws/old' },
+        updatedAt: '2026-06-01T00:00:00.000Z',
+      },
     ],
     highlight: { starred: true, color: 'red' },
   })
@@ -124,9 +126,23 @@ run('reconcile merges djb2 + FNV twins: union links, newest updatedAt wins', () 
     updatedAt: '2026-07-05T00:00:00.000Z',
     links: [
       // Same fixed link id, newer timestamp — must supersede the djb2 twin's.
-      { id: 'agent-runtime:working-agent', moduleId: 'agent-runtime', type: 'agent', label: 'Agent: new', target: { kind: 'agent.terminal', id: 'ws/new' }, updatedAt: '2026-07-05T00:00:00.000Z' },
+      {
+        id: 'agent-runtime:working-agent',
+        moduleId: 'agent-runtime',
+        type: 'agent',
+        label: 'Agent: new',
+        target: { kind: 'agent.terminal', id: 'ws/new' },
+        updatedAt: '2026-07-05T00:00:00.000Z',
+      },
       // A distinct link id present only on the FNV twin — must be preserved.
-      { id: 'atlas:execution', moduleId: 'atlas', type: 'execution', label: 'Run', target: { kind: 'run', id: 'run-1' }, updatedAt: '2026-07-02T00:00:00.000Z' },
+      {
+        id: 'atlas:execution',
+        moduleId: 'atlas',
+        type: 'execution',
+        label: 'Run',
+        target: { kind: 'run', id: 'run-1' },
+        updatedAt: '2026-07-02T00:00:00.000Z',
+      },
     ],
   })
 
@@ -141,15 +157,28 @@ run('reconcile merges djb2 + FNV twins: union links, newest updatedAt wins', () 
   assert.equal(merged.links?.length, 2)
   const working = merged.links?.find((l) => l.id === 'agent-runtime:working-agent')
   assert.equal(working?.label, 'Agent: new')
-  assert.ok(merged.links?.some((l) => l.id === 'atlas:execution'), 'distinct link preserved')
+  assert.ok(
+    merged.links?.some((l) => l.id === 'atlas:execution'),
+    'distinct link preserved',
+  )
   // Newer record has no highlight; the older starred highlight survives.
   assert.deepEqual(merged.highlight, { starred: true, color: 'red' })
 })
 
 run('reconcile order independence: same merge regardless of input order', () => {
   const path = 'backlog/order.md'
-  const a = record({ relativePath: path, id: referenceDjb2(path), updatedAt: '2026-06-01T00:00:00.000Z', metadata: { a: 1 } })
-  const b = record({ relativePath: path, id: stableBacklogObjectId(path), updatedAt: '2026-07-01T00:00:00.000Z', metadata: { b: 2 } })
+  const a = record({
+    relativePath: path,
+    id: referenceDjb2(path),
+    updatedAt: '2026-06-01T00:00:00.000Z',
+    metadata: { a: 1 },
+  })
+  const b = record({
+    relativePath: path,
+    id: stableBacklogObjectId(path),
+    updatedAt: '2026-07-01T00:00:00.000Z',
+    metadata: { b: 2 },
+  })
   const [ab] = reconcileBacklogObjectRecordIds([a, b])
   const [ba] = reconcileBacklogObjectRecordIds([b, a])
   assert.deepEqual(ab, ba)

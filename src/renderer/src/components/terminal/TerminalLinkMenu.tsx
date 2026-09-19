@@ -53,16 +53,7 @@ function targetLabel(target: TerminalLinkTarget): string {
   return target.kind === 'url' ? target.url : target.resolvedPath
 }
 
-export function TerminalLinkMenu({
-  workspaceId,
-  target,
-  x,
-  y,
-  line,
-  column,
-  onClose,
-  onError,
-}: TerminalLinkMenuProps) {
+export function TerminalLinkMenu({ workspaceId, target, x, y, line, column, onClose, onError }: TerminalLinkMenuProps) {
   const actions = terminalLinkActions(target)
 
   const run = useCallback(
@@ -128,9 +119,7 @@ export function TerminalLinkMenu({
               // point of the menu is that the destination is chosen per click, not
               // inherited from the sticky openFilesInExternalWindow preference.
               const name = basename(target.resolvedPath)
-              const content = isImageFile(target.resolvedPath)
-                ? ''
-                : await window.api.readfile(target.resolvedPath)
+              const content = isImageFile(target.resolvedPath) ? '' : await window.api.readfile(target.resolvedPath)
               useWorkspaceStore.getState().openFile(workspaceId, target.resolvedPath, name, content)
               focusOrAddFileTab(workspaceId, target.resolvedPath, name)
               dispatchEditorFocus(workspaceId, target.resolvedPath, line, column)

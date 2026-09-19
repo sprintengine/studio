@@ -44,10 +44,7 @@ export function buildConversationSpawnOptions(
 // Shared by the spawn action and its test so the routing contract cannot drift:
 // `runtimeKind`/`conversation` opt into AgentChatView, and the `cli*` fields are
 // cleared so no terminal session is ever started for this agent.
-export function conversationAgentRuntimePatch(
-  providerId: string,
-  modelId: string,
-): Partial<AgentState> {
+export function conversationAgentRuntimePatch(providerId: string, modelId: string): Partial<AgentState> {
   return {
     runtimeKind: 'conversation',
     conversation: { providerId, modelId },

@@ -231,14 +231,10 @@ export function ModalHeader({ title, subtitle, titleId, onClose, leading }: Moda
             text={title}
             className="text-title font-semibold tracking-tight text-[color:var(--text-strong)]"
           />
-          {subtitle ? (
-            <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{subtitle}</p>
-          ) : null}
+          {subtitle ? <p className="mt-1 text-meta leading-5 text-[color:var(--text-muted)]">{subtitle}</p> : null}
         </div>
       </div>
-      {onClose ? (
-        <CloseIconButton size="md" aria-label="Close" onClick={onClose} />
-      ) : null}
+      {onClose ? <CloseIconButton size="md" aria-label="Close" onClick={onClose} /> : null}
     </div>
   )
 }
@@ -248,11 +244,7 @@ export function ModalBody({ children, className }: { children: React.ReactNode; 
 }
 
 export function ModalFooter({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="flex flex-wrap items-center justify-end gap-2 px-6 pb-6 pt-2">
-      {children}
-    </div>
-  )
+  return <div className="flex flex-wrap items-center justify-end gap-2 px-6 pb-6 pt-2">{children}</div>
 }
 
 // A second `Field` used to live here: a `text-micro` label wrapped around its

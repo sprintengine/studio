@@ -28,7 +28,8 @@ export function registerAutomationsWorkspaceTypes(host: RendererHost): void {
   host.registerWorkspaceType({
     id: AUTOMATIONS_HOST_WORKSPACE_MODE,
     label: 'Automations',
-    description: 'Schedule agents and tasks on this project, with run history and the live run terminals hosted in one place.',
+    description:
+      'Schedule agents and tasks on this project, with run history and the live run terminals hosted in one place.',
     icon: AutomationsWorkspaceTypeIcon,
     accentToken: '--accent-primary',
     searchTerms: ['automations', 'schedule', 'cron', 'trigger', 'agent', 'recurring', 'runs'],

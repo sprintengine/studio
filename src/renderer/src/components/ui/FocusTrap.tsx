@@ -83,21 +83,9 @@ export function FocusTrap({ children }: { children: React.ReactNode }): JSX.Elem
 
   return (
     <>
-      <span
-        ref={startRef}
-        data-focus-sentinel="true"
-        tabIndex={0}
-        className="sr-only"
-        onFocus={wrap('start')}
-      />
+      <span ref={startRef} data-focus-sentinel="true" tabIndex={0} className="sr-only" onFocus={wrap('start')} />
       {children}
-      <span
-        ref={endRef}
-        data-focus-sentinel="true"
-        tabIndex={0}
-        className="sr-only"
-        onFocus={wrap('end')}
-      />
+      <span ref={endRef} data-focus-sentinel="true" tabIndex={0} className="sr-only" onFocus={wrap('end')} />
     </>
   )
 }

@@ -49,17 +49,17 @@ export type CanvasBusyState = {
 export function isCanvasBusy(state: CanvasBusyState | null | undefined): boolean {
   if (!state) return false
   return Boolean(
-    state.newElement
-      || state.resizingElement
-      || state.editingTextElement
-      || state.multiElement
-      || state.selectionElement
-      || state.editingLinearElement
-      || state.selectedElementsAreBeingDragged
-      || state.isResizing
-      || state.isRotating
-      || state.isCropping
-      || state.cursorButton === 'down',
+    state.newElement ||
+    state.resizingElement ||
+    state.editingTextElement ||
+    state.multiElement ||
+    state.selectionElement ||
+    state.editingLinearElement ||
+    state.selectedElementsAreBeingDragged ||
+    state.isResizing ||
+    state.isRotating ||
+    state.isCropping ||
+    state.cursorButton === 'down',
   )
 }
 
@@ -75,16 +75,16 @@ export function isCanvasBusy(state: CanvasBusyState | null | undefined): boolean
 export function isCanvasGestureBusy(state: CanvasBusyState | null | undefined): boolean {
   if (!state) return false
   return Boolean(
-    state.newElement
-      || state.resizingElement
-      || state.multiElement
-      || state.selectionElement
-      || state.editingLinearElement
-      || state.selectedElementsAreBeingDragged
-      || state.isResizing
-      || state.isRotating
-      || state.isCropping
-      || state.cursorButton === 'down',
+    state.newElement ||
+    state.resizingElement ||
+    state.multiElement ||
+    state.selectionElement ||
+    state.editingLinearElement ||
+    state.selectedElementsAreBeingDragged ||
+    state.isResizing ||
+    state.isRotating ||
+    state.isCropping ||
+    state.cursorButton === 'down',
   )
 }
 
@@ -235,10 +235,7 @@ export function shouldApplyCanvasPush(revision: number, lastAppliedRevision: num
  * on release, not three. Equal revisions keep the one already buffered: it got
  * there first and they describe the same scene.
  */
-export function bufferCanvasPush<T extends { revision: number }>(
-  buffered: T | null,
-  incoming: T,
-): T {
+export function bufferCanvasPush<T extends { revision: number }>(buffered: T | null, incoming: T): T {
   if (!buffered) return incoming
   return incoming.revision > buffered.revision ? incoming : buffered
 }

@@ -3,7 +3,12 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { HostedCardFeedClient, cardFeedSeedCandidates, configuredCardFeedUrl, type CardFeedFetch } from './card-feed-client'
+import {
+  HostedCardFeedClient,
+  cardFeedSeedCandidates,
+  configuredCardFeedUrl,
+  type CardFeedFetch,
+} from './card-feed-client'
 
 const FEED_URL = 'https://example.com/cards-feed.json'
 
@@ -49,7 +54,7 @@ const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(typeof body === 'string' ? body : JSON.stringify(body), {
     status: 200,
     ...init,
-    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    headers: { 'content-type': 'application/json', ...init.headers },
   })
 
 async function withDir(run: (dir: string) => Promise<void>): Promise<void> {
@@ -73,14 +78,19 @@ const advance = (ms: number) => {
 async function main(): Promise<void> {
   // Live fetch: parsed, cached with its ETag, reported as network and changed.
   await withDir(async (dir) => {
-    const { fetcher, calls } = fetcherFor(() => json(feed('2026-09-06T00:00:00Z', ['drives-your-browser']), { headers: { etag: '"v1"' } }))
+    const { fetcher, calls } = fetcherFor(() =>
+      json(feed('2026-09-06T00:00:00Z', ['drives-your-browser']), { headers: { etag: '"v1"' } }),
+    )
     const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now })
     const result = await client.read()
     assert.ok(result.ok)
     assert.equal(result.source, 'network')
     assert.equal(result.changed, true)
     assert.equal(result.etag, '"v1"')
-    assert.deepEqual(result.feed.cards.map((c) => c.slug), ['drives-your-browser'])
+    assert.deepEqual(
+      result.feed.cards.map((c) => c.slug),
+      ['drives-your-browser'],
+    )
     const cache = await readCacheFile(join(dir, 'cache.json'))
     assert.equal(cache.etag, '"v1"')
     assert.equal(calls.length, 1)
@@ -97,7 +107,12 @@ async function main(): Promise<void> {
     // After the TTL the ETag goes up and a 304 refreshes fetchedAt only.
     advance(60 * 60 * 1000)
     const { fetcher: f304 } = fetcherFor(() => new Response(null, { status: 304 }), calls)
-    const client304 = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher: f304, now })
+    const client304 = new HostedCardFeedClient({
+      feedUrl: FEED_URL,
+      cachePath: join(dir, 'cache.json'),
+      fetcher: f304,
+      now,
+    })
     const notModified = await client304.read()
     assert.ok(notModified.ok)
     assert.equal(notModified.source, 'cache')
@@ -107,10 +122,16 @@ async function main(): Promise<void> {
 
     // forceRefresh skips the TTL and the ETag.
     const { fetcher: fForce } = fetcherFor(
-      () => json(feed('2026-09-07T00:00:00Z', ['drives-your-browser', 'in-your-telegram']), { headers: { etag: '"v2"' } }),
+      () =>
+        json(feed('2026-09-07T00:00:00Z', ['drives-your-browser', 'in-your-telegram']), { headers: { etag: '"v2"' } }),
       calls,
     )
-    const forced = await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher: fForce, now }).read({ forceRefresh: true })
+    const forced = await new HostedCardFeedClient({
+      feedUrl: FEED_URL,
+      cachePath: join(dir, 'cache.json'),
+      fetcher: fForce,
+      now,
+    }).read({ forceRefresh: true })
     assert.ok(forced.ok)
     assert.equal(forced.source, 'network')
     assert.equal(forced.changed, true)
@@ -126,12 +147,17 @@ async function main(): Promise<void> {
     const before = await readFile(cachePath, 'utf8')
     for (const body of ['{ not json', JSON.stringify({ ...feed('2026-09-07T00:00:00Z', ['b']), schemaVersion: 7 })]) {
       const { fetcher: bad } = fetcherFor(() => json(body))
-      const result = await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: bad, now }).read({ forceRefresh: true })
+      const result = await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: bad, now }).read({
+        forceRefresh: true,
+      })
       assert.ok(result.ok)
       assert.equal(result.state, 'degraded')
       assert.equal(result.source, 'cache')
       assert.ok(result.message && result.message.length > 0)
-      assert.deepEqual(result.feed.cards.map((c) => c.slug), ['a'])
+      assert.deepEqual(
+        result.feed.cards.map((c) => c.slug),
+        ['a'],
+      )
       assert.equal(await readFile(cachePath, 'utf8'), before, 'a rejected body never reaches the cache')
     }
   })
@@ -147,7 +173,12 @@ async function main(): Promise<void> {
     const body = {
       schemaVersion: 1,
       updatedAt: '2026-09-06T00:00:00Z',
-      cards: [card('keeps'), { ...card('no-art'), art: 'https://example.com/pretty.png' }, unreadableCard('from-a-newer-build'), card('also-keeps')],
+      cards: [
+        card('keeps'),
+        { ...card('no-art'), art: 'https://example.com/pretty.png' },
+        unreadableCard('from-a-newer-build'),
+        card('also-keeps'),
+      ],
     }
     const { fetcher, calls } = fetcherFor(() => json(body, { headers: { etag: '"v1"' } }))
     const result = await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher, now }).read()
@@ -155,7 +186,10 @@ async function main(): Promise<void> {
     assert.equal(result.state, 'ok', 'a droppable row is not a failed read')
     assert.equal(result.dropped, 2)
     assert.equal(result.dropReasons?.length, 2)
-    assert.deepEqual(result.feed.cards.map((c) => c.slug), ['keeps', 'also-keeps'])
+    assert.deepEqual(
+      result.feed.cards.map((c) => c.slug),
+      ['keeps', 'also-keeps'],
+    )
 
     const cached = await readCacheFile(cachePath)
     assert.deepEqual(
@@ -183,13 +217,22 @@ async function main(): Promise<void> {
     const seedPath = join(dir, 'seed.json')
     await writeFile(seedPath, JSON.stringify(feed('2026-08-01T00:00:00Z', ['seeded'])))
     const { fetcher, calls } = fetcherFor(() => new Error('ENOTFOUND'))
-    const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now, packagedSeedPath: seedPath })
+    const client = new HostedCardFeedClient({
+      feedUrl: FEED_URL,
+      cachePath: join(dir, 'cache.json'),
+      fetcher,
+      now,
+      packagedSeedPath: seedPath,
+    })
     const fromSeed = await client.read()
     assert.ok(fromSeed.ok)
     assert.equal(fromSeed.source, 'seed')
     assert.equal(fromSeed.state, 'degraded')
     assert.match(fromSeed.message ?? '', /Couldn't reach GitHub/)
-    assert.deepEqual(fromSeed.feed.cards.map((c) => c.slug), ['seeded'])
+    assert.deepEqual(
+      fromSeed.feed.cards.map((c) => c.slug),
+      ['seeded'],
+    )
     await client.read()
     assert.equal(calls.length, 1, 'inside the retry gap no second request is made')
     advance(6 * 60 * 1000)
@@ -227,7 +270,10 @@ async function main(): Promise<void> {
             { status: 200 },
           ),
       ],
-      ['the body fails the schema gate', () => json({ schemaVersion: 7, updatedAt: '2026-09-06T00:00:00Z', cards: [] })],
+      [
+        'the body fails the schema gate',
+        () => json({ schemaVersion: 7, updatedAt: '2026-09-06T00:00:00Z', cards: [] }),
+      ],
     ]
     for (const [what, respond] of failures) {
       await withDir(async (dir) => {
@@ -255,7 +301,13 @@ async function main(): Promise<void> {
     const body = feed('2026-09-01T00:00:00Z', ['seeded'])
     await writeFile(seedPath, JSON.stringify(body))
     const { fetcher, calls } = fetcherFor(() => json(body, { headers: { etag: '"seed"' } }))
-    const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now, packagedSeedPath: seedPath })
+    const client = new HostedCardFeedClient({
+      feedUrl: FEED_URL,
+      cachePath: join(dir, 'cache.json'),
+      fetcher,
+      now,
+      packagedSeedPath: seedPath,
+    })
     const first = await client.read()
     assert.ok(first.ok)
     assert.equal(first.source, 'network')
@@ -272,7 +324,13 @@ async function main(): Promise<void> {
     const seedPath = join(dir, 'seed.json')
     await writeFile(seedPath, JSON.stringify(feed('2026-08-01T00:00:00Z', ['seeded'])))
     const { fetcher, calls } = fetcherFor(() => json(feed('2026-09-06T00:00:00Z', ['live'])))
-    const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now, packagedSeedPath: seedPath })
+    const client = new HostedCardFeedClient({
+      feedUrl: FEED_URL,
+      cachePath: join(dir, 'cache.json'),
+      fetcher,
+      now,
+      packagedSeedPath: seedPath,
+    })
     const seedOnly = await client.read({ cachedOnly: true })
     assert.ok(seedOnly.ok)
     assert.equal(seedOnly.source, 'seed')
@@ -310,7 +368,13 @@ async function main(): Promise<void> {
       await hang
       return json(feed('2026-09-06T00:00:00Z', ['live']))
     })
-    const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now, packagedSeedPath: seedPath })
+    const client = new HostedCardFeedClient({
+      feedUrl: FEED_URL,
+      cachePath: join(dir, 'cache.json'),
+      fetcher,
+      now,
+      packagedSeedPath: seedPath,
+    })
     const inFlight = client.read()
     await fetchStarted
     const local = await client.read({ cachedOnly: true })
@@ -332,12 +396,27 @@ async function main(): Promise<void> {
     await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: old, now }).read()
     await writeFile(seedPath, JSON.stringify(feed('2026-09-01T00:00:00Z', ['newer-seed'])))
     const { fetcher: offline } = fetcherFor(() => new Error('offline'))
-    const served = await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: offline, now, packagedSeedPath: seedPath }).read({ forceRefresh: true })
+    const served = await new HostedCardFeedClient({
+      feedUrl: FEED_URL,
+      cachePath,
+      fetcher: offline,
+      now,
+      packagedSeedPath: seedPath,
+    }).read({ forceRefresh: true })
     assert.ok(served.ok)
     assert.equal(served.source, 'seed', 'a newer bundle outranks an older cache')
-    assert.deepEqual(served.feed.cards.map((c) => c.slug), ['newer-seed'])
+    assert.deepEqual(
+      served.feed.cards.map((c) => c.slug),
+      ['newer-seed'],
+    )
     const { fetcher: live } = fetcherFor(() => json(feed('2026-09-06T00:00:00Z', ['live'])))
-    const fresh = await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: live, now, packagedSeedPath: seedPath }).read({ forceRefresh: true })
+    const fresh = await new HostedCardFeedClient({
+      feedUrl: FEED_URL,
+      cachePath,
+      fetcher: live,
+      now,
+      packagedSeedPath: seedPath,
+    }).read({ forceRefresh: true })
     assert.ok(fresh.ok)
     assert.equal(fresh.source, 'network')
     assert.equal(fresh.changed, true)
@@ -351,20 +430,32 @@ async function main(): Promise<void> {
   await withDir(async (dir) => {
     const cachePath = join(dir, 'cache.json')
     const seedPath = join(dir, 'seed.json')
-    const { fetcher: old, calls } = fetcherFor(() => json(feed('2026-08-01T00:00:00Z', ['old-cache']), { headers: { etag: '"old"' } }))
+    const { fetcher: old, calls } = fetcherFor(() =>
+      json(feed('2026-08-01T00:00:00Z', ['old-cache']), { headers: { etag: '"old"' } }),
+    )
     await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: old, now }).read()
     const before = await readCacheFile(cachePath)
     await writeFile(seedPath, JSON.stringify(feed('2026-09-01T00:00:00Z', ['newer-seed'])))
 
     const { fetcher: live, calls: liveCalls } = fetcherFor(() => json(feed('2026-08-01T00:00:00Z', ['old-cache'])))
-    const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: live, now, packagedSeedPath: seedPath })
+    const client = new HostedCardFeedClient({
+      feedUrl: FEED_URL,
+      cachePath,
+      fetcher: live,
+      now,
+      packagedSeedPath: seedPath,
+    })
     const served = await client.read()
     assert.ok(served.ok)
     assert.equal(served.source, 'seed')
     assert.equal(liveCalls.length, 0, 'the adopted seed is inside the TTL, so no request is made')
 
     const adopted = await readCacheFile(cachePath)
-    assert.deepEqual(JSON.parse(adopted.body).cards.map((c: { slug: string }) => c.slug), ['newer-seed'], 'the seed was written through')
+    assert.deepEqual(
+      JSON.parse(adopted.body).cards.map((c: { slug: string }) => c.slug),
+      ['newer-seed'],
+      'the seed was written through',
+    )
     assert.equal(adopted.fetchedAt, before.fetchedAt, 'adopting a bundled file is not a conversation with GitHub')
     assert.equal(adopted.etag, undefined, 'the old ETag identified a body that is no longer stored')
 
@@ -385,17 +476,31 @@ async function main(): Promise<void> {
     const seedPath = join(dir, 'seed.json')
     await writeFile(
       seedPath,
-      JSON.stringify({ schemaVersion: 1, updatedAt: '2026-09-01T00:00:00Z', cards: [card('seeded'), unreadableCard('from-a-newer-build')] }),
+      JSON.stringify({
+        schemaVersion: 1,
+        updatedAt: '2026-09-01T00:00:00Z',
+        cards: [card('seeded'), unreadableCard('from-a-newer-build')],
+      }),
     )
     const { fetcher } = fetcherFor(() => new Error('offline'))
-    const fromSeed = await new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher, now, packagedSeedPath: seedPath }).read({ cachedOnly: true })
+    const fromSeed = await new HostedCardFeedClient({
+      feedUrl: FEED_URL,
+      cachePath,
+      fetcher,
+      now,
+      packagedSeedPath: seedPath,
+    }).read({ cachedOnly: true })
     assert.ok(fromSeed.ok)
     assert.equal(fromSeed.source, 'seed')
     assert.equal(fromSeed.dropped, 1)
     assert.match(fromSeed.dropReasons?.[0] ?? '', /is not a verb this build implements/)
 
     const { fetcher: live } = fetcherFor(() =>
-      json({ schemaVersion: 1, updatedAt: '2026-09-06T00:00:00Z', cards: [card('live'), unreadableCard('also-from-a-newer-build')] }),
+      json({
+        schemaVersion: 1,
+        updatedAt: '2026-09-06T00:00:00Z',
+        cards: [card('live'), unreadableCard('also-from-a-newer-build')],
+      }),
     )
     const client = new HostedCardFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: live, now })
     const fresh = await client.read()
@@ -410,7 +515,11 @@ async function main(): Promise<void> {
 
   // HTTPS only, the env override, and the seed path candidates.
   {
-    const bad = await new HostedCardFeedClient({ feedUrl: 'http://example.com/cards-feed.json', cachePath: '/nonexistent/cache.json', fetcher: async () => json({}) }).read()
+    const bad = await new HostedCardFeedClient({
+      feedUrl: 'http://example.com/cards-feed.json',
+      cachePath: '/nonexistent/cache.json',
+      fetcher: async () => json({}),
+    }).read()
     assert.equal(bad.ok, false)
     assert.match(bad.ok ? '' : bad.message, /HTTPS/)
     // The override goes through the same gate as the default.
@@ -422,15 +531,25 @@ async function main(): Promise<void> {
     assert.equal(overridden.ok, false)
     assert.match(overridden.ok ? '' : overridden.message, /HTTPS/)
     // A cachedOnly read has its own path, and the URL gate is on that one too.
-    const localOnly = await new HostedCardFeedClient({ feedUrl: 'http://example.com/cards-feed.json', cachePath: '/nonexistent/cache.json', fetcher: async () => json({}) }).read({ cachedOnly: true })
+    const localOnly = await new HostedCardFeedClient({
+      feedUrl: 'http://example.com/cards-feed.json',
+      cachePath: '/nonexistent/cache.json',
+      fetcher: async () => json({}),
+    }).read({ cachedOnly: true })
     assert.equal(localOnly.ok, false)
     assert.match(localOnly.ok ? '' : localOnly.message, /HTTPS/)
-    assert.equal(configuredCardFeedUrl({}), 'https://raw.githubusercontent.com/sprintengine/studio-releases/main/cards-feed.json')
-    assert.equal(configuredCardFeedUrl({ MULTICODE_CARD_FEED_URL: ' https://localhost:8765/cards-feed.json ' }), 'https://localhost:8765/cards-feed.json')
-    assert.deepEqual(cardFeedSeedCandidates({ isPackaged: true, resourcesPath: '/app/Resources', appPath: '/app/Resources/app.asar' }), [
-      '/app/Resources/cards-feed.json',
-      '/app/Resources/app.asar/resources/cards-feed.json',
-    ])
+    assert.equal(
+      configuredCardFeedUrl({}),
+      'https://raw.githubusercontent.com/sprintengine/studio-releases/main/cards-feed.json',
+    )
+    assert.equal(
+      configuredCardFeedUrl({ MULTICODE_CARD_FEED_URL: ' https://localhost:8765/cards-feed.json ' }),
+      'https://localhost:8765/cards-feed.json',
+    )
+    assert.deepEqual(
+      cardFeedSeedCandidates({ isPackaged: true, resourcesPath: '/app/Resources', appPath: '/app/Resources/app.asar' }),
+      ['/app/Resources/cards-feed.json', '/app/Resources/app.asar/resources/cards-feed.json'],
+    )
     assert.deepEqual(cardFeedSeedCandidates({ isPackaged: false, cwd: '/repo' }), ['/repo/resources/cards-feed.json'])
   }
 

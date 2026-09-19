@@ -1,10 +1,6 @@
 import type { DiffFileItem } from './diffFileList'
 import { joinFilePath } from '../../utils/paths'
-import type {
-  BranchStepDiff,
-  BranchStepSelection,
-  BranchStepsSnapshot,
-} from '../../../../shared/electron-api'
+import type { BranchStepDiff, BranchStepSelection, BranchStepsSnapshot } from '../../../../shared/electron-api'
 
 // The step strip's model (the-diff-an-agent-made / changed-files-and-commit-steps).
 //
@@ -56,9 +52,7 @@ export function stripEntriesFrom(snapshot: BranchStepsSnapshot | null): StripEnt
       : [{ key: 'span', label: 'All changes', selection: { kind: 'span' } }]
   }
 
-  const entries: StripEntry[] = [
-    { key: 'span', label: `All commits ${steps.length}`, selection: { kind: 'span' } },
-  ]
+  const entries: StripEntry[] = [{ key: 'span', label: `All commits ${steps.length}`, selection: { kind: 'span' } }]
   if (snapshot?.hasUncommitted) {
     entries.push({ key: 'uncommitted', label: 'Uncommitted', selection: { kind: 'uncommitted' } })
   }
@@ -101,7 +95,7 @@ export function sameSelection(left: BranchStepSelection, right: BranchStepSelect
  */
 export function revsForSelection(
   selection: BranchStepSelection,
-  snapshot: BranchStepsSnapshot | null
+  snapshot: BranchStepsSnapshot | null,
 ): { originalRev: string | null; modifiedRev: string | 'worktree' } {
   if (selection.kind === 'commit') {
     return { originalRev: `${selection.hash}^`, modifiedRev: selection.hash }
@@ -127,7 +121,7 @@ export function branchItemsFrom(
   diff: BranchStepDiff | null,
   selection: BranchStepSelection,
   snapshot: BranchStepsSnapshot | null,
-  repoRoot: string
+  repoRoot: string,
 ): BranchDiffItem[] {
   if (!diff) return []
   const { originalRev, modifiedRev } = revsForSelection(selection, snapshot)

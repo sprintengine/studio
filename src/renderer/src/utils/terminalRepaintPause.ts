@@ -240,9 +240,7 @@ function settle(): void {
  * Claim the pause. Returns the release, which is safe to call more than once
  * and safe to call after the watchdog has already reclaimed the hold.
  */
-export function acquireTerminalRepaintPause(
-  options: TerminalRepaintPauseHoldOptions = {}
-): () => void {
+export function acquireTerminalRepaintPause(options: TerminalRepaintPauseHoldOptions = {}): () => void {
   const hold: Hold = {
     id: nextHoldId++,
     label: options.label ?? 'unlabelled',

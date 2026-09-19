@@ -115,7 +115,13 @@ export function LifecycleGlyph({
   const spin = state === 'in_progress' && live ? 'lifecycle-spin' : ''
 
   return (
-    <svg viewBox="0 0 16 16" fill="none" {...a11y} {...rest} className={`icon-sm shrink-0 ${spin} ${TONE[state]} ${className ?? ''}`}>
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      {...a11y}
+      {...rest}
+      className={`icon-sm shrink-0 ${spin} ${TONE[state]} ${className ?? ''}`}
+    >
       {shapes}
     </svg>
   )

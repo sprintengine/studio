@@ -58,67 +58,61 @@ function session(input: Partial<TerminalSessionSnapshot>): TerminalSessionSnapsh
 }
 
 assert.equal(
-  formatDroppedPathsForTerminal(
-    payload('C:\\repo\\src\\main.ts'),
-    session({ cwd: 'C:\\repo', pathStyle: 'windows' })
-  ),
-  "'src\\main.ts'"
+  formatDroppedPathsForTerminal(payload('C:\\repo\\src\\main.ts'), session({ cwd: 'C:\\repo', pathStyle: 'windows' })),
+  "'src\\main.ts'",
 )
 
 assert.equal(
   formatDroppedPathsForTerminal(
     payload('C:\\repo\\assets\\hero image.png'),
-    session({ cwd: 'C:\\repo', pathStyle: 'wsl' })
+    session({ cwd: 'C:\\repo', pathStyle: 'wsl' }),
   ),
-  "'assets/hero image.png'"
+  "'assets/hero image.png'",
 )
 
 assert.equal(
   formatDroppedPathsForTerminal(
     payload('C:\\Repo\\Assets\\HeroImage.PNG', 'C:\\Repo'),
-    session({ cwd: 'C:\\Repo', pathStyle: 'wsl' })
+    session({ cwd: 'C:\\Repo', pathStyle: 'wsl' }),
   ),
-  "'Assets/HeroImage.PNG'"
+  "'Assets/HeroImage.PNG'",
 )
 
 assert.equal(
   formatDroppedPathsForTerminal(
     payload('C:\\Repo\\Assets\\HeroImage.PNG', 'C:\\Repo'),
-    session({ cwd: 'C:\\Repo', pathStyle: 'windows' })
+    session({ cwd: 'C:\\Repo', pathStyle: 'windows' }),
   ),
-  "'Assets\\HeroImage.PNG'"
+  "'Assets\\HeroImage.PNG'",
 )
 
 assert.equal(
   formatDroppedPathsForTerminal(
     payload('/home/alex/repo/src/main.ts', '/home/alex/repo'),
-    session({ cwd: '/home/alex/repo', pathStyle: 'posix' })
+    session({ cwd: '/home/alex/repo', pathStyle: 'posix' }),
   ),
-  "'src/main.ts'"
+  "'src/main.ts'",
 )
 
 assert.equal(
   formatDroppedPathsForTerminal(
     directoryPayload('C:\\repo\\src\\renderer', 'C:\\repo'),
-    session({ cwd: 'C:\\repo\\.worktrees\\agent-1', pathStyle: 'windows' })
+    session({ cwd: 'C:\\repo\\.worktrees\\agent-1', pathStyle: 'windows' }),
   ),
-  "'src\\renderer'"
+  "'src\\renderer'",
 )
 
 assert.equal(
   formatDroppedPathsForTerminal(
     directoryPayload('/home/alex/repo/src/renderer', '/home/alex/repo'),
-    session({ cwd: '/home/alex/repo/.worktrees/agent-1', pathStyle: 'posix' })
+    session({ cwd: '/home/alex/repo/.worktrees/agent-1', pathStyle: 'posix' }),
   ),
-  "'src/renderer'"
+  "'src/renderer'",
 )
 
 assert.equal(
-  formatDroppedPathsForTerminal(
-    payload('C:\\other\\image.png'),
-    session({ cwd: 'C:\\repo', pathStyle: 'wsl' })
-  ),
-  "'/mnt/c/other/image.png'"
+  formatDroppedPathsForTerminal(payload('C:\\other\\image.png'), session({ cwd: 'C:\\repo', pathStyle: 'wsl' })),
+  "'/mnt/c/other/image.png'",
 )
 
 assert.equal(
@@ -132,17 +126,14 @@ assert.equal(
         { path: '/repo/two words.txt', name: 'two words.txt' },
       ],
     },
-    session({ cwd: '/repo', pathStyle: 'posix' })
+    session({ cwd: '/repo', pathStyle: 'posix' }),
   ),
-  `'it'"'"'s.png' 'two words.txt'`
+  `'it'"'"'s.png' 'two words.txt'`,
 )
 
 assert.equal(
-  formatDroppedPathsForTerminal(
-    payload('/repo/bad\nname.txt', '/repo'),
-    session({ cwd: '/repo', pathStyle: 'posix' })
-  ),
-  ''
+  formatDroppedPathsForTerminal(payload('/repo/bad\nname.txt', '/repo'), session({ cwd: '/repo', pathStyle: 'posix' })),
+  '',
 )
 
 // --- backlogSkillInvocationForDrop ----------------------------------------
@@ -157,11 +148,18 @@ const pluginEntries: PluginRegistryListEntry[] = [
     binary: 'claude',
     resumeSession: true,
     sessionIdFromCaller: true,
-  agentStateCapable: true,
+    agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'claude',
-      installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.claude/skills/{{skillId}}', format: 'claude-code', restartRequired: true }],
+      installTargets: [
+        {
+          scope: 'workspace',
+          path: '{{workspaceRoot}}/.claude/skills/{{skillId}}',
+          format: 'claude-code',
+          restartRequired: true,
+        },
+      ],
       invocation: { fileDropTemplate: '/{{skillId}} {{path}}', nativeSlashCommand: true },
     },
   },
@@ -173,11 +171,18 @@ const pluginEntries: PluginRegistryListEntry[] = [
     binary: 'codex',
     resumeSession: true,
     sessionIdFromCaller: false,
-  agentStateCapable: true,
+    agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'codex',
-      installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.codex/skills/{{skillId}}', format: 'codex', restartRequired: true }],
+      installTargets: [
+        {
+          scope: 'workspace',
+          path: '{{workspaceRoot}}/.codex/skills/{{skillId}}',
+          format: 'codex',
+          restartRequired: true,
+        },
+      ],
       invocation: { fileDropTemplate: 'Use ${{skillId}} to work {{path}}.', explicitMention: true },
     },
   },
@@ -189,11 +194,18 @@ const pluginEntries: PluginRegistryListEntry[] = [
     binary: 'pi',
     resumeSession: false,
     sessionIdFromCaller: false,
-  agentStateCapable: true,
+    agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'pi',
-      installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.pi/skills/{{skillId}}', format: 'generic', restartRequired: false }],
+      installTargets: [
+        {
+          scope: 'workspace',
+          path: '{{workspaceRoot}}/.pi/skills/{{skillId}}',
+          format: 'generic',
+          restartRequired: false,
+        },
+      ],
       invocation: { fileDropTemplate: 'pi-skill {{skillId}} {{path}}' },
     },
   },
@@ -205,7 +217,7 @@ const pluginEntries: PluginRegistryListEntry[] = [
     binary: 'sh',
     resumeSession: false,
     sessionIdFromCaller: false,
-  agentStateCapable: true,
+    agentStateCapable: true,
     skillIntegration: {
       support: 'unsupported',
       harnessId: 'generic-shell',
@@ -236,17 +248,14 @@ const invocationFor = (
 
 assert.equal(
   invocationFor(backlogPayload('/repo/backlog/item.md'), agentSession(), allHarnesses),
-  '/backlog backlog/item.md'
+  '/backlog backlog/item.md',
 )
 
 assert.equal(
-  backlogSkillInvocationForDrop(
-    backlogPayload('/repo/backlog/item.md'),
-    agentSession(),
-    pluginEntries,
-    [{ harness: 'claude', status: 'installed', support: 'native', pluginId: 'claude-code' }]
-  ),
-  '/backlog backlog/item.md'
+  backlogSkillInvocationForDrop(backlogPayload('/repo/backlog/item.md'), agentSession(), pluginEntries, [
+    { harness: 'claude', status: 'installed', support: 'native', pluginId: 'claude-code' },
+  ]),
+  '/backlog backlog/item.md',
 )
 
 // Windows separators normalize to a forward-slash project-relative path.
@@ -254,25 +263,21 @@ assert.equal(
   invocationFor(
     backlogPayload('C:\\repo\\backlog\\item.md', 'C:\\repo'),
     agentSession({ pathStyle: 'windows' }),
-    allHarnesses
+    allHarnesses,
   ),
-  '/backlog backlog/item.md'
+  '/backlog backlog/item.md',
 )
 
 // Whitespace in the file name gets quoted.
 assert.equal(
   invocationFor(backlogPayload('/repo/backlog/two words.md'), agentSession(), allHarnesses),
-  "/backlog 'backlog/two words.md'"
+  "/backlog 'backlog/two words.md'",
 )
 
 // Codex maps to the codex adapter, but not to a top-level `/backlog` command.
 assert.equal(
-  invocationFor(
-    backlogPayload('/repo/backlog/item.md'),
-    agentSession({ cli: 'codex' }),
-    ['codex']
-  ),
-  'Use $backlog to work backlog/item.md.'
+  invocationFor(backlogPayload('/repo/backlog/item.md'), agentSession({ cli: 'codex' }), ['codex']),
+  'Use $backlog to work backlog/item.md.',
 )
 
 assert.equal(
@@ -280,30 +285,23 @@ assert.equal(
     backlogPayload('/repo/backlog/item.md'),
     agentSession({ cli: 'codex' }),
     pluginEntries,
-    [{ harness: 'codex', status: 'installed', support: 'native', pluginId: 'codex' }]
+    [{ harness: 'codex', status: 'installed', support: 'native', pluginId: 'codex' }],
   ),
-  'Use $backlog to work backlog/item.md.'
+  'Use $backlog to work backlog/item.md.',
 )
 
 // Custom CLI plugins get their invocation from the manifest, not from app source.
 assert.equal(
-  backlogSkillInvocationForDrop(
-    backlogPayload('/repo/backlog/item.md'),
-    agentSession({ cli: 'pi' }),
-    pluginEntries,
-    [{ harness: 'pi', status: 'installed', support: 'native', pluginId: 'pi' }]
-  ),
-  'pi-skill backlog backlog/item.md'
+  backlogSkillInvocationForDrop(backlogPayload('/repo/backlog/item.md'), agentSession({ cli: 'pi' }), pluginEntries, [
+    { harness: 'pi', status: 'installed', support: 'native', pluginId: 'pi' },
+  ]),
+  'pi-skill backlog backlog/item.md',
 )
 
 // Not an agent terminal.
 assert.equal(
-  invocationFor(
-    backlogPayload('/repo/backlog/item.md'),
-    session({ kind: 'terminal', cli: undefined }),
-    allHarnesses
-  ),
-  null
+  invocationFor(backlogPayload('/repo/backlog/item.md'), session({ kind: 'terminal', cli: undefined }), allHarnesses),
+  null,
 )
 
 // Worktree sessions keep plain path pastes.
@@ -311,19 +309,15 @@ assert.equal(
   invocationFor(
     backlogPayload('/repo/backlog/item.md'),
     agentSession({ executionMode: 'worktree', worktreePath: '/repo/.worktrees/a' }),
-    allHarnesses
+    allHarnesses,
   ),
-  null
+  null,
 )
 
 // Unknown or shell CLIs never get a slash command.
 assert.equal(
-  invocationFor(
-    backlogPayload('/repo/backlog/item.md'),
-    agentSession({ cli: 'generic-shell' }),
-    allHarnesses
-  ),
-  null
+  invocationFor(backlogPayload('/repo/backlog/item.md'), agentSession({ cli: 'generic-shell' }), allHarnesses),
+  null,
 )
 
 assert.equal(
@@ -331,16 +325,13 @@ assert.equal(
     backlogPayload('/repo/backlog/item.md'),
     agentSession({ cli: 'generic-shell' }),
     pluginEntries,
-    [{ harness: 'generic-shell', status: 'unsupported', support: 'unsupported', pluginId: 'generic-shell' }]
+    [{ harness: 'generic-shell', status: 'unsupported', support: 'unsupported', pluginId: 'generic-shell' }],
   ),
-  null
+  null,
 )
 
 // The CLI's harness must actually have the skill present.
-assert.equal(
-  invocationFor(backlogPayload('/repo/backlog/item.md'), agentSession(), ['codex']),
-  null
-)
+assert.equal(invocationFor(backlogPayload('/repo/backlog/item.md'), agentSession(), ['codex']), null)
 
 // Only single-file drops inject.
 assert.equal(
@@ -355,26 +346,17 @@ assert.equal(
       ],
     },
     agentSession(),
-    allHarnesses
+    allHarnesses,
   ),
-  null
+  null,
 )
 
 // Files outside backlog/ keep the plain path behavior.
-assert.equal(
-  invocationFor(backlogPayload('/repo/src/main.ts'), agentSession(), allHarnesses),
-  null
-)
+assert.equal(invocationFor(backlogPayload('/repo/src/main.ts'), agentSession(), allHarnesses), null)
 
 // Directories and native drops (no workspace root) are excluded.
-assert.equal(
-  invocationFor(directoryPayload('/repo/backlog/sub', '/repo'), agentSession(), allHarnesses),
-  null
-)
-assert.equal(
-  invocationFor(backlogPayload('/repo/backlog/item.md', ''), agentSession(), allHarnesses),
-  null
-)
+assert.equal(invocationFor(directoryPayload('/repo/backlog/sub', '/repo'), agentSession(), allHarnesses), null)
+assert.equal(invocationFor(backlogPayload('/repo/backlog/item.md', ''), agentSession(), allHarnesses), null)
 
 // --- sendFileDropToTerminal -------------------------------------------------
 
@@ -436,9 +418,7 @@ async function testSlashCapableAgentGetsBacklogCommand(): Promise<void> {
   })
 
   assert.deepEqual(sent, { ok: true, text: '/backlog backlog/item.md' })
-  assert.deepEqual(writes, [
-    { sessionId: 'session-1', data: bracketedPaste('/backlog backlog/item.md') },
-  ])
+  assert.deepEqual(writes, [{ sessionId: 'session-1', data: bracketedPaste('/backlog backlog/item.md') }])
 }
 
 async function testNonSlashAgentGetsQuotedRelativePath(): Promise<void> {
@@ -456,9 +436,7 @@ async function testNonSlashAgentGetsQuotedRelativePath(): Promise<void> {
   })
 
   assert.deepEqual(sent, { ok: true, text: "'backlog/item.md'" })
-  assert.deepEqual(writes, [
-    { sessionId: 'session-1', data: bracketedPaste("'backlog/item.md'") },
-  ])
+  assert.deepEqual(writes, [{ sessionId: 'session-1', data: bracketedPaste("'backlog/item.md'") }])
 }
 
 async function testWorktreeSessionGetsPlainPathNeverBacklog(): Promise<void> {
@@ -481,9 +459,7 @@ async function testWorktreeSessionGetsPlainPathNeverBacklog(): Promise<void> {
   })
 
   assert.deepEqual(sent, { ok: true, text: "'/repo/backlog/item.md'" })
-  assert.deepEqual(writes, [
-    { sessionId: 'session-1', data: bracketedPaste("'/repo/backlog/item.md'") },
-  ])
+  assert.deepEqual(writes, [{ sessionId: 'session-1', data: bracketedPaste("'/repo/backlog/item.md'") }])
 }
 
 async function testDeadSessionReturnsExplicitError(): Promise<void> {
@@ -527,17 +503,11 @@ async function testWorkspaceMismatchRejectsBeforeWrite(): Promise<void> {
 // session that carries an agent id yields a recordable handoff descriptor.
 function testBacklogItemDropDescriptorGate(): void {
   assert.deepEqual(
-    backlogItemDropDescriptor(
-      backlogPayload('/repo/backlog/item.md'),
-      agentSession({ agentId: 'agent-7' }),
-    ),
+    backlogItemDropDescriptor(backlogPayload('/repo/backlog/item.md'), agentSession({ agentId: 'agent-7' })),
     { relativePath: 'backlog/item.md', agentId: 'agent-7', workspaceRoot: '/repo' },
   )
   // No agent id to link to → not a recordable handoff (but a paste still works).
-  assert.equal(
-    backlogItemDropDescriptor(backlogPayload('/repo/backlog/item.md'), agentSession()),
-    null,
-  )
+  assert.equal(backlogItemDropDescriptor(backlogPayload('/repo/backlog/item.md'), agentSession()), null)
   // Worktree agent: plain-path paste only, never a link (would fork the store).
   assert.equal(
     backlogItemDropDescriptor(
@@ -608,7 +578,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'claude',
     resumeSession: true,
     sessionIdFromCaller: true,
-  agentStateCapable: true,
+    agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'claude',
@@ -624,7 +594,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'grok',
     resumeSession: true,
     sessionIdFromCaller: false,
-  agentStateCapable: true,
+    agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'grok',
@@ -640,7 +610,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'codex',
     resumeSession: true,
     sessionIdFromCaller: false,
-  agentStateCapable: true,
+    agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'codex',
@@ -656,7 +626,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'opencode',
     resumeSession: true,
     sessionIdFromCaller: false,
-  agentStateCapable: true,
+    agentStateCapable: true,
     skillIntegration: {
       support: 'native',
       harnessId: 'opencode',
@@ -678,7 +648,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'cursor-agent',
     resumeSession: true,
     sessionIdFromCaller: false,
-  agentStateCapable: true,
+    agentStateCapable: true,
   },
   {
     id: 'generic-shell',
@@ -688,7 +658,7 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
     binary: 'sh',
     resumeSession: false,
     sessionIdFromCaller: false,
-  agentStateCapable: true,
+    agentStateCapable: true,
     skillIntegration: { support: 'unsupported', harnessId: 'generic-shell', installTargets: [] },
   },
 ]
@@ -701,23 +671,25 @@ const skillPluginEntries: PluginRegistryListEntry[] = [
 function stubbedCapabilities(pluginId: string, harnesses: SkillHarness[]) {
   const integration = skillPluginEntries.find((entry) => entry.id === pluginId)?.skillIntegration
   const visible = Boolean(
-    integration
-    && integration.support !== 'unsupported'
-    && harnesses.some((harness) => harness === integration.harnessId),
+    integration &&
+    integration.support !== 'unsupported' &&
+    harnesses.some((harness) => harness === integration.harnessId),
   )
   return {
     ok: true as const,
     support: integration?.support ?? ('unsupported' as const),
     harnessId: integration?.harnessId ?? '',
     skills: visible
-      ? [{
-        id: 'backlog',
-        name: 'backlog',
-        description: 'Work Backlog items.',
-        invocation: resolveSkillInvocation(integration, 'backlog') ?? plainSkillInvocation('backlog'),
-        source: 'builtin' as const,
-        pluginIds: [pluginId],
-      }]
+      ? [
+          {
+            id: 'backlog',
+            name: 'backlog',
+            description: 'Work Backlog items.',
+            invocation: resolveSkillInvocation(integration, 'backlog') ?? plainSkillInvocation('backlog'),
+            source: 'builtin' as const,
+            pluginIds: [pluginId],
+          },
+        ]
       : [],
     servers: [],
     diagnostics: [],
@@ -947,10 +919,7 @@ function testSkillDropDataRoundTrips(): void {
   // Dropped somewhere that is not a terminal, the id is the useful text.
   assert.equal(entries.get('text/plain'), 'backlog')
   // A drag with no skill on it is not a skill drop.
-  assert.equal(
-    hasSkillDropData({ types: [MULTICODE_FILE_DROP_MIME] } as unknown as DataTransfer),
-    false,
-  )
+  assert.equal(hasSkillDropData({ types: [MULTICODE_FILE_DROP_MIME] } as unknown as DataTransfer), false)
 }
 
 void testSlashCapableAgentGetsBacklogCommand()
@@ -958,7 +927,9 @@ void testSlashCapableAgentGetsBacklogCommand()
   .then(testWorktreeSessionGetsPlainPathNeverBacklog)
   .then(testDeadSessionReturnsExplicitError)
   .then(testWorkspaceMismatchRejectsBeforeWrite)
-  .then(() => { testBacklogItemDropDescriptorGate() })
+  .then(() => {
+    testBacklogItemDropDescriptorGate()
+  })
   .then(testHandoffDescriptorRidesResult)
   .then(testEachHarnessRendersItsOwnInvocation)
   .then(testDropUsesTheTargetSessionsForm)
@@ -968,5 +939,9 @@ void testSlashCapableAgentGetsBacklogCommand()
   .then(testDeadSessionReportsRatherThanNoOps)
   .then(testUnreadableWorkspaceReportsRatherThanGuessing)
   .then(testSkillDropCarriesItsOwnMimeAndWorkspace)
-  .then(() => { testSkillDropDataRoundTrips() })
-  .then(() => { console.log('terminalDrop: ok') })
+  .then(() => {
+    testSkillDropDataRoundTrips()
+  })
+  .then(() => {
+    console.log('terminalDrop: ok')
+  })

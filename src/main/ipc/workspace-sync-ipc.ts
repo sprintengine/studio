@@ -21,7 +21,7 @@ type RegisterWorkspaceSyncIpcOptions = {
 export function registerWorkspaceSyncIpc(
   ipcMain: IpcMain,
   service: WorkspaceSyncService,
-  options: RegisterWorkspaceSyncIpcOptions = {}
+  options: RegisterWorkspaceSyncIpcOptions = {},
 ): void {
   const getSourceWindowId = options.getSourceWindowId ?? defaultSourceWindowId
   const listWindows = options.listWindows ?? (() => BrowserWindow.getAllWindows())
@@ -58,7 +58,7 @@ export function registerWorkspaceSyncIpc(
 function broadcastWorkspaceSyncEvent(
   syncEvent: WorkspaceSyncEvent,
   source: WebContents | null,
-  windows: BroadcastTarget[]
+  windows: BroadcastTarget[],
 ): void {
   for (const window of windows) {
     if (window.isDestroyed() || window.webContents.isDestroyed()) continue

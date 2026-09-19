@@ -1,10 +1,7 @@
 import { mkdir, readFile, stat, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 
-import type {
-  MarketplaceRegistryReadInput,
-  MarketplaceRegistryReadResult,
-} from '../../shared/electron-api'
+import type { MarketplaceRegistryReadInput, MarketplaceRegistryReadResult } from '../../shared/electron-api'
 import {
   MARKETPLACE_CANONICAL_SOURCE,
   parseMarketplaceIndex,
@@ -128,7 +125,12 @@ export class MarketplaceRegistryClient {
     try {
       response = await this.fetchWithTimeout(parsedUrl.url, cache, input.forceRefresh === true)
     } catch (error) {
-      return this.staleSeedOrFailure('offline', registryUrl, cache, `Marketplace registry is offline. ${formatError(error)}`)
+      return this.staleSeedOrFailure(
+        'offline',
+        registryUrl,
+        cache,
+        `Marketplace registry is offline. ${formatError(error)}`,
+      )
     }
 
     if (response.status === 304) {
@@ -170,7 +172,12 @@ export class MarketplaceRegistryClient {
     try {
       source = await response.text()
     } catch (error) {
-      return this.staleSeedOrFailure('offline', registryUrl, cache, `Marketplace registry response could not be read. ${formatError(error)}`)
+      return this.staleSeedOrFailure(
+        'offline',
+        registryUrl,
+        cache,
+        `Marketplace registry response could not be read. ${formatError(error)}`,
+      )
     }
 
     const parsed = parseMarketplaceIndex(source)
@@ -246,7 +253,7 @@ export class MarketplaceRegistryClient {
     registryUrl: string,
     cache: RegistryCacheFile | null,
     message: string,
-    statusCode?: number
+    statusCode?: number,
   ): Promise<MarketplaceRegistryReadResult> {
     if (cache) {
       return {
@@ -335,7 +342,10 @@ export class MarketplaceRegistryClient {
     }
   }
 
-  private async readPackagedSeed(registryUrl: string, failureMessage: string): Promise<MarketplaceRegistryReadResult | null> {
+  private async readPackagedSeed(
+    registryUrl: string,
+    failureMessage: string,
+  ): Promise<MarketplaceRegistryReadResult | null> {
     const seed = await this.loadPackagedSeed()
     if (!seed) return null
     if (!seed.ok) {
@@ -377,7 +387,7 @@ function registrySuccess(
     fetchedAt: string
     etag?: string
     notModified?: boolean
-  }
+  },
 ): MarketplaceRegistryReadResult {
   return {
     ok: true,

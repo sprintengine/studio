@@ -18,7 +18,11 @@ run('only CLIs with a backend support text generation', () => {
 
 run('disabled means no engine, whatever is installed', () => {
   assert.equal(
-    resolveTextGenerationEngine({ enabled: false, engine: { cli: 'codex', model: 'gpt-6-astra' } }, ['codex'], allInstalled),
+    resolveTextGenerationEngine(
+      { enabled: false, engine: { cli: 'codex', model: 'gpt-6-astra' } },
+      ['codex'],
+      allInstalled,
+    ),
     null,
   )
   assert.equal(resolveTextGenerationEngine(null, ['codex'], allInstalled), null)
@@ -26,7 +30,11 @@ run('disabled means no engine, whatever is installed', () => {
 
 run('a chosen engine is used as picked, with the cheap defaults filled in', () => {
   assert.deepEqual(
-    resolveTextGenerationEngine({ enabled: true, engine: { cli: 'codex', model: 'gpt-6-astra', reasoning: 'high' } }, [], allInstalled),
+    resolveTextGenerationEngine(
+      { enabled: true, engine: { cli: 'codex', model: 'gpt-6-astra', reasoning: 'high' } },
+      [],
+      allInstalled,
+    ),
     { cli: 'codex', model: 'gpt-6-astra', reasoning: 'high' },
   )
   assert.deepEqual(
@@ -49,10 +57,11 @@ run('a chosen CLI that is gone falls through to the first supported installed on
 })
 
 run('no engine chosen picks the first supported candidate; none installed means null', () => {
-  assert.deepEqual(
-    resolveTextGenerationEngine({ enabled: true, engine: null }, ['cursor', 'codex'], allInstalled),
-    { cli: 'codex', model: 'gpt-5.6-luna', reasoning: 'low' },
-  )
+  assert.deepEqual(resolveTextGenerationEngine({ enabled: true, engine: null }, ['cursor', 'codex'], allInstalled), {
+    cli: 'codex',
+    model: 'gpt-5.6-luna',
+    reasoning: 'low',
+  })
   assert.equal(
     resolveTextGenerationEngine({ enabled: true, engine: null }, ['codex', 'claude-code'], () => false),
     null,

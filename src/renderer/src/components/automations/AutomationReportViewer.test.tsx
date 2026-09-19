@@ -114,9 +114,7 @@ run('isHtmlReport distinguishes .html from .md (case-insensitive)', () => {
 // ---- ReportViewBody: each terminal state renders correctly ------------------
 
 function body(state: ReportViewState, pullRequestUrl?: string): string {
-  return renderToStaticMarkup(
-    <ReportViewBody state={state} pullRequestUrl={pullRequestUrl} onOpenHtml={() => {}} />,
-  )
+  return renderToStaticMarkup(<ReportViewBody state={state} pullRequestUrl={pullRequestUrl} onOpenHtml={() => {}} />)
 }
 
 run('the markdown state renders the report content via renderMarkdown', () => {
@@ -172,11 +170,7 @@ run('the loading state shows a labelled spinner', () => {
 // the active report and truncates in place; the popup carries the list.
 run('the picker names the active report and offers every report as a choice', () => {
   const markup = renderToStaticMarkup(
-    <ReportPathPicker
-      paths={['reports/a.md', 'reports/b.html']}
-      activePath="reports/a.md"
-      onSelect={() => {}}
-    />,
+    <ReportPathPicker paths={['reports/a.md', 'reports/b.html']} activePath="reports/a.md" onSelect={() => {}} />,
   )
   assert.match(markup, /role="combobox"[^>]*aria-label="Reports"/, 'a single-choice control named for AT')
   assert.match(markup, />a\.md</, 'the trigger reads the active report’s basename')

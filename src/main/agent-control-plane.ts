@@ -282,7 +282,7 @@ export class AgentControlPlane {
   async send(
     target: ControlPlaneTarget,
     text: string,
-    options: ControlPlaneSendOptions = {}
+    options: ControlPlaneSendOptions = {},
   ): Promise<ControlPlaneSendResult> {
     const resolution = this.resolve(target)
     if (!resolution.ok) return resolution
@@ -534,7 +534,7 @@ export class AgentControlPlane {
     sessionId: string,
     text: string,
     submit: boolean,
-    options: ControlPlaneSendOptions
+    options: ControlPlaneSendOptions,
   ): Promise<ControlPlaneSendResult> {
     if (options.waitForReady) {
       const gate = await this.awaitReady(sessionId, options.readyTimeoutMs ?? DEFAULT_READY_TIMEOUT_MS)
@@ -567,15 +567,12 @@ export class AgentControlPlane {
     const confirmed = await this.awaitTurnAccepted(
       sessionId,
       before,
-      options.confirmTimeoutMs ?? DEFAULT_CONFIRM_TIMEOUT_MS
+      options.confirmTimeoutMs ?? DEFAULT_CONFIRM_TIMEOUT_MS,
     )
     return { ok: true, sessionId, transport: 'terminal', submitted: true, confirmed }
   }
 
-  private async sendConversationTurn(
-    session: ControlPlaneSession,
-    text: string
-  ): Promise<ControlPlaneSendResult> {
+  private async sendConversationTurn(session: ControlPlaneSession, text: string): Promise<ControlPlaneSendResult> {
     const conversation = this.deps.conversation
     if (!conversation) return this.conversationUnavailable(session.sessionId)
     const result = await conversation.sendTurn({ sessionId: session.sessionId, message: text })
@@ -598,7 +595,7 @@ export class AgentControlPlane {
    */
   private async awaitReady(
     sessionId: string,
-    timeoutMs: number
+    timeoutMs: number,
   ): Promise<{ ok: true } | Extract<ControlPlaneSendResult, { ok: false }>> {
     const deadline = this.now() + timeoutMs
     for (;;) {
@@ -646,11 +643,7 @@ export class AgentControlPlane {
    * Both are weak on a hookless CLI — which is exactly why this reports a
    * boolean the caller can act on rather than throwing.
    */
-  private async awaitTurnAccepted(
-    sessionId: string,
-    before: ControlPlaneSession,
-    timeoutMs: number
-  ): Promise<boolean> {
+  private async awaitTurnAccepted(sessionId: string, before: ControlPlaneSession, timeoutMs: number): Promise<boolean> {
     const deadline = this.now() + timeoutMs
     // A session that was ALREADY working before the submit proves nothing by
     // still working now — the prompt may simply be buffered behind the turn in
@@ -660,10 +653,7 @@ export class AgentControlPlane {
       const session = this.findSession(sessionId)
       if (!session) return false
       if (!wasWorking && session.phase && WORKING_PHASES.has(session.phase)) return true
-      if (
-        session.lastOutputAt != null
-        && (before.lastOutputAt == null || session.lastOutputAt > before.lastOutputAt)
-      ) {
+      if (session.lastOutputAt != null && (before.lastOutputAt == null || session.lastOutputAt > before.lastOutputAt)) {
         return true
       }
       if (!session.alive || this.now() >= deadline) return false
@@ -684,7 +674,7 @@ export class AgentControlPlane {
 
   private writeTerminal(
     sessionId: string,
-    data: string
+    data: string,
   ): { ok: true } | Extract<ControlPlaneSendResult, { ok: false }> {
     // The runtime's write is a no-op for a session that has exited or been
     // disposed, so without this check the plane would report a delivery that
@@ -739,7 +729,7 @@ export class AgentControlPlane {
     const run = tail.then(job)
     const settled = run.then(
       () => undefined,
-      () => undefined
+      () => undefined,
     )
     this.queues.set(sessionId, settled)
     void settled.then(() => {
@@ -776,12 +766,14 @@ type ParsedTarget =
 
 export function parseTarget(target: ControlPlaneTarget): ParsedTarget | null {
   if (typeof target !== 'string') {
-    if ('sessionId' in target) return target.sessionId.trim() ? { kind: 'sessionId', value: target.sessionId.trim() } : null
+    if ('sessionId' in target)
+      return target.sessionId.trim() ? { kind: 'sessionId', value: target.sessionId.trim() } : null
     if ('agentId' in target) {
       const value = target.agentId.trim()
       return value ? { kind: 'agentId', value, workspaceId: target.workspaceId?.trim() || undefined } : null
     }
-    if ('agentName' in target) return target.agentName.trim() ? { kind: 'agentName', value: target.agentName.trim() } : null
+    if ('agentName' in target)
+      return target.agentName.trim() ? { kind: 'agentName', value: target.agentName.trim() } : null
     if ('cwd' in target) return target.cwd.trim() ? { kind: 'cwd', value: target.cwd.trim() } : null
     if ('cli' in target) return target.cli.trim() ? { kind: 'cli', value: target.cli.trim() } : null
     return null
@@ -822,10 +814,7 @@ function matchesTarget(session: ControlPlaneSession, target: ParsedTarget): bool
     case 'agentName':
       // Agent NAME is what a person types; agent id is what the app stores.
       // Accepting either keeps a scripted caller from needing to know which.
-      return (
-        session.agentName?.toLowerCase() === target.value.toLowerCase()
-        || session.agentId === target.value
-      )
+      return session.agentName?.toLowerCase() === target.value.toLowerCase() || session.agentId === target.value
     case 'cwd':
       return Boolean(session.cwd && session.cwd.includes(target.value))
     case 'cli':

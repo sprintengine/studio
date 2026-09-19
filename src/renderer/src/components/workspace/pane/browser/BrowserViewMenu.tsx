@@ -34,7 +34,13 @@ const SCHEMES: { value: BrowserColorScheme; label: string }[] = [
 function Tick() {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
-      <path d="M3.5 8.5 6.5 11.5 12.5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M3.5 8.5 6.5 11.5 12.5 5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -92,7 +98,9 @@ export function BrowserViewMenu({
               key={option.value}
               checked={scheme === option.value}
               selection="one-of"
-              icon={scheme === option.value ? <Tick /> : <span className="inline-block size-[13px]" aria-hidden="true" />}
+              icon={
+                scheme === option.value ? <Tick /> : <span className="inline-block size-[13px]" aria-hidden="true" />
+              }
               onClick={() => {
                 onColorScheme(option.value)
                 close()

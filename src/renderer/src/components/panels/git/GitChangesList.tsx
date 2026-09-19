@@ -214,7 +214,11 @@ export function GitChangesList({
       event.preventDefault()
       const row = visibleRows[cursorIndex]
       if (row) onOpenInEditor(row)
-    } else if ((event.metaKey || event.ctrlKey) && event.altKey && (event.key === 'a' || event.key === 'A' || event.code === 'KeyA')) {
+    } else if (
+      (event.metaKey || event.ctrlKey) &&
+      event.altKey &&
+      (event.key === 'a' || event.key === 'A' || event.code === 'KeyA')
+    ) {
       event.preventDefault()
       const row = visibleRows[cursorIndex]
       if (row) onAddToGit(row)
@@ -319,9 +323,7 @@ export function GitChangesList({
                 // `runAction` already refuses a second one, and withholding the
                 // handler here would make the box a dead area that the row
                 // underneath answers for.
-                onCheckedChange={
-                  group.checked === null ? undefined : (next) => onToggleGroup(group, next)
-                }
+                onCheckedChange={group.checked === null ? undefined : (next) => onToggleGroup(group, next)}
                 checkLabel={`Stage every file in ${group.title}`}
                 // The chip states a fact that was true before the person
                 // arrived — this is the list the next change lands in — which is
@@ -392,8 +394,7 @@ export function GitChangesList({
                               name where a screen reader meets it first. */}
                           {row.partial ? (
                             <span className="sr-only">
-                              , partial: {group.title}’s changes only. Ticking stages that list’s hunks
-                              of this file.
+                              , partial: {group.title}’s changes only. Ticking stages that list’s hunks of this file.
                             </span>
                           ) : null}
                         </span>
@@ -439,8 +440,8 @@ export function GitChangesList({
               </div>
               {group.omittedCount > 0 ? (
                 <div className="mx-2 mt-1 rounded-sm border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface-raised)] px-2 py-1.5 text-micro text-[color:var(--text-subtle)]">
-                  {group.omittedCount} more changes are hidden to keep the panel responsive. The group’s
-                  checkbox still stages or unstages every one of them.
+                  {group.omittedCount} more changes are hidden to keep the panel responsive. The group’s checkbox still
+                  stages or unstages every one of them.
                 </div>
               ) : null}
             </div>

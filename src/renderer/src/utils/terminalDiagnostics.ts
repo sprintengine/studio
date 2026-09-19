@@ -115,12 +115,8 @@ export function createTerminalDiagnostics(input: TerminalDiagnosticsInput) {
 
     const now = performance.now()
     const elapsedMs = Math.max(now - lastFlushAt, 1)
-    const inputWriteAvgMs = counters.inputWriteCount > 0
-      ? counters.inputWriteTotalMs / counters.inputWriteCount
-      : 0
-    const outputWriteAvgMs = counters.outputWriteCount > 0
-      ? counters.outputWriteTotalMs / counters.outputWriteCount
-      : 0
+    const inputWriteAvgMs = counters.inputWriteCount > 0 ? counters.inputWriteTotalMs / counters.inputWriteCount : 0
+    const outputWriteAvgMs = counters.outputWriteCount > 0 ? counters.outputWriteTotalMs / counters.outputWriteCount : 0
 
     logPerfEvent(input.scope, 'terminal-profile', {
       ...commonPayload,

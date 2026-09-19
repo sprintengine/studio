@@ -1,10 +1,23 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
-import { FolderTypeIcon, GitBranchGlyph, NewChatIcon, RemoteMachineGlyph, resolveEnabledWorkspaceType } from '../AppIcons'
+import {
+  FolderTypeIcon,
+  GitBranchGlyph,
+  NewChatIcon,
+  RemoteMachineGlyph,
+  resolveEnabledWorkspaceType,
+} from '../AppIcons'
 import CliIcon from '../CliIcon'
 import { isLiveTerminal, useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { hasTerminalSessionsSnapshot } from '../../hooks/terminalSessionsStore'
 import { useSidebarGitSummaries } from './useSidebarGitSummaries'
-import { changedFileMarks, checkoutPathsOf, diffScopeCopy, lineOfRemoteRow, terminalLinesOf, type TerminalLine } from './terminalLines'
+import {
+  changedFileMarks,
+  checkoutPathsOf,
+  diffScopeCopy,
+  lineOfRemoteRow,
+  terminalLinesOf,
+  type TerminalLine,
+} from './terminalLines'
 import { suspendWorkspaceTerminals, terminateWorkspaceTerminals } from './workspaceTerminalTermination'
 import { ConversationPeekPopover } from './ConversationPeekPopover'
 import {
@@ -19,7 +32,11 @@ import { peekStatusOf, rowConversationPeekIdentities } from './conversationPeekR
 import { changelistOwnerId } from '../../../../shared/git/changelists'
 import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import type { AgentCli } from '../../../../shared/electron-api'
-import { folderIdentityKey, useFolderRepositoryIdentities, type FolderIdentityMap } from './useFolderRepositoryIdentities'
+import {
+  folderIdentityKey,
+  useFolderRepositoryIdentities,
+  type FolderIdentityMap,
+} from './useFolderRepositoryIdentities'
 import type { RepositoryIdentity } from '../../../../shared/repository-identity'
 import { FolderIdentityIcon } from './FolderIdentityIcon'
 import { getRendererHost, selectModuleEnabled } from '../../modules'
@@ -55,12 +72,7 @@ import {
 import { Modal, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { ExtensionsRail } from './ExtensionsRail'
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import {
-  type HighlightColor,
-  type LayoutTemplate,
-  type Workspace,
-  type WorkspaceId,
-} from '../../types/workspace'
+import { type HighlightColor, type LayoutTemplate, type Workspace, type WorkspaceId } from '../../types/workspace'
 import { getHighlightSwatch, hasHighlightOverride, isStarred } from '../../utils/highlight'
 import {
   projectColorKey,
@@ -79,11 +91,7 @@ import {
   removeTab,
   type CrossWorkspaceTabSpec,
 } from '../../utils/modelRegistry'
-import {
-  dataTransferHasTabDrag,
-  readTabDragPayload,
-  type TabDragPayload,
-} from '../../utils/tabDragPayload'
+import { dataTransferHasTabDrag, readTabDragPayload, type TabDragPayload } from '../../utils/tabDragPayload'
 import { useRelativeNow } from '../../hooks/useRelativeNow'
 import { useRemoteSessions } from './remoteBand/useRemoteSessions'
 import {
@@ -113,7 +121,6 @@ import {
 } from '../../utils/workspaceSnooze'
 import { workspaceRowEmphasis } from '../../utils/workspaceRowEmphasis'
 import { ensureProjectSidecarDirName } from '../../utils/projectSidecar'
-
 
 type Activity = 'working' | 'failed' | 'needs-input' | 'idle'
 
@@ -250,7 +257,7 @@ export type LocalGroupHeader = { key: string; folderPath: string; missing: boole
 
 function resolveGroups(
   workspaces: readonly Workspace[],
-  identities: FolderIdentityMap
+  identities: FolderIdentityMap,
 ): { keys: Map<string, string>; headers: Map<string, LocalGroupHeader> } {
   // The local twin per repository, chosen by a rule that does not move when
   // rows are reordered or a chat is added: a plain checkout over a worktree
@@ -276,9 +283,9 @@ function resolveGroups(
     }
     const current = localByIdentity.get(identity.canonicalKey)
     const better =
-      !current
-      || (current.worktree && !candidate.worktree)
-      || (current.worktree === candidate.worktree && candidate.folder < current.folder)
+      !current ||
+      (current.worktree && !candidate.worktree) ||
+      (current.worktree === candidate.worktree && candidate.folder < current.folder)
     if (better) localByIdentity.set(identity.canonicalKey, candidate)
   }
   for (const workspace of workspaces) {
@@ -311,7 +318,6 @@ function resolveGroups(
   }
   return { keys, headers }
 }
-
 
 const DRAG_MIME_WORKSPACE = 'application/x-multicode-workspace'
 const DRAG_MIME_FOLDER = 'application/x-multicode-folder'
@@ -444,7 +450,7 @@ function remoteGroupDisplayName(workspace: Workspace): string {
 function buildFolderGroups(
   workspaces: Workspace[],
   keyOf: (workspace: Workspace) => string = groupKeyOf,
-  headers: ReadonlyMap<string, LocalGroupHeader> = new Map()
+  headers: ReadonlyMap<string, LocalGroupHeader> = new Map(),
 ): FolderGroup[] {
   const groupOrder: string[] = []
   const groups = new Map<string, FolderGroup>()
@@ -457,7 +463,7 @@ function buildFolderGroups(
       // local one, a worktree filed under its project — never founds the
       // group with a header of its own: the header is the project's, read
       // off the header map whatever row happens to come first in the list.
-      const merged = key !== ownFolderKeyOf(workspace) ? headers.get(key) ?? null : null
+      const merged = key !== ownFolderKeyOf(workspace) ? (headers.get(key) ?? null) : null
       const remote = merged ? null : remoteGroupOf(workspace)
       // Trimmed for the same reason `folderKey` trims: whatever the key
       // called "no folder" must not reappear as a header path made of spaces.
@@ -600,7 +606,7 @@ function reorderWithinFolder(
   workspaces: Workspace[],
   draggedId: WorkspaceId,
   targetId: WorkspaceId,
-  position: 'before' | 'after'
+  position: 'before' | 'after',
 ): WorkspaceId[] {
   const next = [...workspaces]
   const draggedIdx = next.findIndex((w) => w.id === draggedId)
@@ -621,7 +627,7 @@ function reorderFolders(
   draggedKey: string,
   targetKey: string,
   position: 'before' | 'after',
-  keyOf: (workspace: Workspace) => string = groupKeyOf
+  keyOf: (workspace: Workspace) => string = groupKeyOf,
 ): WorkspaceId[] {
   const groups = buildFolderGroups(workspaces, keyOf)
   const draggedGroup = groups.find((g) => g.key === draggedKey)
@@ -640,18 +646,17 @@ function reorderFolders(
 function didWorkspaceDragLeaveSidebar(event: React.DragEvent, sidebar: HTMLElement | null): boolean {
   if (!sidebar) return false
   const rect = sidebar.getBoundingClientRect()
-  const clientOutside = event.clientX < rect.left
-    || event.clientX > rect.right
-    || event.clientY < rect.top
-    || event.clientY > rect.bottom
+  const clientOutside =
+    event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom
   const screenLeft = window.screenX + rect.left
   const screenRight = window.screenX + rect.right
   const screenTop = window.screenY + rect.top
   const screenBottom = window.screenY + rect.bottom
-  const screenOutside = event.screenX < screenLeft
-    || event.screenX > screenRight
-    || event.screenY < screenTop
-    || event.screenY > screenBottom
+  const screenOutside =
+    event.screenX < screenLeft ||
+    event.screenX > screenRight ||
+    event.screenY < screenTop ||
+    event.screenY > screenBottom
   return clientOutside || screenOutside
 }
 
@@ -726,7 +731,13 @@ function ShelfFoldRow({
             expanded ? '' : '-rotate-90'
           }`}
         >
-          <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+          <path
+            d="M5 6L8 9L11 6"
+            stroke="currentColor"
+            strokeWidth="1.6"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </svg>
         <span className="truncate">{label}</span>
         <span className="tabular-nums text-[color:var(--text-subtle)]">{count}</span>
@@ -753,7 +764,7 @@ function ShelfFoldRow({
  */
 export function rowOpenTerminals(
   workspace: Workspace,
-  liveSessionsByWorkspaceId: ReadonlyMap<string, ReadonlyArray<{ sessionId: string; cli?: string }>>
+  liveSessionsByWorkspaceId: ReadonlyMap<string, ReadonlyArray<{ sessionId: string; cli?: string }>>,
 ): Array<{ sessionId: string; cli?: string; remote?: boolean }> {
   return [
     ...(liveSessionsByWorkspaceId.get(workspace.id) ?? []).map((session) => ({
@@ -771,7 +782,7 @@ export function rowOpenTerminals(
 /** Whether a row has any open terminal at all — the gate on its second line and its git poll. */
 export function rowHasOpenTerminals(
   workspace: Workspace,
-  liveSessionsByWorkspaceId: ReadonlyMap<string, ReadonlyArray<unknown>>
+  liveSessionsByWorkspaceId: ReadonlyMap<string, ReadonlyArray<unknown>>,
 ): boolean {
   return (liveSessionsByWorkspaceId.get(workspace.id)?.length ?? 0) > 0 || fleetPanesOf(workspace).length > 0
 }
@@ -865,7 +876,10 @@ function deriveUnseenCompletions(input: {
 }
 
 /** A live session whose hooks report a settled phase: the turn ended, the agent is still there. */
-function isHookSettledSession(session: { processAlive: boolean; agentState?: { phase: string; source: string } }): boolean {
+function isHookSettledSession(session: {
+  processAlive: boolean
+  agentState?: { phase: string; source: string }
+}): boolean {
   if (!session.processAlive) return false
   const state = session.agentState
   if (!state || state.source !== 'hook') return false
@@ -1038,7 +1052,12 @@ function RemoteRowGlyph({ machineName }: { machineName: string }) {
   const short = shortMachineName(machineName)
   return (
     <Tooltip content={`On ${short}`} placement="bottom" wrapperClassName="flex shrink-0 items-center">
-      <span role="img" aria-label={`On ${short}`} className="flex shrink-0 items-center" data-remote-row-glyph={machineName}>
+      <span
+        role="img"
+        aria-label={`On ${short}`}
+        className="flex shrink-0 items-center"
+        data-remote-row-glyph={machineName}
+      >
         <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--tone-good)]" />
       </span>
     </Tooltip>
@@ -1286,7 +1305,13 @@ export function TerminalLineView({
             <RemoteMachineGlyph className="icon-xs text-[color:var(--text-muted)]" />
           ) : (
             <svg viewBox="0 0 10 10" fill="none" aria-hidden="true" className="icon-xs text-[color:var(--text-muted)]">
-              <path d="M2 2.5L4.5 5L2 7.5" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M2 2.5L4.5 5L2 7.5"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
               <path d="M5.8 8h2.6" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" />
             </svg>
           )}
@@ -1304,7 +1329,10 @@ export function TerminalLineView({
       {line.branch ? (
         <BranchChip branch={line.branch} worktree={line.worktree} cwd={line.cwd} dim={dim} />
       ) : line.removed ? (
-        <Tooltip content={line.cwd ? `Directory removed — ${line.cwd}` : 'Directory removed'} wrapperClassName="flex shrink-0 items-center">
+        <Tooltip
+          content={line.cwd ? `Directory removed — ${line.cwd}` : 'Directory removed'}
+          wrapperClassName="flex shrink-0 items-center"
+        >
           <span className="shrink-0 text-micro text-[color:var(--tone-error)]">Removed</span>
         </Tooltip>
       ) : null}
@@ -1352,9 +1380,7 @@ export function TerminalLineView({
               <span className="ml-1 text-[color:var(--tone-error)]">−{marks?.minus ?? 0}</span>
             </LinkButton>
           ) : (
-            <span
-              className={`shrink-0 font-mono text-micro tabular-nums ${diffCopy.dim ? 'opacity-60' : ''}`}
-            >
+            <span className={`shrink-0 font-mono text-micro tabular-nums ${diffCopy.dim ? 'opacity-60' : ''}`}>
               <span className="text-[color:var(--tone-good)]">+{marks?.plus ?? 0}</span>
               <span className="ml-1 text-[color:var(--tone-error)]">−{marks?.minus ?? 0}</span>
               <span className="sr-only">{diffCopy.srText}</span>
@@ -1399,10 +1425,14 @@ export function TerminalLineView({
               <span className="sr-only">Needs your input</span>
             )
           ) : idleText ? (
-            <RowTooltip content={`${line.idleLabel} ${formatRelativeMsAgo(line.idleSince!, now)} (${new Date(line.idleSince!).toLocaleString()})`}>
+            <RowTooltip
+              content={`${line.idleLabel} ${formatRelativeMsAgo(line.idleSince!, now)} (${new Date(line.idleSince!).toLocaleString()})`}
+            >
               <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
                 <span aria-hidden="true">{idleText}</span>
-                <span className="sr-only">{line.idleLabel} {formatRelativeMsAgo(line.idleSince!, now)}</span>
+                <span className="sr-only">
+                  {line.idleLabel} {formatRelativeMsAgo(line.idleSince!, now)}
+                </span>
               </span>
             </RowTooltip>
           ) : null}
@@ -1510,7 +1540,7 @@ export default function WorkspaceSidebar({
   // membership change triggers.
   const liveWorkspaces = useMemo(
     () => workspaces.filter((workspace) => rowHasOpenTerminals(workspace, sessionsByWorkspaceId)),
-    [workspaces, sessionsByWorkspaceId]
+    [workspaces, sessionsByWorkspaceId],
   )
   // The poll asks about CHECKOUTS (sidebar-lists-every-terminal): the distinct
   // ones a live row's sessions sit on, keyed by path — two agents on one
@@ -1606,7 +1636,7 @@ export default function WorkspaceSidebar({
       if (!workspace || !rowHasOpenTerminals(workspace, sessionsByWorkspaceId)) return
       void terminateWorkspaceTerminals(workspace)
     },
-    [workspaces, sessionsByWorkspaceId]
+    [workspaces, sessionsByWorkspaceId],
   )
 
   // Settle by hand: the record first, then the ptys — the row must move even
@@ -1616,7 +1646,7 @@ export default function WorkspaceSidebar({
       setWorkspaceSettled(id, true)
       quietSettledWorkspace(id)
     },
-    [setWorkspaceSettled, quietSettledWorkspace]
+    [setWorkspaceSettled, quietSettledWorkspace],
   )
 
   // Snooze by hand (owner ruling, 2026-09-10): the record first, then PAUSE the
@@ -1637,7 +1667,7 @@ export default function WorkspaceSidebar({
       if (!workspace || !rowHasOpenTerminals(workspace, sessionsByWorkspaceId)) return
       void suspendWorkspaceTerminals(workspace)
     },
-    [setWorkspaceSnoozed, workspaces, sessionsByWorkspaceId]
+    [setWorkspaceSnoozed, workspaces, sessionsByWorkspaceId],
   )
 
   // The rest sweep (settled-chats, 2026-09-07): on the 30 s tick the idle
@@ -1720,12 +1750,7 @@ export default function WorkspaceSidebar({
         else if (workspaceId) onSelectWorkspace(workspaceId)
         return
       }
-      if (
-        event.key !== 'ArrowDown'
-        && event.key !== 'ArrowUp'
-        && event.key !== 'Home'
-        && event.key !== 'End'
-      ) {
+      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp' && event.key !== 'Home' && event.key !== 'End') {
         return
       }
       const rows = getTreeRows()
@@ -1743,7 +1768,7 @@ export default function WorkspaceSidebar({
       target.focus()
       setRovingKey(target.dataset.rowKey ?? null)
     },
-    [getTreeRows, onSelectWorkspace]
+    [getTreeRows, onSelectWorkspace],
   )
   // True while the user is dragging the resize handle — suppresses the width
   // glide so the rail tracks the pointer instead of lagging behind a 150ms
@@ -1807,7 +1832,7 @@ export default function WorkspaceSidebar({
         },
       })
     },
-    [sidebarCollapsed, sidebarWidth, onSetSidebarCollapsed, onSetSidebarWidth]
+    [sidebarCollapsed, sidebarWidth, onSetSidebarCollapsed, onSetSidebarWidth],
   )
 
   // Keyboard resizing for the separator handle: arrows nudge width (and cross
@@ -1835,7 +1860,7 @@ export default function WorkspaceSidebar({
         onSetSidebarWidth(SIDEBAR_DEFAULT_WIDTH)
       }
     },
-    [sidebarCollapsed, sidebarWidth, onSetSidebarCollapsed, onSetSidebarWidth]
+    [sidebarCollapsed, sidebarWidth, onSetSidebarCollapsed, onSetSidebarWidth],
   )
 
   // Double-click resets to the default width (and expands if collapsed).
@@ -1844,9 +1869,7 @@ export default function WorkspaceSidebar({
     onSetSidebarWidth(SIDEBAR_DEFAULT_WIDTH)
   }, [sidebarCollapsed, onSetSidebarCollapsed, onSetSidebarWidth])
   const dragRef = useRef<
-    | { type: 'workspace'; id: WorkspaceId; folderKey: string }
-    | { type: 'folder'; folderKey: string }
-    | null
+    { type: 'workspace'; id: WorkspaceId; folderKey: string } | { type: 'folder'; folderKey: string } | null
   >(null)
   const [dropIndicator, setDropIndicator] = useState<
     | { kind: 'workspace'; targetId: WorkspaceId; position: 'before' | 'after' }
@@ -1854,10 +1877,7 @@ export default function WorkspaceSidebar({
     | null
   >(null)
   const [tabDropTarget, setTabDropTarget] = useState<
-    | { kind: 'new' }
-    | { kind: 'workspace'; id: WorkspaceId }
-    | { kind: 'folder'; key: string }
-    | null
+    { kind: 'new' } | { kind: 'workspace'; id: WorkspaceId } | { kind: 'folder'; key: string } | null
   >(null)
 
   // Rail-hidden workspaces — the background Automations host, and any
@@ -1872,7 +1892,7 @@ export default function WorkspaceSidebar({
   // that has come to rest is one glance away rather than gone.
   const railWorkspaces = useMemo(
     () => workspaces.filter((workspace) => !isHiddenFromRail(workspace, moduleOverrides)),
-    [workspaces, moduleOverrides]
+    [workspaces, moduleOverrides],
   )
 
   // Each paired machine's sessions, read while this rail is the one showing; a
@@ -1884,7 +1904,12 @@ export default function WorkspaceSidebar({
   // this device is on the tailnet decides which rows exist at all (below), and
   // the browse decides how many lines each open remote row draws.
   const remoteSessions = useRemoteSessions({ enabled: !contextRailActive })
-  const { presence: remotePresence, browses: remoteBrowses, listening: remoteListening, link: remoteLink } = remoteSessions
+  const {
+    presence: remotePresence,
+    browses: remoteBrowses,
+    listening: remoteListening,
+    link: remoteLink,
+  } = remoteSessions
   const remoteGroups = useMemo(
     () =>
       buildRemoteBand({
@@ -1894,7 +1919,13 @@ export default function WorkspaceSidebar({
         reachability: remotePresence.fleetReachability,
         workspaces: railWorkspaces,
       }),
-    [remotePresence.fleet, remoteBrowses, remotePresence.fleetAttachments, remotePresence.fleetReachability, railWorkspaces]
+    [
+      remotePresence.fleet,
+      remoteBrowses,
+      remotePresence.fleetAttachments,
+      remotePresence.fleetReachability,
+      railWorkspaces,
+    ],
   )
 
   // Rows born on a paired machine (`workspace.remoteOrigin`) file under a
@@ -1919,7 +1950,7 @@ export default function WorkspaceSidebar({
   // attached to what, and their rows come back with the link.
   const localRailWorkspaces = useMemo(
     () => (remoteLink === 'down' ? railWorkspaces.filter((workspace) => !workspace.remoteOrigin) : railWorkspaces),
-    [railWorkspaces, remoteLink]
+    [railWorkspaces, remoteLink],
   )
 
   // Repository identity per open local folder (one-project-across-machines),
@@ -1935,8 +1966,8 @@ export default function WorkspaceSidebar({
   const folderIdentities = useFolderRepositoryIdentities(
     useMemo(
       () => localRailWorkspaces.flatMap((workspace) => [workspace.folderPath, workspaceProjectRoot(workspace)]),
-      [localRailWorkspaces]
-    )
+      [localRailWorkspaces],
+    ),
   )
   // Which sidecar directory each of those projects uses, resolved here because
   // the rail is the one surface that sees every open project — including the
@@ -1952,14 +1983,17 @@ export default function WorkspaceSidebar({
   }, [localRailWorkspaces])
   // Resolved over the rail's rows, not every workspace: a local folder whose
   // rows are all hidden or archived is not a header a remote row can join.
-  const resolvedGroups = useMemo(() => resolveGroups(localRailWorkspaces, folderIdentities), [localRailWorkspaces, folderIdentities])
+  const resolvedGroups = useMemo(
+    () => resolveGroups(localRailWorkspaces, folderIdentities),
+    [localRailWorkspaces, folderIdentities],
+  )
   const keyOf = useCallback(
     (workspace: Workspace) => resolvedGroups.keys.get(workspace.id) ?? groupKeyOf(workspace),
-    [resolvedGroups]
+    [resolvedGroups],
   )
   const localGroups = useMemo(
     () => buildFolderGroups(localRailWorkspaces, keyOf, resolvedGroups.headers),
-    [localRailWorkspaces, keyOf, resolvedGroups]
+    [localRailWorkspaces, keyOf, resolvedGroups],
   )
   // Which header a given repository already has here, so a remote conversation
   // of that repository joins it instead of founding a second one beside it.
@@ -1980,7 +2014,7 @@ export default function WorkspaceSidebar({
   // group themselves; listing them here too would be the same chat twice.
   const unattachedRemote = useMemo(
     () => unattachedConversations(remoteGroups, remoteListening, railWorkspaces),
-    [remoteGroups, remoteListening, railWorkspaces]
+    [remoteGroups, remoteListening, railWorkspaces],
   )
   // …and the complement: the conversation each OPEN remote row IS, so that row
   // can draw a line per agent standing in it instead of the single inert line
@@ -1991,7 +2025,7 @@ export default function WorkspaceSidebar({
       remoteLink === 'down'
         ? new Map<string, RemoteConversation>()
         : attachedConversations(remoteGroups, railWorkspaces),
-    [remoteGroups, remoteLink, railWorkspaces]
+    [remoteGroups, remoteLink, railWorkspaces],
   )
   // Which project header a remote conversation files under. The same rule the
   // remote-born WORKSPACES follow (`groupKeyOf` + `resolveGroups`): this disk's
@@ -2003,7 +2037,7 @@ export default function WorkspaceSidebar({
       if (canonicalKey) return groupKeyByRepository.get(canonicalKey) ?? `remote-repo:${canonicalKey}`
       return `remote:${conversation.connectionId}:${folderKey(conversation.workspaceRoot)}`
     },
-    [groupKeyByRepository]
+    [groupKeyByRepository],
   )
   // The projects, with the remote conversations filed into them. A project
   // nothing here has open — every chat in it running on another machine — is a
@@ -2162,7 +2196,7 @@ export default function WorkspaceSidebar({
         settled: folderIdentities.has(identityKey),
       }
     },
-    [folderIdentities]
+    [folderIdentities],
   )
   const projectKeyByGroupKey = useMemo(() => {
     const map = new Map<string, { key: string | null; settled: boolean }>()
@@ -2171,11 +2205,11 @@ export default function WorkspaceSidebar({
   }, [groups, projectKeyOfGroup])
   const projectKeyOf = useCallback(
     (groupKey: string): string | null => projectKeyByGroupKey.get(groupKey)?.key ?? null,
-    [projectKeyByGroupKey]
+    [projectKeyByGroupKey],
   )
   const projectKeySettled = useCallback(
     (groupKey: string): boolean => projectKeyByGroupKey.get(groupKey)?.settled === true,
-    [projectKeyByGroupKey]
+    [projectKeyByGroupKey],
   )
   // The hue a group's glyph wears: the person's override, else the hue hashed
   // from its key — and null until that key is final, per `settled` above.
@@ -2184,7 +2218,7 @@ export default function WorkspaceSidebar({
       const project = projectKeyByGroupKey.get(groupKey)
       return project?.settled ? resolveProjectColor(projectColors, project.key) : null
     },
-    [projectKeyByGroupKey, projectColors]
+    [projectKeyByGroupKey, projectColors],
   )
 
   // A stream row's project line. The same header the tree would have filed the
@@ -2212,7 +2246,7 @@ export default function WorkspaceSidebar({
         unfiled: !group?.remote && !folderPath,
       }
     },
-    [groupByKey, keyOf, openPullRequestsByGroup, projectColorOf]
+    [groupByKey, keyOf, openPullRequestsByGroup, projectColorOf],
   )
 
   // The same line for a conversation on a paired machine. It resolves through
@@ -2236,7 +2270,7 @@ export default function WorkspaceSidebar({
         unfiled: false,
       }
     },
-    [groupByKey, remoteGroupKeyOf, openPullRequestsByGroup, projectColorOf]
+    [groupByKey, remoteGroupKeyOf, openPullRequestsByGroup, projectColorOf],
   )
 
   // The row you are in always has a row: a settled chat you selected (or
@@ -2244,7 +2278,7 @@ export default function WorkspaceSidebar({
   // leave it, and drops into the shelf then. Reading it never wakes it.
   const isShelved = useCallback(
     (workspace: Workspace) => isSettledWorkspace(workspace) && workspace.id !== activeWorkspaceId,
-    [activeWorkspaceId]
+    [activeWorkspaceId],
   )
 
   // Asleep RIGHT NOW: the wake time is still ahead, and that is the whole test
@@ -2254,7 +2288,7 @@ export default function WorkspaceSidebar({
   // this is the belt to that braces.
   const isAsleep = useCallback(
     (workspace: Workspace) => workspace.id !== activeWorkspaceId && isSnoozedWorkspace(workspace, now),
-    [activeWorkspaceId, now]
+    [activeWorkspaceId, now],
   )
 
   // A row that came back and has not been opened since. The list's order is
@@ -2320,14 +2354,14 @@ export default function WorkspaceSidebar({
         // too: a row withheld from its project and left standing up here would
         // be the same chat saying two different things about whether it exists.
         localRailWorkspaces.filter(
-          (workspace) => isStarred(workspace.highlight) && !isSettledWorkspace(workspace) && !isAsleep(workspace)
-        )
+          (workspace) => isStarred(workspace.highlight) && !isSettledWorkspace(workspace) && !isAsleep(workspace),
+        ),
       ),
-    [localRailWorkspaces, isAsleep]
+    [localRailWorkspaces, isAsleep],
   )
   const starredWorkspaceIds = useMemo(
     () => new Set(starredWorkspaces.map((workspace) => workspace.id)),
-    [starredWorkspaces]
+    [starredWorkspaces],
   )
 
   // A conversation running on a paired machine keeps its project here, the
@@ -2342,9 +2376,9 @@ export default function WorkspaceSidebar({
       groups.filter(
         (group) =>
           group.remoteRows.length > 0 ||
-          !group.workspaces.every((w) => isShelved(w) || isAsleep(w) || starredWorkspaceIds.has(w.id))
+          !group.workspaces.every((w) => isShelved(w) || isAsleep(w) || starredWorkspaceIds.has(w.id)),
       ),
-    [groups, isShelved, isAsleep, starredWorkspaceIds]
+    [groups, isShelved, isAsleep, starredWorkspaceIds],
   )
 
   const workspaceById = useMemo(() => {
@@ -2419,7 +2453,7 @@ export default function WorkspaceSidebar({
       }
       onCloseWorkspace(workspaceId)
     },
-    [workspaceById, activityByWorkspaceId, onCloseWorkspace]
+    [workspaceById, activityByWorkspaceId, onCloseWorkspace],
   )
 
   const runWorkspaceTypeRowAction = useCallback(
@@ -2432,7 +2466,7 @@ export default function WorkspaceSidebar({
         setTypeActionBusy(false)
       }
     },
-    [typeActionBusy]
+    [typeActionBusy],
   )
 
   const handleRowDragStart = (event: React.DragEvent, workspace: Workspace, fKey: string) => {
@@ -2453,7 +2487,7 @@ export default function WorkspaceSidebar({
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    const position: 'before' | 'after' = (event.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
+    const position: 'before' | 'after' = event.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
     setDropIndicator({ kind: 'workspace', targetId: targetWorkspace.id, position })
   }
 
@@ -2465,7 +2499,7 @@ export default function WorkspaceSidebar({
     if (drag.folderKey !== fKey) return
     event.preventDefault()
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    const position: 'before' | 'after' = (event.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
+    const position: 'before' | 'after' = event.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
     if (drag.id === targetWorkspace.id) return
 
     const folderWorkspaces = workspaces.filter((w) => keyOf(w) === fKey)
@@ -2502,7 +2536,7 @@ export default function WorkspaceSidebar({
     event.preventDefault()
     event.dataTransfer.dropEffect = 'move'
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    const position: 'before' | 'after' = (event.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
+    const position: 'before' | 'after' = event.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
     setDropIndicator({ kind: 'folder', targetKey: fKey, position })
   }
 
@@ -2514,7 +2548,7 @@ export default function WorkspaceSidebar({
     event.preventDefault()
     if (drag.folderKey === fKey) return
     const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    const position: 'before' | 'after' = (event.clientY - rect.top) < rect.height / 2 ? 'before' : 'after'
+    const position: 'before' | 'after' = event.clientY - rect.top < rect.height / 2 ? 'before' : 'after'
     const newOrder = reorderFolders(workspaces, drag.folderKey, fKey, position, keyOf)
     reorderWorkspaces(newOrder)
   }
@@ -2533,26 +2567,20 @@ export default function WorkspaceSidebar({
     (payload: TabDragPayload, destWorkspaceId: WorkspaceId) => {
       if (payload.sourceWorkspaceId === destWorkspaceId) return
       if (payload.component === 'agent') {
-        const agentId =
-          payload.config && typeof payload.config.agentId === 'string'
-            ? payload.config.agentId
-            : null
+        const agentId = payload.config && typeof payload.config.agentId === 'string' ? payload.config.agentId : null
         if (agentId) {
           moveAgentToWorkspace(payload.sourceWorkspaceId, destWorkspaceId, agentId)
         }
         return
       }
       if (payload.component === 'file-editor') {
-        const filePath =
-          payload.config && typeof payload.config.filePath === 'string'
-            ? payload.config.filePath
-            : null
+        const filePath = payload.config && typeof payload.config.filePath === 'string' ? payload.config.filePath : null
         if (filePath) {
           moveOpenFileToWorkspace(payload.sourceWorkspaceId, destWorkspaceId, filePath)
         }
       }
     },
-    [moveAgentToWorkspace, moveOpenFileToWorkspace]
+    [moveAgentToWorkspace, moveOpenFileToWorkspace],
   )
 
   const handleTabDragOverNew = useCallback((event: React.DragEvent) => {
@@ -2575,8 +2603,7 @@ export default function WorkspaceSidebar({
       // Prefer the live-model spec (has the most up-to-date className/config)
       // and fall back to the drag payload if the source model has been
       // unmounted between drag start and drop.
-      const liveSpec =
-        extractTabSpec(payload.sourceWorkspaceId, payload.tabId) ?? null
+      const liveSpec = extractTabSpec(payload.sourceWorkspaceId, payload.tabId) ?? null
       const spec: CrossWorkspaceTabSpec = liveSpec ?? {
         component: payload.component,
         name: payload.name,
@@ -2601,7 +2628,7 @@ export default function WorkspaceSidebar({
       migrateTabSideEffects(payload, newWorkspaceId)
       removeTab(payload.sourceWorkspaceId, payload.tabId, { preserveRuntime: true })
     },
-    [addWorkspaceFromStore, migrateTabSideEffects, workspaceWindowId]
+    [addWorkspaceFromStore, migrateTabSideEffects, workspaceWindowId],
   )
 
   const handleTabDropOnNew = useCallback(
@@ -2615,23 +2642,18 @@ export default function WorkspaceSidebar({
       const sourceWorkspace = workspaceById.get(payload.sourceWorkspaceId) ?? null
       extractTabIntoNewWorkspace(payload, sourceWorkspace?.folderPath ?? null)
     },
-    [extractTabIntoNewWorkspace, workspaceById]
+    [extractTabIntoNewWorkspace, workspaceById],
   )
 
-  const handleTabDragOverRow = useCallback(
-    (event: React.DragEvent, workspace: Workspace) => {
-      if (!dataTransferHasTabDrag(event.dataTransfer)) return
-      event.preventDefault()
-      event.dataTransfer.dropEffect = 'move'
-      setTabDropTarget({ kind: 'workspace', id: workspace.id })
-    },
-    []
-  )
+  const handleTabDragOverRow = useCallback((event: React.DragEvent, workspace: Workspace) => {
+    if (!dataTransferHasTabDrag(event.dataTransfer)) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setTabDropTarget({ kind: 'workspace', id: workspace.id })
+  }, [])
 
   const handleTabDragLeaveRow = useCallback((workspaceId: WorkspaceId) => {
-    setTabDropTarget((current) =>
-      current?.kind === 'workspace' && current.id === workspaceId ? null : current
-    )
+    setTabDropTarget((current) => (current?.kind === 'workspace' && current.id === workspaceId ? null : current))
   }, [])
 
   const handleTabDropOnRow = useCallback(
@@ -2645,8 +2667,7 @@ export default function WorkspaceSidebar({
       // No-op if dropped on the source workspace itself.
       if (payload.sourceWorkspaceId === workspace.id) return
 
-      const liveSpec =
-        extractTabSpec(payload.sourceWorkspaceId, payload.tabId) ?? null
+      const liveSpec = extractTabSpec(payload.sourceWorkspaceId, payload.tabId) ?? null
       const spec: CrossWorkspaceTabSpec = liveSpec ?? {
         component: payload.component,
         name: payload.name,
@@ -2668,7 +2689,7 @@ export default function WorkspaceSidebar({
       removeTab(payload.sourceWorkspaceId, payload.tabId, { preserveRuntime: true })
       setActiveWorkspace(workspace.id)
     },
-    [migrateTabSideEffects, setActiveWorkspace, updateLayout]
+    [migrateTabSideEffects, setActiveWorkspace, updateLayout],
   )
 
   // Dropping a tab on a project header extracts it into a NEW workspace filed
@@ -2677,21 +2698,16 @@ export default function WorkspaceSidebar({
   // entirely (its handlers bail unless a folder-reorder drag is in flight). A
   // missing folder is refused: it cannot host a new workspace, matching the
   // folder context menu, which hides "New workspace" for the same reason.
-  const handleTabDragOverFolder = useCallback(
-    (event: React.DragEvent, group: FolderGroup) => {
-      if (!dataTransferHasTabDrag(event.dataTransfer)) return
-      if (group.missing) return
-      event.preventDefault()
-      event.dataTransfer.dropEffect = 'move'
-      setTabDropTarget({ kind: 'folder', key: group.key })
-    },
-    []
-  )
+  const handleTabDragOverFolder = useCallback((event: React.DragEvent, group: FolderGroup) => {
+    if (!dataTransferHasTabDrag(event.dataTransfer)) return
+    if (group.missing) return
+    event.preventDefault()
+    event.dataTransfer.dropEffect = 'move'
+    setTabDropTarget({ kind: 'folder', key: group.key })
+  }, [])
 
   const handleTabDragLeaveFolder = useCallback((groupKey: string) => {
-    setTabDropTarget((current) =>
-      current?.kind === 'folder' && current.key === groupKey ? null : current
-    )
+    setTabDropTarget((current) => (current?.kind === 'folder' && current.key === groupKey ? null : current))
   }, [])
 
   const handleTabDropOnFolder = useCallback(
@@ -2707,7 +2723,7 @@ export default function WorkspaceSidebar({
       event.stopPropagation()
       extractTabIntoNewWorkspace(payload, group.fullPath)
     },
-    [extractTabIntoNewWorkspace]
+    [extractTabIntoNewWorkspace],
   )
 
   const renderWorkspaceRow = (
@@ -2728,7 +2744,7 @@ export default function WorkspaceSidebar({
        * tree, where the header says the project once for all its chats.
        */
       flatProject?: FlatProjectLine
-    }
+    },
   ) => {
     // When a door-routed full-page surface owns the card region (epic 1704), no
     // workspace row is "current" — the door row carries the selection, so a
@@ -2749,30 +2765,26 @@ export default function WorkspaceSidebar({
     // glyph's tooltip.
     const runGlyph = deriveWorkspaceRunGlyph(workspace)
     const runGlyphRecencyAgo =
-      runGlyph && typeof recency?.lastInputAt === 'number'
-        ? formatRelativeMsAgo(recency.lastInputAt, now)
-        : null
+      runGlyph && typeof recency?.lastInputAt === 'number' ? formatRelativeMsAgo(recency.lastInputAt, now) : null
     const runGlyphLabel = runGlyph
       ? `${runGlyph.label}${runGlyphRecencyAgo ? ` · last typed ${runGlyphRecencyAgo}` : ''}`
       : null
-    const idleRecencyText = typeof recency?.idleSince === 'number'
-      ? formatRelativeMs(recency.idleSince, now)
-      : ''
+    const idleRecencyText = typeof recency?.idleSince === 'number' ? formatRelativeMs(recency.idleSince, now) : ''
     // The countdown a sleeping row wears in the shelf, and the mark a woken one
     // wears in the active list until it is opened. Mutually exclusive by
     // construction: `workspaceWokeAt` is null while the row is still asleep.
     const asleepUntil = options?.snoozed ? (workspace.snoozedUntil ?? null) : null
     const wokeAt = wokeAtOf(workspace)
     const showRecencyText =
-      !runGlyph
-      && activity === 'idle'
-      && !!recency
-      && !recency.hasRunning
-      && !!idleRecencyText
+      !runGlyph &&
+      activity === 'idle' &&
+      !!recency &&
+      !recency.hasRunning &&
+      !!idleRecencyText &&
       // The wake countdown and the Woke mark each take this seat when they
       // apply: two numbers in one 44px slot is a row saying nothing twice.
-      && !options?.snoozed
-      && wokeAt === null
+      !options?.snoozed &&
+      wokeAt === null
     // The row that wants you: it wears the gold treatment instead of a dot.
     const needsAttention = activity === 'needs-input'
     // The row that finished while you were away: the same treatment in green,
@@ -2801,11 +2813,8 @@ export default function WorkspaceSidebar({
     })
     const highlighted = hasHighlightOverride(workspace.highlight)
     const dropMark =
-      dropIndicator?.kind === 'workspace' && dropIndicator.targetId === workspace.id
-        ? dropIndicator.position
-        : null
-    const isTabDropTarget =
-      tabDropTarget?.kind === 'workspace' && tabDropTarget.id === workspace.id
+      dropIndicator?.kind === 'workspace' && dropIndicator.targetId === workspace.id ? dropIndicator.position : null
+    const isTabDropTarget = tabDropTarget?.kind === 'workspace' && tabDropTarget.id === workspace.id
     const rowKey = `${options?.keyPrefix ?? ''}${workspace.id}`
     // The row's lines (sidebar-lists-every-terminal): one per open terminal —
     // the local live sessions AND the fleet panes the layout mounts from
@@ -2834,24 +2843,25 @@ export default function WorkspaceSidebar({
     const rowIsLive = rowHasOpenTerminals(workspace, sessionsByWorkspaceId) || rowConversation !== null
     // A settled row is the one-liner by construction: rest is the point, and
     // a checkout's branch and ±lines are not facts about a chat at rest.
-    const rowLines = rowIsLive && !options?.settled && !options?.snoozed
-      ? rowConversation
-        // A remote chat draws the agents standing in IT, not the one pane this
-        // window happens to hold (owner, 2026-09-13). `fleetPanesOf` can only
-        // see the session this workspace attached, so a chat running three
-        // agents over there drew one nameless, activity-free line here while
-        // the very same chat, unopened, drew three live ones in the band
-        // beside it — opening a chat made it say less. The browse already read
-        // all three; these are the band's own lines, which is what makes an
-        // open remote row and a local multi-agent row read alike.
-        ? { lines: rowConversation.agents.map(lineOfRemoteRow), overflow: 0 }
-        : terminalLinesOf({
-            workspace,
-            sessions: sessionsByWorkspaceId.get(workspace.id) ?? [],
-            fleetPanes: fleetPanesOf(workspace),
-            summaries: gitSummaries,
-          })
-      : { lines: [], overflow: 0 }
+    const rowLines =
+      rowIsLive && !options?.settled && !options?.snoozed
+        ? rowConversation
+          ? // A remote chat draws the agents standing in IT, not the one pane this
+            // window happens to hold (owner, 2026-09-13). `fleetPanesOf` can only
+            // see the session this workspace attached, so a chat running three
+            // agents over there drew one nameless, activity-free line here while
+            // the very same chat, unopened, drew three live ones in the band
+            // beside it — opening a chat made it say less. The browse already read
+            // all three; these are the band's own lines, which is what makes an
+            // open remote row and a local multi-agent row read alike.
+            { lines: rowConversation.agents.map(lineOfRemoteRow), overflow: 0 }
+          : terminalLinesOf({
+              workspace,
+              sessions: sessionsByWorkspaceId.get(workspace.id) ?? [],
+              fleetPanes: fleetPanesOf(workspace),
+              summaries: gitSummaries,
+            })
+        : { lines: [], overflow: 0 }
     // A band row names its machine on the title glyph, so its lines do not
     // say it again; a local row that holds a remote pane still marks it there.
     if (rowMachineName) for (const line of rowLines.lines) line.machineName = null
@@ -2949,7 +2959,7 @@ export default function WorkspaceSidebar({
           {workspace.remoteOrigin ? (
             <Tooltip content="Close workspace">
               <IconButton
-                  onClick={(event) => {
+                onClick={(event) => {
                   event.stopPropagation()
                   handleClose(workspace.id)
                 }}
@@ -2979,15 +2989,26 @@ export default function WorkspaceSidebar({
               >
                 <svg viewBox="0 0 16 16" fill="none" className="icon-xs" aria-hidden="true">
                   <circle cx="8" cy="9" r="4.6" stroke="currentColor" strokeWidth="1.4" />
-                  <path d="M8 6.6V9l1.6 1.1" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
-                  <path d="M2.6 4.2 4.7 2.5M13.4 4.2l-2.1-1.7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+                  <path
+                    d="M8 6.6V9l1.6 1.1"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                  <path
+                    d="M2.6 4.2 4.7 2.5M13.4 4.2l-2.1-1.7"
+                    stroke="currentColor"
+                    strokeWidth="1.4"
+                    strokeLinecap="round"
+                  />
                 </svg>
               </IconButton>
             </Tooltip>
           ) : options?.settled ? (
             <Tooltip content="Un-settle">
               <IconButton
-                  onClick={(event) => {
+                onClick={(event) => {
                   event.stopPropagation()
                   setWorkspaceSettled(workspace.id, false)
                 }}
@@ -3014,7 +3035,7 @@ export default function WorkspaceSidebar({
           ) : (
             <Tooltip content="Settle">
               <IconButton
-                  onClick={(event) => {
+                onClick={(event) => {
                   event.stopPropagation()
                   settleWorkspaceById(workspace.id)
                 }}
@@ -3068,9 +3089,7 @@ export default function WorkspaceSidebar({
                     the authority on that); the terminal snapshot only supplies
                     the timestamp, and a turn without one simply shows the dots
                     alone. */}
-                {typeof recency?.workingSince === 'number' ? (
-                  <WorkingElapsed since={recency.workingSince} />
-                ) : null}
+                {typeof recency?.workingSince === 'number' ? <WorkingElapsed since={recency.workingSince} /> : null}
               </>
             ) : (
               <StatusDot tone={tone.tone} pulse={tone.pulse} label={activityLabel(activity)} />
@@ -3080,7 +3099,9 @@ export default function WorkspaceSidebar({
               Same seat, same type step and the same muted ink as the idle
               clock it stands in for, because it is the same kind of reading. */}
           {asleepUntil !== null ? (
-            <RowTooltip content={`Wakes ${relativeFromNow(asleepUntil, now)} (${new Date(asleepUntil).toLocaleString()})`}>
+            <RowTooltip
+              content={`Wakes ${relativeFromNow(asleepUntil, now)} (${new Date(asleepUntil).toLocaleString()})`}
+            >
               <span className="text-meta tabular-nums text-[color:var(--text-subtle)]">
                 <span aria-hidden="true">{snoozeWakeLabel(asleepUntil, now)}</span>
                 <span className="sr-only">Wakes in {snoozeWakeLabel(asleepUntil, now)}</span>
@@ -3098,7 +3119,9 @@ export default function WorkspaceSidebar({
             </RowTooltip>
           ) : null}
           {showRecencyText ? (
-            <RowTooltip content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}>
+            <RowTooltip
+              content={`Idle ${formatRelativeMsAgo(recency!.idleSince!, now)} (${new Date(recency!.idleSince!).toLocaleString()})`}
+            >
               <span
                 className={`text-meta tabular-nums ${
                   emphasis === 'quiet' ? 'text-[color:var(--text-disabled)]' : 'text-[color:var(--text-subtle)]'
@@ -3160,9 +3183,7 @@ export default function WorkspaceSidebar({
       // chat nobody is using sits at `text.subtle` and lifts to `text.default`
       // on hover — reaching for one is never reading dim text. Selection's own
       // ink lift never reaches here: a selected row is `active`.
-      emphasis === 'quiet'
-        ? 'text-[color:var(--text-subtle)] group-hover:text-[color:var(--text-default)]'
-        : ''
+      emphasis === 'quiet' ? 'text-[color:var(--text-subtle)] group-hover:text-[color:var(--text-default)]' : ''
     }`
     const titleClusterContent = (
       <>
@@ -3171,11 +3192,7 @@ export default function WorkspaceSidebar({
             icon, so the title does not say it twice. */}
         {rowMachineName && !flatProject ? <RemoteRowGlyph machineName={rowMachineName} /> : null}
         {starred ? (
-          <StarGlyph
-            filled
-            className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-            label="Starred"
-          />
+          <StarGlyph filled className="icon-xs shrink-0 text-[color:var(--tone-warn)]" label="Starred" />
         ) : null}
         {(() => {
           const RowMark = resolveEnabledWorkspaceType(workspace.mode, moduleOverrides)?.RowMark
@@ -3320,10 +3337,16 @@ export default function WorkspaceSidebar({
         <AttentionPulse active={needsAttention} resetKey={workspace.id} />
         <AttentionPulse active={unseenDone} resetKey={workspace.id} tone="good" />
         {dropMark === 'before' ? (
-          <span aria-hidden="true" className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
+          <span
+            aria-hidden="true"
+            className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]"
+          />
         ) : null}
         {dropMark === 'after' ? (
-          <span aria-hidden="true" className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
+          <span
+            aria-hidden="true"
+            className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]"
+          />
         ) : null}
         {isTabDropTarget ? (
           <span
@@ -3333,7 +3356,7 @@ export default function WorkspaceSidebar({
         ) : null}
 
         <div className="flex min-w-0 items-center gap-2">
-        {/* No identity slot on the row. Owner, 2026-09-02: the project's
+          {/* No identity slot on the row. Owner, 2026-09-02: the project's
             discovered logo belongs to the FOLDER header that names the project,
             not repeated once per chat beneath it, and the terminal glyph the
             logo-less rows fell back to said nothing a row of chats needs said.
@@ -3341,45 +3364,45 @@ export default function WorkspaceSidebar({
             ruling C, and the whole slot — logo and glyph — moved up to the
             header (`FolderIdentityIcon`). Mode identity still reads from the
             row accent and the trailing run glyph. */}
-        {renamingId === workspace.id ? (
-          // The kit's field, spliced into a row that has already decided its
-          // height: `size="none"` spends no ramp step, so the inset and the
-          // row's own type step stay here as layout. `variant="default"` is
-          // the right ground — `--bg-field` IS `--bg-surface-raised` on an
-          // opaque window — and brings the border, the radius, the hover edge
-          // lift and the one focus ring with it.
-          <Input
-            ref={renameInputRef}
-            size="none"
-            fullWidth={false}
-            value={renameValue}
-            onChange={(event) => setRenameValue(event.target.value)}
-            onBlur={commitRename}
-            onClick={(event) => event.stopPropagation()}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') commitRename()
-              if (event.key === 'Escape') setRenamingId(null)
-              event.stopPropagation()
-            }}
-            className="min-w-0 flex-1 px-1.5 py-0 text-heading"
-          />
-        ) : (
-          titleCluster
-        )}
+          {renamingId === workspace.id ? (
+            // The kit's field, spliced into a row that has already decided its
+            // height: `size="none"` spends no ramp step, so the inset and the
+            // row's own type step stay here as layout. `variant="default"` is
+            // the right ground — `--bg-field` IS `--bg-surface-raised` on an
+            // opaque window — and brings the border, the radius, the hover edge
+            // lift and the one focus ring with it.
+            <Input
+              ref={renameInputRef}
+              size="none"
+              fullWidth={false}
+              value={renameValue}
+              onChange={(event) => setRenameValue(event.target.value)}
+              onBlur={commitRename}
+              onClick={(event) => event.stopPropagation()}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') commitRename()
+                if (event.key === 'Escape') setRenamingId(null)
+                event.stopPropagation()
+              }}
+              className="min-w-0 flex-1 px-1.5 py-0 text-heading"
+            />
+          ) : (
+            titleCluster
+          )}
 
-        {folderMissing ? (
-          <svg
-            className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
-            viewBox="0 0 16 16"
-            fill="none"
-            aria-label="Folder missing"
-          >
-            <path d="M8 1L15 14H1L8 1Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
-            <path d="M8 6V9M8 11.5V11.51" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          </svg>
-        ) : null}
+          {folderMissing ? (
+            <svg
+              className="icon-xs shrink-0 text-[color:var(--tone-warn)]"
+              viewBox="0 0 16 16"
+              fill="none"
+              aria-label="Folder missing"
+            >
+              <path d="M8 1L15 14H1L8 1Z" stroke="currentColor" strokeWidth="1.4" strokeLinejoin="round" />
+              <path d="M8 6V9M8 11.5V11.51" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            </svg>
+          ) : null}
 
-        {/* A provider-derived run lifecycle is the ROW's state, not a terminal's, so
+          {/* A provider-derived run lifecycle is the ROW's state, not a terminal's, so
             when the LINES carry the seats it keeps line 1's trailing edge —
             a terminal's seat has no room for it. The parked worktree line
             below carries the row's own `statusSeat`, which already draws this
@@ -3387,15 +3410,15 @@ export default function WorkspaceSidebar({
             the two diverged the moment a lineless row could have a line 2,
             and asking the wrong one drew the glyph twice on any row whose
             module hands it one. */}
-        {rowLines.lines.length > 0 && runGlyph && runGlyphLabel ? (
-          <RowTooltip content={runGlyphLabel}>
-            <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
-          </RowTooltip>
-        ) : null}
-        {/* A lineless row has no line to carry the seat, so it keeps it
+          {rowLines.lines.length > 0 && runGlyph && runGlyphLabel ? (
+            <RowTooltip content={runGlyphLabel}>
+              <LifecycleGlyph state={runGlyph.state} live={runGlyph.live} label={runGlyphLabel} />
+            </RowTooltip>
+          ) : null}
+          {/* A lineless row has no line to carry the seat, so it keeps it
             here — the one-liner it always was. Never in the flat stream,
             where the project line above already took it. */}
-        {metaHasSubstance || flatProject ? null : statusSeat}
+          {metaHasSubstance || flatProject ? null : statusSeat}
         </div>
         {parkedLine ? (
           // The same line container a terminal's line uses, so a parked
@@ -3430,9 +3453,8 @@ export default function WorkspaceSidebar({
           // a terminal and the diff is a fact about the agent inside it.
           const lineAgentId =
             line.kind === 'agent'
-              ? (peekSessionsByWorkspaceId.get(workspace.id) ?? []).find(
-                  (session) => session.sessionId === line.key,
-                )?.agentId ?? null
+              ? ((peekSessionsByWorkspaceId.get(workspace.id) ?? []).find((session) => session.sessionId === line.key)
+                  ?.agentId ?? null)
               : null
           return (
             <TerminalLineView
@@ -3496,7 +3518,7 @@ export default function WorkspaceSidebar({
   // last worked. No status dot — that vocabulary was already spoken for.
   const renderRemoteConversationRow = (
     conversation: RemoteConversation,
-    options?: { flatProject?: FlatProjectLine }
+    options?: { flatProject?: FlatProjectLine },
   ) => {
     const rowKey = `remote-session-${conversation.key}`
     const open = () => onOpenRemoteSession?.(openSpecOfConversation(conversation))
@@ -3577,7 +3599,7 @@ export default function WorkspaceSidebar({
     group: FolderGroup,
     visibleWorkspaces: Workspace[],
     folderCollapsed: boolean,
-    folderBodyId: string
+    folderBodyId: string,
   ) => {
     // Keep the body element mounted (empty + hidden) while collapsed so the
     // header's aria-controls always resolves to a real node.
@@ -3624,9 +3646,7 @@ export default function WorkspaceSidebar({
               count={snoozedRows.length}
               expanded={snoozeExpanded}
               controlsId={snoozeShelfId}
-              onToggle={() =>
-                setExpandedSettledFolders((prev) => ({ ...prev, [snoozeKey]: !snoozeExpanded }))
-              }
+              onToggle={() => setExpandedSettledFolders((prev) => ({ ...prev, [snoozeKey]: !snoozeExpanded }))}
             />
             <div
               id={snoozeShelfId}
@@ -3647,9 +3667,7 @@ export default function WorkspaceSidebar({
               count={settledRows.length}
               expanded={settledExpanded}
               controlsId={settledShelfId}
-              onToggle={() =>
-                setExpandedSettledFolders((prev) => ({ ...prev, [group.key]: !settledExpanded }))
-              }
+              onToggle={() => setExpandedSettledFolders((prev) => ({ ...prev, [group.key]: !settledExpanded }))}
             />
             <div
               id={settledShelfId}
@@ -3687,7 +3705,7 @@ export default function WorkspaceSidebar({
     const settledRows = sortWorkspacesByUserMessage(localRailWorkspaces.filter(isShelved))
     const snoozedRows = sortByWake(localRailWorkspaces.filter((w) => !isShelved(w) && isAsleep(w)))
     const streamRows = sortWorkspacesByUserMessage(
-      localRailWorkspaces.filter((w) => !isShelved(w) && !isAsleep(w) && !starredWorkspaceIds.has(w.id))
+      localRailWorkspaces.filter((w) => !isShelved(w) && !isAsleep(w) && !starredWorkspaceIds.has(w.id)),
     )
     const expanded = expandedSettledFolders[ALL_CHATS_SHELF_KEY] === true
     const snoozeExpanded = expandedSettledFolders[ALL_CHATS_SNOOZE_SHELF_KEY] === true
@@ -3697,12 +3715,12 @@ export default function WorkspaceSidebar({
           renderWorkspaceRow(workspace, keyOf(workspace), {
             keyPrefix: 'all-',
             flatProject: flatProjectOf(workspace),
-          })
+          }),
         )}
         {unattachedRemote.map((conversation) =>
           renderRemoteConversationRow(conversation, {
             flatProject: flatProjectOfRemote(conversation),
-          })
+          }),
         )}
         {snoozedRows.length > 0 ? (
           <>
@@ -3719,19 +3737,14 @@ export default function WorkspaceSidebar({
                 }))
               }
             />
-            <div
-              id={ALL_CHATS_SNOOZE_SHELF_ID}
-              role="group"
-              aria-label="Snoozed chats"
-              hidden={!snoozeExpanded}
-            >
+            <div id={ALL_CHATS_SNOOZE_SHELF_ID} role="group" aria-label="Snoozed chats" hidden={!snoozeExpanded}>
               {snoozeExpanded
                 ? snoozedRows.map((workspace) =>
                     renderWorkspaceRow(workspace, keyOf(workspace), {
                       keyPrefix: 'all-',
                       snoozed: true,
                       flatProject: flatProjectOf(workspace),
-                    })
+                    }),
                   )
                 : null}
             </div>
@@ -3745,9 +3758,7 @@ export default function WorkspaceSidebar({
               expanded={expanded}
               flush
               controlsId={ALL_CHATS_SHELF_ID}
-              onToggle={() =>
-                setExpandedSettledFolders((prev) => ({ ...prev, [ALL_CHATS_SHELF_KEY]: !expanded }))
-              }
+              onToggle={() => setExpandedSettledFolders((prev) => ({ ...prev, [ALL_CHATS_SHELF_KEY]: !expanded }))}
             />
             <div id={ALL_CHATS_SHELF_ID} role="group" aria-label="Settled chats" hidden={!expanded}>
               {expanded
@@ -3756,7 +3767,7 @@ export default function WorkspaceSidebar({
                       keyPrefix: 'all-',
                       settled: true,
                       flatProject: flatProjectOf(workspace),
-                    })
+                    }),
                   )
                 : null}
             </div>
@@ -3775,15 +3786,12 @@ export default function WorkspaceSidebar({
     // 2026-09-09) — the same order the Starred band and the flat stream use,
     // so a row only ever changes seat when someone speaks in it.
     const visibleWorkspaces = sortWorkspacesByUserMessage(
-      group.workspaces.filter((workspace) => !starredWorkspaceIds.has(workspace.id))
+      group.workspaces.filter((workspace) => !starredWorkspaceIds.has(workspace.id)),
     )
     const folderBodyId = `ws-folder-body-${group.key.replace(/[^a-z0-9]+/giu, '-')}`
     const dropMark =
-      dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key
-        ? dropIndicator.position
-        : null
-    const isFolderTabDropTarget =
-      tabDropTarget?.kind === 'folder' && tabDropTarget.key === group.key
+      dropIndicator?.kind === 'folder' && dropIndicator.targetKey === group.key ? dropIndicator.position : null
+    const isFolderTabDropTarget = tabDropTarget?.kind === 'folder' && tabDropTarget.key === group.key
     return (
       <section key={group.key} className="relative pt-1">
         {/* The header container carries drag + context-menu; the disclosure
@@ -3820,10 +3828,16 @@ export default function WorkspaceSidebar({
           }`}
         >
           {dropMark === 'before' ? (
-            <span aria-hidden="true" className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
+            <span
+              aria-hidden="true"
+              className="absolute inset-x-1 top-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]"
+            />
           ) : null}
           {dropMark === 'after' ? (
-            <span aria-hidden="true" className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]" />
+            <span
+              aria-hidden="true"
+              className="absolute inset-x-1 bottom-[-1px] h-[2px] rounded bg-[color:var(--accent-primary)]"
+            />
           ) : null}
           {isFolderTabDropTarget ? (
             <span
@@ -3835,31 +3849,29 @@ export default function WorkspaceSidebar({
             content={
               group.remote
                 ? `${group.remote.machineName} · ${group.remote.workspaceRoot ?? 'remote workspace'}`
-                : group.fullPath ?? 'Workspaces with no folder'
+                : (group.fullPath ?? 'Workspaces with no folder')
             }
             placement="bottom"
             wrapperClassName="flex h-full min-w-0 flex-1"
           >
-          {/* The kit's nav row. The missing-folder hover tint is gone rather
+            {/* The kit's nav row. The missing-folder hover tint is gone rather
               than carried over: it was a second `hover:text-[color:var(--…)]`
               at equal specificity, so which ink painted was stylesheet order.
               The `Missing` chip beside the name is what states that fact. */}
-          <RowButton
-            density="nav"
-            onClick={() =>
-              setCollapsedFolders((prev) => ({ ...prev, [group.key]: !collapsed }))
-            }
-            aria-expanded={!collapsed}
-            aria-controls={folderBodyId}
-            className="min-w-0 flex-1 pl-4"
-          >
-            {/* One icon slot: the folder's identity at
+            <RowButton
+              density="nav"
+              onClick={() => setCollapsedFolders((prev) => ({ ...prev, [group.key]: !collapsed }))}
+              aria-expanded={!collapsed}
+              aria-controls={folderBodyId}
+              className="min-w-0 flex-1 pl-4"
+            >
+              {/* One icon slot: the folder's identity at
                 rest — the project's own logo when its repo has one, the
                 folder glyph when it does not (MC-2135, re-sited here by
                 the owner on 2026-09-02) — and the collapse chevron
                 swapped in on hover. */}
-            <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
-              {/* A remote group's root lives on another machine: looking
+              <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
+                {/* A remote group's root lives on another machine: looking
                   it up on THIS disk would present an unrelated local
                   folder's logo (or stat a path that does not exist), so
                   the header wears the neutral mark until the gateway
@@ -3870,40 +3882,44 @@ export default function WorkspaceSidebar({
                   answers "which project is this", and a hue behind it would
                   answer it twice. The "No folder" bucket is not a project at
                   all, so it gets the dashed outline instead of a hue. */}
-              <FolderIdentityIcon
-                folderPath={group.remote ? null : group.fullPath}
-                className="icon-sm shrink-0 transition-opacity group-hover/folder:opacity-0"
-                color={projectColorOf(group.key)}
-                unfiled={!group.remote && !group.fullPath}
-              />
-              <svg
-                viewBox="0 0 16 16"
-                fill="none"
-                aria-hidden="true"
-                className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
-                  collapsed ? '-rotate-90' : ''
-                }`}
-              >
-                <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-            </span>
-            {group.remote ? (
-              <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" />
-            ) : null}
-            <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
-              {group.displayName}
-            </span>
-            {/* What is open across this project's chats, including the ones
+                <FolderIdentityIcon
+                  folderPath={group.remote ? null : group.fullPath}
+                  className="icon-sm shrink-0 transition-opacity group-hover/folder:opacity-0"
+                  color={projectColorOf(group.key)}
+                  unfiled={!group.remote && !group.fullPath}
+                />
+                <svg
+                  viewBox="0 0 16 16"
+                  fill="none"
+                  aria-hidden="true"
+                  className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
+                    collapsed ? '-rotate-90' : ''
+                  }`}
+                >
+                  <path
+                    d="M5 6L8 9L11 6"
+                    stroke="currentColor"
+                    strokeWidth="1.6"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
+              </span>
+              {group.remote ? <RemoteMachineGlyph className="icon-xs shrink-0 text-[color:var(--text-muted)]" /> : null}
+              <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
+                {group.displayName}
+              </span>
+              {/* What is open across this project's chats, including the ones
                 whose agents have finished and which therefore say nothing for
                 themselves. Inside the header's own button: it is part of what
                 this header says, and it is not a control — a count of three has
                 no single pull request to open, and a button here would steal
                 the header's click. */}
-            <ProjectPullRequestMark
-              openCount={openPullRequestsByGroup.get(group.key) ?? 0}
-              projectName={group.displayName}
-            />
-          </RowButton>
+              <ProjectPullRequestMark
+                openCount={openPullRequestsByGroup.get(group.key) ?? 0}
+                projectName={group.displayName}
+              />
+            </RowButton>
           </Tooltip>
           {group.missing ? (
             <span className="inline-flex items-center gap-1.5 text-meta font-medium text-[color:var(--tone-warn)]">
@@ -3975,9 +3991,7 @@ export default function WorkspaceSidebar({
           ? undefined
           : {
               width: clampSidebarWidth(
-                isResizingSidebar && dragWidthRef.current !== null
-                  ? dragWidthRef.current
-                  : sidebarWidth
+                isResizingSidebar && dragWidthRef.current !== null ? dragWidthRef.current : sidebarWidth,
               ),
               // The persisted width is absolute and this rail is shrink-0, so a
               // window narrower than the width the user last dragged handed the
@@ -4048,22 +4062,22 @@ export default function WorkspaceSidebar({
           card uses on its other side, so the shell's two gaps measure the
           same. */}
       <div className="relative flex min-h-0 flex-1 flex-col overflow-hidden rounded-[var(--shell-card-radius)] bg-[color:var(--bg-surface)] mr-[var(--shell-card-gap)] mb-[var(--shell-card-gap)]">
-      {/* Drill-in REPLACES the rail (item 1993,
-       * `design-system/patterns/context-rail.html`): while a surface is open its
-       * rail renders here, in this column, at this width — never as a second
-       * navigation column beside it. `hidden` rather than unmounted, because the
-       * door row that opened the surface has to still be here for Back to hand
-       * focus back to it, and the tree's folds/reveals belong to the operator,
-       * not to whether they visited a door in between.
-       *
-       * Every door declares a rail in every load state (T19), so this column is
-       * active for the whole of a door's visit rather than only once the door has
-       * content in it. A surface that brought no rail leaves this inactive: it
-       * nests no second navigation column, so it has nothing to replace, and
-       * emptying the column for it would trade a problem it does not have for a
-       * blank rail. */}
-      {contextRail}
-      {/* The Extensions drawer (app shell, 2026-09-05): the ruled
+        {/* Drill-in REPLACES the rail (item 1993,
+         * `design-system/patterns/context-rail.html`): while a surface is open its
+         * rail renders here, in this column, at this width — never as a second
+         * navigation column beside it. `hidden` rather than unmounted, because the
+         * door row that opened the surface has to still be here for Back to hand
+         * focus back to it, and the tree's folds/reveals belong to the operator,
+         * not to whether they visited a door in between.
+         *
+         * Every door declares a rail in every load state (T19), so this column is
+         * active for the whole of a door's visit rather than only once the door has
+         * content in it. A surface that brought no rail leaves this inactive: it
+         * nests no second navigation column, so it has nothing to replace, and
+         * emptying the column for it would trade a problem it does not have for a
+         * blank rail. */}
+        {contextRail}
+        {/* The Extensions drawer (app shell, 2026-09-05): the ruled
           product rows — Design, Plugins, Skills, Agent CLIs — followed by
           installed module doors. The app rail's Extensions glyph shows it in
           place of the tree, and it STAYS while the card region swaps: a door
@@ -4072,45 +4086,42 @@ export default function WorkspaceSidebar({
           is a list of its own still swaps in.
           Unmounted rather than hidden — unlike the tree it keeps no fold or
           scroll state worth preserving across a section switch. */}
-      {extensionsSection && !contextRailActive ? (
-        <ExtensionsRail collapsed={sidebarCollapsed} />
-      ) : null}
-      {/* `mb-2` where a hairline used to be (owner, 2026-09-07): the rule under
+        {extensionsSection && !contextRailActive ? <ExtensionsRail collapsed={sidebarCollapsed} /> : null}
+        {/* `mb-2` where a hairline used to be (owner, 2026-09-07): the rule under
           New chat boxed the one control into a strip of its own, and the tree
           below it is separated by the space, not by a line — the same call
           as the account cluster at the rail's foot. */}
-      <div className={`mx-2 mb-2 mt-1 flex flex-col gap-1.5 ${homeHidden ? 'hidden' : ''}`}>
-        {/* Home's one control above the tree: New chat, the one way in (owner,
+        <div className={`mx-2 mb-2 mt-1 flex flex-col gap-1.5 ${homeHidden ? 'hidden' : ''}`}>
+          {/* Home's one control above the tree: New chat, the one way in (owner,
             2026-09-04). The doors that used to share this band — Backlog,
             Reviews — live under the app rail's Extensions glyph now, so the
             tree starts one row down. The row keeps the
             tab-extract drop target. */}
-        <div className="flex items-stretch gap-px">
-          <Tooltip content="New chat" placement="right" wrapperClassName="flex min-w-0 flex-1">
-            {/* The same nav row `SidebarNavButton` draws, and `selected` is the
+          <div className="flex items-stretch gap-px">
+            <Tooltip content="New chat" placement="right" wrapperClassName="flex min-w-0 flex-1">
+              {/* The same nav row `SidebarNavButton` draws, and `selected` is the
                 drop highlight — a transient target, so `aria-current` is
                 explicitly withheld: this row is not somewhere you are. */}
-            <RowButton
-              density="nav"
-              selected={tabDropTarget?.kind === 'new'}
-              aria-current={undefined}
-              onClick={onNewChat}
-              onDragOver={handleTabDragOverNew}
-              onDragLeave={handleTabDragLeaveNew}
-              onDrop={handleTabDropOnNew}
-              className="min-w-0 flex-1 text-heading font-medium"
-            >
-              <NewChatIcon className="icon-sm pointer-events-none shrink-0" />
-              <span className="min-w-0 flex-1 truncate">
-                {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
-              </span>
-            </RowButton>
-          </Tooltip>
+              <RowButton
+                density="nav"
+                selected={tabDropTarget?.kind === 'new'}
+                aria-current={undefined}
+                onClick={onNewChat}
+                onDragOver={handleTabDragOverNew}
+                onDragLeave={handleTabDragLeaveNew}
+                onDrop={handleTabDropOnNew}
+                className="min-w-0 flex-1 text-heading font-medium"
+              >
+                <NewChatIcon className="icon-sm pointer-events-none shrink-0" />
+                <span className="min-w-0 flex-1 truncate">
+                  {tabDropTarget?.kind === 'new' ? 'Drop to extract' : 'New chat'}
+                </span>
+              </RowButton>
+            </Tooltip>
+          </div>
         </div>
-      </div>
 
-
-      {/* Tree: Starred first, then folder groups directly — no "Projects"
+        {/* Tree: Starred first, then folder groups directly — no "Projects"
           umbrella header; the folder headers are the top level.
           Projects and human workspaces only: a module's own background
           workspace is not a row here (item 1767, mockup §1) — its door lists
@@ -4140,71 +4151,76 @@ export default function WorkspaceSidebar({
           on the 36px grid and aligns with the fold-row chevron again. The
           identity slot survives one level up, on the folder header, where it
           sits in the section-header family's 38px column. */}
-      <nav
-        ref={treeRef}
-        className={`flex-1 overflow-y-auto pb-2 ${homeHidden ? 'hidden' : ''}`}
-        role="tree"
-        onScroll={(event) => {
-          treeScrollTopRef.current = event.currentTarget.scrollTop
-        }}
-      >
-        {starredWorkspaces.length > 0 ? (
-          <section className="relative pt-1" aria-label="Starred workspaces">
-            {/* The kit's nav row. `group/folder` is the hover scope the icon
+        <nav
+          ref={treeRef}
+          className={`flex-1 overflow-y-auto pb-2 ${homeHidden ? 'hidden' : ''}`}
+          role="tree"
+          onScroll={(event) => {
+            treeScrollTopRef.current = event.currentTarget.scrollTop
+          }}
+        >
+          {starredWorkspaces.length > 0 ? (
+            <section className="relative pt-1" aria-label="Starred workspaces">
+              {/* The kit's nav row. `group/folder` is the hover scope the icon
                 slot below reads, and the insets are the tree's own grid. */}
-            <RowButton
-              density="nav"
-              onClick={() => setStarredCollapsed((prev) => !prev)}
-              aria-expanded={!starredCollapsed}
-              aria-controls="ws-starred-body"
-              className="group/folder relative select-none pl-4 pr-2"
-            >
-              {/* One icon slot: the star at rest, the collapse
+              <RowButton
+                density="nav"
+                onClick={() => setStarredCollapsed((prev) => !prev)}
+                aria-expanded={!starredCollapsed}
+                aria-controls="ws-starred-body"
+                className="group/folder relative select-none pl-4 pr-2"
+              >
+                {/* One icon slot: the star at rest, the collapse
                   chevron swapped in on hover — no dedicated chevron column, so
                   child rows don't have to indent past it. */}
-              <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
-                <StarGlyph
-                  filled
-                  className="icon-sm shrink-0 text-[color:var(--tone-warn)] transition-opacity group-hover/folder:opacity-0"
-                />
-                <svg
-                  viewBox="0 0 16 16"
-                  fill="none"
-                  aria-hidden="true"
-                  className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
-                    starredCollapsed ? '-rotate-90' : ''
-                  }`}
-                >
-                  <path d="M5 6L8 9L11 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
-                </svg>
-              </span>
-              <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
-                Starred
-              </span>
-            </RowButton>
-            <div id="ws-starred-body" hidden={starredCollapsed}>
-              {!starredCollapsed
-                ? starredWorkspaces.map((workspace) =>
-                    renderWorkspaceRow(workspace, keyOf(workspace), { keyPrefix: 'starred-' })
-                  )
-                : null}
-            </div>
-          </section>
-        ) : null}
-        {/* No "Remote" band (owner, 2026-09-11). The sessions on paired
+                <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
+                  <StarGlyph
+                    filled
+                    className="icon-sm shrink-0 text-[color:var(--tone-warn)] transition-opacity group-hover/folder:opacity-0"
+                  />
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    aria-hidden="true"
+                    className={`icon-xs absolute inset-0 m-auto text-[color:var(--text-muted)] opacity-0 transition-[opacity,transform] group-hover/folder:opacity-100 ${
+                      starredCollapsed ? '-rotate-90' : ''
+                    }`}
+                  >
+                    <path
+                      d="M5 6L8 9L11 6"
+                      stroke="currentColor"
+                      strokeWidth="1.6"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+                <span className="min-w-0 flex-1 truncate text-heading font-semibold text-[color:var(--text-strong)]">
+                  Starred
+                </span>
+              </RowButton>
+              <div id="ws-starred-body" hidden={starredCollapsed}>
+                {!starredCollapsed
+                  ? starredWorkspaces.map((workspace) =>
+                      renderWorkspaceRow(workspace, keyOf(workspace), { keyPrefix: 'starred-' }),
+                    )
+                  : null}
+              </div>
+            </section>
+          ) : null}
+          {/* No "Remote" band (owner, 2026-09-11). The sessions on paired
             machines used to be listed here, above the projects, under a
             heading named after the transport — which filed a chat by the
             computer it happened to run on rather than by the project it is in,
             and titled each row with its agent's name because a band row was a
             SESSION. They are rows of their projects now, below, wearing one
             green machine glyph each. */}
-        {chatListView === 'all' ? renderChatStream() : activeGroups.map((group) => renderFolderSection(group))}
-      </nav>
+          {chatListView === 'all' ? renderChatStream() : activeGroups.map((group) => renderFolderSection(group))}
+        </nav>
       </div>
       {/* The account + Settings cluster that used to pin to this column's foot
           lives at the foot of the app rail now (AppRail's accountSlot): it belongs to the window, not to whichever
           section this column happens to be showing. */}
-
 
       {/* Context menu (workspace row) */}
       {contextMenu ? (
@@ -4224,8 +4240,9 @@ export default function WorkspaceSidebar({
             }
             if (action.startsWith('type-action:')) {
               const actionId = action.slice('type-action:'.length)
-              const typeAction = workspaceTypeRowActions(workspace, moduleOverrides)
-                .find((candidate) => candidate.id === actionId)
+              const typeAction = workspaceTypeRowActions(workspace, moduleOverrides).find(
+                (candidate) => candidate.id === actionId,
+              )
               setContextMenu(null)
               if (!typeAction) return
               if (typeAction.confirm) {
@@ -4354,39 +4371,39 @@ export default function WorkspaceSidebar({
         labelledBy="ws-close-title"
         size="confirm"
       >
-        {confirmClose ? (
-          (() => {
-            const workspace = workspaceById.get(confirmClose)
-            const activity = activityByWorkspaceId[confirmClose] ?? 'idle'
-            return (
-              <>
-                <ModalHeader
-                  titleId="ws-close-title"
-                  title={`Close “${workspace?.name ?? 'workspace'}”?`}
-                  subtitle={
-                    activity === 'needs-input'
-                      ? 'An agent is waiting for input. Closing will lose that prompt.'
-                      : 'Running agents will be stopped. Workspace files on disk are kept.'
-                  }
-                  onClose={() => setConfirmClose(null)}
-                />
-                <ModalFooter>
-                  <ModalButton onClick={() => setConfirmClose(null)}>Cancel</ModalButton>
-                  <ModalButton
-                    variant="danger"
-                    onClick={() => {
-                      const id = confirmClose
-                      setConfirmClose(null)
-                      if (id) onCloseWorkspace(id)
-                    }}
-                  >
-                    Close workspace
-                  </ModalButton>
-                </ModalFooter>
-              </>
-            )
-          })()
-        ) : null}
+        {confirmClose
+          ? (() => {
+              const workspace = workspaceById.get(confirmClose)
+              const activity = activityByWorkspaceId[confirmClose] ?? 'idle'
+              return (
+                <>
+                  <ModalHeader
+                    titleId="ws-close-title"
+                    title={`Close “${workspace?.name ?? 'workspace'}”?`}
+                    subtitle={
+                      activity === 'needs-input'
+                        ? 'An agent is waiting for input. Closing will lose that prompt.'
+                        : 'Running agents will be stopped. Workspace files on disk are kept.'
+                    }
+                    onClose={() => setConfirmClose(null)}
+                  />
+                  <ModalFooter>
+                    <ModalButton onClick={() => setConfirmClose(null)}>Cancel</ModalButton>
+                    <ModalButton
+                      variant="danger"
+                      onClick={() => {
+                        const id = confirmClose
+                        setConfirmClose(null)
+                        if (id) onCloseWorkspace(id)
+                      }}
+                    >
+                      Close workspace
+                    </ModalButton>
+                  </ModalFooter>
+                </>
+              )
+            })()
+          : null}
       </Modal>
 
       {/* Type-contributed row-action confirm */}
@@ -4438,40 +4455,39 @@ export default function WorkspaceSidebar({
         labelledBy="ws-forget-title"
         size="confirm"
       >
-        {confirmForget ? (
-          (() => {
-            const group = groups.find((g) => g.fullPath === confirmForget)
-            // Forgetting a folder closes its LOCAL rows; a paired machine's
-            // clone filed under it keeps its own machine header afterwards,
-            // so it is not counted as something this closes.
-            const count = group?.workspaces.filter((workspace) => !workspace.remoteOrigin).length ?? 0
-            return (
-              <>
-                <ModalHeader
-                  titleId="ws-forget-title"
-                  title={`Forget folder “${folderDisplayName(confirmForget)}”?`}
-                  subtitle={`Closes ${count} workspace${count === 1 ? '' : 's'} under this folder and removes the folder from recents. Files on disk are kept.`}
-                  onClose={() => setConfirmForget(null)}
-                />
-                <ModalFooter>
-                  <ModalButton onClick={() => setConfirmForget(null)}>Cancel</ModalButton>
-                  <ModalButton
-                    variant="danger"
-                    onClick={() => {
-                      const path = confirmForget
-                      setConfirmForget(null)
-                      if (path) onForgetFolder(path)
-                    }}
-                  >
-                    Forget folder
-                  </ModalButton>
-                </ModalFooter>
-              </>
-            )
-          })()
-        ) : null}
+        {confirmForget
+          ? (() => {
+              const group = groups.find((g) => g.fullPath === confirmForget)
+              // Forgetting a folder closes its LOCAL rows; a paired machine's
+              // clone filed under it keeps its own machine header afterwards,
+              // so it is not counted as something this closes.
+              const count = group?.workspaces.filter((workspace) => !workspace.remoteOrigin).length ?? 0
+              return (
+                <>
+                  <ModalHeader
+                    titleId="ws-forget-title"
+                    title={`Forget folder “${folderDisplayName(confirmForget)}”?`}
+                    subtitle={`Closes ${count} workspace${count === 1 ? '' : 's'} under this folder and removes the folder from recents. Files on disk are kept.`}
+                    onClose={() => setConfirmForget(null)}
+                  />
+                  <ModalFooter>
+                    <ModalButton onClick={() => setConfirmForget(null)}>Cancel</ModalButton>
+                    <ModalButton
+                      variant="danger"
+                      onClick={() => {
+                        const path = confirmForget
+                        setConfirmForget(null)
+                        if (path) onForgetFolder(path)
+                      }}
+                    >
+                      Forget folder
+                    </ModalButton>
+                  </ModalFooter>
+                </>
+              )
+            })()
+          : null}
       </Modal>
-
     </aside>
   )
 }
@@ -4544,9 +4560,7 @@ function WorkspaceContextMenu({
       <MenuItem onClick={() => onSelect('rename')} shortcut="F2">
         Rename
       </MenuItem>
-      {canNewChatInProject ? (
-        <MenuItem onClick={() => onSelect('new-chat')}>New chat in project</MenuItem>
-      ) : null}
+      {canNewChatInProject ? <MenuItem onClick={() => onSelect('new-chat')}>New chat in project</MenuItem> : null}
       {folderPathExists ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}
       {isDetachedWindow ? (
         <MenuItem onClick={() => onSelect('move-to-main-window')}>Move to Main Window</MenuItem>
@@ -4602,11 +4616,7 @@ function WorkspaceContextMenu({
       />
       <MenuDivider />
       {typeActions.map((action) => (
-        <MenuItem
-          key={action.id}
-          variant={action.variant}
-          onClick={() => onSelect(`type-action:${action.id}`)}
-        >
+        <MenuItem key={action.id} variant={action.variant} onClick={() => onSelect(`type-action:${action.id}`)}>
           {action.label}
         </MenuItem>
       ))}
@@ -4670,9 +4680,7 @@ function FolderContextMenu({
       onClose={onClose}
       surfaceClassName="min-w-[220px]"
     >
-      {canCreateWorkspace ? (
-        <MenuItem onClick={() => onSelect('new-chat')}>New chat in project</MenuItem>
-      ) : null}
+      {canCreateWorkspace ? <MenuItem onClick={() => onSelect('new-chat')}>New chat in project</MenuItem> : null}
       {canReveal ? <MenuItem onClick={() => onSelect('reveal')}>Reveal folder</MenuItem> : null}
       {/* The same swatch control the row menu spends on "Highlight color", one
           menu up: a highlight is a tint a person puts ON a chat, a project

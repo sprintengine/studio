@@ -72,7 +72,13 @@ run('a failure is recognised by ok alone, whatever it was a reply to', () => {
   }
   assert.equal(isCanvasWorkerFailure(failure), true)
 
-  const success: CanvasWorkerResponseOf<'layout'> = { kind: 'layout', requestId: 'r2', ok: true, elements: [], changed: [] }
+  const success: CanvasWorkerResponseOf<'layout'> = {
+    kind: 'layout',
+    requestId: 'r2',
+    ok: true,
+    elements: [],
+    changed: [],
+  }
   assert.equal(isCanvasWorkerFailure(success), false)
 })
 

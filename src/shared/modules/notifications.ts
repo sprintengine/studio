@@ -32,8 +32,7 @@ const MAX_TITLE_LENGTH = 200
 const MAX_BODY_LENGTH = 2000
 
 export type ModuleNotifyValidation =
-  | { ok: true; severity: ModuleNotificationSeverity; title: string; body?: string }
-  | { ok: false; message: string }
+  { ok: true; severity: ModuleNotificationSeverity; title: string; body?: string } | { ok: false; message: string }
 
 // Boundary validation for notify payloads. Module code (including third-party
 // entry.main code) calls notify directly, so the input is untrusted.

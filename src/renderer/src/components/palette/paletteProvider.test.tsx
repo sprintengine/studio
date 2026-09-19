@@ -88,7 +88,13 @@ async function main(): Promise<void> {
     return {
       async mount(): Promise<void> {
         await act(async () => {
-          root.render(React.createElement(Probe, { set: (fn) => { setQuery = fn } }))
+          root.render(
+            React.createElement(Probe, {
+              set: (fn) => {
+                setQuery = fn
+              },
+            }),
+          )
         })
       },
       async type(next: string): Promise<void> {
@@ -135,7 +141,7 @@ async function main(): Promise<void> {
     await palette.type('rev')
     await palette.type('')
     await palette.settle()
-    assert.equal(warms, 1, 'reading every source\'s cached scan must not repeat per keystroke')
+    assert.equal(warms, 1, "reading every source's cached scan must not repeat per keystroke")
     await palette.unmount()
   })
 
@@ -204,10 +210,10 @@ async function main(): Promise<void> {
       finishRegistry()
     })
     await palette.settle()
-    assert.deepEqual(palette.results.commands.map((command) => command.id), [
-      'from-a-source',
-      'from-the-registry',
-    ])
+    assert.deepEqual(
+      palette.results.commands.map((command) => command.id),
+      ['from-a-source', 'from-the-registry'],
+    )
     await palette.unmount()
   })
 
@@ -224,7 +230,10 @@ async function main(): Promise<void> {
     const palette = harness([provider])
     await palette.mount()
     await palette.settle()
-    assert.deepEqual(palette.results.commands.map((command) => command.id), ['still-here'])
+    assert.deepEqual(
+      palette.results.commands.map((command) => command.id),
+      ['still-here'],
+    )
     assert.equal(palette.results.error, null)
     await palette.unmount()
   })
@@ -259,7 +268,7 @@ async function main(): Promise<void> {
     assert.deepEqual(
       palette.results.commands.map((command) => command.id),
       ['fresh'],
-      'a dead run\'s rows must never reach the list',
+      "a dead run's rows must never reach the list",
     )
     await palette.unmount()
   })
@@ -318,7 +327,10 @@ async function main(): Promise<void> {
     await palette.type('a')
     await palette.settle(60)
     assert.equal(calls, 1)
-    assert.deepEqual(palette.results.commands.map((command) => command.id), ['hit-a'])
+    assert.deepEqual(
+      palette.results.commands.map((command) => command.id),
+      ['hit-a'],
+    )
     // A burst of typing collapses into one run, and the previous rows stay up
     // rather than the list blanking between every two keystrokes.
     await palette.type('ab')
@@ -330,7 +342,10 @@ async function main(): Promise<void> {
     )
     await palette.settle(60)
     assert.equal(calls, 2, 'the burst was one run, not three')
-    assert.deepEqual(palette.results.commands.map((command) => command.id), ['hit-abc'])
+    assert.deepEqual(
+      palette.results.commands.map((command) => command.id),
+      ['hit-abc'],
+    )
     await palette.unmount()
   })
 
@@ -354,7 +369,10 @@ async function main(): Promise<void> {
     await palette.type('rev')
     await palette.settle()
     assert.equal(palette.results.error, 'ripgrep is not installed')
-    assert.deepEqual(palette.results.commands.map((command) => command.id), ['review'])
+    assert.deepEqual(
+      palette.results.commands.map((command) => command.id),
+      ['review'],
+    )
     await palette.unmount()
   })
 
@@ -446,7 +464,7 @@ async function main(): Promise<void> {
     // identity cannot count as a change.
     await palette.type('q')
     await palette.settle()
-    assert.equal(calls, 1, 'a callback\'s identity is not a reason to run ripgrep again')
+    assert.equal(calls, 1, "a callback's identity is not a reason to run ripgrep again")
     await palette.unmount()
   })
 

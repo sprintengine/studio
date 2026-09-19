@@ -59,14 +59,35 @@ run('the checked-in backlog corpus is present and covers the real layouts', () =
   const relative = fixtureFiles.map((path) => path.slice(backlogRoot.length + 1).replace(/\\/g, '/'))
   // Each shape below is a property the corpus must keep exercising; losing one
   // silently narrows every property test underneath it.
-  assert.ok(relative.some((path) => path.startsWith('epics/')), 'corpus keeps an epic container')
-  assert.ok(relative.some((path) => path.includes('/') && !path.startsWith('epics/')), 'corpus keeps an item filed in an epic folder')
-  assert.ok(relative.some((path) => path.startsWith('archived/')), 'corpus keeps an archived item')
+  assert.ok(
+    relative.some((path) => path.startsWith('epics/')),
+    'corpus keeps an epic container',
+  )
+  assert.ok(
+    relative.some((path) => path.includes('/') && !path.startsWith('epics/')),
+    'corpus keeps an item filed in an epic folder',
+  )
+  assert.ok(
+    relative.some((path) => path.startsWith('archived/')),
+    'corpus keeps an archived item',
+  )
   const contents = fixtureFiles.map((path) => readFileSync(path, 'utf8'))
-  assert.ok(contents.some((text) => /^dependsOn:/m.test(text)), 'corpus keeps an item that declares dependsOn')
-  assert.ok(contents.some((text) => /^dependenciesPlanned:/m.test(text)), 'corpus keeps an epic that declares dependenciesPlanned')
-  assert.ok(contents.some((text) => /^backlog:$/m.test(text)), 'corpus keeps the legacy nested section')
-  assert.ok(contents.some((text) => !text.startsWith('---')), 'corpus keeps a file with no frontmatter')
+  assert.ok(
+    contents.some((text) => /^dependsOn:/m.test(text)),
+    'corpus keeps an item that declares dependsOn',
+  )
+  assert.ok(
+    contents.some((text) => /^dependenciesPlanned:/m.test(text)),
+    'corpus keeps an epic that declares dependenciesPlanned',
+  )
+  assert.ok(
+    contents.some((text) => /^backlog:$/m.test(text)),
+    'corpus keeps the legacy nested section',
+  )
+  assert.ok(
+    contents.some((text) => !text.startsWith('---')),
+    'corpus keeps a file with no frontmatter',
+  )
 })
 
 run('property: set then clear an absent key returns byte-identical content', () => {
@@ -165,20 +186,16 @@ run('set appends a new key at the end of the frontmatter block, body untouched',
   assert.equal(out, '---\ntype: feature\nepic: auth-revamp\n---\n# Title\nBody.')
 })
 
-run('an appended key keeps the caller\'s spelling; an existing line keeps the file\'s', () => {
+run("an appended key keeps the caller's spelling; an existing line keeps the file's", () => {
   // The parser lowercases keys for MATCHING, which used to flatten the written
   // line too — a camelCase field landed as `dependson:` / `dependenciesplanned:`,
   // unlike every hand-authored file and the schema doc.
-  const appended = serializeBacklogFrontmatterFields(
-    '---\ntype: epic\n---\n# Title',
-    { dependenciesPlanned: 'true' },
-  )
+  const appended = serializeBacklogFrontmatterFields('---\ntype: epic\n---\n# Title', { dependenciesPlanned: 'true' })
   assert.equal(appended, '---\ntype: epic\ndependenciesPlanned: true\n---\n# Title')
   // An existing line is rewritten in place, so the file's own spelling wins.
-  const replaced = serializeBacklogFrontmatterFields(
-    '---\ndependenciesplanned: true\n---\n# Title',
-    { dependenciesPlanned: 'false' },
-  )
+  const replaced = serializeBacklogFrontmatterFields('---\ndependenciesplanned: true\n---\n# Title', {
+    dependenciesPlanned: 'false',
+  })
   assert.equal(replaced, '---\ndependenciesplanned: false\n---\n# Title')
 })
 
@@ -195,18 +212,16 @@ run('parseBacklogDependenciesPlanned: only a literal true, case-insensitive', ()
 })
 
 run('set replaces an existing value in place, preserving other lines and order', () => {
-  const out = serializeBacklogFrontmatterFields(
-    '---\ntype: feature\nstatus: idea\ndifficulty: m\n---\nbody',
-    { status: 'ready' },
-  )
+  const out = serializeBacklogFrontmatterFields('---\ntype: feature\nstatus: idea\ndifficulty: m\n---\nbody', {
+    status: 'ready',
+  })
   assert.equal(out, '---\ntype: feature\nstatus: ready\ndifficulty: m\n---\nbody')
 })
 
 run('clear removes only the targeted line and keeps the rest in order', () => {
-  const out = serializeBacklogFrontmatterFields(
-    '---\ntype: feature\nrisk: high\nstatus: ready\n---\nbody',
-    { risk: null },
-  )
+  const out = serializeBacklogFrontmatterFields('---\ntype: feature\nrisk: high\nstatus: ready\n---\nbody', {
+    risk: null,
+  })
   assert.equal(out, '---\ntype: feature\nstatus: ready\n---\nbody')
 })
 

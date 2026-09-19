@@ -276,10 +276,14 @@ async function main(): Promise<void> {
   })
 
   await run('a chosen engine whose CLI is not installed falls through to the other supported CLI', () => {
-    prime({ enabled: true, engine: { cli: 'codex', model: 'gpt-5.6-luna', reasoning: 'high' } }, ['codex', 'claude-code'], {
-      codex: false,
-      'claude-code': true,
-    })
+    prime(
+      { enabled: true, engine: { cli: 'codex', model: 'gpt-5.6-luna', reasoning: 'high' } },
+      ['codex', 'claude-code'],
+      {
+        codex: false,
+        'claude-code': true,
+      },
+    )
     assert.deepEqual(
       resolveStoreTextGenerationEngine(),
       { cli: 'claude-code', model: 'claude-haiku-4-5', reasoning: 'low' },

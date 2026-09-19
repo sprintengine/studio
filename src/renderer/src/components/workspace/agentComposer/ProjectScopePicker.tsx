@@ -172,7 +172,8 @@ export function ProjectScopePicker({
   const [fallbackParent, setFallbackParent] = React.useState<string | null>(null)
   React.useEffect(() => {
     let active = true
-    void window.api.defaultWorkspaceParentDir?.()
+    void window.api
+      .defaultWorkspaceParentDir?.()
       .then((dir) => {
         if (active) setFallbackParent(dir)
       })
@@ -273,7 +274,13 @@ function folderPathKey(path: string): string {
 function ChevronGlyph() {
   return (
     <svg className="icon-xs text-[color:var(--text-subtle)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-      <path d="m4 6.5 4 3.5 4-3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="m4 6.5 4 3.5 4-3.5"
+        stroke="currentColor"
+        strokeWidth="1.4"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }

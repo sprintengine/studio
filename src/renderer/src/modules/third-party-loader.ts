@@ -26,9 +26,7 @@ import type { RendererKernel } from './renderer-host'
 // rail), which is exactly what makes toggling a module off and on work without
 // a reload.
 
-export type ThirdPartyRendererLoadState =
-  | { status: 'loaded' }
-  | { status: 'error'; message: string }
+export type ThirdPartyRendererLoadState = { status: 'loaded' } | { status: 'error'; message: string }
 
 const LOAD_FAILURE_FALLBACK = 'entry.renderer bundle failed to load.'
 
@@ -37,9 +35,7 @@ const LOAD_FAILURE_FALLBACK = 'entry.renderer bundle failed to load.'
 // require a restart. The module registry signals after a complete load batch.
 const loadStates = new Map<string, ThirdPartyRendererLoadState>()
 
-export function getThirdPartyRendererLoadState(
-  moduleId: string
-): ThirdPartyRendererLoadState | undefined {
+export function getThirdPartyRendererLoadState(moduleId: string): ThirdPartyRendererLoadState | undefined {
   return loadStates.get(moduleId)
 }
 
@@ -125,7 +121,7 @@ async function installSharedRuntimeImportMap(): Promise<void> {
     const imports: Record<string, string> = {}
     for (const [specifier, namespace] of Object.entries(namespaces)) {
       imports[specifier] = URL.createObjectURL(
-        new Blob([sharedModuleShimSource(specifier, namespace)], { type: 'text/javascript' })
+        new Blob([sharedModuleShimSource(specifier, namespace)], { type: 'text/javascript' }),
       )
     }
     const script = document.createElement('script')
@@ -164,8 +160,9 @@ const RESERVED_IDS: ReadonlySet<string> = new Set(BUNDLED_MODULE_IDS)
 /** Never hot-load one half of a module whose main/preload needs a restart. */
 export function rendererEntriesForRefresh(served: ThirdPartyRendererEntriesResult): ThirdPartyRendererEntriesResult {
   return {
-    entries: served.entries.filter((entry) =>
-      !entry.manifest.entry?.main && !entry.manifest.entry?.preload && !loadStates.has(entry.id)),
+    entries: served.entries.filter(
+      (entry) => !entry.manifest.entry?.main && !entry.manifest.entry?.preload && !loadStates.has(entry.id),
+    ),
     failures: Object.fromEntries(Object.entries(served.failures).filter(([id]) => !loadStates.has(id))),
   }
 }
@@ -177,7 +174,7 @@ export function rendererEntriesForRefresh(served: ThirdPartyRendererEntriesResul
 export async function loadThirdPartyRendererEntries(
   kernel: RendererKernel,
   served: ThirdPartyRendererEntriesResult,
-  importEntry: ThirdPartyEntryImporter = importEntryBundle
+  importEntry: ThirdPartyEntryImporter = importEntryBundle,
 ): Promise<CapabilityManifest[]> {
   for (const [id, message] of Object.entries(served.failures)) {
     recordError(id, message)

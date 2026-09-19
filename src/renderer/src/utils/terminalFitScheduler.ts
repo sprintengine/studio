@@ -60,10 +60,7 @@ function ensureWindowResizeListener(): void {
 // DOM lib version TypeScript resolves; older spec drafts named the option
 // `checkVisibilityCSS`, newer ones `visibilityProperty`, so both are passed.
 type VisibilityProbe = {
-  checkVisibility?: (options?: {
-    checkVisibilityCSS?: boolean
-    visibilityProperty?: boolean
-  }) => boolean
+  checkVisibility?: (options?: { checkVisibilityCSS?: boolean; visibilityProperty?: boolean }) => boolean
 }
 
 function isContainerRendered(container: HTMLElement): boolean {
@@ -87,7 +84,7 @@ function isContainerRendered(container: HTMLElement): boolean {
  */
 export function createTerminalFitScheduler(
   fit: () => void,
-  container: HTMLElement
+  container: HTMLElement,
 ): { requestFit: () => void; dispose: () => void } {
   ensureWindowResizeListener()
 

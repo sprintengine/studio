@@ -11,7 +11,17 @@
 // draggable span) to preserve the window grab area.
 
 import React from 'react'
-import { GhostButton, IconButton, OutlineButton, OverflowMenu, SplitButton, StarGlyph, Tooltip, type OverflowMenuItem, type SplitButtonItem } from '../ui'
+import {
+  GhostButton,
+  IconButton,
+  OutlineButton,
+  OverflowMenu,
+  SplitButton,
+  StarGlyph,
+  Tooltip,
+  type OverflowMenuItem,
+  type SplitButtonItem,
+} from '../ui'
 import type { CursorAnchor } from '../ui/CursorErrorPopover'
 
 // The "Open in editor" failure card, anchored at the cursor. It exists only
@@ -34,10 +44,7 @@ import { labelForCliRuntime } from './newWorkspace/cliRuntimeOptions'
 import CliIcon from '../CliIcon'
 import { selectModuleEnabled } from '../../modules'
 import { getHighlightSwatch, isStarred } from '../../utils/highlight'
-import type {
-  FolderOpenTargetAvailability,
-  FolderOpenTargetId,
-} from '../../../../shared/folder-open-targets'
+import type { FolderOpenTargetAvailability, FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import {
   availableFolderOpenTargets,
   folderOpenTargetLabel,
@@ -86,10 +93,7 @@ const TARGET_MARK: Record<FolderOpenTargetId, React.ReactNode> = {
 
 function TargetGlyph({ target }: { target: FolderOpenTargetId }) {
   return (
-    <span
-      aria-hidden="true"
-      className="grid size-icon-sm shrink-0 place-items-center text-[color:var(--text-muted)]"
-    >
+    <span aria-hidden="true" className="grid size-icon-sm shrink-0 place-items-center text-[color:var(--text-muted)]">
       {TARGET_MARK[target]}
     </span>
   )
@@ -177,9 +181,7 @@ export function useFolderOpenTargets(workspaceId: string | null, openPath: strin
       const rect = primaryRef.current?.getBoundingClientRect()
       setFailure({
         message: `Could not open ${folderOpenTargetLabel(target, isMac)}: ${detail}`,
-        anchor: rect
-          ? { x: rect.left + rect.width / 2, y: rect.bottom }
-          : { x: window.innerWidth / 2, y: 0 },
+        anchor: rect ? { x: rect.left + rect.width / 2, y: rect.bottom } : { x: window.innerWidth / 2, y: 0 },
       })
     },
     [isMac],
@@ -340,7 +342,7 @@ export function OpenWorkspaceFolderButton({ targets }: { targets: FolderOpenTarg
  */
 function useCheckoutChangeSummary(
   checkoutPath: string | null,
-  _status: GitStatusSnapshot | null
+  _status: GitStatusSnapshot | null,
 ): WorkspaceChangeSummary | undefined {
   // The SAME shared reading the sidebar's lines poll (useSidebarGitSummaries:
   // one sweep on mount, every REFRESH_MS, and when the window becomes visible;
@@ -349,10 +351,7 @@ function useCheckoutChangeSummary(
   // working-tree edit — so the chip sat on stale numbers while the line beside
   // it moved (seen live, 2026-09-09). Chip and line now move together because
   // they are two readers of one cadence, not two cadences.
-  const entries = React.useMemo(
-    () => (checkoutPath ? [{ id: CHIP_SUMMARY_ID, checkoutPath }] : []),
-    [checkoutPath]
-  )
+  const entries = React.useMemo(() => (checkoutPath ? [{ id: CHIP_SUMMARY_ID, checkoutPath }] : []), [checkoutPath])
   const summaries = useSidebarGitSummaries(entries)
   return checkoutPath ? summaries[CHIP_SUMMARY_ID] : undefined
 }
@@ -394,7 +393,7 @@ export function WorkspaceIdentity({
   // own checkout. `followedCheckoutOf` is that rule, shared with the lines.
   const terminalSessions = useTerminalSessions()
   const focusedAgentId = useWorkspaceStore((state) =>
-    activeWorkspaceId ? state.focusedAgentByWorkspaceId[activeWorkspaceId] : undefined
+    activeWorkspaceId ? state.focusedAgentByWorkspaceId[activeWorkspaceId] : undefined,
   )
   const followed = activeWorkspace ? followedCheckoutOf(activeWorkspace, focusedAgentId, terminalSessions) : null
   const gitProbePath = followed?.probePath ?? null
@@ -424,7 +423,7 @@ export function WorkspaceIdentity({
             .filter((session) => session.workspaceId === activeWorkspaceId && session.agentId === followedAgent.agentId)
             .flatMap((session) => session.pullRequests ?? [])
         : [],
-    [terminalSessions, activeWorkspaceId, followedAgent]
+    [terminalSessions, activeWorkspaceId, followedAgent],
   )
   const gitDiff = lineDiffOf(gitSummary, followedPullRequests)
   // Absent counts draw NOTHING (a main that predates the breakdown, a span git
@@ -483,9 +482,7 @@ export function WorkspaceIdentity({
   // tint reads too subtly. Re-home the accent onto the identity cluster itself —
   // the name carries an underline in the highlight colour — so the current
   // workspace's colour stays legible without chroming the whole strip.
-  const highlightHex = activeWorkspace.highlight?.color
-    ? getHighlightSwatch(activeWorkspace.highlight.color).hex
-    : null
+  const highlightHex = activeWorkspace.highlight?.color ? getHighlightSwatch(activeWorkspace.highlight.color).hex : null
 
   // Show the project's folder name, not the full absolute path — the path was
   // the strip's biggest source of clutter and its only meaningful part is the
@@ -497,15 +494,13 @@ export function WorkspaceIdentity({
   // stays the project root because the Files panel is rooted there.
   // Drawn once for both spellings of this control (the Git-panel button and the
   // read-only span when the panel module is off), so they can never drift.
-  const gitCountBadge = gitHasCounts && gitMarks ? (
-    <span
-      aria-hidden="true"
-      className="ml-0.5 shrink-0 font-mono text-micro font-semibold leading-none tabular-nums"
-    >
-      <span className="text-[color:var(--tone-good)]">+{gitMarks.plus}</span>
-      <span className="ml-1 text-[color:var(--tone-error)]">−{gitMarks.minus}</span>
-    </span>
-  ) : null
+  const gitCountBadge =
+    gitHasCounts && gitMarks ? (
+      <span aria-hidden="true" className="ml-0.5 shrink-0 font-mono text-micro font-semibold leading-none tabular-nums">
+        <span className="text-[color:var(--tone-good)]">+{gitMarks.plus}</span>
+        <span className="ml-1 text-[color:var(--tone-error)]">−{gitMarks.minus}</span>
+      </span>
+    ) : null
   // The followed agent's runtime mark, ahead of the branch glyph, so "whose
   // branch" reads at a glance; decorative here — the control's words carry the
   // name (`chipCopy.spoken`), and the chip's tooltip names it in full.
@@ -557,9 +552,10 @@ export function WorkspaceIdentity({
       const branchRowLabel = branchName ?? 'detached'
       overflowItems.push({
         id: 'identity-git',
-        label: gitHasCounts && gitDiff.files
-          ? `Git — ${branchRowLabel} (${changedFilesPhrase(gitDiff.files)})`
-          : `Git — ${branchRowLabel}`,
+        label:
+          gitHasCounts && gitDiff.files
+            ? `Git — ${branchRowLabel} (${changedFilesPhrase(gitDiff.files)})`
+            : `Git — ${branchRowLabel}`,
         icon: <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />,
         onSelect: toggleGitPanel,
       })
@@ -735,11 +731,7 @@ export function WorkspaceIdentity({
       ) : null}
       {chipsInline && branchIsRepo ? (
         gitPanelEnabled ? (
-          <Tooltip
-            content={branchTooltip}
-            placement="bottom"
-            wrapperClassName="flex min-w-0 shrink-[10]"
-          >
+          <Tooltip content={branchTooltip} placement="bottom" wrapperClassName="flex min-w-0 shrink-[10]">
             {/* The same inline ghost the files chip takes; the tone's
                 `--text-muted` rest ink is the one this chip already spelled. */}
             <GhostButton
@@ -750,9 +742,7 @@ export function WorkspaceIdentity({
             >
               {followedMark}
               <GitBranchGlyph className="icon-xs shrink-0 text-[color:var(--text-subtle)]" />
-              {showChipWords ? (
-                <span className="min-w-0 max-w-[22ch] truncate">{branchName ?? 'detached'}</span>
-              ) : null}
+              {showChipWords ? <span className="min-w-0 max-w-[22ch] truncate">{branchName ?? 'detached'}</span> : null}
               {gitCountBadge}
             </GhostButton>
           </Tooltip>

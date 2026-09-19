@@ -19,9 +19,7 @@ function runGlyphProviderForWorkspace(workspace: WorkspaceRunGlyphProviderInput)
   const definitions = host.getWorkspaceTypes((moduleId) => host.isModuleEnabled(moduleId))
   // A type's provider is asked about its own workspaces only: the published
   // module contract promises exactly that.
-  return definitions.find(
-    (definition) => definition.deriveRunGlyph && definition.id === workspace.mode
-  ) ?? null
+  return definitions.find((definition) => definition.deriveRunGlyph && definition.id === workspace.mode) ?? null
 }
 
 // The sidebar row's one status slot. The owning module's provider derives the
@@ -29,9 +27,7 @@ function runGlyphProviderForWorkspace(workspace: WorkspaceRunGlyphProviderInput)
 // agent terminal sitting at a prompt must not drive a run's status. A workspace
 // with no provider gets no run glyph (the shell's dot + recency idiom stays its
 // own). Null means "no run signal": the caller falls back to recency text.
-export function deriveWorkspaceRunGlyph(
-  workspace: WorkspaceRunGlyphProviderInput,
-): WorkspaceRunGlyph | null {
+export function deriveWorkspaceRunGlyph(workspace: WorkspaceRunGlyphProviderInput): WorkspaceRunGlyph | null {
   const provider = runGlyphProviderForWorkspace(workspace)
   if (!provider) return null
   return provider.deriveRunGlyph?.(workspace) ?? null

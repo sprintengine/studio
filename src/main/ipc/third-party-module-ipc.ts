@@ -52,7 +52,7 @@ export function registerThirdPartyModuleIpc(ipcMain: IpcMain): void {
       if (!result.ok) return { ok: false, message: result.message, issues: result.rejected.issues }
       notifyRendererModulesChanged()
       return { ok: true, id: result.id, trust: result.trust.status }
-    }
+    },
   )
 
   ipcMain.handle(
@@ -85,14 +85,14 @@ export function registerThirdPartyModuleIpc(ipcMain: IpcMain): void {
       const { result } = await setModuleTrust(userData, id, manifestFingerprint(target.manifest))
       if (result.ok) notifyRendererModulesChanged()
       return { ok: result.ok, message: result.message }
-    }
+    },
   )
 }
 
 export function toThirdPartyModuleView(
   module: InstalledModule,
   launchSnapshot: ThirdPartyMainLaunchSnapshot = readThirdPartyMainLaunchSnapshot(),
-  enablementOverrides: ModuleEnablementOverrides = {}
+  enablementOverrides: ModuleEnablementOverrides = {},
 ): ThirdPartyModuleView {
   return {
     manifest: module.manifest,
@@ -105,15 +105,18 @@ export function toThirdPartyModuleView(
 function launchViewFor(
   module: InstalledModule,
   launchSnapshot: ThirdPartyMainLaunchSnapshot,
-  enablementOverrides: ModuleEnablementOverrides
+  enablementOverrides: ModuleEnablementOverrides,
 ): ThirdPartyModuleLaunchView {
-  return { ...mainEntryLaunchView(module, launchSnapshot, enablementOverrides), rendererEntry: rendererEntryView(module) }
+  return {
+    ...mainEntryLaunchView(module, launchSnapshot, enablementOverrides),
+    rendererEntry: rendererEntryView(module),
+  }
 }
 
 function mainEntryLaunchView(
   module: InstalledModule,
   launchSnapshot: ThirdPartyMainLaunchSnapshot,
-  enablementOverrides: ModuleEnablementOverrides
+  enablementOverrides: ModuleEnablementOverrides,
 ): ThirdPartyModuleLaunchView {
   const id = module.manifest.id
   const hasMainEntry = Boolean(module.manifest.entry?.main)

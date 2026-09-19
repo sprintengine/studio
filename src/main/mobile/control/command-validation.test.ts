@@ -33,13 +33,16 @@ for (const version of mobileControlSupportedProtocolVersions) {
   assert.equal(
     validateMobileControlCommand(command({ protocolVersion: version })).ok,
     true,
-    `a command at protocol version ${version} is inside the window`
+    `a command at protocol version ${version} is inside the window`,
   )
 }
 
 // A phone one release behind is the case the window exists for: its build is
 // waiting on a store review this repository does not control.
-assert.equal(validateMobileControlCommand(command({ protocolVersion: mobileControlMinSupportedProtocolVersion })).ok, true)
+assert.equal(
+  validateMobileControlCommand(command({ protocolVersion: mobileControlMinSupportedProtocolVersion })).ok,
+  true,
+)
 
 for (const outside of [
   mobileControlMinSupportedProtocolVersion - 1,

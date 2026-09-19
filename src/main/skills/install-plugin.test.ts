@@ -87,7 +87,11 @@ async function claudeIsCopiedForLikeEveryOtherHarness(): Promise<void> {
   await mkdir(join(workspace, '.claude'), { recursive: true })
   await writeFile(
     join(workspace, CLAUDE_SETTINGS_RELATIVE_PATH),
-    JSON.stringify({ permissions: { allow: ['Bash(npm test)'] }, enabledPlugins: { 'other@elsewhere': true } }, null, 2)
+    JSON.stringify(
+      { permissions: { allow: ['Bash(npm test)'] }, enabledPlugins: { 'other@elsewhere': true } },
+      null,
+      2,
+    ),
   )
 
   const result = await installPlugin({
@@ -271,7 +275,9 @@ async function nothingToInstallIsSaidNotHidden(): Promise<void> {
     sourceId: 'github:acme/hooks',
     marketplaceName: '',
     marketplaceRepo: 'acme/hooks',
-    plugin: plugin({ components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] } }),
+    plugin: plugin({
+      components: { ...emptyPluginComponents(), hooks: [{ event: 'Stop', matcher: '', command: 'x' }] },
+    }),
     harnesses: ['codex', 'agents'],
     commitSha: 'abc',
     readSkillFile: READ,
@@ -338,7 +344,7 @@ function shapes(): void {
       declaredIn: '.mcp.json',
       declaredBy: 'p',
     },
-    ['codex']
+    ['codex'],
   )
   assert.equal(stdio.riskLevel, 'local-command')
   assert.equal(stdio.command, 'npx')

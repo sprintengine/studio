@@ -1,10 +1,6 @@
 import { execFile } from 'node:child_process'
 import { parsePsProcessRows, type PsProcessRow } from './child-process-metrics'
-import type {
-  TerminalKind,
-  WorkspaceMemorySample,
-  WorkspaceTerminalMemorySample,
-} from '../shared/electron-api'
+import type { TerminalKind, WorkspaceMemorySample, WorkspaceTerminalMemorySample } from '../shared/electron-api'
 
 // Per-workspace memory attribution for the diagnostics panel. The flat
 // child-process sampler walks the whole tree under main with no session mapping;
@@ -65,7 +61,7 @@ export function sumSubtreeRssBytes(rootPid: number, rows: readonly PsProcessRow[
 // heaviest first. Sessions with no workspace are skipped (cannot be attributed).
 export function rollupWorkspaceMemory(
   roots: readonly TerminalRootInfo[],
-  rows: readonly PsProcessRow[]
+  rows: readonly PsProcessRow[],
 ): WorkspaceMemorySample[] {
   const byWorkspace = new Map<string, WorkspaceMemorySample>()
   for (const root of roots) {
@@ -104,9 +100,7 @@ export function rollupWorkspaceMemory(
 
   const result = [...byWorkspace.values()]
   for (const sample of result) sample.terminals.sort((a, b) => b.memoryBytes - a.memoryBytes)
-  result.sort(
-    (a, b) => b.totalMemoryBytes - a.totalMemoryBytes || a.workspaceId.localeCompare(b.workspaceId)
-  )
+  result.sort((a, b) => b.totalMemoryBytes - a.totalMemoryBytes || a.workspaceId.localeCompare(b.workspaceId))
   return result
 }
 
@@ -117,7 +111,7 @@ export type WorkspaceMemoryDeps = {
 
 export async function sampleWorkspaceMemory(
   roots: readonly TerminalRootInfo[],
-  deps: WorkspaceMemoryDeps = {}
+  deps: WorkspaceMemoryDeps = {},
 ): Promise<WorkspaceMemorySample[]> {
   const platform = deps.platform ?? process.platform
   if (platform !== 'darwin' && platform !== 'linux') return []
@@ -136,7 +130,7 @@ function defaultRunPs(): Promise<string> {
       'ps',
       ['-axo', 'pid=,ppid=,rss=,pcpu=,comm=,args='],
       { timeout: 2_000, maxBuffer: 4 * 1024 * 1024 },
-      (error, stdout) => resolve(error ? '' : stdout)
+      (error, stdout) => resolve(error ? '' : stdout),
     )
   })
 }

@@ -202,7 +202,11 @@ export async function writeManagedSkillManifest(input: {
     installedAt: timestamp,
     updatedAt: timestamp,
   }
-  await writeFile(join(input.destinationDir, MANAGED_SKILL_MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, 'utf-8')
+  await writeFile(
+    join(input.destinationDir, MANAGED_SKILL_MANIFEST_FILE),
+    `${JSON.stringify(manifest, null, 2)}\n`,
+    'utf-8',
+  )
 }
 
 export function findBuiltinSkill(skillId: string): BuiltinSkill | null {
@@ -326,9 +330,11 @@ function skillDestination(workspaceRoot: string, skillId: string, harness: Skill
 }
 
 function canonicalTarget(targets: BuiltinSkillTargetState[]): BuiltinSkillTargetState {
-  return targets.find((target) => target.harness === 'agents' && target.destinationPath)
-    ?? targets.find((target) => Boolean(target.destinationPath))
-    ?? targets[0]
+  return (
+    targets.find((target) => target.harness === 'agents' && target.destinationPath) ??
+    targets.find((target) => Boolean(target.destinationPath)) ??
+    targets[0]
+  )
 }
 
 /**
@@ -444,7 +450,7 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
   async function getTargetState(
     skill: BuiltinSkill,
     sourceHash: string,
-    target: SkillTargetDescriptor
+    target: SkillTargetDescriptor,
   ): Promise<BuiltinSkillTargetState> {
     const base = {
       harness: target.harness,
@@ -485,7 +491,8 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
   async function getStatus(workspaceRoot: string | null, skillId: string): Promise<BuiltinSkillStatus> {
     const skill = getSkill(skillId)
     if (!skill) return { ok: false, status: 'unknown-skill', skillId, message: `Unknown built-in skill: ${skillId}` }
-    if (!workspaceRoot) return { ok: false, status: 'missing-workspace', skillId, message: 'Workspace root is required.' }
+    if (!workspaceRoot)
+      return { ok: false, status: 'missing-workspace', skillId, message: 'Workspace root is required.' }
 
     const sourcePath = getSourcePath(skill.id)
     if (!(await pathExists(sourcePath))) {
@@ -499,8 +506,7 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     }
 
     const destinationPath = canonicalTarget(targets).destinationPath ?? ''
-    const installedVersion =
-      targets.find((target) => target.installedVersion)?.installedVersion ?? skill.version
+    const installedVersion = targets.find((target) => target.installedVersion)?.installedVersion ?? skill.version
 
     // Aggregate by actionability: anything installable wins over anything
     // merely protected, so install stays offered while modified/local copies
@@ -532,11 +538,12 @@ export function createBuiltinSkillManager(options: BuiltinSkillManagerOptions = 
     if (!status.ok) return status
 
     const actionable = status.targets.filter(
-      (target) => Boolean(target.destinationPath)
-        && (target.status === 'missing' || target.status === 'installed' || target.status === 'update-available')
+      (target) =>
+        Boolean(target.destinationPath) &&
+        (target.status === 'missing' || target.status === 'installed' || target.status === 'update-available'),
     )
     const skipped = status.targets.filter(
-      (target) => Boolean(target.destinationPath) && (target.status === 'modified' || target.status === 'local')
+      (target) => Boolean(target.destinationPath) && (target.status === 'modified' || target.status === 'local'),
     )
     if (actionable.length === 0) {
       return {
@@ -613,7 +620,7 @@ function skillManager(): BuiltinSkillManager {
  */
 export async function ensureSkillInstalled(
   workspaceRoot: string,
-  skillId: string
+  skillId: string,
 ): Promise<EnsureSkillInstalledResult> {
   if (!resolveSkillById(skillId)) {
     return { ok: false, status: 'unknown-skill', message: `Unknown skill: ${skillId}` }

@@ -14,7 +14,10 @@ async function main(): Promise<void> {
   })
 
   await api.ensureBacklogObjectRecords('/repo', [{ relativePath: 'backlog/plan.md', status: 'idea' }])
-  await api.ensureBacklogItemIds({ workspaceRoot: '/repo', items: [{ relativePath: 'backlog/plan.md', numericId: null }] })
+  await api.ensureBacklogItemIds({
+    workspaceRoot: '/repo',
+    items: [{ relativePath: 'backlog/plan.md', numericId: null }],
+  })
   await api.updateBacklogStatus({ workspaceRoot: '/repo', relativePath: 'backlog/plan.md', status: 'in_progress' })
   await api.addOrUpdateBacklogLink({
     workspaceRoot: '/repo',
@@ -50,17 +53,20 @@ async function main(): Promise<void> {
   })
   await api.createBacklogEpic({ workspaceRoot: '/repo', title: 'Auth Revamp' })
 
-  assert.deepEqual(calls.map((call) => call.channel), [
-    'backlog:ensure-object-records',
-    'backlog:ensure-item-ids',
-    'backlog:update-status',
-    'backlog:add-or-update-link',
-    'backlog:remove-link',
-    'backlog:update-module-metadata',
-    'backlog:update-epic',
-    'backlog:update-mockups',
-    'backlog:create-epic',
-  ])
+  assert.deepEqual(
+    calls.map((call) => call.channel),
+    [
+      'backlog:ensure-object-records',
+      'backlog:ensure-item-ids',
+      'backlog:update-status',
+      'backlog:add-or-update-link',
+      'backlog:remove-link',
+      'backlog:update-module-metadata',
+      'backlog:update-epic',
+      'backlog:update-mockups',
+      'backlog:create-epic',
+    ],
+  )
 }
 
 main().catch((error) => {

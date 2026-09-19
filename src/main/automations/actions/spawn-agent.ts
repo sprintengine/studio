@@ -108,7 +108,10 @@ export function createSpawnAgentActionProvider(): AutomationActionProvider {
   }
 }
 
-export async function runSpawnAgentAction(config: unknown, runtime: SpawnAgentRuntime): Promise<SpawnAgentActionResult> {
+export async function runSpawnAgentAction(
+  config: unknown,
+  runtime: SpawnAgentRuntime,
+): Promise<SpawnAgentActionResult> {
   const parsed = parseSpawnAgentConfig(config)
   for (const integrationId of parsed.requiredIntegrations ?? []) {
     runtime.requireIntegration(integrationId)
@@ -171,16 +174,16 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
 
   const requiredIntegrations = config.requiredIntegrations
   if (
-    requiredIntegrations !== undefined
-    && (!Array.isArray(requiredIntegrations) || !requiredIntegrations.every((entry) => typeof entry === 'string' && entry.trim().length > 0))
+    requiredIntegrations !== undefined &&
+    (!Array.isArray(requiredIntegrations) ||
+      !requiredIntegrations.every((entry) => typeof entry === 'string' && entry.trim().length > 0))
   ) {
     throw new Error('spawn-agent requiredIntegrations must be non-empty strings.')
   }
 
   const rawPermissionPreset = optionalString(config.permissionPreset)
-  const permissionPreset = rawPermissionPreset === undefined
-    ? undefined
-    : normalizeAutomationPermissionPreset(rawPermissionPreset)
+  const permissionPreset =
+    rawPermissionPreset === undefined ? undefined : normalizeAutomationPermissionPreset(rawPermissionPreset)
   if (rawPermissionPreset !== undefined && permissionPreset === undefined) {
     throw new Error(`spawn-agent permissionPreset must be one of: ${PERMISSION_PRESETS.join(', ')}.`)
   }
@@ -195,7 +198,8 @@ export function parseSpawnAgentConfig(config: unknown): SpawnAgentConfig {
     workspaceId: optionalString(config.workspaceId),
     cli: optionalString(config.cli),
     cliModel: optionalString(config.cliModel),
-    permissionPreset: (permissionPreset as AutomationCliPermissionPreset | undefined) ?? AUTOMATION_DEFAULT_PERMISSION_PRESET,
+    permissionPreset:
+      (permissionPreset as AutomationCliPermissionPreset | undefined) ?? AUTOMATION_DEFAULT_PERMISSION_PRESET,
     name: optionalString(config.name),
     prompt,
     connectorId: optionalString(config.connectorId),
@@ -214,8 +218,7 @@ const TRIGGER_CONTEXT_MAX_BYTES = 8192
 
 // The substitution the owner named when retiring `autonomyDefault`, verbatim, so
 // a definition whose author asked for a reviewer still gets one.
-export const WRITE_UP_ONLY_INSTRUCTION =
-  'Open a pull request containing the write-up only; do not refactor.'
+export const WRITE_UP_ONLY_INSTRUCTION = 'Open a pull request containing the write-up only; do not refactor.'
 
 export function composeSpawnAgentPrompt(input: {
   userPrompt: string
@@ -269,7 +272,7 @@ export function composeSpawnAgentPrompt(input: {
 // sits between the user task and the non-interactive directive.
 function triggerContextBlock(
   includeTriggerContext: boolean | undefined,
-  triggerPayload: Record<string, unknown> | undefined
+  triggerPayload: Record<string, unknown> | undefined,
 ): string[] {
   if (includeTriggerContext !== true) return []
   if (!triggerPayload || Object.keys(triggerPayload).length === 0) return []
@@ -288,10 +291,7 @@ function cappedTriggerJson(payload: Record<string, unknown>): string {
   // launch prompt's ```json fence. Backticks live only inside JSON string values,
   // and the Unicode escape they are rewritten to stays a valid JSON escape, so the
   // block remains parseable JSON. Escaping before truncation keeps the marker safe too.
-  const json = JSON.stringify(payload, null, 2).replace(
-    /`{3,}/g,
-    (run) => '\\u0060'.repeat(run.length),
-  )
+  const json = JSON.stringify(payload, null, 2).replace(/`{3,}/g, (run) => '\\u0060'.repeat(run.length))
   if (Buffer.byteLength(json, 'utf8') <= TRIGGER_CONTEXT_MAX_BYTES) return json
   return `${truncateUtf8(json, TRIGGER_CONTEXT_MAX_BYTES)}\n[truncated]`
 }
@@ -315,4 +315,3 @@ export function fingerprintPrompt(prompt: string): string {
 function optionalString(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim().length > 0 ? value.trim() : undefined
 }
-

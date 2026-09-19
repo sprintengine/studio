@@ -81,9 +81,10 @@ function peelToRepoRoot(pathValue: string): string {
  * Either way the answer is peeled to a non-container path, so a nested worktree
  * files under the real project and never under an intermediate worktree.
  */
-export function workspaceProjectRootOf(
-  record: { folderPath?: string | null; worktree?: { repoRoot?: string } | null }
-): string | null {
+export function workspaceProjectRootOf(record: {
+  folderPath?: string | null
+  worktree?: { repoRoot?: string } | null
+}): string | null {
   const folderPath = record.folderPath?.trim() || null
   if (!folderPath) return null
   return peelToRepoRoot(record.worktree?.repoRoot?.trim() || folderPath)

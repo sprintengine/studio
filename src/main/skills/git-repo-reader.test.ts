@@ -59,7 +59,7 @@ function git(cwd: string, args: string[]): Promise<string> {
       (error, stdout, stderr) => {
         if (error) reject(new Error(`git ${args.join(' ')}: ${stderr || error.message}`))
         else resolve(stdout.trim())
-      }
+      },
     )
   })
 }
@@ -196,7 +196,7 @@ async function main(): Promise<void> {
     assert.equal(
       await isGitAvailable(() => Promise.reject(new Error('spawn ENOENT'))),
       false,
-      'a machine without git says so rather than throwing'
+      'a machine without git says so rather than throwing',
     )
   })
 
@@ -218,7 +218,7 @@ async function main(): Promise<void> {
       (error: unknown) =>
         error instanceof GitRepoReadError &&
         error.kind === 'unreadable' &&
-        /no branch or tag named/.test(error.message)
+        /no branch or tag named/.test(error.message),
     )
   })
 
@@ -270,7 +270,7 @@ async function main(): Promise<void> {
       (error: unknown) =>
         error instanceof GitRepoReadError &&
         error.message === `A file in this repository is larger than ${DEFAULT_SKILL_MAX_FILE_BYTES} bytes.`,
-      'refused from `cat-file -s` when nothing has been listed yet'
+      'refused from `cat-file -s` when nothing has been listed yet',
     )
 
     const warm = reader({ cacheDir: await cacheRoot() })
@@ -278,7 +278,7 @@ async function main(): Promise<void> {
     await assert.rejects(
       () => warm.readFile('acme/widgets', fixture.second, 'big.bin'),
       (error: unknown) => error instanceof GitRepoReadError,
-      'and refused just the same once the tree has been listed'
+      'and refused just the same once the tree has been listed',
     )
   })
 
@@ -306,7 +306,7 @@ async function main(): Promise<void> {
     const aside = await reads.readTree('acme/widgets', fixture.sidecar)
     assert.equal(countFetches(watcher.calls), 2)
     assert.ok(aside.some((entry) => entry.path === 'sidecar.md'))
-    assert.ok(!aside.some((entry) => entry.path === 'big.bin'), 'and it is that commit\'s own tree')
+    assert.ok(!aside.some((entry) => entry.path === 'big.bin'), "and it is that commit's own tree")
   })
 
   run('two callers racing one repository fetch once between them', async () => {
@@ -337,12 +337,12 @@ async function main(): Promise<void> {
       await assert.rejects(
         () => reads.readTree(name, 'a'.repeat(40)),
         (error: unknown) => error instanceof GitRepoReadError && error.kind === 'unreadable',
-        `${name} is refused`
+        `${name} is refused`,
       )
     }
     await assert.rejects(
       () => reads.readTree('acme/widgets', 'not-a-sha'),
-      (error: unknown) => error instanceof GitRepoReadError && error.kind === 'unreadable'
+      (error: unknown) => error instanceof GitRepoReadError && error.kind === 'unreadable',
     )
     assert.deepEqual(watcher.calls, [], 'no git process ran for any of them')
   })
@@ -350,12 +350,12 @@ async function main(): Promise<void> {
   run('the cache directory is one path per host, owner and name', async () => {
     assert.equal(
       gitRepoCacheDir('/data/skill-repos', 'github.com', 'acme/widgets'),
-      join('/data/skill-repos', 'github.com', 'acme', 'widgets.git')
+      join('/data/skill-repos', 'github.com', 'acme', 'widgets.git'),
     )
     assert.equal(
       gitRepoCacheDir('/data/skill-repos', 'github.com', 'acme/widgets.git'),
       join('/data/skill-repos', 'github.com', 'acme', 'widgets.git'),
-      'a clone-URL name and a plain name land in the same place'
+      'a clone-URL name and a plain name land in the same place',
     )
     assert.throws(() => gitRepoCacheDir('/data', 'github.com', 'acme/../evil'), GitRepoReadError)
   })
@@ -379,19 +379,18 @@ async function main(): Promise<void> {
 
     assert.equal(
       await kinds("fatal: unable to access 'https://github.com/a/b.git/': Could not resolve host: github.com\n"),
-      'offline'
+      'offline',
     )
     assert.equal(await kinds('fatal: unable to access: Failed to connect: Connection refused\n'), 'offline')
     assert.equal(await kinds('fatal: repository not found\n'), 'unreadable', 'a gone repository is not "offline"')
     assert.equal(
       await kinds("fatal: unable to access 'https://github.com/a/b.git/': The requested URL returned error: 403\n"),
       'unreadable',
-      'a refusal wearing the same "unable to access" wrapper is still a refusal'
+      'a refusal wearing the same "unable to access" wrapper is still a refusal',
     )
     assert.equal(await kinds('', { timedOut: true }), 'timeout')
     assert.equal(await kinds('fatal: the remote end hung up\n', { killed: true }), 'timeout')
   })
-
 
   // ── What a `cat-file` really is ────────────────────────────────────────────
 
@@ -462,11 +461,11 @@ async function main(): Promise<void> {
     // repository went one at a time.
     await reads.readTree('acme/widgets', fixture.second)
     const all = await Promise.all(
-      Array.from({ length: 8 }, () => reads.readFile('acme/widgets', fixture.second, 'skills/y/SKILL.md'))
+      Array.from({ length: 8 }, () => reads.readFile('acme/widgets', fixture.second, 'skills/y/SKILL.md')),
     )
     assert.ok(
       all.every((bytes) => bytes?.toString('utf8').includes('Do the thing')),
-      'all eight read the file'
+      'all eight read the file',
     )
     assert.ok(most >= 4, `reads overlapped (most at once: ${most})`)
   })
@@ -506,7 +505,7 @@ async function main(): Promise<void> {
     })
     const error = await failing.resolveCommit('acme/widgets', 'main').then(
       () => null,
-      (reason: unknown) => reason
+      (reason: unknown) => reason,
     )
     assert.ok(error instanceof GitRepoReadError, 'the read failed, as it should have')
     assert.ok(!error.message.includes(token), 'and said nothing about the token')
@@ -518,12 +517,12 @@ async function main(): Promise<void> {
     // Node's own error message for a failed child spells out the whole argv,
     // which is exactly what must never be reported.
     const secret = 'Authorization: Bearer ghp_neverPrintThis'
-    const error = await defaultRunGit(
-      ['-c', `http.extraHeader=${secret}`, 'cat-file', '-e', '0'.repeat(40)],
-      { cwd: fixture.root, timeoutMs: 15_000 }
-    ).then(
+    const error = await defaultRunGit(['-c', `http.extraHeader=${secret}`, 'cat-file', '-e', '0'.repeat(40)], {
+      cwd: fixture.root,
+      timeoutMs: 15_000,
+    }).then(
       () => null,
-      (reason: unknown) => reason as Error
+      (reason: unknown) => reason as Error,
     )
     assert.ok(error, 'git failed')
     assert.equal(error.message, 'git exited with code 1')
@@ -545,14 +544,14 @@ async function main(): Promise<void> {
       timeoutMs: 400,
     }).then(
       () => null,
-      (reason: unknown) => reason as Error & { timedOut?: boolean }
+      (reason: unknown) => reason as Error & { timedOut?: boolean },
     )
     assert.ok(error, 'the command was stopped')
     assert.equal(error.timedOut, true)
     await delay(300)
     const table = await new Promise<string>((resolve) => {
       execFile('ps', ['-ax', '-o', 'command'], { maxBuffer: 8 * 1024 * 1024 }, (_error, stdout) =>
-        resolve(stdout ?? '')
+        resolve(stdout ?? ''),
       )
     })
     assert.ok(!table.includes(marker), 'the grandchild died with the group rather than outliving it')
@@ -578,14 +577,14 @@ async function main(): Promise<void> {
 
     const error = await reads.readFile('acme/widgets', fixture.second, 'skills/y/reference/notes.md').then(
       (value) => value,
-      (reason: unknown) => reason
+      (reason: unknown) => reason,
     )
     assert.ok(error instanceof GitRepoReadError, 'a file we could not fetch is not "there is no such file"')
     assert.notEqual(error.kind, 'timeout')
     assert.equal(
       await reads.readFile('acme/widgets', fixture.second, 'nope/missing.md'),
       null,
-      'and a path that really is not in the tree is still an answer'
+      'and a path that really is not in the tree is still an answer',
     )
   })
 
@@ -614,7 +613,7 @@ async function main(): Promise<void> {
     const entries = await reads.readTree('acme/widgets', fixture.second)
     assert.ok(
       entries.some((entry) => entry.path === 'skills/y/SKILL.md'),
-      'the half-written clone was completed instead of failing on a missing origin'
+      'the half-written clone was completed instead of failing on a missing origin',
     )
   })
 
@@ -635,12 +634,12 @@ async function main(): Promise<void> {
         error instanceof GitRepoReadError &&
         error.kind === 'unreadable' &&
         /does not support partial clone/.test(error.message),
-      'a server that ignored --filter has just sent the whole repository'
+      'a server that ignored --filter has just sent the whole repository',
     )
     const fetches = countFetches(watcher.calls)
     await assert.rejects(
       () => reads.readTree('acme/other', plain.sha),
-      (error: unknown) => error instanceof GitRepoReadError && /does not support partial clone/.test(error.message)
+      (error: unknown) => error instanceof GitRepoReadError && /does not support partial clone/.test(error.message),
     )
     assert.equal(countFetches(watcher.calls), fetches, 'the second repository on that host never fetched')
   })
@@ -662,7 +661,7 @@ async function main(): Promise<void> {
       (error: unknown) =>
         error instanceof GitRepoReadError &&
         error.kind === 'unreadable' &&
-        /no branch or tag points at/.test(error.message)
+        /no branch or tag points at/.test(error.message),
     )
   })
 
@@ -716,7 +715,7 @@ async function main(): Promise<void> {
       () => reads.readFile('acme/widgets', fixture.second, 'skills/y'),
       (error: unknown) =>
         error instanceof GitRepoReadError && error.kind === 'unreadable' && /is a tree, not a file/.test(error.message),
-      'reading a path that is a directory used to hand back the bytes of its listing'
+      'reading a path that is a directory used to hand back the bytes of its listing',
     )
   })
 
@@ -726,7 +725,7 @@ async function main(): Promise<void> {
       await assert.rejects(
         () => reads.readFile('acme/widgets', fixture.second, path),
         (error: unknown) => error instanceof GitRepoReadError && error.kind === 'unreadable',
-        `${JSON.stringify(path)} is refused`
+        `${JSON.stringify(path)} is refused`,
       )
     }
   })
@@ -768,13 +767,16 @@ async function main(): Promise<void> {
     assert.equal(
       await reads.resolveCommit('acme/widgets', fixture.second.toUpperCase()),
       fixture.second,
-      'and an uppercase one answers in the case everything else here uses'
+      'and an uppercase one answers in the case everything else here uses',
     )
     assert.equal(await reads.resolveCommit('acme/widgets', 'A'.repeat(64)), 'a'.repeat(64), 'a sha-256 name too')
     assert.deepEqual(watcher.calls, [], 'no ls-remote for a ref that is already the answer')
 
     const entries = await reads.readTree('acme/widgets', fixture.second.toUpperCase())
-    assert.ok(entries.some((entry) => entry.path === 'README.md'), 'an uppercase sha reads like any other')
+    assert.ok(
+      entries.some((entry) => entry.path === 'README.md'),
+      'an uppercase sha reads like any other',
+    )
   })
 
   // ── Disk ───────────────────────────────────────────────────────────────────

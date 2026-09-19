@@ -65,13 +65,15 @@ export function manualPairingValueFromRelayChallenge(challenge: PairingChallenge
 function isSupportedMobilePairingUri(pairingUri: string): boolean {
   try {
     const params = new URL(pairingUri).searchParams
-    return isSupportedMobileControlProtocolVersion(Number(params.get('mobileControlProtocolVersion')))
-      && Boolean(params.get('pairingChallengeId')?.trim())
-      && Boolean(params.get('relayUrl')?.trim() || params.get('relay')?.trim())
-      && Boolean(params.get('pairingSecret')?.trim())
-      && Boolean(params.get('expiresAt')?.trim())
-      && Boolean((params.get('desktopName') ?? params.get('desktopDisplayName'))?.trim())
-      && Boolean(params.get('desktopInstanceId')?.trim())
+    return (
+      isSupportedMobileControlProtocolVersion(Number(params.get('mobileControlProtocolVersion'))) &&
+      Boolean(params.get('pairingChallengeId')?.trim()) &&
+      Boolean(params.get('relayUrl')?.trim() || params.get('relay')?.trim()) &&
+      Boolean(params.get('pairingSecret')?.trim()) &&
+      Boolean(params.get('expiresAt')?.trim()) &&
+      Boolean((params.get('desktopName') ?? params.get('desktopDisplayName'))?.trim()) &&
+      Boolean(params.get('desktopInstanceId')?.trim())
+    )
   } catch {
     return false
   }

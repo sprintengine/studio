@@ -54,10 +54,7 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
   const language = languageForPath(filePath)
   const monacoTheme = useMonacoBaseTheme()
   const dialog = useConfirmDialog()
-  const blocks = useMemo(
-    () => state.status === 'ready' ? parseGitConflictBlocks(state.content) : [],
-    [state]
-  )
+  const blocks = useMemo(() => (state.status === 'ready' ? parseGitConflictBlocks(state.content) : []), [state])
 
   useEffect(() => {
     let cancelled = false
@@ -96,7 +93,7 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
   }, [filePath, repoRoot])
 
   const updateContent = (content: string) => {
-    setState((current) => current.status === 'ready' ? { ...current, content } : current)
+    setState((current) => (current.status === 'ready' ? { ...current, content } : current))
   }
 
   const applyBlock = (blockIndex: number, replacement: string) => {
@@ -127,21 +124,25 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
     setState({ ...state, saving: true, message: null })
     try {
       const result = await window.api.resolveGitConflict(repoRoot, filePath, state.content)
-      setState((current) => current.status === 'ready'
-        ? {
-            ...current,
-            saving: false,
-            message: result.ok ? 'Saved and marked resolved.' : result.message ?? 'Unable to mark resolved.',
-          }
-        : current)
+      setState((current) =>
+        current.status === 'ready'
+          ? {
+              ...current,
+              saving: false,
+              message: result.ok ? 'Saved and marked resolved.' : (result.message ?? 'Unable to mark resolved.'),
+            }
+          : current,
+      )
     } catch (error) {
-      setState((current) => current.status === 'ready'
-        ? {
-            ...current,
-            saving: false,
-            message: error instanceof Error ? error.message : String(error),
-          }
-        : current)
+      setState((current) =>
+        current.status === 'ready'
+          ? {
+              ...current,
+              saving: false,
+              message: error instanceof Error ? error.message : String(error),
+            }
+          : current,
+      )
     }
   }
 
@@ -207,12 +208,23 @@ export default function GitConflictResolverPanel({ repoRoot, filePath }: Props) 
               ) : (
                 <div className="space-y-2">
                   {blocks.map((block) => (
-                    <div key={`${block.index}:${block.startOffset}`} className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] p-2">
-                      <div className="mb-2 text-micro font-semibold text-[color:var(--text-default)]">Conflict {block.index + 1}</div>
+                    <div
+                      key={`${block.index}:${block.startOffset}`}
+                      className="rounded-md border border-[color:var(--border-default)] bg-[color:var(--bg-surface-raised)] p-2"
+                    >
+                      <div className="mb-2 text-micro font-semibold text-[color:var(--text-default)]">
+                        Conflict {block.index + 1}
+                      </div>
                       <div className="grid gap-1">
                         <ConflictActionButton label="Use pulled" onClick={() => applyBlock(block.index, block.ours)} />
-                        <ConflictActionButton label="Use stashed" onClick={() => applyBlock(block.index, block.theirs)} />
-                        <ConflictActionButton label="Use both" onClick={() => applyBlock(block.index, combineConflictSides(block))} />
+                        <ConflictActionButton
+                          label="Use stashed"
+                          onClick={() => applyBlock(block.index, block.theirs)}
+                        />
+                        <ConflictActionButton
+                          label="Use both"
+                          onClick={() => applyBlock(block.index, combineConflictSides(block))}
+                        />
                       </div>
                     </div>
                   ))}

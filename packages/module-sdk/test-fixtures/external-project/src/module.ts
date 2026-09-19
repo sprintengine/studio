@@ -334,7 +334,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
             // stored" — nothing to branch on here, because the next briefing
             // rewrites the entry anyway; just never treat the in-memory
             // count as durably persisted.
-            host.setWorkspaceModuleState(workspaceId, { ...(prior ?? {}), briefingCount: count })
+            host.setWorkspaceModuleState(workspaceId, { ...prior, briefingCount: count })
             setBriefingCount(count)
           })
           // A refused bridge invoke or a not-yet-resolvable workspace keeps

@@ -133,8 +133,7 @@ export function parseUnifiedDiff(text: string): ParsedFileDiff[] {
 
 /** `@@ -3,2 +3,0 @@` — git's own spelling, `,1` omitted exactly as git omits it. */
 export function formatHunkHeader(hunk: DiffHunk): string {
-  const range = (start: number, count: number): string =>
-    count === 1 ? `${start}` : `${start},${count}`
+  const range = (start: number, count: number): string => (count === 1 ? `${start}` : `${start},${count}`)
   return `@@ -${range(hunk.oldStart, hunk.oldLines)} +${range(hunk.newStart, hunk.newLines)} @@`
 }
 
@@ -151,9 +150,7 @@ export function hunkFingerprint(hunk: DiffHunk): string {
   return hunk.lines.join('\n')
 }
 
-export type LocateHunkResult =
-  | { ok: true; hunk: DiffHunk; index: number }
-  | { ok: false; reason: 'gone' | 'ambiguous' }
+export type LocateHunkResult = { ok: true; hunk: DiffHunk; index: number } | { ok: false; reason: 'gone' | 'ambiguous' }
 
 /**
  * Find a hunk again in a freshly read diff, by content.
@@ -201,10 +198,7 @@ export type HunkInclusionSummary = { total: number; included: number }
  * file always has at least one hunk on each side, so `0 < included < total`
  * exactly when the file box is indeterminate.
  */
-export function summariseInclusion(
-  staged: DiffHunk[],
-  unstaged: DiffHunk[]
-): HunkInclusionSummary {
+export function summariseInclusion(staged: DiffHunk[], unstaged: DiffHunk[]): HunkInclusionSummary {
   return { total: staged.length + unstaged.length, included: staged.length }
 }
 

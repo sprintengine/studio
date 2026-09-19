@@ -32,7 +32,7 @@ export type DiffFileItem = {
 // under a header that names an agent is the one answer nobody can read.
 export function buildDiffFileList(
   status: GitStatusSnapshot | null,
-  options?: { changelist?: Changelist | null }
+  options?: { changelist?: Changelist | null },
 ): DiffFileItem[] {
   if (!status) return []
   const list = options?.changelist ?? null
@@ -82,12 +82,11 @@ export function buildDiffFileList(
 export function findDiffFocusIndex(
   items: DiffFileItem[],
   focusPath: string | null,
-  focusKind: 'staged' | 'unstaged' | null
+  focusKind: 'staged' | 'unstaged' | null,
 ): number {
   if (!focusPath) return items.length > 0 ? 0 : -1
   const normalized = focusPath.replace(/\\/g, '/').toLowerCase()
-  const samePath = (item: DiffFileItem): boolean =>
-    item.path.replace(/\\/g, '/').toLowerCase() === normalized
+  const samePath = (item: DiffFileItem): boolean => item.path.replace(/\\/g, '/').toLowerCase() === normalized
   if (focusKind) {
     const exact = items.findIndex((item) => samePath(item) && item.kind === focusKind)
     if (exact >= 0) return exact

@@ -71,7 +71,8 @@ function current(): TailnetPresence {
   return latest
 }
 
-const status = (running: boolean) => ({ enabled: true, running, endpoint: running ? 'host:1' : null, pairRequests: [] }) as never
+const status = (running: boolean) =>
+  ({ enabled: true, running, endpoint: running ? 'host:1' : null, pairRequests: [] }) as never
 const device = (id: string) => ({
   deviceId: id,
   deviceName: id,
@@ -108,7 +109,10 @@ async function main(): Promise<void> {
     })
   })
   assert.equal(current().status?.running, true, 'the push seeds status')
-  assert.deepEqual(current().live.devices.map((d) => d.deviceId), ['phone'])
+  assert.deepEqual(
+    current().live.devices.map((d) => d.deviceId),
+    ['phone'],
+  )
 
   // The initial status read resolves late and stale: it must not roll status back.
   reads.status.resolve(status(false))
@@ -118,7 +122,11 @@ async function main(): Promise<void> {
   // The initial live-state read resolves with an OLDER revision: dropped.
   reads.live.resolve({ revision: 3, devices: [] })
   await flush()
-  assert.deepEqual(current().live.devices.map((d) => d.deviceId), ['phone'], 'an older initial live read is dropped')
+  assert.deepEqual(
+    current().live.devices.map((d) => d.deviceId),
+    ['phone'],
+    'an older initial live read is dropped',
+  )
 
   // An out-of-order push older than the applied revision is dropped too.
   await act(async () => {
@@ -141,17 +149,46 @@ async function main(): Promise<void> {
     ],
   })
   await flush()
-  assert.deepEqual([...(current().fleetLiveSessions.get('air') ?? [])], ['s1'], 'the fleet snapshot seeds live sessions')
+  assert.deepEqual(
+    [...(current().fleetLiveSessions.get('air') ?? [])],
+    ['s1'],
+    'the fleet snapshot seeds live sessions',
+  )
   await act(async () => {
-    fleetListener!({ kind: 'attachment', revision: 3, attachId: 'a1', connectionId: 'air', sessionId: 's1', state: 'closed' })
+    fleetListener!({
+      kind: 'attachment',
+      revision: 3,
+      attachId: 'a1',
+      connectionId: 'air',
+      sessionId: 's1',
+      state: 'closed',
+    })
   })
-  assert.deepEqual([...(current().fleetLiveSessions.get('air') ?? [])], ['s1'], 'closing one of two panes keeps the session live')
+  assert.deepEqual(
+    [...(current().fleetLiveSessions.get('air') ?? [])],
+    ['s1'],
+    'closing one of two panes keeps the session live',
+  )
   await act(async () => {
-    fleetListener!({ kind: 'attachment', revision: 1, attachId: 'a2', connectionId: 'air', sessionId: 's1', state: 'closed' })
+    fleetListener!({
+      kind: 'attachment',
+      revision: 1,
+      attachId: 'a2',
+      connectionId: 'air',
+      sessionId: 's1',
+      state: 'closed',
+    })
   })
   assert.equal(current().fleetAttachments.size, 1, 'an older fleet revision is dropped')
   await act(async () => {
-    fleetListener!({ kind: 'attachment', revision: 4, attachId: 'a2', connectionId: 'air', sessionId: 's1', state: 'closed' })
+    fleetListener!({
+      kind: 'attachment',
+      revision: 4,
+      attachId: 'a2',
+      connectionId: 'air',
+      sessionId: 's1',
+      state: 'closed',
+    })
   })
   assert.equal(current().fleetLiveSessions.get('air'), undefined, 'the last pane closing ends the live session')
 
@@ -172,7 +209,6 @@ async function main(): Promise<void> {
   assert.equal(tailnetListener, null, 'unmount releases the tailnet subscription')
   assert.equal(fleetListener, null, 'unmount releases the fleet subscription')
   console.log('useTailnetPresence.test.tsx: ok')
-
 }
 
 main().catch((error) => {

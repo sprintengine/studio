@@ -122,8 +122,8 @@ export function Toolbar({
       delta === 'first'
         ? items[0]
         : delta === 'last'
-        ? items[items.length - 1]
-        : items[(Math.max(index, 0) + delta + items.length) % items.length]
+          ? items[items.length - 1]
+          : items[(Math.max(index, 0) + delta + items.length) % items.length]
     next?.focus()
   }
 
@@ -218,54 +218,62 @@ export type ToolbarButtonProps = {
   className?: string
 }
 
-export const ToolbarButton = React.forwardRef<HTMLButtonElement, ToolbarButtonProps>(
-  function ToolbarButton(
-    { ariaLabel, menu = false, expanded, disabled = false, ariaDisabled = false, disabledReason, onClick, children, className },
-    ref,
-  ) {
-    // `disabled` wins if a caller passes both: the attribute is the stronger
-    // claim, and an element that is both would be soft-disabled in ARIA and
-    // hard-disabled in the DOM — two answers to one question.
-    const soft = ariaDisabled && !disabled
-    return (
-      // The item IS `button --icon` — `IconButton` at `sm`, which is the 26px
-      // square, the ghost tone and the shared ring. The band composes rather
-      // than restyles: a toolbar item that hovered differently from a button
-      // would be a second button.
-      <IconButton
-        {...{ [ITEM_ATTR]: '' }}
-        ref={ref}
-        size="sm"
-        aria-label={soft && disabledReason ? `${ariaLabel} — ${disabledReason}` : ariaLabel}
-        aria-haspopup={menu ? 'menu' : undefined}
-        aria-expanded={menu ? expanded ?? false : undefined}
-        aria-disabled={soft || undefined}
-        disabled={disabled}
-        // A soft-disabled item is a real, pressable button as far as the DOM is
-        // concerned, so refusing the press is this component's job.
-        onClick={soft ? undefined : onClick}
-        // The band owns the tab order; the effect in Toolbar sets this. -1 is
-        // the safe default for an item rendered outside a Toolbar.
-        tabIndex={-1}
-        className={[
-          // The corner mark: two borders of a zero-size box, which is the one
-          // spelling of a triangle that needs no asset and no path.
-          // `relative` is the mark's positioning context: IconButton's `sm`
-          // step draws no hit-target pseudo-element, so it does not bring one.
-          menu
-            ? 'relative after:pointer-events-none after:absolute after:right-0.5 after:bottom-0.5 after:border-2 after:border-transparent after:border-r-current after:border-b-current after:content-[""]'
-            : '',
-          // The dim is `IconButton`'s own `aria-disabled:opacity-45`; only the
-          // cursor has to be said here.
-          soft ? 'cursor-not-allowed' : '',
-          className ?? '',
-        ].join(' ')}
-      >
-        {children}
-      </IconButton>
-    )
+export const ToolbarButton = React.forwardRef<HTMLButtonElement, ToolbarButtonProps>(function ToolbarButton(
+  {
+    ariaLabel,
+    menu = false,
+    expanded,
+    disabled = false,
+    ariaDisabled = false,
+    disabledReason,
+    onClick,
+    children,
+    className,
   },
-)
+  ref,
+) {
+  // `disabled` wins if a caller passes both: the attribute is the stronger
+  // claim, and an element that is both would be soft-disabled in ARIA and
+  // hard-disabled in the DOM — two answers to one question.
+  const soft = ariaDisabled && !disabled
+  return (
+    // The item IS `button --icon` — `IconButton` at `sm`, which is the 26px
+    // square, the ghost tone and the shared ring. The band composes rather
+    // than restyles: a toolbar item that hovered differently from a button
+    // would be a second button.
+    <IconButton
+      {...{ [ITEM_ATTR]: '' }}
+      ref={ref}
+      size="sm"
+      aria-label={soft && disabledReason ? `${ariaLabel} — ${disabledReason}` : ariaLabel}
+      aria-haspopup={menu ? 'menu' : undefined}
+      aria-expanded={menu ? (expanded ?? false) : undefined}
+      aria-disabled={soft || undefined}
+      disabled={disabled}
+      // A soft-disabled item is a real, pressable button as far as the DOM is
+      // concerned, so refusing the press is this component's job.
+      onClick={soft ? undefined : onClick}
+      // The band owns the tab order; the effect in Toolbar sets this. -1 is
+      // the safe default for an item rendered outside a Toolbar.
+      tabIndex={-1}
+      className={[
+        // The corner mark: two borders of a zero-size box, which is the one
+        // spelling of a triangle that needs no asset and no path.
+        // `relative` is the mark's positioning context: IconButton's `sm`
+        // step draws no hit-target pseudo-element, so it does not bring one.
+        menu
+          ? 'relative after:pointer-events-none after:absolute after:right-0.5 after:bottom-0.5 after:border-2 after:border-transparent after:border-r-current after:border-b-current after:content-[""]'
+          : '',
+        // The dim is `IconButton`'s own `aria-disabled:opacity-45`; only the
+        // cursor has to be said here.
+        soft ? 'cursor-not-allowed' : '',
+        className ?? '',
+      ].join(' ')}
+    >
+      {children}
+    </IconButton>
+  )
+})
 
 /**
  * The system's first VERTICAL divider. It earns being one: a band of identical

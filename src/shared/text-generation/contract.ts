@@ -31,14 +31,10 @@ type TextGenerationFailureCode =
   | 'guardrail' // the model answered, but not with a usable title
 
 export type TextGenerationResult =
-  | { ok: true; value: string; ms: number }
-  | { ok: false; code: TextGenerationFailureCode; message: string }
+  { ok: true; value: string; ms: number } | { ok: false; code: TextGenerationFailureCode; message: string }
 
 /** Per-CLI command/WSL override, the same shape the launch path forwards. */
-export type TextGenerationCliRuntimeOverrides = Record<
-  string,
-  { command?: string; useWsl?: boolean } | undefined
->
+export type TextGenerationCliRuntimeOverrides = Record<string, { command?: string; useWsl?: boolean } | undefined>
 
 export type ChatTitleRequest = {
   /** The first prompt the person sent. Truncated by the prompt builder. */

@@ -1,11 +1,6 @@
 import assert from 'node:assert/strict'
 import type { TerminalReapEvent } from '../shared/electron-api'
-import {
-  clearReapEvents,
-  listRecentReapEvents,
-  MAX_REAP_EVENTS,
-  recordReapEvent,
-} from './terminal-reap-log'
+import { clearReapEvents, listRecentReapEvents, MAX_REAP_EVENTS, recordReapEvent } from './terminal-reap-log'
 
 function run(name: string, body: () => void): void {
   clearReapEvents()

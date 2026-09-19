@@ -90,17 +90,23 @@ run('hidden-but-visible fires only for visible terminals in non-active workspace
 
 run('dead terminals never flag hidden-but-visible even if visible flag lingers', () => {
   const row = buildTerminalDiagnosticsRow(
-    session({ sessionId: 'd', workspaceId: 'ws-hidden', visible: true, processAlive: false, activity: { kind: 'exited', at: NOW, exitCode: 0 } }),
-    { activeWorkspaceIds: new Set<string>(), now: NOW }
+    session({
+      sessionId: 'd',
+      workspaceId: 'ws-hidden',
+      visible: true,
+      processAlive: false,
+      activity: { kind: 'exited', at: NOW, exitCode: 0 },
+    }),
+    { activeWorkspaceIds: new Set<string>(), now: NOW },
   )
   assert.equal(row.hiddenButVisible, false)
 })
 
 run('terminals with no workspace id never flag hidden-but-visible', () => {
-  const row = buildTerminalDiagnosticsRow(
-    session({ sessionId: 'e', workspaceId: undefined, visible: true }),
-    { activeWorkspaceIds: new Set<string>(), now: NOW }
-  )
+  const row = buildTerminalDiagnosticsRow(session({ sessionId: 'e', workspaceId: undefined, visible: true }), {
+    activeWorkspaceIds: new Set<string>(),
+    now: NOW,
+  })
   assert.equal(row.hiddenButVisible, false)
   assert.equal(row.workspaceId, null)
 })
@@ -108,11 +114,11 @@ run('terminals with no workspace id never flag hidden-but-visible', () => {
 run('large-replay fires strictly above 1 MiB', () => {
   const atLimit = buildTerminalDiagnosticsRow(
     session({ sessionId: 'f', retainedOutputBytes: LARGE_REPLAY_WARNING_BYTES }),
-    { activeWorkspaceIds: new Set<string>(), now: NOW }
+    { activeWorkspaceIds: new Set<string>(), now: NOW },
   )
   const overLimit = buildTerminalDiagnosticsRow(
     session({ sessionId: 'g', retainedOutputBytes: LARGE_REPLAY_WARNING_BYTES + 1 }),
-    { activeWorkspaceIds: new Set<string>(), now: NOW }
+    { activeWorkspaceIds: new Set<string>(), now: NOW },
   )
   assert.equal(atLimit.warnings.includes('large-replay'), false, 'exactly 1 MiB does not warn')
   assert.equal(overLimit.warnings.includes('large-replay'), true)
@@ -126,7 +132,7 @@ run('long-idle fires only for live, idle, >6h terminals', () => {
       activity: { kind: 'idle', since: NOW - 1000 },
       lastOutputAt: NOW - 1000,
     }),
-    { activeWorkspaceIds: new Set<string>(), now: NOW }
+    { activeWorkspaceIds: new Set<string>(), now: NOW },
   )
   const idleYoung = buildTerminalDiagnosticsRow(
     session({
@@ -134,7 +140,7 @@ run('long-idle fires only for live, idle, >6h terminals', () => {
       startedAt: NOW - 1000,
       activity: { kind: 'idle', since: NOW - 500 },
     }),
-    { activeWorkspaceIds: new Set<string>(), now: NOW }
+    { activeWorkspaceIds: new Set<string>(), now: NOW },
   )
   const workingOld = buildTerminalDiagnosticsRow(
     session({
@@ -142,7 +148,7 @@ run('long-idle fires only for live, idle, >6h terminals', () => {
       startedAt: NOW - LONG_IDLE_WARNING_MS - 1,
       activity: { kind: 'working', since: NOW - 1000 },
     }),
-    { activeWorkspaceIds: new Set<string>(), now: NOW }
+    { activeWorkspaceIds: new Set<string>(), now: NOW },
   )
   assert.equal(idleOld.warnings.includes('long-idle'), true)
   assert.equal(idleYoung.warnings.includes('long-idle'), false, 'young idle does not warn')
@@ -158,7 +164,7 @@ run('stale fires from the most recent of any touch timestamp', () => {
       lastOutputAt: NOW - STALE_LAST_SEEN_WARNING_MS - 5000,
       lastInputAt: NOW - 1000,
     }),
-    { activeWorkspaceIds: new Set<string>(), now: NOW }
+    { activeWorkspaceIds: new Set<string>(), now: NOW },
   )
   const stale = buildTerminalDiagnosticsRow(
     session({
@@ -168,7 +174,7 @@ run('stale fires from the most recent of any touch timestamp', () => {
       lastInputAt: null,
       lastVisibleAt: null,
     }),
-    { activeWorkspaceIds: new Set<string>(), now: NOW }
+    { activeWorkspaceIds: new Set<string>(), now: NOW },
   )
   assert.equal(freshByInput.warnings.includes('stale'), false)
   assert.equal(stale.warnings.includes('stale'), true)
@@ -177,18 +183,49 @@ run('stale fires from the most recent of any touch timestamp', () => {
 run('workspace rollups sum footprint and classify activity', () => {
   const result = aggregateDiagnostics({
     sessions: [
-      session({ sessionId: 'a', workspaceId: 'ws1', retainedOutputBytes: 2 * MIB, activity: { kind: 'working', since: NOW }, visible: true, lastOutputAt: NOW - 5000 }),
-      session({ sessionId: 'b', workspaceId: 'ws1', retainedOutputBytes: 100, activity: { kind: 'idle', since: NOW }, lastOutputAt: NOW - 1000 }),
-      session({ sessionId: 'c', workspaceId: 'ws1', retainedOutputBytes: 50, activity: { kind: 'failed', at: NOW, exitCode: 1 }, processAlive: false, lastOutputAt: NOW - 10000 }),
-      session({ sessionId: 'd', workspaceId: 'ws2', retainedOutputBytes: 10, activity: { kind: 'working', since: NOW } }),
+      session({
+        sessionId: 'a',
+        workspaceId: 'ws1',
+        retainedOutputBytes: 2 * MIB,
+        activity: { kind: 'working', since: NOW },
+        visible: true,
+        lastOutputAt: NOW - 5000,
+      }),
+      session({
+        sessionId: 'b',
+        workspaceId: 'ws1',
+        retainedOutputBytes: 100,
+        activity: { kind: 'idle', since: NOW },
+        lastOutputAt: NOW - 1000,
+      }),
+      session({
+        sessionId: 'c',
+        workspaceId: 'ws1',
+        retainedOutputBytes: 50,
+        activity: { kind: 'failed', at: NOW, exitCode: 1 },
+        processAlive: false,
+        lastOutputAt: NOW - 10000,
+      }),
+      session({
+        sessionId: 'd',
+        workspaceId: 'ws2',
+        retainedOutputBytes: 10,
+        activity: { kind: 'working', since: NOW },
+      }),
     ],
     activeWorkspaceIds: new Set(['ws1']),
-    workspaceNames: new Map([['ws1', 'Alpha'], ['ws2', 'Bravo']]),
+    workspaceNames: new Map([
+      ['ws1', 'Alpha'],
+      ['ws2', 'Bravo'],
+    ]),
     now: NOW,
   })
 
   // Sorted heaviest-retained first: ws1 (2 MiB+) before ws2.
-  assert.deepEqual(result.workspaces.map((w) => w.workspaceId), ['ws1', 'ws2'])
+  assert.deepEqual(
+    result.workspaces.map((w) => w.workspaceId),
+    ['ws1', 'ws2'],
+  )
   const ws1 = result.workspaces[0]
   assert.equal(ws1.workspaceName, 'Alpha')
   assert.equal(ws1.terminalCount, 3)
@@ -217,9 +254,15 @@ run('sort by retained orders rows heaviest first', () => {
     now: NOW,
   }).rows
   const sorted = sortTerminalDiagnosticsRows(rows, 'retained')
-  assert.deepEqual(sorted.map((r) => r.sessionId), ['big', 'mid', 'small'])
+  assert.deepEqual(
+    sorted.map((r) => r.sessionId),
+    ['big', 'mid', 'small'],
+  )
   // Pure: input is not mutated.
-  assert.deepEqual(rows.map((r) => r.sessionId), ['small', 'big', 'mid'])
+  assert.deepEqual(
+    rows.map((r) => r.sessionId),
+    ['small', 'big', 'mid'],
+  )
 })
 
 run('sort by warnings floats the most-flagged rows up', () => {

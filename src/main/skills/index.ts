@@ -57,10 +57,7 @@ import type {
   SkillUninstallInput,
   SkillUninstallOutcome,
 } from '../../shared/electron-api'
-import {
-  MARKETPLACE_EXTRA_HOSTS_ENV,
-  parseMarketplaceExtraHosts,
-} from '../../shared/marketplace/source-policy'
+import { MARKETPLACE_EXTRA_HOSTS_ENV, parseMarketplaceExtraHosts } from '../../shared/marketplace/source-policy'
 import { pluginNeedsOwnFiles } from '../../shared/mcp/plugin-root'
 import { SKILL_PACK_HARNESSES } from '../../shared/skill-harnesses'
 import { resolveInstalledSkillHarnesses } from '../marketplace/skill-harness-targets'
@@ -90,12 +87,7 @@ import {
   scanPluginTree,
   type LinkedPluginRepoReader,
 } from './scan-plugins'
-import {
-  createSkillSourceStore,
-  isRemovableSkillSource,
-  skillSourceLog,
-  type SkillSourceStore,
-} from './source-store'
+import { createSkillSourceStore, isRemovableSkillSource, skillSourceLog, type SkillSourceStore } from './source-store'
 import { createSourceUpdateChecker } from './source-updates'
 import { STUDIO_MARKETPLACE_RESOURCE_DIR } from './studio-plugin'
 import { diffScannedSkills, installedSkillCopies, refreshInstalledSkills, refreshSourceMcpServers } from './sync'
@@ -171,7 +163,7 @@ export type SkillsService = {
 export function createSkillsService(
   userDataDir: string,
   deps: SkillsServiceDeps,
-  store: SkillSourceStore = createSkillSourceStore(userDataDir)
+  store: SkillSourceStore = createSkillSourceStore(userDataDir),
 ): SkillsService {
   const studioSeedRoot = deps.studioMarketplaceSeedRoot ?? defaultStudioMarketplaceSeedRoot
   const listHarnesses = deps.listHarnesses ?? (() => resolveInstalledSkillHarnesses())
@@ -281,7 +273,12 @@ export function createSkillsService(
       // learn which reader this build wired (git-transport ruling, owner
       // 2026-09-08).
       await refreshTransport()
-      return { ok: true, sources: await store.listSources(), transport: transportNow(), gitInstalled: gitInstalledNow() }
+      return {
+        ok: true,
+        sources: await store.listSources(),
+        transport: transportNow(),
+        gitInstalled: gitInstalledNow(),
+      }
     },
 
     async addSource(input) {
@@ -683,7 +680,10 @@ export function createSkillsService(
     // from (linked-plugins review, 2026-09-06).
 
     if (plugin.origin.repo === '') {
-      return { ok: false, message: `${plugin.name} is hosted outside GitHub (${plugin.origin.url}), which this app cannot read.` }
+      return {
+        ok: false,
+        message: `${plugin.name} is hosted outside GitHub (${plugin.origin.url}), which this app cannot read.`,
+      }
     }
     const repo = plugin.origin.repo
     try {
@@ -692,16 +692,14 @@ export function createSkillsService(
       const entries = await reader.readTree(repo, commitSha)
       const skillScan = scanSkillTree({ entries: [...entries], commitSha })
       const dir = plugin.origin.path
-      const inDir = skillScan.skills.filter(
-        (skill) => dir === '' || skill.id === dir || skill.id.startsWith(`${dir}/`)
-      )
+      const inDir = skillScan.skills.filter((skill) => dir === '' || skill.id === dir || skill.id.startsWith(`${dir}/`))
       // `all`, because these ARE the plugin's components rather than a source's
       // skill listing: dropping one here would shrink a plugin's declared
       // contents with nothing on screen to say why.
       const { all: skills } = await enrichSkills(inDir, (skill) =>
         reader
           .readFile(repo, commitSha, joinRepoPath(skill.id, SKILL_ENTRY_FILE))
-          .then((bytes) => bytes?.toString('utf8') ?? null)
+          .then((bytes) => bytes?.toString('utf8') ?? null),
       )
       const read = await readPluginComponents({
         dir,
@@ -732,8 +730,7 @@ export function createSkillsService(
         // Unless files went missing on the way: then it is partly read, and
         // saying so is what keeps the hooks acknowledgement honest.
         componentsKnown: read.unreadFiles.length === 0,
-        readState:
-          read.unreadFiles.length > 0 ? { status: 'partial', unread: read.unreadFiles } : { status: 'read' },
+        readState: read.unreadFiles.length > 0 ? { status: 'partial', unread: read.unreadFiles } : { status: 'read' },
         components: {
           ...read.components,
           mcpServers: read.components.mcpServers.map((server) => ({ ...server, declaredBy: plugin.id })),
@@ -753,7 +750,10 @@ export function createSkillsService(
   async function installPluginNow(input: SkillPluginInstallInput): Promise<SkillPluginInstallOutcome> {
     const workspaceRoot = input.workspaceRoot?.trim() ?? ''
     if (!workspaceRoot) {
-      return { ok: false, message: 'Open a workspace to install a plugin — plugins install into a workspace, not the app.' }
+      return {
+        ok: false,
+        message: 'Open a workspace to install a plugin — plugins install into a workspace, not the app.',
+      }
     }
     if (!existsSync(workspaceRoot)) return { ok: false, message: 'That workspace folder no longer exists.' }
     const source = await store.getSource(input.sourceId ?? '')
@@ -802,8 +802,7 @@ export function createSkillsService(
     const commitSha = origin.kind === 'linked' ? plugin.readCommit || origin.sha : source.commitSha
     // `owner/name`, which is the only address a reader takes; '' when this
     // plugin's bytes are not in a repository at all.
-    const bytesRepo: string =
-      origin.kind === 'linked' ? origin.repo : source.kind === 'github' ? source.repo : ''
+    const bytesRepo: string = origin.kind === 'linked' ? origin.repo : source.kind === 'github' ? source.repo : ''
     const harnesses = await listHarnesses()
     // The plugin's OWN files, listed only when a server it declares runs out of
     // its directory. The listing is a repository tree request, so asking the
@@ -898,7 +897,7 @@ export function createSkillsService(
     plugin: ScannedPlugin,
     commitSha: string,
     /** `owner/name` for a plugin whose files are in a repository, '' otherwise. */
-    bytesRepo: string
+    bytesRepo: string,
   ): Promise<
     | { ok: true; files: PluginDirectoryFile[]; readFile: (file: PluginDirectoryFile) => Promise<Buffer> }
     | { ok: false; message: string }
@@ -1038,7 +1037,7 @@ export function createSkillsService(
 
   async function locateSkill(
     sourceId: string,
-    skillId: string
+    skillId: string,
   ): Promise<{ ok: true; source: SkillSource; skill: ScannedSkill } | { ok: false; message: string }> {
     const source = await store.getSource(sourceId)
     if (!source) return { ok: false, message: 'That source is not in your list.' }
@@ -1051,7 +1050,7 @@ export function createSkillsService(
   async function resolveSkillFile(
     sourceId: string,
     skillId: string,
-    path: string
+    path: string,
   ): Promise<
     { ok: true; source: SkillSource; skill: ScannedSkill; file: SkillFileRef } | { ok: false; message: string }
   > {
@@ -1064,11 +1063,7 @@ export function createSkillsService(
     return { ok: true, source: located.source, skill: located.skill, file }
   }
 
-  async function readSkillBytes(
-    source: SkillSource,
-    skill: ScannedSkill,
-    file: SkillFileRef
-  ): Promise<Buffer> {
+  async function readSkillBytes(source: SkillSource, skill: ScannedSkill, file: SkillFileRef): Promise<Buffer> {
     const repoPath = joinRepoPath(skill.id, file.path)
     const seeded = await readStudioSeedBytes(source, repoPath)
     if (seeded) return seeded
@@ -1121,15 +1116,13 @@ async function scanGithubSource(
    * pinned sha has not moved is taken from it, so a re-scan reads only what
    * moved (linked-plugins ruling, 2026-09-06).
    */
-  previous?: ScanResult | null
+  previous?: ScanResult | null,
 ): Promise<{ source: SkillSource; scan: ScanResult }> {
   const { reader } = context
   const repo = `${ref.owner}/${ref.repo}`
   const commitSha = await reader.resolveCommit(repo, ref.ref)
   const entries = [...(await reader.readTree(repo, commitSha))]
-  const manifest = entries.some(
-    (entry) => entry.type === 'blob' && entry.path === SKILL_MARKETPLACE_MANIFEST_PATH
-  )
+  const manifest = entries.some((entry) => entry.type === 'blob' && entry.path === SKILL_MARKETPLACE_MANIFEST_PATH)
     ? await reader
         .readFile(repo, commitSha, SKILL_MARKETPLACE_MANIFEST_PATH)
         .then((bytes) => bytes?.toString('utf8') ?? null)
@@ -1140,7 +1133,7 @@ async function scanGithubSource(
   const { all, skills, skippedNoDescription } = await enrichSkills(scanned.skills, (skill) =>
     reader
       .readFile(repo, commitSha, joinRepoPath(skill.id, SKILL_ENTRY_FILE))
-      .then((bytes) => bytes?.toString('utf8') ?? null)
+      .then((bytes) => bytes?.toString('utf8') ?? null),
   )
   // The plugins and MCP servers the same tree declares. Their manifests are a
   // handful of small raw reads at the pinned commit; one that fails leaves its
@@ -1337,7 +1330,7 @@ function retryDelayMs(error: unknown): number | null {
  */
 async function enrichSkills(
   skills: readonly ScannedSkill[],
-  readEntry: (skill: ScannedSkill) => Promise<string | null>
+  readEntry: (skill: ScannedSkill) => Promise<string | null>,
 ): Promise<{ all: ScannedSkill[]; skills: ScannedSkill[]; skippedNoDescription: number }> {
   const enriched = [...skills]
   const skipped = new Set<number>()
@@ -1438,10 +1431,7 @@ async function pruneSkillFromPluginReceipts(
  * one too, so the follow could never finish (linked-plugins review,
  * 2026-09-06).
  */
-function linkedFailureKind(
-  error: unknown,
-  transport: SkillRepoTransport
-): 'rate-limited' | 'offline' | 'unreadable' {
+function linkedFailureKind(error: unknown, transport: SkillRepoTransport): 'rate-limited' | 'offline' | 'unreadable' {
   if (transport === 'git') {
     // The git reader names the kind itself. A throttle from the git host is
     // a fact about the minute exactly as the API's was, so it halts the pass

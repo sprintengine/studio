@@ -17,19 +17,13 @@ export function registerWorkspaceSkillsIpc(
     agentSkillInstaller: AgentSkillInstaller
   },
 ): void {
-  ipcMain.handle(
-    'skills:list-workspace',
-    (_, input: WorkspaceSkillsListInput): Promise<WorkspaceSkillsListResult> =>
-      services.workspaceSkills.listWorkspaceSkills(input),
+  ipcMain.handle('skills:list-workspace', (_, input: WorkspaceSkillsListInput): Promise<WorkspaceSkillsListResult> =>
+    services.workspaceSkills.listWorkspaceSkills(input),
   )
-  ipcMain.handle(
-    'skills:agent-capabilities',
-    (_, input: AgentCapabilitiesInput): Promise<AgentCapabilitiesResult> =>
-      services.agentCapabilities.resolve(input),
+  ipcMain.handle('skills:agent-capabilities', (_, input: AgentCapabilitiesInput): Promise<AgentCapabilitiesResult> =>
+    services.agentCapabilities.resolve(input),
   )
-  ipcMain.handle(
-    'skills:agent-skill-attach',
-    (_, input: AgentSkillWriteInput): Promise<AgentSkillWriteResult> =>
-      services.agentSkillInstaller.attach(input),
+  ipcMain.handle('skills:agent-skill-attach', (_, input: AgentSkillWriteInput): Promise<AgentSkillWriteResult> =>
+    services.agentSkillInstaller.attach(input),
   )
 }

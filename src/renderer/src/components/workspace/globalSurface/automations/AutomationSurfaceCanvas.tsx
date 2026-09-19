@@ -35,7 +35,12 @@ import { projectLabel } from './railState'
 // to this entry's own store root, so a cross-project surface reads each
 // automation from the project it lives in.
 export function AutomationSurfaceCanvas({
-  entry, now, focusRunId, focusNonce, onOpenAgent, onViewReport,
+  entry,
+  now,
+  focusRunId,
+  focusNonce,
+  onOpenAgent,
+  onViewReport,
 }: {
   entry: AutomationsInstanceEntry
   now: number
@@ -107,7 +112,11 @@ export function AutomationSurfaceCanvas({
         <Section
           title="Recent runs"
           count={state === 'ready' ? runs.length : undefined}
-          action={<GhostButton size="xs" onClick={() => void reload()}>Refresh</GhostButton>}
+          action={
+            <GhostButton size="xs" onClick={() => void reload()}>
+              Refresh
+            </GhostButton>
+          }
         >
           {state === 'loading' || state === 'idle' ? (
             <div className="flex items-center gap-2 py-3 text-micro text-[color:var(--text-muted)]">
@@ -140,7 +149,6 @@ export function AutomationSurfaceCanvas({
             </ol>
           )}
         </Section>
-
       </div>
     </div>
   )
@@ -155,7 +163,15 @@ function WhatValue({ value }: { value: string }) {
 // One run: shape-coded lifecycle glyph, the plain outcome + relative time, the
 // run's own summary in plain words, and the trailing run affordances (open agent,
 // view report, finalize a stuck run) reused from the folder panel.
-function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, finalizing }: {
+function RunRow({
+  run,
+  now,
+  highlighted,
+  onOpenAgent,
+  onViewReport,
+  onFinalize,
+  finalizing,
+}: {
   run: AutomationRun
   now: number
   highlighted: boolean
@@ -212,7 +228,13 @@ function RunRow({ run, now, highlighted, onOpenAgent, onViewReport, onFinalize, 
             {run.blockedReason}
           </InlineNotice>
         ) : null}
-        <AutomationRunActions run={run} onOpenAgent={onOpenAgent} onViewReport={onViewReport} onFinalize={onFinalize} finalizing={finalizing} />
+        <AutomationRunActions
+          run={run}
+          onOpenAgent={onOpenAgent}
+          onViewReport={onViewReport}
+          onFinalize={onFinalize}
+          finalizing={finalizing}
+        />
       </div>
     </li>
   )

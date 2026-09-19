@@ -12,9 +12,7 @@ import { registerAutomationsWorkspaceTypes } from './automations-workspace-types
 // Lazy so the control-center bundle (and the store/FlexLayout graph it pulls in)
 // loads only when an Automations host workspace renders the panel — never while
 // the module is disabled, and never into the eager module-registry graph.
-const AutomationsControlCenterPanel = React.lazy(
-  () => import('../components/panels/AutomationsPanel')
-)
+const AutomationsControlCenterPanel = React.lazy(() => import('../components/panels/AutomationsPanel'))
 
 // The Automations surface, mounted over the workspace card region as a door
 // (Extensions drawer ruling, 2026-09-05; a modal from 2026-09-01 until then).
@@ -24,7 +22,7 @@ const AutomationsControlCenterPanel = React.lazy(
 // store-free, the discipline the other surfaces follow. The trigger glyph IS
 // eager, and is a store-free leaf.
 const AutomationsGlobalSurface = React.lazy(
-  () => import('../components/workspace/globalSurface/automations/AutomationsGlobalSurface')
+  () => import('../components/workspace/globalSurface/automations/AutomationsGlobalSurface'),
 )
 
 // Automations renderer module. Matches the main-side `automations` module id so

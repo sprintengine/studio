@@ -26,7 +26,7 @@ const MANIFESTS: Record<string, CapabilityManifest> = {
     permissions: ['network'],
   }),
   automations: manifest({ id: 'automations', source: 'bundled' }),
-  'git': manifest({
+  git: manifest({
     id: 'git',
     source: 'bundled',
     permissions: ['ipc:invoke'],
@@ -123,7 +123,7 @@ async function testHandlerErrorsPropagateAsRejections(): Promise<void> {
   await assert.rejects(
     () => bridgeInvoke(fake, { channel: 'weather-deck:forecast' }),
     /forecast requires a city name/,
-    'application errors keep normal invoke rejection semantics; only bridgeability refusals are structured'
+    'application errors keep normal invoke rejection semantics; only bridgeability refusals are structured',
   )
 }
 
@@ -159,7 +159,7 @@ function testBridgeChannelIsReservedToHost(): void {
   assert.throws(
     () => kernel.hostFor('impostor').registerIpc(MODULE_BRIDGE_INVOKE_CHANNEL, () => undefined),
     /already registered by module "@host"/,
-    'a module cannot claim the dispatcher channel'
+    'a module cannot claim the dispatcher channel',
   )
 }
 

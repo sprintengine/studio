@@ -14,9 +14,7 @@ import type { DesignSystemLibraryEntry } from '../../../../shared/design-system/
  */
 export type DesignSystemBundleOrigin = 'library' | 'folder' | 'authored'
 
-export function resolveBundleOrigin(
-  provenance: DesignSystemProvenance | undefined,
-): DesignSystemBundleOrigin {
+export function resolveBundleOrigin(provenance: DesignSystemProvenance | undefined): DesignSystemBundleOrigin {
   if (!provenance) return 'authored'
   if (provenance.sourceLibraryId != null) return 'library'
   if (provenance.attachedAt != null) return 'folder'

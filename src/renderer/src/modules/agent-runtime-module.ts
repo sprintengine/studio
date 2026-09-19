@@ -24,7 +24,7 @@ import { PluginsGlyph } from '../components/workspace/surfaceGlyphs'
 // other surfaces follow. The glyph and the latch drainer ARE eager, and both
 // are store-free leaves.
 const ExtensionsGlobalSurface = React.lazy(
-  () => import('../components/workspace/globalSurface/extensions/ExtensionsGlobalSurface')
+  () => import('../components/workspace/globalSurface/extensions/ExtensionsGlobalSurface'),
 )
 
 // Agent runtime — the irreducible core (terminals, the BYO-CLI launch path, the
@@ -48,8 +48,7 @@ export const agentRuntimeRendererModule: RendererModule = {
     version: 1,
     publisher: 'multicode',
     category: 'core',
-    summary:
-      'Terminals, agent launch, and the session runtime that every other capability builds on. Always on.',
+    summary: 'Terminals, agent launch, and the session runtime that every other capability builds on. Always on.',
     defaultEnabled: true,
     core: true,
   },
@@ -167,10 +166,11 @@ export const agentRuntimeRendererModule: RendererModule = {
           workspaces: useWorkspaceStore.getState().workspaces,
         })
       },
-      openLink: async (input) => openAgentBacklogLink({
-        ...input,
-        ports: await agentBacklogOpenPorts(),
-      }),
+      openLink: async (input) =>
+        openAgentBacklogLink({
+          ...input,
+          ports: await agentBacklogOpenPorts(),
+        }),
     })
   },
 }

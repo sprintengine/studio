@@ -66,9 +66,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
         title={title}
         subtitle={subtitle}
         titleId={headingId}
-        primaryAction={
-          onClose ? <CloseIconButton size="md" aria-label={closeLabel} onClick={onClose} /> : undefined
-        }
+        primaryAction={onClose ? <CloseIconButton size="md" aria-label={closeLabel} onClick={onClose} /> : undefined}
       />
 
       <div className={`flex min-h-0 flex-1 ${sidebar ? 'flex-col md:flex-row' : 'flex-col'}`}>
@@ -79,9 +77,7 @@ export const WorkspacePanel = forwardRef<WorkspacePanelHandle, Props>(function W
         ) : null}
 
         <div className={`min-h-0 flex-1 overflow-y-auto ${bodyClassName ?? ''}`}>
-          <div className={contentClassName ?? 'mx-auto w-full max-w-[760px] px-4 py-5'}>
-            {children}
-          </div>
+          <div className={contentClassName ?? 'mx-auto w-full max-w-[760px] px-4 py-5'}>{children}</div>
         </div>
       </div>
     </section>

@@ -96,8 +96,7 @@ assert.equal(state.workspaces.find((workspace) => workspace.id === soloDevId)?.a
 // A generic template tab label ("Agent") is a slot placeholder, never an
 // identity: the seeded general agent gets a real picked name, like a
 // picked name. The layout tab renames itself to agent.name on render.
-const soloDevAgentName =
-  state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.name ?? ''
+const soloDevAgentName = state.workspaces.find((workspace) => workspace.id === soloDevId)?.agents['agent-1']?.name ?? ''
 assert.notEqual(soloDevAgentName, 'Agent')
 assert.match(soloDevAgentName, /^[A-Z][a-z]+ [A-Z][a-z]+( \d+)?$/)
 
@@ -119,10 +118,10 @@ assert.equal(
 )
 
 useWorkspaceStore.getState().setWorkspaceHighlight(firstId, { starred: true, color: 'blue' })
-assert.deepEqual(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.highlight,
-  { starred: true, color: 'blue' },
-)
+assert.deepEqual(useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.highlight, {
+  starred: true,
+  color: 'blue',
+})
 useWorkspaceStore.getState().clearWorkspaceHighlight(firstId)
 assert.equal(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.highlight,
@@ -155,10 +154,7 @@ assert.equal(
 )
 // The per-window activation path clears it too.
 useWorkspaceStore.getState().openGlobalSurface('roadmap')
-useWorkspaceStore.getState().setActiveWorkspaceForWindow(
-  useWorkspaceStore.getState().primaryWorkspaceWindowId,
-  firstId,
-)
+useWorkspaceStore.getState().setActiveWorkspaceForWindow(useWorkspaceStore.getState().primaryWorkspaceWindowId, firstId)
 assert.equal(
   useWorkspaceStore.getState().activeGlobalSurface,
   null,
@@ -184,17 +180,18 @@ assert.equal(
   'and the workspace it was opened from goes with it — a stale opener would outlive its modal',
 )
 useWorkspaceStore.getState().openModalSurface('settings')
-useWorkspaceStore.getState().setActiveWorkspaceForWindow(
-  useWorkspaceStore.getState().primaryWorkspaceWindowId,
-  secondId,
-)
+useWorkspaceStore
+  .getState()
+  .setActiveWorkspaceForWindow(useWorkspaceStore.getState().primaryWorkspaceWindowId, secondId)
 assert.equal(
   useWorkspaceStore.getState().activeModalSurface,
   null,
   'setActiveWorkspaceForWindow closes an open modal surface as well',
 )
 
-useWorkspaceStore.getState().setFileExplorerExpandedPaths(firstId, ['/Users/example/project/src', '/Users/example/project/src', ''])
+useWorkspaceStore
+  .getState()
+  .setFileExplorerExpandedPaths(firstId, ['/Users/example/project/src', '/Users/example/project/src', ''])
 assert.deepEqual(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState,
   { expandedPaths: ['/Users/example/project/src'], selectedPath: null },
@@ -209,15 +206,19 @@ assert.deepEqual(
   { expandedPaths: ['/Users/example/project/src'], selectedPath: '/Users/example/project/src/index.ts' },
   'Selecting a file keeps the expanded set',
 )
-useWorkspaceStore.getState().setFileExplorerExpandedPaths(firstId, ['/Users/example/project/src', '/Users/example/project/lib'])
+useWorkspaceStore
+  .getState()
+  .setFileExplorerExpandedPaths(firstId, ['/Users/example/project/src', '/Users/example/project/lib'])
 assert.equal(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState?.selectedPath,
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState
+    ?.selectedPath,
   '/Users/example/project/src/index.ts',
   'Toggling folders preserves the persisted selection',
 )
 useWorkspaceStore.getState().setFileExplorerSelectedPath(firstId, null)
 assert.equal(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState?.selectedPath,
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.fileExplorerState
+    ?.selectedPath,
   null,
   'Clearing selection persists null',
 )
@@ -243,18 +244,24 @@ useWorkspaceStore.getState().setGitCommitDraft(firstId, 'worktree-a', 'WIP a')
 useWorkspaceStore.getState().setGitCommitDraft(firstId, 'main', 'WIP main')
 assert.deepEqual(
   useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState,
-  { activeView: 'log', activeScopeId: 'worktree-a', commitDraftsByScopeId: { 'worktree-a': 'WIP a', main: 'WIP main' } },
+  {
+    activeView: 'log',
+    activeScopeId: 'worktree-a',
+    commitDraftsByScopeId: { 'worktree-a': 'WIP a', main: 'WIP main' },
+  },
   'Git panel keeps a draft per scope alongside the active view/scope',
 )
 useWorkspaceStore.getState().setGitCommitDraft(firstId, 'worktree-a', '   ')
 assert.deepEqual(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState?.commitDraftsByScopeId,
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState
+    ?.commitDraftsByScopeId,
   { main: 'WIP main' },
   'A blank draft is dropped, leaving other scopes untouched',
 )
 useWorkspaceStore.getState().clearGitCommitDraft(firstId, 'main')
 assert.deepEqual(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState?.commitDraftsByScopeId,
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState
+    ?.commitDraftsByScopeId,
   {},
   'Clearing a draft on commit removes it',
 )
@@ -262,7 +269,8 @@ assert.deepEqual(
 useWorkspaceStore.getState().setGitCommitDraft(firstId, 'main', 'keep me')
 useWorkspaceStore.getState().setGitPanelState(firstId, { activeView: 'changes' })
 assert.deepEqual(
-  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState?.commitDraftsByScopeId,
+  useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === firstId)?.gitPanelState
+    ?.commitDraftsByScopeId,
   { main: 'keep me' },
   'Changing the active view preserves per-scope drafts',
 )
@@ -270,16 +278,17 @@ assert.deepEqual(
 useWorkspaceStore.getState().registerWorkspaceWindow('detached-test', 'detached')
 useWorkspaceStore.getState().moveWorkspaceToWindow(firstId, 'detached-test', state.primaryWorkspaceWindowId)
 state = useWorkspaceStore.getState()
-assert.deepEqual(
-  state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.workspaceIds,
-  [firstId],
-)
+assert.deepEqual(state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.workspaceIds, [
+  firstId,
+])
 assert.equal(
   state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.activeWorkspaceId,
   firstId,
 )
 assert.equal(
-  state.workspaceWindows.find((windowState) => windowState.id === state.primaryWorkspaceWindowId)?.workspaceIds.includes(firstId),
+  state.workspaceWindows
+    .find((windowState) => windowState.id === state.primaryWorkspaceWindowId)
+    ?.workspaceIds.includes(firstId),
   false,
 )
 useWorkspaceStore.getState().updateWorkspaceWindowPlacement('detached-test', {
@@ -288,18 +297,14 @@ useWorkspaceStore.getState().updateWorkspaceWindowPlacement('detached-test', {
   displayId: 3,
 })
 state = useWorkspaceStore.getState()
-assert.deepEqual(
-  state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.bounds,
-  { x: 120, y: 81, width: 800, height: 600 },
-)
-assert.equal(
-  state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.isMaximized,
-  true,
-)
-assert.equal(
-  state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.displayId,
-  3,
-)
+assert.deepEqual(state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.bounds, {
+  x: 120,
+  y: 81,
+  width: 800,
+  height: 600,
+})
+assert.equal(state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.isMaximized, true)
+assert.equal(state.workspaceWindows.find((windowState) => windowState.id === 'detached-test')?.displayId, 3)
 useWorkspaceStore.getState().moveWorkspaceToWindow(firstId, state.primaryWorkspaceWindowId, 'detached-test')
 state = useWorkspaceStore.getState()
 assert.equal(
@@ -313,9 +318,14 @@ assert.equal(
 useWorkspaceStore.getState().moveWorkspaceToWindow(firstId, 'detached-test', state.primaryWorkspaceWindowId)
 useWorkspaceStore.getState().closeWorkspaceWindow('detached-test')
 state = useWorkspaceStore.getState()
-assert.equal(state.workspaceWindows.find((windowState) => windowState.id === 'detached-test'), undefined)
 assert.equal(
-  state.workspaceWindows.find((windowState) => windowState.id === state.primaryWorkspaceWindowId)?.workspaceIds.includes(firstId),
+  state.workspaceWindows.find((windowState) => windowState.id === 'detached-test'),
+  undefined,
+)
+assert.equal(
+  state.workspaceWindows
+    .find((windowState) => windowState.id === state.primaryWorkspaceWindowId)
+    ?.workspaceIds.includes(firstId),
   true,
 )
 useWorkspaceStore.getState().setFolderPath(firstId, '/Users/example/renamed')
@@ -365,15 +375,24 @@ useWorkspaceStore.getState().moveOpenFileToWorkspace(firstId, secondId, '/tmp/ex
 state = useWorkspaceStore.getState()
 const firstEditor = state.workspaces.find((workspace) => workspace.id === firstId)?.editorState
 const secondEditor = state.workspaces.find((workspace) => workspace.id === secondId)?.editorState
-assert.deepEqual(firstEditor?.openFiles.map((file) => file.path), ['/tmp/other.ts'])
+assert.deepEqual(
+  firstEditor?.openFiles.map((file) => file.path),
+  ['/tmp/other.ts'],
+)
 assert.equal(firstEditor?.activeFilePath, '/tmp/other.ts')
-assert.deepEqual(secondEditor?.openFiles.map((file) => file.path), ['/tmp/example.ts'])
+assert.deepEqual(
+  secondEditor?.openFiles.map((file) => file.path),
+  ['/tmp/example.ts'],
+)
 assert.equal(secondEditor?.activeFilePath, '/tmp/example.ts')
 assert.equal(getEditorBuffer(secondId, '/tmp/example.ts'), 'const value = 1')
 
 useWorkspaceStore.getState().removeWorkspace(secondId)
 state = useWorkspaceStore.getState()
-assert.deepEqual(state.workspaces.map((workspace) => workspace.id), [firstId, soloDevId])
+assert.deepEqual(
+  state.workspaces.map((workspace) => workspace.id),
+  [firstId, soloDevId],
+)
 // Moving the active workspace (firstId) out of the primary window above fell the
 // store's global active back to the primary window's remaining workspace
 // (secondId) — a cross-window move no longer leaves global active pointing at a
@@ -387,7 +406,10 @@ const forgettableId = useWorkspaceStore.getState().addWorkspace(standardTemplate
 })
 useWorkspaceStore.getState().forgetFolder('/Users/example/forgettable')
 state = useWorkspaceStore.getState()
-assert.equal(state.workspaces.find((workspace) => workspace.id === forgettableId), undefined)
+assert.equal(
+  state.workspaces.find((workspace) => workspace.id === forgettableId),
+  undefined,
+)
 assert.equal(
   state.appSettings.recentWorkspaceFolders.some((folder) => folder.includes('forgettable')),
   false,
@@ -414,7 +436,7 @@ assert.equal(state.workspaces.find((workspace) => workspace.id === firstHostId)?
 assert.equal(
   state.workspaces.find((workspace) => workspace.id === firstHostId)?.name,
   'Automations',
-  'reuse keeps the existing host untouched — the second create\'s name never rebrands it',
+  "reuse keeps the existing host untouched — the second create's name never rebrands it",
 )
 assert.equal(state.activeWorkspaceId, firstHostId)
 // A different folder still gets its own host.
@@ -572,11 +594,7 @@ assert.equal(
   'move-1',
   'the current window refocuses the restored workspace',
 )
-assert.equal(
-  state.activeWorkspaceId,
-  'move-1',
-  'the rollback restores global active to the returned workspace',
-)
+assert.equal(state.activeWorkspaceId, 'move-1', 'the rollback restores global active to the returned workspace')
 
 // Regression: applying a broadcast workspace.created event inserts the workspace
 // at its folder head (deterministic) and assigns it to the target window. When
@@ -631,11 +649,7 @@ assert.equal(
   'repo-a-3',
   'a creation into this window is assigned at its head',
 )
-assert.equal(
-  state.activeWorkspaceId,
-  'repo-a-3',
-  'a creation into this renderer window is focused as global active',
-)
+assert.equal(state.activeWorkspaceId, 'repo-a-3', 'a creation into this renderer window is focused as global active')
 
 // A worktree chat's created event carries the worktree as its folderPath; the
 // block it joins is the project the marker names, so it lands at the head of
@@ -701,7 +715,11 @@ const conversationChatId = useWorkspaceStore.getState().addWorkspace(soloDevTemp
   folderPath: '/Users/example/seed',
   seedAgent: {
     tabName: 'GPT-5',
-    agentPatch: { name: 'GPT-5', runtimeKind: 'conversation', conversation: { providerId: 'openai', modelId: 'gpt-5' } },
+    agentPatch: {
+      name: 'GPT-5',
+      runtimeKind: 'conversation',
+      conversation: { providerId: 'openai', modelId: 'gpt-5' },
+    },
   },
 })
 state = useWorkspaceStore.getState()
@@ -728,7 +746,15 @@ assert.deepEqual(terminalTab?.config, { terminalId: 'terminal-seed-1' })
 const seedSource = {
   global: {},
   borders: [],
-  layout: { type: 'row', children: [{ type: 'tabset', children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'agent-1' } }] }] },
+  layout: {
+    type: 'row',
+    children: [
+      {
+        type: 'tabset',
+        children: [{ type: 'tab', name: 'Agent', component: 'agent', config: { agentId: 'agent-1' } }],
+      },
+    ],
+  },
 } as never
 const renamed = applySoloChatSeed(seedSource, { tabName: 'Renamed' })
 assert.notEqual(renamed, seedSource)
@@ -747,8 +773,7 @@ const remote = applySoloChatSeed(seedSource, {
   fleet: { connectionId: 'conn-1', machineName: 'Air', remoteSessionId: 'session two' },
 })
 const remoteTab = firstTab({ layoutModel: remote } as never) as
-  | { component?: string; id?: string; name?: string; config?: Record<string, unknown> }
-  | undefined
+  { component?: string; id?: string; name?: string; config?: Record<string, unknown> } | undefined
 assert.equal(remoteTab?.component, 'fleet-terminal')
 assert.equal(remoteTab?.id, 'fleet-terminal:conn-1:session%20two')
 assert.equal(remoteTab?.name, 'Air · Rook')
@@ -855,9 +880,9 @@ useWorkspaceStore.setState({
   },
 })
 assert.ok(
-  useWorkspaceStore.getState().appSettings.recentWorkspaceFolders.includes(
-    '/Users/example/.multicode-worktrees/worktree-parent/chat-legacy',
-  ),
+  useWorkspaceStore
+    .getState()
+    .appSettings.recentWorkspaceFolders.includes('/Users/example/.multicode-worktrees/worktree-parent/chat-legacy'),
   'the stale worktree recent is actually in place before forgetting',
 )
 useWorkspaceStore.getState().forgetFolder(worktreeParent)
@@ -952,10 +977,9 @@ useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(autoId, '/backlog')
 assert.match(nameOf(autoId) ?? '', /^Standard \d+$/, 'an app-injected skill drop does not title the chat')
 assert.notEqual(lockedOf(autoId), true, 'a rejected prompt leaves the workspace open to the next one')
 
-useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(
-  autoId,
-  'so can you fix the git stash panel dropping its hash',
-)
+useWorkspaceStore
+  .getState()
+  .autoTitleWorkspaceFromPrompt(autoId, 'so can you fix the git stash panel dropping its hash')
 assert.equal(nameOf(autoId), 'Fix the git stash panel dropping')
 assert.equal(lockedOf(autoId), true, 'auto-titling locks the name')
 
@@ -998,7 +1022,6 @@ useWorkspaceStore.getState().renameWorkspace(renamedId, 'My own name')
 assert.equal(lockedOf(renamedId), true, 'a manual rename locks the name')
 useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(renamedId, 'add a retry to the uploader')
 assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a hand-typed name')
-
 
 // --- a model-written title landing on top of the heuristic (MC-2484) --------
 //
@@ -1053,9 +1076,7 @@ assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a 
     folderPath: '/Users/example/generated-title-raced',
     background: true,
   })
-  const racedInterim = useWorkspaceStore
-    .getState()
-    .autoTitleWorkspaceFromPrompt(racedId, 'add a retry to the uploader')
+  const racedInterim = useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(racedId, 'add a retry to the uploader')
   assert.equal(racedInterim, 'Add a retry to the uploader')
   useWorkspaceStore.getState().renameWorkspace(racedId, 'Uploader retries')
   assert.equal(
@@ -1274,8 +1295,7 @@ assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a 
   const workspaceId = useWorkspaceStore.getState().addWorkspace(standardTemplate, {
     name: 'Last active agent',
   })
-  const row = (): Workspace =>
-    useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)!
+  const row = (): Workspace => useWorkspaceStore.getState().workspaces.find((w) => w.id === workspaceId)!
 
   assert.equal(row().lastActiveAgentId ?? null, null, 'a new workspace remembers no agent')
 

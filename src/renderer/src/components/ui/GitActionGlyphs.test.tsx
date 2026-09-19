@@ -178,12 +178,7 @@ function coordinates(svg: Element): number[] {
         push(attr('cx') - attr('r'), attr('cx') + attr('r'), attr('cy') - attr('r'), attr('cy') + attr('r'))
         break
       default:
-        push(
-          attr('cx') - attr('rx'),
-          attr('cx') + attr('rx'),
-          attr('cy') - attr('ry'),
-          attr('cy') + attr('ry')
-        )
+        push(attr('cx') - attr('rx'), attr('cx') + attr('rx'), attr('cy') - attr('ry'), attr('cy') + attr('ry'))
     }
   }
   return out
@@ -234,12 +229,12 @@ for (const [name] of FAMILY) {
   assert.deepEqual(paths(previous), paths(next), 'the two hunk directions must share one drawing')
   assert.ok(
     previous.querySelector('g')?.getAttribute('transform'),
-    'previous-difference is the mirror of next-difference, not a second shape'
+    'previous-difference is the mirror of next-difference, not a second shape',
   )
   assert.equal(
     next.querySelector('g')?.getAttribute('transform') ?? null,
     null,
-    'next-difference is the unflipped drawing'
+    'next-difference is the unflipped drawing',
   )
 }
 

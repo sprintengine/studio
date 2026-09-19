@@ -36,9 +36,7 @@ export {
  * has to answer the same question about the same records; this is the renderer's
  * `Workspace`-typed door onto it.
  */
-export function workspaceProjectRoot(
-  workspace: Pick<Workspace, 'folderPath' | 'worktree'>
-): string | null {
+export function workspaceProjectRoot(workspace: Pick<Workspace, 'folderPath' | 'worktree'>): string | null {
   return workspaceProjectRootOf(workspace)
 }
 
@@ -59,7 +57,7 @@ export type ResolvedWorkspaceWorktree = {
  * its terminal glyph, and any terminal spawned into the workspace.
  */
 export function resolveWorkspaceWorktree(
-  workspace: Pick<Workspace, 'folderPath' | 'worktree'>
+  workspace: Pick<Workspace, 'folderPath' | 'worktree'>,
 ): ResolvedWorkspaceWorktree | null {
   const folderPath = workspace.folderPath
   if (!folderPath || !workspace.worktree) return null
@@ -78,15 +76,11 @@ export function resolveWorkspaceWorktree(
  * resolution that used the primary checkout would silently miss it. Null means
  * the workspace has no resolvable root at all (folderless), never a fallback.
  */
-export function workspaceWorkingRoot(
-  workspace: Pick<Workspace, 'folderPath' | 'worktree'>
-): string | null {
+export function workspaceWorkingRoot(workspace: Pick<Workspace, 'folderPath' | 'worktree'>): string | null {
   return resolveWorkspaceWorktree(workspace)?.gitRoot ?? workspace.folderPath ?? null
 }
 
-export type WorkspaceTerminalCwd =
-  | { cwd: string; missing: false }
-  | { cwd: null; missing: boolean }
+export type WorkspaceTerminalCwd = { cwd: string; missing: false } | { cwd: null; missing: boolean }
 
 /**
  * Derive the cwd a terminal opened in a worktree-backed workspace should spawn
@@ -184,13 +178,10 @@ export function findHealthyWorktreeScope<T extends WorktreeScopeCandidate>(
   return (
     scopes.find(
       (scope) =>
-        !scope.missing
-        && !scope.locked
-        && !scope.prunable
-        && (
-          (gitRoot != null && samePath(scope.path, gitRoot))
-          || (branch != null && scope.branch === branch)
-        ),
+        !scope.missing &&
+        !scope.locked &&
+        !scope.prunable &&
+        ((gitRoot != null && samePath(scope.path, gitRoot)) || (branch != null && scope.branch === branch)),
     ) ?? null
   )
 }

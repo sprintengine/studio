@@ -91,13 +91,7 @@ export function SurfaceCanvasState(props: SurfaceCanvasStateProps): JSX.Element 
   if (props.kind === 'empty') {
     if (!props.firstRun) {
       return (
-        <EmptyState
-          density="pane"
-          glyph={props.glyph}
-          title={props.title}
-          body={props.body}
-          action={props.action}
-        />
+        <EmptyState density="pane" glyph={props.glyph} title={props.title} body={props.body} action={props.action} />
       )
     }
     // First run only: the one canvas that earns the accent disc and a heading.
@@ -330,9 +324,7 @@ export function SurfaceRailHeader({
       {/* A div, not a p: the slot is typed `ReactNode` and the Design door puts
           its project chip here, whose popover renders a div — inside a `p` the
           browser silently closes the paragraph and the chip lands outside it. */}
-      {intro ? (
-        <div className="mb-2 text-meta leading-4 text-[color:var(--text-muted)]">{intro}</div>
-      ) : null}
+      {intro ? <div className="mb-2 text-meta leading-4 text-[color:var(--text-muted)]">{intro}</div> : null}
       {/* The kit's row button in its `dashed` variant — the system's one dashed
           edge, and the "New …" affordance it exists for (design-system/
           components/row-button). The width, the inset, the dashed edge, the
@@ -453,9 +445,7 @@ function renderRichRowButton(
           rich row's first review finding. It renders only on a row with a
           context line and no detail of its own. */}
       {row.detail ? (
-        <span className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${lineInk}`}>
-          {row.detail}
-        </span>
+        <span className={`flex h-5 min-w-0 items-center gap-2 overflow-hidden text-meta ${lineInk}`}>{row.detail}</span>
       ) : (
         <TruncatedText as="span" text={row.stateLine} className={`text-meta ${lineInk}`} />
       )}
@@ -551,8 +541,8 @@ export function SurfaceRail({
       event.preventDefault()
       const index = selectedId ? rows.findIndex((row) => row.id === selectedId) : -1
       const target = next
-        ? rows[Math.min(index + 1, rows.length - 1)] ?? rows[0]
-        : rows[Math.max(index - 1, 0)] ?? rows[0]
+        ? (rows[Math.min(index + 1, rows.length - 1)] ?? rows[0])
+        : (rows[Math.max(index - 1, 0)] ?? rows[0])
       if (!target) return
       onSelect(target.id)
       rowRefs.current.get(target.id)?.focus()
@@ -606,9 +596,14 @@ export function SurfaceRail({
     // the door's whole-row tooltip; a clipped title or state line reveals its
     // own full text through `TruncatedText`.
     const rowButton = rich ? (
-      renderRichRowButton(row, selected, (node) => {
-        rowRefs.current.set(row.id, node)
-      }, onSelect)
+      renderRichRowButton(
+        row,
+        selected,
+        (node) => {
+          rowRefs.current.set(row.id, node)
+        },
+        onSelect,
+      )
     ) : (
       // The kit's row button at its default density, which IS this row's shape:
       // full width, left-aligned, `radius.overlay`, the 8px inset and the 8px
@@ -634,10 +629,7 @@ export function SurfaceRail({
         }
       >
         {reserveIconSlot ? (
-          <span
-            data-rail-icon-slot="true"
-            className="flex size-icon-sm shrink-0 items-center justify-center"
-          >
+          <span data-rail-icon-slot="true" className="flex size-icon-sm shrink-0 items-center justify-center">
             {row.icon ?? null}
           </span>
         ) : null}
@@ -739,55 +731,53 @@ export function SurfaceRail({
           4 (here) + 8 (row padding) + 16 (icon slot) + 8 (gap) — the same edge
           the app sidebar's workspace rows and the Back row's label land on. */}
       <div className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-1 pb-2 pt-2">
-      {/* Under the head, at the row inset, where the rows would have been —
+        {/* Under the head, at the row inset, where the rows would have been —
           never flex-pushed to the bottom of the column. */}
-      {emptyNotice && rows.length === 0 ? (
-        <p className="px-2 pt-1 text-meta leading-4 text-[color:var(--text-muted)]">{emptyNotice}</p>
-      ) : null}
-      {/* No heading over an ungrouped list, and none over a lone group. "Projects"
+        {emptyNotice && rows.length === 0 ? (
+          <p className="px-2 pt-1 text-meta leading-4 text-[color:var(--text-muted)]">{emptyNotice}</p>
+        ) : null}
+        {/* No heading over an ungrouped list, and none over a lone group. "Projects"
           above a field that already reads "Search projects…" is the placeholder
           said twice, and a "Recent" header spanning every row groups nothing —
           a group heading earns its place only by separating one group from
           another. The list's accessible name carries the label either way. */}
-      {groups ? (
-        groups.map((group) => (
-          <div key={group.key} className="flex min-w-0 flex-col">
-            <div
-              className={`flex items-baseline gap-1.5 px-2 pb-1 pt-2 first:pt-0.5 ${
-                groups.length > 1 ? '' : 'hidden'
-              }`}
-            >
-              <span className="text-micro font-semibold text-[color:var(--text-subtle)]">{group.label}</span>
-              {/* The UI face, not the mono one: after the Design door's captions,
+        {groups ? (
+          groups.map((group) => (
+            <div key={group.key} className="flex min-w-0 flex-col">
+              <div
+                className={`flex items-baseline gap-1.5 px-2 pb-1 pt-2 first:pt-0.5 ${
+                  groups.length > 1 ? '' : 'hidden'
+                }`}
+              >
+                <span className="text-micro font-semibold text-[color:var(--text-subtle)]">{group.label}</span>
+                {/* The UI face, not the mono one: after the Design door's captions,
                   token paths and provenance line came off mono (2026-09-08),
                   two digits in a rail heading were the last mono string in a
                   door's chrome. `tabular-nums` is what a count actually needed
                   from that face. */}
-              <span className="text-micro tabular-nums text-[color:var(--text-disabled)]">
-                {group.rows.length}
-              </span>
+                <span className="text-micro tabular-nums text-[color:var(--text-disabled)]">{group.rows.length}</span>
+              </div>
+              <ul
+                role="list"
+                aria-label={`${label}: ${group.label}`}
+                data-rail-group={outerContext ? 'outer-context' : undefined}
+                className="flex min-w-0 flex-col gap-0.5"
+              >
+                {group.rows.map(renderRow)}
+              </ul>
             </div>
-            <ul
-              role="list"
-              aria-label={`${label}: ${group.label}`}
-              data-rail-group={outerContext ? 'outer-context' : undefined}
-              className="flex min-w-0 flex-col gap-0.5"
-            >
-              {group.rows.map(renderRow)}
-            </ul>
-          </div>
-        ))
-      ) : (
-        <ul
-          role="list"
-          aria-label={label}
-          data-rail-group={outerContext ? 'outer-context' : undefined}
-          className="flex min-w-0 flex-col gap-0.5"
-        >
-          {rows.map(renderRow)}
-        </ul>
-      )}
-      {/* The inner level goes with its outer one. While a search has narrowed
+          ))
+        ) : (
+          <ul
+            role="list"
+            aria-label={label}
+            data-rail-group={outerContext ? 'outer-context' : undefined}
+            className="flex min-w-0 flex-col gap-0.5"
+          >
+            {rows.map(renderRow)}
+          </ul>
+        )}
+        {/* The inner level goes with its outer one. While a search has narrowed
           the rows to nothing, the row that OWNS this second level is not on
           screen either — rendering it anyway put a two-level door's inner list
           directly under "Nothing matches.", contents belonging to a row the
@@ -797,7 +787,7 @@ export function SurfaceRail({
           conditioned on `afterRowsScope` rather than on emptiness alone: a slot
           that hangs off the LIST — the run doors' `+` — is not explained by the
           notice and is not hidden by it. */}
-      {afterRows && !(afterRowsScope === 'rows' && emptyNotice && rows.length === 0) ? afterRows : null}
+        {afterRows && !(afterRowsScope === 'rows' && emptyNotice && rows.length === 0) ? afterRows : null}
       </div>
     </div>
   )

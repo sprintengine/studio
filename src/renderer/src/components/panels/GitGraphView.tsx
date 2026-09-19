@@ -1,13 +1,23 @@
 import React, { useMemo, useRef, useState } from 'react'
 import type { GitGraphCommit, GitGraphSnapshot, GitResetMode } from '../../../../shared/electron-api'
 import { computeGitGraphLayout, type GitGraphLine } from '../../utils/gitGraphLayout'
-import { EmptyState, GhostButton, InlineNotice, MenuItem, OutlineButton, OverflowMenu, RowButton, Skeleton, Tooltip, TruncatedText, type OverflowMenuItem } from '../ui'
+import {
+  EmptyState,
+  GhostButton,
+  InlineNotice,
+  MenuItem,
+  OutlineButton,
+  OverflowMenu,
+  RowButton,
+  Skeleton,
+  Tooltip,
+  TruncatedText,
+  type OverflowMenuItem,
+} from '../ui'
 import { setCommitDropData } from '../../utils/terminalDrop'
 
 export type GitGraphState =
-  | { status: 'loading' }
-  | { status: 'ready'; snapshot: GitGraphSnapshot }
-  | { status: 'error'; message: string }
+  { status: 'loading' } | { status: 'ready'; snapshot: GitGraphSnapshot } | { status: 'error'; message: string }
 
 export type GitMergeTarget = {
   ref: string
@@ -130,12 +140,14 @@ function mergeTargetsForCommit({
   if (branchTargets.length > 0) return branchTargets.slice(0, 4)
   if (commit.hash === headHash) return []
 
-  return [{
-    ref: commit.hash,
-    label: commit.shortHash,
-    kind: 'commit',
-    commit,
-  }]
+  return [
+    {
+      ref: commit.hash,
+      label: commit.shortHash,
+      kind: 'commit',
+      commit,
+    },
+  ]
 }
 
 function GitGraphGutter({
@@ -159,9 +171,7 @@ function GitGraphGutter({
   const mid = ROW_HEIGHT / 2
   const traceActive = highlight.size > 0
   // Dimmed lanes first, traced lanes on top so the trace reads cleanly.
-  const ordered = [...lines].sort(
-    (a, b) => Number(highlight.has(a.hash)) - Number(highlight.has(b.hash))
-  )
+  const ordered = [...lines].sort((a, b) => Number(highlight.has(a.hash)) - Number(highlight.has(b.hash)))
   const nodeDimmed = traceActive && !highlight.has(commitHash)
   const nodeColor = laneColor(colorIndex)
 
@@ -238,7 +248,7 @@ function buildCommitMenuItems(
   localBranches: string[],
   currentBranch: string | null,
   isHead: boolean,
-  isOnCurrentBranch: boolean
+  isOnCurrentBranch: boolean,
 ): OverflowMenuItem[] {
   const items: OverflowMenuItem[] = []
 
@@ -246,18 +256,20 @@ function buildCommitMenuItems(
     for (const target of mergeTargets) {
       items.push({
         id: `merge-${target.ref}`,
-        label: target.kind === 'commit'
-          ? `Merge commit into ${currentBranch}`
-          : `Merge ${target.label} into ${currentBranch}`,
+        label:
+          target.kind === 'commit'
+            ? `Merge commit into ${currentBranch}`
+            : `Merge ${target.label} into ${currentBranch}`,
         onSelect: () => actions.merge(target),
       })
     }
     for (const target of mergeTargets) {
       items.push({
         id: `rebase-${target.ref}`,
-        label: target.kind === 'commit'
-          ? `Rebase ${currentBranch} onto this commit`
-          : `Rebase ${currentBranch} onto ${target.label}`,
+        label:
+          target.kind === 'commit'
+            ? `Rebase ${currentBranch} onto this commit`
+            : `Rebase ${currentBranch} onto ${target.label}`,
         onSelect: () => actions.rebaseOnto(target),
       })
     }
@@ -448,9 +460,13 @@ function GitGraphCommitRow({
           </span>
           <span className="mt-0.5 flex min-w-0 items-center gap-1.5 overflow-hidden text-micro tabular-nums text-[color:var(--text-muted)]">
             <span className="shrink-0 font-mono text-[color:var(--text-muted)]">{commit.shortHash}</span>
-            <span aria-hidden="true" className="shrink-0">·</span>
+            <span aria-hidden="true" className="shrink-0">
+              ·
+            </span>
             <span className="shrink-0 whitespace-nowrap">{commit.date}</span>
-            <span aria-hidden="true" className="shrink-0">·</span>
+            <span aria-hidden="true" className="shrink-0">
+              ·
+            </span>
             <TruncatedText as="span" text={commit.author} className="min-w-0" />
           </span>
         </span>
@@ -458,7 +474,15 @@ function GitGraphCommitRow({
       <span className="flex shrink-0 items-center pr-1.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
         <OverflowMenu
           ariaLabel={`Commit ${commit.shortHash} actions`}
-          items={buildCommitMenuItems(commit, actions, mergeTargets, localBranches, currentBranch, isHead, isOnCurrentBranch)}
+          items={buildCommitMenuItems(
+            commit,
+            actions,
+            mergeTargets,
+            localBranches,
+            currentBranch,
+            isHead,
+            isOnCurrentBranch,
+          )}
           align="end"
           trigger={(open) => {
             openMenuRef.current = open
@@ -525,7 +549,7 @@ export function GitGraphView({
   const snapshot = state.status === 'ready' ? state.snapshot : null
   const layout = useMemo(
     () => computeGitGraphLayout(snapshot?.commits ?? [], { headHash: snapshot?.headHash ?? null }),
-    [snapshot]
+    [snapshot],
   )
   const commitsByHash = useMemo(() => {
     const map = new Map<string, GitGraphCommit>()
@@ -542,16 +566,13 @@ export function GitGraphView({
     return map
   }, [snapshot])
   const activeHash = hoveredHash ?? selectedHash
-  const highlight = useMemo(
-    () => collectAncestry(commitsByHash, activeHash),
-    [commitsByHash, activeHash]
-  )
+  const highlight = useMemo(() => collectAncestry(commitsByHash, activeHash), [commitsByHash, activeHash])
   // HEAD's ancestry within the loaded window gates cherry-pick (pointless on
   // reachable commits) and revert (only meaningful on reachable commits).
   // Commits deeper than the loaded page can't be classified and stay ungated.
   const headAncestry = useMemo(
     () => collectAncestry(commitsByHash, snapshot?.headHash ?? null),
-    [commitsByHash, snapshot?.headHash]
+    [commitsByHash, snapshot?.headHash],
   )
 
   // The three non-populated states each wear their own idiom, so a failed
@@ -567,7 +588,10 @@ export function GitGraphView({
           {[68, 52, 80, 44, 60].map((width, index) => (
             <div key={index} className="flex items-center gap-2 py-1.5">
               <Skeleton className="h-3 w-3 shrink-0 rounded-full bg-[color:var(--skeleton-shimmer-high)]" />
-              <Skeleton className="h-3 rounded bg-[color:var(--skeleton-shimmer-high)]" style={{ width: `${width}%` }} />
+              <Skeleton
+                className="h-3 rounded bg-[color:var(--skeleton-shimmer-high)]"
+                style={{ width: `${width}%` }}
+              />
             </div>
           ))}
         </div>

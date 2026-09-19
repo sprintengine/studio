@@ -106,11 +106,16 @@ async function main(): Promise<void> {
   assert.equal(beforeQuit.length, 1, 'quit is handled exactly once')
 
   let prevented = 0
-  beforeQuit[0]({ preventDefault: () => { prevented += 1 } })
+  beforeQuit[0]({
+    preventDefault: () => {
+      prevented += 1
+    },
+  })
   assert.equal(prevented, 1, 'the quit is held while the shutdown legs run')
 
   // The legs are promises; let them settle.
-  for (let pass = 0; pass < 50 && exitCalls.length === 0; pass += 1) await new Promise((resolve) => setImmediate(resolve))
+  for (let pass = 0; pass < 50 && exitCalls.length === 0; pass += 1)
+    await new Promise((resolve) => setImmediate(resolve))
 
   assert.deepEqual(exitCalls, [0], 'the app still exits once every leg has run')
   assert.ok(order.includes('pullRequests.flush'), 'the record is flushed at quit')
@@ -126,7 +131,11 @@ async function main(): Promise<void> {
   )
 
   // A second quit is not a second shutdown.
-  beforeQuit[0]({ preventDefault: () => { prevented += 1 } })
+  beforeQuit[0]({
+    preventDefault: () => {
+      prevented += 1
+    },
+  })
   for (let pass = 0; pass < 20; pass += 1) await new Promise((resolve) => setImmediate(resolve))
   assert.equal(disposed, 1, 'a second before-quit does not run the legs again')
 }

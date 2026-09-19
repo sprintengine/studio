@@ -71,10 +71,10 @@ export class WorkspaceBackupService {
     try {
       const parsed = JSON.parse(raw) as WorkspaceBackupPayload
       if (
-        !parsed
-        || typeof parsed !== 'object'
-        || typeof parsed.version !== 'number'
-        || typeof parsed.writtenAt !== 'string'
+        !parsed ||
+        typeof parsed !== 'object' ||
+        typeof parsed.version !== 'number' ||
+        typeof parsed.writtenAt !== 'string'
       ) {
         return { ok: false, reason: 'parse_error', message: 'malformed_payload' }
       }

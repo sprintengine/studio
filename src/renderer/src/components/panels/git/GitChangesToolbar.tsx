@@ -128,11 +128,7 @@ export function GitChangesToolbar({
       {/* Live since T6. It opens a menu rather than acting, because "move" has
           no single destination — the destination IS the question. */}
       <Tooltip
-        content={
-          untrackedOnly
-            ? `Move to another changelist — ${UNTRACKED_MOVE_REASON}`
-            : 'Move to another changelist'
-        }
+        content={untrackedOnly ? `Move to another changelist — ${UNTRACKED_MOVE_REASON}` : 'Move to another changelist'}
         placement="bottom"
       >
         <ToolbarButton
@@ -166,11 +162,7 @@ export function GitChangesToolbar({
           stays in the band's walk, takes focus, and carries the reason in its
           accessible name for a reader who never sees a tooltip at all. */}
       <Tooltip content="Write commit message — coming with the composer" placement="bottom">
-        <ToolbarButton
-          ariaLabel="Write commit message"
-          ariaDisabled
-          disabledReason="coming with the composer"
-        >
+        <ToolbarButton ariaLabel="Write commit message" ariaDisabled disabledReason="coming with the composer">
           <WriteCommitMessageGlyph />
         </ToolbarButton>
       </Tooltip>

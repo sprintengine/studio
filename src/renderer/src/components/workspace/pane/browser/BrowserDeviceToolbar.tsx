@@ -37,15 +37,7 @@ const LOCK = 'M6.5 9.5 9.5 6.5M7 5l1-1a2.5 2.5 0 1 1 3.5 3.5l-1 1M9 11l-1 1a2.5 
 const UNLOCK = 'M6.5 9.5 9.5 6.5M7 5l1-1a2.5 2.5 0 1 1 3.5 3.5l-1 1M9 11l-1 1a2.5 2.5 0 1 1-3.5-3.5l1-1M3 3l10 10'
 const CLOSE = 'M4 4l8 8M12 4l-8 8'
 
-function SizeField({
-  label,
-  value,
-  onCommit,
-}: {
-  label: string
-  value: number
-  onCommit: (value: number) => void
-}) {
+function SizeField({ label, value, onCommit }: { label: string; value: number; onCommit: (value: number) => void }) {
   const [draft, setDraft] = useState(String(value))
   useEffect(() => {
     setDraft(String(value))

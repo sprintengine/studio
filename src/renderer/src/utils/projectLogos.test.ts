@@ -1,12 +1,7 @@
 import assert from 'node:assert/strict'
 
 import type { ProjectLogo } from '../../../shared/electron-api'
-import {
-  ensureProjectLogo,
-  getProjectLogoDataUrl,
-  resetProjectLogos,
-  subscribeProjectLogos,
-} from './projectLogos'
+import { ensureProjectLogo, getProjectLogoDataUrl, resetProjectLogos, subscribeProjectLogos } from './projectLogos'
 
 // The renderer half of MC-2135: one detection per project folder per session,
 // shared by every surface that shows that project, and never a state the icon

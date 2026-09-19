@@ -165,9 +165,7 @@ async function main(): Promise<void> {
   })
 
   run('an icon-only strip draws no badge', () => {
-    const { host, root } = mount(
-      strip([{ id: 'log', label: 'Log', badgeCount: 5, icon: <svg /> }], true),
-    )
+    const { host, root } = mount(strip([{ id: 'log', label: 'Log', badgeCount: 5, icon: <svg /> }], true))
     assert.equal(
       host.querySelector('[role="status"]'),
       null,

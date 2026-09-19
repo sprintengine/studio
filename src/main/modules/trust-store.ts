@@ -66,7 +66,7 @@ let writeChain: Promise<unknown> = Promise.resolve()
 export async function setModuleTrust(
   userDataDir: string,
   id: string,
-  fingerprint: string | null
+  fingerprint: string | null,
 ): Promise<{ result: TrustWriteResult; trustedModules: Map<string, string>; previous: string | null }> {
   const run = writeChain.then(async () => {
     const current = readTrustedModulesSync(userDataDir)

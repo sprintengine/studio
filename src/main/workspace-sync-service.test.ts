@@ -83,7 +83,7 @@ async function main(): Promise<void> {
     command: unknown,
     reason: string,
     sourceWindowId = 'primary',
-    expectedSequence = 0
+    expectedSequence = 0,
   ): void {
     const before = service.getSnapshot()
     const result = service.dispatch({ sourceWindowId, command })
@@ -317,7 +317,7 @@ async function main(): Promise<void> {
   assert.equal(
     cachedA.state.workspaces.find((entry) => entry.id === 'ws-two')?.name,
     'ws-two',
-    'the earlier snapshot is still the clone it was, untouched by the mutation'
+    'the earlier snapshot is still the clone it was, untouched by the mutation',
   )
   assert.equal(service.getSnapshot(), cachedC, 'and the new snapshot is cached in turn')
 

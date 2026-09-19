@@ -42,7 +42,5 @@ export function resumeCapabilitiesForCli(
 ): ResumeCapabilities | undefined {
   if (!cli) return undefined
   const entry = catalog.find((candidate) => candidate.id === cli)
-  return entry
-    ? { resumeSession: entry.resumeSession, sessionIdFromCaller: entry.sessionIdFromCaller }
-    : undefined
+  return entry ? { resumeSession: entry.resumeSession, sessionIdFromCaller: entry.sessionIdFromCaller } : undefined
 }

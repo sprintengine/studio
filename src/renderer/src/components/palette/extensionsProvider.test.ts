@@ -110,7 +110,7 @@ const handlers = { onSelectSkill: noop, onSelectPlugin: noop, onSelectSource: no
 
 // ── One warm ─────────────────────────────────────────────────────────────────
 
-run('one warm reads every source\'s cached scan and the registry', async () => {
+run("one warm reads every source's cached scan and the registry", async () => {
   const asked: string[] = []
   const api: ExtensionsCatalogueApi = {
     skillsListSources: async () => ({
@@ -176,7 +176,10 @@ run('a source whose scan will not read drops out rather than emptying the list',
   } as unknown as ExtensionsCatalogueApi
 
   const catalogue = await loadExtensionsCatalogue(api)
-  assert.deepEqual(catalogue.sources.map((entry) => entry.source.id), ['good'])
+  assert.deepEqual(
+    catalogue.sources.map((entry) => entry.source.id),
+    ['good'],
+  )
   assert.deepEqual(catalogue.registry, [])
 })
 
@@ -190,10 +193,7 @@ run('a source nothing has read is not asked for, and is listed as not read yet',
     skillsListSources: async () => ({
       ok: true,
       transport: 'git',
-      sources: [
-        source({ id: 'read', name: 'Read' }),
-        source({ id: 'fresh', name: 'Fresh', scannedAt: '' }),
-      ],
+      sources: [source({ id: 'read', name: 'Read' }), source({ id: 'fresh', name: 'Fresh', scannedAt: '' })],
     }),
     skillsGetScan: async ({ sourceId }: SkillScanInput) => {
       asked.push(sourceId)
@@ -204,7 +204,10 @@ run('a source nothing has read is not asked for, and is listed as not read yet',
 
   const catalogue = await loadExtensionsCatalogue(api)
   assert.deepEqual(asked, ['read'], 'the unread source would have cost a GitHub read')
-  assert.deepEqual(catalogue.unread.map((entry) => entry.id), ['fresh'])
+  assert.deepEqual(
+    catalogue.unread.map((entry) => entry.id),
+    ['fresh'],
+  )
 
   const rows = buildExtensionRows(catalogue, new Set())
   const row = rows.find((entry): entry is ExtensionSourceRow => entry.kind === 'source')
@@ -293,7 +296,15 @@ run('the provider shows the source rows first and adds the registry when it land
         marketplace: {
           schemaVersion: 1,
           plugins: [
-            { id: 'studio-notes', name: 'Notes', publisher: { name: 'S', verified: true }, summary: '', category: '', latest: 1, provides: [] },
+            {
+              id: 'studio-notes',
+              name: 'Notes',
+              publisher: { name: 'S', verified: true },
+              summary: '',
+              category: '',
+              latest: 1,
+              provides: [],
+            },
           ],
         },
       }
@@ -308,7 +319,11 @@ run('the provider shows the source rows first and adds the registry when it land
   await new Promise((resolve) => setTimeout(resolve, 0))
   assert.equal(refreshes, 1, 'the provider asked to be re-run when the sources landed')
   const early = (await provider.load('', {} as never)) as { label: string }[]
-  assert.deepEqual(early.map((row) => row.label), ['review'], 'the source rows, with no registry yet')
+  assert.deepEqual(
+    early.map((row) => row.label),
+    ['review'],
+    'the source rows, with no registry yet',
+  )
 
   releaseRegistry()
   await warming
@@ -351,12 +366,18 @@ const catalogue: ExtensionsCatalogue = {
   registryUrl: null,
 }
 
-run('a source\'s skills and plugins land in their own groups', () => {
+run("a source's skills and plugins land in their own groups", () => {
   const rows = buildExtensionRows(catalogue, new Set())
   const skills = rows.filter((row): row is ExtensionSkillRow => row.kind === 'skill')
   const plugins = rows.filter((row): row is ExtensionPluginRow => row.kind === 'plugin')
-  assert.deepEqual(skills.map((row) => row.name), ['review', 'send'])
-  assert.deepEqual(plugins.map((row) => row.name), ['Telegram'])
+  assert.deepEqual(
+    skills.map((row) => row.name),
+    ['review', 'send'],
+  )
+  assert.deepEqual(
+    plugins.map((row) => row.name),
+    ['Telegram'],
+  )
 })
 
 run('a skill the workspace already holds is marked installed, and the rest available', () => {
@@ -373,7 +394,7 @@ run('a skill the workspace already holds is marked installed, and the rest avail
   assert.equal(rowBadge(send), 'Acme Skills', 'an available row says where it would come from')
 })
 
-run('a row wears its plugin\'s glyph, and a bare skill its owner\'s avatar', () => {
+run("a row wears its plugin's glyph, and a bare skill its owner's avatar", () => {
   const rows = buildExtensionRows(catalogue, new Set())
   const byName = new Map(rows.map((row) => [row.name, row]))
   // The plugin declares 🛰️, which outranks every picture.
@@ -414,7 +435,12 @@ run('the install-time facts ride the plugin row so nothing has to re-read the sc
     },
   })
   const rows = buildExtensionRows(
-    { sources: [{ source: acme, scan: scan({ plugins: [hooked, linked, served] }) }], unread: [], registry: [], registryUrl: null },
+    {
+      sources: [{ source: acme, scan: scan({ plugins: [hooked, linked, served] }) }],
+      unread: [],
+      registry: [],
+      registryUrl: null,
+    },
     new Set(),
   ) as ExtensionPluginRow[]
   const byId = new Map(rows.map((row) => [row.pluginId, row]))
@@ -449,7 +475,11 @@ run('a registry entry is a plugin row that knows it is one', () => {
   assert.equal(rows.length, 1)
   assert.equal(rows[0].registry, true)
   assert.equal(rows[0].sourceId, '', 'a registry entry belongs to no skill source')
-  assert.equal(rows[0].icon.icon, 'https://example.test/icons/notes.svg', 'a relative icon resolves against the registry')
+  assert.equal(
+    rows[0].icon.icon,
+    'https://example.test/icons/notes.svg',
+    'a relative icon resolves against the registry',
+  )
 })
 
 // ── Filtering, ranking, capping ──────────────────────────────────────────────
@@ -480,7 +510,12 @@ run('each group is capped on its own, so skills cannot crowd out plugins', () =>
   const many = Array.from({ length: EXTENSION_ROWS_PER_GROUP + 5 }, (_, index) => skill(`skills/s${index}`))
   const manyPlugins = Array.from({ length: EXTENSION_ROWS_PER_GROUP + 5 }, (_, index) => plugin(`p${index}`))
   const rows = buildExtensionRows(
-    { sources: [{ source: acme, scan: scan({ skills: many, plugins: manyPlugins }) }], unread: [], registry: [], registryUrl: null },
+    {
+      sources: [{ source: acme, scan: scan({ skills: many, plugins: manyPlugins }) }],
+      unread: [],
+      registry: [],
+      registryUrl: null,
+    },
     new Set(),
   )
   const capped = selectExtensionCommands(rows, '', handlers)

@@ -53,13 +53,11 @@ export const DEFAULT_GRAPH_SETTINGS: MemoryGraphSettings = {
   forces: DEFAULT_FORCES,
 }
 
-function normalizeFilters(
-  input: Partial<MemoryGraphFiltersConfig> | null | undefined
-): MemoryGraphFiltersConfig {
+function normalizeFilters(input: Partial<MemoryGraphFiltersConfig> | null | undefined): MemoryGraphFiltersConfig {
   const depth =
-    typeof input?.depthFromSelection === 'number'
-    && Number.isFinite(input.depthFromSelection)
-    && input.depthFromSelection > 0
+    typeof input?.depthFromSelection === 'number' &&
+    Number.isFinite(input.depthFromSelection) &&
+    input.depthFromSelection > 0
       ? Math.min(8, Math.round(input.depthFromSelection))
       : null
   const disabled = Array.isArray(input?.disabledGroups)
@@ -74,13 +72,9 @@ function normalizeFilters(
   }
 }
 
-function normalizeDisplay(
-  input: Partial<MemoryGraphDisplayConfig> | null | undefined
-): MemoryGraphDisplayConfig {
+function normalizeDisplay(input: Partial<MemoryGraphDisplayConfig> | null | undefined): MemoryGraphDisplayConfig {
   const clamp = (value: unknown, min: number, max: number, fallback: number): number =>
-    typeof value === 'number' && Number.isFinite(value)
-      ? Math.min(max, Math.max(min, value))
-      : fallback
+    typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
   return {
     nodeSizeScale: clamp(input?.nodeSizeScale, 0.5, 3, DEFAULT_DISPLAY.nodeSizeScale),
     lineThicknessScale: clamp(input?.lineThicknessScale, 0.5, 3, DEFAULT_DISPLAY.lineThicknessScale),
@@ -93,13 +87,9 @@ function normalizeDisplay(
   }
 }
 
-function normalizeForces(
-  input: Partial<MemoryGraphForcesConfig> | null | undefined
-): MemoryGraphForcesConfig {
+function normalizeForces(input: Partial<MemoryGraphForcesConfig> | null | undefined): MemoryGraphForcesConfig {
   const clamp = (value: unknown, min: number, max: number, fallback: number): number =>
-    typeof value === 'number' && Number.isFinite(value)
-      ? Math.min(max, Math.max(min, value))
-      : fallback
+    typeof value === 'number' && Number.isFinite(value) ? Math.min(max, Math.max(min, value)) : fallback
   return {
     centerForce: clamp(input?.centerForce, 0, 1, DEFAULT_FORCES.centerForce),
     repelForce: clamp(input?.repelForce, 0, 2, DEFAULT_FORCES.repelForce),
@@ -108,9 +98,7 @@ function normalizeForces(
   }
 }
 
-function normalizeColorRules(
-  input: unknown
-): MemoryGraphColorRule[] {
+function normalizeColorRules(input: unknown): MemoryGraphColorRule[] {
   if (!Array.isArray(input)) return []
   return input
     .map((rule) => {
@@ -127,13 +115,9 @@ function normalizeColorRules(
     .filter((rule): rule is MemoryGraphColorRule => rule !== null)
 }
 
-export function normalizeGraphSettings(
-  input: Partial<MemoryGraphSettings> | null | undefined
-): MemoryGraphSettings {
+export function normalizeGraphSettings(input: Partial<MemoryGraphSettings> | null | undefined): MemoryGraphSettings {
   const tab: SidebarTab =
-    input?.activeTab === 'groups'
-    || input?.activeTab === 'display'
-    || input?.activeTab === 'forces'
+    input?.activeTab === 'groups' || input?.activeTab === 'display' || input?.activeTab === 'forces'
       ? input.activeTab
       : 'filters'
   const storedVersion = typeof input?.version === 'number' && input.version > 0 ? input.version : 0

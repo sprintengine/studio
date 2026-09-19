@@ -41,9 +41,7 @@ type TranscriptRow = {
  * the path is not an absolute `.jsonl` file, the file is missing, not a regular
  * file, over the size cap, unreadable, or carries no assistant text.
  */
-export async function readTranscriptSummary(
-  transcriptPath: string,
-): Promise<string | undefined> {
+export async function readTranscriptSummary(transcriptPath: string): Promise<string | undefined> {
   if (!isAcceptableTranscriptPath(transcriptPath)) return undefined
   try {
     const stats = await stat(transcriptPath)
@@ -85,10 +83,10 @@ export async function readTranscriptSummary(
 
 function isAcceptableTranscriptPath(transcriptPath: unknown): transcriptPath is string {
   return (
-    typeof transcriptPath === 'string'
-    && transcriptPath.endsWith('.jsonl')
-    && !transcriptPath.includes('\0')
-    && isAbsolute(transcriptPath)
+    typeof transcriptPath === 'string' &&
+    transcriptPath.endsWith('.jsonl') &&
+    !transcriptPath.includes('\0') &&
+    isAbsolute(transcriptPath)
   )
 }
 

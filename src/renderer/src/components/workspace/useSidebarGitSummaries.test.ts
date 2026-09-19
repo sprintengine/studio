@@ -2,7 +2,8 @@ import assert from 'node:assert/strict'
 
 import { checkoutPathFor, membershipRow, sweepEntriesFrom } from './useSidebarGitSummaries'
 
-const rows = (...pairs: Array<[string, string]>): string => pairs.map(([id, path]) => membershipRow(id, path)).join('\u0000')
+const rows = (...pairs: Array<[string, string]>): string =>
+  pairs.map(([id, path]) => membershipRow(id, path)).join('\u0000')
 
 // The sidebar's git poll (the-diff-an-agent-made / branch-scoped-row-diff): the
 // membership string round-trips ids and CHECKOUT paths exactly, and a sweep
@@ -62,7 +63,7 @@ run('checkoutPathFor resolves the checkout the agents actually work in', () => {
       folderPath: '/repo/.worktrees/feat',
       worktree: { branch: 'feat' },
     } as never),
-    '/repo/.worktrees/feat'
+    '/repo/.worktrees/feat',
   )
   // A workspace with no worktree marker reads its own folder, whatever else its
   // module-state bag carries.
@@ -72,7 +73,7 @@ run('checkoutPathFor resolves the checkout the agents actually work in', () => {
       folderPath: '/repo',
       moduleState: { 'weather-deck': { lastCity: 'Dublin' } },
     } as never),
-    '/repo'
+    '/repo',
   )
   assert.equal(checkoutPathFor({ id: 'w4', folderPath: null } as never), null)
 })

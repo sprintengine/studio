@@ -107,7 +107,11 @@ async function main(): Promise<void> {
   snapshot = {
     sequence: 50,
     state: {
-      workspaces: [workspace('ws-keep', 'standard'), workspace('ws-sprint', 'sprintengine'), workspace('ws-roadmap', 'roadmap')],
+      workspaces: [
+        workspace('ws-keep', 'standard'),
+        workspace('ws-sprint', 'sprintengine'),
+        workspace('ws-roadmap', 'roadmap'),
+      ],
       activeWorkspaceId: 'ws-sprint',
       primaryWorkspaceWindowId: 'A',
       workspaceWindows: [windowState('A', ['ws-sprint', 'ws-keep', 'ws-roadmap'], 'ws-sprint')],

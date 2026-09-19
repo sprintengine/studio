@@ -59,12 +59,17 @@ export function BacklogItemSearchPicker({
   const hasQuery = query.trim().length > 0
 
   const moveResultFocus = (current: HTMLElement, delta: 1 | -1): void => {
-    const results = Array.from(rootRef.current?.querySelectorAll<HTMLElement>('[data-backlog-search-result="true"]') ?? [])
+    const results = Array.from(
+      rootRef.current?.querySelectorAll<HTMLElement>('[data-backlog-search-result="true"]') ?? [],
+    )
     if (results.length === 0) return
     const index = results.indexOf(current)
-    const next = index < 0
-      ? delta === 1 ? results[0] : results[results.length - 1]
-      : results[(index + delta + results.length) % results.length]
+    const next =
+      index < 0
+        ? delta === 1
+          ? results[0]
+          : results[results.length - 1]
+        : results[(index + delta + results.length) % results.length]
     next?.focus()
   }
 
@@ -171,7 +176,13 @@ export function BacklogItemSearchPicker({
 function CheckGlyph(): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className="icon-xs">
-      <path d="M3.5 8.5L6.5 11.5L12.5 5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M3.5 8.5L6.5 11.5L12.5 5"
+        stroke="currentColor"
+        strokeWidth="1.6"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }

@@ -18,7 +18,10 @@ const observed = (over: Partial<ObservedCheckout>): ObservedCheckout => ({
 })
 
 const noIntent = { workspaceWorktree: null, execution: null }
-const workspaceWorktree = { workspaceWorktree: { gitRoot: '/repo/.claude/worktrees/run', branch: 'run/1' }, execution: null }
+const workspaceWorktree = {
+  workspaceWorktree: { gitRoot: '/repo/.claude/worktrees/run', branch: 'run/1' },
+  execution: null,
+}
 
 // Observed on a linked worktree: the worktree, with the CHECKOUT as the probe
 // path and the cwd (a subdirectory) kept for hover.
@@ -39,7 +42,7 @@ const workspaceWorktree = { workspaceWorktree: { gitRoot: '/repo/.claude/worktre
 {
   const checkout = agentCheckoutOf(
     { observedCheckout: observed({ cwd: '/repo', gitRoot: '/repo', branch: 'main', isLinkedWorktree: false }) },
-    workspaceWorktree
+    workspaceWorktree,
   )
   assert.equal(checkout?.kind, 'main')
   assert.equal(checkout?.gitRoot, '/repo')
@@ -50,7 +53,7 @@ const workspaceWorktree = { workspaceWorktree: { gitRoot: '/repo/.claude/worktre
 {
   const checkout = agentCheckoutOf(
     { observedCheckout: observed({ cwd: '/repo', gitRoot: '/repo', branch: null, isLinkedWorktree: false }) },
-    noIntent
+    noIntent,
   )
   assert.equal(checkout?.kind, 'main')
   assert.equal(checkout?.branch, null)
@@ -59,18 +62,39 @@ const workspaceWorktree = { workspaceWorktree: { gitRoot: '/repo/.claude/worktre
 // Not a checkout at all: a folder, nothing to probe — the caller's fallback stands.
 {
   const checkout = agentCheckoutOf(
-    { observedCheckout: observed({ cwd: '/tmp/scratch', gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false }) },
-    noIntent
+    {
+      observedCheckout: observed({
+        cwd: '/tmp/scratch',
+        gitRoot: null,
+        repoRoot: null,
+        branch: null,
+        isLinkedWorktree: false,
+      }),
+    },
+    noIntent,
   )
   assert.deepEqual(checkout, { kind: 'folder', cwd: '/tmp/scratch', gitRoot: null, observed: true })
-  assert.equal(agentCheckoutProbePath(checkout, '/repo'), null, 'the workspace branch is not a folder-bound agent’s answer')
+  assert.equal(
+    agentCheckoutProbePath(checkout, '/repo'),
+    null,
+    'the workspace branch is not a folder-bound agent’s answer',
+  )
 }
 
 // The observed directory vanished (a pruned worktree).
 {
   const checkout = agentCheckoutOf(
-    { observedCheckout: observed({ cwd: '/repo/.claude/worktrees/gone', gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false, missing: true }) },
-    noIntent
+    {
+      observedCheckout: observed({
+        cwd: '/repo/.claude/worktrees/gone',
+        gitRoot: null,
+        repoRoot: null,
+        branch: null,
+        isLinkedWorktree: false,
+        missing: true,
+      }),
+    },
+    noIntent,
   )
   assert.deepEqual(checkout, { kind: 'missing', cwd: '/repo/.claude/worktrees/gone', gitRoot: null, observed: true })
 }
@@ -79,8 +103,18 @@ const workspaceWorktree = { workspaceWorktree: { gitRoot: '/repo/.claude/worktre
 // is the intended worktree.
 {
   const checkout = agentCheckoutOf(
-    { observedCheckout: { cwd: '/repo', at: 1, resolved: false, gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false } },
-    workspaceWorktree
+    {
+      observedCheckout: {
+        cwd: '/repo',
+        at: 1,
+        resolved: false,
+        gitRoot: null,
+        repoRoot: null,
+        branch: null,
+        isLinkedWorktree: false,
+      },
+    },
+    workspaceWorktree,
   )
   assert.deepEqual(checkout, {
     kind: 'worktree',
@@ -95,8 +129,18 @@ const workspaceWorktree = { workspaceWorktree: { gitRoot: '/repo/.claude/worktre
 // answered — unverified, with nothing to probe.
 {
   const checkout = agentCheckoutOf(
-    { observedCheckout: { cwd: '/mnt/c/repo', at: 1, resolved: false, gitRoot: null, repoRoot: null, branch: null, isLinkedWorktree: false } },
-    noIntent
+    {
+      observedCheckout: {
+        cwd: '/mnt/c/repo',
+        at: 1,
+        resolved: false,
+        gitRoot: null,
+        repoRoot: null,
+        branch: null,
+        isLinkedWorktree: false,
+      },
+    },
+    noIntent,
   )
   assert.deepEqual(checkout, { kind: 'unverified', cwd: '/mnt/c/repo', gitRoot: null, observed: true })
 }
@@ -133,7 +177,10 @@ const workspaceWorktree = { workspaceWorktree: { gitRoot: '/repo/.claude/worktre
 
 // A main-checkout launch in a plain workspace says nothing until observed.
 {
-  assert.equal(agentCheckoutOf(undefined, { workspaceWorktree: null, execution: { mode: 'current_workspace', cwd: '/repo' } }), null)
+  assert.equal(
+    agentCheckoutOf(undefined, { workspaceWorktree: null, execution: { mode: 'current_workspace', cwd: '/repo' } }),
+    null,
+  )
   assert.equal(agentCheckoutProbePath(null, '/repo'), '/repo')
 }
 

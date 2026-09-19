@@ -38,7 +38,7 @@ export function Section({
   className,
   children,
 }: SectionProps) {
-  const Heading: keyof React.JSX.IntrinsicElements = (`h${level}` as keyof React.JSX.IntrinsicElements)
+  const Heading: keyof React.JSX.IntrinsicElements = `h${level}` as keyof React.JSX.IntrinsicElements
   // A `<section>` is a region landmark only once it has a name; without
   // `aria-labelledby` the heading sits inside an anonymous landmark and a
   // reader's regions list shows "region, region, region". The heading always
@@ -46,16 +46,9 @@ export function Section({
   const fallbackHeadingId = useId()
   const resolvedHeadingId = title ? (headingId ?? fallbackHeadingId) : headingId
   return (
-    <section
-      aria-labelledby={title ? resolvedHeadingId : undefined}
-      className={`flex flex-col ${className ?? ''}`}
-    >
+    <section aria-labelledby={title ? resolvedHeadingId : undefined} className={`flex flex-col ${className ?? ''}`}>
       {title ? (
-        <div
-          className={`flex items-baseline justify-between gap-2 pt-3 pb-1.5 ${
-            inset === 'flush' ? '' : 'px-3'
-          }`}
-        >
+        <div className={`flex items-baseline justify-between gap-2 pt-3 pb-1.5 ${inset === 'flush' ? '' : 'px-3'}`}>
           <div className="flex items-baseline gap-1.5 min-w-0">
             <Heading
               id={resolvedHeadingId}
@@ -64,9 +57,7 @@ export function Section({
               {title}
             </Heading>
             {count !== undefined ? (
-              <span className="tabular-nums text-meta text-[color:var(--text-muted)]">
-                {count}
-              </span>
+              <span className="tabular-nums text-meta text-[color:var(--text-muted)]">{count}</span>
             ) : null}
           </div>
           {action ? <div className="shrink-0">{action}</div> : null}

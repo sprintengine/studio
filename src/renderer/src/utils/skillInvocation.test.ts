@@ -56,21 +56,12 @@ function main(): void {
   const skill = { id: 'backlog', name: 'Backlog' }
 
   // Native slash for claude, explicit mention for codex.
-  assert.equal(
-    renderSkillInvocation({ skill, integration: CLAUDE_INTEGRATION }),
-    '/backlog',
-  )
-  assert.equal(
-    renderSkillInvocation({ skill, integration: CODEX_INTEGRATION }),
-    'Use $backlog.',
-  )
+  assert.equal(renderSkillInvocation({ skill, integration: CLAUDE_INTEGRATION }), '/backlog')
+  assert.equal(renderSkillInvocation({ skill, integration: CODEX_INTEGRATION }), 'Use $backlog.')
 
   // Prompt-shim CLI, no integration, or a skill missing from the CLI's native
   // harness dir all fall back to the plain mention.
-  assert.equal(
-    renderSkillInvocation({ skill, integration: PROMPT_SHIM_INTEGRATION }),
-    'Use the backlog skill.',
-  )
+  assert.equal(renderSkillInvocation({ skill, integration: PROMPT_SHIM_INTEGRATION }), 'Use the backlog skill.')
   assert.equal(renderSkillInvocation({ skill }), 'Use the backlog skill.')
   assert.equal(
     renderSkillInvocation({ skill, integration: CLAUDE_INTEGRATION, nativeInstalled: false }),
@@ -79,26 +70,14 @@ function main(): void {
 
   // Harness presence gating.
   assert.equal(
-    skillInstalledForHarness(
-      { harnesses: ['agents', 'claude'], installState: 'installed' },
-      CLAUDE_INTEGRATION,
-    ),
+    skillInstalledForHarness({ harnesses: ['agents', 'claude'], installState: 'installed' }, CLAUDE_INTEGRATION),
     true,
   )
   assert.equal(
-    skillInstalledForHarness(
-      { harnesses: ['agents'], installState: 'installed' },
-      CLAUDE_INTEGRATION,
-    ),
+    skillInstalledForHarness({ harnesses: ['agents'], installState: 'installed' }, CLAUDE_INTEGRATION),
     false,
   )
-  assert.equal(
-    skillInstalledForHarness(
-      { harnesses: [], installState: 'available' },
-      CLAUDE_INTEGRATION,
-    ),
-    false,
-  )
+  assert.equal(skillInstalledForHarness({ harnesses: [], installState: 'available' }, CLAUDE_INTEGRATION), false)
 
   void ensureSkillTests()
 }
@@ -164,10 +143,25 @@ async function ensureSkillTests(): Promise<void> {
   // The Skills & MCPs picks (browser-pane child 7): one skill keeps the
   // CLI-native form, several become plain mentions in pick order, and the
   // first builtin rides spawnSkillId.
-  const backlog: WorkspaceSkill = { id: 'backlog', name: 'backlog', source: 'builtin', harnesses: ['claude'], installState: 'installed' }
-  const review: WorkspaceSkill = { id: 'review-guide', name: 'review-guide', source: 'custom', harnesses: ['claude'], installState: 'installed' }
+  const backlog: WorkspaceSkill = {
+    id: 'backlog',
+    name: 'backlog',
+    source: 'builtin',
+    harnesses: ['claude'],
+    installState: 'installed',
+  }
+  const review: WorkspaceSkill = {
+    id: 'review-guide',
+    name: 'review-guide',
+    source: 'custom',
+    harnesses: ['claude'],
+    installState: 'installed',
+  }
   assert.deepEqual(skillsSpawnAgentPatch([], CLAUDE_INTEGRATION), {})
-  assert.deepEqual(skillsSpawnAgentPatch([backlog], CLAUDE_INTEGRATION), { spawnSkillId: 'backlog', cliPendingInput: '/backlog ' })
+  assert.deepEqual(skillsSpawnAgentPatch([backlog], CLAUDE_INTEGRATION), {
+    spawnSkillId: 'backlog',
+    cliPendingInput: '/backlog ',
+  })
   assert.deepEqual(skillsSpawnAgentPatch([review, backlog], CLAUDE_INTEGRATION), {
     spawnSkillId: 'backlog',
     cliPendingInput: 'Use the review-guide skill. Use the backlog skill. ',

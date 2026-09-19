@@ -44,7 +44,10 @@ run('reads a title out of every shape a backend returns', () => {
 })
 
 run('sanitises to one sidebar-safe line', () => {
-  assert.equal(sanitizeGeneratedChatTitle('"Sidebar flicker on workspace switch"'), 'Sidebar flicker on workspace switch')
+  assert.equal(
+    sanitizeGeneratedChatTitle('"Sidebar flicker on workspace switch"'),
+    'Sidebar flicker on workspace switch',
+  )
   assert.equal(sanitizeGeneratedChatTitle('  fix   git   stash\nsecond line'), 'Fix git stash')
   assert.equal(sanitizeGeneratedChatTitle('Trailing punctuation.'), 'Trailing punctuation')
   assert.equal(sanitizeGeneratedChatTitle('“Curly quotes”'), 'Curly quotes')

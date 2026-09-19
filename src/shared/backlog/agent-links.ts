@@ -22,9 +22,7 @@ export function encodeAgentLinkTargetId(workspaceId: string, agentId: string): s
   return `${workspaceId}/${agentId}`
 }
 
-export function parseAgentLinkTargetId(
-  targetId: string,
-): { workspaceId: string; agentId: string } | null {
+export function parseAgentLinkTargetId(targetId: string): { workspaceId: string; agentId: string } | null {
   const separator = targetId.indexOf('/')
   if (separator <= 0 || separator >= targetId.length - 1) return null
   const workspaceId = targetId.slice(0, separator)
@@ -42,9 +40,7 @@ function agentLinkLabel(agentName: string): string {
 // Recover a display name from a stored link without a store read — used as the
 // tab-rename fallback when opening (the agent usually already has a tab).
 export function agentNameFromLink(link: { label: string }): string {
-  return link.label.startsWith(AGENT_LABEL_PREFIX)
-    ? link.label.slice(AGENT_LABEL_PREFIX.length)
-    : link.label
+  return link.label.startsWith(AGENT_LABEL_PREFIX) ? link.label.slice(AGENT_LABEL_PREFIX.length) : link.label
 }
 
 // Structural shape of the built link; assignable to both the renderer's

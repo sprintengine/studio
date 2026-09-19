@@ -90,12 +90,7 @@ export type AgentChangelistFeedOptions = {
 
 export type AgentChangelistFeed = {
   onAgentLaunched(session: AgentChangelistSession): void
-  onAgentFileEdit(input: {
-    session: AgentChangelistSession
-    path: string
-    edits?: ChangelistEdit[]
-    ts: number
-  }): void
+  onAgentFileEdit(input: { session: AgentChangelistSession; path: string; edits?: ChangelistEdit[]; ts: number }): void
   onAgentSessionExit(session: AgentChangelistSession): void
   /** Settle everything queued or in flight. The tests' only synchronisation
    *  point, and the quit path's if it ever wants one. */
@@ -135,8 +130,8 @@ export function createAgentChangelistFeed(options: AgentChangelistFeedOptions): 
   const resolveRepoRoot = options.resolveRepoRoot ?? getGitRepoRoot
   const coalesceMs = options.coalesceMs ?? AGENT_CHANGELIST_COALESCE_MS
   const warn =
-    options.logWarning
-    ?? ((message: string, error: unknown) => console.warn(`[agent-changelist-feed] ${message}`, error))
+    options.logWarning ??
+    ((message: string, error: unknown) => console.warn(`[agent-changelist-feed] ${message}`, error))
 
   const repoRoots = new Map<string, string | null>()
   const queues = new Map<string, CheckoutQueue>()

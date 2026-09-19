@@ -144,7 +144,8 @@ export function createMainWindow({
   // Every guest this window attaches is the embedded browser and nothing
   // else (guest-policy.ts has the rules and their tests).
   win.webContents.on('will-attach-webview', (event, webPreferences, params) => {
-    if (!applyGuestWebPreferences(webPreferences as GuestWebPreferences, params, guestPreloadPath())) event.preventDefault()
+    if (!applyGuestWebPreferences(webPreferences as GuestWebPreferences, params, guestPreloadPath()))
+      event.preventDefault()
   })
 
   win.on('ready-to-show', () => {
@@ -181,9 +182,10 @@ export function createMainWindow({
   if (diagnosticsEnabled) {
     win.webContents.on('console-message', function (_event, detailsOrLevel) {
       const args = Array.from(arguments)
-      const details = detailsOrLevel && typeof detailsOrLevel === 'object'
-        ? detailsOrLevel as { level?: string; message?: string; sourceId?: string; lineNumber?: number }
-        : null
+      const details =
+        detailsOrLevel && typeof detailsOrLevel === 'object'
+          ? (detailsOrLevel as { level?: string; message?: string; sourceId?: string; lineNumber?: number })
+          : null
       const level = details?.level ?? String(detailsOrLevel)
       const message = details?.message ?? String(args[2] ?? '')
       console.info(`[Renderer:${level}] ${message}`, {
@@ -325,12 +327,9 @@ export function isAuxWindow(win: BrowserWindow): boolean {
   return false
 }
 
-export function openAuxWindow({
-  kind,
-  singletonKey,
-  params,
-  bounds = null,
-}: CreateAuxWindowOptions): { retargeted: boolean } {
+export function openAuxWindow({ kind, singletonKey, params, bounds = null }: CreateAuxWindowOptions): {
+  retargeted: boolean
+} {
   const registryKey = `${kind}:${singletonKey}`
   const existing = auxWindows.get(registryKey)
   if (existing && !existing.isDestroyed()) {
@@ -430,7 +429,7 @@ function createPlacementUpdateScheduler(win: BrowserWindow): () => void {
 }
 
 function normalizeWindowBounds(
-  bounds: { x: number; y: number; width: number; height: number } | null | undefined
+  bounds: { x: number; y: number; width: number; height: number } | null | undefined,
 ): { x: number; y: number; width: number; height: number } | null {
   if (!bounds) return null
   const { x, y, width, height } = bounds

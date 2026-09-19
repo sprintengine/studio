@@ -44,9 +44,7 @@ import type {
   WorkspaceMode,
   WorkspaceWorktreeState,
 } from '../../types/workspace'
-import {
-  AUTOMATIONS_HOST_WORKSPACE_MODE,
-} from '../../types/workspace'
+import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../types/workspace'
 import { deriveWorkspaceTitle, isDefaultWorkspaceName } from '../../../../shared/workspace-title'
 
 // How far the person's last-input clock may run ahead of main's copy before
@@ -116,7 +114,7 @@ function normalizeWorkspaceFolderRoles(input: unknown): Record<string, Workspace
   if (!input || typeof input !== 'object') return undefined
   const entries = Object.entries(input as Record<string, unknown>).filter(
     (entry): entry is [string, WorkspaceFolderRole] =>
-      entry[0].trim().length > 0 && typeof entry[1] === 'string' && entry[1] in FOLDER_ROLE_VALUES
+      entry[0].trim().length > 0 && typeof entry[1] === 'string' && entry[1] in FOLDER_ROLE_VALUES,
   )
   return entries.length > 0 ? Object.fromEntries(entries) : undefined
 }
@@ -125,7 +123,9 @@ export function normalizeWorkspaceFileExplorerState(input: unknown): WorkspaceFi
   const obj = input && typeof input === 'object' ? (input as Partial<WorkspaceFileExplorerState>) : null
   const rawExpandedPaths = obj?.expandedPaths
   const expandedPaths = Array.isArray(rawExpandedPaths)
-    ? Array.from(new Set(rawExpandedPaths.filter((path): path is string => typeof path === 'string' && path.trim().length > 0)))
+    ? Array.from(
+        new Set(rawExpandedPaths.filter((path): path is string => typeof path === 'string' && path.trim().length > 0)),
+      )
     : []
   const selectedPath =
     typeof obj?.selectedPath === 'string' && obj.selectedPath.trim().length > 0 ? obj.selectedPath : null
@@ -178,11 +178,17 @@ export function normalizeWorkspaceBacklogState(input: unknown): WorkspaceBacklog
   if (!input || typeof input !== 'object') return undefined
   const raw = input as Partial<WorkspaceBacklogState>
   const view =
-    typeof raw.view === 'string' && raw.view in BACKLOG_VIEW_VALUES ? (raw.view as WorkspaceBacklogState['view']) : 'active'
+    typeof raw.view === 'string' && raw.view in BACKLOG_VIEW_VALUES
+      ? (raw.view as WorkspaceBacklogState['view'])
+      : 'active'
   const sort =
-    typeof raw.sort === 'string' && raw.sort in BACKLOG_SORT_VALUES ? (raw.sort as WorkspaceBacklogState['sort']) : 'recent'
+    typeof raw.sort === 'string' && raw.sort in BACKLOG_SORT_VALUES
+      ? (raw.sort as WorkspaceBacklogState['sort'])
+      : 'recent'
   const group =
-    typeof raw.group === 'string' && raw.group in BACKLOG_GROUP_VALUES ? (raw.group as WorkspaceBacklogState['group']) : 'none'
+    typeof raw.group === 'string' && raw.group in BACKLOG_GROUP_VALUES
+      ? (raw.group as WorkspaceBacklogState['group'])
+      : 'none'
   const selectedRelativePath =
     typeof raw.selectedRelativePath === 'string' && raw.selectedRelativePath.trim().length > 0
       ? raw.selectedRelativePath
@@ -242,13 +248,13 @@ interface WorkspacesSliceActions {
   registerWorkspaceWindow: (windowId: WorkspaceWindowId, kind?: WorkspaceWindowState['kind']) => void
   updateWorkspaceWindowPlacement: (
     windowId: WorkspaceWindowId,
-    placement: Pick<WorkspaceWindowState, 'bounds' | 'isMaximized' | 'displayId'>
+    placement: Pick<WorkspaceWindowState, 'bounds' | 'isMaximized' | 'displayId'>,
   ) => void
   closeWorkspaceWindow: (windowId: WorkspaceWindowId, fallbackWindowId?: WorkspaceWindowId) => void
   moveWorkspaceToWindow: (
     workspaceId: WorkspaceId,
     targetWindowId: WorkspaceWindowId,
-    sourceWindowId?: WorkspaceWindowId | null
+    sourceWindowId?: WorkspaceWindowId | null,
   ) => void
   setActiveWorkspaceForWindow: (windowId: WorkspaceWindowId, workspaceId: WorkspaceId) => void
   applyWorkspaceActiveChangedEvent: (apply: WorkspaceActiveChangedApply) => void
@@ -299,7 +305,7 @@ interface WorkspacesSliceActions {
       // record, `tabName` renames the lone layout tab, and `terminal` swaps that
       // tab for a terminal tab (and seeds no agent record).
       seedAgent?: SoloChatSeed | null
-    }
+    },
   ) => WorkspaceId
   removeWorkspace: (id: WorkspaceId) => void
   renameWorkspace: (id: WorkspaceId, name: string) => void
@@ -343,20 +349,12 @@ interface WorkspacesSliceActions {
    */
   setWorkspaceModuleState: (workspaceId: WorkspaceId, moduleId: string, state: unknown) => boolean
   importWorkspace: (ws: Workspace) => void
-  moveAgentToWorkspace: (
-    sourceWorkspaceId: WorkspaceId,
-    destWorkspaceId: WorkspaceId,
-    agentId: AgentId
-  ) => void
+  moveAgentToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, agentId: AgentId) => void
   /** Delete an agent record from a workspace entirely (not just close its tab).
    *  Caller is responsible for killing the agent's terminal and removing its
    *  layout tab first. Idempotent: a missing workspace/agent is a no-op. */
   removeAgent: (workspaceId: WorkspaceId, agentId: AgentId) => void
-  moveOpenFileToWorkspace: (
-    sourceWorkspaceId: WorkspaceId,
-    destWorkspaceId: WorkspaceId,
-    path: string
-  ) => void
+  moveOpenFileToWorkspace: (sourceWorkspaceId: WorkspaceId, destWorkspaceId: WorkspaceId, path: string) => void
 }
 
 export type WorkspacesSlice = WorkspacesSliceState & WorkspacesSliceActions
@@ -371,9 +369,7 @@ export interface WorkspacesSliceDependencies {
   defaultWorkspaceMemoryConfig: () => WorkspaceMemoryConfig
   defaultWorkspaceWorktreeState: () => WorkspaceWorktreeState
   normalizeAgentState: (agent: AgentState) => AgentState
-  normalizeWorkspaceWorktreeState: (
-    input: Partial<WorkspaceWorktreeState> | null | undefined
-  ) => WorkspaceWorktreeState
+  normalizeWorkspaceWorktreeState: (input: Partial<WorkspaceWorktreeState> | null | undefined) => WorkspaceWorktreeState
   hideNavRailTabStrip: (model: IJsonModel | null | undefined) => IJsonModel | null | undefined
   pickWorkspaceAgentName: (agents: Workspace['agents']) => string
   isPathOrChild: (path: string, parentPath: string) => boolean
@@ -404,7 +400,10 @@ function clearRoutedSurfaces(state: WorkspacesSliceCarrier): void {
   state.activeModalSurfaceWorkspaceId = null
 }
 
-function findWorkspaceWindow(state: WorkspacesSliceCarrier, workspaceId: WorkspaceId): WorkspaceWindowState | undefined {
+function findWorkspaceWindow(
+  state: WorkspacesSliceCarrier,
+  workspaceId: WorkspaceId,
+): WorkspaceWindowState | undefined {
   return state.workspaceWindows.find((windowState) => windowState.workspaceIds.includes(workspaceId))
 }
 
@@ -432,9 +431,7 @@ function ensureWorkspaceWindow(
   return windowState
 }
 
-function normalizeBounds(
-  bounds: WorkspaceWindowState['bounds'] | null | undefined
-): WorkspaceWindowState['bounds'] {
+function normalizeBounds(bounds: WorkspaceWindowState['bounds'] | null | undefined): WorkspaceWindowState['bounds'] {
   if (!bounds) return null
   const { x, y, width, height } = bounds
   if (![x, y, width, height].every(Number.isFinite)) return null
@@ -461,7 +458,7 @@ function normalizeWindowAssignments(state: WorkspacesSliceCarrier): void {
       assignedWorkspaceIds.add(workspaceId)
     }
     windowState.workspaceIds = nextWorkspaceIds.sort(
-      (left, right) => (workspaceOrder.get(left) ?? 0) - (workspaceOrder.get(right) ?? 0)
+      (left, right) => (workspaceOrder.get(left) ?? 0) - (workspaceOrder.get(right) ?? 0),
     )
     if (!windowState.activeWorkspaceId || !nextWorkspaceIds.includes(windowState.activeWorkspaceId)) {
       windowState.activeWorkspaceId = nextWorkspaceIds[0] ?? null
@@ -476,8 +473,8 @@ function normalizeWindowAssignments(state: WorkspacesSliceCarrier): void {
   if (!primaryWindow.activeWorkspaceId || !primaryWindow.workspaceIds.includes(primaryWindow.activeWorkspaceId)) {
     primaryWindow.activeWorkspaceId = primaryWindow.workspaceIds[0] ?? null
   }
-  state.workspaceWindows = state.workspaceWindows.filter((windowState) =>
-    windowState.kind === 'primary' || windowState.workspaceIds.length > 0
+  state.workspaceWindows = state.workspaceWindows.filter(
+    (windowState) => windowState.kind === 'primary' || windowState.workspaceIds.length > 0,
   )
 }
 
@@ -585,7 +582,7 @@ export function createWorkspacesSlice(
   // writes: a `set` whose draft goes untouched still notifies every
   // subscriber through this store's middleware, and the rest sweep runs on a
   // 30 s tick in every window.
-  getState: () => WorkspacesSliceCarrier
+  getState: () => WorkspacesSliceCarrier,
 ): WorkspacesSlice {
   return {
     workspaces: [],
@@ -667,9 +664,10 @@ export function createWorkspacesSlice(
           if (!target.workspaceIds.includes(workspaceId)) target.workspaceIds.push(workspaceId)
         }
         if (!target.activeWorkspaceId && target.workspaceIds.length > 0) {
-          target.activeWorkspaceId = closing.activeWorkspaceId && target.workspaceIds.includes(closing.activeWorkspaceId)
-            ? closing.activeWorkspaceId
-            : target.workspaceIds[0] ?? null
+          target.activeWorkspaceId =
+            closing.activeWorkspaceId && target.workspaceIds.includes(closing.activeWorkspaceId)
+              ? closing.activeWorkspaceId
+              : (target.workspaceIds[0] ?? null)
         }
         state.workspaceWindows = state.workspaceWindows.filter((windowState) => windowState.id !== windowId)
         normalizeWindowAssignments(state)
@@ -716,8 +714,8 @@ export function createWorkspacesSlice(
           // adjust when global active was the moved-away workspace or unset; a
           // still-present active workspace in this window stays.
           const anchorWindow =
-            state.workspaceWindows.find((windowState) => windowState.id === currentWindowId)
-            ?? (sourceWindowId
+            state.workspaceWindows.find((windowState) => windowState.id === currentWindowId) ??
+            (sourceWindowId
               ? state.workspaceWindows.find((windowState) => windowState.id === sourceWindowId)
               : undefined)
           state.activeWorkspaceId = anchorWindow?.activeWorkspaceId ?? null
@@ -733,7 +731,7 @@ export function createWorkspacesSlice(
           workspaceId,
           sourceWindowId ?? null,
           targetWindowId,
-          true
+          true,
         )
       }
     },
@@ -778,7 +776,14 @@ export function createWorkspacesSlice(
     // Mirrors the move membership transfer but only claims the single global
     // active id when this renderer owns the destination window — a move targeting
     // another window updates routing without flipping this renderer's selection.
-    applyWorkspaceMovedEvent: ({ workspaceId, fromWindowId, toWindowId, makeActive, createdAt, isCurrentWindowTarget }) =>
+    applyWorkspaceMovedEvent: ({
+      workspaceId,
+      fromWindowId,
+      toWindowId,
+      makeActive,
+      createdAt,
+      isCurrentWindowTarget,
+    }) =>
       set((state) => {
         if (!state.workspaces.find((workspace) => workspace.id === workspaceId)) return
         const target = ensureWorkspaceWindow(
@@ -822,7 +827,7 @@ export function createWorkspacesSlice(
       set((state) => {
         if (windowId === state.primaryWorkspaceWindowId) return
         const closing = state.workspaceWindows.find((windowState) => windowState.id === windowId)
-        const routedWorkspaceIds = movedWorkspaceIds.length > 0 ? movedWorkspaceIds : closing?.workspaceIds ?? []
+        const routedWorkspaceIds = movedWorkspaceIds.length > 0 ? movedWorkspaceIds : (closing?.workspaceIds ?? [])
         if (!closing && routedWorkspaceIds.length === 0) return
         const fallback = ensureWorkspaceWindow(
           state,
@@ -833,9 +838,10 @@ export function createWorkspacesSlice(
           if (!fallback.workspaceIds.includes(id)) fallback.workspaceIds.push(id)
         }
         if (!fallback.activeWorkspaceId && fallback.workspaceIds.length > 0) {
-          fallback.activeWorkspaceId = closing?.activeWorkspaceId && fallback.workspaceIds.includes(closing.activeWorkspaceId)
-            ? closing.activeWorkspaceId
-            : fallback.workspaceIds[0] ?? null
+          fallback.activeWorkspaceId =
+            closing?.activeWorkspaceId && fallback.workspaceIds.includes(closing.activeWorkspaceId)
+              ? closing.activeWorkspaceId
+              : (fallback.workspaceIds[0] ?? null)
         }
         if (Number.isFinite(createdAt)) fallback.lastFocusedAt = createdAt
         if (closing) {
@@ -874,7 +880,7 @@ export function createWorkspacesSlice(
           // project it was cut from, which the workspace object itself carries.
           const insertFolderKey = workspaceFolderKey(workspaceProjectRoot(workspace))
           const blockStart = state.workspaces.findIndex(
-            (candidate) => workspaceFolderKey(workspaceProjectRoot(candidate)) === insertFolderKey
+            (candidate) => workspaceFolderKey(workspaceProjectRoot(candidate)) === insertFolderKey,
           )
           if (blockStart === -1) {
             state.workspaces.unshift(workspace)
@@ -1106,8 +1112,7 @@ export function createWorkspacesSlice(
     forgetFolder: (folderPath) =>
       set((state) => {
         if (!folderPath) return
-        const normalize = (value: string) =>
-          value.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
+        const normalize = (value: string) => value.replace(/\\/g, '/').replace(/\/+$/u, '').toLowerCase()
         const key = normalize(folderPath)
         state.workspaces = state.workspaces.filter((ws) => {
           // Matched on the project the workspace files under, not its own
@@ -1119,10 +1124,7 @@ export function createWorkspacesSlice(
           if (!projectRoot) return true
           return normalize(projectRoot) !== key
         })
-        if (
-          state.activeWorkspaceId
-          && !state.workspaces.find((w) => w.id === state.activeWorkspaceId)
-        ) {
+        if (state.activeWorkspaceId && !state.workspaces.find((w) => w.id === state.activeWorkspaceId)) {
           state.activeWorkspaceId = state.workspaces.at(-1)?.id ?? null
         }
         normalizeWindowAssignments(state)
@@ -1131,7 +1133,7 @@ export function createWorkspacesSlice(
         // alone. Without this the forgotten project comes straight back in New
         // chat's picker as a project named after the worktree slug.
         state.appSettings.recentWorkspaceFolders = state.appSettings.recentWorkspaceFolders.filter(
-          (folder) => normalize(workspaceProjectRootOf({ folderPath: folder }) ?? folder) !== key
+          (folder) => normalize(workspaceProjectRootOf({ folderPath: folder }) ?? folder) !== key,
         )
         if (state.workspaces.length === 0) {
           // forgetFolder is the second explicit removal path that can leave
@@ -1153,9 +1155,8 @@ export function createWorkspacesSlice(
       // process whose routing snapshot forgot the host. Local creation stays the
       // functional path; storage-event sync is the rollback. Fire-and-forget
       // after the synchronous set().
-      let createdEventPayload:
-        | { workspace: Workspace; windowId: WorkspaceWindowId; folderPath: string | null }
-        | null = null
+      let createdEventPayload: { workspace: Workspace; windowId: WorkspaceWindowId; folderPath: string | null } | null =
+        null
 
       set((state) => {
         const folderPath = options?.folderPath ?? null
@@ -1163,9 +1164,9 @@ export function createWorkspacesSlice(
         const explicitMode = options?.mode
         const isAutomationsHost = explicitMode === AUTOMATIONS_HOST_WORKSPACE_MODE
         const targetWindowId =
-          options?.windowId
-          ?? (state.activeWorkspaceId ? findWorkspaceWindow(state, state.activeWorkspaceId)?.id : null)
-          ?? state.primaryWorkspaceWindowId
+          options?.windowId ??
+          (state.activeWorkspaceId ? findWorkspaceWindow(state, state.activeWorkspaceId)?.id : null) ??
+          state.primaryWorkspaceWindowId
         // A background host — Automations (item 1707) — is strictly
         // one-per-project. Every
         // creation path funnels here, so reusing the folder's existing host at
@@ -1176,16 +1177,15 @@ export function createWorkspacesSlice(
         const hostMode = isAutomationsHost ? AUTOMATIONS_HOST_WORKSPACE_MODE : null
         const hostFolderKey = hostMode ? workspaceFolderKey(folderPath) : null
         const existingHost = hostFolderKey
-          ? state.workspaces.find((workspace) =>
-            workspace.mode === hostMode
-            && workspaceFolderKey(workspace.folderPath) === hostFolderKey
-          )
+          ? state.workspaces.find(
+              (workspace) => workspace.mode === hostMode && workspaceFolderKey(workspace.folderPath) === hostFolderKey,
+            )
           : null
         if (existingHost) {
           if (folderPath) {
             state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
               [folderPath],
-              state.appSettings.recentWorkspaceFolders
+              state.appSettings.recentWorkspaceFolders,
             )
           }
           id = existingHost.id
@@ -1235,13 +1235,9 @@ export function createWorkspacesSlice(
             // placeholder, never an identity — every agent gets a real picked
             // name (the layout tab renames itself to agent.name on render). A
             // distinctive name from a user-saved template survives.
-            const templateName =
-              agent.name && !isPlaceholderAgentName(agent.name) ? agent.name : undefined
+            const templateName = agent.name && !isPlaceholderAgentName(agent.name) ? agent.name : undefined
             const base = {
-              ...deps.defaultAgent(
-                agent.id,
-                templateName ?? deps.pickWorkspaceAgentName(agents),
-              ),
+              ...deps.defaultAgent(agent.id, templateName ?? deps.pickWorkspaceAgentName(agents)),
               cli: templateAgentCli,
             }
             // The solo-chat template has a single agent tab; merge the seed patch
@@ -1266,12 +1262,12 @@ export function createWorkspacesSlice(
           ...(titleLocked ? { titleLocked: true } : {}),
           mode: isAutomationsHost
             ? AUTOMATIONS_HOST_WORKSPACE_MODE
-            // Module-contributed workspace types: the explicit mode
-            // from buildModuleTypeCreation IS the identity every
-            // mode-derived surface (panel scopes, run glyphs, the
-            // not-installed state, creation re-resolution) keys on —
-            // dropping it to 'standard' silently strips all of them.
-            : explicitMode ?? 'standard',
+            : // Module-contributed workspace types: the explicit mode
+              // from buildModuleTypeCreation IS the identity every
+              // mode-derived surface (panel scopes, run glyphs, the
+              // not-installed state, creation re-resolution) keys on —
+              // dropping it to 'standard' silently strips all of them.
+              (explicitMode ?? 'standard'),
           folderPath,
           folderMissing: false,
           ...(options?.remoteOrigin ? { remoteOrigin: options.remoteOrigin } : {}),
@@ -1295,7 +1291,7 @@ export function createWorkspacesSlice(
         // whole registry, which would yank that project's group to the top.
         const insertFolderKey = workspaceFolderKey(workspaceProjectRoot(newWorkspace))
         const blockStart = state.workspaces.findIndex(
-          (existing) => workspaceFolderKey(workspaceProjectRoot(existing)) === insertFolderKey
+          (existing) => workspaceFolderKey(workspaceProjectRoot(existing)) === insertFolderKey,
         )
         if (blockStart === -1) {
           state.workspaces.unshift(newWorkspace)
@@ -1309,19 +1305,13 @@ export function createWorkspacesSlice(
         if (recentFolder) {
           state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
             [recentFolder],
-            state.appSettings.recentWorkspaceFolders
+            state.appSettings.recentWorkspaceFolders,
           )
         }
         state.activeWorkspaceId = id
         if (!options?.background) clearRoutedSurfaces(state)
-        const targetWindow = ensureWorkspaceWindow(
-          state,
-          targetWindowId,
-        )
-        targetWindow.workspaceIds = [
-          id,
-          ...targetWindow.workspaceIds.filter((workspaceId) => workspaceId !== id),
-        ]
+        const targetWindow = ensureWorkspaceWindow(state, targetWindowId)
+        targetWindow.workspaceIds = [id, ...targetWindow.workspaceIds.filter((workspaceId) => workspaceId !== id)]
         targetWindow.activeWorkspaceId = id
         normalizeWindowAssignments(state)
         state.workspaceRegistryEmptyState = null
@@ -1470,7 +1460,7 @@ export function createWorkspacesSlice(
           if (folderPath) {
             state.appSettings.recentWorkspaceFolders = normalizeRecentWorkspaceFolders(
               [folderPath],
-              state.appSettings.recentWorkspaceFolders
+              state.appSettings.recentWorkspaceFolders,
             )
           }
         }
@@ -1498,7 +1488,7 @@ export function createWorkspacesSlice(
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === id)
         if (!ws) return
-        const folderRoles = { ...(ws.fileExplorerState?.folderRoles ?? {}) }
+        const folderRoles = { ...ws.fileExplorerState?.folderRoles }
         // A null role CLEARS the mark rather than storing "none": the absence
         // of an entry is what lets a folder inherit from an ancestor again.
         if (role) folderRoles[folderPath] = role
@@ -1600,7 +1590,7 @@ export function createWorkspacesSlice(
               status: 'idle' as const,
               cliStartupPrompt: undefined,
             }),
-          ])
+          ]),
         )
         state.workspaces.push({
           ...ws,

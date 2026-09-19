@@ -53,9 +53,7 @@ function fakeReader(head: () => string): SkillRepoReader {
     resolveCommit: async () => head(),
     readTree: async () => SKILLS_TREE,
     readFile: async (_repo, _sha, path) =>
-      path.endsWith('SKILL.md')
-        ? Buffer.from('---\nname: pdf\ndescription: Fill in a PDF form\n---\n', 'utf8')
-        : null,
+      path.endsWith('SKILL.md') ? Buffer.from('---\nname: pdf\ndescription: Fill in a PDF form\n---\n', 'utf8') : null,
   }
 }
 

@@ -73,7 +73,7 @@ const NOW = 1_700_000_000_000
 
 function view(
   over: Partial<TerminalLine> = {},
-  props: { seatOverlay?: ReactNode; disambiguate?: boolean; dim?: boolean; rowOwnsStatus?: boolean } = {}
+  props: { seatOverlay?: ReactNode; disambiguate?: boolean; dim?: boolean; rowOwnsStatus?: boolean } = {},
 ) {
   return renderToStaticMarkup(<TerminalLineView line={line(over)} now={NOW} {...props} />)
 }
@@ -101,13 +101,17 @@ run('a plain shell wears the prompt mark and is called Terminal; a remote pane w
 
 run('a worktree of its own reads at full strength, with the path on hover', () => {
   const markup = view({ branch: 'agent/feature', worktree: true, cwd: '/repo/.claude/worktrees/feature/src' })
-  assert.match(markup, /text-\[color:var\(--text-default\)\]"[^>]*>[\s\S]*agent\/feature/, 'the branch lifts to default ink')
+  assert.match(
+    markup,
+    /text-\[color:var\(--text-default\)\]"[^>]*>[\s\S]*agent\/feature/,
+    'the branch lifts to default ink',
+  )
   assert.match(markup, /sr-only"> \(worktree\)/, 'said in words too')
   const shared = view({ branch: 'main', cwd: '/repo' })
   assert.doesNotMatch(shared, /\(worktree\)/)
 })
 
-run('a background row\'s line recedes with its title — nothing on it outshines the name', () => {
+run("a background row's line recedes with its title — nothing on it outshines the name", () => {
   // Contrast-for-quiet-chats, 2026-09-07: the worktree branch drew at
   // `--text-default`, which on a dimmed row was BRIGHTER than the chat's own
   // name above it — the branch reading as the point of a chat nobody is using.
@@ -230,7 +234,12 @@ run('each scope claims exactly what its checkout supports, in FILES', () => {
   // three files added or updated and one removed. Lines survive only where a
   // single file is in view (the conversation peek's rows, the diff viewer),
   // and the line's own line counts are no longer drawn anywhere on it.
-  const folder = view({ additions: 246, deletions: 94, files: { added: 0, updated: 4, removed: 0 }, diffScope: 'folder' })
+  const folder = view({
+    additions: 246,
+    deletions: 94,
+    files: { added: 0, updated: 4, removed: 0 },
+    diffScope: 'folder',
+  })
   assert.match(folder, /4 files updated — uncommitted in this folder/)
   assert.doesNotMatch(folder, /246|94/, 'the line counts are not the summary\u2019s unit any more')
   assert.match(folder, /opacity-60/, 'drawn quieter than attributable work')
@@ -265,16 +274,28 @@ run('each scope claims exactly what its checkout supports, in FILES', () => {
     diffScope: 'landed',
     pullRequests: [pullRequest({ number: 418, state: 'merged' })],
   })
-  // design-tokens-allow: the literal is a pull request NUMBER in the line's own words, not a colour
-  assert.match(landed, /1 file added, 1 updated — uncommitted here since pull request #418 was merged/, 'and the reason is spoken, not only hovered')
+  assert.match(
+    landed,
+    // design-tokens-allow: the literal is a pull request NUMBER in the line's own words, not a colour
+    /1 file added, 1 updated — uncommitted here since pull request #418 was merged/,
+    'and the reason is spoken, not only hovered',
+  )
   assert.doesNotMatch(landed, /opacity-60/, 'what the checkout still carries is not a degraded reading')
-  assert.doesNotMatch(landed, /in this folder|on this branch|by this terminal/, 'it claims the checkout since the merge, nothing else')
+  assert.doesNotMatch(
+    landed,
+    /in this folder|on this branch|by this terminal/,
+    'it claims the checkout since the merge, nothing else',
+  )
 
   // The chip is gated on the NUMBERS, not on the scope: a landed branch with a
   // clean checkout draws no chip at all, which is the honest drawing of "the
   // work is in, nothing is outstanding".
   const zeros = view({ files: { added: 0, updated: 0, removed: 0 }, diffScope: 'landed' })
-  assert.doesNotMatch(zeros, /files added|file added|No files changed/, 'no phantom +0 −0 chip, whatever the scope says')
+  assert.doesNotMatch(
+    zeros,
+    /files added|file added|No files changed/,
+    'no phantom +0 −0 chip, whatever the scope says',
+  )
   assert.match(landed, /file added/, 'and the same view does draw one when files moved')
 
   // The one that matters most: a summary with LINES but no file breakdown — an
@@ -324,7 +345,7 @@ run('the working counter counts seconds first, then relaxes to the coarse scale'
   assert.doesNotMatch(seconds, /aria-label/)
   assert.match(seconds, /--accent-primary/, 'accent ink binds it to the dots beside it')
   const minutes = renderToStaticMarkup(<WorkingElapsed since={now - 5 * 60_000} />)
-  assert.match(minutes, /5m/, 'past a minute it joins the sidebar\'s usual scale')
+  assert.match(minutes, /5m/, "past a minute it joins the sidebar's usual scale")
 })
 
 run('the attention flash is one-shot: nothing on first paint, and never on the way out', () => {
@@ -378,8 +399,18 @@ run('fleetPanesOf finds the mounted remote panes, CLI mark when the tab carries 
       layout: {
         type: 'tabset',
         children: [
-          { type: 'tab', id: 'fleet-terminal:c1:s1', component: 'fleet-terminal', config: { machineName: 'Air', remoteSessionId: 's1', cli: 'codex' } },
-          { type: 'tab', id: 'fleet-terminal:c1:s2', component: 'fleet-terminal', config: { machineName: 'Air', remoteSessionId: 's2' } },
+          {
+            type: 'tab',
+            id: 'fleet-terminal:c1:s1',
+            component: 'fleet-terminal',
+            config: { machineName: 'Air', remoteSessionId: 's1', cli: 'codex' },
+          },
+          {
+            type: 'tab',
+            id: 'fleet-terminal:c1:s2',
+            component: 'fleet-terminal',
+            config: { machineName: 'Air', remoteSessionId: 's2' },
+          },
         ],
       },
     },
@@ -394,7 +425,13 @@ run('fleetPanesOf finds the mounted remote panes, CLI mark when the tab carries 
 run('provenance comes from remoteOrigin first; the layout walk covers legacy rows and mounted panes', () => {
   const born = {
     folderPath: null,
-    remoteOrigin: { connectionId: 'c1', machineName: 'Air', workspaceId: 'rw1', workspaceName: 'app', workspaceRoot: '/Users/me/app' },
+    remoteOrigin: {
+      connectionId: 'c1',
+      machineName: 'Air',
+      workspaceId: 'rw1',
+      workspaceName: 'app',
+      workspaceRoot: '/Users/me/app',
+    },
     layoutModel: { layout: { type: 'row', children: [] } },
   } as unknown as Workspace
   assert.deepEqual(provenanceMachinesOf(born), ['Air'], 'a closed pane never loses the mark')
@@ -402,7 +439,11 @@ run('provenance comes from remoteOrigin first; the layout walk covers legacy row
   // checkout on the Air share a header (owner, 2026-09-11). The repository
   // takes precedence where the machine could name one, so the same repository
   // on two machines is one project; this origin names none.
-  assert.equal(groupKeyOf(born), 'remote:c1:/users/me/app', 'grouped by the folder over there, not by the remote workspace id')
+  assert.equal(
+    groupKeyOf(born),
+    'remote:c1:/users/me/app',
+    'grouped by the folder over there, not by the remote workspace id',
+  )
   const bornWithRepo = {
     ...born,
     remoteOrigin: {
@@ -410,16 +451,28 @@ run('provenance comes from remoteOrigin first; the layout walk covers legacy row
       repository: { canonicalKey: 'github.com/acme/app', remoteUrl: '', name: 'app' },
     },
   } as unknown as Workspace
-  assert.equal(groupKeyOf(bornWithRepo), 'remote-repo:github.com/acme/app', 'a named repository is the project, whatever machine holds it')
+  assert.equal(
+    groupKeyOf(bornWithRepo),
+    'remote-repo:github.com/acme/app',
+    'a named repository is the project, whatever machine holds it',
+  )
 
   const legacy = {
     folderPath: null,
-    layoutModel: { layout: { type: 'tabset', children: [{ type: 'tab', component: 'fleet-terminal', config: { machineName: 'Mini' } }] } },
+    layoutModel: {
+      layout: {
+        type: 'tabset',
+        children: [{ type: 'tab', component: 'fleet-terminal', config: { machineName: 'Mini' } }],
+      },
+    },
   } as unknown as Workspace
   assert.deepEqual(provenanceMachinesOf(legacy), ['Mini'])
   assert.equal(groupKeyOf(legacy), 'remote:mini')
 
-  const local = { folderPath: '/Users/me/App/', layoutModel: { layout: { type: 'row', children: [] } } } as unknown as Workspace
+  const local = {
+    folderPath: '/Users/me/App/',
+    layoutModel: { layout: { type: 'row', children: [] } },
+  } as unknown as Workspace
   assert.deepEqual(provenanceMachinesOf(local), [], 'local is the unmarked default')
   assert.equal(groupKeyOf(local), '/users/me/app', 'local grouping is the folder key it always was')
   const mounted = { ...local, layoutModel: legacy.layoutModel } as unknown as Workspace
@@ -427,9 +480,11 @@ run('provenance comes from remoteOrigin first; the layout walk covers legacy row
   assert.deepEqual(provenanceMachinesOf(mounted), ['Mini'], 'but still says where the pane lives')
 })
 
-
 run('a worktree row groups under the project it was cut from, not under its own slug', () => {
-  const parent = { folderPath: '/home/dev/projects/multicode', layoutModel: { layout: { type: 'row', children: [] } } } as unknown as Workspace
+  const parent = {
+    folderPath: '/home/dev/projects/multicode',
+    layoutModel: { layout: { type: 'row', children: [] } },
+  } as unknown as Workspace
   const parentKey = groupKeyOf(parent)
   assert.equal(parentKey, '/home/dev/projects/multicode')
 
@@ -460,17 +515,31 @@ run('a worktree row groups under the project it was cut from, not under its own 
   assert.equal(groupKeyOf(atProjectRoot), parentKey, 'a row at the project root stays filed under it')
 
   // And the rows that were never worktrees keep exactly the keys they had.
-  const plain = { folderPath: '/Users/me/App/', layoutModel: { layout: { type: 'row', children: [] } } } as unknown as Workspace
+  const plain = {
+    folderPath: '/Users/me/App/',
+    layoutModel: { layout: { type: 'row', children: [] } },
+  } as unknown as Workspace
   assert.equal(groupKeyOf(plain), '/users/me/app')
   const remote = {
     folderPath: null,
-    remoteOrigin: { connectionId: 'c1', machineName: 'Air', workspaceId: 'rw1', workspaceName: 'app', workspaceRoot: '/Users/me/app' },
+    remoteOrigin: {
+      connectionId: 'c1',
+      machineName: 'Air',
+      workspaceId: 'rw1',
+      workspaceName: 'app',
+      workspaceRoot: '/Users/me/app',
+    },
     layoutModel: { layout: { type: 'row', children: [] } },
   } as unknown as Workspace
   assert.equal(groupKeyOf(remote), 'remote:c1:rw1')
   const fleet = {
     folderPath: null,
-    layoutModel: { layout: { type: 'tabset', children: [{ type: 'tab', component: 'fleet-terminal', config: { machineName: 'Mini' } }] } },
+    layoutModel: {
+      layout: {
+        type: 'tabset',
+        children: [{ type: 'tab', component: 'fleet-terminal', config: { machineName: 'Mini' } }],
+      },
+    },
   } as unknown as Workspace
   assert.equal(groupKeyOf(fleet), 'remote:mini')
 

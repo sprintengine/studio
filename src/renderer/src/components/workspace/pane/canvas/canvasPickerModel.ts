@@ -210,12 +210,7 @@ export function describeCanvasChangedAt(ms: number | null | undefined, now: numb
  * person who cannot see which rows are adjacent has nothing else to tell
  * `architecture` from `architecture`.
  */
-export function canvasBoardRowLabel(input: {
-  name: string
-  folder: string
-  changed: string
-  open: boolean
-}): string {
+export function canvasBoardRowLabel(input: { name: string; folder: string; changed: string; open: boolean }): string {
   const parts = [`Open board ${input.name}`, `in ${input.folder}`]
   if (input.changed) parts.push(input.changed)
   if (input.open) parts.push('already open in another tab')

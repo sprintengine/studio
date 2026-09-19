@@ -41,10 +41,7 @@ function activityAt(session: TerminalSessionSnapshot): number {
  * wherever there is only one terminal — it knows about needs-input, which a
  * session snapshot alone does not — so that is what a single-agent row uses.
  */
-function agentStatusOf(
-  session: TerminalSessionSnapshot | null,
-  now: number,
-): ConversationPeekStatus {
+function agentStatusOf(session: TerminalSessionSnapshot | null, now: number): ConversationPeekStatus {
   if (!session) return { kind: 'attention', label: 'Parked' }
   // Working needs a process to do it in (`isSessionWorking`). A session paused
   // mid-turn keeps its working stamp, and unguarded that stamp outranked the
@@ -64,10 +61,7 @@ function agentStatusOf(
  * when the row already knows; a bare "Idle" beside a chat you last touched in
  * March says nothing.
  */
-export function peekStatusOf(
-  activity: ConversationPeekRowActivity,
-  idleFor: string,
-): ConversationPeekStatus {
+export function peekStatusOf(activity: ConversationPeekRowActivity, idleFor: string): ConversationPeekStatus {
   if (activity === 'needs-input') return { kind: 'attention', label: 'Waiting' }
   if (activity === 'working') return { kind: 'working', label: 'Working' }
   if (activity === 'failed') return { kind: 'attention', label: 'Failed' }

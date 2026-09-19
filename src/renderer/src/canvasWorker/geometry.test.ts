@@ -15,10 +15,7 @@ function run(name: string, body: () => void): void {
 }
 
 const near = (actual: number, expected: number, tolerance = 0.001): void => {
-  assert.ok(
-    Math.abs(actual - expected) <= tolerance,
-    `expected ${actual} to be within ${tolerance} of ${expected}`,
-  )
+  assert.ok(Math.abs(actual - expected) <= tolerance, `expected ${actual} to be within ${tolerance} of ${expected}`)
 }
 
 const rect = (x: number, y: number, width: number, height: number, type = 'rectangle'): Box => ({
@@ -77,7 +74,14 @@ run('an arrow bound at one end only leaves the free end where it was', () => {
 
 run('an unbound arrow is exactly the two points it was given', () => {
   const geometry = arrowGeometry({ free: [0, 0] }, { free: [120, 40] })
-  assert.deepEqual(geometry, { x: 0, y: 0, points: [[0, 0], [120, 40]] })
+  assert.deepEqual(geometry, {
+    x: 0,
+    y: 0,
+    points: [
+      [0, 0],
+      [120, 40],
+    ],
+  })
 })
 
 run('a bend is kept, and it aims the ends that flank it', () => {
@@ -115,8 +119,18 @@ run('points round-trip between absolute and relative', () => {
       [10, 20],
     ],
   }
-  assert.deepEqual(absolutePoints(element), [[50, 60], [60, 80]])
-  assert.deepEqual(relativePoints(absolutePoints(element)), { x: 50, y: 60, points: [[0, 0], [10, 20]] })
+  assert.deepEqual(absolutePoints(element), [
+    [50, 60],
+    [60, 80],
+  ])
+  assert.deepEqual(relativePoints(absolutePoints(element)), {
+    x: 50,
+    y: 60,
+    points: [
+      [0, 0],
+      [10, 20],
+    ],
+  })
 })
 
 run('a box with no geometry reads as zero rather than NaN', () => {

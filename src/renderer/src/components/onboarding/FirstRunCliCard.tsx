@@ -1,14 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 
 import { useWorkspaceStore } from '../../store/workspaceStore'
-import {
-  CliProviderStateLine,
-  GhostButton,
-  PrimaryButton,
-  ProviderRow,
-  Spinner,
-  resolveCliProviderState,
-} from '../ui'
+import { CliProviderStateLine, GhostButton, PrimaryButton, ProviderRow, Spinner, resolveCliProviderState } from '../ui'
 import CliIcon from '../CliIcon'
 import { CliInstallControl, type CliInstallProgress } from '../settings/CliInstallControl'
 import { cliRuntimeForPlugin, orderInstalledPlugins } from '../workspace/newWorkspace/cliRuntimeOptions'
@@ -64,10 +57,10 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
       const started = previous.started || progress.installing
       const requested = progress.installing || !started
       if (
-        previous.started === started
-        && previous.requested === requested
-        && previous.progress?.installing === progress.installing
-        && previous.progress?.methodLabel === progress.methodLabel
+        previous.started === started &&
+        previous.requested === requested &&
+        previous.progress?.installing === progress.installing &&
+        previous.progress?.methodLabel === progress.methodLabel
       ) {
         return previous
       }
@@ -84,8 +77,7 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
           {/* Not helper copy: this states what the probe found on THIS machine,
               which is the only reason the card is on screen at all. */}
           <p className="mt-0.5 text-meta leading-5 text-[color:var(--text-muted)]">
-            Agents run through a command-line tool. We couldn’t find one installed — install one to
-            start.
+            Agents run through a command-line tool. We couldn’t find one installed — install one to start.
           </p>
         </div>
 
@@ -104,12 +96,7 @@ export default function FirstRunCliCard({ onDismiss }: { onDismiss: () => void }
                 return (
                   <ProviderRow
                     key={plugin.id}
-                    icon={
-                      <CliIcon
-                        cli={plugin.id}
-                        className="size-icon-lg text-[color:var(--text-default)]"
-                      />
-                    }
+                    icon={<CliIcon cli={plugin.id} className="size-icon-lg text-[color:var(--text-default)]" />}
                     health={state.tone}
                     name={plugin.displayName}
                     version={state.version}

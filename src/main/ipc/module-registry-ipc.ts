@@ -14,6 +14,6 @@ import type { ModuleRegistryMirror } from '../modules/registry-mirror'
 export function registerModuleRegistryIpc(ipcMain: IpcMain, mirror: ModuleRegistryMirror): void {
   ipcMain.handle(
     MODULE_REGISTRY_SNAPSHOT_CHANNEL,
-    async (_event, snapshot: unknown): Promise<ModuleRegistrySnapshotWriteResult> => mirror.write(snapshot)
+    async (_event, snapshot: unknown): Promise<ModuleRegistrySnapshotWriteResult> => mirror.write(snapshot),
   )
 }

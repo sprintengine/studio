@@ -13,8 +13,7 @@ export const backlogRendererModule: RendererModule = {
     version: 1,
     publisher: 'multicode',
     category: 'orchestration',
-    summary:
-      'Local work-intake items backed by backlog files and sidecar metadata.',
+    summary: 'Local work-intake items backed by backlog files and sidecar metadata.',
     defaultEnabled: true,
     dependsOn: ['dev-tools'],
   },
@@ -28,15 +27,17 @@ export const backlogRendererModule: RendererModule = {
     // Backlog read API for module renderers, riding the panel's shared scan.
     // The workspace store resolves lazily so this module (registered eagerly
     // at boot) never pulls the store into the module-registry import graph.
-    host.provideBacklogReader(createBacklogReader({
-      resolveFolderPath: async (workspaceId) => {
-        const { useWorkspaceStore } = await import('../store/workspaceStore')
-        return (
-          useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)
-            ?.folderPath ?? null
-        )
-      },
-      subscribe: subscribeBacklogScan,
-    }))
+    host.provideBacklogReader(
+      createBacklogReader({
+        resolveFolderPath: async (workspaceId) => {
+          const { useWorkspaceStore } = await import('../store/workspaceStore')
+          return (
+            useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === workspaceId)?.folderPath ??
+            null
+          )
+        },
+        subscribe: subscribeBacklogScan,
+      }),
+    )
   },
 }

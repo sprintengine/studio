@@ -101,7 +101,11 @@ export const COMMAND_REGISTRY = [
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+W'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'closeWorkspaceById(windowActiveWorkspaceId)' },
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspaceManager',
+      action: 'closeWorkspaceById(windowActiveWorkspaceId)',
+    },
   }),
   command({
     id: 'workspace.switch.next',
@@ -110,7 +114,11 @@ export const COMMAND_REGISTRY = [
     scopes: ['workspace-navigation'],
     defaultKeybindings: ['Primary+`', 'Meta+Alt+ArrowRight'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'getNextWorkspaceId(..., 1) -> setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)' },
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspaceManager',
+      action: 'getNextWorkspaceId(..., 1) -> setActiveWorkspaceForWindow(workspaceWindowId, nextWorkspaceId)',
+    },
   }),
   command({
     id: 'workspace.switch.previous',
@@ -119,7 +127,11 @@ export const COMMAND_REGISTRY = [
     scopes: ['workspace-navigation'],
     defaultKeybindings: ['Primary+Shift+`', 'Meta+Alt+ArrowLeft'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'getNextWorkspaceId(..., -1) -> setActiveWorkspaceForWindow(workspaceWindowId, previousWorkspaceId)' },
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspaceManager',
+      action: 'getNextWorkspaceId(..., -1) -> setActiveWorkspaceForWindow(workspaceWindowId, previousWorkspaceId)',
+    },
   }),
   command({
     id: 'workspace.history.back',
@@ -127,7 +139,12 @@ export const COMMAND_REGISTRY = [
     category: 'workspace',
     scopes: ['workspace-navigation'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'stepNavigationHistory(..., -1) -> setActiveWorkspaceForWindow | openGlobalSurface (per visited entry kind)' },
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspaceManager',
+      action:
+        'stepNavigationHistory(..., -1) -> setActiveWorkspaceForWindow | openGlobalSurface (per visited entry kind)',
+    },
   }),
   command({
     id: 'workspace.history.forward',
@@ -135,7 +152,12 @@ export const COMMAND_REGISTRY = [
     category: 'workspace',
     scopes: ['workspace-navigation'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'stepNavigationHistory(..., 1) -> setActiveWorkspaceForWindow | openGlobalSurface (per visited entry kind)' },
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspaceManager',
+      action:
+        'stepNavigationHistory(..., 1) -> setActiveWorkspaceForWindow | openGlobalSurface (per visited entry kind)',
+    },
   }),
   ...Array.from({ length: 9 }, (_, index) => {
     const workspaceNumber = index + 1
@@ -146,7 +168,11 @@ export const COMMAND_REGISTRY = [
       scopes: ['workspace-navigation'],
       defaultKeybindings: [`Primary+${workspaceNumber}`],
       availability: ['activeWorkspace'],
-      handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: `setActiveWorkspaceForWindow(workspaceWindowId, visibleWorkspaces[${index}].id)` },
+      handlerPath: {
+        kind: 'context-bound',
+        owner: 'WorkspaceManager',
+        action: `setActiveWorkspaceForWindow(workspaceWindowId, visibleWorkspaces[${index}].id)`,
+      },
     })
   }),
   command({
@@ -164,7 +190,11 @@ export const COMMAND_REGISTRY = [
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Tab', 'Meta+Shift+]'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'cycleActiveLayoutTab(windowActiveWorkspaceId, 1)' },
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspaceManager',
+      action: 'cycleActiveLayoutTab(windowActiveWorkspaceId, 1)',
+    },
   }),
   command({
     id: 'layout.tab.previous',
@@ -173,7 +203,11 @@ export const COMMAND_REGISTRY = [
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+Shift+Tab', 'Meta+Shift+['],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'cycleActiveLayoutTab(windowActiveWorkspaceId, -1)' },
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspaceManager',
+      action: 'cycleActiveLayoutTab(windowActiveWorkspaceId, -1)',
+    },
   }),
   command({
     id: 'layout.tab.close',
@@ -182,7 +216,11 @@ export const COMMAND_REGISTRY = [
     scopes: ['workspace'],
     defaultKeybindings: ['Primary+W'],
     availability: ['activeWorkspace'],
-    handlerPath: { kind: 'context-bound', owner: 'WorkspaceManager', action: 'closeActiveLayoutTab(windowActiveWorkspaceId, terminalSessions)' },
+    handlerPath: {
+      kind: 'context-bound',
+      owner: 'WorkspaceManager',
+      action: 'closeActiveLayoutTab(windowActiveWorkspaceId, terminalSessions)',
+    },
   }),
   // Reveal-in-file-manager for the active checkout, and the keyboard half of
   // the workspace bar's open-in-editor split button (item 1990). The reveal

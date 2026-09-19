@@ -33,7 +33,10 @@ const SNAPSHOT_TTL_MS = 72 * HOUR_MS
 
 // A default-TTL cache fetched `ageMs` ago: issued then, expiring 72h later, and
 // stamped `lastRefreshAt` at fetch time — the arithmetic the `min` collapsed.
-function defaultTtlCache(ageMs: number, features: EntitlementSnapshot['features'] = { [LOCAL_KEY]: true }): CachedEntitlementSnapshot {
+function defaultTtlCache(
+  ageMs: number,
+  features: EntitlementSnapshot['features'] = { [LOCAL_KEY]: true },
+): CachedEntitlementSnapshot {
   const issuedAt = new Date(Date.now() - ageMs)
   const snap = snapshot({
     features,
@@ -82,10 +85,7 @@ class FakeProvider implements EntitlementProvider {
   }
 }
 
-function signedIn(
-  snap: EntitlementSnapshot,
-  cache?: CachedEntitlementSnapshot | null
-): EntitlementReading {
+function signedIn(snap: EntitlementSnapshot, cache?: CachedEntitlementSnapshot | null): EntitlementReading {
   return {
     authenticated: true,
     snapshot: snap,
@@ -109,7 +109,7 @@ async function main(): Promise<void> {
   {
     const decision = await check(
       { authenticated: false, snapshot: null, cache: null, lastRefreshAt: null },
-      'multicode.anything'
+      'multicode.anything',
     )
     assert.equal(decision.allowed, false)
     assert.equal(decision.status, 'signed_out')
@@ -128,7 +128,10 @@ async function main(): Promise<void> {
 
   // A fresh boolean feature: allowed, and the value travels with the decision.
   {
-    const decision = await check(signedIn(snapshot({ features: { 'multicode.mobile_companion': true } })), 'multicode.mobile_companion')
+    const decision = await check(
+      signedIn(snapshot({ features: { 'multicode.mobile_companion': true } })),
+      'multicode.mobile_companion',
+    )
     assert.equal(decision.allowed, true)
     assert.equal(decision.status, 'fresh')
     assert.equal(decision.value, true)
@@ -187,12 +190,16 @@ async function main(): Promise<void> {
       assert.equal(
         entitlementCacheStatus(cache),
         expected,
-        `a default-TTL snapshot ${age / HOUR_MS}h after issue is ${expected}`
+        `a default-TTL snapshot ${age / HOUR_MS}h after issue is ${expected}`,
       )
 
       const decision = await check(signedIn(cache.snapshot, cache), LOCAL_KEY)
       assert.equal(decision.status, expected)
-      assert.equal(decision.allowed, expected !== 'expired', `a local premium key is ${expected === 'expired' ? 'refused' : 'granted'} at ${expected}`)
+      assert.equal(
+        decision.allowed,
+        expected !== 'expired',
+        `a local premium key is ${expected === 'expired' ? 'refused' : 'granted'} at ${expected}`,
+      )
     }
 
     // The window is the full grace span past expiry, not the fetch latency.
@@ -200,7 +207,7 @@ async function main(): Promise<void> {
     assert.equal(
       entitlementGraceExpiresAt(graced),
       new Date(Date.parse(graced.snapshot.expiresAt) + ENTITLEMENT_GRACE_MS).toISOString(),
-      'grace runs from snapshot expiry alone'
+      'grace runs from snapshot expiry alone',
     )
   }
 
@@ -281,7 +288,10 @@ async function main(): Promise<void> {
 
   // Past the grace window nothing is granted.
   {
-    const stale = snapshot({ expiresAt: new Date(Date.now() - 10 * 24 * HOUR_MS).toISOString(), features: { [LOCAL_KEY]: true } })
+    const stale = snapshot({
+      expiresAt: new Date(Date.now() - 10 * 24 * HOUR_MS).toISOString(),
+      features: { [LOCAL_KEY]: true },
+    })
     const reading = signedIn(stale, {
       snapshot: stale,
       lastRefreshAt: new Date(Date.now() - 10 * 24 * HOUR_MS).toISOString(),
@@ -303,7 +313,7 @@ async function main(): Promise<void> {
       const undatable = snapshot({ expiresAt: new Date(expiresAt).toISOString(), features: { [LOCAL_KEY]: true } })
       const decision = await check(
         { authenticated: true, snapshot: undatable, cache: null, lastRefreshAt: null },
-        LOCAL_KEY
+        LOCAL_KEY,
       )
       assert.equal(decision.status, 'expired')
       assert.equal(decision.allowed, false)
@@ -336,10 +346,7 @@ async function main(): Promise<void> {
     const { service } = serviceFor(signedIn(snapshot({ limits: { 'multicode.seats': 2 } })))
     assert.equal(await service.requireFeature('multicode.seats'), 2)
     assert.equal(await service.requireFeature({ featureKey: 'multicode.seats', amount: 2 }), 2)
-    await assert.rejects(
-      () => service.requireFeature('multicode.missing'),
-      /Upgrade this organization/
-    )
+    await assert.rejects(() => service.requireFeature('multicode.missing'), /Upgrade this organization/)
   }
 
   // getSnapshot force-refreshes on demand, and refuses to invent an empty
@@ -369,14 +376,17 @@ async function main(): Promise<void> {
     assert.equal(
       entitlementGraceExpiresAt(cache),
       new Date(expiresAt.getTime() + ENTITLEMENT_GRACE_MS).toISOString(),
-      'snapshot expiry is the only anchor; an earlier lastRefreshAt does not shorten it'
+      'snapshot expiry is the only anchor; an earlier lastRefreshAt does not shorten it',
     )
     assert.equal(entitlementCacheStatus(cache), 'offline_grace')
     assert.equal(entitlementCacheStatus({ snapshot: snapshot(), lastRefreshAt: new Date().toISOString() }), 'fresh')
     assert.equal(isEntitlementSnapshotFresh(snapshot()), true)
 
     // Unparseable timestamps yield no grace window rather than an infinite one.
-    const broken: CachedEntitlementSnapshot = { snapshot: snapshot({ expiresAt: 'not-a-date' }), lastRefreshAt: 'also-not' }
+    const broken: CachedEntitlementSnapshot = {
+      snapshot: snapshot({ expiresAt: 'not-a-date' }),
+      lastRefreshAt: 'also-not',
+    }
     assert.equal(entitlementGraceExpiresAt(broken), null)
     assert.equal(entitlementCacheStatus(broken), 'expired')
   }

@@ -47,4 +47,6 @@ if (parsed.schemaVersion !== 1 || typeof parsed.updatedAt !== 'string' || typeof
 }
 await writeFile(target, `${JSON.stringify(parsed, null, 2)}\n`, 'utf8')
 const total = Object.values(parsed.clis).reduce((n, cli) => n + (cli.models?.length ?? 0), 0)
-console.log(`resources/model-feed.json: ${Object.keys(parsed.clis).length} CLIs, ${total} models, updated ${parsed.updatedAt}`)
+console.log(
+  `resources/model-feed.json: ${Object.keys(parsed.clis).length} CLIs, ${total} models, updated ${parsed.updatedAt}`,
+)

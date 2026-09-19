@@ -26,14 +26,7 @@ function run(name: string, body: () => void): void {
 }
 
 const exampleRoot = join(process.cwd(), 'resources', 'design-system', 'example')
-const templateScript = join(
-  process.cwd(),
-  'resources',
-  'design-system',
-  'templates',
-  'scripts',
-  'build-tokens.mjs',
-)
+const templateScript = join(process.cwd(), 'resources', 'design-system', 'templates', 'scripts', 'build-tokens.mjs')
 
 /** Copy the example bundle, optionally mutate its tokens, run the generator. */
 function generate(mutate?: (tokens: Record<string, any>) => void): {
@@ -126,7 +119,10 @@ run('a malformed token costs its own variable, not the whole preview', () => {
     dark: '{ref.color.nope}',
   }
   const { css, problems } = emitTokensCss(doc)
-  assert.ok(problems.some((problem) => problem.includes('resolves to no token')), problems.join('; '))
+  assert.ok(
+    problems.some((problem) => problem.includes('resolves to no token')),
+    problems.join('; '),
+  )
   assert.ok(!css.includes('--sem-color-accent-primary:'), 'the broken token emits nothing')
   assert.match(css, /--sem-color-bg-app:/, 'and every other token still emits')
 })

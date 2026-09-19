@@ -157,10 +157,7 @@ async function readLog(cwd: string, baseOid: string): Promise<BranchStep[]> {
  * - `uncommitted` — `HEAD → working tree`, plus untracked files, which `diff`
  *   cannot see because git has never tracked their content.
  */
-export async function diffBranchSelection(
-  cwd: string,
-  selection: BranchStepSelection
-): Promise<BranchStepDiff> {
+export async function diffBranchSelection(cwd: string, selection: BranchStepSelection): Promise<BranchStepDiff> {
   if (selection.kind === 'commit') {
     // The hash reaches argv as a POSITIONAL, which is also where git looks for
     // options — see COMMIT_HASH_PATTERN above. An unusable one is an empty diff,
@@ -188,7 +185,7 @@ export async function diffBranchSelection(
     ]
     return combine(
       await numstat(cwd, [...base, '--numstat', '-z']),
-      await nameStatus(cwd, [...base, '--name-status', '-z'])
+      await nameStatus(cwd, [...base, '--name-status', '-z']),
     )
   }
 
@@ -200,20 +197,17 @@ export async function diffBranchSelection(
     selection.kind === 'uncommitted'
       ? // The tail is HEAD → working tree, except on an unborn HEAD where there
         // is no HEAD to diff and the empty tree is the only honest start.
-        (facts?.hasHead === false ? facts.diffFrom : 'HEAD') ?? 'HEAD'
+        ((facts?.hasHead === false ? facts.diffFrom : 'HEAD') ?? 'HEAD')
       : (facts?.diffFrom ?? 'HEAD')
   const base = ['diff', '--no-color', '--no-ext-diff', '--no-textconv', '--no-relative', from]
   const tracked = combine(
     await numstat(cwd, [...base, '--numstat', '-z']),
-    await nameStatus(cwd, [...base, '--name-status', '-z'])
+    await nameStatus(cwd, [...base, '--name-status', '-z']),
   )
   return selection.kind === 'uncommitted' ? withUntracked(cwd, tracked) : tracked
 }
 
-async function numstat(
-  cwd: string,
-  args: string[]
-): Promise<Map<string, { additions: number; deletions: number }>> {
+async function numstat(cwd: string, args: string[]): Promise<Map<string, { additions: number; deletions: number }>> {
   const result = await runGitCommand(cwd, args)
   const map = new Map<string, { additions: number; deletions: number }>()
   if (!result.ok) return map
@@ -272,7 +266,7 @@ async function nameStatus(cwd: string, args: string[]): Promise<NameStatusEntry[
  */
 function combine(
   counts: Map<string, { additions: number; deletions: number }>,
-  statuses: NameStatusEntry[]
+  statuses: NameStatusEntry[],
 ): BranchStepDiff {
   const files: BranchStepFile[] = []
   const seen = new Set<string>()
@@ -311,13 +305,7 @@ async function withUntracked(cwd: string, tracked: BranchStepDiff): Promise<Bran
   // `--full-name` for the same reason as `--no-relative`: from a subdirectory
   // ls-files answers relative to cwd, and these paths sit in the same list as
   // the diff's repo-relative ones.
-  const listed = await runGitCommand(cwd, [
-    'ls-files',
-    '--others',
-    '--exclude-standard',
-    '--full-name',
-    '-z',
-  ])
+  const listed = await runGitCommand(cwd, ['ls-files', '--others', '--exclude-standard', '--full-name', '-z'])
   if (!listed.ok) return tracked
   const paths = listed.stdout.split('\0').filter(Boolean)
   if (paths.length === 0) return tracked
@@ -336,7 +324,7 @@ async function withUntracked(cwd: string, tracked: BranchStepDiff): Promise<Bran
         status: 'new' as const,
         additions: await countLines(join(root, path)),
         deletions: 0,
-      }))
+      })),
   )
   return added.length === 0 ? tracked : totals([...tracked.files, ...added])
 }
@@ -364,11 +352,7 @@ async function countLines(absolutePath: string): Promise<number> {
  * for an added file and the correct modified side for a deleted one — the
  * caller renders it as empty rather than as an error.
  */
-export async function readFileAtRev(
-  cwd: string,
-  rev: string,
-  path: string
-): Promise<RevFileResult> {
+export async function readFileAtRev(cwd: string, rev: string, path: string): Promise<RevFileResult> {
   // `git show` reads `--output=<file>` out of this argv slot, so a rev or a path
   // that could be an option never reaches it. The path is also held inside the
   // repo, matching what getGitFileAtStage already enforces for its own reads.

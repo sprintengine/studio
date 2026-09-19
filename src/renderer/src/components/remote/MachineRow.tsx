@@ -3,15 +3,7 @@ import React from 'react'
 import type { TailnetScope } from '../../../../shared/tailnet'
 import type { TailnetMachine } from '../../../../shared/tailnet-machines'
 import { relativeSeen } from '../../../../shared/tailnet-machines'
-import {
-  GhostButton,
-  LinkButton,
-  MicroChip,
-  OutlineButton,
-  Popover,
-  SettingCard,
-  deviceGlyphFor,
-} from '../ui'
+import { GhostButton, LinkButton, MicroChip, OutlineButton, Popover, SettingCard, deviceGlyphFor } from '../ui'
 import { missingScopes, terminalGapNote } from './scopePickerModel'
 import { platformLabel } from './machineRowModel'
 
@@ -81,14 +73,14 @@ export function MachineRow({
         onOpenChange={setScopesOpen}
         onGrant={() => onGrant(machine)}
         busy={busy}
-      />
+      />,
     )
   }
   if (machine.live) {
     supporting.push(
       <span key="live" className="font-medium text-[color:var(--tone-good)]">
         Live
-      </span>
+      </span>,
     )
   } else if (!machine.isSelf && seen.short) {
     // The token is tiny on purpose — it must not compete with the name — and
@@ -97,7 +89,7 @@ export function MachineRow({
     supporting.push(
       <span key="seen" className="font-mono tabular-nums" title={seen.long}>
         {seen.short}
-      </span>
+      </span>,
     )
   }
 

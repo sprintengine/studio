@@ -29,15 +29,10 @@ export function sourceDisplayName(source: SkillSource): string {
 
 /** Per-source scan read. Sources list first; each scan lands independently. */
 export type SkillScanLoad =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready'; scan: ScanResult }
+  { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready'; scan: ScanResult }
 
 /** The source list read itself (one IPC call for every source). */
-export type SkillSourcesLoad =
-  | { status: 'loading' }
-  | { status: 'error'; message: string }
-  | { status: 'ready' }
+export type SkillSourcesLoad = { status: 'loading' } | { status: 'error'; message: string } | { status: 'ready' }
 
 export function pluralSkills(count: number): string {
   return `${count} ${count === 1 ? 'skill' : 'skills'}`
@@ -71,10 +66,7 @@ export function skillsTotal(
     state: 'ready',
     ready,
     sourceCount: sources.length,
-    skillCount: loads.reduce(
-      (sum, load) => sum + (load && load.status === 'ready' ? load.scan.skills.length : 0),
-      0,
-    ),
+    skillCount: loads.reduce((sum, load) => sum + (load && load.status === 'ready' ? load.scan.skills.length : 0), 0),
   }
 }
 
@@ -362,9 +354,7 @@ export function stripSkillFrontmatter(content: string): string {
   return block ? document.slice(block[0].length) : document
 }
 
-export type SkillLinkTarget =
-  | { kind: 'file'; path: string }
-  | { kind: 'dead'; target: string }
+export type SkillLinkTarget = { kind: 'file'; path: string } | { kind: 'dead'; target: string }
 
 /**
  * Resolve one markdown href against the skill's own manifest.
@@ -391,9 +381,9 @@ export function resolveSkillLink(
   const relative = normalizeSkillPath(target.startsWith('/') ? bare : dir + target)
 
   const hit =
-    files.find((file) => file.path === relative)
-    ?? files.find((file) => file.path === bare)
-    ?? files.find((file) => file.path.endsWith(`/${bare}`))
+    files.find((file) => file.path === relative) ??
+    files.find((file) => file.path === bare) ??
+    files.find((file) => file.path.endsWith(`/${bare}`))
   return hit ? { kind: 'file', path: hit.path } : { kind: 'dead', target: bare }
 }
 

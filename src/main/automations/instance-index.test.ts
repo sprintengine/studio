@@ -93,16 +93,20 @@ async function assertLastRunAndRunningNow(): Promise<void> {
   await store.createDefinition(definition('idle'))
   await store.createDefinition(definition('live'))
   // An older completed run, then a newer still-running run for 'live'.
-  await store.recordRun(run('live', 'run-001', {
-    status: 'completed',
-    startedAt: '2026-06-17T01:00:00.000Z',
-    completedAt: '2026-06-17T01:00:05.000Z',
-  }))
-  await store.recordRun(run('live', 'run-002', {
-    status: 'running',
-    startedAt: '2026-06-17T03:00:00.000Z',
-    completedAt: null,
-  }))
+  await store.recordRun(
+    run('live', 'run-001', {
+      status: 'completed',
+      startedAt: '2026-06-17T01:00:00.000Z',
+      completedAt: '2026-06-17T01:00:05.000Z',
+    }),
+  )
+  await store.recordRun(
+    run('live', 'run-002', {
+      status: 'running',
+      startedAt: '2026-06-17T03:00:00.000Z',
+      completedAt: null,
+    }),
+  )
 
   const index = await buildAutomationsInstanceIndex({
     projectFolders: [{ workspaceId: 'ws', folderPath: root }],
@@ -147,12 +151,14 @@ async function assertMalformedRootIsReportedNotFatal(): Promise<void> {
 async function assertWebhookSecretRedactionApplies(): Promise<void> {
   const root = await createRoot('hook')
   const store = new AutomationsStore(root)
-  await store.createDefinition(definition('hooked', {
-    trigger: {
-      kind: WEBHOOK_TRIGGER_KIND,
-      config: { kind: WEBHOOK_TRIGGER_KIND, path: 'incoming', secret: 'super-secret-value-1234' },
-    },
-  }))
+  await store.createDefinition(
+    definition('hooked', {
+      trigger: {
+        kind: WEBHOOK_TRIGGER_KIND,
+        config: { kind: WEBHOOK_TRIGGER_KIND, path: 'incoming', secret: 'super-secret-value-1234' },
+      },
+    }),
+  )
 
   const index = await buildAutomationsInstanceIndex({
     projectFolders: [{ workspaceId: 'ws', folderPath: root }],

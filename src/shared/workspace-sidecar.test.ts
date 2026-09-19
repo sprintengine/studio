@@ -50,7 +50,10 @@ run('an absolute path keeps the separator its workspace root is written with', (
 
 run('a relative sidecar path is POSIX under either name', () => {
   assert.equal(sidecarRelativePath(SIDECAR_DIR_NAME, 'backlog', 'config.json'), '.sprintengine/backlog/config.json')
-  assert.equal(sidecarRelativePath(LEGACY_SIDECAR_DIR_NAME, 'backlog', 'config.json'), '.multi-code/backlog/config.json')
+  assert.equal(
+    sidecarRelativePath(LEGACY_SIDECAR_DIR_NAME, 'backlog', 'config.json'),
+    '.multi-code/backlog/config.json',
+  )
   assert.equal(sidecarRelativePath(SIDECAR_DIR_NAME), '.sprintengine')
 })
 

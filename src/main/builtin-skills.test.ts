@@ -92,13 +92,7 @@ async function main(): Promise<void> {
   // it from, not spelled again here: the skills moved into the bundled
   // marketplace with the studio-marketplace ruling (2026-09-06), and a path
   // written out by hand would go on passing after the next move.
-  const shipped = join(
-    process.cwd(),
-    'resources',
-    STUDIO_MARKETPLACE_RESOURCE_DIR,
-    STUDIO_SKILLS_PLUGIN_ID,
-    'skills',
-  )
+  const shipped = join(process.cwd(), 'resources', STUDIO_MARKETPLACE_RESOURCE_DIR, STUDIO_SKILLS_PLUGIN_ID, 'skills')
   for (const skill of BUILTIN_SKILLS) {
     const realSkill = await readFile(join(shipped, skill.id, 'SKILL.md'), 'utf-8')
     assert.match(realSkill, new RegExp(`name:\\s*${skill.id}`))
@@ -255,7 +249,7 @@ async function main(): Promise<void> {
       'handoff',
       'backlog',
       'frontend-design',
-    ]
+    ],
   )
 
   const missing = await manager.getStatus(workspaceRoot, 'workspace-knowledge')
@@ -273,10 +267,7 @@ async function main(): Promise<void> {
   const debugInstalled = await manager.install(workspaceRoot, 'debug')
   assert.equal(debugInstalled.ok, true)
   assert.equal(debugInstalled.ok && debugInstalled.status, 'installed')
-  assert.equal(
-    await readFile(join(workspaceRoot, '.agents', 'skills', 'debug', 'SKILL.md'), 'utf-8'),
-    'version one\n'
-  )
+  assert.equal(await readFile(join(workspaceRoot, '.agents', 'skills', 'debug', 'SKILL.md'), 'utf-8'), 'version one\n')
   // Debug Mode delivers the full skill to the agent, so `debug` opts into
   // all-native targets (like backlog): it installs to .agents PLUS every native
   // CLI harness, not just .agents. This is what lets the spawn-time /debug
@@ -285,7 +276,7 @@ async function main(): Promise<void> {
     assert.equal(
       await readFile(join(workspaceRoot, dir, 'skills', 'debug', 'SKILL.md'), 'utf-8'),
       'version one\n',
-      `debug installs to ${dir}/skills/debug`
+      `debug installs to ${dir}/skills/debug`,
     )
   }
   const debugTargets = await manager.getStatus(workspaceRoot, 'debug')
@@ -293,16 +284,15 @@ async function main(): Promise<void> {
   assert.equal(
     debugTargets.ok && debugTargets.targets.length,
     5,
-    'debug resolves all-native targets (.agents + claude + pi + shim + generic-shell); zai dedupes into the claude path'
+    'debug resolves all-native targets (.agents + claude + pi + shim + generic-shell); zai dedupes into the claude path',
   )
   // Regression (skill-picker Install EEXIST): claude-code and zai render the
   // same .claude destination — exactly one path-bearing target may survive.
   const debugClaudePath = join(workspaceRoot, '.claude', 'skills', 'debug')
   assert.equal(
-    debugTargets.ok
-      && debugTargets.targets.filter((target) => target.destinationPath === debugClaudePath).length,
+    debugTargets.ok && debugTargets.targets.filter((target) => target.destinationPath === debugClaudePath).length,
     1,
-    'duplicate plugin install paths dedupe to one target'
+    'duplicate plugin install paths dedupe to one target',
   )
 
   await writeAllSkillSources(sourceRoot, 'version two\n')
@@ -315,14 +305,10 @@ async function main(): Promise<void> {
   assert.equal(updated.ok && updated.status, 'updated')
   assert.equal(
     await readFile(join(workspaceRoot, '.agents', 'skills', 'workspace-knowledge', 'SKILL.md'), 'utf-8'),
-    'version two\n'
+    'version two\n',
   )
 
-  await writeFile(
-    join(workspaceRoot, '.agents', 'skills', 'workspace-knowledge', 'SKILL.md'),
-    'local edit\n',
-    'utf-8'
-  )
+  await writeFile(join(workspaceRoot, '.agents', 'skills', 'workspace-knowledge', 'SKILL.md'), 'local edit\n', 'utf-8')
   const modified = await manager.getStatus(workspaceRoot, 'workspace-knowledge')
   assert.equal(modified.ok, true)
   assert.equal(modified.ok && modified.status, 'modified')
@@ -341,21 +327,18 @@ async function main(): Promise<void> {
   assert.equal(backlogMissing.ok && backlogMissing.targets.length, 5)
   assert.equal(
     backlogMissing.ok && backlogMissing.targets.find((target) => target.harness === 'shim')?.status,
-    'prompt-shim'
+    'prompt-shim',
   )
   assert.equal(
     backlogMissing.ok && backlogMissing.targets.find((target) => target.harness === 'generic-shell')?.status,
-    'unsupported'
+    'unsupported',
   )
 
   const backlogInstalled = await manager.install(workspaceRoot, 'backlog')
   assert.equal(backlogInstalled.ok, true)
   assert.equal(backlogInstalled.ok && backlogInstalled.status, 'installed')
   for (const dir of harnessDirs) {
-    assert.equal(
-      await readFile(join(workspaceRoot, dir, 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
-      'version two\n'
-    )
+    assert.equal(await readFile(join(workspaceRoot, dir, 'skills', 'backlog', 'SKILL.md'), 'utf-8'), 'version two\n')
   }
 
   const backlogStatus = await manager.getStatus(workspaceRoot, 'backlog')
@@ -363,11 +346,7 @@ async function main(): Promise<void> {
   assert.equal(backlogStatus.ok && backlogStatus.status, 'installed')
 
   // A modified copy in one harness is skipped, not a block on the others.
-  await writeFile(
-    join(workspaceRoot, '.claude', 'skills', 'backlog', 'SKILL.md'),
-    'local claude edit\n',
-    'utf-8'
-  )
+  await writeFile(join(workspaceRoot, '.claude', 'skills', 'backlog', 'SKILL.md'), 'local claude edit\n', 'utf-8')
   const backlogModified = await manager.getStatus(workspaceRoot, 'backlog')
   assert.equal(backlogModified.ok, true)
   assert.equal(backlogModified.ok && backlogModified.status, 'modified')
@@ -384,16 +363,13 @@ async function main(): Promise<void> {
   assert.equal(backlogUpdated.ok && backlogUpdated.skipped?.[0]?.harness, 'claude')
   assert.equal(
     await readFile(join(workspaceRoot, '.claude', 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
-    'local claude edit\n'
+    'local claude edit\n',
   )
   assert.equal(
     await readFile(join(workspaceRoot, '.agents', 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
-    'version three\n'
+    'version three\n',
   )
-  assert.equal(
-    await readFile(join(workspaceRoot, '.pi', 'skills', 'backlog', 'SKILL.md'), 'utf-8'),
-    'version three\n'
-  )
+  assert.equal(await readFile(join(workspaceRoot, '.pi', 'skills', 'backlog', 'SKILL.md'), 'utf-8'), 'version three\n')
 
   // frontend-design (MC-1511) is Claude-only: harnesses: ['claude'] resolves a
   // single native target and installs into .claude alone. This is the install
@@ -405,7 +381,7 @@ async function main(): Promise<void> {
   assert.deepEqual(
     designSkillMissing.ok && designSkillMissing.targets.map((target) => target.harness),
     ['claude'],
-    'frontend-design targets exactly the Claude harness'
+    'frontend-design targets exactly the Claude harness',
   )
 
   const designSkillInstalled = await manager.install(workspaceRoot, 'frontend-design')
@@ -414,12 +390,12 @@ async function main(): Promise<void> {
   assert.equal(
     await readFile(join(workspaceRoot, '.claude', 'skills', 'frontend-design', 'SKILL.md'), 'utf-8'),
     'version three\n',
-    'frontend-design installs into the Claude skill dir'
+    'frontend-design installs into the Claude skill dir',
   )
   await assert.rejects(
     readFile(join(workspaceRoot, '.agents', 'skills', 'frontend-design', 'SKILL.md'), 'utf-8'),
     /ENOENT/,
-    'frontend-design must not fan out to .agents or any non-Claude harness'
+    'frontend-design must not fan out to .agents or any non-Claude harness',
   )
 
   await testModuleOwnedSkills()
@@ -469,7 +445,7 @@ async function testModuleOwnedSkills(): Promise<void> {
   assert.deepEqual(
     (await manager.list()).map((skill) => skill.id).slice(-1),
     ['review-guide-module'],
-    'a registered module skill joins the listed skills'
+    'a registered module skill joins the listed skills',
   )
 
   // The install fan-out is the built-in one: .agents plus every native CLI dir.
@@ -479,7 +455,7 @@ async function testModuleOwnedSkills(): Promise<void> {
     assert.equal(
       await readFile(join(workspaceRoot, dir, 'skills', 'review-guide-module', 'SKILL.md'), 'utf-8'),
       'module version one\n',
-      `an all-native module skill installs into ${dir}/skills`
+      `an all-native module skill installs into ${dir}/skills`,
     )
   }
   // The managed manifest is written, so a second ensure is a no-op rather than
@@ -498,7 +474,7 @@ async function testModuleOwnedSkills(): Promise<void> {
   })
   assert.equal(
     await readFile(join(workspaceRoot, '.claude', 'skills', 'review-guide-module', 'SKILL.md'), 'utf-8'),
-    'module version two\n'
+    'module version two\n',
   )
 
   // One id, one owner — a built-in's id and another module's id are both taken.
@@ -507,11 +483,14 @@ async function testModuleOwnedSkills(): Promise<void> {
       registerModuleSkills('impostor', [
         { id: 'review-guide-module', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
       ]),
-    /already registered by module "review"/
+    /already registered by module "review"/,
   )
   assert.throws(
-    () => registerModuleSkills('impostor', [{ id: 'debug', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' }]),
-    /is a built-in skill/
+    () =>
+      registerModuleSkills('impostor', [
+        { id: 'debug', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
+      ]),
+    /is a built-in skill/,
   )
   // The whole batch is validated before any of it lands.
   assert.throws(
@@ -520,14 +499,17 @@ async function testModuleOwnedSkills(): Promise<void> {
         { id: 'fine', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
         { id: 'debug', sourceDir: join(temp, 'other'), targetPolicy: 'agents', description: 'x' },
       ]),
-    /is a built-in skill/
+    /is a built-in skill/,
   )
   assert.equal(resolveSkillById('fine'), null, 'a rejected batch registers none of it')
   // The registry only ever takes resolved absolute directories; containment
   // against the module root is the host's job (module-host/module-skills.test.ts).
   assert.throws(
-    () => registerModuleSkills('other', [{ id: 'relative', sourceDir: 'skills/x', targetPolicy: 'agents', description: 'x' }]),
-    /resolved absolute source directory/
+    () =>
+      registerModuleSkills('other', [
+        { id: 'relative', sourceDir: 'skills/x', targetPolicy: 'agents', description: 'x' },
+      ]),
+    /resolved absolute source directory/,
   )
 
   // Unloading the module takes its skills with it: the id stops resolving, and

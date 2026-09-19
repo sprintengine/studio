@@ -16,10 +16,7 @@ import { mkdir, mkdtemp, readFile, readdir, symlink, writeFile } from 'node:fs/p
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  isMarketplaceSourceHostAllowed,
-  parseMarketplaceExtraHosts,
-} from '../../shared/marketplace/source-policy'
+import { isMarketplaceSourceHostAllowed, parseMarketplaceExtraHosts } from '../../shared/marketplace/source-policy'
 import { scanPlugins } from '../../shared/skills'
 import type { ScanResult, ScannedSkill, SkillFileRef, SkillSource } from '../../shared/skills'
 import {
@@ -326,7 +323,7 @@ async function refusesATruncatedOrOversizedTree(): Promise<void> {
   await assert.rejects(
     () => fetchSkillRepoTree(REF, COMMIT, { fetcher: truncated }),
     /too large for GitHub to list/,
-    'a truncated tree is refused rather than partially scanned'
+    'a truncated tree is refused rather than partially scanned',
   )
 
   // 200,001 entries: one past DEFAULT_SKILL_MAX_TREE_ENTRIES. Built as a string
@@ -337,10 +334,10 @@ async function refusesATruncatedOrOversizedTree(): Promise<void> {
   await assert.rejects(
     () => fetchSkillRepoTree(REF, COMMIT, { fetcher: huge }),
     new RegExp(`lists more than ${DEFAULT_SKILL_MAX_TREE_ENTRIES} files`),
-    `${DEFAULT_SKILL_MAX_TREE_ENTRIES + 1} entries is refused`
+    `${DEFAULT_SKILL_MAX_TREE_ENTRIES + 1} entries is refused`,
   )
   console.log(
-    `  limits (tree): truncated=true refused; ${DEFAULT_SKILL_MAX_TREE_ENTRIES + 1} entries refused at the stated cap`
+    `  limits (tree): truncated=true refused; ${DEFAULT_SKILL_MAX_TREE_ENTRIES + 1} entries refused at the stated cap`,
   )
 }
 
@@ -350,7 +347,7 @@ async function refusesAnOversizedFile(): Promise<void> {
   await assert.rejects(
     () => fetchSkillRepoFile(REF, COMMIT, 'writer/big.bin', { fetcher }),
     new RegExp(`larger than ${DEFAULT_SKILL_MAX_FILE_BYTES} bytes`),
-    'one byte past the per-file cap is refused'
+    'one byte past the per-file cap is refused',
   )
   console.log(`  limits (file): ${DEFAULT_SKILL_MAX_FILE_BYTES + 1} bytes refused at the stated cap`)
 }
@@ -382,14 +379,14 @@ async function limitsAreCheckedAfterTheBodyIsMaterialised(): Promise<void> {
   await assert.rejects(
     () => fetchSkillRepoTree(REF, COMMIT, { fetcher }),
     /file listing is larger than/,
-    'the stated listing cap is observed'
+    'the stated listing cap is observed',
   )
   assert.ok(
     allocatedBytes > DEFAULT_SKILL_MAX_LISTING_BYTES,
-    'GAP: the whole over-cap body was allocated before the cap was checked'
+    'GAP: the whole over-cap body was allocated before the cap was checked',
   )
   console.log(
-    `  GAP limits/memory: ${allocatedBytes} bytes materialised before the ${DEFAULT_SKILL_MAX_LISTING_BYTES}-byte cap rejected it`
+    `  GAP limits/memory: ${allocatedBytes} bytes materialised before the ${DEFAULT_SKILL_MAX_LISTING_BYTES}-byte cap rejected it`,
   )
 }
 
@@ -397,7 +394,7 @@ async function refusesTooManyFilesAndTooManyTotalBytes(): Promise<void> {
   const workspace = await mkdtemp(join(tmpdir(), 'multicode-sec-limits-'))
   const many = skill(
     ['SKILL.md', ...Array.from({ length: DEFAULT_SKILL_INSTALL_MAX_FILES }, (_, i) => `f${i}.md`)],
-    'skills/many'
+    'skills/many',
   )
   const planned = planSkillInstall(workspace, many, ['claude'])
   assert.equal(planned.ok, false, `${DEFAULT_SKILL_INSTALL_MAX_FILES + 1} files is refused`)
@@ -454,7 +451,7 @@ async function theTokenGoesOnlyToAllowlistedHostsAndNowhereElse(): Promise<void>
   const tree = await fetchSkillRepoTree(REF, COMMIT, { fetcher, token })
   assert.equal(JSON.stringify(tree).includes(token), false, 'no token in the tree result')
   console.log(
-    `  credentials: Bearer sent on ${sent.length} calls, all to allowlisted hosts (incl. raw.githubusercontent.com); absent from results`
+    `  credentials: Bearer sent on ${sent.length} calls, all to allowlisted hosts (incl. raw.githubusercontent.com); absent from results`,
   )
 }
 
@@ -468,7 +465,7 @@ async function fetchErrorsDoNotCarryTheToken(): Promise<void> {
 
   for (const fetcher of [failing, rejected]) {
     const error = await fetchSkillRepoFile(REF, COMMIT, 'writer/SKILL.md', { fetcher, token }).catch(
-      (caught: unknown) => caught
+      (caught: unknown) => caught,
     )
     assert.ok(error instanceof Error)
     assert.equal(error.message.includes(token), false, 'the token is not in the error message')
@@ -505,7 +502,7 @@ async function syncNeverOverwritesASkillInstalledFromAnotherSource(): Promise<vo
   await writeFile(
     join(claimed, SKILL_PROVENANCE_FILE),
     JSON.stringify({ sourceId: TRUSTED_SOURCE, skillId: 'skills/backlog', commitSha: COMMIT }),
-    'utf8'
+    'utf8',
   )
 
   const hostileScan = [skill(['SKILL.md'], 'evil/backlog'), skill(['SKILL.md'], 'evil/prototype')]
@@ -604,7 +601,7 @@ async function unreadSkillsAreIndistinguishableFromSkillsThatDeclareNoTools(): P
   const service = createSkillsService(
     await mkdtemp(join(tmpdir(), 'multicode-sec-disclose-')),
     { resolveToken: async () => '', listHarnesses: async () => ['claude'], github: { fetcher } },
-    store
+    store,
   )
   const added = await service.addSource({ repo: 'attacker/skills' })
   assert.equal(added.ok, true)
@@ -620,9 +617,12 @@ async function unreadSkillsAreIndistinguishableFromSkillsThatDeclareNoTools(): P
   // The tree-derived disclosure is still right — these skills do ship scripts —
   // so the surface renders its "What it may run" panel and states, of a file it
   // never read, that it declares no allowed-tools.
-  assert.ok(unread.every((entry) => entry.hasExecutables), 'GAP: executables disclosed, declared tools silently blank')
+  assert.ok(
+    unread.every((entry) => entry.hasExecutables),
+    'GAP: executables disclosed, declared tools silently blank',
+  )
   console.log(
-    `  GAP disclosure: ${declared}/${SKILL_COUNT} skills enriched; ${unread.length} render as "declares no allowed-tools" though every entry declares Bash(rm -rf *)`
+    `  GAP disclosure: ${declared}/${SKILL_COUNT} skills enriched; ${unread.length} render as "declares no allowed-tools" though every entry declares Bash(rm -rf *)`,
   )
 }
 
@@ -684,7 +684,7 @@ async function anEntryWithNoDescriptionIsSkippedAndCounted(): Promise<void> {
   const service = createSkillsService(
     await mkdtemp(join(tmpdir(), 'multicode-sec-nodesc-')),
     { resolveToken: async () => '', listHarnesses: async () => ['claude'], github: { fetcher } },
-    store
+    store,
   )
   const added = await service.addSource({ repo: 'someone/skills' })
   assert.equal(added.ok, true)
@@ -693,7 +693,7 @@ async function anEntryWithNoDescriptionIsSkippedAndCounted(): Promise<void> {
   assert.deepEqual(
     added.scan.skills.map((entry) => entry.id).sort(),
     ['skills/keeper', 'skills/unreadable'],
-    'the entries read with no description are dropped; the one nobody could read is not'
+    'the entries read with no description are dropped; the one nobody could read is not',
   )
   assert.equal(added.scan.skippedNoDescription, 2, 'and the scan says how many it skipped')
   assert.equal(added.scan.fileCount, 2, 'the dropped skills take their files with them')
@@ -708,10 +708,10 @@ async function anEntryWithNoDescriptionIsSkippedAndCounted(): Promise<void> {
   assert.deepEqual(
     plugin.components.skills.map((entry) => entry.id),
     ['skills/keeper', 'skills/nameless', 'skills/empty'],
-    'a plugin ships what it ships, in the order its manifest lists it'
+    'a plugin ships what it ships, in the order its manifest lists it',
   )
   console.log(
-    '  frontmatter: entries read with no description are skipped and counted; an unread one keeps its row, and a plugin still finds both'
+    '  frontmatter: entries read with no description are skipped and counted; an unread one keeps its row, and a plugin still finds both',
   )
 }
 
@@ -735,7 +735,7 @@ async function reinstallDoesNotLeaveRemovedFilesBehind(): Promise<void> {
   assert.deepEqual(
     (await readdir(dir)).sort(),
     [SKILL_PROVENANCE_FILE, 'SKILL.md'],
-    'the withdrawn script is gone, not orphaned, and the copy still says where it came from'
+    'the withdrawn script is gone, not orphaned, and the copy still says where it came from',
   )
   console.log('  reinstall: a file the source withdrew is removed rather than left executable in the workspace')
 }

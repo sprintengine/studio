@@ -38,10 +38,7 @@
  * `app.boot` is the install/active-machine counter — one per process start.
  * `agent.launched` answers "is the thing people installed the thing they use".
  */
-const TELEMETRY_EVENTS = [
-  'app.boot',
-  'agent.launched',
-] as const
+const TELEMETRY_EVENTS = ['app.boot', 'agent.launched'] as const
 
 export type TelemetryEventName = (typeof TELEMETRY_EVENTS)[number]
 

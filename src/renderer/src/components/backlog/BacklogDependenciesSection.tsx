@@ -8,11 +8,7 @@ import type {
   BacklogPrerequisite,
 } from '../../utils/backlogDependencies'
 import { BACKLOG_BLOCKED_LABEL, BACKLOG_STATUS_LABEL } from './BacklogRow'
-import {
-  toggleDependencySlug,
-  type BacklogActions,
-  type BacklogDependencyChoice,
-} from './BacklogItemContextMenu'
+import { toggleDependencySlug, type BacklogActions, type BacklogDependencyChoice } from './BacklogItemContextMenu'
 import { BacklogItemSearchPicker } from './BacklogItemSearchPicker'
 
 // Detail-pane dependency surface, the analog of BacklogLinksSection for the
@@ -80,15 +76,13 @@ export function BacklogDependenciesSection({
       // No hairline: padding and the heading separate this section from the next
       // (MC-2047 — "space groups, rules do not").
       className="shrink-0 pb-2"
-      action={
-        <DependsOnEditor item={item} dependencyChoices={dependencyChoices} onToggle={toggle} />
-      }
+      action={<DependsOnEditor item={item} dependencyChoices={dependencyChoices} onToggle={toggle} />}
     >
       <div className="flex flex-col gap-2 px-3">
         {inCycle ? (
           <InlineNotice tone="warn">
-            This item is part of a dependency cycle. Break the loop — remove one prerequisite — so
-            the chain can be ordered.
+            This item is part of a dependency cycle. Break the loop — remove one prerequisite — so the chain can be
+            ordered.
           </InlineNotice>
         ) : null}
 
@@ -144,9 +138,7 @@ function SubsectionLabel({ children }: { children: React.ReactNode }): JSX.Eleme
 }
 
 function StatusWord({ children }: { children: React.ReactNode }): JSX.Element {
-  return (
-    <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">{children}</span>
-  )
+  return <span className="shrink-0 text-micro tabular-nums text-[color:var(--text-subtle)]">{children}</span>
 }
 
 // A prerequisite row: a resolved target is a navigable button (title + status
@@ -170,11 +162,7 @@ function PrerequisiteRow({
   return (
     <li className="flex min-w-0 items-center gap-2">
       {target ? (
-        <NavigateButton
-          displayId={target.displayId}
-          title={target.title}
-          onNavigate={() => onNavigate(target.id)}
-        />
+        <NavigateButton displayId={target.displayId} title={target.title} onNavigate={() => onNavigate(target.id)} />
       ) : (
         <Tooltip
           content={`No backlog item matches “${prerequisite.slug}”. Remove the stale prerequisite or create the item.`}
@@ -217,9 +205,7 @@ function NavigateButton({
   return (
     <RowButton onClick={onNavigate} className="min-w-0 flex-1 text-meta">
       {displayId ? (
-        <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-muted)]">
-          {displayId}
-        </span>
+        <span className="shrink-0 font-mono text-micro tabular-nums text-[color:var(--text-muted)]">{displayId}</span>
       ) : null}
       <TruncatedText as="span" text={title} className="min-w-0 flex-1" />
     </RowButton>

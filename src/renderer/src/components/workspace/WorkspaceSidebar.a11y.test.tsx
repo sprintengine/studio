@@ -202,7 +202,10 @@ async function main(): Promise<void> {
   assert.equal(projADisclosure!.getAttribute('aria-expanded'), 'false', 'collapsing flips aria-expanded')
   assert.ok(rows().length < rowsBeforeCollapse, 'collapsing removes the folder rows from the tree')
   const controlled = projADisclosure!.getAttribute('aria-controls')
-  assert.ok(controlled && dom.window.document.getElementById(controlled), 'aria-controls still resolves while collapsed')
+  assert.ok(
+    controlled && dom.window.document.getElementById(controlled),
+    'aria-controls still resolves while collapsed',
+  )
   // Re-expand so later assertions see the full tree.
   act(() => {
     projADisclosure!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))

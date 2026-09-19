@@ -51,7 +51,7 @@ const moduleScopeConflict = findKeybindingConflicts(
     keybindings: ['Primary+,'],
     scopes: ['panel:calendar'],
   },
-  [notebookSettings]
+  [notebookSettings],
 )
 assert.equal(moduleScopeConflict.length, 1)
 assert.equal(moduleScopeConflict[0].severity, 'warning')
@@ -65,12 +65,14 @@ const sharedPanelScopeConflict = findKeybindingConflicts(
     keybindings: ['Primary+,'],
     scopes: ['panel:calendar'],
   },
-  [{
-    commandId: 'calendar.other.settings',
-    commandTitle: 'Calendar: Other',
-    keybindings: ['Primary+,'],
-    scopes: ['panel:calendar'],
-  }]
+  [
+    {
+      commandId: 'calendar.other.settings',
+      commandTitle: 'Calendar: Other',
+      keybindings: ['Primary+,'],
+      scopes: ['panel:calendar'],
+    },
+  ],
 )
 assert.equal(sharedPanelScopeConflict.length, 1)
 assert.equal(sharedPanelScopeConflict[0].severity, 'blocking')
@@ -82,16 +84,25 @@ const sameScopePanelConflict = findKeybindingConflicts(
     keybindings: ['Primary+,'],
     scopes: ['panel:notebook'],
   },
-  registryWithModuleCommand
+  registryWithModuleCommand,
 )
-assert.equal(sameScopePanelConflict.some((conflict) => (
-  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'notebook.open.settings'
-)), true)
+assert.equal(
+  sameScopePanelConflict.some(
+    (conflict) => conflict.severity === 'blocking' && conflict.conflictingCommandId === 'notebook.open.settings',
+  ),
+  true,
+)
 
-const globalPanelConflict = findKeybindingConflicts(getCommandDefinition('app.settings.open')!, registryWithModuleCommand)
-assert.equal(globalPanelConflict.some((conflict) => (
-  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'notebook.open.settings'
-)), true)
+const globalPanelConflict = findKeybindingConflicts(
+  getCommandDefinition('app.settings.open')!,
+  registryWithModuleCommand,
+)
+assert.equal(
+  globalPanelConflict.some(
+    (conflict) => conflict.severity === 'blocking' && conflict.conflictingCommandId === 'notebook.open.settings',
+  ),
+  true,
+)
 
 const workspaceGlobalConflict = findKeybindingConflicts(
   {
@@ -100,11 +111,14 @@ const workspaceGlobalConflict = findKeybindingConflicts(
     keybindings: ['Primary+K'],
     scopes: ['workspace'],
   },
-  COMMAND_REGISTRY
+  COMMAND_REGISTRY,
 )
-assert.equal(workspaceGlobalConflict.some((conflict) => (
-  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'commandPalette.open'
-)), true)
+assert.equal(
+  workspaceGlobalConflict.some(
+    (conflict) => conflict.severity === 'blocking' && conflict.conflictingCommandId === 'commandPalette.open',
+  ),
+  true,
+)
 
 const unrelated = findKeybindingConflicts(
   {
@@ -113,7 +127,7 @@ const unrelated = findKeybindingConflicts(
     keybindings: ['Primary+L'],
     scopes: ['terminal'],
   },
-  COMMAND_REGISTRY
+  COMMAND_REGISTRY,
 )
 assert.equal(unrelated.length, 0)
 
@@ -145,7 +159,9 @@ const shiftTapVsPalette = findKeybindingConflicts(
   },
   COMMAND_REGISTRY,
 )
-assert.equal(shiftTapVsPalette.some((conflict) => (
-  conflict.severity === 'blocking' && conflict.conflictingCommandId === 'search.everywhere'
-)), true)
-
+assert.equal(
+  shiftTapVsPalette.some(
+    (conflict) => conflict.severity === 'blocking' && conflict.conflictingCommandId === 'search.everywhere',
+  ),
+  true,
+)

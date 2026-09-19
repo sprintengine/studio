@@ -41,7 +41,7 @@ export async function listGitStashes(repoRoot: string): Promise<GitStashListSnap
 export async function pushGitStash(
   repoRoot: string,
   message: string,
-  includeUntracked = true
+  includeUntracked = true,
 ): Promise<GitCommandResult> {
   const statusResult = await runGitCommand(repoRoot, ['status', '--porcelain=v1', '-z', '--untracked-files=all'])
   if (!statusResult.ok) return statusResult
@@ -65,7 +65,7 @@ export async function pushGitStash(
 async function resolveStashSelector(
   repoRoot: string,
   index: number,
-  expectedHash: string
+  expectedHash: string,
 ): Promise<{ selector: string } | { error: GitCommandResult }> {
   if (!Number.isInteger(index) || index < 0 || !expectedHash.trim()) {
     return { error: { ok: false, stdout: '', stderr: '', message: 'Choose a stash entry.' } }
@@ -90,7 +90,7 @@ export async function applyGitStash(
   repoRoot: string,
   index: number,
   expectedHash: string,
-  pop = false
+  pop = false,
 ): Promise<GitCommandResult> {
   const resolved = await resolveStashSelector(repoRoot, index, expectedHash)
   if ('error' in resolved) return resolved.error

@@ -3,9 +3,7 @@ import { isRecord } from '../../shared/records'
 
 const MIN_INTERVAL_MINUTES = 5
 
-export type ScheduleValidationResult =
-  | { ok: true; value: ScheduleTriggerConfig }
-  | { ok: false; error: string }
+export type ScheduleValidationResult = { ok: true; value: ScheduleTriggerConfig } | { ok: false; error: string }
 
 type LocalDateTime = {
   year: number
@@ -149,10 +147,10 @@ export function validateScheduleTriggerConfig(config: unknown): ScheduleValidati
       if (!isValidLocalTime(config.cadence.timeLocal)) return invalid('Weekly cadence timeLocal must use HH:mm.')
       const daysOfWeek = config.cadence.daysOfWeek
       if (
-        !Array.isArray(daysOfWeek)
-        || daysOfWeek.length === 0
-        || !daysOfWeek.every((day) => Number.isInteger(day) && day >= 0 && day <= 6)
-        || new Set(daysOfWeek).size !== daysOfWeek.length
+        !Array.isArray(daysOfWeek) ||
+        daysOfWeek.length === 0 ||
+        !daysOfWeek.every((day) => Number.isInteger(day) && day >= 0 && day <= 6) ||
+        new Set(daysOfWeek).size !== daysOfWeek.length
       ) {
         return invalid('Weekly cadence daysOfWeek must be unique integers from 0 to 6.')
       }
@@ -218,7 +216,8 @@ function parseAtDatetime(value: unknown): AtDatetimeParseResult {
   if (!match) {
     return {
       ok: false,
-      error: 'At cadence datetime must be local time as YYYY-MM-DDTHH:mm (seconds optional, no timezone suffix — the timezone field applies).',
+      error:
+        'At cadence datetime must be local time as YYYY-MM-DDTHH:mm (seconds optional, no timezone suffix — the timezone field applies).',
     }
   }
   const target: LocalDateTime = {
@@ -230,9 +229,9 @@ function parseAtDatetime(value: unknown): AtDatetimeParseResult {
   }
   const probe = new Date(Date.UTC(target.year, target.month - 1, target.day))
   if (
-    probe.getUTCFullYear() !== target.year
-    || probe.getUTCMonth() !== target.month - 1
-    || probe.getUTCDate() !== target.day
+    probe.getUTCFullYear() !== target.year ||
+    probe.getUTCMonth() !== target.month - 1 ||
+    probe.getUTCDate() !== target.day
   ) {
     return { ok: false, error: `At cadence datetime "${value}" is not a real calendar date.` }
   }
@@ -311,7 +310,10 @@ function formatterForTimeZone(timeZone: string): Intl.DateTimeFormat {
   return formatter
 }
 
-function addLocalDays(date: Pick<LocalDateTime, 'year' | 'month' | 'day'>, days: number): Pick<LocalDateTime, 'year' | 'month' | 'day'> {
+function addLocalDays(
+  date: Pick<LocalDateTime, 'year' | 'month' | 'day'>,
+  days: number,
+): Pick<LocalDateTime, 'year' | 'month' | 'day'> {
   const next = new Date(Date.UTC(date.year, date.month - 1, date.day + days))
   return {
     year: next.getUTCFullYear(),
@@ -341,11 +343,11 @@ function sameLocalDateTime(left: LocalDateTime, right: LocalDateTime): boolean {
 
 function compareLocalDateTime(left: LocalDateTime, right: LocalDateTime): number {
   return (
-    left.year - right.year
-    || left.month - right.month
-    || left.day - right.day
-    || left.hour - right.hour
-    || left.minute - right.minute
+    left.year - right.year ||
+    left.month - right.month ||
+    left.day - right.day ||
+    left.hour - right.hour ||
+    left.minute - right.minute
   )
 }
 

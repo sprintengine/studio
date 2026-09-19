@@ -170,7 +170,7 @@ async function collectFiles(rootPath: string): Promise<FileEntry[]> {
 
 export async function resolveMemoryRoot(
   workspaceRoot: string | null | undefined,
-  relativeRootInput: string | null | undefined
+  relativeRootInput: string | null | undefined,
 ): Promise<MemoryRootStatus> {
   const relativeRoot = normalizeMemoryRelativeRoot(relativeRootInput)
   if (!workspaceRoot?.trim()) {
@@ -283,7 +283,7 @@ function parseFrontmatter(content: string): ParsedFrontmatter {
       currentList.push(stripQuotes(listItem[1]))
       continue
     }
-    const kv = /^([A-Za-z0-9_\-]+)\s*:\s*(.*)$/.exec(line)
+    const kv = /^([A-Za-z0-9_-]+)\s*:\s*(.*)$/.exec(line)
     if (!kv) continue
     if (currentKey && currentList) {
       data[currentKey] = currentList
@@ -318,7 +318,10 @@ function parseFrontmatter(content: string): ParsedFrontmatter {
 function frontmatterStringList(value: string | string[] | undefined): string[] {
   if (!value) return []
   if (Array.isArray(value)) return value.map((entry) => entry.trim()).filter(Boolean)
-  return value.split(',').map((entry) => entry.trim()).filter(Boolean)
+  return value
+    .split(',')
+    .map((entry) => entry.trim())
+    .filter(Boolean)
 }
 
 function firstHeading(body: string): string | undefined {
@@ -337,16 +340,14 @@ function resolveWikilink(
   href: string,
   sourceRelativePath: string,
   rootPath: string,
-  keyByRelativePath: Map<string, string>
+  keyByRelativePath: Map<string, string>,
 ): string | null {
   const cleaned = href.replace(/\\/g, '/').replace(/^\/+/u, '').trim()
   if (!cleaned) return null
 
   const candidates: string[] = []
   const hasExtension = /\.[a-z0-9]+$/i.test(cleaned)
-  const sourceDir = sourceRelativePath.includes('/')
-    ? sourceRelativePath.split('/').slice(0, -1).join('/')
-    : ''
+  const sourceDir = sourceRelativePath.includes('/') ? sourceRelativePath.split('/').slice(0, -1).join('/') : ''
 
   if (hasExtension) {
     candidates.push(cleaned)
@@ -385,7 +386,7 @@ function stripHrefDecoration(href: string): string {
 
 export async function indexMemoryGraph(
   workspaceRoot: string | null | undefined,
-  relativeRootInput: string | null | undefined
+  relativeRootInput: string | null | undefined,
 ): Promise<MemoryGraphIndexResult> {
   const root = await resolveMemoryRoot(workspaceRoot, relativeRootInput)
   if (!root.ok) return root
@@ -567,7 +568,7 @@ function imageMimeType(filePath: string): string | null {
 export async function readMemoryPreview(
   workspaceRoot: string | null | undefined,
   relativeRootInput: string | null | undefined,
-  relativePathInput: string
+  relativePathInput: string,
 ): Promise<MemoryPreviewResult> {
   const root = await resolveMemoryRoot(workspaceRoot, relativeRootInput)
   if (!root.ok) return { ok: false, message: root.message }

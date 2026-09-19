@@ -32,7 +32,7 @@ export function createMarketplacePluginVerifier(services: MarketplacePluginVerif
 
 async function verifyMarketplacePlugin(
   entry: MarketplacePluginEntry,
-  services: MarketplacePluginVerifierServices
+  services: MarketplacePluginVerifierServices,
 ): Promise<MarketplacePluginVerifyResult> {
   const registryEntry = validateRegistryEntry(entry)
   if (!registryEntry.ok) {
@@ -114,7 +114,7 @@ async function verifyMarketplacePlugin(
 }
 
 function validateRegistryEntry(
-  entry: MarketplacePluginEntry
+  entry: MarketplacePluginEntry,
 ): { ok: true; entry: MarketplacePluginEntry } | { ok: false; message: string; issues: MarketplaceManifestIssue[] } {
   const result = validateMarketplaceIndex({ schemaVersion: 1, plugins: [entry] })
   if (!result.ok) {

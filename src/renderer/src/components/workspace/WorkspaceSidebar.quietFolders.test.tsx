@@ -76,8 +76,16 @@ async function main(): Promise<void> {
   const workspaces = [
     workspace('w1', 'Alpha'),
     workspace('w2', 'Bravo', { settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 5 * DAY }),
-    workspace('w3', 'Charlie', { folderPath: '/attic', settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 5 * DAY }),
-    workspace('w4', 'Delta', { folderPath: '/attic', settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 4 * DAY }),
+    workspace('w3', 'Charlie', {
+      folderPath: '/attic',
+      settledAt: createdAt - DAY,
+      lastTerminalActivityAt: createdAt - 5 * DAY,
+    }),
+    workspace('w4', 'Delta', {
+      folderPath: '/attic',
+      settledAt: createdAt - DAY,
+      lastTerminalActivityAt: createdAt - 4 * DAY,
+    }),
     // A project whose only live chat has moved to Starred is quiet in the
     // tree: the row is already on screen, and a header over nothing is the
     // same empty folder the ruling above removed.
@@ -139,7 +147,7 @@ async function main(): Promise<void> {
   /** The folder headers the tree draws. */
   const folderNames = (): string[] =>
     [...container.querySelectorAll<HTMLElement>('button[aria-controls^="ws-folder-body-"]')].map(
-      (button) => button.textContent?.trim() ?? ''
+      (button) => button.textContent?.trim() ?? '',
     )
 
   const rowNames = (): string[] =>
@@ -149,7 +157,7 @@ async function main(): Promise<void> {
 
   const shelfButtons = (): HTMLButtonElement[] =>
     [...container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')].filter((button) =>
-      button.textContent?.startsWith('Settled')
+      button.textContent?.startsWith('Settled'),
     )
 
   try {
@@ -158,13 +166,13 @@ async function main(): Promise<void> {
     assert.deepEqual(
       rowNames(),
       ['Echo', 'Alpha'],
-      'the starred chat is a Starred row, not a reason to keep its project header'
+      'the starred chat is a Starred row, not a reason to keep its project header',
     )
     assert.equal(shelfButtons().length, 1, 'only the live project shows a Settled shelf — for its own resting chat')
     assert.equal(
       dom.window.document.getElementById('ws-resting-body'),
       null,
-      'the quiet project is gone, not folded into a band at the foot'
+      'the quiet project is gone, not folded into a band at the foot',
     )
 
     // Opening the quiet project's chat is what brings it back: the row you are
@@ -179,7 +187,11 @@ async function main(): Promise<void> {
       workspaces: [workspaces[0], workspaces[1], { ...workspaces[2], settledAt: null }, workspaces[3], workspaces[4]],
     } as unknown as SidebarProps)
     assert.deepEqual(folderNames(), ['projA', 'attic'], 'un-settling a chat wakes its project too')
-    assert.deepEqual(rowNames(), ['Echo', 'Alpha', 'Charlie'], 'as an active row, with its quiet neighbour still shelved')
+    assert.deepEqual(
+      rowNames(),
+      ['Echo', 'Alpha', 'Charlie'],
+      'as an active row, with its quiet neighbour still shelved',
+    )
 
     // Every project quiet: the tree draws no folders at all.
     await render({

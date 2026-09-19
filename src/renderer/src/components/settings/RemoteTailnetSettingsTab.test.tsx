@@ -111,7 +111,12 @@ const PEERS = [
   tailnetCancelPairing: () => Promise.resolve(STATUS),
   tailnetForgetMachine: (input: { deviceId?: string; connectionId?: string }) => {
     bridge.forgetCalls.push(input)
-    return Promise.resolve({ status: STATUS, connections: [], revokedDeviceId: input.deviceId ?? null, forgottenConnectionId: null })
+    return Promise.resolve({
+      status: STATUS,
+      connections: [],
+      revokedDeviceId: input.deviceId ?? null,
+      forgottenConnectionId: null,
+    })
   },
   tailnetUpdateDeviceScopes: (deviceId: string, scopes: string[]) => {
     bridge.scopeCalls.push({ deviceId, scopes })
@@ -174,7 +179,7 @@ async function mount(): Promise<{ host: HTMLElement; unmount: () => void }> {
 function buttonNamed(host: HTMLElement, name: RegExp): HTMLButtonElement | null {
   return (
     [...host.querySelectorAll('button')].find((button) =>
-      name.test((button.getAttribute('aria-label') ?? button.textContent ?? '').trim())
+      name.test((button.getAttribute('aria-label') ?? button.textContent ?? '').trim()),
     ) ?? null
   )
 }
@@ -232,7 +237,7 @@ run('the scopes popover names what is missing, and Grant widens the device', asy
   assert.match(text, /can't see chats or terminals here/)
 
   const grant = [...dom.window.document.body.querySelectorAll('button')].find(
-    (button) => (button.textContent ?? '').trim() === 'Grant'
+    (button) => (button.textContent ?? '').trim() === 'Grant',
   )
   assert.ok(grant, 'Grant is offered beside the missing set')
   await act(async () => {
@@ -286,7 +291,7 @@ run('Pair a device opens the modal, and Create link mints the chosen set', async
   assert.equal(dialog?.querySelectorAll('input[type="checkbox"]:checked').length, 6)
 
   const create = [...dom.window.document.body.querySelectorAll('button')].find(
-    (button) => (button.textContent ?? '').trim() === 'Create link'
+    (button) => (button.textContent ?? '').trim() === 'Create link',
   )
   await act(async () => {
     create?.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))

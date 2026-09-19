@@ -38,13 +38,7 @@ export const WORKSPACE_REGISTRY_SCHEMA_VERSION = 1
  * Names the process boundary a write came through, never the human — the same
  * rule `AgentLaunchSettingsActor` follows.
  */
-export type WorkspaceRegistryActor =
-  | 'ui'
-  | 'gateway'
-  | 'automation'
-  | 'module'
-  | 'mobile'
-  | 'system'
+export type WorkspaceRegistryActor = 'ui' | 'gateway' | 'automation' | 'module' | 'mobile' | 'system'
 
 /**
  * Per-field last-write-wins stamps for the fields a *user* edits. Each is the
@@ -239,10 +233,7 @@ export function toWorkspaceRegistryRecord(
  * bump would change. A content-identical write is a no-op: no revision bump, no
  * write, no subscriber wake — the same rule the launch-settings mirror applies.
  */
-export function workspaceRegistryContentEqual(
-  left: WorkspaceRegistryFile,
-  right: WorkspaceRegistryFile,
-): boolean {
+export function workspaceRegistryContentEqual(left: WorkspaceRegistryFile, right: WorkspaceRegistryFile): boolean {
   return serializeRegistryContent(left) === serializeRegistryContent(right)
 }
 
@@ -317,8 +308,7 @@ export function parseWorkspaceRegistryFile(raw: unknown): WorkspaceRegistryParse
     workspaces.push(parsed.record)
   }
 
-  const primaryWorkspaceWindowId = normalizeId(raw.primaryWorkspaceWindowId)
-    || DEFAULT_PRIMARY_WORKSPACE_WINDOW_ID
+  const primaryWorkspaceWindowId = normalizeId(raw.primaryWorkspaceWindowId) || DEFAULT_PRIMARY_WORKSPACE_WINDOW_ID
   const retired = new Set(retiredRecordIds)
   const withoutRetired = (workspaceId: string | null): string | null =>
     workspaceId && retired.has(workspaceId) ? null : workspaceId
@@ -334,20 +324,20 @@ export function parseWorkspaceRegistryFile(raw: unknown): WorkspaceRegistryParse
     },
     workspaces,
     workspaceWindows: Array.isArray(raw.workspaceWindows)
-      ? raw.workspaceWindows.filter(isWorkspaceWindowState).map((windowState) => retired.size === 0
-        ? windowState
-        : {
-            ...windowState,
-            workspaceIds: windowState.workspaceIds.filter((workspaceId) => !retired.has(workspaceId)),
-            activeWorkspaceId: withoutRetired(windowState.activeWorkspaceId),
-          })
+      ? raw.workspaceWindows.filter(isWorkspaceWindowState).map((windowState) =>
+          retired.size === 0
+            ? windowState
+            : {
+                ...windowState,
+                workspaceIds: windowState.workspaceIds.filter((workspaceId) => !retired.has(workspaceId)),
+                activeWorkspaceId: withoutRetired(windowState.activeWorkspaceId),
+              },
+        )
       : [],
     primaryWorkspaceWindowId,
     activeWorkspaceId: withoutRetired(rawActiveWorkspaceId),
     registryEmptyState: isRegistryEmptyState(raw.registryEmptyState) ? raw.registryEmptyState : null,
-    tombstones: Array.isArray(raw.tombstones)
-      ? raw.tombstones.filter(isTombstone).map((entry) => ({ ...entry }))
-      : [],
+    tombstones: Array.isArray(raw.tombstones) ? raw.tombstones.filter(isTombstone).map((entry) => ({ ...entry })) : [],
   }
   return { file, droppedRecords, retiredRecordIds }
 }
@@ -370,9 +360,8 @@ export function parseWorkspaceRegistryRecord(raw: unknown): RecordParse {
   if (!isRecord(raw.agents)) return { reason: 'agents' }
   if (raw.folderPath !== null && typeof raw.folderPath !== 'string') return { reason: 'folderPath' }
 
-  const revision = typeof raw.revision === 'number' && Number.isInteger(raw.revision) && raw.revision >= 0
-    ? raw.revision
-    : 0
+  const revision =
+    typeof raw.revision === 'number' && Number.isInteger(raw.revision) && raw.revision >= 0 ? raw.revision : 0
   const record: WorkspaceRegistryRecord = {
     ...(raw as unknown as Workspace),
     revision,
@@ -464,10 +453,7 @@ export function pruneWorkspaceRegistryTombstones(
     : fresh
 }
 
-export function isWorkspaceTombstoned(
-  tombstones: WorkspaceRegistryTombstone[],
-  id: WorkspaceId,
-): boolean {
+export function isWorkspaceTombstoned(tombstones: WorkspaceRegistryTombstone[], id: WorkspaceId): boolean {
   return tombstones.some((entry) => entry.id === id)
 }
 
@@ -508,9 +494,10 @@ export function resolveWorkspaceReuseTarget<T extends Pick<Workspace, 'id' | 'mo
   if (!isWorkspaceReuseMode(mode)) return null
   const folderKey = workspaceRegistryFolderKey(folderPath)
   if (!folderKey) return null
-  return records.find(
-    (record) => record.mode === mode && workspaceRegistryFolderKey(record.folderPath) === folderKey,
-  ) ?? null
+  return (
+    records.find((record) => record.mode === mode && workspaceRegistryFolderKey(record.folderPath) === folderKey) ??
+    null
+  )
 }
 
 // ---------------------------------------------------------------------------
@@ -518,10 +505,7 @@ export function resolveWorkspaceReuseTarget<T extends Pick<Workspace, 'id' | 'mo
 // ---------------------------------------------------------------------------
 
 export type PersistedStateClassification =
-  | 'present'
-  | 'dangerous_empty_missing_storage'
-  | 'dangerous_empty_unreadable'
-  | 'dangerous_empty_no_workspaces'
+  'present' | 'dangerous_empty_missing_storage' | 'dangerous_empty_unreadable' | 'dangerous_empty_no_workspaces'
 
 export type PersistedStateClassificationInput = {
   rawLocalStorage: string | null
@@ -563,9 +547,7 @@ export function classifyPersistedWorkspaceState(
   return 'dangerous_empty_no_workspaces'
 }
 
-export function isDangerousEmptyClassification(
-  classification: PersistedStateClassification,
-): boolean {
+export function isDangerousEmptyClassification(classification: PersistedStateClassification): boolean {
   return classification !== 'present'
 }
 
@@ -578,12 +560,14 @@ function normalizeId(value: unknown): string {
 }
 
 function isRegistryActor(value: unknown): value is WorkspaceRegistryActor {
-  return value === 'ui'
-    || value === 'gateway'
-    || value === 'automation'
-    || value === 'module'
-    || value === 'mobile'
-    || value === 'system'
+  return (
+    value === 'ui' ||
+    value === 'gateway' ||
+    value === 'automation' ||
+    value === 'module' ||
+    value === 'mobile' ||
+    value === 'system'
+  )
 }
 
 function isRegistryEmptyState(value: unknown): value is WorkspaceRegistryEmptyState {
@@ -591,24 +575,28 @@ function isRegistryEmptyState(value: unknown): value is WorkspaceRegistryEmptySt
 }
 
 function isTombstone(value: unknown): value is WorkspaceRegistryTombstone {
-  return isRecord(value)
-    && typeof value.id === 'string'
-    && value.id.trim().length > 0
-    && typeof value.removedAt === 'number'
-    && Number.isFinite(value.removedAt)
-    && typeof value.revision === 'number'
+  return (
+    isRecord(value) &&
+    typeof value.id === 'string' &&
+    value.id.trim().length > 0 &&
+    typeof value.removedAt === 'number' &&
+    Number.isFinite(value.removedAt) &&
+    typeof value.revision === 'number'
+  )
 }
 
 function isWorkspaceWindowState(value: unknown): value is WorkspaceWindowState {
   if (!isRecord(value)) return false
-  return typeof value.id === 'string'
-    && (value.kind === 'primary' || value.kind === 'detached')
-    && Array.isArray(value.workspaceIds)
-    && value.workspaceIds.every((workspaceId) => typeof workspaceId === 'string')
-    && (value.activeWorkspaceId === null || typeof value.activeWorkspaceId === 'string')
-    && (value.bounds === null || isRecord(value.bounds))
-    && typeof value.isMaximized === 'boolean'
-    && (value.displayId === null || typeof value.displayId === 'number')
-    && typeof value.createdAt === 'number'
-    && typeof value.lastFocusedAt === 'number'
+  return (
+    typeof value.id === 'string' &&
+    (value.kind === 'primary' || value.kind === 'detached') &&
+    Array.isArray(value.workspaceIds) &&
+    value.workspaceIds.every((workspaceId) => typeof workspaceId === 'string') &&
+    (value.activeWorkspaceId === null || typeof value.activeWorkspaceId === 'string') &&
+    (value.bounds === null || isRecord(value.bounds)) &&
+    typeof value.isMaximized === 'boolean' &&
+    (value.displayId === null || typeof value.displayId === 'number') &&
+    typeof value.createdAt === 'number' &&
+    typeof value.lastFocusedAt === 'number'
+  )
 }

@@ -30,31 +30,61 @@ import type {
 } from '../../shared/conversation-runtime'
 
 type ConversationIpcRenderer = {
-  invoke(channel: 'conversation:providers:list', input?: ConversationProvidersListInput): Promise<ConversationProviderListResult>
-  invoke(channel: 'conversation:providers:models', input: ConversationProviderModelsInput): Promise<ConversationProviderModelsResult>
-  invoke(channel: 'conversation:secrets:status', input: ConversationSecretStatusInput): Promise<ConversationSecretStatusResult>
+  invoke(
+    channel: 'conversation:providers:list',
+    input?: ConversationProvidersListInput,
+  ): Promise<ConversationProviderListResult>
+  invoke(
+    channel: 'conversation:providers:models',
+    input: ConversationProviderModelsInput,
+  ): Promise<ConversationProviderModelsResult>
+  invoke(
+    channel: 'conversation:secrets:status',
+    input: ConversationSecretStatusInput,
+  ): Promise<ConversationSecretStatusResult>
   invoke(channel: 'conversation:secrets:set', input: ConversationSecretSetInput): Promise<ConversationSecretSetResult>
-  invoke(channel: 'conversation:secrets:clear', input: ConversationSecretClearInput): Promise<ConversationSecretClearResult>
-  invoke(channel: 'conversation:sessions:start', input: ConversationStartSessionInput): Promise<ConversationStartSessionResult>
-  invoke(channel: 'conversation:sessions:send-turn', input: ConversationSendTurnInput): Promise<ConversationSessionActionResult>
-  invoke(channel: 'conversation:sessions:interrupt', input: ConversationInterruptInput): Promise<ConversationSessionActionResult>
+  invoke(
+    channel: 'conversation:secrets:clear',
+    input: ConversationSecretClearInput,
+  ): Promise<ConversationSecretClearResult>
+  invoke(
+    channel: 'conversation:sessions:start',
+    input: ConversationStartSessionInput,
+  ): Promise<ConversationStartSessionResult>
+  invoke(
+    channel: 'conversation:sessions:send-turn',
+    input: ConversationSendTurnInput,
+  ): Promise<ConversationSessionActionResult>
+  invoke(
+    channel: 'conversation:sessions:interrupt',
+    input: ConversationInterruptInput,
+  ): Promise<ConversationSessionActionResult>
   invoke(
     channel: 'conversation:sessions:respond-to-request',
-    input: ConversationRespondToRequestInput
+    input: ConversationRespondToRequestInput,
   ): Promise<ConversationSessionActionResult>
   invoke(
     channel: 'conversation:sessions:set-permission',
-    input: ConversationSetPermissionInput
+    input: ConversationSetPermissionInput,
   ): Promise<ConversationSessionActionResult>
-  invoke(channel: 'conversation:sessions:stop', input: ConversationStopSessionInput): Promise<ConversationSessionActionResult>
-  invoke(channel: 'conversation:sessions:list', input?: ConversationListSessionsInput): Promise<ConversationListSessionsResult>
+  invoke(
+    channel: 'conversation:sessions:stop',
+    input: ConversationStopSessionInput,
+  ): Promise<ConversationSessionActionResult>
+  invoke(
+    channel: 'conversation:sessions:list',
+    input?: ConversationListSessionsInput,
+  ): Promise<ConversationListSessionsResult>
   invoke(channel: 'conversation:transcript', input: ConversationTranscriptInput): Promise<ConversationTranscriptResult>
   invoke(channel: 'conversation:events:subscribe'): Promise<{ ok: true; subscriptionId: string }>
-  invoke(channel: 'conversation:events:unsubscribe', input: { subscriptionId: string }): Promise<{ ok: true } | { ok: false; message: string }>
+  invoke(
+    channel: 'conversation:events:unsubscribe',
+    input: { subscriptionId: string },
+  ): Promise<{ ok: true } | { ok: false; message: string }>
   on(channel: 'conversation:event', listener: (event: IpcRendererEvent, payload: ConversationEvent) => void): void
   removeListener(
     channel: 'conversation:event',
-    listener: (event: IpcRendererEvent, payload: ConversationEvent) => void
+    listener: (event: IpcRendererEvent, payload: ConversationEvent) => void,
   ): void
 }
 
@@ -77,13 +107,11 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
     conversationSessionInterrupt: (input: ConversationInterruptInput): Promise<ConversationSessionActionResult> =>
       renderer.invoke('conversation:sessions:interrupt', input),
     conversationSessionRespondToRequest: (
-      input: ConversationRespondToRequestInput
-    ): Promise<ConversationSessionActionResult> =>
-      renderer.invoke('conversation:sessions:respond-to-request', input),
+      input: ConversationRespondToRequestInput,
+    ): Promise<ConversationSessionActionResult> => renderer.invoke('conversation:sessions:respond-to-request', input),
     conversationSessionSetPermission: (
-      input: ConversationSetPermissionInput
-    ): Promise<ConversationSessionActionResult> =>
-      renderer.invoke('conversation:sessions:set-permission', input),
+      input: ConversationSetPermissionInput,
+    ): Promise<ConversationSessionActionResult> => renderer.invoke('conversation:sessions:set-permission', input),
     conversationSessionStop: (input: ConversationStopSessionInput): Promise<ConversationSessionActionResult> =>
       renderer.invoke('conversation:sessions:stop', input),
     conversationSessionsList: (input?: ConversationListSessionsInput): Promise<ConversationListSessionsResult> =>
@@ -96,9 +124,11 @@ export function createConversationApi(renderer: ConversationIpcRenderer) {
       const subscription = renderer.invoke('conversation:events:subscribe')
       return () => {
         renderer.removeListener('conversation:event', listener)
-        void subscription.then((result) => {
-          void renderer.invoke('conversation:events:unsubscribe', { subscriptionId: result.subscriptionId })
-        }).catch(() => undefined)
+        void subscription
+          .then((result) => {
+            void renderer.invoke('conversation:events:unsubscribe', { subscriptionId: result.subscriptionId })
+          })
+          .catch(() => undefined)
       }
     },
   } satisfies Pick<

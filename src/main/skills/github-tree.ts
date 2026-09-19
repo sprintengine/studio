@@ -110,7 +110,7 @@ export class SkillFetchError extends Error {
     message: string,
     readonly statusCode?: number,
     /** Present only for a refusal that carried rate-limit headers. */
-    readonly rateLimit?: SkillRateLimitHint
+    readonly rateLimit?: SkillRateLimitHint,
   ) {
     super(message)
   }
@@ -126,22 +126,18 @@ function readRateLimitHint(response: Pick<Response, 'status' | 'headers'>): Skil
   const retryAfterSeconds = Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter : 0
   return {
     // 429 is unambiguous. A 403 is a rate limit only when the headers say so.
-    exhausted:
-      response.status === 429 || (response.status === 403 && (retryAfterSeconds > 0 || remaining === '0')),
+    exhausted: response.status === 429 || (response.status === 403 && (retryAfterSeconds > 0 || remaining === '0')),
     retryAfterSeconds,
     resetAt: Number.isFinite(reset) && reset > 0 ? new Date(reset * 1000).toISOString() : '',
   }
 }
 
 /** Resolve a ref (or the default branch) to the commit SHA the scan pins to. */
-export async function resolveSkillRepoCommit(
-  ref: SkillRepoRef,
-  options: SkillGithubOptions = {}
-): Promise<string> {
+export async function resolveSkillRepoCommit(ref: SkillRepoRef, options: SkillGithubOptions = {}): Promise<string> {
   const target = ref.ref || (await fetchDefaultBranch(ref, options))
   const body = await fetchJson<{ sha?: unknown }>(
     `https://api.github.com/repos/${ref.owner}/${ref.repo}/commits/${encodeURIComponent(target)}`,
-    options
+    options,
   )
   if (typeof body.sha !== 'string' || body.sha.length === 0) {
     throw new SkillFetchError(`GitHub did not return a commit for ${ref.owner}/${ref.repo}.`)
@@ -152,7 +148,7 @@ export async function resolveSkillRepoCommit(
 async function fetchDefaultBranch(ref: SkillRepoRef, options: SkillGithubOptions): Promise<string> {
   const body = await fetchJson<{ default_branch?: unknown }>(
     `https://api.github.com/repos/${ref.owner}/${ref.repo}`,
-    options
+    options,
   )
   if (typeof body.default_branch !== 'string' || body.default_branch.length === 0) {
     throw new SkillFetchError(`GitHub did not report a default branch for ${ref.owner}/${ref.repo}.`)
@@ -168,15 +164,15 @@ async function fetchDefaultBranch(ref: SkillRepoRef, options: SkillGithubOptions
 export async function fetchSkillRepoTree(
   ref: SkillRepoRef,
   commitSha: string,
-  options: SkillGithubOptions = {}
+  options: SkillGithubOptions = {},
 ): Promise<SkillRepoTree> {
   const body = await fetchJson<{ tree?: unknown; truncated?: unknown }>(
     `https://api.github.com/repos/${ref.owner}/${ref.repo}/git/trees/${encodeURIComponent(commitSha)}?recursive=1`,
-    options
+    options,
   )
   if (body.truncated === true) {
     throw new SkillFetchError(
-      `${ref.owner}/${ref.repo} is too large for GitHub to list in one request, so it cannot be scanned completely.`
+      `${ref.owner}/${ref.repo} is too large for GitHub to list in one request, so it cannot be scanned completely.`,
     )
   }
   if (!Array.isArray(body.tree)) {
@@ -184,7 +180,7 @@ export async function fetchSkillRepoTree(
   }
   if (body.tree.length > DEFAULT_SKILL_MAX_TREE_ENTRIES) {
     throw new SkillFetchError(
-      `${ref.owner}/${ref.repo} lists more than ${DEFAULT_SKILL_MAX_TREE_ENTRIES} files, which is too large to scan.`
+      `${ref.owner}/${ref.repo} lists more than ${DEFAULT_SKILL_MAX_TREE_ENTRIES} files, which is too large to scan.`,
     )
   }
   return { commitSha, entries: body.tree.map(normalizeTreeEntry).filter(isTreeEntry) }
@@ -212,13 +208,13 @@ export async function fetchSkillRepoFile(
   ref: SkillRepoRef,
   commitSha: string,
   path: string,
-  options: SkillGithubOptions = {}
+  options: SkillGithubOptions = {},
 ): Promise<Buffer> {
   const encoded = path.split('/').map(encodeURIComponent).join('/')
   return fetchBytes(
     `https://raw.githubusercontent.com/${ref.owner}/${ref.repo}/${encodeURIComponent(commitSha)}/${encoded}`,
     { accept: '*/*' },
-    options
+    options,
   )
 }
 
@@ -240,7 +236,7 @@ async function fetchBytes(
   url: string,
   headers: Record<string, string>,
   options: SkillGithubOptions,
-  limit?: FetchLimit
+  limit?: FetchLimit,
 ): Promise<Buffer> {
   const parsed = parseAllowedUrl(url)
   const fetcher = options.fetcher ?? defaultFetch
@@ -249,10 +245,7 @@ async function fetchBytes(
     limit?.describeOverflow ?? ((bytes: number) => `A file in this repository is larger than ${bytes} bytes.`)
   const token = options.token?.trim()
   const controller = new AbortController()
-  const timeout = setTimeout(
-    () => controller.abort(),
-    options.timeoutMs ?? DEFAULT_SKILL_FETCH_TIMEOUT_MS
-  )
+  const timeout = setTimeout(() => controller.abort(), options.timeoutMs ?? DEFAULT_SKILL_FETCH_TIMEOUT_MS)
   try {
     let response: Response
     try {
@@ -262,9 +255,7 @@ async function fetchBytes(
         signal: controller.signal,
       })
     } catch (error) {
-      throw new SkillFetchError(
-        `Could not reach GitHub. ${error instanceof Error ? error.message : String(error)}`
-      )
+      throw new SkillFetchError(`Could not reach GitHub. ${error instanceof Error ? error.message : String(error)}`)
     }
     if (!response.ok) {
       const hint = readRateLimitHint(response)
@@ -306,7 +297,7 @@ function githubErrorMessage(response: Response, hint: SkillRateLimitHint): strin
 async function readBounded(
   response: Response,
   maxBytes: number,
-  describeOverflow: (limit: number) => string
+  describeOverflow: (limit: number) => string,
 ): Promise<Buffer> {
   const declared = Number.parseInt(response.headers?.get('content-length') ?? '', 10)
   if (Number.isFinite(declared) && declared > maxBytes) throw new SkillFetchError(describeOverflow(maxBytes))

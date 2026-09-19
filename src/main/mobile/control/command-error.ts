@@ -4,7 +4,7 @@ export class MobileControlCommandError extends Error {
   constructor(
     readonly code: MobileControlError['code'],
     message: string,
-    readonly retryable: boolean
+    readonly retryable: boolean,
   ) {
     super(message)
   }

@@ -44,16 +44,17 @@ export type TailnetPeerScanner = {
   scan(input: { port: number }): Promise<TailnetPeerScan>
 }
 
-export function createTailnetPeerScanner(options: {
-  /** Injected in tests; production runs `tailscale status --json`. */
-  runStatus?: () => Promise<string | null>
-  /** Injected in tests; production opens a real HTTP request to the peer. */
-  probe?: (address: string, port: number) => Promise<TailnetPeerStudio | null>
-  log?: (message: string) => void
-} = {}): TailnetPeerScanner {
+export function createTailnetPeerScanner(
+  options: {
+    /** Injected in tests; production runs `tailscale status --json`. */
+    runStatus?: () => Promise<string | null>
+    /** Injected in tests; production opens a real HTTP request to the peer. */
+    probe?: (address: string, port: number) => Promise<TailnetPeerStudio | null>
+    log?: (message: string) => void
+  } = {},
+): TailnetPeerScanner {
   const runStatus =
-    options.runStatus
-    ?? (() => runTailscale(['status', '--json'], STATUS_TIMEOUT_MS, STATUS_MAX_BUFFER_BYTES))
+    options.runStatus ?? (() => runTailscale(['status', '--json'], STATUS_TIMEOUT_MS, STATUS_MAX_BUFFER_BYTES))
   const probe = options.probe ?? probeStudioListener
 
   return {
@@ -98,8 +99,7 @@ export function createTailnetPeerScanner(options: {
 }
 
 type ParsedStatus =
-  | { ok: true; backendRunning: boolean; peers: Array<Omit<TailnetPeer, 'studio'>> }
-  | { ok: false; reason: string }
+  { ok: true; backendRunning: boolean; peers: Array<Omit<TailnetPeer, 'studio'>> } | { ok: false; reason: string }
 
 /**
  * Read `tailscale status --json` into the peers a picker can offer.
@@ -246,7 +246,7 @@ export function probeStudioListener(address: string, port: number): Promise<Tail
           })
           response.on('end', () => finish(readHealthPayload(body)))
           response.on('error', () => finish(null))
-        }
+        },
       )
       call.on('timeout', () => finish(null))
       call.on('error', () => finish(null))
@@ -292,7 +292,7 @@ export function readHealthPayload(body: string): TailnetPeerStudio | null {
 async function mapWithLimit<In, Out>(
   items: readonly In[],
   limit: number,
-  worker: (item: In) => Promise<Out>
+  worker: (item: In) => Promise<Out>,
 ): Promise<Out[]> {
   const results = new Array<Out>(items.length)
   let next = 0

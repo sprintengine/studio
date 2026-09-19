@@ -198,7 +198,8 @@ const SKELETON_PROPERTIES = {
   },
   x: {
     type: 'number',
-    description: 'Left edge in scene pixels. The origin is top-left and y grows DOWNWARD, so a lower row has a larger y.',
+    description:
+      'Left edge in scene pixels. The origin is top-left and y grows DOWNWARD, so a lower row has a larger y.',
   },
   y: { type: 'number', description: 'Top edge in scene pixels, growing downward.' },
   width: {
@@ -237,7 +238,8 @@ const SKELETON_PROPERTIES = {
   },
   startArrowhead: {
     type: ['string', 'null'],
-    description: 'Arrowhead at the tail: "arrow", "triangle", "dot", "bar", or null for none. Null is the usual choice.',
+    description:
+      'Arrowhead at the tail: "arrow", "triangle", "dot", "bar", or null for none. Null is the usual choice.',
   },
   endArrowhead: {
     type: ['string', 'null'],
@@ -308,7 +310,7 @@ const UPDATE_SCHEMA = {
       type: 'object',
       properties: PATCH_PROPERTIES,
       additionalProperties: false,
-      description: 'The fields to change. An element\'s id and kind are fixed for its life and cannot be set here.',
+      description: "The fields to change. An element's id and kind are fixed for its life and cannot be set here.",
     },
   },
   required: ['id', 'set'],
@@ -477,7 +479,7 @@ export function createCanvasTools(deps: CanvasToolsDeps): McpToolRegistration[] 
     {
       name: 'canvas.describe',
       description:
-        'The board in text: counts and bounds, one line per element with its id, position and label, and the connections between them — plus the lint score, what the person changed since you last looked, and the board\'s recent actions. Start every canvas task here; never assume a board is empty. `detail: full` also returns the editable skeleton of every element. Read-only.',
+        "The board in text: counts and bounds, one line per element with its id, position and label, and the connections between them — plus the lint score, what the person changed since you last looked, and the board's recent actions. Start every canvas task here; never assume a board is empty. `detail: full` also returns the editable skeleton of every element. Read-only.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -528,11 +530,12 @@ export function createCanvasTools(deps: CanvasToolsDeps): McpToolRegistration[] 
         const actions = service.actions(resolved.ref).slice(-DESCRIBE_ACTIONS)
 
         const sections = [describeScene(state.elements, rendered), '', ...lintLines(lint)]
-        if (changes.length > 0) sections.push('', 'Changed since you last looked:', ...changes.map((line) => `- ${line}`))
+        if (changes.length > 0)
+          sections.push('', 'Changed since you last looked:', ...changes.map((line) => `- ${line}`))
         if (actions.length > 0) {
           sections.push('', 'Recent actions')
           for (const entry of actions) {
-            const who = entry.actor === 'human' ? 'the person' : entry.agentName ?? 'an agent'
+            const who = entry.actor === 'human' ? 'the person' : (entry.agentName ?? 'an agent')
             sections.push(`- ${entry.action} by ${who}: ${entry.summary} (${entry.status})`)
           }
         }
@@ -626,7 +629,7 @@ export function createCanvasTools(deps: CanvasToolsDeps): McpToolRegistration[] 
     {
       name: 'canvas.edit',
       description:
-        'Draw: create, change and delete elements on the board, applied in the order delete → update → create. Returns the ids your creates were given (`tempIds`), any warnings, and the board\'s lint report. Read the lint — a low score means the LAYOUT is wrong, and the fix is to redesign that part of the board, not to nudge single coordinates. The loop is canvas.describe → canvas.edit → read the lint → canvas.screenshot.',
+        "Draw: create, change and delete elements on the board, applied in the order delete → update → create. Returns the ids your creates were given (`tempIds`), any warnings, and the board's lint report. Read the lint — a low score means the LAYOUT is wrong, and the fix is to redesign that part of the board, not to nudge single coordinates. The loop is canvas.describe → canvas.edit → read the lint → canvas.screenshot.",
       inputSchema: {
         type: 'object',
         properties: {
@@ -710,7 +713,10 @@ export function createCanvasTools(deps: CanvasToolsDeps): McpToolRegistration[] 
             enum: ['horizontal', 'vertical'],
             description: 'distribute and stack: the axis to lay the elements out along.',
           },
-          gap: { type: 'number', description: 'stack only: the space between neighbours in pixels; 80-120 reads well.' },
+          gap: {
+            type: 'number',
+            description: 'stack only: the space between neighbours in pixels; 80-120 reads well.',
+          },
           workspaceId: SHARED_PROPERTIES.workspaceId,
         },
         required: ['op', 'elementIds'],
@@ -819,14 +825,19 @@ export function createCanvasTools(deps: CanvasToolsDeps): McpToolRegistration[] 
           elementIds: {
             type: 'array',
             items: { type: 'string', description: 'An element id from canvas.describe or canvas.find.' },
-            description: 'Capture only these elements instead of the whole board. The way to photograph one region of a big board.',
+            description:
+              'Capture only these elements instead of the whole board. The way to photograph one region of a big board.',
           },
           maxEdge: {
             type: 'number',
-            description: 'Longest edge of the image in pixels. Lower it when a capture comes back too large; the default already fits the wire.',
+            description:
+              'Longest edge of the image in pixels. Lower it when a capture comes back too large; the default already fits the wire.',
           },
           background: { type: 'boolean', description: 'Draw the board background behind the elements. Default true.' },
-          dark: { type: 'boolean', description: 'Render in the dark theme, as a person using dark mode sees the board.' },
+          dark: {
+            type: 'boolean',
+            description: 'Render in the dark theme, as a person using dark mode sees the board.',
+          },
           workspaceId: SHARED_PROPERTIES.workspaceId,
         },
         additionalProperties: false,
@@ -899,5 +910,5 @@ function liveElements(state: CanvasBoardState): CanvasBoardState['elements'] {
 }
 
 function newestFirst<T extends { modifiedAt: number; path: string }>(boards: readonly T[]): T[] {
-  return [...boards].sort((a, b) => (b.modifiedAt - a.modifiedAt) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+  return [...boards].sort((a, b) => b.modifiedAt - a.modifiedAt || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
 }

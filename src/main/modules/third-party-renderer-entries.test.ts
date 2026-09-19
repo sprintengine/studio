@@ -33,11 +33,14 @@ async function writeModule(
   root: string,
   id: string,
   manifest: Record<string, unknown>,
-  files: Record<string, string> = {}
+  files: Record<string, string> = {},
 ): Promise<void> {
   const dir = join(root, id)
   await mkdir(dir, { recursive: true })
-  await writeFile(join(dir, 'manifest.json'), JSON.stringify({ id, displayName: `Module ${id}`, version: 1, ...manifest }))
+  await writeFile(
+    join(dir, 'manifest.json'),
+    JSON.stringify({ id, displayName: `Module ${id}`, version: 1, ...manifest }),
+  )
   for (const [name, content] of Object.entries(files)) {
     await writeFile(join(dir, name), content)
   }
@@ -49,7 +52,7 @@ async function writeSignedModule(
   root: string,
   id: string,
   manifest: Record<string, unknown>,
-  files: Record<string, string> = {}
+  files: Record<string, string> = {},
 ): Promise<CapabilityManifest> {
   await writeModule(root, id, manifest, files)
   const { modules } = await discoverUserModules(root, EMPTY_TRUST)
@@ -88,7 +91,7 @@ async function testTrustGateMatrix(): Promise<void> {
     const tamperTarget = await writeSignedModule(root, 'tampered', entry, bundle)
     await writeFile(
       join(root, 'tampered', 'manifest.json'),
-      JSON.stringify({ ...tamperTarget, displayName: 'Evil module' })
+      JSON.stringify({ ...tamperTarget, displayName: 'Evil module' }),
     )
 
     const trust = await trustOf(root, 'approved')
@@ -102,7 +105,10 @@ async function testTrustGateMatrix(): Promise<void> {
     })
 
     const served = await collectThirdPartyRendererEntries(modules)
-    assert.deepEqual(served.entries.map((served) => served.id), ['approved'])
+    assert.deepEqual(
+      served.entries.map((served) => served.id),
+      ['approved'],
+    )
     assert.equal(served.entries[0].code, 'export function registerRenderer() {}')
     assert.deepEqual(served.failures, {}, 'trust-blocked modules are not serving failures')
 
@@ -179,7 +185,7 @@ async function testTamperRemovesFromServableSet(): Promise<void> {
       root,
       'demo',
       { entry: { renderer: 'renderer.js' } },
-      { 'renderer.js': 'export {}' }
+      { 'renderer.js': 'export {}' },
     )
     const trust = await trustOf(root, 'demo')
 
@@ -188,10 +194,7 @@ async function testTamperRemovesFromServableSet(): Promise<void> {
     assert.equal((await collectThirdPartyRendererEntries(before.modules)).entries.length, 1)
 
     // Tamper a signed field on disk: permissions escalation under a trusted id.
-    await writeFile(
-      join(root, 'demo', 'manifest.json'),
-      JSON.stringify({ ...signed, permissions: ['process:spawn'] })
-    )
+    await writeFile(join(root, 'demo', 'manifest.json'), JSON.stringify({ ...signed, permissions: ['process:spawn'] }))
     const after = await discoverUserModules(root, trust)
     assert.equal(after.modules[0].trust.status, 'invalid')
     const served = await collectThirdPartyRendererEntries(after.modules)
@@ -246,7 +249,10 @@ async function testKernelIpcSurface(): Promise<void> {
     const handler = handlers.get(THIRD_PARTY_RENDERER_ENTRIES_CHANNEL)
     assert.ok(handler, 'channel handler is registered on ipcMain')
     const result = (await handler({} as IpcMainInvokeEvent)) as ThirdPartyRendererEntriesResult
-    assert.deepEqual(result.entries.map((entry) => entry.id), ['approved'])
+    assert.deepEqual(
+      result.entries.map((entry) => entry.id),
+      ['approved'],
+    )
   })
 }
 

@@ -7,11 +7,7 @@ import type {
   WorkspaceWindowState,
 } from '../../types/workspace'
 import { defaultEditorState, normalizeAgentCli, normalizeAgentState } from './agentsSlice'
-import {
-  hideNavRailTabStrip,
-  healRetiredRailLayout,
-  stripSettingsTabsFromLayout,
-} from './layoutSlice'
+import { hideNavRailTabStrip, healRetiredRailLayout, stripSettingsTabsFromLayout } from './layoutSlice'
 import { normalizeWorkspaceMemoryConfig } from './memorySlice'
 import {
   defaultAppSettings,
@@ -21,11 +17,7 @@ import {
 } from './settingsSlice'
 import { normalizeWorkspaceFileExplorerState, normalizeWorkspaceMode } from './workspacesSlice'
 import { normalizeWorkspaceWorktreeState } from './worktreesSlice'
-import {
-  dedupeAutomationsHostWorkspaces,
-  dropRetiredModeWorkspaces,
-  mapMigrationWorkspaces,
-} from './normalizers'
+import { dedupeAutomationsHostWorkspaces, dropRetiredModeWorkspaces, mapMigrationWorkspaces } from './normalizers'
 
 export const WORKSPACE_STORAGE_KEY = 'multicode-workspaces'
 export const APP_SETTINGS_STORAGE_KEY = 'multicode-app-settings'
@@ -61,21 +53,22 @@ export function normalizeWorkspaceWindows(
   const assignedWorkspaceIds = new Set<WorkspaceId>()
   const nextWindows: WorkspaceWindowState[] = []
 
-  const sourceWindows = Array.isArray(windows) && windows.length > 0
-    ? windows
-    : [
-        {
-          id: primaryId,
-          kind: 'primary' as const,
-          workspaceIds,
-          activeWorkspaceId: fallbackActiveWorkspaceId ?? workspaceIds[0] ?? null,
-          bounds: null,
-          isMaximized: false,
-          displayId: null,
-          createdAt: now,
-          lastFocusedAt: now,
-        },
-      ]
+  const sourceWindows =
+    Array.isArray(windows) && windows.length > 0
+      ? windows
+      : [
+          {
+            id: primaryId,
+            kind: 'primary' as const,
+            workspaceIds,
+            activeWorkspaceId: fallbackActiveWorkspaceId ?? workspaceIds[0] ?? null,
+            bounds: null,
+            isMaximized: false,
+            displayId: null,
+            createdAt: now,
+            lastFocusedAt: now,
+          },
+        ]
 
   for (const source of sourceWindows) {
     if (!source || typeof source.id !== 'string' || !source.id.trim()) continue
@@ -97,7 +90,7 @@ export function normalizeWorkspaceWindows(
       activeWorkspaceId:
         source.activeWorkspaceId && memberIds.includes(source.activeWorkspaceId)
           ? source.activeWorkspaceId
-          : memberIds[0] ?? null,
+          : (memberIds[0] ?? null),
       bounds: normalizeWorkspaceWindowBounds(source.bounds),
       isMaximized: source.isMaximized === true,
       displayId: typeof source.displayId === 'number' ? source.displayId : null,
@@ -135,18 +128,16 @@ export function normalizeWorkspaceWindows(
       ? primaryWindow.activeWorkspaceId
       : fallbackActiveWorkspaceId && primaryWindow.workspaceIds.includes(fallbackActiveWorkspaceId)
         ? fallbackActiveWorkspaceId
-        : primaryWindow.workspaceIds[0] ?? null
+        : (primaryWindow.workspaceIds[0] ?? null)
 
   return {
-    windows: nextWindows.filter((windowState) =>
-      windowState.kind === 'primary' || windowState.workspaceIds.length > 0
-    ),
+    windows: nextWindows.filter((windowState) => windowState.kind === 'primary' || windowState.workspaceIds.length > 0),
     primaryWorkspaceWindowId: primaryId,
   }
 }
 
 function normalizeWorkspaceWindowBounds(
-  bounds: WorkspaceWindowState['bounds'] | null | undefined
+  bounds: WorkspaceWindowState['bounds'] | null | undefined,
 ): WorkspaceWindowState['bounds'] {
   if (!bounds) return null
   const { x, y, width, height } = bounds
@@ -195,10 +186,7 @@ export function nonEmptyPersistedWorkspaceState(): Partial<WorkspaceMigrationSta
 // exactly the classifications the guard refuses to overwrite on. Re-exported
 // here because the renderer's import sites (and the store's public surface)
 // name it from this module.
-export {
-  classifyPersistedWorkspaceState,
-  isDangerousEmptyClassification,
-} from '../../../../shared/workspace-registry'
+export { classifyPersistedWorkspaceState, isDangerousEmptyClassification } from '../../../../shared/workspace-registry'
 import type { PersistedStateClassification } from '../../../../shared/workspace-registry'
 export type { PersistedStateClassification }
 
@@ -221,10 +209,7 @@ export type HydrationDiagnostic = {
   recoveryError?: string
 }
 
-export function migratePersistedWorkspaceState(
-  persisted: unknown,
-  version: number,
-): unknown {
+export function migratePersistedWorkspaceState(persisted: unknown, version: number): unknown {
   const state = persisted as Partial<WorkspaceMigrationState> | undefined
   if (!state) return state as never
   state.workspaces = state.workspaces ?? []
@@ -255,18 +240,14 @@ export function migratePersistedWorkspaceState(
       cliRuntimes: {
         codex: {
           ...defaults.cliRuntimes.codex,
-          ...(existing.cliRuntimes?.codex ?? {}),
+          ...existing.cliRuntimes?.codex,
           command:
-            existing.cliRuntimes?.codex?.command
-            ?? existing.cliCommands?.codex
-            ?? defaults.cliRuntimes.codex.command,
+            existing.cliRuntimes?.codex?.command ?? existing.cliCommands?.codex ?? defaults.cliRuntimes.codex.command,
         },
         'claude-code': {
           ...defaults.cliRuntimes['claude-code'],
-          ...(existing.cliRuntimes?.['claude-code'] ?? {}),
-          command:
-            existing.cliRuntimes?.['claude-code']?.command
-            ?? defaults.cliRuntimes['claude-code'].command,
+          ...existing.cliRuntimes?.['claude-code'],
+          command: existing.cliRuntimes?.['claude-code']?.command ?? defaults.cliRuntimes['claude-code'].command,
         },
       },
       lastSelectedCli: defaults.lastSelectedCli,
@@ -277,13 +258,13 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
         'claude-code': {
           ...defaults.cliRuntimes['claude-code'],
-          ...(current.appSettings?.cliRuntimes?.['claude-code'] ?? {}),
+          ...current.appSettings?.cliRuntimes?.['claude-code'],
         },
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
@@ -294,10 +275,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
     }
@@ -309,10 +290,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
     }
@@ -327,10 +308,7 @@ export function migratePersistedWorkspaceState(
     mapMigrationWorkspaces(migrationState, (ws) => ({
       ...ws,
       agents: Object.fromEntries(
-        Object.entries(ws.agents ?? {}).map(([id, agent]) => [
-          id,
-          normalizeAgentState(agent),
-        ]),
+        Object.entries(ws.agents ?? {}).map(([id, agent]) => [id, normalizeAgentState(agent)]),
       ),
       worktreeState: normalizeWorkspaceWorktreeState(ws.worktreeState),
     }))
@@ -352,10 +330,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
     }
@@ -365,10 +343,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
       recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
@@ -382,10 +360,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
       recentWorkspaceFolders: normalizeRecentWorkspaceFolders(
@@ -399,10 +377,10 @@ export function migratePersistedWorkspaceState(
     const defaults = defaultAppSettings()
     current.appSettings = {
       ...defaults,
-      ...(current.appSettings ?? {}),
+      ...current.appSettings,
       cliRuntimes: {
         ...defaults.cliRuntimes,
-        ...(current.appSettings?.cliRuntimes ?? {}),
+        ...current.appSettings?.cliRuntimes,
       },
       lastSelectedCli: current.appSettings?.lastSelectedCli ?? defaults.lastSelectedCli,
       lastAgentSpawnPermissionPreset: normalizeAgentSpawnPermissionPreset(
@@ -475,17 +453,11 @@ export function migratePersistedWorkspaceState(
     }
   }
   if (version < 46) {
-    const fallbackCli = normalizeAgentCli(
-      { cli: migrationState.appSettings?.lastSelectedCli },
-      'claude-code',
-    )
+    const fallbackCli = normalizeAgentCli({ cli: migrationState.appSettings?.lastSelectedCli }, 'claude-code')
     mapMigrationWorkspaces(migrationState, (ws) => ({
       ...ws,
       agents: Object.fromEntries(
-        Object.entries(ws.agents ?? {}).map(([id, agent]) => [
-          id,
-          normalizeAgentState({ ...agent, id }, fallbackCli),
-        ]),
+        Object.entries(ws.agents ?? {}).map(([id, agent]) => [id, normalizeAgentState({ ...agent, id }, fallbackCli)]),
       ),
     }))
   }
@@ -541,15 +513,13 @@ export function migratePersistedWorkspaceState(
     // `.sprintengine/automations/`, so nothing the user authored is lost. Window
     // membership and the active-workspace pointer are reconciled against the
     // surviving workspaces by normalizeWorkspaceWindows during merge.
-    migrationState.workspaces = (migrationState.workspaces ?? []).filter(
-      (ws) => ws.mode !== 'automations',
-    )
+    migrationState.workspaces = (migrationState.workspaces ?? []).filter((ws) => ws.mode !== 'automations')
     // Don't leave the active pointer dangling at a dropped automations workspace.
     // (Window-level active ids are reconciled by normalizeWorkspaceWindows; this
     // keeps the top-level pointer honest too.)
     if (
-      migrationState.activeWorkspaceId
-      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+      migrationState.activeWorkspaceId &&
+      !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
     ) {
       migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
     }
@@ -581,8 +551,8 @@ export function migratePersistedWorkspaceState(
       return key === null || keptHostByFolder.get(key) === ws.id
     })
     if (
-      migrationState.activeWorkspaceId
-      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+      migrationState.activeWorkspaceId &&
+      !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
     ) {
       migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
     }
@@ -597,8 +567,8 @@ export function migratePersistedWorkspaceState(
     // branded after whichever run minted it.
     migrationState.workspaces = dedupeAutomationsHostWorkspaces(migrationState.workspaces ?? [])
     if (
-      migrationState.activeWorkspaceId
-      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+      migrationState.activeWorkspaceId &&
+      !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
     ) {
       migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
     }
@@ -614,8 +584,8 @@ export function migratePersistedWorkspaceState(
     // honest too (mirrors the v62 automations-mode drop).
     migrationState.workspaces = dropRetiredModeWorkspaces(migrationState.workspaces ?? [])
     if (
-      migrationState.activeWorkspaceId
-      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+      migrationState.activeWorkspaceId &&
+      !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
     ) {
       migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
     }
@@ -628,8 +598,8 @@ export function migratePersistedWorkspaceState(
     // honest too (mirrors the v65 roadmap-mode drop above).
     migrationState.workspaces = dropRetiredModeWorkspaces(migrationState.workspaces ?? [])
     if (
-      migrationState.activeWorkspaceId
-      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+      migrationState.activeWorkspaceId &&
+      !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
     ) {
       migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
     }
@@ -707,8 +677,8 @@ export function migratePersistedWorkspaceState(
     // multiloop-mode drop above, active pointer included.
     migrationState.workspaces = dropRetiredModeWorkspaces(migrationState.workspaces ?? [])
     if (
-      migrationState.activeWorkspaceId
-      && !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
+      migrationState.activeWorkspaceId &&
+      !migrationState.workspaces.some((ws) => ws.id === migrationState.activeWorkspaceId)
     ) {
       migrationState.activeWorkspaceId = migrationState.workspaces[0]?.id ?? null
     }

@@ -24,6 +24,4 @@ export const DEFAULT_MULTIAUTH_BASE_URL =
 
 /** Default mobile relay base URL; override with `SPRINTENGINE_MOBILE_RELAY_URL`. */
 export const DEFAULT_MOBILE_RELAY_URL =
-  typeof __MOBILE_RELAY_URL__ === 'string' && __MOBILE_RELAY_URL__
-    ? __MOBILE_RELAY_URL__
-    : FALLBACK_ACCOUNT_SERVICE_URL
+  typeof __MOBILE_RELAY_URL__ === 'string' && __MOBILE_RELAY_URL__ ? __MOBILE_RELAY_URL__ : FALLBACK_ACCOUNT_SERVICE_URL

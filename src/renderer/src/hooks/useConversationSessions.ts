@@ -6,10 +6,7 @@
 
 import { useEffect, useState } from 'react'
 
-import type {
-  ConversationEventType,
-  ConversationSessionSummary,
-} from '../../../shared/conversation-runtime'
+import type { ConversationEventType, ConversationSessionSummary } from '../../../shared/conversation-runtime'
 
 const STATUS_EVENT_TYPES: ReadonlySet<ConversationEventType> = new Set<ConversationEventType>([
   'session_started',

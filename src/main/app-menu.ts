@@ -147,10 +147,7 @@ export function createAppMenu(): Menu {
     },
     {
       label: 'Window',
-      submenu: [
-        { role: 'minimize' },
-        { role: 'zoom' },
-      ],
+      submenu: [{ role: 'minimize' }, { role: 'zoom' }],
     },
     {
       label: 'Help',

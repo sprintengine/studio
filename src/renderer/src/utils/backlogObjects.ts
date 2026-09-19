@@ -46,10 +46,7 @@ const EMPTY_BACKLOG_OBJECT_STORE: BacklogObjectStore = {
   items: [],
 }
 
-export function hydrateBacklogScanResult(
-  scan: BacklogScanResult,
-  store: BacklogObjectStore,
-): BacklogScanResult {
+export function hydrateBacklogScanResult(scan: BacklogScanResult, store: BacklogObjectStore): BacklogScanResult {
   if (scan.items.length === 0) return scan
   const byPath = recordsByPath(store)
   const items = scan.items.map((item) => {
@@ -118,9 +115,7 @@ function normalizeBacklogObjectRecord(value: unknown): BacklogObjectRecord | nul
   if (typeof raw.source?.relativePath !== 'string') return null
   const relativePath = normalizeRelativePath(raw.source.relativePath)
   if (!relativePath.startsWith('backlog/')) return null
-  const id = typeof raw.id === 'string' && raw.id.trim()
-    ? raw.id.trim()
-    : stableBacklogObjectId(relativePath)
+  const id = typeof raw.id === 'string' && raw.id.trim() ? raw.id.trim() : stableBacklogObjectId(relativePath)
   return {
     id,
     source: { type: 'file', relativePath },
@@ -146,24 +141,28 @@ function normalizeBacklogHighlight(value: unknown): BacklogHighlight | undefined
 }
 
 function isBacklogObjectStatus(value: unknown): value is BacklogItemStatus {
-  return value === 'idea'
-    || value === 'ready'
-    || value === 'in_progress'
-    || value === 'needs_input'
-    || value === 'completed'
-    || value === 'archived'
+  return (
+    value === 'idea' ||
+    value === 'ready' ||
+    value === 'in_progress' ||
+    value === 'needs_input' ||
+    value === 'completed' ||
+    value === 'archived'
+  )
 }
 
 function isBacklogItemLink(value: unknown): value is BacklogItemLink {
   if (!value || typeof value !== 'object') return false
   const raw = value as BacklogItemLink
-  return typeof raw.id === 'string'
-    && typeof raw.moduleId === 'string'
-    && typeof raw.type === 'string'
-    && typeof raw.label === 'string'
-    && Boolean(raw.target)
-    && typeof raw.target.kind === 'string'
-    && typeof raw.target.id === 'string'
+  return (
+    typeof raw.id === 'string' &&
+    typeof raw.moduleId === 'string' &&
+    typeof raw.type === 'string' &&
+    typeof raw.label === 'string' &&
+    Boolean(raw.target) &&
+    typeof raw.target.kind === 'string' &&
+    typeof raw.target.id === 'string'
+  )
 }
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {

@@ -41,13 +41,7 @@ export const AUTOMATIONS_BUILTIN_INSTALL_CHANNEL = 'automations:install-builtin'
 
 export type AutomationStatus = 'enabled' | 'paused' | 'blocked'
 
-export type AutomationRunStatus =
-  | 'queued'
-  | 'running'
-  | 'completed'
-  | 'failed'
-  | 'blocked'
-  | 'skipped'
+export type AutomationRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'blocked' | 'skipped'
 
 export type AutomationRunEventStatus = Extract<AutomationRunStatus, 'completed' | 'failed' | 'blocked'>
 export type AutomationRunEventTrigger = 'timer' | 'manual'
@@ -86,10 +80,7 @@ const RUN_SKILL_LOOP_ACTION_KIND = 'run-skill-loop'
  * fallback exists — see marketplace install in
  * src/main/modules/plugin-bundle-installer.ts.
  */
-export const AGENT_BACKED_ACTION_KINDS: readonly ActionKind[] = [
-  SPAWN_AGENT_ACTION_KIND,
-  RUN_SKILL_LOOP_ACTION_KIND,
-]
+export const AGENT_BACKED_ACTION_KINDS: readonly ActionKind[] = [SPAWN_AGENT_ACTION_KIND, RUN_SKILL_LOOP_ACTION_KIND]
 
 export type TriggerKind = string
 
@@ -137,11 +128,7 @@ export type AutomationTriggerProvider = {
   configSchema: JsonSchema
   requiredIntegrations?: string[]
   validateConfig?(config: unknown): { ok: true } | { ok: false; error: string }
-  subscribe(input: {
-    config: unknown
-    fire: (payload: Record<string, unknown>) => void
-    now: () => number
-  }): () => void
+  subscribe(input: { config: unknown; fire: (payload: Record<string, unknown>) => void; now: () => number }): () => void
   computeNextRun?(config: unknown, after: number): number | null
   poll?(input: {
     config: unknown
@@ -162,8 +149,7 @@ export type AutomationTriggerPollEvent = {
 }
 
 export type AutomationTriggerPollResult =
-  | { ok: true; events: AutomationTriggerPollEvent[] }
-  | { ok: false; blockedReason: string }
+  { ok: true; events: AutomationTriggerPollEvent[] } | { ok: false; blockedReason: string }
 
 /**
  * Bundled action kinds the host ships, plus module-namespaced kinds
@@ -371,16 +357,10 @@ export type AutomationDefinitionPatch = Partial<
 // module does not own. Mirrored exactly by the SDK; the drift guard enforces.
 
 export type ModuleAutomationsError =
-  | 'invalid_draft'
-  | 'invalid_workspace'
-  | 'not_found'
-  | 'not_owner'
-  | 'store_error'
-  | 'engine_unavailable'
+  'invalid_draft' | 'invalid_workspace' | 'not_found' | 'not_owner' | 'store_error' | 'engine_unavailable'
 
 export type ModuleAutomationsResult<T> =
-  | ({ ok: true } & T)
-  | { ok: false; code: ModuleAutomationsError; message: string }
+  ({ ok: true } & T) | { ok: false; code: ModuleAutomationsError; message: string }
 
 export type ModuleAutomationsService = {
   /** Create an automation owned by this module (`ownerModuleId` is stamped). */
@@ -393,14 +373,9 @@ export type ModuleAutomationsService = {
     automationId: string
     patch: AutomationDefinitionPatch
   }): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
-  delete(input: {
-    workspaceRoot: string
-    automationId: string
-  }): Promise<ModuleAutomationsResult<object>>
+  delete(input: { workspaceRoot: string; automationId: string }): Promise<ModuleAutomationsResult<object>>
   /** Automations this module owns in the workspace (never other modules' or the user's). */
-  list(input: {
-    workspaceRoot: string
-  }): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
+  list(input: { workspaceRoot: string }): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
   listRuns(input: {
     workspaceRoot: string
     automationId: string
@@ -482,13 +457,7 @@ export type AutomationsProviders = {
 // renderer so the control center can show an engine indicator. Mirrors the
 // kernel's SidecarRunState (src/main/module-host/main-host.ts) plus
 // 'unavailable' for when the sidecar is absent (module disabled / not wired).
-type AutomationsEngineSidecarState =
-  | 'declared'
-  | 'stopped'
-  | 'starting'
-  | 'running'
-  | 'failed'
-  | 'unavailable'
+type AutomationsEngineSidecarState = 'declared' | 'stopped' | 'starting' | 'running' | 'failed' | 'unavailable'
 
 export type AutomationsEngineStatus = {
   state: AutomationsEngineSidecarState
@@ -496,9 +465,7 @@ export type AutomationsEngineStatus = {
   error?: string
 }
 
-export type AutomationsResult<T> =
-  | { ok: true; value: T }
-  | { ok: false; code: string; message: string }
+export type AutomationsResult<T> = { ok: true; value: T } | { ok: false; code: string; message: string }
 
 /**
  * Containment guard for automation report paths. Reports are addressed relative

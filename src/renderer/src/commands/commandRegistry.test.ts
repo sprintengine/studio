@@ -39,12 +39,7 @@ for (const id of [
 // no keybinding route, so a bound shortcut would silently no-op — the
 // git.worktrees.open defect from T8 review finding A10. This guard fails if any
 // future command is added as palette-only while remaining user-bindable.
-const DISPATCHABLE_HANDLER_KINDS = new Set([
-  'workspace-manager',
-  'context-bound',
-  'app-menu',
-  'panel-event',
-])
+const DISPATCHABLE_HANDLER_KINDS = new Set(['workspace-manager', 'context-bound', 'app-menu', 'panel-event'])
 for (const command of COMMAND_REGISTRY) {
   assert.equal(
     DISPATCHABLE_HANDLER_KINDS.has(command.handlerPath.kind),
@@ -55,7 +50,11 @@ for (const command of COMMAND_REGISTRY) {
 
 assert.equal(getCommandDefinition('quickOpen.open'), undefined)
 assert.equal(getCommandDefinition('git.discardAll'), undefined)
-assert.equal(getCommandDefinition('editor.save'), undefined, 'editor save remains Monaco-owned and is not registry-backed in T3')
+assert.equal(
+  getCommandDefinition('editor.save'),
+  undefined,
+  'editor save remains Monaco-owned and is not registry-backed in T3',
+)
 
 // Search Everywhere is a command of its own rather than a third binding on the
 // palette (skills-everywhere, 2026-09-10). Disable and rebind are PER COMMAND,

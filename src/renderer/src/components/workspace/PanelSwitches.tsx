@@ -22,10 +22,7 @@ import { IconButton, Tooltip } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { selectModuleEnabled } from '../../modules'
 import type { WorkspaceId, WorkspacePaneTabKind } from '../../types/workspace'
-import {
-  getEffectiveKeybindingLabel,
-  platformKeybindingsFromApiPlatform,
-} from '../../commands/effectiveKeybindings'
+import { getEffectiveKeybindingLabel, platformKeybindingsFromApiPlatform } from '../../commands/effectiveKeybindings'
 
 type PanelKey = 'backlog' | 'pane'
 
@@ -104,16 +101,12 @@ type PanelSwitchesProps = {
   cluster?: PanelCluster
 }
 
-export function PanelSwitches({
-  activeWorkspaceId,
-  leadingDivider = true,
-  cluster = 'left',
-}: PanelSwitchesProps) {
+export function PanelSwitches({ activeWorkspaceId, leadingDivider = true, cluster = 'left' }: PanelSwitchesProps) {
   // Subscribe to the active workspace's pane record so the active treatment
   // re-renders whenever any path (switch click, "+" menu, accelerator, tab
   // close, a reveal from another surface) mutates it.
   const paneOpen = useWorkspaceStore(
-    (state) => state.workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.paneState?.open ?? false
+    (state) => state.workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.paneState?.open ?? false,
   )
   const activePaneTabKind = useWorkspaceStore((state) => {
     const pane = state.workspaces.find((workspace) => workspace.id === activeWorkspaceId)?.paneState
@@ -128,9 +121,7 @@ export function PanelSwitches({
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const keybindingPlatform = platformKeybindingsFromApiPlatform(window.api.platform)
   const panels = PANELS.filter(
-    (panel) =>
-      panel.cluster === cluster
-      && (!panel.moduleId || selectModuleEnabled(moduleOverrides, panel.moduleId))
+    (panel) => panel.cluster === cluster && (!panel.moduleId || selectModuleEnabled(moduleOverrides, panel.moduleId)),
   )
   const shortcutFor = (commandId: string): string | null =>
     getEffectiveKeybindingLabel(commandId, keybindingSettings, keybindingPlatform)
@@ -141,10 +132,8 @@ export function PanelSwitches({
 
   const renderSwitch = (panel: PanelDescriptor) => {
     const Icon = panel.icon
-    const active = panel.target.kind === 'pane-tab'
-      ? paneOpen && activePaneTabKind === panel.target.tabKind
-      : paneOpen
-    const label = active ? panel.activeLabel ?? panel.label : panel.label
+    const active = panel.target.kind === 'pane-tab' ? paneOpen && activePaneTabKind === panel.target.tabKind : paneOpen
+    const label = active ? (panel.activeLabel ?? panel.label) : panel.label
     const shortcut = panel.commandId ? shortcutFor(panel.commandId) : null
     const tooltip = shortcut ? `${label} (${shortcut})` : label
     const toggle = () => {
@@ -185,9 +174,7 @@ export function PanelSwitches({
     <div role="toolbar" aria-label="Workspace panels" className="flex items-center">
       {/* Hairline divider separating window nav (collapse · back · forward) from
           the per-workspace panel switches — only when they share a strip. */}
-      {leadingDivider ? (
-        <span aria-hidden="true" className="mx-1.5 h-4 w-px bg-[color:var(--border-subtle)]" />
-      ) : null}
+      {leadingDivider ? <span aria-hidden="true" className="mx-1.5 h-4 w-px bg-[color:var(--border-subtle)]" /> : null}
       <div className="flex items-center gap-0.5">{panels.map(renderSwitch)}</div>
     </div>
   )

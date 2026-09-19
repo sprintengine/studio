@@ -37,23 +37,23 @@ import { isRecord } from '../../shared/records'
 export type ModuleAutomationsRegistry = {
   create(
     moduleId: string,
-    input: { workspaceRoot: string; draft: unknown }
+    input: { workspaceRoot: string; draft: unknown },
   ): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
   update(
     moduleId: string,
-    input: { workspaceRoot: string; automationId: string; patch: unknown }
+    input: { workspaceRoot: string; automationId: string; patch: unknown },
   ): Promise<ModuleAutomationsResult<{ automation: AutomationDefinition }>>
   delete(
     moduleId: string,
-    input: { workspaceRoot: string; automationId: string }
+    input: { workspaceRoot: string; automationId: string },
   ): Promise<ModuleAutomationsResult<object>>
   list(
     moduleId: string,
-    input: { workspaceRoot: string }
+    input: { workspaceRoot: string },
   ): Promise<ModuleAutomationsResult<{ automations: AutomationDefinition[] }>>
   listRuns(
     moduleId: string,
-    input: { workspaceRoot: string; automationId: string }
+    input: { workspaceRoot: string; automationId: string },
   ): Promise<ModuleAutomationsResult<{ runs: AutomationRun[] }>>
   onRunEvent(moduleId: string, listener: (event: AutomationsRunEvent) => void): () => void
   /**
@@ -81,13 +81,13 @@ function moduleErrorCode(code: string): ModuleAutomationsError {
   if (code === 'missing') return 'not_found'
   if (code === 'not_owner') return 'not_owner'
   if (
-    code === 'invalid_input'
-    || code === 'unknown_trigger'
-    || code === 'unknown_action'
-    || code === 'invalid_schedule'
-    || code === 'invalid_trigger_config'
-    || code === 'provider_blocked'
-    || code === 'next_run_unavailable'
+    code === 'invalid_input' ||
+    code === 'unknown_trigger' ||
+    code === 'unknown_action' ||
+    code === 'invalid_schedule' ||
+    code === 'invalid_trigger_config' ||
+    code === 'provider_blocked' ||
+    code === 'next_run_unavailable'
   ) {
     return 'invalid_draft'
   }
@@ -102,9 +102,7 @@ function refuseFrom<T>(failure: { code: string; message: string }): ModuleAutoma
   return refuse(moduleErrorCode(failure.code), failure.message)
 }
 
-export function createModuleAutomationsRegistry(
-  deps: ModuleAutomationsRegistryDeps
-): ModuleAutomationsRegistry {
+export function createModuleAutomationsRegistry(deps: ModuleAutomationsRegistryDeps): ModuleAutomationsRegistry {
   const writeCore = createDefinitionWriteCore(deps)
   const subscribers = new Set<{ moduleId: string; listener: (event: AutomationsRunEvent) => void }>()
 
@@ -116,7 +114,7 @@ export function createModuleAutomationsRegistry(
     if (!result.ok) return refuseFrom(result)
     if (result.postWriteFailure) {
       console.warn(
-        `[automations] module write succeeded but the post-write refresh failed: ${result.postWriteFailure.message}`
+        `[automations] module write succeeded but the post-write refresh failed: ${result.postWriteFailure.message}`,
       )
     }
     return { ok: true, value: result.value }
@@ -155,14 +153,12 @@ export function createModuleAutomationsRegistry(
       if (claimedOwner !== undefined && claimedOwner !== moduleId) {
         return refuse(
           'invalid_draft',
-          `Draft ownerModuleId "${String(claimedOwner)}" does not match the calling module "${moduleId}"; omit it — ownership is stamped by the host.`
+          `Draft ownerModuleId "${String(claimedOwner)}" does not match the calling module "${moduleId}"; omit it — ownership is stamped by the host.`,
         )
       }
       const draft = parseDefinitionDraft(input.draft)
       if (!draft.ok) return refuseFrom(draft)
-      const created = unwrapWrite(
-        await writeCore.create(root.root, { ...draft.value, ownerModuleId: moduleId })
-      )
+      const created = unwrapWrite(await writeCore.create(root.root, { ...draft.value, ownerModuleId: moduleId }))
       if (!created.ok) return created
       return { ok: true, automation: created.value }
     },
@@ -173,7 +169,7 @@ export function createModuleAutomationsRegistry(
       const patch = parseDefinitionPatch(input.patch)
       if (!patch.ok) return refuseFrom(patch)
       const written = unwrapWrite(
-        await writeCore.update(root.root, input.automationId, patch.value, ownedBy(moduleId, input.automationId))
+        await writeCore.update(root.root, input.automationId, patch.value, ownedBy(moduleId, input.automationId)),
       )
       if (!written.ok) return written
       return { ok: true, automation: written.value }
@@ -183,7 +179,7 @@ export function createModuleAutomationsRegistry(
       const root = knownWorkspaceRoot(input.workspaceRoot)
       if (!root.ok) return root
       const deleted = unwrapWrite(
-        await writeCore.remove(root.root, input.automationId, ownedBy(moduleId, input.automationId))
+        await writeCore.remove(root.root, input.automationId, ownedBy(moduleId, input.automationId)),
       )
       if (!deleted.ok) return deleted
       return { ok: true }
@@ -195,10 +191,7 @@ export function createModuleAutomationsRegistry(
       const definitions = await deps.createStore(root.root).listDefinitions()
       if (!definitions.ok) {
         const first = definitions.errors[0]
-        return refuse(
-          'store_error',
-          first ? `${first.path}: ${first.message}` : 'Automations store is unreadable.'
-        )
+        return refuse('store_error', first ? `${first.path}: ${first.message}` : 'Automations store is unreadable.')
       }
       return {
         ok: true,

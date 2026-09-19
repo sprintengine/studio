@@ -97,8 +97,16 @@ async function main(): Promise<void> {
         },
       },
     }),
-    workspace('w2', 'Bravo', { createdAt: createdAt - 10 * DAY, settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 5 * DAY }),
-    workspace('w3', 'Charlie', { createdAt: createdAt - 10 * DAY, settledAt: createdAt - DAY, lastTerminalActivityAt: createdAt - 4 * DAY }),
+    workspace('w2', 'Bravo', {
+      createdAt: createdAt - 10 * DAY,
+      settledAt: createdAt - DAY,
+      lastTerminalActivityAt: createdAt - 5 * DAY,
+    }),
+    workspace('w3', 'Charlie', {
+      createdAt: createdAt - 10 * DAY,
+      settledAt: createdAt - DAY,
+      lastTerminalActivityAt: createdAt - 4 * DAY,
+    }),
   ]
 
   const noop = () => {}
@@ -163,20 +171,22 @@ async function main(): Promise<void> {
 
   const shelfButton = (): HTMLButtonElement | null =>
     [...container.querySelectorAll<HTMLButtonElement>('button[aria-expanded]')].find((button) =>
-      button.textContent?.startsWith('Settled')
+      button.textContent?.startsWith('Settled'),
     ) ?? null
 
   const openMenuOn = async (name: string): Promise<string[]> => {
     const row = [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')].find((el) =>
-      el.textContent?.includes(name)
+      el.textContent?.includes(name),
     )
     assert.ok(row, `row ${name} is rendered`)
     act(() => {
-      row.dispatchEvent(new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }))
+      row.dispatchEvent(
+        new dom.window.MouseEvent('contextmenu', { bubbles: true, cancelable: true, clientX: 10, clientY: 10 }),
+      )
     })
     await settle()
     const items = [...dom.window.document.querySelectorAll('[role="menu"] [data-menu-item="true"]')].map(
-      (el) => el.textContent?.trim() ?? ''
+      (el) => el.textContent?.trim() ?? '',
     )
     act(() => {
       dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }))
@@ -201,8 +211,14 @@ async function main(): Promise<void> {
     })
     await settle()
     assert.equal(shelfButton()?.getAttribute('aria-expanded'), 'true', 'opening the shelf is a disclosure')
-    assert.deepEqual(rowNames(), ['Alpha', 'Charlie', 'Bravo'], 'open, the shelf lists its rows most recently worked first')
-    const bravo = [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')].find((el) => el.textContent?.includes('Bravo'))
+    assert.deepEqual(
+      rowNames(),
+      ['Alpha', 'Charlie', 'Bravo'],
+      'open, the shelf lists its rows most recently worked first',
+    )
+    const bravo = [...container.querySelectorAll<HTMLElement>('[role="treeitem"]')].find((el) =>
+      el.textContent?.includes('Bravo'),
+    )
     assert.ok(bravo?.textContent?.includes('(settled)'), 'a resting row says so in words')
 
     const activeMenu = await openMenuOn('Alpha')
@@ -210,7 +226,10 @@ async function main(): Promise<void> {
     assert.equal(activeMenu.includes('Un-settle'), false)
 
     const settledMenu = await openMenuOn('Bravo')
-    assert.ok(settledMenu.includes('Un-settle'), `a resting row's menu offers Un-settle (got ${settledMenu.join(' | ')})`)
+    assert.ok(
+      settledMenu.includes('Un-settle'),
+      `a resting row's menu offers Un-settle (got ${settledMenu.join(' | ')})`,
+    )
     assert.equal(settledMenu.includes('Settle'), false)
 
     // The one-click seat is rest, not removal. The ✕ that used to sit here
@@ -242,7 +261,11 @@ async function main(): Promise<void> {
     // The row you are in always has a row: selecting a settled chat keeps it
     // in the active list (still settled) instead of in a closed shelf.
     await render({ ...props, activeWorkspaceId: 'w2' } as unknown as SidebarProps)
-    assert.deepEqual(rowNames(), ['Alpha', 'Bravo', 'Charlie'], 'the selected settled row sits in the active list, the other stays shelved')
+    assert.deepEqual(
+      rowNames(),
+      ['Alpha', 'Bravo', 'Charlie'],
+      'the selected settled row sits in the active list, the other stays shelved',
+    )
     assert.match(shelfButton()?.textContent ?? '', /Settled\s*1/, 'the shelf counts only the rows it holds')
 
     // A folder with nothing resting shows no shelf at all — a heading must

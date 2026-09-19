@@ -25,17 +25,11 @@ function session(input: Partial<TerminalSessionSnapshot>): TerminalSessionSnapsh
 }
 
 // A live agent PTY marks its workspace resident.
-assert.deepEqual(
-  [...residentAgentWorkspaceIds([session({ workspaceId: 'ws-1', processAlive: true })])],
-  ['ws-1'],
-)
+assert.deepEqual([...residentAgentWorkspaceIds([session({ workspaceId: 'ws-1', processAlive: true })])], ['ws-1'])
 
 // A suspended/exited agent (processAlive false) does NOT count — this is the
 // reaper's suspend path, where the row should un-bold.
-assert.deepEqual(
-  [...residentAgentWorkspaceIds([session({ workspaceId: 'ws-1', processAlive: false })])],
-  [],
-)
+assert.deepEqual([...residentAgentWorkspaceIds([session({ workspaceId: 'ws-1', processAlive: false })])], [])
 
 // Plain terminals are never agents, so they never make a workspace "hot".
 assert.deepEqual(
@@ -44,10 +38,7 @@ assert.deepEqual(
 )
 
 // A session with no workspaceId is ignored (cannot be attributed).
-assert.deepEqual(
-  [...residentAgentWorkspaceIds([session({ workspaceId: undefined, processAlive: true })])],
-  [],
-)
+assert.deepEqual([...residentAgentWorkspaceIds([session({ workspaceId: undefined, processAlive: true })])], [])
 
 // Multiple live agents in the same workspace collapse to one entry; distinct
 // workspaces each appear once.

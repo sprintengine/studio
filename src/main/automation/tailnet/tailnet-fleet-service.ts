@@ -4,7 +4,12 @@ import { hashSecret } from '../../mobile/bridge/crypto'
 import { hostname } from 'os'
 
 import { backoffDelayMs } from '../../../shared/exponentialBackoff'
-import { normalizeTailnetScopes, type TailnetDevice, type TailnetReverseGrant, type TailnetScope } from '../../../shared/tailnet'
+import {
+  normalizeTailnetScopes,
+  type TailnetDevice,
+  type TailnetReverseGrant,
+  type TailnetScope,
+} from '../../../shared/tailnet'
 import {
   fleetTerminalAccess,
   type FleetAttachResult,
@@ -158,7 +163,11 @@ export type TailnetFleetService = {
    * grant's endpoint is the asker's own address, and a person here approved
    * the request it rode in on. Stored as a machine this Studio can drive.
    */
-  adoptReverseGrant(input: { grant: TailnetReverseGrant; askerName: string; peerNode: string | null }): FleetConnection | null
+  adoptReverseGrant(input: {
+    grant: TailnetReverseGrant
+    askerName: string
+    peerNode: string | null
+  }): FleetConnection | null
   forget(connectionId: unknown): FleetConnection[]
   /**
    * End a pairing in both directions (remote-settings-rebuild).
@@ -311,10 +320,11 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       return {
         ok: false,
         code: 'invalid_pairing_link',
-        message: 'That is not a pairing link. Copy the whole link from the other machine\'s Settings → Remote.',
+        message: "That is not a pairing link. Copy the whole link from the other machine's Settings → Remote.",
       }
     }
-    const name = typeof input.deviceName === 'string' && input.deviceName.trim() ? input.deviceName.trim() : deviceName()
+    const name =
+      typeof input.deviceName === 'string' && input.deviceName.trim() ? input.deviceName.trim() : deviceName()
     if (!name) {
       return {
         ok: false,
@@ -356,8 +366,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         ok: false,
         code: 'pairing_not_saved',
         message:
-          `Paired with ${formatTailnetEndpoint(parsed.endpoint)}, but the credential could not be saved here `
-          + `(${message(error)}). Revoke this device on that machine and pair again.`,
+          `Paired with ${formatTailnetEndpoint(parsed.endpoint)}, but the credential could not be saved here ` +
+          `(${message(error)}). Revoke this device on that machine and pair again.`,
       }
     }
   }
@@ -385,7 +395,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   function announceRequest(
     request: OutboundRequest,
     phase: FleetPairRequestPhase,
-    extra: { connection?: FleetConnection; detail?: string } = {}
+    extra: { connection?: FleetConnection; detail?: string } = {},
   ): void {
     broadcast({ kind: 'pair-request', phase, request: { ...request.view }, ...extra })
   }
@@ -476,8 +486,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         // reverse device stays, though — the other machine now holds its token
         // and will list it, so it must be revocable by name here.
         const detail =
-          `${request.view.machineName} approved the request, but the credential could not be saved here `
-          + `(${message(error)}). Revoke this device on that machine and ask again.`
+          `${request.view.machineName} approved the request, but the credential could not be saved here ` +
+          `(${message(error)}). Revoke this device on that machine and ask again.`
         endRequest(request, true, { ok: false, code: 'pairing_not_saved', message: detail })
         announceRequest(request, 'failed', { detail })
         return
@@ -503,7 +513,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     if (!endpoint) {
       return { ok: false, code: 'invalid_endpoint', message: 'That is not a machine address this can dial.' }
     }
-    const name = typeof input.deviceName === 'string' && input.deviceName.trim() ? input.deviceName.trim() : deviceName()
+    const name =
+      typeof input.deviceName === 'string' && input.deviceName.trim() ? input.deviceName.trim() : deviceName()
     if (!name) {
       return {
         ok: false,
@@ -544,7 +555,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         return {
           ok: false,
           code: 'reverse_unavailable',
-          message: 'Turn on Remote here first, or ask without letting that machine drive this one. A grant to a listener that is not running would point at nothing.',
+          message:
+            'Turn on Remote here first, or ask without letting that machine drive this one. A grant to a listener that is not running would point at nothing.',
         }
       }
       reverse = {
@@ -632,7 +644,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     const existing = store.list().find((entry) => entry.endpoint === grant.endpoint && entry.pairedVia === 'reverse')
     if (existing) {
       options.log?.(
-        `Replacing the reverse pairing for ${grant.endpoint}: device "${existing.deviceName}" there is now unused; revoke it in that machine's Remote settings.`
+        `Replacing the reverse pairing for ${grant.endpoint}: device "${existing.deviceName}" there is now unused; revoke it in that machine's Remote settings.`,
       )
       store.forget(existing.id)
     }
@@ -689,7 +701,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
 
   function recordReachability(
     connection: FleetConnection,
-    answer: { reachable: boolean; unauthorized: boolean; detail: string | null }
+    answer: { reachable: boolean; unauthorized: boolean; detail: string | null },
   ): void {
     const previous = reachabilityFor(connection)
     const now = Date.now()
@@ -880,7 +892,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
 
   function scheduleWatchRetry(watch: Watch): void {
     if (watch.released || watch.retryTimer) return
-    const delayMs = backoffDelayMs(watch.attempts, { baseMs: RECONNECT_BASE_MS, maxMs: WATCH_RETRY_MAX_MS }) ?? WATCH_RETRY_MAX_MS
+    const delayMs =
+      backoffDelayMs(watch.attempts, { baseMs: RECONNECT_BASE_MS, maxMs: WATCH_RETRY_MAX_MS }) ?? WATCH_RETRY_MAX_MS
     watch.attempts += 1
     watch.retryTimer = setTimeout(() => {
       watch.retryTimer = null
@@ -983,7 +996,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   async function readWorkspaces(
     connection: StoredFleetConnection,
     scopes: TailnetScope[],
-    gaps: FleetGap[]
+    gaps: FleetGap[],
   ): Promise<FleetWorkspace[]> {
     // Asked for only when the grant allows it. A refusal is a real answer and is
     // reported as one — an empty list would say "that machine has no
@@ -992,7 +1005,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
       gaps.push({
         part: 'workspaces',
         code: 'scope_required',
-        message: 'This pairing may not read that machine\'s workspaces.',
+        message: "This pairing may not read that machine's workspaces.",
       })
       return []
     }
@@ -1032,13 +1045,13 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
   async function readTerminals(
     connection: StoredFleetConnection,
     scopes: TailnetScope[],
-    gaps: FleetGap[]
+    gaps: FleetGap[],
   ): Promise<FleetTerminal[]> {
     if (fleetTerminalAccess(scopes) === 'none') {
       gaps.push({
         part: 'terminals',
         code: 'scope_required',
-        message: 'This pairing may not see that machine\'s terminals. Pair again with a terminal scope.',
+        message: "This pairing may not see that machine's terminals. Pair again with a terminal scope.",
       })
       return []
     }
@@ -1105,7 +1118,13 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
         worktrees: worktrees.flatMap((entry) => {
           const record = asRecord(entry)
           if (!record || typeof record.path !== 'string') return []
-          return [{ path: record.path, branch: typeof record.branch === 'string' ? record.branch : null, isMain: record.isMain === true }]
+          return [
+            {
+              path: record.path,
+              branch: typeof record.branch === 'string' ? record.branch : null,
+              isMain: record.isMain === true,
+            },
+          ]
         }),
       },
     }
@@ -1426,7 +1445,8 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
 
   function scheduleRetry(attachment: Attachment, reason: string): void {
     if (attachment.released || attachment.retryTimer) return
-    const delayMs = backoffDelayMs(attachment.attempts, { baseMs: RECONNECT_BASE_MS, maxMs: RECONNECT_MAX_MS }) ?? RECONNECT_MAX_MS
+    const delayMs =
+      backoffDelayMs(attachment.attempts, { baseMs: RECONNECT_BASE_MS, maxMs: RECONNECT_MAX_MS }) ?? RECONNECT_MAX_MS
     attachment.attempts += 1
     // A sleeping laptop is not an error. Past a few attempts the pane stops
     // promising an imminent reconnection and says plainly that the machine is
@@ -1434,7 +1454,7 @@ export function createTailnetFleetService(options: TailnetFleetServiceOptions): 
     attachment.emit(
       attachment.attempts > OFFLINE_AFTER_ATTEMPTS
         ? { type: 'status', state: 'offline', detail: reason }
-        : { type: 'status', state: 'reconnecting', detail: reason }
+        : { type: 'status', state: 'reconnecting', detail: reason },
     )
     attachment.retryTimer = setTimeout(() => {
       attachment.retryTimer = null

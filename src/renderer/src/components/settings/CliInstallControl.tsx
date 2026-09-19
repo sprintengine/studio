@@ -1,10 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 
-import type {
-  CliDetectResult,
-  CliInstallMethodInfo,
-  CliInstallResult,
-} from '../../../../shared/electron-api'
+import type { CliDetectResult, CliInstallMethodInfo, CliInstallResult } from '../../../../shared/electron-api'
 import { GhostButton, InlineNotice, LifecycleGlyph, PrimaryButton, Select, Spinner, type SelectItem } from '../ui'
 
 export type CliInstallControlProps = {
@@ -59,9 +55,9 @@ export type CliInstallProgress = {
 // report WHY it cannot run rather than silently finding nothing.
 function preferredMethodId(methods: CliInstallMethodInfo[]): string {
   const preferred =
-    methods.find((method) => method.recommended && method.available)
-    ?? methods.find((method) => method.available)
-    ?? methods[0]
+    methods.find((method) => method.recommended && method.available) ??
+    methods.find((method) => method.available) ??
+    methods[0]
   return preferred?.id ?? ''
 }
 
@@ -197,9 +193,9 @@ export function CliInstallControl({
     if (!available || !mountedRef.current) return
     const fallbackId = preferredMethodId(available)
     const chosen =
-      available.find((method) => method.id === selectedMethodId)
-      ?? available.find((method) => method.id === fallbackId)
-      ?? null
+      available.find((method) => method.id === selectedMethodId) ??
+      available.find((method) => method.id === fallbackId) ??
+      null
     if (!chosen) {
       setInstallError(`No automatic installer is available for ${displayName} on this platform.`)
       return
@@ -249,18 +245,7 @@ export function CliInstallControl({
         setRunningMethodLabel(null)
       }
     }
-  }, [
-    cli,
-    binary,
-    command,
-    displayName,
-    useWsl,
-    hostDriven,
-    loadMethods,
-    methods,
-    selectedMethodId,
-    onInstalled,
-  ])
+  }, [cli, binary, command, displayName, useWsl, hostDriven, loadMethods, methods, selectedMethodId, onInstalled])
 
   // The host's Install button is the only one in host-driven mode, so the request
   // to install arrives as a prop — including on the very mount the press causes,
@@ -327,9 +312,7 @@ export function CliInstallControl({
                 label={installed ? `${displayName} detected` : `${displayName} not found`}
               />
             )}
-            <span className="truncate text-body text-[color:var(--text-default)]">
-              {statusText}
-            </span>
+            <span className="truncate text-body text-[color:var(--text-default)]">{statusText}</span>
           </div>
         ) : null}
         {/* Host-driven rows render no actions here at all: the row above owns the
@@ -365,9 +348,7 @@ export function CliInstallControl({
       {(hostDriven || (expanded && !installed)) && (
         <div
           className={
-            hostDriven
-              ? ''
-              : 'mt-2.5 rounded-[var(--radius-md)] border border-[color:var(--border-subtle)] p-3'
+            hostDriven ? '' : 'mt-2.5 rounded-[var(--radius-md)] border border-[color:var(--border-subtle)] p-3'
           }
         >
           {methods === null ? (
@@ -377,8 +358,8 @@ export function CliInstallControl({
           ) : methods.length === 0 ? (
             <p className="text-body leading-5 text-[color:var(--text-muted)]">
               No installer for this platform. Install{' '}
-              <span className="font-mono text-[color:var(--text-default)]">{binary}</span> yourself, then
-              set its path {hostDriven ? 'in Settings → Agents.' : 'above.'}
+              <span className="font-mono text-[color:var(--text-default)]">{binary}</span> yourself, then set its path{' '}
+              {hostDriven ? 'in Settings → Agents.' : 'above.'}
             </p>
           ) : (
             <>
@@ -419,9 +400,7 @@ export function CliInstallControl({
 
               {selectedMethod && !hostDriven && (
                 <div className="mt-2">
-                  <div className="mb-1 text-meta text-[color:var(--text-subtle)]">
-                    Will run:
-                  </div>
+                  <div className="mb-1 text-meta text-[color:var(--text-subtle)]">Will run:</div>
                   <pre className="overflow-x-auto rounded-[var(--radius-sm)] bg-[color:var(--bg-app)] px-2.5 py-1.5 font-mono text-meta text-[color:var(--text-default)]">
                     {selectedMethod.commandPreview}
                   </pre>

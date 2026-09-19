@@ -33,9 +33,7 @@ export type TranscriptionResult = {
 
 /** IPC result for `voice:transcribe`. Failures carry a user-facing message
  *  instead of rejecting, so the renderer renders the exact diagnostic text. */
-export type VoiceTranscribeResponse =
-  | { ok: true; result: TranscriptionResult }
-  | { ok: false; message: string }
+export type VoiceTranscribeResponse = { ok: true; result: TranscriptionResult } | { ok: false; message: string }
 
 export class TranscriptionError extends Error {
   constructor(message: string) {
@@ -49,8 +47,8 @@ export class TranscriptionError extends Error {
 export function buildTranscriptionUrl(serverUrl: string): string {
   const trimmed = serverUrl.trim().replace(/\/+$/u, '')
   if (!trimmed) throw new TranscriptionError('No transcription server URL is configured.')
-  if (/\/v1\/transcriptions$/u.test(trimmed)) return trimmed
-  if (/\/v1$/u.test(trimmed)) return `${trimmed}/transcriptions`
+  if (trimmed.endsWith('/v1/transcriptions')) return trimmed
+  if (trimmed.endsWith('/v1')) return `${trimmed}/transcriptions`
   return `${trimmed}/v1/transcriptions`
 }
 
@@ -93,7 +91,7 @@ type FetchLike = (input: string, init: RequestInit) => Promise<Response>
 export async function transcribeAudio(
   wav: ArrayBuffer,
   settings: TranscriptionRequestSettings,
-  fetchImpl: FetchLike = fetch
+  fetchImpl: FetchLike = fetch,
 ): Promise<TranscriptionResult> {
   const url = buildTranscriptionUrl(settings.serverUrl)
   let response: Response

@@ -100,10 +100,7 @@ export function splitReplayIntoChunks(data: string, maxChars: number): string[] 
   return chunks
 }
 
-export function createXtermOutputQueue(
-  term: Terminal,
-  { recordWrite }: TerminalOutputQueueOptions
-) {
+export function createXtermOutputQueue(term: Terminal, { recordWrite }: TerminalOutputQueueOptions) {
   const queue: string[] = []
   let scheduled = false
   let writing = false
@@ -310,7 +307,7 @@ export function createXtermOutputQueue(
 export function createXtermReplayGate(
   term: Terminal,
   outputQueue: XtermOutputQueue,
-  { recordWrite, onReplayStateChange, onReplayProfile }: XtermReplayGateOptions = {}
+  { recordWrite, onReplayStateChange, onReplayProfile }: XtermReplayGateOptions = {},
 ) {
   const liveBuffer: string[] = []
   let disposed = false
@@ -394,8 +391,7 @@ export function createXtermReplayGate(
       writeCount,
       maxWriteMs: Math.round(maxWriteMs * 10) / 10,
       totalReplayMs: replayStartedAt > 0 ? Math.round(performance.now() - replayStartedAt) : 0,
-      timeToFirstContentMs:
-        firstContentAt > 0 && waitStartedAt > 0 ? Math.round(firstContentAt - waitStartedAt) : 0,
+      timeToFirstContentMs: firstContentAt > 0 && waitStartedAt > 0 ? Math.round(firstContentAt - waitStartedAt) : 0,
       liveBufferedCount,
       endedVia,
     })

@@ -2,11 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { IconButton, InlineNotice, RowButton, Section, Tooltip } from '../ui'
 import type { BacklogItem, BacklogItemLink, BacklogItemStatus, BacklogResolvedLink } from '../../utils/backlog'
-import {
-  backlogLinkControlModel,
-  openBacklogLink,
-  syncBacklogItemLinks,
-} from '../../utils/backlogLinks'
+import { backlogLinkControlModel, openBacklogLink, syncBacklogItemLinks } from '../../utils/backlogLinks'
 import type { BacklogLinkProvider } from '../../modules/renderer-host'
 
 // Provider-backed Backlog link surface for the detail pane, kept out of the
@@ -122,8 +118,7 @@ export function BacklogLinksSection({
   })
 
   const secondaryLinks =
-    resolvedLinks
-    ?? item.links.map((link) => ({ ...link, status: link.status ?? 'unknown', canOpen: false }))
+    resolvedLinks ?? item.links.map((link) => ({ ...link, status: link.status ?? 'unknown', canOpen: false }))
 
   if (secondaryLinks.length === 0 && !linkError) return null
 
@@ -207,7 +202,12 @@ function UnlinkGlyph(): JSX.Element {
 
 function OpenLinkGlyph(): JSX.Element {
   return (
-    <svg viewBox="0 0 16 16" fill="none" className="icon-xs shrink-0 text-[color:var(--text-subtle)]" aria-hidden="true">
+    <svg
+      viewBox="0 0 16 16"
+      fill="none"
+      className="icon-xs shrink-0 text-[color:var(--text-subtle)]"
+      aria-hidden="true"
+    >
       <path d="M6 4h6v6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M11.5 4.5L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
     </svg>

@@ -64,11 +64,7 @@ export function TruncatedText({
       const node = ref.current
       if (!node || !node.isConnected) return
       // +1 guards against sub-pixel rounding reporting a false overflow.
-      setOverflowing(
-        multiline
-          ? node.scrollHeight > node.clientHeight + 1
-          : node.scrollWidth > node.clientWidth + 1,
-      )
+      setOverflowing(multiline ? node.scrollHeight > node.clientHeight + 1 : node.scrollWidth > node.clientWidth + 1)
     }
     check()
     // jsdom (the renderer test harness) has no ResizeObserver; the window
@@ -99,11 +95,7 @@ export function TruncatedText({
   if (!overflowing) return element
 
   return (
-    <Tooltip
-      content={text}
-      placement={placement}
-      wrapperClassName={multiline ? 'block min-w-0' : 'flex min-w-0'}
-    >
+    <Tooltip content={text} placement={placement} wrapperClassName={multiline ? 'block min-w-0' : 'flex min-w-0'}>
       {element}
     </Tooltip>
   )

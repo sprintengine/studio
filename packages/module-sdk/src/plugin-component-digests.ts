@@ -22,20 +22,21 @@ type MarketplaceComponentDigestResult =
   | { ok: false; files: MarketplaceComponentFileDigest[]; issues: MarketplaceManifestIssue[] }
 
 export type MarketplacePluginComponentsWithDigestsResult =
-  | { ok: true; components: MarketplacePluginComponents }
-  | { ok: false; issues: MarketplaceManifestIssue[] }
+  { ok: true; components: MarketplacePluginComponents } | { ok: false; issues: MarketplaceManifestIssue[] }
 
 export function marketplaceComponentDigestPaths(manifest: Pick<MarketplacePluginManifest, 'components'>): string[] {
-  return Array.from(new Set(componentKinds(manifest).flatMap((kind) =>
-    manifest.components[kind]?.files?.map((file) => file.path) ?? []
-  ))).sort()
+  return Array.from(
+    new Set(
+      componentKinds(manifest).flatMap((kind) => manifest.components[kind]?.files?.map((file) => file.path) ?? []),
+    ),
+  ).sort()
 }
 
 function computeMarketplaceComponentFileDigestsSync(
   bundleRoot: string,
   componentPath: string,
   issuePath: string,
-  options: MarketplaceComponentDigestOptions = {}
+  options: MarketplaceComponentDigestOptions = {},
 ): MarketplaceComponentDigestResult {
   const absolutePath = join(bundleRoot, componentPath)
   const files: MarketplaceComponentFileDigest[] = []
@@ -59,7 +60,9 @@ function computeMarketplaceComponentFileDigestsSync(
     if (!isInsideOrEqualPath(bundleRoot, absoluteFilePath) || isPackExcludedComponentPath(relPath)) {
       issues.push({
         path: `${issuePath}.files`,
-        message: options.blockedFileMessage?.(relPath) ?? `component file "${relPath}" cannot be signed, packed, or installed.`,
+        message:
+          options.blockedFileMessage?.(relPath) ??
+          `component file "${relPath}" cannot be signed, packed, or installed.`,
       })
       return
     }
@@ -90,7 +93,7 @@ function computeMarketplaceComponentFileDigestsSync(
 export function computeMarketplacePluginComponentsWithDigestsSync(
   bundleRoot: string,
   components: MarketplacePluginComponents,
-  options: MarketplaceComponentDigestOptions = {}
+  options: MarketplaceComponentDigestOptions = {},
 ): MarketplacePluginComponentsWithDigestsResult {
   const signedComponents: MarketplacePluginComponents = {}
   const issues: MarketplaceManifestIssue[] = []
@@ -110,7 +113,7 @@ export function marketplaceComponentDigestMismatchIssuesSync(
   // authoring manifest is a valid input: digest integrity is orthogonal to the
   // signature.
   manifest: Pick<MarketplacePluginManifest, 'components'>,
-  options: MarketplaceComponentDigestOptions = {}
+  options: MarketplaceComponentDigestOptions = {},
 ): MarketplaceManifestIssue[] {
   const issues: MarketplaceManifestIssue[] = []
   const bytesLabel = options.bytesLabel ?? 'current bytes'
@@ -125,14 +128,23 @@ export function marketplaceComponentDigestMismatchIssuesSync(
     for (const expected of component.files ?? []) {
       const actualDigest = actualByPath.get(expected.path)
       if (!actualDigest) {
-        issues.push({ path: `components.${kind}.files`, message: `signed component file "${expected.path}" is missing.` })
+        issues.push({
+          path: `components.${kind}.files`,
+          message: `signed component file "${expected.path}" is missing.`,
+        })
       } else if (actualDigest !== expected.sha256) {
-        issues.push({ path: `components.${kind}.files.${expected.path}`, message: `signed component file digest does not match ${bytesLabel}.` })
+        issues.push({
+          path: `components.${kind}.files.${expected.path}`,
+          message: `signed component file digest does not match ${bytesLabel}.`,
+        })
       }
     }
     for (const actualFile of actual.files) {
       if (!expectedByPath.has(actualFile.path)) {
-        issues.push({ path: `components.${kind}.files`, message: `component file "${actualFile.path}" is not listed in signed digests.` })
+        issues.push({
+          path: `components.${kind}.files`,
+          message: `component file "${actualFile.path}" is not listed in signed digests.`,
+        })
       }
     }
   }
@@ -145,7 +157,7 @@ export function marketplaceComponentDigestMismatchIssuesSync(
 // rather than in the node-free manifest module.
 export function marketplaceAutomationPayloadIssuesSync(
   bundleRoot: string,
-  components: MarketplacePluginComponents
+  components: MarketplacePluginComponents,
 ): MarketplaceManifestIssue[] {
   const component = components.automation
   if (!component) return []
@@ -153,10 +165,12 @@ export function marketplaceAutomationPayloadIssuesSync(
   try {
     source = readFileSync(join(bundleRoot, component.path), 'utf8')
   } catch (error) {
-    return [{
-      path: 'components.automation.path',
-      message: `automation payload "${component.path}" could not be read: ${error instanceof Error ? error.message : 'read error'}.`,
-    }]
+    return [
+      {
+        path: 'components.automation.path',
+        message: `automation payload "${component.path}" could not be read: ${error instanceof Error ? error.message : 'read error'}.`,
+      },
+    ]
   }
   return marketplaceAutomationPayloadIssues(source)
 }
@@ -172,7 +186,9 @@ function pathForManifest(path: string): string {
 function isPackExcludedComponentPath(path: string): boolean {
   const segments = path.split('/')
   const name = segments[segments.length - 1] ?? ''
-  return segments.includes('node_modules') || segments.includes('.git') || name.endsWith('.key') || name.endsWith('.pem')
+  return (
+    segments.includes('node_modules') || segments.includes('.git') || name.endsWith('.key') || name.endsWith('.pem')
+  )
 }
 
 function isInsideOrEqualPath(parent: string, candidate: string): boolean {
@@ -181,7 +197,9 @@ function isInsideOrEqualPath(parent: string, candidate: string): boolean {
 }
 
 function isMissingFileError(error: unknown): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'ENOENT'
+  return (
+    typeof error === 'object' && error !== null && 'code' in error && (error as { code?: unknown }).code === 'ENOENT'
+  )
 }
 
 function dedupeIssues(issues: MarketplaceManifestIssue[]): MarketplaceManifestIssue[] {

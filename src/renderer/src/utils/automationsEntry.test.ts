@@ -1,8 +1,5 @@
 import assert from 'node:assert/strict'
-import {
-  listAutomationProjectFolders,
-  type AutomationProjectFolderCandidate,
-} from './automationsEntry'
+import { listAutomationProjectFolders, type AutomationProjectFolderCandidate } from './automationsEntry'
 
 function run(name: string, body: () => void): void {
   try {
@@ -49,9 +46,7 @@ run('dedupes case- and separator-insensitively, keeping the first-seen path', ()
 
 run('skips folder-less workspaces (chat / standard with no root)', () => {
   const workspaces = [ws(null), ws('/proj/app'), ws(null)]
-  assert.deepEqual(listAutomationProjectFolders(workspaces), [
-    { folderPath: '/proj/app', displayName: 'app' },
-  ])
+  assert.deepEqual(listAutomationProjectFolders(workspaces), [{ folderPath: '/proj/app', displayName: 'app' }])
 })
 
 run('empty when no workspace has a folder', () => {

@@ -25,9 +25,7 @@ export function SkillsGlyph({
  *  drawer's Agent CLIs row and the surface's own Agent CLIs rail row; it was a
  *  private copy inside the surface until the drawer needed it eagerly
  *  (Extensions drawer ruling, 2026-09-05), and one concept keeps one glyph. */
-export function CliGlyph({
-  className = 'icon-xs shrink-0 text-[color:var(--text-muted)]',
-}: GlyphProps): JSX.Element {
+export function CliGlyph({ className = 'icon-xs shrink-0 text-[color:var(--text-muted)]' }: GlyphProps): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
       <path
@@ -42,9 +40,7 @@ export function CliGlyph({
 }
 
 /** The MCP plug mark shared by Extensions and capability inventory rows. */
-export function McpGlyph({
-  className = 'icon-xs shrink-0 text-[color:var(--text-muted)]',
-}: GlyphProps): JSX.Element {
+export function McpGlyph({ className = 'icon-xs shrink-0 text-[color:var(--text-muted)]' }: GlyphProps): JSX.Element {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
       <path

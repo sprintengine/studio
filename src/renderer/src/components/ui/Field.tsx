@@ -80,10 +80,7 @@ export function Field({ label, htmlFor, help, error, required, children, classNa
   return (
     <div className={['flex flex-col gap-1.5', className ?? ''].join(' ')}>
       {htmlFor ? (
-        <label
-          htmlFor={htmlFor}
-          className="text-body font-medium text-[color:var(--text-default)]"
-        >
+        <label htmlFor={htmlFor} className="text-body font-medium text-[color:var(--text-default)]">
           {labelBody}
         </label>
       ) : (

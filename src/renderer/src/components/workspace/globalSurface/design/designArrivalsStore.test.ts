@@ -83,13 +83,12 @@ async function main(): Promise<void> {
     assert.equal(harness.calls, 1, 'two consumers cost ONE listing, not one each')
     const snapshot = getDesignArrivalsSnapshot()
     assert.equal(snapshot.loadState, 'ready')
-    assert.deepEqual(snapshot.bundles.map((entry) => entry.bundleId), ['aaaa1111'])
-    assert.ok(notifications > 0, 'and the consumers are told when it lands')
-    assert.equal(
-      getDesignArrivalsSnapshot(),
-      snapshot,
-      'the snapshot is stable by identity between publishes',
+    assert.deepEqual(
+      snapshot.bundles.map((entry) => entry.bundleId),
+      ['aaaa1111'],
     )
+    assert.ok(notifications > 0, 'and the consumers are told when it lands')
+    assert.equal(getDesignArrivalsSnapshot(), snapshot, 'the snapshot is stable by identity between publishes')
     stopA()
     stopB()
   }
@@ -197,11 +196,7 @@ async function main(): Promise<void> {
     await tick()
     const snapshot = getDesignArrivalsSnapshot()
     assert.deepEqual(snapshot.bundles, [])
-    assert.equal(
-      snapshot.loadState,
-      'ready',
-      'a detached window counts nothing — it does not sit in `loading` forever',
-    )
+    assert.equal(snapshot.loadState, 'ready', 'a detached window counts nothing — it does not sit in `loading` forever')
     stop()
   }
   console.log('ok - a window with no arrivals API counts nothing, without throwing')

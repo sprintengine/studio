@@ -76,9 +76,7 @@ function ModalSurfaceBar({
 }): JSX.Element {
   return (
     <div className="flex shrink-0 items-center gap-4 border-b border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)] px-5 py-3">
-      <h2 className="truncate text-title font-semibold tracking-tight text-[color:var(--text-strong)]">
-        {title}
-      </h2>
+      <h2 className="truncate text-title font-semibold tracking-tight text-[color:var(--text-strong)]">{title}</h2>
       <div className="ml-auto flex shrink-0 items-center gap-1.5">
         {actions}
         <CloseIconButton size="md" aria-label="Close" onClick={onClose} />
@@ -105,10 +103,7 @@ export function ModalSurfaceFrame({
   children: React.ReactNode
 }): JSX.Element {
   const [barClaimed, setBarClaimed] = React.useState(false)
-  const chrome = React.useMemo(
-    () => ({ close, label, onBarPresence: setBarClaimed }),
-    [close, label],
-  )
+  const chrome = React.useMemo(() => ({ close, label, onBarPresence: setBarClaimed }), [close, label])
   return (
     <ModalSurfaceChromeContext.Provider value={chrome}>
       <div className="flex h-full min-h-0 flex-col">
@@ -237,19 +232,13 @@ export function GlobalSurfaceShell({
             // pinned to the right edge of the slot.
             <>
               {showBack && onBack ? <BarBackChevron onBack={onBack} inGutter /> : null}
-              <h2 className="truncate text-body font-semibold text-[color:var(--text-strong)]">
-                {bar.title}
-              </h2>
-              {bar.actions ? (
-                <div className="ml-auto flex shrink-0 items-center gap-1.5">{bar.actions}</div>
-              ) : null}
+              <h2 className="truncate text-body font-semibold text-[color:var(--text-strong)]">{bar.title}</h2>
+              {bar.actions ? <div className="ml-auto flex shrink-0 items-center gap-1.5">{bar.actions}</div> : null}
             </>,
             barSlot.el,
           )
         : null}
-      {attention ? (
-        <div className="shrink-0 border-b border-[color:var(--border-subtle)]">{attention}</div>
-      ) : null}
+      {attention ? <div className="shrink-0 border-b border-[color:var(--border-subtle)]">{attention}</div> : null}
       {rail && liftRail && railSlot.el ? createPortal(rail, railSlot.el) : null}
       <div className="flex min-h-0 flex-1">
         {rail && !liftRail ? (
@@ -281,7 +270,9 @@ export function GlobalSurfaceShell({
             className={`flex min-h-0 shrink-0 flex-col border-r border-[color:var(--border-subtle)] ${
               // Owner ruled the MODAL rail darker (2026-09-01); the door
               // fallback keeps the raised ground the brand checklist mandates.
-              modalChrome ? 'bg-[color:var(--bg-app)]' /* door-surfaces-allow: modal rail only, owner 2026-09-01 */ : 'bg-[color:var(--bg-surface-raised)]'
+              modalChrome
+                ? 'bg-[color:var(--bg-app)]' /* door-surfaces-allow: modal rail only, owner 2026-09-01 */
+                : 'bg-[color:var(--bg-surface-raised)]'
             }`}
           >
             {rail}
@@ -309,13 +300,15 @@ export function GlobalSurfaceShell({
 // own size, radius and hover recipe.
 function BarBackChevron({ onBack, inGutter = false }: { onBack: () => void; inGutter?: boolean }): JSX.Element {
   return (
-    <IconButton
-      onClick={onBack}
-      aria-label="Back"
-      className={`shrink-0 ${inGutter ? '-ml-2' : ''}`}
-    >
+    <IconButton onClick={onBack} aria-label="Back" className={`shrink-0 ${inGutter ? '-ml-2' : ''}`}>
       <svg viewBox="0 0 16 16" fill="none" className="icon-md" aria-hidden="true">
-        <path d="M10 3.5 5.5 8l4.5 4.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+        <path
+          d="M10 3.5 5.5 8l4.5 4.5"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
       </svg>
     </IconButton>
   )

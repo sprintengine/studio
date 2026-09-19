@@ -46,7 +46,7 @@ function validateRelativePath(relativePath: string): string | null {
 export type WorkspaceFileWatcher = (
   workspaceId: string,
   relativePath: string,
-  cb: (event: WorkspaceFileWatchEvent) => void
+  cb: (event: WorkspaceFileWatchEvent) => void,
 ) => Promise<() => void>
 
 export function createWorkspaceFileWatcher(ports: WorkspaceFileWatchPorts): WorkspaceFileWatcher {
@@ -59,7 +59,9 @@ export function createWorkspaceFileWatcher(ports: WorkspaceFileWatchPorts): Work
     if (pathIssue) throw new Error(pathIssue)
     const folderPath = ports.resolveFolderPath(workspaceId)
     if (!folderPath) {
-      throw new Error(`Workspace "${workspaceId}" has no project folder to watch (unknown, folderless, or not resolvable yet).`)
+      throw new Error(
+        `Workspace "${workspaceId}" has no project folder to watch (unknown, folderless, or not resolvable yet).`,
+      )
     }
     const separator = folderPath.includes('\\') && !folderPath.includes('/') ? '\\' : '/'
     const absolutePath = `${folderPath.replace(/[\\/]+$/, '')}${separator}${relativePath}`
@@ -92,9 +94,9 @@ export function createWorkspaceFileWatcher(ports: WorkspaceFileWatchPorts): Work
       if (!eventPath) return true // watcher backends may omit the path; re-read rather than miss a change
       if (eventPath === absolutePath || eventPath === relativePath) return true
       return eventPath.endsWith(`/${fileName}`) || eventPath.endsWith(`\\${fileName}`)
-        ? eventPath === absolutePath
-          || eventPath.endsWith(`/${relativePath}`)
-          || eventPath.endsWith(`\\${relativePath.replace(/\//g, '\\')}`)
+        ? eventPath === absolutePath ||
+            eventPath.endsWith(`/${relativePath}`) ||
+            eventPath.endsWith(`\\${relativePath.replace(/\//g, '\\')}`)
         : false
     }
 

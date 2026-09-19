@@ -26,7 +26,7 @@ export default function DiagnosticsOverlay({ onClose }: Props) {
     // renderer reload) registers the handler and rebinds preload.
     if (typeof window.api.diagnosticsOpenWindow !== 'function') {
       console.error(
-        '[Diagnostics] diagnosticsOpenWindow is unavailable — restart the app (quit + `npm run dev`) to load the updated main process and preload.'
+        '[Diagnostics] diagnosticsOpenWindow is unavailable — restart the app (quit + `npm run dev`) to load the updated main process and preload.',
       )
       return
     }
@@ -43,7 +43,12 @@ export default function DiagnosticsOverlay({ onClose }: Props) {
       <DiagnosticsContent
         headerActions={
           <>
-            <GhostButton size="xs" onClick={handlePopOut} className="font-mono" aria-label="Open diagnostics in a separate window">
+            <GhostButton
+              size="xs"
+              onClick={handlePopOut}
+              className="font-mono"
+              aria-label="Open diagnostics in a separate window"
+            >
               Pop out ⧉
             </GhostButton>
             <GhostButton size="xs" onClick={onClose} className="font-mono" aria-label="Close diagnostics">

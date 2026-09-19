@@ -88,11 +88,14 @@ async function assertTwoHunksStageIndependently(): Promise<void> {
     assert.equal(before.unsupported, null)
     assert.equal(before.hunks.length, 2)
     assert.deepEqual(before.summary, { total: 2, included: 0 })
-    assert.equal(before.hunks.every((hunk) => hunk.included === false), true)
+    assert.equal(
+      before.hunks.every((hunk) => hunk.included === false),
+      true,
+    )
     // The deletion's box is drawn above the gap, on the last surviving line.
     assert.deepEqual(
       { newStart: before.hunks[1].newStart, newLines: before.hunks[1].newLines },
-      { newStart: 2, newLines: 0 }
+      { newStart: 2, newLines: 0 },
     )
 
     // Include the SECOND hunk only.
@@ -117,8 +120,14 @@ async function assertTwoHunksStageIndependently(): Promise<void> {
     assert.equal(afterUnstaged.hunks.length, 2)
     // In file order by their new-side line: the line-1 rewrite is still in the
     // working tree, the line-3 deletion is now in the index.
-    assert.deepEqual(afterUnstaged.hunks.map((hunk) => hunk.included), [false, true])
-    assert.deepEqual(afterUnstaged.hunks.map((hunk) => hunk.scope), ['unstaged', 'staged'])
+    assert.deepEqual(
+      afterUnstaged.hunks.map((hunk) => hunk.included),
+      [false, true],
+    )
+    assert.deepEqual(
+      afterUnstaged.hunks.map((hunk) => hunk.scope),
+      ['unstaged', 'staged'],
+    )
     const afterStaged = await hunksOf(repo, 'f.txt', 'staged')
     assert.deepEqual(afterStaged.summary, { total: 2, included: 1 })
     assert.equal(afterStaged.hunks.length, 2, 'the same two boxes, from the other text')
@@ -138,7 +147,10 @@ async function assertTwoHunksStageIndependently(): Promise<void> {
     const restored = await hunksOf(repo, 'f.txt', 'unstaged')
     assert.deepEqual(restored.summary, { total: 2, included: 0 })
     assert.equal(restored.hunks.length, 2)
-    assert.equal(restored.hunks.every((hunk) => hunk.included === false), true)
+    assert.equal(
+      restored.hunks.every((hunk) => hunk.included === false),
+      true,
+    )
     console.log('ok - one hunk of two goes into the index, and comes back out')
   } finally {
     rmSync(root, { recursive: true, force: true })
@@ -167,7 +179,7 @@ async function assertOffsetsAreRecomputedEveryTime(): Promise<void> {
     assert.notEqual(
       survivor.oldStart,
       secondOldStart,
-      'the surviving hunk must have moved, or this test is not testing anything'
+      'the surviving hunk must have moved, or this test is not testing anything',
     )
     assert.equal(survivor.fingerprint, secondFingerprint, 'and its identity must not have')
 
@@ -287,7 +299,7 @@ async function assertBinaryAndUntrackedRefuse(): Promise<void> {
     const untracked = await hunksOf(repo, 'u.txt', 'unstaged')
     assert.equal(untracked.unsupported, 'untracked')
     assert.equal(untracked.summary, null)
-    console.log('ok - a binary file refuses with git\'s reason; an untracked one has no hunks to offer')
+    console.log("ok - a binary file refuses with git's reason; an untracked one has no hunks to offer")
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

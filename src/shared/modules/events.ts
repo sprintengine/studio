@@ -47,9 +47,7 @@ export type ModuleEventEnvelope = {
 
 const MAX_TOPIC_LENGTH = 128
 
-export type ModuleEmitValidation =
-  | { ok: true; topic: string }
-  | { ok: false; message: string }
+export type ModuleEmitValidation = { ok: true; topic: string } | { ok: false; message: string }
 
 // Boundary validation for emit topics. Module code (third-party `entry.main`
 // included) calls emit directly, so the input is untrusted. The payload is not

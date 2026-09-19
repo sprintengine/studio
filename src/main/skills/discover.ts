@@ -96,7 +96,7 @@ export function createSkillDiscoveryClient(options: SkillDiscoveryOptions = {}):
           rateLimit: null,
           degraded: condition(
             'query_too_short',
-            `Type at least ${MIN_SKILL_SEARCH_QUERY_LENGTH} characters to search skills.`
+            `Type at least ${MIN_SKILL_SEARCH_QUERY_LENGTH} characters to search skills.`,
           ),
         }
       }
@@ -113,7 +113,7 @@ export function createSkillDiscoveryClient(options: SkillDiscoveryOptions = {}):
       const response = await request(
         searchUrl('code', `${terms} filename:${SKILL_ENTRY_FILE}`),
         token,
-        'application/vnd.github.text-match+json'
+        'application/vnd.github.text-match+json',
       )
       if (!response.ok) {
         return { results: [], rateLimit: response.rateLimit, degraded: response.condition }
@@ -137,8 +137,12 @@ export function createSkillDiscoveryClient(options: SkillDiscoveryOptions = {}):
 
       const byStars = await Promise.all(
         SKILL_REPO_TOPICS.map((topic) =>
-          request(searchUrl('repositories', `topic:${topic}`, { sort: 'stars', order: 'desc' }), token, 'application/vnd.github+json')
-        )
+          request(
+            searchUrl('repositories', `topic:${topic}`, { sort: 'stars', order: 'desc' }),
+            token,
+            'application/vnd.github+json',
+          ),
+        ),
       )
       // Finding the curated repositories means code search, which needs a
       // token. Without one the starred list still stands on its own.
@@ -149,7 +153,14 @@ export function createSkillDiscoveryClient(options: SkillDiscoveryOptions = {}):
       const merged = new Map<string, SkillRepoHit>()
       for (const item of curated.ok ? curated.items : []) {
         const repo = repoFullName(item)
-        if (repo) merged.set(repo, { repo, description: repoDescription(item), stars: null, htmlUrl: repoUrl(repo), curated: true })
+        if (repo)
+          merged.set(repo, {
+            repo,
+            description: repoDescription(item),
+            stars: null,
+            htmlUrl: repoUrl(repo),
+            curated: true,
+          })
       }
       for (const response of byStars) {
         for (const item of response.ok ? response.items : []) {
@@ -183,11 +194,7 @@ function cacheKey(kind: 'code' | 'repos', token: string, query: string): string 
   return `${kind}:${token ? 'auth' : 'anon'}:${query.toLowerCase()}`
 }
 
-function searchUrl(
-  endpoint: 'code' | 'repositories',
-  query: string,
-  extras: Record<string, string> = {}
-): URL {
+function searchUrl(endpoint: 'code' | 'repositories', query: string, extras: Record<string, string> = {}): URL {
   const url = new URL(`${GITHUB_API_ORIGIN}/search/${endpoint}`)
   url.searchParams.set('q', query)
   url.searchParams.set('per_page', String(SEARCH_PAGE_SIZE))
@@ -215,7 +222,7 @@ async function fetchSearch(
   url: URL,
   token: string,
   accept: string,
-  options: SkillDiscoveryOptions
+  options: SkillDiscoveryOptions,
 ): Promise<SearchResponse> {
   const fetcher = options.fetcher ?? defaultFetch
   const controller = new AbortController()
@@ -238,7 +245,7 @@ async function fetchSearch(
           'unavailable',
           timedOut
             ? 'GitHub did not answer the search in time.'
-            : `Could not reach GitHub. ${error instanceof Error ? error.message : String(error)}`
+            : `Could not reach GitHub. ${error instanceof Error ? error.message : String(error)}`,
         ),
       }
     }
@@ -281,7 +288,7 @@ async function fetchSearch(
 
 async function failureCondition(
   response: Response,
-  rateLimit: SkillRateLimit | null
+  rateLimit: SkillRateLimit | null,
 ): Promise<SkillDiscoveryCondition> {
   const retryAfterSeconds = retryAfterFrom(response, rateLimit)
   if (response.status === 429 || (response.status === 403 && rateLimit?.remaining === 0)) {
@@ -290,7 +297,7 @@ async function failureCondition(
       retryAfterSeconds > 0
         ? `GitHub's search limit is used up. It resets in about ${Math.ceil(retryAfterSeconds / 60)} min.`
         : "GitHub's search limit is used up. Try again shortly.",
-      retryAfterSeconds
+      retryAfterSeconds,
     )
   }
   if (response.status === 401 || response.status === 403) {
@@ -354,7 +361,7 @@ function tightestLimit(responses: readonly SearchResponse[]): SkillRateLimit | n
 function condition(
   reason: SkillDiscoveryCondition['reason'],
   message: string,
-  retryAfterSeconds = 0
+  retryAfterSeconds = 0,
 ): SkillDiscoveryCondition {
   return { reason, message, retryAfterSeconds }
 }
@@ -382,7 +389,7 @@ function textMatchFragments(item: SearchItem): string {
     .map((match) =>
       match && typeof match === 'object' && typeof (match as { fragment?: unknown }).fragment === 'string'
         ? (match as { fragment: string }).fragment
-        : ''
+        : '',
     )
     .filter((fragment) => fragment.length > 0)
     .join('\n')

@@ -127,7 +127,10 @@ export function deriveDefaultBacklogKey(workspaceName: string): string {
   const words = workspaceName.split(/[^A-Za-z0-9]+/).filter(Boolean)
   let key = ''
   if (words.length >= 2) {
-    key = words.map((word) => word[0]).join('').slice(0, 5)
+    key = words
+      .map((word) => word[0])
+      .join('')
+      .slice(0, 5)
   } else if (words.length === 1) {
     key = words[0].slice(0, 3)
   }
@@ -150,9 +153,7 @@ export function isValidBacklogKey(value: unknown): value is string {
 // scan-max allocation across unmerged branches (Decision 4 in the plan). The
 // cure is git merge plus this surfaced warning, never silent renumbering.
 // Sorted by id; each entry names every colliding path.
-export function findDuplicateBacklogIds(
-  items: BacklogIdItem[],
-): Array<{ numericId: number; relativePaths: string[] }> {
+export function findDuplicateBacklogIds(items: BacklogIdItem[]): Array<{ numericId: number; relativePaths: string[] }> {
   const byId = new Map<number, string[]>()
   for (const item of items) {
     const id = item.numericId ?? undefined

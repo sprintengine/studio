@@ -4,12 +4,7 @@ import { ChevronDownIcon } from '../AppIcons'
 import { DefaultChip } from './DefaultChip'
 import { Popover } from './Popover'
 import { Slider } from './Slider'
-import {
-  MENU_DIVIDER_CLASS,
-  MENU_GROUP_LABEL_CLASS,
-  MENU_ITEM_CLASS,
-  MENU_LIST_CLASS,
-} from './menuClasses'
+import { MENU_DIVIDER_CLASS, MENU_GROUP_LABEL_CLASS, MENU_ITEM_CLASS, MENU_LIST_CLASS } from './menuClasses'
 import { FOCUS_RING_CLASS } from './tokens'
 import type { CliModelFamily } from './cliRuntimeCatalog'
 import type { PluginReasoningCatalog, PluginReasoningOption } from '../../../../shared/plugin-manifest'
@@ -67,11 +62,8 @@ export type ReasoningAxes = {
   reasoningEnabled: boolean
 }
 
-function offeredLevels({
-  reasoningSelection,
-  reasoningEnabled,
-}: ReasoningAxes): ReadonlyArray<PluginReasoningOption> {
-  return reasoningEnabled ? reasoningSelection?.levels ?? [] : []
+function offeredLevels({ reasoningSelection, reasoningEnabled }: ReasoningAxes): ReadonlyArray<PluginReasoningOption> {
+  return reasoningEnabled ? (reasoningSelection?.levels ?? []) : []
 }
 
 function offeredWindows({ family }: ReasoningAxes): ReadonlyArray<CliModelFamily['variants'][number]> {
@@ -113,7 +105,7 @@ export function reasoningTriggerLabel(
   const levels = scope === 'context' ? [] : offeredLevels(axes)
   if (levels.length > 0) {
     const level = levels.find((entry) => entry.id === axes.reasoning)
-    parts.push(level ? level.label ?? level.id : UNSET_LEVEL_LABEL)
+    parts.push(level ? (level.label ?? level.id) : UNSET_LEVEL_LABEL)
   }
   const windows = scope === 'reasoning' ? [] : offeredWindows(axes)
   if (windows.length > 0) {
@@ -190,9 +182,7 @@ export function ReasoningSelector({
     })
   }
   const focusByOffset = (current: HTMLElement, offset: 1 | -1) => {
-    const nodes = Array.from(
-      surfaceRef.current?.querySelectorAll<HTMLButtonElement>(REASONING_OPTION_SELECTOR) ?? [],
-    )
+    const nodes = Array.from(surfaceRef.current?.querySelectorAll<HTMLButtonElement>(REASONING_OPTION_SELECTOR) ?? [])
     const index = nodes.indexOf(current as HTMLButtonElement)
     if (index < 0 || nodes.length === 0) return
     nodes[(index + offset + nodes.length) % nodes.length]?.focus()
@@ -344,9 +334,7 @@ function EffortSlider({
             'min-w-0 truncate text-body font-medium',
             // The costliest stop carries the warn tone, so the ramp's top reads
             // as expensive while it is being crossed rather than after.
-            current.id === costliest
-              ? 'text-[color:var(--tone-warn-on-tint)]'
-              : 'text-[color:var(--text-strong)]',
+            current.id === costliest ? 'text-[color:var(--tone-warn-on-tint)]' : 'text-[color:var(--text-strong)]',
           ].join(' ')}
         >
           {current.label}
@@ -365,18 +353,10 @@ function EffortSlider({
   )
 }
 
-function ReasoningGroup({
-  heading,
-  children,
-}: {
-  heading?: string
-  children: React.ReactNode
-}): JSX.Element {
+function ReasoningGroup({ heading, children }: { heading?: string; children: React.ReactNode }): JSX.Element {
   return (
     <div role="group" aria-label={heading}>
-      {heading ? (
-        <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>{heading}</div>
-      ) : null}
+      {heading ? <div className={`${MENU_GROUP_LABEL_CLASS} pb-0.5 pt-1.5`}>{heading}</div> : null}
       {children}
     </div>
   )

@@ -56,7 +56,10 @@ function testRejectsEntryTraversal(): void {
 }
 
 function testSignatureShape(): void {
-  const bad = validateThirdPartyModuleManifest({ ...VALID, signature: { algorithm: 'rsa', publicKey: 'x', signature: 'y' } })
+  const bad = validateThirdPartyModuleManifest({
+    ...VALID,
+    signature: { algorithm: 'rsa', publicKey: 'x', signature: 'y' },
+  })
   assert.equal(bad.ok, false, 'only ed25519 accepted')
   const good = validateThirdPartyModuleManifest({
     ...VALID,
@@ -102,16 +105,14 @@ function testParseInvalidJson(): void {
 // the signature, would silently break the accept direction.
 function testReservedIdParsesWithSignaturePreserved(): void {
   const signature: ModuleSignature = { algorithm: 'ed25519', publicKey: 'YWJj', signature: 'ZGVm' }
-  const parsed = parseThirdPartyModuleManifest(
-    JSON.stringify({ ...VALID, id: 'switchboard', signature })
-  )
+  const parsed = parseThirdPartyModuleManifest(JSON.stringify({ ...VALID, id: 'switchboard', signature }))
   assert.equal(parsed.ok, true, 'reserved ids are policy for the registry, not a parse error')
   if (parsed.ok) {
     assert.equal(parsed.manifest.id, 'switchboard')
     assert.deepEqual(
       (parsed.manifest as { signature?: ModuleSignature }).signature,
       signature,
-      'the signature survives validation for the publisher-lock check'
+      'the signature survives validation for the publisher-lock check',
     )
   }
 }

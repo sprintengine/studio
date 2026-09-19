@@ -39,10 +39,7 @@ function testResizeProducesClampedWidth(): void {
 function testThresholdOrdering(): void {
   // Invariant the drag math relies on: the collapse snap is strictly below the
   // minimum expanded width, so there is a dead band rather than an overlap.
-  assert.ok(
-    SIDEBAR_COLLAPSE_SNAP_WIDTH < SIDEBAR_MIN_WIDTH,
-    'collapse snap must be below the minimum expanded width'
-  )
+  assert.ok(SIDEBAR_COLLAPSE_SNAP_WIDTH < SIDEBAR_MIN_WIDTH, 'collapse snap must be below the minimum expanded width')
 }
 
 testClampBounds()

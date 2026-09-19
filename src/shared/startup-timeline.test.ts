@@ -54,7 +54,7 @@ function collector(options: { expected?: string[]; timeoutMs?: number } = {}) {
     [
       ['main.process-start', 0, 0],
       ['main.app-ready', 250, 250],
-    ]
+    ],
   )
   assert.ok(cleared >= 0)
   assert.equal(timeline.finalized, true)
@@ -89,7 +89,7 @@ function collector(options: { expected?: string[]; timeoutMs?: number } = {}) {
   assert.deepEqual(
     reports[0].rows.map((row) => [row.id, row.offsetMs]),
     [['main.process-start', 5]],
-    'only the first write of a known id with a finite time is kept'
+    'only the first write of a known id with a finite time is kept',
   )
 }
 
@@ -116,7 +116,7 @@ function collector(options: { expected?: string[]; timeoutMs?: number } = {}) {
   timeline.record('main.reveal', ORIGIN + 900)
   assert.deepEqual(
     reports[0].rows.map((row) => row.id),
-    ['main.reveal', 'main.discovery-settled']
+    ['main.reveal', 'main.discovery-settled'],
   )
 }
 

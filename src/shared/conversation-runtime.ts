@@ -96,9 +96,7 @@ export type ConversationTranscriptInput = {
   agentId: string
 }
 
-export type ConversationTranscriptResult =
-  | { ok: true; events: ConversationEvent[] }
-  | { ok: false; message: string }
+export type ConversationTranscriptResult = { ok: true; events: ConversationEvent[] } | { ok: false; message: string }
 
 // An image the user attached to a turn, carried live to a vision-capable
 // provider as a base64 content block. `dataBase64` is the raw base64 payload
@@ -212,8 +210,7 @@ export type ConversationListSessionsInput = {
 }
 
 export type ConversationStartSessionResult =
-  | { ok: true; session: ConversationSessionSummary }
-  | { ok: false; message: string; event?: ConversationEvent }
+  { ok: true; session: ConversationSessionSummary } | { ok: false; message: string; event?: ConversationEvent }
 
 export type ConversationSessionActionResult =
   // `notice` is a plain sentence for the user about a change that was accepted
@@ -223,5 +220,4 @@ export type ConversationSessionActionResult =
   | { ok: false; message: string; event?: ConversationEvent }
 
 export type ConversationListSessionsResult =
-  | { ok: true; sessions: ConversationSessionSummary[] }
-  | { ok: false; message: string }
+  { ok: true; sessions: ConversationSessionSummary[] } | { ok: false; message: string }

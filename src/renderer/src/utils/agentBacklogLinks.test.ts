@@ -107,20 +107,14 @@ async function main(): Promise<void> {
   )
 
   // --- findWorkspaceIdForAgent: the live lookup ---
-  assert.equal(
-    findWorkspaceIdForAgent([workspaceWithAgent('ws-1', 'agent-7')], 'agent-7'),
-    'ws-1',
-  )
+  assert.equal(findWorkspaceIdForAgent([workspaceWithAgent('ws-1', 'agent-7')], 'agent-7'), 'ws-1')
   assert.equal(findWorkspaceIdForAgent([], 'agent-7'), null)
 
   // --- findWorkspaceForAgentPreferring: shared-id disambiguation (the agent-1 bug) ---
   // Two workspaces both host `agent-1`; the recorded workspace must win over the
   // first-match scan so a Backlog link never lands on an unrelated workspace's
   // `agent-1`.
-  const sharedIdWorkspaces = [
-    workspaceWithAgent('ws-other', 'agent-1'),
-    workspaceWithAgent('ws-recorded', 'agent-1'),
-  ]
+  const sharedIdWorkspaces = [workspaceWithAgent('ws-other', 'agent-1'), workspaceWithAgent('ws-recorded', 'agent-1')]
   assert.equal(
     findWorkspaceForAgentPreferring(sharedIdWorkspaces, 'agent-1', 'ws-recorded')?.id,
     'ws-recorded',
@@ -133,16 +127,10 @@ async function main(): Promise<void> {
     'a moved agent still self-heals via the scan fallback',
   )
   // No preference given: falls back to the plain first-match scan.
-  assert.equal(
-    findWorkspaceForAgentPreferring(sharedIdWorkspaces, 'agent-1', undefined)?.id,
-    'ws-other',
-  )
+  assert.equal(findWorkspaceForAgentPreferring(sharedIdWorkspaces, 'agent-1', undefined)?.id, 'ws-other')
   // Recorded workspace is open but no longer hosts the id, and the agent is gone:
   // returns null rather than forcing the wrong workspace.
-  assert.equal(
-    findWorkspaceForAgentPreferring([workspaceWithAgent('ws-1', 'someone-else')], 'agent-7', 'ws-1'),
-    null,
-  )
+  assert.equal(findWorkspaceForAgentPreferring([workspaceWithAgent('ws-1', 'someone-else')], 'agent-7', 'ws-1'), null)
 
   // --- resolve: resolvable ---
   const resolvable = resolveAgentBacklogLink({

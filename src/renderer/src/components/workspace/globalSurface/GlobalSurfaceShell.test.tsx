@@ -27,7 +27,11 @@ run('renders the full anatomy when every slot is supplied', () => {
         actions: <button type="button">Edit plan</button>,
       }}
       attention={<div data-testid="wait">Approve &amp; merge</div>}
-      rail={<button type="button" data-testid="rail-row">summer26</button>}
+      rail={
+        <button type="button" data-testid="rail-row">
+          summer26
+        </button>
+      }
     >
       <div data-testid="canvas">board</div>
     </GlobalSurfaceShell>,
@@ -87,25 +91,13 @@ run('a modal host swaps the back chevron for a closing X; a door host keeps the 
   )
   assert.match(inModal, /aria-label="Close"/, 'the modal bar renders the closing X')
   assert.doesNotMatch(inModal, /aria-label="Back"/, 'and no back chevron beside it')
-  assert.match(
-    inModal,
-    /<h2[^>]*>Automations<\/h2>/,
-    'the modal bar is titled by the host label — the surface’s name',
-  )
-  assert.doesNotMatch(
-    inModal,
-    /<h2[^>]*>nightly-review<\/h2>/,
-    'never by the surface’s own contextual bar title',
-  )
+  assert.match(inModal, /<h2[^>]*>Automations<\/h2>/, 'the modal bar is titled by the host label — the surface’s name')
+  assert.doesNotMatch(inModal, /<h2[^>]*>nightly-review<\/h2>/, 'never by the surface’s own contextual bar title')
 
   const inDoor = renderToStaticMarkup(surface)
   assert.match(inDoor, /aria-label="Back"/, 'a door bar keeps its chevron')
   assert.doesNotMatch(inDoor, /aria-label="Close"/, 'and grows no X')
-  assert.match(
-    inDoor,
-    /<h2[^>]*>nightly-review<\/h2>/,
-    'a door bar keeps the surface’s own title',
-  )
+  assert.match(inDoor, /<h2[^>]*>nightly-review<\/h2>/, 'a door bar keeps the surface’s own title')
 })
 
 // The host frame's fallback bar: a body that never renders the shell (a

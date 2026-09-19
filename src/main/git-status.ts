@@ -1,10 +1,5 @@
 import { isAbsolute, resolve } from 'path'
-import type {
-  GitFileStatus,
-  GitRepoOperation,
-  GitStatusEntry,
-  GitStatusSnapshot,
-} from './git'
+import type { GitFileStatus, GitRepoOperation, GitStatusEntry, GitStatusSnapshot } from './git'
 import { pathExists, runGit, toAbsolutePath } from './git-utils'
 import type { GitRowSummary } from '../shared/electron-api'
 
@@ -62,9 +57,7 @@ async function resolveOperationMarkerPaths(repoRoot: string): Promise<string[]> 
 
   // `--git-path` resolves per-worktree paths (`.git` may be a file pointing at
   // the shared git dir), one output line per flag in argument order.
-  const markers = OPERATION_MARKERS.flatMap(({ marker, notMarker }) =>
-    notMarker ? [marker, notMarker] : [marker]
-  )
+  const markers = OPERATION_MARKERS.flatMap(({ marker, notMarker }) => (notMarker ? [marker, notMarker] : [marker]))
   const stdout = await runGit(repoRoot, ['rev-parse', ...markers.flatMap((marker) => ['--git-path', marker])])
   const paths = stdout
     .split('\n')

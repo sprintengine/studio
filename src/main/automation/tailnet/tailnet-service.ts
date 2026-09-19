@@ -170,7 +170,10 @@ export type TailnetRemoteServiceOptions = {
    */
   interfaceWatchMs?: number
   createPeerScanner?: () => TailnetPeerScanner
-  createDeviceStore?: (options: { resolveUserDataDir: () => string; log?: (message: string) => void }) => TailnetDeviceStore
+  createDeviceStore?: (options: {
+    resolveUserDataDir: () => string
+    log?: (message: string) => void
+  }) => TailnetDeviceStore
   createPeerResolver?: () => TailnetPeerResolver
   log?: (message: string) => void
 }
@@ -655,7 +658,7 @@ export function createTailnetRemoteService(options: TailnetRemoteServiceOptions)
         emit(
           server?.isRunning()
             ? { kind: 'listener', running: true }
-            : { kind: 'listener', running: false, error: lastError }
+            : { kind: 'listener', running: false, error: lastError },
         )
       }
       return getStatus()

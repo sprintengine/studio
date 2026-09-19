@@ -1,14 +1,5 @@
-
-
 export type CommandCategory =
-  | 'settings'
-  | 'command_palette'
-  | 'workspace'
-  | 'panel'
-  | 'voice'
-  | 'git'
-  | 'terminal'
-  | 'diagnostics'
+  'settings' | 'command_palette' | 'workspace' | 'panel' | 'voice' | 'git' | 'terminal' | 'diagnostics'
 
 export type CommandScope =
   | 'global'

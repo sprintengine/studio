@@ -74,7 +74,7 @@ export type GhSpawn = (
     /** `execFile`'s own timeout: the child is signalled, not merely abandoned. */
     timeout?: number
     killSignal?: NodeJS.Signals
-  }
+  },
 ) => Promise<{ stdout: string; stderr: string }>
 
 export type GhRunnerEnvironment = {
@@ -91,8 +91,8 @@ export type GhRunnerEnvironment = {
 // $SHELL -ilc fallback in cli-runtime-install.ts).
 export function createDefaultGhRunner(environment: GhRunnerEnvironment = {}): GhRunner {
   const spawn: GhSpawn =
-    environment.spawn
-    ?? ((file, args, options) => execFileAsync(file, args, options) as Promise<{ stdout: string; stderr: string }>)
+    environment.spawn ??
+    ((file, args, options) => execFileAsync(file, args, options) as Promise<{ stdout: string; stderr: string }>)
   const shell = environment.shell !== undefined ? environment.shell : process.env.SHELL
   const platform = environment.platform ?? process.platform
 
@@ -165,7 +165,7 @@ function resultFromSpawnError(error: unknown): GhResult {
 export function buildShellGhDescriptor(
   args: string[],
   shell: string | undefined,
-  platform: NodeJS.Platform = process.platform
+  platform: NodeJS.Platform = process.platform,
 ): { file: string; args: string[] } | null {
   if (platform !== 'darwin' && platform !== 'linux') return null
   const shellPath = shell?.trim()

@@ -4,11 +4,7 @@ import { truncate } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import {
-  MAX_TRANSCRIPT_BYTES,
-  MAX_TRANSCRIPT_SUMMARY_LENGTH,
-  readTranscriptSummary,
-} from './transcript-summary'
+import { MAX_TRANSCRIPT_BYTES, MAX_TRANSCRIPT_SUMMARY_LENGTH, readTranscriptSummary } from './transcript-summary'
 
 const workDir = mkdtempSync(join(tmpdir(), 'multicode-transcript-summary-'))
 
@@ -107,10 +103,7 @@ async function assertReturnsUndefinedWithoutAssistantText(): Promise<void> {
   assert.equal(await readTranscriptSummary(malformed), undefined)
 
   // No assistant rows at all.
-  assert.equal(
-    await readTranscriptSummary(writeTranscript('user-only.jsonl', [userRow('hello')])),
-    undefined,
-  )
+  assert.equal(await readTranscriptSummary(writeTranscript('user-only.jsonl', [userRow('hello')])), undefined)
   // Assistant rows carrying no text (tool_use only, or whitespace).
   assert.equal(
     await readTranscriptSummary(

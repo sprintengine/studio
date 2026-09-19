@@ -184,7 +184,14 @@ export class HostedSourcesFeedClient {
 
     if (!response.ok) {
       this.lastFailureAtMs = nowMs
-      return this.serveLocal(feedUrl, cache, seed, `GitHub answered HTTP ${response.status}.`, 'fetch-error', response.status)
+      return this.serveLocal(
+        feedUrl,
+        cache,
+        seed,
+        `GitHub answered HTTP ${response.status}.`,
+        'fetch-error',
+        response.status,
+      )
     }
 
     let body: string
@@ -192,7 +199,13 @@ export class HostedSourcesFeedClient {
       body = await response.text()
     } catch (error) {
       this.lastFailureAtMs = nowMs
-      return this.serveLocal(feedUrl, cache, seed, `The sources feed could not be read. ${formatError(error)}`, 'offline')
+      return this.serveLocal(
+        feedUrl,
+        cache,
+        seed,
+        `The sources feed could not be read. ${formatError(error)}`,
+        'offline',
+      )
     }
 
     const parsed = parseHostedSourcesFeed(body)
@@ -210,7 +223,16 @@ export class HostedSourcesFeedClient {
     const changed = !cache || JSON.stringify(cache.feed) !== JSON.stringify(parsed.feed)
     await this.writeCache({ schemaVersion: 1, feedUrl, ...(etag ? { etag } : {}), fetchedAt, feed: parsed.feed })
     this.lastFailureAtMs = null
-    return { ok: true, state: 'ok', feedUrl, source: 'network', fetchedAt, ...(etag ? { etag } : {}), changed, feed: parsed.feed }
+    return {
+      ok: true,
+      state: 'ok',
+      feedUrl,
+      source: 'network',
+      fetchedAt,
+      ...(etag ? { etag } : {}),
+      changed,
+      feed: parsed.feed,
+    }
   }
 
   // What to show when the network did not answer with a fresh body: the cache,

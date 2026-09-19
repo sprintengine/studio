@@ -152,7 +152,7 @@ export function pairRequestSummary(request: TailnetPairRequest): string {
  */
 export function pairRequestAnswerable(
   request: TailnetPairRequest,
-  nowMs: number
+  nowMs: number,
 ): { canAnswer: boolean; note: string | null } {
   const expiresAtMs = Date.parse(request.expiresAt)
   if (Number.isFinite(expiresAtMs) && expiresAtMs <= nowMs) {

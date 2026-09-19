@@ -44,9 +44,7 @@ export type DockDiffTarget = {
 
 /** Called with the window an ack came FROM and the id it echoed. Returns the
  *  unsubscribe. */
-export type DockDiffAckSubscribe = (
-  listener: (from: unknown, requestId: unknown) => void
-) => () => void
+export type DockDiffAckSubscribe = (listener: (from: unknown, requestId: unknown) => void) => () => void
 
 /**
  * How long ONE window is given to answer. Long enough for a renderer that is
@@ -100,7 +98,7 @@ function askOneWindow(
   target: DockDiffTarget,
   request: DockDiffRequest,
   subscribe: DockDiffAckSubscribe,
-  waitMs: number
+  waitMs: number,
 ): Promise<boolean> {
   return new Promise((resolve) => {
     let timer: ReturnType<typeof setTimeout> | null = null

@@ -27,7 +27,7 @@ export type TailnetScope = (typeof TAILNET_SCOPES)[number]
 
 /** Every scope except the terminal tier — what a structured-command device asks for. */
 export const TAILNET_STRUCTURED_SCOPES: readonly TailnetScope[] = TAILNET_SCOPES.filter(
-  (scope) => !scope.startsWith('terminal:')
+  (scope) => !scope.startsWith('terminal:'),
 )
 
 export function isTailnetScope(value: unknown): value is TailnetScope {
@@ -337,7 +337,13 @@ type TailnetLiveEvent =
    * stop that was requested.
    */
   | { kind: 'listener'; running: false; error: string | null }
-  | { kind: 'pair-request'; phase: TailnetPairRequestPhase; requestId: string; deviceName: string; peerNode: string | null }
+  | {
+      kind: 'pair-request'
+      phase: TailnetPairRequestPhase
+      requestId: string
+      deviceName: string
+      peerNode: string | null
+    }
   | { kind: 'device-connection'; deviceId: string; deviceName: string; connected: boolean }
   | {
       kind: 'terminal-drive'

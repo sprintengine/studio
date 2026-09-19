@@ -8,9 +8,7 @@ import type { ITheme, Terminal } from '@xterm/xterm'
 
 function readVar(name: string, fallback: string): string {
   if (typeof window === 'undefined') return fallback
-  const value = getComputedStyle(document.documentElement)
-    .getPropertyValue(name)
-    .trim()
+  const value = getComputedStyle(document.documentElement).getPropertyValue(name).trim()
   return value || fallback
 }
 
@@ -55,7 +53,11 @@ function isLightBackground(color: string): boolean {
   const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(color.trim())
   if (!match) return false
   let hex = match[1]
-  if (hex.length === 3) hex = hex.split('').map((c) => c + c).join('')
+  if (hex.length === 3)
+    hex = hex
+      .split('')
+      .map((c) => c + c)
+      .join('')
   const r = parseInt(hex.slice(0, 2), 16)
   const g = parseInt(hex.slice(2, 4), 16)
   const b = parseInt(hex.slice(4, 6), 16)

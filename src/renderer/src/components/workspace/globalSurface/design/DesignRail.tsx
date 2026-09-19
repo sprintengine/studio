@@ -160,11 +160,7 @@ export function DesignRail({
         placeholder: 'Search design systems…',
         ariaLabel: 'Search your design systems',
       }}
-      filter={
-        anyBroken || status !== 'all'
-          ? { ariaLabel: 'Filter design systems', groups: filterGroups }
-          : undefined
-      }
+      filter={anyBroken || status !== 'all' ? { ariaLabel: 'Filter design systems', groups: filterGroups } : undefined}
       // The lens is narrower than the systems behind it. Say so, rather than
       // letting a filtered-empty rail read as "you have no design systems".
       emptyNotice={entries.length > 0 ? 'No design systems match.' : undefined}

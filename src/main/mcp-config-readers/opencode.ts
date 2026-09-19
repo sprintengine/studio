@@ -47,7 +47,4 @@ export function parseOpencodeMcpServers(raw: string): RawMcpServer[] {
   return servers
 }
 
-export const opencodeMcpReader: McpConfigReader = createFileMcpConfigReader(
-  'opencode',
-  parseOpencodeMcpServers,
-)
+export const opencodeMcpReader: McpConfigReader = createFileMcpConfigReader('opencode', parseOpencodeMcpServers)

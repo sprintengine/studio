@@ -198,13 +198,17 @@ export function SkillsAndMcpsPicker({
     if (!highlightedKey || !listRef.current) return
     // Keys are `skill:<id>` / `mcp:<id>`; ids are attribute-safe once quotes
     // are out (jsdom in tests has no `CSS.escape`).
-    const row = listRef.current.querySelector<HTMLElement>(`[data-picker-row="${highlightedKey.replace(/["\\]/g, '')}"]`)
+    const row = listRef.current.querySelector<HTMLElement>(
+      `[data-picker-row="${highlightedKey.replace(/["\\]/g, '')}"]`,
+    )
     row?.scrollIntoView?.({ block: 'nearest' })
   }, [highlightedKey])
 
   const isChecked = useCallback(
     (row: PickerRow) =>
-      row.kind === 'skill' ? skills.some((skill) => skill.id === row.skill.id) : mcpServers.some((server) => server.id === row.id),
+      row.kind === 'skill'
+        ? skills.some((skill) => skill.id === row.skill.id)
+        : mcpServers.some((server) => server.id === row.id),
     [mcpServers, skills],
   )
 
@@ -338,8 +342,8 @@ export function SkillsAndMcpsPicker({
       popupRole="dialog"
       placement={placement}
       renderTrigger={
-        renderTrigger
-        ?? (({ ref, triggerProps, togglePopover }) => (
+        renderTrigger ??
+        (({ ref, triggerProps, togglePopover }) => (
           // The kit's chip, which is what both hosts were passing a chrome
           // string to draw: the `triggerClassName` escape hatch is gone with
           // it, because a trigger the kit can draw does not need one.
@@ -353,7 +357,12 @@ export function SkillsAndMcpsPicker({
     >
       <div className="flex max-h-[420px] w-[360px] flex-col overflow-hidden">
         <div className="flex items-center gap-1 border-b border-[color:var(--border-subtle)] p-1 pl-2.5">
-          <svg className="icon-xs shrink-0 text-[color:var(--text-disabled)]" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+          <svg
+            className="icon-xs shrink-0 text-[color:var(--text-disabled)]"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
+          >
             <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.4" />
             <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
           </svg>
@@ -378,7 +387,14 @@ export function SkillsAndMcpsPicker({
             className="min-w-0 flex-1 px-1 py-1 text-body"
           />
         </div>
-        <div ref={listRef} id={listId} role="listbox" aria-multiselectable="true" aria-label="Skills and MCP servers" className="min-h-0 flex-1 overflow-y-auto py-1">
+        <div
+          ref={listRef}
+          id={listId}
+          role="listbox"
+          aria-multiselectable="true"
+          aria-label="Skills and MCP servers"
+          className="min-h-0 flex-1 overflow-y-auto py-1"
+        >
           {skillInventory.loading && rows.length === 0 ? (
             <div className="flex items-center gap-2 px-2.5 py-3 text-meta text-[color:var(--text-muted)]" role="status">
               <Spinner />
@@ -472,7 +488,11 @@ function PickerRowView({
   ) : included ? (
     'Included'
   ) : row.kind === 'skill' ? (
-    row.group === 'available' ? 'Install' : SKILL_SOURCE_LABEL[row.skill.source]
+    row.group === 'available' ? (
+      'Install'
+    ) : (
+      SKILL_SOURCE_LABEL[row.skill.source]
+    )
   ) : null
   return (
     <div
@@ -500,8 +520,12 @@ function PickerRowView({
       </span>
       <span className="min-w-0 flex-1">
         <span className="block truncate text-body font-medium text-[color:var(--text-strong)]">{name}</span>
-        {description ? <span className="block truncate text-meta text-[color:var(--text-muted)]">{description}</span> : null}
-        {row.kind === 'mcp' ? <span className="block text-micro text-[color:var(--text-subtle)]">{row.meta}</span> : null}
+        {description ? (
+          <span className="block truncate text-meta text-[color:var(--text-muted)]">{description}</span>
+        ) : null}
+        {row.kind === 'mcp' ? (
+          <span className="block text-micro text-[color:var(--text-subtle)]">{row.meta}</span>
+        ) : null}
         {error ? (
           <span className="block text-meta text-[color:var(--tone-error)]" role="alert">
             {row.kind === 'skill' ? 'Couldn’t install' : 'Couldn’t add'} — {error}

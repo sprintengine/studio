@@ -100,8 +100,12 @@ function overrideIsTheRollbackLever(): void {
   assert.throws(() => resolveIdentityOverride({ MULTICODE_IDENTITY_PROVIDER: 'okta' }), IdentityDiscoveryError)
   assert.throws(() => resolveIdentityOverride({ MULTICODE_IDENTITY_PROVIDER: 'clerk' }), IdentityDiscoveryError)
   assert.throws(
-    () => resolveIdentityOverride({ MULTICODE_IDENTITY_PROVIDER: 'clerk', MULTICODE_CLERK_ISSUER: 'https://clerk.example' }),
-    IdentityDiscoveryError
+    () =>
+      resolveIdentityOverride({
+        MULTICODE_IDENTITY_PROVIDER: 'clerk',
+        MULTICODE_CLERK_ISSUER: 'https://clerk.example',
+      }),
+    IdentityDiscoveryError,
   )
 }
 
@@ -146,12 +150,14 @@ function authorizationUrlsFollowTheIssuer(): void {
   // Organisation is a studio concept, never sent to Clerk.
   assert.equal(clerkUrl.searchParams.get('organization_id'), null)
 
-  const multiauthUrl = new URL(buildMultiauthAuthorizationUrl(request, {
-    baseUrl: 'https://auth.example',
-    clientId: 'multicode-desktop',
-    product: 'multicode',
-    scope: 'openid profile entitlements:read relay:desktop',
-  }))
+  const multiauthUrl = new URL(
+    buildMultiauthAuthorizationUrl(request, {
+      baseUrl: 'https://auth.example',
+      clientId: 'multicode-desktop',
+      product: 'multicode',
+      scope: 'openid profile entitlements:read relay:desktop',
+    }),
+  )
   assert.equal(multiauthUrl.origin + multiauthUrl.pathname, 'https://auth.example/')
   assert.equal(multiauthUrl.searchParams.get('returnTo'), 'desktop')
   assert.equal(multiauthUrl.searchParams.get('client_id'), 'multicode-desktop')
@@ -174,22 +180,25 @@ function tokenRequestsSpeakEachIssuersDialect(): void {
 function tokenResponsesNormalise(): void {
   assert.deepEqual(
     parseClerkTokenResponse({ access_token: 'at', refresh_token: 'rt', expires_in: 86400, token_type: 'bearer' }),
-    { accessToken: 'at', refreshToken: 'rt', tokenType: 'Bearer', expiresIn: 86400 }
+    { accessToken: 'at', refreshToken: 'rt', tokenType: 'Bearer', expiresIn: 86400 },
   )
   // A refresh grant that does not rotate keeps the credential we hold …
   assert.equal(parseClerkTokenResponse({ access_token: 'at', expires_in: 60 }, 'kept').refreshToken, 'kept')
   // … but a code exchange with no refresh token is a broken grant, not a session.
   assert.throws(() => parseClerkTokenResponse({ access_token: 'at', expires_in: 60 }), TokenResponseError)
   assert.throws(() => parseClerkTokenResponse({ refresh_token: 'rt', expires_in: 60 }), TokenResponseError)
-  assert.throws(() => parseClerkTokenResponse({ access_token: 'at', refresh_token: 'rt', expires_in: 0 }), TokenResponseError)
+  assert.throws(
+    () => parseClerkTokenResponse({ access_token: 'at', refresh_token: 'rt', expires_in: 0 }),
+    TokenResponseError,
+  )
   assert.throws(
     () => parseClerkTokenResponse({ access_token: 'at', refresh_token: 'rt', expires_in: 60, token_type: 'mac' }),
-    TokenResponseError
+    TokenResponseError,
   )
 
   assert.deepEqual(
     parseMultiauthTokenResponse({ accessToken: 'at', refreshToken: 'rt', tokenType: 'Bearer', expiresIn: 600 }),
-    { accessToken: 'at', refreshToken: 'rt', tokenType: 'Bearer', expiresIn: 600 }
+    { accessToken: 'at', refreshToken: 'rt', tokenType: 'Bearer', expiresIn: 600 },
   )
   assert.throws(() => parseMultiauthTokenResponse({ accessToken: 'at' }), TokenResponseError)
 }
@@ -198,7 +207,7 @@ function errorBodiesReadEitherWay(): void {
   assert.equal(readTokenErrorMessage({ error: { message: 'Session revoked.' } }, 'fallback'), 'Session revoked.')
   assert.equal(
     readTokenErrorMessage({ error: 'invalid_grant', error_description: 'Code already used.' }, 'fallback'),
-    'invalid_grant: Code already used.'
+    'invalid_grant: Code already used.',
   )
   assert.equal(readTokenErrorMessage({ error: 'invalid_client' }, 'fallback'), 'invalid_client')
   assert.equal(readTokenErrorMessage({}, 'fallback'), 'fallback')
@@ -233,7 +242,7 @@ const cases: Array<[string, () => void]> = [
   ['the operator override is the rollback lever', overrideIsTheRollbackLever],
   ['refresh order prefers the last sign-in but tries both stores', refreshOrderPrefersTheLastSignInButTriesBoth],
   ['authorization URLs follow the issuer', authorizationUrlsFollowTheIssuer],
-  ['token requests speak each issuer\'s dialect', tokenRequestsSpeakEachIssuersDialect],
+  ["token requests speak each issuer's dialect", tokenRequestsSpeakEachIssuersDialect],
   ['token responses normalise to one token set', tokenResponsesNormalise],
   ['error bodies read either way', errorBodiesReadEitherWay],
 ]

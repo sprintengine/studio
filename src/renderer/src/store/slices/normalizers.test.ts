@@ -8,21 +8,22 @@ import {
   normalizeWorkspaceForPartialize,
 } from './normalizers'
 
-const baseWorkspace = (overrides: Partial<Workspace> = {}): Workspace => ({
-  id: 'ws-1',
-  name: 'Test',
-  folderPath: '/Users/example/project',
-  folderMissing: false,
-  mode: 'standard',
-  layoutModel: undefined as unknown as Workspace['layoutModel'],
-  agents: {},
-  memory: undefined,
-  worktreeState: undefined,
-  editorState: { openFiles: [], activeFilePath: null },
-  highlight: undefined,
-  lastTerminalOutputAt: undefined,
-  ...overrides,
-} as unknown as Workspace)
+const baseWorkspace = (overrides: Partial<Workspace> = {}): Workspace =>
+  ({
+    id: 'ws-1',
+    name: 'Test',
+    folderPath: '/Users/example/project',
+    folderMissing: false,
+    mode: 'standard',
+    layoutModel: undefined as unknown as Workspace['layoutModel'],
+    agents: {},
+    memory: undefined,
+    worktreeState: undefined,
+    editorState: { openFiles: [], activeFilePath: null },
+    highlight: undefined,
+    lastTerminalOutputAt: undefined,
+    ...overrides,
+  }) as unknown as Workspace
 
 // mapMigrationWorkspaces mutates the carrier in place, mapping each workspace.
 const carrier = { workspaces: [baseWorkspace({ id: 'a' }), baseWorkspace({ id: 'b' })] }
@@ -67,7 +68,9 @@ const withAgent = baseWorkspace({
   } as unknown as Workspace['agents'],
 })
 const withAgentCleaned = normalizeWorkspaceForPartialize(withAgent)
-const persistedAgent = (withAgentCleaned.agents as Record<string, { status: string; streamBuffer: string; cliStartupPrompt?: string }>)['agent-1']
+const persistedAgent = (
+  withAgentCleaned.agents as Record<string, { status: string; streamBuffer: string; cliStartupPrompt?: string }>
+)['agent-1']
 assert.equal(persistedAgent.status, 'idle')
 assert.equal(persistedAgent.streamBuffer, '')
 // A prompt that has not reached the CLI yet is launch intent, not durable
@@ -93,10 +96,19 @@ const withResumableAgent = baseWorkspace({
   } as unknown as Workspace['agents'],
 })
 const resumableCleaned = normalizeWorkspaceForPartialize(withResumableAgent)
-const persistedResumable = (resumableCleaned.agents as Record<string, { cliResumeAvailable?: boolean; cliUsesStableSessionId?: boolean; cliHasLaunched?: boolean }>)['claude-1']
+const persistedResumable = (
+  resumableCleaned.agents as Record<
+    string,
+    { cliResumeAvailable?: boolean; cliUsesStableSessionId?: boolean; cliHasLaunched?: boolean }
+  >
+)['claude-1']
 assert.equal(persistedResumable.cliHasLaunched, true, 'cliHasLaunched survives persist')
 assert.equal(persistedResumable.cliResumeAvailable, true, 'cliResumeAvailable survives persist')
-assert.equal(persistedResumable.cliUsesStableSessionId, true, 'cliUsesStableSessionId survives persist (cold-restart resume gate)')
+assert.equal(
+  persistedResumable.cliUsesStableSessionId,
+  true,
+  'cliUsesStableSessionId survives persist (cold-restart resume gate)',
+)
 
 // And an agent whose prompt HAS reached the CLI drops it for the same reason.
 const withAgentAlreadyOnboarded = baseWorkspace({
@@ -118,19 +130,21 @@ assert.equal(onboardedAgent.cliStartupPrompt, undefined)
 // Backlog + Git panel view state survives partialize, with malformed fields
 // coerced rather than dropped, and absent state stays undefined (no per-workspace
 // bloat).
-const viewStateClean = normalizeWorkspaceForPartialize(baseWorkspace({
-  backlogState: {
-    selectedRelativePath: 'backlog/a.md',
-    view: 'quick_wins',
-    sort: 'priority',
-    search: 'auth',
-  },
-  gitPanelState: {
-    activeView: 'log',
-    activeScopeId: 'worktree-x',
-    commitDraftsByScopeId: { 'worktree-x': 'WIP', main: '   ' },
-  },
-} as unknown as Partial<Workspace>) as unknown as Workspace)
+const viewStateClean = normalizeWorkspaceForPartialize(
+  baseWorkspace({
+    backlogState: {
+      selectedRelativePath: 'backlog/a.md',
+      view: 'quick_wins',
+      sort: 'priority',
+      search: 'auth',
+    },
+    gitPanelState: {
+      activeView: 'log',
+      activeScopeId: 'worktree-x',
+      commitDraftsByScopeId: { 'worktree-x': 'WIP', main: '   ' },
+    },
+  } as unknown as Partial<Workspace>) as unknown as Workspace,
+)
 assert.deepEqual(viewStateClean.backlogState, {
   selectedRelativePath: 'backlog/a.md',
   view: 'quick_wins',
@@ -145,10 +159,12 @@ assert.deepEqual(viewStateClean.gitPanelState, {
   commitDraftsByScopeId: { 'worktree-x': 'WIP' },
 })
 
-const malformedViewState = normalizeWorkspaceForPartialize(baseWorkspace({
-  backlogState: { view: 'nope', sort: 'nope', search: 5, selectedRelativePath: '  ' },
-  gitPanelState: { activeView: 'nope', activeScopeId: '', commitDraftsByScopeId: 'oops' },
-} as unknown as Partial<Workspace>) as unknown as Workspace)
+const malformedViewState = normalizeWorkspaceForPartialize(
+  baseWorkspace({
+    backlogState: { view: 'nope', sort: 'nope', search: 5, selectedRelativePath: '  ' },
+    gitPanelState: { activeView: 'nope', activeScopeId: '', commitDraftsByScopeId: 'oops' },
+  } as unknown as Partial<Workspace>) as unknown as Workspace,
+)
 assert.deepEqual(malformedViewState.backlogState, {
   selectedRelativePath: null,
   view: 'active',
@@ -187,10 +203,12 @@ const persistedHostAgentFields = {
   cliOnboardingPromptSent: true,
   cliStartupPrompt: 'Run automation MM-37',
 }
-const automationsHostPersisted = normalizeWorkspaceForPartialize(baseWorkspace({
-  mode: 'automations-host',
-  agents: { 'agent-1': persistedHostAgentFields } as unknown as Workspace['agents'],
-}))
+const automationsHostPersisted = normalizeWorkspaceForPartialize(
+  baseWorkspace({
+    mode: 'automations-host',
+    agents: { 'agent-1': persistedHostAgentFields } as unknown as Workspace['agents'],
+  }),
+)
 type PersistedLaunchAgent = {
   status: string
   streamBuffer: string
@@ -207,8 +225,16 @@ const automationsHostAgent = (automationsHostPersisted.agents as Record<string, 
 assert.equal(automationsHostPersisted.mode, 'automations-host', 'mode is preserved')
 assert.equal(automationsHostAgent.status, 'idle')
 assert.equal(automationsHostAgent.streamBuffer, '')
-assert.equal(automationsHostAgent.cliSessionId, 'sess-123', 'session identity survives cold load (resolves the painted snapshot)')
-assert.equal(automationsHostAgent.harnessSessionId, 'harness-123', 'harness resume token survives too — the two normalizers stay in step')
+assert.equal(
+  automationsHostAgent.cliSessionId,
+  'sess-123',
+  'session identity survives cold load (resolves the painted snapshot)',
+)
+assert.equal(
+  automationsHostAgent.harnessSessionId,
+  'harness-123',
+  'harness resume token survives too — the two normalizers stay in step',
+)
 // The auto-resume regression guard. These flags ARE the mount-time resume gate
 // (shouldResume, TerminalView): if any of them survived, a cold-loaded agent
 // would launch an unattended `--resume` — worse than the fresh spawn this fixes.
@@ -223,24 +249,31 @@ assert.equal(automationsHostAgent.cliStartupPrompt, undefined, 'the automation d
 
 // A standard workspace's agent keeps its durable resume identity (regression
 // guard that the automations-host clear does not leak into other modes).
-const standardResumePersisted = normalizeWorkspaceForPartialize(baseWorkspace({
-  agents: {
-    'agent-1': {
-      id: 'agent-1',
-      name: 'Dev',
-      status: 'idle',
-      streamBuffer: '',
-      cliSessionId: 'sess-keep',
-      cliHasLaunched: true,
-      cliResumeAvailable: true,
-    },
-  } as unknown as Workspace['agents'],
-}))
-const standardResumeAgent = (standardResumePersisted.agents as Record<string, {
-  cliSessionId?: string
-  cliHasLaunched?: boolean
-  cliResumeAvailable?: boolean
-}>)['agent-1']
+const standardResumePersisted = normalizeWorkspaceForPartialize(
+  baseWorkspace({
+    agents: {
+      'agent-1': {
+        id: 'agent-1',
+        name: 'Dev',
+        status: 'idle',
+        streamBuffer: '',
+        cliSessionId: 'sess-keep',
+        cliHasLaunched: true,
+        cliResumeAvailable: true,
+      },
+    } as unknown as Workspace['agents'],
+  }),
+)
+const standardResumeAgent = (
+  standardResumePersisted.agents as Record<
+    string,
+    {
+      cliSessionId?: string
+      cliHasLaunched?: boolean
+      cliResumeAvailable?: boolean
+    }
+  >
+)['agent-1']
 assert.equal(standardResumeAgent.cliSessionId, 'sess-keep', 'standard agents keep resume identity')
 assert.equal(standardResumeAgent.cliHasLaunched, true)
 assert.equal(standardResumeAgent.cliResumeAvailable, true)
@@ -267,10 +300,34 @@ assert.equal(
 // dedupeAutomationsHostWorkspaces — one host per folder, earliest wins, kept
 // host is re-branded 'Automations' (pre-v63 minting named hosts after runs).
 {
-  const hostA = baseWorkspace({ id: 'host-a', mode: 'automations-host', name: 'Pillars of code review', folderPath: '/Users/example/project', createdAt: 100 })
-  const hostB = baseWorkspace({ id: 'host-b', mode: 'automations-host', name: 'fable5 calendar', folderPath: '/Users/example/project/', createdAt: 300 })
-  const hostC = baseWorkspace({ id: 'host-c', mode: 'automations-host', name: 'Nightly reviewer', folderPath: '/USERS/EXAMPLE/PROJECT', createdAt: 200 })
-  const otherFolderHost = baseWorkspace({ id: 'host-other', mode: 'automations-host', name: 'Solo host', folderPath: '/Users/example/other', createdAt: 50 })
+  const hostA = baseWorkspace({
+    id: 'host-a',
+    mode: 'automations-host',
+    name: 'Pillars of code review',
+    folderPath: '/Users/example/project',
+    createdAt: 100,
+  })
+  const hostB = baseWorkspace({
+    id: 'host-b',
+    mode: 'automations-host',
+    name: 'fable5 calendar',
+    folderPath: '/Users/example/project/',
+    createdAt: 300,
+  })
+  const hostC = baseWorkspace({
+    id: 'host-c',
+    mode: 'automations-host',
+    name: 'Nightly reviewer',
+    folderPath: '/USERS/EXAMPLE/PROJECT',
+    createdAt: 200,
+  })
+  const otherFolderHost = baseWorkspace({
+    id: 'host-other',
+    mode: 'automations-host',
+    name: 'Solo host',
+    folderPath: '/Users/example/other',
+    createdAt: 50,
+  })
   const standard = baseWorkspace({ id: 'std', mode: 'standard', folderPath: '/Users/example/project', createdAt: 10 })
 
   const deduped = dedupeAutomationsHostWorkspaces([hostB, standard, hostA, hostC, otherFolderHost])
@@ -290,7 +347,13 @@ assert.equal(
 
 // No duplicates → the exact input array is returned (cheap no-op on hot paths).
 {
-  const solo = baseWorkspace({ id: 'solo', mode: 'automations-host', name: 'fable5 calendar', folderPath: '/p', createdAt: 1 })
+  const solo = baseWorkspace({
+    id: 'solo',
+    mode: 'automations-host',
+    name: 'fable5 calendar',
+    folderPath: '/p',
+    createdAt: 1,
+  })
   const list = [solo, baseWorkspace({ id: 'std2', mode: 'standard' })]
   assert.equal(dedupeAutomationsHostWorkspaces(list), list, 'no-dupe input returned by reference')
 }
@@ -321,7 +384,15 @@ assert.equal(
   const retiredEngine = baseWorkspace({ id: 'ws-engine', mode: 'sprintengine' })
   const automationsHost = baseWorkspace({ id: 'ws-auto', mode: 'automations-host' })
   assert.deepEqual(
-    dropRetiredModeWorkspaces([standard, roadmap, multiloop, guidedBrief, reviewsHost, retiredEngine, automationsHost]).map((w) => w.id),
+    dropRetiredModeWorkspaces([
+      standard,
+      roadmap,
+      multiloop,
+      guidedBrief,
+      reviewsHost,
+      retiredEngine,
+      automationsHost,
+    ]).map((w) => w.id),
     ['ws-standard', 'ws-auto'],
     'every retired-mode row is dropped, others kept in order',
   )

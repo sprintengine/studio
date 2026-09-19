@@ -89,7 +89,13 @@ import { homeCardCount, homeCardGrid, newHomeCardSlugs } from './homeCards'
 function TileChevron({ className }: { className?: string }) {
   return (
     <svg viewBox="0 0 16 16" fill="none" className={className} aria-hidden="true">
-      <path d="M6 3.5 10.5 8 6 12.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M6 3.5 10.5 8 6 12.5"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
     </svg>
   )
 }
@@ -138,15 +144,11 @@ function ExtensionsHomeTile({
         </span>
       </span>
       <span className="text-body font-semibold text-[color:var(--text-strong)]">{label}</span>
-      {summary ? (
-        <span className="mt-0.5 text-meta text-[color:var(--text-muted)]">{summary}</span>
-      ) : null}
+      {summary ? <span className="mt-0.5 text-meta text-[color:var(--text-muted)]">{summary}</span> : null}
       {/* A count that is not known yet is absent, never zero — the line simply
           is not there until the read lands. */}
       {count ? (
-        <span className="mt-auto pt-2 text-micro tabular-nums text-[color:var(--text-subtle)]">
-          {count}
-        </span>
+        <span className="mt-auto pt-2 text-micro tabular-nums text-[color:var(--text-subtle)]">{count}</span>
       ) : null}
     </CardButton>
   )
@@ -332,10 +334,7 @@ function CardGridSkeleton(): JSX.Element {
         <Skeleton className="aspect-[2.7/1] max-h-[330px] w-full rounded-lg bg-[color:var(--bg-surface-raised)]" />
       </div>
       {[0, 1, 2, 3].map((slot) => (
-        <Skeleton
-          key={slot}
-          className="aspect-[16/9] w-full rounded-lg bg-[color:var(--bg-surface-raised)]"
-        />
+        <Skeleton key={slot} className="aspect-[16/9] w-full rounded-lg bg-[color:var(--bg-surface-raised)]" />
       ))}
     </CardGrid>
   )
@@ -504,9 +503,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
                  at; as a sibling after it, it was a sentence no reader following
                  that pointer would ever be sent to. */
               matched === 0 ? (
-                <p className="m-0 pt-1 text-meta text-[color:var(--text-muted)]">
-                  No cards match this search.
-                </p>
+                <p className="m-0 pt-1 text-meta text-[color:var(--text-muted)]">No cards match this search.</p>
               ) : null
             }
           >
@@ -543,10 +540,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
             A `<section>` either way, and one the heading names when there is a
             heading to name it: a reader that can jump to the tiles is the whole
             point of sectioning them. */}
-        <section
-          aria-labelledby={hasCardRegion ? PARTS_HEADING_ID : undefined}
-          className="space-y-2.5"
-        >
+        <section aria-labelledby={hasCardRegion ? PARTS_HEADING_ID : undefined} className="space-y-2.5">
           {hasCardRegion ? (
             <div className="flex items-baseline gap-2.5">
               {/* h2, one level under the door's own name and one ABOVE the h3
@@ -555,10 +549,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
                   would read the label as a sibling of their content. Drawn
                   quietly all the same — the level is the outline, not the
                   type. */}
-              <h2
-                id={PARTS_HEADING_ID}
-                className="m-0 text-meta font-semibold text-[color:var(--text-strong)]"
-              >
+              <h2 id={PARTS_HEADING_ID} className="m-0 text-meta font-semibold text-[color:var(--text-strong)]">
                 Or go straight to the parts
               </h2>
               <p className="m-0 text-meta text-[color:var(--text-muted)]">
@@ -591,21 +582,21 @@ export default function ExtensionsHomeSurface(): JSX.Element {
             the grid silently stays at one column. `CardGrid` above is the
             precedent; this is the same two-element shape. */}
           <div className="@container">
-          <ul className="grid list-none grid-cols-1 gap-2.5 @[400px]:grid-cols-2 @[620px]:grid-cols-3 @[1160px]:grid-cols-6">
-            {tiles.map((row) =>
-              row.label && row.Icon ? (
-                <li key={row.key} className="flex flex-col">
-                  <ExtensionsHomeTile
-                    label={row.label}
-                    summary={EXTENSIONS_HOME_TILE_SUMMARIES[row.viewId ?? row.surfaceId]}
-                    count={counts[row.viewId ?? row.surfaceId]}
-                    Icon={row.Icon}
-                    onClick={row.open}
-                  />
-                </li>
-              ) : null,
-            )}
-          </ul>
+            <ul className="grid list-none grid-cols-1 gap-2.5 @[400px]:grid-cols-2 @[620px]:grid-cols-3 @[1160px]:grid-cols-6">
+              {tiles.map((row) =>
+                row.label && row.Icon ? (
+                  <li key={row.key} className="flex flex-col">
+                    <ExtensionsHomeTile
+                      label={row.label}
+                      summary={EXTENSIONS_HOME_TILE_SUMMARIES[row.viewId ?? row.surfaceId]}
+                      count={counts[row.viewId ?? row.surfaceId]}
+                      Icon={row.Icon}
+                      onClick={row.open}
+                    />
+                  </li>
+                ) : null,
+              )}
+            </ul>
           </div>
         </section>
       </div>

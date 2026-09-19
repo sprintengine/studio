@@ -58,14 +58,17 @@ export function WindowControls({ isMaximized }: { isMaximized: boolean }) {
       </Tooltip>
 
       <Tooltip content={isMaximized ? 'Restore' : 'Maximize'} placement="bottom">
-        <CaptionButton
-          onClick={toggleWindowSize}
-          aria-label={isMaximized ? 'Restore window' : 'Maximize window'}
-        >
+        <CaptionButton onClick={toggleWindowSize} aria-label={isMaximized ? 'Restore window' : 'Maximize window'}>
           {isMaximized ? (
             <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
               <path d="M5.5 6.5H11.5V12.5H5.5V6.5Z" stroke="currentColor" strokeWidth="1.2" />
-              <path d="M4.5 9.5H3.5V3.5H9.5V4.5" stroke="currentColor" strokeWidth="1.2" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M4.5 9.5H3.5V3.5H9.5V4.5"
+                stroke="currentColor"
+                strokeWidth="1.2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
           ) : (
             <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
@@ -80,7 +83,12 @@ export function WindowControls({ isMaximized }: { isMaximized: boolean }) {
       <Tooltip content="Close" placement="bottom">
         <CaptionButton tone="close" onClick={closeWindow} aria-label="Close window">
           <svg className="icon-sm" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-            <path d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
+            <path
+              d="M4.5 4.5L11.5 11.5M11.5 4.5L4.5 11.5"
+              stroke="currentColor"
+              strokeWidth="1.4"
+              strokeLinecap="round"
+            />
           </svg>
         </CaptionButton>
       </Tooltip>

@@ -22,10 +22,7 @@ import type {
   ModuleSpawnAgentInput,
   ModuleSpawnAgentResult,
 } from './agent-spawn'
-import type {
-  WorkspaceRunGlyph,
-  WorkspaceRunGlyphProviderInput,
-} from '../utils/workspaceRunGlyph'
+import type { WorkspaceRunGlyph, WorkspaceRunGlyphProviderInput } from '../utils/workspaceRunGlyph'
 
 // Renderer-side host kernel. Mirrors the main-process MainHost: capability
 // modules register their contributions (panels for now) into shared registries
@@ -42,8 +39,7 @@ export type WorkspacePanelProps = {
 // A panel may be an eager component or a React.lazy() wrapper; both render the
 // same way in JSX, and lazy keeps a disabled feature's bundle off the wire.
 export type WorkspacePanelComponent =
-  | ComponentType<WorkspacePanelProps>
-  | LazyExoticComponent<ComponentType<WorkspacePanelProps>>
+  ComponentType<WorkspacePanelProps> | LazyExoticComponent<ComponentType<WorkspacePanelProps>>
 
 export type WorkspaceTypeIconComponent = ComponentType<{ className?: string }>
 
@@ -54,9 +50,7 @@ export type WorkspaceTypeTopBarView = {
 
 export type WorkspaceTypeSupervisorScope = 'global' | 'all-windows'
 
-export type WorkspaceTypeSupervisorComponent =
-  | ComponentType
-  | LazyExoticComponent<ComponentType>
+export type WorkspaceTypeSupervisorComponent = ComponentType | LazyExoticComponent<ComponentType>
 
 export type WorkspaceTypeSupervisor = {
   Component: WorkspaceTypeSupervisorComponent
@@ -109,8 +103,7 @@ export type WorkspaceCreationStepProps = {
 }
 
 export type WorkspaceCreationStepComponent =
-  | ComponentType<WorkspaceCreationStepProps>
-  | LazyExoticComponent<ComponentType<WorkspaceCreationStepProps>>
+  ComponentType<WorkspaceCreationStepProps> | LazyExoticComponent<ComponentType<WorkspaceCreationStepProps>>
 
 export type WorkspaceTypeCreationStep = {
   id: string
@@ -401,8 +394,7 @@ export type SettingsSectionProps = {
 }
 
 export type SettingsSectionComponent =
-  | ComponentType<SettingsSectionProps>
-  | LazyExoticComponent<ComponentType<SettingsSectionProps>>
+  ComponentType<SettingsSectionProps> | LazyExoticComponent<ComponentType<SettingsSectionProps>>
 
 // Brand constraint: icons follow the house glyph pattern (24×24 viewBox,
 // fill="none", currentColor strokes). The Settings rail sizes and tints the
@@ -453,8 +445,7 @@ export type SidebarNavEntryRenderProps = {
 }
 
 export type SidebarNavEntryComponent =
-  | ComponentType<SidebarNavEntryRenderProps>
-  | LazyExoticComponent<ComponentType<SidebarNavEntryRenderProps>>
+  ComponentType<SidebarNavEntryRenderProps> | LazyExoticComponent<ComponentType<SidebarNavEntryRenderProps>>
 
 export type SidebarNavEntryDefinition = {
   id: string
@@ -502,9 +493,7 @@ export type RegisteredDoorBadge = DoorBadgeContribution & {
 // only owns placement + gating. Consumers filter by the owning module's
 // enablement and sort by `order`, so a module toggle adds/removes its control
 // live, without a reload, at a deterministic slot.
-export type TopBarItemComponent =
-  | ComponentType
-  | LazyExoticComponent<ComponentType>
+export type TopBarItemComponent = ComponentType | LazyExoticComponent<ComponentType>
 
 export type TopBarItemDefinition = {
   id: string
@@ -564,9 +553,7 @@ export type SurfaceViewDefinition = {
 // component out of the shell is what lets the Automations/Reviews door tasks
 // register their page without editing WorkspaceManager/WorkspaceSidebar. The
 // component is zero-prop and owns its own data/state, exactly like a panel.
-export type GlobalSurfaceComponent =
-  | ComponentType
-  | LazyExoticComponent<ComponentType>
+export type GlobalSurfaceComponent = ComponentType | LazyExoticComponent<ComponentType>
 
 // Where a door's own rail goes while the door is open (Extensions drawer
 // ruling, 2026-09-05).
@@ -657,8 +644,7 @@ export type ModalSurfaceComponentProps = {
 }
 
 export type ModalSurfaceComponent =
-  | ComponentType<ModalSurfaceComponentProps>
-  | LazyExoticComponent<ComponentType<ModalSurfaceComponentProps>>
+  ComponentType<ModalSurfaceComponentProps> | LazyExoticComponent<ComponentType<ModalSurfaceComponentProps>>
 
 // The pane-strip row a modal surface contributes (D7, 2026-09-10). A modal is
 // opened from inside the content it floats over, and for a workspace-scoped
@@ -999,7 +985,7 @@ export type RendererHost = {
   watchWorkspaceFile(
     workspaceId: string,
     relativePath: string,
-    cb: (event: WorkspaceFileWatchEvent) => void
+    cb: (event: WorkspaceFileWatchEvent) => void,
   ): Promise<() => void>
   /**
    * Observe live agent sessions: `cb` fires once with the current read-only
@@ -1014,10 +1000,7 @@ export type RendererHost = {
    * that claimed no namespace sees an empty list.
    * Disclosure permission: `ipc:agents`.
    */
-  watchAgentSessions(
-    workspaceId: string | undefined,
-    cb: (sessions: ModuleAgentSessionView[]) => void
-  ): () => void
+  watchAgentSessions(workspaceId: string | undefined, cb: (sessions: ModuleAgentSessionView[]) => void): () => void
   /**
    * Spawn an agent session through the SHARED session runtime (the same path
    * every shell surface uses) and add its tab to the workspace layout.
@@ -1059,9 +1042,7 @@ export type RendererKernel = {
   getBacklogItemActions(): RegisteredBacklogItemAction[]
   getFileActions(): RegisteredFileAction[]
   getBacklogLinkProviders(moduleEnabled?: (moduleId: string) => boolean): BacklogLinkProvider[]
-  getNotificationActionProviders(
-    moduleEnabled?: (moduleId: string) => boolean
-  ): RegisteredNotificationActionProvider[]
+  getNotificationActionProviders(moduleEnabled?: (moduleId: string) => boolean): RegisteredNotificationActionProvider[]
   getModuleCommand(commandId: string): RegisteredModuleCommand | undefined
   getModuleCommands(moduleEnabled?: (moduleId: string) => boolean): RegisteredModuleCommand[]
   /**
@@ -1129,9 +1110,7 @@ export type RendererKernel = {
    * lands in the "+" menu and the empty-state launcher without the shell
    * knowing what it is.
    */
-  getModalSurfaceLaunchers(
-    moduleEnabled?: (moduleId: string) => boolean
-  ): RegisteredModalSurfaceLauncher[]
+  getModalSurfaceLaunchers(moduleEnabled?: (moduleId: string) => boolean): RegisteredModalSurfaceLauncher[]
   /**
    * The module namespace owning `agentId`, or undefined when no enabled module
    * claims it. The shell asks this instead of importing a module's own id
@@ -1140,7 +1119,7 @@ export type RendererKernel = {
    */
   getAgentIdNamespace(
     agentId: string,
-    moduleEnabled?: (moduleId: string) => boolean
+    moduleEnabled?: (moduleId: string) => boolean,
   ): RegisteredAgentIdNamespace | undefined
   /**
    * Enablement source for host methods that must gate on a module's live
@@ -1407,7 +1386,9 @@ export function createRendererHost(): RendererKernel {
         },
         registerBacklogLinkProvider(provider) {
           if (provider.moduleId !== moduleId) {
-            throw new Error(`Backlog link provider "${provider.moduleId}" must be registered by its owning module "${moduleId}".`)
+            throw new Error(
+              `Backlog link provider "${provider.moduleId}" must be registered by its owning module "${moduleId}".`,
+            )
           }
           if (provider.targetKinds.length === 0) {
             throw new Error(`Backlog link provider "${provider.moduleId}" must own at least one target kind.`)
@@ -1419,7 +1400,9 @@ export function createRendererHost(): RendererKernel {
           for (const targetKind of provider.targetKinds) {
             const owner = backlogLinkProviders.get(targetKind)
             if (owner) {
-              throw new Error(`Backlog link target kind "${targetKind}" is already owned by module "${owner.moduleId}".`)
+              throw new Error(
+                `Backlog link target kind "${targetKind}" is already owned by module "${owner.moduleId}".`,
+              )
             }
           }
           for (const targetKind of provider.targetKinds) {
@@ -1430,7 +1413,7 @@ export function createRendererHost(): RendererKernel {
           if (notificationActionProviders.has(provider.source)) {
             const owner = notificationActionProviders.get(provider.source)
             throw new Error(
-              `Notification action provider for source "${provider.source}" is already registered by module "${owner?.moduleId}".`
+              `Notification action provider for source "${provider.source}" is already registered by module "${owner?.moduleId}".`,
             )
           }
           notificationActionProviders.set(provider.source, { ...provider, moduleId })
@@ -1459,7 +1442,7 @@ export function createRendererHost(): RendererKernel {
             if (!scope.startsWith('panel:')) continue
             if (scope !== `panel:${moduleId}`) {
               throw new Error(
-                `Module command "${commandId}" declares scope "${scope}", but the shell only activates "panel:${moduleId}" for module "${moduleId}" — the command would never be offered.`
+                `Module command "${commandId}" declares scope "${scope}", but the shell only activates "panel:${moduleId}" for module "${moduleId}" — the command would never be offered.`,
               )
             }
           }
@@ -1469,9 +1452,7 @@ export function createRendererHost(): RendererKernel {
           const { availability, ...rest } = definition
           moduleCommands.set(commandId, {
             ...rest,
-            ...(typeof availability === 'function'
-              ? { availabilityPredicate: availability }
-              : { availability }),
+            ...(typeof availability === 'function' ? { availabilityPredicate: availability } : { availability }),
             id: commandId,
             moduleId,
             defaultKeybindings: definition.defaultKeybindings
@@ -1486,7 +1467,7 @@ export function createRendererHost(): RendererKernel {
           const existing = settingsSections.get(definition.id)
           if (existing) {
             throw new Error(
-              `Settings section "${definition.id}" is already registered by module "${existing.moduleId}".`
+              `Settings section "${definition.id}" is already registered by module "${existing.moduleId}".`,
             )
           }
           settingsSections.set(definition.id, { ...definition, moduleId })
@@ -1498,7 +1479,7 @@ export function createRendererHost(): RendererKernel {
           const existing = sidebarNavEntries.get(definition.id)
           if (existing) {
             throw new Error(
-              `Sidebar nav entry "${definition.id}" is already registered by module "${existing.moduleId}".`
+              `Sidebar nav entry "${definition.id}" is already registered by module "${existing.moduleId}".`,
             )
           }
           sidebarNavEntries.set(definition.id, { ...definition, moduleId })
@@ -1510,9 +1491,7 @@ export function createRendererHost(): RendererKernel {
           }
           const existing = doorBadges.get(rowId)
           if (existing) {
-            throw new Error(
-              `Door badge for row "${rowId}" is already registered by module "${existing.moduleId}".`
-            )
+            throw new Error(`Door badge for row "${rowId}" is already registered by module "${existing.moduleId}".`)
           }
           doorBadges.set(rowId, { ...contribution, rowId, moduleId })
         },
@@ -1522,9 +1501,7 @@ export function createRendererHost(): RendererKernel {
           }
           const existing = topBarItems.get(definition.id)
           if (existing) {
-            throw new Error(
-              `Top bar item "${definition.id}" is already registered by module "${existing.moduleId}".`
-            )
+            throw new Error(`Top bar item "${definition.id}" is already registered by module "${existing.moduleId}".`)
           }
           topBarItems.set(definition.id, { ...definition, moduleId })
         },
@@ -1561,15 +1538,13 @@ export function createRendererHost(): RendererKernel {
             definition.railPlacement !== 'inline'
           ) {
             throw new Error(
-              `Global surface "${id}" declares an unknown railPlacement "${String(definition.railPlacement)}"; use "sidebar" or "inline".`
+              `Global surface "${id}" declares an unknown railPlacement "${String(definition.railPlacement)}"; use "sidebar" or "inline".`,
             )
           }
           const views = normalizeSurfaceViews('Global surface', id, definition.views)
           const existing = globalSurfaces.get(id)
           if (existing) {
-            throw new Error(
-              `Global surface "${id}" is already registered by module "${existing.moduleId}".`
-            )
+            throw new Error(`Global surface "${id}" is already registered by module "${existing.moduleId}".`)
           }
           globalSurfaces.set(id, { ...definition, id, ...(views ? { views } : {}), moduleId })
         },
@@ -1589,9 +1564,7 @@ export function createRendererHost(): RendererKernel {
           }
           const existing = modalSurfaces.get(definition.id)
           if (existing) {
-            throw new Error(
-              `Modal surface "${definition.id}" is already registered by module "${existing.moduleId}".`
-            )
+            throw new Error(`Modal surface "${definition.id}" is already registered by module "${existing.moduleId}".`)
           }
           // The pane row, normalised at the door rather than at the pane: the
           // letter is a keyboard accelerator the "+" menu compares against an
@@ -1604,7 +1577,7 @@ export function createRendererHost(): RendererKernel {
             }
             if ([...launcher.letter].length !== 1) {
               throw new Error(
-                `Modal surface "${definition.id}" has a launcher letter "${launcher.letter}"; it must be exactly one character.`
+                `Modal surface "${definition.id}" has a launcher letter "${launcher.letter}"; it must be exactly one character.`,
               )
             }
             if (typeof launcher.Glyph !== 'function') {
@@ -1633,7 +1606,7 @@ export function createRendererHost(): RendererKernel {
           for (const existing of agentIdNamespaces.values()) {
             if (prefix.startsWith(existing.prefix) || existing.prefix.startsWith(prefix)) {
               throw new Error(
-                `Agent id namespace "${prefix}" overlaps "${existing.prefix}", already claimed by module "${existing.moduleId}".`
+                `Agent id namespace "${prefix}" overlaps "${existing.prefix}", already claimed by module "${existing.moduleId}".`,
               )
             }
           }
@@ -1641,9 +1614,7 @@ export function createRendererHost(): RendererKernel {
         },
         provideBacklogReader(reader) {
           if (backlogReader) {
-            throw new Error(
-              `The Backlog reader is already provided by module "${backlogReader.moduleId}".`
-            )
+            throw new Error(`The Backlog reader is already provided by module "${backlogReader.moduleId}".`)
           }
           backlogReader = { moduleId, reader }
         },
@@ -1657,11 +1628,7 @@ export function createRendererHost(): RendererKernel {
             // watch stops streaming the moment the user disables the backlog
             // module (and resumes on re-enable) instead of outliving the
             // toggle. The provider is re-read so the gate follows ownership.
-            if (
-              backlogReader
-              && moduleEnabledResolver
-              && !moduleEnabledResolver(backlogReader.moduleId)
-            ) {
+            if (backlogReader && moduleEnabledResolver && !moduleEnabledResolver(backlogReader.moduleId)) {
               return
             }
             try {
@@ -1720,9 +1687,7 @@ export function createRendererHost(): RendererKernel {
             : undefined
         },
         setWorkspaceModuleState(workspaceId, state) {
-          return workspaceModuleStateStore
-            ? workspaceModuleStateStore.set(workspaceId, moduleId, state)
-            : false
+          return workspaceModuleStateStore ? workspaceModuleStateStore.set(workspaceId, moduleId, state) : false
         },
         getModuleAppState<T = unknown>(key: string): T | undefined {
           if (!moduleAppStateStore) return undefined
@@ -1772,17 +1737,22 @@ export function createRendererHost(): RendererKernel {
           // module cannot name someone else's prefix, so this is also what
           // keeps the all-workspaces mode from being a window onto every
           // session in the app.
-          const scope = workspaceId === undefined
-            ? {
-              agentIdPrefixes: [...agentIdNamespaces.values()]
-                .filter((namespace) => namespace.moduleId === moduleId)
-                .map((namespace) => namespace.prefix),
-            }
-            : undefined
-          return watcher(workspaceId, (sessions) => {
-            if (agentRuntimeDisabled()) return
-            cb(sessions)
-          }, scope)
+          const scope =
+            workspaceId === undefined
+              ? {
+                  agentIdPrefixes: [...agentIdNamespaces.values()]
+                    .filter((namespace) => namespace.moduleId === moduleId)
+                    .map((namespace) => namespace.prefix),
+                }
+              : undefined
+          return watcher(
+            workspaceId,
+            (sessions) => {
+              if (agentRuntimeDisabled()) return
+              cb(sessions)
+            },
+            scope,
+          )
         },
         async spawnAgent(input) {
           return requireAgentRuntime(agentSpawner, 'Agent spawn').spawnAgent(input)
@@ -1796,7 +1766,7 @@ export function createRendererHost(): RendererKernel {
         async invoke(channel, payload) {
           if (!channel.startsWith(`${moduleId}:`)) {
             throw new Error(
-              `Module "${moduleId}" may only invoke its own channels ("${moduleId}:*"); got "${channel}".`
+              `Module "${moduleId}" may only invoke its own channels ("${moduleId}:*"); got "${channel}".`,
             )
           }
           const outcome = await window.api.moduleBridgeInvoke(channel, payload)
@@ -1927,13 +1897,9 @@ export function createRendererHost(): RendererKernel {
       // Longest prefix first, so a future nested claim resolves to the more
       // specific owner rather than to whichever registered first. Registration
       // already rejects overlaps, making this a belt to that brace.
-      const candidates = [...agentIdNamespaces.values()].sort(
-        (a, b) => b.prefix.length - a.prefix.length
-      )
+      const candidates = [...agentIdNamespaces.values()].sort((a, b) => b.prefix.length - a.prefix.length)
       return candidates.find(
-        (namespace) =>
-          agentId.startsWith(namespace.prefix)
-          && (!moduleEnabled || moduleEnabled(namespace.moduleId))
+        (namespace) => agentId.startsWith(namespace.prefix) && (!moduleEnabled || moduleEnabled(namespace.moduleId)),
       )
     },
     setModuleEnablementResolver(resolver) {

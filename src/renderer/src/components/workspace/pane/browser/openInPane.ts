@@ -10,7 +10,9 @@ export function openUrlInPane(workspaceId: string, rawUrl: string, options: { fo
   const store = useWorkspaceStore.getState()
   const pane = store.workspaces.find((w) => w.id === workspaceId)?.paneState
   const browserTabs = pane?.tabs.filter((tab) => tab.kind === 'browser') ?? []
-  const target = options.forceNewTab ? undefined : browserTabs.find((tab) => tab.id === pane?.activeTabId) ?? browserTabs[0]
+  const target = options.forceNewTab
+    ? undefined
+    : (browserTabs.find((tab) => tab.id === pane?.activeTabId) ?? browserTabs[0])
   if (target) {
     store.setActivePaneTab(workspaceId, target.id)
     // A tab whose guest has not registered yet refuses the navigation; the

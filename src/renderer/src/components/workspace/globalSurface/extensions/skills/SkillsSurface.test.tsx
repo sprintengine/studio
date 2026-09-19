@@ -19,12 +19,7 @@ import { SourceTabActions } from '../catalogue/SourceTabActions'
 import { AddSkillSourceModal, mergedIntoBuiltinNotice } from './AddSkillSourceModal'
 import { SkillPage } from './SkillPage'
 import { SkillDocument, SkillReader } from './SkillReader'
-import {
-  DiscoverRepoList,
-  DiscoverSearchResults,
-  SkillsDiscover,
-  type DiscoverLoad,
-} from './SkillsDiscover'
+import { DiscoverRepoList, DiscoverSearchResults, SkillsDiscover, type DiscoverLoad } from './SkillsDiscover'
 
 /** A clean answer: results, and nothing GitHub could not do. */
 function hitResult<T>(results: T[]): SkillDiscoveryResult<T> {
@@ -132,8 +127,8 @@ run('the reader lists every file, opens on SKILL.md, and marks it as the entry',
 
 run('a skill file cannot inject markup', () => {
   const markup = document(
-    '# Heading\n\n<script>steal()</script>\n\n<img src=x onerror="steal()">\n\n'
-      + '[run it](javascript:steal()) and [ok](https://example.com)\n',
+    '# Heading\n\n<script>steal()</script>\n\n<img src=x onerror="steal()">\n\n' +
+      '[run it](javascript:steal()) and [ok](https://example.com)\n',
   )
   assert.ok(!markup.includes('<script'), 'a script tag is text, never a tag')
   assert.ok(markup.includes('&lt;script&gt;'))
@@ -146,8 +141,8 @@ run('a skill file cannot inject markup', () => {
 
 run('markdown renders as a document, at the surface’s own scale', () => {
   const markup = document(
-    '---\nname: prototype\n---\n\n# Prototype\n\n## Why\n\n- one\n- two\n\n1. first\n\n'
-      + '> a quote\n\n`inline/path.ts` and\n\n```ts\nconst x = 1\n```\n',
+    '---\nname: prototype\n---\n\n# Prototype\n\n## Why\n\n- one\n- two\n\n1. first\n\n' +
+      '> a quote\n\n`inline/path.ts` and\n\n```ts\nconst x = 1\n```\n',
   )
   assert.ok(!markup.includes('name: prototype'), 'frontmatter is stated above the document, not in it')
   assert.ok(markup.includes('<h1') && markup.includes('<h2'))
@@ -169,7 +164,7 @@ run('a relative link opens its file; one the scan never carried is dead, not bro
   const dead = markup.slice(markup.lastIndexOf('<span', markup.indexOf('the shape')), markup.indexOf('the shape'))
   assert.ok(dead.includes('decoration-dotted'), 'a missing companion is muted and dotted')
   assert.ok(dead.includes('text-[color:var(--text-muted)]'), 'never the danger colour')
-  assert.ok(dead.includes("SHAPE.md is not one of this skill&#x27;s files."), 'and it says why on hover')
+  assert.ok(dead.includes('SHAPE.md is not one of this skill&#x27;s files.'), 'and it says why on hover')
   // A dead link is not focusable, so the reason is spoken too, not hover-only.
   assert.ok(
     markup.includes('<span class="sr-only"> — SHAPE.md is not one of this skill&#x27;s files.</span>'),
@@ -190,7 +185,10 @@ run('a skill opens as a dialog that names its source once, under the title', () 
       onClose={() => {}}
     />,
   )
-  assert.ok(markup.includes('role="dialog"') && markup.includes('aria-modal="true"'), 'a dialog over the list, not a pane beside it')
+  assert.ok(
+    markup.includes('role="dialog"') && markup.includes('aria-modal="true"'),
+    'a dialog over the list, not a pane beside it',
+  )
   assert.equal(markup.split(SOURCE.repo).length - 1, 1, 'the subtitle states the source, and nothing restates it')
   assert.ok(markup.includes('1 file'), 'and the file count sits on that line')
   assert.ok(markup.includes('aria-label="Files in this skill"'), 'the reader is inside it')
@@ -252,7 +250,10 @@ run('a skill inside a plugin says which, under its title', () => {
       onClose={() => {}}
     />,
   )
-  assert.ok(markup.includes(`${SOURCE.repo} · discord · 1 file`), 'source, plugin, size — the same three facts as its row')
+  assert.ok(
+    markup.includes(`${SOURCE.repo} · discord · 1 file`),
+    'source, plugin, size — the same three facts as its row',
+  )
 })
 
 run('the skill page shows the license and compatibility a skill declares, and its metadata', () => {
@@ -433,17 +434,11 @@ const SEARCH_HITS: SkillSearchHit[] = [
   },
 ]
 
-function condition(
-  reason: SkillDiscoveryCondition['reason'],
-  message: string,
-): SkillDiscoveryCondition {
+function condition(reason: SkillDiscoveryCondition['reason'], message: string): SkillDiscoveryCondition {
   return { reason, message, retryAfterSeconds: 0 }
 }
 
-function repoList(
-  load: DiscoverLoad<SkillRepoHit>,
-  addedRepos: ReadonlySet<string> = new Set(),
-): string {
+function repoList(load: DiscoverLoad<SkillRepoHit>, addedRepos: ReadonlySet<string> = new Set()): string {
   return renderToStaticMarkup(
     <DiscoverRepoList
       load={load}
@@ -520,7 +515,7 @@ run('rate-limit exhaustion is stated; the list is never silently empty', () => {
       degraded: condition('rate_limited', "GitHub's search limit is used up. It resets in about 1 min."),
     },
   })
-  assert.ok(markup.includes("GitHub&#x27;s search limit is used up. It resets in about 1 min."))
+  assert.ok(markup.includes('GitHub&#x27;s search limit is used up. It resets in about 1 min.'))
   assert.ok(markup.includes('No searches left in this minute.'))
   assert.equal(markup.includes('no repositories tagged'), false, 'an exhausted budget is not "no match"')
 })

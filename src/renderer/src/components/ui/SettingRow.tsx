@@ -147,9 +147,7 @@ export function SettingRow({
     <>
       {label}
       {requirement ? (
-        <span className="ml-1.5 text-meta font-normal text-[color:var(--text-subtle)]">
-          · {requirement}
-        </span>
+        <span className="ml-1.5 text-meta font-normal text-[color:var(--text-subtle)]">· {requirement}</span>
       ) : null}
     </>
   )
@@ -180,9 +178,7 @@ export function SettingRow({
       {/* The host never dims: every kit control brings its own disabled tone
           (Switch draws `disabled:opacity-45`), and a second opacity on the
           wrapper multiplies with it down to about a fifth. */}
-      <div className={['flex items-center gap-2', stacked ? '' : 'shrink-0'].join(' ')}>
-        {children}
-      </div>
+      <div className={['flex items-center gap-2', stacked ? '' : 'shrink-0'].join(' ')}>{children}</div>
     </div>
   )
 }

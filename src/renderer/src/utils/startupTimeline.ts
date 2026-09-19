@@ -22,10 +22,10 @@ function isPrimaryWorkspaceWindow(): boolean {
 
 function reportingEnabled(): boolean {
   return (
-    typeof window !== 'undefined'
-    && window.api?.startupTimelineEnabled === true
-    && typeof window.api.reportStartupMark === 'function'
-    && isPrimaryWorkspaceWindow()
+    typeof window !== 'undefined' &&
+    window.api?.startupTimelineEnabled === true &&
+    typeof window.api.reportStartupMark === 'function' &&
+    isPrimaryWorkspaceWindow()
   )
 }
 

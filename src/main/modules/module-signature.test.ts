@@ -43,10 +43,7 @@ function testUnsignedTrustMatrix(): void {
   const fp = manifestFingerprint(unsigned)
   assert.equal(classifyModuleTrust(unsigned, { trustedModules: new Map() }).status, 'unsigned')
   // Trusting the exact content fingerprint → trusted.
-  assert.equal(
-    classifyModuleTrust(unsigned, { trustedModules: new Map([['signed-module', fp]]) }).status,
-    'trusted'
-  )
+  assert.equal(classifyModuleTrust(unsigned, { trustedModules: new Map([['signed-module', fp]]) }).status, 'trusted')
 }
 
 // Regression for the reinstall-under-trusted-id bypass: trusting one manifest
@@ -61,7 +58,7 @@ function testTrustIsContentBound(): void {
   assert.equal(
     classifyModuleTrust(swapped, ctx).status,
     'unsigned',
-    'a changed manifest does not inherit the prior trust'
+    'a changed manifest does not inherit the prior trust',
   )
 }
 
@@ -73,13 +70,13 @@ function testSignedTrustMatrix(): void {
   // User trusts this content → 'trusted'.
   assert.equal(
     classifyModuleTrust(signed, { trustedModules: new Map([['signed-module', contentFp]]) }).status,
-    'trusted'
+    'trusted',
   )
   // Signer key accepted (marketplace path) → 'trusted'.
   const keyFp = verifyModuleSignature(signed).fingerprint!
   assert.equal(
     classifyModuleTrust(signed, { trustedModules: new Map(), trustedKeyFingerprints: new Set([keyFp]) }).status,
-    'trusted'
+    'trusted',
   )
 }
 

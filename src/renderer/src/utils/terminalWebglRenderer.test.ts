@@ -1,10 +1,6 @@
 import assert from 'node:assert/strict'
 import type { IDisposable, ITerminalAddon } from '@xterm/xterm'
-import {
-  attachWebglRenderer,
-  type WebglRendererAddon,
-  type WebglRendererState,
-} from './terminalWebglRenderer'
+import { attachWebglRenderer, type WebglRendererAddon, type WebglRendererState } from './terminalWebglRenderer'
 
 // The point of these tests is the FALLBACK, not the fast path. A WebGL pane
 // that loses its context and keeps a dead addon loaded paints nothing at all —

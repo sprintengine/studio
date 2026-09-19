@@ -86,7 +86,11 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 
 // 8. Matches the worktree by path.
 {
-  const wt = scope({ id: 'worktree:/wt', path: '/Users/example/project/.multicode-worktrees/project/a', branch: 'agent/a' })
+  const wt = scope({
+    id: 'worktree:/wt',
+    path: '/Users/example/project/.multicode-worktrees/project/a',
+    branch: 'agent/a',
+  })
   const found = findHealthyWorktreeScope([mainScope, wt], wt.path, 'agent/a')
   assert.equal(found?.id, wt.id)
 }
@@ -94,7 +98,11 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 // 9. Branch recovers the match when the path diverges (symlinked root): the
 //    joined gitRoot points at /tmp/... but git lists /private/tmp/...
 {
-  const wt = scope({ id: 'worktree:/private', path: '/private/tmp/proj/.multicode-worktrees/project/a', branch: 'agent/a' })
+  const wt = scope({
+    id: 'worktree:/private',
+    path: '/private/tmp/proj/.multicode-worktrees/project/a',
+    branch: 'agent/a',
+  })
   const joinedButSymlinked = '/tmp/proj/.multicode-worktrees/project/a'
   const found = findHealthyWorktreeScope([mainScope, wt], joinedButSymlinked, 'agent/a')
   assert.equal(found?.id, wt.id, 'branch match recovers a symlinked path divergence')
@@ -165,13 +173,27 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
   const claude: PluginSkillCatalog = {
     support: 'native',
     harnessId: 'claude',
-    installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.claude/skills/{{skillId}}', format: 'claude-code', restartRequired: true }],
+    installTargets: [
+      {
+        scope: 'workspace',
+        path: '{{workspaceRoot}}/.claude/skills/{{skillId}}',
+        format: 'claude-code',
+        restartRequired: true,
+      },
+    ],
     invocation: { explicitTemplate: '/{{skillId}}', nativeSlashCommand: true },
   }
   const codex: PluginSkillCatalog = {
     support: 'native',
     harnessId: 'codex',
-    installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.codex/skills/{{skillId}}', format: 'codex', restartRequired: true }],
+    installTargets: [
+      {
+        scope: 'workspace',
+        path: '{{workspaceRoot}}/.codex/skills/{{skillId}}',
+        format: 'codex',
+        restartRequired: true,
+      },
+    ],
     invocation: { explicitTemplate: 'Use ${{skillId}}.', explicitMention: true },
   }
   assert.equal(resolveSkillInvocation(claude, 'use-railway'), '/use-railway')
@@ -184,7 +206,19 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
   assert.equal(resolveSkillInvocation(undefined, 'use-railway'), undefined)
   const unsupported: PluginSkillCatalog = { support: 'unsupported', harnessId: 'x', installTargets: [] }
   assert.equal(resolveSkillInvocation(unsupported, 'use-railway'), undefined)
-  const noTemplate: PluginSkillCatalog = { support: 'native', harnessId: 'claude', installTargets: [{ scope: 'workspace', path: '{{workspaceRoot}}/.claude/skills/{{skillId}}', format: 'claude-code', restartRequired: true }], invocation: {} }
+  const noTemplate: PluginSkillCatalog = {
+    support: 'native',
+    harnessId: 'claude',
+    installTargets: [
+      {
+        scope: 'workspace',
+        path: '{{workspaceRoot}}/.claude/skills/{{skillId}}',
+        format: 'claude-code',
+        restartRequired: true,
+      },
+    ],
+    invocation: {},
+  }
   assert.equal(resolveSkillInvocation(noTemplate, 'use-railway'), undefined)
 }
 
@@ -231,10 +265,7 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
   // past `<repo>` is slug and simply falls away.
   assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/feat/x`), repo)
   // Windows separators survive as Windows separators, drive letter included.
-  assert.equal(
-    repoRootFromWorktreePath('C:\\a\\.multicode-worktrees\\proj\\s'),
-    'C:\\a\\proj',
-  )
+  assert.equal(repoRootFromWorktreePath('C:\\a\\.multicode-worktrees\\proj\\s'), 'C:\\a\\proj')
   // A trailing separator is not a slug segment.
   assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/nova-x1/`), repo)
 }
@@ -277,10 +308,7 @@ const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'm
 //      real project and never under the intermediate worktree.
 {
   const nested = `${worktreeContainerPath('/Users/example/.multicode-worktrees/project/chat-a1b2')}/chat-e5f6`
-  assert.equal(
-    nested,
-    '/Users/example/.multicode-worktrees/project/.multicode-worktrees/chat-a1b2/chat-e5f6',
-  )
+  assert.equal(nested, '/Users/example/.multicode-worktrees/project/.multicode-worktrees/chat-a1b2/chat-e5f6')
   assert.equal(
     workspaceProjectRoot({ folderPath: nested, worktree: { branch: 'agent/chat-e5f6' } }),
     '/Users/example/project',
@@ -338,15 +366,10 @@ void (async () => {
   // 15. Non-worktree agent → never probes the filesystem, passes through.
   {
     let probed = false
-    const result = await resolveWorktreeSpawnFallback(
-      'current_workspace',
-      undefined,
-      '/proj',
-      async () => {
-        probed = true
-        return false
-      },
-    )
+    const result = await resolveWorktreeSpawnFallback('current_workspace', undefined, '/proj', async () => {
+      probed = true
+      return false
+    })
     assert.deepEqual(result, { fellBack: false, cwd: undefined })
     assert.equal(probed, false, 'non-worktree agents must not stat a cwd')
   }
@@ -391,21 +414,13 @@ void (async () => {
 
   // 26. Distinct gitRoot present on disk → spawn into the worktree.
   {
-    const result = await resolveWorkspaceTerminalCwd(
-      '/proj/.multicode-worktrees/project/a',
-      '/proj',
-      existsAlways,
-    )
+    const result = await resolveWorkspaceTerminalCwd('/proj/.multicode-worktrees/project/a', '/proj', existsAlways)
     assert.deepEqual(result, { cwd: '/proj/.multicode-worktrees/project/a', missing: false })
   }
 
   // 27. Distinct gitRoot gone from disk → missing, no cwd override.
   {
-    const result = await resolveWorkspaceTerminalCwd(
-      '/proj/.multicode-worktrees/project/a',
-      '/proj',
-      existsNever,
-    )
+    const result = await resolveWorkspaceTerminalCwd('/proj/.multicode-worktrees/project/a', '/proj', existsNever)
     assert.deepEqual(result, { cwd: null, missing: true })
   }
 

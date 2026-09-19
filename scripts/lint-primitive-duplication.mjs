@@ -230,8 +230,7 @@ const POPOVER_ENTER = /\bpopover-enter\b/g
 // (g) Bespoke absolute-shell + ARIA popover role pattern. The `[^>]*?`
 // crosses newlines via the `s` flag so multi-line div openings are handled.
 // We capture the role string for the finding text.
-const ABS_POPOVER_ROLE_TAG =
-  /<div\b[^>]*?\brole=["'](listbox|menu|dialog)["'][^>]*?>/gs
+const ABS_POPOVER_ROLE_TAG = /<div\b[^>]*?\brole=["'](listbox|menu|dialog)["'][^>]*?>/gs
 const ABS_IN_CLASSNAME = /className=["`][^"`]*\babsolute\b[^"`]*["`]/
 
 function walk(absoluteRoot, repoRoot) {
@@ -252,7 +251,10 @@ function walk(absoluteRoot, repoRoot) {
       // marker attributes and class signatures as assertion needles. They do
       // not construct UI, so exempt them from primitive-duplication checks.
       if (entry.name.includes('.test.')) continue
-      const relative = full.slice(repoRoot.length + 1).split(sep).join('/')
+      const relative = full
+        .slice(repoRoot.length + 1)
+        .split(sep)
+        .join('/')
       out.push(relative)
     }
   }
@@ -381,11 +383,7 @@ for (const path of FILES) {
       const lookahead = source.slice(start, start + 400)
       const tagEnd = lookahead.indexOf('>')
       const tagBody = tagEnd > 0 ? lookahead.slice(0, tagEnd) : lookahead
-      if (
-        tagBody.includes('border-l-2') &&
-        tagBody.includes('rounded-sm') &&
-        !tagBody.includes('border-transparent')
-      ) {
+      if (tagBody.includes('border-l-2') && tagBody.includes('rounded-sm') && !tagBody.includes('border-transparent')) {
         const { line, column } = locationOf(source, start)
         recordFinding({
           rule: 'no-hand-rolled-task-card',
@@ -439,9 +437,9 @@ for (const path of FILES) {
       if (!ABS_IN_CLASSNAME.test(tagText)) continue
       const { line, column } = locationOf(source, roleMatch.index)
       const lineText = sourceLines[line - 1] ?? ''
-      const prev1 = line >= 2 ? sourceLines[line - 2] ?? '' : ''
-      const prev2 = line >= 3 ? sourceLines[line - 3] ?? '' : ''
-      const prev3 = line >= 4 ? sourceLines[line - 4] ?? '' : ''
+      const prev1 = line >= 2 ? (sourceLines[line - 2] ?? '') : ''
+      const prev2 = line >= 3 ? (sourceLines[line - 3] ?? '') : ''
+      const prev3 = line >= 4 ? (sourceLines[line - 4] ?? '') : ''
       if (
         lineText.includes(PRIMITIVE_DUP_ALLOW_MARKER) ||
         prev1.includes(PRIMITIVE_DUP_ALLOW_MARKER) ||
@@ -457,7 +455,7 @@ for (const path of FILES) {
         column,
         match: `<div role="${roleMatch[1]}" ... absolute …>`,
         canonical:
-          "use ui/Popover, ui/OverflowMenu, or ui/Select — or add `primitive-duplication-allow: <reason>` for a documented nested exemption",
+          'use ui/Popover, ui/OverflowMenu, or ui/Select — or add `primitive-duplication-allow: <reason>` for a documented nested exemption',
       })
     }
   }
@@ -587,7 +585,7 @@ for (const area of [...new Set([...Object.keys(rawBaseline), ...Object.keys(actu
         canonical:
           `${hit.canonical} — spec: ${hit.spec}. ` +
           `\`${area}\` is allowed ${allowed} raw element(s) and has ${hits.length}. ` +
-          'The count is per area, so this line is one of the area\'s raw elements ' +
+          "The count is per area, so this line is one of the area's raw elements " +
           'rather than necessarily the one just added — the area owes ' +
           `${hits.length - allowed}. A new UI element goes into the design system ` +
           'first; the baseline never goes up.',
@@ -647,14 +645,10 @@ for (const finding of findings) {
 if (!QUIET && findings.length > 0) {
   for (const [rule, items] of findingsByRule) {
     process.stdout.write(`\n[${rule}] ${items.length} finding(s)\n`)
-    items.sort(
-      (a, b) =>
-        a.path.localeCompare(b.path) || a.line - b.line || a.column - b.column,
-    )
+    items.sort((a, b) => a.path.localeCompare(b.path) || a.line - b.line || a.column - b.column)
     for (const item of items) {
       process.stdout.write(
-        `  ${item.path}:${item.line}:${item.column}  ${item.match}\n` +
-          `    canonical: ${item.canonical}\n`,
+        `  ${item.path}:${item.line}:${item.column}  ${item.match}\n` + `    canonical: ${item.canonical}\n`,
       )
     }
   }

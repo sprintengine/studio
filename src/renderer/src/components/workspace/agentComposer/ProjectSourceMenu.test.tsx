@@ -68,7 +68,7 @@ async function main(): Promise<void> {
       onBrowse={() => {}}
       onClone={noClone}
       onClose={() => {}}
-    />
+    />,
   )
 
   await check('the selector opens on a search field over the project rows', () => {
@@ -103,7 +103,10 @@ async function main(): Promise<void> {
     const separator = markup.indexOf('role="separator"')
     const firstProject = markup.indexOf('multicode')
     assert.ok(search < browse && browse < importGit, 'Browse… then Import, directly under the search field')
-    assert.ok(importGit < separator && separator < firstProject, 'the separator parts the sources from the projects, which grow below it')
+    assert.ok(
+      importGit < separator && separator < firstProject,
+      'the separator parts the sources from the projects, which grow below it',
+    )
   })
 
   await check('a host without a folder dialog gets no Browse… row, and Import stays', () => {
@@ -115,7 +118,7 @@ async function main(): Promise<void> {
         onSelect={() => {}}
         onClone={noClone}
         onClose={() => {}}
-      />
+      />,
     )
     assert.doesNotMatch(noBrowse, /Browse…/)
     assert.match(noBrowse, /Import from Git/)
@@ -217,7 +220,10 @@ async function main(): Promise<void> {
       assert.ok(surface(), 'still the one popover surface — no second dialog')
       assert.ok(surface()!.querySelector('[aria-label="Repository URL"]'), 'the Git step shows the URL lane')
       assert.equal(surface()!.querySelector('[aria-label="Search projects"]'), null, 'the project step is gone')
-      assert.ok(/Settings → Version control/.test(surface()!.textContent ?? ''), 'no token → the inline pointer, not an error')
+      assert.ok(
+        /Settings → Version control/.test(surface()!.textContent ?? ''),
+        'no token → the inline pointer, not an error',
+      )
       const url = surface()!.querySelector<HTMLInputElement>('[aria-label="Repository URL"]')!
       await type(url, 'https://github.com/acme/repo')
       await click(buttonWithText(surface()!, '←'))
@@ -261,46 +267,62 @@ async function main(): Promise<void> {
     }
   })
 
-  await check('a clone that succeeds closes the selector; adoption is the host’s, so a closed selector loses nothing', async () => {
-    repoAnswer = async () => ({ ok: false, reason: 'no_token' })
-    let resolveClone: (value: { ok: true; path: string }) => void = () => {}
-    const view = await mount(() => new Promise((resolve) => { resolveClone = resolve }))
-    try {
-      await click(buttonWithText(surface()!, 'Import from Git'))
-      await settle()
-      await type(surface()!.querySelector<HTMLInputElement>('[aria-label="Repository URL"]')!, 'https://github.com/acme/repo')
-      await click(buttonWithText(surface()!, 'Clone'))
-      assert.ok(buttonWithText(surface()!, 'Cloning…'), 'progress reads on the button')
-      // The selector closes before the clone lands (Escape).
-      await act(async () => {
-        dom.window.document.dispatchEvent(new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
-      })
-      await settle()
-      assert.equal(surface(), null, 'Escape closes the selector from the Git step')
-      await act(async () => {
-        resolveClone({ ok: true, path: '/w/repo' })
-      })
-      await settle()
-      assert.deepEqual(view.selections, [], 'the menu does not select into a closed panel — the host adopted it')
-      assert.equal(view.clones.length, 1)
-    } finally {
-      view.unmount()
-    }
-  })
+  await check(
+    'a clone that succeeds closes the selector; adoption is the host’s, so a closed selector loses nothing',
+    async () => {
+      repoAnswer = async () => ({ ok: false, reason: 'no_token' })
+      let resolveClone: (value: { ok: true; path: string }) => void = () => {}
+      const view = await mount(
+        () =>
+          new Promise((resolve) => {
+            resolveClone = resolve
+          }),
+      )
+      try {
+        await click(buttonWithText(surface()!, 'Import from Git'))
+        await settle()
+        await type(
+          surface()!.querySelector<HTMLInputElement>('[aria-label="Repository URL"]')!,
+          'https://github.com/acme/repo',
+        )
+        await click(buttonWithText(surface()!, 'Clone'))
+        assert.ok(buttonWithText(surface()!, 'Cloning…'), 'progress reads on the button')
+        // The selector closes before the clone lands (Escape).
+        await act(async () => {
+          dom.window.document.dispatchEvent(
+            new dom.window.KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }),
+          )
+        })
+        await settle()
+        assert.equal(surface(), null, 'Escape closes the selector from the Git step')
+        await act(async () => {
+          resolveClone({ ok: true, path: '/w/repo' })
+        })
+        await settle()
+        assert.deepEqual(view.selections, [], 'the menu does not select into a closed panel — the host adopted it')
+        assert.equal(view.clones.length, 1)
+      } finally {
+        view.unmount()
+      }
+    },
+  )
 
-  await check('a cold start with no parent to clone beside says what to do rather than "open a project first"', async () => {
-    const cold = renderToStaticMarkup(
-      <ProjectSourceMenu
-        options={[]}
-        selectedPath={null}
-        defaultParent={null}
-        onSelect={() => {}}
-        onClone={noClone}
-        onClose={() => {}}
-      />
-    )
-    assert.doesNotMatch(cold, /Open a project first/)
-  })
+  await check(
+    'a cold start with no parent to clone beside says what to do rather than "open a project first"',
+    async () => {
+      const cold = renderToStaticMarkup(
+        <ProjectSourceMenu
+          options={[]}
+          selectedPath={null}
+          defaultParent={null}
+          onSelect={() => {}}
+          onClone={noClone}
+          onClose={() => {}}
+        />,
+      )
+      assert.doesNotMatch(cold, /Open a project first/)
+    },
+  )
 
   if (failures > 0) {
     console.error(`ProjectSourceMenu.test.tsx: ${failures} failing`)

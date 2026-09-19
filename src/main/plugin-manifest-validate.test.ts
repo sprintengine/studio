@@ -42,12 +42,24 @@ const INVALID_CASES: Array<{ name: string; manifest: unknown }> = [
   { name: 'empty permissionPresets', manifest: { ...VALID_CLI, permissionPresets: {} } },
   { name: 'empty launch.argv', manifest: { ...VALID_CLI, launch: { argv: [] } } },
   { name: 'output-sentinel without sentinel', manifest: { ...VALID_CLI, completion: { mode: 'output-sentinel' } } },
-  { name: 'send-after-ready without readiness', manifest: { ...VALID_CLI, promptInjection: { mode: 'send-after-ready' } } },
-  { name: 'missing capabilities boolean', manifest: { ...VALID_CLI, capabilities: { resumeSession: true, sessionIdFromCaller: true, toolUse: true } } },
+  {
+    name: 'send-after-ready without readiness',
+    manifest: { ...VALID_CLI, promptInjection: { mode: 'send-after-ready' } },
+  },
+  {
+    name: 'missing capabilities boolean',
+    manifest: { ...VALID_CLI, capabilities: { resumeSession: true, sessionIdFromCaller: true, toolUse: true } },
+  },
   { name: 'provider-only field present', manifest: { ...VALID_CLI, providerType: 'model-provider' } },
   { name: 'bad variable type', manifest: { ...VALID_CLI, variables: { x: { type: 'nope', label: 'X' } } } },
-  { name: 'empty model option label', manifest: { ...VALID_CLI, modelSelection: { args: ['--model', '{{model}}'], options: [{ id: 'm', label: '' }] } } },
-  { name: 'native skill without install targets', manifest: { ...VALID_CLI, skillIntegration: { support: 'native', harnessId: 'demo' } } },
+  {
+    name: 'empty model option label',
+    manifest: { ...VALID_CLI, modelSelection: { args: ['--model', '{{model}}'], options: [{ id: 'm', label: '' }] } },
+  },
+  {
+    name: 'native skill without install targets',
+    manifest: { ...VALID_CLI, skillIntegration: { support: 'native', harnessId: 'demo' } },
+  },
   {
     name: 'skill workspace path missing {{skillId}}',
     manifest: {

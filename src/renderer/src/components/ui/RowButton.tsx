@@ -141,11 +141,7 @@ export const RowButton = React.forwardRef<HTMLButtonElement, RowButtonProps>(fun
         'flex w-full items-center gap-2 text-left transition-colors',
         DENSITY[density],
         variant === 'dashed' ? 'border border-dashed border-[color:var(--border-default)]' : '',
-        selected === true
-          ? SELECTED
-          : density === 'flush'
-            ? RESTING_FLUSH
-            : RESTING[variant],
+        selected === true ? SELECTED : density === 'flush' ? RESTING_FLUSH : RESTING[variant],
         'disabled:cursor-not-allowed disabled:opacity-45',
         'aria-disabled:cursor-not-allowed aria-disabled:opacity-45',
         DENSITY_FOCUS[density],

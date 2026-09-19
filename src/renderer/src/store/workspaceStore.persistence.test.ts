@@ -196,11 +196,7 @@ assert.notEqual(
   settingsRawBefore,
   'a settings change still writes the app-settings key: the renderer owns settings',
 )
-assert.equal(
-  stored['multicode-workspaces'],
-  frozenRegistryRaw,
-  'and it still does not touch the frozen registry key',
-)
+assert.equal(stored['multicode-workspaces'], frozenRegistryRaw, 'and it still does not touch the frozen registry key')
 
 // Pre-seed an agent into the live store so reconcileWorkspaceAgentLaunchFlags
 // has something real to mutate. Durable resume fields (cliStartRequested,
@@ -233,9 +229,8 @@ const registryRawBefore = stored['multicode-workspaces']
 // The strip rules are unchanged — `normalizeWorkspaceForRegistry` mirrors
 // `normalizeWorkspaceForPartialize` field for field, which is why cliSessionId
 // survives and cliRestartNonce does not.
-const durableAgent = normalizeWorkspaceForRegistry(
-  useWorkspaceStore.getState().workspaces[0]!,
-).agents['agent-1'] as Partial<AgentState> | undefined
+const durableAgent = normalizeWorkspaceForRegistry(useWorkspaceStore.getState().workspaces[0]!).agents['agent-1'] as
+  Partial<AgentState> | undefined
 assert.equal(durableAgent?.cliStartRequested, true)
 assert.equal(durableAgent?.cliHasLaunched, true)
 assert.equal(durableAgent?.cliSessionId, 'session-stale')
@@ -249,12 +244,13 @@ const startupWriteSurfaces: Array<{ label: string; mutate: () => void }> = [
   },
   {
     label: 'setAuthState',
-    mutate: () => useWorkspaceStore.getState().setAuthState({
-      ...defaultAuthState(),
-      status: 'signed_in',
-      authenticated: true,
-      message: 'startup auth refresh',
-    }),
+    mutate: () =>
+      useWorkspaceStore.getState().setAuthState({
+        ...defaultAuthState(),
+        status: 'signed_in',
+        authenticated: true,
+        message: 'startup auth refresh',
+      }),
   },
 ]
 
@@ -273,7 +269,12 @@ useWorkspaceStore.getState().reconcileWorkspaceAgentLaunchFlags([])
 // durable app-restart contract for Claude's stable session id and Codex's
 // `codex resume` path.
 const liveAgentAfter = useWorkspaceStore.getState().workspaces[0]?.agents['agent-1'] as
-  | { cliStartRequested: boolean; cliHasLaunched: boolean; cliSessionId: string | undefined; cliResumeAvailable: boolean }
+  | {
+      cliStartRequested: boolean
+      cliHasLaunched: boolean
+      cliSessionId: string | undefined
+      cliResumeAvailable: boolean
+    }
   | undefined
 assert.ok(liveAgentAfter, 'agent-1 should still be in the live store')
 assert.equal(liveAgentAfter!.cliStartRequested, true, 'reconciliation preserved cliStartRequested in memory')
@@ -281,9 +282,9 @@ assert.equal(liveAgentAfter!.cliHasLaunched, true, 'reconciliation preserved cli
 assert.equal(liveAgentAfter!.cliSessionId, 'session-stale', 'reconciliation preserved cliSessionId in memory')
 assert.equal(liveAgentAfter!.cliResumeAvailable, true, 'reconciliation preserved cliResumeAvailable in memory')
 
-const durableAgentAfterReconcile = normalizeWorkspaceForRegistry(
-  useWorkspaceStore.getState().workspaces[0]!,
-).agents['agent-1'] as Partial<AgentState> | undefined
+const durableAgentAfterReconcile = normalizeWorkspaceForRegistry(useWorkspaceStore.getState().workspaces[0]!).agents[
+  'agent-1'
+] as Partial<AgentState> | undefined
 assert.equal(durableAgentAfterReconcile?.cliStartRequested, true)
 assert.equal(durableAgentAfterReconcile?.cliHasLaunched, true)
 assert.equal(durableAgentAfterReconcile?.cliSessionId, 'session-stale')
@@ -311,10 +312,7 @@ assert.equal(
   undefined,
   'backup registry envelope is registry-only (no appSettings)',
 )
-assert.ok(
-  lastBackupSettings.state.appSettings,
-  'backup settings envelope carries appSettings separately',
-)
+assert.ok(lastBackupSettings.state.appSettings, 'backup settings envelope carries appSettings separately')
 assert.equal(
   (lastBackupSettings.state as unknown as { workspaces?: unknown }).workspaces,
   undefined,
@@ -338,8 +336,8 @@ assert.equal(afterClear.activeWorkspaceId, null)
 assert.ok(afterClear.workspaceRegistryEmptyState, 'explicit empty intent record was recorded')
 assert.equal(afterClear.workspaceRegistryEmptyState!.reason, 'user_removed_all')
 assert.ok(
-  typeof afterClear.workspaceRegistryEmptyState!.updatedAt === 'string'
-    && afterClear.workspaceRegistryEmptyState!.updatedAt.length > 0,
+  typeof afterClear.workspaceRegistryEmptyState!.updatedAt === 'string' &&
+    afterClear.workspaceRegistryEmptyState!.updatedAt.length > 0,
   'updatedAt timestamp present',
 )
 assert.equal(
@@ -368,10 +366,7 @@ await new Promise<void>((resolve) => setTimeout(resolve, 50))
 
 const afterForget = useWorkspaceStore.getState()
 assert.equal(afterForget.workspaces.length, 0)
-assert.ok(
-  afterForget.workspaceRegistryEmptyState,
-  'forgetFolder on the last workspace records the intent record too',
-)
+assert.ok(afterForget.workspaceRegistryEmptyState, 'forgetFolder on the last workspace records the intent record too')
 assert.equal(afterForget.workspaceRegistryEmptyState!.reason, 'user_removed_all')
 
 // Reload simulation with the forgetFolder intent on disk: the recovery
@@ -403,10 +398,7 @@ assert.equal(
   0,
   'forgetFolder intent survives reload — backup cannot resurrect',
 )
-assert.ok(
-  useWorkspaceStore.getState().workspaceRegistryEmptyState,
-  'forgetFolder intent record retained after reload',
-)
+assert.ok(useWorkspaceStore.getState().workspaceRegistryEmptyState, 'forgetFolder intent record retained after reload')
 
 // ── CASE 5 ──────────────────────────────────────────────────────────────────
 // Intentional-empty registry survives a simulated reload. The recovery
@@ -434,11 +426,7 @@ useWorkspaceStore.setState({
   workspaceRegistryEmptyState: { reason: 'user_removed_all', updatedAt: new Date().toISOString() },
 })
 await __workspaceStoreRunBackupRecoveryForTests()
-assert.equal(
-  useWorkspaceStore.getState().workspaces.length,
-  0,
-  'intentional empty is not resurrected from backup',
-)
+assert.equal(useWorkspaceStore.getState().workspaces.length, 0, 'intentional empty is not resurrected from backup')
 assert.ok(useWorkspaceStore.getState().workspaceRegistryEmptyState, 'intent record retained')
 assert.equal(diagnosticLog.length, 1, 'exactly one diagnostic on the simulated reload')
 const intentDiag = diagnosticLog[0].payload as { storageSource: string; classification: string }
@@ -472,12 +460,14 @@ backupReadResponse = {
     data: {
       registry: JSON.stringify({
         state: {
-          workspaces: [{
-            id: 'ws-from-backup',
-            name: 'Recovered',
-            folderPath: '/Users/example/recovered',
-            agents: {},
-          } as Workspace],
+          workspaces: [
+            {
+              id: 'ws-from-backup',
+              name: 'Recovered',
+              folderPath: '/Users/example/recovered',
+              agents: {},
+            } as Workspace,
+          ],
           activeWorkspaceId: 'ws-from-backup',
           workspaceRegistryEmptyState: null,
         },
@@ -505,8 +495,7 @@ const recoveredState = useWorkspaceStore.getState()
 assert.equal(recoveredState.workspaces.length, 1)
 assert.equal(recoveredState.workspaces[0]?.id, 'ws-from-backup')
 assert.equal(recoveredState.activeWorkspaceId, 'ws-from-backup')
-assert.equal(recoveredState.workspaceRegistryEmptyState, null,
-  'recovery clears any stale intent record')
+assert.equal(recoveredState.workspaceRegistryEmptyState, null, 'recovery clears any stale intent record')
 assert.equal(
   recoveredState.appSettings.projectKnowledgeRoots['/Users/example/recovered'],
   'knowledge',
@@ -515,7 +504,11 @@ assert.equal(
 assert.deepEqual(recoveredState.appSettings.recentWorkspaceFolders, ['/Users/example/recovered'])
 assert.equal(recoveredState.sidebarCollapsed, true, 'split backup recovery restores sidebarCollapsed')
 assert.equal(diagnosticLog.length, 1)
-const recoveryDiag = diagnosticLog[0].payload as { storageSource: string; classification: string; hydratedWorkspaceCount: number }
+const recoveryDiag = diagnosticLog[0].payload as {
+  storageSource: string
+  classification: string
+  hydratedWorkspaceCount: number
+}
 assert.equal(recoveryDiag.storageSource, 'backup')
 assert.equal(recoveryDiag.classification, 'dangerous_empty_unreadable')
 assert.equal(recoveryDiag.hydratedWorkspaceCount, 1)
@@ -557,12 +550,14 @@ resolveBackupRead({
     data: {
       registry: JSON.stringify({
         state: {
-          workspaces: [{
-            id: 'ws-stale-backup',
-            name: 'Stale backup',
-            folderPath: '/Users/example/stale',
-            agents: {},
-          } as Workspace],
+          workspaces: [
+            {
+              id: 'ws-stale-backup',
+              name: 'Stale backup',
+              folderPath: '/Users/example/stale',
+              agents: {},
+            } as Workspace,
+          ],
           activeWorkspaceId: 'ws-stale-backup',
           workspaceRegistryEmptyState: null,
         },
@@ -622,10 +617,7 @@ const legacyBackupAppSettings = {
     '/Users/dev/workspace/docs-site': '../multicode/knowledge',
     '/Users/dev/workspace/marketing-site': '../multicode/knowledge',
   },
-  recentWorkspaceFolders: [
-    '/Users/dev/workspace/multicode',
-    '/Users/dev/workspace/multicode-mobile',
-  ],
+  recentWorkspaceFolders: ['/Users/dev/workspace/multicode', '/Users/dev/workspace/multicode-mobile'],
   mcp: { syncEnabled: true, servers: {} },
 }
 
@@ -637,12 +629,14 @@ backupReadResponse = {
     // T22 backup shape: full envelope, no workspaceRegistryEmptyState yet.
     data: JSON.stringify({
       state: {
-        workspaces: [{
-          id: 'ws-multicode',
-          name: 'multicode',
-          folderPath: '/Users/dev/workspace/multicode',
-          agents: {},
-        } as Workspace],
+        workspaces: [
+          {
+            id: 'ws-multicode',
+            name: 'multicode',
+            folderPath: '/Users/dev/workspace/multicode',
+            agents: {},
+          } as Workspace,
+        ],
         activeWorkspaceId: 'ws-multicode',
         appSettings: legacyBackupAppSettings,
         sidebarCollapsed: false,
@@ -676,7 +670,8 @@ assert.equal(salvaged.sidebarCollapsed, false, 'salvaged sidebarCollapsed honore
 // multicode-app-settings on disk was written immediately so the next persist
 // write does not clobber the salvage with current empty defaults.
 const settingsAfterSalvage = JSON.parse(stored['multicode-app-settings']) as SettingsRecord
-const persistedRoots = (settingsAfterSalvage.state.appSettings as { projectKnowledgeRoots: Record<string, string> }).projectKnowledgeRoots
+const persistedRoots = (settingsAfterSalvage.state.appSettings as { projectKnowledgeRoots: Record<string, string> })
+  .projectKnowledgeRoots
 assert.equal(
   Object.keys(persistedRoots).length,
   4,
@@ -750,10 +745,12 @@ assert.deepEqual(
 // must survive the full persist normalization + JSON storage round-trip so the
 // Git view + tab glyph still resolve a worktree-backed workspace after a restart.
 const partializedWorktree = JSON.parse(
-  JSON.stringify(normalizeWorkspaceForPartialize({
-    ...runtimeBaseWorkspace,
-    worktree: { branch: 'spike/parser', baseRef: 'main' },
-  })),
+  JSON.stringify(
+    normalizeWorkspaceForPartialize({
+      ...runtimeBaseWorkspace,
+      worktree: { branch: 'spike/parser', baseRef: 'main' },
+    }),
+  ),
 ) as Workspace
 assert.deepEqual(
   partializedWorktree.worktree,
@@ -773,10 +770,12 @@ assert.equal(
 // a row written before that field existed still loads with the marker intact —
 // its project is derived from the container path instead.
 const partializedWorktreeRepoRoot = JSON.parse(
-  JSON.stringify(normalizeWorkspaceForPartialize({
-    ...runtimeBaseWorkspace,
-    worktree: { branch: 'agent/chat-a1b2', baseRef: 'HEAD', repoRoot: '/Users/example/project' },
-  })),
+  JSON.stringify(
+    normalizeWorkspaceForPartialize({
+      ...runtimeBaseWorkspace,
+      worktree: { branch: 'agent/chat-a1b2', baseRef: 'HEAD', repoRoot: '/Users/example/project' },
+    }),
+  ),
 ) as Workspace
 assert.deepEqual(
   partializedWorktreeRepoRoot.worktree,
@@ -784,10 +783,12 @@ assert.deepEqual(
   'partialize + storage round-trip preserves the worktree marker repoRoot',
 )
 const partializedLegacyWorktree = JSON.parse(
-  JSON.stringify(normalizeWorkspaceForPartialize({
-    ...runtimeBaseWorkspace,
-    worktree: { branch: 'spike/parser' },
-  })),
+  JSON.stringify(
+    normalizeWorkspaceForPartialize({
+      ...runtimeBaseWorkspace,
+      worktree: { branch: 'spike/parser' },
+    }),
+  ),
 ) as Workspace
 assert.deepEqual(
   partializedLegacyWorktree.worktree,
@@ -812,15 +813,16 @@ assert.equal(
 // earliest host survives, gets the stable 'Automations' name, and a dangling
 // active pointer falls back to a surviving workspace.
 {
-  const hostWorkspace = (id: string, name: string, createdAt: number): Workspace => ({
-    ...persistedWorkspace,
-    id,
-    name,
-    mode: 'automations-host',
-    folderPath: '/Users/example/project',
-    createdAt,
-    agents: {},
-  } as unknown as Workspace)
+  const hostWorkspace = (id: string, name: string, createdAt: number): Workspace =>
+    ({
+      ...persistedWorkspace,
+      id,
+      name,
+      mode: 'automations-host',
+      folderPath: '/Users/example/project',
+      createdAt,
+      agents: {},
+    }) as unknown as Workspace
   // Stamp the CURRENT store version explicitly. The key is frozen at whatever
   // shape it last held (MC-2158), so reading its version back would run the
   // migrate ladder instead — and this case is specifically about the ladder
@@ -843,11 +845,7 @@ assert.equal(
   assert.equal(hosts.length, 1, 'merge dedupes duplicate hosts even at the current store version')
   assert.equal(hosts[0].id, 'ws-host-early', 'the earliest-created host survives')
   assert.equal(hosts[0].name, 'Automations', 'the surviving host is re-branded with the stable name')
-  assert.notEqual(
-    rehydrated.activeWorkspaceId,
-    'ws-host-late',
-    'the active pointer does not dangle at a deduped host',
-  )
+  assert.notEqual(rehydrated.activeWorkspaceId, 'ws-host-late', 'the active pointer does not dangle at a deduped host')
 }
 
 // ── A retired Design Wizard setting in a CURRENT-version envelope ───────────
@@ -954,10 +952,9 @@ assert.equal(
 // addWorkspace (it used to be silently dropped to 'standard', stripping every
 // mode-derived surface — panel scopes, run glyphs, the not-installed state).
 {
-  const moduleModeId = useWorkspaceStore.getState().addWorkspace(
-    { ...raceTemplate, id: 'calendar-mode' },
-    { name: 'Module Mode Workspace', mode: 'calendar' },
-  )
+  const moduleModeId = useWorkspaceStore
+    .getState()
+    .addWorkspace({ ...raceTemplate, id: 'calendar-mode' }, { name: 'Module Mode Workspace', mode: 'calendar' })
   assert.equal(
     useWorkspaceStore.getState().workspaces.find((workspace) => workspace.id === moduleModeId)?.mode,
     'calendar',
@@ -1009,14 +1006,10 @@ assert.equal(
   assert.deepEqual(
     partialized.moduleState,
     { 'weather-deck': { lastCity: 'Dublin' } },
-    'partialize keeps a module\'s durable entry',
+    "partialize keeps a module's durable entry",
   )
   const plainPartialized = normalizeWorkspaceForPartialize(plain!)
-  assert.equal(
-    plainPartialized.moduleState,
-    undefined,
-    'a workspace with no module state persists with no bag at all',
-  )
+  assert.equal(plainPartialized.moduleState, undefined, 'a workspace with no module state persists with no bag at all')
 
   // Workspace-sync round-trip: the bag rides Workspace whole-object sync like
   // any sibling field — a created-workspace event delivers it intact.
@@ -1055,10 +1048,9 @@ assert.equal(
 // setWorkspaceModuleState is the SDK setter's backing action: entries write
 // into the bag, null removes, and an unknown workspace reports false.
 {
-  const targetId = useWorkspaceStore.getState().addWorkspace(
-    { ...raceTemplate, id: 'bag-writer' },
-    { name: 'Bag Writer Workspace' },
-  )
+  const targetId = useWorkspaceStore
+    .getState()
+    .addWorkspace({ ...raceTemplate, id: 'bag-writer' }, { name: 'Bag Writer Workspace' })
   const store = useWorkspaceStore.getState()
   assert.equal(
     store.setWorkspaceModuleState(targetId, 'weather-deck', { lastCity: 'Cork' }),

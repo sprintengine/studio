@@ -22,7 +22,7 @@ export class MobileControlCommandResultRecorder {
 
   constructor(
     private readonly now: () => Date,
-    private readonly auditSink?: (entry: MobileControlCommandAuditEntry) => void
+    private readonly auditSink?: (entry: MobileControlCommandAuditEntry) => void,
   ) {}
 
   getAuditLog(): MobileControlCommandAuditEntry[] {
@@ -33,7 +33,7 @@ export class MobileControlCommandResultRecorder {
     command: MobileControlCommand,
     data: unknown,
     workspacePath: string,
-    message: string
+    message: string,
   ): MobileControlCommandResult {
     const audit = this.recordAudit({
       command,
@@ -60,7 +60,7 @@ export class MobileControlCommandResultRecorder {
     code: MobileControlError['code'],
     message: string,
     retryable: boolean,
-    workspacePath?: string
+    workspacePath?: string,
   ): MobileControlCommandResult {
     const audit = this.recordAudit({
       command,

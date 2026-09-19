@@ -117,5 +117,4 @@ export type AgentLaunchResult =
   | { ok: false; code: string; message: string }
 
 export type AgentDisposeResult =
-  | { ok: true; workspaceId: string; agentId: string }
-  | { ok: false; code: string; message: string }
+  { ok: true; workspaceId: string; agentId: string } | { ok: false; code: string; message: string }

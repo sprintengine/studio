@@ -47,7 +47,7 @@ assert.deepEqual(
     kind: 'unavailable',
     message: 'Conversation providers need an app restart before this tab is available.',
   },
-  'missing IPC reports unavailable'
+  'missing IPC reports unavailable',
 )
 
 assert.equal(deriveProviderTabState(null, true).kind, 'loading', 'null result while IPC present is loading')
@@ -55,18 +55,18 @@ assert.equal(deriveProviderTabState(null, true).kind, 'loading', 'null result wh
 assert.deepEqual(
   deriveProviderTabState({ ok: false, message: 'boom' }, true),
   { kind: 'error', message: 'boom' },
-  'failed list result surfaces the error message'
+  'failed list result surfaces the error message',
 )
 
 assert.equal(
   deriveProviderTabState({ ok: true, providers: [] }, true).kind,
   'empty',
-  'zero providers is the empty state'
+  'zero providers is the empty state',
 )
 
 const readyState = deriveProviderTabState(
   { ok: true, providers: [provider()] } satisfies ConversationProviderListResult,
-  true
+  true,
 )
 assert.equal(readyState.kind, 'ready', 'one provider yields the ready state')
 
@@ -80,7 +80,7 @@ const ordered = orderProviders([
 assert.deepEqual(
   ordered.map((entry) => entry.id),
   ['a-bundled', 'b-user', 'z-user'],
-  'bundled providers sort ahead of user providers, then alphabetical'
+  'bundled providers sort ahead of user providers, then alphabetical',
 )
 
 // --- secret view derivation -----------------------------------------------
@@ -88,19 +88,19 @@ assert.deepEqual(
 assert.deepEqual(
   deriveProviderSecretView({ ok: false, message: 'Conversation provider does not declare a secret.' }),
   { kind: 'none-required' },
-  'a no-auth provider is not treated as an error'
+  'a no-auth provider is not treated as an error',
 )
 
 assert.deepEqual(
   deriveProviderSecretView({ ok: false, message: 'Conversation provider is not installed.' }),
   { kind: 'error', message: 'Conversation provider is not installed.' },
-  'a genuine status failure is an error view'
+  'a genuine status failure is an error view',
 )
 
 assert.deepEqual(
   deriveProviderSecretView({ ok: true, status: status({ configured: false, source: 'none' }) }),
   { kind: 'missing', label: 'OpenRouter API key', encryptionAvailable: true },
-  'unconfigured auth provider is the missing-key view'
+  'unconfigured auth provider is the missing-key view',
 )
 
 const configuredView = deriveProviderSecretView({
@@ -115,7 +115,7 @@ assert.equal(canClearProviderSecret(deriveProviderSecretView({ ok: true, status:
 assert.equal(
   canClearProviderSecret(deriveProviderSecretView({ ok: true, status: status({ source: 'environment' }) })),
   false,
-  'environment keys cannot be cleared from the renderer'
+  'environment keys cannot be cleared from the renderer',
 )
 assert.equal(canClearProviderSecret({ kind: 'none-required' }), false)
 assert.equal(canClearProviderSecret({ kind: 'missing', label: 'API key', encryptionAvailable: true }), false)

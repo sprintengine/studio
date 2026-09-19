@@ -50,7 +50,10 @@ function main(): void {
   assert.match(winExists.args.join(' '), /Get-Command 'npm' -ErrorAction SilentlyContinue/)
 
   // Install descriptor passes the command verbatim into the host shell.
-  const posixInstall = buildInstallDescriptor({ shell: 'curl -fsSL https://example/install.sh | bash', target: 'darwin' })
+  const posixInstall = buildInstallDescriptor({
+    shell: 'curl -fsSL https://example/install.sh | bash',
+    target: 'darwin',
+  })
   assert.equal(posixInstall.file, 'bash')
   assert.equal(posixInstall.args[0], '-lc')
   assert.equal(posixInstall.args[1], 'curl -fsSL https://example/install.sh | bash')
@@ -104,11 +107,26 @@ function main(): void {
   assert.equal(bashFallback?.file, '/usr/bin/bash')
   // fish would misparse the POSIX script; Windows/WSL have no user shell to
   // consult; a missing $SHELL yields no fallback.
-  assert.equal(buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: '/usr/bin/fish' }), null)
-  assert.equal(buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'win32', shell: '/bin/zsh' }), null)
-  assert.equal(buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'wsl', shell: '/bin/zsh' }), null)
-  assert.equal(buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: undefined }), null)
-  assert.equal(buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: '  ' }), null)
+  assert.equal(
+    buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: '/usr/bin/fish' }),
+    null,
+  )
+  assert.equal(
+    buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'win32', shell: '/bin/zsh' }),
+    null,
+  )
+  assert.equal(
+    buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'wsl', shell: '/bin/zsh' }),
+    null,
+  )
+  assert.equal(
+    buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: undefined }),
+    null,
+  )
+  assert.equal(
+    buildUserShellProbeDescriptor({ binary: 'claude', versionArgs: [], target: 'darwin', shell: '  ' }),
+    null,
+  )
 
   // Update descriptor: the CLI's own updater (manifest update.args) runs
   // against the resolved binary in the target shell, mirroring the probe.
@@ -136,16 +154,14 @@ function main(): void {
     { outcome: 'resolved', version: 'git version 0.0.0-fixture', resolvedPath: '/usr/bin/git' },
   )
   // A binary that is genuinely absent: a definitive verdict.
-  assert.deepEqual(
-    binaryVersionProbeFrom({ parsed: parseProbeOutput(NOT_FOUND_CODE, ''), inconclusive: false }),
-    { outcome: 'not_installed' },
-  )
+  assert.deepEqual(binaryVersionProbeFrom({ parsed: parseProbeOutput(NOT_FOUND_CODE, ''), inconclusive: false }), {
+    outcome: 'not_installed',
+  })
   // A probe killed at its deadline parses as absent, but that is a non-answer:
   // it must never read as a missing binary.
-  assert.deepEqual(
-    binaryVersionProbeFrom({ parsed: parseProbeOutput(NOT_FOUND_CODE, ''), inconclusive: true }),
-    { outcome: 'probe_failed' },
-  )
+  assert.deepEqual(binaryVersionProbeFrom({ parsed: parseProbeOutput(NOT_FOUND_CODE, ''), inconclusive: true }), {
+    outcome: 'probe_failed',
+  })
   // Resolves on PATH but prints no version line: ran, told us nothing usable.
   assert.deepEqual(
     binaryVersionProbeFrom({ parsed: parseProbeOutput(0, 'SPRINTENGINE_PATH:/usr/bin/true\n'), inconclusive: false }),

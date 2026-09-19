@@ -135,11 +135,7 @@ run('the search reads the title, the dek and the credit', () => {
   assert.equal(matchesHomeCardSearch(browser, 'drive'), true, 'the title')
   assert.equal(matchesHomeCardSearch(browser, 'journey'), true, 'the dek')
   assert.equal(matchesHomeCardSearch(browser, 'playwright'), true, 'the credit, case and all')
-  assert.equal(
-    matchesHomeCardSearch(browser, 'browser'),
-    true,
-    'a card found by a word that is on it',
-  )
+  assert.equal(matchesHomeCardSearch(browser, 'browser'), true, 'a card found by a word that is on it')
 })
 
 run('and nothing else on the card', () => {
@@ -173,16 +169,9 @@ run('a card with no credit is still searchable, and does not match nothing', () 
 // ── The grid ─────────────────────────────────────────────────────────────────
 
 run('a search that leaves the hero out promotes nobody in its place', () => {
-  const cards = [
-    card({ slug: 'hero', title: 'Big task? No problem.', hero: true }),
-    browser,
-  ]
+  const cards = [card({ slug: 'hero', title: 'Big task? No problem.', hero: true }), browser]
   const grid = homeCardGrid(cards, 'browser')
-  assert.equal(
-    grid.hero,
-    null,
-    'the wide plate is a slot the feed assigns, not a rank the page hands out',
-  )
+  assert.equal(grid.hero, null, 'the wide plate is a slot the feed assigns, not a rank the page hands out')
   assert.deepEqual(slugs(grid.rest), ['browser'])
 })
 
@@ -281,7 +270,13 @@ console.log('homeCards.test.ts: ok')
 // a card could lie about what it is about to do, and no parser could check it.
 {
   const card = (kind: HostedCardKind, go: HostedCard['go']): HostedCard => ({
-    slug: 'x', kind, title: 't', dek: 'd', art: 'split', publishedAt: '2026-09-06', go,
+    slug: 'x',
+    kind,
+    title: 't',
+    dek: 'd',
+    art: 'split',
+    publishedAt: '2026-09-06',
+    go,
   })
   const CHAT = { verb: 'open.chat' as const, prompt: 'p', send: true }
 
@@ -304,19 +299,23 @@ console.log('homeCards.test.ts: ok')
   )
   // `require.cli` is a check, not a change, so it does not make a card an installer.
   assert.equal(
-    cardActionLabel(card('mcp', [
-      { verb: 'require.cli', cli: 'claude-code' },
-      { verb: 'open.surface', view: 'agent-clis' },
-    ])),
+    cardActionLabel(
+      card('mcp', [
+        { verb: 'require.cli', cli: 'claude-code' },
+        { verb: 'open.surface', view: 'agent-clis' },
+      ]),
+    ),
     'Open Agent CLIs',
     'a runtime check does not turn a navigation into an install',
   )
   // But anything that actually changes the machine does.
   assert.equal(
-    cardActionLabel(card('mcp', [
-      { verb: 'install.mcp', id: 'x' },
-      { verb: 'open.surface', view: 'plugins' },
-    ])),
+    cardActionLabel(
+      card('mcp', [
+        { verb: 'install.mcp', id: 'x' },
+        { verb: 'open.surface', view: 'plugins' },
+      ]),
+    ),
     'Install',
     'a card that installs and then navigates is an install',
   )

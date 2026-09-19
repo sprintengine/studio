@@ -154,14 +154,15 @@ async function main(): Promise<void> {
         },
       }),
     )
-    assert.deepEqual(state.sources.map((source) => source.id), [FOLDER.id])
+    assert.deepEqual(
+      state.sources.map((source) => source.id),
+      [FOLDER.id],
+    )
     assert.deepEqual(Object.keys(state.scans), [FOLDER.id])
   })
 
   await run('a folder with no path is not a folder source', async () => {
-    const state = parseSkillSourceState(
-      JSON.stringify({ sources: [{ ...FOLDER, path: '' }], scans: {} }),
-    )
+    const state = parseSkillSourceState(JSON.stringify({ sources: [{ ...FOLDER, path: '' }], scans: {} }))
     assert.deepEqual(state.sources, [], 'a path is the only identity it has')
   })
 
@@ -229,9 +230,7 @@ async function main(): Promise<void> {
     // `/tree/undefined/…`.
     const wrongKind = parseSkillSourceState(
       JSON.stringify({
-        sources: [
-          { id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID, kind: 'local', name: 'x', path: '/tmp/x' },
-        ],
+        sources: [{ id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID, kind: 'local', name: 'x', path: '/tmp/x' }],
         scans: {},
       }),
     )
@@ -243,7 +242,14 @@ async function main(): Promise<void> {
       JSON.stringify({
         // A github record under the right id, but with the two scan fields
         // missing altogether.
-        sources: [{ id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID, kind: 'github', name: 'x', repo: 'anthropics/claude-plugins-official' }],
+        sources: [
+          {
+            id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
+            kind: 'github',
+            name: 'x',
+            repo: 'anthropics/claude-plugins-official',
+          },
+        ],
         scans: {},
       }),
     )
@@ -290,12 +296,17 @@ async function main(): Promise<void> {
     assert.equal(await store.removeSource(STUDIO_SKILL_SOURCE_ID), false)
 
     await store.putSource(
-      { ...(listed[0] as SkillSource), name: 'studio-releases', commitSha: 'abc123', scannedAt: '2026-09-06T00:00:00.000Z' },
+      {
+        ...(listed[0] as SkillSource),
+        name: 'studio-releases',
+        commitSha: 'abc123',
+        scannedAt: '2026-09-06T00:00:00.000Z',
+      },
       scanOf('one'),
     )
     const again = (await store.listSources())[0]
     assert.equal(again?.commitSha, 'abc123', 'the scan state survives')
-    assert.equal(again?.name, STUDIO_SKILL_SOURCE_NAME, 'but the name a scan wrote never overrules this build\'s')
+    assert.equal(again?.name, STUDIO_SKILL_SOURCE_NAME, "but the name a scan wrote never overrules this build's")
     assert.equal((await store.getScan(STUDIO_SKILL_SOURCE_ID))?.skills[0]?.id, 'one', 'and so does the scan beside it')
   })
 

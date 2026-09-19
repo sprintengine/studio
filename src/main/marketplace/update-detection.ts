@@ -25,7 +25,7 @@ type InstalledEntry = { id: string; displayName: string; installedVersion: numbe
 
 export async function readMarketplaceUpdateStates(
   services: MarketplaceUpdateStatesServices,
-  input: MarketplaceRegistryReadInput = {}
+  input: MarketplaceRegistryReadInput = {},
 ): Promise<MarketplaceUpdateStatesResult> {
   const receiptsRead = await readMarketplacePluginInstallReceipts(services.receiptStorePath)
   if (!receiptsRead.ok) return { ok: false, message: receiptsRead.message }

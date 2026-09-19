@@ -1,10 +1,4 @@
-import type {
-  GitBranchSnapshot,
-  GitGraphCommit,
-  GitGraphOptions,
-  GitGraphSnapshot,
-  GitRef,
-} from './git'
+import type { GitBranchSnapshot, GitGraphCommit, GitGraphOptions, GitGraphSnapshot, GitRef } from './git'
 import { getGitHubRepoWebUrl } from './git-github'
 import { runGit } from './git-utils'
 
@@ -86,10 +80,7 @@ function groupRefsByHash(refs: GitRef[]): Map<string, string[]> {
  * guaranteeing no parent is emitted before its children, which the lane-layout
  * algorithm relies on. Paginated via skip/limit so a large history stays bounded.
  */
-export async function getGitCommitGraph(
-  repoRoot: string,
-  options: GitGraphOptions = {}
-): Promise<GitGraphSnapshot> {
+export async function getGitCommitGraph(repoRoot: string, options: GitGraphOptions = {}): Promise<GitGraphSnapshot> {
   const emptySnapshot: GitGraphSnapshot = {
     commits: [],
     refs: [],
@@ -108,7 +99,7 @@ export async function getGitCommitGraph(
     const totalCount =
       Number.parseInt(
         (await runGit(repoRoot, ['rev-list', '--branches', '--remotes', '--tags', 'HEAD', '--count'])).trim(),
-        10
+        10,
       ) || 0
 
     let headHash: string | null = null
@@ -151,14 +142,20 @@ export async function getGitCommitGraph(
       .map((record): GitGraphCommit => {
         const [hash = '', shortHash = '', author = '', date = '', parentsText = '', refsText = '', subject = ''] =
           record.split('\x1f')
-        const decoratedRefs = refsText.split(',').map((ref) => ref.trim()).filter(Boolean)
+        const decoratedRefs = refsText
+          .split(',')
+          .map((ref) => ref.trim())
+          .filter(Boolean)
         const exactRefs = refsByHash.get(hash) ?? []
         return {
           hash,
           shortHash,
           author,
           date,
-          parents: parentsText.split(' ').map((parent) => parent.trim()).filter(Boolean),
+          parents: parentsText
+            .split(' ')
+            .map((parent) => parent.trim())
+            .filter(Boolean),
           refs: [...new Set([...decoratedRefs, ...exactRefs])],
           subject,
           commitWebUrl: githubRepoWebUrl ? `${githubRepoWebUrl}/commit/${hash}` : null,

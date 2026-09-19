@@ -19,7 +19,7 @@ const byId = new Map(commands.map((command) => [command.id, command]))
 assert.deepEqual(
   [...byId.keys()].sort(),
   ['voice-dictation.toggle'],
-  'a module command registers under `<moduleId>.<id>`, never its bare id'
+  'a module command registers under `<moduleId>.<id>`, never its bare id',
 )
 
 // A global-scope module command is offered wherever the shell pushes 'global'.
@@ -32,22 +32,14 @@ assert.equal(isCommandEnabled(toggle, ['workspace'], {}), false, 'out of scope s
 
 // Persisted overrides keyed by the LEGACY shell id keep working.
 assert.deepEqual(
-  getEffectiveKeybindings(
-    'voice-dictation.toggle',
-    { overrides: { 'voice.toggle': ['Primary+Shift+R'] } },
-    toggle,
-  ),
+  getEffectiveKeybindings('voice-dictation.toggle', { overrides: { 'voice.toggle': ['Primary+Shift+R'] } }, toggle),
   ['Primary+Shift+R'],
-  'a legacy-id override resolves for the re-namespaced id'
+  'a legacy-id override resolves for the re-namespaced id',
 )
 assert.deepEqual(
-  getEffectiveKeybindings(
-    'voice-dictation.toggle',
-    { disabled: { 'voice.toggle': true } },
-    toggle,
-  ),
+  getEffectiveKeybindings('voice-dictation.toggle', { disabled: { 'voice.toggle': true } }, toggle),
   [],
-  'a legacy-id disable suppresses the re-namespaced id'
+  'a legacy-id disable suppresses the re-namespaced id',
 )
 
 // An availability predicate is evaluated against the published context view,

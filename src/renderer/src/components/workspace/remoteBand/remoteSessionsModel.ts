@@ -183,14 +183,18 @@ function fleetPaneSessionsOf(workspace: Workspace): Array<{ connectionId: string
 export function attachedWorkspaceFor(
   workspaces: readonly Workspace[],
   connectionId: string,
-  sessionId: string
+  sessionId: string,
 ): Workspace | null {
   for (const workspace of workspaces) {
     const origin = workspace.remoteOrigin
     if (origin && origin.connectionId === connectionId && origin.sessionId === sessionId) return workspace
   }
   for (const workspace of workspaces) {
-    if (fleetPaneSessionsOf(workspace).some((pane) => pane.connectionId === connectionId && pane.remoteSessionId === sessionId)) {
+    if (
+      fleetPaneSessionsOf(workspace).some(
+        (pane) => pane.connectionId === connectionId && pane.remoteSessionId === sessionId,
+      )
+    ) {
       return workspace
     }
   }
@@ -224,10 +228,10 @@ function remoteSessionRowOf(
   connection: FleetConnection,
   terminal: FleetTerminal,
   browse: FleetBrowse,
-  workspaces: readonly Workspace[]
+  workspaces: readonly Workspace[],
 ): RemoteSessionRow {
   const remoteWorkspace = terminal.workspaceId
-    ? browse.workspaces.find((workspace) => workspace.id === terminal.workspaceId) ?? null
+    ? (browse.workspaces.find((workspace) => workspace.id === terminal.workspaceId) ?? null)
     : null
   const attached = attachedWorkspaceFor(workspaces, connection.id, terminal.sessionId)
   return {
@@ -308,7 +312,7 @@ export function buildRemoteBand(input: {
         : []
       const attachedIds = new Set(rows.map((row) => row.attachedWorkspaceId).filter((id): id is string => id !== null))
       const parked = workspaces.filter(
-        (workspace) => workspace.remoteOrigin?.connectionId === connection.id && !attachedIds.has(workspace.id)
+        (workspace) => workspace.remoteOrigin?.connectionId === connection.id && !attachedIds.has(workspace.id),
       )
       // No notices (owner ruling 2026-09-05). A transport error, a scope
       // the pairing lacks, a revocation: none of it is a sidebar sentence.
@@ -420,15 +424,15 @@ function compareConversations(a: RemoteConversation, b: RemoteConversation): num
 export function unattachedConversations(
   groups: readonly RemoteMachineGroup[],
   listening: boolean,
-  workspaces: readonly Workspace[]
+  workspaces: readonly Workspace[],
 ): RemoteConversation[] {
   if (!listening) return []
   const rows: RemoteConversation[] = []
   for (const group of groups) {
     for (const conversation of conversationsOf(group)) {
       const attached =
-        conversation.attachedWorkspaceId !== null
-        && workspaces.some((candidate) => candidate.id === conversation.attachedWorkspaceId)
+        conversation.attachedWorkspaceId !== null &&
+        workspaces.some((candidate) => candidate.id === conversation.attachedWorkspaceId)
       if (!attached) rows.push(conversation)
     }
   }
@@ -511,7 +515,7 @@ export function remoteLinkStateOf(status: { tailnetAddress: string | null } | nu
  */
 export function attachedConversations(
   groups: readonly RemoteMachineGroup[],
-  workspaces: readonly Workspace[]
+  workspaces: readonly Workspace[],
 ): ReadonlyMap<string, RemoteConversation> {
   // Remote-BORN rows only. A local project's workspace can hold a fleet pane
   // too — someone opened a terminal from another machine inside the chat they

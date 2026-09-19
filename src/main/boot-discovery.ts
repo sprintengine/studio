@@ -45,16 +45,14 @@ export type BootDiscoveryDeps = {
 export async function runBootDiscovery(deps: BootDiscoveryDeps = {}): Promise<void> {
   const onProgress = deps.onProgress ?? (() => {})
   const onLegError =
-    deps.onLegError
-    ?? ((leg: BootDiscoveryLegId, error: unknown) => {
+    deps.onLegError ??
+    ((leg: BootDiscoveryLegId, error: unknown) => {
       console.error(`[BootDiscovery] ${leg} leg failed`, error)
     })
 
   const runners: Record<BootDiscoveryLegId, () => Promise<unknown>> = {
     cli: deps.detectClis ?? (() => detectAgentCliAvailability()),
-    editors:
-      deps.detectEditors
-      ?? (async () => listFolderOpenTargetAvailability(resolveFolderOpenLauncherHere)),
+    editors: deps.detectEditors ?? (async () => listFolderOpenTargetAvailability(resolveFolderOpenLauncherHere)),
     updates: deps.checkUpdates ?? (async () => undefined),
   }
 
@@ -86,6 +84,6 @@ export async function runBootDiscovery(deps: BootDiscoveryDeps = {}): Promise<vo
         unresolved.delete(leg.id)
         emit()
       }
-    })
+    }),
   )
 }

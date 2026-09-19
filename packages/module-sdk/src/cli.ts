@@ -21,10 +21,7 @@ import { basename, dirname, isAbsolute, join, relative, resolve } from 'node:pat
 import { parseArgs } from 'node:util'
 
 import { BUNDLED_MODULE_IDS, type CapabilityManifest } from './index.js'
-import {
-  parseThirdPartyModuleManifest,
-  type ThirdPartyManifestIssue,
-} from './manifest-validate.js'
+import { parseThirdPartyModuleManifest, type ThirdPartyManifestIssue } from './manifest-validate.js'
 import {
   MARKETPLACE_COMPONENT_KINDS,
   parseMarketplacePluginAuthoringManifest,
@@ -101,7 +98,10 @@ function readManifest(moduleDir: string): { manifestPath: string; manifest: Capa
   return { manifestPath, manifest: result.manifest }
 }
 
-function readPluginAuthoringManifest(pluginDir: string): { manifestPath: string; manifest: MarketplacePluginAuthoringManifest } {
+function readPluginAuthoringManifest(pluginDir: string): {
+  manifestPath: string
+  manifest: MarketplacePluginAuthoringManifest
+} {
   const manifestPath = join(pluginDir, 'plugin.json')
   if (!existsSync(manifestPath)) {
     fail(`No plugin.json in ${pluginDir}.`)
@@ -179,7 +179,10 @@ function parseComponentKinds(raw: unknown): MarketplaceComponentKind[] {
   const issues: MarketplaceManifestIssue[] = []
   for (const [index, value] of requested.entries()) {
     if (typeof value !== 'string' || !MARKETPLACE_COMPONENT_KINDS.includes(value as MarketplaceComponentKind)) {
-      issues.push({ path: `component[${index}]`, message: `must be one of: ${MARKETPLACE_COMPONENT_KINDS.join(', ')}.` })
+      issues.push({
+        path: `component[${index}]`,
+        message: `must be one of: ${MARKETPLACE_COMPONENT_KINDS.join(', ')}.`,
+      })
       continue
     }
     if (!kinds.includes(value as MarketplaceComponentKind)) kinds.push(value as MarketplaceComponentKind)
@@ -288,9 +291,9 @@ function pack(args: string[]): void {
 
   if (BUNDLED_MODULE_IDS.includes(manifest.id) && values['allow-reserved-id'] !== true) {
     fail(
-      `id "${manifest.id}" is a reserved id, publisher-locked to the first-party signing key — `
-      + `the app only installs it when the manifest is signed by a first-party marketplace publisher. `
-      + `Choose a different module id, or pass --allow-reserved-id if you are the first-party publisher.`
+      `id "${manifest.id}" is a reserved id, publisher-locked to the first-party signing key — ` +
+        `the app only installs it when the manifest is signed by a first-party marketplace publisher. ` +
+        `Choose a different module id, or pass --allow-reserved-id if you are the first-party publisher.`,
     )
   }
   const missingEntries: ThirdPartyManifestIssue[] = []
@@ -372,7 +375,7 @@ function verifyCommand(args: string[]): void {
   if (!valid) {
     fail(
       `${manifest.id} has an INVALID signature (manifest changed after signing, or wrong key). ` +
-        'The app will refuse to trust it. Re-sign the module.'
+        'The app will refuse to trust it. Re-sign the module.',
     )
   }
   console.log(`${manifest.id}: signature valid`)
@@ -441,7 +444,7 @@ function pluginScaffold(args: string[]): void {
     mkdirSync(skillDir, { recursive: true })
     writeFileSync(
       join(skillDir, 'SKILL.md'),
-      `---\nname: ${id}\ndescription: ${displayName} skill placeholder.\n---\n\nDescribe when and how this skill should be used.\n`
+      `---\nname: ${id}\ndescription: ${displayName} skill placeholder.\n---\n\nDescribe when and how this skill should be used.\n`,
     )
   }
   if (components.module) {
@@ -505,7 +508,9 @@ function pluginScaffold(args: string[]): void {
 
   console.log(`Scaffolded marketplace plugin ${id} at ${outDir}`)
   console.log(`Registry entry "provides": ${JSON.stringify(providesForComponents(components))}`)
-  console.log('Run `multicode-module keygen`, then `multicode-module plugin sign`, then `multicode-module plugin verify`.')
+  console.log(
+    'Run `multicode-module keygen`, then `multicode-module plugin sign`, then `multicode-module plugin verify`.',
+  )
 }
 
 function pluginPack(args: string[]): void {
@@ -613,14 +618,16 @@ function pluginVerify(args: string[]): void {
   const sourceDir = resolve(pluginDir)
   const authoring = readPluginAuthoringManifest(sourceDir)
   if (!authoring.manifest.signature) {
-    fail(`${authoring.manifest.id} is unsigned. The app will refuse to install it; sign it with \`multicode-module plugin sign\`.`)
+    fail(
+      `${authoring.manifest.id} is unsigned. The app will refuse to install it; sign it with \`multicode-module plugin sign\`.`,
+    )
   }
   const { manifest } = readPluginManifest(sourceDir)
   const { valid, fingerprint } = verifyModuleSignature(manifest)
   if (!valid) {
     fail(
       `${manifest.id} has an INVALID signature (plugin.json changed after signing, or wrong key). ` +
-        'The app will refuse to install it. Re-sign the plugin.'
+        'The app will refuse to install it. Re-sign the plugin.',
     )
   }
   assertPluginComponentDigestsMatch(sourceDir, manifest)

@@ -8,9 +8,24 @@ export const STUDIO_GATEWAY_AUDIT_FILENAME = 'sprintengine-studio-mcp-audit.json
 const DEFAULT_MAX_BYTES = 2 * 1024 * 1024
 const DEFAULT_BACKUPS = 3
 const SAFE_IDENTIFIER_KEYS = new Set([
-  'workspaceId', 'agentId', 'automationId', 'runId', 'taskId',
-  'path', 'relativePath', 'sourceRelativePath', 'epicId', 'id', 'status', 'type', 'slug', 'repo',
-  'issue', 'numericId', 'previousNumericId', 'replacements',
+  'workspaceId',
+  'agentId',
+  'automationId',
+  'runId',
+  'taskId',
+  'path',
+  'relativePath',
+  'sourceRelativePath',
+  'epicId',
+  'id',
+  'status',
+  'type',
+  'slug',
+  'repo',
+  'issue',
+  'numericId',
+  'previousNumericId',
+  'replacements',
 ])
 
 export type GatewayAuditRecord = {
@@ -87,7 +102,7 @@ function safeIdentifiers(value: unknown): Record<string, string | number | boole
 function collectSafeIdentifiers(
   value: unknown,
   result: Record<string, string | number | boolean>,
-  depth: number
+  depth: number,
 ): void {
   if (!value || typeof value !== 'object' || depth > 3) return
   if (Array.isArray(value)) {
@@ -95,7 +110,10 @@ function collectSafeIdentifiers(
     return
   }
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
-    if (SAFE_IDENTIFIER_KEYS.has(key) && (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean')) {
+    if (
+      SAFE_IDENTIFIER_KEYS.has(key) &&
+      (typeof entry === 'string' || typeof entry === 'number' || typeof entry === 'boolean')
+    ) {
       result[key] = typeof entry === 'string' ? entry.slice(0, 256) : entry
     } else if (entry && typeof entry === 'object') {
       collectSafeIdentifiers(entry, result, depth + 1)
@@ -127,7 +145,8 @@ function normalizeConnection(connection: McpConnectionMetadata): McpConnectionMe
 }
 
 function errorCode(error: unknown, result: McpToolResult | undefined): string | undefined {
-  if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string') return error.code.slice(0, 128)
+  if (error && typeof error === 'object' && 'code' in error && typeof error.code === 'string')
+    return error.code.slice(0, 128)
   const structured = result?.structuredContent
   if (structured && typeof structured === 'object') {
     const nested = structured.error

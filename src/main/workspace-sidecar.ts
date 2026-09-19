@@ -1,8 +1,5 @@
 import { statSync } from 'fs'
-import {
-  isAbsoluteFilePath,
-  trimPath,
-} from '../shared/paths'
+import { isAbsoluteFilePath, trimPath } from '../shared/paths'
 import {
   forgetSidecarDirName,
   knownSidecarDirName,
@@ -64,8 +61,7 @@ export function resolveWorkspaceSidecar(workspaceRoot: string): WorkspaceSidecar
   // is the way back for a directory removed by hand, and for tests.
   if (resolvedWorkspaceRoots.has(root)) return sidecarFor(root, knownSidecarDirName(root))
 
-  const dirName = sidecarCandidates(root).find((candidate) => isDirectory(candidate.root))?.dirName
-    ?? SIDECAR_DIR_NAME
+  const dirName = sidecarCandidates(root).find((candidate) => isDirectory(candidate.root))?.dirName ?? SIDECAR_DIR_NAME
   rememberSidecarDirName(root, dirName)
   resolvedWorkspaceRoots.add(root)
   return sidecarFor(root, dirName)

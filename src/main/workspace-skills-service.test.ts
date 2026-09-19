@@ -127,7 +127,10 @@ async function main(): Promise<void> {
 
   // Sorted by display name.
   const names = skills.map((skill) => skill.name)
-  assert.deepEqual(names, [...names].sort((a, b) => a.localeCompare(b)))
+  assert.deepEqual(
+    names,
+    [...names].sort((a, b) => a.localeCompare(b)),
+  )
 
   await testAgentCapabilities()
   await testThirteenthCli()

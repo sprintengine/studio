@@ -29,7 +29,6 @@ import vm from 'node:vm'
 
 const require = createRequire(import.meta.url)
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
-const ASSETS_DIR = join(ROOT, 'out/renderer/assets')
 const RUN_TIMEOUT_MS = 60_000
 
 const args = parseArgs(process.argv.slice(2))
@@ -110,8 +109,8 @@ function eagerChunk() {
 async function reportStartup() {
   const chunk = eagerChunk()
   console.log(
-    `[measure-startup] ${args.runs} run(s), ${args.profile} profile — eager chunk ${chunk.file} `
-    + `(${Math.round(chunk.size / 1024)} KB of a ${chunk.eagerTotalKb} KB boot graph)`
+    `[measure-startup] ${args.runs} run(s), ${args.profile} profile — eager chunk ${chunk.file} ` +
+      `(${Math.round(chunk.size / 1024)} KB of a ${chunk.eagerTotalKb} KB boot graph)`,
   )
 
   const sharedProfile = args.profile === 'reuse' ? mkdtempSync(join(tmpdir(), 'multicode-startup-')) : null
@@ -124,8 +123,8 @@ async function reportStartup() {
         runs.push(report)
         const revealMs = span(report, 'time-to-app')
         console.log(
-          `  run ${index + 1}: ${revealMs === null ? '—' : `${revealMs} ms`} to app on screen`
-          + `${report.complete ? '' : ` (incomplete: ${report.missing.join(', ')})`}`
+          `  run ${index + 1}: ${revealMs === null ? '—' : `${revealMs} ms`} to app on screen` +
+            `${report.complete ? '' : ` (incomplete: ${report.missing.join(', ')})`}`,
         )
       } finally {
         if (!sharedProfile) rmSync(profileDir, { recursive: true, force: true })
@@ -153,10 +152,30 @@ async function reportStartup() {
 // asked it to measure, and reports numbers for somebody else's renderer. Only
 // the OS-level variables Electron and the shell need are passed through.
 const PASSTHROUGH_ENV_KEYS = [
-  'PATH', 'HOME', 'SHELL', 'USER', 'LOGNAME', 'LANG', 'LC_ALL', 'TMPDIR', 'TERM',
-  'DISPLAY', 'XDG_RUNTIME_DIR', 'XDG_CONFIG_HOME',
-  'APPDATA', 'LOCALAPPDATA', 'USERPROFILE', 'ProgramData', 'ProgramFiles',
-  'SystemRoot', 'windir', 'COMSPEC', 'PATHEXT', 'TEMP', 'TMP', 'NUMBER_OF_PROCESSORS',
+  'PATH',
+  'HOME',
+  'SHELL',
+  'USER',
+  'LOGNAME',
+  'LANG',
+  'LC_ALL',
+  'TMPDIR',
+  'TERM',
+  'DISPLAY',
+  'XDG_RUNTIME_DIR',
+  'XDG_CONFIG_HOME',
+  'APPDATA',
+  'LOCALAPPDATA',
+  'USERPROFILE',
+  'ProgramData',
+  'ProgramFiles',
+  'SystemRoot',
+  'windir',
+  'COMSPEC',
+  'PATHEXT',
+  'TEMP',
+  'TMP',
+  'NUMBER_OF_PROCESSORS',
 ]
 
 function launchEnv(profileDir) {
@@ -209,7 +228,7 @@ function launchOnce(profileDir) {
 
     const timer = setTimeout(
       () => finish(new Error(`no timeline within ${RUN_TIMEOUT_MS} ms — is this build instrumented?`)),
-      RUN_TIMEOUT_MS
+      RUN_TIMEOUT_MS,
     )
 
     const onChunk = (data) => {
@@ -246,8 +265,7 @@ function median(values) {
 function summarize(runs, chunk) {
   const rowIds = [...new Set(runs.flatMap((run) => run.rows.map((row) => row.id)))]
   const spanIds = [...new Set(runs.flatMap((run) => run.spans.map((entry) => entry.id)))]
-  const label = (id) =>
-    runs.flatMap((run) => [...run.rows, ...run.spans]).find((entry) => entry.id === id)?.label ?? id
+  const label = (id) => runs.flatMap((run) => [...run.rows, ...run.spans]).find((entry) => entry.id === id)?.label ?? id
   const pick = (id, key, source) =>
     runs.map((run) => run[source].find((entry) => entry.id === id)?.[key]).filter((value) => typeof value === 'number')
 
@@ -262,7 +280,13 @@ function summarize(runs, chunk) {
     eagerChunk: { file: chunk.file, kb: Math.round(chunk.size / 1024), eagerTotalKb: chunk.eagerTotalKb },
     marks: rowIds.map((id) => {
       const offsets = pick(id, 'offsetMs', 'rows')
-      return { id, label: label(id), medianMs: median(offsets), minMs: Math.min(...offsets), maxMs: Math.max(...offsets) }
+      return {
+        id,
+        label: label(id),
+        medianMs: median(offsets),
+        minMs: Math.min(...offsets),
+        maxMs: Math.max(...offsets),
+      }
     }),
     spans: spanIds.map((id) => {
       const values = pick(id, 'ms', 'spans')
@@ -285,8 +309,8 @@ function printSummary(summary) {
   }
   if (summary.incompleteRuns > 0) {
     console.log(
-      `\n  WARNING: ${summary.incompleteRuns} of ${summary.runs} run(s) never reported `
-      + `${summary.missingMarks.join(', ')} — the medians above are over partial data.`
+      `\n  WARNING: ${summary.incompleteRuns} of ${summary.runs} run(s) never reported ` +
+        `${summary.missingMarks.join(', ')} — the medians above are over partial data.`,
     )
   }
 }
@@ -305,9 +329,9 @@ function printSummary(summary) {
 function reportCompileCache() {
   if (typeof vm.SourceTextModule !== 'function') {
     fail(
-      'vm.SourceTextModule is unavailable — re-run with --experimental-vm-modules, e.g.\n'
-      + '  ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron --experimental-vm-modules '
-      + 'scripts/measure-startup.mjs --compile-cache'
+      'vm.SourceTextModule is unavailable — re-run with --experimental-vm-modules, e.g.\n' +
+        '  ELECTRON_RUN_AS_NODE=1 ./node_modules/.bin/electron --experimental-vm-modules ' +
+        'scripts/measure-startup.mjs --compile-cache',
     )
   }
   const chunk = eagerChunk()
@@ -332,14 +356,16 @@ function reportCompileCache() {
 
   const coldMs = median(cold)
   const warmMs = median(warm)
-  console.log(`[measure-startup] eager chunk ${chunk.file} (${Math.round(chunk.size / 1024)} KB), ${iterations} iterations`)
+  console.log(
+    `[measure-startup] eager chunk ${chunk.file} (${Math.round(chunk.size / 1024)} KB), ${iterations} iterations`,
+  )
   console.log(`  ${coldMs} ms  compile, no code cache`)
   console.log(`  ${warmMs} ms  compile, with V8 cached data (${Math.round(cachedData.length / 1024)} KB of cache)`)
   console.log(`  ${Math.round((coldMs - warmMs) * 10) / 10} ms  is the most a renderer code cache could remove`)
   console.log(
-    '  (compile only — V8 still lazily compiles function bodies on first call, which a\n'
-    + '   real Chromium code cache also covers; compare against the measured\n'
-    + '   "document start → entry script running" span for the whole fetch+compile+eval.)'
+    '  (compile only — V8 still lazily compiles function bodies on first call, which a\n' +
+      '   real Chromium code cache also covers; compare against the measured\n' +
+      '   "document start → entry script running" span for the whole fetch+compile+eval.)',
   )
 }
 

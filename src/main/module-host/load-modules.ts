@@ -51,7 +51,7 @@ export type LoadMainModulesResult = {
   kernel: MainKernel
   applyEnablement(
     overrides: ModuleEnablementOverrides,
-    options: MainModuleLiveUpdateOptions
+    options: MainModuleLiveUpdateOptions,
   ): Promise<MainModuleLiveUpdateReport>
 }
 
@@ -95,7 +95,7 @@ export function loadMainModules(options: {
   const resolution = resolveModuleEnablement(
     modules.map((module) => module.manifest),
     overrides,
-    { ineligible }
+    { ineligible },
   )
 
   const kernel = createMainKernel(ipcMain, {
@@ -113,7 +113,7 @@ export function loadMainModules(options: {
     resolution.errors.map((error) => ({
       id: error.id,
       message: error.message,
-    }))
+    })),
   )
   const activeMainModules = new Set<string>()
   const activeManifestOnlyModules = new Set<string>()
@@ -155,14 +155,14 @@ export function loadMainModules(options: {
     kernel,
     async applyEnablement(
       nextOverrides: ModuleEnablementOverrides,
-      liveOptions: MainModuleLiveUpdateOptions
+      liveOptions: MainModuleLiveUpdateOptions,
     ): Promise<MainModuleLiveUpdateReport> {
       const liveModuleIds = new Set(liveOptions.liveModuleIds)
       const liveErrors: MainModuleLoadError[] = []
       const nextResolution = resolveModuleEnablement(
         modules.map((module) => module.manifest),
         nextOverrides,
-        { ineligible }
+        { ineligible },
       )
       const nextEnabled = new Set(nextResolution.order)
 

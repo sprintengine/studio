@@ -10,9 +10,7 @@ import { DesignGlyph } from '../components/workspace/surfaceGlyphs'
 // it behind a dynamic import leaves the eager module-registry graph
 // store-free, the discipline every other surface follows. The trigger glyph
 // IS eager, and is a store-free leaf.
-const DesignGlobalSurface = React.lazy(
-  () => import('../components/workspace/globalSurface/design/DesignGlobalSurface'),
-)
+const DesignGlobalSurface = React.lazy(() => import('../components/workspace/globalSurface/design/DesignGlobalSurface'))
 
 // The `design` renderer module (epic `design-door`, item 2002).
 //
@@ -28,8 +26,7 @@ export const designRendererModule: RendererModule = {
     version: 1,
     publisher: 'multicode',
     category: 'insight',
-    summary:
-      'The Design door: see the design systems you have, rendered, and point at new ones on disk.',
+    summary: 'The Design door: see the design systems you have, rendered, and point at new ones on disk.',
     defaultEnabled: true,
   },
   registerRenderer(host) {

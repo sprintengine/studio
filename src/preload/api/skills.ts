@@ -33,16 +33,14 @@ import type {
 
 export const skillsApi = {
   skillsListSources: (): Promise<SkillSourcesResult> => ipcRenderer.invoke('skills:list-sources'),
-  skillsCheckSourceUpdates: (): Promise<SkillSourceUpdateCheck> =>
-    ipcRenderer.invoke('skills:check-source-updates'),
+  skillsCheckSourceUpdates: (): Promise<SkillSourceUpdateCheck> => ipcRenderer.invoke('skills:check-source-updates'),
   skillsAddSource: (input: SkillAddSourceInput): Promise<SkillAddSourceResult> =>
     ipcRenderer.invoke('skills:add-source', input),
   skillsAddLocalSource: (input: SkillAddLocalSourceInput): Promise<SkillAddSourceResult> =>
     ipcRenderer.invoke('skills:add-local-source', input),
   skillsRemoveSource: (input: SkillRemoveSourceInput): Promise<SkillRemoveSourceResult> =>
     ipcRenderer.invoke('skills:remove-source', input),
-  skillsGetScan: (input: SkillScanInput): Promise<SkillScanOutcome> =>
-    ipcRenderer.invoke('skills:scan', input),
+  skillsGetScan: (input: SkillScanInput): Promise<SkillScanOutcome> => ipcRenderer.invoke('skills:scan', input),
   skillsReadFile: (input: SkillReadFileInput): Promise<SkillReadFileResult> =>
     ipcRenderer.invoke('skills:read-file', input),
   skillsInstall: (input: SkillInstallInput): Promise<SkillInstallOutcome> =>
@@ -51,10 +49,8 @@ export const skillsApi = {
     ipcRenderer.invoke('skills:uninstall', input),
   skillsSyncSource: (input: SkillSyncSourceInput): Promise<SkillSyncSourceOutcome> =>
     ipcRenderer.invoke('skills:sync-source', input),
-  skillsSearch: (input: SkillSearchInput): Promise<SkillSearchOutcome> =>
-    ipcRenderer.invoke('skills:search', input),
-  skillsListPopularRepos: (): Promise<SkillPopularReposOutcome> =>
-    ipcRenderer.invoke('skills:list-popular-repos'),
+  skillsSearch: (input: SkillSearchInput): Promise<SkillSearchOutcome> => ipcRenderer.invoke('skills:search', input),
+  skillsListPopularRepos: (): Promise<SkillPopularReposOutcome> => ipcRenderer.invoke('skills:list-popular-repos'),
   skillsScanLinkedPlugin: (input: SkillPluginScanLinkedInput): Promise<SkillPluginScanLinkedOutcome> =>
     ipcRenderer.invoke('skills:scan-linked-plugin', input),
   skillsInstallPlugin: (input: SkillPluginInstallInput): Promise<SkillPluginInstallOutcome> =>

@@ -83,11 +83,7 @@ export function stepNavigationHistory(
   direction: -1 | 1,
   isNavigable: (entry: NavHistoryEntry) => boolean,
 ): { history: WorkspaceNavigationHistory; entry: NavHistoryEntry } | null {
-  for (
-    let index = history.index + direction;
-    index >= 0 && index < history.entries.length;
-    index += direction
-  ) {
+  for (let index = history.index + direction; index >= 0 && index < history.entries.length; index += direction) {
     const entry = history.entries[index]
     if (isNavigable(entry)) {
       return { history: { entries: history.entries, index }, entry }

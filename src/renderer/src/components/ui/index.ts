@@ -23,14 +23,7 @@ export {
   OutlineButton,
   PrimaryButton,
 } from './Buttons'
-export type {
-  ButtonAlign,
-  ButtonSize,
-  ButtonTone,
-  CaptionButtonTone,
-  GhostTone,
-  IconButtonSize,
-} from './Buttons'
+export type { ButtonAlign, ButtonSize, ButtonTone, CaptionButtonTone, GhostTone, IconButtonSize } from './Buttons'
 // The five shapes the button family was missing (the MC-2118 raw-primitive
 // sweep, 2026-09-08). Each is a species, not a restyle: a row, a value row, a
 // popover trigger, a tile and a text link answer questions the three sized
@@ -71,12 +64,7 @@ export {
 } from './GitActionGlyphs'
 // The changelist quartet (git-commit-window T6): new, delete, edit, and the
 // patch a selection is written out as.
-export {
-  CreatePatchGlyph,
-  DeleteChangelistGlyph,
-  EditChangelistGlyph,
-  NewChangelistGlyph,
-} from './GitActionGlyphs'
+export { CreatePatchGlyph, DeleteChangelistGlyph, EditChangelistGlyph, NewChangelistGlyph } from './GitActionGlyphs'
 // The overflow mark, one drawing. Two surfaces drew it privately at two
 // pitches until 2026-09-09 — `OverflowMenu`'s own trigger and the Git panel's
 // group band — which is exactly the drift `design-system/glyphs/` exists to

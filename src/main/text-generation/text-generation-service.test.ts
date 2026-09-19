@@ -32,7 +32,9 @@ function ok(stdout: string, extra: Partial<CommandRun> = {}): CommandRun {
 const claudeEnvelope = (title: string): string =>
   JSON.stringify({ type: 'result', is_error: false, structured_output: { title } })
 
-function deps(overrides: Partial<TextGenerationServiceDeps> & { runs?: CommandRunInput[] } = {}): TextGenerationServiceDeps & { runs: CommandRunInput[] } {
+function deps(
+  overrides: Partial<TextGenerationServiceDeps> & { runs?: CommandRunInput[] } = {},
+): TextGenerationServiceDeps & { runs: CommandRunInput[] } {
   const runs: CommandRunInput[] = overrides.runs ?? []
   return {
     detect: async (cli) => detected(cli),
@@ -57,7 +59,12 @@ run('a CLI with no backend is refused before anything is probed', async () => {
   let probed = false
   const result = await generateChatTitle(
     { prompt: 'hello', engine: { cli: 'cursor', model: 'auto' } },
-    deps({ detect: async (cli) => { probed = true; return detected(cli) } }),
+    deps({
+      detect: async (cli) => {
+        probed = true
+        return detected(cli)
+      },
+    }),
   )
   assert.deepEqual(result, { ok: false, code: 'unsupported', message: 'cursor has no text generation backend.' })
   assert.equal(probed, false)
@@ -72,7 +79,11 @@ run('an empty model is refused', async () => {
 run('an uninstalled or unprobeable CLI is unavailable, and nothing runs', async () => {
   const d = deps({ detect: async (cli) => detected(cli, { installed: false, resolvedPath: null }) })
   const missing = await generateChatTitle({ prompt: 'hello', engine: claudeEngine }, d)
-  assert.deepEqual(missing, { ok: false, code: 'unavailable', message: 'claude-code is not installed on this machine.' })
+  assert.deepEqual(missing, {
+    ok: false,
+    code: 'unavailable',
+    message: 'claude-code is not installed on this machine.',
+  })
   assert.equal(d.runs.length, 0)
 
   const errored = await generateChatTitle(
@@ -85,7 +96,10 @@ run('an uninstalled or unprobeable CLI is unavailable, and nothing runs', async 
 
 run('claude: probed path, scratch cwd, prompt on stdin, auth env stripped, title guarded', async () => {
   const d = deps()
-  const result = await generateChatTitle({ prompt: 'so basically fix the sidebar', engine: claudeEngine, timeoutMs: 1234 }, d)
+  const result = await generateChatTitle(
+    { prompt: 'so basically fix the sidebar', engine: claudeEngine, timeoutMs: 1234 },
+    d,
+  )
   assert.deepEqual(result, { ok: true, value: 'Sidebar flicker on switch', ms: 1000 })
   assert.equal(d.runs.length, 1)
   const call = d.runs[0]!
@@ -126,7 +140,10 @@ run('codex: schema written to scratch, last message read back, env left alone', 
   assert.equal(call.args[0], 'exec')
   assert.equal(call.env.ANTHROPIC_API_KEY, 'sk-secret', 'codex has no subscription/API split to guard')
   assert.equal(call.env.MAX_THINKING_TOKENS, undefined, 'the claude-only thinking switch stays off codex')
-  assert.ok(call.args[call.args.indexOf('--output-schema') + 1]!.startsWith(call.cwd), 'schema lives in the scratch dir')
+  assert.ok(
+    call.args[call.args.indexOf('--output-schema') + 1]!.startsWith(call.cwd),
+    'schema lives in the scratch dir',
+  )
 })
 
 run('the scratch directory is removed after every outcome', async () => {
@@ -139,7 +156,12 @@ run('the scratch directory is removed after every outcome', async () => {
     )
     await generateChatTitle(
       { prompt: 'x', engine: claudeEngine },
-      deps({ scratchRoot, run: async () => { throw new Error('exploded') } }),
+      deps({
+        scratchRoot,
+        run: async () => {
+          throw new Error('exploded')
+        },
+      }),
     )
     assert.deepEqual(await readdir(scratchRoot), [], 'nothing left behind')
   } finally {
@@ -168,7 +190,11 @@ run('failures are typed, never thrown', async () => {
 
   const thrown = await generateChatTitle(
     { prompt: 'x', engine: claudeEngine },
-    deps({ run: async () => { throw new Error('exploded') } }),
+    deps({
+      run: async () => {
+        throw new Error('exploded')
+      },
+    }),
   )
   assert.deepEqual(thrown, { ok: false, code: 'transport', message: 'exploded' })
 

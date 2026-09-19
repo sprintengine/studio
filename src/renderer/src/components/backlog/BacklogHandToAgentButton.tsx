@@ -137,9 +137,12 @@ function HandToAgentPicker({
   // machine we have not finished asking would be a lie the person acts on.
   if (composer.agentCliOptions.length === 0 && composer.catalogStatus !== 'ready') {
     return (
-      <div className="w-[380px] max-w-[calc(100vw-2rem)] px-3 py-2 text-micro text-[color:var(--text-muted)]" role="status">
+      <div
+        className="w-[380px] max-w-[calc(100vw-2rem)] px-3 py-2 text-micro text-[color:var(--text-muted)]"
+        role="status"
+      >
         {composer.catalogStatus === 'error'
-          ? composer.catalogError ?? 'Could not load agent plugins.'
+          ? (composer.catalogError ?? 'Could not load agent plugins.')
           : 'Loading installed agents…'}
       </div>
     )

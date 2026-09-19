@@ -3,11 +3,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import { Checkbox, GhostButton, InlineNotice, Input, MicroChip, StatusDot } from '../ui'
 import type { Tone } from '../ui'
 import { SettingCard, SettingsSectionTitle } from './SettingsAtoms'
-import {
-  listOpenProjectKnowledge,
-  relativePathBetween,
-  type ProjectKnowledgeEntry,
-} from '../../utils/projectKnowledge'
+import { listOpenProjectKnowledge, relativePathBetween, type ProjectKnowledgeEntry } from '../../utils/projectKnowledge'
 import { isAbsolutePath } from '../../store/slices/memorySlice'
 
 type RowStatus = MemoryRootStatus | null
@@ -21,9 +17,7 @@ function dotLabel(entry: ProjectKnowledgeEntry, status: RowStatus, checking: boo
   if (checking) return `${entry.name}: checking knowledge folder`
   if (!entry.relativeRoot && !status) return `${entry.name}: no knowledge folder`
   if (!status) return `${entry.name}: knowledge folder set`
-  return status.ok
-    ? `${entry.name}: knowledge folder ready`
-    : `${entry.name}: knowledge folder unavailable`
+  return status.ok ? `${entry.name}: knowledge folder ready` : `${entry.name}: knowledge folder unavailable`
 }
 
 type ProjectKnowledgeListProps = {
@@ -43,7 +37,7 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
 
   const projects = useMemo(
     () => listOpenProjectKnowledge(workspaces, projectKnowledgeRoots),
-    [workspaces, projectKnowledgeRoots]
+    [workspaces, projectKnowledgeRoots],
   )
 
   const activeKey = activeProjectRoot ? activeProjectRoot.toLowerCase() : null
@@ -122,7 +116,7 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
       if (trimmed) void validate(entry.key, entry.projectRoot, trimmed)
       else setStatuses((s) => ({ ...s, [entry.key]: null }))
     },
-    [setProjectKnowledgeRoot, validate]
+    [setProjectKnowledgeRoot, validate],
   )
 
   const chooseFolder = useCallback(
@@ -146,13 +140,10 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
       setProjectKnowledgeRoot(entry.projectRoot, relative)
       void validate(entry.key, entry.projectRoot, relative)
     },
-    [setProjectKnowledgeRoot, validate]
+    [setProjectKnowledgeRoot, validate],
   )
 
-  const selectedEntries = useMemo(
-    () => projects.filter((project) => selected[project.key]),
-    [projects, selected]
-  )
+  const selectedEntries = useMemo(() => projects.filter((project) => selected[project.key]), [projects, selected])
   const allSelected = projects.length > 0 && projects.every((project) => selected[project.key])
   const someSelected = selectedEntries.length > 0
 
@@ -199,14 +190,12 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
         : {
             tone: 'accent',
             text: `Pointed ${ok} project${ok === 1 ? '' : 's'} at ${dir}.`,
-          }
+          },
     )
   }, [selectedEntries, setProjectKnowledgeRoot, validate])
 
   if (projects.length === 0) {
-    return (
-      <p className="text-body leading-5 text-[color:var(--text-subtle)]">Open a workspace first.</p>
-    )
+    return <p className="text-body leading-5 text-[color:var(--text-subtle)]">Open a workspace first.</p>
   }
 
   // The list card (setting-row → The list card, 2026-09-15): the band above
@@ -265,20 +254,13 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
                 <Checkbox
                   checked={isSelected}
                   ariaLabel={`Select ${entry.name}`}
-                  onChange={() =>
-                    setSelected((prev) => ({ ...prev, [entry.key]: !prev[entry.key] }))
-                  }
+                  onChange={() => setSelected((prev) => ({ ...prev, [entry.key]: !prev[entry.key] }))}
                   className="shrink-0"
                 />
-                <StatusDot
-                  tone={dotTone(status, isChecking)}
-                  label={dotLabel(entry, status, isChecking)}
-                />
+                <StatusDot tone={dotTone(status, isChecking)} label={dotLabel(entry, status, isChecking)} />
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
-                    <span className="truncate text-body font-medium text-[color:var(--text-strong)]">
-                      {entry.name}
-                    </span>
+                    <span className="truncate text-body font-medium text-[color:var(--text-strong)]">{entry.name}</span>
                     {/* The project the open workspace belongs to. A chip, as the
                         Remote tab marks "This device" — not a selection fill,
                         which would say "picked" about a row nobody picked. */}
@@ -302,9 +284,7 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
                   <Input
                     value={drafts[entry.key] ?? ''}
                     aria-label={`Knowledge folder for ${entry.name}`}
-                    onChange={(event) =>
-                      setDrafts((d) => ({ ...d, [entry.key]: event.target.value }))
-                    }
+                    onChange={(event) => setDrafts((d) => ({ ...d, [entry.key]: event.target.value }))}
                     onBlur={(event) => commit(entry, event.target.value)}
                     onKeyDown={(event) => {
                       if (event.key === 'Enter') event.currentTarget.blur()

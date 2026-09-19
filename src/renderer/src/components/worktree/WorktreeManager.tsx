@@ -115,9 +115,10 @@ export default function WorktreeManager({
   const removeWorktreeEntry = useWorkspaceStore((state) => state.removeWorktreeEntry)
   const addWorkspace = useWorkspaceStore((state) => state.addWorkspace)
   const setActiveWorkspaceForWindow = useWorkspaceStore((state) => state.setActiveWorkspaceForWindow)
-  const workspaceWindowId = useWorkspaceStore((state) =>
-    state.workspaceWindows.find((windowState) => windowState.workspaceIds.includes(workspaceId))?.id
-    ?? state.primaryWorkspaceWindowId
+  const workspaceWindowId = useWorkspaceStore(
+    (state) =>
+      state.workspaceWindows.find((windowState) => windowState.workspaceIds.includes(workspaceId))?.id ??
+      state.primaryWorkspaceWindowId,
   )
   const dialog = useConfirmDialog()
   const [open, setOpen] = useState(true)
@@ -133,7 +134,7 @@ export default function WorktreeManager({
 
   const storedEntries = useMemo(
     () => Object.values(workspace?.worktreeState.entries ?? {}),
-    [workspace?.worktreeState.entries]
+    [workspace?.worktreeState.entries],
   )
   const containerPath = workspace?.worktreeState.containerPath ?? worktreeContainerPath(repoRoot)
   // Opening a worktree opens the New chat launch surface in it — the person
@@ -195,40 +196,46 @@ export default function WorktreeManager({
             storedEntry,
             listedEntry: worktree,
           }
-        })
+        }),
       )
 
       const listedPaths = new Set(listedRows.map((row) => trimPath(row.path).toLowerCase()))
-      const orphanedRows = (await Promise.all(
-        storedEntries
-          .filter((entry) => !listedPaths.has(trimPath(entry.path).toLowerCase()))
-          .map(async (entry): Promise<WorktreeRow | null> => {
-            const exists = await window.api.pathExists(entry.path).catch(() => false)
-            if (!exists) {
-              removeWorktreeEntry(workspaceId, entry.id)
-              return null
-            }
+      const orphanedRows = (
+        await Promise.all(
+          storedEntries
+            .filter((entry) => !listedPaths.has(trimPath(entry.path).toLowerCase()))
+            .map(async (entry): Promise<WorktreeRow | null> => {
+              const exists = await window.api.pathExists(entry.path).catch(() => false)
+              if (!exists) {
+                removeWorktreeEntry(workspaceId, entry.id)
+                return null
+              }
 
-            return {
-            id: entry.id,
-            path: entry.path,
-            branch: entry.branch,
-            head: null,
-            isMain: samePath(entry.path, repoRoot),
-            missing: true,
-            locked: false,
-            lockedReason: null,
-            prunable: false,
-            prunableReason: 'Stored worktree is not listed by Git.',
-            dirtyCount: null,
-            ownerAgentId: entry.ownerAgentId,
-            storedEntry: entry,
-            listedEntry: null,
-            }
-          })
-      )).filter((row): row is WorktreeRow => Boolean(row))
+              return {
+                id: entry.id,
+                path: entry.path,
+                branch: entry.branch,
+                head: null,
+                isMain: samePath(entry.path, repoRoot),
+                missing: true,
+                locked: false,
+                lockedReason: null,
+                prunable: false,
+                prunableReason: 'Stored worktree is not listed by Git.',
+                dirtyCount: null,
+                ownerAgentId: entry.ownerAgentId,
+                storedEntry: entry,
+                listedEntry: null,
+              }
+            }),
+        )
+      ).filter((row): row is WorktreeRow => Boolean(row))
 
-      setRows([...listedRows, ...orphanedRows].sort((a, b) => Number(b.isMain) - Number(a.isMain) || branchLabel(a).localeCompare(branchLabel(b))))
+      setRows(
+        [...listedRows, ...orphanedRows].sort(
+          (a, b) => Number(b.isMain) - Number(a.isMain) || branchLabel(a).localeCompare(branchLabel(b)),
+        ),
+      )
     } finally {
       setLoading(false)
     }
@@ -341,7 +348,7 @@ export default function WorktreeManager({
           kind: 'terminal',
           workspaceId,
           terminalId,
-        }
+        },
       )
       if (!result.ok) {
         setMessage({ tone: 'error', text: result.message })
@@ -359,7 +366,8 @@ export default function WorktreeManager({
         title: 'Force remove worktree?',
         body: (
           <>
-            Worktree <span className="font-mono">{branchLabel(row)}</span> has uncommitted changes. Removing it will discard those changes. Type <span className="font-mono">remove</span> to confirm.
+            Worktree <span className="font-mono">{branchLabel(row)}</span> has uncommitted changes. Removing it will
+            discard those changes. Type <span className="font-mono">remove</span> to confirm.
           </>
         ),
         inputLabel: 'Type "remove" to confirm',
@@ -417,7 +425,13 @@ export default function WorktreeManager({
               className={`icon-xs shrink-0 text-[color:var(--text-subtle)] transition-transform group-hover:text-[color:var(--text-default)] ${open ? 'rotate-90' : ''}`}
               fill="none"
             >
-              <path d="M4.25 2.5 7.75 6l-3.5 3.5" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
+              <path
+                d="M4.25 2.5 7.75 6l-3.5 3.5"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
             </svg>
             <span className="text-meta font-semibold text-[color:var(--text-strong)]">Worktrees</span>
             <span className="text-micro tabular-nums text-[color:var(--text-subtle)]">{rows.length}</span>
@@ -437,7 +451,12 @@ export default function WorktreeManager({
               ariaLabel="Worktree list actions"
               items={[
                 { id: 'refresh', label: 'Refresh', onSelect: () => void refreshWorktrees(), disabled: formDisabled },
-                { id: 'prune', label: 'Prune stale metadata', onSelect: () => void handlePrune(), disabled: formDisabled },
+                {
+                  id: 'prune',
+                  label: 'Prune stale metadata',
+                  onSelect: () => void handlePrune(),
+                  disabled: formDisabled,
+                },
               ]}
             />
           </div>
@@ -510,7 +529,9 @@ export default function WorktreeManager({
           ) : (
             <ul role="list" className="-mx-1 space-y-0.5">
               {rows.map((row) => {
-                const ownerName = row.ownerAgentId ? workspace?.agents[row.ownerAgentId]?.name ?? row.ownerAgentId : '-'
+                const ownerName = row.ownerAgentId
+                  ? (workspace?.agents[row.ownerAgentId]?.name ?? row.ownerAgentId)
+                  : '-'
                 const canUsePath = !row.missing && Boolean(row.listedEntry)
                 const canRemove = !row.isMain && Boolean(row.listedEntry) && !row.locked
                 const glyph = worktreeGlyph(row)
@@ -521,7 +542,10 @@ export default function WorktreeManager({
                     key={`${row.id}:${row.path}`}
                     className="group/wt flex min-h-[36px] items-center gap-2 rounded-md px-2 py-1.5 transition-colors hover:bg-[color:var(--bg-hover)]"
                   >
-                    <span className="flex w-4 shrink-0 items-center justify-center self-start pt-1" title={glyph ? reason ?? glyph.label : undefined}>
+                    <span
+                      className="flex w-4 shrink-0 items-center justify-center self-start pt-1"
+                      title={glyph ? (reason ?? glyph.label) : undefined}
+                    >
                       {glyph ? <LifecycleGlyph state={glyph.state} live={false} label={glyph.label} /> : null}
                     </span>
                     <div className="min-w-0 flex-1">
@@ -545,11 +569,32 @@ export default function WorktreeManager({
                       <OverflowMenu
                         ariaLabel={`Actions for worktree ${branchLabel(row)}`}
                         items={[
-                          { id: 'reveal', label: 'Reveal in file manager', onSelect: () => void handleReveal(row), disabled: formDisabled || !canUsePath },
-                          { id: 'terminal', label: 'Open terminal here', onSelect: () => void handleOpenTerminal(row), disabled: formDisabled || !canUsePath },
-                          { id: 'workspace', label: 'Open as workspace', onSelect: () => handleOpenWorkspace(row), disabled: formDisabled || !canUsePath },
+                          {
+                            id: 'reveal',
+                            label: 'Reveal in file manager',
+                            onSelect: () => void handleReveal(row),
+                            disabled: formDisabled || !canUsePath,
+                          },
+                          {
+                            id: 'terminal',
+                            label: 'Open terminal here',
+                            onSelect: () => void handleOpenTerminal(row),
+                            disabled: formDisabled || !canUsePath,
+                          },
+                          {
+                            id: 'workspace',
+                            label: 'Open as workspace',
+                            onSelect: () => handleOpenWorkspace(row),
+                            disabled: formDisabled || !canUsePath,
+                          },
                           { kind: 'separator', id: 'sep' },
-                          { id: 'remove', label: 'Remove worktree', destructive: true, onSelect: () => void handleRemove(row), disabled: formDisabled || !canRemove },
+                          {
+                            id: 'remove',
+                            label: 'Remove worktree',
+                            destructive: true,
+                            onSelect: () => void handleRemove(row),
+                            disabled: formDisabled || !canRemove,
+                          },
                         ]}
                       />
                     </span>

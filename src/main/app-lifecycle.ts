@@ -169,9 +169,7 @@ export function registerAppLifecycle({
     app.setAppLogsPath()
 
     if (process.platform === 'win32') {
-      app.setAppUserModelId(
-        process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.sprintengine.studio'
-      )
+      app.setAppUserModelId(process.env['ELECTRON_RENDERER_URL'] ? process.execPath : 'com.sprintengine.studio')
     }
     registerDeepLinkProtocols()
 

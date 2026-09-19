@@ -37,9 +37,7 @@ import { sourceAvatarUrl } from './SourceAvatar'
  * rules produced them.
  */
 export type ExtensionArtwork =
-  | { kind: 'glyph'; glyph: string }
-  | { kind: 'image'; url: string }
-  | { kind: 'monogram'; text: string }
+  { kind: 'glyph'; glyph: string } | { kind: 'image'; url: string } | { kind: 'monogram'; text: string }
 
 /** What the ladder needs of a plugin: its name, where it came from, its artwork. */
 export type PluginArtworkSubject = Pick<ScannedPlugin, 'name' | 'origin' | 'icon' | 'logo'>
@@ -109,11 +107,7 @@ export function skillArtwork(
  * an MCP server declared at a repository's root, the plugin this app ships
  * itself. The owner's avatar is still a truer answer than two grey letters.
  */
-export function sourceArtwork(
-  source: ArtworkSource | undefined,
-  name: string,
-  size: number,
-): ExtensionArtwork {
+export function sourceArtwork(source: ArtworkSource | undefined, name: string, size: number): ExtensionArtwork {
   const owner = source ? sourceAvatarUrl(source, size) : null
   return owner ? { kind: 'image', url: owner } : { kind: 'monogram', text: mcpMonogram(name) }
 }
@@ -126,9 +120,11 @@ export function sourceArtwork(
  * `iconPlated` says the picture brings its own ground — an avatar and a logo
  * both do — so it fills the slot instead of sitting inset in the neutral chip.
  */
-export function extensionIconProps(
-  artwork: ExtensionArtwork | undefined,
-): { glyph?: string; icon?: string; iconPlated?: boolean } {
+export function extensionIconProps(artwork: ExtensionArtwork | undefined): {
+  glyph?: string
+  icon?: string
+  iconPlated?: boolean
+} {
   if (!artwork) return {}
   if (artwork.kind === 'glyph') return { glyph: artwork.glyph }
   if (artwork.kind === 'image') return { icon: artwork.url, iconPlated: true }
@@ -142,9 +138,7 @@ export function extensionIconProps(
  * the repository names the folder — and a lookup that only knew one of them
  * would silently give half the plugin's skills the plain owner avatar.
  */
-export function pluginsByFolder<T extends Pick<ScannedPlugin, 'id' | 'origin'>>(
-  plugins: readonly T[],
-): Map<string, T> {
+export function pluginsByFolder<T extends Pick<ScannedPlugin, 'id' | 'origin'>>(plugins: readonly T[]): Map<string, T> {
   const byFolder = new Map<string, T>()
   for (const plugin of plugins) {
     if (plugin.origin.kind === 'in-tree' && plugin.origin.path !== '') {

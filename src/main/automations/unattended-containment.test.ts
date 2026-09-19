@@ -11,7 +11,12 @@ import type { Workspace } from '../../renderer/src/types/workspace'
 import { runGitCommand } from '../git-utils'
 import { WRITE_UP_ONLY_INSTRUCTION } from './actions/spawn-agent'
 import { AutomationsEngine } from './engine'
-import { RunWorktreeUnavailableError, createLocalAutomationExecutor, defaultCreateRunWorktree, type LocalAutomationExecutorOptions } from './executor-local'
+import {
+  RunWorktreeUnavailableError,
+  createLocalAutomationExecutor,
+  defaultCreateRunWorktree,
+  type LocalAutomationExecutorOptions,
+} from './executor-local'
 import { AutomationsStore } from './store'
 
 // The containment an unattended (`bypass`) automation run is supposed to
@@ -69,10 +74,7 @@ type PullRequestCall = { worktreePath: string; branch: string }
 // the executor must keep apart in the run record.
 type WorktreeOutcome = 'created' | 'not-a-git-repository' | 'creation-failed'
 
-function harness(
-  root: string,
-  options: { triggerKind?: string; worktree?: WorktreeOutcome } = {}
-) {
+function harness(root: string, options: { triggerKind?: string; worktree?: WorktreeOutcome } = {}) {
   const workspaces: Workspace[] = []
   const launches: AgentLaunchRequest[] = []
   const pullRequests: PullRequestCall[] = []
@@ -83,7 +85,10 @@ function harness(
   const createWorkspace: LocalAutomationExecutorOptions['createWorkspace'] = (input) => {
     const created = workspace('ws-host', input.folderPath ?? null, input.mode ?? 'standard')
     workspaces.push(created)
-    return { ok: true, result: { workspace: created as never, windowId: 'primary', folderPath: input.folderPath ?? null, reused: false } }
+    return {
+      ok: true,
+      result: { workspace: created as never, windowId: 'primary', folderPath: input.folderPath ?? null, reused: false },
+    }
   }
 
   // Agent launch is a main-process port since MC-2159, not a renderer request;
@@ -94,7 +99,11 @@ function harness(
     const target = workspaces.find((candidate) => candidate.id === request.workspaceId)
     if (!target) return { ok: false, code: 'unknown_workspace', message: 'unknown workspace' }
     const agentId = `agent-${launches.length}`
-    target.agents[agentId] = { id: agentId, name: request.name ?? agentId, cli: request.cli ?? 'codex' } as Workspace['agents'][string]
+    target.agents[agentId] = {
+      id: agentId,
+      name: request.name ?? agentId,
+      cli: request.cli ?? 'codex',
+    } as Workspace['agents'][string]
     return {
       ok: true,
       workspaceId: request.workspaceId,
@@ -117,7 +126,10 @@ function harness(
       if (options.worktree === 'creation-failed') {
         throw new RunWorktreeUnavailableError('worktree_creation_failed', 'fatal: could not create work tree dir')
       }
-      return { worktreePath: join(root, '.sprintengine/automations/worktrees', input.runId), branch: `automations/${input.runId}` }
+      return {
+        worktreePath: join(root, '.sprintengine/automations/worktrees', input.runId),
+        branch: `automations/${input.runId}`,
+      }
     },
   })
 
@@ -143,7 +155,10 @@ function scheduledDefinition(overrides: Partial<AutomationDefinition> = {}): Aut
     id: 'nightly-sweep',
     name: 'Nightly sweep',
     status: 'enabled',
-    trigger: { kind: 'schedule', config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' } },
+    trigger: {
+      kind: 'schedule',
+      config: { kind: 'schedule', cadence: { type: 'interval', everyMinutes: 30 }, timezone: 'UTC' },
+    },
     action: { kind: 'spawn-agent', config: { prompt: 'Sweep the repo.' } },
     nextRunAt: '2026-07-30T01:00:00.000Z',
     lastRunAt: null,
@@ -183,14 +198,15 @@ async function dispatch(
   path: StartPath,
   definition: AutomationDefinition,
   worktree: WorktreeOutcome,
-  existingRoot?: string
+  existingRoot?: string,
 ): Promise<DispatchResult> {
-  const shaped = path === 'trigger'
-    ? { ...definition, trigger: { kind: 'test-event', config: {} }, nextRunAt: null } as AutomationDefinition
-    : path === 'run-now'
-      ? { ...definition, nextRunAt: '2026-07-31T01:00:00.000Z' } as AutomationDefinition
-      : definition
-  const root = existingRoot ?? await withStore(shaped)
+  const shaped =
+    path === 'trigger'
+      ? ({ ...definition, trigger: { kind: 'test-event', config: {} }, nextRunAt: null } as AutomationDefinition)
+      : path === 'run-now'
+        ? ({ ...definition, nextRunAt: '2026-07-31T01:00:00.000Z' } as AutomationDefinition)
+        : definition
+  const root = existingRoot ?? (await withStore(shaped))
   const { engine, launches, pullRequests } = harness(root, {
     worktree,
     ...(path === 'trigger' ? { triggerKind: 'test-event' } : {}),
@@ -222,7 +238,7 @@ async function dispatch(
 async function runToFinalize(
   path: StartPath,
   definition: AutomationDefinition,
-  worktree: WorktreeOutcome
+  worktree: WorktreeOutcome,
 ): Promise<{ root: string; launch: AgentLaunchRequest; pullRequests: PullRequestCall[]; run: AutomationRun }> {
   const { root, launches, pullRequests, engine } = await dispatch(path, definition, worktree)
   assert.equal(launches.length, 1, `the ${path} path fires exactly one launch`)
@@ -247,14 +263,14 @@ async function assertContainmentHoldsWhenTheWorktreeIsCreated(): Promise<void> {
     assert.equal(
       launch.worktreePath,
       join(root, '.sprintengine/automations/worktrees', 'run-1'),
-      `${path}: the agent runs in the run's own worktree, not the user's checkout`
+      `${path}: the agent runs in the run's own worktree, not the user's checkout`,
     )
     assert.equal(run.branch, 'automations/run-1', `${path}: the run carries its own branch`)
     assert.equal(run.isolation, 'worktree', `${path}: the record says the run was contained`)
     assert.deepEqual(
       pullRequests,
       [{ worktreePath: join(root, '.sprintengine/automations/worktrees', 'run-1'), branch: 'automations/run-1' }],
-      `${path}: the finalize opens a PR from the run's branch`
+      `${path}: the finalize opens a PR from the run's branch`,
     )
     await rm(root, { recursive: true, force: true })
   }
@@ -271,7 +287,7 @@ async function assertOptOutRunsInTheCheckoutAndTheRecordSaysSo(): Promise<void> 
     const { root, launch, pullRequests, run } = await runToFinalize(
       path,
       scheduledDefinition({ runInWorktree: false }),
-      'created'
+      'created',
     )
     assert.equal(launch.permissionPreset, 'bypass', `${path}: opting out still launches unattended`)
     assert.equal(launch.worktreePath, undefined, `${path}: the agent runs in the user's checkout`)
@@ -281,12 +297,12 @@ async function assertOptOutRunsInTheCheckoutAndTheRecordSaysSo(): Promise<void> 
     assert.equal(
       run.isolation,
       'workspace-checkout',
-      `${path}: the record distinguishes this run from a contained one without re-reading the definition`
+      `${path}: the record distinguishes this run from a contained one without re-reading the definition`,
     )
     assert.match(
       run.summary ?? '',
       /workspace checkout \(no branch, no pull request\)/,
-      `${path}: the run says in words where it ran`
+      `${path}: the run says in words where it ran`,
     )
     assert.deepEqual(pullRequests, [], `${path}: the finalize opens no pull request`)
     await rm(root, { recursive: true, force: true })
@@ -300,7 +316,10 @@ async function assertOptOutRunsInTheCheckoutAndTheRecordSaysSo(): Promise<void> 
 async function assertRunFailsClosedWhenTheWorktreeCannotBeCreated(): Promise<void> {
   const causes = [
     { worktree: 'not-a-git-repository' as const, expected: /is not a git repository/ },
-    { worktree: 'creation-failed' as const, expected: /worktree creation failed: fatal: could not create work tree dir/ },
+    {
+      worktree: 'creation-failed' as const,
+      expected: /worktree creation failed: fatal: could not create work tree dir/,
+    },
   ]
   for (const path of ['schedule', 'run-now', 'trigger'] as const) {
     for (const cause of causes) {
@@ -311,7 +330,7 @@ async function assertRunFailsClosedWhenTheWorktreeCannotBeCreated(): Promise<voi
       assert.doesNotMatch(
         run.blockedReason ?? '',
         cause.worktree === 'not-a-git-repository' ? /worktree creation failed/ : /is not a git repository/,
-        `${path}/${cause.worktree}: the two causes do not read the same`
+        `${path}/${cause.worktree}: the two causes do not read the same`,
       )
       assert.equal(run.isolation, undefined, `${path}/${cause.worktree}: a run that never launched claims no isolation`)
       assert.equal(run.branch, undefined, `${path}/${cause.worktree}: no branch`)
@@ -330,9 +349,8 @@ async function assertRealWorktreeFailuresAreClassified(): Promise<void> {
   try {
     await assert.rejects(
       defaultCreateRunWorktree({ workspaceRoot: plainFolder, runId: 'run-1' }),
-      (error: unknown) =>
-        error instanceof RunWorktreeUnavailableError && error.reason === 'not_a_git_repository',
-      'a folder outside a git repository is classified as such'
+      (error: unknown) => error instanceof RunWorktreeUnavailableError && error.reason === 'not_a_git_repository',
+      'a folder outside a git repository is classified as such',
     )
   } finally {
     await rm(plainFolder, { recursive: true, force: true })
@@ -356,9 +374,8 @@ async function assertRealWorktreeFailuresAreClassified(): Promise<void> {
     assert.equal(created.branch, 'automations/run-1', 'the happy path still returns the run branch')
     await assert.rejects(
       defaultCreateRunWorktree({ workspaceRoot: repoRoot, runId: 'run-1' }),
-      (error: unknown) =>
-        error instanceof RunWorktreeUnavailableError && error.reason === 'worktree_creation_failed',
-      'a real worktree failure inside a repository is classified separately'
+      (error: unknown) => error instanceof RunWorktreeUnavailableError && error.reason === 'worktree_creation_failed',
+      'a real worktree failure inside a repository is classified separately',
     )
   } finally {
     await rm(repoRoot, { recursive: true, force: true })
@@ -386,7 +403,7 @@ async function assertLegacyReviewOnlyDefinitionKeepsItsIntent(): Promise<void> {
   assert.equal(launches.length, 1, 'the legacy definition still runs')
   assert.ok(
     launches[0]!.prompt?.includes(WRITE_UP_ONLY_INSTRUCTION),
-    `the launch prompt carries the write-up-only instruction, got: ${launches[0]!.prompt}`
+    `the launch prompt carries the write-up-only instruction, got: ${launches[0]!.prompt}`,
   )
   assert.equal(run.status, 'running', 'the legacy run launched normally')
 

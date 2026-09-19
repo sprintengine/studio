@@ -109,9 +109,7 @@ export function BoardLane({
 
   const sectionClass = [
     'flex h-full flex-1 flex-col transition-colors',
-    surface
-      ? 'rounded-[7px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]'
-      : '',
+    surface ? 'rounded-[7px] border border-[color:var(--border-subtle)] bg-[color:var(--bg-surface)]' : '',
     state === 'legal-drop-target' ? 'ring-1 ring-[color:var(--accent-primary)]' : '',
     state === 'dimmed' ? 'opacity-40' : '',
   ]
@@ -167,15 +165,9 @@ export function BoardLane({
       <div className="flex items-center justify-between gap-2 px-3 pb-2 pt-2.5">
         <span className="flex min-w-0 items-center gap-1.5">
           {glyph}
-          <TruncatedText
-            as="span"
-            text={label}
-            className="text-meta font-semibold text-[color:var(--text-strong)]"
-          />
+          <TruncatedText as="span" text={label} className="text-meta font-semibold text-[color:var(--text-strong)]" />
         </span>
-        <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-subtle)]">
-          {count}
-        </span>
+        <span className="shrink-0 tabular-nums text-micro text-[color:var(--text-subtle)]">{count}</span>
       </div>
       <ol ref={listRef} className="min-h-0 flex-1 space-y-2 overflow-y-auto px-2 py-2">
         {children}

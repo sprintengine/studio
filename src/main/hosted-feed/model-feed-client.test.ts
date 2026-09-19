@@ -3,7 +3,12 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
-import { HostedModelFeedClient, configuredModelFeedUrl, modelFeedSeedCandidates, type ModelFeedFetch } from './model-feed-client'
+import {
+  HostedModelFeedClient,
+  configuredModelFeedUrl,
+  modelFeedSeedCandidates,
+  type ModelFeedFetch,
+} from './model-feed-client'
 
 const FEED_URL = 'https://example.com/model-feed.json'
 
@@ -34,7 +39,7 @@ const json = (body: unknown, init: ResponseInit = {}) =>
   new Response(typeof body === 'string' ? body : JSON.stringify(body), {
     status: 200,
     ...init,
-    headers: { 'content-type': 'application/json', ...(init.headers ?? {}) },
+    headers: { 'content-type': 'application/json', ...init.headers },
   })
 
 async function withDir(run: (dir: string) => Promise<void>): Promise<void> {
@@ -55,14 +60,19 @@ const advance = (ms: number) => {
 async function main(): Promise<void> {
   // Live fetch: parsed, cached with its ETag, reported as network and changed.
   await withDir(async (dir) => {
-    const { fetcher, calls } = fetcherFor(() => json(feed('2026-09-04T00:00:00Z', ['claude-opus-5']), { headers: { etag: '"v1"' } }))
+    const { fetcher, calls } = fetcherFor(() =>
+      json(feed('2026-09-04T00:00:00Z', ['claude-opus-5']), { headers: { etag: '"v1"' } }),
+    )
     const client = new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now })
     const result = await client.read()
     assert.ok(result.ok)
     assert.equal(result.source, 'network')
     assert.equal(result.changed, true)
     assert.equal(result.etag, '"v1"')
-    assert.deepEqual(result.feed.clis['claude-code'].models.map((m) => m.id), ['claude-opus-5'])
+    assert.deepEqual(
+      result.feed.clis['claude-code'].models.map((m) => m.id),
+      ['claude-opus-5'],
+    )
     const cache = JSON.parse(await readFile(join(dir, 'cache.json'), 'utf8'))
     assert.equal(cache.etag, '"v1"')
     assert.equal(calls.length, 1)
@@ -79,7 +89,12 @@ async function main(): Promise<void> {
     // After the TTL the ETag goes up and a 304 refreshes fetchedAt only.
     advance(60 * 60 * 1000)
     const { fetcher: f304 } = fetcherFor(() => new Response(null, { status: 304 }), calls)
-    const client304 = new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher: f304, now })
+    const client304 = new HostedModelFeedClient({
+      feedUrl: FEED_URL,
+      cachePath: join(dir, 'cache.json'),
+      fetcher: f304,
+      now,
+    })
     const notModified = await client304.read()
     assert.ok(notModified.ok)
     assert.equal(notModified.source, 'cache')
@@ -88,8 +103,16 @@ async function main(): Promise<void> {
     assert.equal(calls[1].headers['if-none-match'], '"v1"')
 
     // forceRefresh skips the TTL and the ETag.
-    const { fetcher: fForce } = fetcherFor(() => json(feed('2026-09-05T00:00:00Z', ['claude-opus-5', 'claude-fable-5-1']), { headers: { etag: '"v2"' } }), calls)
-    const forced = await new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher: fForce, now }).read({ forceRefresh: true })
+    const { fetcher: fForce } = fetcherFor(
+      () => json(feed('2026-09-05T00:00:00Z', ['claude-opus-5', 'claude-fable-5-1']), { headers: { etag: '"v2"' } }),
+      calls,
+    )
+    const forced = await new HostedModelFeedClient({
+      feedUrl: FEED_URL,
+      cachePath: join(dir, 'cache.json'),
+      fetcher: fForce,
+      now,
+    }).read({ forceRefresh: true })
     assert.ok(forced.ok)
     assert.equal(forced.source, 'network')
     assert.equal(forced.changed, true)
@@ -105,12 +128,17 @@ async function main(): Promise<void> {
     const before = await readFile(cachePath, 'utf8')
     for (const body of ['{ not json', JSON.stringify({ ...feed('2026-09-06T00:00:00Z', ['b']), schemaVersion: 7 })]) {
       const { fetcher: bad } = fetcherFor(() => json(body))
-      const result = await new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: bad, now }).read({ forceRefresh: true })
+      const result = await new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: bad, now }).read({
+        forceRefresh: true,
+      })
       assert.ok(result.ok)
       assert.equal(result.state, 'degraded')
       assert.equal(result.source, 'cache')
       assert.ok(result.message && result.message.length > 0)
-      assert.deepEqual(result.feed.clis['claude-code'].models.map((m) => m.id), ['a'])
+      assert.deepEqual(
+        result.feed.clis['claude-code'].models.map((m) => m.id),
+        ['a'],
+      )
       assert.equal(await readFile(cachePath, 'utf8'), before, 'a rejected body never reaches the cache')
     }
   })
@@ -121,13 +149,22 @@ async function main(): Promise<void> {
     const seedPath = join(dir, 'seed.json')
     await writeFile(seedPath, JSON.stringify(feed('2026-08-01T00:00:00Z', ['seeded'])))
     const { fetcher, calls } = fetcherFor(() => new Error('ENOTFOUND'))
-    const client = new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now, packagedSeedPath: seedPath })
+    const client = new HostedModelFeedClient({
+      feedUrl: FEED_URL,
+      cachePath: join(dir, 'cache.json'),
+      fetcher,
+      now,
+      packagedSeedPath: seedPath,
+    })
     const fromSeed = await client.read()
     assert.ok(fromSeed.ok)
     assert.equal(fromSeed.source, 'seed')
     assert.equal(fromSeed.state, 'degraded')
     assert.match(fromSeed.message ?? '', /Couldn't reach GitHub/)
-    assert.deepEqual(fromSeed.feed.clis['claude-code'].models.map((m) => m.id), ['seeded'])
+    assert.deepEqual(
+      fromSeed.feed.clis['claude-code'].models.map((m) => m.id),
+      ['seeded'],
+    )
     await client.read()
     assert.equal(calls.length, 1, 'inside the retry gap no second request is made')
     advance(6 * 60 * 1000)
@@ -150,7 +187,13 @@ async function main(): Promise<void> {
     const body = feed('2026-09-01T00:00:00Z', ['seeded'])
     await writeFile(seedPath, JSON.stringify(body))
     const { fetcher, calls } = fetcherFor(() => json(body, { headers: { etag: '"seed"' } }))
-    const client = new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now, packagedSeedPath: seedPath })
+    const client = new HostedModelFeedClient({
+      feedUrl: FEED_URL,
+      cachePath: join(dir, 'cache.json'),
+      fetcher,
+      now,
+      packagedSeedPath: seedPath,
+    })
     const first = await client.read()
     assert.ok(first.ok)
     assert.equal(first.source, 'network')
@@ -167,7 +210,13 @@ async function main(): Promise<void> {
     const seedPath = join(dir, 'seed.json')
     await writeFile(seedPath, JSON.stringify(feed('2026-08-01T00:00:00Z', ['seeded'])))
     const { fetcher, calls } = fetcherFor(() => json(feed('2026-09-04T00:00:00Z', ['live'])))
-    const client = new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath: join(dir, 'cache.json'), fetcher, now, packagedSeedPath: seedPath })
+    const client = new HostedModelFeedClient({
+      feedUrl: FEED_URL,
+      cachePath: join(dir, 'cache.json'),
+      fetcher,
+      now,
+      packagedSeedPath: seedPath,
+    })
     const seedOnly = await client.read({ cachedOnly: true })
     assert.ok(seedOnly.ok)
     assert.equal(seedOnly.source, 'seed')
@@ -189,12 +238,27 @@ async function main(): Promise<void> {
     await new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: old, now }).read()
     await writeFile(seedPath, JSON.stringify(feed('2026-09-01T00:00:00Z', ['newer-seed'])))
     const { fetcher: offline } = fetcherFor(() => new Error('offline'))
-    const served = await new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: offline, now, packagedSeedPath: seedPath }).read({ forceRefresh: true })
+    const served = await new HostedModelFeedClient({
+      feedUrl: FEED_URL,
+      cachePath,
+      fetcher: offline,
+      now,
+      packagedSeedPath: seedPath,
+    }).read({ forceRefresh: true })
     assert.ok(served.ok)
     assert.equal(served.source, 'seed', 'a newer bundle outranks an older cache')
-    assert.deepEqual(served.feed.clis['claude-code'].models.map((m) => m.id), ['newer-seed'])
+    assert.deepEqual(
+      served.feed.clis['claude-code'].models.map((m) => m.id),
+      ['newer-seed'],
+    )
     const { fetcher: live } = fetcherFor(() => json(feed('2026-09-04T00:00:00Z', ['live'])))
-    const fresh = await new HostedModelFeedClient({ feedUrl: FEED_URL, cachePath, fetcher: live, now, packagedSeedPath: seedPath }).read({ forceRefresh: true })
+    const fresh = await new HostedModelFeedClient({
+      feedUrl: FEED_URL,
+      cachePath,
+      fetcher: live,
+      now,
+      packagedSeedPath: seedPath,
+    }).read({ forceRefresh: true })
     assert.ok(fresh.ok)
     assert.equal(fresh.source, 'network')
     assert.equal(fresh.changed, true)
@@ -202,15 +266,29 @@ async function main(): Promise<void> {
 
   // HTTPS only, the env override, and the seed path candidates.
   {
-    const bad = await new HostedModelFeedClient({ feedUrl: 'http://example.com/feed.json', cachePath: '/nonexistent/cache.json', fetcher: async () => json({}) }).read()
+    const bad = await new HostedModelFeedClient({
+      feedUrl: 'http://example.com/feed.json',
+      cachePath: '/nonexistent/cache.json',
+      fetcher: async () => json({}),
+    }).read()
     assert.equal(bad.ok, false)
     assert.match(bad.ok ? '' : bad.message, /HTTPS/)
-    assert.equal(configuredModelFeedUrl({}), 'https://raw.githubusercontent.com/sprintengine/studio-releases/main/model-feed.json')
-    assert.equal(configuredModelFeedUrl({ MULTICODE_MODEL_FEED_URL: ' https://localhost:8765/model-feed.json ' }), 'https://localhost:8765/model-feed.json')
-    assert.deepEqual(modelFeedSeedCandidates({ isPackaged: true, resourcesPath: '/app/Resources', appPath: '/app/Resources/app.asar' }), [
-      '/app/Resources/model-feed.json',
-      '/app/Resources/app.asar/resources/model-feed.json',
-    ])
+    assert.equal(
+      configuredModelFeedUrl({}),
+      'https://raw.githubusercontent.com/sprintengine/studio-releases/main/model-feed.json',
+    )
+    assert.equal(
+      configuredModelFeedUrl({ MULTICODE_MODEL_FEED_URL: ' https://localhost:8765/model-feed.json ' }),
+      'https://localhost:8765/model-feed.json',
+    )
+    assert.deepEqual(
+      modelFeedSeedCandidates({
+        isPackaged: true,
+        resourcesPath: '/app/Resources',
+        appPath: '/app/Resources/app.asar',
+      }),
+      ['/app/Resources/model-feed.json', '/app/Resources/app.asar/resources/model-feed.json'],
+    )
     assert.deepEqual(modelFeedSeedCandidates({ isPackaged: false, cwd: '/repo' }), ['/repo/resources/model-feed.json'])
   }
 

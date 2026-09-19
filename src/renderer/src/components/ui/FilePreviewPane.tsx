@@ -49,15 +49,7 @@ type FilePreviewPaneProps = {
 
 const MARKDOWN_PREVIEW_MAX_CHARS = 2 * 1024 * 1024
 
-export function FilePreviewPane({
-  title,
-  path,
-  content,
-  onBack,
-  onPopOut,
-  onClose,
-  body,
-}: FilePreviewPaneProps) {
+export function FilePreviewPane({ title, path, content, onBack, onPopOut, onClose, body }: FilePreviewPaneProps) {
   const isMarkdown = path.toLowerCase().endsWith('.md')
   const renderAsMarkdown = isMarkdown && content.length <= MARKDOWN_PREVIEW_MAX_CHARS
   return (

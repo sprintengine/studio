@@ -26,17 +26,15 @@ const detected = { mcpServerKeys: ['mcp:codex:a'], skillKeys: ['skill:codex:b'] 
 // --- planAgentConfigAdoption: once per profile, silent, honest on failure ---
 
 run('a profile that already adopted is never offered it again', () => {
-  assert.deepEqual(
-    planAgentConfigAdoption({ hasAdoptedAgentConfig: true, workspaceRoot: '/repo', detected }),
-    { kind: 'skip' },
-  )
+  assert.deepEqual(planAgentConfigAdoption({ hasAdoptedAgentConfig: true, workspaceRoot: '/repo', detected }), {
+    kind: 'skip',
+  })
 })
 
 run('a failed or empty detection adopts nothing, silently', () => {
-  assert.deepEqual(
-    planAgentConfigAdoption({ hasAdoptedAgentConfig: false, workspaceRoot: '/repo', detected: null }),
-    { kind: 'nothing-detected' },
-  )
+  assert.deepEqual(planAgentConfigAdoption({ hasAdoptedAgentConfig: false, workspaceRoot: '/repo', detected: null }), {
+    kind: 'nothing-detected',
+  })
   assert.deepEqual(
     planAgentConfigAdoption({
       hasAdoptedAgentConfig: false,
@@ -104,18 +102,14 @@ run('shows an in-flight line while adopting', () => {
 
 run('reports the real counts on success', () => {
   const html = renderToStaticMarkup(
-    <AgentConfigAdoptionStatus
-      adoption={{ status: 'adopted', mcpServerCount: 2, skillCount: 1, warnings: [] }}
-    />,
+    <AgentConfigAdoptionStatus adoption={{ status: 'adopted', mcpServerCount: 2, skillCount: 1, warnings: [] }} />,
   )
   assert.match(html, /Brought over 2 MCP servers and 1 skill\./)
 })
 
 run('states nothing-adopted as nothing adopted, never as a success', () => {
   const html = renderToStaticMarkup(
-    <AgentConfigAdoptionStatus
-      adoption={{ status: 'adopted', mcpServerCount: 0, skillCount: 0, warnings: [] }}
-    />,
+    <AgentConfigAdoptionStatus adoption={{ status: 'adopted', mcpServerCount: 0, skillCount: 0, warnings: [] }} />,
   )
   assert.match(html, /Nothing to bring over/)
 })

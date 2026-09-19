@@ -127,7 +127,10 @@ run('groups and frames get their own sections', () => {
 run('a label is clipped at 80 characters', () => {
   const long = 'x'.repeat(200)
   const elements = [element({ id: 'r1', type: 'rectangle', x: 0, y: 0, width: 10, height: 10, text: long })]
-  const line = describeScene(elements, 'outline').split('\n').find((entry) => entry.startsWith('[r1]')) ?? ''
+  const line =
+    describeScene(elements, 'outline')
+      .split('\n')
+      .find((entry) => entry.startsWith('[r1]')) ?? ''
   assert.ok(line.includes(`${'x'.repeat(79)}...`), line)
   assert.ok(!line.includes('x'.repeat(81)))
 })

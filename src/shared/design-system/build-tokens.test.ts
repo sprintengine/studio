@@ -114,8 +114,7 @@ run('an alias that resolves to nothing fails loudly, naming the token', () => {
   const result = buildMutatedExample((root) => {
     mutateTokens(root, (tokens: any) => {
       tokens.sem.color.text.primary.$value = '{ref.color.neutral.presence-of-typo}'
-      tokens.sem.color.text.primary.$extensions['com.multicode'].modes.light =
-        '{ref.color.neutral.presence-of-typo}'
+      tokens.sem.color.text.primary.$extensions['com.multicode'].modes.light = '{ref.color.neutral.presence-of-typo}'
     })
   })
   assert.equal(result.status, 1)

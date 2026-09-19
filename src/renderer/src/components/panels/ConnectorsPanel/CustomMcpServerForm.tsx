@@ -24,11 +24,7 @@ function ManageLine({ children }: { children: ReactNode }) {
   return <p className="text-body leading-5 text-[color:var(--text-muted)]">{children}</p>
 }
 
-export function CustomMcpServerForm({
-  activeWorkspaceRoot,
-}: {
-  activeWorkspaceRoot: string | null
-}) {
+export function CustomMcpServerForm({ activeWorkspaceRoot }: { activeWorkspaceRoot: string | null }) {
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
 
   const [mcpMessage, setMcpMessage] = useState<string | null>(null)
@@ -42,7 +38,10 @@ export function CustomMcpServerForm({
   const [addMcpOpen, setAddMcpOpen] = useState(false)
 
   const addCustomMcp = useCallback(() => {
-    const id = customMcpId.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+    const id = customMcpId
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9_-]/g, '-')
     const name = customMcpName.trim() || id
     if (!id || !name) {
       setMcpMessage('Custom MCP needs an id and name.')
@@ -185,9 +184,10 @@ export function CustomMcpServerForm({
       )}
 
       <ManageLine>
-        {mcpMessage || (activeWorkspaceRoot
-          ? 'Changes apply automatically across Claude Code, Codex, and other terminal agents. Existing terminals keep their current config until relaunched.'
-          : 'Open a workspace folder to sync MCPs to terminal agents.')}
+        {mcpMessage ||
+          (activeWorkspaceRoot
+            ? 'Changes apply automatically across Claude Code, Codex, and other terminal agents. Existing terminals keep their current config until relaunched.'
+            : 'Open a workspace folder to sync MCPs to terminal agents.')}
       </ManageLine>
     </section>
   )

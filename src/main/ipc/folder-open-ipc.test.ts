@@ -169,7 +169,11 @@ function assertProbeFindsEditorsOutsideTheConventionalFolders(): void {
     command: '/usr/bin/open',
     args: ['-a', '/Volumes/Extra/IntelliJ IDEA.app'],
   })
-  assert.equal(resolveFolderOpenLauncher('vscode', onAnotherVolume), null, 'Spotlight knowing nothing is "not installed"')
+  assert.equal(
+    resolveFolderOpenLauncher('vscode', onAnotherVolume),
+    null,
+    'Spotlight knowing nothing is "not installed"',
+  )
   assert.deepEqual(asked, [['com.jetbrains.intellij', 'com.jetbrains.intellij.ce'], ['com.microsoft.VSCode']])
 
   // Spotlight is the LAST resort: an install the scan finds never spawns it.
@@ -220,22 +224,35 @@ function assertSpotlightPickPrefersAnInstall(): void {
   assert.equal(pickInstalledBundle([], '/Users/dev'), null)
   assert.equal(pickInstalledBundle(['', '   '], '/Users/dev'), null)
   assert.equal(
-    pickInstalledBundle(['/Users/dev/.Trash/IntelliJ IDEA.app', '/Volumes/Backup/Backups.backupdb/mac/IntelliJ IDEA.app'], '/Users/dev'),
+    pickInstalledBundle(
+      ['/Users/dev/.Trash/IntelliJ IDEA.app', '/Volumes/Backup/Backups.backupdb/mac/IntelliJ IDEA.app'],
+      '/Users/dev',
+    ),
     null,
     'a trashed or backed-up bundle is not an install',
   )
   assert.equal(
     pickInstalledBundle(
-      ['/Volumes/Extra/IntelliJ IDEA.app', '/Users/dev/Applications/IntelliJ IDEA.app', '/Applications/IntelliJ IDEA.app'],
+      [
+        '/Volumes/Extra/IntelliJ IDEA.app',
+        '/Users/dev/Applications/IntelliJ IDEA.app',
+        '/Applications/IntelliJ IDEA.app',
+      ],
       '/Users/dev',
     ),
     '/Applications/IntelliJ IDEA.app',
   )
   assert.equal(
-    pickInstalledBundle(['/Volumes/Extra/IntelliJ IDEA.app', '/Users/dev/Applications/IntelliJ IDEA.app'], '/Users/dev'),
+    pickInstalledBundle(
+      ['/Volumes/Extra/IntelliJ IDEA.app', '/Users/dev/Applications/IntelliJ IDEA.app'],
+      '/Users/dev',
+    ),
     '/Users/dev/Applications/IntelliJ IDEA.app',
   )
-  assert.equal(pickInstalledBundle(['/Volumes/Extra/IntelliJ IDEA.app\n'], '/Users/dev'), '/Volumes/Extra/IntelliJ IDEA.app')
+  assert.equal(
+    pickInstalledBundle(['/Volumes/Extra/IntelliJ IDEA.app\n'], '/Users/dev'),
+    '/Volumes/Extra/IntelliJ IDEA.app',
+  )
 }
 
 async function assertProbeChannelReportsEveryTarget(): Promise<void> {
@@ -282,7 +299,11 @@ async function assertOpenFails(): Promise<void> {
       throw new Error('reveal refused')
     },
     resolveLauncher: (target) =>
-      target === 'intellij' ? null : target === 'finder' ? { kind: 'reveal' } : { kind: 'command', command: 'code', args: [] },
+      target === 'intellij'
+        ? null
+        : target === 'finder'
+          ? { kind: 'reveal' }
+          : { kind: 'command', command: 'code', args: [] },
     runLauncher: async (command) => {
       attempted.push(command)
       return { ok: false, message: 'code exited with code 1.' }

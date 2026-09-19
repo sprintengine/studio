@@ -142,9 +142,9 @@ const find = (entries: ChangeRowMenuEntry[], id: string): ChangeRowMenuEntry => 
     'every list, the one it is already in included, then New… — so the submenu is one shape for every row',
   )
   assert.equal(
-    trackedMove.kind === 'submenu'
-      && trackedMove.items.find((item) => item.id === 'move-to-default')?.kind === 'item'
-      && (trackedMove.items.find((item) => item.id === 'move-to-default') as { disabled?: boolean }).disabled,
+    trackedMove.kind === 'submenu' &&
+      trackedMove.items.find((item) => item.id === 'move-to-default')?.kind === 'item' &&
+      (trackedMove.items.find((item) => item.id === 'move-to-default') as { disabled?: boolean }).disabled,
     true,
     'moving a file to where it already is is a no-op, not an error',
   )
