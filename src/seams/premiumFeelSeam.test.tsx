@@ -891,12 +891,18 @@ test('premiumFeelSeam', async () => {
         await act(async () => {
           vscode.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
         })
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 5))
-        })
+        // Polled rather than a fixed wait: the failure crosses the launch
+        // promise and a store update before it renders, and a slow CI runner
+        // takes longer than a laptop to get there.
+        const failure = /Could not open VS Code: code exited with code 1\./
+        for (let waited = 0; waited < 2000 && !failure.test(dom.window.document.body.textContent ?? ''); waited += 5) {
+          await act(async () => {
+            await new Promise((resolve) => setTimeout(resolve, 5))
+          })
+        }
         assert.match(
           dom.window.document.body.textContent ?? '',
-          /Could not open VS Code: code exited with code 1\./,
+          failure,
           'the typed failure reaches the operator rather than being swallowed',
         )
         assert.equal(

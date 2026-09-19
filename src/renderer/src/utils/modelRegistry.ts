@@ -34,6 +34,15 @@ export type AgentTabRevealPorts = {
 // dispatch actions to the active workspace's layout without prop-drilling.
 const models = new Map<string, Model>()
 
+// The main layout's root row. flexlayout keeps one row per layout (the main one
+// plus any sublayouts); every workspace model has the main one, so its absence
+// is a corrupt model rather than a state to handle.
+function rootRowId(model: Model): string {
+  const row = model.getRootRow()
+  if (!row) throw new Error('The layout model has no root row.')
+  return row.getId()
+}
+
 export function registerModel(workspaceId: string, model: Model): void {
   models.set(workspaceId, model)
 }
@@ -275,7 +284,7 @@ export function addAgentTabTiled(
       return true
     }
     model.doAction(
-      Actions.addNode(agentTabNode(agentId, name, config), model.getRoot().getId(), DockLocation.RIGHT, -1, select),
+      Actions.addNode(agentTabNode(agentId, name, config), rootRowId(model), DockLocation.RIGHT, -1, select),
     )
     window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
     return true
@@ -287,7 +296,7 @@ export function addAgentTabTiled(
   const targetTabset = activeContentTabset(model)
   if (!targetTabset) {
     model.doAction(
-      Actions.addNode(agentTabNode(agentId, name, config), model.getRoot().getId(), DockLocation.RIGHT, -1, select),
+      Actions.addNode(agentTabNode(agentId, name, config), rootRowId(model), DockLocation.RIGHT, -1, select),
     )
     window.setTimeout(() => clearAgentSpawnFlash(model, agentId), AGENT_TAB_SPAWN_FLASH_CLEAR_MS)
     return true
@@ -433,7 +442,7 @@ export function ensureAgentTabInLayoutModel(layoutModel: IJsonModel, agentId: st
     model.doAction(
       Actions.addNode(
         agentTabNode(agentId, name, undefined, { flash: false }),
-        model.getRoot().getId(),
+        rootRowId(model),
         DockLocation.RIGHT,
         -1,
         true,
@@ -597,7 +606,7 @@ export function addNewAgentTab(workspaceId: string, agentName: string, hostTabse
     model.doAction(
       terminalHost
         ? Actions.addNode(tabJson, terminalHost.getId(), DockLocation.CENTER, -1, true)
-        : Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true),
+        : Actions.addNode(tabJson, rootRowId(model), DockLocation.RIGHT, -1, true),
     )
     return tabId
   }
@@ -606,7 +615,7 @@ export function addNewAgentTab(workspaceId: string, agentName: string, hostTabse
   model.doAction(
     targetTabset
       ? Actions.addNode(tabJson, targetTabset.getId(), DockLocation.CENTER, -1, true)
-      : Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true),
+      : Actions.addNode(tabJson, rootRowId(model), DockLocation.RIGHT, -1, true),
   )
   return tabId
 }
@@ -707,7 +716,7 @@ export function addTerminalTab(workspaceId: string, terminalId: string, name = '
       model.doAction(Actions.addNode(tabJson, terminalHost.getId(), DockLocation.CENTER, -1, true))
       return true
     }
-    model.doAction(Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true))
+    model.doAction(Actions.addNode(tabJson, rootRowId(model), DockLocation.RIGHT, -1, true))
     return true
   }
 
@@ -727,7 +736,7 @@ export function addTerminalTab(workspaceId: string, terminalId: string, name = '
     return true
   }
 
-  model.doAction(Actions.addNode(tabJson, model.getRoot().getId(), DockLocation.RIGHT, -1, true))
+  model.doAction(Actions.addNode(tabJson, rootRowId(model), DockLocation.RIGHT, -1, true))
   return true
 }
 
@@ -1313,7 +1322,7 @@ function revealRailComponent(workspaceId: string, component: string, name: strin
   // included, every frame and reads as lag (the call workspaceAsideColumn.tsx
   // already made for the pane column).
   const railTabset = findRailTabset(model, side)
-  const targetId = railTabset ? railTabset.getId() : model.getRoot().getId()
+  const targetId = railTabset ? railTabset.getId() : rootRowId(model)
   const location = railTabset ? DockLocation.CENTER : RAILS[side].dock
   model.doAction(Actions.addNode({ type: 'tab', name, component }, targetId, location, -1, true))
 
@@ -1437,7 +1446,7 @@ export function addTabAsNewColumn(workspaceId: string, spec: CrossWorkspaceTabSp
   model.doAction(
     Actions.addNode(
       buildTabJson(spec) as Parameters<typeof Actions.addNode>[0],
-      model.getRoot().getId(),
+      rootRowId(model),
       DockLocation.RIGHT,
       -1,
       true,

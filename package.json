@@ -64,7 +64,7 @@
     "sync:model-feed": "node scripts/sync-model-feed.mjs",
     "measure:startup": "node scripts/measure-startup.mjs",
     "report:source-size": "node scripts/report-source-size.mjs",
-    "postinstall": "node scripts/fix-node-pty-permissions.js"
+    "postinstall": "node scripts/fix-node-pty-permissions.js && node node_modules/electron/install.js"
   },
   "build": {
     "appId": "com.sprintengine.studio",
@@ -220,7 +220,7 @@
     "@xterm/headless": "6.1.0-beta.303",
     "@xterm/xterm": "6.1.0-beta.303",
     "electron-updater": "^6.8.9",
-    "flexlayout-react": "^0.8.12",
+    "flexlayout-react": "^0.11.0",
     "immer": "^11.1.18",
     "monaco-editor": "^0.56.0",
     "nanoid": "^6.0.1",
@@ -237,11 +237,11 @@
     "@types/node": "^26.6.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
-    "@vitejs/plugin-react": "^4.3.4",
+    "@vitejs/plugin-react": "^6.1.1",
     "@vitest/coverage-v8": "5.0.1",
     "electron": "^44.4.1",
     "electron-builder": "^26.15.3",
-    "electron-vite": "^5.0.0",
+    "electron-vite": "6.0.0-beta.1",
     "esbuild": "^0.28.2",
     "jsdom": "^30.0.1",
     "knip": "6.37.0",
@@ -251,7 +251,7 @@
     "react-dom": "^19.3.0",
     "tailwindcss": "^4.0.6",
     "typescript": "^7.0.2",
-    "vite": "^6.0.11",
+    "vite": "^8.3.0",
     "vitest": "5.0.1"
   },
   "overrides": {

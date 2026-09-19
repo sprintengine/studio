@@ -2417,92 +2417,102 @@ body:has([data-selection-pane]:focus-within)
  * Every chrome surface aliases the themed ink-scale tokens so theme switches
  * propagate to flexlayout without code changes. Semantic literals (drag-rect
  * emerald) stay hard-coded — they're "spawn success" not surface chrome.
- * --color-5 / --color-6 / --color-edge-marker fall back to inline hex on dark
- * because they sit above the documented six-step ink scale; theme overrides
- * supply theme-appropriate values where they would otherwise look wrong. */
+ *
+ * flexlayout 0.11 reads `--fl-*` variables, which its own stylesheet defines
+ * only under a `.flexlayout__theme_*` class. The app sets no theme class and
+ * defines every `--fl-*` here instead, from its own tokens, so the chrome
+ * follows `data-theme` like the rest of the window. `--color-icon` is the
+ * app's own: the icons in flexLayoutIcons.tsx read it. */
 .flexlayout__layout {
-  --color-text: var(--text-strong);
+  --fl-color-text: var(--text-strong);
   /* The layout root paints NOTHING (combined.css: `.flexlayout__layout {
-     background-color: var(--color-background) }`). It is the inside of the
+     background-color: var(--fl-color-background) }`). It is the inside of the
      workspace card, and every splitter gap is a hole through it: a ground here
      is what the eye would see in the gap instead of the frost. Every token
-     combined.css derives from this one — tabset, tabset header, border, tab
-     content, popup — is re-declared explicitly below, so nothing else inherits
+     combined.css derives from this one — tabset, border, tab content, popup — is re-declared explicitly below, so nothing else inherits
      the transparency. */
-  --color-background: transparent;
-  --color-base: var(--bg-app);
-  --color-1: var(--bg-surface);
-  --color-2: var(--bg-surface-raised);
-  --color-3: var(--bg-hover);
-  --color-4: var(--bg-selected);
-  --color-5: var(--scrollbar-thumb-hover);
-  --color-6: var(--border-strong);
+  --fl-color-background: transparent;
+  --fl-color-base: var(--bg-app);
+  --fl-color-1: var(--bg-surface);
+  --fl-color-2: var(--bg-surface-raised);
+  --fl-color-3: var(--bg-hover);
+  --fl-color-4: var(--bg-selected);
+  --fl-color-5: var(--scrollbar-thumb-hover);
+  --fl-color-6: var(--border-strong);
 
-  --font-size: var(--text-size-xs);
-  --font-family: Inter, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
+  --fl-font-size: var(--text-size-xs);
+  --fl-font-weight: var(--sem-font-weight-regular);
+  --fl-font-family: Inter, "SF Pro Text", "Segoe UI", Roboto, sans-serif;
 
-  --color-overflow: var(--text-muted);
+  --fl-color-overflow: var(--text-muted);
   --color-icon: var(--text-muted);
 
-  --color-tabset-background: var(--terminal-bg);
-  --color-tabset-background-selected: var(--terminal-bg);
-  --color-tabset-background-maximized: var(--terminal-bg);
-  --color-tabset-divider-line: var(--border-subtle);
-  --color-tabset-header-background: var(--bg-surface);
-  --color-tabset-header: var(--text-strong);
+  --fl-color-tabset-background: var(--terminal-bg);
+  --fl-color-tabset-background-selected: var(--terminal-bg);
+  --fl-color-tabset-background-maximized: var(--terminal-bg);
+  --fl-color-tabset-divider-line: var(--border-subtle);
 
-  --color-border-tab-content: var(--bg-app);
-  --color-border-background: var(--bg-surface);
-  --color-border-divider-line: var(--border-default);
+  --fl-color-border-tab-content: var(--bg-app);
+  --fl-color-border-background: var(--bg-surface);
+  --fl-color-border-divider-line: var(--border-default);
 
-  --color-tab-content: var(--bg-app);
-  --color-tab-selected: var(--text-strong);
-  --color-tab-selected-background: transparent;
-  --color-tab-unselected: var(--text-subtle);
-  --color-tab-unselected-background: transparent;
-  --color-tab-textbox: var(--text-strong);
-  --color-tab-textbox-background: var(--bg-hover);
+  --fl-color-tab-content: var(--bg-app);
+  --fl-color-tab-selected: var(--text-strong);
+  --fl-color-tab-selected-background: transparent;
+  --fl-color-tab-unselected: var(--text-subtle);
+  --fl-color-tab-unselected-background: transparent;
+  --fl-color-tab-textbox: var(--text-strong);
+  --fl-color-tab-textbox-background: var(--bg-hover);
 
-  --color-border-tab-selected: var(--border-strong);
-  --color-border-tab-selected-background: var(--bg-hover);
-  --color-border-tab-unselected: var(--border-default);
-  --color-border-tab-unselected-background: var(--bg-surface);
+  --fl-color-border-tab-selected: var(--border-strong);
+  --fl-color-border-tab-selected-background: var(--bg-hover);
+  --fl-color-border-tab-unselected: var(--border-default);
+  --fl-color-border-tab-unselected-background: var(--bg-surface);
 
-  --color-splitter: transparent;
-  --color-splitter-hover: var(--bg-selected);
-  --color-splitter-drag: var(--scrollbar-thumb-hover);
+  --fl-color-splitter: transparent;
+  --fl-color-splitter-hover: var(--bg-selected);
+  --fl-color-splitter-drag: var(--scrollbar-thumb-hover);
+  --fl-color-splitter-handle: var(--bg-selected);
+  --fl-splitter-handle-visibility: hidden;
+  /* The visible gap between two terminal cards equals --shell-card-gap, the gap
+     between the sidebar, workspace and pane cards — the splitter paints nothing,
+     so its width IS the gap. The active size is the grab area around it, three
+     gaps wide, so the narrow splitter is still easy to take hold of. */
+  --fl-splitter-size: var(--shell-card-gap);
+  --fl-splitter-active-size: calc(var(--shell-card-gap) * 3);
 
   /* Drag-rect emerald is semantic "spawn-success" motion, not surface chrome.
      It stays constant across themes. */
-  --color-drag-rect-border: rgba(48, 209, 88, 0.55);
-  --color-drag-rect-background: rgba(48, 209, 88, 0.1);
-  --color-drag-rect: var(--text-strong);
+  --fl-color-drag-rect-border: rgba(48, 209, 88, 0.55);
+  --fl-color-drag-rect-background: rgba(48, 209, 88, 0.1);
+  --fl-color-drag-rect: var(--text-strong);
 
-  --color-popup-border: var(--border-default);
-  --color-popup-unselected: var(--text-muted);
-  --color-popup-unselected-background: var(--bg-surface);
-  --color-popup-selected: var(--text-strong);
-  --color-popup-selected-background: var(--bg-hover);
+  --fl-color-popup-border: var(--border-default);
+  --fl-color-focus: var(--border-focus);
+  --fl-color-border: var(--text-muted);
+  --fl-color-float-window-header-background: var(--bg-surface);
+  --fl-color-tabgroup-default: var(--border-strong);
+  --fl-color-tabgroup-pill-text: var(--text-strong);
+  --fl-color-popup-unselected: var(--text-muted);
+  --fl-color-popup-unselected-background: var(--bg-surface);
 
-  --color-edge-marker: var(--scrollbar-thumb-hover);
-  --color-edge-icon: var(--text-strong);
+  --fl-color-edge-marker: var(--scrollbar-thumb-hover);
 
-  --color-toolbar-button-hover: var(--bg-hover);
+  --fl-color-toolbar-button-hover: var(--bg-hover);
 
   /* Drag preview + mini-scroll indicator vars are read by combined.css. */
-  --color-drag1: var(--accent-primary);
-  --color-drag2: var(--tone-good);
-  --color-drag1-background: var(--accent-primary-soft);
-  --color-drag2-background: var(--tone-good-soft);
-  --color-mini-scroll-indicator: var(--scrollbar-thumb);
-  --color-mini-scroll-indicator-hovered: var(--scrollbar-thumb-hover);
-  --size-mini-scroll-indicator: 3px;
+  --fl-color-drag1: var(--accent-primary);
+  --fl-color-drag2: var(--tone-good);
+  --fl-color-drag1-background: var(--accent-primary-soft);
+  --fl-color-drag2-background: var(--tone-good-soft);
+  --fl-color-mini-scroll-indicator: var(--scrollbar-thumb);
+  --fl-color-mini-scroll-indicator-hovered: var(--scrollbar-thumb-hover);
+  --fl-size-mini-scroll-indicator: 3px;
 }
 
 /* NOTE: flexlayout puts `flexlayout__tabset-selected` on the tab STRIP
    element (tabbar_outer), not the tabset container — strip-focus styling
    lives with the strip rules below. */
-.flexlayout__tabset_header,
 .flexlayout__tabset {
   background: var(--bg-surface);
   background-image: none !important;
@@ -2871,8 +2881,8 @@ body:has([data-selection-pane]:focus-within)
    window. Painting nothing rather than a translucent tint is the layering rule
    (index.css glass block): the body tint is the only tint in the window, and a
    second one here would compound alpha and grey the frost. Its WIDTH is
-   --shell-card-gap, set on the model as `splitterSize` in WorkspaceLayout, so
-   the gap between two terminals measures exactly the gap between two cards.
+   --shell-card-gap (`--fl-splitter-size` in the block above), so the gap
+   between two terminals measures exactly the gap between two cards.
    Hover and drag still light it up — the handle has to be findable. */
 .flexlayout__splitter {
   background: transparent;
