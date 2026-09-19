@@ -31,7 +31,7 @@ const SERIAL = [
 
 export default defineConfig({
   // The renderer's tsx is compiled the way the app's own build compiles it.
-  esbuild: { jsx: 'automatic' },
+  oxc: { jsx: { runtime: 'automatic' } },
   resolve: {
     alias: { '@renderer': new URL('./src/renderer/src', import.meta.url).pathname },
   },

@@ -482,8 +482,12 @@ test('modelRegistry', async () => {
     const navTabset = navTab?.getParent()
     const rootRow = navTabset?.getParent()
     assert.ok(navTabset && rootRow, 'expected nav tabset under the root row')
-    rootRow!.setRect(new Rect(0, 0, 1000, 800))
-    navTabset!.setRect(new Rect(0, 0, 180, 800))
+    // `setRect` is internal from flexlayout 0.11 on — still on every node, no
+    // longer in the published types — and the view pass that calls it never
+    // runs here.
+    type Sized = { setRect(rect: Rect): void }
+    ;(rootRow as unknown as Sized).setRect(new Rect(0, 0, 1000, 800))
+    ;(navTabset as unknown as Sized).setRect(new Rect(0, 0, 180, 800))
   }
 
   // Reads the live weight of the tabset that holds a tab with the given component.

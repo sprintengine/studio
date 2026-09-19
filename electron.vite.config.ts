@@ -241,7 +241,6 @@ export default defineConfig({
     },
   },
   renderer: {
-    esbuild: { keepNames: true },
     server: {
       port: rendererDevPort(),
       strictPort: readStudioEnv('SPRINTENGINE_RENDERER_STRICT_PORT') === '1',
@@ -251,8 +250,9 @@ export default defineConfig({
       // the bundler; React 18's pre-minified files had hidden that this build
       // never minified. `keepNames` keeps `fn.name` and class names intact for
       // anything that reads them at runtime.
-      minify: 'esbuild',
+      minify: 'oxc',
       rollupOptions: {
+        output: { keepNames: true },
         // The HTML entries. `index` is the app; `splash` is the standalone
         // launch plate, which loads no bundle at all — without naming it here
         // the packaged build simply would not emit it, since electron-vite
@@ -278,13 +278,12 @@ export default defineConfig({
       // graph is large enough (it carries its own diagram importer) that
       // discovering it mid-session costs a full dev-server reload.
       include: ['@excalidraw/excalidraw'],
-      esbuildOptions: {
-        // The dep optimizer pre-bundles against Vite's browser matrix
-        // (es2020 + chrome87/safari14/firefox78/edge88), which is well below
-        // what Electron 41 runs and makes esbuild down-level a graph this size
-        // on every cold start. The renderer has exactly one browser, so the
-        // transform buys nothing here.
-        target: 'es2022',
+      rolldownOptions: {
+        // The dep optimizer pre-bundles against Vite's browser matrix, which is
+        // well below what Electron runs and makes it down-level a graph this
+        // size on every cold start. The renderer has exactly one browser, so
+        // the transform buys nothing here.
+        transform: { target: 'es2022' },
       },
     },
     plugins: [react(), tailwindcss(), buildStampPlugin(), canvasSceneFontsPlugin()],

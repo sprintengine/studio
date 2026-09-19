@@ -11,9 +11,9 @@ import {
   type ITabSetRenderValues,
   type NodeMouseEvent,
 } from 'flexlayout-react'
-// combined.css carries the structural FlexLayout CSS — its theme color
-// variables are scoped under `.flexlayout__theme_*` classes that we never
-// apply. Our own `.flexlayout__layout { --color-*: var(--bg-*) }` block in
+// combined.css carries the structural FlexLayout CSS — its theme variables
+// are scoped under `.flexlayout__theme_*` classes that we never apply. Our own
+// `.flexlayout__layout { --fl-*: var(--bg-*) }` block in
 // src/renderer/src/assets/index.css drives every color, so the FlexLayout
 // chrome follows our data-theme on Dark / Light / Slate / Dark Conifer.
 // The previous `style/dark.css` import declared its own `.flexlayout__layout`
@@ -396,18 +396,9 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   if (!modelRef.current) {
     modelRef.current = Model.fromJson(layoutModel)
     // Applied to EVERY model, not just newly-built ones: a persisted layout
-    // carries its own `global` block and would otherwise keep flexlayout's
-    // 8px default splitter.
-    //
-    // `splitterSize` is the visible gap between two terminal cards and has to
-    // equal --shell-card-gap (4px), the gap between the sidebar, workspace and
-    // pane cards — the splitter paints nothing now, so its width IS the gap,
-    // and an 8px one here beside 4px ones everywhere else reads as a mistake.
-    // `splitterExtra` gives the handle back the hit area the narrower splitter
-    // costs: 4 + 2x4 = 12px of grab, up from the 8px it had.
-    modelRef.current.doAction(
-      Actions.updateModelAttributes({ tabEnableRename: false, splitterSize: 4, splitterExtra: 4 }),
-    )
+    // carries its own `global` block. The splitter's width and grab area are
+    // CSS (`--fl-splitter-size` in index.css), not model attributes.
+    modelRef.current.doAction(Actions.updateModelAttributes({ tabEnableRename: false }))
   }
 
   useEffect(() => {
