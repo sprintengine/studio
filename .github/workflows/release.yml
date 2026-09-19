@@ -66,7 +66,7 @@ jobs:
       mac_arm64_runner: ${{ steps.resolve.outputs.mac_arm64_runner }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # Releases publish to another repo, so the only credential that can do it
       # is RELEASES_TOKEN; resolving the version reads that repo too. When the
@@ -86,7 +86,7 @@ jobs:
           fi
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -164,12 +164,12 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.validate.outputs.ref }}
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -286,7 +286,7 @@ jobs:
       # Named files only: dist/ also holds builder-debug.yml and the unpacked
       # app, neither of which belongs on a release.
       - name: Upload packaged artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifactName }}-${{ needs.validate.outputs.version }}
           if-no-files-found: error
@@ -325,12 +325,12 @@ jobs:
       RELEASES_TOKEN: ${{ secrets.RELEASES_TOKEN }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ needs.validate.outputs.ref }}
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -340,7 +340,7 @@ jobs:
         run: npm ci --ignore-scripts
 
       - name: Download packaged artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           pattern: sprintengine-*-${{ needs.validate.outputs.version }}
           merge-multiple: true

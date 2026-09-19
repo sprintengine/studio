@@ -37,12 +37,12 @@ jobs:
       artifact_url: ${{ steps.upload.outputs.artifact-url }}
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha }}
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -74,7 +74,7 @@ jobs:
 
       - name: Upload DMG
         id: upload
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: SprintEngine-Studio-${{ steps.version.outputs.version }}-mac-arm64
           path: dist/*.dmg
@@ -94,7 +94,7 @@ jobs:
       pull-requests: write
     steps:
       - name: Post or update the preview comment
-        uses: actions/github-script@v7
+        uses: actions/github-script@v9
         env:
           ARTIFACT_URL: ${{ needs.build.outputs.artifact_url }}
           VERSION: ${{ needs.build.outputs.version }}
