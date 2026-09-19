@@ -1815,7 +1815,7 @@ test('AgentChatView', async () => {
   {
     // From the repo root (how every source-reading suite here runs), not from
     // import.meta.url — the bundle lives in node_modules/.cache.
-    const source = readFileSync('src/renderer/src/components/panels/AgentChatView.tsx', 'utf8')
+    const source = readFileSync('src/renderer/src/components/panels/agentChat/modelPicker.tsx', 'utf8')
     const headerLine = source.split('\n').find((line) => line.includes('{group.providerLabel}'))
     assert.ok(headerLine, 'the provider header still renders providerLabel')
     const mapStart = source.indexOf('filtered.map((group)')

@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Actions, TabNode, TabSetNode, type Model } from 'flexlayout-react'
 import { nanoid } from 'nanoid'
 import { useShallow } from 'zustand/react/shallow'
 import { shouldAutoOpenNewChat, shouldShowFirstRunCliCard } from '../../store/onboardingState'
@@ -13,7 +12,6 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { SoloChatSeed } from '../../store/slices/workspacesSlice'
 import { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, normalizeSelectedCli } from '../../store/slices/settingsSlice'
 import {
-  cliRuntimeForPlugin,
   isAgentCliAvailable,
   resolveCliReasoning,
   resolveLaunchableAgentCli,
@@ -27,9 +25,7 @@ import { subscribeHostedModelFeedChanges } from '../../store/slices/hostedModelF
 import { subscribeHostedCardFeedChanges } from '../../store/slices/hostedCardFeedSlice'
 import { subscribeCliVersionAdvisoryChanges } from '../../store/slices/cliVersionAdvisorySlice'
 import { hostedModelAdditions } from '../../../../shared/hosted-model-feed'
-import type { CliVersionAdvisory } from '../../../../shared/electron-api'
 import {
-  cliUpdateNotice,
   newModelsNotice,
   retiredModelNotices,
   sourceUpdatesNotice,
@@ -80,10 +76,8 @@ import { initLaunchSettingsSync } from '../../utils/launchSettingsSync'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
 import {
-  addAgentTabTiled,
   addNewAgentTab,
   addTerminalTab,
-  convertNewAgentTabToAgent,
   convertNewAgentTabToTerminal,
   focusOrAddAgentTab,
   focusOrAddFileTab,
@@ -140,7 +134,7 @@ import {
   rescopeNewChatDraft,
   writeNewChatDraft,
 } from './agentComposer/newChatDraft'
-import { showToast, useToastStore } from '../../store/toastStore'
+import { showToast } from '../../store/toastStore'
 import { WorkspaceHeader } from './WorkspaceHeader'
 import { GlobalSurfaceBarSlotContext } from './globalSurface/surfaceBarSlot'
 import { ModalSurfaceFrame } from './globalSurface/GlobalSurfaceShell'
@@ -215,6 +209,18 @@ import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
 import type { PaletteScope } from '../commandPaletteSearch'
 import { subscribePaletteOpenRequest, type PaletteAgentTarget } from '../palette/paletteOpenRequest'
 import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
+import { showCliUpdateToast } from './manager/cliUpdateToast'
+import { selectWorkspaceManagerWorkspaces } from './manager/workspaceSelector'
+import {
+  closeActiveLayoutTab,
+  cycleActiveLayoutTab,
+  firstTabset,
+  getNextWorkspaceId,
+  placeSpawnedAgentTab,
+  stopActiveTerminal,
+  workspaceWindowBoundsForDrop,
+  type AgentSpawnPlacement,
+} from './manager/layoutTabActions'
 
 // The pre-creation New Chat panel — agent + engine chooser that creates nothing
 // until the user starts the chat. Code-split out of the eager boot chunk;
@@ -303,39 +309,6 @@ function newChatFolderLabel(path: string): string {
 
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 
-// Where a spawn should land, and what it should start with. Present only when
-// the spawn came from the tab strip's "+": `tabId` names that tab's
-// node and `prompt` is what was typed on the launch surface inside it.
-type AgentSpawnPlacement = {
-  tabId?: string
-  prompt?: string
-  /**
-   * The name the tab already wears. The new-agent tab is named when it opens,
-   * like every other terminal in the strip, so the agent adopts that name
-   * rather than drawing a second one and renaming the tab under the reader.
-   */
-  agentName?: string
-}
-
-/**
- * Put a freshly spawned agent in its tab. From a new-agent tab that means
- * retyping the SAME node — the launch surface becomes the terminal, in place,
- * with no pane moving under the person who just pressed Start. Everywhere else,
- * and whenever that tab is gone (closed while the composer was open), it falls
- * back to the ordinary tiled dock rather than losing the agent.
- */
-function placeSpawnedAgentTab(
-  workspaceId: string,
-  agentId: string,
-  tabName: string,
-  placement?: AgentSpawnPlacement,
-): void {
-  if (placement?.tabId && convertNewAgentTabToAgent(workspaceId, placement.tabId, agentId, tabName)) {
-    return
-  }
-  addAgentTabTiled(workspaceId, agentId, tabName)
-}
-
 const TERMINAL_SESSION_RECOVERY_POLL_MS = 30_000
 const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 const SOLO_CHAT_TEMPLATE = LAYOUT_TEMPLATES.find((template) => template.id === 'solo') ?? null
@@ -347,160 +320,6 @@ const MENU_ACCELERATOR_COMMAND_IDS = [
   'panel.git.toggle',
   'panel.knowledge-graph.toggle',
 ] as const
-
-type WorkspaceManagerWorkspaceCacheEntry = {
-  source: Workspace
-  value: Workspace
-}
-
-const workspaceManagerWorkspaceCache = new Map<string, WorkspaceManagerWorkspaceCacheEntry>()
-
-function workspaceManagerWorkspaceFieldsEqual(left: Workspace, right: Workspace): boolean {
-  return (
-    left.id === right.id &&
-    left.name === right.name &&
-    left.mode === right.mode &&
-    left.folderPath === right.folderPath &&
-    left.folderMissing === right.folderMissing &&
-    left.templateId === right.templateId &&
-    left.layoutModel === right.layoutModel &&
-    left.worktreeState === right.worktreeState &&
-    left.memory === right.memory &&
-    left.editorState === right.editorState &&
-    left.fileExplorerState === right.fileExplorerState &&
-    left.moduleState === right.moduleState &&
-    left.highlight === right.highlight &&
-    left.createdAt === right.createdAt &&
-    left.lastTerminalActivityAt === right.lastTerminalActivityAt &&
-    // The sidebar's ordering key: without it a chat kept its old place until
-    // some unrelated field moved the projection along.
-    left.lastUserMessageAt === right.lastUserMessageAt &&
-    left.lastTurnEndedAt === right.lastTurnEndedAt &&
-    // Rest (settled-chats, 2026-09-07): a Settle or Un-settle changes only
-    // these, and the sidebar renders from this projection — without them the
-    // row stayed where it was until something unrelated moved.
-    left.settledAt === right.settledAt &&
-    left.settledOverride === right.settledOverride &&
-    // The pane column: open/closed, its tabs, the tab showing. Without it the
-    // projection handed back the cached workspace when the pane opened, so a
-    // value derived from `paneState` off this projection (the pane-open flag
-    // the card's right edge used to gate on) kept what it had at first render
-    // until an unrelated field moved.
-    left.paneState === right.paneState
-  )
-}
-
-function selectWorkspaceManagerWorkspaces(workspaces: Workspace[]): Workspace[] {
-  const liveIds = new Set<string>()
-  const selected = workspaces.map((workspace) => {
-    liveIds.add(workspace.id)
-    const cached = workspaceManagerWorkspaceCache.get(workspace.id)
-    if (cached && workspaceManagerWorkspaceFieldsEqual(cached.source, workspace)) {
-      return cached.value
-    }
-    workspaceManagerWorkspaceCache.set(workspace.id, { source: workspace, value: workspace })
-    return workspace
-  })
-
-  for (const workspaceId of workspaceManagerWorkspaceCache.keys()) {
-    if (!liveIds.has(workspaceId)) workspaceManagerWorkspaceCache.delete(workspaceId)
-  }
-
-  return selected
-}
-
-// The CLI-update toast (owner ruling 2026-09-04): the CLI's glyph,
-// "Update available: Codex 0.153.3", and two buttons — Settings, and Update,
-// which runs the same command the Settings row runs and reports in place.
-// The ONE toast with actions; main sends each (cli, version) pair once.
-// It leaves after a minute (owner ruling 2026-09-18): a notice nobody asked
-// for should not sit in the corner until clicked, and the bell entry below
-// and the Settings row still say the same thing once it has gone.
-const CLI_UPDATE_TOAST_MS = 60_000
-
-function showCliUpdateToast(advisory: CliVersionAdvisory): void {
-  const store = useWorkspaceStore.getState()
-  const displayName = (cli: string): string =>
-    store.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli
-  const name = displayName(advisory.cli)
-  const notice = cliUpdateNotice(advisory, displayName)
-  const id = `cli-update:${advisory.cli}`
-  publishDiagnosticSync({
-    level: 'info',
-    source: 'cli',
-    title: notice.title,
-    message: advisory.currentVersion ? `Installed ${advisory.currentVersion}` : 'Installed version unknown',
-    navigationTarget: { kind: 'settings', ref: 'agents' },
-  })
-  const dismiss = (): void => useToastStore.getState().dismissToast(id)
-  showToast({
-    id,
-    tone: 'neutral',
-    cli: advisory.cli,
-    title: notice.title,
-    autoDismissMs: CLI_UPDATE_TOAST_MS,
-    actions: [
-      {
-        id: 'settings',
-        label: 'Settings',
-        run: () => {
-          dismiss()
-          useWorkspaceStore.getState().openSettingsOverlay({ initialTab: 'agents' })
-        },
-      },
-      {
-        id: 'update',
-        label: 'Update',
-        primary: true,
-        run: () => {
-          void runCliUpdateFromToast(advisory.cli, name, id)
-        },
-      },
-    ],
-  })
-}
-
-async function runCliUpdateFromToast(cli: string, name: string, id: string): Promise<void> {
-  const api = window.api
-  if (typeof api.cliUpdate !== 'function') return
-  const store = useWorkspaceStore.getState()
-  const runtime = cliRuntimeForPlugin(cli, store.appSettings.cliRuntimes)
-  const before = store.cliAvailability[cli]?.version ?? null
-  showToast({ id, tone: 'neutral', cli, title: `Updating ${name}…`, autoDismissMs: false })
-  try {
-    const result = await api.cliUpdate(cli, runtime)
-    if (result.ok && result.version && result.version.trim() !== (before ?? '').trim()) {
-      showToast({ id, tone: 'good', cli, title: `${name} updated to ${result.version.trim()}` })
-    } else if (result.ok) {
-      showToast({
-        id,
-        tone: 'warn',
-        cli,
-        title: `${name} did not update`,
-        description: `The update finished but the version is still ${before ?? 'the same'}. Settings › Agent CLIs has the command to run by hand.`,
-      })
-    } else {
-      showToast({
-        id,
-        tone: 'warn',
-        cli,
-        title: `${name} did not update`,
-        description: result.error ?? 'The update did not finish.',
-      })
-    }
-  } catch (error) {
-    showToast({
-      id,
-      tone: 'warn',
-      cli,
-      title: `${name} did not update`,
-      description: error instanceof Error ? error.message : String(error),
-    })
-  }
-  const after = useWorkspaceStore.getState()
-  await after.refreshCliAvailability({ force: true, cliRuntimes: after.appSettings.cliRuntimes })
-  void after.refreshCliVersionAdvisories({ force: true, cliRuntimes: after.appSettings.cliRuntimes })
-}
 
 export default function WorkspaceManager() {
   useAppTheme()
@@ -4644,16 +4463,6 @@ export default function WorkspaceManager() {
   )
 }
 
-function getNextWorkspaceId(workspaces: Workspace[], activeWorkspaceId: string | null, step: 1 | -1): string | null {
-  if (workspaces.length < 2) return null
-
-  const activeIndex = workspaces.findIndex((workspace) => workspace.id === activeWorkspaceId)
-  if (activeIndex === -1) return workspaces[0].id
-
-  const nextIndex = (activeIndex + step + workspaces.length) % workspaces.length
-  return workspaces[nextIndex].id
-}
-
 function getWorkspaceWindowIdFromLocation(): WorkspaceWindowId {
   try {
     const value = new URL(window.location.href).searchParams.get('windowId')?.trim()
@@ -4667,143 +4476,6 @@ function folderName(folderPath: string): string {
   const normalized = folderPath.replace(/\\/g, '/').replace(/\/+$/u, '')
   const slash = normalized.lastIndexOf('/')
   return slash >= 0 ? normalized.slice(slash + 1) || normalized : normalized
-}
-
-function workspaceWindowBoundsForDrop(
-  placement: { screenX: number; screenY: number },
-  currentBounds: { width: number; height: number } | null | undefined,
-): { x: number; y: number; width: number; height: number } {
-  const width = Math.max(800, Math.round(currentBounds?.width ?? 1400))
-  const height = Math.max(600, Math.round(currentBounds?.height ?? 900))
-  return {
-    x: Math.round(placement.screenX - width / 2),
-    y: Math.round(placement.screenY - 24),
-    width,
-    height,
-  }
-}
-
-function killTerminalForLayoutTab(
-  workspaceId: string,
-  node: TabNode,
-  terminalSessions: TerminalSessionSnapshot[],
-): void {
-  const state = useWorkspaceStore.getState()
-  const workspace = state.workspaces.find((candidate) => candidate.id === workspaceId)
-  if (!workspace) return
-
-  const config = node.getConfig() as { agentId?: string; sessionId?: string; terminalId?: string } | undefined
-  if (node.getComponent() === 'agent') {
-    const agentId = config?.agentId ?? node.getId()
-    const agent = workspace.agents[agentId]
-    const sessionIds = new Set<string>()
-    if (config?.sessionId) sessionIds.add(config.sessionId)
-    if (agent?.cliSessionId) sessionIds.add(agent.cliSessionId)
-    terminalSessions
-      .filter(
-        (session) => session.kind === 'agent' && session.workspaceId === workspaceId && session.agentId === agentId,
-      )
-      .forEach((session) => sessionIds.add(session.sessionId))
-    sessionIds.forEach((sessionId) => {
-      void window.api.terminalKill(sessionId).catch(() => {})
-    })
-    state.updateAgent(workspaceId, agentId, {
-      cliStartRequested: false,
-      cliHasLaunched: false,
-      cliOnboardingPromptSent: false,
-      cliResumeAvailable: false,
-      cliSessionId: undefined,
-    })
-    return
-  }
-
-  if (node.getComponent() === 'terminal') {
-    const terminalId = config?.terminalId ?? node.getId()
-    const sessionIds = new Set<string>([`terminal-${terminalId}`])
-    terminalSessions
-      .filter(
-        (session) =>
-          session.kind === 'terminal' && session.workspaceId === workspaceId && session.terminalId === terminalId,
-      )
-      .forEach((session) => sessionIds.add(session.sessionId))
-    sessionIds.forEach((sessionId) => {
-      void window.api.terminalKill(sessionId).catch(() => {})
-    })
-  }
-}
-
-// Stop the process behind a live terminal without closing its tab. The focused
-// terminal tab wins; otherwise the workspace's first live terminal session is
-// stopped. This succeeds whenever the workspace has a live terminal, so it
-// matches the command's `terminalActive` availability exactly (no
-// available-but-no-op gap). Returns false only when no live terminal exists.
-function stopActiveTerminal(workspaceId: string, terminalSessions: TerminalSessionSnapshot[]): boolean {
-  const model = getModel(workspaceId)
-  const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
-  const selectedNode = tabset?.getChildren()[tabset.getSelected()]
-  if (selectedNode instanceof TabNode && selectedNode.getComponent() === 'terminal') {
-    killTerminalForLayoutTab(workspaceId, selectedNode, terminalSessions)
-    return true
-  }
-  const session = terminalSessions.find(
-    (item) => item.kind === 'terminal' && item.workspaceId === workspaceId && item.terminalId,
-  )
-  if (!session?.terminalId) return false
-  const sessionIds = new Set<string>([`terminal-${session.terminalId}`])
-  terminalSessions
-    .filter(
-      (item) => item.kind === 'terminal' && item.workspaceId === workspaceId && item.terminalId === session.terminalId,
-    )
-    .forEach((item) => sessionIds.add(item.sessionId))
-  sessionIds.forEach((sessionId) => {
-    void window.api.terminalKill(sessionId).catch(() => {})
-  })
-  return true
-}
-
-function closeActiveLayoutTab(workspaceId: string, terminalSessions: TerminalSessionSnapshot[]): boolean {
-  const model = getModel(workspaceId)
-  const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
-  if (!model || !tabset) return false
-
-  const selectedIndex = tabset.getSelected()
-  const selectedNode = tabset.getChildren()[selectedIndex]
-  if (!(selectedNode instanceof TabNode) || !selectedNode.isEnableClose()) return false
-
-  killTerminalForLayoutTab(workspaceId, selectedNode, terminalSessions)
-  model.doAction(Actions.deleteTab(selectedNode.getId()))
-  return true
-}
-
-function cycleActiveLayoutTab(workspaceId: string, step: 1 | -1): boolean {
-  const model = getModel(workspaceId)
-  const tabset = model?.getActiveTabset() ?? (model ? firstTabset(model) : null)
-  if (!model || !tabset) return false
-
-  const tabs = tabset.getChildren().filter((node): node is TabNode => node instanceof TabNode)
-  if (tabs.length < 2) return false
-
-  const selectedNode = tabset.getSelectedNode()
-  const selectedIndex =
-    selectedNode instanceof TabNode ? tabs.findIndex((tab) => tab.getId() === selectedNode.getId()) : -1
-  const nextIndex = ((selectedIndex === -1 ? 0 : selectedIndex) + step + tabs.length) % tabs.length
-  const nextTab = tabs[nextIndex]
-  model.doAction(Actions.selectTab(nextTab.getId()))
-  if (nextTab.getComponent() === 'editor') {
-    window.requestAnimationFrame(() => {
-      window.dispatchEvent(new CustomEvent('multicode:focus-editor', { detail: { workspaceId } }))
-    })
-  }
-  return true
-}
-
-function firstTabset(model: Model): TabSetNode | null {
-  let found: TabSetNode | null = null
-  model.visitNodes((node) => {
-    if (found) return
-    if (node instanceof TabSetNode) found = node
-  })
-  return found
 }
 
 // The kit's EmptyState. This shipped in `--text-disabled` ink with a
