@@ -173,7 +173,7 @@ test('backlogMockups', async () => {
     })
 
     await runAsync('collectDanglingMockups resolves a backlog/-relative ref authored WITHOUT the prefix', async () => {
-      // The exact failure MC-1697 fixes: `mockups/x.html` authored, file at
+      // The exact failure this fixes: `mockups/x.html` authored, file at
       // `backlog/mockups/x.html`. The backlog/ candidate resolves → not dangling.
       assert.deepEqual(
         await collectDanglingMockups(

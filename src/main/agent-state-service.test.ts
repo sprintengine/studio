@@ -376,10 +376,10 @@ test('agent-state-service', async () => {
       const grokFrame = JSON.parse(grokFrames[0]) as { sessionId?: string; event?: string; cwd?: string }
       assert.equal(grokFrame.event, 'UserPromptSubmit', 'camelCase hookEventName carried as the raw event')
       assert.equal(grokFrame.sessionId, 'grok-session', 'camelCase sessionId carried into the frame')
-      assert.equal(grokFrame.cwd, '/tmp', 'the payload cwd rides every frame (MC-2440)')
+      assert.equal(grokFrame.cwd, '/tmp', 'the payload cwd rides every frame')
       grokServer.close()
 
-      // --- reporter observed cwd (MC-2440) -----------------------------------
+      // --- reporter observed cwd -----------------------------------
       // Claude's CwdChanged names the destination `new_cwd`; it wins over a
       // stale `cwd` on the same payload. A payload with no cwd yields no field.
       const cwdSockPath = join(sockDir, 'cwd-instance.sock')

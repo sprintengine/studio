@@ -21,7 +21,7 @@ export function ModuleSectionErrorFallback({
   section: RegisteredSettingsSection
   onRetry: () => void
 }) {
-  // The kit's failure card, not a hand-rolled tone bar (MC-2115): `role="alert"`,
+  // The kit's failure card, not a hand-rolled tone bar: `role="alert"`,
   // the failure sentence, the owning module behind the hint, and the recovery on
   // the action row — the anatomy the notice contract asks for.
   return (

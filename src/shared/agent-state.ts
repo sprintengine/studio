@@ -193,7 +193,7 @@ type AgentBacklogItemRef = {
   linkedAt: number
 }
 // ---------------------------------------------------------------------------
-// Record construction (MC-2160)
+// Record construction
 // ---------------------------------------------------------------------------
 //
 // The blank agent record every creation path starts from. It lived in the

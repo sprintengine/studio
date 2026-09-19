@@ -17,7 +17,7 @@ type Props = {
 // It used to be a hand-built shell: its own scrim, its own Escape listener, its
 // own focus/restore effect, and its own `rounded-xl` / `border-strong` /
 // `max-w-[1100px]` geometry — a fifth answer to a question the kit already
-// answers (MC-2110).
+// answers.
 export default function DiagnosticsOverlay({ onClose }: Props) {
   const handlePopOut = useCallback(() => {
     // Guard + surface failures instead of swallowing them: if the running app

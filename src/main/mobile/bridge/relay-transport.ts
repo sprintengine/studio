@@ -165,7 +165,7 @@ async function relayJsonRequest(
   input: {
     token: string
     // The selected organisation, for a Clerk-authenticated desktop whose
-    // token names none (MC-2185). Multiauth tokens carry their own; the
+    // token names none. Multiauth tokens carry their own; the
     // relay ignores the header for those.
     organizationId?: string | null
     method: 'POST'

@@ -114,7 +114,7 @@ test('automation', async () => {
   }
 
   function backendsOf(overrides: BackendsOverrides = {}): AutomationBackends {
-    // `workspace.create` mints in main now (MC-2158), so the backend is a real
+    // `workspace.create` mints in main now, so the backend is a real
     // registry rather than a delegated renderer call the test has to stub answering.
     let createdIds = 0
     const registry = createWorkspaceRegistryService({
@@ -296,7 +296,7 @@ test('automation', async () => {
     ])
   }
 
-  // MC-2165: the list a remote client reads before attaching to one of these.
+  // The list a remote client reads before attaching to one of these.
   // It reports liveness honestly — a paused agent is not running but is not gone
   // — and carries the hook-reported phase with its provenance, so a caller can
   // tell an authoritative "waiting for you" from an output-timing guess.
@@ -534,7 +534,7 @@ test('automation', async () => {
       cliStartRequested: true,
       cliHasLaunched: true,
     } as Workspace['agents'][string]
-    // The restart survivor MC-1903 had to hide (a routing placeholder with no
+    // The restart survivor an earlier fix had to hide (a routing placeholder with no
     // live terminal, the unactionable graveyard) no longer exists: main persists
     // the real record, so a workspace that survived a restart is listed like any
     // other and every workspace-scoped tool accepts its id.
@@ -632,7 +632,7 @@ test('automation', async () => {
   // registers a live terminal session so the handler's confirmation probe passes.
   // Returns the launch log and the worktree-creation call log.
   //
-  // The launch stopped being a renderer delegation in MC-2159, so this stubs
+  // The launch stopped being a renderer delegation, so this stubs
   // `launchAgent` (the main-process AgentLaunchService) rather than the retired
   // renderer request — and the session it registers carries the id the launch
   // reports back, which is what the handler now confirms against.
@@ -809,7 +809,7 @@ test('automation', async () => {
   }
 
   async function testCreateMintsInMainWithNoWindow(): Promise<void> {
-    // The delegate-then-poll shape this used to assert is gone (MC-2158): there
+    // The delegate-then-poll shape this used to assert is gone: there
     // is no renderer to ask and no bus confirmation to wait on, so the tool
     // succeeds with zero windows and returns the record main just committed.
     const backends = backendsOf()
@@ -842,7 +842,7 @@ test('automation', async () => {
     assert.match(JSON.stringify(created.structuredContent), /registry_commit_failed/)
   }
 
-  // MC-2166: opening a terminal on THIS machine from wherever the call came from.
+  // Opening a terminal on THIS machine from wherever the call came from.
   // The session id is the deliverable — the caller attaches to it immediately —
   // and the workspace can be named without an id, because the terminal scope tier
   // is granted separately from the one that may call workspace.list.
@@ -1724,7 +1724,7 @@ test('automation', async () => {
     assert.equal((nullStatus.structuredContent as { error: { code: string } }).error.code, 'invalid_arguments')
   }
 
-  // The epic ordering mark (MC-2137) is the one field an agent sets to say "the
+  // The epic ordering mark is the one field an agent sets to say "the
   // planning phase for this epic is over", so backlog.update has to carry it.
   async function testBacklogUpdateCarriesTheEpicOrderingMark(): Promise<void> {
     const marks: boolean[] = []
@@ -2177,7 +2177,7 @@ test('automation', async () => {
     assert.equal(webhookCreate.isError, undefined, 'a non-agent action is unaffected by the preset gate')
     assert.equal(created.length, 1, 'the non-agent draft reaches the create pipeline')
 
-    // The pre-MC-2210 spelling of bypass is the SAME preset, so it must hit the
+    // The pre-rename spelling of bypass is the SAME preset, so it must hit the
     // same ceiling. Comparing the raw string let `bypass_all` through here and be
     // normalized to `bypass` downstream — an unattended agent nobody consented to
     // (backlog/2026-09-06-automation-create-misses-the-legacy-bypass-spelling.md).
@@ -2269,7 +2269,7 @@ test('automation', async () => {
     assert.equal((ran.structuredContent as { error: { code: string } }).error.code, 'unsupported_trigger')
   }
 
-  // MC-2120 — `cli` and `cliModel` were blind strings until an agent could
+  // `cli` and `cliModel` were blind strings until an agent could
   // enumerate them over MCP alone.
   async function testCliRuntimeListReportsTheRegistry(): Promise<void> {
     const plugin = (id: string, overrides: Partial<LoadedPlugin['manifest']> = {}): LoadedPlugin => ({
@@ -2473,7 +2473,7 @@ test('automation', async () => {
     )
   }
 
-  // MC-1855: two modules registering the same tool name → the second is rejected
+  // Two modules registering the same tool name → the second is rejected
   // as a module load error, the first registration wins, and the gateway keeps
   // serving. Also proves an SDK-shaped third-party module's tool reaches the
   // gateway through loadMainModules (the external-project fixture's shape).
@@ -2553,7 +2553,7 @@ test('automation', async () => {
     assert.match(shadowWarnings[0] ?? '', /collides with a core gateway tool/)
   }
 
-  // MC-1855 end-to-end (MC-2120 item 4): the plumbing is unit-tested at the
+  // Module MCP tools end to end: the plumbing is unit-tested at the
   // kernel and the gateway merge, but nothing proved the last hop — that a real
   // connected MCP session LISTS a module's tool and can CALL it. This drives the
   // whole path a connected agent drives: module kernel → gateway resolver →
@@ -2661,7 +2661,7 @@ test('automation', async () => {
       )
 
       // Disabling the owner mid-session keeps the tool ADVERTISED and answers an
-      // actionable error instead of running it (MC-1805), live on the same
+      // actionable error instead of running it, live on the same
       // connection — the enablement gate is resolved per call, not captured.
       moduleEnabled = false
       const relisted = await call(3, 'tools/list')
@@ -2728,7 +2728,7 @@ test('automation', async () => {
     }
   }
 
-  // --- module.* / marketplace.* (MC-2078) --------------------------------------
+  // --- module.* / marketplace.* --------------------------------------
 
   function registryEntry(
     manifest: CapabilityManifest,
@@ -2905,7 +2905,7 @@ test('automation', async () => {
     assert.equal((unknown.structuredContent as { error: { code: string } }).error.code, 'unknown_module')
   }
 
-  // MC-2078 x MC-1855, the seam neither item owns: the gateway serves a module's
+  // Module lifecycle x module MCP tools, the seam neither owns: the gateway serves a module's
   // tools and `module.*` DESCRIBES that same module, from what should be one
   // source of truth (`app-services.ts` hands the same `resolveModuleMcpTools()` to
   // both). `testModuleContributedToolIsLiveOnAConnectedSession` above proves the
@@ -3192,7 +3192,7 @@ test('automation', async () => {
   }
 
   async function testModuleAndMarketplaceToolsAreReadOnly(): Promise<void> {
-    // MC-2078 defers install/uninstall/enable to the trust-modelled item, and the
+    // The lifecycle work defers install/uninstall/enable to the trust model, and the
     // gateway's mutation classifier must agree: none of these tools may be
     // audited or gated as a mutation.
     for (const name of ['module.list', 'module.status', 'marketplace.list']) {
@@ -3311,7 +3311,7 @@ test('automation', async () => {
 
     // A command type outside the served set never reaches the backend — including
     // `sprintengine.create`, which this transport served until the Sprint Engine
-    // left the app (MC-2575).
+    // left the app.
     for (const [index, type] of ['device.revoke', 'sprintengine.create'].entries()) {
       const refusedByTool = await reg.handler({ type, payload: {}, idempotencyKey: `idem-${index + 3}` })
       assert.equal(refusedByTool.isError, true)

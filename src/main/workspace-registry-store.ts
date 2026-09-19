@@ -1,5 +1,5 @@
 /**
- * Persistence for the main-owned workspace registry (MC-2158; shapes and record
+ * Persistence for the main-owned workspace registry (shapes and record
  * math in `src/shared/workspace-registry.ts`).
  *
  * `<userData>/workspace-registry.json` — one file, not one per workspace: a

@@ -24,7 +24,7 @@ export type CliInstallControlProps = {
   // When true (and the CLI is not installed), open the install method picker on
   // mount. Lets a parent's "Install" affordance jump straight into the flow.
   autoOpenInstall?: boolean
-  // Host-driven mode (MC-2094). The control keeps the install ENGINE — methods,
+  // Host-driven mode. The control keeps the install ENGINE — methods,
   // selection, the streamed log — and gives up every affordance: no probe of its
   // own, no Re-check, no Install, no Run install, no Cancel. The host's single
   // row button is the only way in, and progress goes back up through

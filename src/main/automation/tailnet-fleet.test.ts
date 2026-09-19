@@ -18,7 +18,7 @@ import { parseTailnetEndpoint } from './tailnet/tailnet-remote-client'
 import { test } from 'vitest'
 
 test('tailnet-fleet', async () => {
-  // The Fleet client (MC-2167): this Studio driving another machine.
+  // The Fleet client: this Studio driving another machine.
   //
   // Every test drives the REAL listener over a real TCP socket on loopback, with
   // the real outbound client, the real pairing exchange, and the real attach

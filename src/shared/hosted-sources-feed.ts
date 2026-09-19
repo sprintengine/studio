@@ -2,7 +2,7 @@
 // sprintengine/studio-releases repo, edited there by pull request and fetched
 // raw by every running studio.
 //
-// It is the replacement for shipping other people's software (MC-2519, owner
+// It is the replacement for shipping other people's software (owner
 // ruling 2026-09-08). The studio used to carry a bundled MCP catalogue and
 // three vendored third-party plugins; it now carries none, and instead
 // *recommends places to get them*: a short, curated list of GitHub repositories

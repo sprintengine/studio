@@ -17,7 +17,7 @@ import { TerminalLinkMenu } from '../terminal/TerminalLinkMenu'
 import type { TerminalLinkTarget } from '../../utils/terminalLinkActions'
 import { fleetInputState, fleetLinkBadge } from './fleet/fleetModel'
 
-// One terminal on ANOTHER machine, in a pane of this one (MC-2167).
+// One terminal on ANOTHER machine, in a pane of this one.
 //
 // The same xterm the local panes use, on the same replay gate — the difference
 // is only where the bytes come from. That is the point of the item: working on

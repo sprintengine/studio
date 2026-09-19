@@ -25,13 +25,13 @@ test('freshInstallWalkSeam', async () => {
   // machine, picking one produced a bare zsh, and the IPC called that success.
   // Three tasks fixed it in three modules that never call each other:
   //
-  //  * T3 (MC-2092) — main resolves the probed absolute path and refuses a spawn
+  //  * T3 — main resolves the probed absolute path and refuses a spawn
   //    whose binary is absent. Its suite pins the verdict it wants and asserts the
   //    IPC result; it never asks what the renderer would have offered.
-  //  * T6 (MC-2093) — the renderer's catalog filter stops handing back the whole
+  //  * T6 — the renderer's catalog filter stops handing back the whole
   //    uninstalled catalog when nothing is installed. Its suite hand-writes the
   //    availability map; it never runs the probe that produces one.
-  //  * T5 (MC-2094) — the first-run CLI card wins the first-run window from the
+  //  * T5 — the first-run CLI card wins the first-run window from the
   //    hub auto-open. Its suite drives the predicates over a map it invents too.
   //
   // Every one of them is verified against a machine state it wrote itself. This
@@ -274,7 +274,7 @@ test('freshInstallWalkSeam', async () => {
     const availability = await detectOn(FRESH_MAC, entries)
 
     // Nothing is launchable, so no picker offers anything: the whole point of
-    // MC-2093 is that the answer here is an empty catalog, not the eight
+    // The single-destination rule means the answer here is an empty catalog, not the eight
     // uninstalled CLIs the escape hatch used to hand back.
     const surfaces = await rendererSurfacesFor({ availability, entries })
     assert.deepEqual(
@@ -366,7 +366,7 @@ test('freshInstallWalkSeam', async () => {
     assert.ok(loginShellResolves(guarded), 'the launch shell can resolve what the guard tests')
     assert.ok(
       // The permission flag sits between the binary and --session-id since
-      // MC-2210: an unnamed preset resolves to `manual`, which for Claude Code is
+      // An unnamed preset resolves to `manual`, which for Claude Code is
       // an explicit `--permission-mode default` rather than no flag at all.
       script.includes(`${NVM_CLAUDE_PATH} --permission-mode default --session-id zshrc-only-launch`),
       `the launch must invoke the probed path: ${script}`,

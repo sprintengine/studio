@@ -1,4 +1,4 @@
-// The recommended-sources region (MC-2519): what it offers, what it subtracts,
+// The recommended-sources region: what it offers, what it subtracts,
 // and what one row looks like.
 //
 // The subtraction is the rule with teeth. `anthropics/claude-plugins-official`

@@ -5,7 +5,7 @@ import type { PluginCapabilities, PluginRegistryListEntry } from './plugin-manif
 // predicates below are pure functions of these booleans, so any CLI that
 // declares the capability resumes with zero code edits — there is no per-CLI
 // allowlist to maintain (forgetting one silently lost the user's conversation,
-// the MC-1464 Z.AI bug). Renderer call sites resolve a cli to these caps via
+// the Z.AI resume bug). Renderer call sites resolve a cli to these caps via
 // `resumeCapabilitiesForCli` (pluginsSlice) against the projected catalog; the
 // main process resolves them from the registry and stamps them onto the
 // agent-terminal sync payload.

@@ -269,7 +269,7 @@ It is a token move, not a per-component one: a button, the input beside it, and 
 popover it opens all soften together, and the ramp went from four steps to
 three rather than gaining a fifth.
 
-## Drift ruling (MC-2118, 2026-08-05)
+## Drift ruling (2026-08-05)
 
 Reconciled against `src/renderer/src/components/ui/Buttons.tsx`. **The shipped
 vocabulary wins on all three counts, and is now folded into the spec above
@@ -284,7 +284,7 @@ rather than listed as drift.**
   one-accent rule is untouched.
 
 Control **heights were never drift**: both the reference CSS and the shipped
-code already sit on `size.control.*`. MC-2118's own drift table listed a
+code already sit on `size.control.*`. The drift ruling's own table listed a
 28/32px prose ramp against the tokens' 26/30/34 — that prose is not in this
 entry, and the numbers here come from the tokens.
 

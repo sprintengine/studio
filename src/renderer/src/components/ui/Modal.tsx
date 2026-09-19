@@ -1,6 +1,6 @@
 // Z-index ladder for the renderer. ONE ladder of record, and it is the design
-// system's — `--sem-z-*`, aliased into the app as `--z-*` in assets/index.css
-// (MC-2119). This comment used to declare a second one, and the two disagreed
+// system's — `--sem-z-*`, aliased into the app as `--z-*` in assets/index.css.
+// This comment used to declare a second one, and the two disagreed
 // about the top of the stack:
 //
 //   in-flow depth       --z-sticky 10 (sticky headers, in-card raise),
@@ -37,7 +37,7 @@ type ModalProps = {
   /**
    * A step on the width scale (`OVERLAY_WIDTH_PX`), never a pixel count. There
    * is no `width` escape hatch on purpose: the scale is the whole point of
-   * MC-2110, and one caller with a private measure re-opens it.
+   * the overlay-geometry sweep, and one caller with a private measure re-opens it.
    */
   size?: OverlayWidth
   /**
@@ -138,7 +138,7 @@ export function Modal({
       // true of the scrim ONLY — the two shells inside it disagreed on width,
       // radius, border and shadow, and this one carried no shadow at all. Both
       // now draw `OVERLAY_SHELL_CLASS` and a step of the width scale, so the
-      // comment describes the whole surface (MC-2110). No backdrop-filter — see
+      // comment describes the whole surface. No backdrop-filter — see
       // the class definition for the framerate cliff it causes.
       //
       // `contain: paint` on the full-window scrim, and deliberately not on the
@@ -177,8 +177,8 @@ export function Modal({
           tabIndex={-1}
           style={overlayWidthStyle(size)}
           // Geometry from the scale, not from here: `OVERLAY_SHELL_CLASS` is the
-          // same chrome the Command Palette and every migrated shell draw
-          // (MC-2110). This primitive used to spell its own `rounded-[8px]` and
+          // same chrome the Command Palette and every migrated shell draw.
+          // This primitive used to spell its own `rounded-[8px]` and
           // cast NO shadow at all, so the surface every dialog is supposed to
           // converge on was the shabbiest one in the product.
           // The shell takes focus on open (above) and is therefore a tab stop:
@@ -218,7 +218,7 @@ type ModalHeaderProps = {
 //
 // The inset is 24px (`space.3xl`, the step the token's own metadata names as the
 // modal inset), not the 20px this shipped with — the last of the four geometry
-// drifts `design-system/components/modal/component.md` files under MC-2110.
+// drifts `design-system/components/modal/component.md` files under the overlay-geometry sweep.
 export function ModalHeader({ title, subtitle, titleId, onClose, leading }: ModalHeaderProps) {
   return (
     <div className="flex items-start justify-between gap-4 px-6 pb-0 pt-6">
@@ -253,7 +253,7 @@ export function ModalFooter({ children }: { children: React.ReactNode }) {
 // got a coin flip on both the label type scale and whether the control had an
 // accessible name — and the dialogs that happened to import this one (among
 // them the backlog create dialog) were the ones with
-// no name at all. Removed in MC-2114; those now take `ui/Field`, which
+// no name at all. Removed in the field sweep; those now take `ui/Field`, which
 // clones `id` and the describedby/invalid/required wiring onto the control it
 // labels. Import it from `../ui`, not from here.
 
@@ -265,8 +265,7 @@ type ModalButtonProps = React.ButtonHTMLAttributes<HTMLButtonElement> & {
 
 // A NAME for the footer's three roles, not a fourth button. Every variant is
 // the kit primitive at the `md` step, so a dialog's confirm is pixel-identical
-// to the Commit button in the Git panel and to the hub footer's Create
-// (MC-2113).
+// to the Commit button in the Git panel and to the hub footer's Create.
 //
 // What this used to be — `rounded-md px-3.5 py-2`, sized by its padding rather
 // than by the ramp — was the third of five rival primary idioms in the product:

@@ -3,14 +3,12 @@
 // `desktop-identity.test.ts` pins the contracts here without either.
 //
 // The account service (`MULTIAUTH_BASE_URL`) is no longer the identity
-// provider by definition (MC-2183). It is where entitlements and the relay
+// provider by definition. It is where entitlements and the relay
 // live, and it PUBLISHES which issuer a client should sign in against at
-// `GET /api/auth/identity`: itself on a self-hosted deployment (MC-2151
-// constraint 6), Clerk on the hosted one. The desktop reads that document at
+// `GET /api/auth/identity`: itself on a self-hosted deployment, Clerk on the hosted one. The desktop reads that document at
 // sign-in and keeps a refresh token per provider so that flipping the issuer
 // back — on the server or with `SPRINTENGINE_IDENTITY_PROVIDER` — signs in
-// against the credential that provider issued (the dual-accept window,
-// MC-2185).
+// against the credential that provider issued (the dual-accept window).
 
 import { isRecord } from '../shared/records'
 import { readStudioEnv } from '../shared/studio-env'
@@ -46,7 +44,7 @@ export type IdentityConfig = MultiauthIdentityConfig | ClerkIdentityConfig
 // actually keeps — Clerk's access tokens last a day and the app must survive
 // longer than that offline. Multiauth-style scopes (`entitlements:read`,
 // `relay:desktop`) are NOT requested here: Clerk tokens carry none, and the
-// account service derives them from the token's audience instead (MC-2185).
+// account service derives them from the token's audience instead.
 export const CLERK_DESKTOP_SCOPES: readonly string[] = ['openid', 'profile', 'email', 'offline_access']
 
 // The Clerk OAuth application's relative endpoints under its issuer, from the

@@ -344,7 +344,7 @@ export function normalizeProjectColors(value: unknown): Record<string, ProjectCo
   return out
 }
 
-// Relocated to shared with MC-2160 (main normalizes the preset when it composes
+// Relocated to shared so main can normalize the preset when it composes
 // a launch); re-exported so every existing renderer import site is unchanged.
 import { normalizeCliPermissionPreset } from '../../../../shared/cli-permission-preset'
 
@@ -364,7 +364,7 @@ export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: CliPermissionPreset = 'bypas
 
 // ONLY an absent value adopts the app default. A present-but-unrecognised value
 // is corruption, and corruption must never ESCALATE permissions — it falls to
-// the conservative floor, which MC-2210 moved from `default` to `manual`. That
+// the conservative floor, which the preset rename moved from `default` to `manual`. That
 // move is the point: `default` used to mean "no permission flag", which was the
 // safe answer until Claude Code started reading no-flag as auto mode. `manual`
 // is the value that still means what `default` meant.
@@ -596,7 +596,7 @@ export function normalizeModuleSettings(value: unknown): Record<string, Record<s
 }
 
 // Settings keys that were core's before their owning module had a place to keep
-// them, mapped to where they live now (MC-2090). These are core's OWN persisted
+// them, mapped to where they live now. These are core's OWN persisted
 // rows, and only core can read them once the field is gone from `AppSettings`.
 // Values pass through untouched — the owning module normalizes what it reads,
 // so core keeps no knowledge of their shape.
@@ -693,7 +693,7 @@ export const defaultAppSettings = (): AppSettings => ({
   hasAdoptedAgentConfig: false,
   terminalIdleSuspendMinutes: DEFAULT_TERMINAL_IDLE_SUSPEND_MINUTES,
   terminalKeepRecentAlive: DEFAULT_TERMINAL_KEEP_RECENT_ALIVE,
-  // Off is the pre-MC-2156 rule exactly; keeping a process alive is a choice
+  // Off is the rule from before background mode exactly; keeping a process alive is a choice
   // the user has to make, never one an upgrade makes for them.
   keepRunningInBackground: false,
   // On, and the main-side mirror reads an absent file the same way, so the two
@@ -907,7 +907,7 @@ export interface SettingsSliceActions {
   // Opens the Plugins modal on the requested view: every legacy caller — the
   // command palette, Settings → Modules, the agent "Manage skills" footers —
   // lands on the modal with its deep-link latched. (Was the Extensions door
-  // until doors→modals, 2026-09-01; MC-1847 B1 before that.)
+  // until doors→modals, 2026-09-01; the Extensions door before that.)
   openExtensionsSurface: (opts?: { view?: ExtensionsDrawerView; installed?: boolean }) => void
   // Open/close the door-routed full-page surface (global-surfaces epic 1704).
   // `openGlobalSurface` is the generic entry a module's door calls with its own
@@ -1148,10 +1148,10 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
 
     openSettingsOverlay: (opts) => {
       // The MCPs / Skill packs / Extensions settings tabs folded into the
-      // connectors surface (T3), which is the Extensions door now (MC-1847).
+      // connectors surface (T3), which is the Extensions door now.
       // Deep-links that once opened one of those tabs land on the door, so no
       // caller has to know either move happened; the old skill-packs tab lands
-      // on Skills, which is what it was asking for (MC-1936). The latch
+      // on Skills, which is what it was asking for. The latch
       // dispatch stays outside the producer — its listeners run synchronously
       // and must never observe a mid-update store.
       if (isConnectorsFoldedSettingsTab(opts?.initialTab)) {

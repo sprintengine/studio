@@ -11,8 +11,8 @@ import { pickRandomAgentName } from '../../utils/agentNames'
 import { isPathOrChild } from '../../utils/paths'
 
 export { isPathOrChild }
-// Record construction moved to shared with MC-2160 (main composes agent
-// workspaces headlessly and mints the same agent records). Re-exported so
+// Record construction moved to shared when main began composing workspaces
+// headlessly and minting the same agent records. Re-exported so
 // existing renderer import sites are unchanged.
 import { defaultAgent, defaultAgentExecution } from '../../../../shared/agent-state'
 
@@ -123,7 +123,7 @@ interface AgentsSliceActions {
   commitStream: (workspaceId: WorkspaceId, agentId: AgentId) => void
   reconcileWorkspaceAgentLaunchFlags: (sessions: TerminalSessionSnapshot[]) => void
   /**
-   * Mint the agent records for sessions the MAIN process launched (MC-2159) and
+   * Mint the agent records for sessions the MAIN process launched and
    * report the ones this call actually created, so the caller can reveal their
    * tabs. Idempotent: an agent already in the store is left untouched, because
    * the store's copy may carry user edits the launch snapshot never saw.

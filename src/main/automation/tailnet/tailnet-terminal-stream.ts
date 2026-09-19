@@ -18,7 +18,7 @@ import {
   WEBSOCKET_CLOSE_NORMAL,
 } from './websocket-frames'
 
-// One attached terminal, over one WebSocket (MC-2165).
+// One attached terminal, over one WebSocket.
 //
 // Deliberately its OWN socket rather than another channel multiplexed onto the
 // JSON-RPC stream: a terminal printing a build log is the chattiest thing this

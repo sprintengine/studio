@@ -143,7 +143,7 @@ import type {
   AutomationsUpdateInput,
   AutomationsWorkspaceInput,
 } from './automations/contracts'
-// Write-back config + IPC contracts (MC-1640): schema owned by T10, IPC surface
+// Write-back config + IPC contracts: schema owned by T10, IPC surface
 // consumed by the T11 settings UI. Re-exported through the single electron-api
 // surface like the rest of the tracker seam.
 import type { DesignSystemBundleLintRunResult } from './design-system/bundle-lint-run'
@@ -477,7 +477,7 @@ export type PluginAvailabilityResult =
   { ok: true; availability: AgentCliAvailabilityMap } | { ok: false; message: string }
 
 // The invocation a spawn would make, rendered for display before it happens
-// (MC-2147 — the new-agent tab's receipt line). Main renders it through the
+// (the new-agent tab's receipt line). Main renders it through the
 // SAME function the launch path uses, because the renderer's plugin catalog
 // withholds argv and a hand-written preview of the flags would drift the first
 // time a manifest changed. The prompt is never part of it: it is on screen a
@@ -957,7 +957,7 @@ export type MarketplaceRegistryReadResult =
       issues?: MarketplaceManifestIssue[]
     }
 
-// Per-installed-entry update detection (MC-1873). `checked: false` is the
+// Per-installed-entry update detection. `checked: false` is the
 // honest "couldn't check for updates" shape — the registry read failed, so
 // every entry carries `state: 'unknown'`, never "up to date". The `ok: false`
 // arm is a local failure (unreadable receipt store), not a registry one.
@@ -1170,7 +1170,7 @@ export type McpSettings = {
  * An MCP server presented for display, without the fields that only a server
  * the person has actually installed can have (`enabled`, `scope`, `source`).
  *
- * Until the third-party retirement (MC-2519, 2026-09-08) this was
+ * Until the third-party retirement (2026-09-08) this was
  * `McpCatalogServer`, the row shape of a bundled MCP catalogue file
  * — a list of 16 servers nobody here wrote. That catalogue is gone and no
  * bundled list replaced it: an MCP server now arrives inside a plugin the
@@ -1236,7 +1236,7 @@ export type McpSyncInput = {
  * (src/main/mcp-config-readers), so there is one parser per format. What is
  * still literal here is the path list; widening the wizard to every CLI means
  * declaring those user-level paths in the manifests and resolving them through
- * `resolveMcpConfigPath`, which is the read path's job (MC-1960), not another
+ * `resolveMcpConfigPath`, which is the read path's job, not another
  * hardcoded pair here.
  */
 export type AgentConfigImportSource = 'codex' | 'claude-code'
@@ -1632,7 +1632,7 @@ export type SkillSourceUpdateEntry = {
   changed: boolean
   /**
    * False when this check did not ask GitHub, because the source was checked
-   * inside its cadence window (MC-2519). `headSha` and `changed` then repeat
+   * inside its cadence window. `headSha` and `changed` then repeat
    * what the last real check recorded, so the rails keep their mark.
    */
   checked: boolean
@@ -1828,15 +1828,15 @@ export type TerminalSessionSnapshot = {
   worktreeId?: string
   worktreePath?: string
   // Where the session's own hooks last saw it, resolved through git into the
-  // checkout containing that cwd (MC-2440). Distinct from the launch-intent
+  // checkout containing that cwd. Distinct from the launch-intent
   // fields above (`cwd`, `worktreePath`): an agent that creates a worktree and
   // moves into it, or is launched by hand into one the app did not make, is
   // only describable here. Absent for plain terminals and for CLIs whose hooks
   // carry no cwd; `resolved: false` until git has answered.
   observedCheckout?: ObservedCheckout
   agentSession?: AgentSessionIdentity
-  // Present only on sessions the main-process AgentLaunchService composed
-  // (MC-2159): the launch decisions main made — name, CLI, model, permission
+  // Present only on sessions the main-process AgentLaunchService composed:
+  // the launch decisions main made — name, CLI, model, permission
   // preset, connector environment. The renderer projects these into
   // an AgentState so a headless-launched agent gets a tab it never created, and
   // so a window opened after the launch sees the same agent the launch made.
@@ -2441,7 +2441,7 @@ export type WorkspaceFolderCheckResult =
       code?: string
     }
 
-// A logo found at the top level of a project's repo (MC-2135). `dataUrl` is the
+// A logo found at the top level of a project's repo. `dataUrl` is the
 // sanitized, downscaled image ready to render in an icon slot; `path` and
 // `mtimeMs` are what the main process re-checks on the next open so a changed
 // or deleted file is picked up without a watcher.
@@ -2584,7 +2584,7 @@ export type SessionUser = {
   displayName: string | null
   /**
    * The provider profile photo, ready to render: a `data:` URL served from the
-   * main process's on-disk cache (MC-2220), never the provider's remote URL.
+   * main process's on-disk cache, never the provider's remote URL.
    * Null when the account has no photo or the bytes could not be fetched —
    * the renderer falls back to initials either way.
    */
@@ -2993,7 +2993,7 @@ export type BacklogDependenciesInput = {
   dependsOn: string[] | null
 }
 
-// The epic-side ordering mark (MC-2137): the author asserting that this epic's
+// The epic-side ordering mark: the author asserting that this epic's
 // children are ordered — deliberately parallel counts — so work may start from
 // it with no further ordering pass. `true` writes `dependenciesPlanned: true`;
 // `false` removes the line, since absent is the same assertion as false.
@@ -3148,14 +3148,14 @@ export type ElectronApi = {
   // never gets there cannot strand a hidden main window).
   onSplashProgress: (cb: (update: SplashProgress) => void) => () => void
   notifyBootComplete: () => void
-  // Boot measurement (MC-2075), off unless asked for. The flag is resolved in
+  // Boot measurement, off unless asked for. The flag is resolved in
   // preload from the same environment main reads, so the renderer never reports
   // marks into a main process that is not collecting them. A mark is an epoch
   // millisecond because the two processes have different `performance.now()`
   // origins — see src/shared/startup-timeline.ts.
   startupTimelineEnabled: boolean
   reportStartupMark: (id: string, atEpochMs: number) => void
-  // Build identity (MC-2182). Every window reports the commit its bundle was
+  // Build identity. Every window reports the commit its bundle was
   // built from; main compares it against its own and says so once when the two
   // halves have diverged — see src/shared/build-stamp.ts.
   reportBuildStamp: (stamp: BuildStamp) => void
@@ -3163,7 +3163,7 @@ export type ElectronApi = {
   workspaceSyncGetSnapshot: () => Promise<WorkspaceSyncSnapshot>
   workspaceSyncGetEventsAfter: (sequence: number) => Promise<WorkspaceSyncEvent[]>
   /**
-   * True while main has never written a workspace registry (MC-2158) — the
+   * True while main has never written a workspace registry — the
    * first boot after the inversion, or a fresh install. A window answers it by
    * offering its post-migrate-ladder localStorage state to
    * `workspaceRegistryHydrate`; false means main is authoritative and the
@@ -3173,7 +3173,7 @@ export type ElectronApi = {
   workspaceRegistryHydrate: (payload: unknown) => Promise<WorkspaceRegistryHydrateResult>
   onWorkspaceSyncEvent: (cb: (event: WorkspaceSyncEvent) => void) => () => void
   automationGetStatus: () => Promise<AutomationServerStatus>
-  // Tailnet remote control (MC-2162): the opt-in listener that serves the same
+  // Tailnet remote control: the opt-in listener that serves the same
   // gateway surface to paired devices on the Tailscale network. Configuration
   // only — it never carries a tool call, and no MCP tool can reach it, so an
   // agent cannot pair a device or widen its own reach.
@@ -3199,7 +3199,7 @@ export type ElectronApi = {
    */
   tailnetForgetMachine: (input: { deviceId?: string; connectionId?: string }) => Promise<TailnetForgetMachineResult>
   /**
-   * Answer a pairing request from another machine (MC-2233). The scopes are the
+   * Answer a pairing request from another machine. The scopes are the
    * ones chosen here, and this is the only surface that can grant the terminal
    * tier to a person rather than to an agent on the local socket.
    */
@@ -3215,7 +3215,7 @@ export type ElectronApi = {
    */
   onRemoteOpenRequested: (cb: () => void) => () => void
   /**
-   * Machines on this tailnet, and which of them answer as a Studio (MC-2163).
+   * Machines on this tailnet, and which of them answer as a Studio.
    *
    * A read of the local Tailscale daemon plus a probe of each peer's public
    * health endpoint. Works with this machine's own listener off: finding
@@ -3244,7 +3244,7 @@ export type ElectronApi = {
   tailnetShareStatus: () => Promise<TailnetShareStatus>
   tailnetSharePort: (localPort: number) => Promise<TailnetShareResult>
   tailnetUnsharePort: (servePort: number) => Promise<TailnetShareResult>
-  // The Fleet (MC-2167): the machines this Studio is paired WITH, and the panes
+  // The Fleet: the machines this Studio is paired WITH, and the panes
   // it mounts from them. Main owns the device tokens and every outbound socket —
   // the listener refuses any request carrying an `Origin`, which a renderer
   // always sends, so this is the only route a window has.
@@ -3252,7 +3252,7 @@ export type ElectronApi = {
   /** Redeem a pairing link from another machine's Settings → Remote. */
   fleetPair: (pairingUrl: string) => Promise<FleetPairResult>
   /**
-   * Ask a machine to pair, for someone there to approve (MC-2233), then poll it.
+   * Ask a machine to pair, for someone there to approve, then poll it.
    * Main holds the collect secret, so a window can neither dial the peer nor
    * take the token the approval mints.
    */
@@ -3668,7 +3668,7 @@ export type ElectronApi = {
   /** Every check's result, pushed from main — the poller's hourly leg or a manual check. */
   /**
    * Ask for an update check now. Same check the hourly poller leg runs, under
-   * the same per-source cadence window (MC-2519): a source inside its window is
+   * the same per-source cadence window: a source inside its window is
    * reported in `skipped` with the sentence saying when it was last checked and
    * why it is waiting, rather than being asked again.
    */
@@ -3822,12 +3822,12 @@ export type ElectronApi = {
   workspaceBackupWrite: (payload: WorkspaceBackupPayload) => Promise<WorkspaceBackupWriteResult>
   workspaceBackupRead: () => Promise<WorkspaceBackupReadResult>
   setModuleEnablement: (overrides: ModuleEnablementOverrides) => Promise<ModuleEnablementWriteResult>
-  // Renderer → main mirror of the module registry the user sees (MC-2078); main
+  // Renderer → main mirror of the module registry the user sees; main
   // caches the last push in memory for its own read surfaces.
   setModuleRegistrySnapshot: (snapshot: ModuleRegistrySnapshot) => Promise<ModuleRegistrySnapshotWriteResult>
   setColorScheme: (scheme: ColorScheme) => Promise<void>
   setWindowMaterial: (material: WindowMaterial) => Promise<void>
-  // Renderer → main mirror of `appSettings.keepRunningInBackground` (MC-2156).
+  // Renderer → main mirror of `appSettings.keepRunningInBackground`.
   // Main reads it inside `window-all-closed`, when no renderer is left to ask.
   setBackgroundMode: (enabled: boolean) => Promise<void>
   // Renderer → main mirror of `appSettings.telemetryEnabled`. Main reads it on

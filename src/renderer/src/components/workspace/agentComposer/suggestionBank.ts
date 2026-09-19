@@ -1,4 +1,4 @@
-// The starting points the new-agent tab offers (MC-2147).
+// The starting points the new-agent tab offers.
 //
 // A card is a launch button: one click spawns the agent shown above it with the
 // entry's `prompt` as its startup prompt. So the prompt is the real thing — the

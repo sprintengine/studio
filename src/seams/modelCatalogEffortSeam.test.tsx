@@ -9,23 +9,23 @@ import { test, vi } from 'vitest'
 vi.mock('electron', () => import('../../tests/stubs/electron'))
 
 test('modelCatalogEffortSeam', async () => {
-  // ── Seams between the four children of run D (MC-1865/1870/1884/1885) ─────────
+  // ── Seams between the four children of run D ─────────
   //
   // Each child passes its own suite. The failures this run can still ship are the
   // ones that live BETWEEN them, so every seam below is proved by running the two
   // sides against each other rather than by reading both and calling them
   // consistent:
   //
-  //   1. MC-1865 × MC-1870 — two store-schema rungs (69, 70) in one run. A store
+  //   1. Discovered catalog × effort level — two store-schema rungs (69, 70) in one run. A store
   //      written by the PREVIOUS build must hydrate with its catalog AND its level
   //      intact, and the load after that must re-run neither rung.
-  //   2. MC-1865's union merge under repetition, through the real store setter —
+  //   2. The discovered catalog's union merge under repetition, through the real store setter —
   //      Opus 5 by name, across three discovery passes that never mention it.
-  //   3. MC-1884 × MC-1870 — the level clicked in the real picker must reach the
+  //   3. Effort picker × effort level — the level clicked in the real picker must reach the
   //      LAUNCHED COMMAND, not merely the store.
-  //   4. MC-1885 × MC-1870 — a seat's level must reach the launched agent's
+  //   4. Seat × effort level — a seat's level must reach the launched agent's
   //      command, not merely the seat config in the projection.
-  //   5. MC-1884 × a CLI declaring no levels — absent, not disabled, not empty.
+  //   5. Effort picker × a CLI declaring no levels — absent, not disabled, not empty.
   //   6. The remaining shared-file pairs the plan's Seams table names:
   //      settingsSlice (one selection type, two owners), cliRuntimeOptions (the
   //      per-CLI guard), the model popover (a discovered row, with the reasoning
@@ -40,7 +40,7 @@ test('modelCatalogEffortSeam', async () => {
 
   const BUNDLED_ROOT = join(process.cwd(), 'resources', 'plugins')
 
-  // A well-formed discovered catalog written by the build that shipped MC-1865
+  // A well-formed discovered catalog written by the build that shipped the discovered catalog
   // (store v69) and a reasoning level on a stored selection. Both must survive the
   // v70 rung: the whole point of two rungs rather than one combined bump.
   const PREVIOUS_BUILD_CATALOG = {
@@ -90,7 +90,7 @@ test('modelCatalogEffortSeam', async () => {
     )
   }
 
-  // Store v69 = "the previous build": MC-1865 landed, MC-1870 had not.
+  // Store v69 = "the previous build": the discovered catalog landed, effort levels had not.
   seedStorage(69)
 
   type CatalogEntry = {
@@ -244,14 +244,14 @@ test('modelCatalogEffortSeam', async () => {
       return view
     }
 
-    // ── Seam 1: MC-1865 (store v69) × MC-1870 (store v70) ──────────────────────
+    // ── Seam 1: discovered catalog (store v69) × effort level (store v70) ──────────────────────
 
     await check('SEAM: a store written by the previous build hydrates with its catalog AND its level intact', () => {
       // 2026-09-06: this asserted `WORKSPACE_STORE_VERSION === 70` — the ladder's
       // height when run D shipped, when "two rungs, 69 then 70" and "the current
       // version" happened to be the same statement. They stopped being the same
-      // when the counter reached 74 on four unrelated rungs (v71 MC-1573's module
-      // state bag, v72 MC-2222's remembered spawn default, v73/v74 the rail → pane
+      // when the counter reached 74 on four unrelated rungs (v71 the module
+      // state bag, v72 the remembered spawn default, v73/v74 the rail → pane
       // layout heals), and the pin then failed for a reason this seam has no
       // opinion about. What the seam is actually for is BELOW: a store written at
       // v69 by the previous build arrives with its catalog and its levels intact
@@ -268,7 +268,7 @@ test('modelCatalogEffortSeam', async () => {
       assert.deepEqual(
         settings.cliModelCatalog,
         PREVIOUS_BUILD_CATALOG,
-        'MC-1865’s discovered catalog survives the rung MC-1870 added on top of it',
+        'the discovered catalog survives the effort-level rung added on top of it',
       )
       assert.deepEqual(
         settings.lastSelectedAgentModel,
@@ -401,7 +401,7 @@ test('modelCatalogEffortSeam', async () => {
       assert.ok(!cleared.includes('claude-sonnet-5'), 'and the discovered rows are gone with the catalog')
     })
 
-    // ── Seam 3: MC-1884's picker × MC-1870's launch ────────────────────────────
+    // ── Seam 3: the effort picker × the effort-level launch ────────────────────────────
 
     await check('SEAM: the level clicked in the picker reaches the launched command, not just the store', async () => {
       const store = () => useWorkspaceStore.getState()
@@ -435,7 +435,7 @@ test('modelCatalogEffortSeam', async () => {
       await view.click(reasoningPicker)
       await view.pickLevel('Extra high')
 
-      // Evidence A — store state. Necessary, and on its own worth nothing: MC-1885
+      // Evidence A — store state. Necessary, and on its own worth nothing: the seat change
       // shipped with every layer below the producer proved from state exactly like
       // this, and the chain was still broken in the middle.
       const stored = store().appSettings.lastSelectedAgentModel
@@ -556,7 +556,7 @@ test('modelCatalogEffortSeam', async () => {
     // ── Seam 6: the remaining shared-file pairs from the plan's Seams table ────
 
     await check(
-      'SEAM: settingsSlice — one selection type carries MC-1865’s catalog and MC-1870’s level together',
+      'SEAM: settingsSlice — one selection type carries the discovered catalog and the effort level together',
       () => {
         const normalized = normalizeAppSettings(
           {
@@ -604,8 +604,8 @@ test('modelCatalogEffortSeam', async () => {
     })
 
     await check('SEAM: model popover — a DISCOVERED row is selectable and the level rides beside it', async () => {
-      // The file's two owners meet here: MC-1865 renders rows the manifest never
-      // declared, MC-1884 puts an effort level on whatever runtime is selected. A
+      // The file's two owners meet here: the discovered catalog renders rows the
+      // manifest never declared, the effort picker puts an effort level on whatever runtime is selected. A
       // discovered row must be a first-class row, not a read-only annotation, and
       // the level must still write through from the surface that shows it.
       const discoveredId = 'claude-sonnet-5'

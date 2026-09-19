@@ -119,7 +119,7 @@ instead of the container's.
   the description to `text.subtle` to make it feel secondary — it is already
   secondary by being hidden.
 
-## Drift ruling (MC-2118, 2026-08-05)
+## Drift ruling (2026-08-05)
 
 Reconciled against `src/renderer/src/components/ui/Tooltip.tsx`. The three
 drifts do not resolve the same way, so each is ruled on its own.

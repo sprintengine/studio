@@ -16,7 +16,7 @@ export type BannerProps = {
    * The recovery slot, for a condition whose recovery is not spelled "Retry" —
    * a "Relink" beside the retry on a missing folder, or the progress line while
    * a refresh is in flight. It sits after the Retry when both are given
-   * (MC-2115: the hand-rolled strips this replaced had labelled actions, and a
+   * (the hand-rolled strips this replaced had labelled actions, and a
    * banner that cannot carry them is a banner nobody adopts).
    *
    * Still one recovery cluster, not a toolbar: if it needs a third control, the

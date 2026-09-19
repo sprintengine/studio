@@ -7,7 +7,7 @@
 // shows what will actually run — the first supported installed CLI at its
 // cheap default — rather than an empty trigger, because that IS the choice
 // in force. The copy names whose quota it spends: the honesty rule of
-// MC-2484, the cost is theirs.
+// the text-generation rule, the cost is theirs.
 
 import { useMemo } from 'react'
 

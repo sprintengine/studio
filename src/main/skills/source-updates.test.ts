@@ -1,7 +1,7 @@
 // The source update check: one head resolution per repository source whose
 // cadence window has elapsed, drift recorded on the source, "newly changed"
 // said exactly once — and the window itself, which is what the GitHub token
-// buys (MC-2519, owner ruling 2026-09-08).
+// buys (owner ruling 2026-09-08).
 
 import assert from 'node:assert/strict'
 import { mkdtemp } from 'node:fs/promises'

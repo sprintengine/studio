@@ -7,7 +7,7 @@ test('WorkspaceSidebar.identityIcon', async () => {
   // Owner, 2026-09-02: the identity slot belongs to the FOLDER header — the
   // project's own logo when its repo has one, the folder glyph when it does not —
   // and the chat rows beneath it carry no icon at all (they briefly carried the
-  // logo, once per chat, under MC-2135's ruling C). This suite mounts the real
+  // logo, once per chat, under a ruling since reversed). This suite mounts the real
   // sidebar and asserts what each level renders, because that split is the thing
   // the ruling decided and nothing below the component can prove it.
 

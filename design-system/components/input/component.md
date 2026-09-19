@@ -116,7 +116,7 @@ are the same field at two lengths.
 - Invalid state is conveyed by `aria-invalid`, not color alone (the error
   text names the problem).
 
-## Drift ruling (MC-2118, 2026-08-05)
+## Drift ruling (2026-08-05)
 
 Reconciled against `src/renderer/src/components/ui/Input.tsx`. **The shipped
 behaviour wins on both counts**, and the States section above now describes it.

@@ -389,7 +389,7 @@ function ReasoningMenuItem({
         event.stopPropagation()
         onSelect()
       }}
-      // The shared menu row (MC-2103). It was a bespoke `rounded-[5px] px-2 py-1`
+      // The shared menu row. It was a bespoke `rounded-[5px] px-2 py-1`
       // row inside a `p-1` surface — the inset-fill-in-a-padded-surface shape
       // the menu spec rules out, at an inset no other menu in the app used.
       className={[

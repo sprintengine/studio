@@ -51,7 +51,7 @@ test('WorkspaceSidebar.a11y', async () => {
   // Handlers touch window.api only on interaction we do not exercise here; a stub
   // keeps any incidental reads from throwing at mount.
   // `detectProjectLogo` is the project-logo bridge the row's identity slot
-  // asks for on mount (MC-2135); a repo with no logo answers null and the row
+  // asks for on mount; a repo with no logo answers null and the row
   // keeps its workspace-type glyph.
   domWindow.api = { platform: 'darwin', detectProjectLogo: async () => null }
 

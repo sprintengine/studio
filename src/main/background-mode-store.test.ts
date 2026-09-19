@@ -1,5 +1,5 @@
 /**
- * MC-2156 — the main-owned background-mode setting. Real tmpdir, no Electron
+ * The main-owned background-mode setting. Real tmpdir, no Electron
  * and no window: this is the exact read the `window-all-closed` handler makes
  * after every renderer is gone.
  */
@@ -23,7 +23,7 @@ test('background-mode-store', async () => {
   }
 
   async function main(): Promise<void> {
-    // no file: off, which is byte-for-byte the pre-MC-2156 behavior
+    // no file: off, which is byte-for-byte the behavior before background mode existed
     await withUserData(async (dir) => {
       const store = createBackgroundModeStore({ resolveUserDataDir: () => dir })
       assert.equal(store.isEnabled(), false)

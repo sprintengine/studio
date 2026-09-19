@@ -42,7 +42,7 @@ export { fleetMachinePhase, machinePhaseText, type FleetMachinePhase }
 // ONE list of the other machines — the devices holding a socket here and the
 // machines this Studio drives, each a name, a state, and the one action it
 // earns. `popupRole="dialog"`, like the notifications popover — the rows
-// carry their own buttons and are not activatable items (MC-2138's ruling).
+// carry their own buttons and are not activatable items.
 // Everything here is fed by the push channel; nothing polls.
 //
 // NO ADDRESSES (owner ruling 2026-09-05). This machine's listening endpoint

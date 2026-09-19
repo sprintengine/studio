@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-// MC-2188: the account bar used to decide "Upgrade to Pro" from `plan.code ===
+// The account bar used to decide "Upgrade to Pro" from `plan.code ===
 // 'pro'`. It now asks feature keys, and the plan's name is only ever printed.
 // This renders the real surface because the decision logic's unit coverage
 // (workspaceManagerHelpers.test.ts) cannot show which element each answer

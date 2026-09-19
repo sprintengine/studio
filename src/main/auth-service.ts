@@ -41,7 +41,7 @@ import { readStudioEnv } from '../shared/studio-env'
 
 // `MULTIAUTH_BASE_URL` names the studio's ACCOUNT SERVICE: where entitlement
 // snapshots come from and where the mobile relay lives. It is no longer, by
-// definition, the identity provider (MC-2183): the service publishes which
+// definition, the identity provider: the service publishes which
 // issuer a sign-in should go to at `/api/auth/identity` — itself on a
 // self-hosted deployment, Clerk on the hosted one — and this bridge follows.
 // The environment variable keeps its historical name so existing overrides
@@ -66,7 +66,7 @@ const CUSTOM_SCHEME_REDIRECT_URI = `${CURRENT_DEEP_LINK_SCHEME}://auth/callback`
 // arrives on the old scheme has to be exchanged with the old spelling, and
 // guessing from the mode this process would pick now would get it wrong.
 const LEGACY_CUSTOM_SCHEME_REDIRECT_URI = `${LEGACY_DEEP_LINK_SCHEME}://auth/callback` as const
-// Loopback for packaged builds too (MC-2183). The custom scheme is bound by
+// Loopback for packaged builds too. The custom scheme is bound by
 // macOS LaunchServices to whichever Electron bundle registered it last — a
 // released build beside a beta is enough to send the callback to the wrong
 // app — while RFC 8252 loopback has no such ambiguity. The custom scheme stays
@@ -200,7 +200,7 @@ export class MulticodeAuthBridge {
   private cachedEntitlements: CachedEntitlementSnapshot | null = null
   // The account profile (name, email, remote photo URL) behind the cached
   // entitlements, so an offline boot shows who is signed in — and, through
-  // the photo cache, their photo — rather than a blank badge (MC-2220).
+  // the photo cache, their photo — rather than a blank badge.
   private cachedAccount: AccountProfile | null = null
   private photoRefreshInFlight: string | null = null
   private readonly photoCache = new AccountPhotoCache({
@@ -211,7 +211,7 @@ export class MulticodeAuthBridge {
   // answers the two questions `EntitlementProvider` asks and knows nothing
   // about how a decision is reached; every gate in the app goes through
   // `entitlements`, so nothing above this class knows which issuer signed the
-  // session in — that is what let the identity provider move (MC-2183)
+  // session in — that is what let the identity provider move
   // without a caller changing.
   readonly entitlements = new EntitlementService(
     {
@@ -483,7 +483,7 @@ export class MulticodeAuthBridge {
   }
 
   // The relay is part of the account service and accepts whichever issuer's
-  // token the session holds (MC-2185), so this stays provider-blind.
+  // token the session holds, so this stays provider-blind.
   async getRelayAccessToken(): Promise<string | null> {
     try {
       return await this.client.getAccessToken()

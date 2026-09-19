@@ -99,7 +99,7 @@ test('third-party-manifest', async () => {
     assert.equal(parseThirdPartyModuleManifest('{nope').ok, false)
   }
 
-  // Publisher-locked reserved ids (MC-1532): reserved-id policy is NOT the
+  // Publisher-locked reserved ids: reserved-id policy is NOT the
   // parser's — a manifest claiming a bundled id must parse cleanly WITH its
   // signature intact, because the registry decides both directions (locked id +
   // wrong signer rejected, locked id + verified first-party signer accepted)

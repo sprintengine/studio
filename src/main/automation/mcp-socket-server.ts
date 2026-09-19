@@ -39,7 +39,7 @@ import type {
 const MAX_LINE_BYTES = 1024 * 1024
 
 // Canonical MCP tool/connection shapes moved to src/shared/modules/mcp-tools
-// (MC-1855) so the module host and SDK can share them; re-exported here for
+// so the module host and SDK can share them; re-exported here for
 // the automation-surface importers.
 export type { McpConnectionContext, McpConnectionMetadata, McpToolRegistration, McpToolResult }
 
@@ -50,7 +50,7 @@ export type McpSocketServerOptions = {
   /**
    * The current tool set, evaluated on every tools/list and tools/call rather
    * than captured at construction: module-contributed tools follow module
-   * enablement live (MC-1855), and the gateway is constructed before modules
+   * enablement live, and the gateway is constructed before modules
    * load, so a snapshot here would be permanently stale.
    */
   resolveTools: () => McpToolRegistration[]

@@ -1,5 +1,5 @@
 /**
- * Background mode (MC-2156): what happens when the last window closes, and the
+ * Background mode: what happens when the last window closes, and the
  * tray presence that stands in for it.
  *
  * Closing a window becomes a pure presentation event — main services (Studio
@@ -136,7 +136,7 @@ export function createBackgroundPresence(deps: BackgroundPresenceDeps) {
     onWindowAllClosed(): 'quit' | 'stay' {
       if (quitting) return 'stay'
       if (!deps.isBackgroundModeEnabled()) {
-        // Byte-for-byte the pre-MC-2156 rule: quit everywhere but macOS, where
+        // Byte-for-byte the rule before background mode existed: quit everywhere but macOS, where
         // the process has always outlived its windows.
         return deps.platform === 'darwin' ? 'stay' : 'quit'
       }

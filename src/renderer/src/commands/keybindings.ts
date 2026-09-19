@@ -278,7 +278,7 @@ export function keybindingToKbdKeys(
 // exist are dropped: an override keyed by a retired id is simply ignored.
 export const LEGACY_COMMAND_ID_ALIASES: Record<string, string> = {
   // Voice toggle moved from the shell registry onto the voice-dictation
-  // module (MC-1861), so a user-reassigned or user-disabled `voice.toggle`
+  // module, so a user-reassigned or user-disabled `voice.toggle`
   // binding keeps winning over the module's default.
   'voice-dictation.toggle': 'voice.toggle',
 }

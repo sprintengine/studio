@@ -5,7 +5,7 @@ const TAILNET_ROUTE_PREFIX = '/tailnet/v1'
 export const TAILNET_HEALTH_PATH = `${TAILNET_ROUTE_PREFIX}/health`
 export const TAILNET_PAIR_PATH = `${TAILNET_ROUTE_PREFIX}/pair`
 /**
- * Pairing by approval on the machine being driven (MC-2233): POST asks, GET
+ * Pairing by approval on the machine being driven: POST asks, GET
  * polls the answer. Unauthenticated like `pair`, because a peer that has not
  * been approved yet has no credential by definition.
  */

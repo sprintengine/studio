@@ -326,7 +326,7 @@ test('CliModelPicker', async () => {
       view.unmount()
     })
 
-    // ---- The keyboard model (MC-2134's ruling) -------------------------------
+    // ---- The keyboard model -------------------------------
     //
     // This list used to move real DOM focus onto the row, so the first arrow took
     // focus off the search field and everything typed after it went nowhere. The

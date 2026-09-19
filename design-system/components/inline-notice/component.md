@@ -99,7 +99,7 @@ reporting the same condition say it with the same shape.
 - The mono detail block may scroll horizontally; it is inside the disclosure,
   so it never traps a keyboard user who did not opt in.
 
-## Consolidation (MC-2115, 2026-08-05)
+## Consolidation (2026-08-05)
 
 The app-wide sweep of hand-rolled notice surfaces onto this component is
 done. Five surfaces had each declared their own four-tone `border-l-2 … pl-3`

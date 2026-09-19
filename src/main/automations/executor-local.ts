@@ -27,15 +27,15 @@ import { workspaceSidecarPath } from '../workspace-sidecar'
 
 export type LocalAutomationExecutorOptions = {
   /**
-   * Compose and spawn the run's agent in main (MC-2159). This is the change
+   * Compose and spawn the run's agent in main. This is the change
    * that makes an agent-backed automation run headless at all: the composition
    * used to live in a renderer hook, so a scheduled run with no window open
    * failed before it reached a pty. Every other outbound port here is a main
-   * service too, so the executor asks a window for nothing (MC-2161).
+   * service too, so the executor asks a window for nothing.
    */
   launchAgent(request: AgentLaunchRequest): Promise<AgentLaunchResult>
   /**
-   * Mint the run's automations-host workspace in main's registry (MC-2158).
+   * Mint the run's automations-host workspace in main's registry.
    * The other half of headless: host creation used to be a renderer errand
    * too, and reuse of an existing host could only be guaranteed within one
    * window — main's single writer guarantees it across all of them.

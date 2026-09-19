@@ -24,7 +24,7 @@ import { getHighlightSwatch } from '../../utils/highlight'
 // honour the resting tier: on a pane that is not the one holding focus,
 // assets/index.css rebinds `--bg-selected` on the row carrying the ARIA state.
 //
-// RULING 2026-08-05 (MC-2115) — the 3px bar stays, and it is not the banned one.
+// RULING 2026-08-05 — the 3px bar stays, and it is not the banned one.
 // `foundations/principles.md` rejects the LEFT TONE-BAR on sight: a coloured
 // stripe standing in for a notice's tone, where the tone is then carried by
 // colour alone and doubles the card's own border. This bar says something else

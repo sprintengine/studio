@@ -51,7 +51,7 @@ import {
 } from './tailnet-remote-client'
 import { asRecord } from '../../../shared/records'
 
-// The Fleet: this Studio driving other machines (MC-2167).
+// The Fleet: this Studio driving other machines.
 //
 // Everything a window needs to work "on the Mini from the laptop" — the paired
 // machines, what they hold, and the terminals open on them — with the tokens
@@ -122,7 +122,7 @@ export type TailnetFleetService = {
   listConnections(): FleetConnection[]
   pair(input: { pairingUrl: unknown; deviceName?: unknown }): Promise<FleetPairResult>
   /**
-   * Ask a machine to pair and wait for someone there to approve it (MC-2233).
+   * Ask a machine to pair and wait for someone there to approve it.
    *
    * The outward half stays main's for the same reason `pair` does: the listener
    * refuses any request carrying an `Origin` header, so a window physically

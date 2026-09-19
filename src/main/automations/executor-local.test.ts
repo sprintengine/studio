@@ -112,8 +112,8 @@ test('executor-local', async () => {
 
   // The negative-path port set: every outbound port records and refuses, so a
   // test asserting "this never launched" fails loudly if the executor reaches any
-  // of them. Agent launch became a main-process port in MC-2159 and workspace
-  // creation in MC-2158, so both are covered here.
+  // of them. Agent launch and workspace creation both became main-process ports, so
+  // both are covered here.
   function refusingPorts(requests: RecordedExecutorRequest[]) {
     return {
       createWorkspace: ((input, actor) => {
@@ -140,11 +140,11 @@ test('executor-local', async () => {
     const workspaces = [...initialWorkspaces]
     // Both ports land in one ordered list so a test can still assert "created the
     // workspace, THEN launched into it". `agent.launch` is no longer a renderer
-    // request (MC-2159) — it goes through the main-owned launch port below — but
+    // request — it goes through the main-owned launch port below — but
     // recording it in the same shape keeps the ordering assertions honest.
     const requests: RecordedExecutorRequest[] = []
 
-    // Workspace creation is main's (MC-2158): the executor calls the registry
+    // Workspace creation is main's: the executor calls the registry
     // rather than asking a window and polling the bus. Recorded in the same
     // ordered list so "created the host, THEN launched into it" still asserts.
     const createWorkspace: LocalAutomationExecutorOptions['createWorkspace'] = (input, actor) => {
@@ -311,7 +311,7 @@ test('executor-local', async () => {
   }
 
   async function assertDefaultRunReusesRestartRestoredHost(): Promise<void> {
-    // Before MC-2158 this was the hardest case in the file: after a restart main
+    // Before workspace creation moved to main this was the hardest case in the file: after a restart main
     // rebuilt every workspace as a routing placeholder reading mode 'standard',
     // so the executor's host-by-folder lookup MISSED, it delegated a create, and
     // the renderer had to report the reused host's real mode back for the run's

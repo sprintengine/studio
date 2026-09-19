@@ -10,7 +10,7 @@ import { AutomationsWorkspaceTypeIcon } from '../components/AppIcons'
 // never stack into this tabset — `addAgentTabTiled` recognises the
 // `automations-control-center` component and docks runs into a right-hand
 // terminals tabset, so the control panel keeps its real estate and the live
-// runs appear beside it. The layout lives in `shared` (MC-2158) so a host the
+// runs appear beside it. The layout lives in `shared` so a host the
 // automation executor mints headlessly carries the same control centre.
 function createAutomationsTemplate(): LayoutTemplate {
   return AUTOMATIONS_HOST_TEMPLATE

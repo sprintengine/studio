@@ -41,7 +41,7 @@ import { dirname, join, normalize, resolve } from 'node:path'
 
 const RENDERER_DIR = 'out/renderer'
 const ENTRY_HTML = join(RENDERER_DIR, 'index.html')
-// Re-baselined 2048 → 2176 on 2026-08-06 (MC-2170), with the measurement the old
+// Re-baselined 2048 → 2176 on 2026-08-06, with the measurement the old
 // number never had. 2048 was a round number nobody had connected to a cost, and
 // it had been silently breached on `main` for weeks — 2071 KB at 1278f41c6,
 // before any one branch's work.
@@ -55,7 +55,7 @@ const ENTRY_HTML = join(RENDERER_DIR, 'index.html')
 //   compile of the whole 2093 KB chunk    14.4 ms
 //   the most a V8 code cache could remove 13.6 ms
 //
-// MC-2075 measured 14 ms for 2072 KB and 710 ms to screen; 21 KB more moved
+// An earlier measurement found 14 ms for 2072 KB and 710 ms to screen; 21 KB more moved
 // compile by ~0.1 ms and boot by nothing outside run-to-run spread. That is
 // ~0.7 ms per 100 KB trimmed. About 250 ms of that 288 ms span is module-level
 // EVALUATION, not parse — so shaving KB attacks the small half. Activation

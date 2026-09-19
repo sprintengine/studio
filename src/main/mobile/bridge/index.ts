@@ -308,7 +308,7 @@ export type MobileBridgeSettingsUpdate = {
 }
 
 // `selectedOrganization` is what a Clerk-authenticated desktop tells the relay
-// to bind to (MC-2185); a Multiauth token carries its own and the relay
+// to bind to; a Multiauth token carries its own and the relay
 // ignores the header. Optional so test doubles need not supply it.
 type DesktopSessionProvider = () => Promise<{
   authenticated: boolean
@@ -346,7 +346,7 @@ const DEFAULT_COMMAND_POLL_INTERVAL_MS = 2_000
 const DEFAULT_COMMAND_POLL_CEILING_MS = 30_000
 const DEFAULT_COMMAND_POLL_ATTENTION_WINDOW_MS = 150_000
 // What this desktop ASKS a phone for at pairing, and what it tells a paired
-// phone it can do. MC-2575 took the Sprint Engine's scopes and commands out of
+// phone it can do. Removing the Sprint Engine took its scopes and commands out of
 // these three lists; protocol v3 took them off the wire entirely, so the INBOUND
 // vocabulary — `RelayCommandType`, `MobileControlCapability` and the protocol's
 // command union — no longer carries them either. There is no older phone to read

@@ -98,7 +98,7 @@ export type TerminalFileLinkProviderOptions = {
   workspaceRoot?: TerminalFileLinkRoot
   executionRoot?: TerminalFileLinkRoot
   inspectPath: (path: string) => Promise<TerminalFileLinkPathInfo>
-  /** Hands the verified click up to the host (MC-1899): the provider no longer
+  /** Hands the verified click up to the host: the provider no longer
    *  decides what a click DOES, it only resolves what was clicked. */
   onActivate: (input: TerminalFileLinkActivateInput, anchor: { x: number; y: number }) => Promise<void> | void
   /** Reports a failed open, anchored to the click that triggered it so the UI

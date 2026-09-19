@@ -4,7 +4,7 @@ import type { RegisteredGlobalSurface, RegisteredModalSurface } from '../../../m
 import { DoorModuleNotInstalledSurface } from '../ModuleAbsenceSurfaces'
 import { EXTENSIONS_DRAWER_VIEWS, type ExtensionsDrawerView } from './extensions/extensionsSurfaceTarget'
 
-// Resolution for the active door surface (MC-1854). A persisted
+// Resolution for the active door surface. A persisted
 // `activeGlobalSurface` id whose surface never registered (module not
 // installed) or whose owning module is disabled used to resolve to nothing and
 // drop the region back to the workspace. It now resolves to an explicit

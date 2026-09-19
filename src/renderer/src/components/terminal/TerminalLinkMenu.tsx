@@ -17,7 +17,7 @@ import {
   type TerminalLinkTarget,
 } from '../../utils/terminalLinkActions'
 
-// The chooser a terminal link click opens (MC-1899). Clicking a link used to fire
+// The chooser a terminal link click opens. Clicking a link used to fire
 // one hard-wired action; now it asks. `terminalLinkActions` decides WHAT is on
 // offer, this component owns WHAT EACH ONE DOES and nothing else.
 //

@@ -6,7 +6,7 @@ import { createHash, randomBytes } from 'crypto'
 // needs (text frames, ping/pong, close) is small and fully specified.
 //
 // Both roles live here. The listener is the server half; the Fleet client
-// (MC-2167) dials OTHER machines from this same process, and giving it its own
+// dials OTHER machines from this same process, and giving it its own
 // copy of the framing would be two implementations of one wire format, drifting
 // against each other in a security-relevant file. The role only changes who
 // masks (RFC 6455 §5.1: clients must, servers must not).

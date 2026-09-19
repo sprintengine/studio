@@ -18,7 +18,7 @@ const AUTOMATION_SURFACE_TARGET_EVENT = 'multicode:automation-surface-target'
 // What the arriving caller wants to do with the automation it named. `runs` is
 // the historical behaviour (a run notification lands on the run history);
 // `editor` is the Extensions shelf handing a freshly added automation over to
-// the one place it is tailored (MC-2035) — the door opens with the automation
+// the one place it is tailored — the door opens with the automation
 // selected and its editor showing, in one navigation.
 //
 // This is an intent carried BESIDE the ref, not a second way to address an

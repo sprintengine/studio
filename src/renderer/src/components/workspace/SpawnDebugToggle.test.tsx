@@ -144,7 +144,7 @@ test('SpawnDebugToggle', async () => {
         /if \(agentSpawnDebugMode\) setAgentSpawnDebugMode\(false\)/,
         'the toggle resets off after a spawn so the next unrelated spawn is not silently debugged',
       )
-      // The top bar's spawn popover is gone (MC-2222); the New Chat panel and the
+      // The top bar's spawn popover is gone; the New Chat panel and the
       // launcher's picker are the hosts that remain.
       assert.match(
         managerSource,

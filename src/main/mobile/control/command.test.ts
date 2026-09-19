@@ -48,7 +48,7 @@ test('command', async () => {
     await assertAutomationsControlIsAdvertisedOnlyWithItsHandler()
   }
 
-  // INVERTED at protocol v3. MC-2575 required these to be refused as
+  // INVERTED at protocol v3. The Sprint Engine's removal required these to be refused as
   // `command_not_supported` — the envelope validator had to ACCEPT them so a phone
   // paired before the Sprint Engine left got an honest refusal from the service
   // rather than a "malformed" answer to a message that was not malformed.
@@ -58,7 +58,7 @@ test('command', async () => {
   // from the envelope validator is now the accurate answer: this build cannot read
   // the message. What must NOT change is that something comes back at all — a
   // dropped command is a phone spinning until its own timeout, which was the real
-  // failure MC-2575 was guarding against, and it is still guarded here.
+  // failure that rule was guarding against, and it is still guarded here.
   async function assertRetiredSprintCommandIsRefusedCleanly(): Promise<void> {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'multicode-mobile-command-retired-'))
     const service = new MobileControlCommandService({ workspaceRoot, now: () => now })

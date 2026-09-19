@@ -458,7 +458,7 @@ export function WorkspaceActions({
        * WorkspaceActions at-rest control inventory — capped at five groups.
        * The Git change-count badge migrated to the PanelRail Git icon
        * (`workspace-context` retired) and the agent split-button was
-       * deleted with MC-2222 (`agent-spawn` retired: spawning is New chat's
+       * deleted when `agent-spawn` retired ( spawning is New chat's
        * and the tab strip's job), so the row carries two canonical groups;
        * adding a sixth top-bar-group marker fails
        * scripts/lint-panel-composition.mjs, which holds the canonical
@@ -645,7 +645,7 @@ export function WorkspaceActions({
             }}
             ariaLabel="Remote"
             // Rows carry their own buttons (Revoke, Review) — a dialog, not
-            // a menu, same ruling as the notifications popover (MC-2138).
+            // a menu, same ruling as the notifications popover.
             popupRole="dialog"
             placement="bottom-end"
             renderTrigger={({ ref, triggerProps, togglePopover }) => (
@@ -714,7 +714,7 @@ export function WorkspaceActions({
           ariaLabel="Notifications"
           // A list of reports, each with its own buttons — not a menu. It
           // carried `role="menu"` with `role="menuitem"` on the report blocks,
-          // which announced rows that could not be activated (MC-2138).
+          // which announced rows that could not be activated.
           popupRole="dialog"
           placement="bottom-end"
           renderTrigger={({ ref, triggerProps, togglePopover }) => (

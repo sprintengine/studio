@@ -36,7 +36,7 @@ export function shouldShowFirstRunCliCard(input: {
   )
 }
 
-// The auto-open's half of the same decision (MC-2094). The card renders only on
+// The auto-open's half of the same decision. The card renders only on
 // a resolved "nothing installed"; this answers the earlier question — may New
 // chat take the first-run window yet? — and the two differ on the unresolved
 // probe. 'loading' and 'error' render no card, but they are also no basis for

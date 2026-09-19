@@ -1,4 +1,4 @@
-// The menu system's class pair, per design-system/components/menu (MC-2118).
+// The menu system's class pair, per design-system/components/menu.
 //
 // Every in-app menu is built from these: the right-click `ContextMenu`, the
 // kebab `OverflowMenu`, the narrowing `FilterMenu`, and `SplitButton`'s

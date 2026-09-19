@@ -33,7 +33,7 @@ export const mobileRelayModule: CapabilityModule = {
     const multicodeAuth = host.requireService(MulticodeAuthToken)
     const workspaceSync = host.requireService(WorkspaceSyncServiceToken)
 
-    // The phone's scope is read from main's own registry (MC-2158). The renderer
+    // The phone's scope is read from main's own registry. The renderer
     // push this used to union in is gone: its only remaining job was supplying
     // folders the routing-placeholder model had lost, and there are no
     // placeholders left — every record main holds carries its real folder,

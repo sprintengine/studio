@@ -858,7 +858,7 @@ export function isBundledSkillSource(id: string): boolean {
  * The ids of those sources, as a list. `isBundledSkillSource` is the predicate;
  * this is what a de-duplication needs — the recommended-sources region in the
  * Extensions door subtracts these from the hosted feed so a source every
- * machine already ships is never offered as an Add (MC-2519).
+ * machine already ships is never offered as an Add.
  */
 export const ALWAYS_PRESENT_SKILL_SOURCE_IDS: readonly string[] = [
   STUDIO_SKILL_SOURCE_ID,
@@ -1346,7 +1346,7 @@ export function skillSourceMonogram(name: string): string {
   return `${words[0][0]}${words[1][0]}`.toUpperCase()
 }
 
-// ── Update-check cadence (MC-2519, owner ruling 2026-09-08) ──────────────────
+// ── Update-check cadence (owner ruling 2026-09-08) ──────────────────
 //
 // Over git the cadence is hourly for everyone (git-transport ruling, owner
 // 2026-09-08): a head check is `git ls-remote`, which GitHub's REST limit does

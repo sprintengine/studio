@@ -65,7 +65,7 @@ export function AttachmentFields({
   // `launchableConnectors`, so it cannot drift from the Connectors surface:
   // every MCP server installed and enabled in this workspace's settings, and
   // nothing else. It read the bundled MCP catalogue too until the third-party
-  // retirement (MC-2519, 2026-09-08); with that file gone the settings are the
+  // retirement (2026-09-08); with that file gone the settings are the
   // whole population, which is synchronous — so this picker no longer has a
   // loading or a failure state to render.
   const selectedConnectorId = connectorId ?? NO_CONNECTOR

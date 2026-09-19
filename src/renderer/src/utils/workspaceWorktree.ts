@@ -69,7 +69,7 @@ export function resolveWorkspaceWorktree(
 }
 
 /**
- * The workspace's *effective working root* (MC-1535): where live work actually
+ * The workspace's *effective working root*: where live work actually
  * happens. `folderPath` stays the durable primary checkout (that's what
  * `ModuleWorkspaceView` reports), but a worktree-backed workspace does its live
  * work under its worktree — file watches, agent spawns, and file-tab
@@ -213,7 +213,7 @@ export function connectorWorktreeSlug(connectorId: string, uid: string): string 
  * carries no other MCP, so the spawn's per-worktree config never syncs anything
  * beyond the connector. Never merge this into the global appSettings.mcp.
  *
- * Lives in `src/shared/connector-launch.ts` since MC-2159 so the main-process
+ * Lives in `src/shared/connector-launch.ts` so the main-process
  * AgentLaunchService writes the identical isolated config headless.
  */
 export { connectorMcpSettings } from '../../../shared/connector-launch'

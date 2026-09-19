@@ -118,7 +118,7 @@ test('user-module-registry', async () => {
     }
   }
 
-  // Publisher-locked reserved ids (MC-1532): the same reserved id installs and
+  // Publisher-locked reserved ids: the same reserved id installs and
   // discovers when signed by a first-party marketplace publisher key, and stays
   // rejected for any other signer — including one the user id-trusted.
   async function testReservedIdPublisherLock(): Promise<void> {

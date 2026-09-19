@@ -3,7 +3,7 @@
  * the input entry, which documents the text control's own chrome; the values
  * here are the same values, restated as the row's contract.
  *
- * Known drift (MC-2114): shipped Field.tsx sizes the label at meta and the
+ * Known drift: shipped Field.tsx sizes the label at meta and the
  * messages at micro, and Modal.tsx ships a second, unwired Field. The spec
  * below — label at body, messages at meta — is the canon. */
 

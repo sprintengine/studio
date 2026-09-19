@@ -2,7 +2,7 @@ import type { ProjectLogo } from '../shared/electron-api'
 import { imageMimeType } from './filesystem-image'
 
 // A project's own logo, read off the top level of its repo so a row of projects
-// reads like a row of products (MC-2135). Detection only — there is no
+// reads like a row of products. Detection only — there is no
 // per-project icon picker, and nothing here writes to the repo.
 //
 // This module is deliberately free of `fs` and `electron` imports (the one

@@ -1,6 +1,6 @@
 // Text generation in the main process: the person's own agent CLI, headless,
 // one shot, under the login it already holds. The first job is the chat
-// title (MC-2423 backend, MC-2484 consumer); commit messages and PR text are
+// title (the first consumer); commit messages and PR text are
 // follow-ups on the same shape.
 //
 // What every call guarantees:

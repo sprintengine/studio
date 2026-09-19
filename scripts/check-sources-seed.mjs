@@ -3,7 +3,7 @@
 // and check-card-feed-seed.mjs.
 //
 // `resources/sources.json` is the recommended-sources list a fresh install
-// offers before it has ever reached GitHub (MC-2519, owner ruling 2026-09-08):
+// offers before it has ever reached GitHub (owner ruling 2026-09-08):
 // the studio stopped shipping other people's plugins and MCP servers, and
 // points at places to get them instead. Every row in it is a one-click Add in
 // the Extensions door, so a malformed or duplicated row is not a row that looks

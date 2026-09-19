@@ -118,7 +118,7 @@ import type { ChangelistEdit } from '../shared/git/changelists'
 type TerminalRuntimeOptions = {
   diagnosticsEnabled: boolean
   logMainPerfEvent(scope: string, event: string, payload: Record<string, unknown>): void
-  // Turns a hook-reported cwd into the checkout containing it (MC-2440).
+  // Turns a hook-reported cwd into the checkout containing it.
   // Defaults to the git-backed resolver; tests inject a stub so no git runs.
   resolveObservedCheckout?: ObservedCheckoutResolver
   syncMcpConfig?(input: {
@@ -241,7 +241,7 @@ type TerminalRuntime = {
   // prefers the serialized screen snapshot: this is the raw stream, because a
   // caller matching a pattern needs the text the agent printed.
   readTerminalOutput(sessionId: string): string | undefined
-  // Watch-and-type access for remote transports (MC-2165). The tailnet
+  // Watch-and-type access for remote transports. The tailnet
   // listener's terminal WebSocket is its only caller today; it is a port, not a
   // capability grant — the transport still has to prove a scoped device.
   remoteHost: TerminalRemoteHost
@@ -406,7 +406,7 @@ function takeResumeTurnEnd(sessionId: string): number | null {
   resumeTurnEndCarryover.delete(sessionId)
   return at
 }
-// The observed checkout (MC-2440) rides the same gap: a resumed agent keeps
+// The observed checkout rides the same gap: a resumed agent keeps
 // saying where it was until its first hook frame re-observes (the resumed
 // CLI's SessionStart re-resolves it, since the branch may have moved).
 const resumeObservedCheckoutCarryover = new Map<string, ObservedCheckout>()
@@ -435,7 +435,7 @@ function sendTerminalEvent(sender: Electron.WebContents, channel: string, payloa
   }
 }
 
-// Remote viewers of a session's output (MC-2165), keyed sessionId → viewerId.
+// Remote viewers of a session's output, keyed sessionId → viewerId.
 // The renderer's WebContents is still the sender the session itself holds; these
 // are ADDITIONAL senders, each with its own flush gate, its own byte bound, and
 // its own resync state, so one viewer's slowness or hidden-ness never reaches
@@ -843,7 +843,7 @@ export function suspendTerminal(sessionId: string): void {
     // If the process already died, the onExit path has run; the guards above
     // keep this from double-finalizing.
   }
-  // MC-1906: suspend's contract is "process dead, session resumable" — a CLI
+  // Suspend's contract is "process dead, session resumable" — a CLI
   // child that survives the pty's SIGHUP breaks the first half invisibly.
   // Verify by argv and SIGKILL survivors (resume uses the CLI's own
   // `--resume` token, which needs no live process).
@@ -1096,7 +1096,7 @@ function disposeTerminal(sessionId: string): void {
   } catch {
     // ignore kill errors if process died first
   }
-  // MC-1906: the pty kill reaches the shell, but a CLI child that survives the
+  // The pty kill reaches the shell, but a CLI child that survives the
   // resulting SIGHUP reparents to launchd and nothing tracks it afterwards —
   // dispose has deleted the session record, so a survivor is a permanent leak
   // (15 idle Opus agents in the 2026-07-26 incident). Verify by argv and
@@ -1364,7 +1364,7 @@ function buildReapCandidates(): ReapCandidate[] {
     // agent alive until it has actually rested past the threshold.
     idleSince: isAtRestAgentPhase(session.agentState?.phase) ? (session.agentState?.since ?? null) : null,
     // Managed-ness is a module's claim on the session's lifetime, recorded at
-    // spawn from the launch contribution (MC-2577). Core no longer infers it
+    // spawn from the launch contribution. Core no longer infers it
     // from a run-state path: with the owning module absent or disabled nothing
     // contributes the tag, and a spawn that still carries a stale path must not
     // be treated as somebody's managed agent.
@@ -1832,7 +1832,7 @@ function runAgentStallCheck(session: TerminalSession): void {
   if (terminals.get(session.sessionId) === session) broadcastTerminalSessionsChanged()
 }
 
-// Observed checkout (MC-2440): record where the session's hooks say it IS.
+// Observed checkout: record where the session's hooks say it IS.
 // Returns true when the cwd moved; a frame older than the current observation
 // cannot roll it backwards, and the same cwd again is a no-op — the `at` stays
 // the moment the session ARRIVED there. The move itself is not broadcast: an
@@ -2139,7 +2139,7 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
     return
   }
 
-  // Where the session is (MC-2440) rides every frame that carries a cwd and
+  // Where the session is rides every frame that carries a cwd and
   // is applied BEFORE the phase drop below: an informational Notification or an
   // event the spec does not name still tells the truth about the cwd.
   // A turn end or session start that itself moves the cwd asks git fresh, as

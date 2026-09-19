@@ -203,7 +203,7 @@ test('agent-launch-service', async () => {
   })
 
   // The connector is resolved from the installed MCP settings alone since the
-  // bundled catalogue was retired (MC-2519, 2026-09-08): there is no template
+  // bundled catalogue was retired (2026-09-08): there is no template
   // left to launch a server the person never installed, so "installed and
   // enabled" is the whole rule.
   const railway = {

@@ -71,7 +71,7 @@
     ]
   },
   "capabilities": {
-    "$comment": "toolUse is true — Muse Code plans, edits, runs tools and coordinates background agents, which is the whole product. resumeSession is false because no resume flag is documented; its event-log restart-safety is an in-process guarantee, not a caller-driven resume, and MC-1464/MC-1465 discipline says an unverified resume path must not risk a lost conversation. sessionIdFromCaller is false because launch mints no session id. mcpServers is false because no MCP support is documented — false means the app never offers an attach that would silently do nothing.",
+    "$comment": "toolUse is true — Muse Code plans, edits, runs tools and coordinates background agents, which is the whole product. resumeSession is false because no resume flag is documented; its event-log restart-safety is an in-process guarantee, not a caller-driven resume, and the confirm-first discipline says an unverified resume path must not risk a lost conversation. sessionIdFromCaller is false because launch mints no session id. mcpServers is false because no MCP support is documented — false means the app never offers an attach that would silently do nothing.",
     "resumeSession": false,
     "sessionIdFromCaller": false,
     "toolUse": true,

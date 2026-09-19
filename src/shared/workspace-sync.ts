@@ -62,7 +62,7 @@ export type WorkspaceSyncCommand =
         cliResumeAvailable?: boolean
       }
     }
-  // Registry-domain edits (MC-2158). Main owns the record; a renderer applies
+  // Registry-domain edits. Main owns the record; a renderer applies
   // optimistically and asks, and main decides. One command per user-editable
   // fact, so two concurrent edits to different fields never contend — a rename
   // in one window and a layout drag in another both land.

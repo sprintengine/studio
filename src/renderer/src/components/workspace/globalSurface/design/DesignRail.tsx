@@ -16,7 +16,7 @@ import {
 // Automations: list semantics, ↑/↓ + j/k navigation, the house New affordance,
 // and the search + filter head are all the substrate's. Nothing here invents a
 // mechanism, and nothing here mounts a second rail — the door's ONE rail is
-// this, handed to GlobalSurfaceShell's `rail` prop (MC-2014).
+// this, handed to GlobalSurfaceShell's `rail` prop.
 
 /**
  * The identity chip: a rounded square in the system's own accent.

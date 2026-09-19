@@ -98,7 +98,7 @@ press; Escape empty passes through.
   the clear button is a descendant with its own ring, and `:focus-within`
   would keep both painted at once.
 
-## Drift ruling (MC-2118, 2026-08-05)
+## Drift ruling (2026-08-05)
 
 **This spec won on both counts; the code moved.**
 
@@ -106,7 +106,7 @@ press; Escape empty passes through.
   its own supporting line — so the row's primary content read at exactly the
   size of the text explaining it, and the pair had no hierarchy at all. The
   same title/supporting pairing was ruled the same way for the door rails in
-  MC-2101, so the two row families now agree.
+  the row-grid ruling, so the two row families now agree.
 - **`InboxSearchInput` is `size.control.sm` (30px).** It shipped at `h-7`
   (28px), which is not a step on the control ramp (26/30/34) — a number from
   before the ramp existed.

@@ -78,7 +78,7 @@ export type TailnetRemoteService = {
    */
   updateDeviceScopes(deviceId: string, scopes: unknown): TailnetRemoteStatus
   /**
-   * Answer a pairing request that arrived from another machine (MC-2233).
+   * Answer a pairing request that arrived from another machine.
    *
    * The scopes are the ones chosen HERE. This is the first surface on which a
    * person can grant the terminal tier at all: the Settings "Pair a device"
@@ -108,7 +108,7 @@ export type TailnetRemoteService = {
   /**
    * Tailscale's name for a tailnet address, or null.
    *
-   * Shared with the Fleet client (MC-2167) so a machine this Studio pairs WITH
+   * Shared with the Fleet client so a machine this Studio pairs WITH
    * is labelled by the same resolver — and the same ~5-minute cache — that names
    * the peers driving this one. Two resolvers would mean two `whois` spawns for
    * one question.
@@ -142,7 +142,7 @@ export type TailnetRemoteServiceOptions = {
     error?: unknown
   }) => void
   /**
-   * Watch-and-type access to this machine's terminals (MC-2165), for the
+   * Watch-and-type access to this machine's terminals, for the
    * listener's terminal WebSocket. Absent (tests, an unwired build) leaves that
    * route refusing with a stated reason; nothing else about the listener changes.
    */

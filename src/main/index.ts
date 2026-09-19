@@ -35,7 +35,7 @@ import { registerCoreIpc } from './register-core-ipc'
 import { attachStartupTimeline, markStartup } from './startup-timeline'
 import { readStudioEnv } from '../shared/studio-env'
 
-// Boot measurement (MC-2075), off unless SPRINTENGINE_STARTUP_TIMELINE=1 or the
+// Boot measurement, off unless SPRINTENGINE_STARTUP_TIMELINE=1 or the
 // diagnostics flag is set. Attached before anything else registers so the
 // renderer's marks have somewhere to land the moment it starts sending them.
 protocol.registerSchemesAsPrivileged([
@@ -46,7 +46,7 @@ protocol.registerSchemesAsPrivileged([
 ])
 attachStartupTimeline(ipcMain)
 
-// Build-identity check (MC-2182). Registered next to the startup marks and for
+// Build-identity check. Registered next to the startup marks and for
 // the same reason: a window reports the moment it starts, and the listener has
 // to already be there. Log-only by explicit choice (2026-09-01): the dialog
 // this used to raise interrupted the normal edit-the-running-app dev loop, so
@@ -159,7 +159,7 @@ applyModuleEnablementLive = async (overrides) => {
   // A module with no live-loadable main half takes its toggle through the
   // enablement gate rather than module load/unload — refresh the resolved set.
   recomputeMainEnablement(overrides)
-  // Module-contributed gateway tools follow enablement live (MC-1855): the
+  // Module-contributed gateway tools follow enablement live: the
   // gateway re-reads the registry and enablement per request, so only the
   // connected MCP clients need a nudge to refresh their tool lists.
   services.automationService.notifyToolsListChanged()
@@ -174,9 +174,9 @@ services.setAutomationsAppFrontDoorResolver(
 // Module enablement for gateway tools that belong to a capability module: the
 // resolved set is recomputed on every override the renderer pushes, so a module
 // switched off in Settings is off for MCP callers on their next call, not after
-// a restart (MC-1805 is the ruling behind it).
+// a restart (an owner ruling).
 services.setModuleEnabledResolver((moduleId) => enabledMainModuleIds.has(moduleId))
-// Module-contributed MCP tools ← the host kernel (MC-1855). The gateway was
+// Module-contributed MCP tools ← the host kernel. The gateway was
 // constructed above, before loadMainModules ran; this seam hands it the live
 // registry, and the per-request evaluation makes the tools visible immediately.
 services.setModuleMcpToolsResolver(() => moduleLoad.kernel.mcpToolRegistrations())

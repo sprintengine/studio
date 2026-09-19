@@ -104,7 +104,7 @@ export type SidecarRuntimeStatus = {
 }
 
 // One MCP tool a module contributed to the Studio gateway, with the ownership
-// the gateway needs to gate calls on the owner's live enablement (MC-1855).
+// the gateway needs to gate calls on the owner's live enablement.
 export type McpToolContribution = {
   moduleId: string
   /** The owner's manifest displayName when resolvable, for user-facing errors. */
@@ -149,7 +149,7 @@ export type MainHost = {
    * validated before any tool lands so a rejected batch registers nothing.
    * Availability follows the owner's live enablement at the gateway — tools
    * of a disabled-but-registered module stay listed and answer an actionable
-   * enable error instead of running (MC-1805/MC-1855).
+   * enable error instead of running.
    */
   registerMcpTools(tools: McpToolRegistration[]): void
   /**

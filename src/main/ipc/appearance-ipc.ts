@@ -18,7 +18,7 @@ export function registerAppearanceIpc(ipcMain: IpcMain): void {
     // Window appearance must track the resolved theme, not the OS setting:
     // the glass material (NSVisualEffectView) renders per window appearance,
     // so a dark theme on a light-mode OS would otherwise get a washed-out
-    // light frost under its dark tint (spike finding, MC-1907). Also keeps
+    // light frost under its dark tint (spike finding). Also keeps
     // native menus/dialogs matching the app surface.
     nativeTheme.themeSource = normalized
   })

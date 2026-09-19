@@ -1,4 +1,4 @@
-// Read-only version-control provider facts (MC-1995). The version-control
+// Read-only version-control provider facts. The version-control
 // settings sections render what the local machine actually has: the probed
 // `git` and `gh` binaries and, for `gh`, the login its own auth resolves to.
 // Nothing here is a stored setting, and there is no partially-filled shape —

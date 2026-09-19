@@ -613,7 +613,7 @@ test('agent-launch-render', async () => {
   }
 
   // OpenCode bypass + model: the bypass preset adds
-  // --auto (OpenCode's only permission flag; MC-2214 corrected this from the
+  // --auto (OpenCode's only permission flag; a fix corrected this from the
   // non-existent --dangerously-skip-permissions) and modelSelection adds --model <id>, both
   // ahead of the positional prompt (launch.argv order: binary, run,
   // permissionArgs, modelArgs, prompt).
@@ -754,7 +754,7 @@ test('agent-launch-render', async () => {
     )
   }
 
-  // MC-2092. Two halves of the same defect:
+  // Two halves of the same defect:
   //
   // 1. The probe resolves an absolute path (it consults the user's interactive
   //    shell); the launch shell does not source that config, so it must EXECUTE
@@ -1127,7 +1127,7 @@ test('agent-launch-render', async () => {
     )
   }
 
-  // MC-2147: the new-agent tab prints the invocation a spawn WOULD make. The
+  // The new-agent tab prints the invocation a spawn WOULD make. The
   // value of that line is entirely in it being true, so it is rendered through
   // renderAgentLaunchArgv — these two tests are the proof, and they fail the day
   // someone reimplements the preview by hand.

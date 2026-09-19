@@ -124,7 +124,7 @@ export function BacklogLinksSection({
 
   return (
     // No hairline: padding and the heading separate this section from the next
-    // (MC-2047 — "space groups, rules do not").
+    // ("space groups, rules do not").
     <Section title="Links" level={4} inset className="shrink-0 pb-2">
       {linkError ? (
         <div className="px-3 pb-1.5">

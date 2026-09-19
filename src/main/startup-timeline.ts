@@ -10,7 +10,7 @@ import {
   type StartupTimelineReport,
 } from '../shared/startup-timeline'
 
-// Main-process side of the boot measurement (MC-2075). Owns the clock origin,
+// Main-process side of the boot measurement. Owns the clock origin,
 // collects its own phases, listens for the renderer's, and prints one read-out
 // when boot is done.
 //

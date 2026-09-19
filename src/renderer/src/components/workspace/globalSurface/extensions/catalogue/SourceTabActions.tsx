@@ -8,8 +8,8 @@
 // "look at this source" removes it. Sync stays outside the menu — it is the
 // one a person does repeatedly, and it reports its own progress.
 //
-// "Check for updates" joined the overflow with the cadence ruling (MC-2519,
-// 2026-09-08). Without a GitHub token the scheduled check runs once a day per
+// "Check for updates" joined the overflow with the cadence ruling
+// (2026-09-08). Without a GitHub token the scheduled check runs once a day per
 // source, which is long enough that a person needs a way to ask now — but the
 // manual check counts against the same window rather than being a way around
 // it, so when it declines it says when the source was last asked and why. It is

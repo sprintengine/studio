@@ -1,6 +1,6 @@
 import type { StartupMarkId } from '../../../shared/startup-timeline'
 
-// Renderer side of the boot measurement (MC-2075). Reports its phases to main,
+// Renderer side of the boot measurement. Reports its phases to main,
 // which owns the clock origin and prints the assembled read-out.
 //
 // Marks are reported as EPOCH ms (`performance.timeOrigin + performance.now()`)

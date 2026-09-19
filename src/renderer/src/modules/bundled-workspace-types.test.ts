@@ -21,7 +21,7 @@ test('bundled-workspace-types', async () => {
   assert.deepEqual(
     host.getWorkspaceTypes().map((definition) => definition.id),
     ['automations-host'],
-    'bundled workspace types keep picker order; the review workspace type retired (MC-1708 — reviews are an instance-level surface), the roadmap type retired (MC-1692), and the guided-brief type retired with the Design Wizard (2026-09-08)',
+    'bundled workspace types keep picker order; the review workspace type retired (reviews are an instance-level surface), the roadmap type retired, and the guided-brief type retired with the Design Wizard (2026-09-08)',
   )
   assert.deepEqual(
     host.getWorkspaceTypes((moduleId) => moduleId !== 'automations').map((definition) => definition.id),
@@ -36,12 +36,12 @@ test('bundled-workspace-types', async () => {
   assert.equal(
     host.getWorkspaceTypeModule('review'),
     undefined,
-    'the review workspace type retired (MC-1708); the review module owns the instance-level Reviews surface + panel, not a workspace type',
+    'the review workspace type retired; the review module owns the instance-level Reviews surface + panel, not a workspace type',
   )
   assert.equal(
     host.getWorkspaceTypeModule('roadmap'),
     undefined,
-    'the roadmap workspace type retired (MC-1692); the roadmap module owns the sidebar door, not a workspace type',
+    'the roadmap workspace type retired; the roadmap module owns the sidebar door, not a workspace type',
   )
   assert.equal(
     host.getWorkspaceTypeModule('guided-brief'),

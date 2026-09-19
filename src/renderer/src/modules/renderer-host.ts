@@ -124,7 +124,7 @@ export type WorkspaceTypeCreateContext = {
   stepValue?: unknown
 }
 
-// What the hub hands a type's async create hook (MC-2090). `createTemplate` is
+// What the hub hands a type's async create hook. `createTemplate` is
 // synchronous by design — it answers "what layout?" — so a type whose creation
 // is real orchestration (probe a source, materialize it on disk, roll back on
 // failure) had nowhere to put that work and left the hub driving it through a
@@ -171,7 +171,7 @@ export type WorkspaceTypeDefinition = {
   /** Open this zero-config type once after its first enabled, trusted load. */
   openOnFirstLoad?: boolean
   /**
-   * Own this type's create action (MC-2090). When present the hub calls this
+   * Own this type's create action. When present the hub calls this
    * instead of creating the workspace itself: resolve to mean "created, close
    * the hub"; reject to leave the hub open with the create still available.
    * Call `host.createWorkspace()` to mint the row (that is what runs
@@ -237,7 +237,7 @@ export type BacklogItemActionContext = {
   addLink(link: BacklogItemLink): Promise<void>
   updateModuleMetadata(moduleId: string, value: unknown): Promise<void>
   /**
-   * Present when the context menu was opened on a multi-selection (MC-2060):
+   * Present when the context menu was opened on a multi-selection:
    * every selected item in list order — `item` is the anchor row and is always
    * one of them, and all of them are from the row's own project — plus that
    * project's full scanned item set for epic-membership expansion. Actions
@@ -465,7 +465,7 @@ export type RegisteredSidebarNavEntry = SidebarNavEntryDefinition & {
 }
 
 /**
- * A waiting-count a module contributes for a drawer / nav-entry row (MC-2577).
+ * A waiting-count a module contributes for a drawer / nav-entry row.
  * The shell's badge hook reads this instead of importing a module's run index;
  * the row is absent with the module, so a count with no row never appears.
  */
@@ -717,7 +717,7 @@ export type RegisteredModalSurfaceLauncher = ModalSurfaceLauncher & {
   moduleId: string
 }
 
-// An agent-id namespace a module claims (MC-2090). A module that spawns agents
+// An agent-id namespace a module claims. A module that spawns agents
 // outside a window's knowledge — a background guide, a companion — owns ids the
 // shell then has to reason about without knowing whose they are: what to call
 // the session when no workspace row claims it, and whether the id is one it may
@@ -751,7 +751,7 @@ export type BacklogReader = {
   watch(workspaceId: string, cb: (items: BacklogItem[]) => void): () => void
 }
 
-// Backing store for the per-module workspace-state accessors (MC-1573). The
+// Backing store for the per-module workspace-state accessors. The
 // kernel owns only the seam: modules/index.ts wires it over the workspace
 // store's `Workspace.moduleState` bag, and the scoped host methods route
 // through it with the owning module's id — the kernel never imports the store.
@@ -761,7 +761,7 @@ export type WorkspaceModuleStateStore = {
   set(workspaceId: string, moduleId: string, state: unknown): boolean
 }
 
-// Backing store for the app-level module-state accessors (MC-2090). Same seam
+// Backing store for the app-level module-state accessors. Same seam
 // shape as WorkspaceModuleStateStore, one scope up: modules/index.ts wires it
 // over the app-settings `module:<id>` namespace that already backs contributed
 // Settings sections, so a module's app-level state and its settings section
@@ -775,7 +775,7 @@ export type ModuleAppStateStore = {
   subscribe(moduleId: string, cb: (values: Readonly<Record<string, unknown>>) => void): () => void
 }
 
-// Source of main→renderer module events (MC-2090). The kernel owns only the
+// Source of main→renderer module events. The kernel owns only the
 // seam: modules/index.ts wires it over `window.api.onModuleEvent`, and the
 // scoped host's `subscribe` filters the stream to the calling module's own
 // events. One preload listener backs every module's subscriptions.
@@ -896,7 +896,7 @@ export type RendererHost = {
    */
   watchColorScheme(cb: (scheme: ModuleColorScheme) => void): () => void
   /**
-   * Your module's entry in the workspace's per-module state bag (MC-1573).
+   * Your module's entry in the workspace's per-module state bag.
    * Scoped to the calling module — one module can never read another's entry
    * through this surface. `undefined` means no state is recorded for this
    * workspace, the workspace id is unknown, or the shell hasn't wired the
@@ -915,7 +915,7 @@ export type RendererHost = {
    */
   setWorkspaceModuleState(workspaceId: string, state: unknown): boolean
   /**
-   * Read one key from your module's APP-level state (MC-2090) — the scope
+   * Read one key from your module's APP-level state — the scope
    * above `getWorkspaceModuleState`, for state that belongs to the module
    * rather than to any one workspace: remembered defaults, the last thing the
    * user opened. Synchronous and store-backed, so a renderer selector can
@@ -944,7 +944,7 @@ export type RendererHost = {
   watchModuleAppState(cb: (values: Readonly<Record<string, unknown>>) => void): () => void
   /**
    * Subscribe to events your module's `entry.main` pushed with
-   * `MainHost.emit` (MC-2090) — the subscribe verb `invoke` does not have.
+   * `MainHost.emit` — the subscribe verb `invoke` does not have.
    * Scoped to your module: another module's events never reach you, and yours
    * never reach it. `cb` receives the emitted payload. Returns the
    * unsubscriber; call it on unmount. Nothing is replayed, so a subscriber
@@ -954,7 +954,7 @@ export type RendererHost = {
    */
   subscribe(topic: string, cb: (payload: unknown) => void): () => void
   /**
-   * Claim an agent-id namespace for your module (MC-2090): every agent id
+   * Claim an agent-id namespace for your module: every agent id
    * starting with `prefix` is yours, and `label` is what the shell calls those
    * sessions where no workspace claims them. Without this, an agent your
    * module spawned outside a window's knowledge is an unlabelled, unadoptable
@@ -1145,14 +1145,14 @@ export type RendererKernel = {
   setModuleAssetOrigin(moduleId: string, origin: string): void
   setWorkspaceOpener(opener: (typeId: string) => Promise<string>): void
   /**
-   * Backing store for the per-module workspace-state accessors (MC-1573).
+   * Backing store for the per-module workspace-state accessors.
    * Wired once at boot by modules/index.ts over the workspace store's bag;
    * absent (early boot, tests) reads resolve undefined and writes report
    * false. The kernel scopes every call by the owning module's id.
    */
   setWorkspaceModuleStateStore(store: WorkspaceModuleStateStore): void
   /**
-   * Backing store for the app-level module-state accessors (MC-2090). Wired
+   * Backing store for the app-level module-state accessors. Wired
    * once at boot by modules/index.ts over the app-settings `module:<id>`
    * namespace; until it lands reads resolve undefined and writes report false.
    * A watch registered before it lands is held by the kernel and attaches here,
@@ -1308,7 +1308,7 @@ export function createRendererHost(): RendererKernel {
   let colorSchemeWatcher: ColorSchemeWatcher | null = null
   const agentRuntimeDisabled = (): boolean =>
     moduleEnabledResolver !== null && !moduleEnabledResolver(AGENT_RUNTIME_MODULE_ID)
-  // Shared gate for the live-runtime methods (MC-1535): the error names the
+  // Shared gate for the live-runtime methods: the error names the
   // actual cause so a module author can tell "the shell has not wired this
   // backend yet" (early boot, tests) from "the user turned the Agent Runtime
   // module off". Before the enablement resolver lands the module is treated

@@ -10,7 +10,7 @@ import {
 import { test } from 'vitest'
 
 test('observed-checkout', async () => {
-  // Pure contract of the observed checkout (MC-2440): what counts as an absolute
+  // Pure contract of the observed checkout: what counts as an absolute
   // cwd on any platform, how a persisted observation is read back as untrusted
   // input, and how a consumer classifies one.
 

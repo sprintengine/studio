@@ -4,7 +4,7 @@ import {
   type ModuleRegistrySnapshotWriteResult,
 } from '../../shared/modules/registry-snapshot'
 
-// Main's cache of the renderer's module registry (MC-2078). In-memory only and
+// Main's cache of the renderer's module registry. In-memory only and
 // deliberately not persisted: it is a projection of live renderer state, so a
 // value surviving a restart would describe a registry nobody has confirmed. A
 // consumer reading `null` has not been told yet and must say so rather than

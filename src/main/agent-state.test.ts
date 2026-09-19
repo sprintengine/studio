@@ -175,7 +175,7 @@ test('agent-state', async () => {
     assert.equal(resolvePhase(claudeSpec, 'UserPromptSubmit'), 'thinking')
     assert.equal(resolvePhase(claudeSpec, 'PreToolUse'), 'tool_use')
     assert.equal(resolvePhase(claudeSpec, 'PostToolUse'), 'thinking')
-    // Claude's CwdChanged is deliberately NOT registered (MC-2440): older
+    // Claude's CwdChanged is deliberately NOT registered: older
     // `claude` builds skip a settings value they cannot validate, so an unknown
     // hook event name could cost the whole hooks block, and the cwd it would
     // carry already rides the PostToolUse frame of the tool call that moved it.
@@ -258,7 +258,7 @@ test('agent-state', async () => {
     // An event-less legacy frame with a phase still applies.
     assert.equal(resolveAgentStateEvent(claudeSpec, { event: null, phase: 'idle' }).action, 'apply')
 
-    // --- event-name spelling is canonical, not exact (MC-2520) ---------------
+    // --- event-name spelling is canonical, not exact ---------------
     // Grok Build reads `PreToolUse` in .grok/hooks/*.json but stamps the payload
     // `"hookEventName": "pre_tool_use"`, so an exact compare dropped EVERY Grok
     // frame and a Grok agent never left `starting`. The manifest keeps the CLI's
@@ -445,7 +445,7 @@ test('agent-state', async () => {
       )?.notificationType,
       undefined,
     )
-    // …the observed cwd (MC-2440) must be absolute on some platform and capped;
+    // …the observed cwd must be absolute on some platform and capped;
     // a bad value drops the field, never the frame…
     const cwdOf = (cwd: unknown) =>
       parseAgentStateFrame({ type: 'agent_state', agentId: 'a1', event: 'PostToolUse', ts: 5, cwd }, 999)?.cwd
@@ -1268,7 +1268,7 @@ test('agent-state', async () => {
     assert.equal(grokConfig.hooks?.PreToolUse, undefined, 'PreToolUse must not be registered for grok')
     assert.ok(grokConfig.hooks?.Notification, 'Notification must be registered for grok')
 
-    // SPELLING (MC-2520): the config file keeps the manifest's PascalCase, which
+    // SPELLING: the config file keeps the manifest's PascalCase, which
     // is NOT folded on the way out — canonical matching is for incoming frames
     // only. Verified against grok 1.0.13 on 2026-09-09: `grok inspect` loads a
     // PascalCase .grok/hooks/*.json (all 15 events) and drops unknown names, so

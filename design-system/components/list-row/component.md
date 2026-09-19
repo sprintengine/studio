@@ -171,7 +171,7 @@ the shipped counterpart of this row:
   `space.lg` inline, which is exactly the 8/12 the code draws. The outlier is
   this entry's own reference CSS, and one row family cannot have two insets.
 - ~~**Title size.** This spec sets titles at `font.size.body`; shipped titles
-  sit at `font.size.meta`, one step smaller.~~ **Resolved** — MC-2118 ruled for
+  sit at `font.size.meta`, one step smaller.~~ **Resolved** — the drift ruling ruled for
   the spec and moved the code: `InboxRow` draws its title at `font.size.body`
   over supporting text at `font.size.meta`.
 - **`--resting` mechanics.** Shipped rows reach the resting tier via cascade

@@ -86,7 +86,7 @@ export function getTerminalSessionsSignature(sessions: TerminalSessionSnapshot[]
       // prompt has to survive the dedupe. Keyed on the timestamp rather than the
       // text: it changes on every submit, including a prompt re-sent verbatim.
       session.lastPrompt?.at ?? null,
-      // Observed checkout (MC-2440): the tab glyph and identity card render
+      // Observed checkout: the tab glyph and identity card render
       // where the session's hooks last saw it, so a cwd move or git's answer
       // for it must survive the dedupe. `at` is deliberately omitted — it only
       // changes alongside `cwd`.

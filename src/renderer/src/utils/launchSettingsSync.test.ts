@@ -1,5 +1,5 @@
 /**
- * MC-2154 — the renderer half of the main-owned launch settings store: the
+ * The renderer half of the main-owned launch settings store: the
  * push must carry every input main composes a launch from, and a settings
  * change must reach main without a restart.
  */

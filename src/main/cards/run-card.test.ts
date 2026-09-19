@@ -57,7 +57,7 @@ test('run-card', async () => {
   const PARENT = '/tmp/projects'
 
   // `install.mcp` no longer installs: the bundled catalogue it resolved ids
-  // against was retired with the third-party ruling (MC-2519, 2026-09-08), so the
+  // against was retired with the third-party ruling (2026-09-08), so the
   // verb can only honour a server this workspace's settings already hold. These
   // two are the same server, installed and not.
   const MCP_SERVER = {
@@ -583,7 +583,7 @@ test('run-card', async () => {
       assert.match(
         result.message ?? '',
         /Settings → Agents/,
-        "Go says which CLI is missing and where to install it — one destination, the app's (MC-2093), never a second door of the card path's own",
+        "Go says which CLI is missing and where to install it — one destination, the app's, never a second door of the card path's own",
       )
       assert.deepEqual(calls, ['detectCli claude-code'], 'and it stops there')
     }

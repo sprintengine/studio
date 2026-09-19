@@ -11,7 +11,7 @@ import {
 import { test } from 'vitest'
 
 test('skill-invocation', async () => {
-  // MC-2147. A skill is named in the prompt, not attached as a flag, so a surface
+  // A skill is named in the prompt, not attached as a flag, so a surface
   // needs to know which character (if any) this CLI's users type to name one. The
   // answer is DECLARED per plugin (`invocation.mentionPrefix`) and never inferred
   // from `explicitTemplate` — these tests pin both the resolver contract and the

@@ -13,7 +13,7 @@
       "args": ["--permission-mode", "default"]
     },
     "auto": {
-      "$comment": "Claude Code's auto mode: a second model (the classifier) reviews each action before it runs instead of the user. NOT workspace-scoped \u2014 the preset this replaced was labelled \"Auto-approve workspace edits\", which described Codex's sandbox rung and misdescribed this one (MC-2210). Reads and in-project edits skip the classifier; shell, network, out-of-project writes and subagent spawns are reviewed.",
+      "$comment": "Claude Code's auto mode: a second model (the classifier) reviews each action before it runs instead of the user. NOT workspace-scoped \u2014 the preset this replaced was labelled \"Auto-approve workspace edits\", which described Codex's sandbox rung and misdescribed this one. Reads and in-project edits skip the classifier; shell, network, out-of-project writes and subagent spawns are reviewed.",
       "label": "Auto — the classifier reviews each action",
       "args": ["--permission-mode", "auto"]
     },

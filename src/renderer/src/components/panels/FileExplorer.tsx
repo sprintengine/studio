@@ -1484,7 +1484,7 @@ function ExplorerTree({
     void copyExternalFilesIntoDirectory(collectNativeDropPaths(event.dataTransfer), rootPath)
   }
 
-  // The tree's right-click menu (MC-2104). It was a native Electron popup until
+  // The tree's right-click menu. It was a native Electron popup until
   // this item — OS-drawn and Title-Cased, so the richest menu in the product was
   // also the one that looked least like it. Everything the menu offers is
   // sampled here, when it opens, exactly as the native template was: the
@@ -1984,7 +1984,7 @@ function ExplorerTree({
   // The rename field's chrome is fixed here rather than at the two call sites:
   // a folder row and a file row differ only by the weight of the name they
   // replace, and spelling the box out twice is how one of them ended up with a
-  // `:focus` border swap instead of the ring (MC-2107).
+  // `:focus` border swap instead of the ring.
   const renderRenameInput = (className: string) => {
     if (!renameDraft) return null
 
@@ -2009,7 +2009,7 @@ function ExplorerTree({
             cancelRename()
           }
         }}
-        // ANNOTATED OFF-RAMP (MC-2114, held through MC-2115). The primitive is
+        // ANNOTATED OFF-RAMP (held through the empty-state consolidation). The primitive is
         // the kit's `Input` on the `well` ground, and `size="none"` is what lets
         // the box stay off the ramp: `h-5` is 20px, below the 26/30/34 ramp's
         // first step, and deliberately so — this field replaces the NAME INSIDE a
@@ -2457,7 +2457,7 @@ export default function FileExplorer({ workspaceId }: Props) {
     setRevealToken((current) => current + 1)
   }
 
-  // "Reveal in Files", dispatched by the terminal link chooser (MC-1899). The
+  // "Reveal in Files", dispatched by the terminal link chooser. The
   // panel is usually cold when that runs — the same click reveals it — so the
   // latch is drained on mount as well as handled live.
   useEffect(() => {

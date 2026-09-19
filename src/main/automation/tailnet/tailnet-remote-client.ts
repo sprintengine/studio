@@ -30,7 +30,7 @@ import {
 } from './websocket-frames'
 import { asRecord } from '../../../shared/records'
 
-// The outbound client for tailnet remote control (MC-2167): the half that DIALS
+// The outbound client for tailnet remote control: the half that DIALS
 // another machine's listener. Everything else under `tailnet/` answers calls;
 // this places them.
 //
@@ -206,7 +206,7 @@ export async function pairWithMachine(input: {
 }
 
 /**
- * Ask a machine to pair, for someone there to approve (MC-2233).
+ * Ask a machine to pair, for someone there to approve.
  *
  * Only the HASH of the collect secret goes over the wire; the secret itself
  * stays here and is presented to collect. The answer carries the comparison
@@ -356,7 +356,7 @@ export type RemoteIdentity = {
  * What the remote says our device is and may do, right now.
  *
  * This is the handshake, and so it is where the transport version is enforced
- * (MC-2167 shipped without that check, and a mismatched peer then failed later
+ * (the first version shipped without that check, and a mismatched peer then failed later
  * on a payload shape instead). A machine outside the window is refused here
  * with a named code, so the Fleet records it as unreachable-with-a-reason
  * rather than as a machine that answered and then behaved oddly.

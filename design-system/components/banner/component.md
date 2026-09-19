@@ -90,7 +90,7 @@ interactive part.
 - Truncated messages still expose their full text (the `list-row`/tooltip
   truncation contract applies).
 
-## The action slot (MC-2115, 2026-08-05)
+## The action slot (2026-08-05)
 
 The anatomy above says the action slot "holds a ghost button" — it did not say
 that button has to be spelled *Retry*, and the two strips that were rebuilding

@@ -21,7 +21,7 @@ import {
 import type { AutomationService } from '../automation/automation-service'
 import { asRecord } from '../../shared/records'
 
-// The window's door onto the Fleet (MC-2167).
+// The window's door onto the Fleet.
 //
 // IPC-only, exactly like the tailnet configuration channels: no MCP tool
 // reaches any of this, so neither a local agent nor a paired remote device can

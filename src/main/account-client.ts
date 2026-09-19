@@ -22,7 +22,7 @@ import { isEntitlementSnapshotFresh } from './entitlement-service'
 
 // The desktop's client for the studio's ACCOUNT SERVICE (`MULTIAUTH_BASE_URL`):
 // entitlements, the account profile, and — through whichever identity
-// provider the service names — sign-in, refresh and sign-out (MC-2183).
+// provider the service names — sign-in, refresh and sign-out.
 // Everything Electron (safeStorage files, the marker file, the browser
 // window) is injected, so `account-client.test.ts` drives every path below
 // with an in-process fetch: offline resume, the pinned-provider rollback,
@@ -54,7 +54,7 @@ export type IdentityMarkerStore = {
 }
 
 // What `/api/auth/me` hands back: the account behind the desktop's bearer
-// token. `avatarUrl` is the provider's remote photo URL (MC-2220); it is
+// token. `avatarUrl` is the provider's remote photo URL; it is
 // resolved through `AccountPhotoCache` before the renderer ever sees it.
 export type AccountProfile = {
   user: {
@@ -82,7 +82,7 @@ export type AccountClientOptions = {
 }
 
 // A Clerk token carries no studio organisation; the account service reads
-// the selected one from this header (MC-2185). Ignored for Multiauth tokens.
+// the selected one from this header. Ignored for Multiauth tokens.
 export const ORGANIZATION_HEADER = 'x-multiauth-organization'
 const IDENTITY_DISCOVERY_PATH = '/api/auth/identity'
 const DEFAULT_DISCOVERY_TIMEOUT_MS = 3000
@@ -489,7 +489,7 @@ export class MulticodeAccountClient {
 
   // Every account-service call. The bearer is whichever provider's access
   // token the session holds — the service accepts both while the dual-accept
-  // window is open (MC-2185) — and the selected organisation rides along on
+  // window is open — and the selected organisation rides along on
   // every bearer call, so profile, entitlements and relay agree on it.
   private async request<T>(path: string, init: RequestInit, options: { bearer?: boolean } = {}): Promise<T> {
     const headers = new Headers(init.headers)

@@ -805,7 +805,7 @@ test('plugin-download', async () => {
     }
   }
 
-  // --- Claude Code plugin sources: bundled snapshot content (MC-1644) ---------
+  // --- Claude Code plugin sources: bundled snapshot content ---------
 
   type BundledSkillFixture = {
     entry: MarketplacePluginEntry

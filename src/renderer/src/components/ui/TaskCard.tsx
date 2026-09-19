@@ -162,8 +162,8 @@ export function TaskCard({
       <div className="min-w-0 flex-1">
         {isCard ? (
           <>
-            {/* `meta` in `text.subtle`, per design-system/components/task-card
-                (MC-2118). The identifier shipped at `micro` and — only on this
+            {/* `meta` in `text.subtle`, per design-system/components/task-card.
+               The identifier shipped at `micro` and — only on this
                 variant — in `text.muted`, so the same identifier read at a
                 different weight of ink depending on which variant showed it. */}
             <div className="font-mono tabular-nums text-meta text-[color:var(--text-subtle)]">{identifier}</div>

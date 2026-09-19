@@ -301,7 +301,7 @@ function ConflictReadOnlyPane({
 // The take-a-side actions on a conflict hunk. On the kit's `sm` step, like
 // every other labelled control in the Git surfaces: this ran the panel's
 // private 28px/6px ramp, which is what put a Git button a pixel or two off
-// every button beside it (MC-2113).
+// every button beside it.
 //
 // Left alignment is a full-width CHILD rather than a `justify-start` on the
 // button. The primitive already declares `justify-center`, and a second

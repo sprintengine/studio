@@ -61,7 +61,7 @@ const TOTAL_DEADLINE_MS = 2000
 // src/main/agent-state.ts, which truncates again on receipt — this reporter is
 // untrusted input, so the cap here is a courtesy, not the enforcement.
 const MAX_PROMPT_LENGTH = 2000
-// Send-side cap on the forwarded cwd (MC-2440). Mirrors MAX_OBSERVED_CWD_LENGTH
+// Send-side cap on the forwarded cwd. Mirrors MAX_OBSERVED_CWD_LENGTH
 // in src/shared/observed-checkout.ts; the reader re-validates (absolute, capped).
 const MAX_CWD_LENGTH = 4096
 // Send-side cap on a reported file path. Mirrors the reader's cap in
@@ -1140,7 +1140,7 @@ async function main() {
     }
   }
 
-  // Where the session IS (MC-2440): Claude Code, Codex and Grok put the
+  // Where the session IS: Claude Code, Codex and Grok put the
   // session's working directory on every hook payload. Forwarded verbatim (the
   // reader shape-checks it) so the app can resolve the checkout the agent is
   // actually working in — a worktree it created mid-run, or one it was

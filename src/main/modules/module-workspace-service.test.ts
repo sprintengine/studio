@@ -6,7 +6,7 @@ import { createInMemoryWorkspaceRegistryStore } from '../workspace-registry-stor
 import { createWorkspaceSyncService } from '../workspace-sync-service'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE } from '../../shared/workspace-mode'
 
-// The delegate-then-poll shape these tests used to assert is gone (MC-2158):
+// The delegate-then-poll shape these tests used to assert is gone:
 // there is no renderer round trip to observe and no bus confirmation to time
 // out, because the id a module gets back is the one main just committed.
 

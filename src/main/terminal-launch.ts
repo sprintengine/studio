@@ -567,7 +567,7 @@ function nativeWindowsCodexPromptArg(value: string | undefined): string | undefi
 // Permission args for the acknowledged-legacy codex Windows-native path, read
 // from the CLI's own manifest. This used to be a second hardcoded copy of the
 // per-CLI mapping sitting alongside the manifests, which is exactly how the
-// Claude Code mapping drifted (MC-2210) — a manifest edit did not reach here.
+// Claude Code mapping drifted — a manifest edit did not reach here.
 // A CLI with no loaded manifest renders no permission args, which is the same
 // fail-safe the ladder takes for an undeclared preset: never invent a flag.
 function getCliPermissionArgs(cli: AgentCli, preset: CliPermissionPreset = 'manual'): string[] {

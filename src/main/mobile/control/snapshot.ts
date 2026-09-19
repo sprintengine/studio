@@ -24,7 +24,7 @@ const defaultPublishThrottleMs = 1000
 /**
  * The commands this desktop will actually execute.
  *
- * MC-2575 stopped advertising the nine sprint commands while leaving them in the
+ * The Sprint Engine's removal stopped advertising the nine sprint commands while leaving them in the
  * protocol's union; protocol v3 deleted them, so this list and that union are now
  * the same five members and the `satisfies` below is what keeps them so.
  *
@@ -70,7 +70,7 @@ type MobileControlSnapshotListener = (snapshot: MobileControlSnapshot) => void
 // Applied only to the copy emitted to the phone — readSnapshot() keeps the real
 // paths for server-side resolution.
 export function sanitizeMobileSnapshotForRelay(snapshot: MobileControlSnapshot): MobileControlSnapshot {
-  // `projectKey` is the phone's join key across collections (MC-1583): the same
+  // `projectKey` is the phone's join key across collections: the same
   // token for the same repo root in every collection, which automations are
   // stamped with by their producer.
   const backlog = snapshot.backlog?.map((workspace) => {

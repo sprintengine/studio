@@ -247,7 +247,7 @@ export function BacklogItemContextMenu({
   x: number
   y: number
   item: BacklogItem
-  // How many rows the menu acts on (MC-2060). Above one, the menu shows only
+  // How many rows the menu acts on. Above one, the menu shows only
   // the module-contributed actions (already resolved selection-aware by the
   // caller): every other section edits ONE item, and aiming a single-item
   // mutation at whichever row was under the pointer while N rows are painted

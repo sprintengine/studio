@@ -160,17 +160,17 @@ question without mounting a dialog of its own.
 ## Known drift
 
 - ~~`Modal.tsx` ships `z-50` against the token ladder's 70.~~ **Resolved
-  2026-08-05 (MC-2119):** the token ladder is canonical and `Modal` consumes
+  2026-08-05:** the token ladder is canonical and `Modal` consumes
   `--z-modal` (70). Note the ladder itself was then re-ruled at the
   interaction-canon merge review (same date): transient surfaces sit ABOVE
   modal — popover 80, menu 90, toast 100 — so a menu or picker opened from
   inside a dialog paints over the scrim by design. What the fix ended was
   Modal keeping a second, private ladder, not menus painting above dialogs.
-- ~~`Modal.tsx` ships **no focus trap**.~~ **Resolved (MC-2109):** every
+- ~~`Modal.tsx` ships **no focus trap**.~~ **Resolved:** every
   `aria-modal` shell in the renderer wraps its dialog in the shared
   `FocusTrap`, sentinels either side, as specified above.
 - ~~`Modal.tsx` ships shadowless, `rounded-[8px]`, and a 20px inset.~~
-  **Resolved 2026-08-05 (MC-2110):** the shell casts `shadow.modal`, rounds at
+  **Resolved 2026-08-05:** the shell casts `shadow.modal`, rounds at
   `radius.shell`, and insets at `space.3xl`. The same change put every other
   floating surface on the geometry above — the Command Palette, the New
   workspace dialog, the review walkthrough and the diagnostics overlay had each grown a

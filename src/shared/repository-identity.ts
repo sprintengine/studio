@@ -1,4 +1,4 @@
-// One repository across machines (one-project-across-machines, MC-2406).
+// One repository across machines (one-project-across-machines).
 //
 // Two clones of the same repository — on this disk, on a paired machine's —
 // are one logical project to the person using them: "run this repo on the

@@ -125,7 +125,7 @@ test('backlog', async () => {
     }
   })
 
-  run('MC-1498: the epics block carries display id, color, title, and a done/total rollup', async () => {
+  run('the epics block carries display id, color, title, and a done/total rollup', async () => {
     const root = await setupWorkspace({
       '.sprintengine/backlog/config.json': JSON.stringify({ schemaVersion: 1, key: 'MC' }),
       'backlog/epics/checkout.md': '---\ntype: epic\nid: 1493\ncolor: green\n---\n# Checkout epic\n',

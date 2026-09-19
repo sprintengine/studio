@@ -31,7 +31,7 @@
   border-radius: var(--sem-radius-overlay);
   background: var(--sem-color-bg-surface-raised);
   /* The token, not the shipped literal — six kit files hardcode a dark-only
-   * shadow here (MC-2110); the token is the spec. */
+   * shadow here; the token is the spec. */
   box-shadow: var(--sem-shadow-popover);
   color: var(--sem-color-text-default);
   font-family: var(--sem-font-family-ui);

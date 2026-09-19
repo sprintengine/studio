@@ -105,7 +105,7 @@ export function buildShortcutRows(
 export const RETIRED_COMMAND_IDS: readonly string[] = [
   // The Sprint Engines panel went with the in-tree sprint engine (2026-09-16).
   'panel.sprint-engines.toggle',
-  // The sprint-engine module's board and New sprint commands (MC-2577
+  // The sprint-engine module's board and New sprint commands (
   // registered them as `sprint-engine.<id>`), and the shell-registry
   // `sprintengine.*` spellings their stored bindings were keyed by before that
   // move.

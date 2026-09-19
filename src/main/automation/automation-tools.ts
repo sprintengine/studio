@@ -64,7 +64,7 @@ import { getWorkspaceChangeSummary } from '../workspace-change-summary'
 // workspace.status / agent.launch / agent.status; the read expansion adds
 // backlog.list / backlog.read / automation.list / automation.runs. Reads and
 // mutations alike answer from main's own services — there is one lane, and it is
-// main's (MC-2161). No tool on this surface needs a window, and the renderer
+// main's. No tool on this surface needs a window, and the renderer
 // delegate that used to carry mutations, along with its `no_primary_window` /
 // `renderer_timeout` error class, is gone. Mutations that have to be observed
 // before success is reported are confirmed against the state main itself minted
@@ -87,11 +87,11 @@ const AGENT_BACKED_ACTION_KINDS: readonly string[] = ['spawn-agent', 'run-skill-
 export type AutomationBackends = {
   getWorkspaceSyncSnapshot(): WorkspaceSyncSnapshot
   listTerminalSessions(): TerminalSessionSnapshot[]
-  /** Compose and spawn an agent in main (MC-2159). */
+  /** Compose and spawn an agent in main. */
   launchAgent(request: AgentLaunchRequest): Promise<AgentLaunchResult>
   /**
    * This machine's own agent-spawn permission preset, from the main-owned
-   * launch settings store (MC-2154); `null` when the user has never chosen one.
+   * launch settings store; `null` when the user has never chosen one.
    *
    * Read by `terminal.create` so a remotely-opened terminal runs under the
    * preset the person at this machine chose — and read HERE rather than left to
@@ -102,7 +102,7 @@ export type AutomationBackends = {
    */
   getAgentSpawnPermissionDefault(): CliPermissionPreset | null
   /**
-   * Mint a workspace in main's registry (MC-2158). Synchronous and
+   * Mint a workspace in main's registry. Synchronous and
    * window-independent: `workspace.create` no longer asks a renderer to build
    * the record and then polls the bus to see whether it appeared.
    */
@@ -180,7 +180,7 @@ export type AutomationBackends = {
    */
   ensureBuiltinSkillInstalled(workspaceRoot: string, skillId: string): Promise<boolean>
   /**
-   * The module registry as the renderer resolves it (MC-2078), mirrored into
+   * The module registry as the renderer resolves it, mirrored into
    * main. Null until a window has pushed one — the module tools report that
    * explicitly rather than answering from main's own half of the universe,
    * which knows nothing about renderer-only modules (Backlog, Design, Git, …).
@@ -193,7 +193,7 @@ export type AutomationBackends = {
    * `module.list` sees that it is installed at all.
    */
   listInstalledThirdPartyModules(): Promise<ThirdPartyModuleListResult>
-  /** Gateway tools contributed by capability modules, by owner (MC-1855). */
+  /** Gateway tools contributed by capability modules, by owner. */
   listModuleContributedTools(): ReadonlyArray<{ moduleId: string; toolName: string }>
   /**
    * The marketplace registry index through the same client, cache, and
@@ -263,7 +263,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   // Backlog and Automations services speak absolute workspace roots; tools
   // speak workspace ids. Resolution goes through main's registry, so a tool can
   // only ever reach app-known folders. A restart survivor resolves like any
-  // other workspace now (MC-2158): main persists the real record, so there is
+  // other workspace now: main persists the real record, so there is
   // no longer a half-known placeholder to refuse or to except a live terminal
   // from.
   function resolveWorkspaceRoot(workspaceId: string): { root: string } | McpToolResult {
@@ -405,7 +405,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       return failure('invalid_arguments', '"permissionPreset" must be a string when provided.')
     }
     // Normalize first so the refusal below catches BOTH spellings of bypass: an
-    // external caller written before MC-2210 still sends `bypass_all`, and a
+    // external caller written before the preset rename still sends `bypass_all`, and a
     // refusal that only matched the new name would let the old one straight
     // through the ceiling this surface exists to enforce.
     const requested = normalizeCliPermissionPreset(args.permissionPreset as CliPermissionPreset)
@@ -521,7 +521,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       worktreeBranch = created.branch
     }
 
-    // Composed and spawned in main (MC-2159). Previously this delegated to the
+    // Composed and spawned in main. Previously this delegated to the
     // primary window, which is why `agent.launch` and `backlog.work` failed
     // outright with no window open — the composition lived in a React hook, not
     // because anything about the launch needed a UI.
@@ -798,7 +798,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
             'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
-            'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings ' +
+            'surface, and so is its pre-rename spelling "bypass_all"; the other legacy spellings ' +
             '("default", "auto_workspace") are not accepted here at all.',
         },
         connectorId: {
@@ -887,7 +887,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
-  // The answer to "what may I pass as a cli / model / effort?" (MC-2120).
+  // The answer to "what may I pass as a cli / model / effort?".
   // Before this, `agent.launch.cliModel` was a blind string an agent could only
   // guess at from a tool description's example. Reports the CLI plugin registry as the app itself resolves it —
   // declared, not probed: it says what the registry HOLDS, never whether the
@@ -961,7 +961,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
-  // The list a remote client reads before attaching to one (MC-2165). Its own
+  // The list a remote client reads before attaching to one. Its own
   // tool family, not part of `agent.*`, because the tailnet scopes gate the
   // terminal tier separately from the structured-command set: watching an
   // agent's screen is a different grant from reading its launch state.
@@ -1097,7 +1097,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     return { workspace: matches[0] }
   }
 
-  // Open a terminal on THIS machine from wherever the call came from (MC-2166).
+  // Open a terminal on THIS machine from wherever the call came from.
   //
   // `terminal.*` rather than `agent.launch` because of the scopes: the terminal
   // tier is granted separately from the structured-command families, and "open
@@ -1147,7 +1147,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
             'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
-            'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings ' +
+            'surface, and so is its pre-rename spelling "bypass_all"; the other legacy spellings ' +
             '("default", "auto_workspace") are not accepted here at all. ' +
             "Omit to take this machine's own spawn default.",
         },
@@ -1315,7 +1315,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
     },
   }
 
-  // module.* / marketplace.* (MC-2078). Read-only by decision: install,
+  // module.* / marketplace.*. Read-only by decision: install,
   // uninstall, and enable/disable mutate trust, and belong to the item that
   // models that permission question — not to the surface that reports state.
   //
@@ -1766,7 +1766,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
           enum: [...LAUNCH_PERMISSION_PRESETS],
           description:
             'CLI permission preset: "manual" or "auto" — the canonical names. "bypass" is refused on this ' +
-            'surface, and so is its pre-MC-2210 spelling "bypass_all"; the other legacy spellings ' +
+            'surface, and so is its pre-rename spelling "bypass_all"; the other legacy spellings ' +
             '("default", "auto_workspace") are not accepted here at all.',
         },
         worktree: {
@@ -1905,7 +1905,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       }
       const preset = resolvedActionPermissionPreset(args.definition)
       // Normalized before the compare, exactly as validatePermissionPreset does
-      // above and for the same reason: a definition naming the pre-MC-2210
+      // above and for the same reason: a definition naming the pre-rename
       // `bypass_all` cleared this ceiling on the raw string and was then
       // normalized to `bypass` downstream (parseSpawnAgentConfig), which is the
       // unattended self-escalation the ceiling exists to prevent
@@ -1988,7 +1988,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
   ]
 }
 
-// One terminal session as terminal.list reports it (MC-2165): enough to choose
+// One terminal session as terminal.list reports it: enough to choose
 // one and label the stream, and nothing about its contents — the scrollback
 // arrives over the attach socket, behind the same terminal scope, not here.
 //
@@ -2092,7 +2092,7 @@ function terminalSessionProjection(session: TerminalSessionSnapshot): Record<str
   }
 }
 
-// One agent CLI as cli.runtime.list reports it (MC-2120). Everything here is
+// One agent CLI as cli.runtime.list reports it. Everything here is
 // manifest-declared, so the projection is honest about its own limits: an empty
 // `models` means the CLI declares no seed list, which — with
 // `allowCustomModelId` — is different from "no model may be passed".

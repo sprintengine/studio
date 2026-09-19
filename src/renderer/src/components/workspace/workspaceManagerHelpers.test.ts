@@ -105,7 +105,7 @@ test('workspaceManagerHelpers', async () => {
     )
   }
 
-  // The regression this file was missing (MC-1786): a session keyed to an id no
+  // The regression this file was missing: a session keyed to an id no
   // workspace row claims — a module's own agent runs under an id of its own —
   // used to be dropped on BOTH branches, so a live agent was invisible in the one
   // surface users audit. Both branches must now yield a row in a labeled detached bucket,
@@ -444,7 +444,7 @@ test('workspaceManagerHelpers', async () => {
     )
   }
 
-  // MC-2188. The account surfaces used to ask `plan.code === 'pro'`, which names
+  // The account surfaces used to ask `plan.code === 'pro'`, which names
   // the auth provider's data model rather than the product's own vocabulary. The
   // two assertions below pin the split that replaced it: access reads feature
   // keys, display reads the plan's name and decides nothing.
@@ -492,7 +492,7 @@ test('workspaceManagerHelpers', async () => {
   }
 
   // Multiauth's catalog: Free grants only `multicode.sprintengine`; Pro adds
-  // the mobile companion, and nothing else (MC-1579). Functions rather than
+  // the mobile companion, and nothing else. Functions rather than
   // consts because this file calls `main()` before its own top-level bindings run.
   function freeFeatures(): Record<string, boolean> {
     return {

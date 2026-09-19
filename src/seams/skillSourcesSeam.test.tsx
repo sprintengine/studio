@@ -15,7 +15,7 @@ import { test, vi } from 'vitest'
 vi.mock('electron', () => import('../../tests/stubs/electron'))
 
 test('skillSourcesSeam', async () => {
-  // ── Seam: a skill source, end to end (T1 → T2 → T3 → T4 → T7, item MC-1932ff) ─
+  // ── Seam: a skill source, end to end ─
   //
   // Every task in this run owns one hop of one chain: T1 turns a repository tree
   // into skills and writes them into a workspace, T3 opens a skill's files and resolves the links between them, T4

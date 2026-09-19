@@ -244,7 +244,7 @@ export const registerMain: RegisterMain = (host) => {
     guide.dispose()
     return summary
   })
-  // The module-owned event channel (MC-2090): the subscribe verb the
+  // The module-owned event channel: the subscribe verb the
   // request/response bridge does not have. `emit` stamps this module's identity,
   // so only this module's renderer subscribers see it. Nothing is replayed, so
   // the channel below stays the way a late panel reads the current value —
@@ -282,7 +282,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
     const [briefingCount, setBriefingCount] = useState(0)
     const [outlook, setOutlook] = useState<string | null>(null)
     useEffect(() => {
-      // App-level module state (MC-2090): the scope above per-workspace state,
+      // App-level module state: the scope above per-workspace state,
       // for what belongs to the module rather than to a single workspace. Read
       // is synchronous, so it can seed initial render without an async flash;
       // the watch keeps it live when another surface writes it.
@@ -376,7 +376,7 @@ function createForecastPanel(host: Parameters<RegisterRenderer>[0]): WorkspacePa
     }, [workspaceId])
     useEffect(() => {
       let disposed = false
-      // Per-module workspace state (MC-1573): the module's own durable entry
+      // Per-module workspace state: the module's own durable entry
       // on this workspace — typed read, write-back with the reported result
       // honored (false = not stored: unknown workspace or early boot; retry
       // later, never assume success). Scoped to this module by the host.
@@ -507,7 +507,7 @@ function ForecastCityStep({ value, setValue }: WorkspaceCreationStepProps) {
   )
 }
 
-// The async create hook (MC-2090): this type's creation is orchestration, not a
+// The async create hook: this type's creation is orchestration, not a
 // layout choice — the city has to resolve against the service before a workspace
 // is worth minting, and a resolve that fails after minting must take the row back
 // with it. `createTemplate` stays synchronous and answers only "what layout?".
@@ -604,13 +604,13 @@ function quickCheck(host: Parameters<RegisterRenderer>[0]): ModuleCommandDefinit
 
 // The four contribution kinds this run published or extended, registered by ONE
 // module so the fixture proves they COMPOSE, not just that each compiles: a
-// sidebar door (MC-1854's companion), the full-page surface behind it
-// (registerGlobalSurface, MC-1854), an agent-facing gateway tool
-// (registerMcpTools, MC-1855, in registerMain above), and a top-bar control
-// (registerTopBarItem, MC-1861, below). The door and its surface share an id;
+// sidebar door (with its companion), the full-page surface behind it
+// (registerGlobalSurface), an agent-facing gateway tool
+// (registerMcpTools, in registerMain above), and a top-bar control
+// (registerTopBarItem, below). The door and its surface share an id;
 // the surface is lazy, proving the published Component type accepts
 // React.lazy() the same way SidebarNavEntryComponent does.
-// The agent ids this module owns (MC-2090). Its forecaster agents are spawned
+// The agent ids this module owns. Its forecaster agents are spawned
 // outside any window's knowledge, so no workspace row claims their sessions; the
 // prefix is how the shell knows whose they are and what to call them.
 const forecasterAgents: AgentIdNamespaceDefinition = {
@@ -702,7 +702,7 @@ export const registerRenderer: RegisterRenderer = (host) => {
     icon: () => null,
     Component: () => null,
   })
-  // Top-bar control (MC-1861): a zero-prop, self-contained button in the
+  // Top-bar control: a zero-prop, self-contained button in the
   // title-strip control cluster, shown only while this module is enabled.
   host.registerTopBarItem({
     id: 'weather-deck',

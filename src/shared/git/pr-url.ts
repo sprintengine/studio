@@ -1,4 +1,4 @@
-// Pull-request URL classifier (MC-1678). Node-free and shared: the creation flow
+// Pull-request URL classifier. Node-free and shared: the creation flow
 // calls it synchronously for instant feedback before the provider round-trips,
 // and the GitHub provider calls it to resolve host/owner/repo/number. Rules:
 // github.com → 'github'; any other host carrying a `/owner/repo/pull/N` path →

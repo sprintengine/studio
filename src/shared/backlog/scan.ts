@@ -138,7 +138,7 @@ export type BacklogItem = {
   // dependent; reverse "blocks" edges and the waiting signal are derived (T2),
   // never persisted to items.json (mirrors the epic axis).
   dependsOn?: string[]
-  // The epic's `dependenciesPlanned:` mark (MC-2137): its author declaring the
+  // The epic's `dependenciesPlanned:` mark: its author declaring the
   // ordering pass over its children finished — edges authored, or deliberately
   // none. Only meaningful on an epic row; absent means false, and nothing ever
   // derives or unsets it (see the shared parser for why it is an assertion, not
@@ -152,7 +152,7 @@ export type BacklogItem = {
   // stored here.
   mockups?: string[]
   // Mockup references (attached `mockups:` or body-detected) that resolve to no
-  // file on disk after the tolerant both-roots check (MC-1697). Attached by the
+  // file on disk after the tolerant both-roots check. Attached by the
   // async scan-enrichment pass in useSharedBacklogScan — never by the pure,
   // filesystem-free createBacklogItem — and surfaced as a row warning (shown,
   // never dropped, mirroring the dangling-prerequisite discipline). `undefined`

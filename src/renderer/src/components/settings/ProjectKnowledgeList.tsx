@@ -279,8 +279,8 @@ export function ProjectKnowledgeList({ activeProjectRoot }: ProjectKnowledgeList
                   {/* A path is an identifier, so the field is mono. Its chrome is
                       the kit's: this module used to declare a SECOND, different
                       `ROW_INPUT_CLASS` — same name as SettingsPanel's, different
-                      ground and width — so "the" row input was a coin flip
-                      (MC-2114). */}
+                      ground and width — so "the" row input was a coin flip.
+                     */}
                   <Input
                     value={drafts[entry.key] ?? ''}
                     aria-label={`Knowledge folder for ${entry.name}`}

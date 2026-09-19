@@ -1,4 +1,4 @@
-// Multi-selection model for the Backlog list (MC-2060): the pure state machine
+// Multi-selection model for the Backlog list: the pure state machine
 // behind BacklogPanel's shift-click / cmd-click / shift+↑↓.
 //
 // The model deliberately does NOT own the cursor. The list already has a

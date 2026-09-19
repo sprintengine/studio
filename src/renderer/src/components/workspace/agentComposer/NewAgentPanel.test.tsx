@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
 test('NewAgentPanel', async () => {
-  // MC-2147 — the launch surface behind the tab strip's "+". Rendered for real,
+  // The launch surface behind the tab strip's "+". Rendered for real,
   // because the acceptance is about what a person sees and presses:
   //
   //   1. the row shows what a launch usually changes — engine and access — while
@@ -157,7 +157,7 @@ test('NewAgentPanel', async () => {
     },
   }
   // The MCP server these checks pick. It is INSTALLED — since the third-party
-  // retirement (MC-2519, 2026-09-08) there is no catalogue to offer one from, so
+  // retirement (2026-09-08) there is no catalogue to offer one from, so
   // the picker's rows are the workspace's own servers and nothing else. Its
   // `clients` deliberately do NOT include the launch CLI, because that is what
   // still makes picking it a real write: the pick adds the CLI and syncs the
@@ -851,7 +851,7 @@ test('NewAgentPanel', async () => {
       assert.ok(surface(), 'the picker opened')
       const text = surface()!.textContent ?? ''
       // No "Add": the picker's Add rows were the bundled catalogue's servers,
-      // and the catalogue is gone (MC-2519). What is left under MCP servers is
+      // and the catalogue is gone. What is left under MCP servers is
       // the studio gateway (Included) and the servers this workspace installed.
       for (const label of [
         'Skills in this workspace',
@@ -999,8 +999,8 @@ test('NewAgentPanel', async () => {
     // 5d. The door's connector list is the union of what is installed and what
     //     the catalogue offers — so a server that arrived by installing a PLUGIN
     //     is listed here on its own — which is now the only way a server gets
-    //     here at all, since the bundled catalogue was retired (MC-2519,
-    //     2026-09-08; backlog/2026-09-06-shipped-mcp-servers-are-plugins.md).
+    //     here at all, since the bundled catalogue was retired
+    //     (2026-09-08; backlog/2026-09-06-shipped-mcp-servers-are-plugins.md).
     //     Checked against the row builder rather than through the render above,
     //     because the claim is about which rows exist, not about pressing one.
     await check('a server installed from a plugin is a row of its own', async () => {

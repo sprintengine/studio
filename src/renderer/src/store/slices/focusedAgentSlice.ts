@@ -3,7 +3,7 @@ import type { AgentId, WorkspaceId } from '../../types/workspace'
 
 // Which agent a workspace is "on" (sidebar-lists-every-terminal): the agent
 // whose tab was selected last. The branch chip follows it, and later the Git
-// panel (MC-2441) reads the same answer rather than inventing a second one.
+// panel reads the same answer rather than inventing a second one.
 //
 // Written on tab selection, never cleared on blur — that is what makes "with
 // no tab focused, the last one that was" true for free. Per window and

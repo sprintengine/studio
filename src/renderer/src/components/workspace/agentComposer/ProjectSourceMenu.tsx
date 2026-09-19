@@ -20,7 +20,7 @@ import { basename } from '../../../utils/paths'
 
 // The New-chat project selector's body (remote-sessions-ux /
 // project-selector-sources): one surface that searches the projects, browses
-// the disk, and imports from Git — the shipped MC-2207 clone machinery
+// the disk, and imports from Git — the shipped clone machinery
 // (GitHubRepoPicker, github-repos, git-clone) resurfaced where the owner
 // wants everything created, stepped in place rather than stacking a second
 // dialog on the first.

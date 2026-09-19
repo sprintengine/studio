@@ -16,7 +16,7 @@ import { writeTailnetSettings } from './tailnet/tailnet-settings'
 import { test } from 'vitest'
 
 test('tailnet-pair-approval', async () => {
-  // Pairing by approval on the machine being driven (MC-2233).
+  // Pairing by approval on the machine being driven.
   //
   // The half that runs over the wire is exercised against a REAL listener on a
   // real socket with a real device store, exactly as the carried-code round trip

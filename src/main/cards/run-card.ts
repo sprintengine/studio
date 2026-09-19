@@ -339,7 +339,7 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     // And where it names is **Settings → Agents**, not the Agent CLIs view in
     // the Extensions door, even though the door is the surface the person
     // pressing Go is standing in (decided 2026-09-06,
-    // backlog/2026-09-06-the-seams-that-lead-nowhere.md §3). MC-2093's rule is
+    // backlog/2026-09-06-the-seams-that-lead-nowhere.md §3). The single-destination rule is
     // that every "there is no agent CLI here" state ends in one place, and
     // `cliInstallRoute.tsx` is that place — the empty launcher, the agent
     // pickers, and the CLI install row in the card's own Go picker all open
@@ -373,7 +373,7 @@ export async function runCard(input: CardRunInput, deps: CardRunDeps): Promise<C
     // settings that already hold the server rewrites the same bytes, so the
     // repeat costs a file write and changes nothing.
     const existing = servers[action.id]
-    // The bundled MCP catalogue is gone (MC-2519, 2026-09-08): it listed
+    // The bundled MCP catalogue is gone (2026-09-08): it listed
     // sixteen servers nobody here wrote, and the studio stopped shipping other
     // people's software. There is no longer any list this build can turn a bare
     // catalogue id into a server config from — an MCP server now arrives inside

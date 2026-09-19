@@ -108,7 +108,7 @@ test('snapshot-request', async () => {
   // Acceptance (T2 #3): change detection is intact after dropping wall-clock — a
   // backlog-only and an automations-only change EACH still move the top-level version.
   // Read-time `generatedAt` is held fixed so the only variable is the mutated
-  // collection. The sprint-engine-state arm went with the engine (MC-2575).
+  // collection. The sprint-engine-state arm went with the engine.
   async function assertBacklogAndAutomationsChangesEachBumpTheVersion(): Promise<void> {
     // Backlog-only.
     {
@@ -270,7 +270,7 @@ test('snapshot-request', async () => {
   // One idle foregrounded phone's steady-state fleet: a working backlog and one
   // scheduled automation — the shape a phone re-pulls every 20 s while nothing
   // changes. It used to carry a live sprint run as well, which was the bulk of the
-  // payload; since MC-2575 the backlog is the bulk, so the fixture seeds a
+  // payload; since the Sprint Engine left, the backlog is the bulk, so the fixture seeds a
   // realistic number of items rather than the two that only ever existed to prove
   // the collection was non-empty.
   const idleFleetBacklogItems = 10

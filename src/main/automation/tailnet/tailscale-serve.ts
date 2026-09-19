@@ -3,7 +3,7 @@ import { parseTailscaleStatus } from './tailnet-peers'
 import { runTailscale, runTailscaleResult, type TailscaleRun } from './tailscale-cli'
 
 // Turning a dev server on THIS machine into a URL the rest of the tailnet can
-// open — the read side of remote control's promise, where the listener (MC-2162)
+// open — the read side of remote control's promise, where the listener
 // was the write side.
 //
 // The mechanism is `tailscale serve`, and the reason it is the right one is

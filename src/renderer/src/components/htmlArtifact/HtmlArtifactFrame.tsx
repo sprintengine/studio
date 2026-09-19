@@ -12,7 +12,7 @@ import { basename } from '../../utils/paths'
 // rule for its own inert frame.
 
 // The preview never shows an undesigned void: every non-rendered situation maps
-// to one of four designed states derived from a real file signal (MC-1505).
+// to one of four designed states derived from a real file signal.
 // `generating` = the file exists but is still empty (the agent is mid-write);
 // `deleted` = the selected file is gone from disk; `error` = it could not be
 // read. `loading` is the brief first read before any of these resolve.
@@ -98,7 +98,7 @@ function browserOpenFailureMessage(relativePath: string, failure: 'missing' | 'h
  * A human display title for a file, used as the fallback when no HTML `<title>`
  * is present: drop the extension, strip a leading ISO date prefix
  * (`2026-07-06-panel-header.html` → `Panel header`) so a raw date-prefixed
- * filename never reads as a primary label (MC-1505), then sentence-case.
+ * filename never reads as a primary label, then sentence-case.
  */
 export function humanizeFileTitle(name: string): string {
   const base = basename(name)
@@ -462,7 +462,7 @@ type PreviewStateGlyph = 'deleted' | 'error'
 
 /**
  * A designed non-render state shared by the HTML preview frame and the artifact
- * preview pane (MC-1505): a shape glyph, a title, an optional demoted path, and
+ * preview pane: a shape glyph, a title, an optional demoted path, and
  * body copy — neutral by default, warn-toned for a genuine failure. The glyph
  * shape (not color) carries the meaning, so it survives grayscale. `skeleton`
  * swaps the glyph for a shimmer stack for the generating/loading states.

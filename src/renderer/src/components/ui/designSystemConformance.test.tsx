@@ -38,7 +38,7 @@ test('designSystemConformance', async () => {
   // Two later items extend the suite on the same terms:
   //
   //   2003/2005  the Design door's canvas and create screen (mounted, below).
-  //   MC-2109    the modal focus trap, mounted; and the one z ladder, which is
+  //   focus trap   the modal focus trap, mounted; and the one z ladder, which is
   //              the suite's single source-read rule — the overlay shells it
   //              polices are whole app screens that cannot be mounted here, and
   //              the rule is about the literal a developer types.
@@ -320,13 +320,13 @@ test('designSystemConformance', async () => {
       }
     })
 
-    // MC-2107: the retired second idiom. A focus-scoped border recolour is not an
+    // The retired second idiom. A focus-scoped border recolour is not an
     // indicator — it moves no pixels, and on a field whose resting border already
     // sits near the focus hue it is invisible. It had spread to whole form
     // families, so the tree-wide sweep is enforced by the `focus-border-swap` rule
     // in scripts/lint-design-system-conformance.mjs, which reads every renderer
     // source; what belongs HERE is the composed tree keeping the same clause.
-    await run('MC-2107 no control in the tree swaps a border on focus instead of wearing the ring', () => {
+    await run('no control in the tree swaps a border on focus instead of wearing the ring', () => {
       for (const element of subtree(container.firstElementChild as Element)) {
         for (const token of classesOf(element)) {
           assert.ok(
@@ -980,7 +980,7 @@ test('designSystemConformance', async () => {
       root.unmount()
     })
 
-    // --- MC-2109: the modal focus trap ---------------------------------------
+    // --- the modal focus trap ---------------------------------------
     // Mounted, not read: the trap is behaviour. jsdom moves no focus on Tab, so
     // what is asserted here is the mechanism the browser's Tab lands on — the
     // sentinel that sits immediately before and after the dialog in the tab
@@ -1009,7 +1009,7 @@ test('designSystemConformance', async () => {
 
     const sentinels = Array.from(trapContainer.querySelectorAll('[data-focus-sentinel="true"]')) as HTMLElement[]
 
-    await run('MC-2109 a Modal mounts one sentinel each side of the dialog it declares modal', () => {
+    await run('a Modal mounts one sentinel each side of the dialog it declares modal', () => {
       assert.equal(sentinels.length, 2, 'the dialog is guarded on both edges')
       const dialog = trapContainer.querySelector('[role="dialog"]')
       assert.ok(dialog, 'the dialog mounted')
@@ -1028,12 +1028,12 @@ test('designSystemConformance', async () => {
       }
     })
 
-    // The same mount, read for geometry (MC-2110). The source rules further down
+    // The same mount, read for geometry. The source rules further down
     // police what a developer may TYPE; this is what a dialog actually renders,
     // which is the claim that matters: the primitive shipped shadowless, so the
     // surface every other dialog is supposed to converge on was the one that
     // looked wrong.
-    await run('MC-2110 the default Modal renders the shell chrome and a step of the width scale', () => {
+    await run('the default Modal renders the shell chrome and a step of the width scale', () => {
       const dialog = trapContainer.querySelector('[role="dialog"]') as HTMLElement | null
       assert.ok(dialog, 'the dialog mounted')
       const classes = classesOf(dialog)
@@ -1054,7 +1054,7 @@ test('designSystemConformance', async () => {
       assert.equal(dialog.style.maxWidth, '95vw', 'and every step gives way to the viewport the same amount')
     })
 
-    await run('MC-2109 Tab off the end of the dialog returns to its first control', () => {
+    await run('Tab off the end of the dialog returns to its first control', () => {
       act(() => {
         sentinels[1].focus()
       })
@@ -1065,7 +1065,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2109 Shift+Tab off the front of the dialog returns to its last control', () => {
+    await run('Shift+Tab off the front of the dialog returns to its last control', () => {
       act(() => {
         sentinels[0].focus()
       })
@@ -1096,7 +1096,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2109 the trapped region is what the trap wraps, never a sibling beside it', () => {
+    await run('the trapped region is what the trap wraps, never a sibling beside it', () => {
       const edges = Array.from(trapContainer.querySelectorAll('[data-focus-sentinel="true"]')) as HTMLElement[]
       assert.equal(edges.length, 2, 'the trap mounted its sentinels')
       act(() => {
@@ -1114,7 +1114,7 @@ test('designSystemConformance', async () => {
     })
     trapContainer.remove()
 
-    // --- MC-2109: one z ladder, and overlays read it by name -----------------
+    // --- one z ladder, and overlays read it by name -----------------
     // Read from source, not from the tree: the overlay shells this rule polices
     // are whole app screens (the command palette, the diagnostics overlay) that
     // cannot be mounted here, and the rule is about the
@@ -1128,7 +1128,7 @@ test('designSystemConformance', async () => {
     // paints the `.overlay-scrim`. In-flow depth inside a pane (`z-10` on a HUD,
     // `z-20` on a docked pane, `z-30` on a panel-internal popover) describes
     // depth within one surface, not a layer in the app's stack, and is left alone.
-    await run('MC-2109 no overlay shell carries a raw z literal — layering comes from --z-* tokens', () => {
+    await run('no overlay shell carries a raw z literal — layering comes from --z-* tokens', () => {
       const rendererRoot = join(process.cwd(), 'src/renderer/src')
       const sources: string[] = []
       const walk = (dir: string): void => {
@@ -1162,7 +1162,7 @@ test('designSystemConformance', async () => {
       assert.deepEqual(offenders, [], 'overlay z literals must name a tier: z-[var(--z-modal)] and friends')
     })
 
-    // --- MC-2108: selection never borrows the hover fill ---------------------
+    // --- selection never borrows the hover fill ---------------------
     // Read from source for the same reason as the z rule above: the surfaces this
     // polices are whole app screens (the file tree, the git graph, the Backlog
     // list) that cannot be mounted here, and the rule is about the
@@ -1179,7 +1179,7 @@ test('designSystemConformance', async () => {
     // a selection state's name. `active` is not one of those names on purpose: in
     // a menu or a listbox it names the keyboard cursor, whose canon IS the hover
     // fill (ui/menuClasses, ui/Select), and one idea deserves one token.
-    await run('MC-2108 no selected-state class paints the hover or active fill', () => {
+    await run('no selected-state class paints the hover or active fill', () => {
       const rendererRoot = join(process.cwd(), 'src/renderer/src')
       const sources: string[] = []
       const walk = (dir: string): void => {
@@ -1267,7 +1267,7 @@ test('designSystemConformance', async () => {
           // exempts in principle: `active` names the cursor, and the hover fill IS
           // its canon. What the window cannot see is a picker carrying BOTH marks —
           // `CliModelPicker` highlights with `--bg-hover` and keeps `--bg-selected`
-          // for the runtime in force (MC-2134) — where the two branches are
+          // for the runtime in force — where the two branches are
           // necessarily one ternary, and so inside each other's window no matter
           // how the file is written. Narrow on purpose: the fill's OWN branch must
           // be the one `active` governs, on its line or the one above it, and the
@@ -1285,7 +1285,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    // --- MC-2110: one geometry scale for every floating surface --------------
+    // --- one geometry scale for every floating surface --------------
     // Source-read for the same reason the z rule is: the shells are whole app
     // screens, and the rule is about the literal a developer types.
     const rendererSources = (): string[] => {
@@ -1316,7 +1316,7 @@ test('designSystemConformance', async () => {
     // lives in. In-flow chrome is left alone, and so are the ~460 radius
     // off-ramps the `designSystemAxes` ratchet is draining — this is not that
     // sweep.
-    await run('MC-2110 a floating surface takes its radius from the shape ramp', () => {
+    await run('a floating surface takes its radius from the shape ramp', () => {
       // The ramp is 3 / 7 / 7 / 9 — chip, control, overlay, shell — reachable as
       // `--radius-xs/sm/md/lg`, as the NAMED Tailwind step (`rounded-sm` resolves
       // through the rebound `--radius-sm`, which is the kit's spelling), or as
@@ -1350,7 +1350,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2110 no overlay spells its own shadow', () => {
+    await run('no overlay spells its own shadow', () => {
       // A shadow with a TUNED colour in it rather than a token. The five that
       // shipped were all the same string — `0 8px 24px -12px rgba(0,0,0,0.6)`,
       // which is literally what `--sem-shadow-drawer` resolves to in DARK mode —
@@ -1385,7 +1385,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2110 every dialog shell draws the same chrome, off the same width scale', () => {
+    await run('every dialog shell draws the same chrome, off the same width scale', () => {
       // The shells the item names, each asserted to consume the canon rather than
       // a copy of it. Named files, because the point is that these specifically
       // had five widths, four radii and three shadow decisions between them; a
@@ -1430,7 +1430,7 @@ test('designSystemConformance', async () => {
       assert.ok(!/\bwidth\?:/.test(modal), 'Modal takes a step on the width scale (`size`), never a raw width')
     })
 
-    // --- MC-2113: one primary, one control ramp ------------------------------
+    // --- one primary, one control ramp ------------------------------
     // Source-read, for the same reason the three rules above are: the surfaces
     // are whole app screens — the Git panel, the chat composer, the creation hub,
     // the guided brief — and each rule is about the literal a developer types.
@@ -1445,7 +1445,7 @@ test('designSystemConformance', async () => {
     // ramp at 6px radius beside the kit's 26/30/34 at 5px, so buttons that should
     // have been siblings differed by a pixel or two everywhere.
 
-    await run('MC-2113 no button fills itself with the ink token', () => {
+    await run('no button fills itself with the ink token', () => {
       // `--text-strong` is a TEXT tier. Spending it as a background is how the
       // inverted high-contrast button was built, and it needs a hover partner no
       // token ships — which is exactly why the retired `--bg-inverted-hover`
@@ -1473,7 +1473,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2113 on-accent ink is --text-on-accent, never the app canvas', () => {
+    await run('on-accent ink is --text-on-accent, never the app canvas', () => {
       // The two coincide on the dark default, so this reads as correct until the
       // first theme where they do not — and there are nineteen. Rejected outright
       // rather than only in accent company: `--bg-app` is a SURFACE token, and
@@ -1496,10 +1496,10 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2113 every labelled button in the Git surfaces sits on the control ramp', () => {
+    await run('every labelled button in the Git surfaces sits on the control ramp', () => {
       // Named files, not "every file": the ramp split was THIS panel family's, and
       // a rule phrased over the whole tree would be a repo-wide height sweep that
-      // MC-2113 did not do and this suite would then be asserting falsely. The
+      // the button sweep did not do and this suite would then be asserting falsely. The
       // rest of the tree drains through the `designSystemAxes` ratchet.
       //
       // Scope inside them is an INTERACTIVE control: a class string that spends a
@@ -1549,7 +1549,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2113 the dialog footer button IS the kit primitive, not a fourth one', () => {
+    await run('the dialog footer button IS the kit primitive, not a fourth one', () => {
       // `ModalButton` is a name for the footer's three roles, nothing more. It
       // shipped as its own control — padding-sized rather than ramp-heighted, at a
       // 6px radius against the kit's 5px — which made it the third rival primary
@@ -1598,7 +1598,7 @@ test('designSystemConformance', async () => {
       // The list GROWS as surfaces converge, and that is the point: a directory
       // scope plus an unscoped acceptance claim ("the sweep is complete") is how
       // four bands survived three sweeps — each was outside the four directories
-      // below and so read as done without being done (MC-2138). The four added
+      // below and so read as done without being done. The four added
       // here are that item's: the kit's own `FilePreviewPane` and the
       // `WorkspacePanel` shell, the knowledge-graph preview drawer, and the HTML
       // artifact frame's bands, which drew their rule in a SURFACE token.
@@ -1678,11 +1678,11 @@ test('designSystemConformance', async () => {
       )
     })
 
-    // --- MC-2138: the menu row canon, outside the kit that declares it --------
+    // --- the menu row canon, outside the kit that declares it --------
     // Source-read for the reason the header-band rule above is: the surfaces are
     // whole app screens, and the rule is about the literal a developer types.
     //
-    // MC-2103 put the menu's material in `ui/menuClasses` and converged the five
+    // The menu sweep put the menu's material in `ui/menuClasses` and converged the five
     // kit hosts onto it. What survived was every menu row the kit does not own:
     // both in-app menubar fallbacks, the account menu, the reasoning
     // selector. Each was the same hand-roll — `rounded px-2`
@@ -1789,7 +1789,7 @@ test('designSystemConformance', async () => {
       return found
     }
 
-    await run('MC-2138 every swept menu row is the shared row, not a copy of it', () => {
+    await run('every swept menu row is the shared row, not a copy of it', () => {
       const offenders: string[] = []
       for (const path of rendererSources()) {
         const relative_ = relative(join(process.cwd(), 'src/renderer/src'), path)
@@ -1808,7 +1808,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2138 no swept menu surface pads itself horizontally', () => {
+    await run('no swept menu surface pads itself horizontally', () => {
       // `MENU_LIST_CLASS` is vertical padding ONLY: horizontal surface padding is
       // what forces the inset rounded fill the menu spec rules out, and it is the
       // shape every one of these surfaces had (`p-1`, and `w-44 p-1` twice over).
@@ -1839,7 +1839,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2138 a menu row is a control, never a div wearing the role', () => {
+    await run('a menu row is a control, never a div wearing the role', () => {
       // Renderer-wide, unlike the two above: this is not a convergence claim but
       // an accessibility one, and it holds everywhere already. `role="menuitem"`
       // announces something a person can activate. The notifications popover put
@@ -1865,7 +1865,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    // --- MC-2114: one input vocabulary, one Field, one control ramp -----------
+    // --- one input vocabulary, one Field, one control ramp -----------
     // The product carried EIGHT hand-rolled field vocabularies plus a ninth found
     // during the sweep, and two different components both exported as `Field`
     // through the same barrel — one of them with no `htmlFor` and no ARIA at all,
@@ -1923,7 +1923,7 @@ test('designSystemConformance', async () => {
     const OWN_BORDER = /(?:^|["'`\s])border-\[(?:color:)?var\(--border-[a-z]+\)\]/
     const OWN_GROUND = /(?:^|["'`\s])bg-\[(?:color:)?var\(--bg-[a-z-]+\)\]/
 
-    await run('MC-2114 no swept surface hand-rolls a field box — the box is ui/Input', () => {
+    await run('no swept surface hand-rolls a field box — the box is ui/Input', () => {
       const offenders: string[] = []
       for (const file of SWEPT_FIELD_SURFACES) {
         if (FIELD_RULINGS[file]) continue
@@ -1942,7 +1942,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2114 every swept field sits on the 26/30/34 control ramp', () => {
+    await run('every swept field sits on the 26/30/34 control ramp', () => {
       // A height spelled as a Tailwind step or a pixel count is by definition not
       // a step on the ramp — the ramp is reachable only as `h-control-xs/sm/md`,
       // which is what makes moving it a one-line edit. `min-h-`/`max-h-` are left
@@ -1967,7 +1967,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2114 exactly one Field is exported from the kit, and nobody imports a second', () => {
+    await run('exactly one Field is exported from the kit, and nobody imports a second', () => {
       const barrel = readFileSync(join(process.cwd(), 'src/renderer/src/components/ui/index.ts'), 'utf8')
       const exportsField = barrel
         .split('\n')
@@ -2004,7 +2004,7 @@ test('designSystemConformance', async () => {
       assert.deepEqual(importers, [], 'Field comes from `../ui`, never from `../ui/Modal`')
     })
 
-    await run('MC-2114 a Field that names a control wraps a control, not a wrapper div', () => {
+    await run('a Field that names a control wraps a control, not a wrapper div', () => {
       // `Field` clones its `htmlFor` onto its child. Given a layout wrapper the id
       // lands on a `<div>` — which cannot be labelled, so the `<label for>`
       // addresses nothing — and where the composite ALSO held a real field
@@ -2080,7 +2080,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2114 a Field labels a real control — an input, a textarea, and a Select alike', () => {
+    await run('a Field labels a real control — an input, a textarea, and a Select alike', () => {
       for (const id of ['seam-field-input', 'seam-field-textarea', 'seam-field-select']) {
         const label = fieldContainer.querySelector(`label[for="${id}"]`)
         assert.ok(label, `the Field renders a <label for="${id}">`)
@@ -2099,7 +2099,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2114 a Field with no htmlFor labels nothing and clones nothing', () => {
+    await run('a Field with no htmlFor labels nothing and clones nothing', () => {
       // The composite form has to be honest in both directions: no `<label for>`
       // pointing at an element that cannot be labelled, and no id smuggled onto
       // the caller's wrapper — which is what silently replaced the group's own id
@@ -2122,7 +2122,7 @@ test('designSystemConformance', async () => {
       )
     })
 
-    await run('MC-2114 the kit field draws one ramp height and one focus treatment', () => {
+    await run('the kit field draws one ramp height and one focus treatment', () => {
       const input = fieldContainer.querySelector('#seam-field-input') as Element
       const classes = classesOf(input)
       assert.ok(

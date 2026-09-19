@@ -1,4 +1,4 @@
-// The hosted sources feed's client and its schema gate (MC-2519).
+// The hosted sources feed's client and its schema gate.
 //
 // Same five rules as the model feed's client — remote > cache > seed with a
 // newer seed winning, one fetch per TTL, a retry gap after a failure, ETag/304,

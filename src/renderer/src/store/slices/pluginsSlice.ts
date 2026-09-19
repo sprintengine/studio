@@ -1,7 +1,7 @@
 import type { PluginCatalogEntry, PluginCatalogStatus } from '../../types/workspace'
 
 // `resumeCapabilitiesForCli` moved to the shared resume-capability module
-// (MC-2160: main-process consumers resolve caps from
+// (main-process consumers resolve caps from
 // the same catalog shape); this re-export keeps every existing import site
 // working unchanged.
 export { resumeCapabilitiesForCli } from '../../../../shared/agent-cli-resume'

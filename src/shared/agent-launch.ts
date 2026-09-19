@@ -1,5 +1,5 @@
 /**
- * The agent-launch contract main owns (MC-2159).
+ * The agent-launch contract main owns.
  *
  * Launching an agent used to be split in two: a React hook decided the CLI,
  * permission preset, connector environment and name, wrote
@@ -32,7 +32,7 @@ export type AgentLaunchRequest = {
   prompt?: string
   /** Model id for CLIs declaring modelSelection; forwarded verbatim. */
   cliModel?: string
-  /** Absent takes the app-level agent-spawn default (MC-1900). */
+  /** Absent takes the app-level agent-spawn default. */
   permissionPreset?: CliPermissionPreset
   /** Git worktree to run in, instead of the workspace checkout. */
   worktreePath?: string

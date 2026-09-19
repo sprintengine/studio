@@ -1,7 +1,7 @@
 import type { LayoutTemplate, PreviewSlot } from '../../renderer/src/types/workspace'
 import { AUTOMATIONS_HOST_WORKSPACE_MODE, type WorkspaceMode } from '../workspace-mode'
 
-// Layout templates live in `shared` (MC-2158) because main mints workspaces
+// Layout templates live in `shared` because main mints workspaces
 // now: a headless `workspace.create` — the gateway, an automation, the
 // scheduler, a phone — must produce a fully-formed record, and a workspace with
 // no layout is not fully formed. They were always plain FlexLayout `IJsonModel`
@@ -233,7 +233,7 @@ export const LAYOUT_TEMPLATES: LayoutTemplate[] = [
 ]
 
 // ---------------------------------------------------------------------------
-// Headless template resolution (MC-2158)
+// Headless template resolution
 // ---------------------------------------------------------------------------
 
 // The single-surface host layouts, as plain data. Their renderer registrations

@@ -2,7 +2,7 @@
  * The text-generation contract: what a caller asks for, what comes back, and
  * which agent CLIs can answer at all.
  *
- * The premise (MC-2423, MC-2484): the person's own installed agent CLI,
+ * The premise: the person's own installed agent CLI,
  * headless, one shot, structured output, under the subscription the CLI is
  * already logged into. No API key is read or sent anywhere on this path.
  *
@@ -21,7 +21,7 @@ export type TextGenerationEngine = {
 /**
  * What a generation call can fail with. Every code is a reason to keep what
  * the caller already had, never a reason to show an error: a title that does
- * not arrive is the heuristic title, silently (MC-2484 rule of record).
+ * not arrive is the heuristic title, silently (rule of record).
  */
 type TextGenerationFailureCode =
   | 'unsupported' // no backend for this CLI

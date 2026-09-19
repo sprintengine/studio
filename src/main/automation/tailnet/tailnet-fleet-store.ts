@@ -6,7 +6,7 @@ import { normalizeTailnetScopes, type TailnetScope } from '../../../shared/tailn
 import type { FleetConnection } from '../../../shared/tailnet-fleet'
 import { isRecord } from '../../../shared/records'
 
-// The tokens THIS machine holds for OTHER machines (MC-2167).
+// The tokens THIS machine holds for OTHER machines.
 //
 // The mirror image of `tailnet-devices.ts`, and deliberately not the same file:
 // that one stores hashes of credentials other machines present to us, which is

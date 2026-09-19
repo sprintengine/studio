@@ -301,7 +301,7 @@ function renderBody(
   showPreview: boolean,
   monacoTheme: 'vs' | 'vs-dark',
 ): React.ReactNode {
-  // Kit states, not the window's own dialect (MC-2115): the sentences a person
+  // Kit states, not the window's own dialect: the sentences a person
   // reads are `EmptyState` copy rather than `--text-disabled` mono, and a read
   // failure is the kit's notice.
   if (!activeTab || !activePath) {

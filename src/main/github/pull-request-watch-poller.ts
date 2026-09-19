@@ -2,7 +2,7 @@
  * The pull-request watch: a backoff-scheduled re-probe of things whose state
  * changes on GitHub, outside the app, long after the local work finished.
  *
- * Built for MC-2155 (a pull request's merge state self-healing with no window
+ * Built for a pull request's merge state self-healing with no window
  * open) and generalised over `{ key, isWatchable, probe }`, so the conversation
  * pull request record (`main/pull-request-record.ts`, epic `pull-request-marks`
  * decision 9) rides this schedule rather than a second one with the same

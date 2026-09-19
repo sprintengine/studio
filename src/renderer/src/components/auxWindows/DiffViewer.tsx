@@ -377,7 +377,7 @@ function DiffSettingsMenu({
   )
 }
 
-// The aux window's empty states were their own dialect (MC-2115): bare centred
+// The aux window's empty states were their own dialect: bare centred
 // mono text, no CTA, and copy a person is meant to READ rendered in
 // `--text-disabled` — the ink of a dead control. They are the kit's `EmptyState`
 // now; a failure is the kit's notice, because a failure is not an empty state.

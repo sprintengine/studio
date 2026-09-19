@@ -1,4 +1,4 @@
-// The deep-link latch for the Extensions door (MC-1847 B1). The
+// The deep-link latch for the Extensions door. The
 // `openExtensionsSurface({ view })` callers — the command palette, Settings →
 // Modules, and the agent "Manage skills" footers — mean "open the door and land
 // on this row", but the door may open a tick before the surface mounts and

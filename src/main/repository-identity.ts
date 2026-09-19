@@ -8,7 +8,7 @@ import {
   type RepositoryIdentityRead,
 } from '../shared/repository-identity'
 
-// The main-side half of one-project-across-machines (MC-2406): which
+// The main-side half of one-project-across-machines: which
 // repository a folder is a clone of, as its primary remote names it.
 //
 // Read on demand and cached briefly, because the two readers — the sidebar's

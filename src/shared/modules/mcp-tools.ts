@@ -1,4 +1,4 @@
-// MCP tool contract for the Studio gateway (MC-1855). Node-free on purpose:
+// MCP tool contract for the Studio gateway. Node-free on purpose:
 // these shapes are shared by the socket server (src/main/automation), the
 // module host's contribution point (MainHost.registerMcpTools), and the SDK
 // mirror in packages/module-sdk — src/shared cannot import src/main (TS6307).
@@ -37,7 +37,7 @@ export type McpConnectionMetadata = {
   /**
    * `studio-agent`/`external-local` reach the gateway over the owner-only local
    * socket and their identity is advisory — anything with filesystem access
-   * could claim it. `remote-tailnet` is the opt-in tailnet listener (MC-2162),
+   * could claim it. `remote-tailnet` is the opt-in tailnet listener,
    * where the transport PROVED which paired device is calling before dispatch.
    */
   kind: 'studio-agent' | 'external-local' | 'remote-tailnet'
@@ -60,7 +60,7 @@ export type McpConnectionContext = {
 // Result shaping every gateway tool needs, core-owned and module-owned alike.
 // They live beside the contract rather than in core's gateway file so a module
 // tree can answer in the gateway's own vocabulary without importing core's
-// gateway (MC-1856). Types above are drift-guarded against the SDK mirror;
+// gateway. Types above are drift-guarded against the SDK mirror;
 // these helpers are not part of that mirror.
 
 export function toolSuccess(structured: Record<string, unknown>): McpToolResult {

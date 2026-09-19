@@ -25,7 +25,7 @@ import type { BacklogItem } from '../../utils/backlog'
 // are the header's own. The surface the button opens is `CliModelPopoverSurface`
 // — the SAME picker the new-chat engine control opens — and clicking a model
 // row IS the handoff, in one action, the way the spawn picker made a model row
-// spawn (MC-2122). There is no roster of identities in front of it and no
+// spawn. There is no roster of identities in front of it and no
 // confirm step behind it.
 //
 // What the agent is handed is the Backlog skill's own invocation for the CLI

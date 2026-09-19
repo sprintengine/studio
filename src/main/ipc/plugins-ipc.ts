@@ -50,7 +50,7 @@ function createPluginIpcHandlers(): PluginIpcHandlers {
         return { ok: false, message: formatError(err) }
       }
     },
-    // The launch surface's receipt line (MC-2147). Rendered in main because the
+    // The launch surface's receipt line. Rendered in main because the
     // renderer's plugin catalog deliberately withholds argv — and rendered
     // through the spawn's own function, so the line cannot drift from what a
     // launch would do.

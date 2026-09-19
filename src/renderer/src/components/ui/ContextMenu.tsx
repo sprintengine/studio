@@ -45,7 +45,7 @@ import type { HighlightColor } from '../../types/workspace'
 // across enabled items, and checkable items render role="menuitemcheckbox"
 // with aria-checked.
 
-// The surface comes from `menuClasses`, not from here (MC-2103). This component
+// The surface comes from `menuClasses`, not from here. This component
 // used to spell its own — 6px radius, `border-default`, `bg-surface`, 4px
 // padding all round, `text-body` items — while every other menu in the app
 // rendered inside `Popover` at 7px, `border-strong`, `bg-surface-raised` with
@@ -215,7 +215,7 @@ type MenuItemProps = Omit<
 > & {
   children: React.ReactNode
   /**
-   * Receives the event. Widened from `() => void` (MC-2118 sweep, 2026-09-08):
+   * Receives the event. Widened from `() => void` (drift sweep, 2026-09-08):
    * the Windows/Linux app menu positions the native popup from the clicked
    * row's rect, and a handler that could not see the event had to stay a raw
    * `<button>` wearing `MENU_ITEM_CLASS` for that one reason.
@@ -366,7 +366,7 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
             // The strip is a HORIZONTAL radio group of 20px circles. `menuitemradio` is what ARIA
             // requires of any child of a menu, and the shared row's full-bleed geometry would draw
             // seven stacked rows where the control is one line of dots.
-            // design-tokens-allow: 2026-08-05 (MC-2138) — a swatch, not a menu row.
+            // design-tokens-allow: 2026-08-05 — a swatch, not a menu row.
             role="menuitemradio"
             aria-checked={value === null}
             data-menu-item="true"
@@ -399,7 +399,7 @@ export function MenuSwatchRow({ label, value, onPick, onClear, onItemKeyDown }: 
             <Tooltip key={color} content={swatch.label}>
               <button
                 type="button"
-                // design-tokens-allow: 2026-08-05 (MC-2138) — a swatch, not a menu row; see the
+                // design-tokens-allow: 2026-08-05 — a swatch, not a menu row; see the
                 // clear control above. The colour IS the control here.
                 role="menuitemradio"
                 aria-checked={selected}
@@ -493,7 +493,7 @@ export function ProjectColorSwatchRow({
                 // highlight row above: `menuitemradio` is what ARIA requires of
                 // a menu's children, and the shared full-bleed row would draw
                 // ten stacked lines where this control is one line of dots.
-                // design-tokens-allow: 2026-09-09 (MC-2138) — a swatch, not a menu row: the
+                // design-tokens-allow: 2026-09-09 — a swatch, not a menu row: the
                 // colour IS the control, so it cannot wear MENU_ITEM_CLASS's row geometry.
                 role="menuitemradio"
                 aria-checked={selected}
@@ -524,7 +524,7 @@ export function ProjectColorSwatchRow({
         <Tooltip content="No color">
           <button
             type="button"
-            // design-tokens-allow: 2026-09-09 (MC-2138) — the trailing swatch of the row
+            // design-tokens-allow: 2026-09-09 — the trailing swatch of the row
             // above, same shape and same carve-out from the shared menu row.
             role="menuitemradio"
             aria-checked={value === 'none'}

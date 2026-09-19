@@ -130,7 +130,7 @@ export function resolveModuleEnabled(overrides: ModuleEnablementOverrides, modul
   return overrides[module.manifest.id] ?? module.manifest.defaultEnabled
 }
 
-// `MESSAGE_CLASS` was this file's copy of the left tone-bar (MC-2115); the
+// `MESSAGE_CLASS` was this file's copy of the left tone-bar; the
 // install result is a kit notice when it failed and plain copy when it did not.
 type Message = ActionResult | null
 

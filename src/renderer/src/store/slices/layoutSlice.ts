@@ -122,7 +122,7 @@ export function stripRetiredModuleTabsFromLayout(layoutModel: unknown): unknown 
  * pane yet), adopt a still-docked Backlog into a record that already has a
  * pane (v74 — after v73 every record has one), then strip the retired tabs.
  * Reference-preserving when there is nothing to do, so it is safe on every
- * hydration — which is where it has to run: main owns the registry (MC-2158)
+ * hydration — which is where it has to run: main owns the registry
  * and hands the renderer records that never pass the persist ladder, so the
  * versioned rungs alone would miss them.
  */
@@ -203,7 +203,7 @@ type LayoutSliceSet = (mutator: (state: LayoutSliceCarrier) => void) => void
 
 export function createLayoutSlice(set: LayoutSliceSet): LayoutSlice {
   return {
-    // `layoutModel` is renderer-AUTHORED and main-PERSISTED (MC-2158). Only a
+    // `layoutModel` is renderer-AUTHORED and main-PERSISTED. Only a
     // window can compute a layout change — FlexLayout lives here — so the model
     // is applied locally and then sent as a command; main stores it. Main needs
     // the field at all because a workspace it mints headlessly must be fully

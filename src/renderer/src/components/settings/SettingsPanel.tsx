@@ -205,12 +205,12 @@ function isSettingsTabId(value: unknown): value is SettingsTabId {
 // on the General page). Map any legacy deep-link that named the old tab onto
 // its new home so bookmarked/menu routes still land correctly.
 //
-// 'telemetry' was listed here too until MC-2519 (2026-09-08). It named a tab
+// 'telemetry' was listed here too until 2026-09-08. It named a tab
 // this app never shipped a route to — no menu item, no deep-link, no caller
 // anywhere in the tree — so it aliased nothing to nothing.
 function resolveInitialSettingsTab(initialTab: string | null | undefined): string | null {
   if (initialTab === 'updates') return 'general'
-  // Voice dictation moved onto the module-contributed section path (MC-1861);
+  // Voice dictation moved onto the module-contributed section path;
   // legacy deep-links (persisted routes) land on its section tab.
   if (initialTab === 'voice-dictation') return moduleSectionTabId('voice-dictation')
   return initialTab ?? null
@@ -221,7 +221,7 @@ function resolveInitialSettingsTab(initialTab: string | null | undefined): strin
 // DIFFERENT field under the second's name: `--bg-surface` and full-width against
 // this one's `--bg-app` and content-sized). All four are `ui/Input` now: the
 // well recipe is the kit's `variant="well"`, and the settings inset is its `md`
-// step (MC-2114).
+// step.
 //
 // What stays here is per-field CONTENT, not chrome. `font-mono` because a row
 // input holds an identifier (a command, a model id, a token) rather than prose,
@@ -234,7 +234,7 @@ const ROW_FIELD = 'w-60 max-w-full font-mono'
 
 // Was a local `MessageBlock` with its own four-tone `border-l-2` bar — the
 // reject-on-sight pattern, two tabs away from the `InlineNotice` this file
-// already imported (MC-2115). The kit's `ActionResultMessage` carries the
+// already imported. The kit's `ActionResultMessage` carries the
 // ruling now: a failure or a degraded state is a notice, everything else is
 // copy. `accent` and `neutral` folded into `info` on the way — there is no
 // success notice in this system.
@@ -952,7 +952,7 @@ export default function SettingsPanel({
     const resolved = resolveInitialSettingsTab(initialTab)
     if (isSettingsTabId(resolved)) return resolved
     // A deep-link may land on a contributed section (the voice-dictation tab
-    // since MC-1861); a section that isn't actually visible falls back to the
+    // since top-bar items arrived); a section that isn't actually visible falls back to the
     // first visible tab via the effect below.
     if (typeof resolved === 'string' && resolved.startsWith(MODULE_SECTION_TAB_PREFIX)) return resolved
     return 'general'
@@ -1587,7 +1587,7 @@ export default function SettingsPanel({
                           `ConfirmDialog`). This row was
                           the one place that flipped it, so the confirming
                           button moved under the pointer depending on which
-                          surface you were on (MC-2117). */}
+                          surface you were on. */}
                       {githubTokenStatus?.configured ? (
                         <GhostButton
                           size="md"
@@ -1637,7 +1637,7 @@ export default function SettingsPanel({
                 ) : null}
 
                 {/* The cadence, said where the token that used to decide it
-                    lives (MC-2519). On the API fallback, without a token,
+                    lives. On the API fallback, without a token,
                     GitHub allows 60 requests an hour for the whole machine, so
                     plugin sources are checked once a day rather than hourly.
                     Over git the check is a `ls-remote` the limit does not

@@ -162,7 +162,7 @@ test('plugin-registry', async () => {
   // agree with the declared manifest capability per plugin. A future CLI wired
   // incorrectly (or a manifest whose capability drifts from the predicate) turns
   // a silent lost-conversation into a red build. Also pins the current bundled
-  // values, incl. opencode's deliberate resume-off (MC-1465).
+  // values, incl. opencode's deliberate resume-off.
   async function testResumeCapabilitiesProjectedAndConsistent(): Promise<void> {
     const registry = createPluginRegistry({
       bundledRoot: BUNDLED_ROOT,
@@ -176,13 +176,13 @@ test('plugin-registry', async () => {
       codex: { resumeSession: true, sessionIdFromCaller: false },
       opencode: { resumeSession: false, sessionIdFromCaller: false },
       // Grok Build's claude-style resume argv is wired but unverified end-to-end,
-      // so resume stays off (the MC-1464/MC-1465 discipline) until confirmed
+      // so resume stays off (the confirm-first discipline) until confirmed
       // against a real install; launch does pass our minted --session-id.
       grok: { resumeSession: false, sessionIdFromCaller: true },
       // Kimi K3 via Claude Code shares the claude binary's endpoint-independent
       // local session store (the verified zai path), so resume is on. The native
       // Kimi Code CLI and Cursor have their resume argv wired but unverified
-      // end-to-end, so resume stays off (MC-1464/MC-1465 discipline) and both
+      // end-to-end, so resume stays off (confirm-first discipline) and both
       // mint their own session ids.
       'kimi-claude': { resumeSession: true, sessionIdFromCaller: true },
       'kimi-code': { resumeSession: false, sessionIdFromCaller: false },
@@ -283,7 +283,7 @@ test('plugin-registry', async () => {
     // `--permission-mode default`. Sending no flag is a different preset now
     // (`none`), because Claude Code 2.1.228+ on a Pro/Max/Team plan reads no flag
     // as auto mode — so "say nothing" and "ask me every time" stopped being the
-    // same instruction (MC-2210).
+    // same instruction.
     const launchedNoPreset = renderPluginLaunch(plugin!.manifest, {
       sessionId: 'sid_demo',
     })
@@ -366,7 +366,7 @@ test('plugin-registry', async () => {
       'the safe default preset must not grant --trust',
     )
 
-    // MC-2211: Grok ships the whole Claude Code mode set, so it gets a real auto
+    // Grok ships the whole Claude Code mode set, so it gets a real auto
     // rung. --trust rides it deliberately — without project hooks no agent-state
     // frames arrive and the session converts to `stalled` via the watchdog — and
     // that is defensible only because `manual`, the safe default asserted above,
@@ -395,7 +395,7 @@ test('plugin-registry', async () => {
     return registry
   }
 
-  // MC-2214. OpenCode has exactly one permission flag, `--auto`. The bypass preset
+  // OpenCode has exactly one permission flag, `--auto`. The bypass preset
   // used to send `--dangerously-skip-permissions`, which OpenCode does not define;
   // its parser is not strict, so the flag was dropped silently and a user who
   // asked for bypass kept getting prompts with no error anywhere. Pin the real
@@ -418,7 +418,7 @@ test('plugin-registry', async () => {
     assert.deepEqual(auto.argv, ['opencode', 'run', 'do the thing'], 'auto degrades to default, not to bypass')
   }
 
-  // MC-2212. Kimi's flags read backwards from their names: `--yolo` auto-approves
+  // Kimi's flags read backwards from their names: `--yolo` auto-approves
   // regular tool calls but the agent MAY STILL ASK questions, while `--auto` is
   // fully autonomous and never asks. Mapping them by name put the more permissive
   // flag on the middle rung, so degrading down the ladder escalated.
@@ -442,7 +442,7 @@ test('plugin-registry', async () => {
   // Scope, stated so this is not mistaken for more than it is: this catches
   // STRUCTURAL escalation (resolution reaching for a higher rung). It cannot
   // catch SEMANTIC inversion — a manifest that declares both rungs but puts the
-  // more permissive flag on the lower one, which is what MC-2212 was. Nothing
+  // more permissive flag on the lower one, which is what an earlier preset bug was. Nothing
   // mechanical can, because permissiveness lives in the CLI's docs, not in the
   // manifest. That case is guarded by pinning each CLI's verified flags above.
   async function testBundledPresetsNeverDegradeUpward(): Promise<void> {
@@ -469,7 +469,7 @@ test('plugin-registry', async () => {
     }
   }
 
-  // MC-2211: Cursor's own auto mode. `--auto-review` is a SERVER CLASSIFIER that
+  // Cursor's own auto mode. `--auto-review` is a SERVER CLASSIFIER that
   // auto-runs safe tool calls and prompts for the rest — the closest analogue to
   // Claude Code's auto anywhere in this set, and not a sandbox like Codex's rung.
   async function testCursorBundledRenderMatchesExpected(): Promise<void> {

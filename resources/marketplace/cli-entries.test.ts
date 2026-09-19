@@ -1,4 +1,4 @@
-// Seed-drift gate for the inline-CLI marketplace entries (MC-1858): regenerate
+// Seed-drift gate for the inline-CLI marketplace entries: regenerate
 // from the bundled plugin manifests and require the committed seed to be
 // byte-identical, so a manifest edit that skips `npm run catalogue:cli-entries`
 // fails the build instead of shipping a stale registry.

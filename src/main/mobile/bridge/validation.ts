@@ -16,7 +16,7 @@ const MOBILE_CONTROL_CAPABILITIES = [
 ] as const satisfies readonly MobileControlCapability[]
 
 // A missing member here is silent and destructive, so it is a compile error — the
-// same guard protocol.ts carries, for the same reason (MC-1499). `isMobileControlDevice`
+// same guard protocol.ts carries, for the same reason. `isMobileControlDevice`
 // requires EVERY capability on a device to appear in this list, and readMobileBridgeStore
 // DROPS a device that fails it: a capability granted at pairing but absent here would
 // unpair the owner's phone on the next desktop restart, with nothing in the log to say why.

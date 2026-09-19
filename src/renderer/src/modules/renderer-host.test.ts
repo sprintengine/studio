@@ -409,7 +409,7 @@ test('renderer-host', async () => {
 
   console.log('renderer host sidebar nav entry tests passed')
 
-  // --- Door / nav-entry badge contributions (MC-2577) --------------------------
+  // --- Door / nav-entry badge contributions --------------------------
 
   const doorBadgeHost = createRendererHost()
   doorBadgeHost.hostFor('calendar').registerDoorBadge({
@@ -465,7 +465,7 @@ test('renderer-host', async () => {
 
   console.log('renderer host door badge tests passed')
 
-  // --- Top bar items (the title-strip host contribution point, MC-1861) ---------
+  // --- Top bar items (the title-strip host contribution point) ---------
 
   const topBarHost = createRendererHost()
   const topBarComponent = () => {
@@ -512,7 +512,7 @@ test('renderer-host', async () => {
 
   console.log('renderer host top bar item tests passed')
 
-  // --- Voice dictation module contributions (MC-1861 phase 1) -------------------
+  // --- Voice dictation module contributions -------------------
   // The real module registers all three surfaces through the host — the top-bar
   // mic, the `voice-dictation.toggle` command, and the settings section — so the
   // enablement filter alone adds/removes every voice entry point, with no
@@ -1179,7 +1179,7 @@ test('renderer-host', async () => {
     process.exitCode = 1
   })
 
-  // ── The module-boundary surfaces (MC-2090) ──────────────────────────────────
+  // ── The module-boundary surfaces ──────────────────────────────────
 
   function testAgentIdNamespaces(): void {
     const kernel = createRendererHost()

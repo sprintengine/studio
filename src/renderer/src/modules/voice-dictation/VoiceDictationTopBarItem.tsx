@@ -6,7 +6,7 @@ import { getEffectiveKeybindingLabel, platformKeybindingsFromApiPlatform } from 
 import { voiceDictationController } from './voiceDictationController'
 
 // The mic button, moved out of WorkspaceActions' hardcoded markup and into the
-// module (MC-1861): it renders through the registerTopBarItem contribution
+// module: it renders through the registerTopBarItem contribution
 // point, so disabling the module removes it because nothing registered it —
 // not because a call site checks a flag. It is the kit's icon button at the
 // same `md` step as its neighbours in the communication cluster

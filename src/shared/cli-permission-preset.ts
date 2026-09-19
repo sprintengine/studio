@@ -5,7 +5,7 @@
 export type CliPermissionPreset = 'none' | 'manual' | 'auto' | 'bypass'
 
 /**
- * Spellings written before MC-2210. Accepted forever on read (persisted
+ * Spellings written before the preset rename. Accepted forever on read (persisted
  * settings, saved automations, third-party plugin manifests, external MCP
  * callers) and never emitted. `normalizeCliPermissionPreset` is the one place
  * that maps them.

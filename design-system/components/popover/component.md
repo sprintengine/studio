@@ -289,14 +289,14 @@ collapsed/expanded height pair, which is the work this entry now names. What is
 **not** drift is the caret itself or the `status.danger` tone: both are ruled
 above.
 
-The two entries that stood here before were spent by **MC-2110** and verified
+The two entries that stood here before were spent by the overlay-geometry sweep and verified
 gone on 2026-09-02:
 
 - ~~Six shipped files hardcode the dark-only shadow
   `0 8px 24px -12px rgba(0,0,0,0.6)`, so light-mode overlays cast a dark-tuned
   shadow and `--sem-shadow-popover` goes unconsumed.~~ **Resolved** — the
   literal appears nowhere in the renderer, and the
-  `MC-2110 no overlay spells its own shadow` seam holds it there.
+  `no overlay spells its own shadow` seam holds it there.
 - ~~`Popover.tsx` writes `rounded-[7px]`, which matches `radius.overlay` but
   bypasses the variable.~~ **Resolved** — it draws the radius through the
   variable.

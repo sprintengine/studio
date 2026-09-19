@@ -3,7 +3,7 @@ import type { ConversationSessionSummary } from '../shared/conversation-runtime'
 import { bracketedTerminalPaste } from '../shared/terminal-paste'
 
 /**
- * The one main-process path that drives an agent session (MC-102).
+ * The one main-process path that drives an agent session.
  *
  * Every interaction — the review guide's brief, an Automations action, a
  * future composer or CLI — goes through this

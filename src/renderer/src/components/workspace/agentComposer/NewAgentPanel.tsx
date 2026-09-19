@@ -320,7 +320,7 @@ export function sortMachines(machines: FleetConnection[]): FleetConnection[] {
 }
 
 /**
- * The launch surface behind the tab strip's "+" (MC-2147, v2).
+ * The launch surface behind the tab strip's "+" (v2).
  *
  * One column: who is being greeted, what to do, how it runs, and what to start
  * with. The box sits on the terminal's own ground and carries a `❯`, because it

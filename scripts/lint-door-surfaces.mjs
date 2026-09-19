@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Door-surface brand gates (MC-1840) — the mechanically checkable rules a
+// Door-surface brand gates — the mechanically checkable rules a
 // door page must pass:
 //
 //  1. A door page never paints the themed canvas: `--bg-app` is forbidden

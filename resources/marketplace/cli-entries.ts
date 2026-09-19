@@ -1,4 +1,4 @@
-// Inline-CLI seed entries (MC-1858): the bundled agent CLI plugins under
+// Inline-CLI seed entries: the bundled agent CLI plugins under
 // resources/plugins/ projected into marketplace.json `cli` registry entries.
 //
 // The entries are GENERATED from the plugin manifests so the two cannot drift:

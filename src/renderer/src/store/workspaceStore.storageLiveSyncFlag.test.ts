@@ -58,7 +58,7 @@ test('workspaceStore.storageLiveSyncFlag', async () => {
   await __workspaceStoreBackupRecoveryPromise
 
   // The `multicode.workspaceStorageLiveSync` flag and the storage-event path it
-  // gated are deleted (MC-2158): they were the rollback for a localStorage
+  // gated are deleted: they were the rollback for a localStorage
   // registry that no longer exists. What survives is the assertion that mattered
   // — this window subscribes to main's bus and mirrors it — now with the flag set
   // to '1' to prove the retired path cannot be switched back on.

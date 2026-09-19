@@ -92,7 +92,7 @@ async function readBacklogWorkspaceKey(root: string): Promise<string> {
   return deriveDefaultBacklogKey(basename(root) || root)
 }
 
-// MC-1498 epic metadata: for each `backlog/epics/*.md` file, its display id
+// Epic metadata: for each `backlog/epics/*.md` file, its display id
 // (`<KEY>-<id>`), title, and color from frontmatter, plus a done/total rollup over
 // the workspace's items that point at it. Lets the phone render desktop-parity
 // epic chips/color bands without denormalizing color onto every item.
@@ -253,7 +253,7 @@ async function toBacklogItemSnapshot(
   const criticality = fields.criticality ?? record.criticality
 
   // `sprintEngineId` and `pullRequestUrl` are optional on the wire and no longer
-  // emitted (MC-2575): both were read off Sprint Engine links on the item, and
+  // emitted: both were read off Sprint Engine links on the item, and
   // the phone's only use for them was joining an item to a run in the same
   // snapshot. There are no runs in the snapshot any more, so a pointer to one
   // would draw an affordance that dead-ends.

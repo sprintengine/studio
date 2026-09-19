@@ -132,7 +132,7 @@ export function createAutomationsModule(options: AutomationsModuleOptions = {}):
               body: input.body,
             }),
           removeRunWorktree: defaultRemoveRunWorktree,
-          // Killing the run's agent is main's own work now (MC-2159): the
+          // Killing the run's agent is main's own work now: the
           // terminal is main's, and the renderer's part — dropping the tab and
           // the record — follows from the session disappearing, because the tab
           // is a projection of the live session list. Run finalize therefore

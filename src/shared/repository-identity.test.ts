@@ -11,7 +11,7 @@ import {
 import { test } from 'vitest'
 
 test('repository-identity', async () => {
-  // one-project-across-machines (MC-2406): every spelling of one remote is one
+  // one-project-across-machines: every spelling of one remote is one
   // key, so a clone on this disk and a clone on a paired machine group as one
   // project. The shapes are the ones `git remote -v` actually prints.
 

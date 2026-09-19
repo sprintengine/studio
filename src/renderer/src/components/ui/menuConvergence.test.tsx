@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
 test('menuConvergence', async () => {
-  // MC-2103 — the five menus, rendered and compared against each other.
+  // The five menus, rendered and compared against each other.
   //
   // The acceptance this file encodes is a cross-component equality: right-click a
   // row and press its kebab, and the two menus onto the same actions must be

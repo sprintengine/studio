@@ -1,5 +1,5 @@
 // Maps probe outcomes onto the version-control provider contract the renderer
-// reads (MC-1995). Kept free of Electron and of the gh runner so the mapping is
+// reads. Kept free of Electron and of the gh runner so the mapping is
 // unit-testable without spawning anything; version-control-ipc.ts wires the
 // real probes in.
 

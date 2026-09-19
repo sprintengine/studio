@@ -16,7 +16,7 @@ import {
 import { test } from 'vitest'
 
 test('document', async () => {
-  // The host-context document (design-door / MC-2016). Two invariants carry the
+  // The host-context document (design door). Two invariants carry the
   // whole feature: the boundary is stated FIRST in every mode, and the wording of
   // both sections is the wording the old prompt suffixes already used — the
   // channel changed, the instructions did not.

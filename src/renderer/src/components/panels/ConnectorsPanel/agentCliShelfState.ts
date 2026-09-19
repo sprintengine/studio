@@ -1,4 +1,4 @@
-// What an inline agent-CLI marketplace row says and offers (MC-1858). The row's
+// What an inline agent-CLI marketplace row says and offers. The row's
 // state is RUNTIME state — is this CLI on the machine, can it be put there —
 // read from the same two sources every other CLI surface reads: the plugin
 // catalog (`pluginsList`) and the availability probe (`cliAvailabilitySlice` /

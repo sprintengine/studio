@@ -1,6 +1,6 @@
 import { basename, trimPath } from './paths'
 
-// What a clicked terminal link offers, as pure data (MC-1899).
+// What a clicked terminal link offers, as pure data.
 //
 // Clicking a terminal link used to fire one hard-wired action: a file path went
 // straight to `openFileSurface` (which itself picks an editor tab or a pop-out

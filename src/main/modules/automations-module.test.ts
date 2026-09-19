@@ -149,7 +149,7 @@ test('automations-module', async () => {
           TerminalRuntimeToken,
           () => (options.terminalRuntime ?? createFakeTerminalRuntime().runtime) as never,
         )
-        // Agent launch is its own main-process service since MC-2159; the module
+        // Agent launch is its own main-process service; the module
         // resolves it separately.
         host.provideService(
           AgentLaunchServiceToken,

@@ -50,7 +50,7 @@ test('SourceTabActions', async () => {
     assert.equal(sourceOffersRemove({ id: `${LOCAL_SKILL_SOURCE_ID_PREFIX}/Users/me/work/skills` }), true)
   })
 
-  // What "Check for updates" says back. The cadence ruling (MC-2519) lets the
+  // What "Check for updates" says back. The cadence ruling lets the
   // check decline — without a GitHub token each source is asked once a day — and
   // a manual press that declines must say so, or the button reads as broken.
 

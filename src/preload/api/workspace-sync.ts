@@ -25,7 +25,7 @@ export function createWorkspaceSyncApi(
   | 'workspaceRegistryHydrate'
 > {
   return {
-    // The one-time hydration handshake (MC-2158). `needs-hydration` is false
+    // The one-time hydration handshake. `needs-hydration` is false
     // from the moment main has written a registry, which is how a window learns
     // to stop offering its localStorage state and start mirroring.
     workspaceRegistryNeedsHydration: (): Promise<boolean> =>

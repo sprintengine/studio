@@ -59,7 +59,7 @@ export const TAILNET_DEVICES_FILENAME = 'tailnet-remote-devices.json'
 const DEFAULT_PAIRING_TTL_MS = 30 * 24 * 60 * 60 * 1000
 
 /**
- * How long a pairing request waits for someone to answer it (MC-2233).
+ * How long a pairing request waits for someone to answer it.
  *
  * Short on purpose, and for the opposite reason to the offer's 30 days. An
  * offer sits inert until someone redeems it; a REQUEST is a live prompt on
@@ -177,7 +177,7 @@ export type TailnetDeviceStore = {
   onDeviceRevoked(listener: (deviceId: string) => void): () => void
   recordSeen(deviceId: string, peerNode: string | null): void
 
-  // ── Pairing by approval here (MC-2233) ─────────────────────────────────
+  // ── Pairing by approval here ─────────────────────────────────
   // The mirror of the offer above: instead of a code minted here and carried
   // away, a peer asks and a person answers. Nothing redeemable crosses the
   // wire in either direction until the approval mints it.

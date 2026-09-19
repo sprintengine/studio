@@ -32,7 +32,7 @@ buildSync({
 
 /**
  * The seed registry carries no signed bundle any more: the four first-party MCP
- * bundles left with the third-party retirement (MC-2519, 2026-09-08), and what
+ * bundles left with the third-party retirement (2026-09-08), and what
  * remains — 13 inline agent-CLI rows and 5 unsigned automation starters — is
  * signature-free by construction.
  *
@@ -332,7 +332,7 @@ const AUTOMATION_STARTER_ID = 'dead-code-sweep-automation'
 const AUTOMATION_STARTER_PAYLOAD = join('plugins', AUTOMATION_STARTER_ID, 'automation', 'automation.json')
 
 function testUnsignedAutomationPayloadIsDigestChecked(): void {
-  // MC-2036: the automation starters ship unsigned, so the digest walk — not a
+  // The automation starters ship unsigned, so the digest walk — not a
   // signature — is what stops their committed bytes drifting from the manifest.
   const root = copySeedRegistry('automation-digest-registry')
   const path = join(root, AUTOMATION_STARTER_PAYLOAD)
@@ -511,7 +511,7 @@ function testBundledSkillPayloadDigestsGateThePublish(): void {
   assert.match(missing.stderr, /payload dir is missing/)
 }
 
-// The nightly starters (MC-2036). The registry checks above prove the bundles
+// The nightly starters. The registry checks above prove the bundles
 // are well-formed; these prove the payloads survive the code that actually
 // reads them — the install parse, the schedule arm, and the fire-time action
 // config — instead of only looking right in the diff.

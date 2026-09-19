@@ -1,5 +1,5 @@
 /**
- * MC-2154 — the main-owned launch settings store. Real tmpdir, no Electron and
+ * The main-owned launch settings store. Real tmpdir, no Electron and
  * no window: every case here is the headless read path the scheduler and the
  * boot-time discovery sweep take.
  */
@@ -164,7 +164,7 @@ test('launch-settings-mirror', async () => {
     })
   }
 
-  // (6) The pre-MC-2154 file held bare settings with no revision: it still reads
+  // (6) The original file held bare settings with no revision: it still reads
   // (no regression for a scheduler booting straight after the upgrade), and the
   // first push replaces it with a real record.
   async function assertLegacyBareSettingsFileStillReads(): Promise<void> {

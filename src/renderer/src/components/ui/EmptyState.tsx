@@ -1,6 +1,6 @@
 import React from 'react'
 
-// The kit's empty state (MC-2117). Five surfaces declared a local `EmptyState`
+// The kit's empty state. Five surfaces declared a local `EmptyState`
 // (or `DetailEmptyState`) for the same idea, and they disagreed on nearly
 // everything: `text-sm` vs `text-body` vs `text-micro` for the line, centred in
 // the pane vs padded at the top of a list, an action button that was a
@@ -49,7 +49,7 @@ export function EmptyState({ title, body, glyph, action, density = 'pane', class
         // `icon-lg` is the slot's SIZE, not its ceiling: a 22px glyph lands
         // exactly on the ramp, and an illustration that is deliberately larger
         // (the gallery's card skeleton) sets its own box rather than overflowing
-        // a fixed one into the title (MC-2115). Still the ramp — `--spacing-lg`
+        // a fixed one into the title. Still the ramp — `--spacing-lg`
         // reaches `min-*` as well as `size-*`, verified in the built CSS.
         <span className="mb-1 flex min-h-icon-lg min-w-icon-lg items-center justify-center text-[color:var(--text-subtle)]">
           {glyph}

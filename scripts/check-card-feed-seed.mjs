@@ -253,8 +253,8 @@ for (const card of cards) {
         break
       case 'install.mcp':
         // There is no list of servers this build can install by id any more.
-        // The bundled catalogue went with the third-party retirement (MC-2519,
-        // 2026-09-08), and the executor now honours the verb only for a server
+        // The bundled catalogue went with the third-party retirement
+        // (2026-09-08), and the executor now honours the verb only for a server
         // the workspace already holds — which is a fact about the person's
         // machine, not about this repository, so no seed card may name one.
         errors.push(

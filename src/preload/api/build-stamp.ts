@@ -2,7 +2,7 @@ import { ipcRenderer } from 'electron'
 import { BUILD_STAMP_CHANNEL, type BuildStamp } from '../../shared/build-stamp'
 import type { ElectronApi } from '../../shared/electron-api'
 
-// Build-identity report (MC-2182). The stamp has to come from the renderer
+// Build-identity report. The stamp has to come from the renderer
 // bundle, not from here: preload is rebuilt and reloaded with the window, while
 // the renderer is the half that hot-reloads out from under a running main. This
 // is only the wire.

@@ -96,7 +96,7 @@ test('agentComposerSelection', async () => {
     )
   })
 
-  // Source-contract for the other half of the New-chat seed (MC-2222): the
+  // Source-contract for the other half of the New-chat seed: the
   // manager seeds every New chat with the plain agent row, unconditionally. It
   // used to derive it from a remembered top-bar pick, so Enter on a plain message
   // fetched an identity nobody asked for. That remembered state is gone with the
@@ -120,7 +120,7 @@ test('agentComposerSelection', async () => {
   })
 
   // ---------------------------------------------------------------------------
-  // A machine with no agent CLI (MC-2093): the roster stops offering rows that
+  // A machine with no agent CLI: the roster stops offering rows that
   // launch one. The old catalog escape hatch made every picker offer all eight
   // uninstalled CLIs, each of which spawned a bare shell.
   // ---------------------------------------------------------------------------
@@ -168,7 +168,7 @@ test('agentComposerSelection', async () => {
   })
 
   // ---------------------------------------------------------------------------
-  // The agent row is named by its bound engine (MC-2059): the model it launches —
+  // The agent row is named by its bound engine: the model it launches —
   // or the CLI, when no model is picked — is the only honest name for it. It used
   // to read the constant "General agent", which never changed when the owner
   // picked Fable 5 on it.

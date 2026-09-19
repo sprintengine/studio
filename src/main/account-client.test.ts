@@ -1,5 +1,5 @@
 /**
- * MC-2183 — the account client's session lifecycle, with the account service
+ * The account client's session lifecycle, with the account service
  * and Clerk played by an in-process fetch and the safeStorage files by maps.
  * These are the paths the desktop review said were untested: an offline
  * launch that later needs a relay token, the pinned-provider rollback, a

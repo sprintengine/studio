@@ -147,7 +147,7 @@ test('AutomationsRail', async () => {
   // With nothing shipped to show beside them, the project's automations are the
   // whole rail — one group, and the substrate withholds a heading over a lone one,
   // so the column reads as a list rather than a "Yours" header spanning every row.
-  // (MC-2035 kept a single group here for a different reason: the starter-editor
+  // (An earlier version kept a single group here for a different reason: the starter-editor
   // prototype's second "Starters" group was discovery, which is ruled to the
   // Extensions shelf. What arrives beside Yours now is not discovery — it is the
   // five that ship inside the app, Extensions drawer ruling 2026-09-05.)

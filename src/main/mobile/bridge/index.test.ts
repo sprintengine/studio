@@ -129,8 +129,8 @@ test('index', async () => {
     bridge.shutdown()
   }
 
-  // The relay's authorization gate and its command routing, together. Since
-  // MC-2575 the sprint commands still ARRIVE — a paired phone sends what it was
+  // The relay's authorization gate and its command routing, together. Since the
+  // Sprint Engine's removal the sprint commands still ARRIVE — a paired phone sends what it was
   // paired for — and every one of them comes back as a well-formed refusal rather
   // than a throw, a hang or a malformed result.
   async function assertAuthenticatedRelayTransportDispatchesAndFailsClosed(): Promise<void> {
@@ -282,7 +282,7 @@ test('index', async () => {
   // success carrying `{ truncated: true }` — a phone cannot tell a truncated
   // snapshot from a real one, and would render a fleet that is not there.
   //
-  // Until MC-2575 the shedding ladder could always get there by dropping sprint
+  // Until the Sprint Engine was removed the ladder could always get there by dropping sprint
   // engines one at a time. It no longer can: what is left in an over-budget
   // snapshot is backlog, and there is no rung that drops backlog items. So the
   // honest refusal is what this asserts.

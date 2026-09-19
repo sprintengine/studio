@@ -67,7 +67,7 @@ import {
 // The opt-in tailnet listener: the same ~60-tool gateway surface the local
 // socket serves, reachable from another machine on the tailnet.
 //
-// This reverses MC-1650's Decision 1 for the remote case only, and does so
+// This reverses the gateway's original loopback-only decision for the remote case only, and does so
 // under the epic's constraints: bound to the Tailscale interface address and
 // nothing else, off unless a person enabled it, every request carrying a device
 // token the desktop minted, every remote mutation audited with the device and
@@ -78,7 +78,7 @@ import {
 // explicit surface: one JSON-in/JSON-out MCP endpoint, plus WebSockets for
 // clients that need a persistent channel — the RPC stream (tool-list
 // notifications, connection-scoped identity) and, per attached terminal, a
-// stream of its own (MC-2165). No SSE, no session resumption — those are
+// stream of its own. No SSE, no session resumption — those are
 // advertised nowhere, so nothing can quietly depend on a half version.
 
 export {
@@ -115,14 +115,14 @@ export type TailnetGatewayServerOptions = {
   devices: TailnetDeviceStore
   peers: TailnetPeerResolver
   /**
-   * Watch-and-type access to this machine's terminals (MC-2165). Absent leaves
+   * Watch-and-type access to this machine's terminals. Absent leaves
    * the terminal WebSocket route answering `terminal_streaming_unavailable`
    * rather than pretending the transport is there — the structured tool surface
    * is unaffected either way.
    */
   terminals?: TerminalRemoteHost
   /**
-   * Fired when a peer asks to pair (MC-2233), so the surfaces that answer these
+   * Fired when a peer asks to pair, so the surfaces that answer these
    * can refresh without polling. It carries no detail: a listener's job is to
    * go and read the requests, not to be told about one it has not authorised.
    */
@@ -510,7 +510,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
     const method = request.method ?? 'GET'
 
     if (method === 'GET' && path === TAILNET_HEALTH_PATH) {
-      // Unauthenticated on purpose: peer discovery (MC-2163) probes it to learn
+      // Unauthenticated on purpose: peer discovery probes it to learn
       // that a machine speaks this transport. It therefore says only what a
       // prospective client must know to talk, and nothing about this machine,
       // its user, its workspaces, or whether any device is paired.
@@ -638,7 +638,7 @@ export function createTailnetGatewayServer(options: TailnetGatewayServerOptions)
 
   /** Run one JSON-RPC message; returns the response object, or null for a notification. */
   /**
-   * Pairing by approval (MC-2233), both halves.
+   * Pairing by approval, both halves.
    *
    * Unauthenticated, and deliberately ahead of the auth gate: a peer asking to
    * be paired has no credential yet, which is the whole point. What stands in

@@ -181,7 +181,7 @@ export function nonEmptyPersistedWorkspaceState(): Partial<WorkspaceMigrationSta
 }
 
 // The persisted-state classifier moved to `src/shared/workspace-registry.ts`
-// (MC-2158) so main's registry hydration and this window's wipe guard share one
+// so main's registry hydration and this window's wipe guard share one
 // implementation instead of two that can drift — main refuses to seed on
 // exactly the classifications the guard refuses to overwrite on. Re-exported
 // here because the renderer's import sites (and the store's public surface)
@@ -574,7 +574,7 @@ export function migratePersistedWorkspaceState(persisted: unknown, version: numb
     }
   }
   if (version < 65) {
-    // The `roadmap` workspace mode retired (MC-1692): Roadmap became an
+    // The `roadmap` workspace mode retired: Roadmap became an
     // instance-global sidebar surface, itself deleted on 2026-09-05. Drop any
     // persisted roadmap-mode workspace — its only content was the board lens,
     // and the roadmap plans themselves live on disk under the home project's

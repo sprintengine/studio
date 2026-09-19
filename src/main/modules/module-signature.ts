@@ -53,7 +53,7 @@ export function classifySignedManifestTrust(manifest: SignedManifest, ctx: Modul
   return { status: 'signed', fingerprint }
 }
 
-// Publisher-locked reserved ids (MC-1532): a module claiming a bundled id
+// Publisher-locked reserved ids: a module claiming a bundled id
 // must carry a VALID signature from a first-party marketplace publisher key
 // (trusted-publishers.json → ctx.trustedKeyFingerprints). User-granted id
 // trust deliberately does NOT satisfy this — trusting a third-party module

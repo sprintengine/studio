@@ -167,7 +167,7 @@ test('workspaceStore.persistence', async () => {
   assert.equal(coldLoadDiag.classification, 'present')
   assert.equal(coldLoadDiag.hydratedWorkspaceCount, 1)
 
-  // The registry key is FROZEN (MC-2158): main owns the registry, so a workspace
+  // The registry key is FROZEN: main owns the registry, so a workspace
   // mutation no longer rewrites multicode-workspaces. The key keeps its last
   // written value for one release as the rollback artifact, and the release after
   // this deletes it.
@@ -293,8 +293,8 @@ test('workspaceStore.persistence', async () => {
   assert.equal(durableAgentAfterReconcile?.cliResumeAvailable, true)
 
   // ── CASE 2b (retired) ───────────────────────────────────────────────────────
-  // The cross-window `storage`-event import this case covered is deleted
-  // (MC-2158): it was the rollback path for a localStorage registry that no
+  // The cross-window `storage`-event import this case covered is deleted:
+  // it was the rollback path for a localStorage registry that no
   // longer exists. Cross-window reconciliation is now main's, and its cases are
   // asserted end-to-end in `src/main/workspace-registry-reconciliation.test.ts`.
 
@@ -684,7 +684,7 @@ test('workspaceStore.persistence', async () => {
   )
 
   // The salvage lands in the settings key and in memory; it never writes the
-  // frozen registry key, which main owns the successor to (MC-2158).
+  // frozen registry key, which main owns the successor to.
   assert.ok(
     (JSON.parse(stored['multicode-app-settings']) as SettingsRecord).state.appSettings,
     'the salvage is committed to the settings key, which the renderer still owns',
@@ -746,7 +746,7 @@ test('workspaceStore.persistence', async () => {
     'partialize + storage round-trip preserves File Explorer expanded folders without file contents',
   )
 
-  // MC-1416: the worktree marker (set when a worktree is opened as a workspace)
+  // The worktree marker (set when a worktree is opened as a workspace)
   // must survive the full persist normalization + JSON storage round-trip so the
   // Git view + tab glyph still resolve a worktree-backed workspace after a restart.
   const partializedWorktree = JSON.parse(
@@ -829,7 +829,7 @@ test('workspaceStore.persistence', async () => {
         agents: {},
       }) as unknown as Workspace
     // Stamp the CURRENT store version explicitly. The key is frozen at whatever
-    // shape it last held (MC-2158), so reading its version back would run the
+    // shape it last held, so reading its version back would run the
     // migrate ladder instead — and this case is specifically about the ladder
     // never looking at the registry again.
     stored['multicode-workspaces'] = JSON.stringify({
@@ -971,7 +971,7 @@ test('workspaceStore.persistence', async () => {
     )
   }
 
-  // ── MC-1573: per-module state bag in a CURRENT-version envelope ─────────────
+  // ── per-module state bag in a CURRENT-version envelope ─────────────
   // A dev-HMR module swap stamps the current version onto un-migrated state, so
   // merge() has to hold the bag's shape on EVERY hydration rather than only on
   // the upgrade rung. Existing persisted rows with no bag must load unchanged,
@@ -1057,7 +1057,7 @@ test('workspaceStore.persistence', async () => {
     )
   }
 
-  // ── MC-1573: the store's generic module-state writer ────────────────────────
+  // ── the store's generic module-state writer ────────────────────────
   // setWorkspaceModuleState is the SDK setter's backing action: entries write
   // into the bag, null removes, and an unknown workspace reports false.
   {

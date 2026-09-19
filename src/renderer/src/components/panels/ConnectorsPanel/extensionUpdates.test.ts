@@ -12,7 +12,7 @@ import {
 import { test } from 'vitest'
 
 test('extensionUpdates', async () => {
-  // MC-1873 banner model: the owner ruling pinned the copy (name + delta, never
+  // The update banner model: the owner ruling pinned the copy (name + delta, never
   // a bare "Update available"), the collapse (several updates = one line), and
   // the honesty states (couldn't-check ≠ up to date; ahead-of-registry is
   // neither an update nor an error; CLI entries never claim a delta).

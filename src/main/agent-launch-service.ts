@@ -1,6 +1,5 @@
 /**
- * AgentLaunchService — composing an agent launch is a main-process capability
- * (MC-2159).
+ * AgentLaunchService — composing an agent launch is a main-process capability.
  *
  * The spawn mechanics were already main-owned (`terminal-launch.ts` renders the
  * argv and env; the runtime's spawn handler takes the whole payload as data).
@@ -12,8 +11,8 @@
  *
  * This service is that layer, with every input injected:
  *
- * - **CLI + permission defaults** come from the main-owned launch settings store
- *   (MC-2154), which the renderer pushes on change and main reads synchronously,
+ * - **CLI + permission defaults** come from the main-owned launch settings store,
+ *   which the renderer pushes on change and main reads synchronously,
  *   so a headless launch uses the user's real defaults instead of guessing.
  * - **Connector resolution** is the shared rule (`src/shared/connector-launch.ts`)
  *   over main's own MCP catalog — the same answer the connector chat gets.
@@ -80,7 +79,7 @@ const UNBOUND_TERMINAL_ROWS = 30
 /**
  * The one preset a launch falls back to when neither the caller nor the user's
  * settings name one. Deliberately the most restrictive: an unattended caller
- * that named no preset must not inherit an escalation nobody chose (MC-1900).
+ * that named no preset must not inherit an escalation nobody chose.
  */
 const DEFAULT_PERMISSION_PRESET: CliPermissionPreset = 'manual'
 
@@ -98,7 +97,7 @@ export type AgentLaunchServiceDeps = {
   /** Open workspaces, from the workspace-sync snapshot. */
   listWorkspaces: () => ReadonlyArray<AgentLaunchWorkspace>
   /**
-   * The main-owned launch settings (MC-2154): CLI runtimes, MCP servers, the
+   * The main-owned launch settings: CLI runtimes, MCP servers, the
    * last-selected CLI, and the agent-spawn permission preset. Read at launch
    * time, never cached, so a setting changed in the UI reaches the next launch
    * without a restart.
@@ -242,7 +241,7 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       ...(request.cliModel?.trim() ? { cliModel: request.cliModel.trim() } : {}),
       // The automation path always sends one (spawn-agent.ts resolves it for
       // every start path); the fallback covers the other agent.launch callers,
-      // which take the app-level spawn default (MC-1900).
+      // which take the app-level spawn default.
       cliPermissionPreset:
         request.permissionPreset ?? settings.lastAgentSpawnPermissionPreset ?? DEFAULT_PERMISSION_PRESET,
       ...(connector?.ok ? { connectorMcpSettings: connector.resolved.mcpSettings } : {}),

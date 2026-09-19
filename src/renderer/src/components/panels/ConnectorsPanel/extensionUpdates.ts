@@ -1,5 +1,5 @@
 // extensionUpdates — pure, DOM-free derivation for the manage canvas's update
-// banner (MC-1873). The owner ruling pins the shape: staleness is ONE calm
+// banner. The owner ruling pins the shape: staleness is ONE calm
 // banner above the affected group, never an in-row badge and never a stack —
 // several pending updates collapse to a single line. Copy always carries the
 // version delta ("Acme Design Kit update · v1 → v2"), never a bare "Update

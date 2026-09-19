@@ -100,7 +100,7 @@ rather than playing it fast.
 - ~~`Drawer.tsx` ships `aria-modal="false"` while trapping focus, locking
   scroll, and scrimming — ARIA claiming non-modal on a surface that behaves
   modally. The spec above says `"true"`; rides with the focus/modality work in
-  **MC-2109**.~~ **Resolved 2026-09-02:** `aria-modal="true"`. It had stayed
+  the focus-trap sweep.~~ **Resolved 2026-09-02:** `aria-modal="true"`. It had stayed
   false for a mechanical reason — the drawer's Escape handler yields to any
   `[role="dialog"][aria-modal="true"]`, so declaring itself modal made it
   yield to itself; the yield now excludes the drawer's own panel and anything
@@ -111,7 +111,7 @@ rather than playing it fast.
   Accessibility section above.
 - `Drawer.tsx` fades its scrim over a `duration-200` literal that is on no
   motion token (the ramp is 120/180/260). The spec pairs the scrim with the
-  panel at `motion.duration.deliberate`; the literal rides with **MC-2110**.
+  panel at `motion.duration.deliberate`; the literal rides with the overlay-geometry sweep.
 - Otherwise the shipped drawer is the family's good citizen: it consumes
   `--shadow-drawer` and `--motion-deliberate` through the token plumbing and
   owns its focus trap.

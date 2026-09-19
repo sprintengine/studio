@@ -137,7 +137,7 @@ function msOrDash(value: number | null): string {
   return value === null ? '—' : String(Math.round(value))
 }
 
-// Local aliases onto the kit's table chrome (MC-2117). These were the app's
+// Local aliases onto the kit's table chrome. These were the app's
 // third `<table>` styling and the only one with a sticky header; `ui/Table`
 // promoted that behaviour, so what is left here is the one thing that was local
 // to diagnostics — every cell is `whitespace-nowrap`, because a wrapped PID or

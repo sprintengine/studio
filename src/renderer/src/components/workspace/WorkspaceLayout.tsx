@@ -75,7 +75,7 @@ import {
 
 interface Props {
   workspaceId: string
-  // The tab strip's "+" (MC-2147): opens the tab an agent will run in, holding
+  // The tab strip's "+": opens the tab an agent will run in, holding
   // the launch surface until something spawns. The strip's own tabset id is
   // passed so the tab lands in that panel rather than tiling a new one.
   // Absent → no plus: background layers and hosts that are not agent
@@ -634,7 +634,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
             // No registered panel: usually a stale tab, but when the component
             // id's `<moduleId>.` prefix names a known marketplace module the
             // owning module is missing, and the tab upgrades to the explicit
-            // not-installed surface with the install path (MC-1532).
+            // not-installed surface with the install path.
             return component ? (
               <MissingModulePanelSurface
                 componentId={component}
@@ -870,7 +870,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
     })
   }, [])
 
-  // The tab strip's right-click menu (MC-2104). It was a native Electron popup,
+  // The tab strip's right-click menu. It was a native Electron popup,
   // which meant the tab colour picker could only offer the seven highlights as
   // Title-Cased checkbox rows of their NAMES — the same choice the workspace
   // sidebar has always made as a row of swatches. Availability is sampled at
@@ -1397,7 +1397,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
     [openTabContextMenu],
   )
 
-  // The tab strip's "+" (MC-2147). It rides the tabsets that host agents and
+  // The tab strip's "+". It rides the tabsets that host agents and
   // terminals — never a rail pane, whose strip is chrome for a panel, and never
   // an editor-only column, where a new agent has nothing to do with the files
   // beside it. Sticky, so it stays put when the tabs overflow and scroll.
@@ -1463,7 +1463,7 @@ function WorkspaceLayout({ workspaceId, onNewAgentTab, renderNewAgentPanel }: Pr
   }, [isEmpty, canOpenNewAgentTab])
 
   // A workspace whose mode is owned by a module that is absent or switched off
-  // renders the module-absence surface instead of its layout (MC-2577). The
+  // renders the module-absence surface instead of its layout. The
   // rule itself — which modes can be absent, and which of the two states this
   // is — lives in `workspaceModuleAbsence`; this only paints the answer.
   const moduleAbsence = workspaceModuleAbsence(workspaceMode, {

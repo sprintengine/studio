@@ -1,7 +1,7 @@
 import type { RepositoryIdentity } from './repository-identity'
 import type { TailnetRemoteStatus, TailnetScope } from './tailnet'
 
-// The Fleet: another machine's Studio, mounted in this one (MC-2167).
+// The Fleet: another machine's Studio, mounted in this one.
 //
 // `tailnet.ts` is "who may drive this machine"; `tailnet-peers.ts` is "which
 // machines exist". This file is the third direction and the one a person
@@ -227,7 +227,7 @@ export function fleetTerminalEventChannel(attachId: string): string {
 }
 
 /**
- * A pairing we have ASKED for and are waiting on (MC-2233), as a window sees
+ * A pairing we have ASKED for and are waiting on, as a window sees
  * it. The collect secret is not here and never leaves main.
  */
 export type FleetPairRequestView = {

@@ -40,7 +40,7 @@ import {
 // 2003 replaces the canvas with the real specimen and rendered components, 2004
 // makes the library a persisted registry of folders, and 2005 builds the create
 // screen. Nothing here invents a mechanism the other six doors do not already
-// have, and nothing here mounts a rail inside the canvas (MC-2014).
+// have, and nothing here mounts a rail inside the canvas.
 
 /** The folder's own name, used as the new system's name. */
 function basenameOfPath(path: string): string {
@@ -625,7 +625,7 @@ export default function DesignGlobalSurface(): JSX.Element {
       // DECLARED, not derived from what the door happens to hold: the rail is
       // present in every load state, so opening the door replaces the projects
       // sidebar immediately rather than once there is a system in it. Loading,
-      // empty and error are the canvas's to say (T19 / MC-1993).
+      // empty and error are the canvas's to say.
       rail={rail}
     >
       {newSelected ? (
@@ -743,7 +743,7 @@ function DesignSurfaceBody({
   }
   if (!selectedEntry) {
     // Nothing selected, not nothing there: the quiet kit state, never a bare
-    // line of copy in a third dialect (MC-2117's empty-state ruling).
+    // line of copy in a third dialect (the empty-state ruling).
     return <EmptyState density="pane" glyph={<DesignGlyph />} title="Select a design system to see it." />
   }
   if (selectedEntry.failure) {

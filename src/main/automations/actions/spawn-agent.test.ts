@@ -231,7 +231,7 @@ test('spawn-agent', async () => {
       assert.equal(explicit.permissionPreset, preset, `an explicit "${preset}" is honored verbatim`)
     }
 
-    // Pre-MC-2210 spellings still parse: a definition saved before the rename
+    // Pre-rename spellings still parse: a definition saved before the rename
     // names one, and it resolves to the preset it was renamed to rather than
     // being rejected.
     for (const [legacy, canonical] of [

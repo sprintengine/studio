@@ -1,4 +1,4 @@
-// The one focus trap in the renderer (MC-2109). Every surface that claims
+// The one focus trap in the renderer. Every surface that claims
 // modality — `role="dialog"` with `aria-modal="true"` — wraps its dialog element
 // in this, so Tab and Shift+Tab cycle inside it forever instead of walking out
 // into the page behind the scrim. A modal that a keyboard can leave without

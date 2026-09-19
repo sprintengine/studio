@@ -1,6 +1,6 @@
 # Badge
 
-**Status: shipped 2026-08-05** (MC-2117) — `src/renderer/src/components/ui/`.
+**Status: shipped 2026-08-05** — `src/renderer/src/components/ui/`.
 
 The small display-only label or count chip: a tone-carrying word ("draft",
 "merged") or a number docked on a row or a control. "Badge" appears across

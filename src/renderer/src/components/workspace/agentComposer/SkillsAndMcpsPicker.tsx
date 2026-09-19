@@ -83,7 +83,7 @@ function transportLabel(transport: McpServerConfig['transport'] | undefined): st
  * The MCP rows: the studio gateway as Included, then every installed server.
  *
  * A third population sat behind these until the third-party retirement
- * (MC-2519, 2026-09-08): the bundled MCP catalogue's remaining servers, offered
+ * (2026-09-08): the bundled MCP catalogue's remaining servers, offered
  * as `Add` rows the picker could install on the spot. The catalogue is gone —
  * an MCP server arrives inside a plugin now — so this picker offers what the
  * person already has and nothing else.

@@ -1,5 +1,5 @@
 // A second external module compiled against the packed tarball only: a
-// top-level, instance-global door and nothing else (MC-1854). The owner-ruled
+// top-level, instance-global door and nothing else. The owner-ruled
 // first-class case — this module deliberately registers NO workspace type, NO
 // panel, and no project-scoped contribution, so the published contract can
 // never quietly grow a requirement that a door has an owning workspace.

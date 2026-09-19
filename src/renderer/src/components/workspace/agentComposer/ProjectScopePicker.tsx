@@ -248,7 +248,7 @@ export function ProjectScopePicker({
     >
       {/* Search + sources (remote-sessions-ux / project-selector-sources):
           the selector filters the projects, browses the disk, and steps in
-          place into the shipped MC-2207 Git import — one surface, no second
+          place into the shipped Git import — one surface, no second
           dialog stacked on the first. */}
       <ProjectSourceMenu
         options={options}

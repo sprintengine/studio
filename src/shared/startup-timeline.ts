@@ -5,7 +5,7 @@
 // was the only thing anyone could measure. This module measures the thing the
 // ceiling is a proxy for — the wall clock between process start and the app
 // being on screen — so the ceiling can be argued from a number instead of a
-// round one (MC-2075).
+// round one.
 //
 // Two processes, one clock. Main and renderer each own their own
 // `performance.now()` origin, so a mark is reported as an EPOCH millisecond

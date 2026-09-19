@@ -347,8 +347,8 @@ expectType<IsExact<AppSidecarRuntimeStatus, SdkSidecarRuntimeStatus>>()
 expectType<IsExact<AppSidecarStartOptions, SdkSidecarStartOptions>>()
 expectType<IsExact<AppCommandScope, SdkCommandScope>>()
 expectType<IsExact<AppCommandAvailability, SdkCommandAvailability>>()
-// The published view module availability predicates are evaluated against
-// (MC-1533): both processes must agree on its exact shape.
+// The published view module availability predicates are evaluated against:
+// both processes must agree on its exact shape.
 expectType<IsExact<AppModuleCommandContext, SdkModuleCommandContext>>()
 expectType<IsExact<AppBacklogItemStatus, SdkBacklogItemStatus>>()
 expectType<IsExact<AppBacklogItemLink, SdkBacklogItemLink>>()
@@ -368,7 +368,7 @@ expectType<IsExact<AppModuleAgentSpawnRequest, SdkModuleAgentSpawnRequest>>()
 expectType<IsExact<AppModuleAgentSpawnResult, SdkModuleAgentSpawnResult>>()
 expectType<IsExact<AppModuleAgentExitEvent, SdkModuleAgentExitEvent>>()
 expectType<IsExact<AppModuleAgentSessionService, SdkModuleAgentSessionService>>()
-// Live runtime surfaces (MC-1535): the published views/inputs mirror the
+// Live runtime surfaces: the published views/inputs mirror the
 // app-side declarations exactly; RendererHost method soundness rides the
 // AppRendererHost extends SdkRendererHost assertion below.
 expectType<IsExact<AppWorkspaceFileWatchEvent, SdkWorkspaceFileWatchEvent>>()
@@ -420,7 +420,7 @@ expectType<IsExact<AppModuleAutomationsService, SdkModuleAutomationsService>>()
 expectType<IsExact<AppActionContext, SdkActionContext>>()
 expectType<IsExact<AppAutomationActionProvider, SdkAutomationActionProvider>>()
 
-// MCP tool contributions (MC-1855): the wire shapes mirror exactly — an
+// MCP tool contributions: the wire shapes mirror exactly — an
 // optional-property drift on a tool registration would silently change what
 // external modules can put on the gateway — and the contribution method is
 // pinned exactly (the one-directional host assertion below would let a
@@ -457,7 +457,7 @@ expectType<IsExact<AppMainHost['registerLaunchContribution'], SdkMainHost['regis
 // Host soundness: the app host handed to module code satisfies the SDK view.
 expectType<Extends<AppMainHost, SdkMainHost>>()
 expectType<Extends<AppRendererHost, SdkRendererHost>>()
-// Per-module workspace state (MC-1573): the accessor pair is the pinned SDK
+// Per-module workspace state: the accessor pair is the pinned SDK
 // shape for module-owned workspace state — exact identity, because the
 // one-directional host assertion above would let an optional-parameter or
 // return-type widening ride through unnoticed.
@@ -475,7 +475,7 @@ expectType<Extends<SdkWorkspaceTypeDefinition, AppWorkspaceTypeDefinition>>()
 expectType<Extends<SdkWorkspaceTypeSupervisor, AppWorkspaceTypeSupervisor>>()
 expectType<Extends<SdkWorkspaceRunGlyph, AppWorkspaceRunGlyph>>()
 expectType<Extends<AppWorkspaceRunGlyphProviderInput, SdkWorkspaceRunGlyphInput>>()
-// Module creation steps (MC-1534): a plain `Extends` on the whole definition
+// Module creation steps: a plain `Extends` on the whole definition
 // cannot catch a missing/renamed optional property, so the step and its two
 // wire shapes are pinned exactly — the hub mounts the SDK-typed Component with
 // exactly WorkspaceCreationStepProps, and createTemplate receives exactly
@@ -505,7 +505,7 @@ expectType<
 expectType<Extends<SdkBacklogLinkProvider, AppBacklogLinkProvider>>()
 expectType<Extends<SdkSettingsSectionDefinition, AppSettingsSectionDefinition>>()
 expectType<Extends<SdkSidebarNavEntryDefinition, AppSidebarNavEntryDefinition>>()
-// Global door surfaces (MC-1854) and top bar items (MC-1861). Pinned exactly,
+// Global door surfaces and top bar items. Pinned exactly,
 // not merely `Extends<Sdk…, App…>`: the one-directional form catches an SDK
 // type that the host would reject, but NOT an app-side widening — drop `order`
 // from the app's item definition and `Extends` still passes while the SDK keeps
@@ -537,7 +537,7 @@ expectType<IsExact<AppRendererHost['watchColorScheme'], SdkRendererHost['watchCo
 expectType<IsExact<AppRendererHost['watchAgentSessions'], SdkRendererHost['watchAgentSessions']>>()
 expectType<IsExact<AppRendererHost['listAgentRuntimes'], SdkRendererHost['listAgentRuntimes']>>()
 
-// ── The four module-boundary surfaces (MC-2090) ──────────────────────────────
+// ── The four module-boundary surfaces ──────────────────────────────
 // Each is pinned exactly rather than by `Extends`, for the reason spelled out
 // above: the one-directional host assertion compares method parameters
 // bivariantly, so an app-side widening (or a dropped optional) would ride
@@ -558,7 +558,7 @@ expectType<IsExact<AppAgentIdNamespaceDefinition, SdkAgentIdNamespaceDefinition>
 expectType<IsExact<AppRendererHost['registerAgentIdNamespace'], SdkRendererHost['registerAgentIdNamespace']>>()
 
 // 3. App-level module state — the renderer-side, synchronously-readable scope
-// above the per-workspace bag. The accessor trio is pinned like MC-1573's pair.
+// above the per-workspace bag. The accessor trio is pinned like the workspace-state pair.
 expectType<IsExact<AppRendererHost['getModuleAppState'], SdkRendererHost['getModuleAppState']>>()
 expectType<IsExact<AppRendererHost['setModuleAppState'], SdkRendererHost['setModuleAppState']>>()
 expectType<IsExact<AppRendererHost['watchModuleAppState'], SdkRendererHost['watchModuleAppState']>>()

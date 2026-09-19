@@ -8,7 +8,7 @@ import type { SurfaceRailRow } from './surfaceSubstrate'
 import { test } from 'vitest'
 
 test('surfaceSubstrate', async () => {
-  // MC-2098 — the rail's leading icon slot is the SUBSTRATE's contract, not the
+  // The rail's leading icon slot is the SUBSTRATE's contract, not the
   // door's. Every door rail shares the same scrollport inset and the same row
   // padding/gap, so a row title's x-offset reduces to
   // `10 (scrollport) + 8 (row pad) + iconWidth + 8 (gap)`. Before this, iconWidth
@@ -107,7 +107,7 @@ test('surfaceSubstrate', async () => {
 
     // ── 1. two doors, two glyph sizes, one slot ────────────────────────────────
     // The Design door's 12px identity chip and a 16px lifecycle
-    // glyph are both legitimate — MC-2098 explicitly lets a door keep its own mark
+    // glyph are both legitimate — the glyph-slot ruling explicitly lets a door keep its own mark
     // size. What must not differ is the box they sit in.
 
     {
@@ -253,7 +253,7 @@ test('surfaceSubstrate', async () => {
       rail.unmount()
     }
 
-    // ── 5. the ruled alignment grid (MC-2101) ─────────────────────────────────
+    // ── 5. the ruled alignment grid ─────────────────────────────────
     // patterns/context-rail.html, "The alignment grid": a row title sits 36px from
     // the column edge, as 4 (scrollport) + 8 (row padding) + 16 (icon slot) + 8
     // (gap). Asserted as the ARITHMETIC rather than as four unrelated class names,
@@ -363,7 +363,7 @@ test('surfaceSubstrate', async () => {
     // ── 7. a two-level rail: one scrollport, one outer-context group ──────────
     // A two-level door lists containers and, under them, the selected container's
     // contents. Both were in one column but only one was in the scrollport, so they
-    // scrolled independently (MC-2099).
+    // scrolled independently.
     //
     // The second claim is the subtler one, and it is a regression this change
     // could easily have introduced: `[data-rail-group="outer-context"]` is a

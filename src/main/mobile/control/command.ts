@@ -76,7 +76,7 @@ const defaultCommandTtlMs = 30_000
 /**
  * The mutations this service executes.
  *
- * The Sprint Engine's nine mobile commands left with the engine (MC-2575). They
+ * The Sprint Engine's nine mobile commands left with the engine. They
  * are still members of the protocol's command union, and a phone that predates
  * the cut will keep sending them, so they are answered here — through the same
  * audited `command_not_supported` rejection every unexecutable command gets —

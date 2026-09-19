@@ -22,7 +22,7 @@ type FieldProps = {
    * replaced: `cloneElement` put the id on the WRAPPER DIV, so the `<label for>`
    * addressed an element that cannot be labelled — and where the composite also
    * held a real field carrying that same id, the document had it twice and the
-   * label resolved to the div (MC-2114 review).
+   * label resolved to the div.
    */
   htmlFor?: string
   /** Optional help text rendered below the control. Hidden when an error is

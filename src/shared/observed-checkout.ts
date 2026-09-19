@@ -1,5 +1,5 @@
 /**
- * Observed checkout (MC-2440): where an agent session actually IS, as reported
+ * Observed checkout: where an agent session actually IS, as reported
  * by its CLI's lifecycle hooks, resolved through git into the checkout that
  * contains it.
  *

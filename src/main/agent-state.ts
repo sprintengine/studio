@@ -63,7 +63,7 @@ export type AppliedAgentStateEvent = Extract<AgentStateEventResolution, { action
  * `_` and `-` removed, so `PreToolUse`, `pre_tool_use`, `pre-tool-use` and
  * `preToolUse` are all one event.
  *
- * Why this exists (MC-2520): a CLI's CONFIG spelling and its PAYLOAD spelling
+ * Why this exists: a CLI's CONFIG spelling and its PAYLOAD spelling
  * need not agree. Grok Build reads `PreToolUse` in `.grok/hooks/*.json` (and
  * accepts the snake_case and Cursor camelCase spellings there too) but stamps
  * the payload `"hookEventName": "pre_tool_use"`. Matching the manifest's
@@ -425,7 +425,7 @@ export type AgentStateFrame = {
   prompt?: string
   // The session's current working directory as the CLI's hook payload reports
   // it (`cwd` is in the base payload of every Claude Code / Codex / Grok hook),
-  // forwarded by the reporter on every frame that carries one (MC-2440). A cwd
+  // forwarded by the reporter on every frame that carries one. A cwd
   // only changes through a tool call, so the PostToolUse frame that follows
   // carries the new one — no dedicated event is registered for it. Untrusted:
   // shape-checked on receipt (absolute, capped) and a bad value drops the
@@ -1634,7 +1634,7 @@ async function readTextIfExists(path: string): Promise<string | null> {
 // per-event structure ({ matcher?, hooks: [{ type: 'command', command }] })
 // mirrors Claude Code's settings hooks, which is the format Grok documents.
 //
-// SPELLING (MC-2520). Event names are written here EXACTLY as the manifest
+// SPELLING. Event names are written here EXACTLY as the manifest
 // spells them — no folding on the way out. Config spelling is a property of the
 // registration kind and is not the same question as frame matching
 // (canonicalEventName), which is deliberately spelling-blind because a CLI's

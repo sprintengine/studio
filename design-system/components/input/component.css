@@ -43,7 +43,7 @@
   border-color: var(--sem-color-border-strong);
 }
 
-/* Focus is the ring, and only the ring (MC-2118). This used to move the border
+/* Focus is the ring, and only the ring. This used to move the border
  * to the accent as well — two signals for one state, and the weaker of the two:
  * a 1px hue change on a control that already has a 2px ring around it, spending
  * the accent on something the person did not choose. Every other focusable

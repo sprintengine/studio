@@ -14,11 +14,11 @@ import { createServiceToken } from './main-host'
 // kernel with the live AppServices instances via loadMainModules' provideServices
 // hook; modules call host.requireService(<token>).
 export const TerminalRuntimeToken = createServiceToken<AppServices['terminalRuntime']>('core.terminal-runtime')
-// The single main-process path that drives an agent session (MC-102): send,
+// The single main-process path that drives an agent session: send,
 // submit, interrupt, read, wait — serialized per session, dispatched per
 // transport. Consumers resolve this instead of writing to a pty themselves.
 export const AgentControlPlaneToken = createServiceToken<AppServices['agentControlPlane']>('core.agent-control-plane')
-// The single main-process path that COMPOSES an agent launch (MC-2159): CLI and
+// The single main-process path that COMPOSES an agent launch: CLI and
 // permission defaults, connector resolution, naming, spawn.
 // Consumers resolve this instead of asking a renderer to launch for them, which
 // is what made every headless agent launch fail for want of an open window.
@@ -30,7 +30,7 @@ export const GitHubTokenStoreToken = createServiceToken<AppServices['githubToken
 export const AgentLaunchSettingsToken =
   createServiceToken<AppServices['agentLaunchSettings']>('core.agent-launch-settings')
 export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth']>('core.multicode-auth')
-// The provider-agnostic entitlement seam (MC-2169). A module that needs to gate
+// The provider-agnostic entitlement seam. A module that needs to gate
 // on a stable feature key resolves THIS and asks `hasFeature`/`refreshFeature`;
 // MulticodeAuthToken above is the account-service adapter behind it, and resolving
 // that one to answer an entitlement question re-couples the module to whichever
@@ -38,7 +38,7 @@ export const MulticodeAuthToken = createServiceToken<AppServices['multicodeAuth'
 export const EntitlementServiceToken = createServiceToken<AppServices['entitlements']>('core.entitlements')
 export const WorkspaceSyncServiceToken =
   createServiceToken<AppServices['workspaceSyncService']>('core.workspace-sync-service')
-// The authoritative workspace registry (MC-2158). Modules that need to READ the
+// The authoritative workspace registry. Modules that need to READ the
 // durable record — the phone's scope resolver, a workspace-scoped surface —
 // resolve this rather than reaching for the bus, which only carries events.
 // Creation still goes through WorkspaceServiceToken below, which writes here.

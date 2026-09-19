@@ -175,12 +175,12 @@ staying the toast's alone.
 
 ## Known drift
 
-None. Both entries that stood here were spent on 2026-08-05 (**MC-2138**):
+None. Both entries that stood here were spent on 2026-08-05 (the menu-row sweep):
 
 - The dismiss target was 20px, under `--sem-size-hit-target-min`. `Toast.tsx`
   now takes its floor from that token directly, keeping the 10px glyph and the
   flow advance the smaller target had.
-- The placement note pointed at **MC-2110**, which had already shipped.
+- The placement note pointed at the overlay-geometry sweep, which had already shipped.
 
 *2026-09-05:* the answer-in-place variant, above, was ruled and consumed in
 the same breath — the remote epic's pair-request toast stopped pointing at the

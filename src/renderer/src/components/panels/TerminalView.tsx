@@ -160,7 +160,7 @@ export default function TerminalView({
   // A failed file-link click or file drop, anchored to the pointer that raised
   // it so the error surfaces next to the cursor instead of a corner toast.
   const [clickError, setClickError] = useState<{ message: string; x: number; y: number } | null>(null)
-  // A clicked link awaiting a destination (MC-1899). Both link kinds — file
+  // A clicked link awaiting a destination. Both link kinds — file
   // paths and http(s) URLs — route here instead of firing one hard-wired action.
   const [linkMenu, setLinkMenu] = useState<{
     target: TerminalLinkTarget
@@ -398,7 +398,7 @@ export default function TerminalView({
       surface: terminalSurface,
       // OSC 8: a real hyperlink the CLI emitted, which carries its own absolute
       // target and needs no guessing. It rides the same chooser as everything
-      // else — the click still asks rather than deciding (MC-1899).
+      // else — the click still asks rather than deciding.
       oscLinks: {
         inspectPath,
         onActivateFile: ({ resolvedPath, isDirectory }, anchor) => {
@@ -517,7 +517,7 @@ export default function TerminalView({
             // already on screen without re-registering the provider.
             executionRoot: () => launchExecutionRoot,
             inspectPath,
-            // The click no longer decides anything — it opens the chooser (MC-1899).
+            // The click no longer decides anything — it opens the chooser.
             onActivate: ({ resolvedPath, isDirectory, line, column }, anchor) => {
               setLinkMenu({
                 target: { kind: 'file', resolvedPath, isDirectory, workspaceRoot: linkRoots.workspaceRoot },

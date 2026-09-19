@@ -1,4 +1,4 @@
-// Projecting main-launched agents into the renderer (MC-2159).
+// Projecting main-launched agents into the renderer.
 //
 // When the main-process AgentLaunchService composes and spawns an agent, the
 // renderer has no record of it: nothing in this process decided its name, CLI,

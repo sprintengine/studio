@@ -4,7 +4,7 @@ import { join } from 'path'
 // Whether the tailnet listener runs, and on which port.
 //
 // Off by default, in every build. The local Unix-socket gateway is
-// infrastructure and always on (MC-1743); this listener is the opposite — it
+// infrastructure and always on; this listener is the opposite — it
 // opens a real TCP port carrying ~60 mutating tools, so it exists only after a
 // person turns it on, and an unreadable or malformed settings file leaves it
 // off rather than guessing an enabled state.
@@ -12,7 +12,7 @@ import { join } from 'path'
 const TAILNET_SETTINGS_FILENAME = 'tailnet-remote-settings.json'
 
 /**
- * Fixed default so peer discovery can probe a known port (MC-2163) instead of
+ * Fixed default so peer discovery can probe a known port instead of
  * scanning. Configurable because a machine may already be using it.
  */
 export const DEFAULT_TAILNET_LISTENER_PORT = 8471

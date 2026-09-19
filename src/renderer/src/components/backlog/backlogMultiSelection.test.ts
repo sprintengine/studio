@@ -12,7 +12,7 @@ import {
 import { test } from 'vitest'
 
 test('backlogMultiSelection', async () => {
-  // MC-2060 (backlog multi-select). The pure selection model behind
+  // Backlog multi-select. The pure selection model behind
   // BacklogPanel: plain/cmd/shift click semantics, shift+arrow range stepping,
   // and pruning across re-scans. The React wiring (which gesture maps to which
   // call, paint, detail binding) lives in the panel.

@@ -186,8 +186,8 @@ scopes, the role catalogue and the `sprintengine` workspace kind were all wire
 vocabulary. All of it is deleted. `mobileControlProtocolVersion` moved 2 -> 3 and
 the window moved with it, to `[2, 3]`. The package published `3.0.0`.
 
-**Why it could not be additive.** MC-2575 took the Sprint Engine out of the
-desktop as a signed module, and the desktop stopped being able to serve any of
+**Why it could not be additive.** The Sprint Engine moved out of the
+desktop into a signed module, and the desktop stopped being able to serve any of
 it. It kept emitting `sprintEngines: []` anyway, and the phone kept demanding
 the key, because removing a required member is not additive: a desktop that
 dropped it while the phone still required it would fail EVERY snapshot read on

@@ -1,11 +1,11 @@
 // What an account surface is allowed to ask about entitlements, split in two
-// on purpose (MC-2188).
+// on purpose.
 //
 // ACCESS — "may this account do the paid thing" — is answered by stable feature
 // keys and never by the plan's name. A plan code is provider vocabulary: under
 // Clerk, plans are dashboard-defined objects, so a gate spelled
 // `plan.code === 'pro'` names the identity provider's data model, which is
-// exactly what the entitlement seam (MC-2169, `src/main/entitlement-service.ts`)
+// exactly what the entitlement seam (`src/main/entitlement-service.ts`)
 // exists to keep out of the product. Feature keys survive a provider swap.
 //
 // DISPLAY — "what does this account's plan call itself" — is presentation, and
@@ -15,8 +15,8 @@
 
 import type { MulticodeAuthState } from '../../../../shared/electron-api'
 
-// The one key the paid plan gates. Decision of record (owner, 2026-09-01,
-// MC-1579): nothing is gated by the paid plan except the ability to use the
+// The one key the paid plan gates. Decision of record (owner, 2026-09-01):
+// nothing is gated by the paid plan except the ability to use the
 // mobile app. No capability in the app is paid — the
 // `multicode.frontier_models` key that used to sit here was retired from the
 // Multiauth catalogue in the same change, because nothing in the product ever

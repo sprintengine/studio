@@ -44,7 +44,7 @@ test('storefrontView', async () => {
   }
 
   {
-    // MC-1531: a module-carrying entry's kind label reads "Module".
+    // A module-carrying entry's kind label reads "Module".
     const calendar = plugin({ id: 'multicode-calendar', name: 'Calendar', provides: ['module'] })
     assert.deepEqual(componentKindLabels(calendar.provides), ['Module'])
     assert.deepEqual(componentKindLabels(['mcp', 'skills']), ['MCP server', 'Skill pack'])

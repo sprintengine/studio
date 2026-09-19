@@ -23,7 +23,7 @@
 //                          ring). Recolouring the resting border instead is a
 //                          second idiom, and a weaker one: it moves no pixels,
 //                          so on a field whose border is already near the focus
-//                          hue the change is invisible. MC-2107 found it on
+//                          hue the change is invisible. The focus-ring sweep found it on
 //                          whole form families (settings, the review door) and
 //                          in the chat composer.
 //   spacing-off-grid       arbitrary odd-pixel padding / margin / gap ("Space

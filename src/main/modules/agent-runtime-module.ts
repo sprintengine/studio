@@ -76,7 +76,7 @@ export function createAgentRuntimeModule(
       host.provideService(EntitlementServiceToken, () => services.entitlements)
       host.provideService(WorkspaceSyncServiceToken, () => services.workspaceSyncService)
       host.provideService(WorkspaceRegistryToken, () => services.workspaceRegistry)
-      // Programmatic workspace creation, minted in main's registry (MC-2158).
+      // Programmatic workspace creation, minted in main's registry.
       // A module can create a workspace with no window open; the id it gets
       // back is the one main just committed.
       host.provideService(WorkspaceServiceToken, () =>

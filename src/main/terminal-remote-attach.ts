@@ -1,6 +1,6 @@
 import type { TerminalSessionSnapshot } from '../shared/electron-api'
 
-// The port a remote transport uses to watch and drive a terminal (MC-2165).
+// The port a remote transport uses to watch and drive a terminal.
 //
 // Kept in its own module, free of Electron and node-pty, so the tailnet
 // listener can depend on the CONTRACT without pulling the terminal runtime (and

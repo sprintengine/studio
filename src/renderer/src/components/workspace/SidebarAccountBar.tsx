@@ -261,7 +261,7 @@ export default function SidebarAccountBar({
 
   // Icon-only in BOTH sidebar states (owner, 2026-09-01): the footer spends no
   // width on the account name or plan — the tier-coloured badge (provider
-  // photo when the session carries one, initials otherwise; MC-2220) is the
+  // photo when the session carries one, initials otherwise) is the
   // whole control, the hover tooltip carries name · plan, and the click
   // popover keeps the full detail.
   const accountControl = authState.authenticated ? (

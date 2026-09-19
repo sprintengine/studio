@@ -52,7 +52,7 @@ type PluginPromptInjection = {
 }
 
 // How the host's out-of-band context document reaches this CLI (design-door /
-// MC-2016). `promptInjection` above answers "how does the USER's request get in";
+// the design door). `promptInjection` above answers "how does the USER's request get in";
 // this answers "how does everything the HOST wants to say get in, without
 // pretending to be the user".
 //
@@ -419,7 +419,7 @@ type PluginDetectSpec = {
 // the resolved binary (e.g. `["update"]` for claude-code), mirroring
 // `detect.versionArgs`. Absent, the Update action re-runs the `install` spec —
 // idempotent for npm installs. There is deliberately NO staleness detection
-// for CLIs (MC-1873): a CLI's "latest" belongs to the vendor's channel, not
+// for CLIs: a CLI's "latest" belongs to the vendor's channel, not
 // the marketplace registry.
 type PluginUpdateSpec = {
   args: string[]

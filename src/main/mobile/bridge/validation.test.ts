@@ -23,7 +23,7 @@ import { test } from 'vitest'
 test('validation', async () => {
   // Every capability the bridge REQUESTS at pairing (bridge/index.ts REQUESTED_SCOPES).
   // The list is restated here on purpose: a test that imported the runtime list would
-  // pass by construction and prove nothing. This is the assertion side of MC-1499.
+  // pass by construction and prove nothing. This is the assertion side of that rule.
   const GRANTED_AT_PAIRING: MobileControlCapability[] = [
     'snapshots.read',
     'devices.revoke',
@@ -149,7 +149,7 @@ test('validation', async () => {
     }
   }
 
-  // A capability pairing grants but validation rejects is the MC-1499 defect: the
+  // A capability pairing grants but validation rejects is the defect this guards: the
   // device payload was refused for carrying a scope the desktop itself asked for.
   function assertEveryGrantedCapabilityValidates(): void {
     for (const capability of GRANTED_AT_PAIRING) {

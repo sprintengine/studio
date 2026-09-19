@@ -1,4 +1,4 @@
-// The host-action seam for the Extensions door (MC-1847 B1/B2). The door is a
+// The host-action seam for the Extensions door. The door is a
 // zero-prop registered surface, but four of its actions belong to the shell:
 // "New chat" opens the new-chat composer with the connector attached, "Use in
 // automation" opens the automation-authoring flow, and "Use in agent → New

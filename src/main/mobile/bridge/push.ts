@@ -7,7 +7,7 @@ import { mobileControlProtocolVersion } from '../../../../packages/mobile-contro
 /**
  * A device+registration pair a notification can be delivered to.
  *
- * Declared here since MC-2575: it used to live beside the Sprint Engine activity
+ * Declared here since the Sprint Engine left: it used to live beside its activity
  * publisher, which was the only producer of notifications and left with the
  * engine. Push registration itself is not a sprint feature — pairing, revocation
  * and the store all still read it — so the shape stays with the registry.

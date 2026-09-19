@@ -71,7 +71,7 @@ test('useTerminalSessions', async () => {
     // Order-independent: the signature sorts by sessionId first.
     assert.equal(getTerminalSessionsSignature(base), getTerminalSessionsSignature([base[1], base[0]]))
 
-    // An observed checkout (MC-2440) must survive the dedupe — the tab glyph and
+    // An observed checkout must survive the dedupe — the tab glyph and
     // identity card render it: both the cwd moving and git's later answer for it.
     const observedMoved = [
       session({

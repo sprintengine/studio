@@ -1,5 +1,5 @@
 /**
- * Main-owned mirror of the "keep running in the background" setting (MC-2156).
+ * Main-owned mirror of the "keep running in the background" setting.
  *
  * Same push contract as the window-material mirror: the renderer owns the
  * preference (`appSettings.keepRunningInBackground`) and pushes it on change;

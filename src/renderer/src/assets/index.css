@@ -500,7 +500,7 @@
   --shadow-control-pressed: var(--sem-shadow-control-pressed);
 
   /* The overlay stacking ladder, aliased from the bundle so there is ONE ladder
-     of record (MC-2119). The app used to carry a second one in a comment at the
+     of record. The app used to carry a second one in a comment at the
      top of `Modal.tsx` — z-10 HUD / z-20 panes / z-30 panel popovers / z-40
      shell popovers / z-50 modals — and the two disagreed about the top of the
      stack. The kit already sat on the token values everywhere except there:
@@ -901,7 +901,7 @@
   --bg-surface: #f4ece0;
   --bg-surface-raised: #fcf4e8;
   /* State tints stay in the parchment family, not the sage (owner ruling
-     2026-07-23 / MC-1844): sage is the chrome canvas's identity only — a
+     2026-07-23): sage is the chrome canvas's identity only — a
      hovered or selected row is a working surface, so it darkens neutrally. */
   --bg-hover: #ece4d4;
   --bg-active: #e0d8c8;
@@ -987,7 +987,7 @@
   --bg-surface: #fbf9f2;    /* warm near-white panel/card, elevated above cream */
   --bg-surface-raised: #fdfcf7;
   --bg-hover: #ece9dc;
-  /* Neutral cream steps, not sage (owner ruling 2026-07-23 / MC-1844): the
+  /* Neutral cream steps, not sage (owner ruling 2026-07-23): the
      website sage stays chrome identity; selection darkens the cream neutrally. */
   --bg-active: #e3dfd0;
   --bg-selected: #d9d4c4;
@@ -2509,7 +2509,7 @@ body:has([data-selection-pane]:focus-within)
 }
 
 /* Tabs are flat captions on the terminal ground — no filled pills, no borders,
-   no radius (MC-1477). Identity is carried by ink weight plus the underline.
+   no radius. Identity is carried by ink weight plus the underline.
 
    Every selector below is prefixed with `.flexlayout__layout` because
    flexlayout's own combined.css is bundled AFTER this file (WorkspaceLayout
