@@ -37,7 +37,10 @@ import {
   readHostedCardFeed,
   setHostedCardFeedClientForTests,
 } from './card-feed-service'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+// The IPC wire between the real preload and the real main handlers.
+vi.mock('electron', () => import('../../../tests/stubs/electron'))
 
 test('card-feed-service', async () => {
   const FEED: HostedCardFeed = { schemaVersion: 1, updatedAt: '2026-09-06T00:00:00.000Z', cards: [] }

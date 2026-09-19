@@ -430,9 +430,16 @@ test('conversation-peek', async () => {
     }
     const path = await writeTranscript(rows)
 
+    // What the reader RETAINS, not what it streamed through: collect before
+    // both readings (the runner exposes `gc`), so streaming garbage the
+    // collector has not reached yet does not count. Without it the figure moved
+    // with the Node version's GC timing (60MB on Node 22, under 48MB on 25).
+    const collect = (globalThis as { gc?: () => void }).gc ?? (() => undefined)
     clearTranscriptPeekCache()
+    collect()
     const before = process.memoryUsage().heapUsed
     const peek = await readTranscriptPeek(path)
+    collect()
     const grew = process.memoryUsage().heapUsed - before
     assert.ok(peek)
 
@@ -447,11 +454,10 @@ test('conversation-peek', async () => {
 
     const retained = [...peek.images.values()].reduce((total, image) => total + image.data.length, 0)
     assert.ok(retained <= MAX_PEEK_ATTACHMENTS * 512 * 1024, `retained ${retained} bytes`)
-    // A smoke bound, not a precise one — GC timing makes the exact figure vary,
-    // and it varies MORE now that the reader deliberately holds eight payloads
-    // (~4MB here) rather than the head's alone. It is still set well below the
-    // ~105MB of payload the file carries, which is the whole point: the reader
-    // must not be proportional to the transcript.
+    // With both readings taken after a collection the figure is what the
+    // reader holds: the eight payloads, ~4MB here. The bound is generous on
+    // purpose and still far below the ~105MB of payload the file carries, which
+    // is the whole point: the reader must not be proportional to the transcript.
     if (process.env.PEEK_HEAP_REPORT) console.log('    heap grew', Math.round(grew / 1024 / 1024), 'MB')
     assert.ok(grew < 48 * 1024 * 1024, `heap grew ${Math.round(grew / 1024 / 1024)}MB streaming a ~105MB transcript`)
   }

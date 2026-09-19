@@ -178,5 +178,5 @@ test('AgentTabIdentityPopover', async () => {
     assert.match(markup, /aria-label="Open the diff for \/repo\/src\/main\/agent-state\.ts"/, 'and its edits open')
   })
 
-  process.exit(failures === 0 ? 0 : 1)
+  if (failures !== 0) process.exit(1)
 })

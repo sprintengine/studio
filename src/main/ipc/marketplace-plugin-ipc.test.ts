@@ -16,7 +16,10 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+// The IPC wire between the real preload and the real main handlers.
+vi.mock('electron', () => import('../../../tests/stubs/electron'))
 
 test('marketplace-plugin-ipc', async () => {
   type Handler = (event: unknown, input: unknown) => Promise<unknown>

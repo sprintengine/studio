@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { createRequire } from 'node:module'
+import { standIn } from '../../../../tests/stand-in'
 import { access, mkdir, mkdtemp, readFile, realpath, rm, writeFile } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
@@ -960,97 +960,80 @@ test('command', async () => {
 
   async function importMainProcessIpcHandlers(): Promise<FilesystemMutationHandlers> {
     const ipcHandlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>()
-    const nodeRequire = createRequire(__filename)
-    const moduleLoader = nodeRequire('node:module') as {
-      _load: (request: string, parent: unknown, isMain: boolean) => unknown
-    }
-    const originalLoad = moduleLoader._load
-
-    moduleLoader._load = (request, parent, isMain) => {
-      if (request === 'electron') {
-        return {
-          app: {
-            defaultApp: false,
-            getAppPath: () => process.cwd(),
-            getPath: (name: string) => join(tmpdir(), `multicode-electron-${name}`),
-            getVersion: () => '0.0.0',
-            isPackaged: false,
-            on: () => undefined,
-            quit: () => undefined,
-            requestSingleInstanceLock: () => true,
-            setAppLogsPath: () => undefined,
-            setAppUserModelId: () => undefined,
-            setAsDefaultProtocolClient: () => true,
-            whenReady: () => new Promise(() => undefined),
+    const restoreModules = standIn({
+      electron: {
+        app: {
+          defaultApp: false,
+          getAppPath: () => process.cwd(),
+          getPath: (name: string) => join(tmpdir(), `multicode-electron-${name}`),
+          getVersion: () => '0.0.0',
+          isPackaged: false,
+          on: () => undefined,
+          quit: () => undefined,
+          requestSingleInstanceLock: () => true,
+          setAppLogsPath: () => undefined,
+          setAppUserModelId: () => undefined,
+          setAsDefaultProtocolClient: () => true,
+          whenReady: () => new Promise(() => undefined),
+        },
+        BrowserWindow: class {
+          static getAllWindows(): unknown[] {
+            return []
+          }
+        },
+        dialog: {},
+        ipcMain: {
+          handle: (channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => {
+            ipcHandlers.set(channel, handler)
           },
-          BrowserWindow: class {
-            static getAllWindows(): unknown[] {
-              return []
-            }
+          on: () => undefined,
+        },
+        Menu: {
+          buildFromTemplate: () => ({}),
+          setApplicationMenu: () => undefined,
+        },
+        protocol: {
+          registerSchemesAsPrivileged: () => undefined,
+        },
+        safeStorage: {
+          decryptString: () => '',
+          encryptString: (value: string) => Buffer.from(value),
+          isEncryptionAvailable: () => true,
+        },
+        shell: {
+          openExternal: async () => undefined,
+          openPath: async () => '',
+          showItemInFolder: () => undefined,
+          trashItem: async (targetPath: string) => {
+            await rm(targetPath, { force: true, recursive: true })
           },
-          dialog: {},
-          ipcMain: {
-            handle: (channel: string, handler: (event: unknown, ...args: unknown[]) => unknown) => {
-              ipcHandlers.set(channel, handler)
-            },
-            on: () => undefined,
-          },
-          Menu: {
-            buildFromTemplate: () => ({}),
-            setApplicationMenu: () => undefined,
-          },
-          protocol: {
-            registerSchemesAsPrivileged: () => undefined,
-          },
-          safeStorage: {
-            decryptString: () => '',
-            encryptString: (value: string) => Buffer.from(value),
-            isEncryptionAvailable: () => true,
-          },
-          shell: {
-            openExternal: async () => undefined,
-            openPath: async () => '',
-            showItemInFolder: () => undefined,
-            trashItem: async (targetPath: string) => {
-              await rm(targetPath, { force: true, recursive: true })
-            },
-          },
-        }
-      }
-      if (request === 'electron-updater') {
-        return { autoUpdater: { checkForUpdatesAndNotify: async () => undefined } }
-      }
-      if (request === 'node-pty') {
-        return {
-          spawn: () => {
-            throw new Error('node-pty should not be used in filesystem IPC tests')
-          },
-        }
-      }
-      if (request === '@vscode/ripgrep') {
-        return { rgPath: 'rg' }
-      }
+        },
+      },
+      'electron-updater': { autoUpdater: { checkForUpdatesAndNotify: async () => undefined } },
+      'node-pty': {
+        spawn: () => {
+          throw new Error('node-pty should not be used in filesystem IPC tests')
+        },
+      },
+      '@vscode/ripgrep': { rgPath: 'rg' },
       // The build stamp is minted by a Vite plugin at build time, so there is no
       // module on disk for the test bundle's `require` to find. Stubbing it here
       // keeps this test's existing interception the single place main's build-only
       // dependencies are stood in for.
-      if (request === 'virtual:multicode-build-stamp') {
-        return {
-          buildStamp: {
-            commit: null,
-            source: 'unavailable' as const,
-            builtAt: '2026-01-01T00:00:00.000Z',
-            mode: 'development' as const,
-          },
-        }
-      }
-      return originalLoad(request, parent, isMain)
-    }
+      'virtual:multicode-build-stamp': {
+        buildStamp: {
+          commit: null,
+          source: 'unavailable' as const,
+          builtAt: '2026-01-01T00:00:00.000Z',
+          mode: 'development' as const,
+        },
+      },
+    })
 
     try {
       await import('../../index')
     } finally {
-      moduleLoader._load = originalLoad
+      restoreModules()
     }
 
     const getHandler = (channel: string): ((...args: unknown[]) => Promise<unknown>) => {

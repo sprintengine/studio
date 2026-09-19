@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createHash, generateKeyPairSync, sign } from 'node:crypto'
 import { existsSync } from 'node:fs'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
-import Module from 'node:module'
+import { standIn } from '../../../tests/stand-in'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
@@ -81,34 +81,23 @@ test('plugin-bundle-installer', async () => {
   }
 
   async function withElectronMock<T>(userDataDir: string, sender: WebContents, fn: () => Promise<T>): Promise<T> {
-    const moduleWithLoad = Module as typeof Module & {
-      _load(request: string, parent: NodeModule | null, isMain: boolean): unknown
-    }
-    const originalLoad = moduleWithLoad._load
-    moduleWithLoad._load = function loadWithElectronMock(
-      request: string,
-      parent: NodeModule | null,
-      isMain: boolean,
-    ): unknown {
-      if (request === 'electron') {
-        return {
-          app: {
-            isPackaged: false,
-            getAppPath: () => process.cwd(),
-            getPath: () => userDataDir,
-          },
-          BrowserWindow: {
-            getAllWindows: () => [{ isDestroyed: () => false, webContents: sender }],
-          },
-        }
-      }
-      return originalLoad.call(this, request, parent, isMain)
-    }
+    const restoreModules = standIn({
+      electron: {
+        app: {
+          isPackaged: false,
+          getAppPath: () => process.cwd(),
+          getPath: () => userDataDir,
+        },
+        BrowserWindow: {
+          getAllWindows: () => [{ isDestroyed: () => false, webContents: sender }],
+        },
+      },
+    })
 
     try {
       return await fn()
     } finally {
-      moduleWithLoad._load = originalLoad
+      restoreModules()
     }
   }
 
@@ -559,7 +548,7 @@ test('plugin-bundle-installer', async () => {
 
       const sender = createMockWebContents()
       await withElectronMock(join(temp, 'electron-user-data'), sender, async () => {
-        const runtimeModule = require('../terminal-runtime') as RuntimeModule
+        const runtimeModule = (await import('../terminal-runtime')) as RuntimeModule
         const syncInputs: Array<{ settings: McpSettings; clients: string[] }> = []
         const runtime = runtimeModule.createTerminalRuntime({
           diagnosticsEnabled: false,

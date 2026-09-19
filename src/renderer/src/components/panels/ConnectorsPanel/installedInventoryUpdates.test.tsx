@@ -450,7 +450,7 @@ test('installedInventoryUpdates', async () => {
   }
 
   const suiteRun = main().then(
-    () => process.exit(0),
+    () => undefined,
     (error) => {
       console.error(error)
       process.exit(1)

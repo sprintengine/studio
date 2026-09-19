@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import Module from 'node:module'
+import { standIn } from '../../tests/stand-in'
 import { test } from 'vitest'
 
 test('app-lifecycle', async () => {
@@ -54,21 +54,10 @@ test('app-lifecycle', async () => {
     screen: { getPrimaryDisplay: () => ({ workAreaSize: { width: 1440, height: 900 } }) },
   }
 
-  const moduleWithLoad = Module as typeof Module & {
-    _load(request: string, parent: NodeModule | null, isMain: boolean): unknown
-  }
-  const originalLoad = moduleWithLoad._load
-  moduleWithLoad._load = function loadWithElectronMock(
-    request: string,
-    parent: NodeModule | null,
-    isMain: boolean,
-  ): unknown {
-    if (request === 'electron') return mockElectron
-    return originalLoad.call(this, request, parent, isMain)
-  }
+  const restoreModules = standIn({ electron: mockElectron })
 
   async function main(): Promise<void> {
-    const { registerAppLifecycle } = require('./app-lifecycle') as typeof import('./app-lifecycle')
+    const { registerAppLifecycle } = await import('./app-lifecycle')
 
     const order: string[] = []
     let disposed = 0
@@ -149,7 +138,7 @@ test('app-lifecycle', async () => {
       process.exitCode = 1
     })
     .finally(() => {
-      moduleWithLoad._load = originalLoad
+      restoreModules()
     })
 
   await suiteRun

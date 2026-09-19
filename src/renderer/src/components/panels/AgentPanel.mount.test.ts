@@ -183,7 +183,7 @@ test('AgentPanel.mount', async () => {
   }
 
   const suiteRun = main().then(
-    () => process.exit(0),
+    () => undefined,
     (error: unknown) => {
       console.error(error)
       process.exit(1)

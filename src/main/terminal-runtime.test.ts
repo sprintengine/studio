@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import Module from 'node:module'
+import { standIn } from '../../tests/stand-in'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -109,24 +109,11 @@ test('terminal-runtime', async () => {
     }
   }
 
-  const moduleWithLoad = Module as typeof Module & {
-    _load(request: string, parent: NodeModule | null, isMain: boolean): unknown
-  }
-  const originalLoad = moduleWithLoad._load
-
-  moduleWithLoad._load = function loadWithMainProcessMocks(
-    request: string,
-    parent: NodeModule | null,
-    isMain: boolean,
-  ): unknown {
-    if (request === 'electron') return mockElectron
-    if (request === 'node-pty') return mockPty
-    return originalLoad.call(this, request, parent, isMain)
-  }
+  const restoreModules = standIn({ electron: mockElectron, 'node-pty': mockPty })
 
   async function main(): Promise<void> {
     try {
-      const runtimeModule = require('./terminal-runtime') as RuntimeModule
+      const runtimeModule = (await import('./terminal-runtime')) as RuntimeModule
       // The gate-behavior sweeps below spawn only a handful of agents, which the
       // default recency floor (keep the N most recent alive) would spare wholesale.
       // Disable the floor so each per-session gate is exercised in isolation; the
@@ -175,7 +162,7 @@ test('terminal-runtime', async () => {
       await assertSpawnWithoutCliRefusesInsteadOfDefaultingToCodex(runtimeModule)
       await assertSpawnRefusesAgentCliWithoutAgentStateSpec(runtimeModule)
     } finally {
-      moduleWithLoad._load = originalLoad
+      restoreModules()
     }
   }
 
@@ -839,7 +826,7 @@ test('terminal-runtime', async () => {
       logMainPerfEvent: () => undefined,
     })
 
-    const { createHeadlessTerminalSender } = require('./terminal-session') as typeof import('./terminal-session')
+    const { createHeadlessTerminalSender } = await import('./terminal-session')
 
     const headless = await runtime.ipcHandlers.spawnTerminal(createHeadlessTerminalSender(), {
       sessionId: 'session-headless',

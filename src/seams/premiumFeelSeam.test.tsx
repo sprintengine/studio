@@ -4,7 +4,10 @@ import { createRequire } from 'node:module'
 import { join } from 'node:path'
 
 import { installJsdomEnvironment, withInertPreloadFallback } from './jsdomEnvironment'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+// The IPC wire between the real preload and the real main handlers.
+vi.mock('electron', () => import('../../tests/stubs/electron'))
 
 test('premiumFeelSeam', async () => {
   // ── Seam: the premium-feel pass, where its members meet (epic 1999) ──────────
@@ -64,6 +67,11 @@ test('premiumFeelSeam', async () => {
   // Labelled SEAM: per the run-A convention.
 
   const dom = installJsdomEnvironment()
+  // The module registry lazy-loads the workspace store, and the store imports the
+  // registry back. Vitest's module runner hands a lazy import of a module that is
+  // still evaluating back half-initialised, where a browser would wait for it; so
+  // the registry loads first, and the store it pulls in evaluates on its own.
+  await import('../renderer/src/modules')
   const domWindow = dom.window as unknown as Record<string, unknown>
   // Popover measures its surface before it can take focus, and it does that on the
   // next frame. `pretendToBeVisual` gives the jsdom window a real rAF; only the

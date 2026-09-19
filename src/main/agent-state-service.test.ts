@@ -1847,12 +1847,10 @@ test('agent-state-service', async () => {
     console.log('agent-state-service.test.ts: all assertions passed')
   }
 
-  const suiteRun = run()
-    .then(() => process.exit(0))
-    .catch((error) => {
-      console.error(error)
-      process.exit(1)
-    })
+  const suiteRun = run().catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })
 
   await suiteRun
 })

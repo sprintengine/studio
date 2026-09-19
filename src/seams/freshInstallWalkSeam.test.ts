@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import Module from 'node:module'
+import { standIn } from '../../tests/stand-in'
 import { mkdtemp, readFile, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -84,19 +84,7 @@ test('freshInstallWalkSeam', async () => {
     },
   }
 
-  const moduleWithLoad = Module as typeof Module & {
-    _load(request: string, parent: NodeModule | null, isMain: boolean): unknown
-  }
-  const originalLoad = moduleWithLoad._load
-  moduleWithLoad._load = function loadWithMainProcessMocks(
-    request: string,
-    parent: NodeModule | null,
-    isMain: boolean,
-  ): unknown {
-    if (request === 'electron') return mockElectron
-    if (request === 'node-pty') return mockPty
-    return originalLoad.call(this, request, parent, isMain)
-  }
+  const restoreModules = standIn({ electron: mockElectron, 'node-pty': mockPty })
 
   // One machine, described the way a machine actually differs: which binaries the
   // user's INTERACTIVE shell resolves. Availability is probed through `$SHELL
@@ -138,7 +126,7 @@ test('freshInstallWalkSeam', async () => {
       await testZshrcOnlyCliIsOfferedAndLaunchesThroughItsProbedPath()
       console.log('all fresh-install walk seam tests passed')
     } finally {
-      moduleWithLoad._load = originalLoad
+      restoreModules()
     }
   }
 

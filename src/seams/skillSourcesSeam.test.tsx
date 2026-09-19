@@ -9,7 +9,10 @@ import type { SkillTreeEntry } from '../main/skills/scan'
 import { STUDIO_SKILL_SOURCE_ID, type ScanResult } from '../shared/skills'
 import { STUDIO_MARKETPLACE_RESOURCE_DIR } from '../main/skills/studio-plugin'
 import { installJsdomEnvironment, withInertPreloadFallback } from './jsdomEnvironment'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+// The IPC wire between the real preload and the real main handlers.
+vi.mock('electron', () => import('../../tests/stubs/electron'))
 
 test('skillSourcesSeam', async () => {
   // ── Seam: a skill source, end to end (T1 → T2 → T3 → T4 → T7, item MC-1932ff) ─
@@ -46,6 +49,11 @@ test('skillSourcesSeam', async () => {
   // their directory names by design rather than by accident.
 
   const dom = installJsdomEnvironment()
+  // The module registry lazy-loads the workspace store, and the store imports the
+  // registry back. Vitest's module runner hands a lazy import of a module that is
+  // still evaluating back half-initialised, where a browser would wait for it; so
+  // the registry loads first, and the store it pulls in evaluates on its own.
+  await import('../renderer/src/modules')
   const domWindow = dom.window as unknown as Record<string, unknown>
 
   const FIXTURES = join(process.cwd(), 'src', 'main', 'skills', '__fixtures__')
@@ -1025,7 +1033,6 @@ test('skillSourcesSeam', async () => {
   const suiteRun = main()
     .then(() => {
       for (const path of temporaryDirs) rmSync(path, { recursive: true, force: true })
-      process.exit(0)
     })
     .catch((error: unknown) => {
       console.error(error)

@@ -1,5 +1,10 @@
+import { mkdirSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 // Test-only stub for `electron`, backing the cross-process seam suites in
-// `src/seams/`.
+// `src/seams/`. A suite opts in with
+//   vi.mock('electron', () => import('<relative path>/tests/stubs/electron'))
 //
 // Those suites drive a real renderer surface through the REAL preload
 // passthrough (`src/preload/api/*.ts`) into the REAL main IPC handlers
@@ -15,25 +20,25 @@
 // implemented; anything else is absent and fails loudly.
 
 /** channel -> the handler main registered for it. */
-const invokeHandlers = new Map()
+const invokeHandlers = new Map<string, (...args: any[]) => unknown>()
 /** channel -> listeners the preload registered for main-pushed events. */
-const rendererListeners = new Map()
+const rendererListeners = new Map<string, Set<(...args: any[]) => void>>()
 
-const ipcMain = {
+export const ipcMain = {
   // Real Electron throws on a second `handle` for the same channel. Here the
   // later registration wins, deliberately: a suite legitimately registers one
   // handler set per scenario in a single process. It is the one place this stub
   // is more permissive than Electron, and the app registers each channel once.
-  handle(channel, handler) {
+  handle(channel: string, handler: (...args: any[]) => unknown) {
     invokeHandlers.set(channel, handler)
   },
-  handleOnce(channel, handler) {
-    invokeHandlers.set(channel, async (...args) => {
+  handleOnce(channel: string, handler: (...args: any[]) => unknown) {
+    invokeHandlers.set(channel, async (...args: unknown[]) => {
       invokeHandlers.delete(channel)
       return handler(...args)
     })
   },
-  removeHandler(channel) {
+  removeHandler(channel: string) {
     invokeHandlers.delete(channel)
   },
   // Fire-and-forget `send` traffic carries no handler contract, so listeners
@@ -49,8 +54,8 @@ const ipcMain = {
   },
 }
 
-const ipcRenderer = {
-  async invoke(channel, ...args) {
+export const ipcRenderer = {
+  async invoke(channel: string, ...args: unknown[]) {
     const handler = invokeHandlers.get(channel)
     if (!handler) {
       throw new Error(`Error invoking remote method '${channel}': no handler registered`)
@@ -65,13 +70,13 @@ const ipcRenderer = {
     // answer.
     return handler({ sender: webContents }, ...args)
   },
-  on(channel, listener) {
+  on(channel: string, listener: (...args: any[]) => void) {
     const listeners = rendererListeners.get(channel) ?? new Set()
     listeners.add(listener)
     rendererListeners.set(channel, listeners)
     return ipcRenderer
   },
-  removeListener(channel, listener) {
+  removeListener(channel: string, listener: (...args: any[]) => void) {
     rendererListeners.get(channel)?.delete(listener)
     return ipcRenderer
   },
@@ -81,7 +86,7 @@ const ipcRenderer = {
 // One window, so main-side code that pushes to every open window (the
 // runs-changed broadcast, the brief-run event) reaches the renderer listeners
 // registered above through its normal `webContents.send` path.
-const webContents = {
+export const webContents = {
   // Stable id: main-side code that keys subscriptions per sender (the
   // agent-capabilities watch) needs one, and there is exactly one renderer here.
   id: 1,
@@ -91,7 +96,7 @@ const webContents = {
   once() {
     return webContents
   },
-  send(channel, ...args) {
+  send(channel: string, ...args: unknown[]) {
     for (const listener of rendererListeners.get(channel) ?? []) {
       listener({ sender: webContents }, ...args)
     }
@@ -103,37 +108,34 @@ const theWindow = {
   webContents,
 }
 
-const BrowserWindow = {
+export const BrowserWindow = {
   getAllWindows: () => [theWindow],
   fromWebContents: () => theWindow,
 }
 
-module.exports = {
-  ipcMain,
-  ipcRenderer,
-  BrowserWindow,
-  webContents,
-  contextBridge: {
-    exposeInMainWorld() {},
-  },
-  // `isPackaged` and `getPath` are the only app fields the main modules these
-  // suites import read; a suite that reaches further should fail on the missing
-  // member rather than get a plausible-looking answer.
-  app: {
-    isPackaged: false,
-    // A per-process scratch directory, so a suite that registers an IPC surface
-    // keyed on `userData` (the marketplace install receipts) writes somewhere
-    // disposable instead of the real profile. `SPRINTENGINE_USER_DATA_DIR` wins
-    // when a suite wants to look at what was written, under either of its names
-    // because this stub cannot import the TypeScript seam that reconciles them.
-    getPath(name) {
-      const override = process.env.SPRINTENGINE_USER_DATA_DIR ?? process.env.MULTICODE_USER_DATA_DIR
-      const base =
-        override && override.trim().length > 0
-          ? override.trim()
-          : require('node:path').join(require('node:os').tmpdir(), `multicode-electron-stub-${process.pid}`)
-      require('node:fs').mkdirSync(base, { recursive: true })
-      return name === 'userData' ? base : require('node:path').join(base, String(name))
-    },
+export const contextBridge = {
+  exposeInMainWorld() {},
+}
+
+// `isPackaged` and `getPath` are the only app fields the main modules these
+// suites import read; a suite that reaches further should fail on the missing
+// member rather than get a plausible-looking answer.
+export const app = {
+  isPackaged: false,
+  // A per-process scratch directory, so a suite that registers an IPC surface
+  // keyed on `userData` (the marketplace install receipts) writes somewhere
+  // disposable instead of the real profile. `SPRINTENGINE_USER_DATA_DIR` wins
+  // when a suite wants to look at what was written, under either of its names
+  // because this stub cannot import the TypeScript seam that reconciles them.
+  getPath(name: string) {
+    const override = process.env.SPRINTENGINE_USER_DATA_DIR ?? process.env.MULTICODE_USER_DATA_DIR
+    const base =
+      override && override.trim().length > 0
+        ? override.trim()
+        : join(tmpdir(), `multicode-electron-stub-${process.pid}`)
+    mkdirSync(base, { recursive: true })
+    return name === 'userData' ? base : join(base, String(name))
   },
 }
+
+export default { ipcMain, ipcRenderer, BrowserWindow, webContents, contextBridge, app }

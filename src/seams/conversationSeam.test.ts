@@ -17,7 +17,10 @@ import type {
   MockAdapterTurnInput,
 } from '../main/providers/mock-conversation-provider'
 import type { ConversationIpcHandlers } from '../main/ipc/conversation-ipc'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+// The IPC wire between the real preload and the real main handlers.
+vi.mock('electron', () => import('../../tests/stubs/electron'))
 
 test('conversationSeam', async () => {
   // The input each stubbed IPC handler is handed, read off the real handler

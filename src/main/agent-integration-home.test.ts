@@ -196,12 +196,10 @@ test('agent-integration-home', async () => {
     console.log('agent-integration-home.test.ts: all assertions passed')
   }
 
-  const suiteRun = run()
-    .then(() => process.exit(0))
-    .catch((error) => {
-      console.error(error)
-      process.exit(1)
-    })
+  const suiteRun = run().catch((error) => {
+    console.error(error)
+    process.exit(1)
+  })
 
   await suiteRun
 })

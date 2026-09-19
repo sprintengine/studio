@@ -25,7 +25,10 @@ import assert from 'node:assert/strict'
 
 import type { CardRunResult } from '../../shared/electron-api'
 import { registerCardsIpc, type CardsIpcServices } from './cards-ipc'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+// The IPC wire between the real preload and the real main handlers.
+vi.mock('electron', () => import('../../../tests/stubs/electron'))
 
 test('cards-ipc', async () => {
   type Handler = (event: unknown, raw: unknown) => Promise<CardRunResult>

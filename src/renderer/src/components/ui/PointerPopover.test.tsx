@@ -132,7 +132,7 @@ test('PointerPopover', async () => {
     })
 
     mounted.unmount()
-    process.exit(failures === 0 ? 0 : 1)
+    if (failures !== 0) process.exit(1)
   }
 
   const suiteRun = main()

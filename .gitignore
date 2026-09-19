@@ -5,6 +5,7 @@ dist/
 # and its signature is taken over these exact bytes.
 !/resources/marketplace/plugins/review/module/dist/
 dist-electron/
+coverage/
 out/
 release/
 # Build output goes in release/ dirs; the release workflow's own scripts do not.

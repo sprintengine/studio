@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict'
 
-// Production-channel regression test. This bundle is built with
-// `--define:import.meta.env.PROD=true` (the only test that does), so it
-// exercises the real renderer module index down the production path: the
+// Production-channel regression test. `PROD` is true for this file alone (the
+// only test that sets it, hoisted so it is in place before the imports below
+// evaluate), so it exercises the real renderer module index down the production path: the
 // dev-only modules must be excluded from the active set, the optional ids, and
 // the enablement resolution, while the full bundled list (reserved-id source)
 // stays complete.
@@ -13,7 +13,11 @@ import {
   selectModuleEnabled,
 } from './index'
 import { DEV_ONLY_MODULE_IDS } from '../../../shared/modules/dev-only'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+vi.hoisted(() => {
+  vi.stubEnv('PROD', true)
+})
 
 test('dev-only-gate', async () => {
   const activeIds = ACTIVE_RENDERER_MODULE_MANIFESTS.map((m) => m.id)

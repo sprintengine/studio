@@ -3,7 +3,10 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { installJsdomEnvironment } from './jsdomEnvironment'
-import { test } from 'vitest'
+import { test, vi } from 'vitest'
+
+// The IPC wire between the real preload and the real main handlers.
+vi.mock('electron', () => import('../../tests/stubs/electron'))
 
 test('modelCatalogEffortSeam', async () => {
   // ── Seams between the four children of run D (MC-1865/1870/1884/1885) ─────────
