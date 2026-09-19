@@ -220,7 +220,7 @@
     "@xterm/headless": "6.1.0-beta.303",
     "@xterm/xterm": "6.1.0-beta.303",
     "electron-updater": "^6.8.9",
-    "flexlayout-react": "^0.8.12",
+    "flexlayout-react": "^0.11.0",
     "immer": "^11.1.18",
     "monaco-editor": "^0.56.0",
     "nanoid": "^6.0.1",
