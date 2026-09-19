@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 /**
  * The setting row and the card it lives in — the shipped counterpart of

@@ -45,6 +45,11 @@ import { buildBrowserElementBlock, normalizePickedElement, readPickTheme, sendTe
 
 const NO_RECENT_URLS: readonly string[] = []
 const FILL: BrowserViewport = { mode: 'fill' }
+// Electron enables popups when the attribute is present at all. React 19 types it
+// as a boolean, but React DOM drops `true` on an attribute it does not know, so
+// the string goes through a spread the element's props type does not check.
+const WEBVIEW_ALLOW_POPUPS: object = { allowpopups: 'true' }
+
 // Breathing room around a framed viewport, so the frame reads as a device
 // on a canvas rather than a page cut off at the edges.
 const CANVAS_INSET_PX = 12
@@ -589,7 +594,7 @@ export function BrowserTab({ workspaceId, tab, active }: BrowserTabProps) {
               partition={config.partition}
               webpreferences={BROWSER_WEBPREFERENCES}
               {...(config.preloadUrl ? { preload: config.preloadUrl } : {})}
-              allowpopups="true"
+              {...WEBVIEW_ALLOW_POPUPS}
               // Hidden under the empty state or the error page while either
               // shows, but never `visibility:hidden`: macOS blanks a hidden
               // guest for good.

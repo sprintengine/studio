@@ -29,7 +29,7 @@ export type TerminalFind = {
   findPrevious: () => void
   clearActive: () => void
   close: () => void
-  inputRef: React.RefObject<HTMLInputElement>
+  inputRef: React.RefObject<HTMLInputElement | null>
 }
 
 export type UseTerminalFindInput = {

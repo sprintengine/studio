@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'

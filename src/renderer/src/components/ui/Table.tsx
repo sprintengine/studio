@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 // The kit's table. Three bespoke variants shipped with no shared
 // header/row/cell chrome: a run-summary table (a `table-fixed` with a

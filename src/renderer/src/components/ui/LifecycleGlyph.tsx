@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import type { TooltipChildProps } from './Tooltip'
 import type { LifecycleState } from '../../../../shared/lifecycle-state'
 

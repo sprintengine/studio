@@ -26,7 +26,7 @@
 // is open, even for a door that portals no rail into it, so the swap is decided
 // once by the host rather than negotiated per door.
 
-import React, { useCallback, useContext, useEffect, useRef } from 'react'
+import React, { useCallback, useContext, useEffect, useRef, type JSX } from 'react'
 
 /**
  * The host's rail column, for a surface to portal its rail into. A surface with

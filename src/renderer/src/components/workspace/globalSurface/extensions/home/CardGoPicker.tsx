@@ -62,7 +62,7 @@
 // catalogue has actually answered, because "not installed" said about a runtime
 // that is installed is worse than a moment of nothing.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { CliModelPopoverSurface } from '../../../../ui'
 import { resolveModelPermissionPreset } from '../../../../ui/modelPermissionPresets'

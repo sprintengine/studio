@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 import { JSDOM } from 'jsdom'
-import React from 'react'
+import React, { type JSX } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 
 import * as glyphs from './GitActionGlyphs'

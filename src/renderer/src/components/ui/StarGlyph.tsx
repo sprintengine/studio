@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 // The one star path for starred/favorite marks across the app shell —
 // workspace sidebar rows and menus, the workspace top bar, Backlog rows and
 // the Backlog row context menu. `filled` renders the solid earned mark;

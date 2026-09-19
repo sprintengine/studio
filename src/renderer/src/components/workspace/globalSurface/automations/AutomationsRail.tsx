@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ReactNode, JSX } from 'react'
 
 import type { AutomationsInstanceEntry, AutomationsProviders } from '../../../../../../shared/automations/contracts'
 import type { BuiltinAutomation } from '../../../../../../shared/automations/builtin'

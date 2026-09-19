@@ -25,7 +25,7 @@
 // tab stop. The state is announced by the row's own `aria-checked`, which is
 // what an `option` and a `treeitem` are specified to carry.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { CheckboxBox } from './Checkbox'
 import { FOCUS_RING_INSET_CLASS, FOCUS_RING_WITHIN_CHECKBOX_CLASS, LIST_CURSOR_MARK_CLASS } from './tokens'

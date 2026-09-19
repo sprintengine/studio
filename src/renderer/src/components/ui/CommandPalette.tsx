@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { Workspace, WorkspaceId, WorkspaceWindowId } from '../../types/workspace'
 import type { BuiltinSkill, WorkspaceSkill } from '../../../../shared/electron-api'

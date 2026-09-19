@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { ChevronDownIcon } from '../AppIcons'
 import { DefaultChip } from './DefaultChip'

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react'
+import React, { useCallback, useRef, useState, type JSX } from 'react'
 
 import { IconButton, MenuOption, Popover, type SelectItem } from '../ui'
 import { MENU_GROUP_LABEL_CLASS, MENU_LIST_CLASS } from '../ui/menuClasses'

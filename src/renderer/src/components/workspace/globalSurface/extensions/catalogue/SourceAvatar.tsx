@@ -8,7 +8,7 @@
 // token. Until it lands, and if it never does, the monogram stands in — so the
 // head never shows an empty square.
 
-import React, { useState } from 'react'
+import React, { useState, type JSX } from 'react'
 
 import type { SkillSource } from '../../../../../../../shared/skills'
 import { ExtensionIcon } from '../../../../ui/ExtensionIcon'

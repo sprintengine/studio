@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { ACTIVE_RENDERER_MODULE_MANIFESTS, getRendererHost, selectModuleEnabled } from '../../modules'
 import {

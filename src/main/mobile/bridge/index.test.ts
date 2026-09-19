@@ -269,11 +269,7 @@ test('index', async () => {
     assert.equal(snapshotSummary.ok, true)
     assert.notDeepEqual((snapshotSummary as { data?: unknown }).data, { truncated: true })
     const snapshotValidation = validateMobileControlSnapshot((snapshotSummary as { data?: unknown }).data)
-    assert.equal(
-      snapshotValidation.ok,
-      true,
-      snapshotValidation.ok === false ? snapshotValidation.error.message : undefined,
-    )
+    assert.equal(snapshotValidation.ok, true, snapshotValidation.ok === false ? snapshotValidation.error.message : '')
     assert.equal(relaySummaryByteLength(snapshotSummary) < relayResultSummaryMaxBytes, true)
   }
 
@@ -391,7 +387,7 @@ test('index', async () => {
     assert.equal(JSON.stringify(result?.summary).includes('"truncated":true'), false)
     const snapshot = result?.summary.data
     const validation = validateMobileControlSnapshot(snapshot)
-    assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : undefined)
+    assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : '')
     assert.equal(Object.hasOwn(snapshot as object, 'sprintEngines'), false)
     assert.equal(Object.hasOwn(snapshot as object, 'snapshotLimits'), false)
     assert.equal((snapshot as { backlog?: { items: unknown[] }[] })?.backlog?.[0]?.items.length, 20)

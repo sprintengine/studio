@@ -71,7 +71,7 @@ test('workspace-id', async () => {
     // receipt (e.g. a backlog workspacePath must be non-empty). This is the guard
     // that catches over-aggressive blanking.
     const validation = validateMobileControlSnapshot(safe)
-    assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : undefined)
+    assert.equal(validation.ok, true, validation.ok === false ? validation.error.message : '')
 
     assert.equal(Object.hasOwn(safe, 'sprintEngines'), false)
 

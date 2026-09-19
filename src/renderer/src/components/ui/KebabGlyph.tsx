@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 // The overflow mark: three dots stacked, meaning "more actions here".
 //
 // One drawing, because there were two. `OverflowMenu` drew it on a 14-grid with

@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useState, type JSX } from 'react'
 import { createPortal } from 'react-dom'
 
 import { CheckboxBox } from '../ui/Checkbox'

@@ -15,7 +15,7 @@
 // it, so when it declines it says when the source was last asked and why. It is
 // not Sync: it asks GitHub for the head and copies nothing.
 
-import React, { useState } from 'react'
+import React, { useState, type JSX } from 'react'
 
 import type { McpServerConfig, SkillSourceUpdateCheck } from '../../../../../../../shared/electron-api'
 import {

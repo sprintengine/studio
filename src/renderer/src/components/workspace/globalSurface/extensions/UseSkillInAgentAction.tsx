@@ -15,7 +15,7 @@
 // closes the door around itself), read from the door's host seam at click time
 // the way every other host action in this door is.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import type { WorkspaceSkill } from '../../../../../../shared/electron-api'
 import { UseSkillInAgentMenu } from '../../../ui/UseSkillInAgentMenu'

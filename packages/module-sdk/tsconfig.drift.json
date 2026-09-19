@@ -9,10 +9,9 @@
   "compilerOptions": {
     "composite": false,
     "noEmit": true,
-    "baseUrl": "../..",
     "types": ["vite/client", "node"],
     "paths": {
-      "@renderer/*": ["src/renderer/src/*"]
+      "@renderer/*": ["../../src/renderer/src/*"]
     }
   }
 }

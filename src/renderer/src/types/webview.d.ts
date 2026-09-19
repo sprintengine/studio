@@ -26,7 +26,6 @@ declare module 'react' {
         src?: string
         partition?: string
         webpreferences?: string
-        allowpopups?: string
         preload?: string
       }
     }

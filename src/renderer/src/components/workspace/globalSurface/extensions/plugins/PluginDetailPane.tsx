@@ -5,7 +5,7 @@
 // skills directory. The pane is now the place you pick items from, and
 // Remove on the plugin takes back everything this install wrote.
 
-import React, { useMemo, useState } from 'react'
+import React, { useMemo, useState, type JSX } from 'react'
 
 import type { InstalledPluginRecord } from '../../../../../../../shared/electron-api'
 import {

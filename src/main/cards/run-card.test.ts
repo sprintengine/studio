@@ -733,7 +733,7 @@ test('run-card', async () => {
     {
       const { calls, deps } = recorder()
       const result = await run([{ verb: 'install.module', id: 'review' }], deps)
-      assert.equal(result.ok, true, result.message)
+      assert.equal(result.ok, true, result.message ?? '')
       assert.deepEqual(calls, [
         'readMarketplaceRegistry',
         'listMarketplaceReceipts',

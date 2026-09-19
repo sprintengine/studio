@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
+import React, { useEffect, useMemo, useRef, useState, type JSX } from 'react'
 import { backlogOrWorkspacePath } from '../../hooks/backlogLocation'
 
 import {

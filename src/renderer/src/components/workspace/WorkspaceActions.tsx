@@ -340,9 +340,9 @@ export type WorkspaceActionsProps = {
   activeWorkspace: Workspace | null
   workspaceActionsEnabled: boolean | null
 
-  sessionsRef: React.RefObject<HTMLDivElement>
-  viewMenuRef: React.RefObject<HTMLDivElement>
-  notificationsRef: React.RefObject<HTMLDivElement>
+  sessionsRef: React.RefObject<HTMLDivElement | null>
+  viewMenuRef: React.RefObject<HTMLDivElement | null>
+  notificationsRef: React.RefObject<HTMLDivElement | null>
 
   sessions: SessionItem[]
   sidebarWorkspaceOrder: Map<string, number>

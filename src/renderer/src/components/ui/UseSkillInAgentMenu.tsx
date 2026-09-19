@@ -11,7 +11,7 @@
 // The menu is presentation only. Every fact it shows and every effect it has
 // comes from the flow module and from the caller's `onUse`.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useRef, useState, type JSX } from 'react'
 
 import { InlineNotice } from './InlineNotice'
 import { MENU_LIST_CLASS } from './menuClasses'

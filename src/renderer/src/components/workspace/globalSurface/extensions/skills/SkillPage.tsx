@@ -13,7 +13,7 @@
 // (extensions review, 2026-09-08). Opening it stops the page: reading a skill
 // is one thing done at a time, and Install is the one accent on screen.
 
-import React, { useState } from 'react'
+import React, { useState, type JSX } from 'react'
 
 import { skillDirName, skillNameWarning, type ScannedSkill, type SkillSource } from '../../../../../../../shared/skills'
 import { INSTALL_SKILL_LABEL } from '../../../../../../../shared/skills'

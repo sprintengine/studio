@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { GhostButton, IconButton, InlineNotice, Popover, RowButton, Section, Tooltip, TruncatedText } from '../ui'
 import type { BacklogItem } from '../../utils/backlog'

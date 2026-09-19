@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import type { DesignSystemLibraryEntry } from '../../../../shared/design-system/library'
 import type { HostedCard } from '../../../../shared/hosted-card-feed'

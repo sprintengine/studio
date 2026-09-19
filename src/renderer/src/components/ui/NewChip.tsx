@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react'
+import type { ReactNode, JSX } from 'react'
 
 // The "New" mark: a soft-accent pill saying a thing arrived recently.
 //

@@ -11,7 +11,6 @@
     "vitest.config.ts"
   ],
   "compilerOptions": {
-    "baseUrl": ".",
     "composite": true,
     // @electron-toolkit/tsconfig turns noImplicitAny OFF after setting strict, so
     // every un-annotated parameter was silently `any` until this line. Kept here
@@ -20,7 +19,7 @@
     "moduleResolution": "bundler",
     "types": ["node", "vite/client"],
     "paths": {
-      "@renderer/*": ["src/renderer/src/*"]
+      "@renderer/*": ["./src/renderer/src/*"]
     }
   }
 }

@@ -6,6 +6,7 @@
 // owner of the form state and the one save path. Nothing here reads or writes
 // an automation; every control hands its choice back through `onPatchConfig`.
 
+import type { JSX } from 'react'
 import { CliModelPickerButton, Select, type SelectItem } from '../../ui'
 import type { AgentCliCatalogOption } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'

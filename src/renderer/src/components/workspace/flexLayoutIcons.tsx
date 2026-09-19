@@ -14,6 +14,7 @@
 // against; `--color-icon` is FlexLayout's own icon variable, which
 // index.css already maps into the theme.
 
+import type { JSX } from 'react'
 import type { IIcons } from 'flexlayout-react'
 
 const GLYPH: React.CSSProperties = {

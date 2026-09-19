@@ -22,7 +22,7 @@
 //       same head. New-at-top and one narrowing glyph is a cross-door contract,
 //       so it lives in exactly one place.
 
-import React, { useCallback, useRef } from 'react'
+import React, { useCallback, useRef, type JSX } from 'react'
 
 import { GhostButton } from '../../ui/Buttons'
 import { EmptyState } from '../../ui/EmptyState'

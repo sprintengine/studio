@@ -8,7 +8,7 @@
 // A CLI reaches the app through the marketplace registry, which is the one
 // tab this view has beside Installed.
 
-import React, { useCallback, useMemo, useState } from 'react'
+import React, { useCallback, useMemo, useState, type JSX } from 'react'
 
 import { STUDIO_SKILL_SOURCE_ID } from '../../../../../../../shared/skills'
 import { EmptyState, GhostButton, InlineNotice, Spinner } from '../../../../ui'

@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 import type { Element } from 'hast'
 import ReactMarkdown, { type Components, type ExtraProps, type UrlTransform } from 'react-markdown'
 import remarkGfm from 'remark-gfm'

@@ -9,7 +9,7 @@
 // them ONE PAGE of entries at a time, which a component that fetched its own
 // list could not do.
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import type {
   AgentCli,

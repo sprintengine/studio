@@ -40,7 +40,7 @@
 // whether it is a view or a verb — so it is EXTRACTED here, not redrawn, and
 // the panel imports it.
 
-import React from 'react'
+import React, { type JSX } from 'react'
 
 type GlyphProps = {
   className?: string

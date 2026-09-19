@@ -18,7 +18,7 @@
 // and the tab that view is on — because the ruling says the chosen source
 // survives a switch between Plugins and Skills.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 
 import type { CliVersionAdvisoryMap, McpServerConfig, WorkspaceSkill } from '../../../../../../shared/electron-api'
 import { LOCAL_SKILL_SOURCE_ID_PREFIX, type SkillHarness, type SkillSource } from '../../../../../../shared/skills'

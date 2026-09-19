@@ -347,7 +347,7 @@ test('terminal-launch', async () => {
   function testWslAndWindowsNormalizeTheContextPaths(): void {
     const wsl = hostContextRenderInputs(delivery(), 'wsl', ['C:/repo'])
     assert.equal(wsl.contextFile, '/mnt/c/Users/me/AppData/Roaming/Studio/host-context/s1.md')
-    assert.ok(wsl.contextText?.includes('/mnt/c/repo/design-system'), wsl.contextText)
+    assert.ok(wsl.contextText?.includes('/mnt/c/repo/design-system'), wsl.contextText ?? 'no context text')
     assert.ok(!wsl.contextText?.includes('C:/repo'), 'no Windows path survives into a WSL document')
 
     const windows = hostContextRenderInputs(
@@ -363,7 +363,7 @@ test('terminal-launch', async () => {
     // Prefix rewriting, not a full re-separation: the known roots become Windows
     // paths and whatever hangs off them keeps its slashes, which is exactly what
     // the initial prompt has always done here (and what Windows accepts).
-    assert.ok(windows.contextText?.includes('C:\\repo/design-system'), windows.contextText)
+    assert.ok(windows.contextText?.includes('C:\\repo/design-system'), windows.contextText ?? 'no context text')
     assert.ok(!windows.contextText?.includes('/mnt/c/'), 'no WSL path survives into a native-Windows document')
   }
 

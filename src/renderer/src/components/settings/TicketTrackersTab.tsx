@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { TicketTrackerSection } from './TicketTrackerSection'
 import { SettingsPageHeader } from './SettingsAtoms'

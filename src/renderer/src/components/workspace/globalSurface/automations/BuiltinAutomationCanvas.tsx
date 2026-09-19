@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import type { BuiltinAutomation } from '../../../../../../shared/automations/builtin'
 import { DefinitionList, InlineNotice, Section } from '../../../ui'
 import { BUILTIN_PERMISSION_LABEL, builtinFacts } from './builtinAutomations'

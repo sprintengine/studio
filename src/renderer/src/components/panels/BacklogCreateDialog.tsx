@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, type JSX } from 'react'
 
 import { Modal, ModalBody, ModalButton, ModalFooter, ModalHeader } from '../ui/Modal'
 import { Field, Input, Select, Textarea, type SelectItem } from '../ui'

@@ -20,7 +20,7 @@
 // have one in mind, so it is a second panel of the same dialog rather than a
 // third item on a two-item menu.
 
-import React, { useEffect, useMemo, useState } from 'react'
+import React, { useEffect, useMemo, useState, type JSX } from 'react'
 
 import {
   SOURCE_SHAPE_LABEL,

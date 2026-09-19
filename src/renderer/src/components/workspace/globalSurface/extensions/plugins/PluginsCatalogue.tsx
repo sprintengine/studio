@@ -18,7 +18,7 @@
 // server that does not need the plugin's own files is still added to MCP
 // settings in place.
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useState, type JSX } from 'react'
 
 import type {
   InstalledPluginRecord,

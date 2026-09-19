@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import { PullRequestGlyph, SplitButton, Tooltip, IconButton, type SplitButtonItem } from '../ui'
 import { formatRelativeMs, relativeFromNow } from '../../utils/relativeTime'

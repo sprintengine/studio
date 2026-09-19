@@ -1,4 +1,4 @@
-import { Fragment } from 'react'
+import { Fragment, type JSX } from 'react'
 import {
   ContextMenu,
   MENU_GROUP_LABEL_CLASS,

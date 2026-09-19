@@ -22,7 +22,7 @@
 // The drawings are module-level constants, so their JSX is evaluated when this
 // module initialises rather than inside a component — which means React has to
 // be in scope here explicitly, whatever a given build's JSX runtime does.
-import React from 'react'
+import React, { type JSX } from 'react'
 
 import type { PullRequestState } from '../../../../shared/git/pull-request'
 

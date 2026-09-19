@@ -241,11 +241,17 @@ export default defineConfig({
     },
   },
   renderer: {
+    esbuild: { keepNames: true },
     server: {
       port: rendererDevPort(),
       strictPort: readStudioEnv('SPRINTENGINE_RENDERER_STRICT_PORT') === '1',
     },
     build: {
+      // React 19 publishes unminified production builds and leaves minifying to
+      // the bundler; React 18's pre-minified files had hidden that this build
+      // never minified. `keepNames` keeps `fn.name` and class names intact for
+      // anything that reads them at runtime.
+      minify: 'esbuild',
       rollupOptions: {
         // The HTML entries. `index` is the app; `splash` is the standalone
         // launch plate, which loads no bundle at all — without naming it here

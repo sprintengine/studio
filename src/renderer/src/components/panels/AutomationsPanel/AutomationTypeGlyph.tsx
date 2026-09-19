@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import type { AutomationProviderGlyph } from '../../../../../shared/automations/contracts'
 import { actionLabel } from './automationsFormat'
 

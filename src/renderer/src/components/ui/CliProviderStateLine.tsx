@@ -1,3 +1,4 @@
+import type { JSX } from 'react'
 import { ProviderStateId } from './ProviderRow'
 import { cliProviderStateWords, type CliProviderState } from './cliProviderState'
 

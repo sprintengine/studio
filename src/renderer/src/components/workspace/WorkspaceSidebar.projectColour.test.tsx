@@ -69,7 +69,7 @@ test('WorkspaceSidebar.projectColour', async () => {
       pendingRetries.push(handler as () => void)
       return 0 as unknown as ReturnType<typeof setTimeout>
     }
-    return (realSetTimeout as (...args: unknown[]) => ReturnType<typeof setTimeout>)(handler, delay, ...rest)
+    return (realSetTimeout as unknown as (...args: unknown[]) => ReturnType<typeof setTimeout>)(handler, delay, ...rest)
   }) as unknown as typeof setTimeout
 
   // The reader, under this suite's control: which folders answer, when, and

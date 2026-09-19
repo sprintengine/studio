@@ -17,7 +17,7 @@
 // where the document wrapped at thirty characters (extensions review,
 // 2026-09-08).
 
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import React, { useCallback, useEffect, useMemo, useRef, useState, type JSX } from 'react'
 
 import type { ScannedSkill, SkillFileRef, SkillSource } from '../../../../../../../shared/skills'
 import { GhostButton, InlineNotice, RowButton, Spinner, Tooltip } from '../../../../ui'
