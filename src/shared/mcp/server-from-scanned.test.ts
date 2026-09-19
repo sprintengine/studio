@@ -156,7 +156,8 @@ test('server-from-scanned', async () => {
 
   run('the MCP provenance types are identical in both declarations', () => {
     const read = (path: string): string => readFileSync(join(process.cwd(), path), 'utf8')
-    const contract = read('src/shared/electron-api.ts')
+    // The IPC contract's MCP types (re-exported by electron-api.ts).
+    const contract = read('src/shared/ipc/mcp.ts')
     const twin = read('src/shared/agent-state.ts')
     for (const source of [contract, twin]) {
       assert.match(source, /export type McpServerSource = 'bundled' \| 'custom' \| 'source'/)
