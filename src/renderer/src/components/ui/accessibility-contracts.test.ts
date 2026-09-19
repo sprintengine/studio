@@ -117,7 +117,13 @@ test('accessibility-contracts', async () => {
   // menus). Unlike Popover it opens at viewport coordinates, so it owns its own
   // clamped positioning, dismissal, focus restoration, and roving focus.
   const contextMenu = read('src/renderer/src/components/ui/ContextMenu.tsx')
-  const workspaceSidebar = read('src/renderer/src/components/workspace/WorkspaceSidebar.tsx')
+  // The sidebar is WorkspaceSidebar.tsx and the modules beside it in sidebar/.
+  const workspaceSidebar = [
+    read('src/renderer/src/components/workspace/WorkspaceSidebar.tsx'),
+    ...readdirSync(join(process.cwd(), 'src/renderer/src/components/workspace/sidebar'))
+      .filter((name) => name.endsWith('.tsx') || name.endsWith('.ts'))
+      .map((name) => read(`src/renderer/src/components/workspace/sidebar/${name}`)),
+  ].join('\n')
 
   expectIncludes(contextMenu, 'role="menu"', 'ContextMenu surface exposes the menu role')
   expectIncludes(contextMenu, 'aria-label={ariaLabel}', 'ContextMenu requires an accessible surface name')
@@ -173,7 +179,13 @@ test('accessibility-contracts', async () => {
   expectIncludes(presetMenu, "event.key === 'Enter' || event.key === ' '", 'Enter and Space activate the focused row')
   expectIncludes(presetMenu, 'export function focusActivePresetRow', 'one shared open-focus helper for every host')
   const launchPanel = read('src/renderer/src/components/workspace/agentComposer/NewAgentPanel.tsx')
-  const chatView = read('src/renderer/src/components/panels/AgentChatView.tsx')
+  // The chat view is AgentChatView.tsx and the modules beside it in agentChat/.
+  const chatView = [
+    read('src/renderer/src/components/panels/AgentChatView.tsx'),
+    ...readdirSync(join(process.cwd(), 'src/renderer/src/components/panels/agentChat'))
+      .filter((name) => name.endsWith('.tsx'))
+      .map((name) => read(`src/renderer/src/components/panels/agentChat/${name}`)),
+  ].join('\n')
   // Every spawn surface reaches the preset rows through ONE control now: the
   // permission dropdown on the model picker's trailing row (owner, 2026-09-05).
   // The launch panel used to open them from a chip of its own, so the open-focus

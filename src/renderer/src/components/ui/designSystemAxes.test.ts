@@ -707,7 +707,7 @@ test('designSystemAxes', async () => {
 
   /** Named like an empty state, ruled to be something else. */
   const EMPTY_STATE_RULED: Record<string, string> = {
-    'components/panels/AgentChatView.tsx':
+    'components/panels/agentChat/chatStates.tsx':
       'RULED 2026-08-05 — `EmptyChatState` is a first-run CANVAS (glyph, heading, and three ' +
       'suggestion buttons that send a turn), the class the empty-state ruling explicitly kept out of the quiet ' +
       'primitive when it declined to generalize `SurfaceCanvasState` into it.',
