@@ -191,7 +191,7 @@
     "publish": {
       "provider": "github",
       "owner": "sprintengine",
-      "repo": "studio-releases",
+      "repo": "studio",
       "releaseType": "release"
     },
     "protocols": [

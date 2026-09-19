@@ -188,7 +188,7 @@ export function buildReleaseNotes({ version, channel, sourceRepo, sha, sourcePri
 // ---------------------------------------------------------------------------
 // What an installed build can actually reach.
 //
-// Every other check in the release job runs with RELEASES_TOKEN, which reads a
+// Every other check in the release job runs with the job's token, which reads a
 // private or misnamed releases repository perfectly happily -- builds up to
 // 0.1.7 followed a private repo and never saw an update, and the job that
 // published them was green. The questions below are asked the way the shipped
