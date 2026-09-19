@@ -224,7 +224,7 @@
     "flexlayout-react": "^0.8.12",
     "immer": "^10.1.1",
     "monaco-editor": "^0.55.1",
-    "nanoid": "^5.0.9",
+    "nanoid": "^6.0.1",
     "node-pty": "^1.1.0",
     "react-markdown": "^10.1.0",
     "remark-gfm": "^4.0.1",
