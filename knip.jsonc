@@ -1,0 +1,30 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  // The main and preload entries come from electron.vite.config.ts; these are
+  // the rest: the three renderer documents and the scripts the package.json
+  // scripts and workflows run by path.
+  "entry": [
+    "src/renderer/index.html",
+    "src/renderer/splash.html",
+    "src/renderer/canvas-worker.html",
+    "scripts/**/*.{js,mjs,cjs}",
+    "design-system/scripts/*.mjs",
+    "resources/marketplace/*.ts",
+    "resources/hooks/*.mjs",
+    "packages/module-sdk/src/cli.ts",
+    "packages/module-sdk/drift/*.ts",
+  ],
+  "project": [
+    "src/**/*.{ts,tsx}",
+    "scripts/**/*.{js,mjs,cjs}",
+    "packages/*/src/**/*.ts",
+    "resources/marketplace/*.ts",
+    "tests/**/*.ts",
+  ],
+  "ignoreDependencies": [
+    // Imported from CSS (`@import "tailwindcss"`), which knip does not read.
+    "tailwindcss",
+    // The pack check installs the freshly packed tarball and imports it by name.
+    "@sprintengine/mobile-control-protocol",
+  ],
+}

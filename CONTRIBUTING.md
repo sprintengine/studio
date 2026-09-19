@@ -8,8 +8,8 @@ By taking part you agree to follow the [Code of Conduct](CODE_OF_CONDUCT.md).
 
 ## Getting set up
 
-You need **Node 22** and npm. The repository carries a `.nvmrc`, so `nvm use`
-picks the right version; CI runs Node 22 as well.
+You need **Node 22** (22.12 or later) and npm. The repository carries a
+`.nvmrc`, so `nvm use` picks the right version; CI reads the same file.
 
 ```
 git clone https://github.com/sprintengine/studio.git
@@ -52,6 +52,7 @@ npm run test:coverage                       # the suite with a coverage report
 npm run typecheck:all                       # app and test projects
 npm run lint                                # oxlint, then the design-system and composition lints
 npm run format                              # format with Prettier (format:check only checks)
+npm run knip                                # unused files and undeclared or unused dependencies
 npm run verify:app                          # everything CI runs, in one command
 ```
 
