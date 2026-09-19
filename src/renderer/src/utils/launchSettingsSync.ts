@@ -1,6 +1,6 @@
 /**
- * Pushes the renderer-authored agent-launch settings to main's store
- * (MC-2154). Main needs every input a launch is composed from — CLI runtimes,
+ * Pushes the renderer-authored agent-launch settings to main's store.
+ * Main needs every input a launch is composed from — CLI runtimes,
  * MCP settings, knowledge roots, the last-selected CLI and the spawn permission
  * preset — but they are authored in `appSettings` (localStorage), so with no
  * window open main would otherwise have to guess.

@@ -1,5 +1,5 @@
 /**
- * MC-2156 — the lines the background tray renders. The rule under test is
+ * The lines the background tray renders. The rule under test is
  * honesty: every counter names what main actually holds, and a zero is stated
  * rather than hidden behind an empty menu.
  */

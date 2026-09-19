@@ -151,7 +151,7 @@ test('settingsSlice', async () => {
 
   assert.equal(normalizeCliPermissionPreset('auto'), 'auto')
   assert.equal(normalizeCliPermissionPreset('bypass'), 'bypass')
-  // Corruption floors to `manual`, which MC-2210 moved from `default`: no flag
+  // Corruption floors to `manual`, which the preset rename moved from `default`: no flag
   // is no longer the conservative answer now that Claude Code reads it as auto.
   assert.equal(normalizeCliPermissionPreset('bad' as never), 'manual')
   // A recognised legacy spelling is not corruption — it maps, it does not floor.
@@ -159,7 +159,7 @@ test('settingsSlice', async () => {
   assert.equal(normalizeCliPermissionPreset('auto_workspace' as never), 'auto')
   assert.equal(normalizeCliPermissionPreset('bypass_all' as never), 'bypass')
 
-  // MC-2210 acceptance: migration must NEVER escalate. Ordered least → most
+  // The preset rename's rule: migration must NEVER escalate. Ordered least → most
   // permissive, `none` sits outside the order because what it grants depends on
   // the CLI (no flag now means auto mode on Claude Code), so it is checked
   // separately: nothing may migrate INTO it, since that would hand the decision
@@ -388,7 +388,7 @@ test('settingsSlice', async () => {
   carrier.activeGlobalSurface = null
 
   // openExtensionsSurface opens the Plugins DOOR (Extensions drawer ruling,
-  // 2026-09-05; a modal from 2026-09-01 until then, the MC-1847 door before
+  // 2026-09-05; a modal from 2026-09-01 until then, the Extensions door before
   // that); closing is closeGlobalSurface. The caller can be inside the Settings
   // modal (Settings → Modules "Browse marketplace"): the door routes the region
   // the modal was floating over, so the modal closes and the settings request it
@@ -493,7 +493,7 @@ test('settingsSlice', async () => {
   assert.equal('roadmapSurface' in carrier, false, 'the legacy overlay store flag is gone')
 
   // The workspace pane column (browser-pane epic) took over the aside column
-  // MC-1766 left vacant: the app-level width clamps to the column bounds and the
+  // the retired aside left vacant: the app-level width clamps to the column bounds and the
   // maximised flag is a plain transient toggle.
   assert.equal('workspaceAsideOpen' in carrier, false, 'open/closed is per workspace now, not app state')
   slice.setWorkspacePaneMaximised(true)
@@ -509,7 +509,7 @@ test('settingsSlice', async () => {
 
   // T3: the MCPs / Skill packs / Extensions settings tabs folded into the
   // connectors surface — the Plugins DOOR again since the Extensions drawer
-  // ruling (2026-09-05; a modal from 2026-09-01, the MC-1847 door before that). A
+  // ruling (2026-09-05; a modal from 2026-09-01, the Extensions door before that). A
   // deep-link that once opened one of those tabs (by tab id, or the legacy
   // Extensions browse deep-link) must open the surface, not a settings overlay on
   // a tab that no longer exists.
@@ -522,7 +522,7 @@ test('settingsSlice', async () => {
     assert.equal(carrier.activeGlobalSurface, 'extensions', `${foldedTab} routes to the Plugins door`)
     assert.equal(carrier.activeModalSurface, null, `${foldedTab} leaves no modal floating over it`)
     assert.equal(carrier.settingsOverlay.initialTab, null, `${foldedTab} leaves no dangling settings tab`)
-    // MC-1936: skill packs are gone, so the tab that named them lands on Skills —
+    // Skill packs are gone, so the tab that named them lands on Skills —
     // the surface's other deep-links land on the Plugins catalogue, which is
     // what `browse` used to mean before the views were named for themselves
     // (source-tabs ruling, 2026-09-05).
@@ -702,7 +702,7 @@ test('settingsSlice', async () => {
 
   // Writes through a migrated command id must clear state persisted under its
   // legacy id (LEGACY_COMMAND_ID_ALIASES), or the legacy-honoring read paths
-  // resurrect it and e.g. a pre-rename disable can never be undone (MC-1533
+  // resurrect it and e.g. a pre-rename disable can never be undone (
   // re-namespacing; ported from extraction-branch commits 52d05235/0e57e36f).
   store.setCommandKeybindingDisabled('voice.toggle', true)
   store.setCommandKeybindingDisabled('voice-dictation.toggle', false)
@@ -819,7 +819,7 @@ test('settingsSlice', async () => {
     'its one-time reset stamp is dropped with it',
   )
 
-  // Appearance: windowMaterial is a second axis beside theme (MC-1907).
+  // Appearance: windowMaterial is a second axis beside theme.
   assert.deepEqual(defaultAppearanceSettings(), { theme: 'system', windowMaterial: 'solid' })
   assert.deepEqual(normalizeAppearanceSettings(undefined), defaultAppearanceSettings())
   assert.deepEqual(normalizeAppearanceSettings({ theme: 'sage', windowMaterial: 'glass' }), {
@@ -949,7 +949,7 @@ test('settingsSlice', async () => {
     )
   }
 
-  // Model-written chat titles (MC-2484). The setting is on by default — the
+  // Model-written chat titles. The setting is on by default — the
   // heuristic title is the fallback for a person with this off or with no
   // supported CLI installed, so nothing is lost by starting it on — and the
   // engine choice is a separate axis that survives an off.

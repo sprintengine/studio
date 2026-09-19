@@ -247,7 +247,7 @@ export type SidecarHandle = {
   status(): SidecarRuntimeStatus
 }
 
-// ── MCP tools on the Studio gateway (MC-1855) ─────────────────────────────────
+// ── MCP tools on the Studio gateway ─────────────────────────────────
 
 /** A normal MCP tool result; `isError: true` marks a tool-domain failure. */
 export type McpToolResult = {

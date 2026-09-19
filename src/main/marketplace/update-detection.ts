@@ -1,4 +1,4 @@
-// Per-installed-entry update detection (MC-1873): compares what is installed
+// Per-installed-entry update detection: compares what is installed
 // (install receipts + directly installed user modules) against the registry's
 // `latest`, through the pure shared detector. Honest failure is part of the
 // contract — a registry that cannot be read yields `unknown` on every entry,

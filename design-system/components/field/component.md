@@ -81,7 +81,7 @@ Validation appears after the first keystroke, never on open.
   is what assistive tech hears. Neither appears as an accusation on an
   untouched form — see *Empty is not invalid*.
 
-## Known drift (MC-2114)
+## Known drift
 
 - ~~Shipped `Field.tsx` renders the label at 12px (`text-meta`) and the
   help/error messages at 11px (`text-micro`). The system's spec — here and in

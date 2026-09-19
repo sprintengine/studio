@@ -31,12 +31,12 @@ import {
 } from './providerSettings'
 
 // The field is `ui/Input`; this module used to carry a copy of SettingsPanel's
-// `INPUT_CLASS` under the same name (MC-2114). `font-mono` stays because an API
+// `INPUT_CLASS` under the same name. `font-mono` stays because an API
 // key is an identifier, not prose.
 const MONO_FIELD = 'font-mono'
 
 // The local `Note` this file used to declare was the forbidden left tone-bar in
-// four tones (MC-2115). Failures and degraded states are the kit's notice;
+// four tones. Failures and degraded states are the kit's notice;
 // everything else here is a plain line of copy.
 type ProviderMessage = ActionResult | undefined
 type PendingKind = 'saving' | 'clearing'

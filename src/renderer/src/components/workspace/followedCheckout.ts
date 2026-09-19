@@ -8,7 +8,7 @@ import { agentCheckoutOf, agentCheckoutProbePath } from './agentCheckout'
 // focused agent's — with no tab focused, the last one that was — and only for
 // a workspace that never focused an agent, the workspace's own. Pure, so the
 // chip's rule is testable without the title bar, and so the Git panel
-// (MC-2441) can read the same answer later.
+// can read the same answer later.
 
 export type FollowedCheckout = {
   /** What git is asked about: the followed agent's checkout, else the workspace's. Null: nothing to ask. */

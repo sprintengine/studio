@@ -20,7 +20,7 @@ function AuxLoading() {
 }
 
 // A window that cannot open at all: the kit's notice, centred in the empty
-// window, rather than a red sentence floating in the middle of it (MC-2115).
+// window, rather than a red sentence floating in the middle of it.
 function AuxFailure({ message }: { message: string }) {
   return (
     <div className="flex h-screen w-screen items-center justify-center bg-[color:var(--bg-app)] px-6">

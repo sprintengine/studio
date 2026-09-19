@@ -18,7 +18,7 @@ import { isRecord } from '../shared/records'
 
 const MAX_REPLAY_EVENTS = 500
 
-// The sequenced broadcast bus over the main-owned workspace registry (MC-2158).
+// The sequenced broadcast bus over the main-owned workspace registry.
 //
 // This service used to be a state machine with its own snapshot, explicitly NOT
 // authoritative: restart survivors were rebuilt as routing placeholders whose

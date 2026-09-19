@@ -12,7 +12,7 @@ import type {
 
 const PERMISSION_PRESETS: readonly AutomationCliPermissionPreset[] = ['none', 'manual', 'auto', 'bypass']
 
-// Pre-MC-2210 spellings. An automation saved before the rename still carries
+// Pre-rename spellings. An automation saved before the rename still carries
 // one, and rejecting it would break a definition nobody edited, so they stay
 // accepted on read (and in the config schema, which validates saved definitions
 // as well as new ones) and are normalized to the canonical name. `default` maps

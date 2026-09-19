@@ -16,7 +16,7 @@ import {
 import { CliGlyph, McpGlyph, SkillsGlyph } from '../components/ui/CapabilityGlyphs'
 import { PluginsGlyph } from '../components/workspace/surfaceGlyphs'
 
-// The Plugins surface (MC-1847's Extensions door until doors→modals,
+// The Plugins surface (the Extensions door until doors→modals,
 // 2026-09-01): the connectors browse/install/launch experience, now mounted in
 // the shell's modal shell. Lazy — and deliberately NOT a top-level import —
 // because the surface reaches the workspace store; keeping it behind a dynamic
@@ -33,7 +33,7 @@ const ExtensionsGlobalSurface = React.lazy(
 // turn off. Its renderer surfaces (AgentPanel, TerminalView, PlainTerminalPanel,
 // the agents/runState store slices) are always present, so it registers no
 // gated panels with the host; it does contribute the always-reachable
-// Extensions door surface (MC-1847), and its manifest anchors the dependency
+// Extensions door surface, and its manifest anchors the dependency
 // graph and presents the core in the chooser.
 //
 // It does own the `agent.terminal` Backlog link kind: when a Backlog item is
@@ -101,7 +101,7 @@ export const agentRuntimeRendererModule: RendererModule = {
       ],
     })
     // The Plugins door (Extensions drawer ruling, 2026-09-05 — "surfaces, not
-    // modals"; the Extensions door of MC-1847, then a modal from 2026-09-01).
+    // modals"; the Extensions door, then a modal from 2026-09-01).
     // Registered through the always-on core so the catalogue is always
     // reachable. The id stays `extensions` — it is a persisted surface id and a
     // deep-link target — while every user-facing string says Plugins. A plain

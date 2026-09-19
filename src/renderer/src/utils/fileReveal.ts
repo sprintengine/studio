@@ -1,5 +1,5 @@
 // "Select this file in the Files tree" signal, dispatched by the terminal link
-// chooser (MC-1899) and consumed by FileExplorer.
+// chooser and consumed by FileExplorer.
 //
 // FileExplorer already knows how to reveal a path — it loads every parent
 // directory, expands them, selects the row and scrolls it into view — but its

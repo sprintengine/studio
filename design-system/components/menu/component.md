@@ -296,7 +296,7 @@ reads as a click inside the parent.
 
 The product also shipped a third register: **native Electron context menus**,
 drawn by the OS through `window.api.showContextMenu`. Four hosts used one, and
-after MC-2104 none do.
+after the context-menu sweep none do.
 
 | Host | Ruling |
 |---|---|
@@ -377,7 +377,7 @@ which compares the three components against each other rather than each against
 itself: the divergence only ever existed *between* components, so a
 per-component test could not have caught it.
 
-**Reconciled 2026-08-05, again (MC-2138).** The class pair above had converged
+**Reconciled 2026-08-05, again.** The class pair above had converged
 the five components the kit owns; every menu row *outside* them was still
 hand-rolled — the model picker popover, both in-app menubar fallbacks, the
 account menu, the reasoning selector — each with its own inset, its own type
@@ -389,7 +389,7 @@ the stacked item above. `role="menuitem"` also stopped appearing on things that
 are not rows: the notifications popover put it on a report block carrying its own
 buttons, and is a `dialog` popover now.
 
-Held additionally by the `MC-2138` rules in
+Held additionally by the menu-row rules in
 `src/renderer/src/components/ui/designSystemConformance.test.tsx`, which read
 the literals a developer types across a directory list that grows as each
 surface converges — the earlier sweeps' scoped guards plus an unscoped

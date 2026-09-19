@@ -3,7 +3,7 @@ import { FOCUS_RING_CLASS } from './tokens'
 
 // The product's one text-field vocabulary: `Input` for a single line,
 // `Textarea` for many. This primitive had ZERO board-surface consumers before
-// MC-2114. In its place the product grew NINE hand-rolled ones — the automation
+// In its place the product grew NINE hand-rolled ones — the automation
 // editor's `CONTROL_BASE` (duplicated verbatim in `TriggerFields` under comments
 // in both files admitting the two were hand-synced), five separate inline
 // strings inside one panel file, two different module constants both named

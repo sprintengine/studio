@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
 test('TerminalLinkMenu', async () => {
-  // MC-1899: the terminal link chooser. `terminalLinkActions` is unit-tested for
+  // The terminal link chooser. `terminalLinkActions` is unit-tested for
   // WHICH rows appear; this suite stands up the real menu in a DOM and pins what
   // each row DOES — the wiring that a pure test cannot reach. The Electron app
   // cannot be driven headlessly, so this is the closest thing to clicking the row.

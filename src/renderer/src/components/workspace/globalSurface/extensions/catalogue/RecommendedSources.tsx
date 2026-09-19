@@ -1,5 +1,5 @@
 // Recommended sources: the places to get skills and plugins, offered one click
-// from where a person manages the sources they already have (MC-2519, owner
+// from where a person manages the sources they already have (owner
 // ruling 2026-09-08).
 //
 // The studio used to ship other people's software — a bundled catalogue of

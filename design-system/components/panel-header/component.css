@@ -1,7 +1,7 @@
 /* Panel header — the one header contract for every panel: a single 34px band
  * (size.control.md) carrying name, canonical count, optional scope, and at
  * most two controls. Extracted from the shipped PanelHeader primitive
- * (src/renderer/src/components/ui/PanelHeader.tsx); MC-2112 rolls this
+ * (src/renderer/src/components/ui/PanelHeader.tsx); the panel-header rollout rolls this
  * anatomy out to every panel that still draws its own header.
  *
  * Family contract: one band of chrome per panel — a header stacked on a

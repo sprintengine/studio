@@ -11,7 +11,7 @@ import {
 } from '../settings/installFlow'
 import { EmptyState, GhostButton, InlineNotice, PrimaryButton, Spinner, StatusDot } from '../ui'
 
-// Explicit absence surfaces for module-owned UI (MC-1532). A workspace whose
+// Explicit absence surfaces for module-owned UI. A workspace whose
 // mode's module is not installed — fresh machine, uninstalled, marketplace
 // install pending — must render a labeled state with an install path, never a
 // blank pane or a grid of dead tabs. Data-safe by construction: nothing here
@@ -44,7 +44,7 @@ export function moduleLabelForModuleId(moduleId: string): string {
 }
 
 /**
- * Whether a workspace's mode can be rendered at all, and if not, why (MC-2577).
+ * Whether a workspace's mode can be rendered at all, and if not, why.
  *
  * Absence is a surface, never a blank (epic rule). Two ways a module-owned
  * workspace stops being renderable, and the copy differs because the remedy
@@ -102,7 +102,7 @@ export function ModuleNotInstalledSurface({
   actionLabel?: string
   onOpenMarketplace: () => void
 }) {
-  // The kit's empty state (MC-2115/MC-2117): this and the door surface below
+  // The kit's empty state: this and the door surface below
   // were their own dialect — `text-meta` title, `text-micro` body, and one of
   // them painting `bg-app` while the other painted nothing. The wrapper keeps
   // the `role="note"` labelling, which is this surface's own contract.
@@ -125,7 +125,7 @@ export function ModuleNotInstalledSurface({
   )
 }
 
-// A top-level door whose owning module is absent (MC-1854): the persisted
+// A top-level door whose owning module is absent: the persisted
 // `activeGlobalSurface` id names a surface that never registered (module not
 // installed) or whose module is disabled. Same rule as the workspace surface
 // above — a labeled state with an install path, never a blank pane — and the

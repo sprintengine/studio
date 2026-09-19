@@ -13,7 +13,7 @@
       "args": []
     },
     "bypass": {
-      "$comment": "OpenCode has exactly ONE permission flag. `opencode --help` documents `--auto` (\"auto-approve permissions that are not explicitly denied (dangerous!)\") and nothing else \u2014 there is no `--dangerously-skip-permissions`, which is what this preset used to send. OpenCode's parser is not strict, so the unknown flag was silently dropped: choosing Bypass did nothing and the session kept prompting, with no error anywhere (MC-2214). No `auto` rung is declared on purpose \u2014 OpenCode has no supervised-autonomy mode distinct from this one, so an auto request degrades DOWN to manual, which is the honest answer.",
+      "$comment": "OpenCode has exactly ONE permission flag. `opencode --help` documents `--auto` (\"auto-approve permissions that are not explicitly denied (dangerous!)\") and nothing else \u2014 there is no `--dangerously-skip-permissions`, which is what this preset used to send. OpenCode's parser is not strict, so the unknown flag was silently dropped: choosing Bypass did nothing and the session kept prompting, with no error anywhere. No `auto` rung is declared on purpose \u2014 OpenCode has no supervised-autonomy mode distinct from this one, so an auto request degrades DOWN to manual, which is the honest answer.",
       "label": "Bypass all approvals (dangerous)",
       "args": ["--auto"]
     }
@@ -183,7 +183,7 @@
     ]
   },
   "capabilities": {
-    "$comment": "resumeSession is intentionally false: OpenCode's resume (opencode run --continue --session {{sessionId}}) is structurally caller-independent like Codex and very likely works, but MC-1464 excluded it as unverified and real-app OpenCode resume is not drivable headless. false = zero behavior change vs. today. Flip to true (no code change) once resume is verified end-to-end to preserve the conversation. See backlog MC-1465.",
+    "$comment": "resumeSession is intentionally false: OpenCode's resume (opencode run --continue --session {{sessionId}}) is structurally caller-independent like Codex and very likely works, but it was excluded as unverified and real-app OpenCode resume is not drivable headless. false = zero behavior change vs. today. Flip to true (no code change) once resume is verified end-to-end to preserve the conversation.",
     "resumeSession": false,
     "sessionIdFromCaller": false,
     "toolUse": true,

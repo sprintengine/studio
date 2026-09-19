@@ -32,9 +32,9 @@ import type { ElectronApi } from '../../shared/electron-api'
 
 // Status only for the always-on gateway. Its mutations are main services, so
 // nothing asks a window to perform one and there is no request/respond pair
-// here (MC-2161).
+// here.
 //
-// The tailnet half is the Remote panel's whole data path (MC-2162, MC-2163):
+// The tailnet half is the Remote panel's whole data path:
 // configuration for the opt-in listener — enable it, mint or cancel a one-time
 // pairing code, revoke a device — plus the discovery sweep that finds the other
 // machines on this tailnet.

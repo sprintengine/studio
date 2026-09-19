@@ -29,7 +29,7 @@ test('availability', async () => {
   assert.equal(isCommandInScope({ scopes: ['panel:calendar'] }, ['panel:calendar']), true)
 
   // A capability module's commands ride module command contributions, not the
-  // shell registry (MC-1533). Those contribution shapes are exercised here
+  // shell registry. Those contribution shapes are exercised here
   // directly: an availability predicate evaluates against the published
   // ModuleCommandContext view (fail-closed with no context), and scope-only
   // commands stay scope-gated.

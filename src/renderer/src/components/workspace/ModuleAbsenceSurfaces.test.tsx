@@ -14,7 +14,7 @@ import {
 import { test } from 'vitest'
 
 test('ModuleAbsenceSurfaces', async () => {
-  // MC-1532 absence surfaces: the workspace-level and per-tab "module not
+  // Module absence surfaces: the workspace-level and per-tab "module not
   // installed" states. Rendered statically (the same way the settings-row tests
   // render) so copy, labeling, and the install affordance are pinned without a
   // DOM; the marketplace mapping is pure and tested directly.
@@ -77,7 +77,7 @@ test('ModuleAbsenceSurfaces', async () => {
     assert.equal(moduleLabelForMode('calendar'), 'Calendar')
   }
 
-  // MC-1854: the door-level absence surface — door name, one sentence, one CTA
+  // The door-level absence surface — door name, one sentence, one CTA
   // into Extensions — with copy that stays honest between "not installed" and
   // "installed but disabled".
   function testDoorNotInstalledSurfaceNamesTheDoorAndOffersExtensions(): void {
@@ -133,7 +133,7 @@ test('ModuleAbsenceSurfaces', async () => {
     assert.match(html, /Find it in Plugins/)
   }
 
-  // MC-2577. A persisted workspace whose type IS registered but whose module is
+  // A persisted workspace whose type IS registered but whose module is
   // switched off: the module is on the machine, so the copy must say turned off
   // rather than not installed, and the action must lead to the toggle rather than
   // a storefront.
@@ -160,7 +160,7 @@ test('ModuleAbsenceSurfaces', async () => {
     assert.equal(moduleLabelForModuleId('tide-tables'), 'tide-tables', 'an id no manifest knows is returned as-is')
   }
 
-  // MC-2577. The rule behind the surface above. A registered workspace type owned
+  // The rule behind the surface above. A registered workspace type owned
   // by a module that is switched off must produce the turned-off answer rather
   // than letting the layout mount — and turning it back on must produce no answer
   // at all.

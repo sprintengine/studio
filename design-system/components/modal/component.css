@@ -8,7 +8,7 @@
  *
  * Token canon over shipped literals: z.modal not z-50, shadow.modal not
  * shadowless, radius.shell not 8px, space.3xl inset not 20px. All four are
- * now what the product ships too — MC-2109 / MC-2110 closed them. */
+ * now what the product ships too — the focus-trap and overlay sweeps closed them. */
 
 /* The scrim owns the layer, the centring, and the breathing room the shell
  * keeps from the viewport edge. A plain translucent layer — never

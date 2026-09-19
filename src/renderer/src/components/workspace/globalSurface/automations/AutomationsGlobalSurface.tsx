@@ -112,7 +112,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   const [now, setNow] = useState(() => Date.now())
   // A deep-link latches the automation to select and what to show of it: a run
   // notification's "Open" names a run to scroll into view, the Extensions shelf
-  // asks for the editor (MC-2035). Either applies once that automation has
+  // asks for the editor. Either applies once that automation has
   // loaded into the index.
   const [pendingTarget, setPendingTarget] = useState<AutomationSurfaceTarget | null>(null)
   const [focusRunId, setFocusRunId] = useState<string | null>(null)
@@ -311,7 +311,7 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   )
 
   // Apply a latched deep-link once its automation is in the loaded index. The
-  // `editor` view is the shelf's hand-off (MC-2035): the automation it just added
+  // `editor` view is the shelf's hand-off: the automation it just added
   // arrives selected AND open in the editor, so Get is one navigation rather than
   // "it was added somewhere, go and find it". It routes through the SAME
   // `startEdit` a rail Edit uses — there is one editor and one save path.

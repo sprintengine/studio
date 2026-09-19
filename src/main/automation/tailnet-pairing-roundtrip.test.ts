@@ -14,7 +14,7 @@ import { writeTailnetSettings } from './tailnet/tailnet-settings'
 import { test } from 'vitest'
 
 test('tailnet-pairing-roundtrip', async () => {
-  // The pairing round-trip (MC-2163 acceptance), end to end.
+  // The pairing round-trip, end to end.
   //
   // Everything below the QR is REAL: the real remote service, the real listener
   // on a real TCP socket, the real device store on a real temp directory, and

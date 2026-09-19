@@ -489,7 +489,7 @@ export type BacklogFrontmatterFields = {
   // Exposed so a main-process caller has the dependency axis the panel read
   // model derives in the renderer; empty when the line is absent.
   dependsOn?: string[]
-  // The epic's `dependenciesPlanned:` mark (MC-2137). Only meaningful on an epic
+  // The epic's `dependenciesPlanned:` mark. Only meaningful on an epic
   // — a leaf item carrying it means nothing — but parsed for any file, since the
   // reader does not know which one it holds. Absent means false.
   dependenciesPlanned?: boolean
@@ -526,7 +526,7 @@ type BacklogListedItem = {
   /** Frontmatter numeric id when assigned (display id = `<key>-<id>`). */
   id?: number
   isEpic: boolean
-  // True for a `backlog/roadmaps/<name>.md` ordered-execution plan (MC-1618).
+  // True for a `backlog/roadmaps/<name>.md` ordered-execution plan.
   // Surfaced as a flag rather than through the closed `type` union, which stays
   // OKF-tolerant of the roadmap type (src/shared/backlog/roadmap.ts).
   isRoadmap?: boolean
@@ -539,7 +539,7 @@ type BacklogListedItem = {
   // Prerequisite slugs (`dependsOn:`). Present only when the item declares
   // dependencies.
   dependsOn?: string[]
-  // The epic's "ordering is done" mark (MC-2137). Present only when set, so an
+  // The epic's "ordering is done" mark. Present only when set, so an
   // unflagged epic reads exactly as it did before the field existed.
   dependenciesPlanned?: boolean
 }
@@ -1077,7 +1077,7 @@ export async function updateBacklogDependencies(input: BacklogDependenciesInput)
   return writeBacklogFrontmatter(input.workspaceRoot, input.relativePath, { dependsOn })
 }
 
-// The epic-side ordering mark (MC-2137): "the planning phase for this epic is
+// The epic-side ordering mark: "the planning phase for this epic is
 // over". Setting it writes the literal `dependenciesPlanned: true`; clearing it
 // removes the line rather than writing `false`, because absent IS false and a
 // flag file should not accumulate a negative assertion. Nothing polices HOW it

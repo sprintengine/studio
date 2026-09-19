@@ -3,7 +3,7 @@
 The one header contract for every panel: a single 34px band carrying the
 panel's name, its canonical count, an optional scope word, and at most two
 controls. Extracted from the shipped `PanelHeader` primitive
-(`src/renderer/src/components/ui/PanelHeader.tsx`); MC-2112 rolls this anatomy
+(`src/renderer/src/components/ui/PanelHeader.tsx`); the panel-header rollout rolls this anatomy
 out to every panel that still draws its own header.
 
 A panel gets exactly one of these. A header stacked on a toolbar is the
@@ -95,4 +95,4 @@ ceiling; a sentence is a redesign signal.
 
 - `PanelHeader.tsx` animates the progress fill over `200ms`; the motion ramp
   has no such step. Canon is `motion.duration.normal` (180ms). Fold into the
-  MC-2112 rollout.
+  panel-header rollout.

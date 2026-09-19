@@ -577,7 +577,7 @@ test('extensionsCatalogue', async () => {
     })
 
     // The bundled MCP catalogue was a second population in this tab until the
-    // third-party retirement (MC-2519, 2026-09-08). Its rows are gone; what is
+    // third-party retirement (2026-09-08). Its rows are gone; what is
     // left is the registry's plugins, still grouped by the registry's own
     // categories and still walked by one pager.
     await run('the app’s tab keeps the registry’s categories as its groups, walked by one pager', () => {

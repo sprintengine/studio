@@ -10,7 +10,7 @@ import type { MobileControlCommand, MobileControlCommandType, MobileControlError
 type ValidationResult<T> = { ok: true; value: T } | { ok: false; error: MobileControlError }
 
 // Every command type on the wire. The nine the Sprint Engine took with it
-// (MC-2575) were carried here for one release so a phone that still sent one got
+// were carried here for one release so a phone that still sent one got
 // `command_not_supported` from the command service rather than `invalid_payload`
 // from the envelope validator. Protocol v3 removed them from the wire, so a
 // sender of one is outside the version window and is refused at the handshake

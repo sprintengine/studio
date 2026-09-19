@@ -172,7 +172,7 @@ export function InstalledExtensionsInventory({
       const result = await window.api.listThirdPartyModules()
       // Guard the shape, not just the rejection: a malformed IPC result must
       // degrade to the error notice like every other source, never crash the
-      // derive step (the state-matrix rule — MC-1847 E1).
+      // derive step (the state-matrix rule).
       setModules(
         result && Array.isArray(result.modules) && Array.isArray(result.rejected)
           ? { status: 'ok', value: result }
@@ -213,7 +213,7 @@ export function InstalledExtensionsInventory({
     }
   }, [workspaceRoot])
 
-  // Update detection (MC-1873). A thrown read is a failed check and renders
+  // Update detection. A thrown read is a failed check and renders
   // couldn't-check — never silence that reads as "up to date".
   const loadUpdateStates = useCallback(async (forceRefresh = false) => {
     if (typeof window.api.readMarketplacePluginUpdateStates !== 'function') return
@@ -506,7 +506,7 @@ function InstalledView({
   skillUse: SkillUseContext
   cliUpdate?: CliUpdateContext
   registryPlugins?: MarketplacePluginEntry[]
-  // The update banner (MC-1873): one calm line above the Capability modules
+  // The update banner: one calm line above the Capability modules
   // group — per the owner ruling it lives here and only here, never on rows,
   // never on the Skills surface.
   moduleUpdateSlot?: ReactNode

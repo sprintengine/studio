@@ -1,6 +1,6 @@
 import { buildStamp } from 'virtual:multicode-build-stamp'
 
-// The renderer's half of the build-identity check (MC-2182). `buildStamp` is
+// The renderer's half of the build-identity check. `buildStamp` is
 // minted when this bundle is built, so it is the commit the *loaded document*
 // came from — which is the whole point: after a merge into the tree a dev run is
 // serving from, the window reloads onto the new commit while main keeps running

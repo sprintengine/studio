@@ -12,7 +12,7 @@ import {
 import { test } from 'vitest'
 
 test('agentCliShelfState', async () => {
-  // MC-1858 — the CLI shelf row's state model, every branch. The contract under
+  // The CLI shelf row's state model, every branch. The contract under
   // test: runtime state comes from the shared probe reading (a missing map entry
   // is a FAILED probe, never an absent binary), and Install is offered only on a
   // definitive negative probe with a real install path for this platform.

@@ -246,7 +246,7 @@ test('automations-ipc', async () => {
                 workspaceId: { type: 'string', minLength: 1 },
                 cli: { type: 'string', minLength: 1 },
                 cliModel: { type: 'string', minLength: 1 },
-                // Canonical presets first, then the pre-MC-2210 spellings the schema
+                // Canonical presets first, then the pre-rename spellings the schema
                 // still accepts so a definition saved before the rename validates.
                 permissionPreset: {
                   type: 'string',

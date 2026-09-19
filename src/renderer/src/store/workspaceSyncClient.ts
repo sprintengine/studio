@@ -19,7 +19,7 @@ const PRIMARY_WORKSPACE_WINDOW_ID: WorkspaceWindowId = 'primary'
 // the accepted/broadcast events to the local store, and tracks the last applied
 // sequence so duplicate or older events are ignored.
 //
-// Main owns the registry (MC-2158), so this client is the store's only route to
+// Main owns the registry, so this client is the store's only route to
 // it: the storage-event cross-window path it used to sit beside is gone with the
 // localStorage registry. The store applies a user edit optimistically and asks
 // through here; a rejection means main refused the write (a stale per-field
@@ -371,7 +371,7 @@ export function createWorkspaceSyncClient(deps: WorkspaceSyncClientDependencies)
   }
 
   // A gap the bounded replay log can no longer bridge is recovered by taking
-  // main's whole registry. Before MC-2158 this only advanced the sequence
+  // main's whole registry. Before workspace creation moved to main this only advanced the sequence
   // baseline — the registry lived in localStorage and importing main's state
   // would have overwritten the authority with a mirror. It is the other way
   // round now: main IS the authority, so the snapshot is adopted.

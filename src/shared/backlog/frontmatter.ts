@@ -122,7 +122,7 @@ export function isValidBacklogSlug(value: unknown): value is string {
   return typeof value === 'string' && BACKLOG_SLUG_RE.test(value) && value !== '.' && value !== '..'
 }
 
-// An epic's `dependenciesPlanned:` mark (MC-2137): the author asserting that the
+// An epic's `dependenciesPlanned:` mark: the author asserting that the
 // ordering pass over this epic's children is finished, whoever ran it — a hand
 // edit, an agent's ordering pass, `/backlog` closing an ordering session. It is what
 // disambiguates the two meanings of "no `dependsOn` edges": deliberately

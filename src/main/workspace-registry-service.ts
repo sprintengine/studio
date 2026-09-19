@@ -1,5 +1,5 @@
 /**
- * The main-owned workspace registry (MC-2158) — the single authoritative store
+ * The main-owned workspace registry — the single authoritative store
  * for workspace domain state, and the single writer.
  *
  * Before this, the registry lived in the renderer's zustand store and main held

@@ -98,7 +98,7 @@ test('automationsSurface', async () => {
     assert.equal(consumePendingAutomationSurfaceTarget()?.ref.automationId, 'second')
   })
 
-  // MC-2035: the shelf's Get hands an automation over for tailoring, not for
+  // The shelf's Get hands an automation over for tailoring, not for
   // reading its run history — the same seam and the same decoder, one extra bit of
   // intent. A run notification keeps landing on `runs`, asserted above.
   run('the latch carries the editor view the Extensions shelf asks for', () => {

@@ -386,7 +386,7 @@ export const COMMAND_REGISTRY = [
     availability: ['activeWorkspace', 'gitPanelActive'],
     handlerPath: { kind: 'panel-event', eventId: 'git.changes.moveToChangelist' },
   }),
-  // No Fleet command: the Fleet panel (MC-2167) was retired on 2026-09-05
+  // No Fleet command: the Fleet panel was retired on 2026-09-05
   // (remote-sessions-in-the-sidebar). Paired machines' sessions are rows in
   // the sidebar's Remote band; machine management is Settings → Remote and
   // the top bar's Remote glyph (WorkspaceActions → RemotePopover).

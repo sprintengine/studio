@@ -8,7 +8,7 @@ export type CommandScope =
   | 'editor'
   | 'terminal'
   | 'panel'
-  // Open scope family (MC-1533): `panel:<moduleId>` scopes are derived from
+  // Open scope family: `panel:<moduleId>` scopes are derived from
   // the workspace-type registry — the shell pushes one when the active
   // workspace's mode belongs to that module — so a capability module's
   // commands can gate on "my workspace is active" without growing this union
@@ -41,7 +41,7 @@ export type CommandAvailability =
   // The automations capability module is enabled, so the global Automations
   // screen has a backing store/IPC and can be opened.
   | 'automationsEnabled'
-  // Open at the type level (MC-1533) so a compiled module built against a
+  // Open at the type level so a compiled module built against a
   // newer SDK enum never breaks on an older shell: an unknown condition is
   // simply absent from the runtime context, so the command stays unavailable
   // (fail closed). Module-specific gating belongs in availability predicates,

@@ -82,7 +82,7 @@ test('BacklogRow', async () => {
     assert.ok(!markup.includes('Rework the payment step.'), 'no excerpt on the row anymore')
   })
 
-  // The epic ordering mark (MC-2137). The row is where an epic whose ordering was
+  // The epic ordering mark. The row is where an epic whose ordering was
   // never declared finished becomes visible.
   function orderingEpicItem(frontmatter: string[], status = 'ready'): BacklogItem {
     return createBacklogItem({
@@ -381,7 +381,7 @@ test('BacklogRow', async () => {
     assert.match(markup, /Depends on…/, 'the add/remove editor is reachable from the detail pane')
   })
 
-  // ---- Detail mockups section (MC-1485) --------------------------------------
+  // ---- Detail mockups section --------------------------------------
 
   // Build a real BacklogItem carrying a body-prose mockup link so the detected
   // (read-only) row path is exercised through the same collectBacklogMockups the
@@ -411,12 +411,12 @@ test('BacklogRow', async () => {
     assert.match(markup, /Attach mockup…/, 'the attach editor is reachable from the detail pane')
   })
 
-  // MC-2047: the empty state IS the reachable control. The old assertion pinned
+  // The empty state IS the reachable control. The old assertion pinned
   // the sentence "No mockups attached. Use “Attach mockup…” to add one." — copy
   // that named and explained the control sitting on the same row, which the
   // standing ruling forbids (if a control needs a sentence, the control is wrong).
   // Assert the affordance, not the prose, so the test cannot re-encode the ruling
-  // this change removed — the trap that bit MC-1816's rail tests.
+  // this change removed — the trap that bit the rail tests.
   run('detail Mockups: an empty item offers the attach control and no explanatory copy', () => {
     const markup = mockupsSection(mockupItem())
     assert.match(markup, /Attach mockup…/, 'the attach control is reachable with nothing attached')
@@ -1038,7 +1038,7 @@ test('BacklogRow', async () => {
   })
 
   run('row context menu lists module-contributed actions through the shared grouping helper', () => {
-    // The optional second argument is the whole multi-selection (MC-2060); the
+    // The optional second argument is the whole multi-selection; the
     // single-row path still resolves through the same shared registry call.
     assert.match(
       backlogPanelSource,
@@ -1049,7 +1049,7 @@ test('BacklogRow', async () => {
     assert.match(contextMenuSource, /itemAction\.run\(\)/, 'activation uses the existing action run path')
   })
 
-  // MC-1697: a mockup an item names but that resolves to no file on disk is shown
+  // A mockup an item names but that resolves to no file on disk is shown
   // as a row warning, never dropped. The badge reads on the word + warn tone, and
   // its accessible name spells out which refs and how to fix.
   run('a row whose item has danglingMockups renders the Missing-mockup warning badge', () => {

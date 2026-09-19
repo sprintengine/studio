@@ -7,7 +7,7 @@
 // One source feeds the grid: the marketplace registry
 // (`window.api.readMarketplaceRegistry`) — installable plugins that `provides`
 // mcp/skills. A second source fed it until the third-party retirement
-// (MC-2519, 2026-09-08): the bundled MCP catalogue, sixteen servers nobody here
+// (2026-09-08): the bundled MCP catalogue, sixteen servers nobody here
 // wrote, whose rows browsed beside the plugins and could launch before install
 // when the row paired a driving skill. It is gone, and with it the whole
 // `'catalog'` entry source; launching now requires a server the person
@@ -86,7 +86,7 @@ const FACET_RULES: ReadonlyArray<{ facet: NamedFacet; test: RegExp }> = [
 // isolated MCP, no seeded skill). Every surface that offers or performs a
 // launch — canLaunch below, the Ready-to-launch rail, the automation connector
 // picker, and resolveConnectorLaunch — expresses it through this predicate so
-// they cannot drift. It lives in `src/shared/connector-launch.ts` since MC-2159,
+// they cannot drift. It lives in `src/shared/connector-launch.ts` since agent launch moved to main,
 // because main resolves connectors for headless launches through the same rule.
 export { connectorCanLaunch }
 
@@ -101,7 +101,7 @@ export function installedServerAsListing(server: McpServerConfig): McpServerList
 
 // The launchable population behind the Ready-to-launch rail and the automation
 // connector picker: every installed, enabled MCP server, presented as a
-// listing. Until the third-party retirement (MC-2519, 2026-09-08) the bundled
+// listing. Until the third-party retirement (2026-09-08) the bundled
 // catalogue's skill-paired rows came first and could launch before install;
 // there is no such row any more, so this is exactly what the person installed.
 export function launchableConnectors(
@@ -132,7 +132,7 @@ export function connectorFacet(category: string): NamedFacet {
  * plugins.
  *
  * This took a second `catalog` population until the third-party retirement
- * (MC-2519, 2026-09-08) and is kept as its own function rather than collapsed
+ * (2026-09-08) and is kept as its own function rather than collapsed
  * into `registryEntriesForKinds`, because it names the catalogue's rule where
  * the door's other canvases name theirs.
  *

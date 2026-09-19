@@ -10,7 +10,7 @@ import { isRecord } from '../../../shared/records'
 
 // Which machines are on this tailnet, and which of them answer as a Studio.
 //
-// This is the CLIENT half of tailnet remote control: the listener (MC-2162)
+// This is the CLIENT half of tailnet remote control: the listener
 // made a Studio reachable; discovery is what lets the other end pick a machine
 // by name instead of being asked for an IP address. Remote control lives or
 // dies on this moment: a list of machines you can point at is the difference

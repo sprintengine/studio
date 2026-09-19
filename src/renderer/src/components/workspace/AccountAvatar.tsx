@@ -1,7 +1,7 @@
 import React, { useState } from 'react'
 import type { SessionUser } from '../../../../shared/electron-api'
 
-// The account identity disc (MC-2220): the provider profile photo when the
+// The account identity disc: the provider profile photo when the
 // session carries one, else two-letter initials from the display name or
 // email, else a neutral person glyph. Shared by the sidebar-footer badge, the
 // account popover header, and the Settings profile card, so the three cannot

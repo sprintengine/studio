@@ -1,7 +1,7 @@
 // Which harness dirs a marketplace skill install fans out to. SKILL.md
 // content is harness-portable instructions, so the honest target set is the
 // shared `.agents` dir plus the native skills dir of every agent CLI that is
-// (a) registered with native skill support (the MC-47 adapter model — same
+// (a) registered with native skill support (the adapter model — same
 // signal builtin all-native skills use) and (b) actually installed on this
 // machine per the binary probe. CLIs that are missing, probe-indeterminate,
 // or without native skill support get no directory writes — a copy nothing

@@ -349,7 +349,7 @@ test('backlog-service', async () => {
 
       await rm(depsPath)
 
-      // The epic ordering mark (MC-2137): true writes the line, false removes it
+      // The epic ordering mark: true writes the line, false removes it
       // (absent IS false), body and unrelated keys preserved. Nothing validates
       // WHERE it is set — it is an assertion of intent, not a computed property.
       const epicOrderPath = join(tempRoot, 'backlog', 'epics', 'ordering.md')
@@ -1100,7 +1100,7 @@ test('backlog-service', async () => {
       await writeFile(join(tempRoot, 'backlog', 'no-frontmatter.md'), '# Bare capture\n', 'utf-8')
       await writeFile(join(tempRoot, 'backlog', 'old.md'), '---\nstatus: archived\n---\n# Old\n', 'utf-8')
       await writeFile(join(tempRoot, 'backlog', 'epics', 'things.md'), '---\ntype: epic\n---\n# Things\n', 'utf-8')
-      // A roadmap (MC-1618) is discovered from backlog/roadmaps/ and tagged type: roadmap.
+      // A roadmap is discovered from backlog/roadmaps/ and tagged type: roadmap.
       await mkdir(join(tempRoot, 'backlog', 'roadmaps'), { recursive: true })
       await writeFile(
         join(tempRoot, 'backlog', 'roadmaps', 'payments.md'),

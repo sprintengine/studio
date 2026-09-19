@@ -3,7 +3,7 @@ import React from 'react'
 import { EmptyState, GhostButton } from '../ui'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 
-// Settings → Ticket trackers (MC-2362, narrowed by MC-2363, emptied by MC-2519).
+// Settings → Ticket trackers (since narrowed, and emptied on 2026-09-08).
 //
 // "Connect my ticket tracker to my agents" is answered by installing that
 // tracker's MCP, so an agent can read and update tickets during a run. That is
@@ -17,7 +17,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 // removed the four tracker rows, because Jira/Confluence, Linear, GitHub and
 // GitLab are all plugins in `anthropics/claude-plugins-official` and nobody
 // should be offered two routes to one server; the third-party retirement
-// (MC-2519, 2026-09-08) removed the catalogue itself. There is no longer a list
+// (2026-09-08) removed the catalogue itself. There is no longer a list
 // of trackers this build holds, and adding a fifth is not an edit anywhere in
 // this repository: it is a plugin somebody publishes to a source.
 //

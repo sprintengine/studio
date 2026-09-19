@@ -724,7 +724,7 @@ export type ConversationTimelineRow =
   | { kind: 'user'; id: string; entry: Extract<TranscriptEntry, { kind: 'user' }> }
   // One row per assistant turn: byline, reasoning disclosure, work timeline
   // (the turn's tools), the turn's resolved decisions, and prose all render as
-  // a single block, per the approved MC-1478 mockup.
+  // a single block, per the approved mockup.
   | {
       kind: 'assistant'
       id: string
@@ -1199,7 +1199,7 @@ type Props = {
 // the textarea itself is transparent and borderless so the field reads as one
 // piece with the footer control row beneath it. The container wears
 // FOCUS_RING_WITHIN_TEXTAREA_CLASS, so the indicator here is the product's one
-// ring — it used to be an accent border swap, a second idiom (MC-2107).
+// ring — it used to be an accent border swap, a second idiom.
 // `text-body`, not the raw Tailwind `text-sm` it shipped with — the one type
 // scale is the token's (remote-sessions-ux / composer-surface-premium).
 // The composer's BOX only. Ground, ink, placeholder tier, the missing outline

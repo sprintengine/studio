@@ -85,7 +85,7 @@ export type CardAction =
   // machine, and `CliInstallMethodInfo` exists so that command is shown before
   // anybody consents to it; a card may not answer that disclosure on somebody's
   // behalf, so the executor refuses and points at Settings → Agents — the app's
-  // one install route (MC-2093, and see `openChat`'s neighbour in
+  // one install route (and see `openChat`'s neighbour in
   // src/main/cards/run-card.ts for why a card's refusal names it rather than the
   // Agent CLIs view the card is standing in). This comment said "and install it
   // if not" until 2026-09-06, which described behaviour the executor
@@ -93,7 +93,7 @@ export type CardAction =
   // (`claude-code`, `codex`), never a vendor name or a binary path.
   | { verb: 'require.cli'; cli: string }
   // An MCP server by its id. The bundled catalogue this used to resolve against
-  // was retired with the third-party ruling (MC-2519, 2026-09-08) — sixteen
+  // was retired with the third-party ruling (2026-09-08) — sixteen
   // servers nobody here wrote — and no bundled list replaced it: an MCP server
   // arrives inside a plugin now, which `install.plugin` installs. The verb stays
   // in the schema because it is a published contract every build in the field

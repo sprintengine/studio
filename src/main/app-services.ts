@@ -297,7 +297,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   })
   conversationRuntime.startIdleSweep()
 
-  // Renderer-pushed "keep running in the background" setting (MC-2156). Read
+  // Renderer-pushed "keep running in the background" setting. Read
   // synchronously inside `window-all-closed`, which is precisely when no
   // renderer is left to ask.
   const backgroundModeStore = createBackgroundModeStore({
@@ -368,13 +368,13 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // nothing is enabled: a gateway tool that cannot learn its module's state must
   // report the capability as off rather than act on its behalf.
   let resolveModuleEnabled: (moduleId: string) => boolean = () => false
-  // Module-contributed MCP tools on the Studio gateway (MC-1855), injected by
+  // Module-contributed MCP tools on the Studio gateway, injected by
   // index.ts from the host kernel after loadMainModules. The gateway is
   // constructed before modules load, so until the seam is wired the registry
   // reads empty — and because the tool set is evaluated per request, module
   // tools appear on the very next call once modules are up.
   let resolveModuleMcpTools: () => ReadonlyArray<McpToolContribution> = () => []
-  // The renderer's module registry, mirrored here (MC-2078). Empty until a
+  // The renderer's module registry, mirrored here. Empty until a
   // window pushes one; consumers report "not yet known" rather than "no
   // modules", the same rule the enablement mirror follows.
   const moduleRegistryMirror = createModuleRegistryMirror()
@@ -512,7 +512,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // first populates the marks after a cold start.
   app.on('browser-window-focus', () => pullRequestRecord.refreshOnFocus())
 
-  // The one interaction path to a live agent session (MC-102). Every caller
+  // The one interaction path to a live agent session. Every caller
   // that drives an agent — the review guide, later the composer and MCP —
   // goes through this instead of writing to a pty itself, so
   // concurrent prompts serialize per session and submit determinism lives in
@@ -567,7 +567,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   }) => {
     void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
   }
-  // The authoritative workspace registry (MC-2158). It replaces the routing
+  // The authoritative workspace registry. It replaces the routing
   // snapshot outright: routing lives IN the record now, so the
   // workspaceNames/workspaceFolderPaths/workspaceModes side-maps that snapshot
   // carried — each added to patch a specific placeholder gap — have nothing
@@ -584,7 +584,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     registry: workspaceRegistry,
     resolveResumeCapabilities: cliResumeCapabilities,
   })
-  // Composing an agent launch is main's job (MC-2159). Built here, after the
+  // Composing an agent launch is main's job. Built here, after the
   // terminal runtime and workspace sync, because it reads both: the workspace it
   // launches into comes from the sync snapshot, and the launch itself is the
   // runtime's own spawn handler. Its defaults come from the main-owned launch
@@ -814,7 +814,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
 
   // Instance-global SprintEngine Studio MCP surface: reads come from the
   // workspace-sync snapshot and terminal runtime, and mutations go straight to
-  // the main services that own them — one lane, no window required (MC-2161).
+  // the main services that own them — one lane, no window required.
   // The gateway starts with the app.
   const automationService = createAutomationService({
     resolveUserDataDir: () => app.getPath('userData'),
@@ -841,12 +841,12 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     },
     hasWindow: () =>
       BrowserWindow.getAllWindows().some((window) => !window.isDestroyed() && !isCanvasWorkerWindow(window)),
-    // Terminal streaming for the tailnet listener (MC-2165): the runtime's own
+    // Terminal streaming for the tailnet listener: the runtime's own
     // multi-viewer port, so a paired device watches the same pty the local
     // window does rather than a second copy of it.
     resolveTerminalHost: () => terminalRuntime.remoteHost,
     // The gateway's tool set: core app tools + canonical run tools merged once,
-    // module-contributed tools (MC-1855) read from the host kernel per request
+    // module-contributed tools read from the host kernel per request
     // and gated on their owner's live enablement.
     resolveGatewayTools: createStudioGatewayTools({
       resolveModuleTools: () => resolveModuleMcpTools(),
@@ -1029,7 +1029,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
                 : [],
             }
           },
-          // module.*/marketplace.* (MC-2078). The registry snapshot is the
+          // module.*/marketplace.*. The registry snapshot is the
           // renderer's mirror — main's own module list omits every renderer-only
           // module, so reporting from it would be wrong by construction. Trust
           // and launch readiness stay main-owned (signature verification and the
@@ -1119,7 +1119,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     powerMonitor.on('unlock-screen', wake)
   })
 
-  // Background mode (MC-2156): what the tray reports with no window open. Read
+  // Background mode: what the tray reports with no window open. Read
   // straight from the live main-process owners — the terminal runtime's session
   // list and the gateway's own status — because a presence that reported a
   // renderer projection would go stale the moment the last window it came from

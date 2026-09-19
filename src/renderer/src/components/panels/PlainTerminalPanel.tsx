@@ -70,7 +70,7 @@ export default function PlainTerminalPanel({
   // A failed file drop or a dead link, anchored to the pointer that raised it so
   // the error surfaces next to the cursor instead of a corner toast.
   const [cursorError, setCursorError] = useState<{ message: string; x: number; y: number } | null>(null)
-  // A clicked link awaiting a destination (MC-1899), exactly as an agent pane
+  // A clicked link awaiting a destination, exactly as an agent pane
   // does it: the click opens a chooser rather than firing one hard-wired action.
   const [linkMenu, setLinkMenu] = useState<{
     target: TerminalLinkTarget

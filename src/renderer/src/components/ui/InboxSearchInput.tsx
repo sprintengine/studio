@@ -17,7 +17,7 @@ type InboxSearchInputProps = {
   /**
    * The id of the list this field filters. A filter and its results are two
    * separate stops for a screen reader, and without the link the field is just a
-   * text box that happens to sit above something (MC-2134).
+   * text box that happens to sit above something.
    *
    * This is NOT the combobox contract: a combobox owns the list it opens and
    * names the highlighted row through `aria-activedescendant`. Pass this where
@@ -40,7 +40,7 @@ export function InboxSearchInput({
     <div
       className={[
         // `h-control-sm` (30px). This shipped at `h-7` = 28px, which is not a step
-        // on the control ramp at all (26/30/34) — MC-2118.
+        // on the control ramp at all (26/30/34).
         'flex h-control-sm min-w-0 flex-1 items-center gap-1.5 rounded-sm border border-[color:var(--border-default)]',
         // `--bg-field`, not the raised tone directly: identical on an opaque
         // window, translucent under glass so a field sitting in the chrome is made

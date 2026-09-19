@@ -1,4 +1,4 @@
-// Renderer half of the module-registry mirror (MC-2078).
+// Renderer half of the module-registry mirror.
 //
 // The renderer holds the whole module universe — bundled modules already
 // narrowed to the build channel, plus the trusted third-party ones it loaded —

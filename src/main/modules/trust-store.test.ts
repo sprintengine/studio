@@ -99,7 +99,7 @@ test('trust-store', async () => {
     }
   }
 
-  // Publisher-locked reserved ids (MC-1532), both directions at the trust layer:
+  // Publisher-locked reserved ids, both directions at the trust layer:
   // a locked id passes only with a VERIFIED signature whose key fingerprint is
   // in the publisher trust set — a valid signature from any other key fails, and
   // user-granted id-trust (trustedModules) deliberately does not qualify.

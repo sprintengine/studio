@@ -692,8 +692,8 @@ export function GitGraphView({
           <div className="px-3 pt-3">
             <Tooltip content="Load older commits across all branches">
               {/* The log's one bordered action, on the kit's `sm` step. It ran
-                  the Git panels' private 28px/6px ramp at 40% disabled
-                  (MC-2113). */}
+                  the Git panels' private 28px/6px ramp at 40% disabled.
+                 */}
               <OutlineButton size="sm" className="w-full" onClick={onLoadMore} disabled={loadingMore}>
                 {loadingMore ? 'Loading…' : 'Load more'}
               </OutlineButton>

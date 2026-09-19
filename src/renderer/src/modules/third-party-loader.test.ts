@@ -185,7 +185,7 @@ test('third-party-loader', async () => {
     })
   }
 
-  // MC-1854: a third-party module claiming a global-surface id another module
+  // A third-party module claiming a global-surface id another module
   // already owns is a per-module LOAD ERROR — never a throw that kills the
   // registration pass — and its other contributions stay gated off with it.
   async function testClaimedGlobalSurfaceIdIsALoadError(): Promise<void> {

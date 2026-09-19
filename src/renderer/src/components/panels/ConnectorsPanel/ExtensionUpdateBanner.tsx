@@ -1,4 +1,4 @@
-// The manage canvas's update banner (MC-1873), built to
+// The manage canvas's update banner, built to
 // backlog/mockups/2026-07-26-extensions-manage-canvas.html § 4: one calm
 // accent-soft line above the Capability modules group with the version delta
 // and the one Update action. The trust re-check the update path runs
@@ -49,7 +49,7 @@ export function ModuleUpdateBanner({
   if (banner.kind === 'couldnt-check') {
     line = <div className="text-meta leading-4 text-[color:var(--text-muted)]">{COULDNT_CHECK_COPY}</div>
   } else if (banner.kind === 'updates') {
-    // Ruling (MC-2115): this row stays its own accent-soft line rather than
+    // Ruling: this row stays its own accent-soft line rather than
     // becoming `ui/Banner`. The kit's banner is the two-tone notice — a failure
     // or a degraded state, dot-led, with a recovery. "There is a newer version"
     // is neither: it is an offer, and painting it error or warn would say the
@@ -81,7 +81,7 @@ export function ModuleUpdateBanner({
             {flow.label}
           </span>
         ) : (
-          // The kit's button (MC-2115). This was a hand-rolled `<button>` with its
+          // The kit's button. This was a hand-rolled `<button>` with its
           // own radius, padding and hover — the one control in this banner, and
           // the only one in the manage canvas that was not a kit primitive.
           // Outline, not ghost: it sits on the row's own accent-soft tint, where a

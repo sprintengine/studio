@@ -1,5 +1,5 @@
 /**
- * Background mode (MC-2156): the app keeps running after its last window
+ * Background mode: the app keeps running after its last window
  * closes, and says so from the tray.
  *
  * This module is the pure half — the status shape main assembles and the exact

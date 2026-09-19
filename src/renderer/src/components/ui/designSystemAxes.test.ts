@@ -4,7 +4,7 @@ import { join, relative } from 'node:path'
 import { test } from 'vitest'
 
 test('designSystemAxes', async () => {
-  // MC-2119 — the ratchet.
+  // The ratchet.
   //
   // Color hygiene in this renderer is near-perfect (a handful of non-test hex
   // literals, most of them theme-blind canvases and brand marks) and px font
@@ -14,7 +14,7 @@ test('designSystemAxes', async () => {
   // off-ramps live, and nothing stopped the count growing.
   //
   // So this file is deliberately not a "fix everything" gate. It is two kinds of
-  // assertion, per the shape MC-2119 asks for:
+  // assertion, per the shape the conformance axis asks for:
   //
   //   HARD RULES — the kit (`components/ui/`) consumes the token, full stop.
   //     A primitive that spells a shadow, a stacking tier or a type step by hand
@@ -126,21 +126,21 @@ test('designSystemAxes', async () => {
    */
   const BASELINE: Record<Axis, Record<string, number>> = {
     // The 2026-08-05 radius drop — workspace 193 → 186, panels 171 → 150, ui
-    // 13 → 12, plus panels' icon axis 31 → 29 — is the button consolidation
-    // (MC-2113). Every hand-rolled button in the Git surfaces, the settings tabs,
+    // 13 → 12, plus panels' icon axis 31 → 29 — is the button consolidation.
+    // Every hand-rolled button in the Git surfaces, the settings tabs,
     // the chat cards, the creation hub and the guided brief gave up its own
     // `rounded-md` (and, in the Git rows, its own `h-6 w-6`) for a kit primitive
     // that spells neither. `ModalButton` accounts for the kit's one: it is a name
     // for the footer's three roles now, not a fourth button with a radius.
     // The 2026-08-05 field drop — settings 36 → 30, workspace 186 → 184, panels
-    // 150 → 148, learn 2 → 1, modules 2 → 1 — is the input consolidation
-    // (MC-2114). Every hand-rolled field in the settings tabs, the connectors
+    // 150 → 148, learn 2 → 1, modules 2 → 1 — is the input consolidation.
+    // Every hand-rolled field in the settings tabs, the connectors
     // form, the creation wizard's knowledge step, the Learn centre's search and
     // the voice-dictation section gave up its own `rounded-md` for `ui/Input`,
     // which spells the control radius once.
     // The 2026-08-05 menu/header drop — radius workspace 183 → 174, panels
     // 146 → 145, backlog 20 → 19, ui 12 → 9; type panels 18 → 17; icon ui
-    // 22 → 21 — is the long tail outside the guards' directory scope (MC-2138).
+    // 22 → 21 — is the long tail outside the guards' directory scope.
     // Every menu row that had hand-rolled its own `rounded` fill (both
     // menubar fallbacks, the account menu, the reasoning selector,
     // the skills and connector pickers) takes `MENU_ITEM_CLASS`, which spells no
@@ -148,7 +148,7 @@ test('designSystemAxes', async () => {
     // height — the kit's `WorkspacePanel` and `FilePreviewPane`, the
     // knowledge-graph drawer, both HTML-artifact bands — gave up their local
     // buttons for `ui/PanelHeader` and the kit primitives inside it.
-    // The 2026-08-06 radius drop — workspace 174 → 169 — was MC-2122's spawn
+    // The 2026-08-06 radius drop — workspace 174 → 169 — was the spawn
     // consolidation: `AgentComposerPopover` was deleted outright and its
     // replacement hung off the model picker's own popover surface instead of
     // hand-rolling a second one, so five `rounded-*` spellings left the tree with
@@ -183,11 +183,11 @@ test('designSystemAxes', async () => {
       // aside could draw the same mark as the Extensions door. Its one
       // `rounded-lg` changed address — the CommandPalette precedent below —
       // rather than a new off-ramp appearing anywhere.
-      // 15 → 17 when CommandPalette MOVED into the kit (MC-2117) carrying its own
+      // 15 → 17 when CommandPalette MOVED into the kit carrying its own
       // two radii — nothing regressed, the debt changed address — then 17 → 14
       // when the menu unification dropped ContextMenu's surface `rounded-md` and
       // its two per-item `rounded` fills, and 14 → 13 when the overlay geometry
-      // canon took the palette's `rounded-xl` (MC-2110). The four other drops
+      // canon took the palette's `rounded-xl`. The four other drops
       // that item paid for are in workspace (197 → 193), panels (173 → 171),
       // backlog (21 → 20) and diagnostics (7 → 6): every dialog-scale shell in
       // the product now draws `OVERLAY_SHELL_CLASS` instead of its own radius.
@@ -208,13 +208,13 @@ test('designSystemAxes', async () => {
     shadow: {
       utils: 14,
       // 3 → 2 when the agent composer's nested engine flyout gave up its
-      // hardcoded `0 18px 50px rgba(0,0,0,0.55)` for the shared floating chrome
-      // (MC-2110). The two that remained were inset hairlines, not elevation;
+      // hardcoded `0 18px 50px rgba(0,0,0,0.55)` for the shared floating chrome.
+      // The two that remained were inset hairlines, not elevation;
       // 2 → 1 when the title bar's spawn split-button was deleted with its
-      // frame (MC-2222). Locked in rather than left as headroom.
+      // frame. Locked in rather than left as headroom.
     },
     // 18 → 16 and backlog 1 → 0 when the overlay shells took their layer from the
-    // `--z-*` tokens (MC-2109): the overlay dialogs gave up `z-50`, and the
+    // `--z-*` tokens: the overlay dialogs gave up `z-50`, and the
     // agent composer's nested engine flyout named the popover
     // tier it was already sitting on. What remains on this axis is in-flow depth
     // inside a pane, not overlay layering.
@@ -238,7 +238,7 @@ test('designSystemAxes', async () => {
       utils: 6,
       'components/diagnostics': 2,
     },
-    // icon workspace 43 → 38 was the same MC-2122 consolidation as the radius
+    // icon workspace 43 → 38 was the same consolidation as the radius
     // drop above: the deleted composer popover spelled its own icon boxes, and
     // `SpawnPicker` took the ramp classes the picker surface already used.
     // `SpawnPicker` itself was deleted on 2026-09-08 (see the workspace note
@@ -271,7 +271,7 @@ test('designSystemAxes', async () => {
       // at a new address, not a win. The other two went with the wizard's own
       // panes. Banked either way, so the next regression shows up as one.
       // workspace 12 → 11, 2026-09-08: `agentComposer/SpawnPicker.tsx` left the
-      // tree in the orphan sweep — the MC-2122 picker-as-spawner that nothing has
+      // tree in the orphan sweep — the picker-as-spawner that nothing has
       // mounted since NewAgentPanel became the live surface, so its one
       // hand-spelled icon box goes with it. Banked, not left as headroom.
       // workspace 11 → 10, 2026-09-16: the empty-pack notice uses the kit
@@ -316,7 +316,7 @@ test('designSystemAxes', async () => {
       'components/workspace/globalSurface/design/DesignRail.tsx': {
         count: 1,
         why:
-          "the Design door's identity chip is a ruled 12px square (MC-2098) — deliberately " +
+          "the Design door's identity chip is a ruled 12px square — deliberately " +
           'NOT the 6px status circle, and not an icon at all. The icon ramp starts at ' +
           '`xs` = 13px, so it cannot be expressed on the ramp; adding a 12px icon step for ' +
           'a non-icon would be the wrong fix.',
@@ -445,7 +445,7 @@ test('designSystemAxes', async () => {
     // `--sem-shadow-popover` went unconsumed entirely.
     //
     // `Popover` and `ContextMenu` now take the whole chrome from
-    // OVERLAY_SURFACE_CLASS rather than spelling the shadow themselves (MC-2103),
+    // OVERLAY_SURFACE_CLASS rather than spelling the shadow themselves,
     // so they are asserted through the constant they consume — the token still has
     // to be reachable from each of them, which is what this checks.
     assert.match(
@@ -518,9 +518,9 @@ test('designSystemAxes', async () => {
   // type, hover shape and divider. Nothing was comparing them, because each was
   // internally consistent — the defect only existed BETWEEN components.
   //
-  // Source of truth: `design-system/components/menu/component.md` (MC-2105) — the
+  // Source of truth: `design-system/components/menu/component.md` — the
   // spec that fixes these values and names the anti-patterns; when it and the code
-  // disagree, the spec is right. MC-2103 then made the
+  // disagree, the spec is right. The menu sweep then made the
   // agreement structural: the values live in `menuClasses.ts`, every host
   // consumes them, and none of them can restate one. So these assertions moved
   // with the code — they check the canon once, then check that nothing spells it
@@ -640,7 +640,7 @@ test('designSystemAxes', async () => {
     }
   })
 
-  // ── notices and empty states come from the kit (MC-2115) ─────────────────────
+  // ── notices and empty states come from the kit ─────────────────────
   //
   // Two rules, because the consolidation had two halves and each has a distinct
   // failure mode a ratchet would not catch.
@@ -709,7 +709,7 @@ test('designSystemAxes', async () => {
   const EMPTY_STATE_RULED: Record<string, string> = {
     'components/panels/AgentChatView.tsx':
       'RULED 2026-08-05 — `EmptyChatState` is a first-run CANVAS (glyph, heading, and three ' +
-      'suggestion buttons that send a turn), the class MC-2117 explicitly kept out of the quiet ' +
+      'suggestion buttons that send a turn), the class the empty-state ruling explicitly kept out of the quiet ' +
       'primitive when it declined to generalize `SurfaceCanvasState` into it.',
     'components/workspace/globalSurface/design/NewDesignSystemScreen.tsx':
       'RULED 2026-08-05 — `EmptySystemStage` is a card’s dashed PREVIEW placeholder at a fixed ' +

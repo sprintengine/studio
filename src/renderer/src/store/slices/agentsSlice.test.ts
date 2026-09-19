@@ -90,7 +90,7 @@ test('agentsSlice', async () => {
       ...defaultAgent('agent-normalize'),
       cliPermissionPreset: 'invalid' as never,
     }).cliPermissionPreset,
-    // Corruption floors to `manual` since MC-2210: no flag stopped being the
+    // Corruption floors to `manual` since the preset rename: no flag stopped being the
     // conservative answer once Claude Code began reading it as auto mode.
     'manual',
   )

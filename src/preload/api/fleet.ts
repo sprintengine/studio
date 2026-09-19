@@ -32,7 +32,7 @@ import {
 import type { TailnetScope } from '../../shared/tailnet'
 import type { ElectronApi } from '../../shared/electron-api'
 
-// The Fleet's data path (MC-2167): the machines this Studio drives, what they
+// The Fleet's data path: the machines this Studio drives, what they
 // hold, and the terminals it has open on them.
 //
 // Nothing here carries a credential. The device tokens stay in main, which is

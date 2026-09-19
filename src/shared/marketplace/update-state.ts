@@ -1,4 +1,4 @@
-// Update detection for installed marketplace content (MC-1873).
+// Update detection for installed marketplace content.
 //
 // Node-free and pure so both processes can use it. Versions are plain
 // integers (CapabilityManifest.version / MarketplacePluginEntry.latest) —

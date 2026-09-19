@@ -311,7 +311,7 @@ export default function CommandPalette({
 
   // Initial focus into the input, and focus back to whatever opened the palette
   // when it closes — the same open/close contract `Modal` carries, so dismissing
-  // the palette leaves the keyboard where it started (MC-2109). Its own effect,
+  // the palette leaves the keyboard where it started. Its own effect,
   // with no dependencies: a re-created `onClose` must not re-run focus and pull
   // the caret out of the input mid-search.
   useEffect(() => {
@@ -1240,11 +1240,11 @@ export default function CommandPalette({
       className="overlay-scrim fixed inset-0 z-[var(--z-modal)] flex items-start justify-center pt-[15vh]"
       // `mousedown`, matching `Modal`: on `click`, a drag that STARTED inside
       // the palette (selecting the query text) and was released over the scrim
-      // dismisses it, which reads as the palette closing itself (MC-2109).
+      // dismisses it, which reads as the palette closing itself.
       onMouseDown={(event) => event.target === event.currentTarget && onClose()}
     >
       {/* The palette is a modal surface like any other: it says so (`role`,
-          `aria-modal`), and the trap is what makes the claim true (MC-2109). */}
+          `aria-modal`), and the trap is what makes the claim true. */}
       <FocusTrap>
         <div
           ref={dialogRef}
@@ -1256,7 +1256,7 @@ export default function CommandPalette({
           // The palette keeps its own scrim — it sits at 15vh rather than
           // centred, which no dialog does — but not its own geometry: shell
           // chrome and width both come from the scale, so `Modal` and this read
-          // as the same surface (MC-2110). The ground is the one thing it
+          // as the same surface. The ground is the one thing it
           // paints itself: `surface-glass`, the kit's frosted material (owner
           // ruling 2026-09-10 — the fourth sanctioned glass shell, and the
           // repaint hold above is what makes it affordable). The scrim behind

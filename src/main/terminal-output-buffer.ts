@@ -8,7 +8,7 @@ type TerminalOutputCause = 'timer' | 'exit' | 'dispose' | 'visibility'
  *
  * This buffer used to hold exactly ONE pending batch per session, forwarded to
  * the renderer behind a single per-session gate (`session.visible`). A remote
- * attach (MC-2165) is a second, independent viewer of the same pty: it must
+ * attach is a second, independent viewer of the same pty: it must
  * keep streaming while the local pane is hidden, and a slow remote consumer
  * must not stall the local one. So the batch, the gate, and the byte bound are
  * all per SINK now, and the renderer is simply the sink the runtime always has.

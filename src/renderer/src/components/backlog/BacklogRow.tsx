@@ -381,7 +381,7 @@ const EPIC_ORDER_TERMINAL_STATUSES: ReadonlySet<BacklogItemStatus> = new Set<Bac
   'archived',
 ])
 
-// The epic ordering mark (MC-2137), on the epic row so an epic whose ordering
+// The epic ordering mark, on the epic row so an epic whose ordering
 // was never declared finished is visible before anyone starts work from it. It
 // reads the ABSENCE of `dependenciesPlanned: true` because that is the state
 // with something left to do — a marked epic is simply ready and earns no token,
@@ -421,7 +421,7 @@ function UnorderedEpicMark(): JSX.Element {
 
 // Data-integrity warning beside the title: a mockup this item names — attached or
 // referenced in the body — resolves to no file on disk after the tolerant
-// both-roots check (MC-1697). This is the root-cause surface for the failure that
+// both-roots check. This is the root-cause surface for the failure that
 // motivated the item: a path-prefix slip once hid the one artifact carrying the
 // requirement, so the reference is SHOWN, never silently dropped. A defect, not
 // ordinary sequencing — so it carries the warning tone (not the calm muted tone of

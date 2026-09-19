@@ -206,7 +206,7 @@ function SkillRow({
         // One paint for the one state: the keyboard cursor and the pointer
         // hover are the same "you are here" and share `--bg-hover` — the
         // `--bg-active` split painted two colors for it (the ConnectorPicker
-        // defect MC-2108 fixed; ripple review 2026-08-05 caught this twin).
+        // defect the selection sweep fixed; ripple review 2026-08-05 caught this twin).
         active
           ? 'bg-[color:var(--bg-hover)] text-[color:var(--text-strong)]'
           : 'text-[color:var(--text-default)] hover:text-[color:var(--text-strong)]'

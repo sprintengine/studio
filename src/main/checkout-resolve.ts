@@ -1,5 +1,5 @@
 /**
- * Resolve an observed cwd into the checkout that contains it (MC-2440).
+ * Resolve an observed cwd into the checkout that contains it.
  *
  * The cwd comes from an agent's lifecycle hooks — it says where the session
  * IS, not what kind of checkout that is. Git answers the second question:

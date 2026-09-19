@@ -26,7 +26,7 @@ import { test } from 'vitest'
 test('snapshot', async () => {
   const generatedAt = '2026-04-28T19:30:00.000Z'
 
-  // The nine commands that left with the Sprint Engine (MC-2575) and then left the
+  // The nine commands that left with the Sprint Engine and then left the
   // wire (protocol v3). They are plain strings now, not `MobileControlCommandType`
   // members — the `satisfies` that used to sit here would no longer compile, which
   // is itself the strongest statement this file can make about them.
@@ -106,7 +106,7 @@ test('snapshot', async () => {
   // At v2 this read `Object.hasOwn(snapshot, 'sprintEngines') === true`, because
   // `sprintEngines` was a REQUIRED member: a desktop that dropped the key made
   // every snapshot read on the phone fail `invalid_payload`, losing backlog and
-  // automations along with the runs. That is why MC-2575 emitted `[]` forever
+  // automations along with the runs. That is why the removal emitted `[]` forever
   // instead of removing it — the right call while a paired phone demanded it.
   //
   // Pre-release there is no such phone, so the collection is gone from the wire
@@ -228,11 +228,11 @@ test('snapshot', async () => {
     service.shutdown()
   }
 
-  // MC-1543 put the workspace's role registry on its backlog workspace so the
+  // The workspace's role registry once rode on its backlog workspace so the
   // phone's launch picker could offer roles it was never compiled to know about.
   // Reading that registry meant spawning the engine's Python, and the picker it
-  // fed was the first screen of a sprint launch — both left with the engine
-  // (MC-2575). `roles` stays optional on the wire and is simply never attached,
+  // fed was the first screen of a sprint launch — both left with the engine.
+  // `roles` stays optional on the wire and is simply never attached,
   // which is the case the phone already handles by falling back to its own list.
   async function assertSnapshotCarriesNoRoleCatalogue(): Promise<void> {
     const workspaceRoot = await makeWorkspaceRoot('no-roles')
@@ -485,7 +485,7 @@ test('snapshot', async () => {
   // Four workspace roots at full automations cap exceed the budget on automations
   // alone (~110% of 256 KB, measured), which is exactly the case the per-project
   // caps cannot prevent. Run history is monitor detail on an automation the phone
-  // can still see, so it is what the ladder drops. Since MC-2575 it is the only
+  // can still see, so it is what the ladder drops. Since the Sprint Engine left it is the only
   // rung: the role catalogues above it and the sprint engines below it are gone.
   async function assertShedDropsRecentRunsWhenTheSnapshotIsOversized(): Promise<void> {
     const workspaceRoot = await makeWorkspaceRoot('crowded')

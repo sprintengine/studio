@@ -1,11 +1,11 @@
 // The registry read behind every connectors surface (the modal today, the
-// Extensions door in MC-1847): `window.api.readMarketplaceRegistry`, the
+// Extensions door): `window.api.readMarketplaceRegistry`, the
 // installable plugins. Extracted from ConnectorsPanel so the door surface and
 // the modal read the exact same source, degrade the exact same way, and share
 // the workspace `.mcp.json` sync — one implementation, two mounts.
 //
-// It read a second source until the third-party retirement (MC-2519,
-// 2026-09-08): `window.api.mcpListCatalog`, the bundled catalogue of sixteen
+// It read a second source until the third-party retirement
+// (2026-09-08): `window.api.mcpListCatalog`, the bundled catalogue of sixteen
 // servers nobody here wrote. That IPC is gone with the file, so the only MCP
 // servers this hook knows about are the ones in the workspace's own settings.
 

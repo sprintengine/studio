@@ -6,7 +6,7 @@ import { test } from 'vitest'
 test('ProjectSourceMenu', async () => {
   // The project selector's sources (remote-sessions-ux /
   // project-selector-sources). The Git step's repo machinery is the shipped
-  // MC-2207 code, pinned by test:renderer:github-clone; what this file pins is
+  // The clone code is pinned by its own tests; what this file pins is
   // the selector's own anatomy, and the stepped Git view's behaviour: step swap,
   // back with state preserved, inline clone error, a failed clone leaving the
   // selection untouched, and Escape from the Git step.

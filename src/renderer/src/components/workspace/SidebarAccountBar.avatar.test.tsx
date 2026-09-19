@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 
-// MC-2220: the account badge shows the provider profile photo when the session
+// The account badge shows the provider profile photo when the session
 // carries one, in the footer badge and the account popover header; a session
 // without one shows the tier-coloured initials exactly as before; a photo that
 // fails to decode falls back to the initials silently. This renders the real

@@ -52,13 +52,13 @@ reserved for the primary action.
 - Status dots are `aria-hidden` when adjacent text already carries the state;
   otherwise give them a `role="img"` label.
 
-## Drift ruling (MC-2118, 2026-08-05)
+## Drift ruling (2026-08-05)
 
 **This spec won on both counts; the code moved.**
 
 - **Title is `font.size.body` (13px)**, not `meta`. A card's title is its
   primary content; at `meta` it sat level with the supporting line beneath it.
-  Ruled together with `inbox-row` and the door rails (MC-2101) so every
+  Ruled together with `inbox-row` and the door rails so every
   title-over-supporting pair in the system uses the same two steps.
 - **Identifier is `font.size.meta` in `text.subtle`**, in both variants. It
   shipped at `micro`, and — only on the card variant — in `text.muted`, so the

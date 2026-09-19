@@ -88,7 +88,7 @@ test('commandPaletteSearch', async () => {
     assert.equal(commandMatchesQuery({ label: 'New Chat' }, 'kanban'), false)
   })
 
-  // MC-1533: search modes are registry-derived — a module's REAL registered
+  // Search modes are registry-derived — a module's REAL registered
   // workspace type carries the terms the old hardcoded palette entries provided,
   // so behavior for the existing modes is identical with the arrays gone.
   run('workspace mode search terms derive from the live registry registration', () => {

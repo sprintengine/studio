@@ -7,8 +7,8 @@ import type { WorkspaceSyncSnapshot } from '../../shared/workspace-sync'
 // service bridge (WorkspaceServiceToken).
 //
 // It used to delegate to the primary renderer and then poll the workspace-sync
-// bus for up to 7s to confirm the id it had been handed. Both are gone
-// (MC-2158): main owns the registry, so `createWorkspace` mints the record
+// bus for up to 7s to confirm the id it had been handed. Both are gone:
+// main owns the registry, so `createWorkspace` mints the record
 // under its own single writer and the id is readable in the same tick. A module
 // can now create a workspace with no window open, which the delegated path used
 // to refuse outright.

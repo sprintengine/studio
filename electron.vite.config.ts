@@ -44,7 +44,7 @@ function mintBuildStamp(): BuildStamp {
   }
 }
 
-// Mints `virtual:multicode-build-stamp` (MC-2182). Rollup re-runs `load` on every
+// Mints `virtual:multicode-build-stamp`. Rollup re-runs `load` on every
 // watch rebuild, so main's stamp follows the bundle it is about to boot; the dev
 // server caches its transform instead, so the module is invalidated on any hot
 // update and re-minted the next time a document loads it. That makes a window's

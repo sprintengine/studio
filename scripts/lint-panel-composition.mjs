@@ -35,7 +35,7 @@ const TOP_BAR_GROUP_CAP = 5
 const CANONICAL_TOP_BAR_GROUPS = new Set([
   'activity-and-views',
   'communication',
-  // `agent-spawn` retired (MC-2222): its split-button is deleted; spawning is
+  // `agent-spawn` retired: its split-button is deleted; spawning is
   // New chat's and the tab strip's job.
   // `account-and-settings` retired: account + Settings relocated to the sidebar
   // bottom (SidebarAccountBar). The set above is the whole TopBar inventory.
@@ -64,7 +64,7 @@ const ALLOW_LIST = new Map([
   ],
   [
     'FleetTerminalPanel.tsx',
-    'Hosts xterm attached to ANOTHER machine (MC-2167). Like the local terminal panes, xterm owns the canvas; the chrome above it is a provenance strip (machine name, link state, watch-only label), which is identity a PanelHeader title cannot carry.',
+    'Hosts xterm attached to ANOTHER machine. Like the local terminal panes, xterm owns the canvas; the chrome above it is a provenance strip (machine name, link state, watch-only label), which is identity a PanelHeader title cannot carry.',
   ],
   [
     'FileExplorer.tsx',
@@ -83,7 +83,7 @@ const ALLOW_LIST = new Map([
   ['MemoryGraphPanel.tsx', 'Graph canvas surface; rebuild scheduled in the app-wide audit plan.'],
   [
     'ComposerAttachmentStrip.tsx',
-    'The attachment strip of the chat composer (MC-2148 launch surface), rendered inside AgentChatView: a row of chips above the field, not a panel, so it carries no PanelHeader.',
+    'The attachment strip of the chat composer (the launch surface), rendered inside AgentChatView: a row of chips above the field, not a panel, so it carries no PanelHeader.',
   ],
 ])
 

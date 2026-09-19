@@ -74,7 +74,7 @@ export function BacklogDependenciesSection({
       level={4}
       inset
       // No hairline: padding and the heading separate this section from the next
-      // (MC-2047 — "space groups, rules do not").
+      // ("space groups, rules do not").
       className="shrink-0 pb-2"
       action={<DependsOnEditor item={item} dependencyChoices={dependencyChoices} onToggle={toggle} />}
     >
@@ -127,7 +127,7 @@ export function BacklogDependenciesSection({
 
         {/* Nothing stands in for an empty section: the heading and its
             "Depends on…" action ARE the empty state. The sentence that used to
-            sit here named that control and explained it (MC-2047). */}
+            sit here named that control and explained it. */}
       </div>
     </Section>
   )

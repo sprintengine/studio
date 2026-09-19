@@ -32,7 +32,7 @@ export function registerHostedModelFeedIpc(
   // `hosted-sources-feed:get` serves what is on disk (cache, else seed) and
   // never touches the network: the Extensions door draws its recommended
   // sources on open, and must not wait out a fetch to do it. The poller's feed
-  // leg is what keeps that disk copy fresh (MC-2519).
+  // leg is what keeps that disk copy fresh.
   ipcMain.handle('hosted-sources-feed:get', async (): Promise<HostedSourcesFeedReadResult> => {
     try {
       return await readSources()

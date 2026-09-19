@@ -41,7 +41,7 @@ function familyLabel(kind: TriggerKind, providers: AutomationsProviders | null):
 
 // The control box is `ui/Input`. This file used to declare its own copy of
 // `AutomationEditor.CONTROL_BASE` — the same string, in two files, under
-// comments in both saying they were hand-synced (MC-2114).
+// comments in both saying they were hand-synced.
 //
 // What remains here is WIDTH, which is a per-field measure rather than a
 // vocabulary: a HH:MM control and a full date-and-time control hold different

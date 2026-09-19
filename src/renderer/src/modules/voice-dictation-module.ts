@@ -2,13 +2,13 @@ import React from 'react'
 
 import type { RendererModule } from './renderer-host'
 
-// Voice dictation as a real module (MC-1861 phase 1): the mic button in the
+// Voice dictation as a real module: the mic button in the
 // top bar, the Ctrl/Cmd+Shift+1 shortcut, and the Voice dictation settings tab
 // are all *contributed* here. Disabling the module removes them because
 // nothing registered them — no `selectModuleEnabled('voice-dictation')` checks
 // remain in core. The transcription backend stays the core `voice:transcribe`
-// IPC service behind `window.api.voiceTranscribe` (see the MC-1861 item file
-// for the seam verdict); the out-of-tree extraction is MC-1888.
+// IPC service behind `window.api.voiceTranscribe` (kept a core
+// service on purpose); moving the module out of tree is a separate step.
 
 // Lazy — and deliberately NOT top-level imports — because both components (and
 // the controller behind them) reach the workspace store; keeping them behind

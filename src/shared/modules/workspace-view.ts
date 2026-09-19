@@ -21,7 +21,7 @@ export type ModuleWorkspaceView = {
 
 export type ModuleWorkspaceViewSource = Pick<Workspace, 'id' | 'name' | 'folderPath' | 'mode' | 'templateId'>
 
-// Every record main holds is a real workspace now (MC-2158). The
+// Every record main holds is a real workspace now. The
 // not-yet-resolvable branch this used to carry existed for restart-restored
 // routing placeholders — records whose folder was unknown until a renderer
 // re-offered them — and it went with the placeholder model: a `folderPath: null`

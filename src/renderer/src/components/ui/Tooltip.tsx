@@ -278,8 +278,8 @@ export function Tooltip({
                 layer === 'menu' ? 'z-[var(--z-menu)]' : 'z-[var(--z-popover)]',
                 multiline ? 'max-w-[420px] whitespace-pre-wrap break-words' : 'whitespace-nowrap',
                 'rounded-sm border border-[color:var(--border-strong)]',
-                // 10/6px and `meta`, per design-system/components/tooltip
-                // (MC-2118). This shipped at `micro` (11px), which put the
+                // 10/6px and `meta`, per design-system/components/tooltip.
+                // This shipped at `micro` (11px), which put the
                 // tooltip a type step BELOW the 12px row it exists to make
                 // readable — backwards for a component whose whole job is to
                 // show what the surface could not.

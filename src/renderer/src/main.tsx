@@ -14,7 +14,7 @@ import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
 import { markStartup, markStartupAt } from './utils/startupTimeline'
 import { setTerminalRepaintPauseReporter } from './utils/terminalRepaintPause'
 
-// Boot measurement (MC-2075). `timeOrigin` is this document's navigation start,
+// Boot measurement. `timeOrigin` is this document's navigation start,
 // so the pair below brackets everything that happens before a line of app code
 // runs: HTML parse, eager chunk fetch, compile and evaluate — the cost the
 // bundle-size ceiling stands in for.
@@ -26,7 +26,7 @@ markStartup('renderer.script-start')
 // it out of the eager boot chunk and fetch it when that window opens.
 const DiagnosticsWindowApp = React.lazy(() => import('./components/diagnostics/DiagnosticsWindowApp'))
 
-// Build identity (MC-2182), reported before anything else runs: if this document
+// Build identity, reported before anything else runs: if this document
 // and main are on different commits, every IPC below is suspect, and the point
 // is to say so rather than let each route fail its own way.
 reportBuildStamp()

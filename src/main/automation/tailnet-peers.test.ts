@@ -12,7 +12,7 @@ import {
 import { test } from 'vitest'
 
 test('tailnet-peers', async () => {
-  // Peer discovery (MC-2163): the client half of tailnet remote control.
+  // Peer discovery: the client half of tailnet remote control.
   //
   // Two boundaries are worth pinning, because both are places where something
   // outside this app becomes something inside it:

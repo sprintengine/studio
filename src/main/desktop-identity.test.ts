@@ -1,5 +1,5 @@
 /**
- * MC-2183 — the desktop's identity provider is what the account service
+ * The desktop's identity provider is what the account service
  * publishes, the operator override wins, and both issuers' wire shapes
  * normalise to one token set. No Electron, no network: `auth-service.ts`
  * supplies those and only routes through what is pinned here.

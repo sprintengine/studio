@@ -147,7 +147,7 @@ export interface WorkspaceStore
   sidebarWidth: number
   setSidebarWidth: (width: number) => void
   // Bumped after a skill/plugin install or uninstall so pickers re-read the
-  // workspace registry without a restart (MC-2507).
+  // workspace registry without a restart.
   // The workspace pane column's width (browser-pane epic), persisted in the
   // settings envelope beside sidebarWidth. Open/closed is per workspace
   // (`workspace.paneState.open`); maximised is session-only.
@@ -302,7 +302,7 @@ export interface WorkspaceStore
       templateAgentCli?: AgentCli | null
       seedAgent?: SoloChatSeed | null
       mode?: Workspace['mode']
-      // Executor-triggered creation: skip the door-surface clear (MC-1833).
+      // Executor-triggered creation: skip the door-surface clear.
       background?: boolean
       windowId?: WorkspaceWindowId | null
     },
@@ -326,7 +326,7 @@ export interface WorkspaceStore
   setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
   /**
-   * Write one module's entry in a workspace's per-module state bag (MC-1573);
+   * Write one module's entry in a workspace's per-module state bag;
    * null/undefined removes it. False for an unknown workspace.
    */
   setWorkspaceModuleState: (workspaceId: WorkspaceId, moduleId: string, state: unknown) => boolean
@@ -819,7 +819,7 @@ const workspaceStateStorage: StateStorage = {
     const version = envelope.version ?? WORKSPACE_STORE_VERSION
     const fullState = envelope.state
 
-    // The registry key is FROZEN, not deleted (MC-2158). Main owns the workspace
+    // The registry key is FROZEN, not deleted. Main owns the workspace
     // registry now, so the renderer stops writing this key and leaves the last
     // written value in place for one release as the rollback artifact; the
     // release after this deletes it, in its own commit.
@@ -1330,7 +1330,7 @@ function syncTerminalKeepRecentAliveToMain(): void {
 }
 syncTerminalKeepRecentAliveToMain()
 
-// One-time hydration handshake (MC-2158). On the first boot after the registry
+// One-time hydration handshake. On the first boot after the registry
 // inverted, main has no registry file and this window is the only place the
 // user's workspaces exist. It offers its POST-migrate-ladder state — the value
 // after zustand's `migrate` chain has run up to WORKSPACE_STORE_VERSION —

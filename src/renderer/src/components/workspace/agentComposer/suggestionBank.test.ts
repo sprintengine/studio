@@ -3,7 +3,7 @@ import { SUGGESTION_BANK, SUGGESTION_DRAW_SIZE, drawSuggestions, type Suggestion
 import { test } from 'vitest'
 
 test('suggestionBank', async () => {
-  // MC-2147. A card is a launch button, so two properties matter more than the
+  // A card is a launch button, so two properties matter more than the
   // copy: the draw is STABLE for the life of a tab (a re-render must not move what
   // someone is reading), and it is SPREAD (four cards that are four flavours of
   // "review the code" waste the surface).

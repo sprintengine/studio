@@ -24,7 +24,7 @@ export {
   PrimaryButton,
 } from './Buttons'
 export type { ButtonAlign, ButtonSize, ButtonTone, CaptionButtonTone, GhostTone, IconButtonSize } from './Buttons'
-// The five shapes the button family was missing (the MC-2118 raw-primitive
+// The five shapes the button family was missing (the raw-primitive
 // sweep, 2026-09-08). Each is a species, not a restyle: a row, a value row, a
 // popover trigger, a tile and a text link answer questions the three sized
 // buttons above cannot, and each states why in its own header.
@@ -129,7 +129,7 @@ export { SegmentedControl } from './SegmentedControl'
 // The ONE Field. `ui/Modal` used to export a second component under this name —
 // a `text-micro` label with no `htmlFor` and no ARIA wiring at all — and both
 // arrived through this barrel, so whoever imported "the" Field got a coin flip
-// several panel dialogs got the inaccessible one (MC-2114).
+// several panel dialogs got the inaccessible one.
 export { Field } from './Field'
 export { INLINE_TITLE_EDIT_CLASS, Input, Textarea } from './Input'
 export type { InputSize, InputVariant } from './Input'

@@ -52,7 +52,7 @@ type MarketplaceInlineMcp = {
 }
 
 // Inline-CLI registry entries surface an app-bundled agent CLI plugin as
-// marketplace content (MC-1858). They ship no bytes: the referenced plugin
+// marketplace content. They ship no bytes: the referenced plugin
 // already lives in the app bundle (resources/plugins/<pluginId>), and the
 // install action executes that plugin's `install` spec through the CLI runtime
 // installer — never the bundle download flow. Third-party CLI plugins keep

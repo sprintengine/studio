@@ -320,7 +320,7 @@ test('globalDoorsIntegration', async () => {
     } as never)
 
     // ═══ 5b. The Design door: empty first-run, then two real groups ══════════
-    // Two things only a real mount can prove. First, the MC-2014 trap: the door
+    // Two things only a real mount can prove. First, the double-mount trap: the door
     // must mount exactly ONE rail — Extensions grew a second nested SurfaceRail
     // after the context-rail move, and a door with two navigation columns is the
     // shape item 1993 forbids outright. Second, an empty library must offer the
@@ -392,7 +392,7 @@ test('globalDoorsIntegration', async () => {
     })
     console.log('ok - the Design door groups the attached system and the library, headings and all')
 
-    // ═══ 6. A door failure is contained to the door (MC-1835) ═════════════════
+    // ═══ 6. A door failure is contained to the door ═════════════════
     // A surface that throws during render must land in the boundary's fallback —
     // with both recoveries working — instead of white-screening the renderer.
     const { GlobalSurfaceErrorBoundary } = await import('./surfaceSubstrate')
@@ -598,7 +598,7 @@ test('globalDoorsIntegration', async () => {
       const bodyText = () => container.textContent ?? ''
       assert.ok(bodyText().includes('Plugins'), 'the registry’s plugin list is a group of its own')
       // The registry is the tab's only population since the third-party
-      // retirement (MC-2519): the bundled MCP catalogue's rows browsed here too
+      // retirement: the bundled MCP catalogue's rows browsed here too
       // until it was deleted.
       assert.ok(bodyText().includes('Stripe'), 'a registry plugin renders as a row')
       assert.ok(bodyText().includes('Payments'), 'and plugins keep the registry’s categories as headings')
@@ -657,7 +657,7 @@ test('globalDoorsIntegration', async () => {
       // The registry down: the app's tab discloses the failure rather than
       // reading as an empty catalogue, and the repository sources — which are
       // read by a different path — still list. Until the third-party retirement
-      // (MC-2519) the bundled MCP catalogue was the second population that stayed
+      // the bundled MCP catalogue was the second population that stayed
       // up here; the registry is the only one now, so what this proves is that a
       // failed read is stated rather than drawn as a zero.
       api.readMarketplaceRegistry = async () => ({ ok: false, message: 'registry down.' })
@@ -679,7 +679,7 @@ test('globalDoorsIntegration', async () => {
       console.log('ok - the Extensions door: source tabs, the plus, groups and a pager, deep-links, degradation')
     }
 
-    // ═══ 9. The absent door and the workspace-less door (MC-1854) ═════════════
+    // ═══ 9. The absent door and the workspace-less door ═════════════
     // Two halves of the published global-surface contract. First: a persisted
     // `activeGlobalSurface` naming a surface that never registered resolves to
     // the explicit not-installed door — named, one sentence, one CTA into

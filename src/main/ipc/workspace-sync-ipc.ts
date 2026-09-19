@@ -43,8 +43,8 @@ export function registerWorkspaceSyncIpc(
   ipcMain.handle('workspace-sync:get-snapshot', () => service.getSnapshot())
   ipcMain.handle('workspace-sync:get-events-after', (_event, sequence: unknown) => service.getEventsAfter(sequence))
 
-  // One-time hydration from a window's post-migrate-ladder localStorage state
-  // (MC-2158). The window offers; main seeds only when it has never written a
+  // One-time hydration from a window's post-migrate-ladder localStorage state.
+  // The window offers; main seeds only when it has never written a
   // registry, so a second window racing the first is a no-op rather than a
   // merge. Answering `needsHydration: false` is how a window learns to stop
   // offering and start mirroring.

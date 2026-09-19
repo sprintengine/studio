@@ -87,7 +87,7 @@ const CONFIG_FIELD_LABEL: Record<string, string> = {
 // The control box is `ui/Input`, not a constant here. This file used to declare
 // `CONTROL_BASE` and `TriggerFields.tsx` declared a literal duplicate of it,
 // under comments in both files admitting the two were kept in sync by hand —
-// which is the mechanism, not the exception (MC-2114). Its `h-7` was 28px, off
+// which is the mechanism, not the exception. Its `h-7` was 28px, off
 // the 26/30/34 ramp entirely; the kit's `sm` step is 30px.
 // The name, edited in place as the page's own title (mockup §.head). The chrome
 // is `Input variant="inline"` — the promoted `INLINE_TITLE_EDIT_CLASS`; what
@@ -294,7 +294,7 @@ export function AutomationEditor({
     !actionUnavailableReason &&
     actionProvider != null &&
     schemaHasStringProp(actionProvider.configSchema, 'connectorId')
-  // Provenance, stamped once by the install and never editable here (MC-2030):
+  // Provenance, stamped once by the install and never editable here:
   // the shelf entry this automation came from and who published it. It is how a
   // person tells a starter they added from something they wrote themselves.
   const sourceCatalogueId = editor.mode === 'edit' ? editor.definition.sourceCatalogueId?.trim() : undefined
@@ -319,7 +319,7 @@ export function AutomationEditor({
         description: form.runInWorktree ? 'Own worktree and branch' : 'This project’s checkout',
       },
     ]
-    // Provenance the install stamps (MC-2030). The header names the publisher, so
+    // Provenance the install stamps. The header names the publisher, so
     // this row names only where it came from — one fact each, not both twice.
     facts.push({
       term: 'Source',

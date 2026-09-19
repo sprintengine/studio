@@ -291,7 +291,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
   }, [activeFilePath, showPreview, workspaceId])
 
   // Monaco's own menu is off (`contextmenu: false`); this is the replacement.
-  // It was a native Electron popup until MC-2104 — OS-drawn, Title-Cased, and
+  // It was a native Electron popup until the context-menu sweep — OS-drawn, Title-Cased, and
   // unable to carry the shortcut hints Monaco actually binds.
   const openEditorContextMenu = (event: React.MouseEvent<HTMLDivElement>) => {
     if (showPreview || !editorRef.current) return
@@ -525,7 +525,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
             retired by name ("do not reintroduce it", ui/Buttons.tsx): it adds a
             second radius to a view that already spends two, and it competes
             with the surface it floats over instead of sitting on it. The
-            primitive's own hover fill is what makes it findable (MC-2113). */}
+            primitive's own hover fill is what makes it findable. */}
         <IconButton
           aria-label={showPreview ? 'Edit Markdown source' : 'Preview Markdown'}
           onClick={() => setMarkdownMode((mode) => (mode === 'preview' ? 'source' : 'preview'))}

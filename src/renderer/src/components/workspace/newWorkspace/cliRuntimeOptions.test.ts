@@ -555,7 +555,7 @@ test('cliRuntimeOptions', async () => {
     ['codex', 'claude-code', 'opencode'],
     'loading status shows all registered CLIs (never an empty picker)',
   )
-  // Zero installed while ready IS the answer on a fresh machine (MC-2093): the
+  // Zero installed while ready IS the answer on a fresh machine: the
   // catalog empties and the surfaces render their install state, instead of the
   // old escape hatch handing back eight uninstalled CLIs that all read launchable.
   assert.deepEqual(
@@ -620,7 +620,7 @@ test('cliRuntimeOptions', async () => {
     'only the installed CLI survives filtering',
   )
 
-  // --- the zero-CLI machine (MC-2093) ---------------------------------------
+  // --- the zero-CLI machine ---------------------------------------
   const nothingInstalled = selectAgentCliCatalog('ready', plugins, undefined, {
     map: availabilityMap({ codex: false, 'claude-code': false, opencode: false }),
     status: 'ready',

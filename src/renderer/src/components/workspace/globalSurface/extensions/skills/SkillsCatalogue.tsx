@@ -524,7 +524,7 @@ export function SkillsCatalogue({
             onUseSkillInNewAgent={onUseSkillInNewAgent}
           />
           {/* Where somebody stands when they have run out of skills to install:
-              under what they have, the places to get more (MC-2519). */}
+              under what they have, the places to get more. */}
           <RecommendedSources
             existingSources={sources.sources}
             onAdded={(sourceId) => {

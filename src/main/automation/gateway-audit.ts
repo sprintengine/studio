@@ -124,7 +124,7 @@ function collectSafeIdentifiers(
 // Identity written into the record. Local-socket fields stay advisory (anything
 // with filesystem access could claim them); the tailnet fields do not — the
 // listener authenticated the device before dispatch, so `deviceId`/`peerNode`
-// answer "which paired machine did this" for a remote mutation (MC-2162).
+// answer "which paired machine did this" for a remote mutation.
 function normalizeConnection(connection: McpConnectionMetadata): McpConnectionMetadata {
   const trim = (value: string | undefined): string | undefined => value?.trim().slice(0, 256) || undefined
   return {

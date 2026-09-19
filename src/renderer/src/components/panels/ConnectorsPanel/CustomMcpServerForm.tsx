@@ -19,7 +19,7 @@ const MCP_TRANSPORT_ITEMS: SelectItem<'stdio' | 'http'>[] = [
 ]
 
 // What a change did, and what syncing means: both informational, and
-// information is content, not a notice (MC-2115) — so, plain copy.
+// information is content, not a notice — so, plain copy.
 function ManageLine({ children }: { children: ReactNode }) {
   return <p className="text-body leading-5 text-[color:var(--text-muted)]">{children}</p>
 }

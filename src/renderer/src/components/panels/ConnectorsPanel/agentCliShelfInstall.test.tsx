@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
 test('agentCliShelfInstall', async () => {
-  // MC-1858 — the Agent CLIs canvas installs through CliInstallControl's runtime
+  // The Agent CLIs canvas installs through CliInstallControl's runtime
   // install and the row reads installed WITHOUT an app restart. That path has
   // three silent seams: the Install action must appear only once the platform's
   // install methods are known; the install must run the CLI runtime installer

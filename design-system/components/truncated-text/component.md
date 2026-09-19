@@ -87,7 +87,7 @@ was hidden.
   tooltip instance per trigger, where the tooltip spec's contract is one
   surface per document repositioned per trigger.~~ **Not drift — struck
   2026-09-02.** [tooltip](../tooltip/component.md) re-ruled this itself in
-  MC-2118: the code won, and "one surface per document, positioned by custom
+  The code won, and "one surface per document, positioned by custom
   properties" was an implementation the spec had no business prescribing. What
   matters is the property — a 200-row list must not put 200 surfaces in the
   document — and a portal created on open and torn down on close satisfies it.

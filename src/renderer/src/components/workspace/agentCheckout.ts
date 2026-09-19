@@ -26,7 +26,7 @@ export type AgentTabCheckout =
  * focused agent. Three surfaces reading three resolutions would disagree the
  * moment an agent moved; they read this one.
  *
- * Observed first (MC-2440): the session's own hooks report its cwd and git
+ * Observed first: the session's own hooks report its cwd and git
  * resolves it, so an agent that created a worktree and moved into it — or
  * left one — is shown where it actually is. Until that answers, launch
  * intent: workspace-level (any agent in a worktree-backed workspace, because

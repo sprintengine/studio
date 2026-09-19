@@ -93,7 +93,7 @@ test('manifest', async () => {
     },
   }
 
-  // Inline-CLI entry (MC-1858): no bundle source, no signature — the entry
+  // Inline-CLI entry: no bundle source, no signature — the entry
   // surfaces an app-bundled CLI plugin whose install spec the runtime installer
   // executes; `cli.pluginId` names that plugin in the plugin registry.
   const VALID_INLINE_CLI_ENTRY = {
@@ -282,7 +282,7 @@ test('manifest', async () => {
   }
 
   function testBundledSkillsValidateAndSurvive(): void {
-    // Enumerated per-plugin skills (MC-1564) must ride through the field-by-field
+    // Enumerated per-plugin skills must ride through the field-by-field
     // entry rebuild — a dropped array would silently blank every "Skills N"
     // detail. Path is optional; empty arrays are normalized away.
     const generated = {
@@ -357,7 +357,7 @@ test('manifest', async () => {
       source: 'https://github.com/vercel/skills.git',
       skills: [{ name: 'vercel', description: 'Deploy.', path: 'skills/vercel', files, contentDigest: digest }],
     }
-    // Content digests (MC-1644) ride through the rebuild — the offline install
+    // Content digests ride through the rebuild — the offline install
     // verifies bundled bytes against exactly these.
     const result = validateMarketplaceIndex({ ...VALID_MARKETPLACE, plugins: [generated] })
     assert.equal(result.ok, true, JSON.stringify(!result.ok && result.issues))

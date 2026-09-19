@@ -529,7 +529,7 @@ export function buildUpdateDescriptor(input: {
   return shellDescriptorForScript(target, `& ${[binary, ...args].map(powerShellSingleQuote).join(' ')}`)
 }
 
-// Update an installed CLI (MC-1873). No staleness detection: a CLI's "latest"
+// Update an installed CLI. No staleness detection: a CLI's "latest"
 // belongs to the vendor's channel, so this is an action, not a state. Where
 // the manifest declares an `update` spec the CLI's own updater runs; otherwise
 // the install spec is re-run, which for npm installs is exactly "update to

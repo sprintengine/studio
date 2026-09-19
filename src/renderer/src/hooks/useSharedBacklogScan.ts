@@ -104,7 +104,7 @@ async function defaultBacklogScanRunner(folderPath: string): Promise<BacklogScan
   return annotateBacklogDanglingMockups(folderPath, await allocateBacklogItemIds(folderPath, result))
 }
 
-// Scan-time mockup-reference validation (MC-1697): the tolerant both-roots check
+// Scan-time mockup-reference validation: the tolerant both-roots check
 // createBacklogItem cannot do itself (it is pure and filesystem-free). For each
 // item that names a mockup — attached or body-detected — probe every candidate
 // root; any reference that resolves to no file is recorded on the item as

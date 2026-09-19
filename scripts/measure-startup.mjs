@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Startup measurement harness (MC-2075). Launches the built app N times with the
+// Startup measurement harness. Launches the built app N times with the
 // boot timeline switched on, parses the read-out each launch prints, and reports
 // the median per phase — so the bundle-size ceiling in
 // `scripts/check-bundle-budget.mjs` can be argued from wall-clock numbers rather

@@ -1,4 +1,4 @@
-// Pure helpers for the backlog "Mockups" attachment surface (MC-1485). No React,
+// Pure helpers for the backlog "Mockups" attachment surface. No React,
 // no `window` — so every rule here (parse, body detection, path resolution) is
 // unit-testable in isolation (see backlogMockups.test.ts).
 //
@@ -174,7 +174,7 @@ export function collectBacklogMockups(
   return entries
 }
 
-// The tolerant cross-root resolver (MC-1485 amendment 2, shared with MC-1697's
+// The tolerant cross-root resolver (shared with the
 // scan-time dangling-reference check): a `mockups:` path may be authored
 // project-root-relative (`backlog/mockups/x.html`, the canonical home) OR
 // `backlog/`-relative (`mockups/x.html`, written by the review-workspace and
@@ -211,7 +211,7 @@ export async function resolveFirstMockupCandidate<T>(
   return null
 }
 
-// The scan-time dangling-reference check (MC-1697): every mockup an item names —
+// The scan-time dangling-reference check: every mockup an item names —
 // attached (`mockups:`) or body-detected — that resolves to no file under either
 // tolerated root. `exists` probes a root-relative path (typically a filesystem
 // existence check); a ref is dangling only when NEITHER candidate root resolves,

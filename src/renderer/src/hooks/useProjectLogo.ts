@@ -2,7 +2,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { ensureProjectLogo, getProjectLogoDataUrl, subscribeProjectLogos } from '../utils/projectLogos'
 
 /**
- * The project's own logo for an icon slot (MC-2135), or null when the repo has
+ * The project's own logo for an icon slot, or null when the repo has
  * none — which is every caller's cue to keep rendering the workspace-type
  * glyph. Detection runs once per folder per session and is shared across every
  * surface that asks.

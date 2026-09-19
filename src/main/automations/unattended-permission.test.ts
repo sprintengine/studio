@@ -64,7 +64,7 @@ test('unattended-permission', async () => {
   function harness(root: string, options: { triggerKind?: string } = {}) {
     const workspaces: Workspace[] = []
     const launches: AgentLaunchRequest[] = []
-    // Workspace creation is a main-process port since MC-2158, not a renderer
+    // Workspace creation is a main-process port, not a renderer
     // request. It honours the mode the executor asks for: the default launch
     // route resolves an `automations-host` workspace, and a 'standard' stand-in
     // would never satisfy it.
@@ -82,7 +82,7 @@ test('unattended-permission', async () => {
       }
     }
 
-    // Agent launch is a main-process port since MC-2159, not a renderer request;
+    // Agent launch is a main-process port, not a renderer request;
     // this stub stands in for the AgentLaunchService so the launch stays
     // observable at the same level of detail.
     const launchAgent = async (request: AgentLaunchRequest): Promise<AgentLaunchResult> => {

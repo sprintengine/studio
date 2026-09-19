@@ -61,7 +61,7 @@ export function selectionForRow(row: ComposerRow): AgentComposerSelection {
 // Conversation (provider-backed) launch no CLI, so they survive a machine with
 // none; the General row does launch one, so with none installed it is not built
 // at all — a row that cannot run must not be reachable by click or Enter, and
-// the surfaces render the install route instead (MC-2093).
+// the surfaces render the install route instead.
 export function composerRosterRows({
   showTerminal,
   conversationAvailable,
@@ -181,7 +181,7 @@ export function useAgentComposer({
       hostedModelCatalogs,
     ],
   )
-  // This machine has no agent CLI (MC-2093). The catalog is availability-
+  // This machine has no agent CLI. The catalog is availability-
   // filtered, so an empty one on a READY registry is the honest answer — a
   // pending or failed probe leaves the annotated catalog in place and never
   // reaches here, which is what keeps a transient probe failure from emptying

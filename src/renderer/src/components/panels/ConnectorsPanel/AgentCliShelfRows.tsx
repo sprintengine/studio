@@ -104,7 +104,7 @@ export function AgentCliRegistryRow({
 }
 
 // ---------------------------------------------------------------------------
-// Agent CLIs with runtime state (MC-1858): the inline entries
+// Agent CLIs with runtime state: the inline entries
 // ---------------------------------------------------------------------------
 
 /**

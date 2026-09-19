@@ -211,7 +211,7 @@ test('a CLI with a command override still re-probes after boot', async () => {
   assert.equal(probes, 3, 'only the overridden CLI re-probes; the other still hits the boot cache')
 })
 
-// MC-2092 — the launch pre-flight. A POSIX setup with a zsh/bash $SHELL is where
+// The launch pre-flight. A POSIX setup with a zsh/bash $SHELL is where
 // the full probe chain runs (primary `bash -lc` + the interactive fallback), so
 // it is the only setup whose verdict a launch may act on.
 const POSIX_SETUP = { platform: 'darwin' as NodeJS.Platform, shell: '/bin/zsh' }

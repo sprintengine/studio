@@ -286,7 +286,7 @@ test('persistenceSlice', async () => {
     'v64 reconciles a dangling active pointer to a surviving workspace',
   )
 
-  // v65: the `roadmap` workspace mode retired (MC-1692) — Roadmap is an
+  // v65: the `roadmap` workspace mode retired — Roadmap is an
   // instance-global sidebar surface now, not a per-project workspace. The migration
   // drops any roadmap-mode row and reconciles a dangling active pointer, mirroring
   // the v62 automations-mode drop. The roadmap plan on disk is untouched.
@@ -467,7 +467,7 @@ test('persistenceSlice', async () => {
     workspaces: [{ id: 'ws-standard', mode: 'standard', folderPath: '/repo/app', agents: {} }],
     activeWorkspaceId: 'ws-standard',
     appSettings: {
-      // Written by the previous build (store v69), so it carries MC-1865's
+      // Written by the previous build (store v69), so it carries the discovered
       // discovered catalog as well: this rung must not disturb it.
       cliModelCatalog: {
         codex: { models: [{ id: 'gpt-5.6' }], fetchedAt: '2026-07-26T00:00:00Z', source: 'argv-probe' },
@@ -502,7 +502,7 @@ test('persistenceSlice', async () => {
     'and drops a selection naming no CLI entirely',
   )
 
-  // The per-module workspace-state bag (MC-1573): a module's durable entry rides
+  // The per-module workspace-state bag: a module's durable entry rides
   // the ladder untouched, whatever version the envelope was written at.
   const v70WithModuleBag = {
     workspaces: [

@@ -62,7 +62,7 @@ test('durable-links', async () => {
     // --- Clearing. A removed link must remove its line, not leave a stale one.
     assert.deepEqual(durableBacklogLinkFields([]), { pr: null })
 
-    // --- An item spanning projects carries one PR per project (MC-1612). The
+    // --- An item spanning projects carries one PR per project. The
     // primary keeps the bare link id it has always had; a sibling is addressed by
     // its repo id.
     const multi = durableBacklogLinksFromFrontmatter({ pr: 'https://x.test/pull/1,web=https://x.test/pull/2' })

@@ -80,7 +80,7 @@ test('normalizers', async () => {
   assert.equal(persistedAgent.cliStartupPrompt, undefined)
 
   // Durable resume identity survives the persist normalize so a cold restart can
-  // resume without waiting on the async plugin catalog (MC-1465): the stamped
+  // resume without waiting on the async plugin catalog: the stamped
   // cliResumeAvailable AND cliUsesStableSessionId must both round-trip.
   const withResumableAgent = baseWorkspace({
     agents: {
@@ -372,7 +372,7 @@ test('normalizers', async () => {
     )
   }
 
-  // dropRetiredModeWorkspaces — the `roadmap` (v65, MC-1692), `multiloop` (v66),
+  // dropRetiredModeWorkspaces — the `roadmap` (v65), `multiloop` (v66),
   // `guided-brief` (2026-09-08, the deleted Design Wizard), `reviews-host`
   // (v75, Reviews extracted to an installable module) and `sprintengine` (the
   // in-tree engine's deletion) workspace modes retired. Every list-entry path

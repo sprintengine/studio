@@ -1,4 +1,4 @@
-// The door error boundary (MC-1835), on its own so the shell can hold it from
+// The door error boundary, on its own so the shell can hold it from
 // boot. A door failure is contained to the door: without this, any throw in a
 // surface's render — or a lazy chunk failing to load — propagated to the root
 // and white-screened the whole renderer. The fallback follows the copy-voice

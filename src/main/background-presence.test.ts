@@ -1,5 +1,5 @@
 /**
- * MC-2156 — the last-window-close decision and the tray that stands in for a
+ * The last-window-close decision and the tray that stands in for a
  * window. Runs with zero windows and no Electron: the whole point of the
  * feature is what the app does when there is no display left to talk to.
  *

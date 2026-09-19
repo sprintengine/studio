@@ -383,7 +383,7 @@ test('builtin-skills', async () => {
       'version three\n',
     )
 
-    // frontend-design (MC-1511) is Claude-only: harnesses: ['claude'] resolves a
+    // frontend-design is Claude-only: harnesses: ['claude'] resolves a
     // single native target and installs into .claude alone. This is the install
     // half of the wizard's "non-Claude sessions get no design skill" guarantee —
     // a non-Claude CLI never receives the skill files.

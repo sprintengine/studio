@@ -248,14 +248,14 @@ export function ProjectFolderGlyph({
   )
 }
 
-// A folder's identity in an icon slot: `logoSrc` (MC-2135) is the project's own
+// A folder's identity in an icon slot: `logoSrc` is the project's own
 // logo, detected off the top level of the repo at that folder. When present it
 // takes the slot the folder glyph would have had — same className, so the call
 // site keeps its geometry — and every path back out of it lands on the plain
 // folder glyph: no logo, an empty string, or an image that fails to decode. A
 // broken data URI must never leave an empty box behind.
 //
-// The logo was briefly worn by every workspace row instead (MC-2135 ruling C);
+// The logo was briefly worn by every workspace row instead (a ruling since reversed);
 // the owner reversed that on 2026-09-02 — one project, one mark, on the header
 // that names the project — and the chat rows lost their icon slot with it.
 //

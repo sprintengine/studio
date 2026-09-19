@@ -265,7 +265,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
   })
 
   const [selectedId, setSelectedId] = useState<string | null>(null)
-  // The extended (shift/cmd) selection layered over the cursor above (MC-2060),
+  // The extended (shift/cmd) selection layered over the cursor above,
   // keyed by item id.
   const [multiSelection, setMultiSelection] = useState(EMPTY_BACKLOG_MULTI_SELECTION)
   // Search is ephemeral: a transient act, never persisted or shared, so each
@@ -310,7 +310,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
   // re-scan triggered by a menu mutation (star, highlight) re-resolves the live
   // item and the open menu reflects the new state instead of a stale snapshot.
   // `selection`: opened on a row inside a live multi-selection, so module
-  // actions act on the whole selection rather than the row alone (MC-2060).
+  // actions act on the whole selection rather than the row alone.
   const [rowMenu, setRowMenu] = useState<{ itemId: string; x: number; y: number; selection?: boolean } | null>(null)
   // Terminal-session liveness for the send-to-agent flyout. null = not fetched
   // yet (agents render enabled; the send core re-verifies liveness anyway);
@@ -355,7 +355,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
 
   // An epic's status is derived UP from its children at READ time, never read from
   // its own frontmatter `status:` (which stays meaningful only for archival) and
-  // never written back by the link sync (MC-1617, backlog/2026-07-15-backlog-epic-
+  // never written back by the link sync (backlog/2026-07-15-backlog-epic-
   // status-derives-from-children.md). Deriving it here, once over the full scan,
   // means every downstream surface — rows, detail, lens filtering, the dependency
   // graph and sort order — reads the corrected status with no
@@ -425,7 +425,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
       if (isRoadmapContent(item.relativePath, item.rawType)) return false
       // Files under backlog/mockups/ are attachments other items reference via
       // `mockups:` frontmatter, not work items — listing them here gave them
-      // MC-id-looking rows. Full substrate fix (markdown-only objects, MC-1710)
+      // MC-id-looking rows. Full substrate fix (markdown-only objects)
       // will retire their item-hood; until then they are hidden, not gone, so
       // the handoff flows keep resolving them.
       if (item.relativePath.startsWith('backlog/mockups/')) return false
@@ -599,7 +599,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     [multiSelection, selectedId],
   )
 
-  // Inline mockup preview (MC-1485 / T4): when set, the detail pane renders the
+  // Inline mockup preview: when set, the detail pane renders the
   // rendered mockup in a FilePreviewPane in place of the item content. Cleared
   // whenever the selected item changes (below) and on back/close, so a preview
   // never bleeds across items.
@@ -876,7 +876,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
   )
 
   // Resolve + read the mockup, then swap the detail pane to its rendered preview
-  // (MC-1485 / T4). Resolution re-runs across both tolerated roots from the
+  // Resolution re-runs across both tolerated roots from the
   // authored ref (not just the path the section optimistically passed while its
   // async existence check was still pending), so an open is always correct. A
   // missing/unreadable file leaves the preview closed rather than opening an
@@ -1515,7 +1515,7 @@ export default function BacklogPanel({ workspaceId }: WorkspacePanelProps): JSX.
     (item: BacklogItem, selectionItems?: ReadonlyArray<BacklogItem>) => {
       const base = backlogActionContext(item)
       if (!base) return []
-      // The whole-selection context (MC-2060): the menu was opened inside a
+      // The whole-selection context: the menu was opened inside a
       // multi-selection, so module actions read every selected item plus the full
       // scan for epic expansion. Single-item callers pass nothing and the context
       // is byte-identical to before.
@@ -1976,7 +1976,7 @@ function BacklogList({
   groupedRows: BacklogGroupedRow[] | null
   navIndexById: ReadonlyMap<string, number>
   selectedId: string | null
-  // The rows painted selected: the multi set, or the cursor row alone (MC-2060).
+  // The rows painted selected: the multi set, or the cursor row alone.
   selectedRowIds: ReadonlySet<string>
   onSelect: (id: string, modifiers?: { toggle?: boolean; range?: boolean }) => void
   onToggleCollapse: (group: BacklogEpicGroup) => void
@@ -2286,7 +2286,7 @@ function BacklogGroupHeaderRow({
 
 // ---- Detail / preview ------------------------------------------------------
 
-// Exported for the Backlog door (MC-1836): the door renders THIS component for
+// Exported for the Backlog door: the door renders THIS component for
 // an opened item — one detail implementation, so the aside and the door can
 // never drift. The door supplies its per-project feed data and degrades the
 // workspace-only inputs (agent targets, external actions) explicitly.
@@ -2362,7 +2362,7 @@ export function BacklogDetail({
   agentSessions: TerminalSessionSnapshot[] | null
   onAgentFlyoutOpen: () => void
   onSendToAgent: (item: BacklogItem, sessionId: string) => void
-  // Inline mockup preview (MC-1485 / T4): the currently-open mockup (rendered in
+  // Inline mockup preview: the currently-open mockup (rendered in
   // place of the item content), the open handler the Mockups section calls, and
   // the back/close clear. Owned by the panel so it survives this component's
   // early returns and clears on selection change.
@@ -2449,7 +2449,7 @@ export function BacklogDetail({
     return <DetailState body="Select an item to preview." />
   }
 
-  // Inline mockup preview (MC-1485 / T4): while a mockup is open it replaces the
+  // Inline mockup preview: while a mockup is open it replaces the
   // item content — shared FilePreviewPane chrome (back / pop-out / close) with the sandboxed
   // HtmlArtifactFrame as the body override for HTML, and the pane's own
   // extension-based markdown/plain-text rendering for anything else. Back and
@@ -2514,7 +2514,7 @@ export function BacklogDetail({
     // `data-backlog-detail` is the rendered-pass handle for this pane, the same
     // kind of hook as `[data-context-rail]`. Three surfaces mount this one
     // component and only one of them wraps it in a labelled landmark, so a pass
-    // that measures the pane's own anatomy (MC-2047) needs a selector that
+    // that measures the pane's own anatomy needs a selector that
     // resolves on all three.
     <div data-backlog-detail className="flex h-full min-h-0 min-w-0 flex-col">
       {/* `px-3 py-2` — `ui/PanelHeader`'s inset, so this pane starts where every
@@ -2524,7 +2524,7 @@ export function BacklogDetail({
           which the one-line primitive does not. The inset is what makes the heights agree, and
           that is what converges here.
 
-          ONE identity row (MC-2067). MC-1923 gave the crumb a band of its own so
+          ONE identity row. The crumb once had a band of its own so
           the title could own a full line; the overflow menu then took a third
           band whenever the item had no external action to sit beside. On a door
           — where the app's top strip is ALREADY the surface bar above this pane
@@ -2532,7 +2532,7 @@ export function BacklogDetail({
           metadata, so it rides the title's own line, right-aligned, with the
           menu it belongs to; the title still wraps to two lines because it is
           `flex-1` beside them, not because it has a band to itself. */}
-      {/* No hairline under the header either (MC-2047). Inside this pane the
+      {/* No hairline under the header either. Inside this pane the
           only rules are its own edges and the list-side chrome row; the header
           separates from the body on padding, like every section below it. */}
       <header className="shrink-0 px-3 py-2">
@@ -2559,8 +2559,8 @@ export function BacklogDetail({
           >
             <LifecycleGlyph
               state={selectedBlocked ? 'blocked' : backlogStatusToLifecycle(selected.status)}
-              // The glyph NAMES the state now that the word beside it is gone
-              // (MC-1923). A tooltip only reaches a pointer — dropping the word
+              // The glyph NAMES the state now that the word beside it is gone.
+              // A tooltip only reaches a pointer — dropping the word
               // without this left the status readable by shape alone.
               label={selectedBlocked ? BACKLOG_BLOCKED_LABEL : BACKLOG_STATUS_LABEL[selected.status]}
               // A bare in_progress status has no agent working it, so the arc
@@ -2590,7 +2590,7 @@ export function BacklogDetail({
               never minted one for (allocation is best-effort) keeps its file
               name here, so the cluster never says only "4m ago".
 
-              The status WORD stays gone (MC-1923): the glyph at the head of the
+              The status WORD stays gone: the glyph at the head of the
               row already says the state and carries it as an accessible name. The
               path stays out too — long, truncated, and not identity; it is
               readable from this menu ("Copy path") and from Reveal in Files. */}
@@ -2628,7 +2628,7 @@ export function BacklogDetail({
                 // here they free the row down to the primary action + this menu.
                 { id: 'open-in-editor', label: 'Open in editor', onSelect: () => actions.openInEditor(selected) },
                 { id: 'reveal-in-files', label: 'Reveal in Files', onSelect: () => actions.revealInFiles(selected) },
-                // Where the path went when it left the crumb (MC-1923). Through
+                // Where the path went when it left the crumb. Through
                 // the app's own clipboard bridge: an Electron renderer has no
                 // permission-free `navigator.clipboard`, so that path was a
                 // silent no-op. The ABSOLUTE path, matching the two rows above it
@@ -2814,7 +2814,7 @@ export function BacklogDetail({
           </GhostButton>
         ) : null}
 
-        {/* Earned, not standing (MC-2067): a host with no shell action to offer
+        {/* Earned, not standing: a host with no shell action to offer
             gets no action band at all, because the overflow menu that used to be
             stranded on it now sits inline with the title it acts on.
             "Hand to agent" is the header's primary button; "Open agent" sits
@@ -2948,8 +2948,8 @@ function BacklogEpicChildren({
       level={4}
       inset
       // The count, the `N of M done` sentence and a bar of its own said one
-      // thing three ways and cost three stacked rows before the first child
-      // (MC-2067). `EpicProgressMeter` is the shipped primitive that renders
+      // thing three ways and cost three stacked rows before the first child.
+      // `EpicProgressMeter` is the shipped primitive that renders
       // done/total BESIDE its bar in one line — the same readout the epic row
       // and the grouped epic header already use — so the heading row carries
       // the whole roll-up and the members follow it directly.
@@ -2966,12 +2966,12 @@ function BacklogEpicChildren({
         ) : undefined
       }
       // No hairline: padding and the heading separate this section from the next
-      // (MC-2047 — "space groups, rules do not").
+      // ("space groups, rules do not").
       className="shrink-0 pb-3"
     >
       {/* An epic with no members is its heading and nothing else. The sentence
           that used to sit here explained a control on ANOTHER surface — the row
-          menu — which is copy the pane must not carry (MC-2047). */}
+          menu — which is copy the pane must not carry. */}
       {total === 0 ? null : (
         <div className="px-3">
           <ul className="flex flex-col">
@@ -3044,7 +3044,7 @@ function BacklogTriage({
   // renders nothing at all.
   if (item.isEpic) return null
   return (
-    // No hairline (MC-2047), and no label column: the section heading already
+    // No hairline, and no label column: the section heading already
     // says "Epic", so a second "Epic" beside the one control it holds restated
     // the heading in a 3.5rem gutter. The control is now the section's body.
     <Section title="Epic" level={4} inset className="shrink-0 pb-3">
@@ -3172,7 +3172,7 @@ function BacklogPreviewBody({ item }: { item: BacklogItem }): JSX.Element {
     // `compact` is the dense-surface ramp (the skill reader's), not the document
     // one: at `document` the body's own h2 renders at 24px inside a pane whose
     // title is 14px and whose section titles are 12px, making the item's prose
-    // the largest type on screen (MC-2047).
+    // the largest type on screen.
     //
     // Compact still tops out at `text-title` (16px) for h1, which outranks this
     // pane's 14px title, so h1 is capped here to the pane's own title size. The

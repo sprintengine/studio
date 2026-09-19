@@ -1404,7 +1404,7 @@ test('plugin-lifecycle', async () => {
     })
   }
 
-  // MC-1873: with the registry override serving latest=2 over an installed v1,
+  // With the registry override serving latest=2 over an installed v1,
   // the update state reads update-available, the update runs through
   // updateFromRegistry, and the state settles to current in the same process —
   // no restart.
@@ -1482,7 +1482,7 @@ test('plugin-lifecycle', async () => {
     return { ...signature, signature: flipped + signature.signature.slice(1) }
   }
 
-  // MC-1873 security half, part 1: an update whose signature no longer verifies
+  // Update security, part 1: an update whose signature no longer verifies
   // is blocked with the existing invalid-signature treatment, and the previous
   // install stays untouched.
   async function testUpdateWithInvalidSignatureIsBlocked(): Promise<void> {
@@ -1532,7 +1532,7 @@ test('plugin-lifecycle', async () => {
     })
   }
 
-  // MC-1873 security half, part 2: an update signed by a different publisher is
+  // Update security, part 2: an update signed by a different publisher is
   // RE-classified — it re-prompts for trust instead of riding the previous
   // grant, and even once installed it is not load-eligible until re-trusted.
   async function testUpdateSignedByDifferentPublisherReprompts(): Promise<void> {

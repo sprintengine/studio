@@ -510,7 +510,7 @@ export function selectAgentCliCatalog(
 //     a transient probe failure never empties a picker on a machine that has CLIs.
 //   - status is `ready` and every entry says not-installed → that IS the answer
 //     on a fresh machine, so the result is empty and the surfaces render their
-//     install state (MC-2093). The old escape hatch returned the whole catalog
+//     install state. The old escape hatch returned the whole catalog
 //     here, and every downstream membership guard then read eight uninstalled
 //     CLIs as launchable.
 // Only options explicitly detected as `installed === false` are removed; an

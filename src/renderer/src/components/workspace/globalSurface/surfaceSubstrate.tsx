@@ -56,7 +56,7 @@ export type SurfaceCanvasStateProps =
       /**
        * The door has never held anything — "No reviews yet", "Nothing here
        * yet". Only that canvas keeps the richer treatment (the accent-soft
-       * disc and a title-sized heading), per the empty-state ruling (MC-2117).
+       * disc and a title-sized heading), per the empty-state ruling.
        * Everything else — a list narrowed to nothing, a scan that failed, no
        * project open — is the quiet kit `EmptyState`, the same one a pane one
        * click away already renders. Defaults to false so a new call site gets
@@ -231,8 +231,8 @@ export interface SurfaceRailFilter {
 
 /** The rail's optional project lens. It rides inside the filter glyph's menu as
  *  its leading group — never a separate Select LEADING the rail's
- *  filter controls, exactly where the Backlog door's toolbar puts its own
- *  (MC-1816). Which projects a door offers is the door's business; that the
+ *  filter controls, exactly where the Backlog door's toolbar puts its own.
+ * Which projects a door offers is the door's business; that the
  *  operator finds the control in the same place on both is this substrate's. */
 export interface SurfaceRailScope {
   ariaLabel: string
@@ -273,7 +273,7 @@ export interface SurfaceRailGroup {
  * rows carry epic identity paint, a collapsible group header with a progress
  * roll-up, and a project tag that no title/state-line row can hold. Its head is
  * still this head: New-at-top and one narrowing glyph beside the search is a
- * cross-door contract (MC-1816), and copying thirty lines of it into a fourth
+ * cross-door contract, and copying thirty lines of it into a fourth
  * door is precisely the drift this module was created to stop.
  *
  * Creating and narrowing never scroll away: with a long list they must stay in
@@ -319,7 +319,7 @@ export function SurfaceRailHeader({
     // the column is made of — including transparent.
     // Head inset is `--sem-space-sm` (8px), matching the pattern's `.rail-head`
     // — deliberately WIDER than the scrollport's 4px, because the head holds
-    // full-width controls while the rows hold hover fills (MC-2101's grid).
+    // full-width controls while the rows hold hover fills (the row grid).
     <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-2 pb-0 pt-2">
       {/* A div, not a p: the slot is typed `ReactNode` and the Design door puts
           its project chip here, whose popover renders a div — inside a `p` the
@@ -568,7 +568,7 @@ export function SurfaceRail({
     ...(filter?.groups ?? []),
   ]
 
-  // The leading icon slot is the SUBSTRATE's contract, not the door's (MC-2098).
+  // The leading icon slot is the SUBSTRATE's contract, not the door's.
   // Doors fill the slot; they never size it. Before this, `renderRow` laid out
   // whatever glyph the door handed it, so the title's x-offset was
   // `10 (scrollport) + 8 (row pad) + iconWidth + 8 (gap)` — and iconWidth was the

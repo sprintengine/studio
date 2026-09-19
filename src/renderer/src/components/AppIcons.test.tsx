@@ -75,7 +75,7 @@ test('AppIcons', async () => {
     'automations-host has no top-bar views',
   )
 
-  // MC-2135, re-sited by the owner on 2026-09-02: the FOLDER header's icon slot
+  // Re-sited by the owner on 2026-09-02: the FOLDER header's icon slot
   // carries the project's own logo when its repo has one, and every way out of
   // that lands back on the plain folder glyph. Workspace rows carry no logo — and
   // since that change, no icon at all.

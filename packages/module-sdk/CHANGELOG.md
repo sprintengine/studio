@@ -408,7 +408,7 @@
   consumers. New mirrored types: `ModalSurfaceDefinition`,
   `ModalSurfaceIconComponent`.
 
-- The four module-boundary surfaces (MC-2090). Each was discovered separately by
+- The four module-boundary surfaces. Each was discovered separately by
   a task trying to put a door behind a real module boundary; they are published
   together so a contribution API does not grow four subtly different escape
   hatches for the same problems.
@@ -466,7 +466,7 @@
     creates from `createTemplate` directly, unchanged. New mirrored types:
     `WorkspaceTypeCreateRequest`, `WorkspaceTypeCreateHost`.
 
-- Top-bar items on `RendererHost` (MC-1861):
+- Top-bar items on `RendererHost`:
   `registerTopBarItem({ id, order, Component })` contributes a control to the
   app's top-bar title-strip cluster. The `Component` is zero-prop and
   self-contained — state, tooltip, action — eager or `React.lazy()`
@@ -480,7 +480,7 @@
   (`voice-dictation.toggle`); module commands gate on enablement through the
   contribution list, not a shell availability enum entry.
 
-- MCP tool contributions on `MainHost` (MC-1855):
+- MCP tool contributions on `MainHost`:
   `registerMcpTools(tools: McpToolRegistration[])` puts agent-facing MCP tools
   on Multicode's always-on Studio gateway, owned by your module's id the way
   IPC channels are. A tool name another module already registered is a
@@ -497,7 +497,7 @@
   Disclosure: an MCP tool is agent-reachable capability — declare
   `ipc:agents`.
 
-- Global door surfaces on `RendererHost` (MC-1854):
+- Global door surfaces on `RendererHost`:
   `registerGlobalSurface({ id, Component })` publishes the full-page surface
   behind a sidebar nav entry with the same id. A global surface is a
   first-class, instance-global extension point: no workspace type, panel, or
@@ -510,7 +510,7 @@
   module is a registration error, reported as a module load error that gates
   off the failing module's other contributions.
 
-- Per-module workspace state on `RendererHost` (MC-1573):
+- Per-module workspace state on `RendererHost`:
   `getWorkspaceModuleState<T>(workspaceId)` /
   `setWorkspaceModuleState(workspaceId, state)` — your module's own durable
   entry in the workspace's per-module state bag, scoped to the calling module
@@ -523,7 +523,7 @@
   pinned shape (exact-identity drift-guarded); no watch variant yet — re-read
   on render until a consumer motivates one.
 
-- Live runtime surfaces on `RendererHost` (MC-1535, the extraction blocker
+- Live runtime surfaces on `RendererHost` (the extraction blocker
   set): `watchAgentSessions(workspaceId, cb)` — read-only session views
   (`ModuleAgentSessionView`: sessionId/agentId/name/kind/system/executionId/
   isLive, enum-ish fields widened to string), snapshot then deduped change
@@ -545,7 +545,7 @@
   `filesystem:read-workspace` (file watch), `ipc:workspace-read`
   (working root).
 
-- Module-owned workspace-creation config steps (MC-1534):
+- Module-owned workspace-creation config steps:
   `WorkspaceTypeDefinition.creationStep` —
   `{ id, heading, description?, Component, isReady?, blockedHint? }`, one
   step per type in v1. The hub renders the step as the flow's one config page
@@ -558,7 +558,7 @@
   only and persists nothing. A throwing step component degrades to the
   type's zero-config create with an inline notice; it never blocks the hub.
 
-- Workspace supervisors + sidebar run glyphs (MC-1537) published on
+- Workspace supervisors + sidebar run glyphs published on
   `WorkspaceTypeDefinition`: `supervisors` (render-nothing background
   components; scope `'global'` = one instance in the primary window while the
   module is enabled, `'all-windows'` = one per window; mounted inside a crash
@@ -569,7 +569,7 @@
   Both were v1 narrowings; extraction makes them load-bearing (an auto-run IS
   a supervisor; the calendar benchmark's "2 scheduled today" badge needs the
   glyph slot).
-- Module command scopes + availability (MC-1533): `CommandScope` and
+- Module command scopes + availability: `CommandScope` and
   `CommandAvailability` are open at the type level (`(string & {})`) — the
   shell derives a module's `panel:<moduleId>` scope from the workspace-type
   registry and activates it while a workspace of that module's mode is

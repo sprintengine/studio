@@ -24,7 +24,7 @@ const APP_MUTATION_TOOLS = new Set([
   // (`isLocalOnlyGatewayTool`), so unlike every other entry here their scope
   // mapping is never consulted.
   ...TAILNET_MUTATION_TOOL_NAMES,
-  // Opening a terminal on this machine (MC-2166). Classified here and nowhere
+  // Opening a terminal on this machine. Classified here and nowhere
   // else: the tailnet scope mapping reads this same classification, so being a
   // mutation is what makes `terminal.create` require `terminal:control` rather
   // than the watch-only `terminal:observe` — and what makes every attempt,
@@ -43,9 +43,9 @@ const APP_MUTATION_TOOLS = new Set([
 // Builds the gateway's per-request tool resolver. The app tools are merged once,
 // failing fast at construction on a duplicate. Module-contributed tools are read
 // from the host kernel on EVERY call — the gateway is constructed before modules
-// load, and availability must follow module enablement live (MC-1855) — and each
+// load, and availability must follow module enablement live — and each
 // one is gated on its owner's enablement: a disabled module's tools stay listed
-// and answer an actionable enable error instead of running (MC-1805 re-homed).
+// and answer an actionable enable error instead of running (re-homed from the renderer).
 export function createStudioGatewayTools(options: {
   appTools: McpToolRegistration[]
   /** Module-contributed tools, from the host kernel; empty until modules load. */
@@ -91,7 +91,7 @@ export function createStudioGatewayTools(options: {
   }
 }
 
-// The user's module switch reaches the MCP surface (MC-1805 owner ruling): the
+// The user's module switch reaches the MCP surface (owner ruling): the
 // tool keeps being advertised so an agent learns the capability exists, and a
 // call while the owner is disabled answers one plain, actionable sentence as a
 // normal MCP tool result — never a protocol error, never the orphaned handler.

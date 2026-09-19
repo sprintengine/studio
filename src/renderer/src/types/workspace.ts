@@ -414,8 +414,8 @@ export type AppSettings = {
    */
   terminalKeepRecentAlive: number
   /**
-   * Keep the app running when its last window closes, on every platform
-   * (MC-2156). Off by default, which is byte-for-byte the pre-MC-2156 rule:
+   * Keep the app running when its last window closes, on every platform.
+   * Off by default, which is byte-for-byte the rule before background mode existed:
    * quit on Windows/Linux, survive on macOS. On, the process stays up with a
    * tray presence, so running agents, the scheduler and the Studio gateway keep
    * working with no window open. Mirrored to main (`setBackgroundMode`), which
@@ -662,7 +662,7 @@ export type WorkspaceWorktree = {
 }
 
 /**
- * Per-module workspace state, keyed by module id (MC-1573). The canonical home
+ * Per-module workspace state, keyed by module id. The canonical home
  * for state a module keeps on a workspace: entries persist with the workspace
  * registry and ride workspace-sync exactly like sibling fields, and modules
  * reach their own entry through the SDK accessors
@@ -731,7 +731,7 @@ export type Workspace = {
   gitPanelState?: WorkspaceGitPanelState
   // The workspace pane's tabs (browser-pane epic); absent until first opened.
   paneState?: WorkspacePaneState
-  // Per-module state bag (MC-1573) — see WorkspaceModuleStateBag.
+  // Per-module state bag — see WorkspaceModuleStateBag.
   moduleState?: WorkspaceModuleStateBag
   highlight?: WorkspaceHighlight
   createdAt: number

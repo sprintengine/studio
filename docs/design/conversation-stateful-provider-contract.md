@@ -118,13 +118,13 @@ as `input.resumeSessionId`. No new store, no settings-store setter.
 
 Everything unrecognized is dropped (forward-compatible with SDK churn).
 
-### Process lifecycle (hooks for MC-1481)
+### Process lifecycle
 
 The adapter keeps a session registry `sessionId → { query, child env marker,
 lastTurnAt, pendingPermission }` and exposes `listLiveSessions()` +
 `disposeAll()`. The SDK child is spawned with
 `env.SPRINTENGINE_CONVERSATION_SESSION={sessionId}` so process-tree metrics can
-attribute it. Idle reaping and quit disposal are wired in MC-1481, not here —
+attribute it. Idle reaping and quit disposal are wired separately, not here —
 but dispose-with-resume must already work (stop keeps the cursor; next
 `startSession` resumes).
 

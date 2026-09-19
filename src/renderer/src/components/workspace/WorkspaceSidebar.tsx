@@ -3319,7 +3319,7 @@ export default function WorkspaceSidebar({
             clock rides whichever line the row happens to end on.
 
             A folder glyph, not the project's logo: the logo belongs to the one
-            header that names the project (MC-2135, reversed 2026-09-02 for
+            header that names the project (reversed 2026-09-02 for
             exactly this — a project's mark once per chat is repetition), and
             this line is a row's filing, not a heading. */}
         {flatProject ? (
@@ -3360,7 +3360,7 @@ export default function WorkspaceSidebar({
             discovered logo belongs to the FOLDER header that names the project,
             not repeated once per chat beneath it, and the terminal glyph the
             logo-less rows fell back to said nothing a row of chats needs said.
-            So the row opens on its title again, as it did before MC-2135's
+            So the row opens on its title again, as it did before project logos'
             ruling C, and the whole slot — logo and glyph — moved up to the
             header (`FolderIdentityIcon`). Mode identity still reads from the
             row accent and the trailing run glyph. */}
@@ -3867,7 +3867,7 @@ export default function WorkspaceSidebar({
             >
               {/* One icon slot: the folder's identity at
                 rest — the project's own logo when its repo has one, the
-                folder glyph when it does not (MC-2135, re-sited here by
+                folder glyph when it does not (re-sited here by
                 the owner on 2026-09-02) — and the collapse chevron
                 swapped in on hover. */}
               <span className="relative flex size-icon-sm shrink-0 items-center justify-center">
@@ -4128,7 +4128,7 @@ export default function WorkspaceSidebar({
           its work across every project and jumps into the terminals from
           there.
 
-          Alignment grid, re-measured in situ 2026-08-05 (MC-2101). This comment
+          Alignment grid, re-measured in situ 2026-08-05. This comment
           used to claim 36px for all four families; it was computing with icon
           sizes that had since moved, and three of the four had drifted apart:
 
@@ -4145,7 +4145,7 @@ export default function WorkspaceSidebar({
           Keep these in step when touching any one, and re-measure rather than
           trusting the arithmetic above — that is exactly how it went stale.
 
-          MC-2135's ruling C briefly opened each workspace row with a 16px
+          A since-reversed ruling briefly opened each workspace row with a 16px
           identity slot, pushing row TITLES to 36 + 16 + gap-2 = 60px. The owner
           reversed that on 2026-09-02: the row has no icon, so its title is back
           on the 36px grid and aligns with the fold-row chevron again. The

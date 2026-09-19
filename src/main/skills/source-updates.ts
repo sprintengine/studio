@@ -14,7 +14,7 @@
 // API fallback, where the token still decides.
 //
 // **On the API path the cadence depends on the GitHub token** (owner ruling,
-// 2026-09-08, MC-2519). Anonymous GitHub allows 60 requests an hour for the
+// 2026-09-08). Anonymous GitHub allows 60 requests an hour for the
 // whole machine, shared with every other read the app makes and with anything
 // else on the same IP; a source checked every hour spends 24 of those a day on
 // a question whose answer changes far less often, and a person with several

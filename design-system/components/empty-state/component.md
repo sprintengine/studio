@@ -1,6 +1,6 @@
 # Empty state
 
-**Status: shipped 2026-08-05** (MC-2117) — `src/renderer/src/components/ui/`.
+**Status: shipped 2026-08-05** — `src/renderer/src/components/ui/`.
 
 What a surface shows when it has nothing to show: a glyph, a title, an
 optional body line, and at most one call-to-action — never a dead end on a
@@ -12,7 +12,7 @@ component to consume it. The likely base is `SurfaceCanvasState` in
 `workspace/globalSurface/surfaceSubstrate.tsx`, which already renders one
 shared loading/empty/error anatomy (glyph in an `accent.soft` disc, title, one
 CTA) for the global surfaces that use it (Automations, Design). This entry
-generalizes that anatomy; MC-2115's consolidation consumes it.
+generalizes that anatomy; the empty-state consolidation consumes it.
 
 ## As shipped
 
@@ -39,7 +39,7 @@ does not, and giving every empty list an accent disc would spend the accent
 budget on absence. `SurfaceCanvasState` keeps its richer door-canvas treatment;
 this is the quiet general one.
 
-## Consumers (MC-2115, 2026-08-05)
+## Consumers (2026-08-05)
 
 The three dialects the audit found are one row now. Module absence (workspace
 and door), the aux windows' bare centred mono text, the review canvas's

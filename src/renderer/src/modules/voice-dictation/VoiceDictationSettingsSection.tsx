@@ -5,7 +5,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { VoiceDictationModel } from '../../types/workspace'
 
 // The Voice dictation settings tab, moved off SettingsPanel's hardcoded tab
-// list and onto the registerSettingsSection contribution point (MC-1861).
+// list and onto the registerSettingsSection contribution point.
 // Settings stay in `appSettings.voiceDictation` — the store slice the
 // transcription IPC contract (`window.api.voiceTranscribe`) already reads —
 // rather than the host's per-module namespace, so the persisted shape and

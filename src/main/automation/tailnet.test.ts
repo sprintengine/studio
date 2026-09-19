@@ -55,7 +55,7 @@ import { createAutomationTools } from './automation-tools'
 import { test } from 'vitest'
 
 test('tailnet', async () => {
-  // The tailnet listener (MC-2162). Every test here drives the REAL server over a
+  // The tailnet listener. Every test here drives the REAL server over a
   // real TCP socket on loopback — the transport, the auth, and the audit are the
   // thing under test, so a fake would prove nothing about any of them.
 
@@ -1604,7 +1604,7 @@ test('tailnet', async () => {
     assert.ok(encodeTextFrame('a').equals(Buffer.from([0x81, 0x01, 0x61])), 'server frames are unmasked')
   }
 
-  // ── Terminal attach (MC-2165) ────────────────────────────────────────────────
+  // ── Terminal attach ────────────────────────────────────────────────
 
   /** Request a ticket and open a terminal socket for one session. */
   async function attachTerminal(harness: Harness, deviceToken: string, sessionId: string): Promise<TestWebSocket> {
@@ -1760,7 +1760,7 @@ test('tailnet', async () => {
     assert.equal(requiredScopeForTool('terminal.list', false), 'terminal:observe')
     assert.equal(requiredScopeForTool('terminal.write', true), 'terminal:control')
     // Creating a terminal is a mutation, so the same mapping puts it in the
-    // typing half of the tier rather than the watching half (MC-2166).
+    // typing half of the tier rather than the watching half.
     assert.equal(requiredScopeForTool('terminal.create', true), 'terminal:control')
     // Control implies observe, and the implication never leaves the tier.
     assert.equal(tailnetScopeGrantsAccess(new Set(['terminal:control']), 'terminal:observe'), true)
@@ -1846,7 +1846,7 @@ test('tailnet', async () => {
     }
   }
 
-  // ── Remote terminal create (MC-2166) ─────────────────────────────────────────
+  // ── Remote terminal create ─────────────────────────────────────────
   //
   // The item's acceptance in one test: from a client that has only a device
   // token, open a terminal on THIS machine, attach to it, type, and see output.
@@ -1971,7 +1971,7 @@ test('tailnet', async () => {
     assert.equal(url, 'multicode-tailnet://pair?endpoint=100.101.102.103%3A8471&token=mcpair_abc')
   }
 
-  // ── The stdio bridge in remote mode (MC-2164) ────────────────────────────────
+  // ── The stdio bridge in remote mode ────────────────────────────────
   //
   // The bridge is a standalone script, never bundled with the app, so these tests
   // spawn it as a real child process against the real listener above. Anything

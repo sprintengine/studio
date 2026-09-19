@@ -23,7 +23,7 @@ import {
   type BacklogMockupEntry,
 } from '../../utils/backlogMockups'
 
-// Detail-pane "Mockups" surface (MC-1485), the attachment analog of
+// Detail-pane "Mockups" surface, the attachment analog of
 // BacklogDependenciesSection. It renders the item's mockups — attached
 // (frontmatter `mockups:`, removable) and body-detected (read-only) — as live
 // scripts-off preview cards, plus an "Attach mockup…" popover so attachments can
@@ -111,14 +111,14 @@ export function BacklogMockupsSection({
       level={4}
       inset
       // No hairline: padding and the heading separate this section from the next
-      // (MC-2047 — "space groups, rules do not").
+      // ("space groups, rules do not").
       className="shrink-0 pb-2"
       action={<AttachMockupEditor folderPath={folderPath} attached={attached} onAttach={attachPath} />}
     >
       {/* An empty section is the heading and its "Attach mockup…" action, and
           nothing else. The sentence that used to sit here named that control and
           explained it — the standing ruling is that a control needing a sentence
-          is the wrong control, so the control stands alone (MC-2047). */}
+          is the wrong control, so the control stands alone. */}
       {entries.length > 0 ? (
         <ul className="flex flex-col gap-2 px-3">
           {entries.map((entry) => (

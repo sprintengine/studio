@@ -249,7 +249,7 @@ test('KeyboardShortcutsTab', async () => {
   const RETIRED_ID = 'panel.sprint-engines.toggle'
   assert.ok(RETIRED_COMMAND_IDS.includes(RETIRED_ID), 'the removed Sprint Engines toggle is listed as retired')
   // The sprint-engine module's commands, in their module spelling and the
-  // `sprintengine.*` spelling stored before MC-2577 moved them, plus New sprint.
+  // `sprintengine.*` spelling stored before they moved to the module, plus New sprint.
   for (const id of [
     'sprint-engine.verify.progress',
     'sprintengine.verify.progress',

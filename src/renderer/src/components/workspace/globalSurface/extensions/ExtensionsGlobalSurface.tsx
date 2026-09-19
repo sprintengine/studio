@@ -57,7 +57,7 @@ export default function ExtensionsGlobalSurface(): JSX.Element {
   const connectors = useConnectorSources(activeWorkspaceRoot)
   const sources = useSkillSources(activeWorkspaceRoot)
 
-  // The Agent CLIs catalogue shows runtime state (MC-1858): the door reads the
+  // The Agent CLIs catalogue shows runtime state: the door reads the
   // existing detection stack — the availability slice and the plugin catalog —
   // and hands it down so the catalogue stays store-free. No second mechanism.
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)

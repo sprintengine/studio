@@ -1,5 +1,5 @@
 /**
- * Connector resolution for an agent launch, as pure data (MC-2159).
+ * Connector resolution for an agent launch, as pure data.
  *
  * A connector-backed launch needs two things before a pty exists: the server's
  * identity (for naming) and the single-server {@link McpSettings} the spawn
@@ -14,7 +14,7 @@
  *
  * Launchability is one predicate — the server is installed and enabled — and it
  * is the same rule every UI surface gates on. Until the third-party retirement
- * (MC-2519, 2026-09-08) there was a second way in: a row in the bundled MCP
+ * (2026-09-08) there was a second way in: a row in the bundled MCP
  * catalogue that paired a driving builtin skill with a server, launchable
  * before install because the launch synthesized its config from the catalogue
  * template. The catalogue is gone, the paired skills went with it, and with

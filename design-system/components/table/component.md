@@ -1,6 +1,6 @@
 # Table
 
-**Status: shipped 2026-08-05** (MC-2117) — `src/renderer/src/components/ui/`.
+**Status: shipped 2026-08-05** — `src/renderer/src/components/ui/`.
 
 The shared header/row/cell chrome for genuinely tabular data — columns of
 values compared across rows, where `list-row` (a pick-an-item list) is the

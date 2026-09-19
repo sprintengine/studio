@@ -226,7 +226,7 @@ import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../uti
 // imports from Git and picks the engine, which is everything the wizard asked
 // for.
 //
-// One surface, two destinations (MC-2147): pressing "+" retypes a tab into the
+// One surface, two destinations: pressing "+" retypes a tab into the
 // agent's terminal; New chat creates a solo workspace in the picked project.
 // The panel that used to serve the second — NewChatPanel — is gone rather than
 // left beside this one, because two launch surfaces drift.
@@ -304,7 +304,7 @@ function newChatFolderLabel(path: string): string {
 const MENU_BAR_ITEMS = ['File', 'Edit', 'View', 'Window', 'Help'] as const
 
 // Where a spawn should land, and what it should start with. Present only when
-// the spawn came from the tab strip's "+" (MC-2147): `tabId` names that tab's
+// the spawn came from the tab strip's "+": `tabId` names that tab's
 // node and `prompt` is what was typed on the launch surface inside it.
 type AgentSpawnPlacement = {
   tabId?: string
@@ -551,11 +551,11 @@ export default function WorkspaceManager() {
       },
     )
   }, [workspaceWindowId])
-  // Main composes agent launches with no window open (MC-2154), so the settings
+  // Main composes agent launches with no window open, so the settings
   // a launch reads are mirrored to it from here.
   useEffect(() => initLaunchSettingsSync(), [])
   // Background mode is read by main at last-window-close, so it is mirrored the
-  // same way the launch settings are (MC-2156).
+  // same way the launch settings are.
   useEffect(() => initBackgroundModeSync(), [])
   // The usage-data choice is read by main on every event it records, including
   // ones with no window open, so it is mirrored the same way.
@@ -967,7 +967,7 @@ export default function WorkspaceManager() {
   // Resolve the active door-routed full-page surface (global-surfaces epic 1704)
   // to its registered component, gated on the owning module's live enablement.
   // A disabled or unregistered surface id resolves to the explicit not-installed
-  // door (MC-1854) — the door says its module is absent and links into
+  // door — the door says its module is absent and links into
   // Extensions, rather than silently dropping the region back to the workspace.
   // The persisted id is deliberately left intact: reinstalling or re-enabling
   // the module lands the user back on the door they were in.
@@ -1019,7 +1019,7 @@ export default function WorkspaceManager() {
   //     already looking at.
   // Deliberately NOT gated on having a workspace: a user who closes New chat
   // on an empty profile still deserves the answer. New chat does not race it
-  // on a fresh profile — the auto-open below waits on the same probe (MC-2094).
+  // on a fresh profile — the auto-open below waits on the same probe.
   const showFirstRunCliCard =
     shouldShowFirstRunCliCard({ cliAvailabilityStatus, cliAvailability, firstRunCliCardDismissed }) &&
     !activeGlobalSurfaceEntry &&
@@ -1254,7 +1254,7 @@ export default function WorkspaceManager() {
   )
   // The CLI a new spawn should launch: the remembered one when it is installed,
   // otherwise the first installed entry — and `null` when this machine has no
-  // agent CLI at all (MC-2093). The old rescue answered with the remembered id
+  // agent CLI at all. The old rescue answered with the remembered id
   // in that case, seeding an agent against a binary that is not here; a spawn
   // that gets `null` opens the install surface instead.
   const launchableSpawnCli = (cli: AgentCli): AgentCli | null => resolveLaunchableAgentCli(cli, agentCliCatalog)
@@ -1266,9 +1266,9 @@ export default function WorkspaceManager() {
   // agents stay terminal/MCP-owned (AgentPanel enforces this too).
   const conversationSpawnEnabled = activeWorkspace?.mode === 'standard'
   // Every surface that can spawn a conversation agent asks for the catalog by
-  // bumping this counter: the launch surface (MC-2147) and the launcher's
+  // bumping this counter: the launch surface and the launcher's
   // picker both offer the row. It used to be keyed on the top bar's spawn
-  // menu alone, which no longer exists (MC-2222), and while it was, the row
+  // menu alone, which no longer exists, and while it was, the row
   // could never appear elsewhere — the catalog stayed empty, so the option
   // silently did not exist.
   const [conversationCatalogRequests, setConversationCatalogRequests] = useState(0)
@@ -1506,8 +1506,8 @@ export default function WorkspaceManager() {
       // from the catalog already.
       const templateAgentCli = resolveTemplateAgentCli(chosenCli, lastSelectedCli, agentCliCatalog)
       // A New chat seeds an agent that starts itself, so on a machine with no
-      // agent CLI it would create a workspace around a binary that is not here
-      // (MC-2093). The install is the honest answer to "start a chat" instead.
+      // agent CLI it would create a workspace around a binary that is not here.
+      // The install is the honest answer to "start a chat" instead.
       if (!resolveLaunchableAgentCli(templateAgentCli, agentCliCatalog)) {
         openSettingsOverlay({ initialTab: AGENTS_SETTINGS_TAB })
         return null
@@ -1994,7 +1994,7 @@ export default function WorkspaceManager() {
   }, [mountedWorkspaceIds, terminalSessions, visibleWorkspaces, windowActiveWorkspaceId, workspaceLayoutRetentionTick])
 
   // Auto-open New chat when there are no workspaces — unless the first-run CLI
-  // question still owns that window (MC-2094). Precedence lives HERE, at the
+  // question still owns that window. Precedence lives HERE, at the
   // opener, not on the card: the card's own "don't fight for the region" gate
   // above stays exactly as it is, and it is satisfied because New chat simply
   // has not opened yet. A scalar boolean, not the availability map, is what the
@@ -2138,7 +2138,7 @@ export default function WorkspaceManager() {
         reconcileWorkspaceAgentLaunchFlags(sessions)
       }
 
-      // Agents the MAIN process launched (MC-2159) have no record here until
+      // Agents the MAIN process launched have no record here until
       // this projects one: main composed and spawned them, possibly with no
       // window open at all. Running on every session tick — not once — is what
       // makes a window opened long after a headless launch show the agent, and
@@ -3098,7 +3098,7 @@ export default function WorkspaceManager() {
     ],
   )
 
-  // The Extensions door's host-action seam (MC-1847 B1): the door is a
+  // The Extensions door's host-action seam: the door is a
   // zero-prop registered surface, so the shell's three connector routes are
   // registered into the extensionsSurfaceHost singleton instead of riding
   // props the way the retired modal's did. Registered once; the delegates read
@@ -3108,7 +3108,7 @@ export default function WorkspaceManager() {
     onLaunchConnector: (connector) => {
       // "New chat" on a connector opens the composer with it already attached,
       // rather than auto-spawning: the user still picks the agent, CLI, and
-      // model. openNewChatPanel closes the door itself (the MC-1833 contract).
+      // model. openNewChatPanel closes the door itself (the door's own contract).
       openNewChatPanel(undefined, connector)
     },
     onUseSkillInNewAgent: (skill) => {
@@ -3961,7 +3961,7 @@ export default function WorkspaceManager() {
     }
   }
 
-  // ── The tab strip's "+" (MC-2147) ──────────────────────────────────────────
+  // ── The tab strip's "+" ──────────────────────────────────────────
   // Opens the tab the agent will run in. Standard workspaces only: a module's
   // workspace type (the automations host) runs its own agents and would read a
   // hand-spawned terminal in that strip as one of its own.
@@ -4020,7 +4020,7 @@ export default function WorkspaceManager() {
         source: 'auth',
         title: 'Sign-in did not open',
         message,
-        // Provider-agnostic on purpose (MC-2169): the message the adapter threw
+        // Provider-agnostic on purpose: the message the adapter threw
         // already names the service and its URL, so repeating the provider here
         // only creates a renderer string the next auth migration has to chase.
         details: 'Check that the sign-in service is running and reachable from this desktop process.',
@@ -4053,7 +4053,7 @@ export default function WorkspaceManager() {
     // that main spawned without this window's knowledge, so it has no record
     // until something adopts it. Opening it from here IS that adoption — the
     // same one the Reviews door performs — and without it the reviewer lands in
-    // the Reviews host with no tab (MC-1911).
+    // the Reviews host with no tab.
     const agentId =
       item.agentId &&
       (workspace.agents[item.agentId] || getRendererHost().getAgentIdNamespace(item.agentId, moduleEnabled))
@@ -4438,7 +4438,7 @@ export default function WorkspaceManager() {
                       {newChatPanelState ? (
                         <div className="absolute inset-0 z-10 isolate overflow-auto bg-[color:var(--bg-app)]">
                           <React.Suspense fallback={<SuspenseFallback label="Loading new chat" />}>
-                            {/* MC-2147: New chat opens the SAME launch surface the tab
+                            {/* New chat opens the SAME launch surface the tab
                         strip's "+" opens. One shell, two destinations — here it
                         creates a solo workspace in the picked project rather
                         than retyping a tab. The composer seeds its connector
@@ -4495,7 +4495,7 @@ export default function WorkspaceManager() {
             Reviews stay modals in the mount below. The Diff popout is not on
             that list any more: the diff opens in its own OS window or in the
             pane's Diff tab, and the in-app modal went with the epic (T3). */}
-                  {/* Surface, not canvas (MC-1844): a door is a working page, so it paints
+                  {/* Surface, not canvas: a door is a working page, so it paints
             the neutral surface ground — the themed canvas (sage in the green
             themes) stays the sidebar/chrome's identity only. */}
                   {activeGlobalSurfaceEntry ? (
@@ -4515,7 +4515,7 @@ export default function WorkspaceManager() {
                           {/* The door's bar chevron leaves through here, so it restores the
                   keyboard to the row that opened the door exactly as Escape does. */}
                           <SurfaceExitContext.Provider value={surfaceExit}>
-                            {/* A door failure stays a door failure (MC-1835): render/import
+                            {/* A door failure stays a door failure: render/import
                   throws land in this boundary's contained fallback instead of
                   white-screening the renderer. */}
                             <GlobalSurfaceErrorBoundary
@@ -4537,7 +4537,7 @@ export default function WorkspaceManager() {
             chat panel — so it lands on a workspace the user has already reached
             rather than competing with the thing they opened. On a fresh profile
             nothing else has the region: the hub's auto-open waits for this
-            question to be answered or dismissed first (MC-2094). */}
+            question to be answered or dismissed first. */}
                   {showFirstRunCliCard ? (
                     <React.Suspense fallback={null}>
                       <FirstRunCliCard onDismiss={dismissFirstRunCliCard} />
@@ -4576,7 +4576,7 @@ export default function WorkspaceManager() {
                       <ModalSurfaceFrame label={activeModalSurfaceEntry.label} close={closeModalSurface}>
                         <SurfaceExitContext.Provider value={modalSurfaceExit}>
                           {/* A modal-surface failure stays contained (same contract as the
-                  door boundary, MC-1835): the fallback offers Close/Reload
+                  door boundary): the fallback offers Close/Reload
                   inside the dialog instead of white-screening the renderer. */}
                           <GlobalSurfaceErrorBoundary
                             surfaceId={activeModalSurfaceEntry.id}
@@ -4806,7 +4806,7 @@ function firstTabset(model: Model): TabSetNode | null {
   return found
 }
 
-// The kit's EmptyState (MC-2117). This shipped in `--text-disabled` ink with a
+// The kit's EmptyState. This shipped in `--text-disabled` ink with a
 // hand-rolled `rounded bg-…` button — a sentence meant to be read, greyed out as
 // if it were a dead control, beside the one thing on screen you can actually do.
 function EmptyState({ onNew }: { onNew: () => void }) {

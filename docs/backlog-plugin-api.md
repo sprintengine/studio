@@ -101,7 +101,7 @@ actions by module enablement before rendering them. Action ids must be unique.
 - `addLink(link)`
 - `updateModuleMetadata(moduleId, value)`
 - `getLabel(context)` and `selection: { items, projectItems }` — the
-  multi-selection surface (MC-2060). An action offered on a multi-selection must
+  multi-selection surface. An action offered on a multi-selection must
   handle `selection` in both `isVisible` and `run`.
 - optional `startSourcePlan(source)` — renderer-internal only; it is **not** on
   the `BacklogItemActionContext` published by `@sprintengine/module-sdk`, so a

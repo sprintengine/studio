@@ -24,10 +24,10 @@ import { asRecord } from '../../shared/records'
 
 // Status only: a window reads whether the gateway is up and may turn it off.
 // The respond half of the old renderer-delegate pair went with the delegate
-// (MC-2161) — no gateway request travels to a window any more.
+// — no gateway request travels to a window any more.
 //
 // The tailnet channels are the configuration front door for the opt-in remote
-// listener (MC-2162): enable it, mint or cancel a pairing code, revoke a paired
+// listener: enable it, mint or cancel a pairing code, revoke a paired
 // device. They are IPC-only on purpose — none of this is reachable through the
 // MCP gateway itself, so no agent (local or remote) can pair a new device or
 // widen its own reach.

@@ -208,7 +208,7 @@ test('workspaceSyncClient', async () => {
       applyWorkspaceCreated: store.applyCreated,
       applyAgentTerminalSession: store.applyTerminalSession,
       applyAgentTerminalLaunchState: store.applyTerminalLaunchState,
-      // Registry-domain applies (MC-2158) are not what these tests exercise —
+      // Registry-domain applies are not what these tests exercise —
       // they assert sequencing, replay, and no-echo — so they are inert here and
       // covered by the reconciliation suite instead.
       ...inertRegistryApplies(),

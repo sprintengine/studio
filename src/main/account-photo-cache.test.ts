@@ -1,4 +1,4 @@
-// MC-2220 — the provider photo cache behind `SessionUser.photoUrl`. The
+// The provider photo cache behind `SessionUser.photoUrl`. The
 // contract: same source → cached bytes without a fetch; stale → refreshed but
 // kept on failure; new source → fetched, and null (never the old photo) when
 // that fails or the network is off-limits; anything that is not a small https

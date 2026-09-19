@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
 test('automationEditorSave', async () => {
-  // MC-2035 — there is ONE editor and ONE save path. A starter added from the
+  // There is ONE editor and ONE save path. A starter added from the
   // Extensions shelf lands in this editor pre-filled, and everything after that is
   // ordinary editing: the same form, the same `updateAutomation` call, the same
   // patch shape as an automation written by hand. A starter-only branch through

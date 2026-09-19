@@ -6,7 +6,7 @@ import type {
 } from '../shared/electron-api'
 import { isRecord } from '../shared/records'
 
-// The desktop's one entitlement seam (MC-2169). Everything above it — the auth
+// The desktop's one entitlement seam. Everything above it — the auth
 // IPC handlers, capability modules, any future feature gate — asks THIS whether
 // a stable feature key is unlocked. Everything below it is an adapter that only
 // has to answer "what snapshot do you hold" and "go get a fresh one";
@@ -51,7 +51,7 @@ export interface EntitlementProvider {
 export type EntitlementCacheStatus = 'fresh' | 'offline_grace' | 'expired'
 
 // Offline policy of record: a snapshot stays usable for this long past its own
-// expiry. Measured from `snapshot.expiresAt` and nothing else (MC-2187) — the
+// expiry. Measured from `snapshot.expiresAt` and nothing else — the
 // window used to be `min(expiresAt + graceMs, lastRefreshAt + graceMs)`, and
 // since the server issues `expiresAt = issuedAt + 72h` while the desktop stamps
 // `lastRefreshAt` at fetch time, that `min` always landed back on `expiresAt`:
@@ -61,7 +61,7 @@ export const ENTITLEMENT_GRACE_MS = 72 * 60 * 60 * 1000
 
 // The staleness ceiling that `min` was reaching for, kept as an INDEPENDENT hard
 // stop: a cache this old expires whatever the snapshot arithmetic says. Folding
-// it back into a `min` with the grace window above is exactly how MC-2187
+// it back into a `min` with the grace window above is exactly how an earlier bug
 // happened, so the two are combined by the status ladder, never by arithmetic.
 export const ENTITLEMENT_MAX_CACHE_AGE_MS = 14 * 24 * 60 * 60 * 1000
 

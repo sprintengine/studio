@@ -1,5 +1,5 @@
 /**
- * The Electron half of the background-mode tray (MC-2156) — everything
+ * The Electron half of the background-mode tray — everything
  * `background-presence.ts` deliberately does not import, so the last-window-
  * close decision stays testable without a display.
  */

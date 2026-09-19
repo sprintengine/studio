@@ -1,5 +1,5 @@
 /**
- * The app-launch settings main owns a durable copy of (MC-2154).
+ * The app-launch settings main owns a durable copy of.
  *
  * Every input main needs to compose an agent launch with no window open lives
  * here: the user-configured CLI runtimes, MCP settings, project knowledge
@@ -135,7 +135,7 @@ export function normalizeAgentLaunchSettings(raw: unknown): AgentLaunchSettings 
 
 /**
  * Parse a persisted store file. Returns null when the payload is not a
- * well-formed current-schema record — including the pre-MC-2154 file, which
+ * well-formed current-schema record — including the original, unrevisioned file, which
  * held bare settings with no revision. A null result means "no authoritative
  * record yet": the caller re-seeds from the settings it holds, so a legacy or
  * corrupt file costs one hydration rather than a crash.

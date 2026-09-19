@@ -1,6 +1,6 @@
 # Checkbox
 
-**Status: shipped 2026-08-05** (MC-2117) — `src/renderer/src/components/ui/`.
+**Status: shipped 2026-08-05** — `src/renderer/src/components/ui/`.
 
 The one-of-a-set form control: a value the person marks now and submits
 later. The `switch` entry already draws the line — a switch commits

@@ -4,8 +4,8 @@
 // holds at the cap forever or stops there is the caller's choice via `stopAtMax`.
 //
 // Lives in `shared/` because the schedule it defines is driven from MAIN: a
-// main-process poller owns its probe cycle rather than a renderer supervisor
-// (MC-2155), and a window closing must not change the schedule.
+// main-process poller owns its probe cycle rather than a renderer supervisor,
+// and a window closing must not change the schedule.
 
 export type ExponentialBackoffOptions = {
   // Delay before the first attempt (attempt 0).

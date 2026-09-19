@@ -20,7 +20,7 @@
 
 /* The ramp. sm is the default above — the rail canon — so only the other
  * three steps need modifiers. There is no fifth step: a surface wanting 28px
- * is off the ramp (see Known drift, MC-2119). */
+ * is off the ramp (see Known drift). */
 .ds-glyph--xs {
   width: var(--sem-icon-size-xs);
   height: var(--sem-icon-size-xs);
@@ -38,7 +38,7 @@
 
 /* The reserved leading slot of a rail row: a fixed sm-sized box a smaller
  * glyph centers inside instead of narrowing. This is what keeps sibling rows'
- * titles on one x-offset when their glyphs differ (MC-2098). */
+ * titles on one x-offset when their glyphs differ. */
 .ds-glyph-slot {
   display: inline-flex;
   flex-shrink: 0;

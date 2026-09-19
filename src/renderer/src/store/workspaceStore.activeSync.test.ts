@@ -7,7 +7,7 @@ import { test } from 'vitest'
 test('workspaceStore.activeSync', async () => {
   // Production-faithful regression test for the active-workspace sync event path.
   // It loads the real Zustand workspace store and proves the no-echo contract now
-  // that main owns the registry (MC-2158): applying an imported active_changed
+  // that main owns the registry: applying an imported active_changed
   // event updates the mirror without writing localStorage, and a user-initiated
   // selection reaches other windows by DISPATCHING to main rather than by
   // persisting a registry another window's `storage` listener would import. That
@@ -253,7 +253,7 @@ test('workspaceStore.activeSync', async () => {
   console.log('workspaceStore.activeSync.test.ts: no registry write can carry an imported event — ok')
 
   // ── CASE 6 ────────────────────────────────────────────────────────────────
-  // Registry-domain user edits are asked of main (MC-2158). Each carries an
+  // Registry-domain user edits are asked of main. Each carries an
   // `editedAt` stamped HERE, at the gesture, because main's per-field
   // last-write-wins ordering must not depend on IPC latency.
   seedTwoWindows()

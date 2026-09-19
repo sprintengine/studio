@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
 test('newPrimitives', async () => {
-  // MC-2117 — the five primitives the kit was missing, and the two correctness
+  // The five primitives the kit was missing, and the two correctness
   // fixes that rode along.
   //
   // Each of these existed as hand-rolls before, so the assertions here are aimed

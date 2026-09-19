@@ -48,7 +48,7 @@ test('WorkspaceSidebar.folderTabDrop', async () => {
   anyGlobal.ResizeObserver = NoopResizeObserver
   dom.window.ResizeObserver = NoopResizeObserver as unknown as typeof dom.window.ResizeObserver
   // `detectProjectLogo` is the project-logo bridge the row's identity slot
-  // asks for on mount (MC-2135); a repo with no logo answers null and the row
+  // asks for on mount; a repo with no logo answers null and the row
   // keeps its workspace-type glyph.
   domWindow.api = { platform: 'darwin', detectProjectLogo: async () => null }
 

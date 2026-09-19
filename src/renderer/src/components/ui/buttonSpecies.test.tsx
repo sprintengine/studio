@@ -4,7 +4,7 @@ import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
 test('buttonSpecies', async () => {
-  // MC-2118 — the button family's five new species, and the variants the sweep
+  // The button family's five new species, and the variants the sweep
   // proved were missing (2026-09-08).
   //
   // 220 raw <button>/<input>/<textarea> in product code had no kit member that

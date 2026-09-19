@@ -147,7 +147,7 @@ export type TailnetPairingOfferView = {
 
 /**
  * A pairing request waiting for a person to answer it on the machine being
- * driven (MC-2233).
+ * driven.
  *
  * The other pairing path — a code minted here and carried to the other machine
  * — stays exactly as it was: a machine with nobody in front of it cannot

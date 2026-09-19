@@ -1,5 +1,5 @@
 /**
- * Main-owned store for the app's agent-launch settings (MC-2154; shapes and
+ * Main-owned store for the app's agent-launch settings (shapes and
  * record math in `src/shared/launch-settings.ts`).
  *
  * The settings are authored in the renderer (`appSettings`, localStorage) and
@@ -56,7 +56,7 @@ export type AgentLaunchSettingsMirror = ReturnType<typeof createAgentLaunchSetti
 export function createAgentLaunchSettingsMirror(deps: AgentLaunchSettingsMirrorDeps) {
   const now = deps.now ?? (() => Date.now())
   let current: AgentLaunchSettingsRecord | null = null
-  // The pre-MC-2154 file held bare settings with no revision. It is readable
+  // The original file held bare settings with no revision. It is readable
   // but not authoritative: reads use it so the first boot after upgrade still
   // spawns with the user's runtimes, while hydration/first push replaces it
   // with a real record.

@@ -726,7 +726,7 @@ test('modelRegistry', async () => {
     assert.equal(focusedAgentTabInLayout(undefined), null)
   }
 
-  // MC-2147 — the new-agent tab. The "+" opens the tab the terminal will live in,
+  // The new-agent tab. The "+" opens the tab the terminal will live in,
   // so the two things worth pinning are that it docks where an agent tab docks,
   // and that spawning RETYPES that node instead of replacing it: a remove-and-add
   // would move the pane out from under the person who was just looking at it.

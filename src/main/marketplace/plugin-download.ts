@@ -468,7 +468,7 @@ async function downloadGithubContentsDirectory(
 }
 
 // ---------------------------------------------------------------------------
-// Claude Code plugin sources (MC-1561; bundled snapshot content MC-1644)
+// Claude Code plugin sources (bundled snapshot content)
 // ---------------------------------------------------------------------------
 
 /**

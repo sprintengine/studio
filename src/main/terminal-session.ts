@@ -212,7 +212,7 @@ export type TerminalSession = {
   executionMode?: AgentExecutionMode
   worktreeId?: string
   worktreePath?: string
-  // Where the session's hooks last saw it (MC-2440): the reported cwd plus
+  // Where the session's hooks last saw it: the reported cwd plus
   // git's answer for it. Kept apart from `cwd`/`worktreePath` (launch intent).
   observedCheckout?: ObservedCheckout
   // Monotonic ticket for the async git resolution of `observedCheckout`, so a
@@ -220,7 +220,7 @@ export type TerminalSession = {
   observedCheckoutSeq?: number
   agentSession?: AgentSessionIdentity
   // The launch decisions the main-process AgentLaunchService made for this
-  // session (MC-2159). Retained here so it lives exactly as long as the session
+  // session. Retained here so it lives exactly as long as the session
   // does: the renderer projects a tab from it, and when the pty is gone there is
   // nothing left to project. Absent for renderer-launched and plain sessions.
   agentRecord?: AgentLaunchRecord

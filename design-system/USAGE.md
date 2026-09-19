@@ -143,7 +143,7 @@ done.
 
 ## What this system deliberately does not contain
 
-Ruled 2026-08-05 (MC-2118). The consuming app exports a handful of primitives
+Ruled 2026-08-05. The consuming app exports a handful of primitives
 from its kit that have **no entry here, on purpose**:
 
 `CliModelPickerButton`, `CliModelPopoverSurface`, `ReasoningSelector`,

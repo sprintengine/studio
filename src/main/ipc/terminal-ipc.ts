@@ -56,7 +56,7 @@ export type TerminalSpawnPayload = {
   // hardcodes 'debug'); best-effort, non-blocking, and carries none of the
   // connector MCP coupling. Unset for ordinary spawns.
   spawnSkillId?: string
-  // Set only by the main-process AgentLaunchService (MC-2159): the launch
+  // Set only by the main-process AgentLaunchService: the launch
   // decisions it made, retained on the session and surfaced on its snapshot so
   // the renderer can project an AgentState for an agent it never composed. Never
   // set by a renderer spawn — a renderer-launched agent already HAS its record,

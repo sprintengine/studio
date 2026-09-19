@@ -1032,7 +1032,7 @@ test('workspacesSlice', async () => {
   useWorkspaceStore.getState().autoTitleWorkspaceFromPrompt(renamedId, 'add a retry to the uploader')
   assert.equal(nameOf(renamedId), 'My own name', 'auto-titling never overwrites a hand-typed name')
 
-  // --- a model-written title landing on top of the heuristic (MC-2484) --------
+  // --- a model-written title landing on top of the heuristic --------
   //
   // The two halves of titling meet here: `autoTitleWorkspaceFromPrompt` reports
   // the name it applied, and `applyGeneratedWorkspaceTitle` is only allowed to

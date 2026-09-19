@@ -86,10 +86,10 @@ test('accessibility-contracts', async () => {
   expectIncludes(popover, 'document.body,', 'Popover mounts the surface on document.body')
   expectIncludes(popover, "position: 'fixed'", 'Popover anchors the surface with fixed coordinates')
   expectIncludes(popover, 'computeSurfacePosition(', 'Popover computes placement from the trigger rect')
-  // The stacking tier is the token, not the number it happens to equal: MC-2119
+  // The stacking tier is the token, not the number it happens to equal: the z-ladder ruling
   // put every overlay layer on `--sem-z-*` (aliased `--z-*`) after Modal's private
   // ladder was found sitting a tier BELOW the menus.
-  // The shell itself is now one constant (MC-2103) — `OVERLAY_SURFACE_CLASS` in
+  // The shell itself is now one constant — `OVERLAY_SURFACE_CLASS` in
   // tokens.ts — because ContextMenu drew a hand-written second copy of it that had
   // drifted by a radius, a border token and a ground token. The values it must
   // carry are asserted in designSystemAxes.test.ts; what belongs here is that this
@@ -210,12 +210,12 @@ test('accessibility-contracts', async () => {
   expectIncludes(contextMenu, 'aria-expanded={open}', 'MenuFlyoutItem reports flyout expanded state')
   expectIncludes(contextMenu, "event.key === 'ArrowRight'", 'MenuFlyoutItem opens its flyout on ArrowRight')
   expectIncludes(contextMenu, "event.key === 'ArrowLeft'", 'MenuFlyoutItem flyout closes back to its item on ArrowLeft')
-  // The INSET variant specifically (MC-2118's menu unification): menu rows are
+  // The INSET variant specifically (the menu unification): menu rows are
   // full-bleed to the surface edge now, so an outset ring is clipped by the
   // surface border. Still the shared treatment — just the shape that survives
   // touching the edge.
   //
-  // It reaches the rows through MENU_ITEM_CLASS (MC-2103) rather than being
+  // It reaches the rows through MENU_ITEM_CLASS rather than being
   // applied host by host, which is why every menu surface is asserted here and not
   // just this one: a host that hand-rolls its row is a host that can forget the
   // ring, and three of them had.
@@ -578,7 +578,7 @@ test('accessibility-contracts', async () => {
       'a checked Switch pairs its accent track with the shared focus class',
     )
 
-    // The terminal variant (MC-2107). A terminal is the one surface the four
+    // The terminal variant. A terminal is the one surface the four
     // above cannot serve — xterm's focused textarea is a descendant, so
     // `:focus-visible` on the canvas never matches, and an outline at the panel
     // edge is clipped by the FlexLayout tab. What makes it a variant rather than a
@@ -642,7 +642,7 @@ test('accessibility-contracts', async () => {
   /** The shared trap, with or without props. */
   const MOUNTS_FOCUS_TRAP = /<FocusTrap[\s/>]/
 
-  // No surface claims modality without trapping the keyboard (MC-2109). Before
+  // No surface claims modality without trapping the keyboard. Before
   // this, not one dialog in the product trapped focus: every overlay did initial
   // focus + Escape and then let Tab walk out into the inert page behind the
   // scrim, so a keyboard user left the dialog without closing it and started

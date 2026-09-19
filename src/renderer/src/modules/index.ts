@@ -116,7 +116,7 @@ function shallowEqualEntries(a: Readonly<Record<string, unknown>>, b: Readonly<R
 // ride the same deferred batch: they are only constructed inside this wiring
 // block, and importing them statically would drag them — and their transitive
 // graph — into the eager boot chunk (the bundle-budget ratchet caught exactly
-// that regression, MC-1535/T14).
+// that regression).
 if (typeof window !== 'undefined') {
   Promise.all([
     import('../store/workspaceStore'),
@@ -198,7 +198,7 @@ if (typeof window !== 'undefined') {
         useWorkspaceStore.subscribe((state, previous) => {
           if (state.appSettings.modules !== previous.appSettings.modules) void workspaceOpener.openFirstLoads()
         })
-        // Mirror the module registry to main (MC-2078), the same way enablement
+        // Mirror the module registry to main, the same way enablement
         // is already mirrored: this process is the only one that knows the whole
         // universe (channel-narrowed bundled modules + loaded third-party ones)
         // and the overrides that resolve it, and main's `module.*` gateway tools
@@ -288,7 +288,7 @@ if (typeof window !== 'undefined') {
             },
           }),
         )
-        // Per-module workspace-state bag (MC-1573): reads come straight off the
+        // Per-module workspace-state bag: reads come straight off the
         // store's `Workspace.moduleState`; writes go through the store action so
         // persistence and cross-window sync see them like any workspace field.
         rendererHost.setWorkspaceModuleStateStore({
@@ -299,7 +299,7 @@ if (typeof window !== 'undefined') {
           set: (workspaceId, moduleId, state) =>
             useWorkspaceStore.getState().setWorkspaceModuleState(workspaceId, moduleId, state),
         })
-        // App-level module state (MC-2090): the `module:<id>` namespace inside
+        // App-level module state: the `module:<id>` namespace inside
         // app settings that already backs contributed Settings sections. Reads
         // are synchronous off the store — that is the whole point, so a module's
         // selector keeps its render timing — and writes go through the same
@@ -334,7 +334,7 @@ if (typeof window !== 'undefined') {
         if (typeof window.api?.onModuleEvent === 'function') {
           rendererHost.setModuleEventSource((cb) => window.api.onModuleEvent(cb))
         }
-        // Effective working root (MC-1535): the worktree for worktree-backed
+        // Effective working root: the worktree for worktree-backed
         // workspaces, the primary checkout otherwise. Every live-runtime surface
         // below resolves workspace-relative paths against this, never against
         // the durable folderPath the workspace view reports.
@@ -466,7 +466,7 @@ if (typeof window !== 'undefined') {
             newSessionId: () => crypto.randomUUID(),
           }),
         )
-        // Boot measurement (MC-2075): the deferred batch above is the one part of
+        // Boot measurement: the deferred batch above is the one part of
         // boot that was moved OUT of the eager chunk to satisfy the size ceiling,
         // so how long it takes to settle — and whether it lands before or after
         // first paint — is the evidence for whether that trade was worth making.

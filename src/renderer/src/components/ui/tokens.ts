@@ -132,7 +132,7 @@ export const FOCUS_RING_WITHIN_TEXTAREA_CLASS = 'has-[textarea:focus]:focus-ring
  * rule rather than the shared utility: `.terminal-focus-ring` in
  * assets/index.css. It exists here — beside the four above, not privately in the
  * two panels that use it — because a focus treatment declared inside a component
- * is how a second idiom starts (MC-2107).
+ * is how a second idiom starts.
  *
  * Two things about a terminal put it outside the four:
  *   - The tab stop is not the element that should light up. xterm owns a hidden
@@ -183,7 +183,7 @@ export const LIST_CURSOR_MARK_CLASS =
  *
  * `Popover` draws it for every anchored surface; `ContextMenu` draws it for the
  * pointer-positioned one. Those were two hand-written copies that drifted apart
- * by a pixel of radius, a border token and a ground token (MC-2103) — the same
+ * by a pixel of radius, a border token and a ground token — the same
  * material spelled twice is the mechanism by which a system grows two of
  * everything.
  *
@@ -235,7 +235,7 @@ export const COMPOSER_SURFACE_CLASS =
   'rounded-lg border bg-[image:linear-gradient(var(--bg-surface-raised),var(--bg-surface))] shadow-[var(--shadow-control-raised)]'
 
 /* ------------------------------------------------------------------ *
- * Overlay geometry — one scale for every floating surface (MC-2110)
+ * Overlay geometry — one scale for every floating surface
  * ------------------------------------------------------------------ */
 
 /**
@@ -285,7 +285,7 @@ export function overlayWidthStyle(width: OverlayWidth): { width: number; maxWidt
  * (7px) on the popover family — anchored menus, flyouts, floating cards. This
  * spends `radius.shell` on the surfaces that stop the page. That split is the
  * design system's, per `sem.radius.*` metadata and
- * `design-system/components/modal/component.css`; what MC-2110 removed was the
+ * `design-system/components/modal/component.css`; what the overlay-geometry sweep removed was the
  * `rounded-[8px]` / `rounded-lg` / `rounded-xl` / `rounded-[14px]` values
  * sitting between the two steps and landing on neither.
  *

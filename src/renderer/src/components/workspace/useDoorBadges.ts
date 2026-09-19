@@ -5,8 +5,8 @@ import { useWorkspaceStore } from '../../store/workspaceStore'
 import type { RegisteredDoorBadge } from '../../modules/renderer-host'
 import { isExtensionsDrawerRowId, type ExtensionsDrawerRowId } from './extensionsDrawer'
 
-// Door / nav-entry waiting counts as the host registry, not a module import
-// (MC-2577). A module contributes its own numbers through `registerDoorBadge`
+// Door / nav-entry waiting counts as the host registry, not a module import.
+// A module contributes its own numbers through `registerDoorBadge`
 // and this hook is the only reader, so the shell never has to know what a
 // module counts.
 

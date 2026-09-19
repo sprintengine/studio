@@ -1009,7 +1009,7 @@ export function PluginsCatalogue({
           />
           <CustomMcpServerForm activeWorkspaceRoot={workspaceRoot} />
           {/* Where somebody stands when they have run out of plugins to
-              install: under what they have, the places to get more (MC-2519). */}
+              install: under what they have, the places to get more. */}
           <RecommendedSources
             existingSources={sources.sources}
             onAdded={(sourceId) => {

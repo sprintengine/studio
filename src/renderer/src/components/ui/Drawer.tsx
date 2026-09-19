@@ -181,7 +181,7 @@ function DrawerRoot({ open, onClose, title, ariaLabel, closeLabel, width = 360, 
         onMouseDown={onClose}
       />
 
-      {/* Same trap as every dialog in the kit (MC-2109) — the drawer used to
+      {/* Same trap as every dialog in the kit — the drawer used to
           carry its own copy of it. */}
       <FocusTrap>
         <div

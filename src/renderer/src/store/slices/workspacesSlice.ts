@@ -295,8 +295,8 @@ interface WorkspacesSliceActions {
       mode?: Workspace['mode']
       // Externally-triggered creation (the automation executor's hidden host):
       // it must not dismiss whatever the operator is reading, so a background
-      // create skips the door-surface clear that user-initiated creation does
-      // (MC-1833). activeWorkspaceId assignment is unchanged either way.
+      // create skips the door-surface clear that user-initiated creation does.
+      // activeWorkspaceId assignment is unchanged either way.
       background?: boolean
       windowId?: WorkspaceWindowId | null
       // Open-in-new-chat seed for the single-agent "solo chat" template. The UI
@@ -322,7 +322,7 @@ interface WorkspacesSliceActions {
    * only if nobody has renamed the workspace since: the name must still be
    * `replacing`, or, when that is null, the name must still be unlocked. Returns
    * whether it landed. A late result after a hand rename is dropped, and the
-   * person's name stands (MC-2484).
+   * person's name stands.
    */
   applyGeneratedWorkspaceTitle: (id: WorkspaceId, title: string, replacing: string | null) => boolean
   setActiveWorkspace: (id: WorkspaceId) => void
@@ -343,7 +343,7 @@ interface WorkspacesSliceActions {
   setGitCommitDraft: (id: WorkspaceId, scopeId: string, text: string) => void
   clearGitCommitDraft: (id: WorkspaceId, scopeId: string) => void
   /**
-   * Write one module's entry in a workspace's per-module state bag (MC-1573);
+   * Write one module's entry in a workspace's per-module state bag;
    * null/undefined removes it. False when the workspace is unknown. Declared
    * here AND on the WorkspaceStore interface (dual-declaration).
    */
@@ -1203,7 +1203,7 @@ export function createWorkspacesSlice(
           normalizeWindowAssignments(state)
           // No re-offer to main. That step existed only to heal a
           // restart-restored routing placeholder whose mode main had lost
-          // (MC-2158 removed the placeholder), and reuse itself is main's call
+          // (moving workspace creation to main removed the placeholder), and reuse itself is main's call
           // now: `prepareCreate` resolves the folder's existing host inside the
           // same critical section as the mint, which is the only place the
           // check can hold ACROSS windows.
@@ -1350,7 +1350,7 @@ export function createWorkspacesSlice(
       })
     },
 
-    // Applied optimistically, then asked of main (MC-2158). Main decides with
+    // Applied optimistically, then asked of main. Main decides with
     // per-field last-write-wins on the name stamp: the later gesture wins
     // whatever order the two commands arrive in, and the window that loses
     // converges on main's broadcast. The lock travels with the name — without

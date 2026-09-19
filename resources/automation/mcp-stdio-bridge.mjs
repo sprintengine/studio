@@ -13,7 +13,7 @@
 //     claude mcp add sprintengine-studio -- node /path/to/mcp-stdio-bridge.mjs
 //
 //   REMOTE — a Studio on another tailnet machine, over the opt-in tailnet
-//   listener (MC-2162). Frames are the same; the transport underneath is a
+//   listener. Frames are the same; the transport underneath is a
 //   WebSocket, because that is the channel that holds connection state (the
 //   `sprintengine.studio/connect` declaration) and carries server-initiated
 //   notifications such as `notifications/tools/list_changed`.

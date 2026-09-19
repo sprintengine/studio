@@ -1,5 +1,5 @@
 /**
- * MC-2169 — the provider-agnostic entitlement seam. These assertions ARE the
+ * The provider-agnostic entitlement seam. These assertions ARE the
  * gating contract the Multiauth adapter used to own inline: they must still
  * hold, unchanged, after a provider swap, because nothing here knows who the
  * provider is. The fake below implements the whole port — two methods.
@@ -172,7 +172,7 @@ test('entitlement-service', async () => {
       assert.equal(blank.allowed, false)
     }
 
-    // MC-2187 — the ladder walked on the snapshot the server actually issues: a
+    // The ladder walked on the snapshot the server actually issues: a
     // 72h TTL stamped `lastRefreshAt` at fetch time. This is the case the old
     // `min(expiresAt + grace, lastRefreshAt + grace)` collapsed to a zero-width
     // window, so `offline_grace` was unreachable and premium died at the TTL.

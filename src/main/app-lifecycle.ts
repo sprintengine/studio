@@ -78,8 +78,8 @@ type RegisterAppLifecycleOptions = {
   }
   updateService: MulticodeUpdateService
   handleAuthCallback(argv: string[]): void
-  // Background mode (MC-2156). Absent means the setting can never read on, so
-  // the last-window-close rule collapses to exactly its pre-MC-2156 form.
+  // Background mode. Absent means the setting can never read on, so
+  // the last-window-close rule collapses to exactly its form before background mode existed.
   backgroundMode?: {
     isEnabled(): boolean
     readStatus(): BackgroundStatus
@@ -105,7 +105,7 @@ export function registerAppLifecycle({
   backgroundMode,
   checkPluginSourceUpdates,
 }: RegisterAppLifecycleOptions): void {
-  // Background mode (MC-2156): the last window closing stops being the end of
+  // Background mode: the last window closing stops being the end of
   // the process. Everything below the window layer — the scheduler, the Studio
   // gateway, the automations engine, the mobile bridge, the power-save blocker
   // held for active runs — is untouched by any of this on purpose; window close
@@ -238,7 +238,7 @@ export function registerAppLifecycle({
       // the same reason — this is the ONLY thing in the app that ever fetches
       // the card feed, and without it a shipped machine serves the bundled seed
       // until the next release, which is the whole point of hosting the file.
-      // The sources feed (MC-2519) rides it for the same reason again: its IPC
+      // The sources feed rides it for the same reason again: its IPC
       // only ever reads disk, so this leg is the only thing that refreshes the
       // recommended list a machine offers.
       //
@@ -246,8 +246,8 @@ export function registerAppLifecycle({
       // window, so an hourly knock on a feed fetched forty minutes ago costs
       // nothing and an offline machine is not made to pay a timeout. The feeds
       // own a TTL and a retry gap; the plugin-source check owns a per-source
-      // cadence window that widens to a day when no GitHub token is configured
-      // (MC-2519), which is why the ruling changed no timer here — the leg
+      // cadence window that widens to a day when no GitHub token is configured,
+      // which is why the ruling changed no timer here — the leg
       // still knocks hourly and simply finds nothing due 23 times out of 24.
       //
       // Each rider is awaited on its own so one feed that cannot be read does

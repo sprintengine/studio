@@ -80,7 +80,7 @@ test('AgentPanel', async () => {
     false,
     'availability still loading does not block a stored agent (never-empty fallback)',
   )
-  // The fresh-Mac case (MC-2093): NOTHING is installed. The catalog used to give
+  // The fresh-Mac case: NOTHING is installed. The catalog used to give
   // up filtering here and hand back every registered CLI, so membership read the
   // stored agent's CLI as present and the pane spawned against a missing binary.
   assert.equal(

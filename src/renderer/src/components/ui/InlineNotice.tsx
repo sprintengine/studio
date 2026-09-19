@@ -130,7 +130,7 @@ export function InlineNotice({ tone, title, hint, detail, children, action, clas
 
 /**
  * The outcome of an action the user just took, in the tone vocabulary the system
- * actually has (MC-2115).
+ * actually has.
  *
  * Five surfaces had declared their own version of this — `MessageBlock`
  * (SettingsPanel), `Note` (ProviderSettingsTab), `MESSAGE_CLASS`

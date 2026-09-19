@@ -17,7 +17,7 @@ import { test } from 'vitest'
 
 test('pipeline-roundtrip', async () => {
   // The whole design-system pipeline a real authoring run rides, minus the agent
-  // (MC-1506; the Design Wizard it was first written for was deleted 2026-09-08,
+  // (the Design Wizard it was first written for was deleted 2026-09-08,
   // but the pipeline it walks is the design system's own). It scaffolds
   // the bundle skeleton from the shipped templates, overlays the known-good example
   // bundle's authored sources as if an agent had written them, then walks

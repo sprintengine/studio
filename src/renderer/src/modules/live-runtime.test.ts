@@ -9,7 +9,7 @@ import type { Workspace } from '../types/workspace'
 import { test } from 'vitest'
 
 test('live-runtime', async () => {
-  // The three live-runtime surfaces (MC-1535), tested through their injected
+  // The three live-runtime surfaces, tested through their injected
   // ports: file watch (path validation, snapshot-then-debounced-change, missing
   // file as null, teardown), session observation (workspace filter, view
   // mapping, dedup, callback isolation), and agent spawn (structured failures,

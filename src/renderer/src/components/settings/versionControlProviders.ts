@@ -1,4 +1,4 @@
-// The version-control settings sections, as data (MC-1995). DOM-free and
+// The version-control settings sections, as data. DOM-free and
 // component-free so the probe → row mapping is unit-tested without a renderer.
 //
 // Two things live here, and both exist to stop the sections from drifting into

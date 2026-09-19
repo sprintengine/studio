@@ -1,6 +1,6 @@
 import React from 'react'
 
-// The kit's table (MC-2117). Three bespoke variants shipped with no shared
+// The kit's table. Three bespoke variants shipped with no shared
 // header/row/cell chrome: a run-summary table (a `table-fixed` with a
 // shared `<colgroup>`), `DiagnosticsContent` (a `w-full` with its own local
 // `Th`/`Td`, the only one with a sticky header), and

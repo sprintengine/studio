@@ -87,7 +87,7 @@ export type SettingDescriptor = {
 }
 
 const settingsRegistry: ReadonlyArray<SettingDescriptor> = [
-  // Background mode — whether the process outlives its last window (MC-2156).
+  // Background mode — whether the process outlives its last window.
   {
     id: 'keep-running-in-background',
     label: 'Keep running when the last window closes',

@@ -6,7 +6,7 @@ import { JSDOM } from 'jsdom'
 import { test } from 'vitest'
 
 test('installedInventoryUpdates', async () => {
-  // MC-1873 (surface) — the Extensions manage canvas surfaces staleness as ONE
+  // Update staleness, as the surface shows it — the Extensions manage canvas surfaces staleness as ONE
   // banner above the Capability modules group and settles without an app
   // restart. This drives the real InstalledExtensionsInventory in a DOM against
   // a stubbed window.api:

@@ -11,7 +11,7 @@ import type { TailnetPeerScan } from '../../../shared/tailnet-peers'
 import { toolError, toolSuccess, type McpToolRegistration } from '../../../shared/modules/mcp-tools'
 
 // The `tailnet.*` gateway family: configuring remote control from an agent
-// rather than from Settings (MC-2162 originally made this IPC-only).
+// rather than from Settings (it was originally IPC-only).
 //
 // These tools are LOCAL-ONLY. `tailnet-scopes.ts` classifies the family, and
 // the listener's gate drops it from `tools/list` and refuses `tools/call`, so

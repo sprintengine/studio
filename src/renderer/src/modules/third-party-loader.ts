@@ -183,7 +183,7 @@ export async function loadThirdPartyRendererEntries(
   const loadedManifests: CapabilityManifest[] = []
   for (const entry of served.entries) {
     // Re-check the reserved-id rule at the execution boundary. Reserved ids
-    // are publisher-locked (MC-1532): main verifies the first-party signature
+    // are publisher-locked: main verifies the first-party signature
     // and stamps `firstPartySigned` on the served entry (the renderer cannot
     // verify signatures itself). Anything reserved WITHOUT the stamp is a
     // bypass upstream and must never shadow a bundled module.

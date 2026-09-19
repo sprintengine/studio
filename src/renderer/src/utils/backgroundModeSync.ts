@@ -1,5 +1,5 @@
 /**
- * Pushes `appSettings.keepRunningInBackground` to main (MC-2156).
+ * Pushes `appSettings.keepRunningInBackground` to main.
  *
  * Main reads this setting inside `window-all-closed` — the one moment there is
  * no renderer left to ask — so it cannot live only in localStorage. Same

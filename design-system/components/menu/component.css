@@ -13,7 +13,7 @@
  *                 inset, radius 4px    full-bleed
  *   divider       border.subtle        border.default (OverflowMenu)
  *
- * The rulings below (MC-2118) are decided by what the rest of the system
+ * The rulings below are decided by what the rest of the system
  * already does, not by majority:
  *
  *   SURFACE — the popover shell, unchanged. `popover/component.css` is already

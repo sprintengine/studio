@@ -2,7 +2,7 @@ import React, { useId } from 'react'
 
 import { FOCUS_RING_PEER_CLASS } from './tokens'
 
-// The kit's checkbox (MC-2117). Five surfaces had each styled the same
+// The kit's checkbox. Five surfaces had each styled the same
 // `<input type="checkbox">` independently — 3px and 3.5px boxes, one on the
 // browser's `accent-color`, one with a hand-rolled ring whose `ring-offset-color`
 // was pinned to `--bg-surface-raised` and therefore wrong on any other surface,

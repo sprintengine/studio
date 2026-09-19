@@ -1,4 +1,4 @@
-// Build identity for the two halves of the app (MC-2182).
+// Build identity for the two halves of the app.
 //
 // Main and the renderer are separate bundles with separate lifetimes. In a
 // from-source dev run the renderer hot-reloads out of `src/renderer` while main

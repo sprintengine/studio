@@ -8,7 +8,7 @@ import type {
 
 export const hostedModelFeedApi = {
   // The recommended sources the Extensions door offers. Disk-only by design —
-  // the poller's feed leg is what refreshes it (MC-2519), so opening the door
+  // the poller's feed leg is what refreshes it, so opening the door
   // never waits on GitHub.
   hostedSourcesFeedGet: (): Promise<HostedSourcesFeedReadResult> => ipcRenderer.invoke('hosted-sources-feed:get'),
   hostedModelFeedGet: (): Promise<HostedModelFeedReadResult> => ipcRenderer.invoke('hosted-model-feed:get'),

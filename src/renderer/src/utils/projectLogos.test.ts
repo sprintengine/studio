@@ -5,7 +5,7 @@ import { ensureProjectLogo, getProjectLogoDataUrl, resetProjectLogos, subscribeP
 import { test } from 'vitest'
 
 test('projectLogos', async () => {
-  // The renderer half of MC-2135: one detection per project folder per session,
+  // The renderer half of project logos: one detection per project folder per session,
   // shared by every surface that shows that project, and never a state the icon
   // slot cannot render.
 

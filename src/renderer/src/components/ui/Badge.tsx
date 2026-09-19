@@ -2,7 +2,7 @@ import React from 'react'
 
 import { TONE_COLOR_VAR, TONE_SOFT_VAR, type Tone } from './tokens'
 
-// The kit's badge (MC-2117). "Badge" appeared across a dozen files as ad-hoc
+// The kit's badge. "Badge" appeared across a dozen files as ad-hoc
 // rounded spans, and the audit found two distinct species hiding under the one
 // word — so this exports both rather than pretending they are one control:
 //

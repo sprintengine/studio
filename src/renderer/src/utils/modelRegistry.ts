@@ -549,9 +549,9 @@ function terminalTabJson(terminalId: string, name: string) {
   return { type: 'tab', name, component: 'terminal', config: { terminalId } }
 }
 
-/** A remote machine's terminal (MC-2167). Its config carries the machine, not just the session. */
+/** A remote machine's terminal. Its config carries the machine, not just the session. */
 // ──────────────────────────────────────────────────────────────────────────
-// The new-agent tab (MC-2147). The tab-strip "+" opens the tab an agent will
+// The new-agent tab. The tab-strip "+" opens the tab an agent will
 // run in, holding the launch surface until something spawns; the spawn then
 // RETYPES that same node rather than closing it and opening an agent tab. Same
 // node means same tabset, same position, same size — the pane the person is

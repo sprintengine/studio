@@ -61,7 +61,7 @@ export type TerminalSnapshotSidecar = {
   // When the agent's last turn ended, so rehydration idles the placeholder
   // from the finish rather than from `savedAt` (one quit stamps every sidecar).
   lastTurnEndedAt?: number
-  // The checkout the session's hooks last observed (MC-2440), so a parked
+  // The checkout the session's hooks last observed, so a parked
   // agent keeps saying where it is across suspend / resume / an app restart.
   // Read back through parseObservedCheckout — the file is untrusted input.
   observedCheckout?: ObservedCheckout

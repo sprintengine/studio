@@ -114,7 +114,7 @@ function contextEnvSpec(manifest: PluginManifest, context: PluginRenderContext):
 // make degradation escalate.
 const PERMISSION_PRESET_LADDER = ['manual', 'auto', 'bypass'] as const
 
-// Pre-MC-2210 manifest keys. Bundled manifests use the new names, but a
+// Pre-rename manifest keys. Bundled manifests use the new names, but a
 // third-party plugin installed before the rename still declares the old ones,
 // and an unknown flag is fatal — so resolution falls back through the alias
 // rather than treating the preset as undeclared.
@@ -153,7 +153,7 @@ function resolvePermissionPreset(
  * of truth, exported so no caller restates the CLI mapping. The acknowledged-
  * legacy codex Windows-native path in terminal-launch.ts builds its argv by
  * hand and used to carry its own hardcoded copy of this table; that duplication
- * is how the Claude Code mapping drifted out of step with the manifest (MC-2210).
+ * is how the Claude Code mapping drifted out of step with the manifest.
  */
 export function resolvePermissionArgs(manifest: PluginManifest, requested: string | undefined): string[] {
   return resolvePermissionPreset(manifest, requested)?.args ?? []

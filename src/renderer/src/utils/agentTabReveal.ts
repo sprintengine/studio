@@ -26,7 +26,7 @@ export function revealAgentTerminalTab(
   // Activating is what clears a door surface, so it is the default and every
   // operator-facing reveal keeps it. `activateWorkspace: false` is for a tab
   // that must EXIST without the operator being moved into it — the main-owned
-  // agent-launch projection (MC-2159) minting the tab for an agent launched into
+  // agent-launch projection minting the tab for an agent launched into
   // a rail-hidden host (an Automations host). Jumping the view
   // into one of those on every background launch, or on every window open that
   // discovers one still running, would strand the operator in a workspace the

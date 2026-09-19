@@ -29,7 +29,7 @@ export type KnowledgeLaunchContext = {
 /**
  * Turn a resolved root into launch inputs. Shared because both launch paths
  * compose it: `TerminalView` for an interactively-spawned agent, and the
- * main-process AgentLaunchService (MC-2159) for one launched with no window —
+ * main-process AgentLaunchService for one launched with no window —
  * which must not silently drop the graph just because nobody is watching.
  *
  * An UNRESOLVABLE configured root still yields a line. Saying nothing would

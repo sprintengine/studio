@@ -65,7 +65,7 @@ the rail canon (the leading-glyph slot of every sidebar and door-rail row):
 
 A rail row reserves a fixed 16 px leading slot whether or not the glyph fills
 it — an unreserved slot is what lets sibling doors' titles start at three
-different x-offsets (Known drift, MC-2098).
+different x-offsets (Known drift).
 
 ## Variants
 
@@ -407,7 +407,7 @@ All at `iconStroke` so the rail reads as one set.
 - **Size from the ramp, nothing else.** Rails and toolbars at `sm`; chips and
   inline-with-meta at `xs`; button-paired and panel-header at `md`;
   empty states at `lg`. A 28 px icon button is not a size the system has
-  (Known drift, MC-2119).
+  (Known drift).
 - **Reserve the slot.** A rail row's leading glyph slot is a fixed
   `--sem-icon-size-sm` box; a smaller glyph centers in it rather than
   narrowing it.
@@ -459,7 +459,7 @@ Cite these rather than matching the code you happen to be nearest.
    `STRIP_BUTTON` — off the 26/30/34 control ramp entirely, and with no
    radius or hover fill where SidebarChrome's 26 px button has both), and
    30 px (`AppMenuButton`). Canon is `--sem-size-control-xs` (26 px).
-   Tracked as **MC-2119** (icon-size conformance axis). *2026-09-02:* the
+   Tracked as the icon-size conformance axis. *2026-09-02:* the
    kit's own off-ramp sites are resolved — `CursorErrorPopover`'s two 20 px
    reveal buttons are `IconButton` / `CloseIconButton`, and `MenuSwatchRow`'s
    20 px swatches pad out to the 24 px hit-target floor. **Resolved 2026-09-02**
@@ -474,7 +474,7 @@ Cite these rather than matching the code you happen to be nearest.
    Design door with a 12 px chip (38 px) — so sibling doors' titles start at
    three different offsets in the same column. `AutomationTypeGlyph`
    compounds it: an 18 px `icon-md` SVG inside a 16 px box, overflowing by
-   2 px. Canon: `sm` glyph in a reserved 16 px slot. Tracked as **MC-2098**
+   2 px. Canon: `sm` glyph in a reserved 16 px slot. Tracked in the glyph-slot ruling
    (door glyph normalization).
 3. **Copy-pasted chrome SVGs.** The back / forward / search / panel-left
    paths are duplicated between `AppTitleBar.tsx` and `SidebarChrome.tsx`

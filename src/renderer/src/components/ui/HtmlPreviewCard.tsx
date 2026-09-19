@@ -6,8 +6,8 @@ import { TruncatedText } from './TruncatedText'
 // mono path meta + click-through. The live render holds the same scripts-off
 // sandbox policy the full HtmlArtifactFrame does — scripts off, and never
 // `allow-same-origin`. First consumer is the
-// design-system component gallery (MC-1509); it is built reviewer-neutral so the
-// backlog mockup-attachments surface (MC-1485) can reuse the same card.
+// design-system component gallery; it is built reviewer-neutral so the
+// backlog mockup-attachments surface can reuse the same card.
 //
 // The card reads its file once on mount (no fs watch of its own). Callers force
 // a fresh render when the file changes by giving the card a React `key` that

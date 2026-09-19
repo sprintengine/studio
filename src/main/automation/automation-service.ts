@@ -27,7 +27,7 @@ import type { TerminalRemoteHost } from '../terminal-remote-attach'
 // discovery files external clients read to find it. The old enabled setting is
 // retained only as a compatibility API; it can no longer stop the gateway.
 //
-// It also owns the OPT-IN tailnet listener (MC-2162), which serves the same
+// It also owns the OPT-IN tailnet listener, which serves the same
 // tool surface to paired devices on the Tailscale network. The two are
 // deliberately asymmetric: the socket is infrastructure and always on; the
 // tailnet listener is off until a person enables it, and stopping it never
@@ -48,12 +48,12 @@ type AutomationServiceOptions = {
    * request. Injected as a lazy resolver because the gateway is constructed at
    * startup module scope, BEFORE `loadMainModules` populates the module-host
    * tool registry — a captured array here could never see module tools, and
-   * module enablement must be honored live (MC-1855).
+   * module enablement must be honored live.
    */
   resolveGatewayTools: () => McpToolRegistration[]
   /**
    * Watch-and-type access to this machine's terminals, for the tailnet
-   * listener's terminal WebSocket (MC-2165). The LOCAL socket never gets it:
+   * listener's terminal WebSocket. The LOCAL socket never gets it:
    * a local client already has the machine, and the terminal stream exists to
    * cross a network. Absent leaves that route refusing with a stated reason.
    */
@@ -84,7 +84,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
   // whichever door it came through — the connection identity is what differs.
   let audit: GatewayAuditStore | null = null
   let tailnet: TailnetRemoteService | null = null
-  // The outbound half (MC-2167). Independent of the listener above: driving
+  // The outbound half. Independent of the listener above: driving
   // another machine does not require having opened your own door, and a build
   // with remote control off can still be a Fleet client.
   let fleet: TailnetFleetService | null = null
@@ -93,7 +93,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
     if (settingsLoaded) return
     settingsLoaded = true
     const read = readAutomationSettings(options.resolveUserDataDir())
-    // MC-1743: the compatibility setting is read only for diagnostics. The
+    // The compatibility setting is read only for diagnostics. The
     // Studio gateway is infrastructure and is always enabled.
     enabled = true
     if (read.error) {
@@ -312,7 +312,7 @@ export function createAutomationService(options: AutomationServiceOptions) {
     denyTailnetPairRequest: (id: string, via?: 'ipc' | 'tool'): TailnetRemoteStatus =>
       tailnetService().denyPairRequest(id, via),
     listTailnetPeers: (): Promise<TailnetPeerScan> => tailnetService().listPeers(),
-    /** The Fleet client: the machines this Studio drives (MC-2167). */
+    /** The Fleet client: the machines this Studio drives. */
     fleet: (): TailnetFleetService => fleetService(),
   }
 }

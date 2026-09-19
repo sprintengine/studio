@@ -107,7 +107,7 @@ type SizedButtonProps = ButtonBase & {
  * `text-[color:var(--…)]` utilities of equal specificity on the element, and
  * which of them paints is then a question of stylesheet order rather than of
  * what the caller wrote. The Git panel spelled that override at six call sites
- * before MC-2113; making it a prop is what stops the seventh.
+ * before the button sweep; making it a prop is what stops the seventh.
  */
 export type ButtonTone = 'neutral' | 'danger'
 
@@ -174,7 +174,7 @@ const GHOST_TONE: Record<GhostTone, string> = {
 // explains why the control is off), so without it each hover step fires under
 // the pointer while the button refuses the click. The retired `ModalButton`
 // primary carried this guard privately; folding every dialog footer onto these
-// primitives (MC-2113) is only faithful if the primitives carry it too.
+// primitives is only faithful if the primitives carry it too.
 //
 // One declaration per utility, never a reset plus a repaint: a shared
 // `disabled:hover:bg-transparent` followed by a per-variant recolour would put
@@ -215,7 +215,7 @@ export const PrimaryButton = React.forwardRef<HTMLButtonElement, SizedButtonProp
 // action a person cannot undo. It exists here rather than inside `ui/Modal` —
 // where the `ModalButton` danger variant used to spell it — because a dialog is
 // not the only place a destructive confirm appears, and a variant declared
-// inside one host is how the product grew five primaries (MC-2113).
+// inside one host is how the product grew five primaries.
 export const DangerButton = React.forwardRef<HTMLButtonElement, SizedButtonProps>(function DangerButton(
   { className, size = 'sm', align = 'center', busy, type, ...rest },
   ref,

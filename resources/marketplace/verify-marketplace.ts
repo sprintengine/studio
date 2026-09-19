@@ -272,7 +272,7 @@ function assertInlineIconMatchesCommittedMark(
 }
 
 /**
- * An inline-CLI entry (MC-1858) surfaces an app-bundled agent CLI plugin as
+ * An inline-CLI entry surfaces an app-bundled agent CLI plugin as
  * marketplace content: no bundle, no bytes to download — the install action is
  * the bundled plugin's `install` spec executed by the CLI runtime installer.
  * Two rules replace the signature gate:
@@ -345,7 +345,7 @@ function assertNoOrphanPluginPayloads(
 }
 
 /**
- * A committed payload whose entry carries no signature (MC-2036: the automation
+ * A committed payload whose entry carries no signature (the automation
  * starters, which are declarative definitions and so ship unsigned like every
  * other non-code-bearing bundle). The signature gate is replaced, not dropped:
  *
@@ -426,7 +426,7 @@ function assertEntryMatchesManifest(
   }
 }
 
-// Bundled skill payloads (MC-1644): every digest-bearing skill must have its
+// Bundled skill payloads: every digest-bearing skill must have its
 // payload dir present and byte-identical to the recorded digests, and every
 // payload folder must be claimed by a digest-bearing entry — a skew in either
 // direction ships a broken or undisclosed offline install with a green diff.
@@ -508,7 +508,7 @@ async function validateMarketplace(root: string, cliBundle: string): Promise<Ver
     // keeps stripping a signature from silently downgrading a first-party
     // bundle into the unsigned lane.
     //
-    // Inline-CLI entries (MC-1858) are the one exception: they ship no
+    // Inline-CLI entries are the one exception: they ship no
     // downloadable bytes a signature could bind. The referenced plugin already
     // lives inside the signed app bundle and the install action executes that
     // bundled plugin's `install` spec, so the app build itself is the identity
@@ -525,7 +525,7 @@ async function validateMarketplace(root: string, cliBundle: string): Promise<Ver
     const hasCommittedPayload = isInsideOrEqual(root, pluginRoot) && existsSync(pluginManifestPath)
 
     // Unsigned entries (source-bearing plugin references, inline-MCP configs
-    // and inline-CLI entries) are legal post-MC-1434, and post-MC-2036 an
+    // and inline-CLI entries) are legal now, and since unsigned starters shipped an
     // unsigned entry may also ship a committed bundle when nothing in it is
     // code-bearing — the automation starters do. Most reference external
     // content only and have no local manifest at all; the

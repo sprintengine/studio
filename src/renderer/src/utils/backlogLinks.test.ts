@@ -257,7 +257,7 @@ test('backlogLinks', async () => {
       'in_progress',
       "the epic's own still-active run keeps it in_progress even with all children done",
     )
-    // Corrected precedence (MC-1617): an untouched epic whose children are all `ready`
+    // Corrected precedence: an untouched epic whose children are all `ready`
     // reflects `ready`, NOT `in_progress` — no work has started. The pre-correction
     // rule treated `ready`/`idea` as "active" and wrongly promoted it.
     assert.equal(

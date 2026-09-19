@@ -5,7 +5,7 @@ renderer projects it, the human writes **comments**, and the sync layer posts
 them. Neither side ever sees provider-specific payloads or free-text
 intermediate shapes. Every rendered surface is a projection of validated JSON.
 
-These are the canonical contracts. The guide agent (MC-1679) receives this
+These are the canonical contracts. The guide agent receives this
 document verbatim as its output spec, so keep the shapes and rules here in sync
 with `src/shared/review/`.
 

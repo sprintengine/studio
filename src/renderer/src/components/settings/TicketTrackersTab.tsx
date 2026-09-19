@@ -3,7 +3,7 @@ import React from 'react'
 import { TicketTrackerSection } from './TicketTrackerSection'
 import { SettingsPageHeader } from './SettingsAtoms'
 
-// Settings → Ticket trackers (MC-2363).
+// Settings → Ticket trackers.
 //
 // The whole tab is now one thing: find your tracker and install its MCP, so
 // your agents can work its tickets. The studio itself no longer talks to

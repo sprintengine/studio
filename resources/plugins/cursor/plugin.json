@@ -50,7 +50,7 @@
     ]
   },
   "resume": {
-    "$comment": "Cursor documents `--resume <chat-id>` and `--continue` (previous session). Mirrors the OpenCode wiring: --continue as the base, the explicit resume pair only when the caller has an id. Unverified end-to-end, so capabilities.resumeSession stays false until confirmed against a real install (MC-1464/MC-1465 discipline).",
+    "$comment": "Cursor documents `--resume <chat-id>` and `--continue` (previous session). Mirrors the OpenCode wiring: --continue as the base, the explicit resume pair only when the caller has an id. Unverified end-to-end, so capabilities.resumeSession stays false until confirmed against a real install (the confirm-first discipline).",
     "supported": true,
     "argv": [
       "{{binary}}",
@@ -137,7 +137,7 @@
     ]
   },
   "capabilities": {
-    "$comment": "resumeSession is intentionally false pending end-to-end verification (MC-1464/MC-1465 discipline); the resume argv above is wired for the flip. sessionIdFromCaller is false because Cursor mints its own chat ids (no --session-id-style launch assignment is documented).",
+    "$comment": "resumeSession is intentionally false pending end-to-end verification (the confirm-first discipline); the resume argv above is wired for the flip. sessionIdFromCaller is false because Cursor mints its own chat ids (no --session-id-style launch assignment is documented).",
     "resumeSession": false,
     "sessionIdFromCaller": false,
     "toolUse": true,

@@ -270,7 +270,7 @@ export function CliModelPopoverSurface({
   }
   const selectedRowIndex = visible.findIndex((entry) => isSelected(entry.row))
 
-  // ── the keyboard model (MC-2134) ─────────────────────────────────────────
+  // ── the keyboard model ─────────────────────────────────────────
   //
   // The search field is the combobox and keeps focus for the whole life of this
   // surface; the highlighted row is named by `aria-activedescendant` and is
@@ -633,7 +633,7 @@ function RailButton({
 // One model. The row is a `div[role=option]` rather than a `<button>` because it
 // hosts the star's own button, and a button inside a button is invalid.
 //
-// A row is never focused (MC-2134): the search field keeps focus and names the
+// A row is never focused: the search field keeps focus and names the
 // highlighted row through `aria-activedescendant`, so a row carries no tab stop
 // and no key handler of its own. `aria-selected` still marks the CURRENT
 // runtime, which is a different fact from the highlight and outlives it —

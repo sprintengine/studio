@@ -21,7 +21,7 @@ the same relative paths.
 
 One population ships a committed `plugins/<id>/` bundle.
 
-**The signed MCP seeds are gone** (MC-2519, owner ruling 2026-09-08).
+**The signed MCP seeds are gone** (owner ruling 2026-09-08).
 `browser-automation-mcp` (Playwright), `repository-workflows-mcp` (GitHub),
 `current-docs-mcp` (Context7) and `api-reference-mcp` (openai-docs) each wrapped
 one MCP server that somebody else wrote and published it under our name. Being
@@ -57,7 +57,7 @@ to project most of it from a private catalogue-snapshot package
 (`scripts/generate-connector-catalogue.mjs`) went with the 256 snapshotted
 plugin entries it produced, and `scripts/sync-catalogue.mjs`, which pulled this
 seed back from `sprintengine/studio-releases`, went with the MCP catalogue it
-also fetched (MC-2519). This directory is the source of truth; it is published
+also fetched. This directory is the source of truth; it is published
 to `studio-releases`, not read back from it.
 
 ## Source policy and widened schema

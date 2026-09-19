@@ -32,7 +32,7 @@ export async function dispatchSnapshotRequest(input: {
   const include = readIncludeCollections(payload?.include)
 
   // A `sprintEngineId` scope is read and ignored: the collection it narrowed is
-  // always empty now (MC-2575), so honouring it would return the same snapshot
+  // always empty now, so honouring it would return the same snapshot
   // as refusing it, and refusing it would fail a request the phone is entitled
   // to make.
   const allWorkspaceRoots = workspaceRootsProvider ? await workspaceRootsProvider() : []
@@ -139,7 +139,7 @@ function relaySizedSnapshot(
   // detail on automations it can still see. `recentRuns` is optional on the wire,
   // so shedding it is omitting it.
   //
-  // The two rungs above this one are gone with the Sprint Engine (MC-2575): there
+  // The two rungs above this one are gone with the Sprint Engine: there
   // are no role catalogues to shed and no runs to cap. A snapshot that is still
   // over budget after this is returned as it stands — the bridge's own size gate
   // turns it into a `snapshot_too_large` refusal rather than a truncated success.

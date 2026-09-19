@@ -131,8 +131,8 @@ Read it before you change anything that crosses either wire.
 
 ## Names that do not go in the tree
 
-This repository was private for most of its life, and two habits from then have
-to stay dead. Both are about names, and both are cheap to get right while you
+This repository was private for most of its life, and three habits from then
+have to stay dead. All are about names, and all are cheap to get right while you
 are writing the line.
 
 **No competitor product names.** Not in comments, not in test names, not in
@@ -151,6 +151,12 @@ clause naming whose launcher prompted it is not.
 The agent CLIs the app drives — Claude Code, Codex, Cursor, OpenCode, Gemini,
 Grok — are runtimes it integrates with, not competitors. Name them freely; they
 are part of what the app is.
+
+**No backlog ticket numbers.** The backlog is private to the machine it lives
+on, so `(MC-2183)` in a comment is a link nobody outside can follow. Say what
+the ticket changed — "since workspace creation moved to main", not "since
+MC-2158" — or leave it out when the sentence stands without it. A backlog key
+used as data (a fixture's `MC-240`, an example of the id format) is fine.
 
 **No real identities in fixtures.** A test fixture needs a plausible value, not
 a true one, and the tree already has the placeholders:

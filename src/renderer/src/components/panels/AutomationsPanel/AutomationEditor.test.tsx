@@ -516,7 +516,7 @@ test('AutomationEditor', async () => {
   console.log('AutomationEditor connector-picker render tests passed')
 
   // ---------------------------------------------------------------------------
-  // A starter, opened where it is tailored (MC-2035). The Extensions shelf
+  // A starter, opened where it is tailored. The Extensions shelf
   // configures nothing: a Get lands here, so this is the one screen that has to
   // show a real agent, a real cadence, `bypass` and the starter's prompt with
   // no empty picker anywhere — and has to say where the automation came from, so a
@@ -625,7 +625,7 @@ test('AutomationEditor', async () => {
   assert.match(starterMarkup, /Every run/, 'the aside states the run contract')
   assert.match(starterMarkup, /A branch it can open a pull request from/, 'what a worktree run produces')
 
-  // No autonomy control anywhere. `review_only` is retired (MC-2036): it injected
+  // No autonomy control anywhere. `review_only` is retired: it injected
   // "do not create files, commit, push" into the prompt, which made opening a pull
   // request impossible. Reviewer-vs-fixer intent lives in the prompt text now.
   for (const gone of [/autonomy/i, /review.only/i, /Write-up only/i]) {

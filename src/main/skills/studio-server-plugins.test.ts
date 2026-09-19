@@ -13,7 +13,7 @@
 //      server. Surfaces key installed servers by id — so a plugin that renamed
 //      its server would put the same product on screen twice, and an install
 //      made under the old id would be orphaned. The catalogue itself is gone
-//      (MC-2519, 2026-09-08), which is why the id is pinned here rather than
+//      (2026-09-08), which is why the id is pinned here rather than
 //      read out of a row: the merge still has to work for a server installed
 //      under that id before the catalogue left.
 //
@@ -43,7 +43,7 @@ test('studio-server-plugins', async () => {
    * 2026-09-06). Renaming one of these is the duplicate-row bug rule 3 exists to
    * catch, and that is what is asserted below. The companion assertion — that the
    * id is not ALSO a catalogue row, the two-routes bug — went with the catalogue
-   * itself (MC-2519, 2026-09-08): there is no second route left to collide with.
+   * itself (2026-09-08): there is no second route left to collide with.
    *
    * EMPTY since 2026-09-08: the studio stopped shipping third-party MCP servers
    * (owner), so the three ids that used to be pinned here — brave-search,

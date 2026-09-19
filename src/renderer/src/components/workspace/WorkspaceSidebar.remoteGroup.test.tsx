@@ -8,7 +8,7 @@ test('WorkspaceSidebar.remoteGroup', async () => {
   // the 2026-09-05 band ruling): under its PROJECT, like every other chat.
   //
   // The Remote band is gone. A remote row whose repository has a clone open here
-  // joins that clone's header — MC-2406's filing, restored — and one with no
+  // joins that clone's header — the cross-machine filing, restored — and one with no
   // twin founds a header named after its folder over there, never "No folder"
   // and never "machine · project". What is remote about it is said in one mark:
   // the green machine glyph on the row, naming the device on hover.

@@ -13,7 +13,7 @@
       "args": []
     },
     "auto": {
-      "$comment": "Kimi's two flags read backwards from their names, and were mapped backwards here until MC-2212. `kimi --help`: `-y, --yolo` is \"Auto-approve regular tool calls; the agent may still ask questions\", while `--auto` is \"Start in auto permission mode: fully autonomous, the agent will not ask questions\". `--auto` is therefore the MORE permissive of the two and belongs on the bypass rung.",
+      "$comment": "Kimi's two flags read backwards from their names, and were mapped backwards here until a later fix. `kimi --help`: `-y, --yolo` is \"Auto-approve regular tool calls; the agent may still ask questions\", while `--auto` is \"Start in auto permission mode: fully autonomous, the agent will not ask questions\". `--auto` is therefore the MORE permissive of the two and belongs on the bypass rung.",
       "label": "Auto — approves tool calls, may still ask",
       "args": ["--yolo"]
     },
@@ -37,7 +37,7 @@
     ]
   },
   "resume": {
-    "$comment": "Kimi Code documents -c/--continue (most recent session in cwd) and -S/--session [id]. Mirrors the OpenCode wiring: --continue as the base, the explicit session pair only when the caller has an id. Unverified end-to-end, so capabilities.resumeSession stays false until confirmed against a real install (MC-1464/MC-1465 discipline) — flipping it is a config-only change.",
+    "$comment": "Kimi Code documents -c/--continue (most recent session in cwd) and -S/--session [id]. Mirrors the OpenCode wiring: --continue as the base, the explicit session pair only when the caller has an id. Unverified end-to-end, so capabilities.resumeSession stays false until confirmed against a real install (the confirm-first discipline) — flipping it is a config-only change.",
     "supported": true,
     "argv": [
       "{{binary}}",
@@ -120,7 +120,7 @@
     ]
   },
   "capabilities": {
-    "$comment": "resumeSession is intentionally false pending end-to-end verification (MC-1464/MC-1465 discipline): the resume argv above is wired but a wrong flag combination silently starts a fresh session, which is exactly the lost-conversation failure the guardrail exists for. sessionIdFromCaller is false because Kimi Code mints its own session ids (-S selects, it does not assign). mcpServers reflects Kimi Code's documented MCP support, but no mcpConfig block is declared yet because its config format (config.toml under ~/.kimi-code) has no writer in mcp-config-service.",
+    "$comment": "resumeSession is intentionally false pending end-to-end verification (the confirm-first discipline): the resume argv above is wired but a wrong flag combination silently starts a fresh session, which is exactly the lost-conversation failure the guardrail exists for. sessionIdFromCaller is false because Kimi Code mints its own session ids (-S selects, it does not assign). mcpServers reflects Kimi Code's documented MCP support, but no mcpConfig block is declared yet because its config format (config.toml under ~/.kimi-code) has no writer in mcp-config-service.",
     "resumeSession": false,
     "sessionIdFromCaller": false,
     "toolUse": true,

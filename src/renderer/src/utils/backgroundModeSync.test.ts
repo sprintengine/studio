@@ -1,5 +1,5 @@
 /**
- * MC-2156 — the renderer half of the background-mode mirror. Main reads this
+ * The renderer half of the background-mode mirror. Main reads this
  * setting when there is no renderer left to ask, so the push has to reach it
  * while a window is still up: on mount, and on every flip.
  */

@@ -11,7 +11,7 @@ type TerminalClipboardHandlersOptions = {
   /**
    * Where pasted text goes. Defaults to this machine's terminal runtime.
    *
-   * A REMOTE pane (MC-2167) passes its own writer, because its session id names
+   * A REMOTE pane passes its own writer, because its session id names
    * a session on another machine: pasting through the local path would either
    * land nowhere or, worse, in a local session that happens to share the id.
    * Copy needs no override — the selection is in this xterm either way.

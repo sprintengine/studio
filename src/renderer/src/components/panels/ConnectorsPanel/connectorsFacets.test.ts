@@ -22,8 +22,8 @@ test('connectorsFacets', async () => {
   // explicit error, and "empty" means the registry truly lists nothing (distinct
   // from a search that matched nothing).
   //
-  // It merged a second source until the third-party retirement (MC-2519,
-  // 2026-09-08) — the bundled MCP catalogue, whose rows browsed here and could
+  // It merged a second source until the third-party retirement
+  // (2026-09-08) — the bundled MCP catalogue, whose rows browsed here and could
   // launch before install when they carried a driving skill. Both are gone.
 
   function config(overrides: Partial<McpServerConfig> = {}): McpServerConfig {
@@ -235,7 +235,7 @@ test('connectorsFacets', async () => {
     assert.deepEqual(connectorEntryAsComposerConnector(entry), { id: 'railway-mcp', name: 'Railway' })
   }
 
-  // --- registry entries by kind (MC-1847 C2) ---------------------------------
+  // --- registry entries by kind ---------------------------------
   // The Plugins catalogue lists mcp, skills and module entries (D10); cli entries
   // keep their own canvas. Same normalized row shape from one builder.
   {
@@ -265,7 +265,7 @@ test('connectorsFacets', async () => {
     assert.ok(moduleEntry.plugin)
   }
 
-  // --- module-first card copy + launch exclusion (MC-1531) --------------------
+  // --- module-first card copy + launch exclusion --------------------
   // A module entry's row fields come straight from the index entry, whose
   // name/summary ARE the module manifest's displayName + summary (the shared
   // authoring projection derives them) — the card leads with what the module

@@ -70,7 +70,7 @@ export function InboxRow({
             focus, the selection-tier rules in assets/index.css rebind
             --text-strong on this row and the lift drops back out. */}
         <div
-          // `body` (13px), per design-system/components/inbox-row (MC-2118).
+          // `body` (13px), per design-system/components/inbox-row.
           // Title and supporting line both shipped at `meta`, which collapsed
           // the step between them — the row's primary content read at the same
           // size as the text explaining it.

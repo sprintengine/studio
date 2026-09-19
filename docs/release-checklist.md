@@ -110,7 +110,7 @@ of the first release that ships it, then delete the line.
   could require, a chip variant only its step rows used, and the backlog header
   action only its own start entry supplied.
 
-- Third-party skills and MCP servers, 2026-09-08 (MC-2519): the studio no longer
+- Third-party skills and MCP servers, 2026-09-08: the studio no longer
   ships anybody else's software. The bundled MCP catalogue
   (`resources/mcps/catalog.json`, sixteen servers) is deleted with its reader,
   and with it the whole `catalog` population of the Extensions door: the browse
@@ -127,7 +127,7 @@ of the first release that ships it, then delete the line.
   first-party MCP bundles leave the marketplace index in the same change: it is
   18 rows now (13 agent CLIs, 5 automation starters) and carries no signed
   component at all.
-- Plugin-source update cadence, 2026-09-08 (MC-2519): without a GitHub token the
+- Plugin-source update cadence, 2026-09-08: without a GitHub token the
   studio checks each plugin source for updates **once a day** rather than once an
   hour, because anonymous GitHub allows 60 requests an hour for the whole
   machine. With a token configured the hourly cadence is unchanged. The cadence

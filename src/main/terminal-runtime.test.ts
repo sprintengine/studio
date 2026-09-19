@@ -278,7 +278,7 @@ test('terminal-runtime', async () => {
     }
   }
 
-  // Observed checkout (MC-2440): the cwd a hook frame carries is where the
+  // Observed checkout: the cwd a hook frame carries is where the
   // session IS, resolved through git into the checkout containing it, and it is
   // what the snapshot reports — not the launch cwd the agent may have left.
   async function assertObservedCheckoutFollowsHookCwd(runtimeModule: RuntimeModule): Promise<void> {
@@ -877,7 +877,7 @@ test('terminal-runtime', async () => {
     }
   }
 
-  // AgentLaunchService end to end with zero windows (MC-2159), which is the whole
+  // AgentLaunchService end to end with zero windows, which is the whole
   // point of the item: `agent.launch` used to fail with no window open because the
   // COMPOSITION lived in a React hook, even though the spawn below never needed a
   // window. This drives the real service over the real runtime, so it proves the
@@ -2093,7 +2093,7 @@ test('terminal-runtime', async () => {
     }
   }
 
-  // MC-2165: a remote attach is an ADDITIONAL sender on the same pty, not a
+  // A remote attach is an ADDITIONAL sender on the same pty, not a
   // second copy of it. What the multi-sender split has to hold:
   //   - replay-then-live, so a viewer joining mid-session sees the screen;
   //   - a second concurrent viewer sees the same stream;
@@ -3747,7 +3747,7 @@ test('terminal-runtime', async () => {
     )
   }
 
-  // MC-2092. On a fresh Mac every spawn produced a bare zsh prompt while the app
+  // On a fresh Mac every spawn produced a bare zsh prompt while the app
   // reported success: availability is probed through the user's interactive shell,
   // agents launch in a shell that never sources it, and the in-script guard echoed
   // and fell through. Both halves are asserted at the IPC the renderer calls.
@@ -3801,7 +3801,7 @@ test('terminal-runtime', async () => {
       )
       assert.ok(
         // The permission flag sits between the binary and --session-id since
-        // MC-2210: an unnamed preset resolves to `manual`, which for Claude Code
+        // An unnamed preset resolves to `manual`, which for Claude Code
         // is an explicit `--permission-mode default` rather than no flag at all.
         startupScript.includes(`${probedPath} --permission-mode default --session-id session-preflight-resolved`),
         `the launch must execute the probed path: ${startupScript}`,

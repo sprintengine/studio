@@ -466,7 +466,7 @@ test('engine', async () => {
     assert.deepEqual(result.problems, [], 'and its evaluation reports no problems')
   }
 
-  // MC-1437: a `disableAfterRun` schedule automation fires once, then pauses
+  // A `disableAfterRun` schedule automation fires once, then pauses
   // itself — the recurring cadence never produces a second run.
   async function assertDisableAfterRunPausesScheduleAfterOneFire(): Promise<void> {
     const firstDue = Date.parse('2026-06-17T10:00:00.000Z')
@@ -515,7 +515,7 @@ test('engine', async () => {
     assert.deepEqual(second.problems, [], 'and later ticks stay quiet')
   }
 
-  // MC-1437: the once-off flag means "after one *triggered* fire" — a manual
+  // The once-off flag means "after one *triggered* fire" — a manual
   // "Run now" executes the action but never consumes the shot.
   async function assertManualRunNowDoesNotConsumeOnceOffShot(): Promise<void> {
     const now = Date.parse('2026-06-17T10:00:00.000Z')
@@ -556,7 +556,7 @@ test('engine', async () => {
     }
   }
 
-  // MC-1437: the once-off pause covers the trigger-event path too — one delivered
+  // The once-off pause covers the trigger-event path too — one delivered
   // event fires and pauses the automation, and a second matching event is refused
   // without enqueueing a run.
   async function assertDisableAfterRunPausesTriggerEventAutomationAndBlocksSecondEvent(): Promise<void> {

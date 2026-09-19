@@ -135,7 +135,7 @@ test('onboardingState', async () => {
     )
   }
 
-  // --- First-run precedence: who gets the empty profile's window (MC-2094) ---
+  // --- First-run precedence: who gets the empty profile's window ---
 
   // THE BUG this precedence exists to fix. The card is gated on the creation hub
   // being closed, and an empty profile used to open the hub unconditionally — so

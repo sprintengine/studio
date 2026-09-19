@@ -1,6 +1,6 @@
 import type { ProjectLogo } from '../../../shared/electron-api'
 
-// Session-scoped store for detected project logos (MC-2135), keyed by the
+// Session-scoped store for detected project logos, keyed by the
 // project's folder path so every surface that shows the same project shares one
 // detection instead of racing its own.
 //

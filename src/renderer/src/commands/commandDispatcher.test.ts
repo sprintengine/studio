@@ -147,7 +147,7 @@ test('commandDispatcher', async () => {
   })
   assert.equal(result.kind, 'unmatched')
 
-  // The voice toggle is a module contribution now (MC-1861): it matches only
+  // The voice toggle is a module contribution now: it matches only
   // when the enabled-module contribution list carries it, and its
   // allowInEditableTarget flag keeps it firing in suppressed (editable) targets.
   const voiceModuleContribution = {

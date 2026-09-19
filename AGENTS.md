@@ -2,7 +2,7 @@
 
 `CONTRIBUTING.md` is the contract: how to run the app, which gates have to be
 green, and how commit messages are written. Read it before you open a pull
-request. Two of its rules are repeated here because they are broken while a
+request. Three of its rules are repeated here because they are broken while a
 comment is being typed, not at review time.
 
 ## No competitor product names
@@ -23,6 +23,14 @@ loses the only part that was worth keeping.
 
 The agent CLIs the app drives — Claude Code, Codex, Cursor, OpenCode, Gemini,
 Grok — are runtimes it integrates with, not competitors. Name them freely.
+
+## No backlog ticket numbers in the tree
+
+The backlog is private to the machine it lives on, so `(MC-2183)` in a comment
+is a link nobody outside can follow. Say what the ticket changed instead — "since
+workspace creation moved to main", not "since MC-2158" — or leave it out when
+the sentence stands without it. A backlog key as data (a fixture's `MC-240`, an
+example of the id format) is fine.
 
 ## No real identities in fixtures
 

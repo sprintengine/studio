@@ -10,7 +10,7 @@ import {
   type BuildStamp,
 } from '../shared/build-stamp'
 
-// Main's half of the build-identity check (MC-2182). Holds the stamp main booted
+// Main's half of the build-identity check. Holds the stamp main booted
 // with, takes each window's stamp as it reports, and says something exactly once
 // when they disagree. Electron-free by construction so it is testable; the caller
 // supplies where a line goes and where a person is told.

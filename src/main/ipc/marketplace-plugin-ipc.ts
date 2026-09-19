@@ -154,7 +154,7 @@ export function registerMarketplacePluginIpc(ipcMain: IpcMain, services: Marketp
     },
   )
 
-  // Per-installed-entry update detection (MC-1873). Constructed lazily so the
+  // Per-installed-entry update detection. Constructed lazily so the
   // registry client (and its cache read) only exists once the surface asks.
   let updateStatesRegistryReader: ReturnType<typeof createDefaultMarketplaceRegistryClient> | undefined
   ipcMain.handle(

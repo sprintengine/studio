@@ -241,7 +241,7 @@ export function argvToPosixShellCommand(argv: string[]): string {
 
 /**
  * The invocation a spawn WOULD make, rendered for display before it happens
- * (MC-2147: the new-agent tab's receipt line).
+ * (the new-agent tab's receipt line).
  *
  * It goes through `renderAgentLaunchArgv` — the same call the spawn makes — for
  * the reason the surface exists: a hand-written preview of `--permission-mode`

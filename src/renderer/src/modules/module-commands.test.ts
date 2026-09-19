@@ -7,7 +7,7 @@ import { voiceDictationRendererModule } from './voice-dictation-module'
 import { test } from 'vitest'
 
 test('module-commands', async () => {
-  // The module command path (MC-1533) exercised against a REAL registration
+  // The module command path exercised against a REAL registration
   // rather than a hand-rolled lookalike: the namespaced id, the scope, and the
   // legacy-id alias that keeps a persisted override for the shell command this
   // one replaced working.

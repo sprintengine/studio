@@ -34,7 +34,7 @@ export function registerCliRuntimeIpc(ipcMain: IpcMain): void {
     if (result.ok && result.installed) invalidateCliAvailability(input.cli)
     return result
   })
-  // Update action (MC-1873): the CLI's own updater where the manifest declares
+  // Update action: the CLI's own updater where the manifest declares
   // one, else a re-run of the install spec. Streams onto the same output
   // channel installs use so one listener serves both flows.
   ipcMain.handle('cli-runtime:update', async (event, input: DetectInput): Promise<CliInstallResult> => {

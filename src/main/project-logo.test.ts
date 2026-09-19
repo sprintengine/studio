@@ -12,7 +12,7 @@ import {
 import { test } from 'vitest'
 
 test('project-logo', async () => {
-  // The detection half of MC-2135. The io seam is faked here so the ranking, the
+  // The detection half of project logos. The io seam is faked here so the ranking, the
   // size guard, the SVG sanitizer, and the mtime cache are all exercised against
   // a repo shape stated in the test rather than one built on disk.
 

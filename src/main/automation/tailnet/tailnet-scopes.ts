@@ -25,7 +25,7 @@ export function isLocalOnlyGatewayTool(toolName: string): boolean {
 /**
  * The scope a tool call requires.
  *
- * Family comes from the tool's dot-namespace (the gateway's naming rule, MC-1650
+ * Family comes from the tool's dot-namespace (the gateway's naming rule,
  * Decision 8); read-vs-operate comes from the gateway's own mutation
  * classification, so the two lists cannot drift — a tool newly classified as a
  * mutation immediately needs the operate grant here too.

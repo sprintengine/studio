@@ -534,7 +534,7 @@ let lockedSessionId = null
 // failure. The runtime's stall watch reads live output, not this cadence, so
 // a quiet `thinking` is still caught.
 let lastEvent = null
-// The directory OpenCode was launched in, from the plugin context (MC-2440).
+// The directory OpenCode was launched in, from the plugin context.
 // OpenCode never changes its working directory mid-session, so stamping the
 // launch directory on every frame is an honest observation for the session's
 // whole life — it is what lets the app notice a session launched by hand into

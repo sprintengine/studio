@@ -7,7 +7,7 @@ import { createMainKernel } from './main-host'
 import { test } from 'vitest'
 
 test('module-events', async () => {
-  // The module-owned event channel (MC-2090): the main→renderer push a module gets
+  // The module-owned event channel: the main→renderer push a module gets
   // through its scoped host, and the subscribe verb the request/response bridge
   // does not have. What is pinned here is the routing contract — identity is the
   // host's, topic and payload are the module's — plus the two decisions the item
