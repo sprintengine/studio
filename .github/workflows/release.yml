@@ -183,6 +183,14 @@ jobs:
       - name: Vendor the bundled npm runtime
         run: npm run runtimes:fetch -- ${{ matrix.runtimeArgs }}
 
+      # Spotlight indexes each DMG the moment dmgbuild mounts it, and holds the
+      # volume open, so the detach fails with `hdiutil: couldn't eject "diskN" -
+      # Resource busy` -- after signing and notarisation have already passed.
+      # Hosted runners only: never switch indexing off on the self-hosted Mac.
+      - name: Stop Spotlight indexing (hosted macOS only)
+        if: runner.os == 'macOS' && startsWith(runner.name, 'GitHub Actions')
+        run: sudo mdutil -a -i off
+
       - name: Build renderer and main process
         run: npm run build
 
