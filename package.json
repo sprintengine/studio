@@ -242,7 +242,7 @@
     "@vitest/coverage-v8": "5.0.1",
     "electron": "^44.4.1",
     "electron-builder": "^26.15.3",
-    "electron-vite": "^3.0.0",
+    "electron-vite": "^5.0.0",
     "esbuild": "^0.28.2",
     "jsdom": "^29.1.1",
     "knip": "6.37.0",
