@@ -218,9 +218,9 @@ function buildGrounds() {
 }
 
 // ── the specimens ────────────────────────────────────────────────────────────
-// esbuild with the flags scripts/testing/test-profiles.json calls
-// `cjs-bundled-jsx`, plus the @renderer alias the app's own imports need, then
-// one node run that renders each node to static markup.
+// esbuild as a CommonJS bundle for Node with the automatic JSX runtime, plus the
+// @renderer alias the app's own imports need, then one node run that renders
+// each node to static markup.
 function renderSpecimens(modulePath) {
   const require = createRequire(path.join(REPO, 'package.json'))
   const esbuild = require('esbuild')

@@ -10,7 +10,9 @@ import { join, resolve } from 'node:path'
 import { buildCliSeedEntries, spliceCliSeedEntries } from './cli-entries'
 import { validateMarketplaceIndex } from '../../src/shared/marketplace'
 import { pluginRegistryIdForCli } from '../../src/renderer/src/components/workspace/newWorkspace/cliRuntimeOptions'
+import { test } from 'vitest'
 
+test("cli-entries", async () => {
 const repoRoot = resolve(process.cwd())
 const marketplaceRoot = join(repoRoot, 'resources', 'marketplace')
 const committedSource = readFileSync(join(marketplaceRoot, 'marketplace.json'), 'utf8')
@@ -74,3 +76,4 @@ testCommittedIconMarksMatch()
 testSeedValidatesThroughAppSchema()
 testEntryIdsFollowThePluginRegistryMapping()
 console.log('marketplace inline-CLI seed tests passed')
+})

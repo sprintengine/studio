@@ -36,8 +36,8 @@ a dependency and lazy-loaded. Nothing of the editor is reimplemented.
 - `npm run lint` (five design-system lints) and the bundle budget are gates.
   Chrome written by us uses `components/ui` primitives and `--sem-*`/shell tokens
   only. No raw `<button>`/`<input>`, no hex literals, no `rounded-2xl`.
-- Tests are plain Node scripts (`node:assert/strict`), colocated `*.test.ts(x)`,
-  discovered automatically by `node scripts/testing/run-tests.mjs`.
+- Tests are Vitest files asserting with `node:assert/strict`, colocated
+  `*.test.ts(x)`, discovered automatically by `npm test`.
 - Tool registrations use hand-written JSON Schema with `additionalProperties:
   false` and a `description` on every property. Skills never restate schemas.
 

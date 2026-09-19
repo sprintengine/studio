@@ -18,354 +18,361 @@ import {
   resolveCatalogueTab,
 } from './catalogueTabs'
 import { groupInstalledBySource, installedRowSourceId } from './installedGroups'
+import { test } from 'vitest'
 
-// The tab row is the navigation the source-tabs ruling (2026-09-05) put in
-// place of the nested Sources rail, and it inherits the rail's two honesty
-// rules: a source is never hidden from a kind it lacks, and a count is never
-// spoken while it is unknown.
+test('catalogueTabs', async () => {
+  // The tab row is the navigation the source-tabs ruling (2026-09-05) put in
+  // place of the nested Sources rail, and it inherits the rail's two honesty
+  // rules: a source is never hidden from a kind it lacks, and a count is never
+  // spoken while it is unknown.
 
-function run(name: string, body: () => void): void {
-  try {
-    body()
-    console.log(`ok - ${name}`)
-  } catch (error) {
-    console.error(`not ok - ${name}`)
-    throw error
+  function run(name: string, body: () => void): void {
+    try {
+      body()
+      console.log(`ok - ${name}`)
+    } catch (error) {
+      console.error(`not ok - ${name}`)
+      throw error
+    }
   }
-}
 
-const source = (over: Partial<SkillSource> & { id: string }): SkillSource => ({
-  kind: 'github',
-  name: '',
-  repo: '',
-  monogram: '??',
-  blurb: '',
-  commitSha: '',
-  scannedAt: '',
-  ...over,
-})
-
-const APP = source({
-  id: STUDIO_SKILL_SOURCE_ID,
-  name: STUDIO_SKILL_SOURCE_NAME,
-  repo: 'sprintengine/studio-releases',
-  monogram: 'SS',
-})
-const ACME = source({ id: 'github:acme/skills', repo: 'acme/skills' })
-const FOLDER = source({
-  id: 'local:/Users/me/work/skills',
-  kind: 'local',
-  name: 'skills',
-  path: '/Users/me/work/skills',
-})
-const ANTHROPIC = source({
-  id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
-  name: 'Anthropic',
-  repo: 'anthropics/claude-plugins-official',
-  monogram: 'AN',
-})
-
-run('Installed leads, then the app’s own catalogue, then the rest in the order they were added', () => {
-  const tabs = deriveCatalogueTabs({
-    kind: 'plugins',
-    // Deliberately handed in with the app's catalogue LAST: the tab order is
-    // the ruling's, not the store's.
-    sources: [ACME, FOLDER, APP],
-    installedCount: 3,
-    counts: {},
+  const source = (over: Partial<SkillSource> & { id: string }): SkillSource => ({
+    kind: 'github',
+    name: '',
+    repo: '',
+    monogram: '??',
+    blurb: '',
+    commitSha: '',
+    scannedAt: '',
+    ...over,
   })
-  assert.deepEqual(
-    tabs.map((tab) => tab.id),
-    [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID, 'github:acme/skills', 'local:/Users/me/work/skills'],
-  )
-  assert.equal(tabs[0].label, 'Installed')
-  assert.equal(tabs[0].count, 3)
-  assert.deepEqual(
-    orderCatalogueSources([ACME, APP]).map((entry) => entry.id),
-    [STUDIO_SKILL_SOURCE_ID, 'github:acme/skills'],
-  )
-})
 
-// ── The official marketplace: always present, and where Plugins opens ────────
-
-run('the two bundled catalogues lead the row, ours first, then the rest as added', () => {
-  const tabs = deriveCatalogueTabs({
-    kind: 'plugins',
-    // Handed in in the order a store that appended it would give: the row's
-    // order is the ruling's, not the store's.
-    sources: [ACME, ANTHROPIC, FOLDER, APP],
-    installedCount: 0,
-    counts: {},
+  const APP = source({
+    id: STUDIO_SKILL_SOURCE_ID,
+    name: STUDIO_SKILL_SOURCE_NAME,
+    repo: 'sprintengine/studio-releases',
+    monogram: 'SS',
   })
-  assert.deepEqual(
-    tabs.map((tab) => tab.id),
-    [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID, OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'github:acme/skills', FOLDER.id],
-    'Installed · SprintEngine Studio · Anthropic · the sources you added, in the order you added them',
-  )
-})
-
-run('the Plugins catalogue opens on Anthropic, and only Plugins does', () => {
-  // It is where the plugins are — 292 against our own catalogue's handful —
-  // and our tab is one click away, still first in the row.
-  const plugins = deriveCatalogueTabs({ kind: 'plugins', sources: [APP, ANTHROPIC], installedCount: 0, counts: {} })
-  assert.equal(resolveCatalogueTab(plugins, null), OFFICIAL_PLUGINS_SKILL_SOURCE_ID)
-  assert.equal(
-    resolveCatalogueTab(plugins, STUDIO_SKILL_SOURCE_ID),
-    STUDIO_SKILL_SOURCE_ID,
-    'and a tab the person chose still wins over the default',
-  )
-  const skills = deriveCatalogueTabs({ kind: 'skills', sources: [APP, ANTHROPIC], installedCount: 0, counts: {} })
-  assert.equal(resolveCatalogueTab(skills, null), STUDIO_SKILL_SOURCE_ID, 'Skills is unchanged: our own skills lead it')
-  const withoutIt = deriveCatalogueTabs({ kind: 'plugins', sources: [APP, ACME], installedCount: 0, counts: {} })
-  assert.equal(
-    resolveCatalogueTab(withoutIt, null),
-    STUDIO_SKILL_SOURCE_ID,
-    'a row without it opens on its first source, as before',
-  )
-})
-
-run('a source that holds two kinds says so in both nouns', () => {
-  // "292 listings" was one number over two populations, and a listing is not a
-  // noun anybody uses: the owner read anthropics/skills's five plugin bundles
-  // as five skills, because four of them are named *-skills.
-  assert.equal(
-    catalogueHoldingsLine([
-      [292, 'plugin', 'plugins'],
-      [15, 'MCP server', 'MCP servers'],
-    ]),
-    '292 plugins · 15 MCP servers',
-  )
-  assert.equal(catalogueHoldingsLine([[1, 'skill', 'skills']]), '1 skill')
-  assert.equal(
-    catalogueHoldingsLine([
-      [5, 'plugin', 'plugins'],
-      [0, 'MCP server', 'MCP servers'],
-    ]),
-    '5 plugins',
-    'a kind the source has none of is left out rather than printed as a zero',
-  )
-  assert.equal(catalogueHoldingsLine([]), '')
-})
-
-run('a source is named by what it is: the product, a repository, a folder', () => {
-  assert.equal(catalogueTabLabel(APP), APP_CATALOGUE_LABEL)
-  assert.equal(
-    catalogueTabLabel(ANTHROPIC),
-    'Anthropic',
-    'the official marketplace is called by its publisher, not by its path',
-  )
-  assert.equal(
-    catalogueTabLabel({ ...ANTHROPIC, name: 'claude-plugins-official' }),
-    'Anthropic',
-    'including the copy Sync hands back, which a scan named after the repository it read',
-  )
-  assert.equal(catalogueTabLabel(ACME), 'acme/skills', 'not "skills" — three repos called skills is unnavigable')
-  assert.equal(catalogueTabLabel(FOLDER), 'skills', 'a folder has no repository to name it by')
-})
-
-run('a source with none of this kind still gets a tab', () => {
-  const tabs = deriveCatalogueTabs({
-    kind: 'plugins',
-    sources: [APP, ACME],
-    installedCount: 0,
-    counts: { builtin: { status: 'ready', count: 318 }, 'github:acme/skills': { status: 'ready', count: 0 } },
+  const ACME = source({ id: 'github:acme/skills', repo: 'acme/skills' })
+  const FOLDER = source({
+    id: 'local:/Users/me/work/skills',
+    kind: 'local',
+    name: 'skills',
+    path: '/Users/me/work/skills',
   })
-  assert.equal(tabs.length, 3, 'hiding a source is how a person loses it')
-  assert.equal(tabs[2].count, 0)
-  assert.equal(catalogueStateLine({ status: 'ready', count: 0 }, 'plugin'), 'No plugins here')
-})
-
-run('a loading or unreadable scan carries no count at all, never a zero', () => {
-  const tabs = deriveCatalogueTabs({
-    kind: 'skills',
-    sources: [APP, ACME],
-    installedCount: null,
-    counts: {
-      builtin: { status: 'loading' },
-      'github:acme/skills': { status: 'error', message: 'GitHub rate-limited this request.' },
-    },
+  const ANTHROPIC = source({
+    id: OFFICIAL_PLUGINS_SKILL_SOURCE_ID,
+    name: 'Anthropic',
+    repo: 'anthropics/claude-plugins-official',
+    monogram: 'AN',
   })
-  assert.equal(tabs[0].count, null, 'an installed read still in flight says nothing')
-  assert.equal(tabs[1].count, null)
-  assert.equal(tabs[2].count, null)
-  assert.equal(catalogueStateLine(tabs[1].state, 'skill'), 'Loading…')
-  assert.equal(
-    catalogueStateLine(tabs[2].state, 'skill'),
-    'GitHub rate-limited this request.',
-    'the head line carries the real reason, not a generic failure',
-  )
-})
 
-run('a source the update check has seen move on is marked', () => {
-  const tabs = deriveCatalogueTabs({
-    kind: 'skills',
-    sources: [{ ...ACME, commitSha: 'abc1234', headSha: 'ffffff9' }],
-    installedCount: 0,
-    counts: {},
+  run('Installed leads, then the app’s own catalogue, then the rest in the order they were added', () => {
+    const tabs = deriveCatalogueTabs({
+      kind: 'plugins',
+      // Deliberately handed in with the app's catalogue LAST: the tab order is
+      // the ruling's, not the store's.
+      sources: [ACME, FOLDER, APP],
+      installedCount: 3,
+      counts: {},
+    })
+    assert.deepEqual(
+      tabs.map((tab) => tab.id),
+      [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID, 'github:acme/skills', 'local:/Users/me/work/skills'],
+    )
+    assert.equal(tabs[0].label, 'Installed')
+    assert.equal(tabs[0].count, 3)
+    assert.deepEqual(
+      orderCatalogueSources([ACME, APP]).map((entry) => entry.id),
+      [STUDIO_SKILL_SOURCE_ID, 'github:acme/skills'],
+    )
   })
-  assert.equal(tabs[1].updateAvailable, true)
-  assert.equal(tabs[0].updateAvailable, false, 'Installed is not a source and cannot be behind one')
-})
 
-run('Agent CLIs list the app’s catalogue alone', () => {
-  // A source's scan yields plugins, skills and MCP servers — never a CLI — so
-  // every added repository would be a tab that can only ever read "none".
-  const tabs = deriveCatalogueTabs({
-    kind: 'agent-clis',
-    sources: [APP, ACME, FOLDER],
-    installedCount: 2,
-    counts: { builtin: { status: 'ready', count: 12 } },
+  // ── The official marketplace: always present, and where Plugins opens ────────
+
+  run('the two bundled catalogues lead the row, ours first, then the rest as added', () => {
+    const tabs = deriveCatalogueTabs({
+      kind: 'plugins',
+      // Handed in in the order a store that appended it would give: the row's
+      // order is the ruling's, not the store's.
+      sources: [ACME, ANTHROPIC, FOLDER, APP],
+      installedCount: 0,
+      counts: {},
+    })
+    assert.deepEqual(
+      tabs.map((tab) => tab.id),
+      [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID, OFFICIAL_PLUGINS_SKILL_SOURCE_ID, 'github:acme/skills', FOLDER.id],
+      'Installed · SprintEngine Studio · Anthropic · the sources you added, in the order you added them',
+    )
   })
-  assert.deepEqual(
-    tabs.map((tab) => tab.id),
-    [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID],
-  )
-})
 
-run('a removed source does not leave the surface on a tab that is gone', () => {
-  const tabs = deriveCatalogueTabs({ kind: 'skills', sources: [APP], installedCount: 0, counts: {} })
-  assert.equal(
-    resolveCatalogueTab(tabs, 'github:acme/skills'),
-    STUDIO_SKILL_SOURCE_ID,
-    'it falls back to the first source',
-  )
-  assert.equal(resolveCatalogueTab(tabs, INSTALLED_TAB_ID), INSTALLED_TAB_ID, 'a tab that exists is kept')
-  assert.equal(
-    resolveCatalogueTab(tabs, null),
-    STUDIO_SKILL_SOURCE_ID,
-    'and a cold surface opens on a source, not on Installed',
-  )
-  const onlyInstalled = deriveCatalogueTabs({ kind: 'skills', sources: [], installedCount: 0, counts: {} })
-  assert.equal(resolveCatalogueTab(onlyInstalled, STUDIO_SKILL_SOURCE_ID), INSTALLED_TAB_ID)
-})
-
-// ── The Installed tab, grouped by where each row came from ───────────────────
-
-const row = (
-  over: Partial<InstalledExtension> & { id: string; kind: InstalledExtension['kind'] },
-): InstalledExtension => ({
-  key: `${over.kind}:${over.id}`,
-  name: over.id,
-  source: 'Custom',
-  chips: [],
-  ...over,
-})
-
-const record = (over: { sourceId: string; skillDirNames?: string[]; mcpServerIds?: string[] }) => ({
-  workspaceRoot: '/ws',
-  pluginId: 'p',
-  pluginName: 'p',
-  marketplaceName: '',
-  claudePluginKey: '',
-  skillDirNames: over.skillDirNames ?? [],
-  mcpServerIds: over.mcpServerIds ?? [],
-  commitSha: '',
-  installedAt: '',
-  sourceId: over.sourceId,
-})
-
-run('an install receipt is what attributes a row to a source', () => {
-  const records = [record({ sourceId: 'github:acme/skills', skillDirNames: ['tdd'], mcpServerIds: ['acme-mcp'] })]
-  assert.equal(installedRowSourceId(row({ id: 'tdd', kind: 'skill' }), records), 'github:acme/skills')
-  assert.equal(installedRowSourceId(row({ id: 'acme-mcp', kind: 'mcp' }), records), 'github:acme/skills')
-  assert.equal(
-    installedRowSourceId(row({ id: 'tdd', kind: 'mcp' }), records),
-    null,
-    'a skill directory name is not an MCP server id — the kinds do not borrow each other’s receipts',
-  )
-})
-
-run('rows no receipt claims say only what the inventory knows', () => {
-  const groups = groupInstalledBySource({
-    rows: [
-      row({ id: 'tdd', kind: 'skill' }),
-      row({ id: 'shipped', kind: 'skill', source: 'Bundled' }),
-      row({ id: 'by-hand', kind: 'mcp', source: 'Custom' }),
-    ],
-    sources: [APP, ACME],
-    records: [record({ sourceId: 'github:acme/skills', skillDirNames: ['tdd'] })],
+  run('the Plugins catalogue opens on Anthropic, and only Plugins does', () => {
+    // It is where the plugins are — 292 against our own catalogue's handful —
+    // and our tab is one click away, still first in the row.
+    const plugins = deriveCatalogueTabs({ kind: 'plugins', sources: [APP, ANTHROPIC], installedCount: 0, counts: {} })
+    assert.equal(resolveCatalogueTab(plugins, null), OFFICIAL_PLUGINS_SKILL_SOURCE_ID)
+    assert.equal(
+      resolveCatalogueTab(plugins, STUDIO_SKILL_SOURCE_ID),
+      STUDIO_SKILL_SOURCE_ID,
+      'and a tab the person chose still wins over the default',
+    )
+    const skills = deriveCatalogueTabs({ kind: 'skills', sources: [APP, ANTHROPIC], installedCount: 0, counts: {} })
+    assert.equal(
+      resolveCatalogueTab(skills, null),
+      STUDIO_SKILL_SOURCE_ID,
+      'Skills is unchanged: our own skills lead it',
+    )
+    const withoutIt = deriveCatalogueTabs({ kind: 'plugins', sources: [APP, ACME], installedCount: 0, counts: {} })
+    assert.equal(
+      resolveCatalogueTab(withoutIt, null),
+      STUDIO_SKILL_SOURCE_ID,
+      'a row without it opens on its first source, as before',
+    )
   })
-  assert.deepEqual(
-    groups.map((group) => [group.label, group.items.map((item) => item.id)]),
-    [
-      ['acme/skills', ['tdd']],
-      ['Bundled with the app', ['shipped']],
-      ['Added on this machine', ['by-hand']],
-    ],
-    'never a guess about which source a hand-written server came from',
-  )
-})
 
-run('a source removed since the install still gives its rows a heading', () => {
-  const groups = groupInstalledBySource({
-    rows: [row({ id: 'tdd', kind: 'skill' })],
-    sources: [APP],
-    records: [record({ sourceId: 'github:gone/away', skillDirNames: ['tdd'] })],
+  run('a source that holds two kinds says so in both nouns', () => {
+    // "292 listings" was one number over two populations, and a listing is not a
+    // noun anybody uses: the owner read anthropics/skills's five plugin bundles
+    // as five skills, because four of them are named *-skills.
+    assert.equal(
+      catalogueHoldingsLine([
+        [292, 'plugin', 'plugins'],
+        [15, 'MCP server', 'MCP servers'],
+      ]),
+      '292 plugins · 15 MCP servers',
+    )
+    assert.equal(catalogueHoldingsLine([[1, 'skill', 'skills']]), '1 skill')
+    assert.equal(
+      catalogueHoldingsLine([
+        [5, 'plugin', 'plugins'],
+        [0, 'MCP server', 'MCP servers'],
+      ]),
+      '5 plugins',
+      'a kind the source has none of is left out rather than printed as a zero',
+    )
+    assert.equal(catalogueHoldingsLine([]), '')
   })
-  assert.deepEqual(
-    groups.map((group) => group.label),
-    ['From a source that is no longer in your list'],
-    'the skill is still installed, so it must not vanish with the source',
-  )
-})
 
-run('a source with nothing installed from it gets no heading', () => {
-  const groups = groupInstalledBySource({ rows: [], sources: [APP, ACME], records: [] })
-  assert.deepEqual(groups, [], 'a heading with nothing under it says a source is installed when it is not')
-})
-
-// ── The update count on a tab ───────────────────────────────────────────────
-//
-// It answers a different question from the tab's own count: `count` is how many
-// things are in here, `updateCount` is how many of them want you. The owner
-// arrived at a catalogue from an update notification and the page could not say
-// which of ten rows it meant (2026-09-10).
-
-run('a tab wears the number of things waiting inside it', () => {
-  const tabs = deriveCatalogueTabs({
-    kind: 'plugins',
-    sources: [APP, ACME],
-    installedCount: 4,
-    counts: {
-      [STUDIO_SKILL_SOURCE_ID]: { status: 'ready', count: 9 },
-      'github:acme/skills': { status: 'ready', count: 12 },
-    },
-    updateCounts: { 'github:acme/skills': 3 },
+  run('a source is named by what it is: the product, a repository, a folder', () => {
+    assert.equal(catalogueTabLabel(APP), APP_CATALOGUE_LABEL)
+    assert.equal(
+      catalogueTabLabel(ANTHROPIC),
+      'Anthropic',
+      'the official marketplace is called by its publisher, not by its path',
+    )
+    assert.equal(
+      catalogueTabLabel({ ...ANTHROPIC, name: 'claude-plugins-official' }),
+      'Anthropic',
+      'including the copy Sync hands back, which a scan named after the repository it read',
+    )
+    assert.equal(catalogueTabLabel(ACME), 'acme/skills', 'not "skills" — three repos called skills is unnavigable')
+    assert.equal(catalogueTabLabel(FOLDER), 'skills', 'a folder has no repository to name it by')
   })
-  const acme = tabs.find((tab) => tab.id === 'github:acme/skills')
-  assert.equal(acme?.count, 12, 'the tab still says how many it holds')
-  assert.equal(acme?.updateCount, 3, 'and, separately, how many of them are waiting')
-})
 
-run('a tab nobody counted wears nothing, which is not a claim of zero', () => {
-  const tabs = deriveCatalogueTabs({
-    kind: 'plugins',
-    sources: [APP],
-    installedCount: 0,
-    counts: { [STUDIO_SKILL_SOURCE_ID]: { status: 'ready', count: 9 } },
+  run('a source with none of this kind still gets a tab', () => {
+    const tabs = deriveCatalogueTabs({
+      kind: 'plugins',
+      sources: [APP, ACME],
+      installedCount: 0,
+      counts: { builtin: { status: 'ready', count: 318 }, 'github:acme/skills': { status: 'ready', count: 0 } },
+    })
+    assert.equal(tabs.length, 3, 'hiding a source is how a person loses it')
+    assert.equal(tabs[2].count, 0)
+    assert.equal(catalogueStateLine({ status: 'ready', count: 0 }, 'plugin'), 'No plugins here')
   })
-  assert.deepEqual(
-    tabs.map((tab) => tab.updateCount),
-    [0, 0],
-    'silence draws no badge — a counter reading 0 is a counter spent saying there is no news',
-  )
-})
 
-run('Installed takes a count only where a caller has one to give', () => {
-  const tabs = deriveCatalogueTabs({
-    kind: 'agent-clis',
-    sources: [APP],
-    installedCount: null,
-    counts: { [STUDIO_SKILL_SOURCE_ID]: { status: 'ready', count: 10 } },
-    updateCounts: { [STUDIO_SKILL_SOURCE_ID]: 2 },
+  run('a loading or unreadable scan carries no count at all, never a zero', () => {
+    const tabs = deriveCatalogueTabs({
+      kind: 'skills',
+      sources: [APP, ACME],
+      installedCount: null,
+      counts: {
+        builtin: { status: 'loading' },
+        'github:acme/skills': { status: 'error', message: 'GitHub rate-limited this request.' },
+      },
+    })
+    assert.equal(tabs[0].count, null, 'an installed read still in flight says nothing')
+    assert.equal(tabs[1].count, null)
+    assert.equal(tabs[2].count, null)
+    assert.equal(catalogueStateLine(tabs[1].state, 'skill'), 'Loading…')
+    assert.equal(
+      catalogueStateLine(tabs[2].state, 'skill'),
+      'GitHub rate-limited this request.',
+      'the head line carries the real reason, not a generic failure',
+    )
   })
-  assert.equal(tabs[0]?.id, INSTALLED_TAB_ID)
-  // Neither catalogue counts Installed today: its rows come from the
-  // inventory's own update check and carry no per-row pips, so a number there
-  // would send a person into a list with nothing pointing at what it counted.
-  assert.equal(tabs[0]?.updateCount, 0, 'a tab nobody counted wears nothing')
-  assert.equal(tabs[0]?.count, null, 'and still speaks no holdings count it cannot honestly give')
-  assert.equal(tabs[1]?.updateCount, 2, 'the source tab, whose rows DO carry pips, wears its number')
-})
 
-console.log('catalogue tabs: ok')
+  run('a source the update check has seen move on is marked', () => {
+    const tabs = deriveCatalogueTabs({
+      kind: 'skills',
+      sources: [{ ...ACME, commitSha: 'abc1234', headSha: 'ffffff9' }],
+      installedCount: 0,
+      counts: {},
+    })
+    assert.equal(tabs[1].updateAvailable, true)
+    assert.equal(tabs[0].updateAvailable, false, 'Installed is not a source and cannot be behind one')
+  })
+
+  run('Agent CLIs list the app’s catalogue alone', () => {
+    // A source's scan yields plugins, skills and MCP servers — never a CLI — so
+    // every added repository would be a tab that can only ever read "none".
+    const tabs = deriveCatalogueTabs({
+      kind: 'agent-clis',
+      sources: [APP, ACME, FOLDER],
+      installedCount: 2,
+      counts: { builtin: { status: 'ready', count: 12 } },
+    })
+    assert.deepEqual(
+      tabs.map((tab) => tab.id),
+      [INSTALLED_TAB_ID, STUDIO_SKILL_SOURCE_ID],
+    )
+  })
+
+  run('a removed source does not leave the surface on a tab that is gone', () => {
+    const tabs = deriveCatalogueTabs({ kind: 'skills', sources: [APP], installedCount: 0, counts: {} })
+    assert.equal(
+      resolveCatalogueTab(tabs, 'github:acme/skills'),
+      STUDIO_SKILL_SOURCE_ID,
+      'it falls back to the first source',
+    )
+    assert.equal(resolveCatalogueTab(tabs, INSTALLED_TAB_ID), INSTALLED_TAB_ID, 'a tab that exists is kept')
+    assert.equal(
+      resolveCatalogueTab(tabs, null),
+      STUDIO_SKILL_SOURCE_ID,
+      'and a cold surface opens on a source, not on Installed',
+    )
+    const onlyInstalled = deriveCatalogueTabs({ kind: 'skills', sources: [], installedCount: 0, counts: {} })
+    assert.equal(resolveCatalogueTab(onlyInstalled, STUDIO_SKILL_SOURCE_ID), INSTALLED_TAB_ID)
+  })
+
+  // ── The Installed tab, grouped by where each row came from ───────────────────
+
+  const row = (
+    over: Partial<InstalledExtension> & { id: string; kind: InstalledExtension['kind'] },
+  ): InstalledExtension => ({
+    key: `${over.kind}:${over.id}`,
+    name: over.id,
+    source: 'Custom',
+    chips: [],
+    ...over,
+  })
+
+  const record = (over: { sourceId: string; skillDirNames?: string[]; mcpServerIds?: string[] }) => ({
+    workspaceRoot: '/ws',
+    pluginId: 'p',
+    pluginName: 'p',
+    marketplaceName: '',
+    claudePluginKey: '',
+    skillDirNames: over.skillDirNames ?? [],
+    mcpServerIds: over.mcpServerIds ?? [],
+    commitSha: '',
+    installedAt: '',
+    sourceId: over.sourceId,
+  })
+
+  run('an install receipt is what attributes a row to a source', () => {
+    const records = [record({ sourceId: 'github:acme/skills', skillDirNames: ['tdd'], mcpServerIds: ['acme-mcp'] })]
+    assert.equal(installedRowSourceId(row({ id: 'tdd', kind: 'skill' }), records), 'github:acme/skills')
+    assert.equal(installedRowSourceId(row({ id: 'acme-mcp', kind: 'mcp' }), records), 'github:acme/skills')
+    assert.equal(
+      installedRowSourceId(row({ id: 'tdd', kind: 'mcp' }), records),
+      null,
+      'a skill directory name is not an MCP server id — the kinds do not borrow each other’s receipts',
+    )
+  })
+
+  run('rows no receipt claims say only what the inventory knows', () => {
+    const groups = groupInstalledBySource({
+      rows: [
+        row({ id: 'tdd', kind: 'skill' }),
+        row({ id: 'shipped', kind: 'skill', source: 'Bundled' }),
+        row({ id: 'by-hand', kind: 'mcp', source: 'Custom' }),
+      ],
+      sources: [APP, ACME],
+      records: [record({ sourceId: 'github:acme/skills', skillDirNames: ['tdd'] })],
+    })
+    assert.deepEqual(
+      groups.map((group) => [group.label, group.items.map((item) => item.id)]),
+      [
+        ['acme/skills', ['tdd']],
+        ['Bundled with the app', ['shipped']],
+        ['Added on this machine', ['by-hand']],
+      ],
+      'never a guess about which source a hand-written server came from',
+    )
+  })
+
+  run('a source removed since the install still gives its rows a heading', () => {
+    const groups = groupInstalledBySource({
+      rows: [row({ id: 'tdd', kind: 'skill' })],
+      sources: [APP],
+      records: [record({ sourceId: 'github:gone/away', skillDirNames: ['tdd'] })],
+    })
+    assert.deepEqual(
+      groups.map((group) => group.label),
+      ['From a source that is no longer in your list'],
+      'the skill is still installed, so it must not vanish with the source',
+    )
+  })
+
+  run('a source with nothing installed from it gets no heading', () => {
+    const groups = groupInstalledBySource({ rows: [], sources: [APP, ACME], records: [] })
+    assert.deepEqual(groups, [], 'a heading with nothing under it says a source is installed when it is not')
+  })
+
+  // ── The update count on a tab ───────────────────────────────────────────────
+  //
+  // It answers a different question from the tab's own count: `count` is how many
+  // things are in here, `updateCount` is how many of them want you. The owner
+  // arrived at a catalogue from an update notification and the page could not say
+  // which of ten rows it meant (2026-09-10).
+
+  run('a tab wears the number of things waiting inside it', () => {
+    const tabs = deriveCatalogueTabs({
+      kind: 'plugins',
+      sources: [APP, ACME],
+      installedCount: 4,
+      counts: {
+        [STUDIO_SKILL_SOURCE_ID]: { status: 'ready', count: 9 },
+        'github:acme/skills': { status: 'ready', count: 12 },
+      },
+      updateCounts: { 'github:acme/skills': 3 },
+    })
+    const acme = tabs.find((tab) => tab.id === 'github:acme/skills')
+    assert.equal(acme?.count, 12, 'the tab still says how many it holds')
+    assert.equal(acme?.updateCount, 3, 'and, separately, how many of them are waiting')
+  })
+
+  run('a tab nobody counted wears nothing, which is not a claim of zero', () => {
+    const tabs = deriveCatalogueTabs({
+      kind: 'plugins',
+      sources: [APP],
+      installedCount: 0,
+      counts: { [STUDIO_SKILL_SOURCE_ID]: { status: 'ready', count: 9 } },
+    })
+    assert.deepEqual(
+      tabs.map((tab) => tab.updateCount),
+      [0, 0],
+      'silence draws no badge — a counter reading 0 is a counter spent saying there is no news',
+    )
+  })
+
+  run('Installed takes a count only where a caller has one to give', () => {
+    const tabs = deriveCatalogueTabs({
+      kind: 'agent-clis',
+      sources: [APP],
+      installedCount: null,
+      counts: { [STUDIO_SKILL_SOURCE_ID]: { status: 'ready', count: 10 } },
+      updateCounts: { [STUDIO_SKILL_SOURCE_ID]: 2 },
+    })
+    assert.equal(tabs[0]?.id, INSTALLED_TAB_ID)
+    // Neither catalogue counts Installed today: its rows come from the
+    // inventory's own update check and carry no per-row pips, so a number there
+    // would send a person into a list with nothing pointing at what it counted.
+    assert.equal(tabs[0]?.updateCount, 0, 'a tab nobody counted wears nothing')
+    assert.equal(tabs[0]?.count, null, 'and still speaks no holdings count it cannot honestly give')
+    assert.equal(tabs[1]?.updateCount, 2, 'the source tab, whose rows DO carry pips, wears its number')
+  })
+
+  console.log('catalogue tabs: ok')
+})

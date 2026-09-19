@@ -14,317 +14,320 @@ import {
   rowMatchesQuery,
   type RecorderKeyEvent,
 } from './KeyboardShortcutsTab'
+import { test } from 'vitest'
 
-const EMPTY: KeybindingSettings = { overrides: {}, disabled: {} }
+test('KeyboardShortcutsTab', async () => {
+  const EMPTY: KeybindingSettings = { overrides: {}, disabled: {} }
 
-function rowFor(id: string, keybindings: KeybindingSettings = EMPTY) {
-  const row = buildShortcutRows(COMMAND_REGISTRY, keybindings).find((r) => r.id === id)
-  assert.ok(row, `expected a row for ${id}`)
-  return row
-}
+  function rowFor(id: string, keybindings: KeybindingSettings = EMPTY) {
+    const row = buildShortcutRows(COMMAND_REGISTRY, keybindings).find((r) => r.id === id)
+    assert.ok(row, `expected a row for ${id}`)
+    return row
+  }
 
-// --- Defaults preserve registry behavior -----------------------------------
-const paletteDefault = rowFor('commandPalette.open')
-assert.deepEqual(paletteDefault.defaults, ['primary+k', 'primary+shift+p'])
-assert.deepEqual(paletteDefault.effective, ['primary+k', 'primary+shift+p'])
-assert.equal(paletteDefault.overrides, null)
-assert.equal(paletteDefault.disabled, false)
-assert.equal(paletteDefault.customized, false)
+  // --- Defaults preserve registry behavior -----------------------------------
+  const paletteDefault = rowFor('commandPalette.open')
+  assert.deepEqual(paletteDefault.defaults, ['primary+k', 'primary+shift+p'])
+  assert.deepEqual(paletteDefault.effective, ['primary+k', 'primary+shift+p'])
+  assert.equal(paletteDefault.overrides, null)
+  assert.equal(paletteDefault.disabled, false)
+  assert.equal(paletteDefault.customized, false)
 
-// Double Shift (Search Everywhere) is a row of its own
-// rather than a third default on the palette (skills-everywhere, 2026-09-10):
-// disable and reset are per row, so while it rode `commandPalette.open` there
-// was no way to turn the gesture off without turning ⌘K off with it. The
-// recorder still cannot capture it — a lone modifier is ignored there — but the
-// row displays it and can disable it.
-const everywhereDefault = rowFor('search.everywhere')
-assert.deepEqual(everywhereDefault.defaults, ['shift shift'])
-assert.deepEqual(everywhereDefault.effective, ['shift shift'])
-assert.equal(everywhereDefault.disabled, false)
-const everywhereDisabled = rowFor('search.everywhere', {
-  overrides: {},
-  disabled: { 'search.everywhere': true },
-})
-assert.deepEqual(everywhereDisabled.effective, [], 'the gesture can be turned off on its own…')
-assert.deepEqual(
-  rowFor('commandPalette.open', { overrides: {}, disabled: { 'search.everywhere': true } }).effective,
-  ['primary+k', 'primary+shift+p'],
-  '…and ⌘K survives it',
-)
-
-// --- Override (add/change a binding) ---------------------------------------
-const paletteOverride = rowFor('commandPalette.open', {
-  overrides: { 'commandPalette.open': ['Primary+J', 'Primary+J'] },
-  disabled: {},
-})
-assert.deepEqual(paletteOverride.overrides, ['primary+j'], 'override is normalized and de-duplicated')
-assert.deepEqual(paletteOverride.effective, ['primary+j'], 'effective follows the override')
-assert.deepEqual(paletteOverride.defaults, ['primary+k', 'primary+shift+p'], 'defaults are still surfaced')
-assert.equal(paletteOverride.customized, true)
-
-// --- Disable / reset --------------------------------------------------------
-const paletteDisabled = rowFor('commandPalette.open', {
-  overrides: {},
-  disabled: { 'commandPalette.open': true },
-})
-assert.deepEqual(paletteDisabled.effective, [], 'disabled command has no effective binding')
-assert.equal(paletteDisabled.disabled, true)
-assert.equal(paletteDisabled.customized, true)
-// Reset == empty deltas == back to defaults, not customized.
-assert.equal(rowFor('commandPalette.open', EMPTY).customized, false)
-
-// --- Search by title, category, and effective key --------------------------
-assert.equal(rowMatchesQuery(paletteDefault, 'palette', 'darwin'), true, 'matches command title')
-assert.equal(rowMatchesQuery(paletteDefault, 'command palette', 'darwin'), true, 'matches category label')
-assert.equal(rowMatchesQuery(paletteDefault, 'cmd', 'darwin'), true, 'matches rendered key (Cmd on darwin)')
-assert.equal(rowMatchesQuery(paletteDefault, 'ctrl', 'windows'), true, 'matches rendered key (Ctrl on windows)')
-assert.equal(rowMatchesQuery(paletteDefault, 'primary+k', 'darwin'), true, 'matches canonical key')
-assert.equal(rowMatchesQuery(paletteDefault, 'nope-zzz', 'darwin'), false, 'rejects non-matches')
-assert.equal(rowMatchesQuery(paletteDefault, '   ', 'darwin'), true, 'blank query matches everything')
-
-// --- Conflict text names the conflicting command ---------------------------
-// Bind the global Open Settings command onto the palette's global Primary+K.
-const conflicted = buildShortcutRows(COMMAND_REGISTRY, {
-  overrides: { 'app.settings.open': ['Primary+K'] },
-  disabled: {},
-})
-const conflicts = computeConflicts(conflicted)
-const settingsConflicts = conflicts.get('app.settings.open') ?? []
-assert.ok(settingsConflicts.length > 0, 'global vs global same-key is a conflict')
-assert.equal(conflictTone(settingsConflicts), 'error', 'same-scope conflict is blocking/error')
-const message = conflictMessage(settingsConflicts)
-assert.ok(message && message.startsWith('Conflicts with '), 'message leads with Conflicts with')
-assert.ok(message.includes('Open Command Palette'), 'message names the conflicting command title')
-// Disabling one side clears the conflict (no effective binding contributed).
-const afterDisable = computeConflicts(
-  buildShortcutRows(COMMAND_REGISTRY, {
-    overrides: { 'app.settings.open': ['Primary+K'] },
-    disabled: { 'app.settings.open': true },
-  }),
-)
-assert.equal(afterDisable.has('app.settings.open'), false, 'disabling removes the command from conflicts')
-// No conflicts -> no message/tone.
-assert.equal(conflictMessage([]), null)
-assert.equal(conflictTone([]), null)
-
-// --- Recorder key parsing (save vs cancel) ---------------------------------
-function press(partial: Partial<RecorderKeyEvent> & { key: string }): RecorderKeyEvent {
-  return { ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...partial }
-}
-// Save: platform primary accelerator maps to the abstract Primary modifier.
-assert.equal(eventToChordString(press({ key: 'k', metaKey: true }), 'darwin'), 'primary+k')
-assert.equal(eventToChordString(press({ key: 'k', ctrlKey: true }), 'windows'), 'primary+k')
-assert.equal(
-  eventToChordString(press({ key: 'k', ctrlKey: true }), 'darwin'),
-  'ctrl+k',
-  'literal Control stays Ctrl on darwin',
-)
-assert.equal(eventToChordString(press({ key: 'K', metaKey: true, shiftKey: true }), 'darwin'), 'primary+shift+k')
-assert.equal(
-  eventToChordString(press({ key: ' ', ctrlKey: true }), 'darwin'),
-  'ctrl+space',
-  'space key is captured, not treated as +',
-)
-assert.equal(eventToChordString(press({ key: '+', ctrlKey: true }), 'darwin'), 'ctrl++', 'literal plus is captured')
-assert.equal(
-  eventToChordString(press({ key: ' ', ctrlKey: true }), 'linux'),
-  'primary+space',
-  'ctrl maps to Primary off darwin',
-)
-// Cancel/wait: lone modifiers produce no chord.
-assert.equal(eventToChordString(press({ key: 'Shift', shiftKey: true }), 'darwin'), null)
-assert.equal(eventToChordString(press({ key: 'Meta', metaKey: true }), 'darwin'), null)
-assert.equal(eventToChordString(press({ key: 'Dead' }), 'linux'), null)
-// Modifier keys the ignore list does not name by event name (Super on Linux,
-// AltGraph, Fn) reach the parser as a lone modifier stroke. A lone modifier is
-// only legal as a double tap, so the parser refuses them and the recorder
-// waits, rather than saving a one-stroke `meta` or `alt` that nothing can fire.
-assert.equal(eventToChordString(press({ key: 'Super', code: 'MetaLeft' }), 'linux'), null)
-assert.equal(eventToChordString(press({ key: 'AltGraph', code: 'AltRight' }), 'linux'), null)
-
-// --- Recorder/dispatcher key identity (shifted punctuation) -----------------
-// The recorder must record by physical key (event.code), not the shifted char,
-// or the saved override never matches at dispatch. Ctrl+Shift+/ produces key
-// '?' but code 'Slash'; it must record as primary+shift+/ and resolve through
-// the real RendererCommandDispatcher.
-const shiftedRecorded = eventToChordString(press({ key: '?', code: 'Slash', ctrlKey: true, shiftKey: true }), 'linux')
-assert.equal(shiftedRecorded, 'primary+shift+/', 'shifted punctuation records by physical key')
-const dispatcher = new RendererCommandDispatcher()
-const dispatched = dispatcher.resolve(
-  { key: '?', code: 'Slash', ctrlKey: true, shiftKey: true },
-  {
-    activeScopes: ['global'],
-    keybindingOverrides: { 'commandPalette.open': [shiftedRecorded!] },
-    platform: 'linux',
-  },
-)
-assert.equal(dispatched.kind, 'matched', 'recorded shifted-punctuation override resolves at dispatch')
-assert.equal(
-  dispatched.kind === 'matched' ? dispatched.commandId : null,
-  'commandPalette.open',
-  'override routes to the bound command',
-)
-
-// --- Grouping by category ---------------------------------------------------
-const groups = groupRows(buildShortcutRows(COMMAND_REGISTRY, EMPTY))
-assert.equal(groups[0].category, COMMAND_REGISTRY[0].category, 'first group follows registry order')
-assert.equal(categoryLabel('command_palette'), 'Command palette')
-const total = groups.reduce((sum, group) => sum + group.rows.length, 0)
-assert.equal(total, COMMAND_REGISTRY.length, 'every command appears in exactly one group')
-
-// --- Module commands in the editor ------------------------------------------
-// Rows come from the merge point (shell registry + enabled module commands),
-// so a module command is editable exactly like a built-in: same row shape,
-// same override/disable deltas keyed by its namespaced id, same conflict
-// handling. Disabling the module removes the row; the persisted override stays
-// in settings and re-attaches on re-enable.
-const moduleHello = {
-  id: 'demo-module.hello',
-  title: 'Say Hello',
-  category: 'Demo Module',
-  scopes: ['global'] as const,
-  defaultKeybindings: ['Primary+Alt+H'] as const,
-}
-const mergedCommands = [...COMMAND_REGISTRY, moduleHello]
-
-const moduleRow = buildShortcutRows(mergedCommands, EMPTY).find((row) => row.id === 'demo-module.hello')
-assert.ok(moduleRow, 'module command appears as an editable shortcut row')
-assert.equal(moduleRow.category, 'Demo Module')
-assert.deepEqual(moduleRow.effective, ['primary+alt+h'], 'module defaults flow into the effective binding')
-assert.equal(categoryLabel('Demo Module'), 'Demo Module', 'module categories label as themselves')
-
-const customizedModuleSettings: KeybindingSettings = {
-  overrides: { 'demo-module.hello': ['Primary+Alt+J'] },
-  disabled: {},
-}
-const customizedModuleRow = buildShortcutRows(mergedCommands, customizedModuleSettings).find(
-  (row) => row.id === 'demo-module.hello',
-)
-assert.deepEqual(customizedModuleRow?.effective, ['primary+alt+j'], 'module command overrides apply like built-ins')
-assert.equal(customizedModuleRow?.customized, true)
-
-// Module disabled: the merge point omits the contribution, so the row is gone
-// while the stored override is untouched; rebuilding with the module back
-// restores the row with the customization intact.
-const disabledModuleRows = buildShortcutRows(COMMAND_REGISTRY, customizedModuleSettings)
-assert.equal(
-  disabledModuleRows.some((row) => row.id === 'demo-module.hello'),
-  false,
-  'disabling the module removes its row from shortcut editing',
-)
-const restoredModuleRow = buildShortcutRows(mergedCommands, customizedModuleSettings).find(
-  (row) => row.id === 'demo-module.hello',
-)
-assert.deepEqual(
-  restoredModuleRow?.effective,
-  ['primary+alt+j'],
-  're-enabling restores the row with the user-customized binding',
-)
-
-// A module command bound onto a built-in's keys surfaces through the same
-// conflict pipeline as built-in duplicates — no silent shadowing.
-const shadowConflicts = computeConflicts(
-  buildShortcutRows([...COMMAND_REGISTRY, { ...moduleHello, defaultKeybindings: ['Primary+K'] as const }], EMPTY),
-)
-const moduleShadowConflicts = shadowConflicts.get('demo-module.hello') ?? []
-assert.ok(
-  moduleShadowConflicts.some(
-    (conflict) => conflict.severity === 'blocking' && conflict.conflictingCommandId === 'commandPalette.open',
-  ),
-  'module binding on built-in keys is a blocking conflict naming the built-in',
-)
-assert.ok(
-  (shadowConflicts.get('commandPalette.open') ?? []).some(
-    (conflict) => conflict.conflictingCommandId === 'demo-module.hello',
-  ),
-  'the built-in row names the module command as the conflicting side',
-)
-
-// --- Retired commands (item 1813) -------------------------------------------
-// A profile that saved a binding for a command the shell has since retired must
-// not grow a dangling row, must not fire the old key, and must lose the stored
-// delta — the tab prunes what it lists as retired.
-const RETIRED_ID = 'panel.sprint-engines.toggle'
-assert.ok(RETIRED_COMMAND_IDS.includes(RETIRED_ID), 'the removed Sprint Engines toggle is listed as retired')
-// The sprint-engine module's commands, in their module spelling and the
-// `sprintengine.*` spelling stored before MC-2577 moved them, plus New sprint.
-for (const id of [
-  'sprint-engine.verify.progress',
-  'sprintengine.verify.progress',
-  'sprint-engine.add.role',
-  'sprintengine.add.role',
-  'sprint-engine.read.plan',
-  'sprintengine.read.plan',
-  'sprint-engine.focus.agent',
-  'sprintengine.focus.agent',
-  'sprint-engine.refresh.board',
-  'sprintengine.refresh.board',
-  'sprint-engine.goto.inbox',
-  'sprintengine.goto.inbox',
-  'sprint-engine.goto.roster',
-  'sprintengine.goto.roster',
-  'sprint-engine.goto.tasks',
-  'sprintengine.goto.tasks',
-  'sprint-engine.goto.graph',
-  'sprintengine.goto.graph',
-  'sprint-engine.goto.kanban',
-  'sprintengine.goto.kanban',
-  'sprint-engine.open.settings',
-  'sprintengine.open.settings',
-  'sprint-engine.new',
-]) {
-  assert.ok(RETIRED_COMMAND_IDS.includes(id), `${id} is listed as retired`)
-}
-assert.deepEqual(
-  retiredKeybindingIds({
-    overrides: { 'sprint-engine.goto.kanban': ['g k'] },
-    disabled: { 'sprintengine.open.settings': true },
-  }),
-  ['sprint-engine.goto.kanban', 'sprintengine.open.settings'],
-  'a stored sprint-engine override or disable flag is pruneable in either spelling',
-)
-for (const id of RETIRED_COMMAND_IDS) {
-  assert.equal(
-    COMMAND_REGISTRY.some((command) => command.id === id),
-    false,
-    `retired id ${id} must not still be a live command`,
+  // Double Shift (Search Everywhere) is a row of its own
+  // rather than a third default on the palette (skills-everywhere, 2026-09-10):
+  // disable and reset are per row, so while it rode `commandPalette.open` there
+  // was no way to turn the gesture off without turning ⌘K off with it. The
+  // recorder still cannot capture it — a lone modifier is ignored there — but the
+  // row displays it and can disable it.
+  const everywhereDefault = rowFor('search.everywhere')
+  assert.deepEqual(everywhereDefault.defaults, ['shift shift'])
+  assert.deepEqual(everywhereDefault.effective, ['shift shift'])
+  assert.equal(everywhereDefault.disabled, false)
+  const everywhereDisabled = rowFor('search.everywhere', {
+    overrides: {},
+    disabled: { 'search.everywhere': true },
+  })
+  assert.deepEqual(everywhereDisabled.effective, [], 'the gesture can be turned off on its own…')
+  assert.deepEqual(
+    rowFor('commandPalette.open', { overrides: {}, disabled: { 'search.everywhere': true } }).effective,
+    ['primary+k', 'primary+shift+p'],
+    '…and ⌘K survives it',
   )
-}
 
-const withRetiredOverride: KeybindingSettings = { overrides: { [RETIRED_ID]: ['primary+9'] }, disabled: {} }
-assert.equal(
-  buildShortcutRows(COMMAND_REGISTRY, withRetiredOverride).some((row) => row.id === RETIRED_ID),
-  false,
-  'a retired command contributes no shortcut row',
-)
-assert.deepEqual(retiredKeybindingIds(withRetiredOverride), [RETIRED_ID], 'a stored override is pruneable')
-assert.deepEqual(
-  retiredKeybindingIds({ overrides: {}, disabled: { [RETIRED_ID]: true } }),
-  [RETIRED_ID],
-  'a stored disable flag is pruneable on its own',
-)
-assert.deepEqual(retiredKeybindingIds(EMPTY), [], 'a profile with no retired deltas prunes nothing')
-// Not-currently-registered is not the same as retired: a disabled module's
-// customization must survive, so only the named ids are pruned.
-assert.deepEqual(
-  retiredKeybindingIds({ overrides: { 'demo-module.hello': ['primary+alt+j'] }, disabled: {} }),
-  [],
-  'an unregistered module binding is left alone',
-)
+  // --- Override (add/change a binding) ---------------------------------------
+  const paletteOverride = rowFor('commandPalette.open', {
+    overrides: { 'commandPalette.open': ['Primary+J', 'Primary+J'] },
+    disabled: {},
+  })
+  assert.deepEqual(paletteOverride.overrides, ['primary+j'], 'override is normalized and de-duplicated')
+  assert.deepEqual(paletteOverride.effective, ['primary+j'], 'effective follows the override')
+  assert.deepEqual(paletteOverride.defaults, ['primary+k', 'primary+shift+p'], 'defaults are still surfaced')
+  assert.equal(paletteOverride.customized, true)
 
-// The dispatcher matches the live registry, so the orphaned key is already inert
-// — pruning removes dead settings, it does not fix a ghost shortcut.
-const retiredDispatch = new RendererCommandDispatcher().resolve(
-  { key: '9', code: 'Digit9', metaKey: true },
-  { activeScopes: ['global'], keybindingOverrides: { [RETIRED_ID]: ['primary+9'] }, platform: 'darwin' },
-)
-assert.equal(retiredDispatch.kind, 'unmatched', 'a retired command id never dispatches')
-// Same chord on a live id must match, or the assertion above would pass on an
-// unparseable chord instead of on the retirement.
-const liveDispatch = new RendererCommandDispatcher().resolve(
-  { key: '9', code: 'Digit9', metaKey: true },
-  { activeScopes: ['global'], keybindingOverrides: { 'commandPalette.open': ['primary+9'] }, platform: 'darwin' },
-)
-assert.equal(liveDispatch.kind, 'matched', 'the same chord bound to a live command does dispatch')
+  // --- Disable / reset --------------------------------------------------------
+  const paletteDisabled = rowFor('commandPalette.open', {
+    overrides: {},
+    disabled: { 'commandPalette.open': true },
+  })
+  assert.deepEqual(paletteDisabled.effective, [], 'disabled command has no effective binding')
+  assert.equal(paletteDisabled.disabled, true)
+  assert.equal(paletteDisabled.customized, true)
+  // Reset == empty deltas == back to defaults, not customized.
+  assert.equal(rowFor('commandPalette.open', EMPTY).customized, false)
 
-console.log('KeyboardShortcutsTab.test.ts: ok')
+  // --- Search by title, category, and effective key --------------------------
+  assert.equal(rowMatchesQuery(paletteDefault, 'palette', 'darwin'), true, 'matches command title')
+  assert.equal(rowMatchesQuery(paletteDefault, 'command palette', 'darwin'), true, 'matches category label')
+  assert.equal(rowMatchesQuery(paletteDefault, 'cmd', 'darwin'), true, 'matches rendered key (Cmd on darwin)')
+  assert.equal(rowMatchesQuery(paletteDefault, 'ctrl', 'windows'), true, 'matches rendered key (Ctrl on windows)')
+  assert.equal(rowMatchesQuery(paletteDefault, 'primary+k', 'darwin'), true, 'matches canonical key')
+  assert.equal(rowMatchesQuery(paletteDefault, 'nope-zzz', 'darwin'), false, 'rejects non-matches')
+  assert.equal(rowMatchesQuery(paletteDefault, '   ', 'darwin'), true, 'blank query matches everything')
+
+  // --- Conflict text names the conflicting command ---------------------------
+  // Bind the global Open Settings command onto the palette's global Primary+K.
+  const conflicted = buildShortcutRows(COMMAND_REGISTRY, {
+    overrides: { 'app.settings.open': ['Primary+K'] },
+    disabled: {},
+  })
+  const conflicts = computeConflicts(conflicted)
+  const settingsConflicts = conflicts.get('app.settings.open') ?? []
+  assert.ok(settingsConflicts.length > 0, 'global vs global same-key is a conflict')
+  assert.equal(conflictTone(settingsConflicts), 'error', 'same-scope conflict is blocking/error')
+  const message = conflictMessage(settingsConflicts)
+  assert.ok(message && message.startsWith('Conflicts with '), 'message leads with Conflicts with')
+  assert.ok(message.includes('Open Command Palette'), 'message names the conflicting command title')
+  // Disabling one side clears the conflict (no effective binding contributed).
+  const afterDisable = computeConflicts(
+    buildShortcutRows(COMMAND_REGISTRY, {
+      overrides: { 'app.settings.open': ['Primary+K'] },
+      disabled: { 'app.settings.open': true },
+    }),
+  )
+  assert.equal(afterDisable.has('app.settings.open'), false, 'disabling removes the command from conflicts')
+  // No conflicts -> no message/tone.
+  assert.equal(conflictMessage([]), null)
+  assert.equal(conflictTone([]), null)
+
+  // --- Recorder key parsing (save vs cancel) ---------------------------------
+  function press(partial: Partial<RecorderKeyEvent> & { key: string }): RecorderKeyEvent {
+    return { ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, ...partial }
+  }
+  // Save: platform primary accelerator maps to the abstract Primary modifier.
+  assert.equal(eventToChordString(press({ key: 'k', metaKey: true }), 'darwin'), 'primary+k')
+  assert.equal(eventToChordString(press({ key: 'k', ctrlKey: true }), 'windows'), 'primary+k')
+  assert.equal(
+    eventToChordString(press({ key: 'k', ctrlKey: true }), 'darwin'),
+    'ctrl+k',
+    'literal Control stays Ctrl on darwin',
+  )
+  assert.equal(eventToChordString(press({ key: 'K', metaKey: true, shiftKey: true }), 'darwin'), 'primary+shift+k')
+  assert.equal(
+    eventToChordString(press({ key: ' ', ctrlKey: true }), 'darwin'),
+    'ctrl+space',
+    'space key is captured, not treated as +',
+  )
+  assert.equal(eventToChordString(press({ key: '+', ctrlKey: true }), 'darwin'), 'ctrl++', 'literal plus is captured')
+  assert.equal(
+    eventToChordString(press({ key: ' ', ctrlKey: true }), 'linux'),
+    'primary+space',
+    'ctrl maps to Primary off darwin',
+  )
+  // Cancel/wait: lone modifiers produce no chord.
+  assert.equal(eventToChordString(press({ key: 'Shift', shiftKey: true }), 'darwin'), null)
+  assert.equal(eventToChordString(press({ key: 'Meta', metaKey: true }), 'darwin'), null)
+  assert.equal(eventToChordString(press({ key: 'Dead' }), 'linux'), null)
+  // Modifier keys the ignore list does not name by event name (Super on Linux,
+  // AltGraph, Fn) reach the parser as a lone modifier stroke. A lone modifier is
+  // only legal as a double tap, so the parser refuses them and the recorder
+  // waits, rather than saving a one-stroke `meta` or `alt` that nothing can fire.
+  assert.equal(eventToChordString(press({ key: 'Super', code: 'MetaLeft' }), 'linux'), null)
+  assert.equal(eventToChordString(press({ key: 'AltGraph', code: 'AltRight' }), 'linux'), null)
+
+  // --- Recorder/dispatcher key identity (shifted punctuation) -----------------
+  // The recorder must record by physical key (event.code), not the shifted char,
+  // or the saved override never matches at dispatch. Ctrl+Shift+/ produces key
+  // '?' but code 'Slash'; it must record as primary+shift+/ and resolve through
+  // the real RendererCommandDispatcher.
+  const shiftedRecorded = eventToChordString(press({ key: '?', code: 'Slash', ctrlKey: true, shiftKey: true }), 'linux')
+  assert.equal(shiftedRecorded, 'primary+shift+/', 'shifted punctuation records by physical key')
+  const dispatcher = new RendererCommandDispatcher()
+  const dispatched = dispatcher.resolve(
+    { key: '?', code: 'Slash', ctrlKey: true, shiftKey: true },
+    {
+      activeScopes: ['global'],
+      keybindingOverrides: { 'commandPalette.open': [shiftedRecorded!] },
+      platform: 'linux',
+    },
+  )
+  assert.equal(dispatched.kind, 'matched', 'recorded shifted-punctuation override resolves at dispatch')
+  assert.equal(
+    dispatched.kind === 'matched' ? dispatched.commandId : null,
+    'commandPalette.open',
+    'override routes to the bound command',
+  )
+
+  // --- Grouping by category ---------------------------------------------------
+  const groups = groupRows(buildShortcutRows(COMMAND_REGISTRY, EMPTY))
+  assert.equal(groups[0].category, COMMAND_REGISTRY[0].category, 'first group follows registry order')
+  assert.equal(categoryLabel('command_palette'), 'Command palette')
+  const total = groups.reduce((sum, group) => sum + group.rows.length, 0)
+  assert.equal(total, COMMAND_REGISTRY.length, 'every command appears in exactly one group')
+
+  // --- Module commands in the editor ------------------------------------------
+  // Rows come from the merge point (shell registry + enabled module commands),
+  // so a module command is editable exactly like a built-in: same row shape,
+  // same override/disable deltas keyed by its namespaced id, same conflict
+  // handling. Disabling the module removes the row; the persisted override stays
+  // in settings and re-attaches on re-enable.
+  const moduleHello = {
+    id: 'demo-module.hello',
+    title: 'Say Hello',
+    category: 'Demo Module',
+    scopes: ['global'] as const,
+    defaultKeybindings: ['Primary+Alt+H'] as const,
+  }
+  const mergedCommands = [...COMMAND_REGISTRY, moduleHello]
+
+  const moduleRow = buildShortcutRows(mergedCommands, EMPTY).find((row) => row.id === 'demo-module.hello')
+  assert.ok(moduleRow, 'module command appears as an editable shortcut row')
+  assert.equal(moduleRow.category, 'Demo Module')
+  assert.deepEqual(moduleRow.effective, ['primary+alt+h'], 'module defaults flow into the effective binding')
+  assert.equal(categoryLabel('Demo Module'), 'Demo Module', 'module categories label as themselves')
+
+  const customizedModuleSettings: KeybindingSettings = {
+    overrides: { 'demo-module.hello': ['Primary+Alt+J'] },
+    disabled: {},
+  }
+  const customizedModuleRow = buildShortcutRows(mergedCommands, customizedModuleSettings).find(
+    (row) => row.id === 'demo-module.hello',
+  )
+  assert.deepEqual(customizedModuleRow?.effective, ['primary+alt+j'], 'module command overrides apply like built-ins')
+  assert.equal(customizedModuleRow?.customized, true)
+
+  // Module disabled: the merge point omits the contribution, so the row is gone
+  // while the stored override is untouched; rebuilding with the module back
+  // restores the row with the customization intact.
+  const disabledModuleRows = buildShortcutRows(COMMAND_REGISTRY, customizedModuleSettings)
+  assert.equal(
+    disabledModuleRows.some((row) => row.id === 'demo-module.hello'),
+    false,
+    'disabling the module removes its row from shortcut editing',
+  )
+  const restoredModuleRow = buildShortcutRows(mergedCommands, customizedModuleSettings).find(
+    (row) => row.id === 'demo-module.hello',
+  )
+  assert.deepEqual(
+    restoredModuleRow?.effective,
+    ['primary+alt+j'],
+    're-enabling restores the row with the user-customized binding',
+  )
+
+  // A module command bound onto a built-in's keys surfaces through the same
+  // conflict pipeline as built-in duplicates — no silent shadowing.
+  const shadowConflicts = computeConflicts(
+    buildShortcutRows([...COMMAND_REGISTRY, { ...moduleHello, defaultKeybindings: ['Primary+K'] as const }], EMPTY),
+  )
+  const moduleShadowConflicts = shadowConflicts.get('demo-module.hello') ?? []
+  assert.ok(
+    moduleShadowConflicts.some(
+      (conflict) => conflict.severity === 'blocking' && conflict.conflictingCommandId === 'commandPalette.open',
+    ),
+    'module binding on built-in keys is a blocking conflict naming the built-in',
+  )
+  assert.ok(
+    (shadowConflicts.get('commandPalette.open') ?? []).some(
+      (conflict) => conflict.conflictingCommandId === 'demo-module.hello',
+    ),
+    'the built-in row names the module command as the conflicting side',
+  )
+
+  // --- Retired commands (item 1813) -------------------------------------------
+  // A profile that saved a binding for a command the shell has since retired must
+  // not grow a dangling row, must not fire the old key, and must lose the stored
+  // delta — the tab prunes what it lists as retired.
+  const RETIRED_ID = 'panel.sprint-engines.toggle'
+  assert.ok(RETIRED_COMMAND_IDS.includes(RETIRED_ID), 'the removed Sprint Engines toggle is listed as retired')
+  // The sprint-engine module's commands, in their module spelling and the
+  // `sprintengine.*` spelling stored before MC-2577 moved them, plus New sprint.
+  for (const id of [
+    'sprint-engine.verify.progress',
+    'sprintengine.verify.progress',
+    'sprint-engine.add.role',
+    'sprintengine.add.role',
+    'sprint-engine.read.plan',
+    'sprintengine.read.plan',
+    'sprint-engine.focus.agent',
+    'sprintengine.focus.agent',
+    'sprint-engine.refresh.board',
+    'sprintengine.refresh.board',
+    'sprint-engine.goto.inbox',
+    'sprintengine.goto.inbox',
+    'sprint-engine.goto.roster',
+    'sprintengine.goto.roster',
+    'sprint-engine.goto.tasks',
+    'sprintengine.goto.tasks',
+    'sprint-engine.goto.graph',
+    'sprintengine.goto.graph',
+    'sprint-engine.goto.kanban',
+    'sprintengine.goto.kanban',
+    'sprint-engine.open.settings',
+    'sprintengine.open.settings',
+    'sprint-engine.new',
+  ]) {
+    assert.ok(RETIRED_COMMAND_IDS.includes(id), `${id} is listed as retired`)
+  }
+  assert.deepEqual(
+    retiredKeybindingIds({
+      overrides: { 'sprint-engine.goto.kanban': ['g k'] },
+      disabled: { 'sprintengine.open.settings': true },
+    }),
+    ['sprint-engine.goto.kanban', 'sprintengine.open.settings'],
+    'a stored sprint-engine override or disable flag is pruneable in either spelling',
+  )
+  for (const id of RETIRED_COMMAND_IDS) {
+    assert.equal(
+      COMMAND_REGISTRY.some((command) => command.id === id),
+      false,
+      `retired id ${id} must not still be a live command`,
+    )
+  }
+
+  const withRetiredOverride: KeybindingSettings = { overrides: { [RETIRED_ID]: ['primary+9'] }, disabled: {} }
+  assert.equal(
+    buildShortcutRows(COMMAND_REGISTRY, withRetiredOverride).some((row) => row.id === RETIRED_ID),
+    false,
+    'a retired command contributes no shortcut row',
+  )
+  assert.deepEqual(retiredKeybindingIds(withRetiredOverride), [RETIRED_ID], 'a stored override is pruneable')
+  assert.deepEqual(
+    retiredKeybindingIds({ overrides: {}, disabled: { [RETIRED_ID]: true } }),
+    [RETIRED_ID],
+    'a stored disable flag is pruneable on its own',
+  )
+  assert.deepEqual(retiredKeybindingIds(EMPTY), [], 'a profile with no retired deltas prunes nothing')
+  // Not-currently-registered is not the same as retired: a disabled module's
+  // customization must survive, so only the named ids are pruned.
+  assert.deepEqual(
+    retiredKeybindingIds({ overrides: { 'demo-module.hello': ['primary+alt+j'] }, disabled: {} }),
+    [],
+    'an unregistered module binding is left alone',
+  )
+
+  // The dispatcher matches the live registry, so the orphaned key is already inert
+  // — pruning removes dead settings, it does not fix a ghost shortcut.
+  const retiredDispatch = new RendererCommandDispatcher().resolve(
+    { key: '9', code: 'Digit9', metaKey: true },
+    { activeScopes: ['global'], keybindingOverrides: { [RETIRED_ID]: ['primary+9'] }, platform: 'darwin' },
+  )
+  assert.equal(retiredDispatch.kind, 'unmatched', 'a retired command id never dispatches')
+  // Same chord on a live id must match, or the assertion above would pass on an
+  // unparseable chord instead of on the retirement.
+  const liveDispatch = new RendererCommandDispatcher().resolve(
+    { key: '9', code: 'Digit9', metaKey: true },
+    { activeScopes: ['global'], keybindingOverrides: { 'commandPalette.open': ['primary+9'] }, platform: 'darwin' },
+  )
+  assert.equal(liveDispatch.kind, 'matched', 'the same chord bound to a live command does dispatch')
+
+  console.log('KeyboardShortcutsTab.test.ts: ok')
+})

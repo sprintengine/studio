@@ -41,14 +41,13 @@ export const BUNDLED_RENDERER_MODULE_MANIFESTS: ReadonlyArray<CapabilityManifest
 )
 
 // True only in a real packaged (production) vite renderer build. We key on
-// vite's `import.meta.env.PROD` rather than `DEV` on purpose: the unit-test
-// bundles pass `--define:import.meta.env.DEV=false` (61 of them), which esbuild
-// would fold into this gate and wrongly drop dev-only modules under test. No
-// test defines `PROD`, so reading it defensively yields `false` everywhere
-// except a genuine production build (where vite sets `PROD === true`), keeping
-// the full module set active under both dev runs and tests. Do NOT "simplify"
-// this back to `import.meta.env.DEV`.
-const IS_PRODUCTION_BUILD: boolean = (import.meta as { env?: { PROD?: boolean } }).env?.PROD === true
+// vite's `import.meta.env.PROD` rather than `DEV` on purpose: the test suite
+// runs with `DEV` false (tests/setup.ts), which would fold into this gate and
+// wrongly drop dev-only modules under test. `PROD` is false there, so the full
+// module set stays active under both dev runs and tests, and only the
+// production-channel suite (dev-only-gate.test.ts) turns it on. Do NOT
+// "simplify" this back to `import.meta.env.DEV`.
+const IS_PRODUCTION_BUILD: boolean = import.meta.env.PROD === true
 
 // Active renderer modules for this build channel. Dev-only modules (Voice,
 // Mobile Relay) are dropped from a

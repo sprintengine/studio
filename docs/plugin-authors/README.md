@@ -175,7 +175,7 @@ To run the same validator locally from a checkout of the studio repository:
 
 ```bash
 npm run verify:marketplace-registry
-node scripts/testing/run-tests.mjs resources/marketplace/verify-marketplace.test.ts
+npx vitest run resources/marketplace/verify-marketplace.test.ts
 ```
 
 Pass `-- --root <registry-checkout>` when validating a standalone registry

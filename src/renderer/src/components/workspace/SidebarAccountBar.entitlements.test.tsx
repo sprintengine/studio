@@ -7,141 +7,147 @@ import assert from 'node:assert/strict'
 // drives — which is the half that regressed if the wiring is wrong.
 import { JSDOM } from 'jsdom'
 
-const dom = new JSDOM('<!doctype html><html><body></body></html>', { url: 'http://localhost', pretendToBeVisual: true })
-const anyGlobal = globalThis as unknown as Record<string, unknown>
-const domWindow = dom.window as unknown as Record<string, unknown>
-anyGlobal.window = domWindow
-anyGlobal.document = dom.window.document
-anyGlobal.navigator = dom.window.navigator
-anyGlobal.HTMLElement = dom.window.HTMLElement
-anyGlobal.HTMLInputElement = dom.window.HTMLInputElement
-anyGlobal.Node = dom.window.Node
-anyGlobal.MouseEvent = dom.window.MouseEvent
-anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
-anyGlobal.getComputedStyle = dom.window.getComputedStyle
-anyGlobal.localStorage = dom.window.localStorage
-anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
-class FakeResizeObserver {
-  observe() {}
-  unobserve() {}
-  disconnect() {}
-}
-anyGlobal.ResizeObserver = FakeResizeObserver
-domWindow.ResizeObserver = FakeResizeObserver
-dom.window.matchMedia = ((q: string) => ({
-  matches: false,
-  media: q,
-  addEventListener: () => {},
-  removeEventListener: () => {},
-  addListener: () => {},
-  removeListener: () => {},
-})) as unknown as typeof dom.window.matchMedia
-domWindow.api = { authOpenUpgrade: async () => ({ opened: true, url: '' }) }
-
 import React from 'react'
 import { createRoot } from 'react-dom/client'
 import { act } from 'react'
 import SidebarAccountBar from './SidebarAccountBar'
 import type { MulticodeAuthState } from '../../../../shared/electron-api'
+import { test } from 'vitest'
 
-function state(
-  planCode: string,
-  features: Record<string, boolean>,
-  entitlementStatus: MulticodeAuthState['entitlementStatus'] = 'fresh',
-): MulticodeAuthState {
-  return {
-    authenticated: true,
-    user: { id: 'u1', email: 'dev@example.com', displayName: 'Dev Person', photoUrl: null },
-    selectedOrganization: null,
-    entitlements: {
-      userId: 'u1',
-      organizationId: 'o1',
-      product: 'multicode',
-      roles: [],
-      features,
-      limits: {},
-      sources: {},
-      plan: { code: planCode, status: 'active' },
-      issuedAt: '2026-08-01T00:00:00.000Z',
-      expiresAt: '2026-08-04T00:00:00.000Z',
-      schemaVersion: 1,
-    },
-    status: 'signed_in',
-    entitlementStatus,
-    message: null,
-    lastRefreshAt: null,
-    graceExpiresAt: null,
-  }
-}
-const FREE = { 'multicode.sprintengine': true, 'multicode.mobile_companion': false }
-const PRO = { 'multicode.sprintengine': true, 'multicode.mobile_companion': true }
-
-function render(authState: MulticodeAuthState): HTMLElement {
-  const host = dom.window.document.createElement('div')
-  dom.window.document.body.appendChild(host)
-  const root = createRoot(host as unknown as Element)
-  act(() => {
-    root.render(
-      React.createElement(SidebarAccountBar, {
-        collapsed: false,
-        authState,
-        authMessage: null,
-        accountOpen: true,
-        setAccountOpen: () => {},
-        startLogin: () => {},
-        refreshAuthState: () => {},
-        logout: () => {},
-        openSettings: () => {},
-        settingsOpen: false,
-      }),
-    )
+test('SidebarAccountBar.entitlements', async () => {
+  const dom = new JSDOM('<!doctype html><html><body></body></html>', {
+    url: 'http://localhost',
+    pretendToBeVisual: true,
   })
-  return dom.window.document.body as unknown as HTMLElement
-}
+  const anyGlobal = globalThis as unknown as Record<string, unknown>
+  const domWindow = dom.window as unknown as Record<string, unknown>
+  anyGlobal.window = domWindow
+  anyGlobal.document = dom.window.document
+  anyGlobal.navigator = dom.window.navigator
+  anyGlobal.HTMLElement = dom.window.HTMLElement
+  anyGlobal.HTMLInputElement = dom.window.HTMLInputElement
+  anyGlobal.Node = dom.window.Node
+  anyGlobal.MouseEvent = dom.window.MouseEvent
+  anyGlobal.KeyboardEvent = dom.window.KeyboardEvent
+  anyGlobal.getComputedStyle = dom.window.getComputedStyle
+  anyGlobal.localStorage = dom.window.localStorage
+  anyGlobal.IS_REACT_ACT_ENVIRONMENT = true
+  class FakeResizeObserver {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  }
+  anyGlobal.ResizeObserver = FakeResizeObserver
+  domWindow.ResizeObserver = FakeResizeObserver
+  dom.window.matchMedia = ((q: string) => ({
+    matches: false,
+    media: q,
+    addEventListener: () => {},
+    removeEventListener: () => {},
+    addListener: () => {},
+    removeListener: () => {},
+  })) as unknown as typeof dom.window.matchMedia
+  domWindow.api = { authOpenUpgrade: async () => ({ opened: true, url: '' }) }
 
-function texts(): string[] {
-  const buttons = [...dom.window.document.querySelectorAll('button')] as HTMLElement[]
-  return buttons.map((button) => (button.textContent ?? '').trim())
-}
+  function state(
+    planCode: string,
+    features: Record<string, boolean>,
+    entitlementStatus: MulticodeAuthState['entitlementStatus'] = 'fresh',
+  ): MulticodeAuthState {
+    return {
+      authenticated: true,
+      user: { id: 'u1', email: 'dev@example.com', displayName: 'Dev Person', photoUrl: null },
+      selectedOrganization: null,
+      entitlements: {
+        userId: 'u1',
+        organizationId: 'o1',
+        product: 'multicode',
+        roles: [],
+        features,
+        limits: {},
+        sources: {},
+        plan: { code: planCode, status: 'active' },
+        issuedAt: '2026-08-01T00:00:00.000Z',
+        expiresAt: '2026-08-04T00:00:00.000Z',
+        schemaVersion: 1,
+      },
+      status: 'signed_in',
+      entitlementStatus,
+      message: null,
+      lastRefreshAt: null,
+      graceExpiresAt: null,
+    }
+  }
+  const FREE = { 'multicode.sprintengine': true, 'multicode.mobile_companion': false }
+  const PRO = { 'multicode.sprintengine': true, 'multicode.mobile_companion': true }
 
-// Free: the upgrade affordance is offered, the badge reads Free.
-render(state('free', FREE))
-assert.ok(texts().includes('Upgrade to Pro'), 'free account is offered the upgrade')
-assert.ok(dom.window.document.body.textContent?.includes('Free plan'), 'free plan label rendered')
-dom.window.document.body.innerHTML = ''
+  function render(authState: MulticodeAuthState): HTMLElement {
+    const host = dom.window.document.createElement('div')
+    dom.window.document.body.appendChild(host)
+    const root = createRoot(host as unknown as Element)
+    act(() => {
+      root.render(
+        React.createElement(SidebarAccountBar, {
+          collapsed: false,
+          authState,
+          authMessage: null,
+          accountOpen: true,
+          setAccountOpen: () => {},
+          startLogin: () => {},
+          refreshAuthState: () => {},
+          logout: () => {},
+          openSettings: () => {},
+          settingsOpen: false,
+        }),
+      )
+    })
+    return dom.window.document.body as unknown as HTMLElement
+  }
 
-// Pro: no upgrade affordance, badge reads Pro.
-render(state('pro', PRO))
-assert.ok(!texts().includes('Upgrade to Pro'), 'paid account is not offered the upgrade')
-assert.ok(dom.window.document.body.textContent?.includes('Pro plan'), 'pro plan label rendered')
-dom.window.document.body.innerHTML = ''
+  function texts(): string[] {
+    const buttons = [...dom.window.document.querySelectorAll('button')] as HTMLElement[]
+    return buttons.map((button) => (button.textContent ?? '').trim())
+  }
 
-// Pro on a stale snapshot: still no upgrade, and the re-check appears.
-render(state('pro', PRO, 'offline_grace'))
-assert.ok(!texts().includes('Upgrade to Pro'), 'stale paid account is still not told to upgrade')
-assert.ok(texts().includes('Check access again'), 'stale access offers the re-check')
-dom.window.document.body.innerHTML = ''
+  // Free: the upgrade affordance is offered, the badge reads Free.
+  render(state('free', FREE))
+  assert.ok(texts().includes('Upgrade to Pro'), 'free account is offered the upgrade')
+  assert.ok(dom.window.document.body.textContent?.includes('Free plan'), 'free plan label rendered')
+  dom.window.document.body.innerHTML = ''
 
-// A plan NAMED pro that grants nothing paid: the upgrade is offered (the gate
-// no longer believes the plan's name), while the label still prints that name.
-render(state('pro', FREE))
-assert.ok(texts().includes('Upgrade to Pro'), 'access follows the feature keys, not the plan name')
-assert.ok(dom.window.document.body.textContent?.includes('Pro plan'), 'the label still prints the plan name')
+  // Pro: no upgrade affordance, badge reads Pro.
+  render(state('pro', PRO))
+  assert.ok(!texts().includes('Upgrade to Pro'), 'paid account is not offered the upgrade')
+  assert.ok(dom.window.document.body.textContent?.includes('Pro plan'), 'pro plan label rendered')
+  dom.window.document.body.innerHTML = ''
 
-dom.window.document.body.innerHTML = ''
+  // Pro on a stale snapshot: still no upgrade, and the re-check appears.
+  render(state('pro', PRO, 'offline_grace'))
+  assert.ok(!texts().includes('Upgrade to Pro'), 'stale paid account is still not told to upgrade')
+  assert.ok(texts().includes('Check access again'), 'stale access offers the re-check')
+  dom.window.document.body.innerHTML = ''
 
-// The cluster is the account control and the gear, nothing else (app
-// shell, 2026-09-05): the modal-surface trigger glyphs that used to render
-// before the gear are rows of the sidebar's Extensions section now — see
-// ExtensionsRail.test.tsx for that contract.
-render(state('free', FREE))
-assert.ok(dom.window.document.querySelector('button[aria-label="Settings"]'), 'the gear keeps its slot')
-assert.deepEqual(
-  [...dom.window.document.querySelectorAll('button[aria-label]')]
-    .map((button) => button.getAttribute('aria-label') ?? '')
-    .filter((label) => label !== 'Settings' && !label.startsWith('Account')),
-  [],
-  'the cluster is exactly the account control and the gear — no trigger glyphs',
-)
+  // A plan NAMED pro that grants nothing paid: the upgrade is offered (the gate
+  // no longer believes the plan's name), while the label still prints that name.
+  render(state('pro', FREE))
+  assert.ok(texts().includes('Upgrade to Pro'), 'access follows the feature keys, not the plan name')
+  assert.ok(dom.window.document.body.textContent?.includes('Pro plan'), 'the label still prints the plan name')
 
-console.log('SidebarAccountBar.entitlements.test.tsx: ok')
+  dom.window.document.body.innerHTML = ''
+
+  // The cluster is the account control and the gear, nothing else (app
+  // shell, 2026-09-05): the modal-surface trigger glyphs that used to render
+  // before the gear are rows of the sidebar's Extensions section now — see
+  // ExtensionsRail.test.tsx for that contract.
+  render(state('free', FREE))
+  assert.ok(dom.window.document.querySelector('button[aria-label="Settings"]'), 'the gear keeps its slot')
+  assert.deepEqual(
+    [...dom.window.document.querySelectorAll('button[aria-label]')]
+      .map((button) => button.getAttribute('aria-label') ?? '')
+      .filter((label) => label !== 'Settings' && !label.startsWith('Account')),
+    [],
+    'the cluster is exactly the account control and the gear — no trigger glyphs',
+  )
+
+  console.log('SidebarAccountBar.entitlements.test.tsx: ok')
+})

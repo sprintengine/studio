@@ -74,7 +74,7 @@ jobs:
       # js-tests job below, so a broken test no longer hides a broken build.
       - name: Test mobile control command
         if: runner.os == 'Windows'
-        run: node scripts/testing/run-tests.mjs src/main/mobile/control/command.test.ts
+        run: npx vitest run src/main/mobile/control/command.test.ts
 
       - name: Build
         run: npm run build
@@ -84,7 +84,7 @@ jobs:
   # that prove those lints still bite, the whole unit suite, the SDK/feed guards
   # and the release-script tests. It is named whole rather than curated: a
   # hand-maintained subset is how the gate once shrank to one script. `npm run
-  # test` DISCOVERS its test files (scripts/testing/test-profiles.json), so a new
+  # test` DISCOVERS its test files (vitest.config.ts), so a new
   # test file is in the gate the moment it is written. Do not narrow this step to
   # make the badge green.
   #

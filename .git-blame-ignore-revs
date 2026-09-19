@@ -3,3 +3,6 @@
 
 # The tree is formatted by Prettier, and CI checks it stays that way
 f27863753f0a90141ad13d3b4bdbea5cdda14425
+
+# Every test file is wrapped in one Vitest test, mechanically
+9ddd8871ce06fe175f741f64eebcfa13495b4cfe

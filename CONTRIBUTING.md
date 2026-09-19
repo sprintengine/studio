@@ -46,8 +46,9 @@ run of one takes a while and needs network access.
 ## Running the gates
 
 ```
-npm run test                                # the unit and contract suite
-node scripts/testing/run-tests.mjs <file>   # one test file, or a name fragment
+npm test                                    # the unit and contract suite (Vitest)
+npx vitest <file or name fragment>          # one file, re-run on save
+npm run test:coverage                       # the suite with a coverage report
 npm run typecheck:all                       # app and test projects
 npm run lint                                # oxlint, then the design-system and composition lints
 npm run format                              # format with Prettier (format:check only checks)
@@ -69,18 +70,23 @@ the app and the test projects, the lints, the test suite, the SDK drift and
 pack checks, and the feed seed checks. Run it before you open a pull request.
 It is the same command CI runs.
 
-There is one suite, with no Python half. `npm run test` discovers and runs
-every `*.test.ts` and `*.test.tsx` under `src/`, `packages/` and
-`resources/marketplace/`; the few it holds back are named on every run
-(`scripts/testing/test-profiles.json`). Each test runs with the app's own
-`SPRINTENGINE_*` and `MULTICODE_*` variables removed from its environment, so
-the suite behaves the same from a Studio terminal as from CI. The release-script tests
-under `scripts/release/` run as `npm run test:release`, and the lint guard
-probes as part of `npm run lint` — both are in `verify:app`. `tests/` holds
-only the fixtures those tests read.
+There is one suite, with no Python half. `npm test` runs Vitest over every
+`*.test.ts` and `*.test.tsx` under `src/`, `packages/` and
+`resources/marketplace/` (`vitest.config.ts`). Tests sit next to the code they
+test. `tests/` holds what they share: the setup every worker runs
+(`tests/setup.ts`), stand-ins for modules that only exist inside Electron
+(`tests/stubs/`, `tests/stand-in.ts`) and fixtures. Each test runs with the
+app's own `SPRINTENGINE_*` and `MULTICODE_*` variables removed from its
+environment, so the suite behaves the same from a Studio terminal as from CI.
+The suites that assert on timing run in a `serial` project, one file at a time,
+after the rest. The release-script tests under `scripts/release/` run as
+`npm run test:release`, and the lint guard probes as part of `npm run lint` —
+both are in `verify:app`.
 
-While you are iterating, `node scripts/testing/run-tests.mjs <file>` is much
-faster than the whole suite — pass a path or just part of a test file's name.
+Most suites predate Vitest: each file is one `test()` that walks its cases in
+order and asserts with `node:assert/strict`, because the cases share state and
+their order matters. Write a new file with a `test()` per case, and split an
+old one the same way when you are working in it anyway.
 
 ## The design-system rule
 

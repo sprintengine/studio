@@ -9,10 +9,10 @@
 //
 // Runs when a bundled plugin manifest changes — app builds and CI never run
 // it; the committed output is reviewed like any other diff, and
-// `node scripts/testing/run-tests.mjs resources/marketplace/cli-entries.test.ts` fails the build when the committed
+// `npx vitest run resources/marketplace/cli-entries.test.ts` fails the build when the committed
 // seed drifts from the manifests. Like catalogue:generate, ALWAYS run the
 // app-schema gates on the output before committing:
-//   npm run verify:marketplace-registry && node scripts/testing/run-tests.mjs resources/marketplace/cli-entries.test.ts
+//   npm run verify:marketplace-registry && npx vitest run resources/marketplace/cli-entries.test.ts
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'

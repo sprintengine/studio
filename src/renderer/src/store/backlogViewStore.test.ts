@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import { test } from 'vitest'
 
 import { DEFAULT_BACKLOG_PROJECT_VIEW, selectBacklogProjectView, useBacklogViewStore } from './backlogViewStore'
 

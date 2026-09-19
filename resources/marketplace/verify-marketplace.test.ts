@@ -12,7 +12,9 @@ import { parseDefinitionDraft } from '../../src/main/automations/definition-writ
 import { computeNextRun, validateScheduleTriggerConfig } from '../../src/main/automations/schedule'
 import { skillContentDigest } from '../../src/main/marketplace/skill-content'
 import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../src/shared/automations/contracts'
+import { test } from 'vitest'
 
+test("verify-marketplace", async () => {
 const workDir = mkdtempSync(join(tmpdir(), 'multicode-marketplace-publish-'))
 const verifierBundle = join(process.cwd(), 'node_modules', '.cache', 'multicode', 'marketplace-registry-verify-for-test.cjs')
 const seedRoot = join(process.cwd(), 'resources', 'marketplace')
@@ -625,3 +627,4 @@ try {
 } finally {
   rmSync(workDir, { recursive: true, force: true })
 }
+})

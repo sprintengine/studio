@@ -123,5 +123,5 @@ and runs:
 
 ```bash
 npm run verify:marketplace-registry -- --root "$GITHUB_WORKSPACE/registry"
-node scripts/testing/run-tests.mjs resources/marketplace/verify-marketplace.test.ts
+npx vitest run resources/marketplace/verify-marketplace.test.ts
 ```
