@@ -1,0 +1,49 @@
+name: Bug report
+description: Something in the app does not do what it says it does.
+labels: [bug]
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what the app did instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a workspace on a repository with …
+        2. Start a Claude Code agent and …
+        3. …
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: App version
+      description: Help → About SprintEngine Studio, or the name of the installer you ran.
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: Operating system
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows
+        - Linux
+    validations:
+      required: true
+  - type: input
+    id: agent-cli
+    attributes:
+      label: Agent CLI and version, if one is involved
+      placeholder: Claude Code 2.x, Codex 0.x, …
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or screenshots
+      description: The developer tools console (View → Toggle Developer Tools) often shows the cause. Take out tokens, paths and repository names you do not want public.

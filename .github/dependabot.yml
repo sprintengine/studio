@@ -1,0 +1,23 @@
+version: 2
+updates:
+  # Minor and patch updates arrive as one weekly pull request; a major version
+  # arrives on its own, because each one is a migration to read, not a bump.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      # The xterm addons are pinned to one beta build together; they move as a
+      # set, by hand, when the terminal is re-tested.
+      - dependency-name: '@xterm/*'
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ['*']

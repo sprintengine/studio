@@ -52,6 +52,7 @@ jobs:
         os:
           - ubuntu-latest
           - windows-latest
+          - macos-latest
 
     steps:
       - name: Checkout
@@ -60,7 +61,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
@@ -69,12 +70,18 @@ jobs:
       - name: Typecheck
         run: npm run typecheck:all
 
-      # The only test script this job still runs, and only on Windows: it is the
-      # sole check ever measured on that platform. The Linux JS suite is the
-      # js-tests job below, so a broken test no longer hides a broken build.
+      # Windows runs only the one test file ever measured there. The Linux suite
+      # is the js-tests job below, so a broken test no longer hides a broken build.
       - name: Test mobile control command
         if: runner.os == 'Windows'
         run: npx vitest run src/main/mobile/control/command.test.ts
+
+      # macOS is where the app is developed and most of it is used, and the whole
+      # suite has been measured green there: the terminal, PTY and path handling
+      # it exercises differ from Linux in ways the js-tests job cannot see.
+      - name: Test suite
+        if: runner.os == 'macOS'
+        run: npm test
 
       - name: Build
         run: npm run build
@@ -106,7 +113,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version-file: .nvmrc
           cache: npm
 
       - name: Install dependencies
