@@ -19,410 +19,418 @@ import {
 import { resolveSkillInvocation } from '../../../shared/skill-invocation'
 import type { McpServerConfig, Workspace } from '../types/workspace'
 import type { PluginSkillCatalog } from '../../../shared/plugin-manifest'
+import { test } from 'vitest'
 
-type WorktreeInput = Pick<Workspace, 'folderPath' | 'worktree'>
+test('workspaceWorktree', async () => {
+  type WorktreeInput = Pick<Workspace, 'folderPath' | 'worktree'>
 
-function make(overrides: Partial<WorktreeInput>): WorktreeInput {
-  return {
-    folderPath: '/Users/example/project',
-    worktree: null,
+  function make(overrides: Partial<WorktreeInput>): WorktreeInput {
+    return {
+      folderPath: '/Users/example/project',
+      worktree: null,
+      ...overrides,
+    }
+  }
+
+  // 1. A worktree workspace (Open as workspace): folderPath already IS the
+  //    worktree, so git root stays folderPath; branch from the explicit marker.
+  {
+    const ws = make({
+      folderPath: '/Users/example/wt/parser-spike',
+      worktree: { branch: 'spike/parser' },
+    })
+    const resolved = resolveWorkspaceWorktree(ws)
+    assert.deepEqual(resolved, {
+      gitRoot: '/Users/example/wt/parser-spike',
+      branch: 'spike/parser',
+    })
+  }
+
+  // 1b. The marker's own `repoRoot` (the project the worktree was cut from) is a
+  //     grouping fact and stays OUT of the resolved entry: the Git panel
+  //     operates on the resolved checkout, and naming the parent there would
+  //     diff, stage, commit and spawn terminals in the parent while a perfectly
+  //     healthy worktree sits in front of the user.
+  {
+    const ws = make({
+      folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+      worktree: { branch: 'agent/chat-a1b2', repoRoot: '/Users/example/project' },
+    })
+    assert.deepEqual(resolveWorkspaceWorktree(ws), {
+      gitRoot: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+      branch: 'agent/chat-a1b2',
+    })
+  }
+
+  // 2. Regular workspace (no worktree marker) → null.
+  {
+    assert.equal(resolveWorkspaceWorktree(make({})), null)
+  }
+
+  // 3. No folderPath → null even with a marker (can't resolve a git root).
+  {
+    assert.equal(resolveWorkspaceWorktree(make({ folderPath: null, worktree: { branch: 'b' } })), null)
+  }
+
+  // --- findHealthyWorktreeScope ---
+
+  const scope = (overrides: Partial<WorktreeScopeCandidate>): WorktreeScopeCandidate => ({
+    id: 'worktree:/x',
+    path: '/x',
+    branch: null,
+    missing: false,
+    locked: false,
+    prunable: false,
     ...overrides,
+  })
+
+  const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'main' })
+
+  // 8. Matches the worktree by path.
+  {
+    const wt = scope({
+      id: 'worktree:/wt',
+      path: '/Users/example/project/.multicode-worktrees/project/a',
+      branch: 'agent/a',
+    })
+    const found = findHealthyWorktreeScope([mainScope, wt], wt.path, 'agent/a')
+    assert.equal(found?.id, wt.id)
   }
-}
 
-// 1. A worktree workspace (Open as workspace): folderPath already IS the
-//    worktree, so git root stays folderPath; branch from the explicit marker.
-{
-  const ws = make({
-    folderPath: '/Users/example/wt/parser-spike',
-    worktree: { branch: 'spike/parser' },
-  })
-  const resolved = resolveWorkspaceWorktree(ws)
-  assert.deepEqual(resolved, {
-    gitRoot: '/Users/example/wt/parser-spike',
-    branch: 'spike/parser',
-  })
-}
+  // 9. Branch recovers the match when the path diverges (symlinked root): the
+  //    joined gitRoot points at /tmp/... but git lists /private/tmp/...
+  {
+    const wt = scope({
+      id: 'worktree:/private',
+      path: '/private/tmp/proj/.multicode-worktrees/project/a',
+      branch: 'agent/a',
+    })
+    const joinedButSymlinked = '/tmp/proj/.multicode-worktrees/project/a'
+    const found = findHealthyWorktreeScope([mainScope, wt], joinedButSymlinked, 'agent/a')
+    assert.equal(found?.id, wt.id, 'branch match recovers a symlinked path divergence')
+  }
 
-// 1b. The marker's own `repoRoot` (the project the worktree was cut from) is a
-//     grouping fact and stays OUT of the resolved entry: the Git panel
-//     operates on the resolved checkout, and naming the parent there would
-//     diff, stage, commit and spawn terminals in the parent while a perfectly
-//     healthy worktree sits in front of the user.
-{
-  const ws = make({
-    folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
-    worktree: { branch: 'agent/chat-a1b2', repoRoot: '/Users/example/project' },
-  })
-  assert.deepEqual(resolveWorkspaceWorktree(ws), {
-    gitRoot: '/Users/example/.multicode-worktrees/project/chat-a1b2',
-    branch: 'agent/chat-a1b2',
-  })
-}
+  // 10. Unhealthy worktree scopes are excluded → null (so the panel stays on main
+  //     and does not loop with the validity-reset effect).
+  {
+    for (const bad of [{ prunable: true }, { missing: true }, { locked: true }]) {
+      const wt = scope({ id: 'worktree:/wt', path: '/wt', branch: 'agent/a', ...bad })
+      assert.equal(
+        findHealthyWorktreeScope([mainScope, wt], '/wt', 'agent/a'),
+        null,
+        `excludes ${JSON.stringify(bad)} worktree`,
+      )
+    }
+  }
 
-// 2. Regular workspace (no worktree marker) → null.
-{
-  assert.equal(resolveWorkspaceWorktree(make({})), null)
-}
+  // 11. No gitRoot and no branch → null (a non-worktree workspace).
+  {
+    assert.equal(findHealthyWorktreeScope([mainScope], null, null), null)
+  }
 
-// 3. No folderPath → null even with a marker (can't resolve a git root).
-{
-  assert.equal(resolveWorkspaceWorktree(make({ folderPath: null, worktree: { branch: 'b' } })), null)
-}
+  // 12. No matching scope present → null (worktree not yet listed).
+  {
+    assert.equal(findHealthyWorktreeScope([mainScope], '/wt', 'agent/a'), null)
+  }
 
-// --- findHealthyWorktreeScope ---
+  // --- connector chats ---
 
-const scope = (overrides: Partial<WorktreeScopeCandidate>): WorktreeScopeCandidate => ({
-  id: 'worktree:/x',
-  path: '/x',
-  branch: null,
-  missing: false,
-  locked: false,
-  prunable: false,
-  ...overrides,
-})
+  // 18. Branch + slug are derived from the connector id and a unique suffix.
+  {
+    assert.equal(connectorWorktreeBranch('railway', 'a1b2c3d4'), 'connector/railway-a1b2c3d4')
+    assert.equal(connectorWorktreeSlug('railway', 'a1b2c3d4'), 'railway-a1b2c3d4')
+  }
 
-const mainScope = scope({ id: 'main', path: '/Users/example/project', branch: 'main' })
+  // 19. Worktree paths land under the repo's shared `.multicode-worktrees/<repo>`
+  //     container (worktreeContainerPath — the single source the Worktree manager
+  //     also uses).
+  {
+    assert.equal(worktreeContainerPath('/Users/example/project'), '/Users/example/.multicode-worktrees/project')
+  }
 
-// 8. Matches the worktree by path.
-{
-  const wt = scope({
-    id: 'worktree:/wt',
-    path: '/Users/example/project/.multicode-worktrees/project/a',
-    branch: 'agent/a',
-  })
-  const found = findHealthyWorktreeScope([mainScope, wt], wt.path, 'agent/a')
-  assert.equal(found?.id, wt.id)
-}
+  // 20. connectorMcpSettings wraps exactly one server with sync ON — never a second
+  //     server, so the spawn syncs only the connector into the worktree.
+  {
+    const railway: McpServerConfig = {
+      id: 'railway',
+      name: 'Railway',
+      transport: 'http',
+      url: 'https://mcp.railway.com',
+      enabled: true,
+      clients: ['codex', 'claude'],
+      scope: 'workspace',
+      source: 'bundled',
+      riskLevel: 'secrets',
+    }
+    const settings = connectorMcpSettings(railway)
+    assert.equal(settings.syncEnabled, true)
+    assert.deepEqual(Object.keys(settings.servers), ['railway'])
+    assert.equal(settings.servers.railway, railway)
+  }
 
-// 9. Branch recovers the match when the path diverges (symlinked root): the
-//    joined gitRoot points at /tmp/... but git lists /private/tmp/...
-{
-  const wt = scope({
-    id: 'worktree:/private',
-    path: '/private/tmp/proj/.multicode-worktrees/project/a',
-    branch: 'agent/a',
-  })
-  const joinedButSymlinked = '/tmp/proj/.multicode-worktrees/project/a'
-  const found = findHealthyWorktreeScope([mainScope, wt], joinedButSymlinked, 'agent/a')
-  assert.equal(found?.id, wt.id, 'branch match recovers a symlinked path divergence')
-}
+  // 21. resolveSkillInvocation (shared with the debug launch path) is the plugin's
+  //     CLI-native explicit template with {{skillId}} substituted — `/use-railway`
+  //     (Claude) and `Use $use-railway.` (Codex).
+  {
+    const claude: PluginSkillCatalog = {
+      support: 'native',
+      harnessId: 'claude',
+      installTargets: [
+        {
+          scope: 'workspace',
+          path: '{{workspaceRoot}}/.claude/skills/{{skillId}}',
+          format: 'claude-code',
+          restartRequired: true,
+        },
+      ],
+      invocation: { explicitTemplate: '/{{skillId}}', nativeSlashCommand: true },
+    }
+    const codex: PluginSkillCatalog = {
+      support: 'native',
+      harnessId: 'codex',
+      installTargets: [
+        {
+          scope: 'workspace',
+          path: '{{workspaceRoot}}/.codex/skills/{{skillId}}',
+          format: 'codex',
+          restartRequired: true,
+        },
+      ],
+      invocation: { explicitTemplate: 'Use ${{skillId}}.', explicitMention: true },
+    }
+    assert.equal(resolveSkillInvocation(claude, 'use-railway'), '/use-railway')
+    assert.equal(resolveSkillInvocation(codex, 'use-railway'), 'Use $use-railway.')
+  }
 
-// 10. Unhealthy worktree scopes are excluded → null (so the panel stays on main
-//     and does not loop with the validity-reset effect).
-{
-  for (const bad of [{ prunable: true }, { missing: true }, { locked: true }]) {
-    const wt = scope({ id: 'worktree:/wt', path: '/wt', branch: 'agent/a', ...bad })
+  // 22. No native skill support (or no plugin, or no explicit template) → undefined,
+  //     so the caller falls back to the plain instruction.
+  {
+    assert.equal(resolveSkillInvocation(undefined, 'use-railway'), undefined)
+    const unsupported: PluginSkillCatalog = { support: 'unsupported', harnessId: 'x', installTargets: [] }
+    assert.equal(resolveSkillInvocation(unsupported, 'use-railway'), undefined)
+    const noTemplate: PluginSkillCatalog = {
+      support: 'native',
+      harnessId: 'claude',
+      installTargets: [
+        {
+          scope: 'workspace',
+          path: '{{workspaceRoot}}/.claude/skills/{{skillId}}',
+          format: 'claude-code',
+          restartRequired: true,
+        },
+      ],
+      invocation: {},
+    }
+    assert.equal(resolveSkillInvocation(noTemplate, 'use-railway'), undefined)
+  }
+
+  // --- agent spawn worktrees ---
+
+  // 28. Slug + id derivation (shared with the Worktree manager): messy names
+  //     reduce to a safe slug; ids are path-derived and separator-free.
+  {
+    assert.equal(slugifyWorktreeName('  Fix Payments!! '), 'fix-payments')
+    assert.equal(slugifyWorktreeName('///'), '')
     assert.equal(
-      findHealthyWorktreeScope([mainScope, wt], '/wt', 'agent/a'),
-      null,
-      `excludes ${JSON.stringify(bad)} worktree`,
+      worktreeIdFromPath('/Users/example/.multicode-worktrees/project/nova-x1'),
+      'worktree-users-example-multicode-worktrees-project-nova-x1',
     )
   }
-}
 
-// 11. No gitRoot and no branch → null (a non-worktree workspace).
-{
-  assert.equal(findHealthyWorktreeScope([mainScope], null, null), null)
-}
-
-// 12. No matching scope present → null (worktree not yet listed).
-{
-  assert.equal(findHealthyWorktreeScope([mainScope], '/wt', 'agent/a'), null)
-}
-
-// --- connector chats ---
-
-// 18. Branch + slug are derived from the connector id and a unique suffix.
-{
-  assert.equal(connectorWorktreeBranch('railway', 'a1b2c3d4'), 'connector/railway-a1b2c3d4')
-  assert.equal(connectorWorktreeSlug('railway', 'a1b2c3d4'), 'railway-a1b2c3d4')
-}
-
-// 19. Worktree paths land under the repo's shared `.multicode-worktrees/<repo>`
-//     container (worktreeContainerPath — the single source the Worktree manager
-//     also uses).
-{
-  assert.equal(worktreeContainerPath('/Users/example/project'), '/Users/example/.multicode-worktrees/project')
-}
-
-// 20. connectorMcpSettings wraps exactly one server with sync ON — never a second
-//     server, so the spawn syncs only the connector into the worktree.
-{
-  const railway: McpServerConfig = {
-    id: 'railway',
-    name: 'Railway',
-    transport: 'http',
-    url: 'https://mcp.railway.com',
-    enabled: true,
-    clients: ['codex', 'claude'],
-    scope: 'workspace',
-    source: 'bundled',
-    riskLevel: 'secrets',
-  }
-  const settings = connectorMcpSettings(railway)
-  assert.equal(settings.syncEnabled, true)
-  assert.deepEqual(Object.keys(settings.servers), ['railway'])
-  assert.equal(settings.servers.railway, railway)
-}
-
-// 21. resolveSkillInvocation (shared with the debug launch path) is the plugin's
-//     CLI-native explicit template with {{skillId}} substituted — `/use-railway`
-//     (Claude) and `Use $use-railway.` (Codex).
-{
-  const claude: PluginSkillCatalog = {
-    support: 'native',
-    harnessId: 'claude',
-    installTargets: [
-      {
-        scope: 'workspace',
-        path: '{{workspaceRoot}}/.claude/skills/{{skillId}}',
-        format: 'claude-code',
-        restartRequired: true,
-      },
-    ],
-    invocation: { explicitTemplate: '/{{skillId}}', nativeSlashCommand: true },
-  }
-  const codex: PluginSkillCatalog = {
-    support: 'native',
-    harnessId: 'codex',
-    installTargets: [
-      {
-        scope: 'workspace',
-        path: '{{workspaceRoot}}/.codex/skills/{{skillId}}',
-        format: 'codex',
-        restartRequired: true,
-      },
-    ],
-    invocation: { explicitTemplate: 'Use ${{skillId}}.', explicitMention: true },
-  }
-  assert.equal(resolveSkillInvocation(claude, 'use-railway'), '/use-railway')
-  assert.equal(resolveSkillInvocation(codex, 'use-railway'), 'Use $use-railway.')
-}
-
-// 22. No native skill support (or no plugin, or no explicit template) → undefined,
-//     so the caller falls back to the plain instruction.
-{
-  assert.equal(resolveSkillInvocation(undefined, 'use-railway'), undefined)
-  const unsupported: PluginSkillCatalog = { support: 'unsupported', harnessId: 'x', installTargets: [] }
-  assert.equal(resolveSkillInvocation(unsupported, 'use-railway'), undefined)
-  const noTemplate: PluginSkillCatalog = {
-    support: 'native',
-    harnessId: 'claude',
-    installTargets: [
-      {
-        scope: 'workspace',
-        path: '{{workspaceRoot}}/.claude/skills/{{skillId}}',
-        format: 'claude-code',
-        restartRequired: true,
-      },
-    ],
-    invocation: {},
-  }
-  assert.equal(resolveSkillInvocation(noTemplate, 'use-railway'), undefined)
-}
-
-// --- agent spawn worktrees ---
-
-// 28. Slug + id derivation (shared with the Worktree manager): messy names
-//     reduce to a safe slug; ids are path-derived and separator-free.
-{
-  assert.equal(slugifyWorktreeName('  Fix Payments!! '), 'fix-payments')
-  assert.equal(slugifyWorktreeName('///'), '')
-  assert.equal(
-    worktreeIdFromPath('/Users/example/.multicode-worktrees/project/nova-x1'),
-    'worktree-users-example-multicode-worktrees-project-nova-x1',
-  )
-}
-
-// 29. Agent worktree paths land under the same shared container as the Worktree
-//     manager and connector chats, on an `agent/<slug>` branch.
-{
-  const paths = agentWorktreePaths('/Users/example/project', 'Fix Payments')
-  assert.deepEqual(paths, {
-    containerPath: '/Users/example/.multicode-worktrees/project',
-    destinationPath: '/Users/example/.multicode-worktrees/project/fix-payments',
-    slug: 'fix-payments',
-    branchName: 'agent/fix-payments',
-  })
-}
-
-// 30. A name that reduces to an empty slug → null (caller surfaces the error
-//     instead of creating a worktree at the container root).
-{
-  assert.equal(agentWorktreePaths('/Users/example/project', ' // '), null)
-}
-
-// --- repoRootFromWorktreePath / workspaceProjectRoot ---
-
-// 31. The inverse of the container convention: whatever worktreeContainerPath
-//     and agentWorktreePaths build, this takes apart again.
-{
-  const repo = '/Users/example/project'
-  assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/nova-x1`), repo)
-  assert.equal(repoRootFromWorktreePath(agentWorktreePaths(repo, 'Fix Payments')!.destinationPath), repo)
-  // A slug may itself contain `/` (slugifyWorktreeName allows it); everything
-  // past `<repo>` is slug and simply falls away.
-  assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/feat/x`), repo)
-  // Windows separators survive as Windows separators, drive letter included.
-  assert.equal(repoRootFromWorktreePath('C:\\a\\.multicode-worktrees\\proj\\s'), 'C:\\a\\proj')
-  // A trailing separator is not a slug segment.
-  assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/nova-x1/`), repo)
-}
-
-// 32. Anything not inside a container is not a worktree path.
-{
-  assert.equal(repoRootFromWorktreePath('/Users/example/project'), null, 'a plain checkout')
-  assert.equal(repoRootFromWorktreePath('/Users/example/.multicode-worktrees'), null, 'the container dir itself')
-  assert.equal(repoRootFromWorktreePath('/Users/example/.multicode-worktrees/project'), null, 'no slug segment')
-  assert.equal(repoRootFromWorktreePath('.multicode-worktrees/project/slug'), null, 'nothing before the marker')
-}
-
-// 33. workspaceProjectRoot: the recorded project wins over the derived one, so a
-//     symlinked or relocated worktree still files under the folder the chat was
-//     scoped to.
-{
-  assert.equal(
-    workspaceProjectRoot({
-      folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
-      worktree: { branch: 'agent/chat-a1b2', repoRoot: '/Users/example/other-checkout' },
-    }),
-    '/Users/example/other-checkout',
-  )
-}
-
-// 34. A row written before `repoRoot` existed still files under its parent,
-//     derived from the container convention.
-{
-  assert.equal(
-    workspaceProjectRoot({
-      folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
-      worktree: { branch: 'agent/chat-a1b2' },
-    }),
-    '/Users/example/project',
-  )
-}
-
-// 34b. A worktree cut from a worktree nests its container. Both the derived and
-//      the recorded answer peel all the way out, so such a chat files under the
-//      real project and never under the intermediate worktree.
-{
-  const nested = `${worktreeContainerPath('/Users/example/.multicode-worktrees/project/chat-a1b2')}/chat-e5f6`
-  assert.equal(nested, '/Users/example/.multicode-worktrees/project/.multicode-worktrees/chat-a1b2/chat-e5f6')
-  assert.equal(
-    workspaceProjectRoot({ folderPath: nested, worktree: { branch: 'agent/chat-e5f6' } }),
-    '/Users/example/project',
-    'a legacy nested row derives past the intermediate worktree',
-  )
-  assert.equal(
-    workspaceProjectRoot({
-      folderPath: nested,
-      worktree: { branch: 'agent/chat-e5f6', repoRoot: '/Users/example/.multicode-worktrees/project/chat-a1b2' },
-    }),
-    '/Users/example/project',
-    'a recorded intermediate worktree is peeled too',
-  )
-}
-
-// 35. Everything else is its own folder, unchanged.
-{
-  assert.equal(workspaceProjectRoot({ folderPath: '/Users/example/project', worktree: null }), '/Users/example/project')
-  assert.equal(
-    workspaceProjectRoot({ folderPath: '/Users/example/project', worktree: undefined }),
-    '/Users/example/project',
-  )
-  assert.equal(workspaceProjectRoot({ folderPath: null, worktree: null }), null, 'folderless workspace')
-  assert.equal(workspaceProjectRoot({ folderPath: '   ', worktree: null }), null, 'blank folderPath')
-}
-
-// --- resolveWorktreeSpawnFallback ---
-
-const existsAlways = async () => true
-const existsNever = async () => false
-
-void (async () => {
-  // 13. Worktree cwd still present → pass through unchanged, no fallback.
+  // 29. Agent worktree paths land under the same shared container as the Worktree
+  //     manager and connector chats, on an `agent/<slug>` branch.
   {
-    const result = await resolveWorktreeSpawnFallback(
-      'worktree',
-      '/proj/.multicode-worktrees/project/a',
-      '/proj',
-      existsAlways,
+    const paths = agentWorktreePaths('/Users/example/project', 'Fix Payments')
+    assert.deepEqual(paths, {
+      containerPath: '/Users/example/.multicode-worktrees/project',
+      destinationPath: '/Users/example/.multicode-worktrees/project/fix-payments',
+      slug: 'fix-payments',
+      branchName: 'agent/fix-payments',
+    })
+  }
+
+  // 30. A name that reduces to an empty slug → null (caller surfaces the error
+  //     instead of creating a worktree at the container root).
+  {
+    assert.equal(agentWorktreePaths('/Users/example/project', ' // '), null)
+  }
+
+  // --- repoRootFromWorktreePath / workspaceProjectRoot ---
+
+  // 31. The inverse of the container convention: whatever worktreeContainerPath
+  //     and agentWorktreePaths build, this takes apart again.
+  {
+    const repo = '/Users/example/project'
+    assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/nova-x1`), repo)
+    assert.equal(repoRootFromWorktreePath(agentWorktreePaths(repo, 'Fix Payments')!.destinationPath), repo)
+    // A slug may itself contain `/` (slugifyWorktreeName allows it); everything
+    // past `<repo>` is slug and simply falls away.
+    assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/feat/x`), repo)
+    // Windows separators survive as Windows separators, drive letter included.
+    assert.equal(repoRootFromWorktreePath('C:\\a\\.multicode-worktrees\\proj\\s'), 'C:\\a\\proj')
+    // A trailing separator is not a slug segment.
+    assert.equal(repoRootFromWorktreePath(`${worktreeContainerPath(repo)}/nova-x1/`), repo)
+  }
+
+  // 32. Anything not inside a container is not a worktree path.
+  {
+    assert.equal(repoRootFromWorktreePath('/Users/example/project'), null, 'a plain checkout')
+    assert.equal(repoRootFromWorktreePath('/Users/example/.multicode-worktrees'), null, 'the container dir itself')
+    assert.equal(repoRootFromWorktreePath('/Users/example/.multicode-worktrees/project'), null, 'no slug segment')
+    assert.equal(repoRootFromWorktreePath('.multicode-worktrees/project/slug'), null, 'nothing before the marker')
+  }
+
+  // 33. workspaceProjectRoot: the recorded project wins over the derived one, so a
+  //     symlinked or relocated worktree still files under the folder the chat was
+  //     scoped to.
+  {
+    assert.equal(
+      workspaceProjectRoot({
+        folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+        worktree: { branch: 'agent/chat-a1b2', repoRoot: '/Users/example/other-checkout' },
+      }),
+      '/Users/example/other-checkout',
     )
-    assert.deepEqual(result, { fellBack: false, cwd: '/proj/.multicode-worktrees/project/a' })
   }
 
-  // 14. Worktree cwd removed → fall back to the workspace folder and flag it.
+  // 34. A row written before `repoRoot` existed still files under its parent,
+  //     derived from the container convention.
   {
-    const result = await resolveWorktreeSpawnFallback(
-      'worktree',
-      '/proj/.multicode-worktrees/project/a',
-      '/proj',
-      existsNever,
+    assert.equal(
+      workspaceProjectRoot({
+        folderPath: '/Users/example/.multicode-worktrees/project/chat-a1b2',
+        worktree: { branch: 'agent/chat-a1b2' },
+      }),
+      '/Users/example/project',
     )
-    assert.deepEqual(result, { fellBack: true, cwd: '/proj' })
   }
 
-  // 15. Non-worktree agent → never probes the filesystem, passes through.
+  // 34b. A worktree cut from a worktree nests its container. Both the derived and
+  //      the recorded answer peel all the way out, so such a chat files under the
+  //      real project and never under the intermediate worktree.
   {
-    let probed = false
-    const result = await resolveWorktreeSpawnFallback('current_workspace', undefined, '/proj', async () => {
-      probed = true
-      return false
-    })
-    assert.deepEqual(result, { fellBack: false, cwd: undefined })
-    assert.equal(probed, false, 'non-worktree agents must not stat a cwd')
+    const nested = `${worktreeContainerPath('/Users/example/.multicode-worktrees/project/chat-a1b2')}/chat-e5f6`
+    assert.equal(nested, '/Users/example/.multicode-worktrees/project/.multicode-worktrees/chat-a1b2/chat-e5f6')
+    assert.equal(
+      workspaceProjectRoot({ folderPath: nested, worktree: { branch: 'agent/chat-e5f6' } }),
+      '/Users/example/project',
+      'a legacy nested row derives past the intermediate worktree',
+    )
+    assert.equal(
+      workspaceProjectRoot({
+        folderPath: nested,
+        worktree: { branch: 'agent/chat-e5f6', repoRoot: '/Users/example/.multicode-worktrees/project/chat-a1b2' },
+      }),
+      '/Users/example/project',
+      'a recorded intermediate worktree is peeled too',
+    )
   }
 
-  // 16. Worktree mode but no cwd recorded → pass through (nothing to probe).
+  // 35. Everything else is its own folder, unchanged.
   {
-    const result = await resolveWorktreeSpawnFallback('worktree', undefined, '/proj', existsNever)
-    assert.deepEqual(result, { fellBack: false, cwd: undefined })
+    assert.equal(
+      workspaceProjectRoot({ folderPath: '/Users/example/project', worktree: null }),
+      '/Users/example/project',
+    )
+    assert.equal(
+      workspaceProjectRoot({ folderPath: '/Users/example/project', worktree: undefined }),
+      '/Users/example/project',
+    )
+    assert.equal(workspaceProjectRoot({ folderPath: null, worktree: null }), null, 'folderless workspace')
+    assert.equal(workspaceProjectRoot({ folderPath: '   ', worktree: null }), null, 'blank folderPath')
   }
 
-  // 17. Removed worktree with no workspace folder → fell back with undefined cwd
-  //     (caller lets the launch surface the missing-root error).
-  {
-    const result = await resolveWorktreeSpawnFallback('worktree', '/gone/worktree', null, existsNever)
-    assert.deepEqual(result, { fellBack: true, cwd: undefined })
-  }
+  // --- resolveWorktreeSpawnFallback ---
 
-  // --- resolveWorkspaceTerminalCwd ---
+  const existsAlways = async () => true
+  const existsNever = async () => false
 
-  // 24. Null gitRoot → not worktree-backed, no override, never probes the fs.
-  {
-    let probed = false
-    const result = await resolveWorkspaceTerminalCwd(null, '/proj', async () => {
-      probed = true
-      return true
-    })
-    assert.deepEqual(result, { cwd: null, missing: false })
-    assert.equal(probed, false, 'null gitRoot must not stat')
-  }
+  const suiteRun = (async () => {
+    // 13. Worktree cwd still present → pass through unchanged, no fallback.
+    {
+      const result = await resolveWorktreeSpawnFallback(
+        'worktree',
+        '/proj/.multicode-worktrees/project/a',
+        '/proj',
+        existsAlways,
+      )
+      assert.deepEqual(result, { fellBack: false, cwd: '/proj/.multicode-worktrees/project/a' })
+    }
 
-  // 25. gitRoot === folderPath → the workspace folder already IS the worktree
-  //     (worktree-opened / connector-chat), so no override and no fs probe.
-  {
-    let probed = false
-    const result = await resolveWorkspaceTerminalCwd('/wt/spike', '/wt/spike', async () => {
-      probed = true
-      return true
-    })
-    assert.deepEqual(result, { cwd: null, missing: false })
-    assert.equal(probed, false, 'samePath short-circuits before probing')
-  }
+    // 14. Worktree cwd removed → fall back to the workspace folder and flag it.
+    {
+      const result = await resolveWorktreeSpawnFallback(
+        'worktree',
+        '/proj/.multicode-worktrees/project/a',
+        '/proj',
+        existsNever,
+      )
+      assert.deepEqual(result, { fellBack: true, cwd: '/proj' })
+    }
 
-  // 26. Distinct gitRoot present on disk → spawn into the worktree.
-  {
-    const result = await resolveWorkspaceTerminalCwd('/proj/.multicode-worktrees/project/a', '/proj', existsAlways)
-    assert.deepEqual(result, { cwd: '/proj/.multicode-worktrees/project/a', missing: false })
-  }
+    // 15. Non-worktree agent → never probes the filesystem, passes through.
+    {
+      let probed = false
+      const result = await resolveWorktreeSpawnFallback('current_workspace', undefined, '/proj', async () => {
+        probed = true
+        return false
+      })
+      assert.deepEqual(result, { fellBack: false, cwd: undefined })
+      assert.equal(probed, false, 'non-worktree agents must not stat a cwd')
+    }
 
-  // 27. Distinct gitRoot gone from disk → missing, no cwd override.
-  {
-    const result = await resolveWorkspaceTerminalCwd('/proj/.multicode-worktrees/project/a', '/proj', existsNever)
-    assert.deepEqual(result, { cwd: null, missing: true })
-  }
+    // 16. Worktree mode but no cwd recorded → pass through (nothing to probe).
+    {
+      const result = await resolveWorktreeSpawnFallback('worktree', undefined, '/proj', existsNever)
+      assert.deepEqual(result, { fellBack: false, cwd: undefined })
+    }
 
-  console.log('workspaceWorktree.test.ts: ok')
-})()
+    // 17. Removed worktree with no workspace folder → fell back with undefined cwd
+    //     (caller lets the launch surface the missing-root error).
+    {
+      const result = await resolveWorktreeSpawnFallback('worktree', '/gone/worktree', null, existsNever)
+      assert.deepEqual(result, { fellBack: true, cwd: undefined })
+    }
+
+    // --- resolveWorkspaceTerminalCwd ---
+
+    // 24. Null gitRoot → not worktree-backed, no override, never probes the fs.
+    {
+      let probed = false
+      const result = await resolveWorkspaceTerminalCwd(null, '/proj', async () => {
+        probed = true
+        return true
+      })
+      assert.deepEqual(result, { cwd: null, missing: false })
+      assert.equal(probed, false, 'null gitRoot must not stat')
+    }
+
+    // 25. gitRoot === folderPath → the workspace folder already IS the worktree
+    //     (worktree-opened / connector-chat), so no override and no fs probe.
+    {
+      let probed = false
+      const result = await resolveWorkspaceTerminalCwd('/wt/spike', '/wt/spike', async () => {
+        probed = true
+        return true
+      })
+      assert.deepEqual(result, { cwd: null, missing: false })
+      assert.equal(probed, false, 'samePath short-circuits before probing')
+    }
+
+    // 26. Distinct gitRoot present on disk → spawn into the worktree.
+    {
+      const result = await resolveWorkspaceTerminalCwd('/proj/.multicode-worktrees/project/a', '/proj', existsAlways)
+      assert.deepEqual(result, { cwd: '/proj/.multicode-worktrees/project/a', missing: false })
+    }
+
+    // 27. Distinct gitRoot gone from disk → missing, no cwd override.
+    {
+      const result = await resolveWorkspaceTerminalCwd('/proj/.multicode-worktrees/project/a', '/proj', existsNever)
+      assert.deepEqual(result, { cwd: null, missing: true })
+    }
+
+    console.log('workspaceWorktree.test.ts: ok')
+  })()
+
+  await suiteRun
+})

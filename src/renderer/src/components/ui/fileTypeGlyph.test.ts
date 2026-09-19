@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 
 import { FILE_TYPE_LABEL, fileTypeKind, isTestBasename, isTestPath, type FileTypeKind } from './FileTypeGlyph'
 

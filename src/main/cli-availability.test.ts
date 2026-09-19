@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { test } from 'vitest'
 
 import type { AgentCli, CliDetectResult, CliRuntimeSettings } from '../shared/electron-api'
 import type { PluginRegistryListEntry } from '../shared/plugin-manifest'

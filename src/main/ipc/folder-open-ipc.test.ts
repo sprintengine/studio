@@ -11,397 +11,402 @@ import {
   type LauncherProbe,
 } from './folder-open-ipc'
 import type { FolderOpenResult, FolderOpenTargetAvailability } from '../../shared/folder-open-targets'
+import { test } from 'vitest'
 
-type Handler = (event: unknown, ...args: unknown[]) => Promise<unknown>
+test('folder-open-ipc', async () => {
+  type Handler = (event: unknown, ...args: unknown[]) => Promise<unknown>
 
-function createIpcMain(): { handle(channel: string, handler: Handler): void; handlers: Map<string, Handler> } {
-  const handlers = new Map<string, Handler>()
-  return {
-    handlers,
-    handle(channel, handler): void {
-      handlers.set(channel, handler)
-    },
+  function createIpcMain(): { handle(channel: string, handler: Handler): void; handlers: Map<string, Handler> } {
+    const handlers = new Map<string, Handler>()
+    return {
+      handlers,
+      handle(channel, handler): void {
+        handlers.set(channel, handler)
+      },
+    }
   }
-}
 
-function probe(options: {
-  platform: NodeJS.Platform
-  installed: string[]
-  env?: NodeJS.ProcessEnv
-  /** Spotlight's answer per bundle-id list, keyed by the ids joined with `|`. */
-  spotlight?: Record<string, string | null>
-  /** Every bundle-id list Spotlight was asked about, in order. */
-  spotlightAsked?: string[][]
-}): LauncherProbe {
-  const installed = new Set(options.installed)
-  return {
-    platform: options.platform,
-    env: options.env ?? { PATH: '/usr/local/bin:/usr/bin', HOME: '/Users/dev' },
-    exists: (candidate) => installed.has(candidate),
-    ...(options.spotlight
-      ? {
-          locateAppByBundleId: (ids: readonly string[]) => {
-            options.spotlightAsked?.push([...ids])
-            return options.spotlight?.[ids.join('|')] ?? null
-          },
-        }
-      : {}),
+  function probe(options: {
+    platform: NodeJS.Platform
+    installed: string[]
+    env?: NodeJS.ProcessEnv
+    /** Spotlight's answer per bundle-id list, keyed by the ids joined with `|`. */
+    spotlight?: Record<string, string | null>
+    /** Every bundle-id list Spotlight was asked about, in order. */
+    spotlightAsked?: string[][]
+  }): LauncherProbe {
+    const installed = new Set(options.installed)
+    return {
+      platform: options.platform,
+      env: options.env ?? { PATH: '/usr/local/bin:/usr/bin', HOME: '/Users/dev' },
+      exists: (candidate) => installed.has(candidate),
+      ...(options.spotlight
+        ? {
+            locateAppByBundleId: (ids: readonly string[]) => {
+              options.spotlightAsked?.push([...ids])
+              return options.spotlight?.[ids.join('|')] ?? null
+            },
+          }
+        : {}),
+    }
   }
-}
 
-void main()
+  const suiteRun = main()
 
-async function main(): Promise<void> {
-  assertProbeResolvesEachTarget()
-  assertProbeFindsEditorsOutsideTheConventionalFolders()
-  assertSpotlightPickPrefersAnInstall()
-  await assertProbeChannelReportsEveryTarget()
-  await assertOpenSucceeds()
-  await assertOpenFails()
-  await assertRealDependenciesAreWired()
-}
+  async function main(): Promise<void> {
+    assertProbeResolvesEachTarget()
+    assertProbeFindsEditorsOutsideTheConventionalFolders()
+    assertSpotlightPickPrefersAnInstall()
+    await assertProbeChannelReportsEveryTarget()
+    await assertOpenSucceeds()
+    await assertOpenFails()
+    await assertRealDependenciesAreWired()
+  }
 
-// Availability is "the launcher resolves": the CLI on PATH, else the macOS app
-// bundle. Each editor is checked present and absent; the file manager always
-// resolves.
-function assertProbeResolvesEachTarget(): void {
-  const noEditors = probe({ platform: 'darwin', installed: [] })
-  assert.deepEqual(resolveFolderOpenLauncher('finder', noEditors), { kind: 'reveal' })
-  assert.equal(resolveFolderOpenLauncher('vscode', noEditors), null)
-  assert.equal(resolveFolderOpenLauncher('intellij', noEditors), null)
+  // Availability is "the launcher resolves": the CLI on PATH, else the macOS app
+  // bundle. Each editor is checked present and absent; the file manager always
+  // resolves.
+  function assertProbeResolvesEachTarget(): void {
+    const noEditors = probe({ platform: 'darwin', installed: [] })
+    assert.deepEqual(resolveFolderOpenLauncher('finder', noEditors), { kind: 'reveal' })
+    assert.equal(resolveFolderOpenLauncher('vscode', noEditors), null)
+    assert.equal(resolveFolderOpenLauncher('intellij', noEditors), null)
 
-  const cliInstalled = probe({ platform: 'darwin', installed: ['/usr/local/bin/code', '/usr/local/bin/idea'] })
-  assert.deepEqual(resolveFolderOpenLauncher('vscode', cliInstalled), {
-    kind: 'command',
-    command: '/usr/local/bin/code',
-    args: [],
-  })
-  assert.deepEqual(resolveFolderOpenLauncher('intellij', cliInstalled), {
-    kind: 'command',
-    command: '/usr/local/bin/idea',
-    args: [],
-  })
+    const cliInstalled = probe({ platform: 'darwin', installed: ['/usr/local/bin/code', '/usr/local/bin/idea'] })
+    assert.deepEqual(resolveFolderOpenLauncher('vscode', cliInstalled), {
+      kind: 'command',
+      command: '/usr/local/bin/code',
+      args: [],
+    })
+    assert.deepEqual(resolveFolderOpenLauncher('intellij', cliInstalled), {
+      kind: 'command',
+      command: '/usr/local/bin/idea',
+      args: [],
+    })
 
-  // No CLI, but the app bundle is installed: launch through `open -a`.
-  const bundleOnly = probe({
-    platform: 'darwin',
-    installed: ['/Applications/Visual Studio Code.app', '/Users/dev/Applications/IntelliJ IDEA.app'],
-  })
-  assert.deepEqual(resolveFolderOpenLauncher('vscode', bundleOnly), {
-    kind: 'command',
-    command: '/usr/bin/open',
-    args: ['-a', '/Applications/Visual Studio Code.app'],
-  })
-  assert.deepEqual(resolveFolderOpenLauncher('intellij', bundleOnly), {
-    kind: 'command',
-    command: '/usr/bin/open',
-    args: ['-a', '/Users/dev/Applications/IntelliJ IDEA.app'],
-  })
+    // No CLI, but the app bundle is installed: launch through `open -a`.
+    const bundleOnly = probe({
+      platform: 'darwin',
+      installed: ['/Applications/Visual Studio Code.app', '/Users/dev/Applications/IntelliJ IDEA.app'],
+    })
+    assert.deepEqual(resolveFolderOpenLauncher('vscode', bundleOnly), {
+      kind: 'command',
+      command: '/usr/bin/open',
+      args: ['-a', '/Applications/Visual Studio Code.app'],
+    })
+    assert.deepEqual(resolveFolderOpenLauncher('intellij', bundleOnly), {
+      kind: 'command',
+      command: '/usr/bin/open',
+      args: ['-a', '/Users/dev/Applications/IntelliJ IDEA.app'],
+    })
 
-  // A macOS bundle is not a launcher on other platforms.
-  const linuxBundlePaths = probe({
-    platform: 'linux',
-    installed: ['/Applications/Visual Studio Code.app'],
-    env: { PATH: '/usr/bin', HOME: '/home/dev' },
-  })
-  assert.equal(resolveFolderOpenLauncher('vscode', linuxBundlePaths), null)
+    // A macOS bundle is not a launcher on other platforms.
+    const linuxBundlePaths = probe({
+      platform: 'linux',
+      installed: ['/Applications/Visual Studio Code.app'],
+      env: { PATH: '/usr/bin', HOME: '/home/dev' },
+    })
+    assert.equal(resolveFolderOpenLauncher('vscode', linuxBundlePaths), null)
 
-  // Windows ships `code.cmd`, which the command processor has to run.
-  const windows = probe({
-    platform: 'win32',
-    installed: ['C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd'],
-    env: { Path: 'C:\\Program Files\\Microsoft VS Code\\bin', ComSpec: 'C:\\Windows\\system32\\cmd.exe' },
-  })
-  assert.deepEqual(resolveFolderOpenLauncher('vscode', windows), {
-    kind: 'command',
-    command: 'C:\\Windows\\system32\\cmd.exe',
-    args: ['/d', '/s', '/c', 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd'],
-  })
-  assert.equal(resolveFolderOpenLauncher('intellij', windows), null)
-}
+    // Windows ships `code.cmd`, which the command processor has to run.
+    const windows = probe({
+      platform: 'win32',
+      installed: ['C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd'],
+      env: { Path: 'C:\\Program Files\\Microsoft VS Code\\bin', ComSpec: 'C:\\Windows\\system32\\cmd.exe' },
+    })
+    assert.deepEqual(resolveFolderOpenLauncher('vscode', windows), {
+      kind: 'command',
+      command: 'C:\\Windows\\system32\\cmd.exe',
+      args: ['/d', '/s', '/c', 'C:\\Program Files\\Microsoft VS Code\\bin\\code.cmd'],
+    })
+    assert.equal(resolveFolderOpenLauncher('intellij', windows), null)
+  }
 
-// The conventional folders are where the scan looks first, not the only place
-// an editor can be: JetBrains Toolbox has folders of its own, the vendors ship
-// several bundle names, and an app on another volume is still an installed app
-// — Spotlight knows it by bundle id. (The case that prompted this lived at
-// `/Volumes/Extra/IntelliJ IDEA.app` with no `idea` shim on PATH, and the
-// menu said it was not installed.)
-function assertProbeFindsEditorsOutsideTheConventionalFolders(): void {
-  // The Toolbox `idea` shim, which Toolbox writes but rarely gets onto PATH.
-  const toolboxShim = probe({
-    platform: 'darwin',
-    installed: ['/Users/dev/Library/Application Support/JetBrains/Toolbox/scripts/idea'],
-  })
-  assert.deepEqual(resolveFolderOpenLauncher('intellij', toolboxShim), {
-    kind: 'command',
-    command: '/Users/dev/Library/Application Support/JetBrains/Toolbox/scripts/idea',
-    args: [],
-  })
+  // The conventional folders are where the scan looks first, not the only place
+  // an editor can be: JetBrains Toolbox has folders of its own, the vendors ship
+  // several bundle names, and an app on another volume is still an installed app
+  // — Spotlight knows it by bundle id. (The case that prompted this lived at
+  // `/Volumes/Extra/IntelliJ IDEA.app` with no `idea` shim on PATH, and the
+  // menu said it was not installed.)
+  function assertProbeFindsEditorsOutsideTheConventionalFolders(): void {
+    // The Toolbox `idea` shim, which Toolbox writes but rarely gets onto PATH.
+    const toolboxShim = probe({
+      platform: 'darwin',
+      installed: ['/Users/dev/Library/Application Support/JetBrains/Toolbox/scripts/idea'],
+    })
+    assert.deepEqual(resolveFolderOpenLauncher('intellij', toolboxShim), {
+      kind: 'command',
+      command: '/Users/dev/Library/Application Support/JetBrains/Toolbox/scripts/idea',
+      args: [],
+    })
 
-  // The Community edition's real bundle name, and Toolbox's own install folder.
-  const communityEdition = probe({ platform: 'darwin', installed: ['/Applications/IntelliJ IDEA CE.app'] })
-  assert.deepEqual(resolveFolderOpenLauncher('intellij', communityEdition), {
-    kind: 'command',
-    command: '/usr/bin/open',
-    args: ['-a', '/Applications/IntelliJ IDEA CE.app'],
-  })
-  const toolboxInstall = probe({
-    platform: 'darwin',
-    installed: ['/Users/dev/Applications/JetBrains Toolbox/IntelliJ IDEA Ultimate.app'],
-  })
-  assert.deepEqual(resolveFolderOpenLauncher('intellij', toolboxInstall), {
-    kind: 'command',
-    command: '/usr/bin/open',
-    args: ['-a', '/Users/dev/Applications/JetBrains Toolbox/IntelliJ IDEA Ultimate.app'],
-  })
+    // The Community edition's real bundle name, and Toolbox's own install folder.
+    const communityEdition = probe({ platform: 'darwin', installed: ['/Applications/IntelliJ IDEA CE.app'] })
+    assert.deepEqual(resolveFolderOpenLauncher('intellij', communityEdition), {
+      kind: 'command',
+      command: '/usr/bin/open',
+      args: ['-a', '/Applications/IntelliJ IDEA CE.app'],
+    })
+    const toolboxInstall = probe({
+      platform: 'darwin',
+      installed: ['/Users/dev/Applications/JetBrains Toolbox/IntelliJ IDEA Ultimate.app'],
+    })
+    assert.deepEqual(resolveFolderOpenLauncher('intellij', toolboxInstall), {
+      kind: 'command',
+      command: '/usr/bin/open',
+      args: ['-a', '/Users/dev/Applications/JetBrains Toolbox/IntelliJ IDEA Ultimate.app'],
+    })
 
-  // Nowhere the scan knows: Spotlight is asked by bundle id, and its answer is
-  // what `open -a` starts.
-  const asked: string[][] = []
-  const onAnotherVolume = probe({
-    platform: 'darwin',
-    installed: [],
-    spotlight: { 'com.jetbrains.intellij|com.jetbrains.intellij.ce': '/Volumes/Extra/IntelliJ IDEA.app' },
-    spotlightAsked: asked,
-  })
-  assert.deepEqual(resolveFolderOpenLauncher('intellij', onAnotherVolume), {
-    kind: 'command',
-    command: '/usr/bin/open',
-    args: ['-a', '/Volumes/Extra/IntelliJ IDEA.app'],
-  })
-  assert.equal(
-    resolveFolderOpenLauncher('vscode', onAnotherVolume),
-    null,
-    'Spotlight knowing nothing is "not installed"',
-  )
-  assert.deepEqual(asked, [['com.jetbrains.intellij', 'com.jetbrains.intellij.ce'], ['com.microsoft.VSCode']])
+    // Nowhere the scan knows: Spotlight is asked by bundle id, and its answer is
+    // what `open -a` starts.
+    const asked: string[][] = []
+    const onAnotherVolume = probe({
+      platform: 'darwin',
+      installed: [],
+      spotlight: { 'com.jetbrains.intellij|com.jetbrains.intellij.ce': '/Volumes/Extra/IntelliJ IDEA.app' },
+      spotlightAsked: asked,
+    })
+    assert.deepEqual(resolveFolderOpenLauncher('intellij', onAnotherVolume), {
+      kind: 'command',
+      command: '/usr/bin/open',
+      args: ['-a', '/Volumes/Extra/IntelliJ IDEA.app'],
+    })
+    assert.equal(
+      resolveFolderOpenLauncher('vscode', onAnotherVolume),
+      null,
+      'Spotlight knowing nothing is "not installed"',
+    )
+    assert.deepEqual(asked, [['com.jetbrains.intellij', 'com.jetbrains.intellij.ce'], ['com.microsoft.VSCode']])
 
-  // Spotlight is the LAST resort: an install the scan finds never spawns it.
-  const askedWhenScanHits: string[][] = []
-  const scanHits = probe({
-    platform: 'darwin',
-    installed: ['/Applications/IntelliJ IDEA.app'],
-    spotlight: {},
-    spotlightAsked: askedWhenScanHits,
-  })
-  resolveFolderOpenLauncher('intellij', scanHits)
-  assert.deepEqual(askedWhenScanHits, [], 'the directory scan answering means Spotlight is never asked')
+    // Spotlight is the LAST resort: an install the scan finds never spawns it.
+    const askedWhenScanHits: string[][] = []
+    const scanHits = probe({
+      platform: 'darwin',
+      installed: ['/Applications/IntelliJ IDEA.app'],
+      spotlight: {},
+      spotlightAsked: askedWhenScanHits,
+    })
+    resolveFolderOpenLauncher('intellij', scanHits)
+    assert.deepEqual(askedWhenScanHits, [], 'the directory scan answering means Spotlight is never asked')
 
-  // A probe with no Spotlight lookup (other platforms, tests) simply stops at
-  // the scan — the optional hook is optional.
-  assert.equal(resolveFolderOpenLauncher('intellij', probe({ platform: 'darwin', installed: [] })), null)
+    // A probe with no Spotlight lookup (other platforms, tests) simply stops at
+    // the scan — the optional hook is optional.
+    assert.equal(resolveFolderOpenLauncher('intellij', probe({ platform: 'darwin', installed: [] })), null)
 
-  // Windows: the Toolbox scripts folder and the vscode target's default install folder
-  // are searched after PATH, so an unticked "add to PATH" box is not "absent".
-  const windowsDefaults = probe({
-    platform: 'win32',
-    installed: [
-      'C:\\Users\\dev\\AppData\\Local\\JetBrains\\Toolbox\\scripts\\idea.cmd',
-      'C:\\Users\\dev\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd',
-    ],
-    env: {
-      Path: 'C:\\Windows\\system32',
-      LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local',
-      ProgramFiles: 'C:\\Program Files',
-      ComSpec: 'C:\\Windows\\system32\\cmd.exe',
-    },
-  })
-  assert.deepEqual(resolveFolderOpenLauncher('intellij', windowsDefaults), {
-    kind: 'command',
-    command: 'C:\\Windows\\system32\\cmd.exe',
-    args: ['/d', '/s', '/c', 'C:\\Users\\dev\\AppData\\Local\\JetBrains\\Toolbox\\scripts\\idea.cmd'],
-  })
-  assert.deepEqual(resolveFolderOpenLauncher('vscode', windowsDefaults), {
-    kind: 'command',
-    command: 'C:\\Windows\\system32\\cmd.exe',
-    args: ['/d', '/s', '/c', 'C:\\Users\\dev\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd'],
-  })
-}
-
-// Spotlight lists every copy it has indexed. The one to launch is an install:
-// the conventional folders first, and never the Trash or a backup.
-function assertSpotlightPickPrefersAnInstall(): void {
-  assert.equal(pickInstalledBundle([], '/Users/dev'), null)
-  assert.equal(pickInstalledBundle(['', '   '], '/Users/dev'), null)
-  assert.equal(
-    pickInstalledBundle(
-      ['/Users/dev/.Trash/IntelliJ IDEA.app', '/Volumes/Backup/Backups.backupdb/mac/IntelliJ IDEA.app'],
-      '/Users/dev',
-    ),
-    null,
-    'a trashed or backed-up bundle is not an install',
-  )
-  assert.equal(
-    pickInstalledBundle(
-      [
-        '/Volumes/Extra/IntelliJ IDEA.app',
-        '/Users/dev/Applications/IntelliJ IDEA.app',
-        '/Applications/IntelliJ IDEA.app',
+    // Windows: the Toolbox scripts folder and the vscode target's default install folder
+    // are searched after PATH, so an unticked "add to PATH" box is not "absent".
+    const windowsDefaults = probe({
+      platform: 'win32',
+      installed: [
+        'C:\\Users\\dev\\AppData\\Local\\JetBrains\\Toolbox\\scripts\\idea.cmd',
+        'C:\\Users\\dev\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd',
       ],
-      '/Users/dev',
-    ),
-    '/Applications/IntelliJ IDEA.app',
-  )
-  assert.equal(
-    pickInstalledBundle(
-      ['/Volumes/Extra/IntelliJ IDEA.app', '/Users/dev/Applications/IntelliJ IDEA.app'],
-      '/Users/dev',
-    ),
-    '/Users/dev/Applications/IntelliJ IDEA.app',
-  )
-  assert.equal(
-    pickInstalledBundle(['/Volumes/Extra/IntelliJ IDEA.app\n'], '/Users/dev'),
-    '/Volumes/Extra/IntelliJ IDEA.app',
-  )
-}
+      env: {
+        Path: 'C:\\Windows\\system32',
+        LOCALAPPDATA: 'C:\\Users\\dev\\AppData\\Local',
+        ProgramFiles: 'C:\\Program Files',
+        ComSpec: 'C:\\Windows\\system32\\cmd.exe',
+      },
+    })
+    assert.deepEqual(resolveFolderOpenLauncher('intellij', windowsDefaults), {
+      kind: 'command',
+      command: 'C:\\Windows\\system32\\cmd.exe',
+      args: ['/d', '/s', '/c', 'C:\\Users\\dev\\AppData\\Local\\JetBrains\\Toolbox\\scripts\\idea.cmd'],
+    })
+    assert.deepEqual(resolveFolderOpenLauncher('vscode', windowsDefaults), {
+      kind: 'command',
+      command: 'C:\\Windows\\system32\\cmd.exe',
+      args: ['/d', '/s', '/c', 'C:\\Users\\dev\\AppData\\Local\\Programs\\Microsoft VS Code\\bin\\code.cmd'],
+    })
+  }
 
-async function assertProbeChannelReportsEveryTarget(): Promise<void> {
-  const { probeTargets } = mountHandlers({
-    resolveLauncher: (target) => (target === 'vscode' ? null : { kind: 'reveal' }),
-  })
+  // Spotlight lists every copy it has indexed. The one to launch is an install:
+  // the conventional folders first, and never the Trash or a backup.
+  function assertSpotlightPickPrefersAnInstall(): void {
+    assert.equal(pickInstalledBundle([], '/Users/dev'), null)
+    assert.equal(pickInstalledBundle(['', '   '], '/Users/dev'), null)
+    assert.equal(
+      pickInstalledBundle(
+        ['/Users/dev/.Trash/IntelliJ IDEA.app', '/Volumes/Backup/Backups.backupdb/mac/IntelliJ IDEA.app'],
+        '/Users/dev',
+      ),
+      null,
+      'a trashed or backed-up bundle is not an install',
+    )
+    assert.equal(
+      pickInstalledBundle(
+        [
+          '/Volumes/Extra/IntelliJ IDEA.app',
+          '/Users/dev/Applications/IntelliJ IDEA.app',
+          '/Applications/IntelliJ IDEA.app',
+        ],
+        '/Users/dev',
+      ),
+      '/Applications/IntelliJ IDEA.app',
+    )
+    assert.equal(
+      pickInstalledBundle(
+        ['/Volumes/Extra/IntelliJ IDEA.app', '/Users/dev/Applications/IntelliJ IDEA.app'],
+        '/Users/dev',
+      ),
+      '/Users/dev/Applications/IntelliJ IDEA.app',
+    )
+    assert.equal(
+      pickInstalledBundle(['/Volumes/Extra/IntelliJ IDEA.app\n'], '/Users/dev'),
+      '/Volumes/Extra/IntelliJ IDEA.app',
+    )
+  }
 
-  const targets = (await probeTargets(null)) as FolderOpenTargetAvailability[]
-  assert.deepEqual(targets, [
-    { id: 'vscode', available: false },
-    { id: 'intellij', available: true },
-    { id: 'finder', available: true },
-  ])
-}
+  async function assertProbeChannelReportsEveryTarget(): Promise<void> {
+    const { probeTargets } = mountHandlers({
+      resolveLauncher: (target) => (target === 'vscode' ? null : { kind: 'reveal' }),
+    })
 
-async function assertOpenSucceeds(): Promise<void> {
-  const revealed: string[] = []
-  const launched: Array<{ command: string; args: string[] }> = []
-  const { openFolder } = mountHandlers({
-    showItemInFolder: async (targetPath) => {
+    const targets = (await probeTargets(null)) as FolderOpenTargetAvailability[]
+    assert.deepEqual(targets, [
+      { id: 'vscode', available: false },
+      { id: 'intellij', available: true },
+      { id: 'finder', available: true },
+    ])
+  }
+
+  async function assertOpenSucceeds(): Promise<void> {
+    const revealed: string[] = []
+    const launched: Array<{ command: string; args: string[] }> = []
+    const { openFolder } = mountHandlers({
+      showItemInFolder: async (targetPath) => {
+        revealed.push(targetPath)
+      },
+      resolveLauncher: (target) =>
+        target === 'finder' ? { kind: 'reveal' } : { kind: 'command', command: '/usr/local/bin/code', args: [] },
+      runLauncher: async (command, args) => {
+        launched.push({ command, args })
+        return { ok: true }
+      },
+    })
+
+    assert.deepEqual(await openFolder(null, { target: 'finder', path: '/repo' }), { ok: true, target: 'finder' })
+    assert.deepEqual(revealed, ['/repo'])
+
+    assert.deepEqual(await openFolder(null, { target: 'vscode', path: '/repo' }), { ok: true, target: 'vscode' })
+    assert.deepEqual(launched, [{ command: '/usr/local/bin/code', args: ['/repo'] }])
+  }
+
+  // Every failure is a typed result the caller can surface, and a failed launch
+  // never quietly falls through to another target.
+  async function assertOpenFails(): Promise<void> {
+    const attempted: string[] = []
+    const { openFolder } = mountHandlers({
+      showItemInFolder: async () => {
+        throw new Error('reveal refused')
+      },
+      resolveLauncher: (target) =>
+        target === 'intellij'
+          ? null
+          : target === 'finder'
+            ? { kind: 'reveal' }
+            : { kind: 'command', command: 'code', args: [] },
+      runLauncher: async (command) => {
+        attempted.push(command)
+        return { ok: false, message: 'code exited with code 1.' }
+      },
+      assertPathReachable: async (targetPath) => {
+        if (targetPath !== '/repo') throw new Error(`ENOENT: no such file or directory, access '${targetPath}'`)
+      },
+    })
+
+    assert.deepEqual(await openFolder(null, { target: 'atom', path: '/repo' }), {
+      ok: false,
+      target: null,
+      reason: 'unknown_target',
+      message: 'Unknown open target: atom.',
+    })
+
+    assert.deepEqual(await openFolder(null, { target: 'vscode', path: '   ' }), {
+      ok: false,
+      target: 'vscode',
+      reason: 'path_unavailable',
+      message: 'No folder was given to open.',
+    })
+
+    const missingPath = (await openFolder(null, { target: 'vscode', path: '/gone' })) as FolderOpenResult
+    assert.equal(missingPath.ok, false)
+    assert.equal(missingPath.ok === false && missingPath.reason, 'path_unavailable')
+
+    assert.deepEqual(await openFolder(null, { target: 'intellij', path: '/repo' }), {
+      ok: false,
+      target: 'intellij',
+      reason: 'target_unavailable',
+      message: 'IntelliJ IDEA is not installed.',
+    })
+
+    assert.deepEqual(await openFolder(null, { target: 'vscode', path: '/repo' }), {
+      ok: false,
+      target: 'vscode',
+      reason: 'launch_failed',
+      message: 'code exited with code 1.',
+    })
+
+    const revealFailure = (await openFolder(null, { target: 'finder', path: '/repo' })) as FolderOpenResult
+    assert.deepEqual(revealFailure, {
+      ok: false,
+      target: 'finder',
+      reason: 'launch_failed',
+      message: 'reveal refused',
+    })
+
+    // Only the requested target was ever launched.
+    assert.deepEqual(attempted, ['code'])
+
+    // A launcher that cannot start at all is still a typed result, not a rejected
+    // invoke the caller has to catch.
+    const { openFolder: openWithBrokenSpawn } = mountHandlers({
+      resolveLauncher: () => ({ kind: 'command', command: 'code', args: [] }),
+      runLauncher: async () => {
+        throw new Error('spawn code ENOENT')
+      },
+    })
+    assert.deepEqual(await openWithBrokenSpawn(null, { target: 'vscode', path: '/repo' }), {
+      ok: false,
+      target: 'vscode',
+      reason: 'launch_failed',
+      message: 'spawn code ENOENT',
+    })
+  }
+
+  // The real dependency set must reach the same reveal handler the rest of the
+  // app uses, and reject an unreachable path before anything is spawned.
+  async function assertRealDependenciesAreWired(): Promise<void> {
+    const revealed: string[] = []
+    const deps = createFolderOpenIpcDependencies(async (targetPath) => {
       revealed.push(targetPath)
-    },
-    resolveLauncher: (target) =>
-      target === 'finder' ? { kind: 'reveal' } : { kind: 'command', command: '/usr/local/bin/code', args: [] },
-    runLauncher: async (command, args) => {
-      launched.push({ command, args })
-      return { ok: true }
-    },
-  })
+    })
 
-  assert.deepEqual(await openFolder(null, { target: 'finder', path: '/repo' }), { ok: true, target: 'finder' })
-  assert.deepEqual(revealed, ['/repo'])
+    await deps.showItemInFolder('/repo')
+    assert.deepEqual(revealed, ['/repo'])
+    assert.deepEqual(deps.resolveLauncher('finder'), { kind: 'reveal' })
+    await assert.rejects(deps.assertPathReachable(join(__dirname, 'definitely-missing-folder')))
+  }
 
-  assert.deepEqual(await openFolder(null, { target: 'vscode', path: '/repo' }), { ok: true, target: 'vscode' })
-  assert.deepEqual(launched, [{ command: '/usr/local/bin/code', args: ['/repo'] }])
-}
+  function mountHandlers(overrides: Partial<FolderOpenIpcDependencies>): {
+    probeTargets: Handler
+    openFolder: (event: unknown, request: { target: string; path: string }) => Promise<unknown>
+  } {
+    const ipcMain = createIpcMain()
+    registerFolderOpenIpc(ipcMain as unknown as Parameters<typeof registerFolderOpenIpc>[0], {
+      showItemInFolder: async () => {},
+      resolveLauncher: (): FolderOpenLauncher | null => null,
+      runLauncher: async () => ({ ok: true }),
+      assertPathReachable: async () => {},
+      ...overrides,
+    })
 
-// Every failure is a typed result the caller can surface, and a failed launch
-// never quietly falls through to another target.
-async function assertOpenFails(): Promise<void> {
-  const attempted: string[] = []
-  const { openFolder } = mountHandlers({
-    showItemInFolder: async () => {
-      throw new Error('reveal refused')
-    },
-    resolveLauncher: (target) =>
-      target === 'intellij'
-        ? null
-        : target === 'finder'
-          ? { kind: 'reveal' }
-          : { kind: 'command', command: 'code', args: [] },
-    runLauncher: async (command) => {
-      attempted.push(command)
-      return { ok: false, message: 'code exited with code 1.' }
-    },
-    assertPathReachable: async (targetPath) => {
-      if (targetPath !== '/repo') throw new Error(`ENOENT: no such file or directory, access '${targetPath}'`)
-    },
-  })
+    const probeTargets = ipcMain.handlers.get('fs:folder-open-targets')
+    const openFolder = ipcMain.handlers.get('fs:open-folder-in-target')
+    assert.ok(probeTargets, 'probe channel should be registered')
+    assert.ok(openFolder, 'open channel should be registered')
+    return { probeTargets, openFolder }
+  }
 
-  assert.deepEqual(await openFolder(null, { target: 'atom', path: '/repo' }), {
-    ok: false,
-    target: null,
-    reason: 'unknown_target',
-    message: 'Unknown open target: atom.',
-  })
-
-  assert.deepEqual(await openFolder(null, { target: 'vscode', path: '   ' }), {
-    ok: false,
-    target: 'vscode',
-    reason: 'path_unavailable',
-    message: 'No folder was given to open.',
-  })
-
-  const missingPath = (await openFolder(null, { target: 'vscode', path: '/gone' })) as FolderOpenResult
-  assert.equal(missingPath.ok, false)
-  assert.equal(missingPath.ok === false && missingPath.reason, 'path_unavailable')
-
-  assert.deepEqual(await openFolder(null, { target: 'intellij', path: '/repo' }), {
-    ok: false,
-    target: 'intellij',
-    reason: 'target_unavailable',
-    message: 'IntelliJ IDEA is not installed.',
-  })
-
-  assert.deepEqual(await openFolder(null, { target: 'vscode', path: '/repo' }), {
-    ok: false,
-    target: 'vscode',
-    reason: 'launch_failed',
-    message: 'code exited with code 1.',
-  })
-
-  const revealFailure = (await openFolder(null, { target: 'finder', path: '/repo' })) as FolderOpenResult
-  assert.deepEqual(revealFailure, {
-    ok: false,
-    target: 'finder',
-    reason: 'launch_failed',
-    message: 'reveal refused',
-  })
-
-  // Only the requested target was ever launched.
-  assert.deepEqual(attempted, ['code'])
-
-  // A launcher that cannot start at all is still a typed result, not a rejected
-  // invoke the caller has to catch.
-  const { openFolder: openWithBrokenSpawn } = mountHandlers({
-    resolveLauncher: () => ({ kind: 'command', command: 'code', args: [] }),
-    runLauncher: async () => {
-      throw new Error('spawn code ENOENT')
-    },
-  })
-  assert.deepEqual(await openWithBrokenSpawn(null, { target: 'vscode', path: '/repo' }), {
-    ok: false,
-    target: 'vscode',
-    reason: 'launch_failed',
-    message: 'spawn code ENOENT',
-  })
-}
-
-// The real dependency set must reach the same reveal handler the rest of the
-// app uses, and reject an unreachable path before anything is spawned.
-async function assertRealDependenciesAreWired(): Promise<void> {
-  const revealed: string[] = []
-  const deps = createFolderOpenIpcDependencies(async (targetPath) => {
-    revealed.push(targetPath)
-  })
-
-  await deps.showItemInFolder('/repo')
-  assert.deepEqual(revealed, ['/repo'])
-  assert.deepEqual(deps.resolveLauncher('finder'), { kind: 'reveal' })
-  await assert.rejects(deps.assertPathReachable(join(__dirname, 'definitely-missing-folder')))
-}
-
-function mountHandlers(overrides: Partial<FolderOpenIpcDependencies>): {
-  probeTargets: Handler
-  openFolder: (event: unknown, request: { target: string; path: string }) => Promise<unknown>
-} {
-  const ipcMain = createIpcMain()
-  registerFolderOpenIpc(ipcMain as unknown as Parameters<typeof registerFolderOpenIpc>[0], {
-    showItemInFolder: async () => {},
-    resolveLauncher: (): FolderOpenLauncher | null => null,
-    runLauncher: async () => ({ ok: true }),
-    assertPathReachable: async () => {},
-    ...overrides,
-  })
-
-  const probeTargets = ipcMain.handlers.get('fs:folder-open-targets')
-  const openFolder = ipcMain.handlers.get('fs:open-folder-in-target')
-  assert.ok(probeTargets, 'probe channel should be registered')
-  assert.ok(openFolder, 'open channel should be registered')
-  return { probeTargets, openFolder }
-}
+  await suiteRun
+})

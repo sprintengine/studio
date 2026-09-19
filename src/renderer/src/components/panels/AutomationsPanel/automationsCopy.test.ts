@@ -16,311 +16,319 @@ import type {
   AutomationRun,
   AutomationsRunsListResult,
 } from '../../../../../shared/automations/contracts'
+import { test } from 'vitest'
 
-let failures = 0
-function run(name: string, fn: () => void): void {
-  try {
-    fn()
-    console.log(`ok - ${name}`)
-  } catch (error) {
-    failures += 1
-    console.error(`not ok - ${name}`)
-    console.error(error)
+test('automationsCopy', async () => {
+  let failures = 0
+  function run(name: string, fn: () => void): void {
+    try {
+      fn()
+      console.log(`ok - ${name}`)
+    } catch (error) {
+      failures += 1
+      console.error(`not ok - ${name}`)
+      console.error(error)
+    }
   }
-}
 
-async function runAsync(name: string, fn: () => Promise<void>): Promise<void> {
-  try {
-    await fn()
-    console.log(`ok - ${name}`)
-  } catch (error) {
-    failures += 1
-    console.error(`not ok - ${name}`)
-    console.error(error)
+  async function runAsync(name: string, fn: () => Promise<void>): Promise<void> {
+    try {
+      await fn()
+      console.log(`ok - ${name}`)
+    } catch (error) {
+      failures += 1
+      console.error(`not ok - ${name}`)
+      console.error(error)
+    }
   }
-}
 
-// Build just the trigger shape cadenceSummary reads, without a full definition.
-function trigger(kind: string, config: unknown = {}): AutomationDefinition['trigger'] {
-  return { kind, config }
-}
+  // Build just the trigger shape cadenceSummary reads, without a full definition.
+  function trigger(kind: string, config: unknown = {}): AutomationDefinition['trigger'] {
+    return { kind, config }
+  }
 
-// A cadence reads against the machine's own zone, so the reader is named here
-// rather than left to whatever zone the test host happens to be in — otherwise
-// these assertions pass or fail by geography. AT is only used to resolve a zone
-// label (Dublin is IST in July, GMT in January), so it is pinned too.
-const READER_ZONE = 'Europe/Dublin'
-const AT = new Date('2026-07-30T12:00:00.000Z')
+  // A cadence reads against the machine's own zone, so the reader is named here
+  // rather than left to whatever zone the test host happens to be in — otherwise
+  // these assertions pass or fail by geography. AT is only used to resolve a zone
+  // label (Dublin is IST in July, GMT in January), so it is pinned too.
+  const READER_ZONE = 'Europe/Dublin'
+  const AT = new Date('2026-07-30T12:00:00.000Z')
 
-function summary(trigger: AutomationDefinition['trigger']): string {
-  return cadenceSummary(trigger, AT, READER_ZONE)
-}
+  function summary(trigger: AutomationDefinition['trigger']): string {
+    return cadenceSummary(trigger, AT, READER_ZONE)
+  }
 
-// --- Action labels (T2 AC#1) -----------------------------------------------
+  // --- Action labels (T2 AC#1) -----------------------------------------------
 
-run('maps every known action kind to a sentence-case label', () => {
-  assert.equal(actionLabel('spawn-agent'), 'Spawn an agent')
-  assert.equal(actionLabel('run-skill-loop'), 'Run a skill loop')
-})
-
-run('reads an action label from the registered provider when one is supplied', () => {
-  assert.equal(
-    actionLabel('atlas-chart', {
-      triggers: [],
-      actions: [
-        {
-          kind: 'atlas-chart',
-          moduleId: 'atlas',
-          label: 'Chart a project',
-          configSchema: {},
-          requiredIntegrations: [],
-          missingIntegrations: [],
-        },
-      ],
-    }),
-    'Chart a project',
-  )
-})
-
-run('falls back to the raw kind for an unknown third-party action', () => {
-  assert.equal(actionLabel('vendor-x-custom-action'), 'vendor-x-custom-action')
-})
-
-run('names the owning module when a saved kind has no registered provider', () => {
-  // Two spellings of "which module owns this kind": the bundled-id prefix, and
-  // the dotted form any module may use.
-  assert.match(missingProviderReason('memory-graph-snapshot', 'action'), /Memory Graph module/)
-  assert.match(missingProviderReason('weather-deck.storm-warning', 'trigger'), /Weather Deck module/)
-})
-
-// --- Non-schedule trigger summaries (T2 AC#4) ------------------------------
-
-run('summarizes a webhook trigger as a human string, not the raw kind', () => {
-  assert.equal(cadenceSummary(trigger('webhook')), 'On webhook')
-})
-
-run('falls back to the raw kind for an unknown non-schedule trigger family', () => {
-  assert.equal(cadenceSummary(trigger('vendor-x-trigger')), 'vendor-x-trigger')
-})
-
-// A schedule trigger whose config is missing/non-schedule must not be mistaken
-// for a named family; it falls through to the raw-kind path.
-run('does not apply a family summary to a schedule kind with a non-schedule config', () => {
-  assert.equal(cadenceSummary(trigger('schedule', null)), 'schedule')
-})
-
-// --- Trigger family prefix (T3 AC#4) ---------------------------------------
-
-run('labels the trigger family for the list supporting line', () => {
-  assert.equal(triggerFamilyLabel(trigger('schedule', { kind: 'schedule' })), 'Schedule')
-  assert.equal(triggerFamilyLabel(trigger('webhook')), 'Webhook')
-})
-
-run('falls back to the raw kind for an unknown trigger family', () => {
-  assert.equal(triggerFamilyLabel(trigger('vendor-x-trigger')), 'vendor-x-trigger')
-})
-
-// --- List supporting-line detail (T11 F2): no family double-say ------------
-// triggerDetail is the family-prefix-aware detail; it must not restate the
-// family word ('Webhook · On webhook').
-
-run('schedule rows keep their cadence summary as the detail', () => {
-  const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
-    trigger('schedule', { kind: 'schedule', timezone: READER_ZONE, cadence })
-  assert.equal(triggerDetail(schedule({ type: 'interval', everyMinutes: 120 }), AT, READER_ZONE), 'Every 2h')
-  assert.equal(triggerDetail(schedule({ type: 'daily', timeLocal: '09:00' }), AT, READER_ZONE), 'Daily at 09:00')
-  // The list row carries the same zone qualifier the summary does.
-  assert.equal(
-    triggerDetail(
-      trigger('schedule', { kind: 'schedule', timezone: 'UTC', cadence: { type: 'daily', timeLocal: '09:00' } }),
-      AT,
-      READER_ZONE,
-    ),
-    'Daily at 09:00 UTC',
-  )
-})
-
-run('webhook detail is the delivery path, or null when none is set', () => {
-  assert.equal(triggerDetail(trigger('webhook', { kind: 'webhook', path: 'deploy' })), '/deploy')
-  assert.equal(triggerDetail(trigger('webhook', { kind: 'webhook', path: '/ci/build' })), '/ci/build')
-  // No path → null so the row shows 'Webhook' alone, not a redundant summary.
-  assert.equal(triggerDetail(trigger('webhook', { kind: 'webhook' })), null)
-})
-
-run('returns null detail for an unknown non-schedule family (family label stands alone)', () => {
-  assert.equal(triggerDetail(trigger('vendor-x-trigger')), null)
-  // A schedule kind with a non-schedule config has no cadence to summarize.
-  assert.equal(triggerDetail(trigger('schedule', null)), null)
-})
-
-// --- Schedule cadences still summarize correctly (no regression) -----------
-
-run('still renders schedule cadences for the four cadence types', () => {
-  const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
-    trigger('schedule', { kind: 'schedule', timezone: READER_ZONE, cadence })
-  assert.equal(summary(schedule({ type: 'interval', everyMinutes: 30 })), 'Every 30 min')
-  assert.equal(summary(schedule({ type: 'interval', everyMinutes: 120 })), 'Every 2h')
-  assert.equal(summary(schedule({ type: 'daily', timeLocal: '09:00' })), 'Daily at 09:00')
-  assert.equal(
-    summary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1, 3] })),
-    'Weekly · Mon, Wed at 08:30',
-  )
-  assert.equal(summary(schedule({ type: 'cron', expression: '0 9 * * 1' })), 'Cron · 0 9 * * 1')
-})
-
-// --- A cadence written somewhere else is named (item 2039) -----------------
-// A catalogue install now resolves the schedule into the installing user's own
-// zone, so the bare wall-clock above IS the reader's. A record that predates
-// that rule — or one a module authored elsewhere — must not read as if it were.
-
-run('leaves a cadence in the reader’s own zone unqualified', () => {
-  const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
-    trigger('schedule', { kind: 'schedule', timezone: READER_ZONE, cadence })
-  assert.equal(summary(schedule({ type: 'daily', timeLocal: '02:00' })), 'Daily at 02:00')
-  assert.equal(summary(schedule({ type: 'at', datetime: '2026-08-01T09:30' })), 'Once at 2026-08-01 09:30')
-})
-
-run('names the zone of a cadence written in someone else’s', () => {
-  const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
-    trigger('schedule', { kind: 'schedule', timezone: 'UTC', cadence })
-  // The pre-2039 starter as it sits in an existing store: 02:00 UTC is 03:00 for
-  // this reader in July, and the row says which 02:00 it means.
-  assert.equal(summary(schedule({ type: 'daily', timeLocal: '02:00' })), 'Daily at 02:00 UTC')
-  assert.equal(summary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1] })), 'Weekly · Mon at 08:30 UTC')
-  // An interval names no wall-clock, so there is nothing to qualify.
-  assert.equal(summary(schedule({ type: 'interval', everyMinutes: 120 })), 'Every 2h')
-})
-
-// --- Operational overview (T6): engine reachability + runs feed -------------
-
-run('treats only known not-running states as unreachable (null is unknown, not unreachable)', () => {
-  assert.equal(isEngineUnreachable({ state: 'running' }), false)
-  assert.equal(isEngineUnreachable({ state: 'starting' }), false)
-  assert.equal(isEngineUnreachable(null), false)
-  assert.equal(isEngineUnreachable({ state: 'unavailable' }), true)
-  assert.equal(isEngineUnreachable({ state: 'failed' }), true)
-  assert.equal(isEngineUnreachable({ state: 'stopped' }), true)
-})
-
-run('merges feed runs newest-first and caps to the limit', () => {
-  const feedRun = (id: string, dueAt: string, defId: string): AutomationFeedRun => ({
-    run: { id, automationId: defId, status: 'completed', dueAt, startedAt: null, completedAt: null },
-    definitionId: defId,
-    definitionName: `Def ${defId}`,
-    triggerKind: 'schedule',
+  run('maps every known action kind to a sentence-case label', () => {
+    assert.equal(actionLabel('spawn-agent'), 'Spawn an agent')
+    assert.equal(actionLabel('run-skill-loop'), 'Run a skill loop')
   })
-  const merged = mergeFeedRuns([
-    [feedRun('a', '2026-01-01T00:00:00Z', 'd1'), feedRun('b', '2026-01-03T00:00:00Z', 'd1')],
-    [feedRun('c', '2026-01-02T00:00:00Z', 'd2')],
-  ])
-  assert.deepEqual(
-    merged.map((m) => m.run.id),
-    ['b', 'c', 'a'],
-    'sorted by dueAt descending across definitions',
-  )
-  const many = Array.from({ length: 70 }, (_, i) =>
-    feedRun(`r${i}`, `2026-01-01T00:00:${String(i % 60).padStart(2, '0')}Z`, 'd1'),
-  )
-  assert.equal(mergeFeedRuns([many]).length, 50, 'capped to the 50-run window')
-})
 
-// --- Feed ordering matches the displayed stamp (T11 F4) --------------------
-// Rows display completedAt ?? startedAt ?? dueAt; the merge must sort by the
-// same expression so order matches the shown timestamp, not dueAt alone.
+  run('reads an action label from the registered provider when one is supplied', () => {
+    assert.equal(
+      actionLabel('atlas-chart', {
+        triggers: [],
+        actions: [
+          {
+            kind: 'atlas-chart',
+            moduleId: 'atlas',
+            label: 'Chart a project',
+            configSchema: {},
+            requiredIntegrations: [],
+            missingIntegrations: [],
+          },
+        ],
+      }),
+      'Chart a project',
+    )
+  })
 
-run('orders the feed by the displayed stamp (completedAt ?? startedAt ?? dueAt), not dueAt', () => {
-  const make = (id: string, over: Partial<AutomationRun>): AutomationFeedRun => ({
-    run: {
-      id,
-      automationId: 'd',
+  run('falls back to the raw kind for an unknown third-party action', () => {
+    assert.equal(actionLabel('vendor-x-custom-action'), 'vendor-x-custom-action')
+  })
+
+  run('names the owning module when a saved kind has no registered provider', () => {
+    // Two spellings of "which module owns this kind": the bundled-id prefix, and
+    // the dotted form any module may use.
+    assert.match(missingProviderReason('memory-graph-snapshot', 'action'), /Memory Graph module/)
+    assert.match(missingProviderReason('weather-deck.storm-warning', 'trigger'), /Weather Deck module/)
+  })
+
+  // --- Non-schedule trigger summaries (T2 AC#4) ------------------------------
+
+  run('summarizes a webhook trigger as a human string, not the raw kind', () => {
+    assert.equal(cadenceSummary(trigger('webhook')), 'On webhook')
+  })
+
+  run('falls back to the raw kind for an unknown non-schedule trigger family', () => {
+    assert.equal(cadenceSummary(trigger('vendor-x-trigger')), 'vendor-x-trigger')
+  })
+
+  // A schedule trigger whose config is missing/non-schedule must not be mistaken
+  // for a named family; it falls through to the raw-kind path.
+  run('does not apply a family summary to a schedule kind with a non-schedule config', () => {
+    assert.equal(cadenceSummary(trigger('schedule', null)), 'schedule')
+  })
+
+  // --- Trigger family prefix (T3 AC#4) ---------------------------------------
+
+  run('labels the trigger family for the list supporting line', () => {
+    assert.equal(triggerFamilyLabel(trigger('schedule', { kind: 'schedule' })), 'Schedule')
+    assert.equal(triggerFamilyLabel(trigger('webhook')), 'Webhook')
+  })
+
+  run('falls back to the raw kind for an unknown trigger family', () => {
+    assert.equal(triggerFamilyLabel(trigger('vendor-x-trigger')), 'vendor-x-trigger')
+  })
+
+  // --- List supporting-line detail (T11 F2): no family double-say ------------
+  // triggerDetail is the family-prefix-aware detail; it must not restate the
+  // family word ('Webhook · On webhook').
+
+  run('schedule rows keep their cadence summary as the detail', () => {
+    const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
+      trigger('schedule', { kind: 'schedule', timezone: READER_ZONE, cadence })
+    assert.equal(triggerDetail(schedule({ type: 'interval', everyMinutes: 120 }), AT, READER_ZONE), 'Every 2h')
+    assert.equal(triggerDetail(schedule({ type: 'daily', timeLocal: '09:00' }), AT, READER_ZONE), 'Daily at 09:00')
+    // The list row carries the same zone qualifier the summary does.
+    assert.equal(
+      triggerDetail(
+        trigger('schedule', { kind: 'schedule', timezone: 'UTC', cadence: { type: 'daily', timeLocal: '09:00' } }),
+        AT,
+        READER_ZONE,
+      ),
+      'Daily at 09:00 UTC',
+    )
+  })
+
+  run('webhook detail is the delivery path, or null when none is set', () => {
+    assert.equal(triggerDetail(trigger('webhook', { kind: 'webhook', path: 'deploy' })), '/deploy')
+    assert.equal(triggerDetail(trigger('webhook', { kind: 'webhook', path: '/ci/build' })), '/ci/build')
+    // No path → null so the row shows 'Webhook' alone, not a redundant summary.
+    assert.equal(triggerDetail(trigger('webhook', { kind: 'webhook' })), null)
+  })
+
+  run('returns null detail for an unknown non-schedule family (family label stands alone)', () => {
+    assert.equal(triggerDetail(trigger('vendor-x-trigger')), null)
+    // A schedule kind with a non-schedule config has no cadence to summarize.
+    assert.equal(triggerDetail(trigger('schedule', null)), null)
+  })
+
+  // --- Schedule cadences still summarize correctly (no regression) -----------
+
+  run('still renders schedule cadences for the four cadence types', () => {
+    const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
+      trigger('schedule', { kind: 'schedule', timezone: READER_ZONE, cadence })
+    assert.equal(summary(schedule({ type: 'interval', everyMinutes: 30 })), 'Every 30 min')
+    assert.equal(summary(schedule({ type: 'interval', everyMinutes: 120 })), 'Every 2h')
+    assert.equal(summary(schedule({ type: 'daily', timeLocal: '09:00' })), 'Daily at 09:00')
+    assert.equal(
+      summary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1, 3] })),
+      'Weekly · Mon, Wed at 08:30',
+    )
+    assert.equal(summary(schedule({ type: 'cron', expression: '0 9 * * 1' })), 'Cron · 0 9 * * 1')
+  })
+
+  // --- A cadence written somewhere else is named (item 2039) -----------------
+  // A catalogue install now resolves the schedule into the installing user's own
+  // zone, so the bare wall-clock above IS the reader's. A record that predates
+  // that rule — or one a module authored elsewhere — must not read as if it were.
+
+  run('leaves a cadence in the reader’s own zone unqualified', () => {
+    const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
+      trigger('schedule', { kind: 'schedule', timezone: READER_ZONE, cadence })
+    assert.equal(summary(schedule({ type: 'daily', timeLocal: '02:00' })), 'Daily at 02:00')
+    assert.equal(summary(schedule({ type: 'at', datetime: '2026-08-01T09:30' })), 'Once at 2026-08-01 09:30')
+  })
+
+  run('names the zone of a cadence written in someone else’s', () => {
+    const schedule = (cadence: unknown): AutomationDefinition['trigger'] =>
+      trigger('schedule', { kind: 'schedule', timezone: 'UTC', cadence })
+    // The pre-2039 starter as it sits in an existing store: 02:00 UTC is 03:00 for
+    // this reader in July, and the row says which 02:00 it means.
+    assert.equal(summary(schedule({ type: 'daily', timeLocal: '02:00' })), 'Daily at 02:00 UTC')
+    assert.equal(
+      summary(schedule({ type: 'weekly', timeLocal: '08:30', daysOfWeek: [1] })),
+      'Weekly · Mon at 08:30 UTC',
+    )
+    // An interval names no wall-clock, so there is nothing to qualify.
+    assert.equal(summary(schedule({ type: 'interval', everyMinutes: 120 })), 'Every 2h')
+  })
+
+  // --- Operational overview (T6): engine reachability + runs feed -------------
+
+  run('treats only known not-running states as unreachable (null is unknown, not unreachable)', () => {
+    assert.equal(isEngineUnreachable({ state: 'running' }), false)
+    assert.equal(isEngineUnreachable({ state: 'starting' }), false)
+    assert.equal(isEngineUnreachable(null), false)
+    assert.equal(isEngineUnreachable({ state: 'unavailable' }), true)
+    assert.equal(isEngineUnreachable({ state: 'failed' }), true)
+    assert.equal(isEngineUnreachable({ state: 'stopped' }), true)
+  })
+
+  run('merges feed runs newest-first and caps to the limit', () => {
+    const feedRun = (id: string, dueAt: string, defId: string): AutomationFeedRun => ({
+      run: { id, automationId: defId, status: 'completed', dueAt, startedAt: null, completedAt: null },
+      definitionId: defId,
+      definitionName: `Def ${defId}`,
+      triggerKind: 'schedule',
+    })
+    const merged = mergeFeedRuns([
+      [feedRun('a', '2026-01-01T00:00:00Z', 'd1'), feedRun('b', '2026-01-03T00:00:00Z', 'd1')],
+      [feedRun('c', '2026-01-02T00:00:00Z', 'd2')],
+    ])
+    assert.deepEqual(
+      merged.map((m) => m.run.id),
+      ['b', 'c', 'a'],
+      'sorted by dueAt descending across definitions',
+    )
+    const many = Array.from({ length: 70 }, (_, i) =>
+      feedRun(`r${i}`, `2026-01-01T00:00:${String(i % 60).padStart(2, '0')}Z`, 'd1'),
+    )
+    assert.equal(mergeFeedRuns([many]).length, 50, 'capped to the 50-run window')
+  })
+
+  // --- Feed ordering matches the displayed stamp (T11 F4) --------------------
+  // Rows display completedAt ?? startedAt ?? dueAt; the merge must sort by the
+  // same expression so order matches the shown timestamp, not dueAt alone.
+
+  run('orders the feed by the displayed stamp (completedAt ?? startedAt ?? dueAt), not dueAt', () => {
+    const make = (id: string, over: Partial<AutomationRun>): AutomationFeedRun => ({
+      run: {
+        id,
+        automationId: 'd',
+        status: 'completed',
+        dueAt: '2026-01-01T00:00:00Z',
+        startedAt: null,
+        completedAt: null,
+        ...over,
+      },
+      definitionId: 'd',
+      definitionName: 'Def d',
+      triggerKind: 'schedule',
+    })
+    // Same dueAt for all; completion time decides order (newer completion first).
+    const byCompletion = mergeFeedRuns([
+      [
+        make('older-completion', { completedAt: '2026-01-02T00:00:00Z' }),
+        make('newer-completion', { completedAt: '2026-01-05T00:00:00Z' }),
+      ],
+    ])
+    assert.deepEqual(
+      byCompletion.map((m) => m.run.id),
+      ['newer-completion', 'older-completion'],
+    )
+    // A running row (startedAt, no completedAt) orders by startedAt — above a
+    // completed run whose later dueAt would have won under the old dueAt-only sort.
+    const mixed = mergeFeedRuns([
+      [
+        make('completed-earlier', { dueAt: '2026-01-09T00:00:00Z', completedAt: '2026-01-03T00:00:00Z' }),
+        make('running-later', { dueAt: '2026-01-01T00:00:00Z', startedAt: '2026-01-06T00:00:00Z', status: 'running' }),
+      ],
+    ])
+    assert.deepEqual(
+      mixed.map((m) => m.run.id),
+      ['running-later', 'completed-earlier'],
+    )
+  })
+
+  // --- Runs-feed fan-out timeout robustness (T11 I1) -------------------------
+  // A hung per-definition load must not strand the feed: aggregateFeedRuns settles
+  // each call against a timeout, skipping-and-counting the slow definition.
+
+  async function main(): Promise<void> {
+    const def = (id: string): AutomationDefinition =>
+      ({ id, name: `Def ${id}`, trigger: { kind: 'schedule', config: {} } }) as unknown as AutomationDefinition
+    const runFor = (id: string): AutomationRun => ({
+      id: `run-${id}`,
+      automationId: id,
       status: 'completed',
       dueAt: '2026-01-01T00:00:00Z',
       startedAt: null,
       completedAt: null,
-      ...over,
-    },
-    definitionId: 'd',
-    definitionName: 'Def d',
-    triggerKind: 'schedule',
-  })
-  // Same dueAt for all; completion time decides order (newer completion first).
-  const byCompletion = mergeFeedRuns([
-    [
-      make('older-completion', { completedAt: '2026-01-02T00:00:00Z' }),
-      make('newer-completion', { completedAt: '2026-01-05T00:00:00Z' }),
-    ],
-  ])
-  assert.deepEqual(
-    byCompletion.map((m) => m.run.id),
-    ['newer-completion', 'older-completion'],
-  )
-  // A running row (startedAt, no completedAt) orders by startedAt — above a
-  // completed run whose later dueAt would have won under the old dueAt-only sort.
-  const mixed = mergeFeedRuns([
-    [
-      make('completed-earlier', { dueAt: '2026-01-09T00:00:00Z', completedAt: '2026-01-03T00:00:00Z' }),
-      make('running-later', { dueAt: '2026-01-01T00:00:00Z', startedAt: '2026-01-06T00:00:00Z', status: 'running' }),
-    ],
-  ])
-  assert.deepEqual(
-    mixed.map((m) => m.run.id),
-    ['running-later', 'completed-earlier'],
-  )
-})
+    })
+    const okResult = (id: string): AutomationsRunsListResult => ({ ok: true, value: [runFor(id)] })
 
-// --- Runs-feed fan-out timeout robustness (T11 I1) -------------------------
-// A hung per-definition load must not strand the feed: aggregateFeedRuns settles
-// each call against a timeout, skipping-and-counting the slow definition.
+    await runAsync(
+      'settles a hung per-definition load: feed still reaches a result, slow definition counted partial',
+      async () => {
+        const loader = (d: AutomationDefinition): Promise<AutomationsRunsListResult> =>
+          d.id === 'hung'
+            ? new Promise<AutomationsRunsListResult>(() => {}) // never settles
+            : Promise.resolve(okResult(d.id))
+        const { runs, partialCount } = await aggregateFeedRuns([def('ok'), def('hung')], loader, 20)
+        assert.equal(partialCount, 1, 'the hung definition is skipped and counted, not awaited forever')
+        assert.deepEqual(
+          runs.map((r) => r.run.id),
+          ['run-ok'],
+          'the healthy definition still contributes its runs',
+        )
+      },
+    )
 
-async function main(): Promise<void> {
-  const def = (id: string): AutomationDefinition =>
-    ({ id, name: `Def ${id}`, trigger: { kind: 'schedule', config: {} } }) as unknown as AutomationDefinition
-  const runFor = (id: string): AutomationRun => ({
-    id: `run-${id}`,
-    automationId: id,
-    status: 'completed',
-    dueAt: '2026-01-01T00:00:00Z',
-    startedAt: null,
-    completedAt: null,
-  })
-  const okResult = (id: string): AutomationsRunsListResult => ({ ok: true, value: [runFor(id)] })
-
-  await runAsync(
-    'settles a hung per-definition load: feed still reaches a result, slow definition counted partial',
-    async () => {
-      const loader = (d: AutomationDefinition): Promise<AutomationsRunsListResult> =>
-        d.id === 'hung'
-          ? new Promise<AutomationsRunsListResult>(() => {}) // never settles
-          : Promise.resolve(okResult(d.id))
-      const { runs, partialCount } = await aggregateFeedRuns([def('ok'), def('hung')], loader, 20)
-      assert.equal(partialCount, 1, 'the hung definition is skipped and counted, not awaited forever')
+    await runAsync('counts handled failures and thrown rejections as partial alongside the healthy load', async () => {
+      const loader = (d: AutomationDefinition): Promise<AutomationsRunsListResult> => {
+        if (d.id === 'fail') return Promise.resolve({ ok: false, code: 'eio', message: 'nope' })
+        if (d.id === 'throw') return Promise.reject(new Error('boom'))
+        return Promise.resolve(okResult(d.id))
+      }
+      const { runs, partialCount } = await aggregateFeedRuns([def('ok'), def('fail'), def('throw')], loader, 1000)
+      assert.equal(partialCount, 2)
       assert.deepEqual(
         runs.map((r) => r.run.id),
         ['run-ok'],
-        'the healthy definition still contributes its runs',
       )
-    },
-  )
+    })
 
-  await runAsync('counts handled failures and thrown rejections as partial alongside the healthy load', async () => {
-    const loader = (d: AutomationDefinition): Promise<AutomationsRunsListResult> => {
-      if (d.id === 'fail') return Promise.resolve({ ok: false, code: 'eio', message: 'nope' })
-      if (d.id === 'throw') return Promise.reject(new Error('boom'))
-      return Promise.resolve(okResult(d.id))
+    if (failures > 0) {
+      console.error(`\n${failures} test(s) failed`)
+      process.exit(1)
     }
-    const { runs, partialCount } = await aggregateFeedRuns([def('ok'), def('fail'), def('throw')], loader, 1000)
-    assert.equal(partialCount, 2)
-    assert.deepEqual(
-      runs.map((r) => r.run.id),
-      ['run-ok'],
-    )
-  })
-
-  if (failures > 0) {
-    console.error(`\n${failures} test(s) failed`)
-    process.exit(1)
+    console.log('\nall automation copy tests passed')
   }
-  console.log('\nall automation copy tests passed')
-}
 
-void main()
+  const suiteRun = main()
+
+  await suiteRun
+})

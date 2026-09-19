@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { test } from 'node:test'
+import { test } from 'vitest'
 
 import { validateManifestStructure } from './plugin-manifest-validate'
 import { validateCliPluginManifest } from '../../packages/module-sdk/src/cli-manifest'

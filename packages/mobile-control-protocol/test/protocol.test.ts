@@ -12,7 +12,9 @@ import {
   type MobileControlCommand,
   type MobileControlSnapshot,
 } from "../src/index";
+import { test } from 'vitest'
 
+test("protocol", async () => {
 const now = "2026-04-28T19:00:00.000Z";
 
 const validCommand: MobileControlCommand = {
@@ -383,3 +385,4 @@ function assertInvalid(label: string, result: ReturnType<typeof validateMobileCo
 function assertInvalid(label: string, result: { ok: boolean }): void {
   assert.equal(result.ok, false, label);
 }
+})
