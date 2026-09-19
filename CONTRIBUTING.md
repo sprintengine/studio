@@ -53,14 +53,17 @@ npm run lint                                # the design-system and composition 
 npm run verify:app                          # everything CI runs, in one command
 ```
 
-`npm run verify:app` is the one that matters: it chains the typecheck, the
-lints, the test suite, the SDK drift and pack checks, and the feed seed
-checks. Run it before you open a pull request. It is the same command CI runs.
+`npm run verify:app` is the one that matters: it chains the typecheck of both
+the app and the test projects, the lints, the test suite, the SDK drift and
+pack checks, and the feed seed checks. Run it before you open a pull request.
+It is the same command CI runs.
 
 There is one suite, with no Python half. `npm run test` discovers and runs
-every `*.test.ts` and `*.test.tsx` under `src/`, `packages/`,
-`resources/marketplace/` and `validation/`; the few it holds back are named on
-every run (`scripts/testing/test-profiles.json`). The release-script tests
+every `*.test.ts` and `*.test.tsx` under `src/`, `packages/` and
+`resources/marketplace/`; the few it holds back are named on every run
+(`scripts/testing/test-profiles.json`). Each test runs with the app's own
+`SPRINTENGINE_*` and `MULTICODE_*` variables removed from its environment, so
+the suite behaves the same from a Studio terminal as from CI. The release-script tests
 under `scripts/release/` run as `npm run test:release`, and the lint guard
 probes as part of `npm run lint` — both are in `verify:app`. `tests/` holds
 only the fixtures those tests read.

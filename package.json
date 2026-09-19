@@ -42,7 +42,7 @@
     "typecheck:app": "tsc -b --noEmit --verbose",
     "typecheck:tests": "tsc -b tsconfig.tests.json --noEmit --verbose",
     "typecheck:all": "npm run typecheck:app && npm run typecheck:tests",
-    "verify:app": "npm run typecheck && npm run lint && npm run test && npm run test:sdk:drift && npm run test:sdk:pack && npm run test:mobile-protocol:pack && npm run test:model-feed && npm run test:card-feed && npm run test:sources && npm run test:release",
+    "verify:app": "npm run typecheck:all && npm run lint && npm run test && npm run test:sdk:drift && npm run test:sdk:pack && npm run test:mobile-protocol:pack && npm run test:model-feed && npm run test:card-feed && npm run test:sources && npm run test:release",
     "verify:marketplace-registry": "esbuild resources/marketplace/verify-marketplace.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/multicode/marketplace-registry-verify.cjs && node node_modules/.cache/multicode/marketplace-registry-verify.cjs",
     "lint": "node scripts/lint-design-tokens.mjs && node scripts/lint-panel-composition.mjs && node scripts/lint-primitive-duplication.mjs && node scripts/lint-door-surfaces.mjs && node scripts/lint-design-system-conformance.mjs && node scripts/testing/design-system-guard-probes.mjs",
     "lint:design-tokens": "node scripts/lint-design-tokens.mjs",
