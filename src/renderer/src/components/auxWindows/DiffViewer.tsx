@@ -51,6 +51,7 @@ import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
 import { openDiffWindow } from './openDiffWindow'
 import { openExternalFileWindow } from './openFileWindow'
 import { openFileSurface } from '../../utils/openFileSurface'
+import { configureMonacoLanguages } from '../../utils/monacoLanguages'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { writeAuxWindowSetting } from './auxSettingsWrite'
 import { getGitEntry } from '../../hooks/useGitStatus'
@@ -457,6 +458,7 @@ export function DiffBody({
   return (
     <DiffEditor
       height="100%"
+      beforeMount={configureMonacoLanguages}
       theme={monacoTheme}
       original={content.original}
       modified={content.modified}

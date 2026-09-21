@@ -4,6 +4,7 @@ import { detectLanguage } from '../../utils/files'
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { renderMarkdown } from '../../utils/markdown'
+import { configureMonacoLanguages } from '../../utils/monacoLanguages'
 import { TITLE_BAR_HEIGHT, TRAFFIC_LIGHT_INSET } from '../workspace/AppTitleBar'
 import { CloseIconButton, EmptyState, GhostButton, IconButton, InlineNotice, RowButton, Spinner, Tooltip } from '../ui'
 import {
@@ -347,6 +348,7 @@ function renderBody(
     <MonacoEditor
       key={activePath}
       height="100%"
+      beforeMount={configureMonacoLanguages}
       theme={monacoTheme}
       language={detectLanguage(activeTab.name)}
       value={buffer.value}
