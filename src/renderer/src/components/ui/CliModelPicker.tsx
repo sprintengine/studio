@@ -193,9 +193,10 @@ export function CliModelPopoverSurface({
    * The permission control, seated at the TRAILING end immediately right of the
    * effort control: the two dropdowns belong side by side in that order, and
    * where they sit is this row's business, not each host's. Hosts that do not
-   * configure permissions pass none.
+   * configure permissions pass none. The highlighted row supplies the runtime
+   * and model so browsing another agent cannot edit the previous row's preset.
    */
-  permissions?: React.ReactNode
+  permissions?: (cli: AgentCli, model: string | null) => React.ReactNode
 }): JSX.Element {
   const favourites = useModelFavourites()
   const favouriteSet = React.useMemo(() => new Set(favourites), [favourites])
@@ -294,6 +295,10 @@ export function CliModelPopoverSurface({
     return visible.length > 0 ? 0 : -1
   })()
   const optionId = (index: number): string => `${listId}-option-${index}`
+  const permissionRow = visible[activeIndex]?.row
+  const permissionControl = permissionRow
+    ? permissions?.(permissionRow.cli, isSelected(permissionRow) ? (effectiveModel ?? null) : permissionRow.model)
+    : null
 
   // `scrollIntoView` is optional-called: jsdom does not implement it, and the
   // node tests drive this surface for real rather than through a shim.
@@ -545,7 +550,7 @@ export function CliModelPopoverSurface({
             they carry, and a runtime with a long level name plus a permission
             word can outgrow a narrow surface. A second line beats a clipped
             one. */}
-        {permissions || (showReasoning && hasReasoningAxes(reasoningAxes)) ? (
+        {permissionControl || (showReasoning && hasReasoningAxes(reasoningAxes)) ? (
           <div className="flex flex-wrap items-center gap-1 border-t border-[color:var(--border-subtle)] px-1.5 py-1">
             <span className="flex-1" />
             {/* Two controls, not one composed trigger: context window and effort
@@ -583,7 +588,7 @@ export function CliModelPopoverSurface({
                 onSelectModel={(model) => onSelectModel(currentCli, model)}
               />
             ) : null}
-            {permissions}
+            {permissionControl}
           </div>
         ) : null}
       </div>

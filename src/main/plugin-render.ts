@@ -150,10 +150,9 @@ function resolvePermissionPreset(
 
 /**
  * The permission args a preset renders to for one manifest — the single source
- * of truth, exported so no caller restates the CLI mapping. The acknowledged-
- * legacy codex Windows-native path in terminal-launch.ts builds its argv by
- * hand and used to carry its own hardcoded copy of this table; that duplication
- * is how the Claude Code mapping drifted out of step with the manifest.
+ * of truth for callers that need the mapping without a complete launch.
+ * Windows and POSIX launches both render through the manifest so a permission
+ * change cannot update one platform while leaving another on stale flags.
  */
 export function resolvePermissionArgs(manifest: PluginManifest, requested: string | undefined): string[] {
   return resolvePermissionPreset(manifest, requested)?.args ?? []
@@ -222,8 +221,7 @@ function buildVariableScope(
 
   // `reasoningArgs` mirrors `modelArgs`: spread into argv via
   // { spreadIf: "reasoningArgs" }. The render rule lives in
-  // renderReasoningArgs, which the acknowledged-legacy native-Windows codex
-  // path also calls so both paths honor one rule. It sets `reasoning` on this
+  // renderReasoningArgs, shared by all platform launch paths. It sets `reasoning` on this
   // scope only when the level actually renders, so an unset, default, or
   // undeclared level leaves `{{reasoning}}` unresolved as before.
   scope.set('reasoningArgs', renderReasoningArgs(manifest, context.reasoning, scope))

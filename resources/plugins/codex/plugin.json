@@ -10,7 +10,7 @@
   "permissionPresets": {
     "manual": {
       "label": "Manual — Codex prompts for approvals",
-      "args": []
+      "args": ["--ask-for-approval", "on-request", "--sandbox", "read-only"]
     },
     "auto": {
       "$comment": "Codex's autonomy is enforced by a SANDBOX, not reviewed by a classifier \u2014 same rung as Claude Code's auto, different mechanism. `--ask-for-approval never` is deliberate over `on-request`: this is the rung the automation MCP surface forces callers onto (it refuses bypass outright), and a prompting preset does not escalate an unattended run, it hangs it until the idle reaper fails it.",
@@ -18,7 +18,7 @@
       "args": ["--ask-for-approval", "never", "--sandbox", "workspace-write"]
     },
     "bypass": {
-      "label": "Bypass all approvals (dangerous)",
+      "label": "YOLO — no approvals or sandbox",
       "args": ["--dangerously-bypass-approvals-and-sandbox"]
     }
   },

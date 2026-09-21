@@ -1,7 +1,7 @@
 import type { JSX } from 'react'
 import type { BuiltinAutomation } from '../../../../../../shared/automations/builtin'
 import { DefinitionList, InlineNotice, Section } from '../../../ui'
-import { BUILTIN_PERMISSION_LABEL, builtinFacts } from './builtinAutomations'
+import { builtinPermissionLabel, builtinFacts } from './builtinAutomations'
 
 // The card for one of the five automations that ship inside the app (Extensions
 // drawer ruling, 2026-09-05, frame 4). It reads exactly like the canvas for a
@@ -19,12 +19,14 @@ import { BUILTIN_PERMISSION_LABEL, builtinFacts } from './builtinAutomations'
 // (GlobalSurfaceShell), where the name is — one title row, one call to action.
 export function BuiltinAutomationCanvas({
   entry,
+  cli,
   cliLabel,
   addedIn,
   addBlockedReason,
   addError,
 }: {
   entry: BuiltinAutomation
+  cli: string
   /** What the run will launch on: the app's last-selected CLI, resolved by the
    *  door, because the built-in's own payload names none. */
   cliLabel: string
@@ -65,7 +67,7 @@ export function BuiltinAutomationCanvas({
 
         <DefinitionList
           className="py-1"
-          items={builtinFacts(entry, BUILTIN_PERMISSION_LABEL, cliLabel).map((fact) => ({
+          items={builtinFacts(entry, builtinPermissionLabel(cli), cliLabel).map((fact) => ({
             term: fact.term,
             // The cron line is the machine's half of the fact and is set as
             // code, beside the same schedule in words — the mockup's own

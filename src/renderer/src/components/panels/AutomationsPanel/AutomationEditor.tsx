@@ -609,6 +609,7 @@ export function AutomationEditor({
                   onChange={(patch) => setForm((prev) => ({ ...prev, ...patch }))}
                 />
                 <PermissionField
+                  cli={selectedCli}
                   show={showAgentPicker}
                   value={selectedPermissionPreset}
                   onChange={(preset) => patchConfig({ permissionPreset: preset })}

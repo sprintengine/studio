@@ -26,21 +26,19 @@ export const AGENT_SPAWN_PERMISSION_OPTIONS: Array<{
     value: 'none',
     label: 'None',
     summary: 'No flag — the CLI decides.',
-    title:
-      'Pass no permission flag and let the CLI choose. Claude Code now starts in auto mode on Pro, Max and Team plans, so this is no longer the same as asking every time.',
+    title: 'Use the agent’s configured permissions. This does not necessarily mean it will ask for approval.',
   },
   {
     value: 'manual',
     label: 'Manual',
-    summary: 'Ask before every action.',
-    title: 'Ask before every action.',
+    summary: 'Use interactive approvals.',
+    title: 'The agent asks when an action needs approval.',
   },
   {
     value: 'auto',
     label: 'Auto',
     summary: 'Run without asking; the CLI’s own safety checks stay on.',
-    title:
-      'Run without stopping to ask, with the CLI’s own safety checks — a classifier on Claude Code, a workspace sandbox on Codex.',
+    title: 'Run with the agent’s automatic permission policy.',
   },
   {
     value: 'bypass',
@@ -58,6 +56,53 @@ export const PRESET_CHIP_LABEL: Record<CliPermissionPreset, string> = {
   manual: 'Manual',
   auto: 'Auto',
   bypass: 'Bypass',
+}
+
+// Keep stored preset ids stable; only the vocabulary depends on the runtime.
+// A GPT model alone does not imply Codex: callers pass the selected agent id.
+export function agentPermissionOptions(cli?: string | null): typeof AGENT_SPAWN_PERMISSION_OPTIONS {
+  return AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
+    if (cli === 'codex') {
+      if (option.value === 'bypass') {
+        return {
+          ...option,
+          label: 'YOLO',
+          summary: 'No approvals or sandbox.',
+          title: 'Run Codex without approval prompts or sandbox restrictions.',
+        }
+      }
+      if (option.value === 'auto') {
+        return {
+          ...option,
+          summary: 'Workspace sandbox; never asks.',
+          title:
+            'Codex runs inside the workspace sandbox without asking for approval. Actions outside its permissions are blocked.',
+        }
+      }
+      if (option.value === 'manual') {
+        return {
+          ...option,
+          summary: 'Read-only sandbox; asks to make changes.',
+          title:
+            'Codex starts in a read-only sandbox and can request approval for changes and commands outside that sandbox.',
+        }
+      }
+    }
+    if (cli === 'claude-code' || cli === 'claude-agent' || cli === 'kimi-claude' || cli === 'zai') {
+      if (option.value === 'auto') {
+        return {
+          ...option,
+          summary: 'Claude reviews actions automatically.',
+          title: 'Claude Code uses its automatic permission checks to review actions.',
+        }
+      }
+    }
+    return option
+  })
+}
+
+export function agentPermissionChipLabel(preset: CliPermissionPreset, cli?: string | null): string {
+  return cli === 'codex' && preset === 'bypass' ? 'YOLO' : PRESET_CHIP_LABEL[preset]
 }
 
 // One glyph per preset, a vocabulary that reads at a glance, drawn once in
@@ -189,11 +234,13 @@ export function menuRadioRowKeyDown(
 // above). A row in `disabledReasons` stays listed and dimmed with its reason
 // as the meta line — a control that vanishes when unavailable teaches nothing.
 export function PermissionPresetMenuRows({
+  cli,
   value,
   disabled = false,
   disabledReasons,
   onSelect,
 }: {
+  cli?: string | null
   value: CliPermissionPreset
   /** Locks the rows while a live change is in flight. */
   disabled?: boolean
@@ -203,7 +250,7 @@ export function PermissionPresetMenuRows({
 }) {
   return (
     <>
-      {AGENT_SPAWN_PERMISSION_OPTIONS.map((option) => {
+      {agentPermissionOptions(cli).map((option) => {
         const active = option.value === value
         const isBypass = option.value === 'bypass'
         const reason = disabledReasons?.[option.value] ?? null

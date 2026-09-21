@@ -11,10 +11,10 @@ import {
 import { ChevronDownIcon } from '../../AppIcons'
 import { MENU_GROUP_LABEL_CLASS, MENU_LIST_CLASS } from '../../ui/menuClasses'
 import {
-  AGENT_SPAWN_PERMISSION_OPTIONS,
+  agentPermissionOptions,
+  agentPermissionChipLabel,
   focusActivePresetRow,
   PermissionPresetMenuRows,
-  PRESET_CHIP_LABEL,
 } from './agentSpawnShared'
 import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'
 
@@ -125,15 +125,15 @@ export function FooterMenu({
 // no explanatory copy (owner, 2026-08-04). It reads the exhaustive chip labels
 // the preset rows use, so a preset it cannot tell apart from its neighbour is a
 // preset the person cannot see they are on.
-function permissionLabel(preset: CliPermissionPreset): string {
-  return PRESET_CHIP_LABEL[preset]
+function permissionLabel(preset: CliPermissionPreset, cli: AgentCli): string {
+  return agentPermissionChipLabel(preset, cli)
 }
 
 // The accessible name carries the full option label, not the chip's short one:
 // "Permissions: Bypass permissions" says which safeguard is off, where the chip
 // only has room for a word.
-function permissionAccessibleName(preset: CliPermissionPreset): string {
-  const option = AGENT_SPAWN_PERMISSION_OPTIONS.find((entry) => entry.value === preset)
+function permissionAccessibleName(preset: CliPermissionPreset, cli: AgentCli): string {
+  const option = agentPermissionOptions(cli).find((entry) => entry.value === preset)
   return `Permissions: ${option?.label ?? preset}`
 }
 
@@ -175,9 +175,9 @@ export function SpawnPermissionFooter({
   const preset = useModelPermissionPreset(cli, model, fallback)
   return (
     <FooterMenu
-      ariaLabel={permissionAccessibleName(preset)}
+      ariaLabel={permissionAccessibleName(preset, cli)}
       heading="Permissions"
-      label={permissionLabel(preset)}
+      label={permissionLabel(preset, cli)}
       // Bypass is WARN, not danger: `danger` is the error tone, and the preset
       // wears amber everywhere else in the app.
       tone={preset === 'bypass' ? 'warn' : preset === 'auto' ? 'accent' : 'quiet'}
@@ -191,6 +191,7 @@ export function SpawnPermissionFooter({
     >
       {(close) => (
         <PermissionPresetMenuRows
+          cli={cli}
           value={preset}
           {...(disabledReasons ? { disabledReasons } : {})}
           onSelect={(next) => {

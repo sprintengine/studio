@@ -1,10 +1,8 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
 import type { AutomationsInstanceEntry } from '../../../../../../shared/automations/contracts'
-import {
-  AUTOMATION_DEFAULT_PERMISSION_PRESET,
-  type AutomationCliPermissionPreset,
-} from '../../../../../../shared/automations/contracts'
+import { AUTOMATION_DEFAULT_PERMISSION_PRESET } from '../../../../../../shared/automations/contracts'
+import { agentPermissionOptions } from '../../agentComposer/agentSpawnShared'
 import type { BuiltinAutomation } from '../../../../../../shared/automations/builtin'
 import { automationScheduleCron, automationScheduleWords } from '../../../../../../shared/automations/scheduleWords'
 import type { AutomationProjectFolder } from '../../../../utils/automationsEntry'
@@ -95,16 +93,11 @@ function folderDisplayName(value: string): string {
 // preset, and the install deliberately does not stamp one, so what a run gets is
 // the app's own resolved default — read off the same constant the parse resolves
 // to (`parseSpawnAgentConfig`), never a string that could quietly disagree with
-// it. The wording is the shelf's, because it is the same fact said to the same
-// reader; the constant is what keeps the two from drifting about WHICH preset.
-const PERMISSION_LABEL: Record<AutomationCliPermissionPreset, string> = {
-  none: 'CLI default — whatever the CLI does',
-  manual: 'Manual — asks before acting',
-  auto: 'Auto — fewer prompts, CLI-supervised',
-  bypass: 'Bypass all — runs unattended',
+// it. The runtime supplies the vocabulary, as it does in the editor.
+export function builtinPermissionLabel(cli: string): string {
+  const option = agentPermissionOptions(cli).find((entry) => entry.value === AUTOMATION_DEFAULT_PERMISSION_PRESET)!
+  return `${option.label} — ${option.summary}`
 }
-
-export const BUILTIN_PERMISSION_LABEL = PERMISSION_LABEL[AUTOMATION_DEFAULT_PERMISSION_PRESET]
 
 /** The definition-list rows the card states, read off the record's real fields.
  *  `code` is the machine form of the fact — the cron line — kept apart from the

@@ -261,10 +261,10 @@ export default function AutomationsGlobalSurface(): JSX.Element {
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const lastSelectedCli = useWorkspaceStore((s) => s.appSettings.lastSelectedCli)
-  const cliLabel = useMemo(() => {
+  const builtinRuntime = useMemo(() => {
     const catalog = selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes)
     const resolved = resolveAutomationRuntimeCli(undefined, lastSelectedCli, catalog)
-    return catalog.find((option) => option.value === resolved)?.label ?? resolved
+    return { cli: resolved, label: catalog.find((option) => option.value === resolved)?.label ?? resolved }
   }, [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, lastSelectedCli])
 
   // Adding re-reads the index rather than patching it: the definition main wrote
@@ -597,7 +597,8 @@ export default function AutomationsGlobalSurface(): JSX.Element {
             onRetry={() => void load()}
             hasEntries={entries.length > 0}
             selectedBuiltin={selectedBuiltin}
-            builtinCliLabel={cliLabel}
+            builtinCli={builtinRuntime.cli}
+            builtinCliLabel={builtinRuntime.label}
             builtinAddedIn={
               selectedBuiltin && addedIds.has(selectedBuiltin.id) ? (addTarget?.displayName ?? null) : null
             }
@@ -678,6 +679,7 @@ function SurfaceBody({
   onEditorSaved,
   selectedEntry,
   selectedBuiltin,
+  builtinCli,
   builtinCliLabel,
   builtinAddedIn,
   builtinAddBlockedReason,
@@ -694,6 +696,7 @@ function SurfaceBody({
   onRetry: () => void
   hasEntries: boolean
   selectedBuiltin: BuiltinAutomation | null
+  builtinCli: string
   builtinCliLabel: string
   builtinAddedIn: string | null
   builtinAddBlockedReason: string | null
@@ -734,6 +737,7 @@ function SurfaceBody({
     return (
       <BuiltinAutomationCanvas
         entry={selectedBuiltin}
+        cli={builtinCli}
         cliLabel={builtinCliLabel}
         addedIn={builtinAddedIn}
         addBlockedReason={builtinAddBlockedReason}

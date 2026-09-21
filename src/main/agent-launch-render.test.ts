@@ -948,10 +948,9 @@ test('agent-launch-render', async () => {
     )
   }
 
-  // The codex Windows-native LEGACY path builds argv by hand, so it would silently
-  // ignore effort unless it renders the level itself. It shares the render rule
-  // with the manifest paths (renderReasoningArgs), so the level, the declared
-  // default, and an undeclared level all behave identically to the shared path.
+  // Native Windows uses the manifest renderer for effort and permission flags.
+  // Keep coverage at the generated-script boundary so dropped arguments are
+  // caught even when the shared renderer itself is correct.
   function testCodexLegacyWindowsReasoning(): void {
     const cwd = 'C:/work/repo'
     const runtime = { command: '', useWsl: false }
@@ -972,18 +971,38 @@ test('agent-launch-render', async () => {
 
     assert.deepEqual(
       script('high'),
-      ['--model', 'gpt-5.6-sol', '-c', 'model_reasoning_effort="high"', '-C', cwd, 'go'],
+      [
+        '-C',
+        cwd,
+        '--ask-for-approval',
+        'on-request',
+        '--sandbox',
+        'read-only',
+        '--model',
+        'gpt-5.6-sol',
+        '-c',
+        'model_reasoning_effort="high"',
+        'go',
+      ],
       'codex-legacy renders the effort flag after the model flag',
     )
     const baseline = script(undefined)
-    assert.deepEqual(baseline, ['--model', 'gpt-5.6-sol', '-C', cwd, 'go'])
+    assert.deepEqual(baseline, [
+      '-C',
+      cwd,
+      '--ask-for-approval',
+      'on-request',
+      '--sandbox',
+      'read-only',
+      '--model',
+      'gpt-5.6-sol',
+      'go',
+    ])
     for (const level of [undefined, '', 'medium', 'bogus']) {
       assert.deepEqual(script(level), baseline, `codex-legacy passes no effort flag for ${JSON.stringify(level)}`)
     }
 
-    // Resume re-passes nothing: this path builds one arg list for both launch and
-    // resume, so the level has to be suppressed explicitly here (the manifest
-    // paths get it for free from codex's resume argv declaring no spread).
+    // Resume leaves the session's effort alone, as declared by its manifest.
     const resumeArgs = (reasoning?: string): string[] =>
       decodeWindowsScriptArgs(
         buildCodexLegacyNativeAgentLaunchPowerShellScript(
@@ -1010,9 +1029,7 @@ test('agent-launch-render', async () => {
     )
   }
 
-  // Criterion R1: the codex Windows-native LEGACY path (codex builds its argv by
-  // hand outside renderAgentLaunchArgv, so the shared debug boundary does not
-  // cover it) must (a) carry the verbatim DEBUG_DIRECTIVE into the rendered script
+  // The Codex Windows-native path must carry the verbatim DEBUG_DIRECTIVE into the rendered script
   // when debugMode is on, and (b) keep launch/permission args byte-identical with
   // debug on vs off — the same orthogonality invariant the shared paths hold.
   function testCodexLegacyWindowsDebugInjection(): void {
@@ -1055,15 +1072,13 @@ test('agent-launch-render', async () => {
       // The non-prompt portion of the script (command resolution, npm-shim block)
       // must be byte-identical too — only the prompt base64 may differ.
       assert.equal(
-        on.replace(/\$arguments = @\(.*\)/, ''),
-        off.replace(/\$arguments = @\(.*\)/, ''),
+        on.replace(/\$arguments = @\(.*\)/, '').replace(/\$env:SPRINTENGINE_LAUNCH_ARGS = .*\r\n/, ''),
+        off.replace(/\$arguments = @\(.*\)/, '').replace(/\$env:SPRINTENGINE_LAUNCH_ARGS = .*\r\n/, ''),
         `codex-legacy/${preset}: script body outside $arguments unchanged by debug`,
       )
 
       // (a) Codex-native invocation leads, directive follows verbatim, ahead of
-      // the original prompt. The legacy path escapes newlines/double-quotes in the
-      // prompt arg but the invocation and directive text contain neither, so they
-      // survive intact.
+      // the original prompt. Native quoting preserves the text verbatim.
       assert.equal(offArgs.at(-1), prompt, `codex-legacy/${preset}: debug-off prompt arg unchanged`)
       assert.ok(
         onArgs.at(-1)?.startsWith(DEBUG_INVOCATION.codex),
@@ -1116,14 +1131,12 @@ test('agent-launch-render', async () => {
       undefined,
       true,
     )
-    // This legacy path escapes real newlines to literal "\n" in the codex prompt
-    // arg (nativeWindowsCodexPromptArg), so build the expected value by applying
-    // the same escaping rather than hardcoding the escaped form.
-    const expectedNoPrompt = applyDebugDirective('', true, DEBUG_INVOCATION.codex).replace(/\n/g, '\\n')
+    // Newlines survive as newlines; the native command-line encoder owns quoting.
+    const expectedNoPrompt = applyDebugDirective('', true, DEBUG_INVOCATION.codex)
     assert.equal(
       decodeWindowsScriptArgs(noPromptOn).at(-1),
       expectedNoPrompt,
-      'codex-legacy: debug-on with empty prompt injects the codex invocation + directive (newlines escaped)',
+      'Codex with an empty prompt injects its invocation and directive verbatim',
     )
   }
 

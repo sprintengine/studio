@@ -308,13 +308,7 @@ export function CardGoPicker({
       // Permissions sit with the model, remembered against the row — the same
       // control every other picker host carries, so the preset a person set for
       // a model in New chat is the preset this card launches on.
-      permissions={
-        <SpawnPermissionFooter
-          cli={currentCli}
-          model={composer.modelForSelection(CARD_SELECTION, currentCli) ?? null}
-          fallback={permissionFallback}
-        />
-      }
+      permissions={(cli, model) => <SpawnPermissionFooter cli={cli} model={model} fallback={permissionFallback} />}
     />
   )
 }

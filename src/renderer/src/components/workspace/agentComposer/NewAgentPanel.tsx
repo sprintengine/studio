@@ -56,7 +56,7 @@ import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import SprintEngineFrond from '../../brand/SprintEngineFrond'
 import { CliInstallCta } from '../cliInstallRoute'
 import {
-  AGENT_SPAWN_PERMISSION_OPTIONS,
+  agentPermissionOptions,
   menuRadioRowKeyDown,
   nearestRemotePermissionPreset,
   REMOTE_PERMISSION_PRESETS,
@@ -814,8 +814,8 @@ export default function NewAgentPanel({
     if (REMOTE_PERMISSION_PRESETS.has(effectivePreset)) return
     const next = nearestRemotePermissionPreset(effectivePreset)
     const from =
-      AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === effectivePreset)?.label ?? effectivePreset
-    const to = AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === next)?.label ?? next
+      agentPermissionOptions(launchCli).find((option) => option.value === effectivePreset)?.label ?? effectivePreset
+    const to = agentPermissionOptions(launchCli).find((option) => option.value === next)?.label ?? next
     // The move is written against the ROW the machine refused it for, so
     // picking a local model back does not inherit the remote's narrowing.
     setModelPermissionPreset(launchCli, model ?? null, next)
@@ -1365,15 +1365,15 @@ export default function NewAgentPanel({
                   // you trust the next in — so it is chosen where the model is,
                   // remembered against that row, and sits on the picker's one
                   // trailing row beside the effort control.
-                  permissions={
+                  permissions={(cli, rowModel) => (
                     <SpawnPermissionFooter
-                      cli={launchCli}
-                      model={model ?? null}
+                      cli={cli}
+                      model={rowModel}
                       fallback={permissionPreset}
                       {...(remotePresetReasons ? { disabledReasons: remotePresetReasons } : {})}
                       onSelect={() => setRemoteNote(null)}
                     />
-                  }
+                  )}
                 />
               </Popover>
             ) : null}

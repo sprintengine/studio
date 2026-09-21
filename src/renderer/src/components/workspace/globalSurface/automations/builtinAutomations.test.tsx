@@ -243,7 +243,7 @@ test('builtinAutomations', async () => {
       assert.match(text, /0 2 \* \* \* · Nightly 02:00/, 'the schedule is the cron line and the words')
       const cron = [...host.querySelectorAll('code')].map((node) => node.textContent)
       assert.ok(cron.includes('0 2 * * *'), 'and the cron half is set as code, not as prose')
-      assert.match(text, /Bypass all — runs unattended/, 'the permission the run will actually use')
+      assert.match(text, /Bypass permissions — Skip every prompt/, 'the permission the run will actually use')
       assert.match(text, /A worktree of its own/, 'where it runs')
       assert.match(text, /A pull request per run/, 'and what it delivers')
       const prompt = host.querySelector('pre')

@@ -189,7 +189,7 @@ test('NewAgentPanel', async () => {
     const { useWorkspaceStore } = await import('../../../store/workspaceStore')
     const { projectHue } = await import('../../../utils/projectColor')
     const { useToastStore } = await import('../../../store/toastStore')
-    const { __resetModelPermissionPresetsForTest, storedModelPermissionPreset } =
+    const { __resetModelPermissionPresetsForTest, storedModelPermissionPreset, resolveModelPermissionPreset } =
       await import('../../ui/modelPermissionPresets')
 
     let failures = 0
@@ -735,7 +735,7 @@ test('NewAgentPanel', async () => {
           },
         ],
       })
-      const view = await render()
+      const view = await render({ permissionPreset: 'bypass' })
       const engine = [...view.container.querySelectorAll('button')].find((button) =>
         (button.getAttribute('aria-label') ?? '').startsWith('Engine: '),
       )
@@ -746,13 +746,45 @@ test('NewAgentPanel', async () => {
         (button) => button.getAttribute('role') === 'radio' && button.getAttribute('aria-label') === 'Codex',
       )
       assert.ok(codexTab, 'Codex is on the runtime rail')
+      assert.ok(
+        dom.window.document.querySelector('[aria-label="Permissions: Bypass permissions"]'),
+        'Claude names its bypass preset',
+      )
       await act(async () => {
         codexTab!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
+      assert.ok(
+        dom.window.document.querySelector('[aria-label="Permissions: YOLO"]'),
+        'switching to Codex updates the permission chip',
+      )
+      assert.equal(
+        dom.window.document.querySelector('[aria-label="Permissions: Bypass permissions"]'),
+        null,
+        'the previous runtime label is gone',
+      )
       const sol = [...dom.window.document.querySelectorAll('[data-model-row="true"]')].find((row) =>
         (row.textContent ?? '').includes('GPT-5.6 Sol'),
       )
       assert.ok(sol, 'the Sol row is in the picker')
+      await act(async () => {
+        sol!.dispatchEvent(new dom.window.MouseEvent('pointerover', { bubbles: true }))
+      })
+      const permissions = dom.window.document.querySelector<HTMLButtonElement>('[aria-label="Permissions: YOLO"]')!
+      await act(async () => permissions.click())
+      const manual = [...dom.window.document.querySelectorAll<HTMLButtonElement>('[data-preset-option="true"]')].find(
+        (row) => row.textContent?.startsWith('Manual'),
+      )!
+      await act(async () => manual.click())
+      assert.equal(
+        storedModelPermissionPreset('codex', 'gpt-5.6-sol'),
+        'manual',
+        'the highlighted model owns the choice',
+      )
+      assert.equal(
+        storedModelPermissionPreset('claude-code', 'claude-opus-5'),
+        undefined,
+        'the previous runtime is untouched',
+      )
       await act(async () => {
         sol!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
       })
@@ -765,6 +797,11 @@ test('NewAgentPanel', async () => {
       assert.equal(view.launches.length, 1, 'exactly one launch')
       assert.equal(view.launches[0]?.cli, 'codex', 'on the runtime that owned the row')
       assert.equal(view.launches[0]?.model, 'gpt-5.6-sol', 'carrying the id the chip named, not the CLI’s own default')
+      assert.equal(
+        resolveModelPermissionPreset(String(view.launches[0]?.cli), String(view.launches[0]?.model), 'bypass'),
+        'manual',
+        'the launch host resolves the highlighted model’s permission choice',
+      )
       assert.equal('reasoning' in (view.launches[0] ?? {}), true, 'and the effort rides the same confirm')
       view.unmount()
     })

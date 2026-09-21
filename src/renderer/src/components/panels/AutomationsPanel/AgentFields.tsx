@@ -7,20 +7,13 @@
 // an automation; every control hands its choice back through `onPatchConfig`.
 
 import type { JSX } from 'react'
-import { CliModelPickerButton, Select, type SelectItem } from '../../ui'
+import { CliModelPickerButton, Select } from '../../ui'
+import { agentPermissionOptions } from '../../workspace/agentComposer/agentSpawnShared'
 import type { AgentCliCatalogOption } from '../../workspace/newWorkspace/cliRuntimeOptions'
 import type { AgentCli, CliPermissionPreset } from '../../../types/workspace'
 
-// The permission field's options. Each label states the preset and what it means
-// for a run nobody is watching — the control text is the state, so an automation
-// on the unattended default reads "Bypass all — runs unattended" without a
-// caption explaining it. Bypass carries the warn tone, as it does everywhere else.
-const PERMISSION_PRESET_ITEMS: SelectItem<CliPermissionPreset>[] = [
-  { value: 'none', label: 'CLI default — whatever the CLI does' },
-  { value: 'manual', label: 'Manual — asks before acting' },
-  { value: 'auto', label: 'Auto — fewer prompts, CLI-supervised' },
-  { value: 'bypass', label: 'Bypass all — runs unattended', tone: 'warn' },
-]
+// The permission field names the selected runtime's policy. Its summary makes
+// the unattended behavior visible, and bypass carries the shared warn tone.
 
 // Model (§.duo): what the automation's agent runs on. It resolves to something
 // real on an automation with nothing set — the runtime reads the CLI the launch
@@ -66,10 +59,12 @@ export function ModelField({
 // rather than beside the agent (mockup §.duo "Runs and Permission"), which is
 // why it is its own export rather than a third column of the block above.
 export function PermissionField({
+  cli,
   show,
   value,
   onChange,
 }: {
+  cli?: AgentCli
   show: boolean
   value: CliPermissionPreset
   onChange: (preset: CliPermissionPreset) => void
@@ -78,7 +73,16 @@ export function PermissionField({
   return (
     <div className="flex min-w-0 flex-col gap-1.5">
       <span className="text-meta font-medium text-[color:var(--text-default)]">Permission</span>
-      <Select ariaLabel="Permission" value={value} onChange={onChange} items={PERMISSION_PRESET_ITEMS} />
+      <Select
+        ariaLabel="Permission"
+        value={value}
+        onChange={onChange}
+        items={agentPermissionOptions(cli).map((option) => ({
+          value: option.value,
+          label: `${option.label} — ${option.summary}`,
+          ...(option.value === 'bypass' ? { tone: 'warn' as const } : {}),
+        }))}
+      />
     </div>
   )
 }

@@ -18,7 +18,7 @@ import {
 } from '../../ui'
 import {
   focusActivePresetRow,
-  AGENT_SPAWN_PERMISSION_OPTIONS,
+  agentPermissionOptions,
   PermissionPresetMenuRows,
 } from '../../workspace/agentComposer/agentSpawnShared'
 import { LockGlyph, UnlockedGlyph, CheckIcon } from '../../AppIcons'
@@ -78,14 +78,14 @@ export function filterModelGroups(groups: ModelGroup[], query: string, activeFil
 // it. The spawn picker's own labels ("Default permissions") name the setting;
 // the pill has to name the BEHAVIOR, because at rest it is the answer to "will
 // this agent stop and ask me before it acts?".
-export function permissionPresetLabel(preset: CliPermissionPreset): string {
+export function permissionPresetLabel(preset: CliPermissionPreset, cli?: string): string {
   // `none` cannot claim "asks before tools": it sends no flag, so the answer is
   // whatever the CLI does — auto mode on Claude Code 2.1.228+ with a Pro, Max or
   // Team plan. Naming the behaviour is the whole job of this pill, and the one
   // behaviour it must not assert here is the one it cannot know.
   if (preset === 'none') return 'CLI default'
   if (preset === 'auto') return 'Auto'
-  if (preset === 'bypass') return 'Bypass permissions'
+  if (preset === 'bypass') return agentPermissionOptions(cli).find((option) => option.value === preset)!.label
   return 'Asks before tools'
 }
 
@@ -104,6 +104,7 @@ export function permissionChangeScopeLabel(live: boolean): string {
 // picker and Automations editor use) rather than three always-on chips, so the
 // footer keeps one control per concern.
 export function PermissionPresetPill({
+  cli,
   preset,
   live,
   changing,
@@ -111,6 +112,7 @@ export function PermissionPresetPill({
   onOpenChange,
   onChange,
 }: {
+  cli?: string
   preset: CliPermissionPreset
   // Whether a session is running: only then is this a live mutation.
   live: boolean
@@ -140,8 +142,8 @@ export function PermissionPresetPill({
       renderTrigger={({ ref, triggerProps, togglePopover }) => (
         <Tooltip
           content={
-            AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === preset)?.title ??
-            permissionPresetLabel(preset)
+            agentPermissionOptions(cli).find((option) => option.value === preset)?.title ??
+            permissionPresetLabel(preset, cli)
           }
           placement="top"
         >
@@ -158,7 +160,7 @@ export function PermissionPresetPill({
             {...triggerProps}
           >
             {asks ? <LockGlyph className="icon-xs" /> : <UnlockedGlyph className="icon-xs" />}
-            {permissionPresetLabel(preset)}
+            {permissionPresetLabel(preset, cli)}
             <ChevronGlyph className="icon-xs text-[color:var(--text-disabled)]" />
           </ChipButton>
         </Tooltip>
@@ -167,7 +169,7 @@ export function PermissionPresetPill({
       {/* The menu spec's stacked items, shared with the launch panel's pill
           (remote-sessions-ux / selector-menus-premium): glyph + name +
           description per row, full-bleed on the list's own vertical inset. */}
-      <PermissionPresetMenuRows value={preset} onSelect={onChange} disabled={changing} />
+      <PermissionPresetMenuRows cli={cli} value={preset} onSelect={onChange} disabled={changing} />
       <div className={MENU_DIVIDER_CLASS} role="separator" />
       <p className="px-2.5 pb-0.5 pt-0.5 text-micro leading-4 text-[color:var(--text-subtle)]">
         {permissionChangeScopeLabel(live)}

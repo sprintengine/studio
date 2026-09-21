@@ -268,6 +268,25 @@ test('CliModelPicker', async () => {
       view.unmount()
     })
 
+    await run('permissions follow the highlighted model across providers, keyboard navigation and search', async () => {
+      const view = mountSurface({
+        effectiveModelFor: (cli) => (cli === 'claude-code' ? 'claude-opus-5[1m]' : undefined),
+        permissions: (cli, model) =>
+          React.createElement('span', { 'data-permission-target': true }, `${cli}:${model ?? 'default'}`),
+      })
+      const target = () => view.container.querySelector('[data-permission-target]')?.textContent
+      assert.equal(target(), 'claude-code:claude-opus-5[1m]', 'the selected context-window variant is preserved')
+      await view.click(view.tabs()[1])
+      assert.equal(target(), 'codex:default', 'the new provider’s first row owns the control')
+      await view.key(view.search(), 'ArrowDown')
+      assert.equal(target(), 'codex:gpt-5.6-sol', 'keyboard highlight moves the permission target')
+      await view.type('fable')
+      assert.equal(target(), 'claude-code:claude-fable-5', 'search can move it back across providers')
+      await view.type('no-such-model')
+      assert.equal(target(), undefined, 'an empty result list exposes no stale model’s permissions')
+      view.unmount()
+    })
+
     await run('search reaches across providers, suspending the rail filter', async () => {
       const view = mountSurface({})
       await view.type('gpt')
