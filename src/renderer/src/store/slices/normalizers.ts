@@ -133,22 +133,33 @@ export function dropRetiredModeWorkspaces(workspaces: Workspace[]): Workspace[] 
 
 // Every agent carries a real name, but workspaces created before that rule
 // (and layout-template seeds that adopted the tab's generic label) persisted
-// agents literally named "Agent" / "Agent 2" / "A1".
+// agents literally named "Agent" / "Agent 2" / "A1". Terminal-only registry
+// records can also carry their id as the name. Recover a known name first;
+// otherwise assign a replacement once and persist it at the registry boundary.
 // Heal them at hydration (merge() runs on every load regardless of the store
 // version, like the Automations dedupe above): each placeholder-named agent
 // gets a picked name, unique within its workspace, and the layout tab renames
 // itself to agent.name on render. Idempotent — a healed name is no longer a
 // placeholder — and returns the input array unchanged when nothing needs it.
-export function nameGenericWorkspaceAgents(workspaces: Workspace[]): Workspace[] {
+export function nameGenericWorkspaceAgents(
+  workspaces: Workspace[],
+  recoverName?: (workspaceId: string, agentId: string) => string | undefined,
+): Workspace[] {
   let changed = false
   const next = workspaces.map((workspace) => {
     const entries = Object.entries(workspace.agents ?? {})
-    if (!entries.some(([, agent]) => isPlaceholderAgentName(agent.name))) return workspace
+    if (!entries.some(([id, agent]) => isPlaceholderAgentName(agent.name, id))) return workspace
     changed = true
     const agents: Workspace['agents'] = { ...workspace.agents }
+    // Reserve every recovered name before picking replacements, including a
+    // recovered name belonging to a later entry in the workspace.
     for (const [id, agent] of entries) {
-      if (!isPlaceholderAgentName(agent.name)) continue
-      agents[id] = { ...agent, name: pickWorkspaceAgentName(agents) }
+      if (!isPlaceholderAgentName(agent.name, id)) continue
+      const recovered = recoverName?.(workspace.id, id)
+      if (!isPlaceholderAgentName(recovered, id)) agents[id] = { ...agent, name: recovered! }
+    }
+    for (const [id, agent] of Object.entries(agents)) {
+      if (isPlaceholderAgentName(agent.name, id)) agents[id] = { ...agent, name: pickWorkspaceAgentName(agents) }
     }
     return { ...workspace, agents }
   })
