@@ -1,37 +1,28 @@
 # SprintEngine Studio Release Checklist
 
-Use this checklist for every preview or stable desktop release.
+Every push to main starts a stable desktop release. PRs must squash merge with
+Conventional Commit titles; see [CONTRIBUTING.md](../CONTRIBUTING.md).
 
-## Before Tagging
+## Before merging
 
-- Confirm `npm run verify:app` passes. `release.yml`'s quality gate runs the
-  whole of `ci.yml` (verify:app and the marketplace registry) against the
-  release commit and the release will not publish without it, but it runs
-  beside the packaging legs -- finding out locally is faster. `npm run
-  typecheck:all` is worth running too; plain `typecheck` skips the test
-  projects, which is how 99 test typecheck errors sat on `main` unnoticed before
-  0.4.0. Delete any stale `tsconfig.*.tsbuildinfo` first, or an incremental
-  build can report clean.
-- Confirm `npm run build` passes, including the bundle-budget ratchet it
-  chains. The ceiling only speaks during a build, so a breach can sit on
-  `main` for weeks and first surface in the release's package job.
-- Update `package.json` version.
-- Run `npm run sync:model-feed`, and commit the result if it moved. This pulls
-  the live `model-feed.json` from `studio-releases` into
-  `resources/model-feed.json`, the seed a fresh install boots with. Do it
-  BEFORE tagging, never in CI: a workflow that rewrites a committed file makes
-  the shipped build differ from the tag it claims to be. A stale seed is not
-  fatal (the live feed wins by `updatedAt` within the hour) but a fresh install
-  shows an old list until its first fetch.
-- Draft release notes with user-visible changes, fixes, known issues, and rollback guidance.
-- Update the download site's release-notes data to the version being released.
-  The download page only renders What's New when its `version` equals the
-  version it is serving, so notes left on the previous version do not go stale
-  on screen -- they vanish from the page entirely.
-- Confirm signing credentials are configured for any stable release: the
-  `CSC_*` pair and `APPLE_*` trio for macOS, and for Windows either all seven
-  `AZURE_*` Trusted Signing secrets or none (none ships unsigned; a partial set
-  fails the Windows leg).
+- Pass the required PR-title, build and JS checks. The release also runs
+  `npm run verify:app` and the marketplace signature check against the exact
+  source commit before it publishes.
+- Select the intended version bump: `feat` means minor, `!` or a
+  `BREAKING CHANGE:` footer means major (even from 0.x), and every other
+  accepted type means patch. Maintenance-only merges also release the app.
+- Describe user-visible changes and compatibility breaks in the PR body. The
+  squash commit keeps both the title and body.
+- Do not manually edit the app version. Stable tags are the release version
+  ledger; the workflow stamps `package.json` before compilation and packaging.
+  The committed version remains a development baseline. SDK versions are separate.
+- If refreshing the model feed, run `npm run sync:model-feed` and commit the
+  result before merging. CI must not fetch a different seed into the source tree.
+- Keep the download site's release-notes data in step with releases if using its
+  version-specific What's New section.
+- Keep macOS signing credentials configured: the `CSC_*` pair and `APPLE_*`
+  trio. Windows uses all seven `AZURE_*` Trusted Signing secrets, or none for
+  unsigned installers; a partial set fails packaging.
 
 ## Retirements To State In Release Notes
 
@@ -131,74 +122,75 @@ of the first release that ships it, then delete the line.
   "Check for updates" action on a source's overflow counts against the same
   window and says when the source was last asked.
 
-## Tag And Build
+## Main builds and publishing
 
-`.github/workflows/release.yml` has three ways in. All of them package the four
-legs with `--publish never`, run the full CI gate beside them, and publish from
-one job: the two macOS updater manifests are merged, everything is uploaded to a
-draft, and the release becomes visible only once every file is there.
+`.github/workflows/release.yml` builds macOS Intel and Apple Silicon DMGs and
+updater ZIPs, a Windows installer, and a Linux AppImage. All four jobs use
+`--publish never`. One publisher waits for packaging and quality checks, merges
+both Mac updater manifests, uploads every file to a draft, then publishes it
+as the latest stable release on `sprintengine/studio`. It verifies installers,
+manifests and the anonymous URLs installed apps use to discover updates.
 
-- **Stable from a tag.** Create a tag matching `package.json`, for example
-  `v0.4.0`, and push it. A prerelease tag must be shaped `vX.Y.Z-preview.N`:
-  installed preview builds only follow tags whose prerelease starts with
-  `preview`, so the workflow refuses any other (a `-beta.1` would reach nobody).
-- **Preview.** Actions -> Release -> Run workflow, channel `preview`. It builds
-  `main` as `X.Y.Z-preview.YYYYMMDD.RUN`, where `X.Y.Z` is `package.json`'s
-  version while that is unreleased, else the next patch after the latest
-  stable. The schedule does the same every six hours when `main` has moved, but
-  only once the repository variable `PREVIEW_SCHEDULE` is `enabled`.
-- **Stable by promotion.** Run workflow, channel `stable`. It rebuilds the exact
-  commit the latest preview shipped, as that preview's `X.Y.Z`, and tags that
-  commit `vX.Y.Z` in this repo. Stable then only ever ships a build preview
-  users already ran. The commit is read from the `<!-- source-sha: -->` marker
-  the workflow writes into every release body, so do not delete that line when
-  editing a body.
-- Set `publish` to false on a dispatch to build without releasing; the packages
-  stay on the run as workflow artifacts for 14 days.
-- Wait for the workflow. Its last step, `Verify the published release,
-  authenticated and not`, checks the release is on the PUBLIC
-  `sprintengine/studio`, the repo `build.publish` names (v0.3.0 shipped to a
-  private repo and reported success because nothing checked), that it carries both macOS DMGs,
-  the `.exe` and the `.AppImage`, and that each updater manifest (`latest*.yml`
-  or `preview*.yml`) names this version, lists only files that are on the
-  release, and -- for macOS -- lists a `.zip` for BOTH arches. Without the zip
-  MacUpdater fails with `ERR_UPDATER_ZIP_FILE_NOT_FOUND`; with only one arch the
-  other arch never updates.
-- It then asks the same questions again with NO credential, at the three URLs
-  electron-updater reads: `releases.atom` (which is where it finds a version at
-  all), `releases/latest` (which is how a stable build resolves the newest one,
-  and which must not resolve to a preview), and
-  `releases/download/<tag>/<channel>*.yml`. The authenticated half passes
-  against a repository no user can read, so it is this half that fails when the
-  releases repo is private, is named wrong in `build.publish`, or has the
-  release still in draft. The step polls for a short while first: the publish is
-  seconds old and GitHub's cache can lag it.
-- The release body is written by the workflow. While this repository is
-  private it says only the version: commit subjects would leak private
-  messages to the public releases repo. Once public it links the commit and
-  lists the changes since the previous release on the same channel. Edit the
-  user-facing notes in by hand afterwards if the release needs them.
+The resolver reads the push's exact SHA, full first-parent history and stable
+tags. The strongest Conventional Commit since the preceding stable tag selects
+one bump. With one squash merge per push, every successful merge releases once.
+A failed build leaves its changes for the next successful release. During the
+initial migration only, older prose subjects count as patch changes; the new
+release tip must be conventional. Branch-internal experiment commits do not
+influence a squash or merge commit's release type.
 
-## Making The Repository Public
+All release entry points share one concurrency group with `queue: max` and
+cancellation disabled. GitHub queues up to 100 pending runs, ordered by when
+they enter the queue; dispatch order is not guaranteed. An older run already
+covered by a newer published stable is skipped, so it cannot roll the latest
+pointer back. Monitor queue capacity if merges outpace packaging.
 
-Everything below is safe to leave until the day of the switch, and must be
-done that day.
+A tag left by an interrupted draft reserves its version. Retrying that commit
+uses the same version; a later commit uses a new version. Published commits are
+skipped on retry. No version-bump commit is pushed to main and the workflow's
+own token does not trigger a second release from the tag it creates.
 
-- Remove the self-hosted runner `studio-mac` (Settings -> Actions -> Runners).
-  On a public repository a fork's pull request can edit a workflow to run on
-  any self-hosted runner, and that Mac holds a login keychain. The release and
-  preview workflows already switch to GitHub-hosted Macs by themselves once
-  the repository is public (free there), so nothing else needs changing.
-- Settings -> Actions -> General: set fork pull request workflows to require
-  approval for all outside collaborators.
-- `ci.yml` starts running on every pull request and push to `main` by itself --
-  its jobs skip only while the repository is private. Make `Build` and
-  `JS tests` required checks on `main` in the branch protection rules.
-- Set the repository variable `PREVIEW_SCHEDULE` to `enabled` to turn on the
-  six-hourly preview builds.
-- The `preview:mac` label (`desktop-preview.yml`) builds a DMG for pull
-  requests from branches in this repository only; fork pull requests are
-  refused by design.
+The release body records `<!-- source-sha: -->` for traceability and preview
+promotion; do not remove it. Public-source release notes list changes since
+the preceding release on that channel. Private-source subjects are omitted.
+
+## Optional manual releases
+
+- Push a tag shaped `vX.Y.Z` matching the committed package version to build
+  that exact version. This is a manual escape hatch, not the main release path.
+- Dispatch channel `preview` to build a preview from the selected workflow ref
+  (select main). Previews use `X.Y.Z-preview.YYYYMMDD.RUN`, with the next patch
+  after the latest stable unless the committed version is higher.
+- The optional six-hour preview schedule runs only with repository variable
+  `PREVIEW_SCHEDULE=enabled`, and skips when main has not moved.
+- Dispatch channel `stable` to promote the latest preview's exact source SHA.
+  Promotion is rejected if its core version is already released. Main releases
+  do not require a prior preview.
+- Set dispatch `publish=false` to retain packages as workflow artifacts for
+  14 days without publishing a release.
+
+## GitHub enforcement
+
+The versioned ruleset is [main-ruleset.json](../.github/main-ruleset.json).
+It requires a PR, squash merging, linear history, resolved conversations and
+these checks from GitHub Actions: **Conventional PR title**, **Build
+(ubuntu-latest)**, **Build (windows-latest)**, **Build (macos-latest)** and
+**JS tests (ubuntu-latest)**. It prohibits force pushes and branch deletion,
+requires checks against current main, and has no bypass actors. No additional
+human approval count is imposed.
+
+Repository settings must also set `allow_squash_merge=true`,
+`allow_merge_commit=false`, `allow_rebase_merge=false`,
+`squash_merge_commit_title=PR_TITLE` and
+`squash_merge_commit_message=PR_BODY`. Dependabot is configured to use
+`build:` and `ci:` titles so its updates pass the same check.
+
+For a new repository, create the PR containing the title-check workflow before
+activating this ruleset, so that its required check can run. Apply the JSON with
+`gh api --method POST repos/OWNER/REPO/rulesets --input .github/main-ruleset.json`;
+update an existing rule with PUT at its ruleset ID. Do not create duplicate rules.
+The JSON is a reproducible policy definition; editing it alone does not change
+GitHub settings.
 
 ## Smoke Test
 

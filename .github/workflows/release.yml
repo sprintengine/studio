@@ -1,7 +1,8 @@
 name: Release
 
-# Three ways in, one pipeline (docs/release-checklist.md walks through each):
+# One pipeline (docs/release-checklist.md walks through each entry point):
 #
+#   push to main               stable release, versioned by Conventional Commits
 #   push a tag vX.Y.Z           stable build of the tagged commit
 #   schedule / dispatch preview a preview build of main, vX.Y.Z-preview.DATE.RUN
 #   dispatch stable             promote: rebuild the commit the latest preview
@@ -15,6 +16,8 @@ name: Release
 # latest-mac.yml, and a failed leg left a public half-release behind it.
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*"
   schedule:
@@ -38,11 +41,12 @@ on:
         default: true
         type: boolean
 
-# One release per channel at a time, and a running release is never cancelled:
-# half a publish is worse than a late one.
+# All entry points share the version allocator and publisher. Keep queued main
+# merges instead of replacing the pending run when another merge lands.
 concurrency:
-  group: release-${{ github.event_name == 'push' && 'tag' || inputs.channel || 'preview' }}
+  group: desktop-release
   cancel-in-progress: false
+  queue: max
 
 permissions:
   contents: read
@@ -67,6 +71,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -74,12 +80,13 @@ jobs:
           node-version: 22
 
       # Channel, version and commit for every later job. See the header for the
-      # three cases; scripts/release/release.mjs for the rules.
+      # entry points; scripts/release/release.mjs for the rules.
       - name: Resolve channel, version and commit
         id: resolve
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
           SHA: ${{ github.sha }}
           RUN_NUMBER: ${{ github.run_number }}
           DISPATCH_CHANNEL: ${{ inputs.channel }}
@@ -309,6 +316,7 @@ jobs:
         uses: actions/checkout@v7
         with:
           ref: ${{ needs.validate.outputs.ref }}
+          fetch-depth: 0
 
       - name: Setup Node
         uses: actions/setup-node@v7
@@ -347,6 +355,15 @@ jobs:
         run: |
           set -euo pipefail
           REPO="$(node -p "const p=require('./package.json').build.publish; p.owner + '/' + p.repo")"
+
+          # --target does not move an existing tag. A retry must never publish
+          # packages whose source differs from the tag the release advertises.
+          if tagged_ref=$(git rev-parse --verify "refs/tags/${TAG}^{commit}" 2>/dev/null); then
+            if [ "$tagged_ref" != "$REF" ]; then
+              echo "${TAG} points at ${tagged_ref}, not the built commit ${REF}." >&2
+              exit 1
+            fi
+          fi
 
           # A draft left by an earlier failed attempt of this same version.
           if gh release view "$TAG" --repo "$REPO" --json isDraft --jq .isDraft 2>/dev/null | grep -qx true; then

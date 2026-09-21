@@ -38,7 +38,7 @@
     "test:model-feed": "node scripts/check-model-feed-seed.mjs",
     "test:card-feed": "node scripts/check-card-feed-seed.mjs",
     "test:sources": "node scripts/check-sources-seed.mjs",
-    "test:release": "node --test scripts/release/release-lib.test.mjs",
+    "test:release": "node --test scripts/release/*.test.mjs",
     "typecheck": "npm run typecheck:app",
     "typecheck:app": "tsc -b --noEmit --verbose",
     "typecheck:tests": "tsc -b tsconfig.tests.json --noEmit --verbose",
