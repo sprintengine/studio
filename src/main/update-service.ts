@@ -1,5 +1,5 @@
 import { app, BrowserWindow, shell } from 'electron'
-import { autoUpdater } from 'electron-updater'
+import { autoUpdater, CancellationToken } from 'electron-updater'
 import type {
   AppUpdateChannelSetting,
   AppUpdateCheckResult,
@@ -65,6 +65,8 @@ function applyUpdaterChannel(track: AppUpdateTrack, version: string): void {
   autoUpdater.allowDowngrade = track === 'stable' && channelForVersion(version) === 'nightly'
 }
 
+const STALE_DOWNLOAD_MESSAGE = 'The download was stopped because the update channel changed.'
+
 function getStatusMessage(status: AppUpdateStatus): string {
   switch (status) {
     case 'checking':
@@ -99,6 +101,13 @@ export class SprintEngineUpdateService {
   private readonly channelStore: UpdateServiceOptions['channelStore']
   private state: AppUpdateState
   private track: AppUpdateTrack
+  /**
+   * The download this service started and has not seen finish. `stale` is set
+   * when the channel changes under it: its file belongs to the old channel, so
+   * nothing it reports (progress, completion) may reach the state, and it is
+   * cancelled so the new channel can start its own.
+   */
+  private download: { token: CancellationToken; stale: boolean } | null = null
 
   constructor({ writeDiagnosticLog, channelStore }: UpdateServiceOptions) {
     this.writeDiagnosticLog = writeDiagnosticLog
@@ -151,6 +160,12 @@ export class SprintEngineUpdateService {
     this.track = track
     applyUpdaterChannel(track, getAppVersion())
     if (this.state.downloaded) autoUpdater.autoInstallOnAppQuit = false
+    // A download still running is the old channel's too. Left alone it would
+    // finish after the reset below and mark itself ready to install at quit.
+    if (this.download) {
+      this.download.stale = true
+      this.download.token.cancel()
+    }
     this.updateState({
       status: 'idle',
       channel: isAppPackaged() ? track : 'dev',
@@ -219,15 +234,27 @@ export class SprintEngineUpdateService {
       return { ok: false, state: this.getState(), message }
     }
 
+    // electron-updater hands a second call the download already running, so
+    // only the call that starts one owns its token.
+    const download = this.download ?? { token: new CancellationToken(), stale: false }
+    this.download = download
     try {
       this.updateState({ status: 'downloading', errorMessage: null })
-      await autoUpdater.downloadUpdate()
+      await autoUpdater.downloadUpdate(download.token)
+      if (download.stale) {
+        return { ok: false, state: this.getState(), message: STALE_DOWNLOAD_MESSAGE }
+      }
       return { ok: true, state: this.getState(), message: getStatusMessage(this.state.status) }
     } catch (error) {
+      if (download.stale) {
+        return { ok: false, state: this.getState(), message: STALE_DOWNLOAD_MESSAGE }
+      }
       const message = error instanceof Error ? error.message : 'Unable to download update.'
       this.updateState({ status: 'error', errorMessage: message })
       await this.logUpdateError('Update download failed', message, true)
       return { ok: false, state: this.getState(), message }
+    } finally {
+      if (this.download === download) this.download = null
     }
   }
 
@@ -278,6 +305,7 @@ export class SprintEngineUpdateService {
     })
 
     autoUpdater.on('download-progress', (progress: DownloadProgressLike) => {
+      if (this.download?.stale) return
       this.updateState({
         status: 'downloading',
         progress: {
@@ -290,6 +318,11 @@ export class SprintEngineUpdateService {
     })
 
     autoUpdater.on('update-downloaded', (info: UpdateInfoLike) => {
+      if (this.download?.stale) {
+        // The old channel's file, finished before the cancel reached it.
+        autoUpdater.autoInstallOnAppQuit = false
+        return
+      }
       autoUpdater.autoInstallOnAppQuit = true
       this.updateState({
         status: 'downloaded',
