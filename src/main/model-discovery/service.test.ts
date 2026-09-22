@@ -331,3 +331,25 @@ test('the file cache survives a new process, ignores a damaged file, and seriali
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test('an empty answer is a failure: nothing is stored and the last good list stays', async () => {
+  const h = harness()
+  await discoverCliModels({ clis: ['codex'] }, h.deps)
+  const before = structuredClone(h.cache.data)
+  h.lists.codex = []
+  const result = await discoverCliModels({ clis: ['codex'], force: true }, h.deps)
+  assert.deepEqual(entryFor(result, 'codex'), { cli: 'codex', catalog: null, error: 'Codex listed no models.' })
+  assert.deepEqual(h.cache.data, before)
+})
+
+test('an empty stored catalog is no baseline, so the next answer dates no row', async () => {
+  const empty: DiscoveredCliModelCatalog = {
+    models: [],
+    fetchedAt: iso(T0 - 2 * DAY),
+    source: 'argv-probe',
+    cliVersion: 'codex-cli 0.155.1',
+  }
+  const h = harness({ codex: empty })
+  const result = await discoverCliModels({ clis: ['codex'], previous: { codex: empty } }, h.deps)
+  assert.deepEqual(entryFor(result, 'codex')?.catalog?.models, [{ id: 'gpt-6-astra' }, { id: 'gpt-6-sol' }])
+})

@@ -139,13 +139,17 @@ function defaultDetect(clis: RegisteredCli[], cliRuntimes: CliRuntimes): Promise
 
 // The time each id was first listed on this machine, carried forward by id.
 // `baselines` in priority order (the renderer's copy, then main's cache); with
-// none at all this is the CLI's first-ever catalog and no row is dated.
+// none at all this is the CLI's first-ever catalog and no row is dated. A
+// baseline with no rows is no baseline: the picker never showed it (an empty
+// list reads as the seed), so nothing in the answer after it is news.
 export function carryFirstSeenAt(
   models: readonly DiscoveredCliModel[],
   baselines: ReadonlyArray<DiscoveredCliModelCatalog | undefined>,
   nowIso: string,
 ): DiscoveredCliModel[] {
-  const known = baselines.filter((catalog): catalog is DiscoveredCliModelCatalog => Boolean(catalog))
+  const known = baselines.filter(
+    (catalog): catalog is DiscoveredCliModelCatalog => Boolean(catalog) && (catalog?.models.length ?? 0) > 0,
+  )
   const undated = models.map(({ firstSeenAt: _ignored, ...row }) => row)
   if (known.length === 0) return undated
   return undated.map((row) => {
@@ -291,6 +295,13 @@ export async function discoverCliModels(
         runArgv: (args) => runArgv({ binary, args, useWsl, timeoutMs }),
       })
       if (!outcome.ok) return { cli: cli.id, catalog: null, error: outcome.error }
+      // Every probe lists at least one model when it works, and the picker reads
+      // an empty list as no answer and falls back to the seed. Storing one would
+      // throw away the last good list, which rule 3 keeps; it would also leave an
+      // empty baseline that dates every row of the next answer as new.
+      if (outcome.models.length === 0) {
+        return { cli: cli.id, catalog: null, error: `${cli.displayName} listed no models.` }
+      }
       const fetchedAt = new Date(now()).toISOString()
       const catalog: DiscoveredCliModelCatalog = {
         models: carryFirstSeenAt(outcome.models, [theirs, own], fetchedAt),
