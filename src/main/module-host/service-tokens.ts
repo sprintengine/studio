@@ -25,8 +25,8 @@ export const AgentControlPlaneToken = createServiceToken<AppServices['agentContr
 export const AgentLaunchServiceToken =
   createServiceToken<AppServices['agentLaunchService']>('core.agent-launch-service')
 export const GitHubTokenStoreToken = createServiceToken<AppServices['githubTokenStore']>('core.github-token-store')
-// Renderer-pushed agent-launch defaults (CLI runtimes, permission preset, MCP
-// servers, knowledge root, model catalog) that main-side spawns read.
+// The main-owned agent-launch settings (CLI runtimes, permission preset, MCP
+// servers, knowledge roots, last-selected CLI) that main-side spawns read.
 export const AgentLaunchSettingsToken =
   createServiceToken<AppServices['agentLaunchSettings']>('core.agent-launch-settings')
 export const SprintEngineAuthToken = createServiceToken<AppServices['sprintengineAuth']>('core.sprintengine-auth')

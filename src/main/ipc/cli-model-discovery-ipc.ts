@@ -21,9 +21,9 @@ export type CliModelDiscoveryIpcDeps = {
 
 // A pass that main starts on its own — the boot pass, the pass after an install
 // — has no window to hand it the person's per-CLI command and WSL overrides.
-// Those settings are authored in the renderer, but main keeps its own persisted
-// mirror of them (launch-settings-mirror.ts) for exactly this kind of headless
-// path, and app-services points this resolver at it. Without it a boot pass on a
+// Main owns those settings (launch-settings-store.ts), which is what makes
+// this kind of headless path possible, and app-services points this resolver
+// at that store. Without it a boot pass on a
 // Windows machine with a CLI installed both natively and in WSL would probe the
 // native one and serve its list for a day.
 let resolveMainCliRuntimes: (() => CliModelDiscoveryInput['cliRuntimes']) | null = null

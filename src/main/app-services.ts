@@ -78,7 +78,7 @@ import {
   createFsSkillDirectoryReader,
   createWorkspaceSkillsService,
 } from './workspace-skills-service'
-import { createAgentLaunchSettingsMirror } from './launch-settings-mirror'
+import { createAgentLaunchSettingsStore } from './launch-settings-store'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
 import { createBackgroundModeStore } from './background-mode-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
@@ -374,9 +374,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     })
   }
 
-  // Renderer-pushed agent-launch settings (cliRuntimes/mcp/knowledge/model
-  // catalog) for main-side agent spawns; persisted under userData.
-  const agentLaunchSettings = createAgentLaunchSettingsMirror({
+  // The agent-launch settings (CLI runtimes, MCP, knowledge roots, last CLI,
+  // spawn permission preset). Main owns them: windows read and patch this
+  // store over IPC, and every main-side launch reads it; persisted under
+  // userData.
+  const agentLaunchSettings = createAgentLaunchSettingsStore({
     resolveUserDataDir: () => app.getPath('userData'),
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'agents' })

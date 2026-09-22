@@ -1,5 +1,6 @@
 import { SETTINGS_ENVELOPE_FIELDS, useWorkspaceStore } from '../../store/workspaceStore'
 import { APP_SETTINGS_STORAGE_KEY } from '../../store/slices/persistenceSlice'
+import { pickLaunchSettings } from '../../store/launchSettingsReadModel'
 
 // Writing an app setting from an AUXILIARY window, safely.
 //
@@ -38,6 +39,15 @@ export function writeAuxWindowSetting(mutate: () => void): void {
       const settings: Record<string, unknown> = {}
       for (const key of SETTINGS_ENVELOPE_FIELDS) {
         if (Object.prototype.hasOwnProperty.call(state, key)) settings[key] = state[key]
+      }
+      // The envelope no longer carries the agent-launch fields (main owns
+      // them), so this window's read model of those is kept rather than
+      // replaced by whatever the file does or does not hold.
+      if (settings.appSettings && typeof settings.appSettings === 'object') {
+        settings.appSettings = {
+          ...settings.appSettings,
+          ...pickLaunchSettings(useWorkspaceStore.getState().appSettings),
+        }
       }
       if (Object.keys(settings).length > 0) {
         useWorkspaceStore.setState(settings as Partial<ReturnType<typeof useWorkspaceStore.getState>>)

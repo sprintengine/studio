@@ -8,6 +8,7 @@ import { ConfirmDialogProvider } from './components/ui'
 import AuxWindowApp from './components/auxWindows/AuxWindowApp'
 import WorkspaceManager from './components/workspace/WorkspaceManager'
 import { loadThirdPartyRendererModules } from './modules'
+import { launchSettingsReady } from './store/workspaceStore'
 import { reportBuildStamp } from './utils/buildStamp'
 import { bindElectronClipboardPasteBridge } from './utils/clipboardPasteBridge'
 import { logPerfEvent, perfDiagnosticsEnabled } from './utils/perfDiagnostics'
@@ -90,6 +91,17 @@ try {
 // the gap shows up in Settings → Modules rather than as a blank window.
 const THIRD_PARTY_MODULE_BOOT_TIMEOUT_MS = 3000
 
+// Main owns the agent-launch settings, and the store's copy of them arrives
+// over IPC. The workspace window waits for it so no picker renders a CLI or a
+// permission preset the person never chose; bounded like the modules above, so
+// a main that never answers costs a moment of defaults rather than a window.
+function waitForLaunchSettings(): Promise<void> {
+  return Promise.race([
+    launchSettingsReady,
+    new Promise<void>((resolveTimeout) => setTimeout(resolveTimeout, THIRD_PARTY_MODULE_BOOT_TIMEOUT_MS)),
+  ])
+}
+
 async function bootThirdPartyRendererModules(): Promise<void> {
   try {
     await Promise.race([
@@ -144,7 +156,7 @@ if (isDiagnosticsWindow) {
     </ConfirmDialogProvider>,
   )
 } else {
-  void bootThirdPartyRendererModules().then(() => {
+  void Promise.all([bootThirdPartyRendererModules(), waitForLaunchSettings()]).then(() => {
     markStartup('renderer.third-party-modules-settled')
     ReactDOM.createRoot(document.getElementById('root') as HTMLElement).render(
       <ConfirmDialogProvider>

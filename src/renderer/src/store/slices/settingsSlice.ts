@@ -3,6 +3,7 @@ import type { TextGenerationSettings } from '../../../../shared/text-generation/
 import { normalizeMcpSourceRef } from '../../../../shared/mcp/normalize-server'
 import type { FolderOpenTargetId } from '../../../../shared/folder-open-targets'
 import { normalizeProjectKnowledgeRoots } from './memorySlice'
+import { launchSettingsClient } from '../launchSettingsClient'
 import { isProjectColorSetting, type ProjectColorSetting } from '../../utils/projectColor'
 import { isConnectorsFoldedSettingsTab, SKILLS_SETTINGS_TAB } from '../../components/settings/extensionsRoute'
 import {
@@ -1235,7 +1236,13 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         clearSettingsRequest(state)
       }),
 
-    setCliRuntime: (cli, update) =>
+    // The five launch settings below (CLI runtimes, MCP, the last-selected CLI,
+    // the spawn permission preset; knowledge roots live in memorySlice) are
+    // main's. Each setter applies its change here at once, then sends main the
+    // part it changed; main's answer replaces this window's copy
+    // (launchSettingsClient).
+    setCliRuntime: (cli, update) => {
+      let runtime: CliRuntimeSettings | null = null
       set((state) => {
         const defaults = defaultAppSettings()
         state.appSettings.cliRuntimes ??= defaults.cliRuntimes
@@ -1243,12 +1250,17 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         // toggles WSL on does not pin the command to the plugin id; a blank
         // command resolves to the plugin manifest binary at launch.
         const fallback = defaults.cliRuntimes[cli] ?? { command: '', useWsl: false }
-        state.appSettings.cliRuntimes[cli] = {
+        const next = {
           ...fallback,
           ...state.appSettings.cliRuntimes[cli],
           ...update,
         }
-      }),
+        state.appSettings.cliRuntimes[cli] = next
+        // A plain copy for main: `next.models` can still be the draft's array.
+        runtime = { ...next, ...(next.models ? { models: [...next.models] } : {}) }
+      })
+      if (runtime) launchSettingsClient.update({ cliRuntimes: { [cli]: runtime } })
+    },
 
     setCliModelCatalog: (cli, catalog) =>
       set((state) => {
@@ -1267,18 +1279,20 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         state.appSettings.cliModelCatalog = Object.keys(next).length > 0 ? next : undefined
       }),
 
-    setMcpSyncEnabled: (enabled) =>
+    setMcpSyncEnabled: (enabled) => {
       set((state) => {
         state.appSettings.mcp = normalizeMcpSettings({
           ...state.appSettings.mcp,
           syncEnabled: enabled,
         })
-      }),
+      })
+      launchSettingsClient.update({ mcp: { syncEnabled: enabled } })
+    },
 
-    upsertMcpServer: (server) =>
+    upsertMcpServer: (server) => {
+      const normalized = normalizeMcpServer(server)
+      if (!normalized) return
       set((state) => {
-        const normalized = normalizeMcpServer(server)
-        if (!normalized) return
         const current = normalizeMcpSettings(state.appSettings.mcp)
         state.appSettings.mcp = {
           ...current,
@@ -1288,30 +1302,39 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
             [normalized.id]: normalized,
           },
         }
-      }),
+      })
+      launchSettingsClient.update({ mcp: { syncEnabled: true, servers: { [normalized.id]: normalized } } })
+    },
 
-    refreshMcpServersFromSource: (servers) =>
+    refreshMcpServersFromSource: (servers) => {
+      const refreshed: Record<string, McpServerConfig> = {}
+      for (const server of servers) {
+        const normalized = normalizeMcpServer(server)
+        if (normalized) refreshed[normalized.id] = normalized
+      }
       set((state) => {
         const current = normalizeMcpSettings(state.appSettings.mcp)
-        const next = { ...current.servers }
-        for (const server of servers) {
-          const normalized = normalizeMcpServer(server)
-          if (normalized) next[normalized.id] = normalized
-        }
-        state.appSettings.mcp = { ...current, servers: next }
-      }),
+        state.appSettings.mcp = { ...current, servers: { ...current.servers, ...refreshed } }
+      })
+      if (Object.keys(refreshed).length > 0) launchSettingsClient.update({ mcp: { servers: refreshed } })
+    },
 
-    removeMcpServer: (serverId) =>
+    removeMcpServer: (serverId) => {
+      const id = normalizeMcpId(serverId)
       set((state) => {
         const current = normalizeMcpSettings(state.appSettings.mcp)
-        delete current.servers[normalizeMcpId(serverId)]
+        delete current.servers[id]
         state.appSettings.mcp = { ...current, syncEnabled: true }
-      }),
+      })
+      launchSettingsClient.update({ mcp: { syncEnabled: true, ...(id ? { servers: { [id]: null } } : {}) } })
+    },
 
-    setLastSelectedCli: (cli) =>
+    setLastSelectedCli: (cli) => {
       set((state) => {
         state.appSettings.lastSelectedCli = cli
-      }),
+      })
+      launchSettingsClient.update({ lastSelectedCli: cli })
+    },
 
     setLastSelectedConversationModel: (selection) =>
       set((state) => {
@@ -1389,12 +1412,15 @@ export function createSettingsSlice(set: SettingsSliceSet): SettingsSlice {
         })
       }),
 
-    setLastAgentSpawnPermissionPreset: (preset) =>
+    setLastAgentSpawnPermissionPreset: (preset) => {
+      // An explicit user pick, so the plain normalizer: choosing 'default'
+      // must stay 'default' and not snap back to the app-wide bypass default.
+      const normalized = normalizeCliPermissionPreset(preset)
       set((state) => {
-        // An explicit user pick, so the plain normalizer: choosing 'default'
-        // must stay 'default' and not snap back to the app-wide bypass default.
-        state.appSettings.lastAgentSpawnPermissionPreset = normalizeCliPermissionPreset(preset)
-      }),
+        state.appSettings.lastAgentSpawnPermissionPreset = normalized
+      })
+      launchSettingsClient.update({ lastAgentSpawnPermissionPreset: normalized })
+    },
 
     setLastSelectedAgentModel: (selection) =>
       set((state) => {
