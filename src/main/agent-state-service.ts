@@ -6,7 +6,7 @@ import { join } from 'path'
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import type { TerminalPathStyle } from '../shared/electron-api'
 import type { AgentStateFrame } from './agent-state'
-import { installAgentStateReporter, parseAgentStateFrame } from './agent-state'
+import { installAgentStateReporter, parseAgentStateFrame, removeWorkspaceAgentStateRegistration } from './agent-state'
 import { toWslInteropExecutable } from './wsl-interop'
 
 // =============================================================================
@@ -67,8 +67,14 @@ export type AgentStateServiceOptions = {
   // every event, and the person's repository keeps none of it. Absent ⇒ nothing
   // is launch-injected, which is the behaviour from before the flag existed.
   resolveLaunchInjectsPlugins?: (cli: string) => boolean
+  // Every loaded CLI's agentStateSpec. Read only when a launch-injected CLI
+  // tidies the registration an earlier build wrote into the workspace: the
+  // shared reporter script there must survive while another CLI's registration
+  // (Codex's config.toml, Cursor's hooks.json) still runs it. Absent ⇒ no other
+  // registration is known, and the script is removed with the entry.
+  listAgentStateSpecs?: () => readonly PluginAgentStateSpec[]
   onFrame: (frame: AgentStateFrame) => void
-  logDiagnostic?: (diagnostic: { level: 'warning'; title: string; message: string; details?: string }) => void
+  logDiagnostic?: (diagnostic: { level: 'warning' | 'info'; title: string; message: string; details?: string }) => void
   now?: () => number
 }
 
@@ -83,6 +89,9 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
   // and a set so we install at most once per workspace per app run.
   const installChains = new Map<string, Promise<void>>()
   const installed = new Set<string>()
+  // Workspaces whose stale registration a launch-injected CLI already took out
+  // this run, keyed like the install chain (target file + workspace).
+  const tidied = new Set<string>()
 
   function getSocketPath(): string {
     if (!socketPath) socketPath = resolveAgentStateSocketPath(options.resolveUserDataDir())
@@ -212,7 +221,15 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // per launch rather than once at wiring time, because it also answers false
     // when this build could not materialise its plugin, and that must fall back
     // to the workspace install rather than to no agent state at all.
-    if (options.resolveLaunchInjectsPlugins?.(cli)) return
+    //
+    // Not a bare return: a workspace an earlier build (or this run's startup
+    // window, before the copy landed) installed into still holds that
+    // registration, which would now fire beside the launch's own for every
+    // event and stay in the person's repository. It is taken out instead.
+    if (options.resolveLaunchInjectsPlugins?.(cli)) {
+      await tidyWorkspaceRegistration(root, spec)
+      return
+    }
     // A user-scoped registration writes one profile-global file whose content
     // is workspace-independent (home-scoped reporter copy + profile socket),
     // so its install-once key is per CLI, not per workspace — the first launch
@@ -268,6 +285,37 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
       next.catch(() => {}),
     )
     await next.catch((error) => warn('Agent-state hook install threw', message(error)))
+  }
+
+  // Take a launch-injected CLI's workspace registration back out, once per
+  // (target file, workspace) per app run. Serialized on the SAME chain the
+  // installs use, because both read-modify-write one settings file.
+  async function tidyWorkspaceRegistration(root: string, spec: PluginAgentStateSpec): Promise<void> {
+    if (spec.registration.kind !== 'settings-json' || spec.registration.scope === 'user') return
+    const chainKey = `${spec.registration.path}::${root}`
+    if (tidied.has(chainKey)) return
+    const prior = installChains.get(chainKey) ?? Promise.resolve()
+    const next = prior.then(async () => {
+      if (tidied.has(chainKey)) return
+      const removed = await removeWorkspaceAgentStateRegistration(root, spec.registration, {
+        otherSpecs: options.listAgentStateSpecs?.() ?? [],
+      })
+      tidied.add(chainKey)
+      if (removed.length > 0) {
+        options.logDiagnostic?.({
+          level: 'info',
+          title: 'Workspace tidied',
+          message:
+            'This agent receives the agent-state hook with its launch, so the copy an earlier run wrote into the workspace was removed.',
+          details: `${root}: ${removed.join(', ')}`,
+        })
+      }
+    })
+    installChains.set(
+      chainKey,
+      next.catch(() => {}),
+    )
+    await next.catch((error) => warn('Agent-state workspace tidy threw', message(error)))
   }
 
   return {

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, readFileSync, rmdirSync, statSync, unlinkSync, writeFileSync } from 'fs'
 import { homedir } from 'os'
 import { dirname, join } from 'path'
 
@@ -766,4 +766,122 @@ function tomlString(value: string): string {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// ── The gateway a launch carries itself ─────────────────────────────────────
+
+/** The bridge every managed gateway entry runs, whichever build wrote it. */
+const STUDIO_BRIDGE_SCRIPT_NAME = 'mcp-stdio-bridge.mjs'
+
+/**
+ * Take the app's own gateway back out of a Claude-format workspace config.
+ *
+ * A Claude Code launch that carries the app's plugin directory gets the gateway
+ * from that plugin's `.mcp.json`, for that session only. The entry the
+ * per-launch sync used to pin into the repository's `.mcp.json` — an absolute
+ * path to this build's executable and bridge, in a file projects commit — is
+ * then a second copy of the same server, and one a `claude` started from a
+ * plain terminal in that checkout would load too. So it comes out, together
+ * with the approval `enableStudioMcpForClaudeWorkspace` granted it in
+ * `.claude/settings.local.json`.
+ *
+ * Narrow about what counts as ours, because `.mcp.json` is the person's file:
+ * only an entry under the gateway's id that runs the bundled bridge with
+ * `ELECTRON_RUN_AS_NODE` is removed — a repository that put something else
+ * under that id keeps it (and never gets it approved, the rule the approval
+ * writer already follows). The retired Sprint Engine id is dropped
+ * unconditionally, exactly as every gateway sync pass has always done.
+ *
+ * Never creates a file. A config left with nothing in it is deleted rather than
+ * left behind as `{ "mcpServers": {} }`, since the app is the only thing that
+ * would have created it. Best-effort: an unreadable or unparseable file is left
+ * exactly as it is, and the returned list says what was changed.
+ */
+export function removeManagedStudioGatewayFromClaudeWorkspace(workspaceRoot: string): string[] {
+  const changed: string[] = []
+  const root = workspaceRoot.trim()
+  if (root === '') return changed
+
+  const mcpJsonPath = join(root, '.mcp.json')
+  const mcpJson = readJsonObjectSync(mcpJsonPath)
+  if (mcpJson && isPlainRecord(mcpJson.mcpServers)) {
+    const servers = { ...mcpJson.mcpServers }
+    let touched = false
+    if (isManagedStudioGatewayEntry(servers[STUDIO_MCP_SERVER_ID])) {
+      delete servers[STUDIO_MCP_SERVER_ID]
+      touched = true
+    }
+    if (RETIRED_SPRINTENGINE_MCP_SERVER_ID in servers) {
+      delete servers[RETIRED_SPRINTENGINE_MCP_SERVER_ID]
+      touched = true
+    }
+    if (touched && writeOrRemoveJsonObjectSync(mcpJsonPath, { ...mcpJson, mcpServers: servers }, ['mcpServers'])) {
+      changed.push('.mcp.json')
+    }
+  }
+
+  const settingsPath = join(root, '.claude', 'settings.local.json')
+  const settings = readJsonObjectSync(settingsPath)
+  if (settings && Array.isArray(settings.enabledMcpjsonServers)) {
+    const enabled = settings.enabledMcpjsonServers as unknown[]
+    const kept = enabled.filter((id) => id !== STUDIO_MCP_SERVER_ID && id !== RETIRED_SPRINTENGINE_MCP_SERVER_ID)
+    if (kept.length !== enabled.length) {
+      const next: Record<string, unknown> = { ...settings }
+      if (kept.length > 0) next.enabledMcpjsonServers = kept
+      else delete next.enabledMcpjsonServers
+      if (writeOrRemoveJsonObjectSync(settingsPath, next, [])) {
+        changed.push('.claude/settings.local.json')
+        // The directory too, when the app's file was all it held.
+        try {
+          rmdirSync(join(root, '.claude'))
+        } catch {
+          // Not empty, or not ours to remove: either way it stays.
+        }
+      }
+    }
+  }
+  return changed
+}
+
+function isManagedStudioGatewayEntry(entry: unknown): boolean {
+  if (!isPlainRecord(entry)) return false
+  const args = Array.isArray(entry.args) ? entry.args : []
+  const script = typeof args[0] === 'string' ? args[0].replace(/\\/g, '/') : ''
+  const env = isPlainRecord(entry.env) ? entry.env : {}
+  return args.length === 1 && script.endsWith(`/${STUDIO_BRIDGE_SCRIPT_NAME}`) && env.ELECTRON_RUN_AS_NODE === '1'
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value)
+}
+
+function readJsonObjectSync(path: string): Record<string, unknown> | null {
+  if (!existsSync(path)) return null
+  try {
+    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'))
+    return isPlainRecord(parsed) ? parsed : null
+  } catch {
+    return null
+  }
+}
+
+/**
+ * Write `value`, or delete the file when nothing is left in it: no keys at all,
+ * or only `emptyRecordKeys` holding empty objects. Returns whether it succeeded.
+ */
+function writeOrRemoveJsonObjectSync(
+  path: string,
+  value: Record<string, unknown>,
+  emptyRecordKeys: readonly string[],
+): boolean {
+  const meaningful = Object.entries(value).filter(
+    ([key, entry]) => !(emptyRecordKeys.includes(key) && isPlainRecord(entry) && Object.keys(entry).length === 0),
+  )
+  try {
+    if (meaningful.length === 0) unlinkSync(path)
+    else writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`, 'utf8')
+    return true
+  } catch {
+    return false
+  }
 }

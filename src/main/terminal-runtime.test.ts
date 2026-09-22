@@ -3622,13 +3622,13 @@ test('terminal-runtime', async () => {
     const workspaceRoot = await mkdtemp(join(tmpdir(), 'sprintengine-terminal-runtime-debug-install-'))
     mockPty.spawnCalls = []
     mockSender.sent = []
-    const ensureCalls: Array<{ workspaceRoot: string; skillId: string }> = []
+    const ensureCalls: Array<{ workspaceRoot: string; skillId: string; cli?: string }> = []
 
     const runtime = runtimeModule.createTerminalRuntime({
       diagnosticsEnabled: false,
       logMainPerfEvent: () => undefined,
-      ensureBuiltinSkillInstalled: async (root, skillId) => {
-        ensureCalls.push({ workspaceRoot: root, skillId })
+      ensureBuiltinSkillInstalled: async (root, skillId, cli) => {
+        ensureCalls.push({ workspaceRoot: root, skillId, cli })
       },
     })
 
@@ -3658,7 +3658,9 @@ test('terminal-runtime', async () => {
     await spawnAgent('session-debug-on', true)
     assert.deepEqual(
       ensureCalls,
-      [{ workspaceRoot, skillId: 'debug' }],
+      // The CLI rides along: the installer skips the workspace copy for a CLI
+      // whose launch carries the skill in the app's own plugin directory.
+      [{ workspaceRoot, skillId: 'debug', cli: 'codex' }],
       'debug on ensure-installs the debug skill into the session workspace before launch',
     )
   }

@@ -98,20 +98,31 @@ export function getTerminalEnv(): Record<string, string> {
 // rewrites it and every other instance's agents then report phases to a dead
 // socket — the 2026-07-07 parked-agents incident). Env is per-process, so an
 // agent always reports to the instance that launched it.
+//
+// And the CLI, for the MCP gateway's connect frame. The gateway entry the
+// launch used to pin into the workspace's `.mcp.json` baked
+// `SPRINTENGINE_AGENT_CLI` into that file; a launch that carries the app's
+// plugin directory gets the gateway from a plugin copy shared by every
+// Claude-family CLI, which cannot bake one. The bridge inherits the session's
+// env either way, so the CLI travels here, the same road the workspace and
+// agent ids already take.
 function agentIdentityEnv(input: {
   workspaceId?: string
   agentId?: string
   agentName?: string
+  cli?: string
 }): Record<string, string> {
   const workspaceId = input.workspaceId?.trim()
   const agentId = input.agentId?.trim()
   const agentName = input.agentName?.trim()
+  const cli = input.cli?.trim()
   const agentStateSocketPath = agentId ? agentStateSocketPathForLaunch() : null
   return {
     ...studioEnvEntry('SPRINTENGINE_WORKSPACE_ID', workspaceId),
     ...studioEnvEntry('SPRINTENGINE_AGENT_ID', agentId),
     ...studioEnvEntry('SPRINTENGINE_AGENT_NAME', agentName),
     ...studioEnvEntry('SPRINTENGINE_AGENT_STATE_SOCKET', agentStateSocketPath),
+    ...studioEnvEntry('SPRINTENGINE_AGENT_CLI', cli || undefined),
   }
 }
 
@@ -235,6 +246,7 @@ const AGENT_IDENTITY_ENV_KEYS = [
   'SPRINTENGINE_AGENT_ID',
   'SPRINTENGINE_AGENT_NAME',
   'SPRINTENGINE_AGENT_STATE_SOCKET',
+  'SPRINTENGINE_AGENT_CLI',
 ] as const
 
 // Apply this session's agent identity onto a base env: strip any inherited
@@ -242,7 +254,7 @@ const AGENT_IDENTITY_ENV_KEYS = [
 // passes no ids, so the result simply carries no identity.
 export function applyAgentIdentityEnv(
   baseEnv: Record<string, string>,
-  input: { workspaceId?: string; agentId?: string; agentName?: string },
+  input: { workspaceId?: string; agentId?: string; agentName?: string; cli?: string },
 ): Record<string, string> {
   // Stripped under BOTH names: the app's own process may have inherited a
   // legacy-named identity from the shell that started it, and clearing only the

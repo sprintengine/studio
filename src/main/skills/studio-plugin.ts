@@ -31,6 +31,13 @@
 //     must never be committed). That split is why this module does not call
 //     `enableClaudePlugin`, which writes both keys into one file.
 //
+// All of that describes a workspace whose Claude sessions still read the plugin
+// from the workspace. Where the launch hands Claude Code the app-owned copy
+// itself (`registerWithClaude: false`, see agent-integration-home.ts), the
+// materialised copy, the hook merge and both settings keys are skipped and an
+// earlier build's are removed; only the skill copies for the harnesses with no
+// launch-scoped route remain. docs/agent-launch-isolation.md has the inventory.
+//
 // There is no uninstall of THIS plugin. It is built in: the catalogue offers
 // no Remove for it, and a workspace that has had its skills deleted by hand
 // gets them back the next time it is opened.
@@ -42,13 +49,8 @@ import { dirname, join, resolve } from 'node:path'
 import { SKILL_HARNESS_DIR } from '../../shared/skill-harnesses'
 import type { SkillHarness } from '../../shared/skills'
 import { STUDIO_PLUGIN_ID } from '../../shared/studio-plugin'
-import {
-  AGENT_STATE_HOOK_SCRIPT_REL,
-  mergeAgentStateHooks,
-  STATUS_LINE_HOOK_SCRIPT_REL,
-  unmergeAgentStateHooks,
-  unmergeStatusLineForwarder,
-} from '../agent-state'
+import type { PluginAgentStateSpec } from '../../shared/plugin-manifest'
+import { mergeAgentStateHooks, removeWorkspaceAgentStateRegistration } from '../agent-state'
 import { installSkillDirectory, readSkillProvenance } from './install'
 import { CLAUDE_SETTINGS_RELATIVE_PATH } from './install-plugin'
 import { isRecord } from '../../shared/records'
@@ -534,7 +536,7 @@ export type StudioPluginInstallResult =
   | {
       ok: true
       version: string
-      /** Where the materialised copy landed. */
+      /** Where the materialised copy landed; '' when the launch carries the plugin and none was written. */
       root: string
       /** Skill directory names copied, per the harnesses that took them. */
       skillDirNames: string[]
@@ -577,8 +579,25 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
     }
   }
 
-  const materialised = await materialiseStudioPlugin({ template, workspaceRoot, tokens: options.tokens })
-  if (!materialised.ok) return materialised
+  // The materialised copy under `.sprintengine/studio-plugin` exists for one
+  // reader: Claude Code, pointed at it by the two settings keys below. Once the
+  // launch carries the app's own copy instead, nothing reads this one — the
+  // other harnesses only take its skills, which carry no tokens and so are
+  // byte-identical in the template — so it is not written, and a copy an
+  // earlier build left behind (absolute machine paths and all) is removed.
+  let materialisedRoot = ''
+  let skillsSourceRoot: string
+  if (options.registerWithClaude) {
+    const materialised = await materialiseStudioPlugin({ template, workspaceRoot, tokens: options.tokens })
+    if (!materialised.ok) return materialised
+    materialisedRoot = materialised.root
+    skillsSourceRoot = join(materialised.root, STUDIO_PLUGIN_ID, 'skills')
+  } else {
+    await rm(resolve(workspaceRoot, STUDIO_PLUGIN_WORKSPACE_DIR), { recursive: true, force: true }).catch(
+      () => undefined,
+    )
+    skillsSourceRoot = join(template.pluginDir, 'skills')
+  }
 
   const warnings: string[] = []
   const skillDirs = await listStudioPluginSkillDirs(template)
@@ -595,7 +614,7 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
   for (const dirName of skillDirs) {
     const result = await installSkillDirectory({
       workspaceRoot,
-      sourceDir: join(materialised.root, STUDIO_PLUGIN_ID, 'skills', dirName),
+      sourceDir: join(skillsSourceRoot, dirName),
       dirName,
       harnesses: options.harnesses,
       provenance: { sourceId: STUDIO_PLUGIN_SOURCE_ID, skillId: dirName, commitSha: template.version },
@@ -650,14 +669,14 @@ export async function installStudioPlugin(options: StudioPluginInstallOptions): 
   // same plugin — and `extraKnownMarketplaces` carries an absolute machine path
   // into a file the person's colleagues read.
   const enabled = options.registerWithClaude
-    ? await enableStudioPluginInClaudeSettings({ workspaceRoot, marketplacePath: materialised.root })
+    ? await enableStudioPluginInClaudeSettings({ workspaceRoot, marketplacePath: materialisedRoot })
     : null
   if (enabled && !enabled.ok) warnings.push(enabled.message)
 
   return {
     ok: true,
     version: template.version,
-    root: materialised.root,
+    root: materialisedRoot,
     skillDirNames: copied,
     harnesses: [...harnessesThatTook],
     claudePluginKey: enabled?.ok ? enabled.pluginKey : '',
@@ -731,34 +750,39 @@ export function studioClaudePluginKey(): string {
  * and a workspace that could not be tidied is worth strictly less than a
  * workspace that would not open. Returns what it removed, for the diagnostic.
  */
-export async function removeStudioPluginClaudeRegistration(workspaceRoot: string): Promise<string[]> {
+export async function removeStudioPluginClaudeRegistration(
+  workspaceRoot: string,
+  options: {
+    /**
+     * Every loaded CLI's agent-state spec. The reporter script under
+     * `.sprintengine/hooks` is shared with Codex, Cursor and Grok registrations
+     * in the same workspace, and is only deleted once none of them names it —
+     * deleting it under a live Codex hook would break that CLI's agent state.
+     */
+    otherAgentStateSpecs?: readonly PluginAgentStateSpec[]
+  } = {},
+): Promise<string[]> {
   const removed: string[] = []
   const root = workspaceRoot.trim()
   if (root === '') return removed
 
+  // The marketplace key first, so the agent-state tidy below sees the settings
+  // file in its final shape and can delete it when nothing is left in it.
   const localPath = resolve(root, CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
-  if (existsSync(localPath)) {
-    try {
-      await unmergeAgentStateHooks(localPath)
-      await unmergeStatusLineForwarder(localPath)
-      removed.push(CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
-    } catch {
-      // A settings file we could not rewrite keeps its stale entry; the launch
-      // still works, and the next open tries again.
-    }
+  if (await removeSettingsKey(localPath, 'extraKnownMarketplaces', STUDIO_PLUGIN_MARKETPLACE_NAME)) {
+    removed.push(CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH)
   }
 
-  // The scripts those entries named. Removed after the entries, so a failure
-  // half-way never leaves a registration pointing at a deleted file.
-  for (const relative of [AGENT_STATE_HOOK_SCRIPT_REL, STATUS_LINE_HOOK_SCRIPT_REL]) {
-    const path = resolve(root, relative)
-    if (!existsSync(path)) continue
-    try {
-      await rm(path, { force: true })
-      removed.push(relative)
-    } catch {
-      // Nothing reads it any more; it is disk, not behaviour.
-    }
+  // The hook entries, the status line, and the scripts they named — scripts
+  // after entries, so a failure half-way never leaves a registration pointing
+  // at a deleted file. One implementation with the launch-time tidy in the
+  // agent-state service, so the two can never disagree about what is ours.
+  for (const path of await removeWorkspaceAgentStateRegistration(
+    root,
+    { kind: 'settings-json', path: CLAUDE_LOCAL_SETTINGS_RELATIVE_PATH },
+    { otherSpecs: options.otherAgentStateSpecs ?? [] },
+  )) {
+    if (!removed.includes(path)) removed.push(path)
   }
 
   if (
@@ -766,7 +790,6 @@ export async function removeStudioPluginClaudeRegistration(workspaceRoot: string
   ) {
     removed.push(CLAUDE_SETTINGS_RELATIVE_PATH)
   }
-  await removeSettingsKey(localPath, 'extraKnownMarketplaces', STUDIO_PLUGIN_MARKETPLACE_NAME)
 
   // The skill copies. Claude reads these from the directory the launch passes
   // now, so a copy here is a second, ageing set of the same bytes.

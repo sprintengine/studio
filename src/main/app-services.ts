@@ -47,7 +47,12 @@ import {
   updateBacklogTriage,
   updateBacklogType,
 } from './backlog-service'
-import { createBuiltinSkillManager, ensureSkillInstalled, setDefaultSkillManager } from './builtin-skills'
+import {
+  createBuiltinSkillManager,
+  ensureSkillInstalled,
+  setDefaultSkillManager,
+  setLaunchDeliversBundledSkillsResolver,
+} from './builtin-skills'
 import { SprintEngineAuthBridge } from './auth-service'
 import { createMainDiagnostics } from './main-diagnostics'
 import { createTailnetShareService, readTailnetWebTargets } from './automation/tailnet/tailnet-share-service'
@@ -184,6 +189,20 @@ export function createAppServices(diagnosticsEnabled: boolean) {
   // because a status line is not a plugin component — no plugin can declare
   // one — so it travels in the launch's `--settings` document instead.
   let agentIntegrationStatusLinePath = ''
+  // THE question every workspace writer asks before touching the repository on
+  // behalf of an agent launch: will this CLI's launch carry the app's own plugin
+  // directories? One closure, so the launch flag (terminal-launch's
+  // `pluginDirsForLaunch` asks the same three things), the agent-state
+  // installer, the skill installer and the MCP sync can never disagree — a
+  // disagreement is either a doubled registration or a session with none.
+  const launchCarriesAppPlugins = (cli: string): boolean =>
+    launchPluginsSupportedOnThisPlatform() && agentIntegrationPluginDirs.length > 0 && cliTakesLaunchPlugins(cli)
+  // Bundled skills arrive in the `studio-skills` directory of that same copy.
+  setLaunchDeliversBundledSkillsResolver(launchCarriesAppPlugins)
+  const listAgentStateSpecs = () =>
+    getPluginRegistry()
+      .loaded()
+      .flatMap((plugin) => (plugin.manifest.agentStateSpec ? [plugin.manifest.agentStateSpec] : []))
 
   // Created before terminalRuntime so the runtime can install the reporter at
   // launch; `onFrame` resolves to terminalRuntime (declared just below) at
@@ -202,8 +221,11 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // halves must hold: a manifest that declares the flag, and a materialised
     // copy to point it at — until the copy exists (or if this build shipped
     // none) the workspace install remains the way agent state works at all.
-    resolveLaunchInjectsPlugins: (cli) =>
-      launchPluginsSupportedOnThisPlatform() && agentIntegrationPluginDirs.length > 0 && cliTakesLaunchPlugins(cli),
+    resolveLaunchInjectsPlugins: launchCarriesAppPlugins,
+    // Read when a launch-injected CLI tidies what an earlier build wrote into
+    // the workspace: the shared reporter script stays while another CLI's
+    // registration there still runs it.
+    listAgentStateSpecs,
     resolveReporterTemplatePath: getBundledAgentStateReporterTemplatePath,
     onFrame: (frame) => terminalRuntime.ingestAgentStateFrame(frame),
     logDiagnostic: (diagnostic) => {
@@ -263,10 +285,14 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     resolveUserDataDir: () => app.getPath('userData'),
     resolveAgentStateSocketPath: () => agentStateService.getSocketPath(),
     listHarnesses: () => resolveInstalledSkillHarnesses(),
-    // Read at install time, not at wiring time: a workspace opened before the
-    // app materialised its copy still gets the workspace install, which is what
-    // keeps agent state working rather than losing it to a race.
+    // Read at install time, not at wiring time, and only once the copy has
+    // settled: a workspace opened during startup is then never installed the
+    // old way seconds before the launch starts carrying the same pieces, while
+    // a build whose copy FAILED still gets the workspace install, which is what
+    // keeps agent state working rather than losing it.
     resolveLaunchPluginsActive: () => agentIntegrationPluginDirs.length > 0,
+    whenLaunchPluginsSettled: () => agentIntegrationReady,
+    listAgentStateSpecs,
     logDiagnostic: (diagnostic) => {
       void writeDiagnosticLog({ ...diagnostic, source: 'workspace' })
     },
@@ -434,19 +460,30 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       void writeDiagnosticLog({ ...diagnostic, source: 'terminal' })
     },
     syncMcpConfig: (input) =>
-      syncStudioMcpConfig(input, {
-        mcpConfigService,
-        studioGateway: () => ({
-          command: process.execPath,
-          bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
-          userDataDir: app.getPath('userData'),
-        }),
-      }),
+      syncStudioMcpConfig(
+        {
+          ...input,
+          // A launch that carries the app's plugin directory gets the gateway
+          // from that plugin's own `.mcp.json`; pinning it into the repository
+          // as well would be a second copy of the server, and one a plain
+          // terminal's `claude` in that checkout would load too.
+          studioGatewayDeliveredAtLaunch: input.clients.length === 1 && launchCarriesAppPlugins(input.clients[0]),
+        },
+        {
+          mcpConfigService,
+          studioGateway: () => ({
+            command: process.execPath,
+            bridgeScriptPath: resolveStudioMcpBridgeScriptPath(),
+            userDataDir: app.getPath('userData'),
+          }),
+        },
+      ),
     // Debug Mode: make the `debug` skill present in the session CLI's native
     // skill dir before launch. Check-first so already-installed workspaces skip
-    // the rewrite; install only fills missing or stale native targets.
-    ensureBuiltinSkillInstalled: async (workspaceRoot, skillId) => {
-      const result = await ensureSkillInstalled(workspaceRoot, skillId)
+    // the rewrite; install only fills missing or stale native targets. A CLI
+    // whose launch carries the skill in the app's plugin directory gets no copy.
+    ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli) => {
+      const result = await ensureSkillInstalled(workspaceRoot, skillId, { cli })
       if (result.ok) return
       // An id nothing answers to used to be a silent no-op, so a renamed skill
       // or a module that failed to load produced an agent invoking a skill
@@ -1054,8 +1091,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // backlog.work ensures the Backlog skill exists in the CLI's native dir
           // before launch (same getStatus → install seam as Debug Mode). Reports
           // whether the skill is now present; a false result is non-fatal.
-          ensureBuiltinSkillInstalled: async (workspaceRoot, skillId) => {
-            const result = await ensureSkillInstalled(workspaceRoot, skillId)
+          ensureBuiltinSkillInstalled: async (workspaceRoot, skillId, cli) => {
+            const result = await ensureSkillInstalled(workspaceRoot, skillId, { cli })
             if (!result.ok && result.status === 'unknown-skill') {
               console.warn(`[skills] backlog.work asked for unknown skill "${skillId}".`)
             }

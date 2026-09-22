@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from 'fs'
-import { copyFile, mkdir, readFile, writeFile } from 'fs/promises'
+import { copyFile, mkdir, readFile, readdir, rm, rmdir, writeFile } from 'fs/promises'
 import { homedir } from 'os'
 import { join, resolve, sep } from 'path'
 import type { AgentPhase, AgentStateSource, SessionActivity } from '../shared/electron-api'
@@ -443,11 +443,13 @@ export type AgentStateFrame = {
   //
   // It exists for exactly one job: telling a SECOND registration of the same
   // reporter apart from a second edit. Two registrations — the by-hand merge in
-  // `.claude/settings.local.json` and the plugin's own `hooks/hooks.json` —
-  // fire the same hook on the same tool call, and the two frames are identical
-  // down to this id, because it is the CLI's, not the reporter's. A genuinely
-  // second edit is a second tool call and carries a different one. See the ring
-  // in terminal-session.ts (`noteFoldedFileChange`).
+  // `.claude/settings.local.json` and the plugin's own `hooks/hooks.json` — can
+  // both be live for one session (a launch carrying the plugin directory tidies
+  // the first away, but not in every case: see the ring's own note in
+  // terminal-runtime.ts). They fire the same hook on the same tool call, and
+  // the two frames are identical down to this id, because it is the CLI's, not
+  // the reporter's. A genuinely second edit is a second tool call and carries a
+  // different one. See the ring in terminal-session.ts (`noteFoldedFileChange`).
   //
   // Untrusted like the rest: bounded, control-character-free, and a bad value
   // drops the FIELD, never the frame — a frame without it falls back to the
@@ -1805,6 +1807,7 @@ export async function installAgentStateReporter(
         : resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
     await mkdir(resolve(destScript, '..'), { recursive: true })
     await copyFile(options.sourceScriptPath, destScript)
+    if (registration.scope !== 'user') await ensureWorkspaceHooksDirSelfIgnored(resolve(destScript, '..'))
     const command = buildAgentStateReporterCommand(destScript, options.socketPath, options.commandRuntime)
     const events = registeredAgentStateEvents(spec)
 
@@ -1852,4 +1855,162 @@ export async function installAgentStateReporter(
       message: error instanceof Error ? error.message : 'Failed to install agent-state reporter.',
     }
   }
+}
+
+// =============================================================================
+// Taking a workspace registration back out
+//
+// A CLI whose launch carries the app's plugin directory registers this reporter
+// for its session from there, so the copy an earlier build merged into the
+// workspace is both a second registration (every event fires twice) and a file
+// in the person's repository that any `claude` run from a plain terminal in that
+// checkout would also obey. The launch-time installer calls this instead of
+// installing, so an existing workspace is tidied on the next app-launched run.
+// =============================================================================
+
+// The self-ignore a workspace hooks directory gets: the scripts in it are this
+// app's runtime plumbing, and the registrations naming them hold absolute paths
+// to this machine. Same one-line file the backlog cache and the browser
+// captures already write, and for the same reason — editing someone's own
+// `.gitignore` to hide our state is not ours to do.
+const HOOKS_DIR_IGNORE_FILE = '.gitignore'
+const HOOKS_DIR_IGNORE_BODY = '*\n'
+
+async function ensureWorkspaceHooksDirSelfIgnored(directory: string): Promise<void> {
+  try {
+    // `wx`: a file that is already there (or one a person edited) is never
+    // clobbered, and a failure only costs an untidy `git status`.
+    await writeFile(join(directory, HOOKS_DIR_IGNORE_FILE), HOOKS_DIR_IGNORE_BODY, { encoding: 'utf8', flag: 'wx' })
+  } catch {
+    // Present already, or not writable.
+  }
+}
+
+/**
+ * Remove one CLI's app-written agent-state registration from a workspace, and
+ * the scripts it named once nothing else there runs them. Returns the
+ * workspace-relative paths it changed or deleted, for a diagnostic.
+ *
+ * Only the Claude settings kind is handled, because it is the only kind a CLI
+ * with a launch-scoped alternative uses; every other kind is left exactly as it
+ * is. Narrow about what it deletes, in the same way the installer is narrow
+ * about what it replaces:
+ *   - only hook entries and a status line this app wrote (tag or command shape)
+ *     are removed, and a settings file that holds nothing of ours is not even
+ *     rewritten, so a person's formatting survives;
+ *   - a settings file left holding nothing at all is deleted, and its `.claude`
+ *     directory with it when empty — the app is what created them;
+ *   - the shared reporter script stays while any other CLI's registration in
+ *     this workspace (Codex's `config.toml`, Cursor's `hooks.json`, …) still
+ *     names one, because deleting it would break THAT CLI's hooks.
+ *
+ * Idempotent and never throws: a workspace with nothing of ours is untouched.
+ */
+export async function removeWorkspaceAgentStateRegistration(
+  workspaceRoot: string,
+  registration: PluginAgentStateSpec['registration'],
+  options: { otherSpecs?: readonly PluginAgentStateSpec[] } = {},
+): Promise<string[]> {
+  const changed: string[] = []
+  const root = workspaceRoot?.trim() ?? ''
+  if (root === '') return changed
+  if (registration.kind !== 'settings-json' || registration.scope === 'user') return changed
+
+  const settingsPath = resolveRegistrationPath(root, registration, homedir())
+  try {
+    const raw = await readFile(settingsPath, 'utf8').catch(() => null)
+    const parsed: unknown = raw === null || raw.trim() === '' ? null : JSON.parse(raw)
+    if (isRecord(parsed)) {
+      const settings = parsed as ClaudeSettings
+      let touched = false
+      if (settings.hooks && typeof settings.hooks === 'object') {
+        const before = JSON.stringify(settings.hooks)
+        stripAgentStateEntries(settings.hooks)
+        if (JSON.stringify(settings.hooks) !== before) touched = true
+        if (Object.keys(settings.hooks).length === 0) {
+          delete settings.hooks
+          touched = true
+        }
+      }
+      if (isOurStatusLine(settings.statusLine)) {
+        removeStatusLineForwarder(settings)
+        touched = true
+      }
+      if (touched) {
+        if (Object.keys(settings).length === 0) {
+          await rm(settingsPath, { force: true })
+          await rmdir(resolve(settingsPath, '..')).catch(() => undefined)
+        } else {
+          await writeFile(settingsPath, JSON.stringify(settings, null, 2) + '\n', 'utf8')
+        }
+        changed.push(registration.path)
+      }
+    }
+  } catch {
+    // Unparseable or unwritable: someone's work in progress keeps its stale
+    // entry, and the next launch tries again.
+  }
+
+  // The status-line forwarder is only ever named by a Claude settings file, so
+  // it goes once the entry above has.
+  if (await removeIfPresent(resolve(root, STATUS_LINE_HOOK_SCRIPT_REL))) changed.push(STATUS_LINE_HOOK_SCRIPT_REL)
+
+  // The reporter is shared by every command-hook kind in this workspace.
+  const reporterStillNamed = await workspaceRegistrationsNameReporter(root, registration.path, options.otherSpecs ?? [])
+  if (!reporterStillNamed) {
+    if (await removeIfPresent(resolve(root, AGENT_STATE_HOOK_SCRIPT_REL))) changed.push(AGENT_STATE_HOOK_SCRIPT_REL)
+    await removeHooksDirIfOnlyOurs(resolve(root, AGENT_STATE_HOOK_SCRIPT_REL, '..'))
+  }
+  return changed
+}
+
+async function removeIfPresent(path: string): Promise<boolean> {
+  if (!existsSync(path)) return false
+  try {
+    await rm(path, { force: true })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Whether any OTHER workspace-scoped command-hook registration still names the
+ * workspace copy of the reporter. Read as text and matched on the script's file
+ * name: every command kind embeds the path verbatim (or JSON/TOML-escaped, which
+ * keeps the name), and a false positive only keeps a file, never breaks a hook.
+ */
+async function workspaceRegistrationsNameReporter(
+  workspaceRoot: string,
+  excludedPath: string,
+  specs: readonly PluginAgentStateSpec[],
+): Promise<boolean> {
+  const scriptName = AGENT_STATE_HOOK_SCRIPT_REL.split(sep).pop() ?? 'agent-state.mjs'
+  const seen = new Set<string>([excludedPath])
+  for (const other of specs) {
+    const registration = other.registration
+    if (registration.scope === 'user' || registration.kind === 'plugin-file') continue
+    if (seen.has(registration.path)) continue
+    seen.add(registration.path)
+    const text = await readFile(resolveRegistrationPath(workspaceRoot, registration, homedir()), 'utf8').catch(
+      () => null,
+    )
+    if (text?.includes(scriptName)) return true
+  }
+  return false
+}
+
+/** Remove `.sprintengine/hooks` (and an emptied `.sprintengine`) when only our files were in it. */
+async function removeHooksDirIfOnlyOurs(hooksDir: string): Promise<void> {
+  const entries = await readdir(hooksDir).catch(() => null)
+  if (entries === null) return
+  if (entries.some((name) => name !== HOOKS_DIR_IGNORE_FILE)) return
+  if (entries.includes(HOOKS_DIR_IGNORE_FILE)) {
+    const body = await readFile(join(hooksDir, HOOKS_DIR_IGNORE_FILE), 'utf8').catch(() => null)
+    // A person's own ignore file is theirs; only the one this app writes goes.
+    if (body !== HOOKS_DIR_IGNORE_BODY) return
+    await rm(join(hooksDir, HOOKS_DIR_IGNORE_FILE), { force: true }).catch(() => undefined)
+  }
+  await rmdir(hooksDir).catch(() => undefined)
+  await rmdir(resolve(hooksDir, '..')).catch(() => undefined)
 }
