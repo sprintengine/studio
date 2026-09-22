@@ -211,9 +211,20 @@ jobs:
       # resources/icon-nightly.* over resources/icon.* in this throwaway
       # checkout, which every platform's build config and the tray already
       # read; stable leaves the committed icon alone.
+      #
+      # Guarded, because a promotion builds the commit the nightly shipped while
+      # this workflow file comes from main: a step that calls a repository
+      # script must survive a checkout from before that script existed, or the
+      # first promotion after the script lands fails in every package job (it
+      # did, 2026-09-22). The same rule applies to any step added here later.
       - name: Use the channel's app icon
         shell: bash
-        run: node scripts/release/use-channel-icons.mjs "${CHANNEL}"
+        run: |
+          if [ -f scripts/release/use-channel-icons.mjs ]; then
+            node scripts/release/use-channel-icons.mjs "${CHANNEL}"
+          else
+            echo "This commit predates the channel icon script; packaging with the committed icon."
+          fi
 
       # `npm run dist:*` chains runtimes:fetch before the build; CI calls
       # electron-builder directly and so once skipped it entirely. resources/runtime

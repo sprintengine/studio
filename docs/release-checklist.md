@@ -177,6 +177,12 @@ published nightly, reads the commit that nightly shipped from its release body,
 refuses if that commit is not on main, and builds that commit, not main's head.
 Merges that land while you are checking the nightly never reach the stable.
 
+A promotion runs the workflow file as it is on `main` against source from the
+nightly's older commit. A step that calls a repository script must therefore
+tolerate a checkout from before that script existed (the channel-icon step
+guards on the file); otherwise the first promotion after the script lands
+fails in every package job.
+
 The stable's version is the nightly's with the train dropped:
 `0.5.0-nightly.20260923.41` ships as `0.5.0`. To ship another version, set the
 `version` input to any `X.Y.Z` above the latest published stable that no tag
