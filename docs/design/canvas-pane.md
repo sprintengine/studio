@@ -23,7 +23,7 @@ a dependency and lazy-loaded. Nothing of the editor is reimplemented.
 | Default folder | `diagrams/` at the workspace root (`folderPath`, the same root the backlog and the browser sidecar resolve against). Tools and the tab accept any project-relative `*.excalidraw` path. |
 | Geometry | A hidden **canvas worker** window owned by main runs everything that needs a DOM (skeleton conversion, arrow binding, Mermaid import, image export). No canvas tool depends on a visible window or a mounted pane. |
 | Pane tab | Core tab kind `canvas`, gated by a bundled renderer module `canvas`, retained while hidden (like browser and terminal). |
-| Narrow pane | A person-initiated new Canvas tab maximises the pane. An agent-initiated `canvas.open` reveals the tab docked and never maximises. |
+| Narrow pane | A new Canvas tab opens docked, whoever opens it (owner ruling 2026-09-22: a new Canvas tab opens docked; it used to maximise the pane when a person opened it, which read as the pane opening full screen by default). The editor takes its compact layout in a narrow pane, and only the strip's Maximise control widens it. An agent-initiated `canvas.open` likewise reveals the tab docked and never maximises. |
 | Agent format | Agents write a small **skeleton** format and name the shapes an arrow connects. Agents never author raw bindings. |
 | Concurrency | Per-element version merge. The person always wins a shape both sides touched: an agent edit that collides is recomputed once against the board the person left, and only then fails `interrupted`. A gesture on its own abandons nothing. |
 
@@ -396,6 +396,7 @@ The error, loading and not-yet-sized states fill the body with the kit
   one, docked, never maximised.
 - Command `panel.canvas.toggle`, shipped unbound, dispatched by
   `WorkspaceManager.runCommand` (no app-menu item, so main's menu is untouched).
+  A tab it creates opens docked, like the pane's own launcher and "+" menu.
 - Worker app: `src/renderer/canvas-worker.html` + `src/renderer/src/canvasWorker/`
   as a third renderer entry. It mounts one hidden editor instance once so scene
   fonts load, then serves `CanvasWorkerRequest`s.
