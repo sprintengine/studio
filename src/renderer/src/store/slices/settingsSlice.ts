@@ -490,6 +490,10 @@ function normalizeDiscoveredModel(input: unknown): DiscoveredCliModel | null {
   const defaultEffort = text(candidate.defaultEffort)
   if (defaultEffort) model.defaultEffort = defaultEffort
   if (typeof candidate.supportsFastMode === 'boolean') model.supportsFastMode = candidate.supportsFastMode
+  // Kept only as a parseable ISO timestamp: the "New" chip does date arithmetic
+  // on it, and a garbled value would either light a row up forever or never.
+  const firstSeenAt = text(candidate.firstSeenAt)
+  if (firstSeenAt && Number.isFinite(Date.parse(firstSeenAt))) model.firstSeenAt = firstSeenAt
   return model
 }
 

@@ -4,6 +4,7 @@ import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
 import { DEEP_LINK_SCHEMES } from './deep-link-scheme'
 import { runBootDiscovery } from './boot-discovery'
+import { discoverAndBroadcastCliModels } from './ipc/cli-model-discovery-ipc'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
 import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
 import { markStartup } from './startup-timeline'
@@ -88,6 +89,10 @@ type RegisterAppLifecycleOptions = {
   checkPluginSourceUpdates?: () => Promise<unknown>
 }
 
+// How long after boot CLI detection settles the first model discovery pass
+// runs; see the call site.
+const BOOT_MODEL_DISCOVERY_DELAY_MS = 10_000
+
 export function registerAppLifecycle({
   diagnosticsEnabled,
   allowMultipleInstances = false,
@@ -163,6 +168,7 @@ export function registerAppLifecycle({
   })
 
   let hostedFeedPoller: HostedFeedPoller | null = null
+  let bootModelDiscoveryTimer: ReturnType<typeof setTimeout> | null = null
 
   app.whenReady().then(async () => {
     markStartup('main.app-ready')
@@ -218,7 +224,17 @@ export function registerAppLifecycle({
         if (!app.isPackaged) return
         await updateService.checkForUpdates(false)
       },
-    }).finally(() => markStartup('main.discovery-settled'))
+    }).finally(() => {
+      markStartup('main.discovery-settled')
+      // Model discovery follows CLI detection, whose 60 s cache it reads, and
+      // waits a little longer so the probes do not compete with the renderer's
+      // first paint. Each CLI is re-probed only when its catalog is a day old or
+      // its version changed, so on most launches this spawns nothing.
+      bootModelDiscoveryTimer = setTimeout(() => {
+        bootModelDiscoveryTimer = null
+        void discoverAndBroadcastCliModels().catch(() => undefined)
+      }, BOOT_MODEL_DISCOVERY_DELAY_MS)
+    })
 
     // What the studio pulls on its own after boot: the hosted model feed, the
     // hosted card feed and the CLI version advisories 15 s after the window is
@@ -324,6 +340,7 @@ export function registerAppLifecycle({
       // self-scheduled loops and flip shutting-down flags so no new work is
       // dispatched while shared infrastructure tears down.
       await moduleKernel?.runShutdownBegin()
+      if (bootModelDiscoveryTimer) clearTimeout(bootModelDiscoveryTimer)
       hostedFeedPoller?.stop()
       await automationService?.shutdown()
       await agentStateService?.shutdown()
