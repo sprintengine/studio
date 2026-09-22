@@ -50,7 +50,7 @@ on:
           - stable
           - preview
       version:
-        description: "stable only: publish as this X.Y.Z instead of the nightly's version (may only raise it)"
+        description: "stable only: publish as this X.Y.Z instead of the nightly's version (any version above the latest stable that no tag holds)"
         required: false
         default: ""
         type: string

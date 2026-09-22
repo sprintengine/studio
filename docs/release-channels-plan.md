@@ -57,8 +57,9 @@ The nightly's base version is what `scripts/release/main-release.mjs` already
 computes for a stable: the strongest Conventional Commit since the last stable
 tag applied to that tag's version. So `feat` merged during the day shows up as
 `0.5.0-nightly.…` at once, and promotion needs no recomputation: the stable is
-the nightly's base version unless the `version` input overrides it (a bigger
-bump than the commits declared). A version a tag already holds is never reused.
+the nightly's base version unless the `version` input overrides it with any
+`X.Y.Z` above the latest stable that no tag holds (the commits can overstate a
+change as well as understate it). A version a tag already holds is never reused.
 No version-bump commit is pushed to `main`.
 
 ## Promotion

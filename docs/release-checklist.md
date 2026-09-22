@@ -176,9 +176,13 @@ refuses if that commit is not on main, and builds that commit, not main's head.
 Merges that land while you are checking the nightly never reach the stable.
 
 The stable's version is the nightly's with the train dropped:
-`0.5.0-nightly.20260923.41` ships as `0.5.0`. To ship a bigger change than the
-commits declared, set the `version` input; it may only raise the version, and
-it is refused if a tag already holds it or it is not above the latest stable.
+`0.5.0-nightly.20260923.41` ships as `0.5.0`. To ship another version, set the
+`version` input to any `X.Y.Z` above the latest published stable that no tag
+already holds, higher or lower than the derived one: the commit markers can
+overstate a change (a release-process change and an internal refactor marked
+`!` derive a major) as well as understate it. A version below the nightly's
+leaves installed nightlies ahead of the train until a later nightly passes
+them, since the next nightly derives from the new stable tag.
 The `vX.Y.Z` tag is created on the nightly's commit when the release publishes.
 
 Stable runs have their own concurrency group, so a queued nightly never holds up
