@@ -3,8 +3,13 @@ import { execFileSync } from 'node:child_process'
 import { commitBump, strongestBump } from './conventional-commits.mjs'
 import { compareCore, coreVersion, parseVersion, prereleaseVersion } from './release-lib.mjs'
 
+// Before 1.0 nothing is promised, so a breaking change moves the minor version
+// and 1.0.0 is never derived: it is published only when a maintainer types it
+// into the promotion's version input. A tree at 0.x that took `!` literally
+// shipped 1.0.0 by accident on 2026-09-22.
 export function bumpVersion(version, bump) {
   const { major, minor, patch } = parseVersion(version)
+  if (bump === 'major' && major === 0) return `0.${minor + 1}.0`
   if (bump === 'major') return `${major + 1}.0.0`
   if (bump === 'minor') return `${major}.${minor + 1}.0`
   if (bump === 'patch') return `${major}.${minor}.${patch + 1}`
