@@ -127,6 +127,44 @@ test('capability-watcher', async () => {
     return workspaceRoot
   }
 
+  /**
+   * The real `fs.watch`, with the OS's raw reports visible to the test before
+   * the watcher filters them. On macOS a directory watch is an FSEvents stream
+   * that libuv starts on its own thread after `fs.watch` has returned, and a
+   * change made before the stream is live is never delivered: not late, lost.
+   * With a few suites running at once that was several percent of subscribes,
+   * and it is what "timed out waiting for the created skill directory to
+   * invalidate" was. Node offers no ready signal, so the test makes one: it
+   * touches a probe file in the directory until every handle on that path has
+   * reported something, and only then makes the change it asserts on. What is
+   * asserted is unchanged — a real OS event for that change has to reach the
+   * subscriber.
+   */
+  function liveFsWatch() {
+    const real = createFsWatchDirectory()
+    const handles: Array<{ path: string; reported: boolean }> = []
+    const watchDirectory: WatchDirectory = (target, onChange) => {
+      const record = { path: target.path, reported: false }
+      const handle = real(target, (filename) => {
+        record.reported = true
+        onChange(filename)
+      })
+      handles.push(record)
+      return handle
+    }
+    async function untilLive(directory: string): Promise<void> {
+      const deadline = Date.now() + DEADLINE_MS
+      const onPath = () => handles.filter((record) => record.path === directory)
+      assert.ok(onPath().length > 0, `nothing watches ${directory}`)
+      for (let attempt = 0; !onPath().every((record) => record.reported); attempt += 1) {
+        if (Date.now() > deadline) assert.fail(`the watch on ${directory} never reported a change`)
+        await writeFile(join(directory, `.watch-probe-${attempt}`), '', 'utf-8')
+        await new Promise((resolve) => setTimeout(resolve, 20))
+      }
+    }
+    return { watchDirectory, untilLive }
+  }
+
   // 1. The watched set is derived from the harness map and the manifests, so a
   //    CLI nobody has heard of is watched with no edit to the watcher.
   function testWatchedPathsAreDerived(temp: string): void {
@@ -190,16 +228,22 @@ test('capability-watcher', async () => {
   //    that writes ten files moves it once.
   async function testSkillCreationInvalidatesOnce(temp: string): Promise<void> {
     const workspaceRoot = await makeWorkspace(temp, 'created')
-    const watcher = watcherFor({ temp })
+    const live = liveFsWatch()
+    const watcher = watcherFor({ temp, watchDirectory: live.watchDirectory })
     const seen = collector()
     const release = watcher.subscribe(workspaceRoot, seen.notify)
+    // The probes land in the skills directory, so they invalidate too; let that
+    // burst finish and count from after it.
+    await live.untilLive(join(workspaceRoot, '.claude', 'skills'))
+    await settle()
+    const beforeCreate = seen.events.length
 
     const skillDir = join(workspaceRoot, '.claude', 'skills', 'outside-sprintengine')
     await mkdir(skillDir, { recursive: true })
     await writeFile(join(skillDir, 'SKILL.md'), '---\nname: outside\n---\n', 'utf-8')
 
-    await seen.waitFor(() => seen.events.length > 0, 'the created skill directory to invalidate')
-    assert.deepEqual(seen.events[0], {
+    await seen.waitFor(() => seen.events.length > beforeCreate, 'the created skill directory to invalidate')
+    assert.deepEqual(seen.events[beforeCreate], {
       workspaceRoot,
       harnessId: 'claude',
       pluginIds: ['claude-code', 'zai'],
@@ -255,9 +299,13 @@ test('capability-watcher', async () => {
     const configPath = join(workspaceRoot, '.mcp.json')
     await writeFile(configPath, '{"mcpServers":{}}', 'utf-8')
 
-    const watcher = watcherFor({ temp })
+    const live = liveFsWatch()
+    const watcher = watcherFor({ temp, watchDirectory: live.watchDirectory })
     const seen = collector()
     const release = watcher.subscribe(workspaceRoot, seen.notify)
+    // Probe names match no watched entry, so the watcher filters them out.
+    await live.untilLive(workspaceRoot)
+    assert.equal(seen.events.length, 0, 'a probe the watcher does not care about invalidates nothing')
 
     const staging = join(workspaceRoot, '.mcp.json.tmp')
     await writeFile(staging, '{"mcpServers":{"linear":{"command":"npx"}}}', 'utf-8')
@@ -283,7 +331,8 @@ test('capability-watcher', async () => {
     const workspaceRoot = join(temp, 'no-claude-dir')
     await mkdir(workspaceRoot, { recursive: true })
 
-    const watcher = watcherFor({ temp })
+    const live = liveFsWatch()
+    const watcher = watcherFor({ temp, watchDirectory: live.watchDirectory })
     const seen = collector()
     const release = watcher.subscribe(workspaceRoot, seen.notify)
     assert.deepEqual(
@@ -291,6 +340,8 @@ test('capability-watcher', async () => {
       [],
       'a directory the CLI never created is normal, not a watch failure',
     )
+    await live.untilLive(workspaceRoot)
+    assert.equal(seen.events.length, 0, 'the stand-in ignores entries other than the one it waits for')
 
     await mkdir(join(workspaceRoot, '.claude', 'skills', 'late'), { recursive: true })
     await seen.waitFor(() => seen.events.length > 0, 'the directory appearing to invalidate')
