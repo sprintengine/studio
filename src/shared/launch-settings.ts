@@ -16,7 +16,7 @@
  * lives in `src/main/launch-settings-store.ts`.
  */
 import type { McpServerConfig, McpSettings } from './agent-state'
-import type { CliPermissionPreset } from './cli-permission-preset'
+import { normalizeCliPermissionPreset, type CliPermissionPreset } from './cli-permission-preset'
 
 const AGENT_LAUNCH_SETTINGS_SCHEMA_VERSION = 1
 
@@ -115,6 +115,49 @@ export const LAUNCH_SETTINGS_CHANNELS = {
   changed: 'launch-settings:changed',
 } as const
 
+/**
+ * The CLI a launch runs on when the person never picked one. The window's
+ * pickers show it and main launches on it, both through
+ * `effectiveAgentLaunchSettings`, so the two cannot disagree.
+ */
+export const DEFAULT_AGENT_LAUNCH_CLI = 'claude-code'
+
+/**
+ * The permission preset an agent spawn defaults to when the person never chose
+ * one: bypass (owner decision, 2026-07-26 — "we should be setting bypass
+ * permission mode as the default generally everywhere"). A user who wants gated
+ * permissions picks one deliberately in Settings ▸ Agents.
+ *
+ * Only an ABSENT value adopts it. A present value that is not a current preset
+ * goes through `normalizeCliPermissionPreset`, which maps the legacy spellings
+ * and floors anything unrecognised to `manual`, so corruption never escalates
+ * permissions and flipping this default never rewrites a deliberate choice.
+ */
+export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: CliPermissionPreset = 'bypass'
+
+/** The launch settings with every never-chosen value read as the app default. */
+export type EffectiveAgentLaunchSettings = Omit<
+  AgentLaunchSettings,
+  'lastSelectedCli' | 'lastAgentSpawnPermissionPreset'
+> & {
+  lastSelectedCli: string
+  lastAgentSpawnPermissionPreset: CliPermissionPreset
+}
+
+/**
+ * What a launch actually uses. The stored record keeps `null` for a value the
+ * person never chose — that is honest data, and it lets a later change of the
+ * app default reach them — and every reader, main and window alike, reads it
+ * through here, so main never launches on anything but what the window shows.
+ */
+export function effectiveAgentLaunchSettings(settings: AgentLaunchSettings): EffectiveAgentLaunchSettings {
+  return {
+    ...settings,
+    lastSelectedCli: settings.lastSelectedCli || DEFAULT_AGENT_LAUNCH_CLI,
+    lastAgentSpawnPermissionPreset: settings.lastAgentSpawnPermissionPreset ?? DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
+  }
+}
+
 export function emptyAgentLaunchSettings(): AgentLaunchSettings {
   return {
     cliRuntimes: {},
@@ -152,6 +195,15 @@ function normalizePreset(value: unknown): CliPermissionPreset | null {
     : null
 }
 
+// A stored preset. Absent stays null ("never chosen", which reads as the app
+// default); anything present is a choice somebody made, so a legacy spelling
+// keeps its meaning and an unrecognised value floors to `manual` rather than
+// becoming null and escalating to the bypass default.
+function normalizeStoredPreset(value: unknown): CliPermissionPreset | null {
+  if (value === null || value === undefined) return null
+  return normalizeCliPermissionPreset(typeof value === 'string' ? (value as CliPermissionPreset) : undefined)
+}
+
 /**
  * Fail-soft parse of a settings payload (a migration offer or a legacy on-disk
  * file). Unknown fields are dropped; missing fields default to empty. Never
@@ -179,7 +231,7 @@ export function normalizeAgentLaunchSettings(raw: unknown): AgentLaunchSettings 
     mcp,
     projectKnowledgeRoots,
     lastSelectedCli: normalizeLastSelectedCli(raw.lastSelectedCli),
-    lastAgentSpawnPermissionPreset: normalizePreset(raw.lastAgentSpawnPermissionPreset),
+    lastAgentSpawnPermissionPreset: normalizeStoredPreset(raw.lastAgentSpawnPermissionPreset),
   }
 }
 

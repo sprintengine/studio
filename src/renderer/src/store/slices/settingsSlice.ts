@@ -351,17 +351,13 @@ import { normalizeCliPermissionPreset } from '../../../../shared/cli-permission-
 
 export { normalizeCliPermissionPreset }
 
-// The app-level default preset for NEW agent spawns (owner ruling 2026-07-26:
-// "we should be setting bypass permission mode as the default generally
-// everywhere"). A user who wants gated permissions picks one deliberately —
-// the setting is right there in Settings ▸ Agents.
-//
-// NOT the same as `normalizeCliPermissionPreset`'s floor: there, `manual` is a
-// real preset (ask before every action) AND the "no local override" sentinel for
-// a run. Here, ABSENT means "this user has never chosen", which is the only case
-// that may adopt the app default. Kept separate so flipping the app default can
-// never rewrite someone's deliberate choice.
-export const DEFAULT_AGENT_SPAWN_PERMISSION_PRESET: CliPermissionPreset = 'bypass'
+// The app defaults for a never-chosen CLI and spawn preset live in shared, so
+// main launches on exactly what this window shows (see
+// effectiveAgentLaunchSettings); re-exported so the renderer import sites are
+// unchanged.
+import { DEFAULT_AGENT_LAUNCH_CLI, DEFAULT_AGENT_SPAWN_PERMISSION_PRESET } from '../../../../shared/launch-settings'
+
+export { DEFAULT_AGENT_SPAWN_PERMISSION_PRESET }
 
 // ONLY an absent value adopts the app default. A present-but-unrecognised value
 // is corruption, and corruption must never ESCALATE permissions — it falls to
@@ -399,8 +395,11 @@ export function normalizeCliModelSelection(
   return { cli, model, ...(reasoning ? { reasoning } : {}) }
 }
 
-export function normalizeSelectedCli(input: AgentCli | null | undefined, fallback: AgentCli = 'claude-code'): AgentCli {
-  const safeFallback = isSelectableAgentCli(fallback) ? fallback : 'claude-code'
+export function normalizeSelectedCli(
+  input: AgentCli | null | undefined,
+  fallback: AgentCli = DEFAULT_AGENT_LAUNCH_CLI,
+): AgentCli {
+  const safeFallback = isSelectableAgentCli(fallback) ? fallback : DEFAULT_AGENT_LAUNCH_CLI
   if (typeof input === 'string' && input.trim()) {
     const trimmed = input.trim()
     // A persisted selection naming a CLI that is not agent-selectable (muse,
@@ -668,7 +667,7 @@ export const defaultAppSettings = (): AppSettings => ({
   },
   keybindings: defaultKeybindingSettings(),
   mcp: defaultMcpSettings(),
-  lastSelectedCli: 'claude-code',
+  lastSelectedCli: DEFAULT_AGENT_LAUNCH_CLI,
   lastSelectedConversationModel: null,
   textGeneration: { enabled: true, engine: null },
   lastNewChatAgent: { kind: 'general' },

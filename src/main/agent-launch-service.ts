@@ -44,7 +44,6 @@ import type {
   AgentCli,
   MemoryRootStatus,
   McpSettings,
-  CliPermissionPreset,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
@@ -55,7 +54,7 @@ import type {
   AgentLaunchRequest,
   AgentLaunchResult,
 } from '../shared/agent-launch'
-import type { AgentLaunchSettings } from '../shared/launch-settings'
+import { effectiveAgentLaunchSettings, type AgentLaunchSettings } from '../shared/launch-settings'
 import { resolveConnectorLaunchFrom } from '../shared/connector-launch'
 import { pickRandomAgentName } from '../shared/agent-names'
 import {
@@ -75,13 +74,6 @@ import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
  */
 const UNBOUND_TERMINAL_COLS = 120
 const UNBOUND_TERMINAL_ROWS = 30
-
-/**
- * The one preset a launch falls back to when neither the caller nor the user's
- * settings name one. Deliberately the most restrictive: an unattended caller
- * that named no preset must not inherit an escalation nobody chose.
- */
-const DEFAULT_PERMISSION_PRESET: CliPermissionPreset = 'manual'
 
 /** A workspace as the launch service needs to see it. */
 export type AgentLaunchWorkspace = {
@@ -168,7 +160,10 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       }
     }
 
-    const settings = deps.getLaunchSettings()
+    // A never-chosen CLI or preset reads as the app default, through the same
+    // function the window's pickers read, so a launch with no window open runs
+    // on exactly what the window shows.
+    const settings = effectiveAgentLaunchSettings(deps.getLaunchSettings())
     const cli = (request.cli?.trim() || settings.lastSelectedCli || '') as AgentCli | ''
     if (!cli) {
       return {
@@ -241,9 +236,9 @@ export function createAgentLaunchService(deps: AgentLaunchServiceDeps): AgentLau
       ...(request.cliModel?.trim() ? { cliModel: request.cliModel.trim() } : {}),
       // The automation path always sends one (spawn-agent.ts resolves it for
       // every start path); the fallback covers the other agent.launch callers,
-      // which take the app-level spawn default.
-      cliPermissionPreset:
-        request.permissionPreset ?? settings.lastAgentSpawnPermissionPreset ?? DEFAULT_PERMISSION_PRESET,
+      // which take the person's spawn preset, or the app default when they
+      // never chose one.
+      cliPermissionPreset: request.permissionPreset ?? settings.lastAgentSpawnPermissionPreset,
       ...(connector?.ok ? { connectorMcpSettings: connector.resolved.mcpSettings } : {}),
       ...(request.spawnSkillId?.trim() ? { spawnSkillId: request.spawnSkillId.trim() } : {}),
       ...(worktreePath ? { worktreePath } : {}),
