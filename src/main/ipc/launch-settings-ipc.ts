@@ -32,9 +32,14 @@ export function registerLaunchSettingsIpc(ipcMain: IpcMain, deps: LaunchSettings
     ack(deps.launchSettings.update(patch, 'ui')),
   )
 
-  ipcMain.handle(LAUNCH_SETTINGS_CHANNELS.migrate, (_event, payload: unknown) =>
-    ack(deps.launchSettings.migrate(payload)),
-  )
+  // Answered only once an accepted migration's write has settled: the answer
+  // is what tells the window to delete its localStorage copy, so it must not
+  // arrive while main's copy exists only in memory.
+  ipcMain.handle(LAUNCH_SETTINGS_CHANNELS.migrate, async (_event, payload: unknown) => {
+    const result = deps.launchSettings.migrate(payload)
+    await result.persisted
+    return ack(result)
+  })
 
   const getWindows = deps.getWindows ?? (() => BrowserWindow.getAllWindows())
   return deps.launchSettings.subscribe((record) => {
