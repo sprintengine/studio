@@ -79,15 +79,15 @@ export type CliModelFamily = {
   label?: string
   /** Ordered base-first. A single entry means this model has no window axis. */
   variants: ModelWindowVariant[]
-  /** From the hosted feed, when it dated the row: what the picker's "New" chip reads. */
-  releasedAt?: string
+  /** Any of its ids was first listed on this machine recently: what the picker's "New" chip reads. */
+  isNew?: boolean
 }
 
 // Group a CLI's model options into families. Catalog order is preserved by
-// first appearance, so a merged catalog (manifest → discovered → user, see
+// first appearance, so a merged catalog (the CLI's list or the seed, then user, see
 // cliRuntimeOptions.mergeModelCatalog) still reads in the order it was built.
 export function buildModelFamilies(
-  options: ReadonlyArray<PluginModelOption & { releasedAt?: string }> | undefined,
+  options: ReadonlyArray<PluginModelOption & { isNew?: boolean }> | undefined,
 ): CliModelFamily[] {
   if (!options) return []
   const families = new Map<string, CliModelFamily>()
@@ -110,7 +110,7 @@ export function buildModelFamilies(
       family.defaultId = id
       family.label = option.label
     }
-    if (option.releasedAt && (!window || !family.releasedAt)) family.releasedAt = option.releasedAt
+    if (option.isNew) family.isNew = true
   }
   for (const family of families.values()) {
     family.variants.sort((a, b) => Number(b.base) - Number(a.base))

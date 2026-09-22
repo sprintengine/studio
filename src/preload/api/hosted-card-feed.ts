@@ -7,7 +7,7 @@ import type {
   HostedCardFeedReadResult,
 } from '../../shared/electron-api'
 
-// The card feed's channels, the model feed's three channels' siblings — plus
+// The card feed's get, refresh and changed channels — plus
 // `cards:run`, which is the one that does something rather than reads
 // something. It rides here rather than in a file of its own because Go is the
 // card's own verb and the feed is where the card came from (item 2469).

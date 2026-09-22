@@ -53,7 +53,7 @@ export const agentRuntimeRendererModule: RendererModule = {
     core: true,
   },
   registerRenderer(host) {
-    // Open on the bell rows the hosted feed writes (new models, a CLI update,
+    // Open on the bell rows the background checks write (new models, a CLI update,
     // an app update ready): each carries `{ kind: 'settings', ref: <tab> }`
     // and lands on that Settings tab. Registered through the always-on core so
     // the rows always have their Open.

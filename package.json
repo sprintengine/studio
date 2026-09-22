@@ -35,7 +35,6 @@
     "test:sdk:drift": "tsc -p packages/module-sdk/tsconfig.json && tsc -p packages/module-sdk/tsconfig.drift.json && esbuild packages/module-sdk/drift/sdk-drift-guard.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/sprintengine/sdk-drift-guard.cjs && node node_modules/.cache/sprintengine/sdk-drift-guard.cjs",
     "test:sdk:pack": "node scripts/verify-module-sdk-pack.mjs",
     "test:mobile-protocol:pack": "node scripts/verify-mobile-protocol-pack.mjs",
-    "test:model-feed": "node scripts/check-model-feed-seed.mjs",
     "test:card-feed": "node scripts/check-card-feed-seed.mjs",
     "test:sources": "node scripts/check-sources-seed.mjs",
     "test:release": "node --test scripts/release/*.test.mjs",
@@ -43,7 +42,7 @@
     "typecheck:app": "tsc -b --noEmit --verbose",
     "typecheck:tests": "tsc -b tsconfig.tests.json --noEmit --verbose",
     "typecheck:all": "npm run typecheck:app && npm run typecheck:tests",
-    "verify:app": "npm run typecheck:all && npm run lint && npm run format:check && npm run knip && npm run test && npm run test:sdk:drift && npm run test:sdk:pack && npm run test:mobile-protocol:pack && npm run test:model-feed && npm run test:card-feed && npm run test:sources && npm run test:release",
+    "verify:app": "npm run typecheck:all && npm run lint && npm run format:check && npm run knip && npm run test && npm run test:sdk:drift && npm run test:sdk:pack && npm run test:mobile-protocol:pack && npm run test:card-feed && npm run test:sources && npm run test:release",
     "verify:marketplace-registry": "esbuild resources/marketplace/verify-marketplace.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/sprintengine/marketplace-registry-verify.cjs && node node_modules/.cache/sprintengine/marketplace-registry-verify.cjs",
     "lint": "oxlint && node scripts/lint-design-tokens.mjs && node scripts/lint-panel-composition.mjs && node scripts/lint-primitive-duplication.mjs && node scripts/lint-door-surfaces.mjs && node scripts/lint-design-system-conformance.mjs && node scripts/testing/design-system-guard-probes.mjs",
     "lint:code": "oxlint",
@@ -61,7 +60,6 @@
     "lint:design-system-conformance": "node scripts/lint-design-system-conformance.mjs",
     "lint:guard-probes": "node scripts/testing/design-system-guard-probes.mjs",
     "catalogue:cli-entries": "esbuild resources/marketplace/generate-cli-entries.ts --bundle --platform=node --format=cjs --packages=external --outfile=node_modules/.cache/sprintengine/marketplace-cli-entries-generate.cjs && node node_modules/.cache/sprintengine/marketplace-cli-entries-generate.cjs",
-    "sync:model-feed": "node scripts/sync-model-feed.mjs",
     "measure:startup": "node scripts/measure-startup.mjs",
     "report:source-size": "node scripts/report-source-size.mjs",
     "postinstall": "node scripts/fix-node-pty-permissions.js && node node_modules/electron/install.js"
@@ -102,10 +100,6 @@
       {
         "from": "resources/icon.png",
         "to": "icon.png"
-      },
-      {
-        "from": "resources/model-feed.json",
-        "to": "model-feed.json"
       },
       {
         "from": "resources/cards-feed.json",

@@ -251,6 +251,33 @@ test('CliModelPicker', async () => {
       assert.equal(stale!.mono, true, 'and reads as the raw id it is')
     })
 
+    await run('"New" follows the merged row, and a window variant lends it to its family', () => {
+      // The merge marks a row new from its per-machine `firstSeenAt`; the picker
+      // only reads the mark. Here the 1M variant is the new one, so the Opus 5
+      // row it folds into carries the chip, and nothing else does.
+      const merged = [
+        { id: 'claude-opus-5', label: 'Opus 5' },
+        { id: 'claude-opus-5[1m]', label: 'Opus 5 (1M context)', isNew: true },
+        { id: 'sonnet', label: 'Sonnet' },
+      ]
+      const options: SurfaceProps['options'] = [
+        {
+          value: 'claude-code' as SurfaceProps['currentCli'],
+          label: 'Claude Code',
+          modelSelection: { options: merged, allowCustomId: true },
+        },
+      ]
+      const rows = buildModelRows(options, 'claude-code' as SurfaceProps['currentCli'], () => undefined)
+      assert.deepEqual(
+        rows.map((row) => [row.name, row.isNew === true]),
+        [
+          ['Claude Code', false],
+          ['Opus 5', true],
+          ['Sonnet', false],
+        ],
+      )
+    })
+
     // ---- The model popover ---------------------------------------------------
 
     await run('the rail carries one entry per installed CLI and filters the list', async () => {

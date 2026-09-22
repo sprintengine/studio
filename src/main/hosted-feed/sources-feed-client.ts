@@ -1,8 +1,8 @@
 // Fetches the hosted sources feed (src/shared/hosted-sources-feed.ts) the way
-// model-feed-client.ts fetches the model feed: HTTPS only, ETag/304, a cache
+// card-feed-client.ts fetches the card feed: HTTPS only, ETag/304, a cache
 // file under userData, a bundled seed for the first boot and for offline, and
 // honest source/state reporting. Deliberately a sibling and not a shared
-// abstraction over the three feeds — the card feed states the reason and it
+// abstraction over the feeds — the card feed states the reason and it
 // holds here too: the schemas ship on their own clocks and must be free to
 // drift, and a shared client would make one feed's change the others' problem.
 //

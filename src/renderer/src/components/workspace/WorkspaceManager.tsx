@@ -21,13 +21,11 @@ import {
 } from './newWorkspace/cliRuntimeOptions'
 import { AGENTS_SETTINGS_TAB } from './cliInstallRoute'
 import { resumeCapabilitiesForCli, subscribePluginCatalogRefreshOnFocus } from '../../store/slices/pluginsSlice'
-import { subscribeHostedModelFeedChanges } from '../../store/slices/hostedModelFeedSlice'
 import { subscribeHostedCardFeedChanges } from '../../store/slices/hostedCardFeedSlice'
 import { subscribeCliVersionAdvisoryChanges } from '../../store/slices/cliVersionAdvisorySlice'
-import { hostedModelAdditions } from '../../../../shared/hosted-model-feed'
 import {
+  discoveredModelAdditions,
   newModelsNotice,
-  retiredModelNotices,
   sourceUpdatesNotice,
   updateReadyNotice,
 } from '../../utils/feedNotifications'
@@ -453,7 +451,6 @@ export default function WorkspaceManager() {
   const setLastSelectedConversationModel = useWorkspaceStore((s) => s.setLastSelectedConversationModel)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
   const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
-  const hostedModelCatalogs = useWorkspaceStore((s) => s.hostedModelCatalogs)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
@@ -1068,17 +1065,8 @@ export default function WorkspaceManager() {
           status: cliAvailabilityStatus,
         },
         cliModelCatalog,
-        hostedModelCatalogs,
       ),
-    [
-      pluginCatalogStatus,
-      pluginCatalogEntries,
-      cliRuntimes,
-      cliAvailability,
-      cliAvailabilityStatus,
-      cliModelCatalog,
-      hostedModelCatalogs,
-    ],
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus, cliModelCatalog],
   )
   // The CLI a new spawn should launch: the remembered one when it is installed,
   // otherwise the first installed entry — and `null` when this machine has no
@@ -1443,61 +1431,37 @@ export default function WorkspaceManager() {
     })
   }, [])
 
-  // The hosted model feed: the disk copy at boot so pickers never wait on the
-  // network, then every push from main (the poller, or Settings "Check now")
-  // replaces the hosted layer and every picker re-derives its rows.
+  // Model discovery boot goes here: ask the installed CLIs for their models once detection settles.
+
+  // Models a refresh added. Every picker re-derives its rows from
+  // `appSettings.cliModelCatalog` on its own; this only announces the ids a
+  // refresh introduced for an installed CLI (see discoveredModelAdditions for
+  // what is not news: a first-ever probe, the catalogs arriving at boot, rows
+  // without `firstSeenAt`).
   useEffect(() => {
-    const store = useWorkspaceStore.getState()
-    void store.loadHostedModelFeed()
-    return subscribeHostedModelFeedChanges((result) => {
-      const current = useWorkspaceStore.getState()
-      const previous = current.hostedModelFeed
-      current.applyHostedModelFeedResult(result)
-      // The notices (rules table in backlog/2026-09-04-hosted-update-and-model-
-      // feed.md): only a fetch that replaced a LIVE copy is news. The first
-      // fetch after install or after the release that ships the feed replaces
-      // the seed, and seed → live is not news.
-      if (!result.ok || !result.changed || !previous?.ok || previous.source === 'seed') return
-      const displayName = (cli: string): string =>
-        current.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli
-      const installed = new Set(
-        Object.values(current.cliAvailability)
-          .filter((entry) => entry?.installed)
-          .map((entry) => entry!.cli),
-      )
+    return useWorkspaceStore.subscribe((state, previousState) => {
+      const next = state.appSettings.cliModelCatalog
+      const previous = previousState.appSettings.cliModelCatalog
+      if (next === previous) return
       const added = newModelsNotice({
-        additions: hostedModelAdditions(previous.feed, result.feed),
-        installed,
-        userModels: (cli) => current.appSettings.cliRuntimes?.[cli]?.models ?? [],
-        displayName,
+        additions: discoveredModelAdditions(previous, next),
+        installed: new Set(
+          Object.values(state.cliAvailability)
+            .filter((entry) => entry?.installed)
+            .map((entry) => entry!.cli),
+        ),
+        userModels: (cli) => state.appSettings.cliRuntimes?.[cli]?.models ?? [],
+        displayName: (cli) => state.pluginCatalogEntries.find((entry) => entry.id === cli)?.displayName ?? cli,
       })
-      if (added) {
-        showToast({ tone: 'accent', title: added.title, description: added.description })
-        publishDiagnosticSync({
-          level: 'info',
-          source: 'models',
-          title: added.title,
-          message: added.description,
-          navigationTarget: { kind: 'settings', ref: 'agents' },
-        })
-      }
-      const stored = current.appSettings.lastSelectedAgentModel
-      const remembered = stored?.model ? [{ who: 'New chat', cli: stored.cli, model: stored.model }] : []
-      for (const notice of retiredModelNotices({
-        previous: previous.feed,
-        next: result.feed,
-        remembered,
-        displayName,
-      })) {
-        showToast({ tone: 'warn', title: notice.title, description: notice.description })
-        publishDiagnosticSync({
-          level: 'warning',
-          source: 'models',
-          title: notice.title,
-          message: notice.description,
-          navigationTarget: { kind: 'settings', ref: 'agents' },
-        })
-      }
+      if (!added) return
+      showToast({ tone: 'accent', title: added.title, description: added.description })
+      publishDiagnosticSync({
+        level: 'info',
+        source: 'models',
+        title: added.title,
+        message: added.description,
+        navigationTarget: { kind: 'settings', ref: 'agents' },
+      })
     })
   }, [])
 

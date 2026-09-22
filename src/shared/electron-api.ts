@@ -9,7 +9,6 @@ export type {
   ConversationPeekMessage,
   ConversationPeekSource,
 } from './conversation-peek'
-export type { HostedModel, HostedModelFeed, HostedCliModelCatalogs } from './hosted-model-feed'
 export type { HostedSource, HostedSourceKind, HostedSourcesFeed } from './hosted-sources-feed'
 export type {
   CardAction,
@@ -290,13 +289,8 @@ import type {
   RevFileResult,
   WorkspaceChangeSummary,
 } from './ipc/git'
-import type {
-  HostedCardFeedReadInput,
-  HostedCardFeedReadResult,
-  HostedModelFeedReadInput,
-  HostedModelFeedReadResult,
-  HostedSourcesFeedReadResult,
-} from './ipc/hosted-feeds'
+import type { HostedCardFeedReadInput, HostedCardFeedReadResult, HostedSourcesFeedReadResult } from './ipc/hosted-feeds'
+import type { CliModelDiscoveryInput, CliModelDiscoveryResult } from './ipc/cli-model-discovery'
 import type {
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
@@ -796,16 +790,13 @@ export type ElectronApi = {
   pluginsDetectAvailability: (input?: PluginDetectAvailabilityInput) => Promise<PluginAvailabilityResult>
   agentLaunchPreview: (input: AgentLaunchPreviewInput) => Promise<AgentLaunchPreviewResult>
   readMarketplaceRegistry: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceRegistryReadResult>
-  // The hosted model feed (src/shared/hosted-model-feed.ts). `get` is the disk
-  // copy with no network; `refresh` may fetch (the client's TTL decides unless
-  // forced); `changed` fires after any read that replaced the feed.
   /** The recommended-sources feed, from disk (cache, else seed); never fetches. */
   hostedSourcesFeedGet: () => Promise<HostedSourcesFeedReadResult>
-  hostedModelFeedGet: () => Promise<HostedModelFeedReadResult>
-  hostedModelFeedRefresh: (input?: Pick<HostedModelFeedReadInput, 'forceRefresh'>) => Promise<HostedModelFeedReadResult>
-  onHostedModelFeedChanged: (cb: (result: HostedModelFeedReadResult) => void) => () => void
-  // The hosted card feed (src/shared/hosted-card-feed.ts), the model feed's
-  // sibling. `get` is the disk copy with no network — the first-paint path;
+  // Ask the installed CLIs which models they accept (src/shared/ipc/cli-model-discovery.ts).
+  // Declared here for the Settings Refresh button; the implementation lands with
+  // discovery, which makes it required.
+  cliModelsDiscover?: (input?: CliModelDiscoveryInput) => Promise<CliModelDiscoveryResult>
+  // The hosted card feed (src/shared/hosted-card-feed.ts). `get` is the disk copy with no network — the first-paint path;
   // `refresh` may fetch (the client's TTL decides unless forced); `changed`
   // fires after any read that replaced the feed, and only then.
   hostedCardFeedGet: () => Promise<HostedCardFeedReadResult>
