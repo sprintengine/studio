@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-22T12:00:00Z",
+  "updatedAt": "2026-09-22T18:30:00Z",
   "clis": {
     "claude-code": {
       "models": [
@@ -60,6 +60,18 @@
           "id": "gpt-6-astra",
           "label": "GPT-6 Astra",
           "releasedAt": "2026-09-04",
+          "retired": false
+        },
+        {
+          "id": "gpt-6-sol",
+          "label": "GPT-6 Sol",
+          "releasedAt": "2026-09-22",
+          "retired": false
+        },
+        {
+          "id": "gpt-6-luna",
+          "label": "GPT-6 Luna",
+          "releasedAt": "2026-09-22",
           "retired": false
         },
         {
