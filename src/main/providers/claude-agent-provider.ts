@@ -49,7 +49,7 @@ export const CLAUDE_AGENT_PROVIDER_ID = 'claude-agent'
 // CLI's own vocabulary rather than a remote catalog. Tier aliases float to
 // whatever that tier currently resolves to; a full model id pins one release.
 // Keep in sync with resources/plugins/claude-agent/plugin.json `models`.
-const CLAUDE_AGENT_MODELS = ['claude-opus-5', 'sonnet', 'opus', 'haiku'] as const
+const CLAUDE_AGENT_MODELS = ['claude-opus-5-5', 'claude-opus-5', 'sonnet', 'opus', 'haiku'] as const
 
 // Env marker so process-tree diagnostics can attribute the headless child to
 // its conversation session (the SDK exposes no child PID).
