@@ -41,7 +41,9 @@ type WorkspaceHeaderProps<MenuItem extends string> = {
   // Width (px) the strip leaves empty at its right end for the win/linux caption
   // buttons, which float over the window's top-right corner. Non-zero only when
   // THIS strip owns that corner — the host passes 0 on macOS and whenever the
-  // workspace pane column is open beside it and takes the corner instead.
+  // workspace pane column is open and docked beside it and takes the corner
+  // instead. A maximised pane fills the row BELOW this strip, so the corner
+  // stays here (paneStripOwnsCaptionCorner).
   captionReserve: number
   onToggleSidebar: () => void
   onOpenSearch: () => void

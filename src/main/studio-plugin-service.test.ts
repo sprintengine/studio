@@ -343,10 +343,17 @@ test('studio-plugin-service', async () => {
     await service.ensureInstalledForRoots([built.workspace])
     const after = service.installed(built.workspace)
     assert.equal(after?.hookSettingsPath, '', 'the later open installs without the Claude half')
+    // The file the early open created held nothing but the app's own entries,
+    // so it goes entirely rather than being left behind as an empty object.
     assert.equal(
-      (await readFile(join(built.workspace, '.claude', 'settings.local.json'), 'utf8')).includes('agent-state.mjs'),
+      existsSync(join(built.workspace, '.claude', 'settings.local.json')),
       false,
-      'and takes the hook the earlier open wrote back out',
+      'and takes the hook the earlier open wrote back out, with the file it created',
+    )
+    assert.equal(
+      existsSync(join(built.workspace, '.sprintengine', 'studio-plugin')),
+      false,
+      'the workspace copy of the plugin is gone too: nothing reads it once the launch carries its own',
     )
     assert.equal(
       existsSync(join(built.workspace, '.sprintengine', 'hooks', 'agent-state.mjs')),

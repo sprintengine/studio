@@ -1,7 +1,8 @@
 # SprintEngine Studio Release Checklist
 
-Every push to main starts a stable desktop release. PRs must squash merge with
-Conventional Commit titles; see [CONTRIBUTING.md](../CONTRIBUTING.md).
+Every push to main starts a stable desktop release. PRs merge by merge commit or
+squash, never rebase, with Conventional Commit titles; see
+[CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Before merging
 
@@ -12,7 +13,7 @@ Conventional Commit titles; see [CONTRIBUTING.md](../CONTRIBUTING.md).
   `BREAKING CHANGE:` footer means major (even from 0.x), and every other
   accepted type means patch. Maintenance-only merges also release the app.
 - Describe user-visible changes and compatibility breaks in the PR body. The
-  squash commit keeps both the title and body.
+  merge or squash commit keeps both the title and body.
 - Do not manually edit the app version. Stable tags are the release version
   ledger; the workflow stamps `package.json` before compilation and packaging.
   The committed version remains a development baseline. SDK versions are separate.
@@ -133,7 +134,9 @@ manifests and the anonymous URLs installed apps use to discover updates.
 
 The resolver reads the push's exact SHA, full first-parent history and stable
 tags. The strongest Conventional Commit since the preceding stable tag selects
-one bump. With one squash merge per push, every successful merge releases once.
+one bump. With one merge or squash per push, every successful merge releases
+once; the resolver walks first-parent history, so the branch commits under a
+merge commit are never read.
 A failed build leaves its changes for the next successful release. During the
 initial migration only, older prose subjects count as patch changes; the new
 release tip must be conventional. Branch-internal experiment commits do not
@@ -172,17 +175,18 @@ the preceding release on that channel. Private-source subjects are omitted.
 ## GitHub enforcement
 
 The versioned ruleset is [main-ruleset.json](../.github/main-ruleset.json).
-It requires a PR, squash merging, linear history, resolved conversations and
-these checks from GitHub Actions: **Conventional PR title**, **Build
+It requires a PR, a merge commit or a squash (no rebase), resolved
+conversations and these checks from GitHub Actions: **Conventional PR title**, **Build
 (ubuntu-latest)**, **Build (windows-latest)**, **Build (macos-latest)** and
 **JS tests (ubuntu-latest)**. It prohibits force pushes and branch deletion,
 requires checks against current main, and has no bypass actors. No additional
 human approval count is imposed.
 
 Repository settings must also set `allow_squash_merge=true`,
-`allow_merge_commit=false`, `allow_rebase_merge=false`,
-`squash_merge_commit_title=PR_TITLE` and
-`squash_merge_commit_message=PR_BODY`. Dependabot is configured to use
+`allow_merge_commit=true`, `allow_rebase_merge=false`,
+`squash_merge_commit_title=PR_TITLE`, `squash_merge_commit_message=PR_BODY`,
+`merge_commit_title=PR_TITLE` and `merge_commit_message=PR_BODY`, so a merge
+commit carries the same conventional message a squash does. Dependabot is configured to use
 `build:` and `ci:` titles so its updates pass the same check.
 
 For a new repository, create the PR containing the title-check workflow before

@@ -26,6 +26,8 @@
     "args": ["--model", "{{model}}"],
     "options": [
       { "id": "claude-fable-5-1", "label": "Fable 5.1" },
+      { "id": "claude-opus-5-5", "label": "Opus 5.5" },
+      { "id": "claude-opus-5-5[1m]", "label": "Opus 5.5 (1M context)" },
       { "id": "fable", "label": "Fable (latest)" },
       { "id": "claude-opus-5", "label": "Opus 5" },
       { "id": "claude-opus-5[1m]", "label": "Opus 5 (1M context)" },

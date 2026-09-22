@@ -203,9 +203,10 @@ Every merge to `main` builds a stable desktop release after the quality gate:
 | `feat` without a breaking change | Minor |
 | Every other accepted type | Patch |
 
-Squash merge pull requests. GitHub uses the PR title as the commit subject and
-its body as the commit body, so the required **Conventional PR title** check
-validates the message used for versioning. Mark breaking changes in that title
+Merge pull requests with a merge commit or a squash, never a rebase. Either way
+GitHub uses the PR title as the commit subject and its body as the commit body,
+so the required **Conventional PR title** check validates the message used for
+versioning; a rebase would put a branch commit at the tip instead. Mark breaking changes in that title
 or body even if a branch commit already describes them. Write the body as prose
 explaining why the change was made and what a reviewer needs to know.
 

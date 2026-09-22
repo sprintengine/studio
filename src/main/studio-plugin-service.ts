@@ -31,6 +31,7 @@ import { existsSync } from 'node:fs'
 import { readFile, mkdir, rename, writeFile } from 'node:fs/promises'
 import { dirname, join, resolve } from 'node:path'
 
+import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
 import type { SkillHarness } from '../shared/skills'
 import { AGENT_STATE_HOOK_SCRIPT_REL } from './agent-state'
 import {
@@ -69,6 +70,16 @@ export type StudioPluginServiceOptions = {
    * harness is written to, exactly as it was.
    */
   resolveLaunchPluginsActive?: () => boolean
+  /**
+   * Settles once the app has finished trying to materialise its own plugin copy
+   * (successfully or not). Awaited before `resolveLaunchPluginsActive` is read,
+   * so a workspace opened during startup is not installed the old way — hook,
+   * settings keys and skill copies written into the repository — moments before
+   * the launch starts carrying all three itself. Absent ⇒ read immediately.
+   */
+  whenLaunchPluginsSettled?: () => Promise<unknown>
+  /** Every loaded CLI's agent-state spec, so the tidy keeps a reporter another CLI still runs. */
+  listAgentStateSpecs?: () => readonly PluginAgentStateSpec[]
   logDiagnostic?: (input: { level: 'warning' | 'info'; title: string; message: string; details?: string }) => void
 }
 
@@ -203,6 +214,7 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
     //
     // Read BEFORE the memo: an install done under the other arrangement wrote
     // different files, so it has to be redone rather than remembered.
+    await options.whenLaunchPluginsSettled?.().catch(() => undefined)
     const launchPluginsActive = options.resolveLaunchPluginsActive?.() ?? false
     const key = `${version}::${workspaceRoot}`
     if (done.get(key)?.launchPluginsActive === launchPluginsActive) return
@@ -212,7 +224,9 @@ export function createStudioPluginService(options: StudioPluginServiceOptions): 
     // launch registers — twice per event — and that has to come out even when
     // this build ships no template, or no harness on this machine wants skills.
     if (launchPluginsActive) {
-      const removed = await removeStudioPluginClaudeRegistration(workspaceRoot)
+      const removed = await removeStudioPluginClaudeRegistration(workspaceRoot, {
+        otherAgentStateSpecs: options.listAgentStateSpecs?.() ?? [],
+      })
       if (removed.length > 0) {
         options.logDiagnostic?.({
           level: 'info',

@@ -11,7 +11,7 @@ import { closePaneTabAndItsTerminal } from './paneTerminals'
 import { WorkspacePaneAddMenu } from './WorkspacePaneAddMenu'
 import { WorkspacePaneBody } from './WorkspacePaneBody'
 import { WorkspacePaneLauncher } from './WorkspacePaneLauncher'
-import { WindowCaptionReserve, windowCaptionReserve } from '../WindowControls'
+import { WindowCaptionReserve, paneStripOwnsCaptionCorner, windowCaptionReserve } from '../WindowControls'
 
 // One workspace's pane: the 36px strip (tabs · + · maximise · close) over the
 // tab bodies. Mounted once per retained workspace by WorkspacePaneColumn so a
@@ -153,20 +153,13 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
         openModalSurface(definition.modalSurfaceId, { workspaceId })
         return
       }
-      const before = new Set(tabs.map((tab) => tab.id))
-      const opened = openPaneTab(workspaceId, { kind: kind as WorkspacePaneTabKind })
-      // A Canvas tab the PERSON opened takes the whole row. The editor drops to
-      // its compact phone layout below 730px of container, and a docked pane is
-      // 240-720 — so a board opened deliberately is opened at a width it can be
-      // drawn on. An agent's canvas.open deliberately does not do this
-      // (WorkspacePaneColumn).
-      //
-      // Only for a tab that was actually MADE: opening Canvas again when this
-      // workspace already has a Canvas tab focuses the one that exists, and
-      // taking over the whole row for that is a gesture nobody asked for.
-      if (opened !== null && kind === 'canvas' && !before.has(opened)) setMaximised(true)
+      // Every kind opens docked, Canvas included (owner ruling 2026-09-22): a
+      // tab that took the whole window on arrival read as the pane opening full
+      // screen by default. The editor falls back to its compact layout in a
+      // narrow pane, and Maximise beside "+" is the person's call to make.
+      openPaneTab(workspaceId, { kind: kind as WorkspacePaneTabKind })
     },
-    [kinds, openModalSurface, openPaneTab, setMaximised, tabs, workspaceId],
+    [kinds, openModalSurface, openPaneTab, workspaceId],
   )
 
   const items: TabItem[] = tabs.map((tab) => {
@@ -249,17 +242,31 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
               {maximised ? <RestoreGlyph className="icon-sm" /> : <MaximiseGlyph className="icon-sm" />}
             </IconButton>
           </Tooltip>
-          <Tooltip content="Close pane" placement="bottom">
-            <IconButton onClick={closePane} aria-label="Close pane">
-              <ClosePaneGlyph className="icon-sm" />
-            </IconButton>
-          </Tooltip>
+          {/* Maximised, this strip sits directly under the WorkspaceHeader,
+              whose pane switch draws the same glyph and does the same thing
+              one row up; two of them stacked in one corner read as a
+              duplicated control. Docked, the two are a column apart and both
+              stay. */}
+          {maximised ? null : (
+            <Tooltip content="Close pane" placement="bottom">
+              <IconButton onClick={closePane} aria-label="Close pane">
+                <ClosePaneGlyph className="icon-sm" />
+              </IconButton>
+            </Tooltip>
+          )}
         </div>
-        {/* The pane is the window's rightmost column whenever it is open (and
-            the whole row when maximised), so on win/linux the floating caption
-            buttons sit over THIS strip's corner: leave them their width, or
-            Close-pane hides under Close-window. */}
-        <WindowCaptionReserve width={windowCaptionReserve(window.api.platform === 'darwin')} />
+        {/* Docked, the pane is the window's rightmost column, so on win/linux
+            the floating caption buttons sit over THIS strip's corner: leave
+            them their width, or Close-pane hides under Close-window. Maximised,
+            the strip starts below the WorkspaceHeader and the header takes the
+            corner and the reserve (paneStripOwnsCaptionCorner). */}
+        <WindowCaptionReserve
+          width={
+            paneStripOwnsCaptionCorner({ open: true, maximised })
+              ? windowCaptionReserve(window.api.platform === 'darwin')
+              : 0
+          }
+        />
       </div>
       {/* The pane's body is its own card: the 36px strip above it belongs to
           the window's frosted band, not to this column, so the body starts at

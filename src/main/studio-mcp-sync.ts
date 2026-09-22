@@ -1,4 +1,8 @@
-import { RETIRED_SPRINTENGINE_MCP_SERVER_ID, type McpConfigService } from './mcp-config-service'
+import {
+  removeManagedStudioGatewayFromClaudeWorkspace,
+  RETIRED_SPRINTENGINE_MCP_SERVER_ID,
+  type McpConfigService,
+} from './mcp-config-service'
 import type { McpServerConfig, McpSyncInput } from '../shared/electron-api'
 import type { TerminalPathStyle } from '../shared/electron-api'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
@@ -17,9 +21,15 @@ export type StudioMcpSyncResult = { ok: true } | { ok: false; message: string }
  * user-global CLI config. The first pass (only when the user has servers to
  * write) carries their settings; the second pins the gateway to the workspace
  * and forgets the retired Sprint Engine server.
+ *
+ * `studioGatewayDeliveredAtLaunch` says the launch hands the CLI the app's own
+ * plugin directory, whose `.mcp.json` already carries the gateway for that one
+ * session. Then nothing of the app's is pinned into the workspace: the person's
+ * own synced servers are still written (that is their configuration, not ours),
+ * and a gateway entry an earlier launch pinned is taken back out.
  */
 export async function syncStudioMcpConfig(
-  input: McpSyncInput & { executionPathStyle?: TerminalPathStyle },
+  input: McpSyncInput & { executionPathStyle?: TerminalPathStyle; studioGatewayDeliveredAtLaunch?: boolean },
   deps: {
     mcpConfigService: Pick<McpConfigService, 'sync'>
     studioGateway?: () => {
@@ -29,11 +39,23 @@ export async function syncStudioMcpConfig(
     }
   },
 ): Promise<StudioMcpSyncResult> {
-  let syncInputs = [input]
+  const { studioGatewayDeliveredAtLaunch, ...syncInput } = input
+  if (studioGatewayDeliveredAtLaunch) {
+    if (syncInput.settings.syncEnabled && Object.keys(syncInput.settings.servers).length > 0) {
+      const result = deps.mcpConfigService.sync(syncInput)
+      if (!result.ok) return { ok: false, message: result.message }
+    }
+    // Best-effort by construction (it never throws): a stale entry that could
+    // not be removed costs a duplicate server, never the launch.
+    removeManagedStudioGatewayFromClaudeWorkspace(syncInput.workspaceRoot)
+    return { ok: true }
+  }
+
+  let syncInputs = [syncInput]
 
   const studioGateway = deps.studioGateway?.()
   if (studioGateway) {
-    const clients = input.clients ?? []
+    const clients = syncInput.clients ?? []
     const cliId = clients.length === 1 ? clients[0] : undefined
     const studioServer: McpServerConfig = {
       id: STUDIO_MCP_SERVER_ID,
@@ -41,7 +63,7 @@ export async function syncStudioMcpConfig(
       description: 'Always-on local control surface for SprintEngine Studio.',
       transport: 'stdio',
       command:
-        input.executionPathStyle === 'wsl' ? toWslInteropExecutable(studioGateway.command) : studioGateway.command,
+        syncInput.executionPathStyle === 'wsl' ? toWslInteropExecutable(studioGateway.command) : studioGateway.command,
       args: [studioGateway.bridgeScriptPath],
       env: {
         ELECTRON_RUN_AS_NODE: '1',
@@ -57,14 +79,14 @@ export async function syncStudioMcpConfig(
       capabilities: ['studio'],
     }
     syncInputs = [
-      ...(input.settings.syncEnabled && Object.keys(input.settings.servers).length > 0 ? [input] : []),
+      ...(syncInput.settings.syncEnabled && Object.keys(syncInput.settings.servers).length > 0 ? [syncInput] : []),
       {
-        ...input,
+        ...syncInput,
         pruneUnlistedServers: false,
         // The deleted Sprint Engine's per-run server: forgotten on every pass
         // that pins the gateway, so a workspace that once ran a sprint stops
         // listing a server nothing answers.
-        forgetServerIds: [...(input.forgetServerIds ?? []), RETIRED_SPRINTENGINE_MCP_SERVER_ID],
+        forgetServerIds: [...(syncInput.forgetServerIds ?? []), RETIRED_SPRINTENGINE_MCP_SERVER_ID],
         settings: {
           syncEnabled: true,
           servers: { [studioServer.id]: studioServer },
@@ -73,8 +95,8 @@ export async function syncStudioMcpConfig(
     ]
   }
 
-  for (const syncInput of syncInputs) {
-    const result = deps.mcpConfigService.sync(syncInput)
+  for (const pass of syncInputs) {
+    const result = deps.mcpConfigService.sync(pass)
     if (!result.ok) return { ok: false, message: result.message }
   }
   return { ok: true }

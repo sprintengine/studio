@@ -10,6 +10,10 @@
   "providerType": "agent-harness",
   "models": [
     {
+      "id": "claude-opus-5-5",
+      "displayName": "Opus 5.5"
+    },
+    {
       "id": "claude-opus-5",
       "displayName": "Opus 5"
     },

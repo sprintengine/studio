@@ -176,9 +176,11 @@ export type AutomationBackends = {
    * `ensureBuiltinSkillInstalled` seam in app-services). Returns whether the
    * skill is now installed. A false result is non-fatal for backlog.work — the
    * response records `skillEnsured: false` and the composed prompt still states
-   * the lifecycle contract.
+   * the lifecycle contract. `cli` is the agent the handoff names, when it names
+   * one: a CLI whose launch carries the skill in the app's own plugin directory
+   * needs no copy in the workspace, and gets none.
    */
-  ensureBuiltinSkillInstalled(workspaceRoot: string, skillId: string): Promise<boolean>
+  ensureBuiltinSkillInstalled(workspaceRoot: string, skillId: string, cli?: string): Promise<boolean>
   /**
    * The module registry as the renderer resolves it, mirrored into
    * main. Null until a window has pushed one — the module tools report that
@@ -1817,7 +1819,7 @@ export function createAutomationTools(backends: AutomationBackends): McpToolRegi
       // Install the Backlog skill into the CLI's native dir before launch so the
       // invocation resolves. Non-fatal: a false result rides `skillEnsured` and
       // the prompt still states the lifecycle contract.
-      const skillEnsured = await backends.ensureBuiltinSkillInstalled(resolved.root, BACKLOG_SKILL_ID)
+      const skillEnsured = await backends.ensureBuiltinSkillInstalled(resolved.root, BACKLOG_SKILL_ID, cli)
 
       const launched = await launchConfiguredAgent({
         workspaceId,

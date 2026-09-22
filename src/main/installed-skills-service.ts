@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto'
 import { lstat, readFile, readdir, realpath, stat } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname, isAbsolute, join, resolve } from 'node:path'
+import path, { basename, dirname, isAbsolute, join, resolve } from 'node:path'
 import type { PluginRegistryListEntry } from '../shared/plugin-manifest'
 import type {
   InstalledSkill,
@@ -13,36 +13,153 @@ import type {
 import { parseSkillFrontmatter } from '../shared/skills'
 import { skillsDirFromTemplate } from '../shared/harness-map'
 import { parseCodexConfigTables } from './mcp-config-readers/codex'
+import { resolveClaudeConfigDir } from './conversation-peek/locate'
 
 type Root = { path: string; scope: InstalledSkill['scope']; origin: string; managed?: boolean }
+/** `path.win32` or `path.posix`: the helpers below take either, so tests can speak Windows. */
+type PathApi = typeof path.win32
+/**
+ * Where a CLI running inside WSL keeps its files, as this (Windows) process
+ * can reach them: the Linux home and the distribution root as UNC paths, and
+ * the config-home variables already converted the same way.
+ */
+export type WslHome = { home: string; root: string; env: NodeJS.ProcessEnv }
 type Options = {
   listPlugins: () => PluginRegistryListEntry[]
   trashItem: (path: string) => Promise<void>
   homeDir?: string
   env?: NodeJS.ProcessEnv
+  /** Resolves the WSL side for a session that runs its CLI there. Windows only. */
+  probeWsl?: () => Promise<WslHome | null>
 }
 
 const message = (error: unknown): string => (error instanceof Error ? error.message : String(error))
 const missing = (error: unknown): boolean => (error as NodeJS.ErrnoException).code === 'ENOENT'
 
+/**
+ * Whether two paths name the same folder. Windows paths compare without regard
+ * to case or separator: the workspace root, the CLI's own receipts and the home
+ * directory each spell the same folder their own way (`C:\Users\dev` from the
+ * OS, `c:/Users/dev` from a picker), and an exact string compare quietly drops
+ * the match.
+ */
+export function samePath(a: string, b: string, api: PathApi = path): boolean {
+  const left = api.resolve(a)
+  const right = api.resolve(b)
+  return api.sep === '\\' ? left.toLowerCase() === right.toLowerCase() : left === right
+}
+
+/**
+ * A path a CLI running inside WSL wrote (a plugin receipt's install path, a
+ * configured skills folder) as this process can open it: `/mnt/c/...` is the
+ * Windows drive, any other absolute path lives under the distribution root.
+ */
+export function wslToHost(value: string, root: string, api: PathApi = path): string {
+  const drive = /^\/mnt\/([A-Za-z])(?:\/(.*))?$/u.exec(value)
+  if (drive) return api.join(`${drive[1].toUpperCase()}:\\`, drive[2] ?? '')
+  return value.startsWith('/') ? api.join(root, value) : value
+}
+
+/**
+ * The marker-prefixed lines the WSL probe prints, back as a `WslHome`. A login
+ * shell may print its own banner first, which is why every line we want
+ * carries a prefix and anything else is ignored.
+ */
+export function parseWslProbe(stdout: string): WslHome | null {
+  const values: Record<string, string> = {}
+  for (const line of stdout.split(/\r?\n/u)) {
+    const match = /^SPRINTENGINE_WSL_([A-Z_]+)=(.+)$/u.exec(line.trim())
+    if (match) values[match[1]] = match[2].trim()
+  }
+  if (!values.HOME || !values.ROOT) return null
+  const env: NodeJS.ProcessEnv = {}
+  for (const key of ['CLAUDE_CONFIG_DIR', 'CODEX_HOME', 'XDG_CONFIG_HOME']) if (values[key]) env[key] = values[key]
+  return { home: values.HOME, root: values.ROOT, env }
+}
+
+/**
+ * Printed by a login shell in the default distribution, the one `wsl.exe`
+ * launches agents into. `wslpath -w` turns each Linux path into the UNC path
+ * Windows opens it by. Only the first entry of a comma-separated
+ * `CLAUDE_CONFIG_DIR` counts, as for every other Claude reader here.
+ */
+export const WSL_PROBE_SCRIPT = [
+  `p() { [ -n "$2" ] && printf 'SPRINTENGINE_WSL_%s=%s\\n' "$1" "$(wslpath -w "$2")"; }`,
+  'p HOME "$HOME"',
+  'p ROOT /',
+  'p CLAUDE_CONFIG_DIR "${CLAUDE_CONFIG_DIR%%,*}"',
+  'p CODEX_HOME "$CODEX_HOME"',
+  'p XDG_CONFIG_HOME "$XDG_CONFIG_HOME"',
+  'true',
+].join('; ')
+
+type ReceiptRoot = { path: string; scope: InstalledSkill['scope']; origin: string }
+
+/**
+ * The skill folders a Claude plugin receipt (`plugins/installed_plugins.json`)
+ * vouches for. Receipts are authoritative; a cache directory by itself is not
+ * evidence of an installed plugin. Two shapes exist: the current one keeps a
+ * list of installations per plugin, the older one a single object with no
+ * scope, which was always a user install. A project installation counts when
+ * its folder is the project being listed or one of its checkout ancestors,
+ * compared as paths rather than strings.
+ */
+export function claudeReceiptRoots(
+  data: unknown,
+  projectFolders: readonly string[],
+  options: { api?: PathApi; hostPath?: (value: string) => string } = {},
+): ReceiptRoot[] {
+  const api = options.api ?? path
+  const hostPath = options.hostPath ?? ((value: string) => value)
+  const plugins = (data as { plugins?: unknown } | null)?.plugins
+  if (!plugins || typeof plugins !== 'object') return []
+  const roots: ReceiptRoot[] = []
+  for (const [name, entry] of Object.entries(plugins as Record<string, unknown>)) {
+    const installs: unknown[] = Array.isArray(entry) ? entry : entry && typeof entry === 'object' ? [entry] : []
+    for (const candidate of installs) {
+      const install = candidate as Record<string, unknown> | null
+      if (!install || typeof install.installPath !== 'string') continue
+      const scope = install.scope === undefined || install.scope === 'user' ? 'global' : 'project'
+      if (scope === 'project') {
+        const projectPath = typeof install.projectPath === 'string' ? hostPath(install.projectPath) : null
+        if (!projectPath || !projectFolders.some((folder) => samePath(folder, projectPath, api))) continue
+      }
+      roots.push({ path: api.join(hostPath(install.installPath), 'skills'), scope, origin: `Plugin: ${name}` })
+    }
+  }
+  return roots
+}
+
 /** Discovery is independent of the catalogue and never installs anything. */
 export function createInstalledSkillsService(options: Options) {
-  const home = options.homeDir ?? homedir()
-  const env = options.env ?? process.env
+  const hostHome = options.homeDir ?? homedir()
+  const hostEnv = options.env ?? process.env
   // A removal must refer to the exact entry we showed, including its inode.
   // Re-scanning alone would authorize a replacement created after the dialog.
   const observed = new Map<string, { path: string; fingerprint: string; context: string }>()
-  const contextKey = (input: InstalledSkillsInput) => JSON.stringify([input.workspaceRoot, input.pluginId])
+  const contextKey = (input: InstalledSkillsInput) =>
+    JSON.stringify([input.workspaceRoot, input.pluginId, input.pathStyle === 'wsl'])
 
   async function rootsFor(input: InstalledSkillsInput, diagnostics: string[]): Promise<Root[]> {
     const plugin = options.listPlugins().find((entry) => entry.id === input.pluginId)
     const integration = plugin?.skillIntegration
     if (!integration || integration.support === 'unsupported')
       throw new Error('This CLI does not declare skill support.')
+    // A CLI that runs inside WSL reads its user folders from the Linux home,
+    // not from the Windows profile this process sees. The project folder is
+    // the same files either way: the launch `cd`s into it through /mnt.
+    let wsl: WslHome | null = null
+    if (input.pathStyle === 'wsl') {
+      wsl = options.probeWsl ? await options.probeWsl().catch(() => null) : null
+      if (!wsl) diagnostics.push('Could not read the WSL home folder, so skills installed inside WSL are not listed.')
+    }
+    const home = wsl?.home ?? hostHome
+    const env = wsl?.env ?? hostEnv
+    const hostPath = (value: string) => (wsl ? wslToHost(value, wsl.root) : value)
     const roots: Root[] = []
     const add = (path: string, scope: Root['scope'], origin = plugin.displayName, managed = false) => {
       const absolute = resolve(path)
-      if (!roots.some((root) => root.path === absolute)) roots.push({ path: absolute, scope, origin, managed })
+      if (!roots.some((root) => samePath(root.path, absolute))) roots.push({ path: absolute, scope, origin, managed })
     }
     const harness = integration.harnessId
     const nativeDir = integration.installTargets
@@ -64,7 +181,7 @@ export function createInstalledSkillsService(options: Options) {
           if (!missing(error)) break
         }
         const parent = dirname(folder)
-        if (parent === folder || parent === home) break
+        if (parent === folder || samePath(parent, home)) break
         ancestors.push(parent)
         folder = parent
       }
@@ -76,7 +193,7 @@ export function createInstalledSkillsService(options: Options) {
       harness === 'codex'
         ? env.CODEX_HOME || join(home, '.codex')
         : harness === 'claude'
-          ? env.CLAUDE_CONFIG_DIR || join(home, '.claude')
+          ? resolveClaudeConfigDir(home, env)
           : harness === 'opencode'
             ? join(env.XDG_CONFIG_HOME || join(home, '.config'), 'opencode')
             : join(home, `.${harness}`)
@@ -87,7 +204,7 @@ export function createInstalledSkillsService(options: Options) {
     }
     if (harness === 'opencode' || harness === 'grok') {
       for (const folder of projectFolders) add(join(folder, '.claude/skills'), 'project', 'Shared with Claude Code')
-      add(join(env.CLAUDE_CONFIG_DIR || join(home, '.claude'), 'skills'), 'global', 'Shared with Claude Code')
+      add(join(resolveClaudeConfigDir(home, env), 'skills'), 'global', 'Shared with Claude Code')
     }
     if (harness === 'grok' || harness === 'gemini') {
       const directory = harness === 'grok' ? 'plugins' : 'extensions'
@@ -111,7 +228,8 @@ export function createInstalledSkillsService(options: Options) {
         const paths = parseCodexConfigTables(config, 'skills')['']?.paths
         if (Array.isArray(paths))
           for (const path of paths) {
-            if (typeof path === 'string' && isAbsolute(path)) add(path, 'global', 'Configured skills folder')
+            if (typeof path === 'string' && (isAbsolute(path) || (wsl && path.startsWith('/'))))
+              add(hostPath(path), 'global', 'Configured skills folder')
           }
       } catch (error) {
         if (!missing(error)) diagnostics.push(`${cliHome}/config.toml: ${message(error)}`)
@@ -119,7 +237,7 @@ export function createInstalledSkillsService(options: Options) {
     }
     if (harness === 'codex') {
       add(join(cliHome, 'skills/.system'), 'global', 'Built into Codex', true)
-      add('/etc/codex/skills', 'global', 'Managed by administrator', true)
+      add(hostPath('/etc/codex/skills'), 'global', 'Managed by administrator', true)
       // Only configured plugins contribute cache roots. Never advertise every
       // downloaded catalogue plugin as an installed skill.
       for (const config of [
@@ -165,20 +283,11 @@ export function createInstalledSkillsService(options: Options) {
         }
       }
     }
-    // Plugin installation receipts are authoritative. A cache directory by
-    // itself is not evidence of an installed plugin.
     const receipt = join(cliHome, 'plugins/installed_plugins.json')
     try {
-      const data = JSON.parse(await readFile(receipt, 'utf8')) as { plugins?: Record<string, unknown> }
-      for (const [name, installs] of Object.entries(data.plugins ?? {})) {
-        if (!Array.isArray(installs)) continue
-        for (const install of installs) {
-          if (!install || typeof install.installPath !== 'string') continue
-          const scope = install.scope === 'user' ? 'global' : 'project'
-          if (scope === 'project' && (!input.workspaceRoot || install.projectPath !== input.workspaceRoot)) continue
-          add(join(install.installPath, 'skills'), scope, `Plugin: ${name}`, true)
-        }
-      }
+      const data: unknown = JSON.parse(await readFile(receipt, 'utf8'))
+      for (const root of claudeReceiptRoots(data, projectFolders, { hostPath }))
+        add(root.path, root.scope, root.origin, true)
     } catch (error) {
       if (!missing(error)) diagnostics.push(`Cannot read plugin installations: ${message(error)}`)
     }

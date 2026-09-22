@@ -1,44 +1,128 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import type { InstalledSkill, InstalledSkillsResult } from '../../../../shared/installed-skills'
+import React, { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import type { InstalledSkill, InstalledSkillsInput, InstalledSkillsResult } from '../../../../shared/installed-skills'
 import type { TerminalSessionSnapshot } from '../../../../shared/electron-api'
 import type { PaletteAgentTarget } from './paletteOpenRequest'
 import { useWorkspaceStore } from '../../store/workspaceStore'
 import { useTerminalSessions } from '../../hooks/useTerminalSessions'
 import { bracketedPaste } from '../../utils/terminalDrop'
 import { GhostButton, OutlineButton } from '../ui/Buttons'
-import { Input } from '../ui/Input'
 import { RowButton } from '../ui/RowButton'
-import { Select } from '../ui/Select'
 import { AgentWorkingDots } from '../ui/AgentWorkingDots'
 
+/** The listbox the palette's field controls while the Skills tab is showing. */
+export const INSTALLED_SKILLS_RESULTS_ID = 'installed-skills-results'
+/** Rows a scope shows before its "Show more" row, and how many each press adds. */
+export const INSTALLED_SKILLS_PAGE = 10
+
+const SCOPES = ['project', 'global'] as const
+type Scope = (typeof SCOPES)[number]
+type Entry =
+  { kind: 'skill'; id: string; skill: InstalledSkill } | { kind: 'more'; id: string; scope: Scope; remaining: number }
+
+/**
+ * The palette owns the one field; the panel owns the list under it. The
+ * field's keydown is offered here first, and a key the panel did not use
+ * (Backspace at an empty query, Escape) goes on to the palette's own handling.
+ */
+export type InstalledSkillsPanelHandle = { handleKey: (event: React.KeyboardEvent) => boolean }
+
 type Props = {
+  query: string
+  fieldRef: React.RefObject<HTMLInputElement | null>
   workspaceRoot: string | null
   workspaceId: string | null
   preferredTarget: PaletteAgentTarget | null
   onBrowse: () => void
-  onBack?: () => void
   onUsed: (session: TerminalSessionSnapshot) => void
+  /** The active row's id, for the field's `aria-activedescendant`. */
+  onActiveOptionChange?: (id: string | undefined) => void
 }
 
-export function InstalledSkillsPanel({ workspaceRoot, workspaceId, preferredTarget, onBrowse, onBack, onUsed }: Props) {
+type CliChoice = { pluginId: string; session?: TerminalSessionSnapshot }
+
+/**
+ * Whose skills to list, without asking. The agent the palette was opened for
+ * or the focused agent answers it outright, even when its CLI reads no skills
+ * (the list then says so). With neither, the agent most recently spoken to
+ * whose CLI does read skills — this workspace's first — then the only such CLI
+ * installed on this machine, then the one last chosen for a new chat.
+ */
+export function pickSkillsCli(input: {
+  focused: TerminalSessionSnapshot | undefined
+  preferredCli: string | undefined
+  sessions: readonly TerminalSessionSnapshot[]
+  workspaceId: string | null
+  supported: readonly string[]
+  installed: (pluginId: string) => boolean
+  lastSelectedCli: string | undefined
+}): CliChoice {
+  if (input.preferredCli) return { pluginId: input.preferredCli, session: input.focused }
+  if (input.focused?.cli) return { pluginId: input.focused.cli, session: input.focused }
+  const recency = (session: TerminalSessionSnapshot) => session.lastInputAt ?? session.startedAt
+  const recent = input.sessions
+    .filter((session) => session.kind === 'agent' && session.cli && input.supported.includes(session.cli))
+    .sort(
+      (a, b) =>
+        Number(b.workspaceId === input.workspaceId) - Number(a.workspaceId === input.workspaceId) ||
+        recency(b) - recency(a),
+    )[0]
+  if (recent?.cli) return { pluginId: recent.cli }
+  const installed = input.supported.filter(input.installed)
+  if (installed.length === 1) return { pluginId: installed[0] }
+  if (input.lastSelectedCli && installed.includes(input.lastSelectedCli)) return { pluginId: input.lastSelectedCli }
+  return { pluginId: '' }
+}
+
+export const InstalledSkillsPanel = forwardRef<InstalledSkillsPanelHandle, Props>(function InstalledSkillsPanel(
+  { query, fieldRef, workspaceRoot, workspaceId, preferredTarget, onBrowse, onUsed, onActiveOptionChange },
+  ref,
+) {
   const clis = useWorkspaceStore((state) => state.pluginCatalogEntries)
+  const cliAvailability = useWorkspaceStore((state) => state.cliAvailability)
+  const cliRuntimes = useWorkspaceStore((state) => state.appSettings.cliRuntimes)
+  const lastSelectedCli = useWorkspaceStore((state) => state.appSettings.lastSelectedCli)
   const focusedAgentId = useWorkspaceStore((state) =>
     workspaceId ? state.focusedAgentByWorkspaceId[workspaceId] : undefined,
   )
   const sessions = useTerminalSessions()
-  const [chosenCli, setChosenCli] = useState<string | null>(null)
   const focused = preferredTarget
     ? sessions.find((session) => session.sessionId === preferredTarget.sessionId)
     : sessions.find(
         (session) =>
           session.workspaceId === workspaceId && session.agentId === focusedAgentId && session.kind === 'agent',
       )
-  const pluginId = chosenCli ?? preferredTarget?.cli ?? focused?.cli ?? ''
-  const root =
-    focused && focused.cli === pluginId ? focused.worktreePath || focused.cwd || workspaceRoot : workspaceRoot
-  const contextKey = JSON.stringify([root, pluginId])
-  const [query, setQuery] = useState('')
+  const supported = useMemo(
+    () =>
+      clis.filter((cli) => cli.skillIntegration && cli.skillIntegration.support !== 'unsupported').map((cli) => cli.id),
+    [clis],
+  )
+  const choice = pickSkillsCli({
+    focused,
+    preferredCli: preferredTarget?.cli,
+    sessions,
+    workspaceId,
+    supported,
+    installed: (id) => cliAvailability?.[id]?.installed === true,
+    lastSelectedCli,
+  })
+  const pluginId = choice.pluginId
+  const cliName = clis.find((cli) => cli.id === pluginId)?.displayName ?? pluginId
+  const session = choice.session && choice.session.cli === pluginId ? choice.session : undefined
+  const root = session ? session.worktreePath || session.cwd || workspaceRoot : workspaceRoot
+  // A CLI run inside WSL keeps its user skills in the Linux home, which main
+  // reads only when told. The session says where it runs; without one, the
+  // CLI's runtime setting does.
+  const wsl = session
+    ? session.pathStyle === 'wsl'
+    : window.api.platform === 'win32' && cliRuntimes?.[pluginId]?.useWsl === true
+  const contextKey = JSON.stringify([root, pluginId, wsl])
+  const request = (): InstalledSkillsInput => ({ workspaceRoot: root, pluginId, ...(wsl ? { pathStyle: 'wsl' } : {}) })
+
   const [selected, setSelected] = useState(0)
+  const [limits, setLimits] = useState<Record<Scope, number>>({
+    project: INSTALLED_SKILLS_PAGE,
+    global: INSTALLED_SKILLS_PAGE,
+  })
   const [detail, setDetail] = useState<InstalledSkill | null>(null)
   const [confirmRemove, setConfirmRemove] = useState(false)
   const [loaded, setLoaded] = useState<{ context: string; result: InstalledSkillsResult } | null>(null)
@@ -46,7 +130,6 @@ export function InstalledSkillsPanel({ workspaceRoot, workspaceId, preferredTarg
   const [busy, setBusy] = useState(false)
   const busyRef = useRef(false)
   const [error, setError] = useState<string | null>(null)
-  const inputRef = useRef<HTMLInputElement>(null)
   const selectedRef = useRef<HTMLButtonElement>(null)
   const detailRef = useRef<HTMLDivElement>(null)
   const currentContextRef = useRef(contextKey)
@@ -60,17 +143,26 @@ export function InstalledSkillsPanel({ workspaceRoot, workspaceId, preferredTarg
   currentContextRef.current = contextKey
   const result = loaded?.context === contextKey ? loaded.result : null
 
+  // A new query is a new list: back to the first row, every scope folded back
+  // to its first page.
   useEffect(() => {
-    inputRef.current?.focus()
+    setSelected(0)
+    setLimits({ project: INSTALLED_SKILLS_PAGE, global: INSTALLED_SKILLS_PAGE })
+    setDetail(null)
+    setConfirmRemove(false)
+  }, [query])
+
+  useEffect(() => {
     setDetail(null)
     setConfirmRemove(false)
     setError(null)
     setSelected(0)
+    setLimits({ project: INSTALLED_SKILLS_PAGE, global: INSTALLED_SKILLS_PAGE })
     if (!pluginId) return
     let cancelled = false
     setLoaded(null)
     void window.api
-      .installedSkillsList({ workspaceRoot: root, pluginId })
+      .installedSkillsList(request())
       .then((next) => {
         if (!cancelled) setLoaded({ context: contextKey, result: next })
       })
@@ -87,7 +179,9 @@ export function InstalledSkillsPanel({ workspaceRoot, workspaceId, preferredTarg
     return () => {
       cancelled = true
     }
-  }, [root, pluginId, contextKey, refresh])
+    // `request` reads exactly the values `contextKey` encodes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [contextKey, refresh])
 
   const skills = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -99,20 +193,72 @@ export function InstalledSkillsPanel({ workspaceRoot, workspaceId, preferredTarg
           .sort((a, b) => Number(a.scope === 'global') - Number(b.scope === 'global') || a.name.localeCompare(b.name))
       : []
   }, [result, query])
-  const selectedSkill = skills[Math.min(selected, Math.max(0, skills.length - 1))]
+  // Project first, then Global; each scope shows a page and, when it holds
+  // more, a "Show more" row that is an option like any other so the keyboard
+  // reaches it.
+  const groups = useMemo(
+    () =>
+      SCOPES.map((scope) => {
+        const rows = skills.filter((skill) => skill.scope === scope)
+        const entries: Entry[] = rows
+          .slice(0, limits[scope])
+          .map((skill) => ({ kind: 'skill', id: `installed-skill-${skill.id}`, skill }))
+        if (rows.length > limits[scope])
+          entries.push({
+            kind: 'more',
+            id: `installed-skills-more-${scope}`,
+            scope,
+            remaining: rows.length - limits[scope],
+          })
+        return { scope, total: rows.length, entries }
+      }),
+    [skills, limits],
+  )
+  const entries = useMemo(() => groups.flatMap((group) => group.entries), [groups])
+  const activeIndex = Math.min(selected, Math.max(0, entries.length - 1))
+  const active = entries[activeIndex]
+  const activeId = !detail && result?.ok ? active?.id : undefined
+
+  useEffect(() => {
+    onActiveOptionChange?.(activeId)
+  }, [activeId, onActiveOptionChange])
+  useEffect(() => () => onActiveOptionChange?.(undefined), [onActiveOptionChange])
   useEffect(() => {
     selectedRef.current?.scrollIntoView({ block: 'nearest' })
-  }, [selected, query])
+  }, [activeIndex, query])
   useEffect(() => {
     if (detail) detailRef.current?.focus()
-    else inputRef.current?.focus()
-  }, [detail])
+    else fieldRef.current?.focus()
+  }, [detail, fieldRef])
+
+  const showMore = (scope: Scope) =>
+    setLimits((current) => ({ ...current, [scope]: current[scope] + INSTALLED_SKILLS_PAGE }))
+  // The cursor stays at its index, which after "Show more" is the first row
+  // the press revealed.
+  const activate = (entry: Entry) => (entry.kind === 'skill' ? setDetail(entry.skill) : showMore(entry.scope))
+
+  useImperativeHandle(ref, () => ({
+    handleKey: (event) => {
+      if (detail) return false
+      if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
+        event.preventDefault()
+        setSelected(Math.max(0, Math.min(entries.length - 1, activeIndex + (event.key === 'ArrowDown' ? 1 : -1))))
+        return true
+      }
+      if (event.key === 'Enter' && active) {
+        event.preventDefault()
+        activate(active)
+        return true
+      }
+      return false
+    },
+  }))
 
   const back = () => {
     setDetail(null)
     setConfirmRemove(false)
     setError(null)
-    inputRef.current?.focus()
+    fieldRef.current?.focus()
   }
   const run = async (action: () => Promise<void>) => {
     if (busyRef.current) return
@@ -133,20 +279,20 @@ export function InstalledSkillsPanel({ workspaceRoot, workspaceId, preferredTarg
     run(async () => {
       // Recheck both the installation and the target immediately before paste.
       // Never attach: that would copy a global skill into every project harness.
-      const inventory = await window.api.installedSkillsList({ workspaceRoot: root, pluginId })
+      const inventory = await window.api.installedSkillsList(request())
       if (!inventory.ok) throw new Error(inventory.message)
       if (!inventory.skills.some((entry) => entry.id === skill.id))
         throw new Error('This installation changed. Refresh and choose it again.')
       const live = (await window.api.terminalList()).filter(
-        (session) =>
-          session.kind === 'agent' &&
-          session.processAlive &&
-          session.workspaceId === workspaceId &&
-          session.cli === pluginId,
+        (candidate) =>
+          candidate.kind === 'agent' &&
+          candidate.processAlive &&
+          candidate.workspaceId === workspaceId &&
+          candidate.cli === pluginId,
       )
       const target = preferredTarget
-        ? live.find((session) => session.sessionId === preferredTarget.sessionId)
-        : (live.find((session) => session.agentId === focusedAgentId) ?? (live.length === 1 ? live[0] : undefined))
+        ? live.find((candidate) => candidate.sessionId === preferredTarget.sessionId)
+        : (live.find((candidate) => candidate.agentId === focusedAgentId) ?? (live.length === 1 ? live[0] : undefined))
       if (!target) throw new Error('Focus a running agent using this CLI, then choose the skill again.')
       if (!mountedRef.current || currentContextRef.current !== contextKey) return
       // The path identifies the selected copy even when names collide across
@@ -159,7 +305,7 @@ export function InstalledSkillsPanel({ workspaceRoot, workspaceId, preferredTarg
     })
   const removeSkill = (skill: InstalledSkill) =>
     run(async () => {
-      const removed = await window.api.installedSkillRemove({ workspaceRoot: root, pluginId, installationId: skill.id })
+      const removed = await window.api.installedSkillRemove({ ...request(), installationId: skill.id })
       if (!removed.ok) throw new Error(removed.message)
       if (!mountedRef.current || currentContextRef.current !== contextKey) return
       back()
@@ -180,61 +326,6 @@ export function InstalledSkillsPanel({ workspaceRoot, workspaceId, preferredTarg
         }
       }}
     >
-      <div className="flex items-center gap-2 px-4 py-2">
-        <Select
-          ariaLabel="Skills for agent CLI"
-          placeholder="Choose an agent CLI"
-          value={pluginId || null}
-          items={clis
-            .filter((cli) => cli.skillIntegration && cli.skillIntegration.support !== 'unsupported')
-            .map((cli) => ({ value: cli.id, label: cli.displayName }))}
-          onChange={(value) => {
-            setChosenCli(value)
-            setDetail(null)
-          }}
-          disabled={busy}
-        />
-        <GhostButton size="xs" disabled={busy || !pluginId} onClick={() => setRefresh((value) => value + 1)}>
-          Refresh
-        </GhostButton>
-        <GhostButton size="xs" onClick={onBrowse}>
-          Browse skills
-        </GhostButton>
-      </div>
-      {!detail && (
-        <div className="px-4 pb-2">
-          <Input
-            ref={inputRef}
-            aria-label="Filter installed skills"
-            placeholder="Filter installed skills…"
-            value={query}
-            role="combobox"
-            aria-expanded={skills.length > 0}
-            aria-controls="installed-skills-results"
-            aria-activedescendant={selectedSkill ? `installed-skill-${selectedSkill.id}` : undefined}
-            onChange={(event) => {
-              setQuery(event.target.value)
-              setSelected(0)
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'ArrowDown' || event.key === 'ArrowUp') {
-                event.preventDefault()
-                setSelected((value) =>
-                  Math.max(0, Math.min(skills.length - 1, value + (event.key === 'ArrowDown' ? 1 : -1))),
-                )
-              }
-              if (event.key === 'Enter' && selectedSkill) {
-                event.preventDefault()
-                setDetail(selectedSkill)
-              }
-              if (event.key === 'Backspace' && !query && onBack) {
-                event.preventDefault()
-                onBack()
-              }
-            }}
-          />
-        </div>
-      )}
       {error && (
         <p role="alert" className="px-4 py-2 text-meta text-[color:var(--tone-error)]">
           {error}
@@ -286,81 +377,104 @@ export function InstalledSkillsPanel({ workspaceRoot, workspaceId, preferredTarg
           )}
         </div>
       ) : (
-        <div
-          id="installed-skills-results"
-          role="listbox"
-          aria-label="Installed skills by scope"
-          className="max-h-[50vh] overflow-y-auto py-1"
-        >
-          {!pluginId ? (
-            <p className="px-4 py-3 text-meta text-[color:var(--text-muted)]">
-              Focus an agent or choose a CLI to see its installed skills.
-            </p>
-          ) : !result ? (
-            <p role="status" className="flex items-center gap-2 px-4 py-3 text-meta">
-              Reading installed skills <AgentWorkingDots label="Reading installed skills" />
-            </p>
-          ) : !result.ok ? (
-            <p role="alert" className="px-4 py-3 text-meta text-[color:var(--tone-error)]">
-              {result.message}
-            </p>
-          ) : (
-            <>
-              {result.diagnostics.map((diagnostic) => (
-                <p key={diagnostic} role="alert" className="px-4 py-2 text-meta text-[color:var(--tone-error)]">
-                  {diagnostic}
-                </p>
-              ))}
-              {(['project', 'global'] as const).map((scope) => {
-                const rows = skills.filter((skill) => skill.scope === scope)
-                return (
+        <>
+          {/* Which CLI's skills these are is a fact about the list, said in
+              the list's quiet ink; it is decided by the agent in focus, not
+              by a control. The two ghost verbs trail it, off the rows. */}
+          <div className="flex items-center gap-2 px-4 pt-2 text-meta text-[color:var(--text-muted)]">
+            <span className="min-w-0 flex-1 truncate">
+              {pluginId ? `${cliName} skills${wsl ? ' in WSL' : ''}` : 'No agent in focus'}
+            </span>
+            <GhostButton size="xs" disabled={busy || !pluginId} onClick={() => setRefresh((value) => value + 1)}>
+              Refresh
+            </GhostButton>
+            <GhostButton size="xs" onClick={onBrowse}>
+              Browse skills
+            </GhostButton>
+          </div>
+          <div
+            id={INSTALLED_SKILLS_RESULTS_ID}
+            role="listbox"
+            aria-label="Installed skills by scope"
+            className="max-h-[360px] overflow-y-auto py-1"
+          >
+            {!pluginId ? (
+              <p className="px-4 py-3 text-meta text-[color:var(--text-muted)]">
+                Focus an agent to see the skills its CLI has installed.
+              </p>
+            ) : !result ? (
+              <p role="status" className="flex items-center gap-2 px-4 py-3 text-meta text-[color:var(--text-muted)]">
+                Reading installed skills <AgentWorkingDots label="Reading installed skills" />
+              </p>
+            ) : !result.ok ? (
+              <p role="alert" className="px-4 py-3 text-meta text-[color:var(--tone-error)]">
+                {result.message}
+              </p>
+            ) : (
+              <>
+                {result.diagnostics.map((diagnostic) => (
+                  <p key={diagnostic} role="alert" className="px-4 py-2 text-meta text-[color:var(--tone-error)]">
+                    {diagnostic}
+                  </p>
+                ))}
+                {groups.map(({ scope, total, entries: rows }) => (
                   <div key={scope} role="group" aria-label={scope === 'project' ? 'Project skills' : 'Global skills'}>
-                    <p className="px-4 py-2 text-meta text-[color:var(--text-muted)]">
+                    <div aria-hidden="true" className="px-4 pb-1 pt-2 text-meta text-[color:var(--text-muted)]">
                       {scope === 'project' ? 'Project' : 'Global'}
-                    </p>
-                    {rows.length === 0 && (
+                    </div>
+                    {total === 0 && (
                       <p className="px-4 py-2 text-meta text-[color:var(--text-muted)]">
-                        {query
+                        {query.trim()
                           ? 'No matching skills.'
                           : scope === 'project' && !root
                             ? 'Open a project to see its skills.'
                             : 'No skills installed here.'}
                       </p>
                     )}
-                    {rows.map((skill) => (
-                      <RowButton
-                        key={skill.id}
-                        ref={skill.id === selectedSkill?.id ? selectedRef : undefined}
-                        id={`installed-skill-${skill.id}`}
-                        role="option"
-                        aria-selected={skill.id === selectedSkill?.id}
-                        density="bleed"
-                        selected={skill.id === selectedSkill?.id}
-                        tabIndex={-1}
-                        onMouseEnter={() => setSelected(skills.indexOf(skill))}
-                        onClick={() => setDetail(skill)}
-                      >
-                        <span className="block min-w-0 px-2">
-                          <span className="block truncate text-heading">{skill.name}</span>
-                          <span className="block truncate text-micro text-[color:var(--text-muted)]">
-                            {skill.description || skill.origin}
-                          </span>
-                          <span className="block truncate text-micro text-[color:var(--text-disabled)]">
-                            {skill.path}
-                          </span>
-                        </span>
-                      </RowButton>
-                    ))}
+                    {rows.map((entry) => {
+                      const isActive = entry.id === active?.id
+                      return (
+                        <RowButton
+                          key={entry.id}
+                          ref={isActive ? selectedRef : undefined}
+                          id={entry.id}
+                          role="option"
+                          aria-selected={isActive}
+                          density="bleed"
+                          selected={isActive}
+                          tabIndex={-1}
+                          onMouseEnter={() => setSelected(entries.indexOf(entry))}
+                          onClick={() => activate(entry)}
+                        >
+                          {entry.kind === 'skill' ? (
+                            <span className="block min-w-0 px-2">
+                              <span className="block truncate text-heading">{entry.skill.name}</span>
+                              <span className="block truncate text-micro text-[color:var(--text-muted)]">
+                                {entry.skill.description || entry.skill.origin}
+                              </span>
+                              <span className="block truncate text-micro text-[color:var(--text-disabled)]">
+                                {entry.skill.path}
+                              </span>
+                            </span>
+                          ) : (
+                            <span className="block min-w-0 px-2 text-meta text-[color:var(--text-muted)]">
+                              Show more
+                              <span className="text-[color:var(--text-disabled)]"> · {entry.remaining} more</span>
+                            </span>
+                          )}
+                        </RowButton>
+                      )
+                    })}
                   </div>
-                )
-              })}
-            </>
-          )}
-        </div>
+                ))}
+              </>
+            )}
+          </div>
+        </>
       )}
       <p className="px-4 py-2 text-micro text-[color:var(--text-muted)]">
         Installed on this machine. Running agents may need a restart to pick up changes.
       </p>
     </section>
   )
-}
+})

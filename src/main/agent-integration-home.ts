@@ -4,7 +4,9 @@
 //
 // Why it exists. Everything this app shipped a workspace used to live in that
 // workspace — `.sprintengine/studio-plugin`, `.sprintengine/hooks/agent-state.mjs`,
-// hook entries in `.claude/settings.local.json`. That has three costs a person
+// hook entries in `.claude/settings.local.json`, the MCP gateway in `.mcp.json`,
+// skill copies under `.claude/skills`. docs/agent-launch-isolation.md lists every
+// one of them, which CLI reads it, and which have moved here. That has three costs a person
 // actually feels: the files show up in their repository, a colleague who never
 // ran this app inherits hook commands naming paths that do not exist on their
 // machine, and anyone running `claude` in that checkout OUTSIDE this app gets
@@ -34,6 +36,7 @@ import {
   materialiseStudioPluginInto,
   readStudioPluginTemplate,
   STUDIO_PLUGIN_ID,
+  STUDIO_SKILLS_PLUGIN_ID,
   type StudioPluginTokens,
 } from './skills/studio-plugin'
 
@@ -74,15 +77,18 @@ export function agentIntegrationRoot(userDataDir: string, version: string): stri
  * passed as two flags loaded both. The `--help` text reads as though a
  * directory of plugins loads each child; it does not.
  *
- * `studio-skills` is deliberately NOT passed, though the copy holds it.
- * `builtin-skills.ts` still installs debug, backlog and frontend-design into
- * `{{workspaceRoot}}/.claude/skills` at spawn, so passing that plugin too would
- * put the same skill id in front of one session twice — once from here and once
- * from the workspace. It joins this list when those skills stop being written
- * into the repository.
+ * `studio-skills` rides along as the second directory. The workflow skills the
+ * app ships (debug, backlog, frontend-design and the rest) used to be copied
+ * into `{{workspaceRoot}}/.claude/skills` at spawn so that a prefilled `/debug`
+ * or `/backlog` resolved; a launch that carries this directory needs no copy,
+ * and `ensureSkillInstalled` skips the write for exactly the CLIs that take it
+ * (see `setLaunchDeliversBundledSkillsResolver`). The bare `/debug` still
+ * resolves: Claude Code's skills reference documents that a plugin skill is
+ * invoked by its bare name whenever no other command claims it, and by
+ * `/studio-skills:debug` always.
  */
 export function launchPluginDirs(root: string): string[] {
-  return [join(root, STUDIO_PLUGIN_ID)]
+  return [join(root, STUDIO_PLUGIN_ID), join(root, STUDIO_SKILLS_PLUGIN_ID)]
 }
 
 export type AgentIntegrationHome = {

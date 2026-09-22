@@ -42,6 +42,21 @@ but cannot be removed individually. Ordinary removal uses Trash and validates
 the installation again before mutation. Changed entries, fabricated identities,
 and directories reached through a shared parent link are refused.
 
+## Revised 2026-09-22
+
+The CLI select and the panel's own filter field are gone. The Skills tab keeps
+the palette's single field, which filters the inventory, and the CLI is decided
+rather than chosen: the targeted or focused agent, then the most recent agent
+whose CLI reads skills, then the only such CLI installed. A quiet meta line
+names it beside Refresh and Browse skills. Each scope shows ten rows and a
+keyboard-reachable Show more row that reveals ten more of that scope.
+
+Discovery now compares paths as paths (Windows case and separators), reads
+`CLAUDE_CONFIG_DIR` by its first comma entry, accepts the older single-object
+Claude plugin receipt, matches project receipts against checkout ancestors,
+and, for a CLI that runs inside WSL, reads the user folders from the WSL home
+(found through `wsl.exe` and `wslpath -w`) instead of the Windows profile.
+
 ## Review and verification
 
 - Focused discovery, removal, UI, search, and config-reader tests: 19 passed.

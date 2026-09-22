@@ -21,6 +21,11 @@
     "resources/marketplace/*.ts",
     "tests/**/*.ts",
   ],
+  "ignoreBinaries": [
+    // The Windows system launcher for a WSL distribution, run with execFile to
+    // ask the default distribution for its home folder. Not an npm binary.
+    "wsl.exe",
+  ],
   "ignoreDependencies": [
     // Imported from CSS (`@import "tailwindcss"`), which knip does not read.
     "tailwindcss",

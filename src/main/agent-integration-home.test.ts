@@ -49,10 +49,24 @@ test('agent-integration-home', async () => {
 
     assert.equal(result.home.root, agentIntegrationRoot(dir, result.home.version))
     assert.deepEqual(result.home.pluginDirs, launchPluginDirs(result.home.root))
-    // One flag per plugin directory — a marketplace root loads nothing. Only the
-    // studio plugin is passed: `studio-skills` would duplicate the skills
-    // `builtin-skills.ts` still writes into the workspace.
-    assert.deepEqual(result.home.pluginDirs, [join(result.home.root, 'sprintengine-studio')])
+    // One flag per plugin directory — a marketplace root loads nothing. Both
+    // plugins are passed: the studio plugin (hooks, MCP bridge, studio skills)
+    // and `studio-skills`, which is how the bundled workflow skills reach a
+    // Claude session now that they are no longer copied into the workspace.
+    assert.deepEqual(result.home.pluginDirs, [
+      join(result.home.root, 'sprintengine-studio'),
+      join(result.home.root, 'studio-skills'),
+    ])
+    // Each directory has to be a loadable plugin in its own right, with every
+    // bundled workflow skill inside the second one.
+    for (const dir of result.home.pluginDirs) {
+      const manifest = await readFile(join(dir, '.claude-plugin', 'plugin.json'), 'utf8')
+      assert.ok(JSON.parse(manifest).name, `${dir} must carry a plugin manifest`)
+    }
+    const shippedSkills = await readdir(join(result.home.root, 'studio-skills', 'skills'))
+    for (const id of ['debug', 'backlog', 'frontend-design']) {
+      assert.ok(shippedSkills.includes(id), `the launch-scoped skills plugin must carry ${id}`)
+    }
 
     // The reporter the hook command names has to BE there. A registered hook whose
     // script is missing is the MODULE_NOT_FOUND every session reports forever.

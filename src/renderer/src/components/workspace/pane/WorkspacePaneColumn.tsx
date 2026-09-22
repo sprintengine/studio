@@ -80,11 +80,11 @@ export function WorkspacePaneColumn({ activeWorkspaceId, renderedWorkspaceIds }:
   // shows it. One tab per board, so a board that is already open is focused
   // rather than opened twice (the slice's own rule; this just asks).
   //
-  // It deliberately does NOT maximise the pane. The editor drops to its compact
-  // layout in a docked pane, and that is the trade: an agent revealing what it
-  // is about to draw must not take the window away from what the person is
-  // doing. A person opening a Canvas tab themselves does get the width
-  // (WorkspacePane's launcher, and the toggle command).
+  // It does NOT maximise the pane. The editor drops to its compact layout in a
+  // docked pane, and that is the trade: an agent revealing what it is about to
+  // draw must not take the window away from what the person is doing. A Canvas
+  // tab the person opens is docked too (owner ruling 2026-09-22); only the
+  // strip's Maximise control widens the pane.
   useEffect(
     () =>
       window.api.onCanvasOpenRequest(({ workspaceId, path }) => {

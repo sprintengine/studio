@@ -158,7 +158,7 @@ import {
 import { isWorkspacePaneFocused } from './pane/paneFocus'
 import { closePaneTabAndItsTerminal } from './pane/paneTerminals'
 import { terminateWorkspaceTerminals } from './workspaceTerminalTermination'
-import { WindowControls, windowCaptionReserve } from './WindowControls'
+import { WindowControls, paneStripOwnsCaptionCorner, windowCaptionReserve } from './WindowControls'
 import { WorkspaceIdentity } from './WorkspaceIdentity'
 import { WorkspaceActions, type SessionGroup, type SessionItem } from './WorkspaceActions'
 import {
@@ -542,6 +542,12 @@ export default function WorkspaceManager() {
   const paneOwnsRightEdge = useWorkspaceStore(
     (s) => s.workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState?.open ?? false,
   )
+  // The caption corner is narrower than the right edge: a MAXIMISED pane fills
+  // the row below the header, so the header keeps the corner and its own
+  // reserve (paneStripOwnsCaptionCorner). The card's right-edge gap below still
+  // reads `paneOwnsRightEdge`, so maximising reflows nothing under the pane.
+  const paneMaximised = useWorkspaceStore((s) => s.workspacePaneMaximised)
+  const paneOwnsCaptionCorner = paneStripOwnsCaptionCorner({ open: paneOwnsRightEdge, maximised: paneMaximised })
   // (Was `activePaneOpen`, derived from `activeWorkspace`. Removed: the card's
   // right-edge gap is its only consumer and it now reads `paneOwnsRightEdge`
   // above, which selects `paneState.open` straight off the live store — one
@@ -3533,15 +3539,10 @@ export default function WorkspaceManager() {
         // outlived a module being turned off cannot mount a surface that is not
         // there.
         if (!selectModuleEnabled(moduleEnablement, 'canvas')) return false
-        const pane = useWorkspaceStore.getState().workspaces.find((w) => w.id === windowActiveWorkspaceId)?.paneState
-        const hadTab = pane?.tabs.some((tab) => tab.kind === 'canvas') ?? false
-        // Only a tab this keystroke CREATED takes the pane wide — the editor
-        // falls back to its compact layout below 730px and a docked pane is
-        // narrower than that. Bringing an existing board forward leaves the
-        // pane's width exactly as the person last set it.
-        if (togglePaneKind(windowActiveWorkspaceId, 'canvas') && !hadTab) {
-          useWorkspaceStore.getState().setWorkspacePaneMaximised(true)
-        }
+        // The pane keeps whatever width the person last gave it: a new Canvas
+        // tab opens docked like every other kind (owner ruling 2026-09-22), and
+        // Maximise in the pane strip is one click away when a board wants room.
+        togglePaneKind(windowActiveWorkspaceId, 'canvas')
         return true
       }
       if (commandId === 'panel.knowledge-graph.toggle' && windowActiveWorkspaceId) {
@@ -4128,7 +4129,7 @@ export default function WorkspaceManager() {
             <WorkspaceHeader
               activeWorkspaceId={windowActiveWorkspaceId}
               isMac={window.api.platform === 'darwin'}
-              captionReserve={paneOwnsRightEdge ? 0 : windowCaptionReserve(window.api.platform === 'darwin')}
+              captionReserve={paneOwnsCaptionCorner ? 0 : windowCaptionReserve(window.api.platform === 'darwin')}
               isFullScreen={windowState.isFullScreen}
               sidebarCollapsed={sidebarCollapsed}
               onToggleSidebar={() => runCommand('workspace.sidebar.toggle')}

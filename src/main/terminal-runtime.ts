@@ -133,8 +133,10 @@ type TerminalRuntimeOptions = {
   // launches. Debug Mode uses this to guarantee the `debug` skill is present in
   // the session CLI's native skill dir so the injected invocation resolves to a
   // real skill. Best-effort: the caller swallows failures and falls back to the
-  // always-present inline directive.
-  ensureBuiltinSkillInstalled?(workspaceRoot: string, skillId: string): Promise<void>
+  // always-present inline directive. `cli` is the agent about to launch: a
+  // bundled skill its launch carries in the app's own plugin directory is not
+  // copied into the workspace at all (see `ensureSkillInstalled`).
+  ensureBuiltinSkillInstalled?(workspaceRoot: string, skillId: string, cli?: string): Promise<void>
   // Keeps the generated managed MCP config (`.mcp.json` / `.codex/config.toml`)
   // out of a connector chat's worktree git by appending them to the worktree's
   // info/exclude. Invoked at a connector spawn (connectorLaunch set) after the
@@ -2049,12 +2051,17 @@ function ingestAgentStateFrame(frame: AgentStateFrame): void {
   // A subagent's edit counts too: the work is the session's, and the reporter's
   // subagent suppression is a cwd rule only.
   //
-  // A DUPLICATE is dropped before either fold. The app registers this reporter
-  // twice — merged by hand into `.claude/settings.local.json`, and declared
-  // again by the studio plugin's own `hooks/hooks.json` — and Claude Code
-  // 2.1.266 auto-registers our directory marketplace into its user-global
-  // registry and loads the plugin's hooks itself, so both fire on every tool
-  // call and send byte-identical frames. Counted twice, the ledger reads 2x the
+  // A DUPLICATE is dropped before either fold. The same reporter can be
+  // registered twice for one session: merged by hand into
+  // `.claude/settings.local.json` and declared again by the studio plugin's own
+  // `hooks/hooks.json` (Claude Code 2.1.266 auto-registered our directory
+  // marketplace into its user-global registry and loaded the plugin's hooks
+  // itself). A launch that carries the plugin directory now writes no workspace
+  // registration and takes an earlier one back out before the CLI starts, but
+  // a workspace the tidy could not rewrite, a session started in the startup
+  // window before the plugin copy landed, or a person who added our
+  // marketplace themselves can still produce both, and they fire on every tool
+  // call with byte-identical frames. Counted twice, the ledger reads 2x the
   // agent's edits; fed twice, `recordEdit` applies every insert and delete
   // twice and the changelist's span coordinates go wrong. `noteFoldedFileChange`
   // keys a small per-session ring on the CLI's own tool-call id and the path
@@ -2771,7 +2778,7 @@ async function spawnTerminalFromIpc(
     // rather than blocking the spawn.
     if (debugMode && !shellOnly && ensureBuiltinSkillInstalled) {
       try {
-        await ensureBuiltinSkillInstalled(workingDirectory, 'debug')
+        await ensureBuiltinSkillInstalled(workingDirectory, 'debug', agentCli)
       } catch (error) {
         logMainPerfEvent('TerminalRuntime', 'debug-skill-install-failed', {
           sessionId,
@@ -2789,7 +2796,7 @@ async function spawnTerminalFromIpc(
     // failure is logged and never blocks the spawn.
     if (spawnSkillId && !shellOnly && ensureBuiltinSkillInstalled) {
       try {
-        await ensureBuiltinSkillInstalled(workingDirectory, spawnSkillId)
+        await ensureBuiltinSkillInstalled(workingDirectory, spawnSkillId, agentCli)
       } catch (error) {
         logMainPerfEvent('TerminalRuntime', 'spawn-skill-install-failed', {
           sessionId,
@@ -2890,7 +2897,12 @@ async function spawnTerminalFromIpc(
       // item ↔ agent link. Strips any inherited identity first, so plain
       // terminals carry none and a moved/relaunched session never keeps a
       // stale id.
-      env: applyAgentIdentityEnv(env ?? getTerminalEnv(), { workspaceId, agentId, agentName }),
+      env: applyAgentIdentityEnv(env ?? getTerminalEnv(), {
+        workspaceId,
+        agentId,
+        agentName,
+        ...(shellOnly ? {} : { cli: agentCli }),
+      }),
     })
     const startedAt = Date.now()
     const terminalSession: TerminalSession = {
