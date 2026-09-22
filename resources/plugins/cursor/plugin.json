@@ -25,7 +25,7 @@
     }
   },
   "modelSelection": {
-    "$comment": "Headline ids from `cursor-agent --list-models` (verified against CLI 2026.09.10). The CLI already takes `--model`; the picker was empty because this seed and the hosted feed both listed nothing. Cursor encodes effort and fast in the slug itself (`composer-2.5-fast`, `cursor-grok-4.6-high`), so this is a curated set — Auto, Cursor's own models, and one default-effort slug per major vendor — not the full entitlement-expanded roster. allowCustomId stays true so Settings can add a slug the plan actually has.",
+    "$comment": "Headline ids from `cursor-agent --list-models` (verified against CLI 2026.09.10). The CLI already takes `--model`; the picker was empty because this seed listed nothing. Cursor encodes effort and fast in the slug itself (`composer-2.5-fast`, `cursor-grok-4.6-high`), so this is a curated set — Auto, Cursor's own models, and one default-effort slug per major vendor — not the full entitlement-expanded roster. allowCustomId stays true so Settings can add a slug the plan actually has.",
     "args": ["--model", "{{model}}"],
     "options": [
       { "id": "auto", "label": "Auto" },

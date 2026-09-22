@@ -24,7 +24,7 @@ import { designSystemApi } from './api/design-system'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
 import { marketplaceApi } from './api/marketplace'
-import { hostedModelFeedApi } from './api/hosted-model-feed'
+import { hostedSourcesFeedApi } from './api/hosted-sources-feed'
 import { hostedCardFeedApi } from './api/hosted-card-feed'
 import { cliVersionApi } from './api/cli-version'
 import { memoryActivityApi } from './api/memoryActivity'
@@ -71,7 +71,7 @@ const api = {
   ...cliRuntimeApi,
   ...cliModelDiscoveryApi,
   ...textGenerationApi,
-  ...hostedModelFeedApi,
+  ...hostedSourcesFeedApi,
   ...hostedCardFeedApi,
   ...cliVersionApi,
   ...mobileBridgeApi,

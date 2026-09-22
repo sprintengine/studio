@@ -1,8 +1,8 @@
-// The words for the feed's notices (backlog/2026-09-04-hosted-update-and-model-
-// feed.md, "Notification rules"). Pure: the store hands in what it knows, this
-// hands back titles and lines, and the tests hold the table.
+// The words for the app's background notices: models a CLI refresh added, CLI
+// and app updates, plugin-source drift. Pure: the store hands in what it knows,
+// this hands back titles and lines, and the tests hold the table.
 import type { CliVersionAdvisory, SkillSourceUpdateCheck } from '../../../shared/electron-api'
-import type { HostedModel, HostedModelFeed } from '../../../shared/hosted-model-feed'
+import type { DiscoveredCliModel, DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
 
 export type Notice = {
   title: string
@@ -15,12 +15,34 @@ const joinNames = (names: string[]): string => {
   return `${names.slice(0, -1).join(', ')}, and ${names[names.length - 1]}`
 }
 
-// One notice per fetch that introduced ids for INSTALLED CLIs: "New models for
-// Claude Code" + up to three names, then "and N more". Two CLIs in one fetch
-// make one notice naming both. Ids the person already added by hand are not
-// news and are left out.
+type CatalogsByCli = Partial<Record<string, DiscoveredCliModelCatalog>>
+
+// Ids a model refresh added, per CLI: rows in `next` that carry a `firstSeenAt`
+// and were not in the catalog `previous` held for that CLI. Both halves matter.
+// A CLI with no previous catalog is a first-ever probe, or the persisted
+// catalogs arriving at boot, and neither is news. A row without `firstSeenAt`
+// came from a first probe, which the picker does not mark new either.
+export function discoveredModelAdditions(
+  previous: CatalogsByCli | null | undefined,
+  next: CatalogsByCli | null | undefined,
+): Record<string, DiscoveredCliModel[]> {
+  const out: Record<string, DiscoveredCliModel[]> = {}
+  for (const [cli, catalog] of Object.entries(next ?? {})) {
+    const before = previous?.[cli]
+    if (!catalog || !before || before === catalog || !Array.isArray(catalog.models)) continue
+    const known = new Set((Array.isArray(before.models) ? before.models : []).map((model) => model.id))
+    const added = catalog.models.filter((model) => Boolean(model.firstSeenAt) && !known.has(model.id))
+    if (added.length > 0) out[cli] = added
+  }
+  return out
+}
+
+// One notice per refresh that introduced ids for INSTALLED CLIs: "New models
+// for Claude Code" + up to three names, then "and N more". Two CLIs in one
+// refresh make one notice naming both. Ids the person already added by hand
+// are not news and are left out.
 export function newModelsNotice(input: {
-  additions: Record<string, HostedModel[]>
+  additions: Record<string, ReadonlyArray<Pick<DiscoveredCliModel, 'id' | 'displayName'>>>
   installed: ReadonlySet<string>
   userModels: (cli: string) => ReadonlyArray<string>
   displayName: (cli: string) => string
@@ -35,38 +57,13 @@ export function newModelsNotice(input: {
   if (perCli.length === 0) return null
   const clis = joinNames(perCli.map((entry) => input.displayName(entry.cli)))
   const models = perCli.flatMap((entry) => entry.models)
-  const named = models.slice(0, 3).map((model) => model.label)
+  const named = models.slice(0, 3).map((model) => model.displayName?.trim() || model.id)
   const rest = models.length - named.length
   const list = rest > 0 ? `${named.join(', ')}, and ${rest} more` : joinNames(named)
   return {
     title: models.length === 1 ? `New model for ${clis}` : `New models for ${clis}`,
     description: `${list} ${models.length === 1 ? 'is' : 'are'} in the picker.`,
   }
-}
-
-// A retired id that somebody's remembered selection still names: one warn per
-// retired model, naming who used it. Retired ids nobody selected leave quietly.
-export function retiredModelNotices(input: {
-  previous: HostedModelFeed | null
-  next: HostedModelFeed
-  remembered: ReadonlyArray<{ who: string; cli: string; model: string }>
-  displayName: (cli: string) => string
-}): Notice[] {
-  const notices: Notice[] = []
-  for (const [cli, entry] of Object.entries(input.next.clis)) {
-    const before = new Map((input.previous?.clis[cli]?.models ?? []).map((model) => [model.id, model]))
-    for (const model of entry.models) {
-      if (model.retired !== true) continue
-      if (before.get(model.id)?.retired === true) continue
-      const users = input.remembered.filter((r) => r.cli === cli && r.model === model.id).map((r) => r.who)
-      if (users.length === 0) continue
-      notices.push({
-        title: `${model.label} has been retired`,
-        description: `${joinNames(users)} used it. ${users.length === 1 ? 'It launches' : 'They launch'} with ${input.displayName(cli)}'s default until you pick another.`,
-      })
-    }
-  }
-  return notices
 }
 
 // The CLI-update toast's copy: "Update available: Codex 0.153.3".

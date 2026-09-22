@@ -1,15 +1,15 @@
 import assert from 'node:assert/strict'
 
-import type { HostedModelFeed } from '../../../shared/hosted-model-feed'
-import { cliUpdateNotice, newModelsNotice, retiredModelNotices, updateReadyNotice } from './feedNotifications'
+import type { DiscoveredCliModelCatalog } from '../../../shared/cli-model-catalog'
+import { cliUpdateNotice, discoveredModelAdditions, newModelsNotice, updateReadyNotice } from './feedNotifications'
 import { test } from 'vitest'
 
 test('feedNotifications', async () => {
   const names: Record<string, string> = { 'claude-code': 'Claude Code', codex: 'Codex', grok: 'Grok Build' }
   const displayName = (cli: string) => names[cli] ?? cli
-  const model = (id: string, label = id, extra: Record<string, unknown> = {}) => ({ id, label, ...extra })
+  const model = (id: string, displayName?: string) => ({ id, ...(displayName ? { displayName } : {}) })
 
-  // One toast per fetch, naming up to three, only for installed CLIs, never for
+  // One toast per refresh, naming up to three, only for installed CLIs, never for
   // ids the person added by hand.
   assert.deepEqual(
     newModelsNotice({
@@ -68,60 +68,6 @@ test('feedNotifications', async () => {
     null,
   )
 
-  // Retired: only when remembered, only when newly retired.
-  const feed = (models: ReturnType<typeof model>[]): HostedModelFeed => ({
-    schemaVersion: 1,
-    updatedAt: '2026-09-04T00:00:00Z',
-    clis: { 'claude-code': { models: models as HostedModelFeed['clis'][string]['models'] } },
-  })
-  const retired = feed([model('claude-opus-4-8', 'Opus 4.8', { retired: true, retiredAt: '2026-09-01' })])
-  assert.deepEqual(
-    retiredModelNotices({
-      previous: feed([model('claude-opus-4-8', 'Opus 4.8')]),
-      next: retired,
-      remembered: [{ who: 'Codex Reviewer', cli: 'claude-code', model: 'claude-opus-4-8' }],
-      displayName,
-    }),
-    [
-      {
-        title: 'Opus 4.8 has been retired',
-        description: "Codex Reviewer used it. It launches with Claude Code's default until you pick another.",
-      },
-    ],
-  )
-  assert.deepEqual(
-    retiredModelNotices({
-      previous: feed([model('claude-opus-4-8', 'Opus 4.8')]),
-      next: retired,
-      remembered: [],
-      displayName,
-    }),
-    [],
-    'a retired id nobody selected leaves quietly',
-  )
-  assert.deepEqual(
-    retiredModelNotices({
-      previous: retired,
-      next: retired,
-      remembered: [{ who: 'Planner', cli: 'claude-code', model: 'claude-opus-4-8' }],
-      displayName,
-    }),
-    [],
-    'an id that was already retired is not announced again',
-  )
-  assert.deepEqual(
-    retiredModelNotices({
-      previous: null,
-      next: retired,
-      remembered: [
-        { who: 'Planner', cli: 'claude-code', model: 'claude-opus-4-8' },
-        { who: 'Reviewer', cli: 'claude-code', model: 'claude-opus-4-8' },
-      ],
-      displayName,
-    })[0].description,
-    "Planner and Reviewer used it. They launch with Claude Code's default until you pick another.",
-  )
-
   assert.deepEqual(
     cliUpdateNotice(
       {
@@ -142,4 +88,47 @@ test('feedNotifications', async () => {
   })
 
   console.log('feedNotifications: ok')
+})
+
+const catalog = (models: DiscoveredCliModelCatalog['models'], fetchedAt = '2026-09-22T10:00:00Z') => ({
+  models,
+  fetchedAt,
+  source: 'argv-probe' as const,
+})
+
+test('a refresh that lists a new id announces it', () => {
+  const before = { codex: catalog([{ id: 'gpt-5.5' }]) }
+  const after = {
+    codex: catalog([{ id: 'gpt-5.6', displayName: 'GPT-5.6', firstSeenAt: '2026-09-22T12:00:00Z' }, { id: 'gpt-5.5' }]),
+  }
+  assert.deepEqual(discoveredModelAdditions(before, after), {
+    codex: [{ id: 'gpt-5.6', displayName: 'GPT-5.6', firstSeenAt: '2026-09-22T12:00:00Z' }],
+  })
+})
+
+test('the first-ever probe, or the catalogs arriving at boot, announce nothing', () => {
+  const after = { codex: catalog([{ id: 'gpt-5.6', firstSeenAt: '2026-09-22T12:00:00Z' }]) }
+  assert.deepEqual(discoveredModelAdditions({}, after), {})
+  assert.deepEqual(discoveredModelAdditions(undefined, after), {})
+  assert.deepEqual(discoveredModelAdditions(after, after), {}, 'an unchanged catalog is not news')
+})
+
+test('a row without firstSeenAt, or one the previous catalog had, is not news', () => {
+  const before = { codex: catalog([{ id: 'gpt-5.5', firstSeenAt: '2026-09-01T00:00:00Z' }]) }
+  const after = {
+    codex: catalog([{ id: 'gpt-5.5', firstSeenAt: '2026-09-01T00:00:00Z' }, { id: 'gpt-5.6' }], '2026-09-22T12:00:00Z'),
+  }
+  assert.deepEqual(discoveredModelAdditions(before, after), {})
+})
+
+test('a notice names an unlabelled id by the id itself', () => {
+  assert.deepEqual(
+    newModelsNotice({
+      additions: { opencode: [{ id: 'openai/gpt-5.6' }] },
+      installed: new Set(['opencode']),
+      userModels: () => [],
+      displayName: () => 'OpenCode',
+    }),
+    { title: 'New model for OpenCode', description: 'openai/gpt-5.6 is in the picker.' },
+  )
 })

@@ -15,7 +15,6 @@ import { writeDiagnosticLog } from './diagnostics-service'
 import type { SprintEngineUpdateService } from './update-service'
 import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
 import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
-import { readHostedModelFeed } from './hosted-feed/hosted-feed-service'
 import { readHostedCardFeed } from './hosted-feed/card-feed-service'
 import { readHostedSourcesFeed } from './hosted-feed/sources-feed-service'
 import { readCliVersionAdvisories } from './cli-version-advisory-service'
@@ -236,8 +235,8 @@ export function registerAppLifecycle({
       }, BOOT_MODEL_DISCOVERY_DELAY_MS)
     })
 
-    // What the studio pulls on its own after boot: the hosted model feed, the
-    // hosted card feed and the CLI version advisories 15 s after the window is
+    // What the studio pulls on its own after boot: the hosted card and sources
+    // feeds and the CLI version advisories 15 s after the window is
     // up and then hourly, app updates every four minutes — often enough that a
     // session left open all day still learns about a same-day release.
     // The boot leg above keeps the one immediate update check; the poller's
@@ -248,7 +247,7 @@ export function registerAppLifecycle({
         if (!app.isPackaged) return
         await updateService.checkForUpdates(false)
       },
-      // Four riders on one hour. The plugin-source update check rides the feed
+      // Three riders on one hour. The plugin-source update check rides the feed
       // leg for the cadence it wants and one fewer timer
       // (backlog/2026-09-05-plugin-sources.md), and the card feed rides it for
       // the same reason — this is the ONLY thing in the app that ever fetches
@@ -271,7 +270,6 @@ export function registerAppLifecycle({
       // poller still reports the leg as failed.
       refreshFeed: async () => {
         const failures: unknown[] = []
-        await readHostedModelFeed().catch((error) => void failures.push(error))
         await readHostedCardFeed().catch((error) => void failures.push(error))
         await readHostedSourcesFeed().catch((error) => void failures.push(error))
         await checkPluginSourceUpdates?.().catch(() => undefined)

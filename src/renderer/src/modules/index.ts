@@ -442,7 +442,6 @@ if (typeof window !== 'undefined') {
                   state.appSettings.cliRuntimes,
                   { map: state.cliAvailability, status: state.cliAvailabilityStatus },
                   state.appSettings.cliModelCatalog,
-                  state.hostedModelCatalogs,
                 )
                 .map((option) => ({
                   id: option.value,
@@ -452,7 +451,7 @@ if (typeof window !== 'undefined') {
                   // (an option probed after it was added carries no entry yet).
                   available: option.installed !== false,
                   // Ids + labels only: the merged catalog's origin tags and
-                  // release dates are picker internals, not module contract.
+                  // "New" marks are picker internals, not module contract.
                   models: (option.modelSelection?.options ?? []).map((model) => ({
                     id: model.id,
                     label: model.label ?? model.id,

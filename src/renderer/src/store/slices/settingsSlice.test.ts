@@ -1255,3 +1255,28 @@ test('a discovered row keeps its firstSeenAt only as a parseable timestamp', () 
     },
   )
 })
+
+test('a remembered model survives a refresh that stops listing it', () => {
+  // The CLI's list is the picker's list, but a choice the person already made
+  // keeps launching: a CLI may accept an id it does not advertise. Only an
+  // explicit removal of their own id forgets it (forgetCliModels, above).
+  const store = useWorkspaceStore.getState()
+  store.setCliModelCatalog('codex', {
+    models: [{ id: 'gpt-5.5' }, { id: 'gpt-5.6' }],
+    fetchedAt: '2026-09-21T00:00:00Z',
+    source: 'argv-probe',
+  })
+  store.setLastSelectedAgentModel({ cli: 'codex', model: 'gpt-5.5', reasoning: 'high' })
+  store.setCliModelCatalog('codex', {
+    models: [{ id: 'gpt-5.6' }],
+    fetchedAt: '2026-09-22T00:00:00Z',
+    source: 'argv-probe',
+  })
+  assert.deepEqual(useWorkspaceStore.getState().appSettings.lastSelectedAgentModel, {
+    cli: 'codex',
+    model: 'gpt-5.5',
+    reasoning: 'high',
+  })
+  store.setLastSelectedAgentModel(null)
+  store.setCliModelCatalog('codex', null)
+})

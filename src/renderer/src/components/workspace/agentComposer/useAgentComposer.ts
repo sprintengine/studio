@@ -157,29 +157,14 @@ export function useAgentComposer({
   const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const hostedModelCatalogs = useWorkspaceStore((s) => s.hostedModelCatalogs)
 
   const agentCliOptions = React.useMemo(
     () =>
-      selectAgentCliCatalog(
-        pluginCatalogStatus,
-        pluginCatalogEntries,
-        cliRuntimes,
-        {
-          map: cliAvailability,
-          status: cliAvailabilityStatus,
-        },
-        undefined,
-        hostedModelCatalogs,
-      ),
-    [
-      pluginCatalogStatus,
-      pluginCatalogEntries,
-      cliRuntimes,
-      cliAvailability,
-      cliAvailabilityStatus,
-      hostedModelCatalogs,
-    ],
+      selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, {
+        map: cliAvailability,
+        status: cliAvailabilityStatus,
+      }),
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus],
   )
   // This machine has no agent CLI. The catalog is availability-
   // filtered, so an empty one on a READY registry is the honest answer — a

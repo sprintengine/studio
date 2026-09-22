@@ -33,7 +33,7 @@ import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerMarketplacePluginIpc } from './ipc/marketplace-plugin-ipc'
 import { registerMarketplaceRegistryIpc } from './ipc/marketplace-registry-ipc'
-import { registerHostedModelFeedIpc } from './ipc/hosted-feed-ipc'
+import { registerHostedSourcesFeedIpc } from './ipc/hosted-feed-ipc'
 import { registerHostedCardFeedIpc } from './ipc/card-feed-ipc'
 import { registerCardsIpc } from './ipc/cards-ipc'
 import { registerCliVersionIpc } from './ipc/cli-version-ipc'
@@ -164,7 +164,7 @@ export function registerCoreIpc(
   registerBackgroundModeIpc(ipcMain, services.backgroundModeStore)
   registerTelemetryIpc(ipcMain, services.telemetryConsentStore)
   registerMarketplaceRegistryIpc(ipcMain)
-  registerHostedModelFeedIpc(ipcMain)
+  registerHostedSourcesFeedIpc(ipcMain)
   registerHostedCardFeedIpc(ipcMain)
   // Go, on a card on the Extensions home. Registered after the skills and MCP
   // services it composes, because it is those services said in one press.
