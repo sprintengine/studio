@@ -1226,3 +1226,32 @@ test('settingsSlice', async () => {
 
   console.log('settingsSlice.test.ts: ok')
 })
+
+test('a discovered row keeps its firstSeenAt only as a parseable timestamp', () => {
+  assert.deepEqual(
+    normalizeCliModelCatalogs({
+      codex: {
+        models: [
+          { id: 'gpt-6-astra', firstSeenAt: '2026-09-22T10:00:00.000Z' },
+          { id: 'gpt-6-sol', firstSeenAt: 'last tuesday' },
+          { id: 'gpt-6-luna', firstSeenAt: 1_790_000_000_000 },
+          { id: 'gpt-5.5' },
+        ],
+        fetchedAt: '2026-09-22T10:00:00.000Z',
+        source: 'argv-probe',
+      },
+    }),
+    {
+      codex: {
+        models: [
+          { id: 'gpt-6-astra', firstSeenAt: '2026-09-22T10:00:00.000Z' },
+          { id: 'gpt-6-sol' },
+          { id: 'gpt-6-luna' },
+          { id: 'gpt-5.5' },
+        ],
+        fetchedAt: '2026-09-22T10:00:00.000Z',
+        source: 'argv-probe',
+      },
+    },
+  )
+})

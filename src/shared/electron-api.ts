@@ -182,6 +182,7 @@ export type {
   VersionControlProviderProbe,
 } from './version-control'
 import type { SprintEngineAuthState } from './ipc/account'
+import type { CliModelDiscoveryInput, CliModelDiscoveryResult } from './ipc/cli-model-discovery'
 import type {
   AgentLaunchPreviewInput,
   AgentLaunchPreviewResult,
@@ -1071,6 +1072,12 @@ export type ElectronApi = {
   cliInstall: (input: CliInstallInput, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
   cliUpdate: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
   onCliInstallOutput: (cli: AgentCli, cb: (chunk: string) => void) => () => void
+  // Model discovery (src/shared/ipc/cli-model-discovery.ts): ask the installed
+  // CLIs which models they accept. `discover` answers per CLI, skipping any that
+  // are fresh, absent or unprobeable; `changed` pushes every catalog a probe
+  // produced, whoever asked, and returns the unsubscribe.
+  cliModelsDiscover: (input?: CliModelDiscoveryInput) => Promise<CliModelDiscoveryResult>
+  onCliModelsChanged: (cb: (result: CliModelDiscoveryResult) => void) => () => void
   // One-shot text generation on the person's own agent CLI (their login, no
   // API key): today the chat title from a first prompt. Never rejects — a
   // failure is a typed `{ ok: false }` the caller answers by keeping what it

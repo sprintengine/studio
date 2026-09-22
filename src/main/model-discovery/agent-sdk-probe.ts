@@ -1,0 +1,134 @@
+// Claude Code's model list, asked through the Agent SDK's control channel.
+//
+// `query()` starts the CLI with a streaming input that never yields, so no user
+// turn is sent and nothing is billed; `supportedModels()` is answered by the
+// CLI's own initialize handshake through the person's `claude` login. Measured
+// 2026-09-22 against Claude Code 2.1.280: five rows in well under two seconds.
+//
+// The rows are taken exactly as the CLI reports them. An alias (`default`,
+// `opus[1m]`, `sonnet`) is a first-class id: the CLI resolves it to its current
+// model at launch, which is the reason to offer the alias at all. Its
+// `resolvedModel` is kept as a display hint only (see DiscoveredCliModel).
+import { isAbsolute } from 'path'
+import type { ModelInfo, Options, SDKUserMessage } from '@anthropic-ai/claude-agent-sdk'
+
+import type { DiscoveredCliModel } from '../../shared/cli-model-catalog'
+import { defaultProbeEnv } from '../cli-runtime-install'
+import { stripAnthropicAuthEnv } from '../providers/claude-agent-provider'
+import { CliModelProbeError, type CliModelProbeContext } from './probe-types'
+
+type SupportedModelsQuery = {
+  supportedModels: () => Promise<ModelInfo[]>
+  close: () => void
+}
+
+type QueryFunction = (input: { prompt: AsyncIterable<SDKUserMessage>; options: Options }) => SupportedModelsQuery
+
+export type AgentSdkProbeDeps = {
+  loadQuery?: () => Promise<QueryFunction>
+  env?: () => Record<string, string>
+}
+
+export function mapAgentSdkModels(rows: readonly ModelInfo[]): DiscoveredCliModel[] {
+  const seen = new Set<string>()
+  const models: DiscoveredCliModel[] = []
+  for (const row of rows) {
+    const id = typeof row.value === 'string' ? row.value.trim() : ''
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    const model: DiscoveredCliModel = { id }
+    if (row.displayName?.trim()) model.displayName = row.displayName.trim()
+    if (row.description?.trim()) model.description = row.description.trim()
+    if (row.resolvedModel?.trim()) model.resolvedModel = row.resolvedModel.trim()
+    if (row.supportedEffortLevels && row.supportedEffortLevels.length > 0) {
+      model.effortLevels = [...row.supportedEffortLevels]
+    }
+    if (typeof row.supportsFastMode === 'boolean') model.supportsFastMode = row.supportsFastMode
+    models.push(model)
+  }
+  return models
+}
+
+async function defaultLoadQuery(): Promise<QueryFunction> {
+  const sdk = await import('@anthropic-ai/claude-agent-sdk')
+  return sdk.query
+}
+
+// The subscription login, not an inherited key: the CLI prefers an
+// ANTHROPIC_API_KEY over its own login silently, and a base URL would point the
+// question at another endpoint. Same stripping the conversation provider does.
+function defaultEnv(): Record<string, string> {
+  const env = Object.fromEntries(
+    Object.entries(defaultProbeEnv()).filter((entry): entry is [string, string] => typeof entry[1] === 'string'),
+  )
+  return stripAnthropicAuthEnv(env)
+}
+
+// An input stream with no turns in it. It ends when the probe is torn down, so
+// the SDK's reader is not left awaiting forever after close().
+function noTurns(signal: AbortSignal): AsyncIterable<SDKUserMessage> {
+  const ended = new Promise<void>((resolve) => {
+    if (signal.aborted) resolve()
+    else signal.addEventListener('abort', () => resolve(), { once: true })
+  })
+  return {
+    [Symbol.asyncIterator]: () => ({
+      next: () => ended.then((): IteratorResult<SDKUserMessage> => ({ done: true, value: undefined })),
+    }),
+  }
+}
+
+export async function probeAgentSdkModels(
+  context: Pick<CliModelProbeContext, 'binary' | 'useWsl' | 'timeoutMs' | 'displayName'>,
+  deps: AgentSdkProbeDeps = {},
+): Promise<DiscoveredCliModel[]> {
+  if (context.useWsl) {
+    throw new CliModelProbeError(`${context.displayName} models cannot be listed under WSL yet.`)
+  }
+  if (!isAbsolute(context.binary)) {
+    throw new CliModelProbeError(`${context.displayName} was found, but its path could not be resolved.`)
+  }
+  const loadQuery = deps.loadQuery ?? defaultLoadQuery
+  const abort = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
+  let session: SupportedModelsQuery | undefined
+  try {
+    const query = await loadQuery()
+    session = query({
+      prompt: noTurns(abort.signal),
+      options: {
+        tools: [],
+        settingSources: [],
+        pathToClaudeCodeExecutable: context.binary,
+        env: (deps.env ?? defaultEnv)(),
+        abortController: abort,
+      },
+    })
+    const deadline = new Promise<never>((_, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new CliModelProbeError(
+              `${context.displayName} did not list its models within ${Math.round(context.timeoutMs / 1000)} s.`,
+            ),
+          ),
+        context.timeoutMs,
+      )
+    })
+    return mapAgentSdkModels(await Promise.race([session.supportedModels(), deadline]))
+  } catch (error) {
+    if (error instanceof CliModelProbeError) throw error
+    const detail = error instanceof Error ? error.message : String(error)
+    throw new CliModelProbeError(`${context.displayName} did not list its models: ${detail}`)
+  } finally {
+    if (timer) clearTimeout(timer)
+    // close() ends the child; the abort is the backstop that kills it if close
+    // was not reached or did not take, so a hung CLI never outlives the probe.
+    try {
+      session?.close()
+    } catch {
+      // Already closed.
+    }
+    abort.abort()
+  }
+}
