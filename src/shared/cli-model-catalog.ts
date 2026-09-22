@@ -32,9 +32,10 @@ export type DiscoveredCliModel = {
 // (`codex debug models`); `agent-sdk` is the Claude Agent SDK's supportedModels().
 type DiscoveredCliModelCatalogSource = 'argv-probe' | 'agent-sdk'
 
-// What one CLI last reported, persisted per plugin id. An entry with zero models
-// is meaningful — it records that the CLI answered and listed nothing — so it is
-// kept rather than collapsed into "never probed".
+// What one CLI last reported, persisted per plugin id. Discovery never stores an
+// entry with zero models (an empty answer is a failed probe and keeps the last
+// good list); one persisted by an older build reads as "never probed", which is
+// how the picker and the firstSeenAt carry both treat it.
 export type DiscoveredCliModelCatalog = {
   models: DiscoveredCliModel[]
   fetchedAt: string
