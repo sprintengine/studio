@@ -243,9 +243,11 @@ export function AutomationEditor({
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
+  // The model field offers what each CLI reported, like every other picker.
+  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
   const cliCatalog = useMemo(
-    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes),
-    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes],
+    () => selectAgentCliCatalog(pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, undefined, cliModelCatalog),
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliModelCatalog],
   )
 
   const actionProvider = providers?.actions.find((a) => a.kind === form.actionKind) ?? null

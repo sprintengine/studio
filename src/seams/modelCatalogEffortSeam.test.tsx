@@ -19,8 +19,8 @@ test('modelCatalogEffortSeam', async () => {
   //   1. Discovered catalog × effort level — two store-schema rungs (69, 70) in one run. A store
   //      written by the PREVIOUS build must hydrate with its catalog AND its level
   //      intact, and the load after that must re-run neither rung.
-  //   2. The discovered catalog's union merge under repetition, through the real store setter —
-  //      Opus 5 by name, across three discovery passes that never mention it.
+  //   2. The discovered catalog under repetition, through the real store setter —
+  //      each pass replaces the manifest seed, and the user's own id survives all three.
   //   3. Effort picker × effort level — the level clicked in the real picker must reach the
   //      LAUNCHED COMMAND, not merely the store.
   //   4. Seat × effort level — a seat's level must reach the launched agent's
@@ -333,73 +333,68 @@ test('modelCatalogEffortSeam', async () => {
       assert.deepEqual(second.lastSelectedAgentModel, first.lastSelectedAgentModel, 'second load: the level unchanged')
     })
 
-    // ── Seam 2: the union merge under repetition, through the store setter ─────
+    // ── Seam 2: the CLI's list is the list, through the store setter ───────────
 
-    await check('SEAM: Opus 5 survives three discovery passes that never mention it', () => {
-      const store = useWorkspaceStore.getState()
-      const plugins = bundledCatalogEntries(['claude-code'])
-      const claudeModels = (): Array<{ id: string; origin?: string }> => {
-        const catalog = useWorkspaceStore.getState().appSettings.cliModelCatalog
-        const option = buildAgentCliCatalog(
-          plugins as never,
-          { 'claude-code': { models: ['my-own-pin'] } } as never,
-          catalog as never,
-        ).find((entry) => entry.value === 'claude-code')
-        assert.ok(option?.modelSelection, 'claude-code renders a model list')
-        return option.modelSelection.options as never
-      }
+    await check(
+      "SEAM: each discovery pass replaces the manifest seed, and the user's own id survives all three",
+      () => {
+        const store = useWorkspaceStore.getState()
+        const plugins = bundledCatalogEntries(['claude-code'])
+        const claudeModels = (): Array<{ id: string; origin?: string }> => {
+          const catalog = useWorkspaceStore.getState().appSettings.cliModelCatalog
+          const option = buildAgentCliCatalog(
+            plugins as never,
+            { 'claude-code': { models: ['my-own-pin'] } } as never,
+            catalog as never,
+          ).find((entry) => entry.value === 'claude-code')
+          assert.ok(option?.modelSelection, 'claude-code renders a model list')
+          return option.modelSelection.options as never
+        }
 
-      // Measured 2026-07-26: the Claude Agent SDK lists these and NOT
-      // `claude-opus-5`, on a machine where `claude --model claude-opus-5` runs.
-      // A "replace with what discovery returned" merge deletes it here and looks
-      // perfectly correct doing so.
-      const passes = [
-        [{ id: 'opus[1m]', displayName: 'Opus (1M)' }, { id: 'claude-fable-5' }],
-        [{ id: 'opus[1m]', displayName: 'Opus (1M)' }],
-        [{ id: 'claude-sonnet-5' }],
-      ]
-      passes.forEach((models, index) => {
-        store.setCliModelCatalog(
-          'claude-code' as never,
-          {
-            models,
-            fetchedAt: `2026-07-2${7 + index}T00:00:00Z`,
-            source: 'agent-sdk',
-          } as never,
-        )
-        const ids = claudeModels().map((model) => model.id)
+        // Before any probe the bundled manifest seed stands in (owner ruling
+        // 2026-09-22): the picker is never empty on a fresh install.
+        store.setCliModelCatalog('claude-code' as never, null)
+        const seeded = claudeModels()
         assert.ok(
-          ids.includes('claude-opus-5'),
-          `pass ${index + 1} omitted Opus 5 and it must still be offered: ${ids.join(', ')}`,
+          seeded.some((model) => model.origin === 'manifest'),
+          'with no probe answer the manifest seed is offered',
         )
-        assert.ok(
-          ids.includes('my-own-pin'),
-          `pass ${index + 1}: the user's own id survives every re-probe too: ${ids.join(', ')}`,
+
+        // Each pass is exactly what the CLI listed, in its order, then the
+        // person's own id. A model the CLI stops listing is gone on the next pass.
+        const passes = [
+          [{ id: 'opus[1m]', displayName: 'Opus (1M)' }, { id: 'claude-fable-5' }],
+          [{ id: 'opus[1m]', displayName: 'Opus (1M)' }],
+          [{ id: 'claude-sonnet-5' }],
+        ]
+        passes.forEach((models, index) => {
+          store.setCliModelCatalog(
+            'claude-code' as never,
+            {
+              models,
+              fetchedAt: `2026-07-2${7 + index}T00:00:00Z`,
+              source: 'agent-sdk',
+            } as never,
+          )
+          assert.deepEqual(
+            claudeModels().map((model) => [model.id, model.origin]),
+            [...models.map((model) => [model.id, 'discovered']), ['my-own-pin', 'user']],
+            `pass ${index + 1} shows the CLI's rows and the user's own id, and no manifest row`,
+          )
+        })
+
+        // Clearing the catalog (no answer again) brings the seed back rather than
+        // an empty picker, and the discovered rows go with the catalog.
+        store.setCliModelCatalog('claude-code' as never, null)
+        const cleared = claudeModels()
+        assert.deepEqual(
+          cleared.map((model) => model.id),
+          seeded.map((model) => model.id),
+          'clearing the catalog restores exactly the seeded list',
         )
-      })
-
-      // The other half of the same rule, and the reason it is a union rather than
-      // an append: the discovered layer IS replaced, so a model the CLI stopped
-      // listing stops being claimed as discovered.
-      const final = claudeModels()
-      assert.equal(
-        final.find((model) => model.id === 'claude-sonnet-5')?.origin,
-        'discovered',
-        'the newest pass’s own row is present and claimed by the discovered layer',
-      )
-      assert.equal(
-        final.find((model) => model.id === 'claude-opus-5')?.origin,
-        'manifest',
-        'and Opus 5 is still there under the layer that actually vouches for it',
-      )
-
-      // Clearing the catalog is the fourth pass: the curated layers are still all
-      // there, so a failed probe can never empty a picker.
-      store.setCliModelCatalog('claude-code' as never, null)
-      const cleared = claudeModels().map((model) => model.id)
-      assert.ok(cleared.includes('claude-opus-5') && cleared.includes('my-own-pin'), cleared.join(', '))
-      assert.ok(!cleared.includes('claude-sonnet-5'), 'and the discovered rows are gone with the catalog')
-    })
+        assert.ok(!cleared.some((model) => model.id === 'claude-sonnet-5'), 'and the discovered rows are gone')
+      },
+    )
 
     // ── Seam 3: the effort picker × the effort-level launch ────────────────────────────
 

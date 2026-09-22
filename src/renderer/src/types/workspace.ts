@@ -265,9 +265,10 @@ export type AppSettings = {
    * A sibling of `cliRuntimes[id].models`, never the same store: that list is
    * the user's own escape hatch and must survive a refresh, while this one is
    * replaced wholesale every time the CLI is re-probed. No code path writes
-   * both. Pickers merge manifest ∪ this ∪ the user's list (mergeModelCatalog);
-   * absent means "never probed", and an entry with no models means "probed and
-   * the CLI listed nothing".
+   * both. Pickers show this, else the manifest seed, then the user's list
+   * (mergeModelCatalog); absent means "never probed", and an entry with no
+   * models means "probed and the CLI listed nothing", which the picker shows
+   * as the seed.
    */
   cliModelCatalog?: Partial<Record<AgentCli, DiscoveredCliModelCatalog>>
   keybindings: KeybindingSettings

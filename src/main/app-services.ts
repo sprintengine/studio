@@ -79,6 +79,7 @@ import {
   createWorkspaceSkillsService,
 } from './workspace-skills-service'
 import { createAgentLaunchSettingsMirror } from './launch-settings-mirror'
+import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
 import { createBackgroundModeStore } from './background-mode-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
 import { createTelemetryConsentStore } from './telemetry/consent-store'
@@ -382,6 +383,9 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       void writeDiagnosticLog({ ...diagnostic, source: 'agents' })
     },
   })
+  // A model-discovery pass main starts itself (boot, after an install) probes
+  // with the same per-CLI command and WSL overrides a launch would use.
+  setCliModelDiscoveryRuntimesResolver(() => agentLaunchSettings.get().cliRuntimes)
 
   // The Automations module (and its app front door) registers on the module
   // kernel AFTER app services are constructed; index.ts injects the resolver once

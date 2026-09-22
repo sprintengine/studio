@@ -490,6 +490,10 @@ function normalizeDiscoveredModel(input: unknown): DiscoveredCliModel | null {
   const defaultEffort = text(candidate.defaultEffort)
   if (defaultEffort) model.defaultEffort = defaultEffort
   if (typeof candidate.supportsFastMode === 'boolean') model.supportsFastMode = candidate.supportsFastMode
+  // Kept only as a parseable ISO timestamp: the "New" chip does date arithmetic
+  // on it, and a garbled value would either light a row up forever or never.
+  const firstSeenAt = text(candidate.firstSeenAt)
+  if (firstSeenAt && Number.isFinite(Date.parse(firstSeenAt))) model.firstSeenAt = firstSeenAt
   return model
 }
 
@@ -992,12 +996,12 @@ export interface SettingsSliceActions {
    * whose default named one of them falls back to the CLI's own default model
    * (no `--model` flag) rather than launching an id nothing offers.
    *
-   * Called when the user RETIRES an id from `cliRuntimes[cli].models` and no
-   * other catalog layer still supplies it. Deliberately not driven by the
-   * catalog going quiet: discovery under-reports (see mergeModelCatalog), and a
-   * persisted model the discovered layer merely stopped listing keeps launching
-   * — that is the "Not listed" row in CliModelPicker. An explicit removal is a
-   * different fact from an under-reporting probe, and only it forgets.
+   * Called when the user RETIRES an id from `cliRuntimes[cli].models` and the
+   * CLI's own list does not supply it either. Deliberately not driven by the
+   * catalog going quiet: a CLI may accept an id it does not advertise, so a
+   * persisted model the CLI merely stopped listing keeps launching — that is
+   * the "Not listed" row in CliModelPicker. An explicit removal is a different
+   * fact from a probe that no longer lists an id, and only it forgets.
    *
    * A reasoning-effort level survives, per the per-CLI effort ruling: the level
    * was chosen for the CLI, not for the model that just went away.

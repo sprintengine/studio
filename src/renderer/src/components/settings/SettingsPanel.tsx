@@ -9,7 +9,8 @@ import AppThemePicker from './AppThemePicker'
 import { resolveProjectKnowledgeConfig } from '../../utils/projectKnowledge'
 import { basename } from '../../utils/paths'
 import { formatRelativeMsAgo } from '../../utils/relativeTime'
-import { hostedFeedLine } from './hostedFeedLine'
+import { modelDiscoveryLine } from './modelDiscoveryLine'
+import type { DiscoveredCliModelCatalog } from '../../../../shared/cli-model-catalog'
 import { WorkspacePanel } from '../ui/WorkspacePanel'
 import {
   type ActionResult,
@@ -766,29 +767,30 @@ export function VersionControlSections({ githubToken }: { githubToken: React.Rea
   )
 }
 
-// The feed line (backlog/2026-09-04-hosted-update-and-model-feed.md, S6): what
-// the hosted model list is showing and where it came from, with the one manual
-// trigger. The words come from hostedFeedLine; the clock is the band's, so the
-// minute ages with "Checked 2 minutes ago" above it. Check now forces the fetch
-// past the hourly TTL; main pushes the change to every window, so the pickers
-// and the new-models notice follow without this row doing anything more.
-function HostedFeedRow({ now }: { now: number }) {
-  const result = useWorkspaceStore((s) => s.hostedModelFeed)
-  const refreshHostedModelFeed = useWorkspaceStore((s) => s.refreshHostedModelFeed)
-  const [checking, setChecking] = useState(false)
-  const line = hostedFeedLine(result, now)
+// One CLI's model list: where the rows in its picker came from, with the one
+// manual trigger. The words come from modelDiscoveryLine; the clock is the
+// band's, so "checked 2m ago" ages with it. Refresh re-asks every installed CLI
+// past the freshness window, and the answer replaces each CLI's list.
+function CliModelsRow({
+  name,
+  catalog,
+  error,
+  now,
+  refreshing,
+  onRefresh,
+}: {
+  name: string
+  catalog: DiscoveredCliModelCatalog | undefined
+  error: string | null
+  now: number
+  refreshing: boolean
+  onRefresh: () => void
+}) {
   return (
-    <SettingsRow label={line.primary} help={line.meta}>
-      <OutlineButton
-        size="xs"
-        disabled={checking}
-        onClick={() => {
-          setChecking(true)
-          void refreshHostedModelFeed({ force: true }).finally(() => setChecking(false))
-        }}
-      >
-        {checking ? <Spinner className="icon-sm" /> : null}
-        Check now
+    <SettingsRow label="Model list" help={modelDiscoveryLine({ name, catalog, error, now })}>
+      <OutlineButton size="xs" disabled={refreshing} onClick={onRefresh}>
+        {refreshing ? <Spinner className="icon-sm" /> : null}
+        Refresh
       </OutlineButton>
     </SettingsRow>
   )
@@ -811,8 +813,9 @@ export default function SettingsPanel({
   const doorBack = useSurfaceBackNav(onClose)
   const dialog = useConfirmDialog()
   const cliRuntimes = useWorkspaceStore((s) => s.appSettings.cliRuntimes)
-  // The discovered layer, read here only to answer "does anything still offer
-  // this id?" when the user retires one of their own.
+  // What each CLI reported about its models: the list and the line on each
+  // CLI's row, and the answer to "does anything still offer this id?" when
+  // the user retires one of their own.
   const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
   const pluginCatalogEntries = useWorkspaceStore((s) => s.pluginCatalogEntries)
   const pluginCatalogStatus = useWorkspaceStore((s) => s.pluginCatalogStatus)
@@ -874,6 +877,37 @@ export default function SettingsPanel({
   const setChatListView = useWorkspaceStore((s) => s.setChatListView)
   const setCliRuntime = useWorkspaceStore((s) => s.setCliRuntime)
   const forgetCliModels = useWorkspaceStore((s) => s.forgetCliModels)
+  const setCliModelCatalog = useWorkspaceStore((s) => s.setCliModelCatalog)
+  // The last Refresh: whether one is running, and why each CLI's probe failed.
+  // A failed probe keeps the last good list (the answer carries no catalog for
+  // it), so only the line changes.
+  const [modelRefresh, setModelRefresh] = useState<{ running: boolean; errors: Record<string, string> }>({
+    running: false,
+    errors: {},
+  })
+  const refreshCliModels = useCallback(async () => {
+    const api = typeof window === 'undefined' ? null : window.api
+    if (typeof api?.cliModelsDiscover !== 'function') return
+    setModelRefresh((current) => ({ ...current, running: true }))
+    try {
+      const result = await api.cliModelsDiscover({
+        force: true,
+        cliRuntimes,
+        previous: useWorkspaceStore.getState().appSettings.cliModelCatalog,
+      })
+      const errors: Record<string, string> = {}
+      for (const entry of result.entries) {
+        if (entry.catalog) setCliModelCatalog(entry.cli, entry.catalog)
+        if (entry.error) errors[entry.cli] = entry.error
+      }
+      setModelRefresh({ running: false, errors })
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error)
+      const errors: Record<string, string> = {}
+      for (const plugin of pluginCatalogEntries) errors[plugin.id] = message
+      setModelRefresh({ running: false, errors })
+    }
+  }, [cliRuntimes, pluginCatalogEntries, setCliModelCatalog])
   const keepRunningInBackground = useWorkspaceStore((s) => s.appSettings.keepRunningInBackground)
   const telemetryEnabled = useWorkspaceStore((s) => s.appSettings.telemetryEnabled)
   const setKeepRunningInBackground = useWorkspaceStore((s) => s.setKeepRunningInBackground)
@@ -1680,7 +1714,6 @@ export default function SettingsPanel({
               enabled={checkCliVersions}
               onChange={setCheckCliVersions}
             />
-            <HostedFeedRow now={agentsFreshnessNow} />
           </SettingCard>
           <ActionResultMessage message={cliInstallMessage} />
           {/* First-run agent-config adoption. It runs silently at the first
@@ -1732,6 +1765,15 @@ export default function SettingsPanel({
                 {installedPluginRows.map((plugin) => {
                   const override = cliRuntimeForPlugin(plugin.id, cliRuntimes)
                   const declaredModels = plugin.modelSelection?.options ?? []
+                  // What the picker offers before the user's own ids: the CLI's
+                  // own list once it has answered, else the manifest seed
+                  // (cliRuntimeOptions.mergeModelCatalog).
+                  const discoveredCatalog = cliModelCatalog?.[plugin.id]
+                  const discoveredModels = discoveredCatalog?.models ?? []
+                  const listedModels =
+                    discoveredModels.length > 0
+                      ? discoveredModels.map((model) => ({ id: model.id, label: model.displayName }))
+                      : declaredModels
                   const allowCustomModels = Boolean(plugin.modelSelection?.allowCustomId)
                   const userModels = cliRuntimes?.[plugin.id]?.models ?? EMPTY_USER_MODELS
                   const state = resolveCliProviderState(cliAvailability[plugin.id], cliAvailabilityStatus)
@@ -1867,16 +1909,26 @@ export default function SettingsPanel({
                         }}
                       />
 
-                      {declaredModels.length > 0 ? (
+                      {listedModels.length > 0 ? (
                         <div className="flex gap-2 text-body leading-5">
                           <span className="shrink-0 text-[color:var(--text-muted)]">Models</span>
                           <span className="min-w-0 font-mono text-[color:var(--text-default)]">
-                            {declaredModels.map((model) => model.label ?? model.id).join(' · ')}
+                            {listedModels.map((model) => model.label ?? model.id).join(' · ')}
                           </span>
                         </div>
                       ) : null}
 
                       <div className="mt-2 divide-y divide-[color:var(--border-subtle)]">
+                        {plugin.modelSelection ? (
+                          <CliModelsRow
+                            name={plugin.displayName}
+                            catalog={discoveredCatalog}
+                            error={modelRefresh.errors[plugin.id] ?? null}
+                            now={agentsFreshnessNow}
+                            refreshing={modelRefresh.running}
+                            onRefresh={() => void refreshCliModels()}
+                          />
+                        ) : null}
                         <SettingsRow
                           label="Command override"
                           help={
@@ -1923,15 +1975,13 @@ export default function SettingsPanel({
                               // Retiring an id must also retire it as a remembered
                               // launch default, or every spawn surface that named
                               // it keeps passing `--model <deleted id>` and the
-                              // agent dies on a model nothing offers. Only ids no
-                              // layer still supplies are forgotten: an id the
-                              // manifest seeds or the CLI reported is still a real
-                              // model, and the user only removed their own copy.
+                              // agent dies on a model nothing offers. Only ids the
+                              // picker no longer lists are forgotten: an id the
+                              // CLI reported (or, before it has, the manifest
+                              // seeds) is still a real model, and the user only
+                              // removed their own copy.
                               const remaining = new Set(models)
-                              const stillOffered = new Set([
-                                ...declaredModels.map((option) => option.id),
-                                ...(cliModelCatalog?.[plugin.id]?.models ?? []).map((model) => model.id),
-                              ])
+                              const stillOffered = new Set(listedModels.map((option) => option.id))
                               const retired = userModels.filter((id) => !remaining.has(id) && !stillOffered.has(id))
                               if (retired.length > 0) forgetCliModels(plugin.id, retired)
                             }}

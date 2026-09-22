@@ -73,7 +73,6 @@ import {
 import { createMemorySlice, defaultWorkspaceMemoryConfig } from './slices/memorySlice'
 import { createCliAvailabilitySlice, type CliAvailabilitySlice } from './slices/cliAvailabilitySlice'
 import { createPluginsSlice, type PluginsSlice } from './slices/pluginsSlice'
-import { createHostedModelFeedSlice, type HostedModelFeedSlice } from './slices/hostedModelFeedSlice'
 import { createHostedCardFeedSlice, type HostedCardFeedSlice } from './slices/hostedCardFeedSlice'
 import { createCliVersionAdvisorySlice, type CliVersionAdvisorySlice } from './slices/cliVersionAdvisorySlice'
 import {
@@ -126,7 +125,6 @@ export interface WorkspaceStore
   extends
     PluginsSlice,
     CliAvailabilitySlice,
-    HostedModelFeedSlice,
     HostedCardFeedSlice,
     CliVersionAdvisorySlice,
     WorkspacePaneSliceActions,
@@ -1162,7 +1160,6 @@ export const useWorkspaceStore: WorkspaceStoreHook = create<WorkspaceStore>()(
       ...createMemorySlice(set),
       ...createPluginsSlice(set),
       ...createCliAvailabilitySlice(set),
-      ...createHostedModelFeedSlice(set),
       ...createHostedCardFeedSlice(set),
       ...createCliVersionAdvisorySlice(set),
       ...createWorkspacePaneSlice(set),

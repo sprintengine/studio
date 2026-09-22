@@ -4,6 +4,7 @@ import { sweepRetiredCheckpoints } from './checkpoint-sweep'
 import { createBootReveal } from './boot-reveal'
 import { DEEP_LINK_SCHEMES } from './deep-link-scheme'
 import { runBootDiscovery } from './boot-discovery'
+import { discoverAndBroadcastCliModels } from './ipc/cli-model-discovery-ipc'
 import { closeSplashWindow, createSplashWindow, sendSplashProgress } from './splash-window'
 import { createMainWindow, markAppQuitInProgressForWindowClose, revealMainWindow } from './window-factory'
 import { markStartup } from './startup-timeline'
@@ -14,7 +15,6 @@ import { writeDiagnosticLog } from './diagnostics-service'
 import type { SprintEngineUpdateService } from './update-service'
 import { createHostedFeedPoller, type HostedFeedPoller } from './hosted-feed/poller'
 import { isCanvasWorkerWindow } from './canvas/canvas-worker-window'
-import { readHostedModelFeed } from './hosted-feed/hosted-feed-service'
 import { readHostedCardFeed } from './hosted-feed/card-feed-service'
 import { readHostedSourcesFeed } from './hosted-feed/sources-feed-service'
 import { readCliVersionAdvisories } from './cli-version-advisory-service'
@@ -87,6 +87,10 @@ type RegisterAppLifecycleOptions = {
   /** The plugin-source update check (skills service); rides the hourly feed leg. */
   checkPluginSourceUpdates?: () => Promise<unknown>
 }
+
+// How long after boot CLI detection settles the first model discovery pass
+// runs; see the call site.
+const BOOT_MODEL_DISCOVERY_DELAY_MS = 10_000
 
 export function registerAppLifecycle({
   diagnosticsEnabled,
@@ -163,6 +167,7 @@ export function registerAppLifecycle({
   })
 
   let hostedFeedPoller: HostedFeedPoller | null = null
+  let bootModelDiscoveryTimer: ReturnType<typeof setTimeout> | null = null
 
   app.whenReady().then(async () => {
     markStartup('main.app-ready')
@@ -218,10 +223,20 @@ export function registerAppLifecycle({
         if (!app.isPackaged) return
         await updateService.checkForUpdates(false)
       },
-    }).finally(() => markStartup('main.discovery-settled'))
+    }).finally(() => {
+      markStartup('main.discovery-settled')
+      // Model discovery follows CLI detection, whose 60 s cache it reads, and
+      // waits a little longer so the probes do not compete with the renderer's
+      // first paint. Each CLI is re-probed only when its catalog is a day old or
+      // its version changed, so on most launches this spawns nothing.
+      bootModelDiscoveryTimer = setTimeout(() => {
+        bootModelDiscoveryTimer = null
+        void discoverAndBroadcastCliModels().catch(() => undefined)
+      }, BOOT_MODEL_DISCOVERY_DELAY_MS)
+    })
 
-    // What the studio pulls on its own after boot: the hosted model feed, the
-    // hosted card feed and the CLI version advisories 15 s after the window is
+    // What the studio pulls on its own after boot: the hosted card and sources
+    // feeds and the CLI version advisories 15 s after the window is
     // up and then hourly, app updates every four minutes — often enough that a
     // session left open all day still learns about a same-day release.
     // The boot leg above keeps the one immediate update check; the poller's
@@ -232,7 +247,7 @@ export function registerAppLifecycle({
         if (!app.isPackaged) return
         await updateService.checkForUpdates(false)
       },
-      // Four riders on one hour. The plugin-source update check rides the feed
+      // Three riders on one hour. The plugin-source update check rides the feed
       // leg for the cadence it wants and one fewer timer
       // (backlog/2026-09-05-plugin-sources.md), and the card feed rides it for
       // the same reason — this is the ONLY thing in the app that ever fetches
@@ -255,7 +270,6 @@ export function registerAppLifecycle({
       // poller still reports the leg as failed.
       refreshFeed: async () => {
         const failures: unknown[] = []
-        await readHostedModelFeed().catch((error) => void failures.push(error))
         await readHostedCardFeed().catch((error) => void failures.push(error))
         await readHostedSourcesFeed().catch((error) => void failures.push(error))
         await checkPluginSourceUpdates?.().catch(() => undefined)
@@ -324,6 +338,7 @@ export function registerAppLifecycle({
       // self-scheduled loops and flip shutting-down flags so no new work is
       // dispatched while shared infrastructure tears down.
       await moduleKernel?.runShutdownBegin()
+      if (bootModelDiscoveryTimer) clearTimeout(bootModelDiscoveryTimer)
       hostedFeedPoller?.stop()
       await automationService?.shutdown()
       await agentStateService?.shutdown()

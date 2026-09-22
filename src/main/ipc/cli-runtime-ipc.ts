@@ -10,6 +10,7 @@ import type {
 } from '../../shared/electron-api'
 import { invalidateCliAvailability } from '../cli-availability'
 import { cliInstallMethods, detectCli, installCli, updateCli } from '../cli-runtime-install'
+import { discoverAndBroadcastCliModels } from './cli-model-discovery-ipc'
 
 type DetectInput = { cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }
 type MethodsInput = { cli: AgentCli; runtime?: Partial<CliRuntimeSettings> }
@@ -31,7 +32,7 @@ export function registerCliRuntimeIpc(ipcMain: IpcMain): void {
     })
     // Drop any cached "not installed" probe so the next availability detect for
     // this CLI re-runs against the freshly installed binary.
-    if (result.ok && result.installed) invalidateCliAvailability(input.cli)
+    if (result.ok && result.installed) refreshAfterInstall(input.cli, input.runtime)
     return result
   })
   // Update action: the CLI's own updater where the manifest declares
@@ -44,7 +45,18 @@ export function registerCliRuntimeIpc(ipcMain: IpcMain): void {
         event.sender.send(channel, chunk)
       }
     })
-    if (result.ok && result.installed) invalidateCliAvailability(input.cli)
+    if (result.ok && result.installed) refreshAfterInstall(input.cli, input.runtime)
     return result
   })
+}
+
+// A new binary is a new model list: the version it reports no longer matches
+// the one that produced the stored catalog, so this pass re-probes it (and a
+// first install gets its first catalog) without waiting for the next refresh.
+// Not awaited — the install result goes back to Settings at once.
+function refreshAfterInstall(cli: AgentCli, runtime: Partial<CliRuntimeSettings> | undefined): void {
+  invalidateCliAvailability(cli)
+  void discoverAndBroadcastCliModels({ clis: [cli], ...(runtime ? { cliRuntimes: { [cli]: runtime } } : {}) }).catch(
+    () => undefined,
+  )
 }

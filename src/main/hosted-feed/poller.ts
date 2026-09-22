@@ -1,5 +1,6 @@
 // The one background scheduler for what the studio pulls from the network on
-// its own: app updates, the hosted model feed, and CLI version advisories.
+// its own: app updates, the hosted card and sources feeds, and CLI version
+// advisories.
 // The cadence: feed and versions 15 s after the window is up and then hourly
 // with a few minutes of jitter, updates every four minutes. A leg never
 // overlaps itself, never runs offline, and never runs a subprocess probe —

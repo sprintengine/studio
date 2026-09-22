@@ -1,8 +1,7 @@
 // The hosted card feed: `cards-feed.json` at the root of the public
 // sprintengine/studio-releases repo, built by CI from the one-directory-per-card
 // repository, fetched raw by every running studio and rendered as the Extensions
-// home page. It is how a card reaches every install without an app release —
-// the same mechanism the model feed already proved
+// home page. It is how a card reaches every install without an app release
 // (backlog/2026-09-06-the-card-feed-is-a-hosted-file.md, item 2465).
 //
 // A card travels as data and never as code. It carries copy, the *name* of an

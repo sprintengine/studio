@@ -1,6 +1,5 @@
 #!/usr/bin/env node
-// The sources seed gate (test:sources), the third of check-model-feed-seed.mjs
-// and check-card-feed-seed.mjs.
+// The sources seed gate (test:sources), the twin of check-card-feed-seed.mjs.
 //
 // `resources/sources.json` is the recommended-sources list a fresh install
 // offers before it has ever reached GitHub (owner ruling 2026-09-08):

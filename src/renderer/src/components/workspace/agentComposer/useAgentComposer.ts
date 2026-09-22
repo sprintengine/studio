@@ -157,7 +157,10 @@ export function useAgentComposer({
   const pluginCatalogError = useWorkspaceStore((s) => s.pluginCatalogError)
   const cliAvailability = useWorkspaceStore((s) => s.cliAvailability)
   const cliAvailabilityStatus = useWorkspaceStore((s) => s.cliAvailabilityStatus)
-  const hostedModelCatalogs = useWorkspaceStore((s) => s.hostedModelCatalogs)
+  // What each installed CLI reported about its models. Without it this surface
+  // would offer only the manifest seed while every other picker offers the
+  // CLI's own list.
+  const cliModelCatalog = useWorkspaceStore((s) => s.appSettings.cliModelCatalog)
 
   const agentCliOptions = React.useMemo(
     () =>
@@ -169,17 +172,9 @@ export function useAgentComposer({
           map: cliAvailability,
           status: cliAvailabilityStatus,
         },
-        undefined,
-        hostedModelCatalogs,
+        cliModelCatalog,
       ),
-    [
-      pluginCatalogStatus,
-      pluginCatalogEntries,
-      cliRuntimes,
-      cliAvailability,
-      cliAvailabilityStatus,
-      hostedModelCatalogs,
-    ],
+    [pluginCatalogStatus, pluginCatalogEntries, cliRuntimes, cliAvailability, cliAvailabilityStatus, cliModelCatalog],
   )
   // This machine has no agent CLI. The catalog is availability-
   // filtered, so an empty one on a READY registry is the honest answer — a

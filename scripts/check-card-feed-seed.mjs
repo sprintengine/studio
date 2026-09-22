@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// The card seed gate (test:card-feed), the twin of check-model-feed-seed.mjs.
+// The card seed gate (test:card-feed), the twin of check-sources-seed.mjs.
 //
 // A card in the bundled seed is the first thing a fresh install shows, and its
 // Go runs without asking (epic ruling R4). So the seed may only name things this

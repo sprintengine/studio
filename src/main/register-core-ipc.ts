@@ -11,6 +11,7 @@ import { registerBacklogIpc } from './ipc/backlog-ipc'
 import { registerBuiltinSkillsIpc } from './ipc/builtin-skills-ipc'
 import { registerStudioPluginIpc } from './ipc/studio-plugin-ipc'
 import { registerCliRuntimeIpc } from './ipc/cli-runtime-ipc'
+import { registerCliModelDiscoveryIpc } from './ipc/cli-model-discovery-ipc'
 import { registerTextGenerationIpc } from './ipc/text-generation-ipc'
 import { registerClipboardIpc } from './ipc/clipboard-ipc'
 import { createConversationIpcHandlers, registerConversationIpc } from './ipc/conversation-ipc'
@@ -32,7 +33,7 @@ import { registerMemoryIpc } from './ipc/memory-ipc'
 import { registerMenuDialogIpc } from './ipc/menu-dialog-ipc'
 import { registerMarketplacePluginIpc } from './ipc/marketplace-plugin-ipc'
 import { registerMarketplaceRegistryIpc } from './ipc/marketplace-registry-ipc'
-import { registerHostedModelFeedIpc } from './ipc/hosted-feed-ipc'
+import { registerHostedSourcesFeedIpc } from './ipc/hosted-feed-ipc'
 import { registerHostedCardFeedIpc } from './ipc/card-feed-ipc'
 import { registerCardsIpc } from './ipc/cards-ipc'
 import { registerCliVersionIpc } from './ipc/cli-version-ipc'
@@ -96,6 +97,7 @@ export function registerCoreIpc(
   registerWorkspaceBackupIpc(ipcMain, services.workspaceBackupService)
   registerClipboardIpc(ipcMain)
   registerCliRuntimeIpc(ipcMain)
+  registerCliModelDiscoveryIpc(ipcMain)
   registerTextGenerationIpc(ipcMain)
   // Voice dictation is a dev-only capability (the `voice-dictation` module). Its
   // main IPC is not yet a capability module, so gate it on the build channel
@@ -162,7 +164,7 @@ export function registerCoreIpc(
   registerBackgroundModeIpc(ipcMain, services.backgroundModeStore)
   registerTelemetryIpc(ipcMain, services.telemetryConsentStore)
   registerMarketplaceRegistryIpc(ipcMain)
-  registerHostedModelFeedIpc(ipcMain)
+  registerHostedSourcesFeedIpc(ipcMain)
   registerHostedCardFeedIpc(ipcMain)
   // Go, on a card on the Extensions home. Registered after the skills and MCP
   // services it composes, because it is those services said in one press.

@@ -318,6 +318,43 @@ export function defaultProbeEnv(): NodeJS.ProcessEnv {
   return managedInstallEnv() ?? stringProcessEnv()
 }
 
+// Runs an installed CLI with fixed arguments through the same host shell the
+// version probe uses (login bash on POSIX, PowerShell on Windows, wsl.exe for a
+// WSL runtime), so a command that detection found is the command that runs.
+// POSIX `exec`s the binary so the deadline's kill reaches the CLI itself rather
+// than only the shell wrapped around it; PowerShell hands the CLI's own exit
+// code back. Model discovery is the caller: `codex debug models` and siblings.
+export function buildCommandDescriptor(input: {
+  binary: string
+  args: string[]
+  target: PluginInstallPlatform
+}): SpawnDescriptor {
+  const { binary, args, target } = input
+  if (isPosixTarget(target)) {
+    return shellDescriptorForScript(target, `exec ${[binary, ...args].map(posixSingleQuote).join(' ')}`)
+  }
+  const argv = [binary, ...args].map(powerShellSingleQuote).join(' ')
+  return shellDescriptorForScript(target, `& ${argv}\nexit $LASTEXITCODE`)
+}
+
+export type CliCommandOutcome = RunOutcome
+
+export async function runCliCommand(input: {
+  binary: string
+  args: string[]
+  useWsl: boolean
+  timeoutMs: number
+  env?: NodeJS.ProcessEnv
+}): Promise<CliCommandOutcome> {
+  const target = resolveInstallPlatform(process.platform, input.useWsl)
+  return runDescriptor(
+    buildCommandDescriptor({ binary: input.binary, args: input.args, target }),
+    undefined,
+    input.env ?? defaultProbeEnv(),
+    input.timeoutMs,
+  )
+}
+
 // Outcome of probing a binary the app does not manage as an Agent CLI (`git`,
 // `gh`). The three cases stay distinct: a probe that could not answer is never
 // reported as a missing binary, and a resolved outcome always carries a real

@@ -20,8 +20,6 @@ commit or squash, never rebase, with Conventional Commit titles; see
 - Do not manually edit the app version. Stable tags are the release version
   ledger; the workflow stamps `package.json` before compilation and packaging.
   The committed version remains a development baseline. SDK versions are separate.
-- If refreshing the model feed, run `npm run sync:model-feed` and commit the
-  result before merging. CI must not fetch a different seed into the source tree.
 - Keep the download site's release-notes data in step with releases if using its
   version-specific What's New section.
 - Keep macOS signing credentials configured: the `CSC_*` pair and `APPLE_*`
