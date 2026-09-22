@@ -24,6 +24,12 @@ export type {
 import type { BuildStamp } from './build-stamp'
 export type { BuildStamp } from './build-stamp'
 import type {
+  InstalledSkillsInput,
+  InstalledSkillsResult,
+  InstalledSkillRemoveInput,
+  InstalledSkillRemoveResult,
+} from './installed-skills'
+import type {
   BrowserCaptureInput,
   BrowserClearResult,
   BrowserConfig,
@@ -1027,6 +1033,8 @@ export type ElectronApi = {
   adoptAgentConfig: (input: AgentConfigAdoptInput) => Promise<AgentConfigAdoptResult>
   mcpSync: (input: McpSyncInput) => Promise<McpSyncResult>
   workspaceSkillsList: (input: WorkspaceSkillsListInput) => Promise<WorkspaceSkillsListResult>
+  installedSkillsList: (input: InstalledSkillsInput) => Promise<InstalledSkillsResult>
+  installedSkillRemove: (input: InstalledSkillRemoveInput) => Promise<InstalledSkillRemoveResult>
   // Everything the agent in one CLI can reach in one workspace, in one call:
   // its skills, its MCP servers, and any path that failed to read.
   agentCapabilities: (input: AgentCapabilitiesInput) => Promise<AgentCapabilitiesResult>

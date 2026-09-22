@@ -56,7 +56,7 @@ import { mcpIconSlug } from '../../ui/mcpIconSlug'
 import SprintEngineFrond from '../../brand/SprintEngineFrond'
 import { CliInstallCta } from '../cliInstallRoute'
 import {
-  AGENT_SPAWN_PERMISSION_OPTIONS,
+  agentPermissionOptions,
   menuRadioRowKeyDown,
   nearestRemotePermissionPreset,
   REMOTE_PERMISSION_PRESETS,
@@ -71,6 +71,7 @@ import { showToast } from '../../../store/toastStore'
 import { SkillsAndMcpsPicker } from './SkillsAndMcpsPicker'
 import { launchCommandLineKey, launchPreviewRequest, type LaunchCommandLineState } from './launchCommandLine'
 import { drawSuggestions, newSuggestionSeed, type SuggestionEntry } from './suggestionBank'
+import { FEATURE_FLAGS } from '../../../featureFlags'
 import {
   rowMatchesSelection,
   useAgentComposer,
@@ -89,6 +90,8 @@ export type NewAgentProjectOption = { path: string; label: string }
 
 export type NewAgentPanelProps = {
   workspaceId: string
+  /** Development gate for the unfinished conversation runtime. */
+  conversationModeEnabled?: boolean
   conversationAvailable: boolean
   /**
    * Ask the host to load the conversation provider catalog. `conversationAvailable`
@@ -338,6 +341,7 @@ export function sortMachines(machines: FleetConnection[]): FleetConnection[] {
  */
 export default function NewAgentPanel({
   workspaceId,
+  conversationModeEnabled = FEATURE_FLAGS.conversationMode,
   conversationAvailable,
   onRequestConversationCatalog,
   folderPath,
@@ -362,7 +366,7 @@ export default function NewAgentPanel({
   const [draft] = React.useState(() => (draftKey ? readNewChatDraft(draftKey) : null))
   const composer = useAgentComposer({
     showTerminal: true,
-    conversationAvailable,
+    conversationAvailable: conversationModeEnabled && conversationAvailable,
     initialSelection: draft?.selection ?? initialSelection,
     initialMcpServers: draft ? mergeDraftConnectors(initialMcpServers, draft.mcpServers) : initialMcpServers,
     initialSkills: draft?.skills,
@@ -814,8 +818,8 @@ export default function NewAgentPanel({
     if (REMOTE_PERMISSION_PRESETS.has(effectivePreset)) return
     const next = nearestRemotePermissionPreset(effectivePreset)
     const from =
-      AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === effectivePreset)?.label ?? effectivePreset
-    const to = AGENT_SPAWN_PERMISSION_OPTIONS.find((option) => option.value === next)?.label ?? next
+      agentPermissionOptions(launchCli).find((option) => option.value === effectivePreset)?.label ?? effectivePreset
+    const to = agentPermissionOptions(launchCli).find((option) => option.value === next)?.label ?? next
     // The move is written against the ROW the machine refused it for, so
     // picking a local model back does not inherit the remote's narrowing.
     setModelPermissionPreset(launchCli, model ?? null, next)
@@ -1004,8 +1008,9 @@ export default function NewAgentPanel({
 
   // Ask once per open, so a provider configured since last time shows up.
   React.useEffect(() => {
+    if (!conversationModeEnabled) return
     onRequestConversationCatalog?.()
-  }, [onRequestConversationCatalog])
+  }, [conversationModeEnabled, onRequestConversationCatalog])
 
   // Escape cancels from anywhere on the surface — the prompt is where focus
   // starts, but a person who has tabbed to a chip must not be trapped. The
@@ -1365,15 +1370,15 @@ export default function NewAgentPanel({
                   // you trust the next in — so it is chosen where the model is,
                   // remembered against that row, and sits on the picker's one
                   // trailing row beside the effort control.
-                  permissions={
+                  permissions={(cli, rowModel) => (
                     <SpawnPermissionFooter
-                      cli={launchCli}
-                      model={model ?? null}
+                      cli={cli}
+                      model={rowModel}
                       fallback={permissionPreset}
                       {...(remotePresetReasons ? { disabledReasons: remotePresetReasons } : {})}
                       onSelect={() => setRemoteNote(null)}
                     />
-                  }
+                  )}
                 />
               </Popover>
             ) : null}
@@ -1478,6 +1483,7 @@ export default function NewAgentPanel({
               >
                 <MoreMenu
                   selection={selection}
+                  conversationModeEnabled={conversationModeEnabled}
                   conversationAvailable={conversationAvailable}
                   onSelectKind={(next) => {
                     composer.setSelection(next)
@@ -1890,6 +1896,7 @@ function RemoteProjectPicker({
  */
 function MoreMenu({
   selection,
+  conversationModeEnabled,
   conversationAvailable,
   onSelectKind,
   onOpenProviderSettings,
@@ -1902,6 +1909,7 @@ function MoreMenu({
   onToggleDebug,
 }: {
   selection: AgentComposerSelection
+  conversationModeEnabled: boolean
   conversationAvailable: boolean
   onSelectKind: (next: AgentComposerSelection) => void
   onOpenProviderSettings: () => void
@@ -1942,28 +1950,26 @@ function MoreMenu({
         hint="A plain shell — no agent"
         onClick={() => onSelectKind({ kind: 'terminal' })}
       />
-      {/* Always listed, never silently absent. Hiding it when no provider is
-          configured left the option looking unimplemented rather than
-          unconfigured — the same reason the roster shows an install route
-          instead of dropping the CLI rows. */}
-      <MenuRow
-        selected={selection.kind === 'conversation'}
-        disabled={!conversationAvailable}
-        // "Chat", not "Conversation agent": the trio reads as what you GET —
-        // an agent in a terminal, a plain shell, or an agent in a window — and
-        // "conversational agent" names the mechanism instead. The app already
-        // calls this door New chat and renders it through AgentChatView.
-        label="Chat"
-        hint={
-          conversationAvailable
-            ? 'An agent in a chat window — no terminal'
-            : 'Needs a model provider — connect one in Settings'
-        }
-        onClick={() => {
-          if (conversationAvailable) onSelectKind({ kind: 'conversation' })
-          else onOpenProviderSettings()
-        }}
-      />
+      {conversationModeEnabled ? (
+        <MenuRow
+          selected={selection.kind === 'conversation'}
+          disabled={!conversationAvailable}
+          // "Chat", not "Conversation agent": the trio reads as what you GET —
+          // an agent in a terminal, a plain shell, or an agent in a window — and
+          // "conversational agent" names the mechanism instead. The app already
+          // calls this door New chat and renders it through AgentChatView.
+          label="Chat"
+          hint={
+            conversationAvailable
+              ? 'An agent in a chat window — no terminal'
+              : 'Needs a model provider — connect one in Settings'
+          }
+          onClick={() => {
+            if (conversationAvailable) onSelectKind({ kind: 'conversation' })
+            else onOpenProviderSettings()
+          }}
+        />
+      ) : null}
       <div className={MENU_DIVIDER_CLASS} role="separator" />
 
       {/* A conversation has no repo checkout of its own, so no worktree. */}

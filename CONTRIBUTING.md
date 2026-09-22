@@ -182,22 +182,39 @@ so the cost of getting it wrong is a round trip.
 
 ## Commit messages
 
-Commit subjects in this repository are plain English sentences that say what
-is now true, in the present tense. They describe the change and its point, not
-the mechanics. No type prefixes, no ticket numbers, no trailing full stop.
-
-Real examples from the log:
+Commit subjects and pull request titles must use [Conventional Commits](https://www.conventionalcommits.org/en/v1.0.0/):
 
 ```
-The file tree says what each file IS
-An image attachment opens in the system viewer
-OpenCode's config env takes the context path as a JSON literal
-The peek stopped closing itself a frame after it opened
-The test projects typecheck again
+feat: add workspace search
+fix(updates): retry interrupted downloads
+feat!: remove the legacy workspace format
 ```
 
-Write the body, if you need one, the same way: prose explaining why the change
-was made and anything a reviewer would otherwise have to reconstruct.
+The format is `type(scope)!: description`; scope and `!` are optional. Use a
+plain description of what changed, without private ticket numbers or a trailing
+full stop. Accepted types are `feat`, `fix`, `perf`, `refactor`, `docs`,
+`style`, `test`, `build`, `ci`, `chore` and `revert`.
+
+Every merge to `main` builds a stable desktop release after the quality gate:
+
+| Commit | Version bump |
+|---|---|
+| Any type with `!` or a `BREAKING CHANGE: description` footer | Major, including from 0.x |
+| `feat` without a breaking change | Minor |
+| Every other accepted type | Patch |
+
+Squash merge pull requests. GitHub uses the PR title as the commit subject and
+its body as the commit body, so the required **Conventional PR title** check
+validates the message used for versioning. Mark breaking changes in that title
+or body even if a branch commit already describes them. Write the body as prose
+explaining why the change was made and what a reviewer needs to know.
+
+Do not manually bump the app version for a main release. The workflow derives
+it from the preceding stable tag and the strongest change since that tag,
+stamps the build before compilation, and publishes installers and updater
+manifests together. Package versions for the independently published SDKs are
+managed separately. See [the release checklist](docs/release-checklist.md) for
+retries, manual releases and repository enforcement settings.
 
 ## Pull requests
 

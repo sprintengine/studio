@@ -845,8 +845,27 @@ type ClaudeSettings = {
 // backslashes must survive (a separator rewrite would corrupt it to
 // `//./pipe/...`, which connect() can't open); on POSIX it has none. Both args
 // are double-quoted so spaces survive the shell.
-export function buildAgentStateReporterCommand(scriptPath: string, socketPath: string): string {
-  return `node "${scriptPath.split(sep).join('/')}" --socket "${socketPath}"`
+export type AgentStateCommandRuntime = {
+  executable: string
+  env?: Record<string, string>
+}
+
+function quotePosixCommandArgument(value: string): string {
+  return `'${value.replace(/'/gu, `'"'"'`)}'`
+}
+
+function commandRuntimePrefix(runtime?: AgentStateCommandRuntime): string {
+  if (!runtime) return 'node'
+  const env = Object.entries(runtime.env ?? {}).map(([key, value]) => `${key}=${quotePosixCommandArgument(value)}`)
+  return ['env', ...env, quotePosixCommandArgument(runtime.executable)].join(' ')
+}
+
+export function buildAgentStateReporterCommand(
+  scriptPath: string,
+  socketPath: string,
+  runtime?: AgentStateCommandRuntime,
+): string {
+  return `${commandRuntimePrefix(runtime)} "${scriptPath.split(sep).join('/')}" --socket "${socketPath}"`
 }
 
 async function readJsonIfExists<T>(path: string): Promise<T | null> {
@@ -1041,8 +1060,9 @@ export function buildStatusLineForwarderCommand(
   scriptPath: string,
   socketPath: string,
   wrapped: WrappedStatusLine | null,
+  runtime?: AgentStateCommandRuntime,
 ): string {
-  const base = `node "${scriptPath.split(sep).join('/')}" --socket "${socketPath}"`
+  const base = buildAgentStateReporterCommand(scriptPath, socketPath, runtime)
   const command = typeof wrapped?.statusLine.command === 'string' ? wrapped.statusLine.command : null
   if (!command) return base
   const envelope = Buffer.from(JSON.stringify({ command }), 'utf8').toString('base64')
@@ -1417,7 +1437,13 @@ function removeStatusLineForwarder(settings: ClaudeSettings): void {
 async function prepareStatusLineForwarder(
   workspaceRoot: string,
   settingsPath: string,
-  options: { statusLineScriptPath: string; socketPath: string; homeDir: string; env: NodeJS.ProcessEnv },
+  options: {
+    statusLineScriptPath: string
+    socketPath: string
+    homeDir: string
+    env: NodeJS.ProcessEnv
+    commandRuntime?: AgentStateCommandRuntime
+  },
 ): Promise<StatusLineForwarderInstall | null> {
   try {
     const resolved = await resolveWrappedStatusLine(settingsPath, {
@@ -1431,7 +1457,12 @@ async function prepareStatusLineForwarder(
     if (resolved.kind === 'remove') return { action: 'remove' }
     if (!existsSync(options.statusLineScriptPath)) return null
     const destScript = resolve(workspaceRoot, STATUS_LINE_HOOK_SCRIPT_REL)
-    const command = buildStatusLineForwarderCommand(destScript, options.socketPath, resolved.wrapped)
+    const command = buildStatusLineForwarderCommand(
+      destScript,
+      options.socketPath,
+      resolved.wrapped,
+      options.commandRuntime,
+    )
     // A command the platform will not run is not one to install: cmd.exe caps a
     // command line at 8191 characters, and the base64 envelope is a third longer
     // than what it carries. Their status line stays exactly as it is.
@@ -1736,6 +1767,7 @@ export async function installAgentStateReporter(
     // the install writes hooks only — a missing forwarder must never cost a
     // workspace its agent state.
     statusLineScriptPath?: string | null
+    commandRuntime?: AgentStateCommandRuntime
     // Environment the Claude settings precedence is read against
     // (CLAUDE_CONFIG_DIR). Injected so tests never read the real one.
     env?: NodeJS.ProcessEnv
@@ -1773,7 +1805,7 @@ export async function installAgentStateReporter(
         : resolve(workspaceRoot, AGENT_STATE_HOOK_SCRIPT_REL)
     await mkdir(resolve(destScript, '..'), { recursive: true })
     await copyFile(options.sourceScriptPath, destScript)
-    const command = buildAgentStateReporterCommand(destScript, options.socketPath)
+    const command = buildAgentStateReporterCommand(destScript, options.socketPath, options.commandRuntime)
     const events = registeredAgentStateEvents(spec)
 
     switch (registration.kind) {
@@ -1790,6 +1822,7 @@ export async function installAgentStateReporter(
                 socketPath: options.socketPath,
                 homeDir,
                 env: options.env ?? process.env,
+                commandRuntime: options.commandRuntime,
               })
             : null
         await mergeAgentStateHooks(targetPath, command, events, statusLine)

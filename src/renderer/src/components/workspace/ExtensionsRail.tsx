@@ -133,7 +133,7 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
     // a person walks, and its square stays PRESSED while the tool it holds is up
     // (principles, "The app rail"). Same state, two honest readings; what would
     // be wrong is one row of this column disagreeing with the row above it.
-    <div className="flex min-h-0 flex-1 flex-col">
+    <div data-control-tab-context="extensions" className="flex min-h-0 flex-1 flex-col">
       <div className="shrink-0 border-b border-[color:var(--border-subtle)] px-2 pb-2 pt-2">
         <SidebarNavButton
           collapsed={collapsed}
@@ -161,7 +161,7 @@ export function ExtensionsRail({ collapsed }: ExtensionsRailProps) {
         className="mx-2 mt-1 flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto"
       >
         {rows.map((row) => (
-          <div key={row.key} role="listitem" className="flex flex-col">
+          <div key={row.key} role="listitem" data-control-tab-context-item={row.key} className="flex flex-col">
             {row.node}
           </div>
         ))}

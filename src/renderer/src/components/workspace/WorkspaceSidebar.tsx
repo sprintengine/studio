@@ -2928,6 +2928,7 @@ export default function WorkspaceSidebar({
           ref={treeRef}
           className={`flex-1 overflow-y-auto pb-2 ${homeHidden ? 'hidden' : ''}`}
           role="tree"
+          data-control-tab-scope
           onScroll={(event) => {
             treeScrollTopRef.current = event.currentTarget.scrollTop
           }}

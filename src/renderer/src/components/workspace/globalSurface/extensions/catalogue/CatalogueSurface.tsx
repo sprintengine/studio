@@ -205,7 +205,13 @@ export function CatalogueSurface<T>({
     acrossSources && search.query.trim() !== '' ? `${title} across all sources` : `${title} in ${activeTabLabel}`
 
   return (
-    <GlobalSurfaceShell ariaLabel={title} bar={bar} onBack={back.onBack} canGoBack={back.canGoBack}>
+    <GlobalSurfaceShell
+      ariaLabel={title}
+      bar={bar}
+      onBack={back.onBack}
+      canGoBack={back.canGoBack}
+      controlTabContext="extensions"
+    >
       <div className="flex h-full min-h-0 flex-col">
         <div className="flex shrink-0 items-end gap-1 border-b border-[color:var(--border-default)] px-5">
           <Tabs

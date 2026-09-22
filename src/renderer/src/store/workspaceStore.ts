@@ -83,6 +83,7 @@ import {
   normalizeWorkspaceForPartialize,
 } from './slices/normalizers'
 import { keepLaterWorkspaceClocks } from '../utils/workspaceRecency'
+import { isPlaceholderAgentName } from '../utils/agentNames'
 import { applyWorkspaceFieldsPatch } from '../../../shared/workspace-sync'
 import { isRetiredWorkspaceMode } from '../../../shared/workspace-mode'
 import {
@@ -478,6 +479,17 @@ function preserveAgentTerminalMetadata(
   let changed = false
   const nextAgents = { ...incomingWorkspace.agents }
   for (const [agentId, currentAgent] of Object.entries(currentWorkspace.agents)) {
+    const incomingAgent = nextAgents[agentId]
+    // A session event could seed main with only an id before the window sent
+    // its agent config. Keep a recoverable name until it is written back.
+    if (
+      incomingAgent &&
+      isPlaceholderAgentName(incomingAgent.name, agentId) &&
+      !isPlaceholderAgentName(currentAgent.name, agentId)
+    ) {
+      nextAgents[agentId] = { ...incomingAgent, name: currentAgent.name }
+      changed = true
+    }
     if (
       !currentAgent.cliStartRequested &&
       !currentAgent.cliHasLaunched &&
@@ -486,16 +498,15 @@ function preserveAgentTerminalMetadata(
       !currentAgent.cliOnboardingPromptSent
     )
       continue
-    const incomingAgent = nextAgents[agentId] ?? defaultAgent(agentId)
     nextAgents[agentId] = {
-      ...incomingAgent,
+      ...(nextAgents[agentId] ?? currentAgent),
       cliSessionId: currentAgent.cliSessionId,
       cliStartRequested: currentAgent.cliStartRequested,
       cliHasLaunched: currentAgent.cliHasLaunched,
       cliOnboardingPromptSent: currentAgent.cliOnboardingPromptSent,
       cliResumeAvailable: currentAgent.cliResumeAvailable,
       cliUsesStableSessionId: currentAgent.cliUsesStableSessionId,
-      cli: currentAgent.cli ?? incomingAgent.cli,
+      cli: currentAgent.cli ?? incomingAgent?.cli,
     }
     changed = true
   }
@@ -1474,7 +1485,62 @@ function adoptRegistrySnapshot(rawSnapshot: import('../../../shared/workspace-sy
   for (const healed of healedLayouts) {
     void workspaceSyncClient.dispatchUpdateWorkspaceLayout(healed.id, healed.layoutModel)
   }
+  // A window may still remember a name that main lost. Persist that recovery
+  // before consulting terminal metadata, which may carry an older launch name.
+  const adopted = useWorkspaceStore.getState().workspaces
+  for (const raw of snapshot.state.workspaces) {
+    const workspace = adopted.find((candidate) => candidate.id === raw.id)
+    for (const [id, agent] of Object.entries(workspace?.agents ?? {})) {
+      if (isPlaceholderAgentName(raw.agents[id]?.name, id) && !isPlaceholderAgentName(agent.name, id)) {
+        void workspaceSyncClient.dispatchUpdateWorkspaceAgent(raw.id, id, raw.agents[id] ? { name: agent.name } : agent)
+      }
+    }
+  }
+  if (
+    adopted.some((workspace) =>
+      Object.entries(workspace.agents).some(([id, agent]) => isPlaceholderAgentName(agent.name, id)),
+    )
+  ) {
+    void repairRegistryAgentNames()
+  }
   resolveWorkspaceRegistryReady()
+}
+
+async function repairRegistryAgentNames(): Promise<void> {
+  // Read retained sessions too: a paused agent can still carry its original
+  // name. Re-read the store after the await so a rename or removal wins.
+  const sessions = (await window.api?.terminalList?.().catch(() => [])) ?? []
+  const repairs: { workspaceId: string; agentId: string; name: string }[] = []
+  useWorkspaceStore.setState((current) => {
+    const workspaces = nameGenericWorkspaceAgents(current.workspaces, (workspaceId, agentId) => {
+      const agent = current.workspaces.find((workspace) => workspace.id === workspaceId)?.agents[agentId]
+      const matching = sessions.filter(
+        (session) =>
+          session.kind === 'agent' &&
+          session.workspaceId === workspaceId &&
+          session.agentId === agentId &&
+          (!agent?.cliSessionId || agent.cliSessionId === session.sessionId),
+      )
+      for (const session of matching) {
+        for (const name of [session.agentName, session.agentRecord?.name]) {
+          if (!isPlaceholderAgentName(name, agentId)) return name
+        }
+      }
+      return undefined
+    })
+    if (workspaces === current.workspaces) return current
+    for (const workspace of workspaces) {
+      const before = current.workspaces.find((candidate) => candidate.id === workspace.id)
+      for (const [agentId, agent] of Object.entries(workspace.agents)) {
+        if (agent.name !== before?.agents[agentId]?.name)
+          repairs.push({ workspaceId: workspace.id, agentId, name: agent.name })
+      }
+    }
+    return { ...current, workspaces }
+  })
+  for (const repair of repairs) {
+    void workspaceSyncClient.dispatchUpdateWorkspaceAgent(repair.workspaceId, repair.agentId, { name: repair.name })
+  }
 }
 
 // Module workspace launchers must see main's saved rows before deduplicating.

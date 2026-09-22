@@ -1042,6 +1042,18 @@ test('agent-state', async () => {
       '\\\\.\\pipe\\sprintengine-agent-state-abc',
     )
     assert.ok(winCmd.includes('--socket "\\\\.\\pipe\\sprintengine-agent-state-abc"'), winCmd)
+    const wslCmd = buildAgentStateReporterCommand(
+      'C:/work/app/.sprintengine/hooks/agent-state.mjs',
+      '\\\\.\\pipe\\sprintengine-agent-state-abc',
+      {
+        executable: '/mnt/c/Program Files/SprintEngine Studio/SprintEngine Studio.exe',
+        env: { ELECTRON_RUN_AS_NODE: '1' },
+      },
+    )
+    assert.equal(
+      wslCmd,
+      'env ELECTRON_RUN_AS_NODE=\'1\' \'/mnt/c/Program Files/SprintEngine Studio/SprintEngine Studio.exe\' "C:/work/app/.sprintengine/hooks/agent-state.mjs" --socket "\\\\.\\pipe\\sprintengine-agent-state-abc"',
+    )
 
     // --- settings-json install / uninstall round-trip (claude spec) ---------
     const root = await mkdtemp(join(tmpdir(), 'sprintengine-agent-state-'))

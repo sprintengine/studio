@@ -35,7 +35,7 @@ mockups: backlog/mockups/2026-07-06-x.html  # optional; comma-separated project-
 
 # Title as a single H1
 
-What, why, user impact, and anything needed to understand the request.
+GOAL: the observable end state, then the rest of the keys under "Item body".
 ```
 
 `type` is the only field OKF requires; fill the rest only where you can do so
@@ -68,6 +68,62 @@ path to the project folder, and repeat the call. `workspace_list` resolving a
 workspace does not mean this connection is bound to one, so do not treat that
 as evidence the default will work.
 
+## Item body
+
+The body is a brief for the agent that does the work, so it is statements under
+fixed keys rather than prose: about half the tokens of the same item written as
+paragraphs, and nothing to infer.
+
+```
+# Imperative title, a single H1
+
+GOAL:   one line. The observable end state.
+WHY:    one line. Optional.
+STATE:  what the code does today and what is missing. path:line on every claim.
+SPEC:   S1, S2… numbered behaviour statements, each one testable.
+DO:     numbered deliverables. Not a tutorial.
+TOUCH:  files expected to change or be created.
+REUSE:  existing code to call rather than rebuild.
+AVOID:  non-goals and forbidden moves.
+GATES:  the specific checks that will bite this change.
+ACCEPT: [ ] one line per check, each runnable or observable.
+OPEN:   exact questions for the owner.
+REFS:   decision ids, sibling stems, related items.
+LOG:    append-only. YYYY-MM-DD agent: fact.
+```
+
+Keys are uppercase with a colon, in that order; omit the empty ones.
+
+- One statement per line. No narrative, no history, no hedging, no restating the
+  epic.
+- A claim about code carries a `path:line` or a `path`. One you did not check
+  starts `VERIFY:`, and whoever works the item checks it first.
+- An unknown is an `OPEN:` line holding the exact question. One that blocks the
+  work sets the item `needs_input`.
+- Each `S` line maps to at least one test. Each `ACCEPT` line is proved by a
+  command or a named observable — never "works well".
+- Anchors drift. Re-verify every `path:line` before editing, correct the item in
+  place, and record the correction in `LOG`.
+- `LOG` also takes where you stopped and any ruling you overturned. Lines are
+  added, never rewritten.
+- `TRAP:` marks a known failure mode and `NEW-DEP:` a dependency to add; both may
+  sit inside any section.
+- Size: xs and s up to 2 KB, m up to 3 KB, l and xl up to 4 KB. An item over its
+  budget is two items.
+
+An epic file hoists what its children share, so no child repeats it: `CONTEXT:`
+(repositories, house rules, gates, a code map with anchors, vocabulary) and
+`DECISIONS:` (`D1`, `D2`… each marked ACCEPTED or PROPOSED). A child cites `D4`
+and never re-argues it; an ACCEPTED ruling that proves wrong is an `OPEN:` line,
+while a PROPOSED one may be overturned with evidence and a `LOG` line. After
+those, the epic lists its children one line each with their `dependsOn` edges,
+the lanes that can run in parallel, and the hot files — files more than one
+child touches, which are worked one child at a time. A worker reads the epic
+file and its one item, and nothing else until a line sends it there.
+
+An item written as prose before this format is still valid. Convert one when you
+are rewriting it anyway, not in bulk.
+
 ## Survey
 
 `backlog_list` returns every item and epic with title, display id, status, type,
@@ -77,19 +133,20 @@ with no argument — survey and report, do not start working something you were
 not handed.
 
 `backlog_read` takes one `path` and returns parsed frontmatter plus the markdown
-body. Read the whole body. An item is a brief, and its second half is usually
-where the acceptance list lives.
+body. Read the whole body. An item is a brief: `SPEC` is what to build and
+`ACCEPT` is what done means.
 
 ## Work
 
 The item is your brief. Read it whole, and read any mockup it attaches. Before
 implementing, check it against the current code: items drift, and a stale one
 describes a design that no longer fits. Where it has drifted, fix the item first
-and say what you changed, so the record stays true.
+and add a `LOG` line saying what you changed, so the record stays true.
 
 Set it `in_progress` with `backlog_update` when you start. Set it `needs_input`
-with the actual question if you get blocked. Set it `completed` only on verified
-work — if you stop early, leave it `in_progress` and say where you stopped.
+if you get blocked, with the actual question as an `OPEN:` line. Set it
+`completed` only when every `ACCEPT` line is proved — if you stop early, leave it
+`in_progress` and put where you stopped in `LOG`.
 After each chunk, re-read what you wrote for contracts you did not honour, gaps
 you left, and tests you owed.
 
@@ -107,6 +164,8 @@ Same for every child, in the order their `dependsOn` implies, each one aware of
 the others: they share files, and two correct changes can still contradict each
 other. An epic's own frontmatter says whether that order has been planned
 (`dependenciesPlanned`); if it has not, plan it before dispatching children.
+Read the epic file first: its `CONTEXT:` and `DECISIONS:` are what every child
+assumes, and its hot files say which children must not run at the same time.
 
 ## Hand work out
 

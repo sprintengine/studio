@@ -1407,6 +1407,7 @@ export default function AgentChatView({ workspaceId, agentId }: Props) {
               {contextLength ? <ContextMeter used={usedTokens} total={contextLength} /> : null}
               {isAgentHarness ? (
                 <PermissionPresetPill
+                  cli={conversation.providerId}
                   preset={permissionPreset}
                   live={sessionId !== null}
                   changing={permissionChanging}

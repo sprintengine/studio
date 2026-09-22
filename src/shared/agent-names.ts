@@ -227,8 +227,11 @@ const AGENT_NAME_COUNT = AGENT_FIRST_NAMES.length * AGENT_SURNAMES.length
 // placeholders, not identities. Workspace creation treats them as unnamed so
 // every agent gets a real name;
 // any other template name (a user-saved template's "Reviewer") is kept.
-export function isPlaceholderAgentName(name: string): boolean {
-  return /^(agent(\s+\d+)?|a\d+)$/i.test(name.trim())
+// When the record id is known, an exact match also identifies the fallback
+// written by a terminal event before the agent's name reached the registry.
+export function isPlaceholderAgentName(name: string | null | undefined, agentId?: string): boolean {
+  const trimmed = name?.trim() ?? ''
+  return !trimmed || trimmed === agentId || /^(agent(\s+\d+)?|a\d+)$/i.test(trimmed)
 }
 
 export function pickRandomAgentName(takenNames: Iterable<string> = []): string {

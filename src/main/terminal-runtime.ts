@@ -7,6 +7,7 @@ import type {
   AgentSessionMetadata,
   McpSettings,
   SessionActivity,
+  TerminalPathStyle,
   TerminalSessionSnapshot,
   TerminalSpawnResult,
 } from '../shared/electron-api'
@@ -126,6 +127,7 @@ type TerminalRuntimeOptions = {
     settings: McpSettings
     clients: AgentCli[]
     pruneUnlistedServers?: boolean
+    executionPathStyle?: TerminalPathStyle
   }): Promise<{ ok: true } | { ok: false; message: string }>
   // Ensures a built-in skill is installed into the workspace before an agent
   // launches. Debug Mode uses this to guarantee the `debug` skill is present in
@@ -145,7 +147,11 @@ type TerminalRuntimeOptions = {
   // installer dispatches on `cli`. Strictly best-effort: the implementation
   // swallows its own failures, so awaiting it never blocks or fails a launch.
   // Absent in tests / when the feature is unwired (no-op).
-  prepareAgentStateHook?(workspaceRoot: string, cli: string): Promise<void>
+  prepareAgentStateHook?(
+    workspaceRoot: string,
+    cli: string,
+    execution?: { pathStyle?: TerminalPathStyle },
+  ): Promise<void>
   // Durable freeze-the-view: per-terminal snapshot sidecars on disk, so a
   // suspended terminal reopens painted-and-paused after an app restart. Absent
   // when unwired (tests): suspend/quit skip persistence and rehydration never
@@ -2666,6 +2672,8 @@ async function spawnTerminalFromIpc(
   // Non-null on every path that reads it: a fresh agent spawn with no CLI
   // returned above, and shell-only spawns never reach an agent-CLI consumer.
   const agentCli = cli as AgentCli
+  const executionPathStyle: TerminalPathStyle =
+    process.platform === 'win32' ? (cliRuntimes?.[agentCli]?.useWsl === true ? 'wsl' : 'windows') : 'posix'
 
   disposeTerminal(sessionId)
   logMainPerfEvent('TerminalRuntime', 'terminal-spawn-fresh', {
@@ -2716,6 +2724,7 @@ async function spawnTerminalFromIpc(
         workspaceRoot: workingDirectory,
         settings: mcpSettings ?? { syncEnabled: false, servers: {} },
         clients: [agentCli],
+        executionPathStyle,
         // A connector launch (connectorLaunch set, paired with the
         // single-server connectorMcpSettings) writes an isolated worktree
         // config that must contain only the connector — prune any MCP server
@@ -2868,7 +2877,7 @@ async function spawnTerminalFromIpc(
     // moment it starts. Awaited so the hooks exist when the CLI reads its
     // settings; best-effort inside (never throws), so it cannot fail a launch.
     if (!shellOnly && agentStateSupportsCli(cli)) {
-      await prepareAgentStateHook?.(launchCwd ?? workingDirectory, cli)
+      await prepareAgentStateHook?.(launchCwd ?? workingDirectory, cli, { pathStyle: executionPathStyle })
     }
 
     const initialSize = getTerminalSize(cols, rows)

@@ -1633,6 +1633,7 @@ export function createWorkspacesSlice(
         if (!workspace?.agents[agentId]) return
         delete workspace.agents[agentId]
       })
+      void workspaceSyncClient.dispatchUpdateWorkspaceAgent(workspaceId, agentId, null)
     },
 
     moveOpenFileToWorkspace: (sourceWorkspaceId, destWorkspaceId, path) => {

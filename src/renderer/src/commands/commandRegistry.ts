@@ -185,11 +185,15 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'layout.tab.next',
-    title: 'Next Layout Tab',
+    title: 'Next Tab',
     category: 'workspace',
-    scopes: ['workspace'],
-    defaultKeybindings: ['Primary+Tab', 'Meta+Shift+]'],
-    availability: ['activeWorkspace'],
+    scopes: ['global'],
+    // Tab cycling uses the physical Control key on every platform. On macOS,
+    // Primary is Command, whose Tab chord belongs to application switching;
+    // Control+Tab is the in-window gesture people expect. It must also work
+    // while the terminal, editor, or another editable surface owns focus.
+    defaultKeybindings: ['Ctrl+Tab', 'Meta+Shift+]'],
+    allowInEditableTarget: true,
     handlerPath: {
       kind: 'context-bound',
       owner: 'WorkspaceManager',
@@ -198,11 +202,11 @@ export const COMMAND_REGISTRY = [
   }),
   command({
     id: 'layout.tab.previous',
-    title: 'Previous Layout Tab',
+    title: 'Previous Tab',
     category: 'workspace',
-    scopes: ['workspace'],
-    defaultKeybindings: ['Primary+Shift+Tab', 'Meta+Shift+['],
-    availability: ['activeWorkspace'],
+    scopes: ['global'],
+    defaultKeybindings: ['Ctrl+Shift+Tab', 'Meta+Shift+['],
+    allowInEditableTarget: true,
     handlerPath: {
       kind: 'context-bound',
       owner: 'WorkspaceManager',

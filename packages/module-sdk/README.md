@@ -436,10 +436,11 @@ module than frozen here forever.
 ### `@sprintengine/module-sdk/surface`
 
 `GlobalSurfaceShell` — the door frame: title bar, actions slot, back
-affordance, rail gutter, attention strip. `useSurfaceBackNav()` wires its back
-control to the host's surface history. `SurfaceRail` is the list column every
-bundled door uses (rows, groups, search, filter, scope, a new-affordance), and
-`SurfaceCanvasState` is the one loading / empty / error canvas. Types:
+affordance, rail gutter, attention strip, and optional contextual Control-Tab
+group. `useSurfaceBackNav()` wires its back control to the host's surface
+history. `SurfaceRail` is the list column every bundled door uses (rows,
+groups, search, filter, scope, a new-affordance), and `SurfaceCanvasState` is
+the one loading / empty / error canvas. Types:
 `GlobalSurfaceBar`, `GlobalSurfaceShellProps`, `SurfaceCanvasStateProps`,
 `SurfaceRailRow`, `SurfaceRailGroup`, `SurfaceRailSearch`,
 `SurfaceRailFilter`, `SurfaceRailScope`, `SurfaceRailNewAffordance`,

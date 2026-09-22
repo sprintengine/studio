@@ -462,6 +462,7 @@ export default function ExtensionsHomeSurface(): JSX.Element {
   return (
     <GlobalSurfaceShell
       ariaLabel="Extensions"
+      controlTabContext="extensions"
       // The door's name rides the app's one top strip, where the workspace name
       // would be — a surface owns its whole region including its top row.
       //

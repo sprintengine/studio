@@ -6,7 +6,6 @@ import { homedir } from 'os'
 import { dirname, join } from 'path'
 import type { AgentCli, CliRuntimeSettings, CliPermissionPreset, TerminalPathStyle } from '../shared/electron-api'
 import type { PluginContextInjectionMode } from '../shared/plugin-manifest'
-import { applyDebugDirective } from '../shared/debug-directive'
 import { DESIGN_SYSTEM_BUNDLE_DIRECTORY_NAME } from '../shared/design-system/bundle-scaffold'
 import {
   buildCursorHostContextPluginManifest,
@@ -23,12 +22,10 @@ import {
   renderAgentLaunchArgv,
   renderCliLaunchEnv,
   resolveCliRuntimeSettings,
-  resolveDebugSkillInvocation,
 } from './agent-launch-render'
 import { buildLaunchStatusLineSetting } from './agent-state'
 import { resolveAgentStateSocketPath } from './agent-state-service'
-import { renderReasoningArgs, resolvePermissionArgs } from './plugin-render'
-import { getPluginById, getPluginManifest } from './plugin-registry-instance'
+import { getPluginManifest } from './plugin-registry-instance'
 import { getColorScheme } from './color-scheme-store'
 import { ensureManagedRuntimeShims, withManagedRuntimePath } from './managed-runtime'
 import { studioEnvEntry, withoutStudioEnv } from '../shared/studio-env'
@@ -549,21 +546,6 @@ export function buildNativeWindowsInvocation(args: string[]): string[] {
     `}`,
     `Remove-Item Env:SPRINTENGINE_LAUNCH_ARGS -ErrorAction SilentlyContinue`,
   ]
-}
-
-function nativeWindowsCodexPromptArg(value: string | undefined): string | undefined {
-  return value?.replace(/\r\n|\r|\n/g, '\\n').replace(/"/g, '\\"')
-}
-
-// Permission args for the acknowledged-legacy codex Windows-native path, read
-// from the CLI's own manifest. This used to be a second hardcoded copy of the
-// per-CLI mapping sitting alongside the manifests, which is exactly how the
-// Claude Code mapping drifted — a manifest edit did not reach here.
-// A CLI with no loaded manifest renders no permission args, which is the same
-// fail-safe the ladder takes for an undeclared preset: never invent a flag.
-function getCliPermissionArgs(cli: AgentCli, preset: CliPermissionPreset = 'manual'): string[] {
-  const manifest = getPluginManifest(cli)
-  return manifest ? resolvePermissionArgs(manifest, preset) : []
 }
 
 function getCliRuntimeSettings(
@@ -1569,12 +1551,8 @@ function buildNativeAgentLaunchPowerShellScript(
   pluginDirs: string[] = [],
   launchSettings?: Record<string, unknown>,
 ): string {
-  // Codex keeps its legacy Windows path because of two plugin-specific
-  // behaviours that do not generalise: a `-C cwd` flag the Windows codex CLI
-  // requires for workspace propagation, and an npm-shim detection that
-  // unwraps codex.cmd/codex.ps1 to a direct node.exe invocation. These will
-  // move into the plugin manifest when the plugin schema gains executable
-  // hooks (post v1).
+  // Codex needs an explicit workspace and npm-shim unwrapping on Windows.
+  // Its argument rendering is shared with the other launch paths.
   if (pluginIdForCli(cli) === 'codex') {
     return buildCodexLegacyNativeAgentLaunchPowerShellScript(
       sessionId,
@@ -1586,6 +1564,8 @@ function buildNativeAgentLaunchPowerShellScript(
       cliModel,
       debugMode,
       cliReasoning,
+      hostContext,
+      getColorScheme(),
     )
   }
 
@@ -1617,10 +1597,9 @@ function buildNativeAgentLaunchPowerShellScript(
   ].join('\r\n')
 }
 
-// Exported for agent-launch-render.test.ts: this acknowledged-legacy Windows
-// path builds codex args by hand instead of going through renderAgentLaunchArgv,
-// so it needs its own regression coverage for debug-directive injection and the
-// permission-arg orthogonality invariant. Not part of the module's public API.
+// Exported for launch regression coverage. The legacy name is retained for
+// callers; only workspace propagation and executable resolution are specific
+// to Windows. Flags, context and resume behavior come from the manifest.
 export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   sessionId: string,
   resume: boolean,
@@ -1631,45 +1610,35 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
   cliModel?: string,
   debugMode = false,
   cliReasoning?: string,
+  hostContext: HostContextRenderInputs = {},
+  colorScheme?: 'light' | 'dark',
 ): string {
-  const permissionArgs = getCliPermissionArgs('codex', cliPermissionPreset)
-  const command = cliRuntime.command || 'codex'
-  // This acknowledged-legacy path builds codex args by hand instead of going
-  // through renderAgentLaunchArgv, so the shared debug boundary does not cover
-  // it — apply the directive here too, including the codex-native skill
-  // invocation pulled from the manifest. Permission args above stay untouched.
-  const codexPlugin = getPluginById('codex')
-  const nativeInvocation = debugMode && codexPlugin ? resolveDebugSkillInvocation(codexPlugin) : undefined
-  const debugPrompt = debugMode ? applyDebugDirective(initialPrompt ?? '', true, nativeInvocation) : initialPrompt
-  const promptArg = nativeWindowsCodexPromptArg(debugPrompt)
-  // The model flag is hardcoded like the rest of this acknowledged-legacy
-  // codex-specific path; the manifest-rendered paths read modelSelection.args.
-  const model = cliModel?.trim()
-  // Effort is NOT hardcoded here: its render rule (differs-from-default, level
-  // declared) is shared with the manifest paths through renderReasoningArgs, so
-  // this path cannot drift into passing a level codex would reject. A missing
-  // manifest yields no effort args, exactly like an unset level. Resume passes
-  // none at all, matching codex's manifest resume argv: the CLI persists the
-  // level per session, so re-passing it would clobber a mid-session change.
-  const reasoningArgs = !resume && codexPlugin ? renderReasoningArgs(codexPlugin.manifest, cliReasoning) : []
-  const args = [
-    ...permissionArgs,
-    ...(model ? ['--model', model] : []),
-    ...reasoningArgs,
-    // Targeted resume when the harness session id is known (mirrors the manifest
-    // resume argv); falls back to bare `resume` (last session) otherwise.
-    ...(resume ? ['resume', ...(sessionId ? [sessionId] : [])] : []),
-    '-C',
-    cwd,
-    ...(!resume && promptArg ? [promptArg] : []),
-  ]
+  const { argv, binary } = renderAgentLaunchArgv({
+    cli: 'codex',
+    sessionId,
+    resume,
+    workspaceRoot: cwd,
+    initialPrompt,
+    cliRuntime,
+    cliPermissionPreset,
+    cliModel,
+    cliReasoning,
+    debugMode,
+    colorScheme,
+    ...hostContext,
+  })
+  const args = ['-C', cwd, ...argv.slice(1)]
+  // Use the same native quoting as other agents. Splatting through Windows
+  // PowerShell 5.1 loses embedded quotes in TOML overrides and user prompts.
+  const [encodeArgs, ...invoke] = buildNativeWindowsInvocation(args)
 
   return [
     `$ErrorActionPreference = 'Continue'`,
     `Set-Location -LiteralPath ${quotePowerShell(cwd)}`,
-    `$command = ${quotePowerShell(command)}`,
+    `$command = ${quotePowerShell(binary)}`,
     `$arguments = @(${args.map((arg) => powerShellBase64Literal(arg)).join(', ')})`,
-    `$resolvedCommand = Get-Command $command -ErrorAction SilentlyContinue`,
+    encodeArgs,
+    `$resolvedCommand = Get-Command $command -ErrorAction SilentlyContinue | Select-Object -First 1`,
     `$resolvedSource = if ($resolvedCommand) { $resolvedCommand.Source } else { $null }`,
     `$resolvedLeaf = if ($resolvedSource) { Split-Path -Leaf $resolvedSource } else { '' }`,
     `$isCodexNpmShim = $resolvedLeaf -in @('codex.cmd', 'codex.ps1')`,
@@ -1678,8 +1647,11 @@ export function buildCodexLegacyNativeAgentLaunchPowerShellScript(
     `  if (!(Test-Path -LiteralPath $codexJs)) { throw "Codex npm shim detected, but codex.js was not found at $codexJs." }`,
     `  $command = 'node.exe'`,
     `  $arguments = @($codexJs) + $arguments`,
+    // A Windows filename cannot contain a double quote; this file path ends
+    // in .js, so quoting it needs no trailing-backslash escaping either.
+    `  $env:SPRINTENGINE_LAUNCH_ARGS = '"' + $codexJs + '" ' + $env:SPRINTENGINE_LAUNCH_ARGS`,
     `}`,
-    `& $command @arguments`,
+    ...invoke,
   ].join('\r\n')
 }
 

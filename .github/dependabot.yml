@@ -3,6 +3,8 @@ updates:
   # Minor and patch updates arrive as one weekly pull request; a major version
   # arrives on its own, because each one is a migration to read, not a bump.
   - package-ecosystem: npm
+    commit-message:
+      prefix: "build"
     directory: /
     schedule:
       interval: weekly
@@ -15,6 +17,8 @@ updates:
       # set, by hand, when the terminal is re-tested.
       - dependency-name: '@xterm/*'
   - package-ecosystem: github-actions
+    commit-message:
+      prefix: "ci"
     directory: /
     schedule:
       interval: weekly

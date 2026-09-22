@@ -165,13 +165,7 @@ function HandToAgentPicker({
       // Permissions sit with the model, remembered against the row — the same
       // control the New chat picker carries, so the preset a person set for a
       // model there is the preset this handoff launches on.
-      permissions={
-        <SpawnPermissionFooter
-          cli={footerCli}
-          model={composer.modelForSelection(HANDOFF_SELECTION, footerCli) ?? null}
-          fallback={permissionFallback}
-        />
-      }
+      permissions={(cli, model) => <SpawnPermissionFooter cli={cli} model={model} fallback={permissionFallback} />}
     />
   )
 }

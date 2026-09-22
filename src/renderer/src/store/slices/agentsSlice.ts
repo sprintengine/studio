@@ -1,3 +1,4 @@
+import { current, isDraft } from 'immer'
 import { detectLanguage } from '../../utils/files'
 import {
   deleteEditorBuffer,
@@ -23,7 +24,11 @@ import {
   type LaunchedAgentProjection,
 } from '../../utils/launchedAgentProjection'
 import { normalizeCliPermissionPreset } from './settingsSlice'
-import type { AgentTerminalLaunchStateApply, AgentTerminalSessionApply } from '../workspaceSyncClient'
+import {
+  workspaceSyncClient,
+  type AgentTerminalLaunchStateApply,
+  type AgentTerminalSessionApply,
+} from '../workspaceSyncClient'
 import type {
   AgentCli,
   AgentConversationRuntime,
@@ -109,7 +114,7 @@ export function normalizeAgentState(agent: AgentState, fallbackCli?: AgentCli): 
 }
 
 export function pickWorkspaceAgentName(agents: Workspace['agents']): string {
-  return pickRandomAgentName(Object.values(agents).map((agent) => agent.name))
+  return pickRandomAgentName(Object.values(agents).map((agent) => agent.name ?? ''))
 }
 
 interface AgentsSliceState {}
@@ -145,14 +150,24 @@ type AgentsSliceSet = (mutator: (state: AgentsSliceCarrier) => void) => void
 
 export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
   return {
-    updateAgent: (workspaceId, agentId, update) =>
+    updateAgent: (workspaceId, agentId, update) => {
+      let patch: Partial<AgentState> | undefined
       set((state) => {
         const ws = state.workspaces.find((w) => w.id === workspaceId)
         if (!ws) return
-        if (!ws.agents[agentId]) ws.agents[agentId] = defaultAgent(agentId)
+        const creating = !ws.agents[agentId]
+        if (creating) ws.agents[agentId] = defaultAgent(agentId, pickWorkspaceAgentName(ws.agents))
         Object.assign(ws.agents[agentId], update)
         ws.agents[agentId].execution = normalizeAgentExecution(ws.agents[agentId].execution)
-      }),
+        // Main owns persistence. Publish the complete seed on creation, and
+        // only the edited fields afterwards so stale windows cannot overwrite
+        // another window's name with an unrelated launch-state update.
+        const agent = ws.agents[agentId]
+        patch = creating ? { ...(isDraft(agent) ? current(agent) : agent) } : { ...update }
+        if (creating || update.execution !== undefined) patch.execution = { ...ws.agents[agentId].execution }
+      })
+      if (patch) void workspaceSyncClient.dispatchUpdateWorkspaceAgent(workspaceId, agentId, patch)
+    },
 
     applyAgentTerminalSessionEvent: ({
       workspaceId,
@@ -273,6 +288,13 @@ export function createAgentsSlice(set: AgentsSliceSet): AgentsSlice {
           ws.agents[projection.agentId] = projection.agent
         }
       })
+      for (const projection of created) {
+        void workspaceSyncClient.dispatchUpdateWorkspaceAgent(
+          projection.workspaceId,
+          projection.agentId,
+          projection.agent,
+        )
+      }
       return created
     },
 

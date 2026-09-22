@@ -68,6 +68,7 @@ import { TruncatedText } from './index'
 import { FocusTrap } from './FocusTrap'
 import { KbdChord } from './KbdChord'
 import { Tabs, type TabItem } from './Tabs'
+import { InstalledSkillsPanel } from '../palette/InstalledSkillsPanel'
 import { OVERLAY_SHELL_CHROME_CLASS, overlayWidthStyle } from './tokens'
 
 // The four canonical source groups the global-search palette organizes results
@@ -113,7 +114,7 @@ const PALETTE_SCOPE_TABS: TabItem<PaletteScope>[] = PALETTE_SCOPE_ORDER.map((sco
 /** The one sentence the input asks for, per scope. */
 const PALETTE_PLACEHOLDER: Record<PaletteScope, string> = {
   all: 'Search chats, skills, plugins, files, text, actions...',
-  skills: 'Search every skill and plugin, installed or not...',
+  skills: 'Filter installed skills...',
   conversations: 'Search chats and workspaces by title or folder...',
   files: 'Search file names...',
   text: 'Search text in files...',
@@ -122,7 +123,7 @@ const PALETTE_PLACEHOLDER: Record<PaletteScope, string> = {
 
 const PALETTE_INPUT_LABEL: Record<PaletteScope, string> = {
   all: 'Search chats, skills, plugins, files, text in files, and actions',
-  skills: 'Search every skill and plugin in every source',
+  skills: 'Filter installed skills for this agent CLI',
   conversations: 'Search chats and workspaces by title or folder',
   files: 'Search file names',
   text: 'Search text in files',
@@ -231,6 +232,7 @@ export default function CommandPalette({
   const [selected, setSelected] = useState(0)
   const [scope, setScope] = useState<PaletteScope>(initialScope)
   const inputRef = useRef<HTMLInputElement>(null)
+  const openerRef = useRef(document.activeElement instanceof HTMLElement ? document.activeElement : null)
   const selectedRowRef = useRef<HTMLDivElement>(null)
   // Choosing a tab — from the strip, or from a row that IS a tab — narrows
   // in place and hands the caret back to the field.
@@ -239,6 +241,9 @@ export default function CommandPalette({
     setSelected(0)
     inputRef.current?.focus()
   }
+  useEffect(() => {
+    if (scope !== 'skills') inputRef.current?.focus()
+  }, [scope])
   const { setActiveWorkspaceForWindow, setActiveFile, openExtensionsSurface } = useWorkspaceStore()
   const keybindingSettings = useWorkspaceStore((state) => state.appSettings.keybindings)
   const moduleEnablement = useWorkspaceStore((state) => state.appSettings.modules)
@@ -315,7 +320,7 @@ export default function CommandPalette({
   // with no dependencies: a re-created `onClose` must not re-run focus and pull
   // the caret out of the input mid-search.
   useEffect(() => {
-    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const opener = openerRef.current
     inputRef.current?.focus()
     return () => {
       // The pane that took the paste, when a pane is still mounted to answer;
@@ -985,8 +990,8 @@ export default function CommandPalette({
         // skill's monogram chip, the same letter chip the Skills aside and the
         // composer picker wear for it.
         icon: {},
-        badge: 'Installed',
-        installed: true,
+        badge: 'Built in',
+        installed: false,
         run: () => void useInstalledSkillRef.current(skill.id, skill.name),
       })),
       ...installedSkills.map((skill): Command => ({
@@ -1046,6 +1051,8 @@ export default function CommandPalette({
   // so a warm already done is not repeated.
   const providers = useMemo(() => {
     const active: PaletteResultProvider[] = []
+    // Installed inventory owns Skills; catalogue providers run in All only.
+    if (scope === 'skills') return active
     if (groupInScope('skills', scope)) active.push(skillsProvider)
     if (groupInScope('extensions', scope)) active.push(extensionsProvider)
     if (groupInScope('files', scope) || groupInScope('content', scope)) active.push(diskProvider)
@@ -1279,160 +1286,186 @@ export default function CommandPalette({
               borderless
               className="px-2 pt-1"
             />
-            <div className="flex items-center gap-2 px-4 py-3">
-              {/* The leading mark is the search glyph, not a ⌘: the field is a
+            {scope !== 'skills' && (
+              <div className="flex items-center gap-2 px-4 py-3">
+                {/* The leading mark is the search glyph, not a ⌘: the field is a
                   search, and the chord that opened it is not what it is for. */}
-              <PaletteSearchGlyph className="icon-sm shrink-0 text-[color:var(--text-disabled)]" />
-              <input
-                ref={inputRef}
-                value={query}
-                onChange={(event) => {
-                  setQuery(event.target.value)
-                  setSelected(0)
-                }}
-                onKeyDown={handleKey}
-                placeholder={PALETTE_PLACEHOLDER[scope]}
-                aria-label={PALETTE_INPUT_LABEL[scope]}
-                role="combobox"
-                aria-expanded={visible.length > 0}
-                aria-controls={resultsId}
-                aria-activedescendant={activeOptionId}
-                // No ring on the field (owner ruling 2026-09-10). The shell IS
-                // the field: it opens with the caret in it, the caret is the
-                // focus signal, and a 2px ring drawn inside a bordered band the
-                // whole width of the shell read as a second box around the one
-                // thing on screen. The tab strip keeps its ring, so a keyboard
-                // walk still shows where focus went; coming back to the field
-                // shows the caret.
-                className="flex-1 bg-transparent text-heading text-[color:var(--text-strong)] outline-none placeholder-[color:var(--text-disabled)]"
-              />
-            </div>
+                <PaletteSearchGlyph className="icon-sm shrink-0 text-[color:var(--text-disabled)]" />
+                <input
+                  ref={inputRef}
+                  value={query}
+                  onChange={(event) => {
+                    setQuery(event.target.value)
+                    setSelected(0)
+                  }}
+                  onKeyDown={handleKey}
+                  placeholder={PALETTE_PLACEHOLDER[scope]}
+                  aria-label={PALETTE_INPUT_LABEL[scope]}
+                  role="combobox"
+                  aria-expanded={visible.length > 0}
+                  aria-controls={resultsId}
+                  aria-activedescendant={activeOptionId}
+                  // No ring on the field (owner ruling 2026-09-10). The shell IS
+                  // the field: it opens with the caret in it, the caret is the
+                  // focus signal, and a 2px ring drawn inside a bordered band the
+                  // whole width of the shell read as a second box around the one
+                  // thing on screen. The tab strip keeps its ring, so a keyboard
+                  // walk still shows where focus went; coming back to the field
+                  // shows the caret.
+                  className="flex-1 bg-transparent text-heading text-[color:var(--text-strong)] outline-none placeholder-[color:var(--text-disabled)]"
+                />
+              </div>
+            )}
           </div>
 
-          <div id={resultsId} role="listbox" aria-label="Search results" className="max-h-[360px] overflow-y-auto py-1">
-            {/* An action that failed says so where the person is looking, and
+          {scope === 'skills' ? (
+            <InstalledSkillsPanel
+              workspaceRoot={activeFolderPath}
+              workspaceId={activeWorkspaceId}
+              preferredTarget={preferredTarget}
+              onBack={() => selectScope('all')}
+              onBrowse={() => {
+                openExtensionsSurface({ view: 'skills' })
+                onClose()
+              }}
+              onUsed={(session) => {
+                focusAfterCloseRef.current =
+                  session.workspaceId && session.agentId
+                    ? { workspaceId: session.workspaceId, agentId: session.agentId }
+                    : null
+                onClose()
+              }}
+            />
+          ) : (
+            <div
+              id={resultsId}
+              role="listbox"
+              aria-label="Search results"
+              className="max-h-[360px] overflow-y-auto py-1"
+            >
+              {/* An action that failed says so where the person is looking, and
                 the list stays up: a skill whose install was refused must not
                 also make the palette vanish. */}
-            {actionError && (
-              <p role="alert" className="px-4 py-2 text-meta text-[color:var(--tone-error)]">
-                {actionError}
-              </p>
-            )}
-            {/* The one part of the palette that is not a search and not
+              {actionError && (
+                <p role="alert" className="px-4 py-2 text-meta text-[color:var(--tone-error)]">
+                  {actionError}
+                </p>
+              )}
+              {/* The one part of the palette that is not a search and not
                 instant — an install-and-use round trip — says so at the top of
                 the list, with the kit's working dots (liveness: alive right
                 now, for an unknown duration). Never beside the query: a note
                 on the field's own line read as part of what was typed. */}
-            {actionBusy && (
-              <p role="status" className="flex items-center gap-2 px-4 py-2 text-meta text-[color:var(--text-muted)]">
-                Working
-                <AgentWorkingDots label="Working" />
-              </p>
-            )}
-            {visible.length === 0 ? (
-              // "No results" is only true once the search that would have
-              // produced them has finished; a failure says what failed instead.
-              // A search in flight is the working dots, not a static ellipsis:
-              // the marker the system already uses for "alive right now".
-              <p
-                role={provided.loading ? 'status' : undefined}
-                className="flex items-center gap-2 px-4 py-3 text-meta text-[color:var(--text-muted)]"
-              >
-                {provided.error ? (
-                  provided.error
-                ) : provided.loading ? (
-                  <>
-                    Searching
-                    <AgentWorkingDots label="Searching" />
-                  </>
-                ) : (
-                  'No results'
-                )}
-              </p>
-            ) : (
-              groupedResults.map((group) => (
-                <div key={group.key} role="group" aria-label={group.label}>
-                  {/* The group's name and nothing else: quieter ink than the
+              {actionBusy && (
+                <p role="status" className="flex items-center gap-2 px-4 py-2 text-meta text-[color:var(--text-muted)]">
+                  Working
+                  <AgentWorkingDots label="Working" />
+                </p>
+              )}
+              {visible.length === 0 ? (
+                // "No results" is only true once the search that would have
+                // produced them has finished; a failure says what failed instead.
+                // A search in flight is the working dots, not a static ellipsis:
+                // the marker the system already uses for "alive right now".
+                <p
+                  role={provided.loading ? 'status' : undefined}
+                  className="flex items-center gap-2 px-4 py-3 text-meta text-[color:var(--text-muted)]"
+                >
+                  {provided.error ? (
+                    provided.error
+                  ) : provided.loading ? (
+                    <>
+                      Searching
+                      <AgentWorkingDots label="Searching" />
+                    </>
+                  ) : (
+                    'No results'
+                  )}
+                </p>
+              ) : (
+                groupedResults.map((group) => (
+                  <div key={group.key} role="group" aria-label={group.label}>
+                    {/* The group's name and nothing else: quieter ink than the
                       rows, no rule filling the line, no count (owner ruling
                       2026-09-10 — the rule and the number were chrome
                       between every group and the next). */}
-                  <div aria-hidden="true" className="px-4 pb-1 pt-2 text-meta text-[color:var(--text-muted)]">
-                    {group.label}
-                  </div>
-                  {group.items.map((command, position) => {
-                    const index = flatIndexById.get(command.id) ?? -1
-                    const isSelected = index === selected
-                    const textHit = group.key === 'content' && command.path !== undefined
-                    // A text hit sits under its file, the way a search tool
-                    // lists them: one heading per file — its kind glyph, its
-                    // name, its folder, how many lines matched — then the
-                    // lines, each with its number in the gutter. The heading
-                    // is not an option: Enter acts on a line, never a file.
-                    const previous = position > 0 ? group.items[position - 1] : undefined
-                    const heading =
-                      textHit && previous?.path !== command.path ? (
-                        <div
-                          key={`${command.path}-heading`}
-                          role="presentation"
-                          className="flex items-center gap-2 px-4 pb-1 pt-2 text-meta text-[color:var(--text-default)]"
-                        >
-                          <FileTypeGlyph name={command.file ?? ''} tone="kind" className="icon-sm shrink-0" />
-                          <span className="shrink-0 font-medium">{command.file}</span>
-                          <TruncatedText
-                            as="span"
-                            text={parentDirectory(command.path ?? '')}
-                            className="min-w-0 text-[color:var(--text-subtle)]"
-                          />
-                          <span className="ml-auto shrink-0 tabular-nums text-micro text-[color:var(--text-muted)]">
-                            {group.items.filter((item) => item.path === command.path).length}
-                          </span>
-                        </div>
-                      ) : null
-                    if (textHit) {
-                      return (
-                        <React.Fragment key={command.id}>
-                          {heading}
+                    <div aria-hidden="true" className="px-4 pb-1 pt-2 text-meta text-[color:var(--text-muted)]">
+                      {group.label}
+                    </div>
+                    {group.items.map((command, position) => {
+                      const index = flatIndexById.get(command.id) ?? -1
+                      const isSelected = index === selected
+                      const textHit = group.key === 'content' && command.path !== undefined
+                      // A text hit sits under its file, the way a search tool
+                      // lists them: one heading per file — its kind glyph, its
+                      // name, its folder, how many lines matched — then the
+                      // lines, each with its number in the gutter. The heading
+                      // is not an option: Enter acts on a line, never a file.
+                      const previous = position > 0 ? group.items[position - 1] : undefined
+                      const heading =
+                        textHit && previous?.path !== command.path ? (
                           <div
-                            ref={isSelected ? selectedRowRef : undefined}
-                            id={`palette-option-${command.id}`}
-                            role="option"
-                            aria-selected={isSelected}
-                            onClick={command.run}
-                            onMouseEnter={() => setSelected(index)}
-                            className={`flex cursor-pointer items-center gap-3 py-1 pl-4 pr-4 font-mono text-meta transition-colors ${
-                              isSelected
-                                ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                                : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                            }`}
+                            key={`${command.path}-heading`}
+                            role="presentation"
+                            className="flex items-center gap-2 px-4 pb-1 pt-2 text-meta text-[color:var(--text-default)]"
                           >
-                            <span className="w-10 shrink-0 text-right tabular-nums text-[color:var(--text-disabled)]">
-                              {command.line}
+                            <FileTypeGlyph name={command.file ?? ''} tone="kind" className="icon-sm shrink-0" />
+                            <span className="shrink-0 font-medium">{command.file}</span>
+                            <TruncatedText
+                              as="span"
+                              text={parentDirectory(command.path ?? '')}
+                              className="min-w-0 text-[color:var(--text-subtle)]"
+                            />
+                            <span className="ml-auto shrink-0 tabular-nums text-micro text-[color:var(--text-muted)]">
+                              {group.items.filter((item) => item.path === command.path).length}
                             </span>
-                            <TruncatedText as="span" text={command.label} className="min-w-0 flex-1" />
                           </div>
-                        </React.Fragment>
-                      )
-                    }
-                    return (
-                      <div
-                        key={command.id}
-                        ref={isSelected ? selectedRowRef : undefined}
-                        id={`palette-option-${command.id}`}
-                        role="option"
-                        aria-selected={isSelected}
-                        onClick={command.run}
-                        onMouseEnter={() => setSelected(index)}
-                        // The row's ink is the sidebar's: `text.default` at
-                        // rest, `text.strong` under the cursor. It shipped at
-                        // `text.muted`, which put the one thing a person came
-                        // to read a step below its own heading.
-                        className={`flex cursor-pointer items-center gap-2.5 px-4 py-2 transition-colors ${
-                          isSelected
-                            ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
-                            : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
-                        }`}
-                      >
-                        {/* The row's mark. A file wears the kind glyph the File
+                        ) : null
+                      if (textHit) {
+                        return (
+                          <React.Fragment key={command.id}>
+                            {heading}
+                            <div
+                              ref={isSelected ? selectedRowRef : undefined}
+                              id={`palette-option-${command.id}`}
+                              role="option"
+                              aria-selected={isSelected}
+                              onClick={command.run}
+                              onMouseEnter={() => setSelected(index)}
+                              className={`flex cursor-pointer items-center gap-3 py-1 pl-4 pr-4 font-mono text-meta transition-colors ${
+                                isSelected
+                                  ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                                  : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                              }`}
+                            >
+                              <span className="w-10 shrink-0 text-right tabular-nums text-[color:var(--text-disabled)]">
+                                {command.line}
+                              </span>
+                              <TruncatedText as="span" text={command.label} className="min-w-0 flex-1" />
+                            </div>
+                          </React.Fragment>
+                        )
+                      }
+                      return (
+                        <div
+                          key={command.id}
+                          ref={isSelected ? selectedRowRef : undefined}
+                          id={`palette-option-${command.id}`}
+                          role="option"
+                          aria-selected={isSelected}
+                          onClick={command.run}
+                          onMouseEnter={() => setSelected(index)}
+                          // The row's ink is the sidebar's: `text.default` at
+                          // rest, `text.strong` under the cursor. It shipped at
+                          // `text.muted`, which put the one thing a person came
+                          // to read a step below its own heading.
+                          className={`flex cursor-pointer items-center gap-2.5 px-4 py-2 transition-colors ${
+                            isSelected
+                              ? 'bg-[color:var(--bg-selected)] text-[color:var(--text-strong)]'
+                              : 'text-[color:var(--text-default)] hover:bg-[color:var(--bg-hover)] hover:text-[color:var(--text-strong)]'
+                          }`}
+                        >
+                          {/* The row's mark. A file wears the kind glyph the File
                             Explorer draws for the same name, in its kind's hue
                             — the tile is how a list of forty hits is scanned
                             before it is read. A skill or plugin wears its own
@@ -1441,53 +1474,58 @@ export default function CommandPalette({
                             avatar → monogram), so a row reads the same in both
                             places. A command or a chat wears none: the verb is
                             the whole row. */}
-                        {command.file ? (
-                          <FileTypeGlyph name={command.file} tone="kind" className="icon-sm shrink-0" />
-                        ) : command.mark ? (
-                          renderMark(command.mark)
-                        ) : command.icon ? (
-                          <ExtensionIcon name={command.label} size={PALETTE_ROW_ICON_SIZE} {...command.icon} />
-                        ) : null}
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            {/* A content hit's label is a line of source, not a
+                          {command.file ? (
+                            <FileTypeGlyph name={command.file} tone="kind" className="icon-sm shrink-0" />
+                          ) : command.mark ? (
+                            renderMark(command.mark)
+                          ) : command.icon ? (
+                            <ExtensionIcon name={command.label} size={PALETTE_ROW_ICON_SIZE} {...command.icon} />
+                          ) : null}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex min-w-0 items-center gap-2">
+                              {/* A content hit's label is a line of source, not a
                                 title: it reads in mono at body size, with the
                                 file:line beneath it as the locator. */}
-                            <TruncatedText
-                              as="div"
-                              text={command.label}
-                              className={`min-w-0 ${command.group === 'content' ? 'font-mono text-meta' : 'text-heading'}`}
-                            />
-                            {/* Where it came from, or that you already have it —
+                              <TruncatedText
+                                as="div"
+                                text={command.label}
+                                className={`min-w-0 ${command.group === 'content' ? 'font-mono text-meta' : 'text-heading'}`}
+                              />
+                              {/* Where it came from, or that you already have it —
                                 the one fact a cross-source list cannot leave
                                 out, because the same skill name appears in
                                 several marketplaces. */}
-                            {command.badge ? (
-                              <span className="shrink-0 rounded-[var(--radius-xs)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-subtle)]">
-                                {command.badge}
-                              </span>
-                            ) : null}
+                              {command.badge ? (
+                                <span className="shrink-0 rounded-[var(--radius-xs)] bg-[color:var(--bg-surface-raised)] px-1.5 py-0.5 text-micro text-[color:var(--text-subtle)]">
+                                  {command.badge}
+                                </span>
+                              ) : null}
+                            </div>
+                            {command.description && (
+                              <TruncatedText
+                                as="div"
+                                text={command.description}
+                                className={`mt-0.5 text-micro text-[color:var(--text-disabled)] ${command.group === 'content' ? 'font-mono' : ''}`}
+                              />
+                            )}
                           </div>
-                          {command.description && (
-                            <TruncatedText
-                              as="div"
-                              text={command.description}
-                              className={`mt-0.5 text-micro text-[color:var(--text-disabled)] ${command.group === 'content' ? 'font-mono' : ''}`}
+                          {command.shortcut && (
+                            // The chord arrives already rendered for this
+                            // platform ("⌘K"), so it is one capsule, not a parse.
+                            <KbdChord
+                              keys={[command.shortcut]}
+                              ariaLabel={command.shortcut}
+                              className="ml-3 shrink-0"
                             />
                           )}
                         </div>
-                        {command.shortcut && (
-                          // The chord arrives already rendered for this
-                          // platform ("⌘K"), so it is one capsule, not a parse.
-                          <KbdChord keys={[command.shortcut]} ariaLabel={command.shortcut} className="ml-3 shrink-0" />
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              ))
-            )}
-          </div>
+                      )
+                    })}
+                  </div>
+                ))
+              )}
+            </div>
+          )}
         </div>
       </FocusTrap>
     </div>

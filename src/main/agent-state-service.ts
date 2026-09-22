@@ -4,8 +4,10 @@ import { createServer, type Server, type Socket } from 'net'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { PluginAgentStateSpec } from '../shared/plugin-manifest'
+import type { TerminalPathStyle } from '../shared/electron-api'
 import type { AgentStateFrame } from './agent-state'
 import { installAgentStateReporter, parseAgentStateFrame } from './agent-state'
+import { toWslInteropExecutable } from './wsl-interop'
 
 // =============================================================================
 // Agent-state service — the Electron-bound half of authoritative agent state.
@@ -15,8 +17,9 @@ import { installAgentStateReporter, parseAgentStateFrame } from './agent-state'
 // ones to `onFrame` (the terminal runtime, which resolves the session and
 // updates its phase). Also owns installing the reporter at launch — serialized
 // per TARGET FILE (several CLIs can share one settings file) and run once per
-// CLI per scope root per app run, so concurrent agent launches never race a
-// config's read-modify-write.
+// CLI per scope root and execution style per app run, so concurrent agent
+// launches never race a config's read-modify-write and switching between native
+// Windows and WSL rewrites the command for the shell that will execute it.
 //
 // All Electron specifics (userData dir, bundled reporter path) are injected, so
 // this module stays free of `electron` and is unit-testable over a real socket.
@@ -53,6 +56,10 @@ export type AgentStateServiceOptions = {
   // Home directory a user-scoped registration resolves against. Injected so
   // tests never write the real home; production omits it (os.homedir()).
   resolveHomeDir?: () => string
+  // WSL hooks run in a Linux shell but must use the Windows-hosted runtime so
+  // they can reach the app's named pipe. The executable itself is rendered as
+  // a /mnt/<drive> path; its script and pipe arguments remain Windows-native.
+  resolveHostNodeCommand?: () => string
   // Whether this CLI is handed the app's own plugin directories at launch
   // (`--plugin-dir`), which carry this very reporter and its event set. True ⇒
   // install nothing into the workspace: the launch flag already registers it
@@ -188,10 +195,14 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
   // Install the reporter into a workspace before an agent launches, entirely
   // from the CLI's manifest-declared agentStateSpec (registration kind + path
   // + event set). A CLI without a spec installs nothing — it cannot report
-  // agent state. Serialized + run once per (cli, workspace) per app run, and
-  // strictly best-effort: a failure is logged and swallowed so it can never
-  // block or break the launch that awaits it.
-  async function installForWorkspace(workspaceRoot: string, cli: string): Promise<void> {
+  // agent state. Serialized + run once per (cli, workspace, execution style)
+  // per app run, and strictly best-effort: a failure is logged and swallowed
+  // so it can never block or break the launch that awaits it.
+  async function installForWorkspace(
+    workspaceRoot: string,
+    cli: string,
+    execution: { pathStyle?: TerminalPathStyle } = {},
+  ): Promise<void> {
     const root = workspaceRoot.trim()
     if (!root) return
     const spec = options.resolveAgentStateSpec(cli)
@@ -207,7 +218,9 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
     // so its install-once key is per CLI, not per workspace — the first launch
     // of any workspace heals a stale config, and later workspaces skip a write
     // that would be byte-identical anyway.
-    const key = spec.registration.scope === 'user' ? `${cli}::user` : `${cli}::${root}`
+    const pathStyle = execution.pathStyle ?? (process.platform === 'win32' ? 'windows' : 'posix')
+    const keyRoot = spec.registration.scope === 'user' ? 'user' : root
+    const key = `${cli}::${keyRoot}::${pathStyle}`
     if (installed.has(key)) return
 
     // Serialization is keyed by the TARGET FILE, not the CLI: claude-code, zai
@@ -232,6 +245,14 @@ export function createAgentStateService(options: AgentStateServiceOptions) {
         sourceScriptPath,
         socketPath: getSocketPath(),
         statusLineScriptPath: options.resolveStatusLineScriptPath?.() ?? null,
+        ...(pathStyle === 'wsl' && options.resolveHostNodeCommand
+          ? {
+              commandRuntime: {
+                executable: toWslInteropExecutable(options.resolveHostNodeCommand()),
+                env: { ELECTRON_RUN_AS_NODE: '1' },
+              },
+            }
+          : {}),
         ...(options.resolveHomeDir ? { homeDir: options.resolveHomeDir() } : {}),
       })
       if (result.ok) {

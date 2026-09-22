@@ -12,6 +12,7 @@ import { removeFileTabsForPath } from '../../utils/modelRegistry'
 import { EDITOR_FOCUS_EVENT } from '../../utils/editorFocus'
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
+import { configureMonacoLanguages } from '../../utils/patchLanguage'
 import { ContextMenu, EmptyState, IconButton, InlineNotice, MenuDivider, MenuItem, Spinner, Tooltip } from '../ui'
 
 // The editor's three non-content states, each in its own kit idiom so a failed
@@ -599,6 +600,7 @@ export default function EditorPanel({ workspaceId, filePath }: Props) {
           <div className="h-full" onContextMenu={openEditorContextMenu}>
             <MonacoEditor
               height="100%"
+              beforeMount={configureMonacoLanguages}
               language={activeFile.language}
               value={activeContent}
               theme={monacoTheme}

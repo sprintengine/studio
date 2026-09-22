@@ -1,13 +1,16 @@
 import { RETIRED_SPRINTENGINE_MCP_SERVER_ID, type McpConfigService } from './mcp-config-service'
 import type { McpServerConfig, McpSyncInput } from '../shared/electron-api'
+import type { TerminalPathStyle } from '../shared/electron-api'
 import { STUDIO_MCP_SERVER_ID, STUDIO_MCP_SERVER_NAME } from '../shared/product-identity'
 import { studioEnvEntry } from '../shared/studio-env'
+import { toWslInteropExecutable } from './wsl-interop'
 
 export type StudioMcpSyncResult = { ok: true } | { ok: false; message: string }
 
 /**
- * Write a launch's MCP configuration, with the app's own always-on gateway
- * server pinned into the workspace target.
+ * Write a launch's MCP configuration, with the app's own gateway server pinned
+ * into the workspace target. The gateway is optional to the CLI: losing it
+ * reduces Studio integration but must not prevent the agent itself launching.
  *
  * Two passes, not one: the generic writer picks a single target when a user's
  * own servers are user-scoped, and this app-owned entry must never land in a
@@ -16,7 +19,7 @@ export type StudioMcpSyncResult = { ok: true } | { ok: false; message: string }
  * and forgets the retired Sprint Engine server.
  */
 export async function syncStudioMcpConfig(
-  input: McpSyncInput,
+  input: McpSyncInput & { executionPathStyle?: TerminalPathStyle },
   deps: {
     mcpConfigService: Pick<McpConfigService, 'sync'>
     studioGateway?: () => {
@@ -37,7 +40,8 @@ export async function syncStudioMcpConfig(
       name: STUDIO_MCP_SERVER_NAME,
       description: 'Always-on local control surface for SprintEngine Studio.',
       transport: 'stdio',
-      command: studioGateway.command,
+      command:
+        input.executionPathStyle === 'wsl' ? toWslInteropExecutable(studioGateway.command) : studioGateway.command,
       args: [studioGateway.bridgeScriptPath],
       env: {
         ELECTRON_RUN_AS_NODE: '1',
@@ -45,7 +49,7 @@ export async function syncStudioMcpConfig(
         ...studioEnvEntry('SPRINTENGINE_AGENT_CLI', cliId),
       },
       enabled: true,
-      required: true,
+      required: false,
       clients,
       scope: 'workspace',
       source: 'bundled',

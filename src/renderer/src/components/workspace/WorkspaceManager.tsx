@@ -209,6 +209,8 @@ import { dispatchPanelCommandEvent } from '../../utils/panelCommands'
 import type { PaletteScope } from '../commandPaletteSearch'
 import { subscribePaletteOpenRequest, type PaletteAgentTarget } from '../palette/paletteOpenRequest'
 import { isGlobalShortcutSuppressedTarget, isTerminalKeyTarget } from '../../utils/keyboard'
+import { controlTabContextItemOf, controlTabContextOf, cycleFocusedControlTabScope } from '../../utils/controlTab'
+import { useExtensionsDrawerRows } from './extensionsDrawerRows'
 import { showCliUpdateToast } from './manager/cliUpdateToast'
 import { selectWorkspaceManagerWorkspaces } from './manager/workspaceSelector'
 import {
@@ -431,6 +433,7 @@ export default function WorkspaceManager() {
   const activeGlobalSurface = useWorkspaceStore((s) => s.activeGlobalSurface)
   const openGlobalSurface = useWorkspaceStore((s) => s.openGlobalSurface)
   const closeGlobalSurface = useWorkspaceStore((s) => s.closeGlobalSurface)
+  const extensionsDrawerRows = useExtensionsDrawerRows()
   // Written back after a card's `install.mcp`: main synced the CLI configs, and
   // the settings store is where the app's own list of servers lives.
   const upsertMcpServer = useWorkspaceStore((s) => s.upsertMcpServer)
@@ -3472,8 +3475,25 @@ export default function WorkspaceManager() {
         return true
       }
       if (commandId === 'layout.tab.next' || commandId === 'layout.tab.previous') {
+        const step = commandId === 'layout.tab.previous' ? -1 : 1
+        if (controlTabContextOf(document.activeElement) === 'extensions') {
+          if (extensionsDrawerRows.length < 2) return true
+          const focusedRowKey = controlTabContextItemOf(document.activeElement)
+          const currentIndex = extensionsDrawerRows.findIndex((row) =>
+            focusedRowKey ? row.key === focusedRowKey : row.active,
+          )
+          const nextIndex =
+            currentIndex === -1
+              ? step === 1
+                ? 0
+                : extensionsDrawerRows.length - 1
+              : (currentIndex + step + extensionsDrawerRows.length) % extensionsDrawerRows.length
+          extensionsDrawerRows[nextIndex]?.open()
+          return true
+        }
+        if (cycleFocusedControlTabScope(document.activeElement, step)) return true
         if (!windowActiveWorkspaceId) return false
-        return cycleActiveLayoutTab(windowActiveWorkspaceId, commandId === 'layout.tab.previous' ? -1 : 1)
+        return cycleActiveLayoutTab(windowActiveWorkspaceId, step)
       }
       if (commandId === 'layout.tab.close') {
         if (!windowActiveWorkspaceId) return false
@@ -3609,6 +3629,7 @@ export default function WorkspaceManager() {
       terminalSessions,
       moduleEnablement,
       dispatchPanelCommand,
+      extensionsDrawerRows,
     ],
   )
 

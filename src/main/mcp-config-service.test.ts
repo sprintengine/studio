@@ -809,6 +809,7 @@ test('mcp-config-service', async () => {
     await sourceInstalledServerSyncsAndKeepsItsProvenance(service, temp)
     await aForgottenServerLeavesTheConfig(service, temp)
     await theRetiredSprintEngineServerIsForgottenByTheStudioSync(service, temp)
+    await theStudioGatewayUsesAWslInteropExecutableAndIsOptional(service, temp)
   }
 
   /**
@@ -978,6 +979,37 @@ test('mcp-config-service', async () => {
     assert.equal(claudeSettings.enabledMcpjsonServers.includes(RETIRED_SPRINTENGINE_MCP_SERVER_ID), false)
     assert.equal(claudeSettings.enabledMcpjsonServers.includes('mine'), true)
     assert.equal(claudeSettings.enabledMcpjsonServers.includes(STUDIO_MCP_SERVER_ID), true)
+  }
+
+  async function theStudioGatewayUsesAWslInteropExecutableAndIsOptional(
+    service: ReturnType<typeof createMcpConfigService>,
+    temp: string,
+  ): Promise<void> {
+    const root = join(temp, 'wsl-studio-gateway')
+    await mkdir(root, { recursive: true })
+    const result = await syncStudioMcpConfig(
+      {
+        workspaceRoot: root,
+        settings: { syncEnabled: false, servers: {} },
+        clients: ['codex'],
+        executionPathStyle: 'wsl',
+      },
+      {
+        mcpConfigService: service,
+        studioGateway: () => ({
+          command: 'C:\\Program Files\\SprintEngine Studio\\SprintEngine Studio.exe',
+          bridgeScriptPath: 'C:\\Program Files\\SprintEngine Studio\\resources\\mcp-stdio-bridge.mjs',
+          userDataDir: 'C:\\Users\\dev\\AppData\\Roaming\\sprintengine-studio',
+        }),
+      },
+    )
+    assert.equal(result.ok, true, result.ok ? '' : result.message)
+    const config = await readFile(join(root, '.codex', 'config.toml'), 'utf8')
+    assert.ok(
+      config.includes('command = "/mnt/c/Program Files/SprintEngine Studio/SprintEngine Studio.exe"'),
+      'the WSL shell can execute the Windows-hosted bridge runtime',
+    )
+    assert.doesNotMatch(config, /required = true/u, 'the Studio gateway is optional')
   }
 
   const suiteRun = main().catch((error) => {

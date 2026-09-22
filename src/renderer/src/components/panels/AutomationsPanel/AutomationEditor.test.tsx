@@ -421,7 +421,11 @@ test('AutomationEditor', async () => {
   // with no stored preset runs unattended, so the control must read that rather
   // than "Default" — the editor may not show a preset the run will not use.
   assert.match(agentBlockMarkup, /Permission/, 'the editor labels the permission field')
-  assert.match(agentBlockMarkup, /Bypass all — runs unattended/, 'an unset automation reads as the unattended default')
+  assert.match(
+    agentBlockMarkup,
+    /Bypass permissions — Skip every prompt/,
+    'an unset automation reads as the unattended default',
+  )
   assert.doesNotMatch(
     agentBlockMarkup,
     /Default — asks before acting<\/span>\s*<svg/,
@@ -621,7 +625,11 @@ test('AutomationEditor', async () => {
     'the time field names the zone it is read in',
   )
   assert.doesNotMatch(elsewhereMarkup, /Local time/, 'and does not also claim to be local')
-  assert.match(starterMarkup, /Bypass all — runs unattended/, 'permission reads the unattended default it will run on')
+  assert.match(
+    starterMarkup,
+    /Bypass permissions — Skip every prompt/,
+    'permission reads the unattended default it will run on',
+  )
   assert.match(starterMarkup, /Every run/, 'the aside states the run contract')
   assert.match(starterMarkup, /A branch it can open a pull request from/, 'what a worktree run produces')
 

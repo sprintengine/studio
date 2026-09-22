@@ -196,6 +196,7 @@ export function createAppServices(diagnosticsEnabled: boolean) {
         .find((plugin) => plugin.manifest.id === cli)?.manifest.agentStateSpec ?? null,
     resolveReporterScriptPath: getBundledAgentStateReporterPath,
     resolveStatusLineScriptPath: getBundledStatusLineForwarderPath,
+    resolveHostNodeCommand: () => process.execPath,
     // A CLI that takes the app's plugin directories at launch gets this same
     // reporter for the session, so nothing is written into the workspace. Both
     // halves must hold: a manifest that declares the flag, and a materialised
@@ -466,7 +467,8 @@ export function createAppServices(diagnosticsEnabled: boolean) {
     // Connector launch: keep the generated managed MCP config out of the
     // connector chat's worktree git (`.mcp.json` / `.codex/config.toml`).
     excludeWorktreeMcpConfig: (worktreePath) => excludeMcpConfigFromWorktree(worktreePath),
-    prepareAgentStateHook: (workspaceRoot, cli) => agentStateService.installForWorkspace(workspaceRoot, cli),
+    prepareAgentStateHook: (workspaceRoot, cli, execution) =>
+      agentStateService.installForWorkspace(workspaceRoot, cli, execution),
   })
   // The conversation pull request record (epic `pull-request-marks`, decision
   // 10): main owns which pull requests a conversation has and what state each is

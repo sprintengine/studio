@@ -363,5 +363,49 @@
     </div>
   </div>
 </div>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — installed Skills, visible before typing; the same name remains visible in both scopes.</p>
+  <div class="demo-scrim">
+    <div class="ds-command-palette" role="dialog" aria-label="Installed skills, light">
+      <div class="ds-command-palette-band">
+        <div class="ds-command-palette-query">
+          <input class="ds-command-palette-input" role="combobox" aria-label="Filter installed skills for Codex" aria-expanded="true" aria-controls="demo-installed-light" placeholder="Filter installed skills…" />
+        </div>
+      </div>
+      <div class="ds-command-palette-results" id="demo-installed-light" role="listbox" aria-label="Installed skills by scope">
+        <div class="ds-command-palette-group" role="group" aria-label="Project">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Project</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="true"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">.codex/skills/review</span></span></div>
+        </div>
+        <div class="ds-command-palette-group" role="group" aria-label="Global">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Global</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="false"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">~/.codex/skills/review</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — installed Skills, grouped by scope; selection opens installation details and actions.</p>
+  <div class="demo-scrim">
+    <div class="ds-command-palette" role="dialog" aria-label="Installed skills, dark">
+      <div class="ds-command-palette-band">
+        <div class="ds-command-palette-query">
+          <input class="ds-command-palette-input" role="combobox" aria-label="Filter installed skills for Codex" aria-expanded="true" aria-controls="demo-installed-dark" placeholder="Filter installed skills…" />
+        </div>
+      </div>
+      <div class="ds-command-palette-results" id="demo-installed-dark" role="listbox" aria-label="Installed skills by scope">
+        <div class="ds-command-palette-group" role="group" aria-label="Project">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Project</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="true"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">.codex/skills/review</span></span></div>
+        </div>
+        <div class="ds-command-palette-group" role="group" aria-label="Global">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Global</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="false"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">~/.codex/skills/review</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
