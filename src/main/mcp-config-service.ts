@@ -399,7 +399,7 @@ function syncClaude(input: SyncForFormatInput): {
 }
 
 // Claude records project MCP approval separately from `.mcp.json`. The Studio
-// gateway is app-owned and required, so add only that one id to the allow-list;
+// gateway is app-owned, so add only that one id to the allow-list;
 // custom MCPs retain Claude's normal consent flow and every unrelated setting
 // is preserved. Z.AI and Kimi Claude use the same Claude binary/config shape.
 //

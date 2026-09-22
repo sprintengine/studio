@@ -155,6 +155,29 @@ test('agent-state-service', async () => {
     // so it runs once more and writes the TOML target, not the JSON one.
     await installSvc.installForWorkspace(workspaceRoot, 'codex')
     assert.equal(resolveCalls, 2)
+
+    // The same workspace can switch from a native Windows launch to WSL. The
+    // execution style is part of the install key, so the second launch heals
+    // the command instead of reusing a Windows-only `node C:/...` invocation.
+    const wslRoot = await mkdtemp(join(tmpdir(), 'se-agent-state-wsl-'))
+    const wslSvc = createAgentStateService({
+      resolveUserDataDir: () => userDataDir,
+      resolveAgentStateSpec: resolveSpec,
+      resolveReporterScriptPath: () => reporterSrc,
+      resolveReporterTemplatePath: () => null,
+      resolveHostNodeCommand: () => 'C:\\Program Files\\SprintEngine Studio\\SprintEngine Studio.exe',
+      onFrame: () => {},
+    })
+    await wslSvc.installForWorkspace(wslRoot, 'codex', { pathStyle: 'windows' })
+    let wslConfig = await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')
+    assert.match(wslConfig, /command = "node /u, 'native launch initially uses the CLI-visible Node runtime')
+    await wslSvc.installForWorkspace(wslRoot, 'codex', { pathStyle: 'wsl' })
+    wslConfig = await readFile(join(wslRoot, '.codex', 'config.toml'), 'utf8')
+    assert.ok(wslConfig.includes("ELECTRON_RUN_AS_NODE='1'"), 'WSL command starts the host runtime as Node')
+    assert.ok(
+      wslConfig.includes('/mnt/c/Program Files/SprintEngine Studio/SprintEngine Studio.exe'),
+      'WSL command names the host executable through its Linux-visible path',
+    )
     const codexConfig = await readFile(join(workspaceRoot, '.codex', 'config.toml'), 'utf8')
     assert.ok(codexConfig.includes('[[hooks.SessionStart]]'), 'codex reporter hook not installed')
     // …and is itself install-once.
@@ -232,10 +255,10 @@ test('agent-state-service', async () => {
     assert.ok(injectedCodexConfig?.includes('[[hooks.SessionStart]]'), 'codex still gets its workspace install')
 
     // --- user-scoped registration: per-CLI install-once, injected home -------
-    // Kimi's config is user-global, so the install key is `${cli}::user`: the
-    // first workspace's launch writes it, a second workspace's launch is a
-    // no-op (the content is workspace-independent), and nothing touches the
-    // real home because the test injects resolveHomeDir.
+    // Kimi's config is user-global, so the install key is independent of the
+    // workspace: the first workspace's launch writes it, a second workspace's
+    // launch is a no-op (the content is workspace-independent), and nothing
+    // touches the real home because the test injects resolveHomeDir.
     const userScopeHome = await mkdtemp(join(tmpdir(), 'se-agent-state-home-'))
     const wsA = await mkdtemp(join(tmpdir(), 'se-agent-state-wsA-'))
     const wsB = await mkdtemp(join(tmpdir(), 'se-agent-state-wsB-'))
