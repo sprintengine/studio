@@ -595,6 +595,28 @@ test('NewAgentPanel', async () => {
       view.unmount()
     })
 
+    await check('the feature flag removes the chat launch and skips its catalog request', async () => {
+      seedStore()
+      let requests = 0
+      const view = await render({
+        conversationModeEnabled: false,
+        conversationAvailable: true,
+        onRequestConversationCatalog: () => {
+          requests += 1
+        },
+      })
+      const more = [...view.container.querySelectorAll('button')].find(
+        (button) => button.getAttribute('aria-label') === 'More launch options',
+      )
+      await act(async () => {
+        more!.dispatchEvent(new dom.window.MouseEvent('click', { bubbles: true }))
+      })
+      const menu = dom.window.document.querySelector('[aria-label="More launch options"][role="menu"]')
+      assert.ok(!(menu?.textContent ?? '').includes('Chat'), 'the unfinished conversation mode is absent')
+      assert.equal(requests, 0, 'a hidden feature does not load its provider catalog')
+      view.unmount()
+    })
+
     await check('the surface asks the host for the conversation catalog', async () => {
       seedStore()
       let requests = 0
