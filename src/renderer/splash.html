@@ -17,7 +17,29 @@
       Always dark, whatever theme the profile resolves to: there is one plate
       asset and it is a dark botanical. index.html's theme pre-paint is
       deliberately NOT ported here.
+
+      A nightly build opens on a second plate: a night sky that comes in from
+      the left and right edges toward the centre, with the mark on a bezelled
+      tile above the wordmark and a "Nightly" word beside it. Main says which
+      build this is in the URL (`?channel=nightly`, splash-window.ts
+      splashQuery), and the script below reads it before <body> is parsed, so
+      the first paint is already the right plate. Stable loads with no query
+      and none of the nightly rules match it.
     -->
+    <script>
+      // Blocking and first on purpose: it has to land before the first paint,
+      // which is the whole reason the channel travels in the URL rather than
+      // over IPC the way progress does.
+      ;(function () {
+        try {
+          if (new URLSearchParams(location.search).get('channel') === 'nightly') {
+            document.documentElement.setAttribute('data-channel', 'nightly')
+          }
+        } catch (_) {
+          // No URL API means no variant; the stable plate is the safe default.
+        }
+      })()
+    </script>
     <style>
       /* Mirrors design-system/foundations/tokens.css, dark mode. Copied rather
          than imported — see above. */
@@ -34,6 +56,22 @@
            own first frame uses the same fallback until the font arrives. */
         --ui: Inter, 'SF Pro Text', 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
         --ease: cubic-bezier(0.2, 0.8, 0.2, 1);
+
+        /* The nightly plate's spend, mirrored the same way. The tile is a
+           raised surface of the shell's own vocabulary rather than a new
+           drawing: the window shell's card radius, the strong hairline, and
+           the modal shadow, whose inset top highlight is what reads as a
+           bezel on a dark ground. */
+        --bg-surface-raised: #101418; /* --sem-color-bg-surface-raised, dark */
+        --border-strong: rgba(252, 252, 252, 0.12); /* --sem-color-border-strong, dark */
+        --radius-shell-lg: 12px; /* --sem-radius-shell-lg */
+        --shadow-modal: inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 16px 48px -16px rgba(0, 0, 0, 0.72); /* --sem-shadow-modal, dark */
+        --space-sm: 8px; /* --sem-space-sm */
+        --space-lg: 12px; /* --sem-space-lg */
+        --space-xl: 16px; /* --sem-space-xl */
+        --font-size-body: 13px; /* --sem-font-size-body */
+        --motion-normal: 180ms; /* --sem-motion-duration-normal */
+        --motion-deliberate: 260ms; /* --sem-motion-duration-deliberate */
       }
 
       * {
@@ -69,6 +107,66 @@
         width: 100%;
         height: 100%;
         object-fit: cover;
+      }
+
+      /* ── Nightly ────────────────────────────────────────────────────────
+         Everything below matches only under :root[data-channel='nightly'].
+
+         The night plate is a CSS background rather than a second <img>: an
+         <img> is fetched whether or not it is displayed, so a stable launch
+         would read and decode a plate it never shows. A background is only
+         fetched by a rule that matches. (The reverse cost remains — a nightly
+         still fetches the stable <img> it hides — and is left alone, because
+         avoiding it would mean changing how the stable plate is drawn.) */
+      .plate--night {
+        display: none;
+        background: var(--bg-app) url('./src/assets/backdrops/splash-night-sky.png') center / cover no-repeat;
+      }
+
+      :root[data-channel='nightly'] img.plate {
+        display: none;
+      }
+
+      /* The night plate carries its own quiet centre (it settles to --bg-app
+         where the figure sits; scripts/brand/night-sky.js), so it needs no
+         pool — and the scrim's darker rim would put out exactly the stars
+         the plate keeps to its edges. */
+      :root[data-channel='nightly'] .scrim {
+        display: none;
+      }
+
+      :root[data-channel='nightly'] .plate--night {
+        display: block;
+        /* Two masks, one from each side, each opaque up to --reveal and
+           feathering out over the next 30%. Animating --reveal from -30% to
+           50% walks both edges in until they meet in the middle, so the sky
+           arrives from the left and right edges toward the centre, where the
+           mark is. Its resting value (50%) is fully revealed, which is what
+           reduced motion gets. */
+        -webkit-mask-image:
+          linear-gradient(to right, black var(--reveal), transparent calc(var(--reveal) + 30%)),
+          linear-gradient(to left, black var(--reveal), transparent calc(var(--reveal) + 30%));
+        mask-image:
+          linear-gradient(to right, black var(--reveal), transparent calc(var(--reveal) + 30%)),
+          linear-gradient(to left, black var(--reveal), transparent calc(var(--reveal) + 30%));
+        animation: night-reveal var(--motion-deliberate) var(--ease) both;
+      }
+
+      /* Registered so it interpolates as a length rather than flipping at the
+         end, which is what an unregistered custom property does. */
+      @property --reveal {
+        syntax: '<percentage>';
+        inherits: false;
+        initial-value: 50%;
+      }
+
+      @keyframes night-reveal {
+        from {
+          --reveal: -30%;
+        }
+        to {
+          --reveal: 50%;
+        }
       }
 
       /* A pool of --bg-app so the wordmark keeps its contrast wherever the
@@ -112,6 +210,100 @@
         color: var(--accent-primary);
       }
 
+      /* The wordmark and, on a nightly, the channel word beside it on one
+         baseline. The wordmark holds the middle column, so it stays centred
+         under the tile — and exactly where it always was on stable, where the
+         word is hidden — and the word hangs off its right in the third. */
+      .lockup {
+        display: grid;
+        grid-template-columns: 1fr auto 1fr;
+        align-items: baseline;
+        column-gap: var(--space-sm);
+        width: 100%;
+      }
+
+      .lockup .wordmark {
+        grid-column: 2;
+      }
+
+      .lockup .channel {
+        grid-column: 3;
+        justify-self: start;
+      }
+
+      /* The mark on its tile: the application icon's "se", set live in the
+         wordmark's own type (as sprintengine-se-mark.source.html sets it) so
+         it waits on no image and stays sharp at any scale factor. Nightly
+         only — the stable plate keeps the wordmark as its one figure. */
+      .mark,
+      .channel {
+        display: none;
+      }
+
+      :root[data-channel='nightly'] .mark {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        aspect-ratio: 1;
+        padding: var(--space-lg);
+        margin-bottom: var(--space-xl);
+        background: var(--bg-surface-raised);
+        border: 1px solid var(--border-strong);
+        border-radius: var(--radius-shell-lg);
+        box-shadow: var(--shadow-modal);
+        font-size: 28px;
+        font-weight: 600;
+        letter-spacing: -0.06em;
+        line-height: 1;
+        color: var(--text-strong);
+        animation: settle var(--motion-normal) var(--ease) var(--motion-deliberate) both;
+      }
+
+      .mark i {
+        font-style: normal;
+        color: var(--accent-primary);
+      }
+
+      /* Lowercase has no ascenders, so the pair is lifted to the tile's
+         optical centre, as the icon's source does. */
+      .mark span {
+        display: block;
+        transform: translateY(-6%);
+      }
+
+      /* "Nightly" in the wordmark's type — its weight and tracking, a step
+         down in size and in the muted ink, so it qualifies the name rather
+         than competing with it. */
+      :root[data-channel='nightly'] .channel {
+        display: block;
+        font-size: var(--font-size-body);
+        font-weight: 600;
+        letter-spacing: -0.011em;
+        line-height: 1;
+        color: var(--text-muted);
+        animation: settle var(--motion-normal) var(--ease) var(--motion-deliberate) both;
+      }
+
+      /* The tile and the word arrive once the sky has, so the eye lands on
+         the figure after the ground is in place. Opacity only: nothing moves,
+         so the wordmark never shifts under the reader. */
+      @keyframes settle {
+        from {
+          opacity: 0;
+        }
+        to {
+          opacity: 1;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        :root[data-channel='nightly'] .plate--night,
+        :root[data-channel='nightly'] .mark,
+        :root[data-channel='nightly'] .channel {
+          animation: none;
+        }
+      }
+
       .status {
         margin-top: 20px;
         font-size: 12px;
@@ -142,9 +334,14 @@
   </head>
   <body>
     <img class="plate" src="./src/assets/backdrops/backdrop-herbarium-dark-chat.jpg" alt="" />
+    <div class="plate plate--night"></div>
     <div class="scrim"></div>
     <div class="body">
-      <div class="wordmark">sprint<i>engine</i></div>
+      <div class="mark" aria-hidden="true"><span>s<i>e</i></span></div>
+      <div class="lockup">
+        <div class="wordmark">sprint<i>engine</i></div>
+        <div class="channel">Nightly</div>
+      </div>
       <!-- The static default covers the few frames before the first progress
            push; boot discovery replaces it with the leg actually in flight. -->
       <div class="status" id="status">Starting…</div>

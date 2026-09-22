@@ -124,7 +124,14 @@ export type AppUpdateProgress = {
 export type AppUpdateState = {
   status: AppUpdateStatus
   version: string
+  /** The channel the updater follows now: the saved choice, else the build's
+   *  own. `dev` for an unpackaged build. */
   channel: AppUpdateChannel
+  /** The channel this build was cut for, read from its version and fixed for
+   *  the life of the process. It differs from `channel` once a person switches
+   *  trains in Settings: a nightly build following stable is still a nightly
+   *  until the stable update installs over it. */
+  buildChannel: AppUpdateTrack
   packaged: boolean
   updateVersion: string | null
   releaseName: string | null

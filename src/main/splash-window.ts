@@ -1,6 +1,6 @@
 import { BrowserWindow } from 'electron'
 import { join } from 'path'
-import type { SplashProgress } from '../shared/electron-api'
+import type { AppUpdateTrack, SplashProgress } from '../shared/electron-api'
 
 // The launch plate: a real second window that covers the gap between process
 // start and the main window's first frame. `createMainWindow` builds the main
@@ -24,9 +24,35 @@ const SPLASH_BACKGROUND_COLOR = '#08080c'
 
 let splashWindow: BrowserWindow | null = null
 
+/**
+ * The query the splash document is loaded with. A nightly build opens on its
+ * own plate (a night sky, the mark on a bezelled tile, a "Nightly" word), and
+ * the document has to know which plate to paint BEFORE its first paint: a
+ * value pushed over IPC, the way progress is, arrives after the page has
+ * already painted the stable plate once, and that flash is the one thing the
+ * variant must never do. A query string is read synchronously by the inline
+ * script at the top of splash.html, ahead of the body.
+ *
+ * Stable sends no query at all, so its URL — and everything it paints — is
+ * exactly what it was before nightlies had a plate of their own.
+ */
+export function splashQuery(buildChannel: AppUpdateTrack): Record<string, string> {
+  return buildChannel === 'nightly' ? { channel: 'nightly' } : {}
+}
+
+/** `splash.html` under the dev server, with the channel query applied. */
+export function splashDevUrl(rendererUrl: string, buildChannel: AppUpdateTrack): string {
+  const url = new URL('splash.html', rendererUrl)
+  for (const [key, value] of Object.entries(splashQuery(buildChannel))) url.searchParams.set(key, value)
+  return url.toString()
+}
+
 // Never null: `new BrowserWindow` throws rather than returning nothing, and a
 // nullable return would only buy a dead branch at the one call site.
-export function createSplashWindow(): BrowserWindow {
+//
+// `buildChannel` is the channel this build was cut for (the update service's
+// `buildChannel`), not the one it follows: the plate says what is launching.
+export function createSplashWindow({ buildChannel }: { buildChannel: AppUpdateTrack }): BrowserWindow {
   if (splashWindow && !splashWindow.isDestroyed()) return splashWindow
 
   const win = new BrowserWindow({
@@ -60,10 +86,11 @@ export function createSplashWindow(): BrowserWindow {
     if (splashWindow === win) splashWindow = null
   })
 
-  if (process.env['ELECTRON_RENDERER_URL']) {
-    win.loadURL(new URL('splash.html', process.env['ELECTRON_RENDERER_URL']).toString())
+  const rendererUrl = process.env['ELECTRON_RENDERER_URL']
+  if (rendererUrl) {
+    win.loadURL(splashDevUrl(rendererUrl, buildChannel))
   } else {
-    win.loadFile(join(__dirname, '../renderer/splash.html'))
+    win.loadFile(join(__dirname, '../renderer/splash.html'), { query: splashQuery(buildChannel) })
   }
 
   return win

@@ -34,6 +34,7 @@ function resultFor(channel: AppUpdateTrack): AppUpdateCheckResult {
       status: 'not_available',
       version: '0.5.2',
       channel,
+      buildChannel: 'stable',
       packaged: true,
       updateVersion: null,
       releaseName: null,

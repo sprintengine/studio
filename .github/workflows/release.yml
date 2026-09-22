@@ -206,6 +206,15 @@ jobs:
         shell: bash
         run: npm pkg set "version=${VERSION}"
 
+      # A nightly packages with the night-sky icon so it can be told from a
+      # stable install in the Dock, the taskbar and the tray. The script copies
+      # resources/icon-nightly.* over resources/icon.* in this throwaway
+      # checkout, which every platform's build config and the tray already
+      # read; stable leaves the committed icon alone.
+      - name: Use the channel's app icon
+        shell: bash
+        run: node scripts/release/use-channel-icons.mjs "${CHANNEL}"
+
       # `npm run dist:*` chains runtimes:fetch before the build; CI calls
       # electron-builder directly and so once skipped it entirely. resources/runtime
       # is gitignored, so every CI installer up to v0.3.0 shipped WITHOUT the

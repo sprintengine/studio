@@ -40,6 +40,8 @@ truncates the title, not the fact.
   and it is one drawing shared by the reasoning selector and the
   permission-preset menu, so the two menus cannot disagree about what
   "default" looks like.
+- **`NightlyBuildChip`** (2026-09-22) — the second shipped instance, reading
+  "Nightly", beside the wordmark. See *Nightly identity* under Usage.
 
 ## States
 
@@ -71,6 +73,41 @@ licence to shrink a badge that should have stayed a badge. Primary content
 never goes below `font.size.body`; this carries a qualifier, which is why it
 is allowed at `font.size.micro` at all.
 
+### Nightly identity
+
+A nightly build says so in two places and nowhere else, and both are keyed to
+what the **build** is — the channel its version was cut for, which main
+reports as `AppUpdateState.buildChannel` — never to the channel the updater
+follows. A nightly switched to stable in Settings is still a nightly until the
+stable release installs over it; a stable build following nightly is still
+stable. The renderer never parses the version to decide.
+
+- **At launch, the splash plate.** A night sky that comes in from the left and
+  right edges toward the centre (`motion.duration.deliberate`, standing down
+  under reduced motion), the application icon's "se" on a raised tile built
+  from the shell's own vocabulary — `radius.shell-lg`, `color.border-strong`,
+  `shadow.modal` — and the word "Nightly" beside the wordmark, in the
+  wordmark's weight and tracking, a step down and in `text.muted`. The splash
+  is the one surface that shows the mark outside the icon, because it *is* the
+  launch of the icon's application; product UI still never does. The plate is
+  generated (`scripts/brand/night-sky.js`) rather than painted.
+- **In the window, this chip**, beside the wordmark in the sidebar's chrome
+  row. The chip rather than a badge, because being a nightly is a fact that
+  does not change while the window is open, and it takes no tone for the same
+  reason. It is the **first thing to drop** when the row narrows — its
+  container-query step is the wordmark's plus its own width — so it never
+  costs the row the mark or a control. Its tooltip names the version and the
+  channel the build now follows; that detail also lives in Settings, so the
+  tooltip is a convenience and not the only place a screen-reader user can
+  find it.
+
+No new token was needed. The night sky's palette belongs to the plate's
+generator, as every backdrop's palette belongs to its plate; nothing in the
+product paints a night-sky colour as a surface.
+
+A stable build draws none of this: no chip, the herbarium plate, and a splash
+URL with no query at all.
+
 ## Accessibility
 
 - The chip is plain text in the document, read in the row's reading order
@@ -98,3 +135,8 @@ a file-private `MicroChip`. It is deliberately **hookless and outside the
 kit's barrel** (`ui/index.ts`): `agentSpawnShared` imports it directly and must
 stay clear of the kit's component graph, so a second copy of the drawing never
 appears on the spawn path.
+
+`NightlyBuildChip` lives with the wordmark in
+`src/renderer/src/components/brand/NightlyBuildChip.tsx` and renders through
+the same `MicroChip`; it is the one instance that reads state (the build
+identity main reports), which is why it sits outside the kit.
