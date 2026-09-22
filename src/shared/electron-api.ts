@@ -379,8 +379,10 @@ import type {
   WorkspaceRegistryHydrateResult,
 } from './ipc/terminal'
 import type {
+  AppUpdateChannelSetting,
   AppUpdateCheckResult,
   AppUpdateState,
+  AppUpdateTrack,
   AuxWindowRetargetPayload,
   CreateWorkspaceWindowInput,
   CreateWorkspaceWindowResult,
@@ -857,6 +859,10 @@ export type ElectronApi = {
   updateDownload: () => Promise<AppUpdateCheckResult>
   updateQuitAndInstall: () => Promise<AppUpdateCheckResult>
   updateOpenReleaseNotes: () => Promise<{ opened: true; url: string }>
+  /** The release channel the updater follows, and whether the person chose it. */
+  updateGetChannel: () => Promise<AppUpdateChannelSetting>
+  /** Save a channel choice, re-point the updater at it and check that channel. */
+  updateSetChannel: (channel: AppUpdateTrack) => Promise<AppUpdateCheckResult>
   onUpdateStateChanged: (cb: (state: AppUpdateState) => void) => () => void
   /** Read main's agent-launch settings: the record (null before any write) and the settings in force. */
   launchSettingsGet: () => Promise<AgentLaunchSettingsSnapshot>

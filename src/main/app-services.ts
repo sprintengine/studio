@@ -124,6 +124,7 @@ import { ConversationRuntime } from './conversation-runtime'
 import { getSharedCredentialStore } from './secret-store'
 import { createTerminalSnapshotSidecarStore } from './terminal-snapshot-sidecar'
 import { SprintEngineUpdateService } from './update-service'
+import { createUpdateChannelStore } from './update-channel-store'
 import { GitHubTokenStore } from './github-token-store'
 import { createWorkspaceBackupService } from './workspace-backup'
 import { createWorkspaceRegistryStore } from './workspace-registry-store'
@@ -586,7 +587,15 @@ export function createAppServices(diagnosticsEnabled: boolean) {
       },
     },
   })
-  const updateService = new SprintEngineUpdateService({ writeDiagnosticLog })
+  // The saved update channel is main's: the updater is configured here, before
+  // any renderer exists to ask.
+  const updateChannelStore = createUpdateChannelStore({
+    resolveUserDataDir: () => app.getPath('userData'),
+    logDiagnostic: (diagnostic) => {
+      void writeDiagnosticLog({ ...diagnostic, source: 'update' })
+    },
+  })
+  const updateService = new SprintEngineUpdateService({ writeDiagnosticLog, channelStore: updateChannelStore })
   const agentConfigImportService = createAgentConfigImportService({
     mcpConfigService,
     builtinSkillManager,
