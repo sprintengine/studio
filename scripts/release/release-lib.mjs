@@ -41,41 +41,38 @@ export function compareCore(a, b) {
 }
 
 // The updater channel a version belongs to, and so the name electron-builder
-// gives its manifests (`latest.yml` / `preview.yml`, see publish.channel).
-// update-service.ts calls any version with a prerelease part a preview build
-// and pins autoUpdater.channel to 'preview'; electron-updater then only follows
-// releases whose tag's FIRST prerelease identifier is `preview`. A tag like
-// v1.2.0-beta.1 would be a release no installed preview build could ever see,
-// so it is refused here rather than published.
+// gives its manifests (`latest.yml` / `nightly.yml`, see publish.channel).
+// electron-updater follows a prerelease train by the FIRST prerelease
+// identifier of each release's tag, so the train is spelled there: a nightly is
+// vX.Y.Z-nightly.DATE.RUN. A tag like v1.2.0-beta.1 would be a release no
+// installed build could ever see, so it is refused here rather than published.
+//
+// `preview` is the train nightly replaced. It stays readable for one reason:
+// installed builds from before the rename follow `preview*.yml` and nothing
+// else, and the only way to move them is one more release on that train (see
+// the bridge in release.mjs).
+export const PRERELEASE_TRAINS = ['nightly', 'preview']
+
 export function channelForVersion(raw) {
   const { pre } = parseVersion(raw)
   if (pre === null) return 'latest'
-  if (pre === 'preview' || pre.startsWith('preview.')) return 'preview'
+  const train = pre.split('.')[0]
+  if (PRERELEASE_TRAINS.includes(train)) return train
   throw new Error(
-    `Prerelease ${raw} is not a preview version. Installed preview builds only follow ` +
-      `tags shaped vX.Y.Z-preview.N, so this release would reach nobody.`,
+    `Prerelease ${raw} is not a nightly version. Installed nightly builds only follow ` +
+      `tags shaped vX.Y.Z-nightly.DATE.RUN, so this release would reach nobody.`,
   )
 }
 
-// The version a preview previews. When package.json already names a version
-// newer than anything shipped, that is the release being prepared and previews
-// carry it. Otherwise the next patch after the latest stable, so a preview
-// always sorts above the stable its users came from.
-export function resolvePreviewBase(packageVersion, latestStable) {
-  const pkg = coreVersion(packageVersion)
-  if (!latestStable || compareCore(pkg, latestStable) > 0) return pkg
-  const { major, minor, patch } = parseVersion(latestStable)
-  return `${major}.${minor}.${patch + 1}`
-}
-
 // Numeric prerelease identifiers compare numerically in semver, so date then run
-// number orders every preview, including two on the same day.
-export function previewVersion(base, date, runNumber) {
-  if (!/^\d{8}$/.test(date)) throw new Error(`Preview date must be YYYYMMDD, got ${date}`)
+// number orders every nightly, including two on the same day.
+export function prereleaseVersion(base, train, date, runNumber) {
+  if (!PRERELEASE_TRAINS.includes(train)) throw new Error(`Unknown prerelease train ${train}`)
+  if (!/^\d{8}$/.test(date)) throw new Error(`Prerelease date must be YYYYMMDD, got ${date}`)
   if (!Number.isInteger(Number(runNumber)) || Number(runNumber) < 1) {
     throw new Error(`Run number must be a positive integer, got ${runNumber}`)
   }
-  return `${coreVersion(base)}-preview.${date}.${Number(runNumber)}`
+  return `${coreVersion(base)}-${train}.${date}.${Number(runNumber)}`
 }
 
 export function utcDateStamp(isoTimestamp) {
@@ -86,7 +83,7 @@ export function utcDateStamp(isoTimestamp) {
 
 // The released commit is recorded in the release body, because the releases
 // live in a different repository from the source and their tags point at
-// nothing in it. The preview gate and stable promotion both read it back.
+// nothing in it. The nightly gate and stable promotion both read it back.
 const SOURCE_SHA_RE = /<!-- source-sha: ([0-9a-f]{40}) -->/
 
 export function sourceShaMarker(sha) {
@@ -166,9 +163,11 @@ export function missingInstallers(assetNames) {
 // its commit messages must not leak there.
 export function buildReleaseNotes({ version, channel, sourceRepo, sha, sourcePrivate, commits = [] }) {
   const lines = [
-    channel === 'preview'
-      ? `Preview build of SprintEngine Studio ${version}. Installed preview builds update to newer previews.`
-      : `SprintEngine Studio ${version}.`,
+    channel === 'nightly'
+      ? `Nightly build of SprintEngine Studio ${version}. Installed nightly builds update to newer nightlies.`
+      : channel === 'preview'
+        ? `SprintEngine Studio ${version}, the last build on the retired preview train. It moves preview installs to the stable channel.`
+        : `SprintEngine Studio ${version}.`,
   ]
   if (!sourcePrivate) {
     lines.push('', `Built from [\`${sha.slice(0, 12)}\`](https://github.com/${sourceRepo}/commit/${sha}).`)
@@ -262,15 +261,16 @@ const describeResponse = (response) => (response.error ? `failed: ${response.err
 // One unauthenticated pass over a published release. Returns the problems and
 // whether waiting could still fix them: GitHub serves the feed and the release
 // downloads through a cache that can lag a publish by seconds, while a private
-// repository or a preview stacked behind a newer preview answers the same way
+// repository or a nightly stacked behind a newer nightly answers the same way
 // forever and polling those only delays the failure.
 export async function checkPublicRelease({ repo, tag, channel, version, assetNames = [], get }) {
   const urls = updaterUrls({ repo, tag, channel })
   // Which channel a user's updater puts this release in is decided by the tag
   // and nothing else, so the two checks that turn on it read the tag rather
-  // than the caller's channel. A tag that parses as neither falls through to
+  // than the caller's channel. A tag that parses as no train falls through to
   // the stable checks, which are the stricter pair.
-  const isPreview = tagChannel(tag) === 'preview'
+  const train = tagChannel(tag)
+  const isPrerelease = train === 'nightly' || train === 'preview'
   const pending = []
   const settled = []
   const result = () => ({ problems: [...pending, ...settled], retryable: settled.length === 0 && pending.length > 0 })
@@ -291,30 +291,30 @@ export async function checkPublicRelease({ repo, tag, channel, version, assetNam
       `${tag} is not in ${urls.feed}, which lists ${tags.slice(0, 5).join(', ') || 'no releases at all'}. ` +
         `A release still in draft, or published to a different repository, is invisible in exactly this way.`,
     )
-  } else if (isPreview) {
-    // An installed preview build takes the FIRST preview entry in the feed, not
-    // the highest version, so a preview published behind a newer one reaches
-    // nobody however correct its own assets are.
-    const newestPreview = tags.find((candidate) => tagChannel(candidate) === 'preview')
-    if (newestPreview !== tag) {
+  } else if (isPrerelease) {
+    // An installed nightly build takes the FIRST entry of its own train in the
+    // feed, not the highest version, so a nightly published behind a newer one
+    // reaches nobody however correct its own assets are.
+    const newest = tags.find((candidate) => tagChannel(candidate) === train)
+    if (newest !== tag) {
       settled.push(
-        `${urls.feed} lists ${newestPreview} above ${tag}. Installed preview builds follow the first ` +
-          `preview entry in the feed, so they would be offered ${newestPreview} instead of this release.`,
+        `${urls.feed} lists ${newest} above ${tag}. Installed ${train} builds follow the first ` +
+          `${train} entry in the feed, so they would be offered ${newest} instead of this release.`,
       )
     }
   }
 
-  // Only a stable build reads this, but both channels have something to prove
-  // about it: that a stable release is what it resolves to, and that a preview
-  // is not.
+  // Only a stable build reads this, but every channel has something to prove
+  // about it: that a stable release is what it resolves to, and that a
+  // prerelease is not.
   const pointer = await get(urls.latestPointer, { accept: 'application/json' })
   const pointerTag = pointer.ok ? parseTagName(pointer.text) : null
-  if (isPreview) {
+  if (isPrerelease) {
     if (pointerTag === tag) {
       settled.push(
-        `${urls.latestPointer} resolves to ${tag}, a preview. Every installed stable build resolves its ` +
-          `next version through that URL, so all of them would be offered a preview. Publish previews ` +
-          `with --latest=false.`,
+        `${urls.latestPointer} resolves to ${tag}, a prerelease. Every installed stable build resolves its ` +
+          `next version through that URL, so all of them would be offered a ${train} build. Publish ` +
+          `prereleases with --latest=false.`,
       )
     }
   } else if (pointerTag !== tag) {

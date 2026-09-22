@@ -1,6 +1,6 @@
 # Release channels: gated nightlies, promoted stables
 
-Design, 2026-09-22. Status: in progress.
+Design, 2026-09-22. Status: implemented, not yet exercised by a real workflow run.
 
 ## Decision
 
@@ -25,8 +25,17 @@ turns the per-merge stable off.
 | nightly | Scheduled every 30 minutes; publishes only when both gates pass (below). Also `workflow_dispatch channel=nightly` from `main`. | `X.Y.Z-nightly.YYYYMMDD.RUN`, where `X.Y.Z` is the version the next stable would take | prerelease, never latest | `nightly*.yml` | installs whose version carries `-nightly.`, and stable installs whose person chose nightly |
 | stable | `workflow_dispatch channel=stable` from `main`, which builds the commit of the latest published nightly; or a pushed `vX.Y.Z` tag, which builds exactly that commit (the hotfix route) | `X.Y.Z` | release, marked latest | `latest*.yml` | every other install |
 
-There is no third train. The old `preview` name goes: nothing shipped on it
-while its schedule was off, so no install follows `preview*.yml`.
+There is no third train. The old `preview` name goes as a train, with one
+exception found while implementing this: a preview was published
+(`v0.4.0-preview.20260919.2`, dispatched by hand while the schedule was off),
+its Apple Silicon dmg was downloaded, and its `preview-mac.yml` has been fetched
+far more often than the release job's own checks account for, so at least one
+install is polling it. Those builds follow `preview*.yml` and nothing else, so
+no nightly or stable can reach them. `workflow_dispatch channel=preview` stays
+as a one-off bridge: it publishes `<latest stable>-preview.DATE.RUN` from
+`main`, whose app reads no `-nightly.` in its version, follows stable, and is
+offered the latest stable at its next check. Retire the option once the
+bridge's manifest stops being fetched.
 
 ## Nightly gates
 

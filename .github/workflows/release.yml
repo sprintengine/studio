@@ -1,13 +1,25 @@
 name: Release
 
-# One pipeline (docs/release-checklist.md walks through each entry point):
+# Main feeds a nightly train; stable is a promotion of what a nightly already
+# shipped. docs/release-checklist.md walks through each entry point:
 #
-#   push to main               stable release, versioned by Conventional Commits
-#   push a tag vX.Y.Z           stable build of the tagged commit
-#   schedule / dispatch preview a preview build of main, vX.Y.Z-preview.DATE.RUN
-#   dispatch stable             promote: rebuild the commit the latest preview
-#                               shipped, as stable -- so stable only ever ships a
-#                               build preview users have already run
+#   schedule                    every 30 minutes, a nightly of main's head, but
+#                               only when the last nightly is 6+ hours old AND
+#                               main has commits it did not ship
+#                               (scripts/release/nightly-gate.mjs)
+#   dispatch nightly            a nightly of main's head now, gate skipped
+#   dispatch stable             promote: rebuild the commit the latest nightly
+#                               shipped, as stable X.Y.Z, and tag it -- so stable
+#                               only ever ships a build nightly users have run
+#   push a tag vX.Y.Z           stable build of exactly the tagged commit (hotfix)
+#   dispatch preview            the one-off bridge that moves installs left on the
+#                               retired preview train over to stable
+#
+# A merge to main publishes nothing; CI (ci.yml) gates it as before.
+#
+# Nightlies are vX.Y.Z-nightly.YYYYMMDD.RUN, where X.Y.Z is the version the next
+# stable would take (Conventional Commits since the last stable tag), published
+# as prereleases that are never marked latest, with nightly*.yml manifests.
 #
 # Build jobs publish NOTHING. They hand their files to one publish job, which
 # merges the two macOS updater manifests, uploads everything to a draft and
@@ -16,35 +28,42 @@ name: Release
 # latest-mac.yml, and a failed leg left a public half-release behind it.
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*"
   schedule:
-    # Every six hours; the resolve step skips when main has not moved since the
-    # last preview. Off until the repository variable PREVIEW_SCHEDULE is
-    # `enabled` -- each scheduled build is four packaging legs.
-    - cron: "17 */6 * * *"
+    # Minutes 7 and 37, off the top of the hour when scheduled runs queue
+    # longest. Most ticks end in the resolve step, which decides in seconds that
+    # the gate is shut; only a tick that passes it spends the packaging legs.
+    - cron: "7,37 * * * *"
   workflow_dispatch:
     inputs:
       channel:
-        description: "preview builds main; stable promotes the commit the latest preview shipped"
+        description: "nightly builds main now; stable promotes the commit the latest nightly shipped; preview is the one-off bridge for old preview installs"
         required: true
-        default: preview
+        default: nightly
         type: choice
         options:
-          - preview
+          - nightly
           - stable
+          - preview
+      version:
+        description: "stable only: publish as this X.Y.Z instead of the nightly's version (may only raise it)"
+        required: false
+        default: ""
+        type: string
       publish:
         description: "Publish the release (false: build and keep the packages as workflow artifacts)"
         required: true
         default: true
         type: boolean
 
-# All entry points share the version allocator and publisher. Keep queued main
-# merges instead of replacing the pending run when another merge lands.
+# Two queues. Nightlies share one so two ticks can never build the same commit
+# or publish out of order; stable runs (promotions, tags, the bridge) share the
+# other, so a queued nightly never holds up a promotion. Neither cancels: a
+# cancelled release run can leave a draft or a tag behind, and every queued run
+# is kept rather than replaced by the next one.
 concurrency:
-  group: desktop-release
+  group: desktop-release-${{ (github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.channel == 'nightly')) && 'nightly' || 'stable' }}
   cancel-in-progress: false
   queue: max
 
@@ -54,7 +73,6 @@ permissions:
 jobs:
   validate:
     name: Resolve release
-    if: github.event_name != 'schedule' || vars.PREVIEW_SCHEDULE == 'enabled'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     outputs:
@@ -90,6 +108,7 @@ jobs:
           SHA: ${{ github.sha }}
           RUN_NUMBER: ${{ github.run_number }}
           DISPATCH_CHANNEL: ${{ inputs.channel }}
+          DISPATCH_VERSION: ${{ inputs.version }}
           DISPATCH_PUBLISH: ${{ inputs.publish }}
           SOURCE_REPO: ${{ github.repository }}
           SOURCE_TOKEN: ${{ github.token }}
@@ -174,7 +193,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # Before the build, not only at packaging: a preview or promoted version is
+      # Before the build, not only at packaging: a nightly or promoted version is
       # not what package.json says at this commit, and the version must be the
       # same in the bundle, the app's own About box and the updater manifests.
       - name: Stamp the release version
@@ -371,16 +390,20 @@ jobs:
             gh release delete "$TAG" --repo "$REPO" --yes
           fi
 
-          if [ "$CHANNEL" = "preview" ]; then
-            flags=(--prerelease)
-            latest="--latest=false"
-          else
+          # Only a stable is ever latest: every installed stable build resolves
+          # its next version through /releases/latest.
+          if [ "$CHANNEL" = "latest" ]; then
             flags=()
             latest="--latest"
+          else
+            flags=(--prerelease)
+            latest="--latest=false"
           fi
 
           # --target: a tag that does not exist yet is created on the commit
-          # that was built, not on whatever main has moved to since.
+          # that was built, not on whatever main has moved to since. For a
+          # promotion that is the nightly's commit, which is how the stable tag
+          # lands on it.
           gh release create "$TAG" --repo "$REPO" --target "$REF" --draft "${flags[@]}" \
             --title "SprintEngine Studio ${VERSION}" \
             --notes-file release-notes.md \

@@ -1,17 +1,22 @@
 import { app, BrowserWindow, shell } from 'electron'
 import { autoUpdater } from 'electron-updater'
 import type {
+  AppUpdateChannelSetting,
   AppUpdateCheckResult,
   AppUpdateState,
   AppUpdateStatus,
+  AppUpdateTrack,
   DiagnosticLogEntry,
   DiagnosticLogInput,
 } from '../shared/electron-api'
+import { channelForVersion, resolveUpdateTrack, type UpdateChannelStore } from './update-channel-store'
 
 type WriteDiagnosticLog = (input: DiagnosticLogInput) => Promise<DiagnosticLogEntry>
 
 type UpdateServiceOptions = {
   writeDiagnosticLog: WriteDiagnosticLog
+  /** The person's saved channel. Without one, the build's version decides. */
+  channelStore?: Pick<UpdateChannelStore, 'get' | 'set'>
 }
 
 type UpdateInfoLike = {
@@ -40,9 +45,24 @@ function isAppPackaged(): boolean {
   return app.isPackaged === true
 }
 
-function getUpdateChannel(version = getAppVersion()): 'dev' | 'preview' | 'stable' {
-  if (!isAppPackaged()) return 'dev'
-  return version.includes('-') ? 'preview' : 'stable'
+/**
+ * Point electron-updater at one train.
+ *
+ * `channel` names the manifests it downloads (`nightly-mac.yml`,
+ * `latest-mac.yml`) and, with `allowPrerelease`, which feed entries it will
+ * consider: a nightly build takes the first `-nightly.` tag, a stable build
+ * asks /releases/latest and never sees a prerelease.
+ *
+ * Setting `channel` also turns `allowDowngrade` on as a side effect, so it is
+ * always set explicitly afterwards. It is on for one case only: a nightly
+ * install that switched to stable. Its own version (0.6.0-nightly.…) sorts
+ * above the latest stable (0.5.2) until the next promotion, and without the
+ * downgrade it would be offered nothing at all.
+ */
+function applyUpdaterChannel(track: AppUpdateTrack, version: string): void {
+  autoUpdater.allowPrerelease = track === 'nightly'
+  autoUpdater.channel = track === 'nightly' ? 'nightly' : 'latest'
+  autoUpdater.allowDowngrade = track === 'stable' && channelForVersion(version) === 'nightly'
 }
 
 function getStatusMessage(status: AppUpdateStatus): string {
@@ -76,16 +96,19 @@ function normalizeReleaseNotes(notes: UpdateInfoLike['releaseNotes']): string | 
 
 export class SprintEngineUpdateService {
   private readonly writeDiagnosticLog: WriteDiagnosticLog
+  private readonly channelStore: UpdateServiceOptions['channelStore']
   private state: AppUpdateState
+  private track: AppUpdateTrack
 
-  constructor({ writeDiagnosticLog }: UpdateServiceOptions) {
+  constructor({ writeDiagnosticLog, channelStore }: UpdateServiceOptions) {
     this.writeDiagnosticLog = writeDiagnosticLog
+    this.channelStore = channelStore
     const appVersion = getAppVersion()
-    const channel = getUpdateChannel(appVersion)
+    this.track = resolveUpdateTrack(appVersion, channelStore?.get() ?? null)
     this.state = {
       status: 'idle',
       version: appVersion,
-      channel,
+      channel: isAppPackaged() ? this.track : 'dev',
       packaged: isAppPackaged(),
       updateVersion: null,
       releaseName: null,
@@ -99,10 +122,7 @@ export class SprintEngineUpdateService {
 
     autoUpdater.autoDownload = false
     autoUpdater.autoInstallOnAppQuit = true
-    autoUpdater.allowPrerelease = channel === 'preview'
-    if (channel === 'preview') {
-      autoUpdater.channel = 'preview'
-    }
+    applyUpdaterChannel(this.track, appVersion)
     if (typeof autoUpdater.on === 'function') {
       this.registerAutoUpdaterEvents()
     }
@@ -110,6 +130,42 @@ export class SprintEngineUpdateService {
 
   getState(): AppUpdateState {
     return { ...this.state, progress: this.state.progress ? { ...this.state.progress } : null }
+  }
+
+  getChannel(): AppUpdateChannelSetting {
+    return { channel: this.track, chosen: (this.channelStore?.get() ?? null) !== null }
+  }
+
+  /**
+   * Follow another train from now on, and look at it straight away.
+   *
+   * Whatever the old channel found is forgotten: an update offered or even
+   * downloaded from nightly is not what a person who just picked stable wants
+   * installed, so the state goes back to idle before the check, and a
+   * download already on disk stops being installed at quit until the new
+   * channel downloads one of its own. (On macOS, Squirrel may already have
+   * staged it; that is the one case this cannot take back.)
+   */
+  async setChannel(track: AppUpdateTrack): Promise<AppUpdateCheckResult> {
+    this.channelStore?.set(track)
+    this.track = track
+    applyUpdaterChannel(track, getAppVersion())
+    if (this.state.downloaded) autoUpdater.autoInstallOnAppQuit = false
+    this.updateState({
+      status: 'idle',
+      channel: isAppPackaged() ? track : 'dev',
+      updateVersion: null,
+      releaseName: null,
+      releaseNotes: null,
+      releaseNotesUrl: RELEASES_URL,
+      downloaded: false,
+      progress: null,
+      errorMessage: null,
+    })
+    if (!isAppPackaged()) {
+      return { ok: true, state: this.getState(), message: getStatusMessage('idle') }
+    }
+    return this.checkForUpdates(true)
   }
 
   async checkForUpdates(isManual = true): Promise<AppUpdateCheckResult> {
@@ -234,6 +290,7 @@ export class SprintEngineUpdateService {
     })
 
     autoUpdater.on('update-downloaded', (info: UpdateInfoLike) => {
+      autoUpdater.autoInstallOnAppQuit = true
       this.updateState({
         status: 'downloaded',
         updateVersion: info.version ?? this.state.updateVersion,

@@ -195,7 +195,10 @@ plain description of what changed, without private ticket numbers or a trailing
 full stop. Accepted types are `feat`, `fix`, `perf`, `refactor`, `docs`,
 `style`, `test`, `build`, `ci`, `chore` and `revert`.
 
-Every merge to `main` builds a stable desktop release after the quality gate:
+A merge to `main` publishes nothing by itself. Main feeds a nightly train, cut
+every six hours at most and only when main has moved, and a stable release is a
+maintainer promoting the commit the latest nightly shipped. The commit type
+still decides the version, and the next nightly carries it at once:
 
 | Commit | Version bump |
 |---|---|
@@ -210,12 +213,13 @@ versioning; a rebase would put a branch commit at the tip instead. Mark breaking
 or body even if a branch commit already describes them. Write the body as prose
 explaining why the change was made and what a reviewer needs to know.
 
-Do not manually bump the app version for a main release. The workflow derives
-it from the preceding stable tag and the strongest change since that tag,
-stamps the build before compilation, and publishes installers and updater
-manifests together. Package versions for the independently published SDKs are
-managed separately. See [the release checklist](docs/release-checklist.md) for
-retries, manual releases and repository enforcement settings.
+Do not manually bump the app version. The workflow derives it from the
+preceding stable tag and the strongest change since that tag, stamps the build
+before compilation, and publishes installers and updater manifests together.
+Package versions for the independently published SDKs are managed separately.
+See [the release checklist](docs/release-checklist.md) for how a nightly is cut,
+how stable is promoted, the hotfix tag route, how an installed app chooses its
+update channel, and repository enforcement settings.
 
 ## Pull requests
 

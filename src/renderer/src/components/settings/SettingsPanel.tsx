@@ -82,6 +82,7 @@ import { GlobalSurfaceShell } from '../workspace/globalSurface/GlobalSurfaceShel
 import { useSurfaceBackNav } from '../workspace/globalSurface/surfaceBackNav'
 import { getSettingDescriptor, type SettingDescriptor } from './settingsRegistry'
 import { TicketTrackersTab } from './TicketTrackersTab'
+import { UpdateChannelSettings } from './UpdateChannelSettings'
 import { sourceUpdateCadenceLine, type SkillRepoTransport } from '../../../../shared/skills'
 
 interface Props {
@@ -1185,6 +1186,8 @@ export default function SettingsPanel({
     void checkForUpdates()
   }, [checkForUpdates, checkForUpdatesOnOpen, checkForUpdatesRequestId])
 
+  const onUpdateChannelResult = useCallback((result: { state: AppUpdateState }) => setUpdateState(result.state), [])
+
   const downloadUpdate = useCallback(async () => {
     setUpdateActionPending(true)
     try {
@@ -1531,6 +1534,7 @@ export default function SettingsPanel({
           ) : null}
 
           <SettingCard className="mt-5">
+            <UpdateChannelSettings onResult={onUpdateChannelResult} />
             {backgroundModeDescriptor ? (
               <RegistrySwitchRow
                 descriptor={backgroundModeDescriptor}
@@ -2254,8 +2258,8 @@ function formatUpdateChannel(channel: AppUpdateState['channel'] | undefined): st
   switch (channel) {
     case 'stable':
       return 'Stable'
-    case 'preview':
-      return 'Preview'
+    case 'nightly':
+      return 'Nightly'
     case 'dev':
       return 'Development'
     default:
