@@ -12,8 +12,7 @@ import {
   feedTags,
   mergeMacManifests,
   missingInstallers,
-  previewVersion,
-  resolvePreviewBase,
+  prereleaseVersion,
   sourceShaFromBody,
   updaterUrls,
   utcDateStamp,
@@ -48,26 +47,32 @@ sha512: x64-zip
 releaseDate: '2026-09-11T00:00:00.000Z'
 `
 
-test('channelForVersion: stable, preview, and prereleases no preview build could follow', () => {
+test('channelForVersion: stable, nightly, the retired preview train, and prereleases nobody could follow', () => {
   assert.equal(channelForVersion('0.4.0'), 'latest')
-  assert.equal(channelForVersion('v0.4.1-preview.20260911.3'), 'preview')
-  assert.equal(channelForVersion('0.4.0-preview'), 'preview')
-  assert.throws(() => channelForVersion('0.4.0-beta.1'), /not a preview version/)
+  assert.equal(channelForVersion('v0.4.1-nightly.20260911.3'), 'nightly')
+  assert.equal(channelForVersion('0.4.0-nightly'), 'nightly')
+  // Installed preview builds still follow preview*.yml, so the bridge release
+  // that moves them must stay publishable.
+  assert.equal(channelForVersion('v0.5.1-preview.20260923.7'), 'preview')
+  assert.throws(() => channelForVersion('0.4.0-beta.1'), /not a nightly version/)
+  assert.throws(() => channelForVersion('0.4.0-nightlyish.1'), /not a nightly version/)
   assert.throws(() => channelForVersion('0.4'), /Not a release version/)
 })
 
-test('resolvePreviewBase previews the unreleased package.json version, else the next patch', () => {
-  assert.equal(resolvePreviewBase('0.4.0', null), '0.4.0')
-  assert.equal(resolvePreviewBase('0.4.0', '0.3.9'), '0.4.0')
-  assert.equal(resolvePreviewBase('0.4.0', '0.4.0'), '0.4.1')
-  assert.equal(resolvePreviewBase('0.4.0', '0.4.2'), '0.4.3')
+test('prereleaseVersion orders by date then run number, on a known train only', () => {
+  assert.equal(prereleaseVersion('0.4.1', 'nightly', '20260911', 42), '0.4.1-nightly.20260911.42')
+  assert.equal(prereleaseVersion('v0.5.1', 'preview', '20260923', 7), '0.5.1-preview.20260923.7')
+  assert.throws(() => prereleaseVersion('0.4.1', 'beta', '20260911', 1), /Unknown prerelease train/)
+  assert.throws(() => prereleaseVersion('0.4.1', 'nightly', '2026-09-11', 1), /YYYYMMDD/)
+  assert.throws(() => prereleaseVersion('0.4.1', 'nightly', '20260911', 0), /positive integer/)
+  assert.equal(utcDateStamp('2026-09-11T23:59:00Z'), '20260911')
 })
 
-test('previewVersion orders by date then run number', () => {
-  assert.equal(previewVersion('0.4.1', '20260911', 42), '0.4.1-preview.20260911.42')
-  assert.throws(() => previewVersion('0.4.1', '2026-09-11', 1), /YYYYMMDD/)
-  assert.throws(() => previewVersion('0.4.1', '20260911', 0), /positive integer/)
-  assert.equal(utcDateStamp('2026-09-11T23:59:00Z'), '20260911')
+test('release notes say which train a build is on', () => {
+  const notes = (channel) => buildReleaseNotes({ version: '0.5.0', channel, sourceRepo: 'o/r', sha: SHA, sourcePrivate: true })
+  assert.match(notes('nightly'), /^Nightly build of SprintEngine Studio 0\.5\.0\./)
+  assert.match(notes('latest'), /^SprintEngine Studio 0\.5\.0\.\n/)
+  assert.match(notes('preview'), /retired preview train/)
 })
 
 test('the source sha round-trips through the release body', () => {
@@ -173,7 +178,7 @@ const servedBy = (responses) => async (url) => responses[url] ?? { ok: false, st
 
 // A release as it stands on the releases repository: the feed it appears in,
 // the tag /releases/latest resolves to, and the three channel manifests, all
-// named after the version so a preview and a stable differ the way they really
+// named after the version so a nightly and a stable differ the way they really
 // do. Defaults describe a healthy publish; every test breaks one thing.
 function published(version, { feed, latest } = {}) {
   const tag = `v${version}`
@@ -237,31 +242,31 @@ test('updaterUrls names the files electron-updater downloads for each channel', 
     `https://github.com/${REPO}/releases/download/v0.4.0/latest-linux.yml`,
   ])
 
-  const preview = updaterUrls({ repo: REPO, tag: 'v0.4.1-preview.20260911.3', channel: 'preview' })
-  assert.deepEqual(Object.values(preview.manifests), [
-    `https://github.com/${REPO}/releases/download/v0.4.1-preview.20260911.3/preview.yml`,
-    `https://github.com/${REPO}/releases/download/v0.4.1-preview.20260911.3/preview-mac.yml`,
-    `https://github.com/${REPO}/releases/download/v0.4.1-preview.20260911.3/preview-linux.yml`,
+  const nightly = updaterUrls({ repo: REPO, tag: 'v0.4.1-nightly.20260911.3', channel: 'nightly' })
+  assert.deepEqual(Object.values(nightly.manifests), [
+    `https://github.com/${REPO}/releases/download/v0.4.1-nightly.20260911.3/nightly.yml`,
+    `https://github.com/${REPO}/releases/download/v0.4.1-nightly.20260911.3/nightly-mac.yml`,
+    `https://github.com/${REPO}/releases/download/v0.4.1-nightly.20260911.3/nightly-linux.yml`,
   ])
 })
 
 test('feedTags reads the feed newest first, as the updater does', () => {
-  assert.deepEqual(feedTags(atomFeed(['v0.4.1-preview.20260911.3', 'v0.4.0'])), ['v0.4.1-preview.20260911.3', 'v0.4.0'])
+  assert.deepEqual(feedTags(atomFeed(['v0.4.1-nightly.20260911.3', 'v0.4.0'])), ['v0.4.1-nightly.20260911.3', 'v0.4.0'])
   assert.deepEqual(feedTags(atomFeed(['app@0.4.0'])), ['app@0.4.0'])
   assert.deepEqual(feedTags('<feed></feed>'), [])
 })
 
-test('a complete public release, stable and preview, has nothing to report', async () => {
+test('a complete public release, stable and nightly, has nothing to report', async () => {
   assert.deepEqual((await published('0.4.0').check()).problems, [])
-  // A stable release is resolved through /releases/latest, so previews sitting
+  // A stable release is resolved through /releases/latest, so nightlies sitting
   // above it in the feed are none of its business.
-  const stableUnderPreviews = published('0.4.0', { feed: ['v0.4.1-preview.20260912.9', 'v0.4.0'] })
-  assert.deepEqual((await stableUnderPreviews.check()).problems, [])
-  const preview = published('0.4.1-preview.20260911.3', {
-    feed: ['v0.4.1-preview.20260911.3', 'v0.4.0'],
+  const stableUnderNightlies = published('0.4.0', { feed: ['v0.4.1-nightly.20260912.9', 'v0.4.0'] })
+  assert.deepEqual((await stableUnderNightlies.check()).problems, [])
+  const nightly = published('0.4.1-nightly.20260911.3', {
+    feed: ['v0.4.1-nightly.20260911.3', 'v0.4.0'],
     latest: 'v0.4.0',
   })
-  assert.deepEqual((await preview.check()).problems, [])
+  assert.deepEqual((await nightly.check()).problems, [])
 })
 
 test('a releases repository no user can read fails at once, and says what to look at', async () => {
@@ -324,38 +329,51 @@ test('a release missing from the feed after every attempt is reported with what 
   assert.match(problems[0], /draft/)
 })
 
-test('the stable pointer must name the release, and must not name a preview', async () => {
+test('the stable pointer must name the release, and must not name a nightly', async () => {
   const stale = await published('0.4.0', { latest: 'v0.3.9' }).check()
   assert.equal(stale.problems.length, 1)
   assert.match(stale.problems[0], /resolves to v0\.3\.9, not v0\.4\.0/)
   assert.match(stale.problems[0], /gh release edit v0\.4\.0 --latest/)
 
-  const previewTag = 'v0.4.1-preview.20260911.3'
-  const mislabelled = await published('0.4.1-preview.20260911.3', { feed: [previewTag], latest: previewTag }).check()
+  const nightlyTag = 'v0.4.1-nightly.20260911.3'
+  const mislabelled = await published('0.4.1-nightly.20260911.3', { feed: [nightlyTag], latest: nightlyTag }).check()
   assert.equal(mislabelled.problems.length, 1)
-  assert.match(mislabelled.problems[0], /resolves to v0\.4\.1-preview\.20260911\.3, a preview/)
+  assert.match(mislabelled.problems[0], /resolves to v0\.4\.1-nightly\.20260911\.3, a prerelease/)
   assert.match(mislabelled.problems[0], /--latest=false/)
-  // A preview that stable users could be offered is a mistake waiting will not
+  // A nightly that stable users could be offered is a mistake waiting will not
   // undo, so it is not retried.
   assert.equal(mislabelled.retryable, false)
 })
 
-test('a preview behind a newer preview in the feed reaches nobody', async () => {
-  const world = published('0.4.1-preview.20260911.3', {
-    feed: ['v0.4.1-preview.20260912.9', 'v0.4.1-preview.20260911.3', 'v0.4.0'],
+test('a nightly behind a newer nightly in the feed reaches nobody', async () => {
+  const world = published('0.4.1-nightly.20260911.3', {
+    feed: ['v0.4.1-nightly.20260912.9', 'v0.4.1-nightly.20260911.3', 'v0.4.0'],
   })
   const { problems, retryable } = await world.check()
   assert.equal(problems.length, 1)
-  assert.match(problems[0], /lists v0\.4\.1-preview\.20260912\.9 above v0\.4\.1-preview\.20260911\.3/)
+  assert.match(problems[0], /lists v0\.4\.1-nightly\.20260912\.9 above v0\.4\.1-nightly\.20260911\.3/)
   assert.equal(retryable, false)
 })
 
+test('nightly and the preview bridge are separate trains in the feed', async () => {
+  // A preview install only reads preview entries, so a newer nightly above the
+  // bridge takes nothing from it, and the other way round.
+  const bridge = published('0.5.1-preview.20260923.7', {
+    feed: ['v0.5.2-nightly.20260923.9', 'v0.5.1-preview.20260923.7', 'v0.5.1'],
+  })
+  assert.deepEqual((await bridge.check()).problems, [])
+  const nightly = published('0.5.2-nightly.20260923.9', {
+    feed: ['v0.5.1-preview.20260923.10', 'v0.5.2-nightly.20260923.9', 'v0.5.1'],
+  })
+  assert.deepEqual((await nightly.check()).problems, [])
+})
+
 test('a manifest the release page will not serve is named with the error it causes', async () => {
-  const world = published('0.4.1-preview.20260911.3')
+  const world = published('0.4.1-nightly.20260911.3')
   delete world.responses[world.urls.manifests.linux]
   const { problems, retryable } = await world.check()
   assert.equal(problems.length, 1)
-  assert.match(problems[0], /preview-linux\.yml answered HTTP 404 without credentials/)
+  assert.match(problems[0], /nightly-linux\.yml answered HTTP 404 without credentials/)
   assert.match(problems[0], /ERR_UPDATER_CHANNEL_FILE_NOT_FOUND/)
   assert.equal(retryable, true)
 })

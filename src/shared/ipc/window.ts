@@ -101,7 +101,18 @@ export type OpenExternalResult = { ok: true } | { ok: false; message: string }
 export type AppUpdateStatus =
   'idle' | 'checking' | 'available' | 'downloading' | 'downloaded' | 'not_available' | 'error'
 
-export type AppUpdateChannel = 'dev' | 'preview' | 'stable'
+/** A release train an installed build can follow. */
+export type AppUpdateTrack = 'stable' | 'nightly'
+
+/** The channel the updater follows; `dev` is an unpackaged build, which follows none. */
+export type AppUpdateChannel = 'dev' | AppUpdateTrack
+
+/** The channel a packaged build would follow, and whether the person picked it
+ *  (`chosen`) or it came from the build's own version. */
+export type AppUpdateChannelSetting = {
+  channel: AppUpdateTrack
+  chosen: boolean
+}
 
 export type AppUpdateProgress = {
   percent: number

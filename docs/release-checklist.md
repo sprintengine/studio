@@ -1,7 +1,9 @@
 # SprintEngine Studio Release Checklist
 
-Every push to main starts a stable desktop release. PRs merge by merge commit or
-squash, never rebase, with Conventional Commit titles; see
+A merge to main publishes nothing. Main feeds a nightly train, cut on a
+schedule when there is something new to ship, and a stable release is a manual
+promotion of the exact commit the latest nightly shipped. PRs merge by merge
+commit or squash, never rebase, with Conventional Commit titles; see
 [CONTRIBUTING.md](../CONTRIBUTING.md).
 
 ## Before merging
@@ -11,7 +13,8 @@ squash, never rebase, with Conventional Commit titles; see
   source commit before it publishes.
 - Select the intended version bump: `feat` means minor, `!` or a
   `BREAKING CHANGE:` footer means major (even from 0.x), and every other
-  accepted type means patch. Maintenance-only merges also release the app.
+  accepted type means patch. Maintenance-only merges also move the version.
+  The next nightly carries the bump straight away.
 - Describe user-visible changes and compatibility breaks in the PR body. The
   merge or squash commit keeps both the title and body.
 - Do not manually edit the app version. Stable tags are the release version
@@ -121,54 +124,114 @@ of the first release that ships it, then delete the line.
   "Check for updates" action on a source's overflow counts against the same
   window and says when the source was last asked.
 
-## Main builds and publishing
+## Channels
 
-`.github/workflows/release.yml` builds macOS Intel and Apple Silicon DMGs and
-updater ZIPs, a Windows installer, and a Linux AppImage. All four jobs use
-`--publish never`. One publisher waits for packaging and quality checks, merges
-both Mac updater manifests, uploads every file to a draft, then publishes it
-as the latest stable release on `sprintengine/studio`. It verifies installers,
-manifests and the anonymous URLs installed apps use to discover updates.
+There are two. **Nightly** is main as it stands, a few times a day: versions
+`X.Y.Z-nightly.YYYYMMDD.RUN`, published as GitHub prereleases that are never
+marked latest, with `nightly.yml`, `nightly-mac.yml` and `nightly-linux.yml` as
+their updater manifests. **Stable** is `X.Y.Z`, published as the latest release
+with the `latest*.yml` manifests, and is always a build of a commit some nightly
+already shipped (the hotfix tag below is the one exception).
 
-The resolver reads the push's exact SHA, full first-parent history and stable
-tags. The strongest Conventional Commit since the preceding stable tag selects
-one bump. With one merge or squash per push, every successful merge releases
-once; the resolver walks first-parent history, so the branch commits under a
-merge commit are never read.
-A failed build leaves its changes for the next successful release. During the
-initial migration only, older prose subjects count as patch changes; the new
-release tip must be conventional. Branch-internal experiment commits do not
-influence a squash or merge commit's release type.
+`X.Y.Z` in a nightly is the version the next stable would take: the strongest
+Conventional Commit since the last stable tag, applied to that tag. So a `feat`
+merged in the morning shows up as a minor bump in the afternoon's nightly, and
+promoting that nightly ships the same number without working it out again. A
+version a tag already holds is never reused.
 
-All release entry points share one concurrency group with `queue: max` and
-cancellation disabled. GitHub queues up to 100 pending runs, ordered by when
-they enter the queue; dispatch order is not guaranteed. An older run already
-covered by a newer published stable is skipped, so it cannot roll the latest
-pointer back. Monitor queue capacity if merges outpace packaging.
+## What a merge to main does
 
-A tag left by an interrupted draft reserves its version. Retrying that commit
-uses the same version; a later commit uses a new version. Published commits are
-skipped on retry. No version-bump commit is pushed to main and the workflow's
-own token does not trigger a second release from the tag it creates.
+Nothing, until the next nightly. CI gates the pull request as before; the
+release workflow no longer listens for pushes to main.
 
-The release body records `<!-- source-sha: -->` for traceability and preview
-promotion; do not remove it. Public-source release notes list changes since
-the preceding release on that channel. Private-source subjects are omitted.
+## How a nightly is cut
 
-## Optional manual releases
+`.github/workflows/release.yml` wakes every 30 minutes (minutes 7 and 37). A
+scheduled run publishes only when both hold:
 
-- Push a tag shaped `vX.Y.Z` matching the committed package version to build
-  that exact version. This is a manual escape hatch, not the main release path.
-- Dispatch channel `preview` to build a preview from the selected workflow ref
-  (select main). Previews use `X.Y.Z-preview.YYYYMMDD.RUN`, with the next patch
-  after the latest stable unless the committed version is higher.
-- The optional six-hour preview schedule runs only with repository variable
-  `PREVIEW_SCHEDULE=enabled`, and skips when main has not moved.
-- Dispatch channel `stable` to promote the latest preview's exact source SHA.
-  Promotion is rejected if its core version is already released. Main releases
-  do not require a prior preview.
-- Set dispatch `publish=false` to retain packages as workflow artifacts for
-  14 days without publishing a release.
+- at least six hours have passed since the last published nightly, and
+- main has commits the last nightly did not ship (GitHub's compare of that
+  nightly's commit against main is "ahead").
+
+Otherwise the run ends in the resolve step within seconds. The rule is
+`scripts/release/nightly-gate.mjs`, covered by `npm run test:release`. A run is
+also skipped when the latest stable already ships main's head, because a nightly
+of that commit would sort below the stable.
+
+To cut one now, dispatch the workflow from main with channel `nightly` (the
+default). A dispatch skips the six-hour and new-commits checks.
+
+Nightly runs share one concurrency group with `queue: max` and cancellation
+disabled, so two runs can never build the same commit or publish out of order.
+
+## How stable is promoted
+
+Dispatch the workflow from main with channel `stable`. It finds the newest
+published nightly, reads the commit that nightly shipped from its release body,
+refuses if that commit is not on main, and builds that commit, not main's head.
+Merges that land while you are checking the nightly never reach the stable.
+
+The stable's version is the nightly's with the train dropped:
+`0.5.0-nightly.20260923.41` ships as `0.5.0`. To ship a bigger change than the
+commits declared, set the `version` input; it may only raise the version, and
+it is refused if a tag already holds it or it is not above the latest stable.
+The `vX.Y.Z` tag is created on the nightly's commit when the release publishes.
+
+Stable runs have their own concurrency group, so a queued nightly never holds up
+a promotion.
+
+## The hotfix route
+
+Push a tag `vX.Y.Z` to build and publish exactly that commit as stable. The
+tag must match the `package.json` version at that commit, and it must be on
+main's first-parent history (tag the merge commit), because every later nightly
+works out its version from the latest stable tag on main and refuses to run
+while that tag sits somewhere else.
+
+## How an installed app picks its channel
+
+At startup the app reads its own version: a `-nightly.` build follows nightly,
+anything else follows stable. Settings -> General -> Update channel overrides
+that, and the choice is saved in `update-channel.json` under the app's user-data
+directory. Switching re-points the updater and checks the new channel at once.
+A nightly install that switches to stable is allowed to "downgrade", so it is
+offered the latest stable even while its own nightly version sorts higher.
+
+## The retired preview train
+
+Before nightlies there was a switched-off `preview` train, and one release,
+`v0.4.0-preview.20260919.2`, was published on it. Builds installed from it
+follow `preview*.yml` and nothing else, so no nightly or stable reaches them.
+Dispatching channel `preview` from main publishes one bridge release,
+`<latest stable>-preview.YYYYMMDD.RUN`, built from main's head. The app it
+installs reads no `-nightly.` in its version, follows stable, and is offered the
+latest stable at its next check. Run it once after this change merges. Once the
+download count of the bridge's `preview-mac.yml` stops climbing, the option and
+the `preview` spelling in `scripts/release/release-lib.mjs` can go.
+
+## Builds and publishing
+
+Every entry point builds macOS Intel and Apple Silicon DMGs and updater ZIPs, a
+Windows installer, and a Linux AppImage. All four jobs use `--publish never`.
+One publisher waits for packaging and the quality gate (`npm run verify:app`
+and the marketplace signature check against the exact commit), merges both Mac
+updater manifests, uploads every file to a draft, then publishes it. It verifies
+installers, manifests and the anonymous URLs installed apps use to discover
+updates, including that a nightly is the first nightly in the feed and never
+what `/releases/latest` resolves to.
+
+A tag left by an interrupted draft reserves its version. No version-bump commit
+is pushed to main, and the workflow's own token does not trigger a second
+release from the tag it creates.
+
+The release body records `<!-- source-sha: -->`. The nightly gate and stable
+promotion both read it back, so do not remove it. Public-source release notes
+list changes since the preceding release on that channel. Private-source
+subjects are omitted.
+
+Set dispatch `publish=false` to keep the packages as workflow artifacts for 14
+days without publishing anything. The `PREVIEW_SCHEDULE` repository variable is
+no longer read and can be deleted.
 
 ## GitHub enforcement
 
@@ -202,6 +265,8 @@ GitHub settings.
 - Launch the installed app.
 - Confirm Help -> Check For Updates opens Settings and performs a visible update check.
 - Confirm Settings shows version, channel, packaged state, and update status.
+- Confirm Settings -> General -> Update channel shows Stable on a stable build
+  and Nightly on a nightly build.
 - Confirm terminal sessions launch.
 - Confirm Git panel reads status in a real repository.
 - Confirm the Backlog door lists items in a project that has a `backlog/`.
@@ -216,6 +281,9 @@ GitHub settings.
 - Confirm download progress is visible.
 - Confirm Restart installs the update.
 - Relaunch and verify the new version is shown in Settings.
+- On a nightly install, switch Update channel to Stable and confirm the check
+  that follows offers the latest stable even when its version is lower than the
+  nightly's. Switch back to Nightly and confirm the latest nightly is offered.
 
 ## Failure And Rollback
 

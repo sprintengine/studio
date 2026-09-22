@@ -6,7 +6,7 @@ import path from 'node:path'
 import { test } from 'node:test'
 
 import { commitBump, commitTypes, strongestBump } from './conventional-commits.mjs'
-import { bumpVersion, resolveMainRelease } from './main-release.mjs'
+import { bumpVersion, isOnMain, resolveMainRelease, resolveNightly, resolvePromotion } from './main-release.mjs'
 
 test('all accepted maintenance types release patches; features and breaking changes take precedence', () => {
   for (const type of commitTypes) {
@@ -46,7 +46,7 @@ function repository(t) {
   return { cwd, git, commit, releases, resolve, initial }
 }
 
-test('successive main merges each release a new version without package.json edits', (t) => {
+test('each stable moves the next version on without package.json edits', (t) => {
   const r = repository(t)
   r.commit('feat: add search')
   assert.deepEqual(r.resolve(), { version: '0.5.0', shouldBuild: true })
@@ -95,11 +95,11 @@ test('a tag left by an interrupted draft reserves its version and supports retry
   assert.deepEqual(r.resolve(), { version: '0.5.1', shouldBuild: true })
 })
 
-test('branch commits and preview tags do not determine a squash or merge release', (t) => {
+test('branch commits and prerelease tags do not determine a squash or merge release', (t) => {
   const r = repository(t)
   r.git('checkout', '-b', 'topic')
   r.commit('feat!: internal experiment that was removed')
-  r.git('tag', 'v9.0.0-preview.1')
+  r.git('tag', 'v9.0.0-nightly.1')
   r.git('checkout', 'main')
   r.git('merge', '--no-ff', 'topic', '-m', 'fix: repair search')
   assert.deepEqual(r.resolve(), { version: '0.4.1', shouldBuild: true })
@@ -126,4 +126,47 @@ test('PR validation reads title and breaking footer as data without executing sh
   assert.match(run(), /major release/)
   writeFileSync(event, JSON.stringify({ pull_request: { title: 'Add search' } }))
   assert.throws(run, /Conventional Commit/)
+})
+
+test('a nightly carries the next stable version, so a feat merged today shows in it at once', (t) => {
+  const r = repository(t)
+  const nightly = (sha = r.git('rev-parse', 'HEAD')) =>
+    resolveNightly({ sha, releases: r.releases, packageVersion: '0.4.0', date: '20260923', runNumber: 41, cwd: r.cwd })
+  r.commit('fix: repair search')
+  assert.deepEqual(nightly(), { shouldBuild: true, base: '0.4.1', version: '0.4.1-nightly.20260923.41' })
+  r.commit('feat: add filters')
+  assert.deepEqual(nightly(), { shouldBuild: true, base: '0.5.0', version: '0.5.0-nightly.20260923.41' })
+  // Promoted: the stable tag lands on the nightly's commit, and a nightly of
+  // that same commit would sort below the stable, so there is none.
+  r.git('tag', 'v0.5.0')
+  r.releases.push({ tag_name: 'v0.5.0', draft: false })
+  assert.deepEqual(nightly(), { shouldBuild: false, base: '0.5.0', version: null })
+  r.commit('docs: explain filters')
+  assert.equal(nightly().version, '0.5.1-nightly.20260923.41')
+})
+
+test('a promotion ships the nightly base version unless an override raises it', () => {
+  const tag = 'v0.5.0-nightly.20260923.41'
+  assert.equal(resolvePromotion({ nightlyTag: tag, latestStable: '0.4.0', tags: ['v0.4.0'] }), '0.5.0')
+  assert.equal(resolvePromotion({ nightlyTag: tag, override: ' ', latestStable: '0.4.0' }), '0.5.0')
+  assert.equal(resolvePromotion({ nightlyTag: tag, override: 'v1.0.0', latestStable: '0.4.0' }), '1.0.0')
+  assert.throws(() => resolvePromotion({ nightlyTag: tag, override: '0.4.9' }), /below 0\.5\.0.*only raise/)
+  assert.throws(() => resolvePromotion({ nightlyTag: tag, override: '1.0.0-rc.1' }), /no prerelease part/)
+  assert.throws(() => resolvePromotion({ nightlyTag: tag, override: '1.0' }), /Not a release version/)
+  // Already promoted, or a tag reserves the version: never reused.
+  assert.throws(() => resolvePromotion({ nightlyTag: tag, latestStable: '0.5.0' }), /0\.5\.0 is already released/)
+  assert.throws(() => resolvePromotion({ nightlyTag: tag, latestStable: '0.4.0', tags: ['v0.5.0'] }), /already belongs/)
+})
+
+test('only a commit on main can be promoted', (t) => {
+  const r = repository(t)
+  const shipped = r.commit('feat: add search')
+  r.git('checkout', '-b', 'topic')
+  const offMain = r.commit('fix: never merged')
+  r.git('checkout', 'main')
+  const head = r.commit('fix: repair search')
+  assert.equal(isOnMain({ sha: shipped, mainSha: head, cwd: r.cwd }), true)
+  assert.equal(isOnMain({ sha: head, mainSha: head, cwd: r.cwd }), true)
+  assert.equal(isOnMain({ sha: offMain, mainSha: head, cwd: r.cwd }), false)
+  assert.equal(isOnMain({ sha: 'f'.repeat(40), mainSha: head, cwd: r.cwd }), false)
 })
