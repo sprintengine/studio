@@ -1,6 +1,6 @@
 {
   "schemaVersion": 1,
-  "updatedAt": "2026-09-14T21:30:00Z",
+  "updatedAt": "2026-09-22T12:00:00Z",
   "clis": {
     "claude-code": {
       "models": [
@@ -14,6 +14,18 @@
           "id": "opus[1m]",
           "label": "Opus (latest, 1M context)",
           "alias": true,
+          "retired": false
+        },
+        {
+          "id": "claude-opus-5-5",
+          "label": "Opus 5.5",
+          "releasedAt": "2026-09-22",
+          "retired": false
+        },
+        {
+          "id": "claude-opus-5-5[1m]",
+          "label": "Opus 5.5 (1M context)",
+          "releasedAt": "2026-09-22",
           "retired": false
         },
         {
