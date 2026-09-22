@@ -111,6 +111,33 @@ test('studio-plugin-skills', async () => {
     }
   }
 
+  /**
+   * The item body format is taught twice: by `studio-backlog` here, the manual
+   * for the tools, and by the workflow skill `backlog` in the sibling plugin,
+   * which is the one a dispatched agent loads. An agent may have either without
+   * the other, so neither can point at the other — and two copies that drift
+   * produce items half the fleet reads wrongly. They are held byte-identical.
+   */
+  async function bothBacklogSkillsTeachTheSameItemBody(): Promise<void> {
+    const section = (raw: string): string => {
+      const start = raw.indexOf('\n## Item body\n')
+      if (start === -1) return ''
+      const next = raw.indexOf('\n## ', start + 1)
+      return (next === -1 ? raw.slice(start) : raw.slice(start, next)).trim()
+    }
+    const toolManual = await readFile(join(SKILLS_ROOT, 'studio-backlog', SKILL_ENTRY_FILE), 'utf8')
+    const workflow = await readFile(
+      resolve(process.cwd(), 'resources', 'studio-plugin', 'studio-skills', 'skills', 'backlog', SKILL_ENTRY_FILE),
+      'utf8',
+    )
+    assert.notEqual(section(toolManual), '', 'studio-backlog must carry an "## Item body" section')
+    assert.equal(
+      section(workflow),
+      section(toolManual),
+      'the "## Item body" section of skills/backlog and skills/studio-backlog must be identical — edit both',
+    )
+  }
+
   async function main(): Promise<void> {
     const entries = await readdir(SKILLS_ROOT, { withFileTypes: true })
     const dirs = entries
@@ -161,6 +188,7 @@ test('studio-plugin-skills', async () => {
     }
 
     await everyToolASkillNamesIsRegistered(dirs)
+    await bothBacklogSkillsTeachTheSameItemBody()
 
     console.log(`studio plugin skills: ok (${dirs.length})`)
   }

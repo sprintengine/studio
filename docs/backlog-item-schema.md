@@ -15,6 +15,13 @@ in `backlog/cache/links.json` inside the app-owned workspace directory
 time. It replaced the tracked `items.json`, which held both halves and rewrote
 itself on every resolve tick.
 
+The app reads the frontmatter, the `# Title`, and mockup links in the body;
+everything else below the title is for whoever works the item. Both backlog
+skills teach one shape for it — statements under fixed uppercase keys (`GOAL:`,
+`STATE:`, `SPEC:`, `ACCEPT:`, `LOG:` and the rest), written for an agent rather
+than as prose — in their "Item body" section. Nothing parses those keys, so an
+item written as paragraphs stays valid.
+
 This split follows Google Cloud's **Open Knowledge Format (OKF) v0.1**: `backlog/`
 is a bundle of markdown concept files, each with one required `type` field;
 producer-defined fields are allowed, and unknown types and fields are tolerated

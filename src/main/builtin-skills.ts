@@ -85,7 +85,7 @@ export const BUILTIN_SKILLS: BuiltinSkill[] = [
   {
     id: 'backlog',
     name: 'Backlog',
-    version: '1.2.0',
+    version: '1.3.0',
     description: 'Take, work, survey, or triage Backlog items with truthful lifecycle status.',
     targetPolicy: ALL_NATIVE_TARGET_POLICY,
   },
