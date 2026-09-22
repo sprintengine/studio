@@ -10,7 +10,7 @@ import assert from 'node:assert/strict'
 
 import type { TerminalSessionSnapshot, TerminalSpawnResult } from '../shared/electron-api'
 import type { AgentSessionExitEvent } from '../shared/agent-runtime'
-import { emptyAgentLaunchSettings } from '../shared/launch-settings'
+import { DEFAULT_AGENT_LAUNCH_CLI, emptyAgentLaunchSettings } from '../shared/launch-settings'
 import type { AgentLaunchSettings } from '../shared/launch-settings'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import { createAgentControlPlane } from './agent-control-plane'
@@ -358,10 +358,11 @@ test('agent-sessions-module-service', async () => {
     assert.match(!result.ok ? result.message : '', /not installed/)
   })
 
-  run('no CLI anywhere refuses instead of guessing one', async () => {
+  run('a CLI the person never chose launches on the app default the window shows', async () => {
     const harness = makeHarness({ settings: emptyAgentLaunchSettings() })
     const result = await harness.registry.spawn(MODULE_ID, spawnInput())
-    assert.equal(!result.ok && result.code, 'no_cli_selected')
+    assert.ok(result.ok, JSON.stringify(result))
+    assert.equal(harness.spawns[0]?.cli, DEFAULT_AGENT_LAUNCH_CLI)
   })
 
   run('a CLI that cannot report agent state is refused, never substituted', async () => {

@@ -57,8 +57,12 @@ export type AgentLaunchSettingsWriteResult = {
   record: AgentLaunchSettingsRecord
   /** False for an idempotent no-op: an update that changed nothing, or a refused migration. */
   changed: boolean
-  /** Resolves when the atomic write has settled (or failed soft). */
-  persisted: Promise<void>
+  /**
+   * Resolves once the write has settled: true when `record` is on disk, false
+   * when it exists only in memory because a write failed. For a no-op or a
+   * refused migration it answers for the record already held.
+   */
+  persisted: Promise<boolean>
 }
 
 export type AgentLaunchSettingsStore = ReturnType<typeof createAgentLaunchSettingsStore>
@@ -72,6 +76,9 @@ export function createAgentLaunchSettingsStore(deps: AgentLaunchSettingsStoreDep
   // and a migration offer replaces it with a real record.
   let legacySettings: AgentLaunchSettings | null = null
   let loadedFromDisk = false
+  // The newest revision known to be on disk: the one read at load, or the last
+  // write that succeeded. A record above it lives only in memory.
+  let durableRevision = 0
   const listeners = new Set<(record: AgentLaunchSettingsRecord) => void>()
 
   function filePath(): string {
@@ -89,6 +96,7 @@ export function createAgentLaunchSettingsStore(deps: AgentLaunchSettingsStoreDep
     try {
       const raw: unknown = JSON.parse(readFileSync(filePath(), 'utf8'))
       current = parseAgentLaunchSettingsRecord(raw)
+      durableRevision = current?.revision ?? 0
       if (!current && raw && typeof raw === 'object' && !Array.isArray(raw)) {
         legacySettings = normalizeAgentLaunchSettings(raw)
       }
@@ -105,10 +113,10 @@ export function createAgentLaunchSettingsStore(deps: AgentLaunchSettingsStoreDep
   // Writes serialize behind one another and each gets its own temp file: two
   // writes in the same tick would otherwise race on a shared temp path and
   // could land the older revision last.
-  let writeQueue: Promise<void> = Promise.resolve()
+  let writeQueue: Promise<unknown> = Promise.resolve()
   let writeSequence = 0
 
-  function persist(record: AgentLaunchSettingsRecord): Promise<void> {
+  function persist(record: AgentLaunchSettingsRecord): Promise<boolean> {
     const attempt = ++writeSequence
     const settled = writeQueue.then(async () => {
       const target = filePath()
@@ -117,6 +125,8 @@ export function createAgentLaunchSettingsStore(deps: AgentLaunchSettingsStoreDep
         await mkdir(dirname(target), { recursive: true })
         await writeFile(tmp, serializeAgentLaunchSettingsRecord(record), 'utf8')
         await rename(tmp, target)
+        durableRevision = Math.max(durableRevision, record.revision)
+        return true
       } catch (error) {
         await unlink(tmp).catch(() => undefined)
         deps.logDiagnostic?.({
@@ -126,10 +136,16 @@ export function createAgentLaunchSettingsStore(deps: AgentLaunchSettingsStoreDep
             'The launch settings could not be written to disk; in-memory values still apply until the app restarts.',
           details: error instanceof Error ? error.message : String(error),
         })
+        return false
       }
     })
     writeQueue = settled
     return settled
+  }
+
+  /** Whether `record` is on disk, once every write queued so far has settled. */
+  function durable(record: AgentLaunchSettingsRecord | null): Promise<boolean> {
+    return writeQueue.then(() => record !== null && durableRevision >= record.revision)
   }
 
   function commit(settings: AgentLaunchSettings, actor: AgentLaunchSettingsActor): AgentLaunchSettingsWriteResult {
@@ -163,9 +179,14 @@ export function createAgentLaunchSettingsStore(deps: AgentLaunchSettingsStoreDep
       return loadOnce()
     },
 
-    /** What a window reads at boot: the record, and the settings in force either way. */
-    getSnapshot(): AgentLaunchSettingsSnapshot {
-      return { record: loadOnce(), settings: read() }
+    /**
+     * What a window reads at boot: the record, the settings in force either
+     * way, and whether the record is on disk (settled after any queued write).
+     */
+    async getSnapshot(): Promise<AgentLaunchSettingsSnapshot> {
+      await durable(loadOnce())
+      const record = loadOnce()
+      return { record, settings: read(), persisted: record !== null && durableRevision >= record.revision }
     },
 
     /**
@@ -180,7 +201,7 @@ export function createAgentLaunchSettingsStore(deps: AgentLaunchSettingsStoreDep
       const existing = loadOnce()
       const next = applyAgentLaunchSettingsPatch(read(), patch)
       if (existing && agentLaunchSettingsEqual(existing.settings, next)) {
-        return { record: existing, changed: false, persisted: Promise.resolve() }
+        return { record: existing, changed: false, persisted: durable(existing) }
       }
       return commit(next, actor)
     },
@@ -192,13 +213,13 @@ export function createAgentLaunchSettingsStore(deps: AgentLaunchSettingsStoreDep
      */
     migrate(raw: unknown): AgentLaunchSettingsWriteResult {
       const existing = loadOnce()
-      if (existing) return { record: existing, changed: false, persisted: Promise.resolve() }
+      if (existing) return { record: existing, changed: false, persisted: durable(existing) }
       return commit(normalizeAgentLaunchSettings(raw), 'system')
     },
 
     /** Resolves when every write queued so far has settled. */
     settled(): Promise<void> {
-      return writeQueue
+      return writeQueue.then(() => undefined)
     },
 
     /** Called with the new record after every write that changed it. */

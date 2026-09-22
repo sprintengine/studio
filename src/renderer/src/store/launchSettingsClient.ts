@@ -12,6 +12,8 @@
  * Boot, in order: subscribe to the broadcast (so nothing is missed), read the
  * snapshot, and — only when main holds no record and this window still has the
  * values it used to keep in localStorage — offer those once through `migrate`.
+ * The localStorage copy is released only on an answer that says main's record
+ * is on disk; a record main could keep only in memory leaves it in place.
  * `ready` resolves when that is done, and the workspace window does not render
  * before it (bounded), so no picker shows defaults the person never chose.
  * Updates issued before then wait for it, so a setter can never create main's
@@ -44,7 +46,11 @@ export type LaunchSettingsClientConfig = {
   apply: (settings: AgentLaunchSettings) => void
   /** The values this window kept in localStorage before main owned them, or null. */
   legacyOffer: () => AgentLaunchSettings | null
-  /** Main holds a record, so the window's localStorage copy is no longer needed. */
+  /**
+   * Main holds a record ON DISK, so the window's localStorage copy is no longer
+   * needed. Never called for a record main could only keep in memory: that one
+   * is gone after a restart, and the next boot offers the window's copy again.
+   */
   onLegacySettled: () => void
 }
 
@@ -81,6 +87,7 @@ export function createLaunchSettingsClient(): LaunchSettingsClient {
   // lost update does not leave its optimistic value behind.
   let dirty = false
   let unsubscribe: (() => void) | null = null
+  let legacyReleased = false
   let resolveReady: () => void = () => undefined
   const ready = new Promise<void>((resolve) => {
     resolveReady = resolve
@@ -89,6 +96,14 @@ export function createLaunchSettingsClient(): LaunchSettingsClient {
   function offer(record: AgentLaunchSettingsRecord | null | undefined): void {
     if (!record || typeof record.revision !== 'number') return
     if (!latest || record.revision > latest.revision) latest = record
+  }
+
+  // Release the window's localStorage copy once main says a record is on disk,
+  // whether the boot read, the migration or a later update said so.
+  function released(answer: { record: AgentLaunchSettingsRecord | null; persisted?: boolean } | null | undefined) {
+    if (legacyReleased || !answer?.record || answer.persisted !== true) return
+    legacyReleased = true
+    config?.onLegacySettled()
   }
 
   function settle(): void {
@@ -107,14 +122,16 @@ export function createLaunchSettingsClient(): LaunchSettingsClient {
     try {
       const snapshot = await api.launchSettingsGet()
       let record = snapshot?.record ?? null
+      let persisted = snapshot?.persisted === true
       const legacy = active.legacyOffer()
       if (!record && legacy) {
         const ack = await api.launchSettingsMigrate(legacy)
         record = ack?.record ?? null
+        persisted = ack?.persisted === true
       }
       if (record) {
         offer(record)
-        active.onLegacySettled()
+        released({ record, persisted })
       } else if (snapshot?.settings && !latest) {
         // Main has never been written and this window has nothing to offer:
         // show what main would launch with (an old unrevisioned file, or the
@@ -158,7 +175,10 @@ export function createLaunchSettingsClient(): LaunchSettingsClient {
       dirty = true
       void ready
         .then(() => api.launchSettingsUpdate(patch))
-        .then((ack) => offer(ack?.record))
+        .then((ack) => {
+          offer(ack?.record)
+          released(ack)
+        })
         .catch((error: unknown) => {
           console.warn('[launchSettings] update was not applied by main', {
             message: error instanceof Error ? error.message : 'unknown',

@@ -2,7 +2,11 @@ import assert from 'node:assert/strict'
 
 import type { McpServerConfig, TerminalSessionSnapshot, TerminalSpawnResult } from '../shared/electron-api'
 import type { AgentLaunchSettings } from '../shared/launch-settings'
-import { emptyAgentLaunchSettings } from '../shared/launch-settings'
+import {
+  DEFAULT_AGENT_LAUNCH_CLI,
+  DEFAULT_AGENT_SPAWN_PERMISSION_PRESET,
+  emptyAgentLaunchSettings,
+} from '../shared/launch-settings'
 import type { TerminalSpawnPayload } from './ipc/terminal-ipc'
 import {
   createAgentLaunchService,
@@ -140,12 +144,13 @@ test('agent-launch-service', async () => {
     assert.equal(spawn.worktreePath, '/repo/a/.worktrees/run-1')
   })
 
-  run('no CLI anywhere refuses instead of guessing one', async () => {
-    const app = harness({ settings: settings({ lastSelectedCli: null }) })
+  run('a CLI and preset the person never chose launch on the defaults the window shows', async () => {
+    const app = harness({ settings: settings({ lastSelectedCli: null, lastAgentSpawnPermissionPreset: null }) })
     const launched = await app.service.launch({ workspaceId: 'ws-1' })
-    assert.equal(launched.ok, false)
-    assert.equal(!launched.ok && launched.code, 'no_cli_selected')
-    assert.equal(app.spawns.length, 0)
+    assert.equal(launched.ok, true, JSON.stringify(launched))
+    const spawn = app.spawns[0]!
+    assert.equal(spawn.cli, DEFAULT_AGENT_LAUNCH_CLI, 'the app default CLI, as the pickers show it')
+    assert.equal(spawn.cliPermissionPreset, DEFAULT_AGENT_SPAWN_PERMISSION_PRESET, 'the app default spawn preset')
   })
 
   run('a CLI that cannot report agent state is refused, never substituted', async () => {

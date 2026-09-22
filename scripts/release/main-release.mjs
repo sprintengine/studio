@@ -59,26 +59,45 @@ export function resolveNightly({ sha, releases, packageVersion, date, runNumber,
 
 // The stable a promotion publishes. The nightly already carries the version the
 // commits call for, so by default it ships as that version with the train
-// dropped (0.5.0-nightly.20260923.41 ships as 0.5.0). An override may only
-// raise it, for a maintainer declaring a bigger change than the commits did:
-// a lower stable would sit below the nightlies already out, and the next
-// nightly would sort below them too. A version a tag already holds is never
-// reused.
+// dropped (0.5.0-nightly.20260923.41 ships as 0.5.0). The `version` input may
+// name any other X.Y.Z strictly above the latest published stable, higher or
+// lower than the derived one, because commit markers can overstate a change
+// (two `!` commits for a release-process change and a refactor derive a major).
+// Only the latest stable bounds it: a stable at or below it would never reach
+// an installed stable build. A version a tag already holds is never reused.
+//
+// A version below the nightly's leaves installed nightlies ahead of the train
+// until it passes them: the next nightly derives from the new stable tag and
+// sorts below the nightly those installs already run.
 export function resolvePromotion({ nightlyTag, override = '', latestStable = null, tags = [] }) {
-  const base = coreVersion(nightlyTag)
-  let version = base
+  let version = coreVersion(nightlyTag)
   if (override.trim() !== '') {
     const requested = override.trim().replace(/^v/, '')
     if (parseVersion(requested).pre !== null) throw new Error(`A stable version has no prerelease part: ${override}`)
-    if (compareCore(requested, base) < 0) {
-      throw new Error(`${requested} is below ${base}, the version ${nightlyTag} already carries. An override may only raise it.`)
-    }
     version = requested
   }
   if (latestStable && compareCore(version, latestStable) <= 0) {
     throw new Error(`${nightlyTag} would ship as ${version}, but ${latestStable} is already released.`)
   }
   if (tags.includes(`v${version}`)) throw new Error(`v${version} already belongs to another commit.`)
+  return version
+}
+
+// A pushed vX.Y.Z tag: the hotfix route, which publishes exactly the tagged
+// commit as that stable. The tag is not compared with package.json, which
+// stays at its development baseline by rule (the workflow stamps the version
+// at build time), so it could never match. What is checked is what keeps
+// installs safe: the tag names a stable version, it is above every published
+// stable (installed builds never move backwards), and no release holds it.
+export function resolveTagRelease({ refName, latestStable = null, publishedTags = [] }) {
+  const version = String(refName).replace(/^v/, '')
+  if (parseVersion(version).pre !== null) {
+    throw new Error(`A pushed tag publishes a stable, so it must be vX.Y.Z, not ${refName}.`)
+  }
+  if (latestStable && compareCore(version, latestStable) <= 0) {
+    throw new Error(`v${version} is not above the latest stable v${latestStable}; installed builds would never take it.`)
+  }
+  if (publishedTags.includes(`v${version}`)) throw new Error(`v${version} is already published.`)
   return version
 }
 

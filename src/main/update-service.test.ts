@@ -10,6 +10,12 @@ import type { AppUpdateTrack } from '../shared/electron-api'
 // every stable install a downgrade.
 const hoisted = vi.hoisted(() => {
   const app = { version: '0.5.2', packaged: true }
+  class CancellationToken {
+    cancelled = false
+    cancel() {
+      this.cancelled = true
+    }
+  }
   const updater = {
     autoDownload: true,
     autoInstallOnAppQuit: false,
@@ -29,6 +35,13 @@ const hoisted = vi.hoisted(() => {
       this.listeners.set(event, listener)
       return this
     },
+    // A download the test finishes by hand, as the network would.
+    downloads: [] as Array<{ token: CancellationToken; finish: () => void }>,
+    downloadUpdate(token: CancellationToken) {
+      return new Promise<string[]>((resolve) => {
+        this.downloads.push({ token, finish: () => resolve([]) })
+      })
+    },
     async checkForUpdates() {
       this.checks.push({
         channel: this._channel,
@@ -39,7 +52,7 @@ const hoisted = vi.hoisted(() => {
       return { updateInfo: { version: app.version } }
     },
   }
-  return { app, updater }
+  return { app, updater, CancellationToken }
 })
 
 vi.mock('electron', () => ({
@@ -52,7 +65,7 @@ vi.mock('electron', () => ({
   BrowserWindow: { getAllWindows: () => [] },
   shell: { openExternal: async () => undefined },
 }))
-vi.mock('electron-updater', () => ({ autoUpdater: hoisted.updater }))
+vi.mock('electron-updater', () => ({ autoUpdater: hoisted.updater, CancellationToken: hoisted.CancellationToken }))
 
 const { SprintEngineUpdateService } = await import('./update-service')
 
@@ -76,7 +89,13 @@ function service(store = memoryStore()) {
 beforeEach(() => {
   hoisted.app.version = '0.5.2'
   hoisted.app.packaged = true
-  Object.assign(hoisted.updater, { _channel: null, allowPrerelease: false, allowDowngrade: false, checks: [] })
+  Object.assign(hoisted.updater, {
+    _channel: null,
+    allowPrerelease: false,
+    allowDowngrade: false,
+    checks: [],
+    downloads: [],
+  })
   hoisted.updater.listeners.clear()
 })
 
@@ -144,6 +163,43 @@ test('an update found on the old channel is forgotten when the channel changes',
   assert.equal(s.getState().downloaded, false)
   assert.equal(s.getState().updateVersion, null)
   assert.equal(hoisted.updater.autoInstallOnAppQuit, false)
+})
+
+test('a download still running on the old channel is cancelled and never becomes the update to install', async () => {
+  const s = service()
+  hoisted.updater.listeners.get('update-available')?.({ version: '0.5.3' })
+  const pending = s.downloadUpdate()
+  const running = hoisted.updater.downloads[0]
+  assert.ok(running, 'the service started a download')
+  const check = hoisted.updater.checkForUpdates
+  hoisted.updater.checkForUpdates = async () => ({ updateInfo: { version: '0.5.2' } }) as never
+  try {
+    await s.setChannel('nightly')
+  } finally {
+    hoisted.updater.checkForUpdates = check
+  }
+  assert.equal(running.token.cancelled, true, 'the old channel download is cancelled')
+
+  // It finished anyway, before the cancel reached it.
+  hoisted.updater.listeners.get('download-progress')?.({ percent: 100, transferred: 1, total: 1, bytesPerSecond: 1 })
+  hoisted.updater.listeners.get('update-downloaded')?.({ version: '0.5.3' })
+  running.finish()
+  const result = await pending
+
+  assert.equal(result.ok, false)
+  assert.equal(s.getState().downloaded, false, 'nothing from the old channel is ready to install')
+  assert.notEqual(s.getState().status, 'downloading', 'the old download no longer drives the state')
+  assert.equal(s.getState().progress, null)
+  assert.equal(hoisted.updater.autoInstallOnAppQuit, false)
+
+  // The next download is the new channel's own, and completes normally.
+  hoisted.updater.listeners.get('update-available')?.({ version: '0.6.0-nightly.20260923.41' })
+  const next = s.downloadUpdate()
+  hoisted.updater.listeners.get('update-downloaded')?.({ version: '0.6.0-nightly.20260923.41' })
+  hoisted.updater.downloads[1]?.finish()
+  assert.equal((await next).ok, true)
+  assert.equal(s.getState().downloaded, true)
+  assert.equal(hoisted.updater.autoInstallOnAppQuit, true)
 })
 
 test('an unpackaged build reports dev and does not check when the channel changes', async () => {

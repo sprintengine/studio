@@ -6,7 +6,14 @@ import path from 'node:path'
 import { test } from 'node:test'
 
 import { commitBump, commitTypes, strongestBump } from './conventional-commits.mjs'
-import { bumpVersion, isOnMain, resolveMainRelease, resolveNightly, resolvePromotion } from './main-release.mjs'
+import {
+  bumpVersion,
+  isOnMain,
+  resolveMainRelease,
+  resolveNightly,
+  resolvePromotion,
+  resolveTagRelease,
+} from './main-release.mjs'
 
 test('all accepted maintenance types release patches; features and breaking changes take precedence', () => {
   for (const type of commitTypes) {
@@ -145,12 +152,28 @@ test('a nightly carries the next stable version, so a feat merged today shows in
   assert.equal(nightly().version, '0.5.1-nightly.20260923.41')
 })
 
-test('a promotion ships the nightly base version unless an override raises it', () => {
+test('a promotion ships the nightly base version unless the maintainer names another above the latest stable', () => {
   const tag = 'v0.5.0-nightly.20260923.41'
   assert.equal(resolvePromotion({ nightlyTag: tag, latestStable: '0.4.0', tags: ['v0.4.0'] }), '0.5.0')
   assert.equal(resolvePromotion({ nightlyTag: tag, override: ' ', latestStable: '0.4.0' }), '0.5.0')
   assert.equal(resolvePromotion({ nightlyTag: tag, override: 'v1.0.0', latestStable: '0.4.0' }), '1.0.0')
-  assert.throws(() => resolvePromotion({ nightlyTag: tag, override: '0.4.9' }), /below 0\.5\.0.*only raise/)
+  // The commit markers can overstate a change: two `!` commits for a release
+  // process and an internal refactor derive 2.0.0, and the maintainer ships 1.1.0.
+  const overstated = 'v2.0.0-nightly.20260923.41'
+  assert.equal(resolvePromotion({ nightlyTag: overstated, override: '1.1.0', latestStable: '1.0.0' }), '1.1.0')
+  assert.equal(resolvePromotion({ nightlyTag: tag, override: '0.4.9', latestStable: '0.4.0' }), '0.4.9')
+  assert.throws(
+    () => resolvePromotion({ nightlyTag: overstated, override: '1.0.0', latestStable: '1.0.0' }),
+    /1\.0\.0 is already released/,
+  )
+  assert.throws(
+    () => resolvePromotion({ nightlyTag: overstated, override: '0.9.0', latestStable: '1.0.0' }),
+    /1\.0\.0 is already released/,
+  )
+  assert.throws(
+    () => resolvePromotion({ nightlyTag: overstated, override: '1.1.0', latestStable: '1.0.0', tags: ['v1.1.0'] }),
+    /already belongs/,
+  )
   assert.throws(() => resolvePromotion({ nightlyTag: tag, override: '1.0.0-rc.1' }), /no prerelease part/)
   assert.throws(() => resolvePromotion({ nightlyTag: tag, override: '1.0' }), /Not a release version/)
   // Already promoted, or a tag reserves the version: never reused.
@@ -169,4 +192,20 @@ test('only a commit on main can be promoted', (t) => {
   assert.equal(isOnMain({ sha: head, mainSha: head, cwd: r.cwd }), true)
   assert.equal(isOnMain({ sha: offMain, mainSha: head, cwd: r.cwd }), false)
   assert.equal(isOnMain({ sha: 'f'.repeat(40), mainSha: head, cwd: r.cwd }), false)
+})
+
+// The hotfix route. package.json stays at its development baseline by rule, so
+// the tag is not checked against it; what matters is that the tag names a
+// stable version above every published stable that no release already holds.
+test('a pushed hotfix tag publishes its own version, whatever package.json says', () => {
+  assert.equal(resolveTagRelease({ refName: 'v1.0.1', latestStable: '1.0.0', publishedTags: ['v1.0.0'] }), '1.0.1')
+  assert.equal(resolveTagRelease({ refName: 'v0.1.0', latestStable: null }), '0.1.0', 'the first stable')
+  assert.throws(() => resolveTagRelease({ refName: 'v1.0.0', latestStable: '1.0.0' }), /not above the latest stable/)
+  assert.throws(() => resolveTagRelease({ refName: 'v0.9.9', latestStable: '1.0.0' }), /not above the latest stable/)
+  assert.throws(
+    () => resolveTagRelease({ refName: 'v1.1.0', latestStable: '1.0.0', publishedTags: ['v1.1.0'] }),
+    /already published/,
+  )
+  assert.throws(() => resolveTagRelease({ refName: 'v1.1.0-nightly.20260923.1', latestStable: '1.0.0' }), /X\.Y\.Z/)
+  assert.throws(() => resolveTagRelease({ refName: 'release-1', latestStable: '1.0.0' }), /Not a release version/)
 })

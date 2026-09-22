@@ -8,7 +8,7 @@
  * needs to know which fields those are, or to convert between the two shapes,
  * goes through here so the list cannot drift.
  */
-import type { AgentLaunchSettings } from '../../../shared/launch-settings'
+import { effectiveAgentLaunchSettings, type AgentLaunchSettings } from '../../../shared/launch-settings'
 import type { AppSettings, Workspace } from '../types/workspace'
 import { normalizeAppSettings } from './slices/settingsSlice'
 
@@ -64,7 +64,7 @@ export function launchSettingsFromAppSettings(appSettings: AppSettings): AgentLa
 /**
  * `appSettings` with its launch fields replaced by main's settings, through the
  * same normalizers a hydration uses: the default runtimes are filled in, a
- * never-chosen CLI or preset reads as the app default, MCP entries are
+ * never-chosen CLI or preset reads as the app default (effectiveAgentLaunchSettings), MCP entries are
  * normalized, and knowledge roots fold in the ones the open workspaces carry.
  */
 export function withLaunchSettings(
@@ -72,15 +72,16 @@ export function withLaunchSettings(
   settings: AgentLaunchSettings,
   workspaces: Workspace[],
 ): AppSettings {
+  // Never-chosen values read as the app defaults through the same function
+  // main launches with, so a picker never shows what main would not run.
+  const effective = effectiveAgentLaunchSettings(settings)
   const normalized = normalizeAppSettings(
     {
-      cliRuntimes: settings.cliRuntimes,
-      mcp: settings.mcp,
-      projectKnowledgeRoots: settings.projectKnowledgeRoots,
-      ...(settings.lastSelectedCli ? { lastSelectedCli: settings.lastSelectedCli } : {}),
-      ...(settings.lastAgentSpawnPermissionPreset
-        ? { lastAgentSpawnPermissionPreset: settings.lastAgentSpawnPermissionPreset }
-        : {}),
+      cliRuntimes: effective.cliRuntimes,
+      mcp: effective.mcp,
+      projectKnowledgeRoots: effective.projectKnowledgeRoots,
+      lastSelectedCli: effective.lastSelectedCli,
+      lastAgentSpawnPermissionPreset: effective.lastAgentSpawnPermissionPreset,
     },
     workspaces,
   )

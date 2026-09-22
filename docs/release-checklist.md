@@ -153,7 +153,11 @@ scheduled run publishes only when both hold:
 - main has commits the last nightly did not ship (GitHub's compare of that
   nightly's commit against main is "ahead").
 
-Otherwise the run ends in the resolve step within seconds. The rule is
+Otherwise the run ends in the resolve step within seconds. The one exception
+is a main whose history was rewritten under the last nightly (the compare says
+"behind" or "diverged"): that run fails, and keeps failing every tick, with a
+message naming the nightly and its commit, so the stall is seen. Dispatch a
+nightly from main to restart the train from its current head. The rule is
 `scripts/release/nightly-gate.mjs`, covered by `npm run test:release`. A run is
 also skipped when the latest stable already ships main's head, because a nightly
 of that commit would sort below the stable.
@@ -172,9 +176,13 @@ refuses if that commit is not on main, and builds that commit, not main's head.
 Merges that land while you are checking the nightly never reach the stable.
 
 The stable's version is the nightly's with the train dropped:
-`0.5.0-nightly.20260923.41` ships as `0.5.0`. To ship a bigger change than the
-commits declared, set the `version` input; it may only raise the version, and
-it is refused if a tag already holds it or it is not above the latest stable.
+`0.5.0-nightly.20260923.41` ships as `0.5.0`. To ship another version, set the
+`version` input to any `X.Y.Z` above the latest published stable that no tag
+already holds, higher or lower than the derived one: the commit markers can
+overstate a change (a release-process change and an internal refactor marked
+`!` derive a major) as well as understate it. A version below the nightly's
+leaves installed nightlies ahead of the train until a later nightly passes
+them, since the next nightly derives from the new stable tag.
 The `vX.Y.Z` tag is created on the nightly's commit when the release publishes.
 
 Stable runs have their own concurrency group, so a queued nightly never holds up
@@ -183,10 +191,12 @@ a promotion.
 ## The hotfix route
 
 Push a tag `vX.Y.Z` to build and publish exactly that commit as stable. The
-tag must match the `package.json` version at that commit, and it must be on
-main's first-parent history (tag the merge commit), because every later nightly
-works out its version from the latest stable tag on main and refuses to run
-while that tag sits somewhere else.
+version must be above the latest published stable and must not be one a
+release already holds; `package.json` is not consulted, since it stays at the
+development baseline and the build stamps the tag's version. The tag must be
+on main's first-parent history (tag the merge commit), because every later
+nightly works out its version from the latest stable tag on main and refuses
+to run while that tag sits somewhere else.
 
 ## How an installed app picks its channel
 

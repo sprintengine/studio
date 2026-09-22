@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'fs/promises'
+import { mkdtemp, readFile, rm } from 'fs/promises'
 import { tmpdir } from 'os'
 import { join } from 'path'
 import type { IpcMain } from 'electron'
@@ -7,6 +7,7 @@ import { test } from 'vitest'
 
 import {
   LAUNCH_SETTINGS_CHANNELS,
+  parseAgentLaunchSettingsRecord,
   type AgentLaunchSettingsRecord,
   type AgentLaunchSettingsSnapshot,
   type AgentLaunchSettingsWriteAck,
@@ -27,6 +28,7 @@ async function withIpc(
   body: (ipc: {
     invoke: (channel: string, payload?: unknown) => unknown
     windows: ReturnType<typeof fakeWindow>[]
+    userDataDir: string
     store: ReturnType<typeof createAgentLaunchSettingsStore>
     dispose: () => void
   }) => Promise<void>,
@@ -48,6 +50,7 @@ async function withIpc(
         return handler({}, payload)
       },
       windows,
+      userDataDir,
       store,
       dispose,
     })
@@ -60,7 +63,7 @@ async function withIpc(
 
 test('the window side registers exactly the get, update and migrate invokes', async () => {
   await withIpc(async ({ invoke }) => {
-    const snapshot = invoke(LAUNCH_SETTINGS_CHANNELS.get) as AgentLaunchSettingsSnapshot
+    const snapshot = (await invoke(LAUNCH_SETTINGS_CHANNELS.get)) as AgentLaunchSettingsSnapshot
     assert.equal(snapshot.record, null)
     assert.equal(snapshot.settings.lastSelectedCli, null)
     assert.throws(() => invoke('launch-settings:sync', {}), /no handler/, 'the full-record push is gone')
@@ -70,7 +73,9 @@ test('the window side registers exactly the get, update and migrate invokes', as
 
 test('an update is answered with main record and broadcast to every live window', async () => {
   await withIpc(async ({ invoke, windows }) => {
-    const ack = invoke(LAUNCH_SETTINGS_CHANNELS.update, { lastSelectedCli: 'codex' }) as AgentLaunchSettingsWriteAck
+    const ack = (await invoke(LAUNCH_SETTINGS_CHANNELS.update, {
+      lastSelectedCli: 'codex',
+    })) as AgentLaunchSettingsWriteAck
     assert.equal(ack.ok, true)
     assert.equal(ack.changed, true)
     assert.equal(ack.record.settings.lastSelectedCli, 'codex')
@@ -82,7 +87,9 @@ test('an update is answered with main record and broadcast to every live window'
     assert.deepEqual(b?.sent, expected)
     assert.deepEqual(gone?.sent, [], 'a destroyed window is skipped')
 
-    const repeat = invoke(LAUNCH_SETTINGS_CHANNELS.update, { lastSelectedCli: 'codex' }) as AgentLaunchSettingsWriteAck
+    const repeat = (await invoke(LAUNCH_SETTINGS_CHANNELS.update, {
+      lastSelectedCli: 'codex',
+    })) as AgentLaunchSettingsWriteAck
     assert.equal(repeat.changed, false)
     assert.equal(a?.sent.length, 1, 'an update that changes nothing is not broadcast')
   })
@@ -100,18 +107,41 @@ test('a change main makes itself reaches the windows on the same channel', async
 test('migrate is accepted while main has no record and refused after', async () => {
   await withIpc(async ({ invoke, windows }) => {
     const offer = { lastSelectedCli: 'gemini', cliRuntimes: {}, mcp: { syncEnabled: false, servers: {} } }
-    const accepted = invoke(LAUNCH_SETTINGS_CHANNELS.migrate, offer) as AgentLaunchSettingsWriteAck
+    const accepted = (await invoke(LAUNCH_SETTINGS_CHANNELS.migrate, offer)) as AgentLaunchSettingsWriteAck
     assert.equal(accepted.changed, true)
     assert.equal(accepted.record.settings.lastSelectedCli, 'gemini')
     assert.equal(windows[0]?.sent.length, 1, 'an accepted migration is broadcast like any write')
 
-    const refused = invoke(LAUNCH_SETTINGS_CHANNELS.migrate, {
+    const refused = (await invoke(LAUNCH_SETTINGS_CHANNELS.migrate, {
       ...offer,
       lastSelectedCli: 'codex',
-    }) as AgentLaunchSettingsWriteAck
+    })) as AgentLaunchSettingsWriteAck
     assert.equal(refused.changed, false)
     assert.equal(refused.record.settings.lastSelectedCli, 'gemini')
     assert.equal(windows[0]?.sent.length, 1)
+  })
+})
+
+// The window deletes its localStorage copy of the launch settings as soon as a
+// migration is answered, so the answer must not come before main's copy is on
+// disk: quitting in between would otherwise lose both.
+test('an accepted migration is answered only once it is on disk', async () => {
+  await withIpc(async ({ invoke, userDataDir }) => {
+    const offer = { lastSelectedCli: 'gemini', cliRuntimes: {}, mcp: { syncEnabled: false, servers: {} } }
+    const accepted = (await invoke(LAUNCH_SETTINGS_CHANNELS.migrate, offer)) as AgentLaunchSettingsWriteAck
+    assert.equal(accepted.changed, true)
+    const onDisk = parseAgentLaunchSettingsRecord(
+      JSON.parse(await readFile(join(userDataDir, 'agent-launch-settings.json'), 'utf8')),
+    )
+    assert.equal(onDisk?.revision, accepted.record.revision)
+    assert.equal(onDisk?.settings.lastSelectedCli, 'gemini')
+    assert.equal(accepted.persisted, true)
+    const updated = (await invoke(LAUNCH_SETTINGS_CHANNELS.update, {
+      lastSelectedCli: 'codex',
+    })) as AgentLaunchSettingsWriteAck
+    assert.equal(updated.persisted, true)
+    const snapshot = (await invoke(LAUNCH_SETTINGS_CHANNELS.get)) as AgentLaunchSettingsSnapshot
+    assert.equal(snapshot.persisted, true)
   })
 })
 

@@ -92,8 +92,12 @@ migration offer, and otherwise ignores them. At boot:
    first window to offer seeds the record and every later offer — a second
    window booting at the same moment, the same window next time — is refused
    and answered with main's record, which the window adopts.
-3. Once main has answered with a record, by either path, the window strips
-   the five fields from its localStorage envelope and never writes them again.
+3. Once main has answered with a record that is on disk, by either path, the
+   window strips the five fields from its localStorage envelope and never
+   writes them again. Every answer (`get`, `update`, `migrate`) waits for its
+   write to settle and carries `persisted`; a record main could keep only in
+   memory because the write failed leaves the window's copy in place, so the
+   next boot offers it again. A later answer that is on disk releases it.
 
 Updates a window issues before its boot has finished wait for it, so a setter
 cannot create main's record ahead of the offer and get the offer refused.

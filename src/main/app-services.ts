@@ -79,6 +79,7 @@ import {
   createWorkspaceSkillsService,
 } from './workspace-skills-service'
 import { createAgentLaunchSettingsStore } from './launch-settings-store'
+import { effectiveAgentLaunchSettings } from '../shared/launch-settings'
 import { setCliModelDiscoveryRuntimesResolver } from './ipc/cli-model-discovery-ipc'
 import { createBackgroundModeStore } from './background-mode-store'
 import { createAnalyticsService } from './telemetry/analytics-service'
@@ -934,7 +935,10 @@ export function createAppServices(diagnosticsEnabled: boolean) {
           // Read live, never captured: the same store the launch service reads, so
           // a preset changed in Settings reaches the next terminal.create without
           // a restart.
-          getAgentSpawnPermissionDefault: () => agentLaunchSettings.get().lastAgentSpawnPermissionPreset,
+          // A never-chosen preset reads as the app default, as it does in the
+          // window's pickers and in the launch service.
+          getAgentSpawnPermissionDefault: () =>
+            effectiveAgentLaunchSettings(agentLaunchSettings.get()).lastAgentSpawnPermissionPreset,
           createWorkspace: (input, actor) => workspaceSyncService.createWorkspace(input, actor),
           listBacklogItems: (workspaceRoot) => listBacklogItems(workspaceRoot),
           readBacklogItem: (workspaceRoot, relativePath) => readBacklogItem(workspaceRoot, relativePath),

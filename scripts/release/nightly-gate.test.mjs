@@ -32,9 +32,23 @@ test('a nightly younger than six hours holds the next one back, even with new co
 test('six hours on, a nightly publishes only when main is ahead of the commit it shipped', () => {
   const releases = [release('v0.5.2-nightly.20260923.40', 6)]
   assert.equal(nightlyGate({ releases, comparison: { status: 'ahead' }, now: NOW }).publish, true)
-  assert.equal(nightlyGate({ releases, comparison: { status: 'identical' }, now: NOW }).publish, false)
-  assert.equal(nightlyGate({ releases, comparison: { status: 'behind' }, now: NOW }).publish, false)
-  assert.match(nightlyGate({ releases, comparison: { status: 'diverged' }, now: NOW }).reason, /diverged/)
+  const quiet = nightlyGate({ releases, comparison: { status: 'identical' }, now: NOW })
+  assert.equal(quiet.publish, false, 'a quiet day skips without failing')
+  assert.match(quiet.reason, /nothing new/)
+})
+
+test('main rewritten under the last nightly fails the run instead of skipping quietly', () => {
+  const releases = [release('v0.5.2-nightly.20260923.40', 6)]
+  for (const status of ['behind', 'diverged']) {
+    assert.throws(
+      () => nightlyGate({ releases, comparison: { status }, now: NOW }),
+      new RegExp(`main is ${status} relative to v0\\.5\\.2-nightly\\.20260923\\.40.*rewritten`),
+      status,
+    )
+  }
+  // Inside the six hours the interval still decides first: nothing is compared.
+  const young = [release('v0.5.2-nightly.20260923.40', 1)]
+  assert.equal(nightlyGate({ releases: young, comparison: { status: 'diverged' }, now: NOW }).publish, false)
 })
 
 test('a nightly that cannot be compared with main does not stall the train', () => {
