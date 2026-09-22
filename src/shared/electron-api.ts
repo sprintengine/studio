@@ -291,7 +291,6 @@ import type {
   WorkspaceChangeSummary,
 } from './ipc/git'
 import type { HostedCardFeedReadInput, HostedCardFeedReadResult, HostedSourcesFeedReadResult } from './ipc/hosted-feeds'
-import type { CliModelDiscoveryInput, CliModelDiscoveryResult } from './ipc/cli-model-discovery'
 import type {
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
