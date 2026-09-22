@@ -1045,6 +1045,27 @@ test('engine', async () => {
     await flushMicrotasks(50)
   }
 
+  // The finalize a settle timer fires does real file I/O after the timer: the
+  // transcript read, the run and definition reads, the run write. Microtask
+  // flushes do not wait for any of it, so on a loaded machine the finalize lands
+  // after settle() returns and a status read straight after it sees `running`.
+  // A case that expects the finalize waits the window out and then for the
+  // finalize's own result; a case that expects NO finalize keeps settle(),
+  // since only a wait can show that nothing fired. On timeout this returns and
+  // the caller's assertion reports what the run actually is.
+  async function settleUntil(
+    store: AutomationsStore,
+    status: AutomationRun['status'],
+    done: () => boolean = () => true,
+  ): Promise<void> {
+    await settle()
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline) {
+      if ((await readRunStatus(store, 'nightly-review', 'run-agent')) === status && done()) return
+      await sleep(5)
+    }
+  }
+
   // A minimal Claude transcript: the last assistant message is the run summary.
   async function writeTranscript(workspaceRoot: string, text: string): Promise<string> {
     const transcriptPath = join(workspaceRoot, 'transcript.jsonl')
@@ -1085,7 +1106,7 @@ test('engine', async () => {
     )
     assert.equal(counters.prCalls, 0, 'no PR opened inside the settle window')
 
-    await settle()
+    await settleUntil(store, 'completed')
 
     const finalized = await store.getRun('nightly-review', 'run-agent')
     assert.equal(finalized.ok && finalized.value.status, 'completed')
@@ -1118,7 +1139,7 @@ test('engine', async () => {
     // degrades to a generic one and the finalize proceeds regardless.
     await engine.noteAgentPhase(workingFrame())
     await engine.noteAgentPhase(turnEndFrame({ event: 'session.idle' }))
-    await settle()
+    await settleUntil(store, 'completed')
 
     const finalized = await store.getRun('nightly-review', 'run-agent')
     assert.equal(finalized.ok && finalized.value.status, 'completed', 'session.idle is a turn end too')
@@ -1137,7 +1158,7 @@ test('engine', async () => {
     )
     await engine2.noteAgentPhase(workingFrame())
     await engine2.noteAgentPhase(turnEndFrame({ transcriptPath: join(root2, 'missing.jsonl') }))
-    await settle()
+    await settleUntil(store2, 'completed')
     const finalized2 = await store2.getRun('nightly-review', 'run-agent')
     assert.equal(finalized2.ok && finalized2.value.status, 'completed', 'a missing transcript never blocks finalize')
     assert.equal(
@@ -1170,7 +1191,7 @@ test('engine', async () => {
 
     // The parent's own Stop still finalizes it, proving the run stayed tracked.
     await engine.noteAgentPhase(turnEndFrame())
-    await settle()
+    await settleUntil(store, 'completed')
     assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
   }
 
@@ -1198,7 +1219,7 @@ test('engine', async () => {
     // Once it has actually worked, its next turn end finalizes.
     await engine.noteAgentPhase(workingFrame())
     await engine.noteAgentPhase(turnEndFrame())
-    await settle()
+    await settleUntil(store, 'completed')
     assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
   }
 
@@ -1222,7 +1243,7 @@ test('engine', async () => {
 
     // A wakeup already in the past does not defer anything.
     await engine.noteAgentPhase(turnEndFrame({ pendingWakeupAt: now - 1 }))
-    await settle()
+    await settleUntil(store, 'completed')
     assert.equal(
       await readRunStatus(store, 'nightly-review', 'run-agent'),
       'completed',
@@ -1255,7 +1276,7 @@ test('engine', async () => {
 
     // The next real turn end still finalizes.
     await engine.noteAgentPhase(turnEndFrame())
-    await settle()
+    await settleUntil(store, 'completed')
     assert.equal(await readRunStatus(store, 'nightly-review', 'run-agent'), 'completed')
     assert.equal(counters.prCalls, 1)
   }
@@ -1273,7 +1294,7 @@ test('engine', async () => {
     // PR from it. The manifest-resolved turnFailure flag keeps that from happening.
     await engine.noteAgentPhase(workingFrame())
     await engine.noteAgentPhase(turnEndFrame({ event: 'session.error', turnEnd: false, turnFailure: true }))
-    await settle()
+    await settleUntil(store, 'failed', () => events.length > 0)
 
     const finalized = await store.getRun('nightly-review', 'run-agent')
     assert.equal(finalized.ok && finalized.value.status, 'failed', 'a crashed session is failed, not completed')
@@ -1309,7 +1330,7 @@ test('engine', async () => {
 
     await engine.noteAgentPhase(workingFrame())
     await engine.noteAgentPhase(turnEndFrame())
-    await settle()
+    await settleUntil(store, 'completed')
 
     const finalized = await store.getRun('nightly-review', 'run-agent')
     assert.equal(finalized.ok && finalized.value.status, 'completed', 'a worktree-less run finalizes from its turn end')
@@ -1405,7 +1426,7 @@ test('engine', async () => {
     await engineB.handleStartup()
     await engineB.noteAgentPhase(workingFrame())
     await engineB.noteAgentPhase(turnEndFrame())
-    await settle()
+    await settleUntil(store, 'completed')
 
     assert.equal(
       await readRunStatus(store, 'nightly-review', 'run-agent'),
@@ -1684,7 +1705,7 @@ test('engine', async () => {
 
     // The abort is not sticky: the agent's next real turn-end still finalizes.
     await engine.noteAgentPhase(turnEndFrame())
-    await settle()
+    await settleUntil(store, 'completed')
     assert.equal(
       await readRunStatus(store, 'nightly-review', 'run-agent'),
       'completed',
@@ -2044,7 +2065,7 @@ test('engine', async () => {
     )
     await engine.noteAgentPhase(workingFrame())
     await engine.noteAgentPhase(turnEndFrame())
-    await settle()
+    await settleUntil(store, 'completed')
 
     // The diff is staged, committed, and pushed; a PR is opened.
     assert.deepEqual(calls.filter((args) => args[0] === 'add')[0], ['add', '-A'], 'finalize stages the diff')
