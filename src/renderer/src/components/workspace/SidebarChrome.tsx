@@ -7,7 +7,7 @@
 // bands — the two-row version read as the mark sitting *below* the top bar
 // instead of in it:
 //
-//   [traffic-light reserve | app-menu] wordmark ··· back forward search collapse
+//   [traffic-light reserve | app-menu] wordmark [Nightly] ··· back forward search collapse
 //
 // The row is an `app-drag` region; every interactive control opts back out with
 // `app-no-drag`. On macOS its leftmost slice is reserved for the native traffic
@@ -29,6 +29,7 @@
 
 import React from 'react'
 import SprintEngineWordmark from '../brand/SprintEngineWordmark'
+import { NightlyBuildChip } from '../brand/NightlyBuildChip'
 import { GhostButton, IconButton, MenuItem, Popover, Tooltip } from '../ui'
 import { MENU_LIST_CLASS } from '../ui/menuClasses'
 import { APP_RAIL_WIDTH, TRAFFIC_LIGHT_RESERVE } from './AppRail'
@@ -252,6 +253,16 @@ export function SidebarChrome<MenuItem extends string>({
       : isMac
         ? 'hidden @[218px]:inline-flex' // 0 + 100 + 118
         : 'hidden @[252px]:inline-flex' // 34 + 100 + 118
+  // A nightly build's chip rides beside the mark and is the first thing to go:
+  // each step is the mark's plus the chip's 48 (the micro chip's "Nightly",
+  // its padding and hairline). The GhostButton's own trailing padding is the
+  // gap between the two, so the chip adds no margin of its own.
+  const nightlyChipVisibility =
+    trafficLightInset > 0
+      ? 'hidden @[288px]:inline-flex' // 240 + 48
+      : isMac
+        ? 'hidden @[266px]:inline-flex' // 218 + 48
+        : 'hidden @[300px]:inline-flex' // 252 + 48
 
   return (
     // ONE row (owner, 2026-07-30): one chrome row per content region. Height-
@@ -274,6 +285,9 @@ export function SidebarChrome<MenuItem extends string>({
         </div>
       ) : null}
       <BrandButton onNewChat={onNewChat} visibility={wordmarkVisibility} />
+      {/* Outside the button: the button's name is its action (New chat), and
+          the chip is a fact about the build, not part of that action. */}
+      <NightlyBuildChip className={nightlyChipVisibility} />
       {/* Every control at the `control-xs` step, not the labelled-control step:
           four icon buttons plus the wordmark plus the reserve is what the row has
           to hold, and the wider step does not fit beside the mark. */}

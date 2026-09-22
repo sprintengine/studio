@@ -147,6 +147,29 @@ test('switching channel saves it, re-points the updater, and checks the new chan
   assert.deepEqual(hoisted.updater.checks.at(-1), { channel: 'nightly', allowPrerelease: true, allowDowngrade: false })
 })
 
+test('the build channel is what the version was cut for, whatever the updater follows', async () => {
+  hoisted.app.version = '0.6.0-nightly.20260923.41'
+  const s = service(memoryStore('stable'))
+  // A nightly build that follows stable is still a nightly until stable
+  // installs over it: the Nightly chip and the splash plate key off this.
+  assert.equal(s.getState().buildChannel, 'nightly')
+  assert.equal(s.getState().channel, 'stable')
+  await s.setChannel('nightly')
+  assert.equal(s.getState().buildChannel, 'nightly')
+
+  hoisted.app.version = '0.5.2'
+  const stable = service(memoryStore('nightly'))
+  assert.equal(stable.getState().buildChannel, 'stable')
+  assert.equal(stable.getState().channel, 'nightly')
+
+  // Unpackaged builds follow no channel, but still know what they were cut for.
+  hoisted.app.packaged = false
+  hoisted.app.version = '0.6.0-nightly.20260923.41'
+  const dev = service()
+  assert.equal(dev.getState().channel, 'dev')
+  assert.equal(dev.getState().buildChannel, 'nightly')
+})
+
 test('an update found on the old channel is forgotten when the channel changes', async () => {
   const s = service()
   hoisted.updater.listeners.get('update-downloaded')?.({ version: '0.5.3' })

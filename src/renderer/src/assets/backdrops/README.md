@@ -57,3 +57,15 @@ the active light or dark theme before a backdrop is selected.
 
 The full set is mirrored for visual review in
 `sprintengine-website/public/art/sprintengine-theme-backdrops-2026-06/`.
+
+## The nightly splash plate
+
+`splash-night-sky.png` is not a theme plate and is not in the registry: it is
+the launch splash's plate for a nightly build (`src/renderer/splash.html`),
+960 × 640 for the 480 × 320 window at 2×. It follows the same composition rule —
+a quiet centre that settles to the dark `--bg-app`, the art at the edges — with
+a deep navy sky, one diagonal band of denser stars, and no figure other than the
+mark placed in front of it. It is generated, not painted: rerun
+`node scripts/brand/night-sky.js` to reproduce it byte for byte, and change its
+seed or palette there rather than editing the PNG. Being a PNG rather than a
+JPEG, it is outside the registry test's `.jpg` sets by construction.

@@ -118,6 +118,7 @@ export class SprintEngineUpdateService {
       status: 'idle',
       version: appVersion,
       channel: isAppPackaged() ? this.track : 'dev',
+      buildChannel: channelForVersion(appVersion),
       packaged: isAppPackaged(),
       updateVersion: null,
       releaseName: null,

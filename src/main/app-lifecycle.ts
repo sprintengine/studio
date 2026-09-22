@@ -183,8 +183,10 @@ export function registerAppLifecycle({
     await automationService?.initialize()
 
     // The plate goes up BEFORE the main window is created: from here until the
-    // reveal there is always something on screen.
-    createSplashWindow()
+    // reveal there is always something on screen. A nightly build opens on its
+    // own plate; the update service read the build's channel from its version
+    // when it was constructed, before any window existed.
+    createSplashWindow({ buildChannel: updateService.getState().buildChannel })
     markStartup('main.splash-shown')
     const mainWindow = createMainWindow({ diagnosticsEnabled, deferShow: true })
     markStartup('main.window-created')
