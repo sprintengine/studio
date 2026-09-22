@@ -1,5 +1,6 @@
 import { DEFAULT_GRAPH_SETTINGS, normalizeGraphSettings } from '../../components/memory/memoryGraphTypes'
 import { normalizeProjectRootKey } from '../../utils/projectKnowledge'
+import { launchSettingsClient } from '../launchSettingsClient'
 import type {
   AppSettings,
   MemoryGraphSettings,
@@ -96,11 +97,14 @@ export function createMemorySlice(set: MemorySliceSet): MemorySlice {
         }
       }),
 
-    setProjectKnowledgeRoot: (projectRoot, relativeRoot) =>
+    // Knowledge roots are one of main's launch settings: the change applies
+    // here at once and goes to main as a one-key patch (null removes it);
+    // main's answer replaces this window's copy (launchSettingsClient).
+    setProjectKnowledgeRoot: (projectRoot, relativeRoot) => {
+      const key = normalizeProjectRootKey(projectRoot)
+      if (!key) return
+      const normalizedRoot = normalizeMemoryRelativeRoot(relativeRoot)
       set((state) => {
-        const key = normalizeProjectRootKey(projectRoot)
-        if (!key) return
-        const normalizedRoot = normalizeMemoryRelativeRoot(relativeRoot)
         state.appSettings.projectKnowledgeRoots = normalizeProjectKnowledgeRoots(
           state.appSettings.projectKnowledgeRoots,
           state.workspaces,
@@ -117,6 +121,8 @@ export function createMemorySlice(set: MemorySliceSet): MemorySlice {
             graphSettings: normalizeGraphSettings(workspace.memory?.graphSettings),
           }
         }
-      }),
+      })
+      launchSettingsClient.update({ projectKnowledgeRoots: { [key]: normalizedRoot } })
+    },
   }
 }

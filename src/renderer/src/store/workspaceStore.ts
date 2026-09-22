@@ -112,6 +112,15 @@ import {
   normalizeWorkspaceWindows,
 } from './slices/persistenceSlice'
 import { isLegacyV44WorkspaceEnvelope, splitLegacyV44Envelope } from './repositories/workspaceRegistry'
+import type { AgentLaunchSettings } from '../../../shared/launch-settings'
+import { launchSettingsApiFromWindow, launchSettingsClient } from './launchSettingsClient'
+import {
+  launchSettingsFieldsEqual,
+  launchSettingsFromAppSettings,
+  persistedLaunchSettingsFields,
+  withLaunchSettings,
+  withoutLaunchSettings,
+} from './launchSettingsReadModel'
 import type {
   ProjectColorSetting,
   WorkspaceFolderRole,
@@ -469,6 +478,67 @@ type SettingsEnvelopeState = {
 let lastWrittenSettingsSerialized: string | null = null
 let suppressNextPersistWrite = false
 
+// The agent-launch fields are main's (launchSettingsReadModel.ts). A settings
+// envelope written before main owned them still carries them; hydration reads
+// them once, here, as the one-time migration offer, and ignores them otherwise.
+// Until main confirms it holds a record, every settings write carries the raw
+// values forward unchanged, so a boot on which main never answers loses
+// nothing; once it does, they are stripped and never written again.
+let legacyLaunchSettingsOffer: AgentLaunchSettings | null = null
+let pendingLegacyLaunchFields: Record<string, unknown> | null = null
+
+/** The envelope's `appSettings`: the launch fields removed, and the legacy copy carried while it is pending. */
+function persistableAppSettings(appSettings: unknown): unknown {
+  if (!appSettings || typeof appSettings !== 'object' || Array.isArray(appSettings)) return appSettings
+  const stripped = withoutLaunchSettings(appSettings as Record<string, unknown>)
+  return pendingLegacyLaunchFields ? { ...stripped, ...pendingLegacyLaunchFields } : stripped
+}
+
+/**
+ * The hydrated `appSettings`: the persisted envelope normalized with its
+ * launch fields ignored, and the launch fields taken from this window's own
+ * read model. The one exception is an envelope written before main owned
+ * them: its values are kept as the migration offer, and shown until main
+ * answers, so a window never renders defaults the person did not choose.
+ */
+function mergePersistedAppSettings(
+  persisted: Partial<AppSettings> | undefined,
+  current: AppSettings,
+  workspaces: Workspace[],
+): AppSettings {
+  const legacyFields = persistedLaunchSettingsFields(persisted)
+  pendingLegacyLaunchFields = legacyFields
+  legacyLaunchSettingsOffer = legacyFields
+    ? launchSettingsFromAppSettings(normalizeAppSettings(persisted, workspaces))
+    : null
+  const normalized = normalizeAppSettings(persisted ? withoutLaunchSettings(persisted) : undefined, workspaces)
+  return withLaunchSettings(normalized, legacyLaunchSettingsOffer ?? launchSettingsFromAppSettings(current), workspaces)
+}
+
+// Main holds a record now: drop the legacy launch fields from the stored
+// envelope in place, rather than waiting for the next settings change to
+// rewrite it.
+function stripLegacyLaunchSettingsFromStorage(): void {
+  if (!pendingLegacyLaunchFields) return
+  pendingLegacyLaunchFields = null
+  legacyLaunchSettingsOffer = null
+  if (typeof window === 'undefined') return
+  try {
+    const raw = window.localStorage.getItem(APP_SETTINGS_STORAGE_KEY)
+    if (!raw) return
+    const envelope = JSON.parse(raw) as { state?: { appSettings?: unknown }; version?: number } | null
+    const appSettings = envelope?.state?.appSettings
+    if (!envelope?.state || !persistedLaunchSettingsFields(appSettings)) return
+    envelope.state.appSettings = withoutLaunchSettings(appSettings as Record<string, unknown>)
+    window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, JSON.stringify(envelope))
+    lastWrittenSettingsSerialized = null
+  } catch (error) {
+    console.warn('[workspaceStore] could not strip the legacy launch settings', {
+      message: error instanceof Error ? error.message : 'unknown',
+    })
+  }
+}
+
 function preserveAgentTerminalMetadata(
   incomingWorkspace: Workspace,
   currentWorkspace: Workspace | undefined,
@@ -573,6 +643,10 @@ export const SETTINGS_ENVELOPE_FIELDS = [
 function extractSettingsFields(state: Record<string, unknown>): SettingsEnvelopeState {
   const fields: Record<string, unknown> = {}
   for (const key of SETTINGS_ENVELOPE_FIELDS) fields[key] = state[key]
+  // Never the launch fields: main owns them (see persistableAppSettings).
+  if (fields.appSettings && typeof fields.appSettings === 'object') {
+    fields.appSettings = withoutLaunchSettings(fields.appSettings as Record<string, unknown>)
+  }
   return fields as SettingsEnvelopeState
 }
 
@@ -604,7 +678,7 @@ function partializeWorkspaceStoreState(
         dangerous: isDangerousEmptyClassification(classification),
       })
       return {
-        appSettings: s.appSettings,
+        appSettings: withoutLaunchSettings(s.appSettings),
         sidebarCollapsed: s.sidebarCollapsed,
         chatListView: s.chatListView,
         sidebarWidth: s.sidebarWidth,
@@ -630,7 +704,7 @@ function partializeWorkspaceStoreState(
   }
 
   return {
-    appSettings: s.appSettings,
+    appSettings: withoutLaunchSettings(s.appSettings),
     sidebarCollapsed: s.sidebarCollapsed,
     chatListView: s.chatListView,
     sidebarWidth: s.sidebarWidth,
@@ -846,7 +920,10 @@ const workspaceStateStorage: StateStorage = {
     // settings key is left alone.
     const settingsFields = extractSettingsFields(fullState)
     const settingsSerialized = JSON.stringify(settingsFields)
-    const settingsEnvelopeSerialized = JSON.stringify({ state: settingsFields, version })
+    const settingsEnvelopeSerialized = JSON.stringify({
+      state: { ...settingsFields, appSettings: persistableAppSettings(settingsFields.appSettings) },
+      version,
+    })
     if (settingsSerialized !== lastWrittenSettingsSerialized) {
       try {
         window.localStorage.setItem(APP_SETTINGS_STORAGE_KEY, settingsEnvelopeSerialized)
@@ -864,8 +941,9 @@ const workspaceStateStorage: StateStorage = {
     // good non-empty mirror and stays out of intent decisions (AC4).
     //
     // The backup includes both split envelopes so recovery does not restore
-    // workspaces while silently dropping app settings such as Knowledge Graph
-    // roots, CLI defaults, MCP, skill packs, or sidebar state.
+    // workspaces while silently dropping app settings such as recent folders,
+    // skill packs, or sidebar state. (The agent-launch settings are main's and
+    // leave the envelope once main holds a record.)
     if (Array.isArray(registryFields.workspaces) && registryFields.workspaces.length > 0) {
       scheduleBackupWrite(registryEnvelopeSerialized, settingsEnvelopeSerialized)
     }
@@ -1032,8 +1110,9 @@ async function attemptBackupRecovery(): Promise<void> {
     // beside the registry envelope. Older T22-era backups may carry
     // appSettings/sidebarCollapsed inside the recovered registry envelope.
     // In both cases, recovery must not bring the workspace list back while
-    // silently dropping Knowledge Graph roots, CLI defaults, MCP, skill packs,
-    // or sidebar state.
+    // silently dropping recent folders, skill packs, or sidebar state. An old
+    // backup can still carry the agent-launch fields; those are main's, and
+    // the window keeps its copy of main's record over them.
     const legacyState = envelope!.state as Partial<WorkspaceMigrationState> & {
       sidebarCollapsed?: boolean
     }
@@ -1057,7 +1136,7 @@ async function attemptBackupRecovery(): Promise<void> {
 
     useWorkspaceStore.setState((current) => {
       const recoveredWorkspaces = envelope!.state!.workspaces as WorkspaceStore['workspaces']
-      const recoveredAppSettings =
+      const recoveredSettings =
         legacyAppSettings !== undefined
           ? normalizeAppSettings(legacyAppSettings, recoveredWorkspaces as Workspace[])
           : recoveredSettingsState?.appSettings !== undefined
@@ -1066,6 +1145,13 @@ async function attemptBackupRecovery(): Promise<void> {
                 recoveredWorkspaces as Workspace[],
               )
             : normalizeAppSettings(current.appSettings, recoveredWorkspaces as Workspace[])
+      // A backup can carry launch fields from before main owned them; main's
+      // record is what this window shows, so they stay as they are.
+      const recoveredAppSettings = withLaunchSettings(
+        recoveredSettings,
+        launchSettingsFromAppSettings(current.appSettings),
+        recoveredWorkspaces as Workspace[],
+      )
       const normalizedWindows = normalizeWorkspaceWindows(
         recoveredWorkspaces as Workspace[],
         envelope!.state!.workspaceWindows,
@@ -1097,8 +1183,8 @@ async function attemptBackupRecovery(): Promise<void> {
     })
 
     // Mirror the recovered app-settings to sprintengine-app-settings now so the
-    // next persist write doesn't clobber projectKnowledgeRoots /
-    // recentWorkspaceFolders with the current empty state.
+    // next persist write doesn't clobber recentWorkspaceFolders with the
+    // current empty state.
     if (
       legacyAppSettings !== undefined ||
       typeof legacySidebarCollapsed === 'boolean' ||
@@ -1110,7 +1196,7 @@ async function attemptBackupRecovery(): Promise<void> {
           APP_SETTINGS_STORAGE_KEY,
           JSON.stringify({
             state: {
-              appSettings: next.appSettings,
+              appSettings: persistableAppSettings(next.appSettings),
               sidebarCollapsed: next.sidebarCollapsed,
             },
             version: WORKSPACE_STORE_VERSION,
@@ -1244,7 +1330,7 @@ export const useWorkspaceStore: WorkspaceStoreHook = create<WorkspaceStore>()(
             state?.workspaceRegistryEmptyState !== undefined
               ? state.workspaceRegistryEmptyState
               : current.workspaceRegistryEmptyState,
-          appSettings: normalizeAppSettings(state?.appSettings, workspaces),
+          appSettings: mergePersistedAppSettings(state?.appSettings, current.appSettings, workspaces),
         }
       },
       partialize: partializeWorkspaceStoreState,
@@ -1271,9 +1357,14 @@ function scheduleInitialPluginCatalogRefresh(): void {
     void store.refreshPluginCatalog()
     // Detect which agent CLI binaries are actually installed so deployment
     // pickers/defaults can hide and avoid defaulting to uninstalled agents.
+    // After main's launch settings are in, so the probe runs each CLI's real
+    // command and WSL switch rather than the defaults.
     if (typeof window.api?.pluginsDetectAvailability === 'function') {
-      void store.refreshCliAvailability({
-        cliRuntimes: store.appSettings.cliRuntimes,
+      void launchSettingsClient.ready.then(() => {
+        const current = useWorkspaceStore.getState()
+        return current.refreshCliAvailability({
+          cliRuntimes: current.appSettings.cliRuntimes,
+        })
       })
     }
   })
@@ -1657,6 +1748,33 @@ function initWorkspaceSyncClient(): void {
   void offerRegistryHydration()
 }
 initWorkspaceSyncClient()
+
+// Main owns the agent-launch settings; this window's `appSettings` copy of them
+// is a read model (launchSettingsClient.ts). Started after hydration so the
+// migration offer, if this profile still has one, is already known.
+function initLaunchSettingsClient(): void {
+  void launchSettingsClient.start({
+    api: launchSettingsApiFromWindow(),
+    apply: (settings) =>
+      useWorkspaceStore.setState((current) => {
+        const appSettings = withLaunchSettings(current.appSettings, settings, current.workspaces)
+        // An adoption that changes nothing leaves the store alone, so the
+        // echo of this window's own write does not re-render every picker.
+        if (launchSettingsFieldsEqual(appSettings, current.appSettings)) return current
+        return { ...current, appSettings }
+      }),
+    legacyOffer: () => legacyLaunchSettingsOffer,
+    onLegacySettled: stripLegacyLaunchSettingsFromStorage,
+  })
+}
+initLaunchSettingsClient()
+
+/**
+ * Resolves once main's launch settings are in this window's store (or main
+ * could not be asked). The workspace window renders after it, bounded, so no
+ * picker shows a CLI or preset the person never chose.
+ */
+export const launchSettingsReady: Promise<void> = launchSettingsClient.ready
 
 // Re-export so consumers (tests, devtools) can use a single import surface.
 export {

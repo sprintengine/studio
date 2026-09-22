@@ -505,10 +505,13 @@ test('workspaceStore.persistence', async () => {
   assert.equal(recoveredState.workspaces[0]?.id, 'ws-from-backup')
   assert.equal(recoveredState.activeWorkspaceId, 'ws-from-backup')
   assert.equal(recoveredState.workspaceRegistryEmptyState, null, 'recovery clears any stale intent record')
-  assert.equal(
-    recoveredState.appSettings.projectKnowledgeRoots['/Users/example/recovered'],
-    'knowledge',
-    'split backup recovery restores projectKnowledgeRoots from the settings envelope',
+  // Knowledge roots are one of the launch settings main owns: a wiped
+  // localStorage never lost them, so recovery leaves the window's copy of
+  // main's record alone rather than adopting whatever an old backup carried.
+  assert.deepEqual(
+    recoveredState.appSettings.projectKnowledgeRoots,
+    {},
+    'split backup recovery does not restore the launch settings main owns',
   )
   assert.deepEqual(recoveredState.appSettings.recentWorkspaceFolders, ['/Users/example/recovered'])
   assert.equal(recoveredState.sidebarCollapsed, true, 'split backup recovery restores sidebarCollapsed')
@@ -593,13 +596,16 @@ test('workspaceStore.persistence', async () => {
   // Legacy T22-era backup salvage. Pre-T23 backups mirrored the full envelope
   // including appSettings (projectKnowledgeRoots, recentWorkspaceFolders,
   // learning, CLI/MCP, etc.). On a dangerous-empty cold-load that triggers
-  // recovery, the salvage path must carry those fields through to
-  // sprintengine-app-settings instead of letting the next persist write commit
-  // the current empty defaults over them.
+  // recovery, the salvage path must carry the fields this window owns through
+  // to sprintengine-app-settings instead of letting the next persist write
+  // commit the current empty defaults over them.
   //
   // Evidence shape mirrors the production incident: 4 projectKnowledgeRoots
   // keyed by absolute paths + non-empty recentWorkspaceFolders + a populated
-  // mcp record.
+  // mcp record. The roots and the MCP record are launch settings, which main
+  // owns now and keeps in its own file, so a wiped localStorage no longer
+  // loses them: the salvage leaves the window's copy of main's record alone
+  // and never writes the backup's copy back to localStorage.
   diagnosticLog.length = 0
   useWorkspaceStore.setState({
     workspaces: [],
@@ -661,30 +667,34 @@ test('workspaceStore.persistence', async () => {
   assert.equal(salvaged.workspaces.length, 1)
   assert.equal(salvaged.workspaces[0]?.id, 'ws-sprintengine')
 
-  // Salvaged appSettings carry the four project-knowledge roots through normalization.
-  const salvagedRoots = salvaged.appSettings.projectKnowledgeRoots
-  assert.equal(
-    Object.keys(salvagedRoots).length,
-    4,
-    'all four projectKnowledgeRoots survive recovery (the production regression: previously 4 → 0)',
+  // The launch settings are main's: the backup's copy does not replace the
+  // window's read model of main's record.
+  assert.deepEqual(
+    salvaged.appSettings.projectKnowledgeRoots,
+    {},
+    'recovery leaves the knowledge roots to main, whose file a localStorage wipe never touches',
   )
-  assert.equal(salvagedRoots['/Users/dev/workspace/sprintengine'], 'knowledge')
-  assert.equal(salvagedRoots['/Users/dev/workspace/sprintengine-mobile'], '../sprintengine/knowledge')
 
-  // Other non-workspace app-settings survive too.
+  // The non-workspace app-settings this window owns survive.
   assert.equal(salvaged.appSettings.recentWorkspaceFolders.length, 2)
-  assert.equal(salvaged.appSettings.mcp.syncEnabled, true)
   assert.equal(salvaged.sidebarCollapsed, false, 'salvaged sidebarCollapsed honored')
 
   // sprintengine-app-settings on disk was written immediately so the next persist
-  // write does not clobber the salvage with current empty defaults.
+  // write does not clobber the salvage with current empty defaults — and the
+  // backup's launch fields are not written back with it. (This window has no
+  // main to migrate to, so any pre-ownership values its own envelope held are
+  // still carried; the backup's are not among them.)
   const settingsAfterSalvage = JSON.parse(stored['sprintengine-app-settings']) as SettingsRecord
-  const persistedRoots = (settingsAfterSalvage.state.appSettings as { projectKnowledgeRoots: Record<string, string> })
-    .projectKnowledgeRoots
+  const salvagedEnvelope = settingsAfterSalvage.state.appSettings as Record<string, unknown>
+  assert.deepEqual(salvagedEnvelope.recentWorkspaceFolders, [
+    '/Users/dev/workspace/sprintengine',
+    '/Users/dev/workspace/sprintengine-mobile',
+  ])
+  const envelopeRoots = (salvagedEnvelope.projectKnowledgeRoots ?? {}) as Record<string, unknown>
   assert.equal(
-    Object.keys(persistedRoots).length,
-    4,
-    'sprintengine-app-settings on disk also carries the four projectKnowledgeRoots after salvage',
+    envelopeRoots['/Users/dev/workspace/sprintengine'],
+    undefined,
+    'the backup copy of a launch setting is not written to localStorage',
   )
 
   // The salvage lands in the settings key and in memory; it never writes the

@@ -2,7 +2,13 @@ import type { TranscriptionRequestSettings, VoiceTranscribeResponse } from './vo
 import type { BranchPullRequest } from './git/pull-request'
 import type { ConversationPeek } from './conversation-peek'
 import type { ChatTitleRequest, TextGenerationResult } from './text-generation/contract'
-import type { AgentLaunchSettings, AgentLaunchSettingsWriteAck } from './launch-settings'
+import type {
+  AgentLaunchSettings,
+  AgentLaunchSettingsPatch,
+  AgentLaunchSettingsRecord,
+  AgentLaunchSettingsSnapshot,
+  AgentLaunchSettingsWriteAck,
+} from './launch-settings'
 export type {
   ConversationPeek,
   ConversationPeekAttachment,
@@ -858,10 +864,17 @@ export type ElectronApi = {
   /** Save a channel choice, re-point the updater at it and check that channel. */
   updateSetChannel: (channel: AppUpdateTrack) => Promise<AppUpdateCheckResult>
   onUpdateStateChanged: (cb: (state: AppUpdateState) => void) => () => void
-  /** Push the renderer-authored launch settings main composes a spawn from. */
-  syncAgentLaunchSettings: (input: AgentLaunchSettings) => Promise<AgentLaunchSettingsWriteAck>
-  /** Seed main's launch-settings store on first boot; a no-op once it holds one. */
-  hydrateAgentLaunchSettings: (input: AgentLaunchSettings) => Promise<AgentLaunchSettingsWriteAck>
+  /** Read main's agent-launch settings: the record (null before any write) and the settings in force. */
+  launchSettingsGet: () => Promise<AgentLaunchSettingsSnapshot>
+  /** Apply a partial write to main's launch settings; the answer carries the record main now holds. */
+  launchSettingsUpdate: (patch: AgentLaunchSettingsPatch) => Promise<AgentLaunchSettingsWriteAck>
+  /**
+   * Offer this window's pre-ownership localStorage values once. Main accepts
+   * only while it holds no record; `changed: false` is a refusal.
+   */
+  launchSettingsMigrate: (settings: AgentLaunchSettings) => Promise<AgentLaunchSettingsWriteAck>
+  /** Every change to main's launch settings, as the new record. Returns the unsubscribe. */
+  onLaunchSettingsChanged: (cb: (record: AgentLaunchSettingsRecord) => void) => () => void
   writefile: (path: string, content: string) => Promise<void>
   /**
    * Save one pasted/dropped image that exists only as bytes (a clipboard

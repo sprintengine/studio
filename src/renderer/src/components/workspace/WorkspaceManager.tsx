@@ -71,7 +71,6 @@ import type { CardLaunchChoice } from './globalSurface/extensions/home/CardGoPic
 import { pickRandomAgentName } from '../../utils/agentNames'
 import { publishDiagnosticSync } from '../../utils/diagnostics'
 import { logPerfEvent } from '../../utils/perfDiagnostics'
-import { initLaunchSettingsSync } from '../../utils/launchSettingsSync'
 import { initBackgroundModeSync } from '../../utils/backgroundModeSync'
 import { initTelemetryConsentSync } from '../../utils/telemetryConsentSync'
 import {
@@ -371,11 +370,8 @@ export default function WorkspaceManager() {
       },
     )
   }, [workspaceWindowId])
-  // Main composes agent launches with no window open, so the settings
-  // a launch reads are mirrored to it from here.
-  useEffect(() => initLaunchSettingsSync(), [])
-  // Background mode is read by main at last-window-close, so it is mirrored the
-  // same way the launch settings are.
+  // Background mode is read by main at last-window-close, so it is mirrored
+  // to main from here.
   useEffect(() => initBackgroundModeSync(), [])
   // The usage-data choice is read by main on every event it records, including
   // ones with no window open, so it is mirrored the same way.
