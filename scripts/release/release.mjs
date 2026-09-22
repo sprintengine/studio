@@ -15,6 +15,7 @@ import { appendFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
+import { resolveMainRelease } from './main-release.mjs'
 
 import {
   anonymousGet,
@@ -71,7 +72,7 @@ async function github(apiPath, token, { accept = 'application/vnd.github+json', 
 
 async function listPublishedReleases(token) {
   const releases = []
-  for (let page = 1; page <= 10; page += 1) {
+  for (let page = 1; ; page += 1) {
     const batch = await github(`/repos/${RELEASES_REPO}/releases?per_page=100&page=${page}`, token)
     releases.push(...batch)
     if (batch.length < 100) break
@@ -124,7 +125,14 @@ async function resolve() {
   let ref = sha
   let shouldBuild = true
 
-  if (eventName === 'push') {
+  if (eventName === 'push' && env('REF_TYPE', { required: false }) === 'branch') {
+    if (env('REF_NAME') !== 'main') throw new Error('Automatic stable releases only build main')
+    if (RELEASES_REPO !== sourceRepo) throw new Error('Main releases must publish to the source repository')
+    const plan = resolveMainRelease({ sha, releases, packageVersion: packageJson.version, cwd: repoRoot })
+    version = plan.version
+    shouldBuild = plan.shouldBuild
+    console.log(shouldBuild ? `Releasing main ${sha} as ${version}.` : `${sha} is already covered by a stable release. Skipping.`)
+  } else if (eventName === 'push') {
     // A pushed tag builds that commit, and must name the version package.json
     // already carries: the tag is a claim about the tree it points at.
     version = env('REF_NAME').replace(/^v/, '')
@@ -155,6 +163,9 @@ async function resolve() {
 
   const channel = channelForVersion(version)
   const tag = `v${version}`
+  if (shouldBuild && channel === 'latest' && stable && compareCore(version, stable) <= 0) {
+    throw new Error(`${tag} cannot replace the newer or equal stable v${stable}.`)
+  }
   if (shouldBuild && releases.some((release) => release.tag_name === tag)) {
     throw new Error(`${tag} is already published on ${RELEASES_REPO}.`)
   }
