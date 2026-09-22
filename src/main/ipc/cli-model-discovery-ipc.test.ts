@@ -79,3 +79,36 @@ test('the discover channel passes the declared fields on and drops the rest', as
   await handle({}, 'nonsense')
   assert.deepEqual(inputs, [{ force: true, clis: ['codex'], previous: { codex: CATALOG } }, {}])
 })
+
+test("a pass main starts itself runs with the mirrored per-CLI overrides; a window's own win", async () => {
+  const inputs: CliModelDiscoveryInput[] = []
+  const deps = {
+    discover: async (input: CliModelDiscoveryInput) => {
+      inputs.push(input)
+      return { ...RESULT, entries: [] }
+    },
+    getWindows: () => [],
+    mainCliRuntimes: () => ({
+      codex: { command: '/opt/codex/bin/codex', useWsl: false },
+      'claude-code': { useWsl: true },
+    }),
+  }
+  await discoverAndBroadcastCliModels({ clis: ['codex'] }, deps)
+  await discoverAndBroadcastCliModels({ cliRuntimes: { codex: { command: 'codex' } } }, deps)
+  await discoverAndBroadcastCliModels({}, { ...deps, mainCliRuntimes: () => ({}) })
+  await discoverAndBroadcastCliModels(
+    {},
+    {
+      ...deps,
+      mainCliRuntimes: () => {
+        throw new Error('mirror unreadable')
+      },
+    },
+  )
+  assert.deepEqual(inputs, [
+    { clis: ['codex'], cliRuntimes: deps.mainCliRuntimes() },
+    { cliRuntimes: { codex: { command: 'codex' } } },
+    {},
+    {},
+  ])
+})
