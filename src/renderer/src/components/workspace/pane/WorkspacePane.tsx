@@ -190,6 +190,7 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
   return (
     <section
       aria-label={workspaceName ? `${workspaceName} pane` : 'Workspace pane'}
+      data-control-tab-scope
       {...{ [WORKSPACE_PANE_DATA_ATTRIBUTE]: workspaceId }}
       className="flex h-full min-h-0 flex-col"
     >
@@ -220,6 +221,7 @@ export default function WorkspacePane({ workspaceId, active }: WorkspacePaneProp
               idPrefix={`pane-${workspaceId}`}
               items={items}
               value={activeTabId}
+              controlTabItems
               onChange={(tabId) => setActivePaneTab(workspaceId, tabId)}
               onCloseItem={closeTab}
               onItemAuxClick={(tabId, event) => {

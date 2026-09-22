@@ -458,7 +458,7 @@ export default function DiagnosticsContent({ headerActions }: Props) {
   const totals = aggregation.totals
 
   return (
-    <div className="flex h-full flex-col overflow-hidden font-mono text-meta">
+    <div data-control-tab-scope className="flex h-full flex-col overflow-hidden font-mono text-meta">
       {/* Header */}
       <div className="flex items-center justify-between border-b border-[color:var(--border-default)] px-4 py-2.5">
         <div className="flex items-center gap-3">

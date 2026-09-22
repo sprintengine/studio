@@ -103,6 +103,27 @@ test('commandDispatcher', async () => {
   assert.equal(result.kind, 'matched')
   assert.equal(result.kind === 'matched' ? result.commandId : null, 'workspace.switch.next')
 
+  // Agent tabs are usually focused inside a terminal, editor, or composer —
+  // all targets the shell normally suppresses. Physical Control+Tab must cross
+  // that guard on macOS (where Primary means Command), in both directions.
+  result = dispatcher.resolve(key({ key: 'Tab', code: 'Tab', ctrlKey: true }), {
+    activeScopes: ['global'],
+    platform: 'darwin',
+    isSuppressedTarget: () => true,
+    now: 26,
+  })
+  assert.equal(result.kind, 'matched')
+  assert.equal(result.kind === 'matched' ? result.commandId : null, 'layout.tab.next')
+
+  result = dispatcher.resolve(key({ key: 'Tab', code: 'Tab', ctrlKey: true, shiftKey: true }), {
+    activeScopes: ['global'],
+    platform: 'darwin',
+    isSuppressedTarget: () => true,
+    now: 27,
+  })
+  assert.equal(result.kind, 'matched')
+  assert.equal(result.kind === 'matched' ? result.commandId : null, 'layout.tab.previous')
+
   result = dispatcher.resolve(key({ key: ',', code: 'Comma', ctrlKey: true }), {
     activeScopes: ['global', 'workspace', 'panel:notebook'],
     platform: 'linux',

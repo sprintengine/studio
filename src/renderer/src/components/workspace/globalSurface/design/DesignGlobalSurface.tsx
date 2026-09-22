@@ -620,6 +620,7 @@ export default function DesignGlobalSurface(): JSX.Element {
     <GlobalSurfaceShell
       ariaLabel="Design"
       bar={bar}
+      controlTabContext="extensions"
       onBack={back.onBack}
       canGoBack={back.canGoBack}
       // DECLARED, not derived from what the door happens to hold: the rail is
