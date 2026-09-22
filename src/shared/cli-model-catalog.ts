@@ -19,6 +19,13 @@ export type DiscoveredCliModel = {
   effortLevels?: string[]
   defaultEffort?: string
   supportsFastMode?: boolean
+  // When a probe on THIS machine first listed the id (ISO). Carried forward
+  // from the previous catalog on every refresh, so it survives the wholesale
+  // replacement below; absent on a row the first-ever probe returned, because a
+  // fresh install must not light up every model as new. The picker's "New" chip
+  // reads it against NEW_FOR_DAYS — per machine, since no remote list dates
+  // models for us any more.
+  firstSeenAt?: string
 }
 
 // How a catalog was obtained. `argv-probe` is a subprocess enumeration command
