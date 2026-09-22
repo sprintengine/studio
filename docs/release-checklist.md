@@ -12,8 +12,10 @@ commit or squash, never rebase, with Conventional Commit titles; see
   `npm run verify:app` and the marketplace signature check against the exact
   source commit before it publishes.
 - Select the intended version bump: `feat` means minor, `!` or a
-  `BREAKING CHANGE:` footer means major (even from 0.x), and every other
-  accepted type means patch. Maintenance-only merges also move the version.
+  `BREAKING CHANGE:` footer means major from 1.x and minor while the version
+  is 0.x (1.0.0 is only ever typed into a promotion's `version` input), and
+  every other accepted type means patch. Maintenance-only merges also move the
+  version.
   The next nightly carries the bump straight away.
 - Describe user-visible changes and compatibility breaks in the PR body. The
   merge or squash commit keeps both the title and body.
@@ -180,7 +182,7 @@ The stable's version is the nightly's with the train dropped:
 `version` input to any `X.Y.Z` above the latest published stable that no tag
 already holds, higher or lower than the derived one: the commit markers can
 overstate a change (a release-process change and an internal refactor marked
-`!` derive a major) as well as understate it. A version below the nightly's
+`!` derive a minor at 0.x) as well as understate it. A version below the nightly's
 leaves installed nightlies ahead of the train until a later nightly passes
 them, since the next nightly derives from the new stable tag.
 The `vX.Y.Z` tag is created on the nightly's commit when the release publishes.

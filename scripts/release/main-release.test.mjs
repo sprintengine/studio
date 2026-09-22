@@ -28,7 +28,11 @@ test('all accepted maintenance types release patches; features and breaking chan
   }
   assert.equal(strongestBump(['Old prose subject', 'feat: add search', 'fix: repair search']), 'minor')
   assert.equal(strongestBump(['feat!: change format', 'feat: add search']), 'major')
-  assert.equal(bumpVersion('0.4.9', 'major'), '1.0.0')
+  // Before 1.0 a breaking change moves the minor version; 1.0.0 is only ever typed in.
+  assert.equal(bumpVersion('0.4.9', 'major'), '0.5.0')
+  assert.equal(bumpVersion('0.4.9', 'minor'), '0.5.0')
+  assert.equal(bumpVersion('0.4.9', 'patch'), '0.4.10')
+  assert.equal(bumpVersion('1.4.9', 'major'), '2.0.0')
   assert.equal(bumpVersion('1.4.9', 'minor'), '1.5.0')
   assert.equal(bumpVersion('1.4.9', 'patch'), '1.4.10')
 })
@@ -64,7 +68,8 @@ test('each stable moves the next version on without package.json edits', (t) => 
   r.git('tag', 'v0.5.1')
   r.releases.push({ tag_name: 'v0.5.1', draft: false })
   r.commit('fix!: change saved format')
-  assert.deepEqual(r.resolve(), { version: '1.0.0', shouldBuild: true })
+  // Breaking at 0.x moves the minor version; 1.0.0 is only ever typed in.
+  assert.deepEqual(r.resolve(), { version: '0.6.0', shouldBuild: true })
 })
 
 test('initial migration accepts legacy prose, but a new release tip must be conventional', (t) => {
@@ -79,7 +84,7 @@ test('a failed build contributes its strongest change to the next release', (t) 
   const r = repository(t)
   r.commit('feat!: retire an old format')
   r.commit('fix: repair packaging')
-  assert.deepEqual(r.resolve(), { version: '1.0.0', shouldBuild: true })
+  assert.deepEqual(r.resolve(), { version: '0.5.0', shouldBuild: true })
 })
 
 test('published retries and older queued runs cannot publish over a newer stable', (t) => {

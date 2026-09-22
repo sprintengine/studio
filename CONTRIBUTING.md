@@ -202,9 +202,13 @@ still decides the version, and the next nightly carries it at once:
 
 | Commit | Version bump |
 |---|---|
-| Any type with `!` or a `BREAKING CHANGE: description` footer | Major, including from 0.x |
+| Any type with `!` or a `BREAKING CHANGE: description` footer | Major from 1.x; minor while the version is 0.x |
 | `feat` without a breaking change | Minor |
 | Every other accepted type | Patch |
+
+While the app is at 0.x nothing is promised, so no commit can derive 1.0.0:
+that version is published only when a maintainer types it into the stable
+promotion's `version` input.
 
 Merge pull requests with a merge commit or a squash, never a rebase. Either way
 GitHub uses the PR title as the commit subject and its body as the commit body,
