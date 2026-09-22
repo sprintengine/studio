@@ -9,7 +9,6 @@ export type {
   ConversationPeekMessage,
   ConversationPeekSource,
 } from './conversation-peek'
-export type { HostedModel, HostedModelFeed, HostedCliModelCatalogs } from './hosted-model-feed'
 export type { HostedSource, HostedSourceKind, HostedSourcesFeed } from './hosted-sources-feed'
 export type {
   CardAction,
@@ -182,6 +181,7 @@ export type {
   VersionControlProviderProbe,
 } from './version-control'
 import type { SprintEngineAuthState } from './ipc/account'
+import type { CliModelDiscoveryInput, CliModelDiscoveryResult } from './ipc/cli-model-discovery'
 import type {
   AgentLaunchPreviewInput,
   AgentLaunchPreviewResult,
@@ -290,13 +290,7 @@ import type {
   RevFileResult,
   WorkspaceChangeSummary,
 } from './ipc/git'
-import type {
-  HostedCardFeedReadInput,
-  HostedCardFeedReadResult,
-  HostedModelFeedReadInput,
-  HostedModelFeedReadResult,
-  HostedSourcesFeedReadResult,
-} from './ipc/hosted-feeds'
+import type { HostedCardFeedReadInput, HostedCardFeedReadResult, HostedSourcesFeedReadResult } from './ipc/hosted-feeds'
 import type {
   MarketplacePluginRegistryInstallInput,
   MarketplacePluginRegistryInstallResult,
@@ -796,16 +790,9 @@ export type ElectronApi = {
   pluginsDetectAvailability: (input?: PluginDetectAvailabilityInput) => Promise<PluginAvailabilityResult>
   agentLaunchPreview: (input: AgentLaunchPreviewInput) => Promise<AgentLaunchPreviewResult>
   readMarketplaceRegistry: (input?: MarketplaceRegistryReadInput) => Promise<MarketplaceRegistryReadResult>
-  // The hosted model feed (src/shared/hosted-model-feed.ts). `get` is the disk
-  // copy with no network; `refresh` may fetch (the client's TTL decides unless
-  // forced); `changed` fires after any read that replaced the feed.
   /** The recommended-sources feed, from disk (cache, else seed); never fetches. */
   hostedSourcesFeedGet: () => Promise<HostedSourcesFeedReadResult>
-  hostedModelFeedGet: () => Promise<HostedModelFeedReadResult>
-  hostedModelFeedRefresh: (input?: Pick<HostedModelFeedReadInput, 'forceRefresh'>) => Promise<HostedModelFeedReadResult>
-  onHostedModelFeedChanged: (cb: (result: HostedModelFeedReadResult) => void) => () => void
-  // The hosted card feed (src/shared/hosted-card-feed.ts), the model feed's
-  // sibling. `get` is the disk copy with no network — the first-paint path;
+  // The hosted card feed (src/shared/hosted-card-feed.ts). `get` is the disk copy with no network — the first-paint path;
   // `refresh` may fetch (the client's TTL decides unless forced); `changed`
   // fires after any read that replaced the feed, and only then.
   hostedCardFeedGet: () => Promise<HostedCardFeedReadResult>
@@ -1071,6 +1058,12 @@ export type ElectronApi = {
   cliInstall: (input: CliInstallInput, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
   cliUpdate: (cli: AgentCli, runtime?: Partial<CliRuntimeSettings>) => Promise<CliInstallResult>
   onCliInstallOutput: (cli: AgentCli, cb: (chunk: string) => void) => () => void
+  // Model discovery (src/shared/ipc/cli-model-discovery.ts): ask the installed
+  // CLIs which models they accept. `discover` answers per CLI, skipping any that
+  // are fresh, absent or unprobeable; `changed` pushes every catalog a probe
+  // produced, whoever asked, and returns the unsubscribe.
+  cliModelsDiscover: (input?: CliModelDiscoveryInput) => Promise<CliModelDiscoveryResult>
+  onCliModelsChanged: (cb: (result: CliModelDiscoveryResult) => void) => () => void
   // One-shot text generation on the person's own agent CLI (their login, no
   // API key): today the chat title from a first prompt. Never rejects — a
   // failure is a typed `{ ok: false }` the caller answers by keeping what it

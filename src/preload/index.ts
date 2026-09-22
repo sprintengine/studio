@@ -13,6 +13,7 @@ import { backlogApi } from './api/backlog'
 import { buildStampApi } from './api/build-stamp'
 import { builtinSkillsApi } from './api/builtinSkills'
 import { cliRuntimeApi } from './api/cli-runtime'
+import { cliModelDiscoveryApi } from './api/cli-model-discovery'
 import { textGenerationApi } from './api/text-generation'
 import { clipboardApi } from './api/clipboard'
 import { conversationApi } from './api/conversation'
@@ -23,7 +24,7 @@ import { designSystemApi } from './api/design-system'
 import { filesystemApi } from './api/filesystem'
 import { gitApi } from './api/git'
 import { marketplaceApi } from './api/marketplace'
-import { hostedModelFeedApi } from './api/hosted-model-feed'
+import { hostedSourcesFeedApi } from './api/hosted-sources-feed'
 import { hostedCardFeedApi } from './api/hosted-card-feed'
 import { cliVersionApi } from './api/cli-version'
 import { memoryActivityApi } from './api/memoryActivity'
@@ -68,8 +69,9 @@ const api = {
   ...builtinSkillsApi,
   ...clipboardApi,
   ...cliRuntimeApi,
+  ...cliModelDiscoveryApi,
   ...textGenerationApi,
-  ...hostedModelFeedApi,
+  ...hostedSourcesFeedApi,
   ...hostedCardFeedApi,
   ...cliVersionApi,
   ...mobileBridgeApi,

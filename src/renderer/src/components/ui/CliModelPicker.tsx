@@ -24,7 +24,6 @@ import {
 import type { AgentCli } from '../../types/workspace'
 
 export type { CliRuntimeOption } from './cliRuntimeCatalog'
-import { isRecentRelease } from '../../../../shared/hosted-model-feed'
 
 // The model popover: a provider rail down the left, search over a flat list of
 // models on the right. It replaces a grouped listbox whose every CLI header and
@@ -68,7 +67,7 @@ type ModelRow = {
   /** The catalog id this row selects; null selects the CLI's own default model. */
   model: string | null
   family?: CliModelFamily
-  /** The hosted feed released this model within HOSTED_MODEL_NEW_FOR_DAYS. */
+  /** A probe on this machine first listed this model within NEW_FOR_DAYS. */
   isNew?: boolean
 }
 
@@ -111,7 +110,7 @@ export function buildModelRows(
         monoId: meaningfulModelId(family.defaultId, family.label),
         model: family.defaultId,
         family,
-        ...(isRecentRelease(family.releasedAt, new Date()) ? { isNew: true } : {}),
+        ...(family.isNew ? { isNew: true } : {}),
       })
     }
     // A persisted model no longer in the catalog still launches with that id;
@@ -702,8 +701,8 @@ function ModelRowView({
           <span className={`truncate text-body ${row.mono ? 'font-mono text-meta' : ''}`} title={row.name}>
             {row.name}
           </span>
-          {/* "New": the hosted feed released this model in the last 30 days —
-              the same rule the website uses. A chip, not a hoist: the row stays
+          {/* "New": a probe on this machine first listed this model within
+              NEW_FOR_DAYS (the merge sets the mark). A chip, not a hoist: the row stays
               where the catalog put it so a muscle-memory pick still lands. The
               drawing is the kit's, shared with the Design door's "arrived since
               you last looked" marker, so one word cannot have two looks. */}

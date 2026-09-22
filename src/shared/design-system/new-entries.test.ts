@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 
-import { DESIGN_SYSTEM_NEW_FOR_DAYS, designSystemEntryKey, newDesignSystemEntryKeys } from './new-entries'
+import { NEW_FOR_DAYS } from '../new-for-days'
+import { designSystemEntryKey, newDesignSystemEntryKeys } from './new-entries'
 import { test } from 'vitest'
 
 test('new-entries', async () => {
@@ -36,9 +37,9 @@ test('new-entries', async () => {
     const marked = newDesignSystemEntryKeys({
       addedAt: {
         'components:ancient': daysAgo(900),
-        'components:old': daysAgo(DESIGN_SYSTEM_NEW_FOR_DAYS + 1),
+        'components:old': daysAgo(NEW_FOR_DAYS + 1),
         'components:fresh': daysAgo(2),
-        'patterns:patterns/new-thing.html': daysAgo(DESIGN_SYSTEM_NEW_FOR_DAYS - 1),
+        'patterns:patterns/new-thing.html': daysAgo(NEW_FOR_DAYS - 1),
       },
       seenAt: null,
       now: NOW,
@@ -124,7 +125,7 @@ test('new-entries', async () => {
   })
 
   run('the window is overridable, and it is the model picker`s own length', () => {
-    assert.equal(DESIGN_SYSTEM_NEW_FOR_DAYS, 30)
+    assert.equal(NEW_FOR_DAYS, 30)
     const marked = newDesignSystemEntryKeys({
       addedAt: { 'components:a': daysAgo(3) },
       seenAt: null,

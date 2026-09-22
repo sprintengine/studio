@@ -215,10 +215,38 @@ function runFailure(
     return {
       ok: false,
       code: 'transport',
-      message: detail ? `${cli} exited ${outcome.code}: ${lastLine(detail)}` : `${cli} exited ${outcome.code}.`,
+      message: detail ? `${cli} exited ${outcome.code}: ${failureReason(detail)}` : `${cli} exited ${outcome.code}.`,
     }
   }
   return null
+}
+
+// The one line of a failed run worth keeping. Usually the last line, but
+// `codex exec` prints a refused API request as `ERROR:` followed by the
+// response body pretty-printed over several lines — the last line of that is
+// a lone `}` — so the body's own message is read out instead. A refused model
+// or effort level then names itself in the diagnostics log.
+function failureReason(detail: string): string {
+  const marker = detail.lastIndexOf('ERROR:')
+  if (marker !== -1) {
+    const reason = apiErrorMessage(detail.slice(marker + 'ERROR:'.length).trim())
+    if (reason) return reason
+  }
+  return lastLine(detail)
+}
+
+function apiErrorMessage(body: string): string | null {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(body)
+  } catch {
+    return null
+  }
+  if (!parsed || typeof parsed !== 'object') return null
+  const { error, message } = parsed as { error?: unknown; message?: unknown }
+  const nested = error && typeof error === 'object' ? (error as { message?: unknown }).message : undefined
+  const reason = typeof nested === 'string' ? nested : typeof message === 'string' ? message : null
+  return reason?.trim() || null
 }
 
 function guard(raw: string | null, cli: string, ms: number): TextGenerationResult {

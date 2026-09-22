@@ -190,6 +190,39 @@ test('text-generation-service', async () => {
     )
     assert.deepEqual(exit, { ok: false, code: 'transport', message: 'codex exited 1: ERROR: model not supported' })
 
+    // What codex-cli 0.155.1 prints when the API refuses the request: the
+    // error body pretty-printed after `ERROR:`, so the last line is a lone `}`.
+    // Captured from `codex exec ... --model gpt-5.6-luna -c
+    // model_reasoning_effort="minimal"`; the reason has to survive into the
+    // message, or a refused effort level reads as "codex exited 1: }".
+    const refusal = [
+      'OpenAI Codex v0.155.1',
+      '--------',
+      'model: gpt-5.6-luna',
+      'reasoning effort: minimal',
+      '--------',
+      'ERROR: {',
+      '  "type": "error",',
+      '  "error": {',
+      '    "type": "invalid_request_error",',
+      '    "code": "unsupported_value",',
+      `    "message": "Unsupported value: 'minimal' is not supported with the 'gpt-5.6-luna' model.",`,
+      '    "param": "reasoning.effort"',
+      '  },',
+      '  "status": 400',
+      '}',
+      '',
+    ].join('\n')
+    const refused = await generateChatTitle(
+      { prompt: 'x', engine: codexEngine },
+      deps({ run: async () => ok('', { code: 1, stderr: `${refusal}${refusal}` }) }),
+    )
+    assert.deepEqual(refused, {
+      ok: false,
+      code: 'transport',
+      message: "codex exited 1: Unsupported value: 'minimal' is not supported with the 'gpt-5.6-luna' model.",
+    })
+
     const thrown = await generateChatTitle(
       { prompt: 'x', engine: claudeEngine },
       deps({
