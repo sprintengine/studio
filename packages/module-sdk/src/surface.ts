@@ -37,6 +37,8 @@ export type GlobalSurfaceShellProps = {
   rail?: React.ReactNode
   onBack?: () => void
   canGoBack?: boolean
+  /** Contextual Control-Tab group this surface belongs to. */
+  controlTabContext?: string
   children: React.ReactNode
 }
 

@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'vitest'
 import type * as Monaco from 'monaco-editor'
-import { configureMonacoLanguages, PATCH_LANGUAGE_ID } from './monacoLanguages'
+import { configureMonacoLanguages, PATCH_LANGUAGE_ID } from './patchLanguage'
 
 test('configureMonacoLanguages registers patch and diff files with a tokenizer', () => {
   const registrations: Monaco.languages.ILanguageExtensionPoint[] = []

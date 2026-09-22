@@ -9,7 +9,7 @@ import {
 import { MONO_FONT_STACK } from '../../utils/fonts'
 import { useMonacoBaseTheme } from '../../hooks/useAppTheme'
 import { detectLanguage } from '../../utils/files'
-import { configureMonacoLanguages } from '../../utils/monacoLanguages'
+import { configureMonacoLanguages } from '../../utils/patchLanguage'
 import { EmptyState, GhostButton, InlineNotice, PanelHeader, PrimaryButton, Section, Spinner } from '../ui'
 import { useConfirmDialog } from '../ui/ConfirmDialog'
 
