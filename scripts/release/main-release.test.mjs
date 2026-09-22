@@ -6,7 +6,14 @@ import path from 'node:path'
 import { test } from 'node:test'
 
 import { commitBump, commitTypes, strongestBump } from './conventional-commits.mjs'
-import { bumpVersion, isOnMain, resolveMainRelease, resolveNightly, resolvePromotion } from './main-release.mjs'
+import {
+  bumpVersion,
+  isOnMain,
+  resolveMainRelease,
+  resolveNightly,
+  resolvePromotion,
+  resolveTagRelease,
+} from './main-release.mjs'
 
 test('all accepted maintenance types release patches; features and breaking changes take precedence', () => {
   for (const type of commitTypes) {
@@ -169,4 +176,20 @@ test('only a commit on main can be promoted', (t) => {
   assert.equal(isOnMain({ sha: head, mainSha: head, cwd: r.cwd }), true)
   assert.equal(isOnMain({ sha: offMain, mainSha: head, cwd: r.cwd }), false)
   assert.equal(isOnMain({ sha: 'f'.repeat(40), mainSha: head, cwd: r.cwd }), false)
+})
+
+// The hotfix route. package.json stays at its development baseline by rule, so
+// the tag is not checked against it; what matters is that the tag names a
+// stable version above every published stable that no release already holds.
+test('a pushed hotfix tag publishes its own version, whatever package.json says', () => {
+  assert.equal(resolveTagRelease({ refName: 'v1.0.1', latestStable: '1.0.0', publishedTags: ['v1.0.0'] }), '1.0.1')
+  assert.equal(resolveTagRelease({ refName: 'v0.1.0', latestStable: null }), '0.1.0', 'the first stable')
+  assert.throws(() => resolveTagRelease({ refName: 'v1.0.0', latestStable: '1.0.0' }), /not above the latest stable/)
+  assert.throws(() => resolveTagRelease({ refName: 'v0.9.9', latestStable: '1.0.0' }), /not above the latest stable/)
+  assert.throws(
+    () => resolveTagRelease({ refName: 'v1.1.0', latestStable: '1.0.0', publishedTags: ['v1.1.0'] }),
+    /already published/,
+  )
+  assert.throws(() => resolveTagRelease({ refName: 'v1.1.0-nightly.20260923.1', latestStable: '1.0.0' }), /X\.Y\.Z/)
+  assert.throws(() => resolveTagRelease({ refName: 'release-1', latestStable: '1.0.0' }), /Not a release version/)
 })

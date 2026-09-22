@@ -82,6 +82,24 @@ export function resolvePromotion({ nightlyTag, override = '', latestStable = nul
   return version
 }
 
+// A pushed vX.Y.Z tag: the hotfix route, which publishes exactly the tagged
+// commit as that stable. The tag is not compared with package.json, which
+// stays at its development baseline by rule (the workflow stamps the version
+// at build time), so it could never match. What is checked is what keeps
+// installs safe: the tag names a stable version, it is above every published
+// stable (installed builds never move backwards), and no release holds it.
+export function resolveTagRelease({ refName, latestStable = null, publishedTags = [] }) {
+  const version = String(refName).replace(/^v/, '')
+  if (parseVersion(version).pre !== null) {
+    throw new Error(`A pushed tag publishes a stable, so it must be vX.Y.Z, not ${refName}.`)
+  }
+  if (latestStable && compareCore(version, latestStable) <= 0) {
+    throw new Error(`v${version} is not above the latest stable v${latestStable}; installed builds would never take it.`)
+  }
+  if (publishedTags.includes(`v${version}`)) throw new Error(`v${version} is already published.`)
+  return version
+}
+
 // Stable only ships a commit main has: a nightly whose commit was force-pushed
 // away, or that was cut from anywhere but main, is refused.
 export function isOnMain({ sha, mainSha, cwd = process.cwd() }) {

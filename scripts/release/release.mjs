@@ -16,7 +16,7 @@ import { appendFileSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import path from 'node:path'
 import process from 'node:process'
 import { fileURLToPath } from 'node:url'
-import { isOnMain, resolveNightly, resolvePromotion } from './main-release.mjs'
+import { isOnMain, resolveNightly, resolvePromotion, resolveTagRelease } from './main-release.mjs'
 import { lastNightly, nightlyGate } from './nightly-gate.mjs'
 
 import {
@@ -146,13 +146,15 @@ async function resolve() {
   let previous = null
 
   if (eventName === 'push') {
-    // A pushed tag builds that commit, and must name the version package.json
-    // already carries: the tag is a claim about the tree it points at.
+    // A pushed tag builds exactly that commit as that stable (the hotfix
+    // route). package.json is not consulted: it stays at the development
+    // baseline, and the build stamps the tag's version.
     if (env('REF_TYPE') !== 'tag') throw new Error('A push to a branch publishes nothing. Release from a tag or a dispatch.')
-    version = env('REF_NAME').replace(/^v/, '')
-    if (version !== packageJson.version) {
-      throw new Error(`Tag v${version} does not match package.json version ${packageJson.version}`)
-    }
+    version = resolveTagRelease({
+      refName: env('REF_NAME'),
+      latestStable: stable,
+      publishedTags: releases.map((release) => release.tag_name),
+    })
     previous = lastStableRelease
   } else if (eventName === 'schedule' || dispatchChannel === 'nightly') {
     if (RELEASES_REPO !== sourceRepo) throw new Error('Nightlies must publish to the source repository')

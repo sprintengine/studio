@@ -187,10 +187,12 @@ a promotion.
 ## The hotfix route
 
 Push a tag `vX.Y.Z` to build and publish exactly that commit as stable. The
-tag must match the `package.json` version at that commit, and it must be on
-main's first-parent history (tag the merge commit), because every later nightly
-works out its version from the latest stable tag on main and refuses to run
-while that tag sits somewhere else.
+version must be above the latest published stable and must not be one a
+release already holds; `package.json` is not consulted, since it stays at the
+development baseline and the build stamps the tag's version. The tag must be
+on main's first-parent history (tag the merge commit), because every later
+nightly works out its version from the latest stable tag on main and refuses
+to run while that tag sits somewhere else.
 
 ## How an installed app picks its channel
 
