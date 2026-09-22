@@ -160,6 +160,8 @@ async function resolve() {
     previous = last
     if (eventName === 'schedule') {
       const comparison = await compareWithMain(sourceRepo, sourceToken, last, sha)
+      // Throws when main was rewritten under the last nightly: the run fails
+      // and says so rather than skipping every tick without a word.
       const gate = nightlyGate({ releases, comparison, now: new Date() })
       console.log(gate.reason)
       shouldBuild = gate.publish

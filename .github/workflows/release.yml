@@ -6,7 +6,10 @@ name: Release
 #   schedule                    every 30 minutes, a nightly of main's head, but
 #                               only when the last nightly is 6+ hours old AND
 #                               main has commits it did not ship
-#                               (scripts/release/nightly-gate.mjs)
+#                               (scripts/release/nightly-gate.mjs). A tick whose
+#                               main is behind or diverged from the last
+#                               nightly's commit (history rewritten) FAILS in
+#                               the resolve step rather than skipping quietly.
 #   dispatch nightly            a nightly of main's head now, gate skipped
 #   dispatch stable             promote: rebuild the commit the latest nightly
 #                               shipped, as stable X.Y.Z, and tag it -- so stable
@@ -98,7 +101,10 @@ jobs:
           node-version: 22
 
       # Channel, version and commit for every later job. See the header for the
-      # entry points; scripts/release/release.mjs for the rules.
+      # entry points; scripts/release/release.mjs for the rules. A shut gate
+      # ends the run here, green, with should_build=false; a refusal (main
+      # rewritten under the last nightly, a promotion that cannot ship) exits
+      # non-zero and fails the run, so it is seen.
       - name: Resolve channel, version and commit
         id: resolve
         env:

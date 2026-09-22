@@ -36,9 +36,11 @@ export function lastNightly(releases) {
 // `comparison` is GitHub's compare of the last nightly's commit against main's
 // head (`{ status }`), or null when there is nothing to compare against: the
 // nightly does not record its commit, or GitHub no longer has that commit.
-// Only "ahead" means main has something new. "identical" is the same commit,
-// and "behind" or "diverged" means main was rewritten under the nightly, which
-// a scheduled tick should report rather than paper over by publishing.
+// Only "ahead" means main has something new, and "identical" (the same commit)
+// is the quiet day, which skips. "behind" or "diverged" means main's history
+// was rewritten under the nightly. That THROWS: skipping would stop the train
+// with every run green and nobody told, and publishing would paper over it, so
+// the scheduled run fails and says why until a maintainer looks.
 export function nightlyGate({ releases, comparison, now, intervalMs = NIGHTLY_INTERVAL_MS }) {
   const last = lastNightly(releases)
   if (!last) return { publish: true, reason: 'No nightly has been published yet.' }
@@ -56,8 +58,15 @@ export function nightlyGate({ releases, comparison, now, intervalMs = NIGHTLY_IN
   if (!sourceShaFromBody(last.body) || !comparison) {
     return { publish: true, reason: `${last.tag_name} cannot be compared with main, so main is treated as new.` }
   }
+  if (comparison.status === 'identical') {
+    return { publish: false, reason: `main is still the commit ${last.tag_name} shipped; nothing new to ship.` }
+  }
   if (comparison.status !== 'ahead') {
-    return { publish: false, reason: `main is ${comparison.status} relative to ${last.tag_name}; nothing new to ship.` }
+    throw new Error(
+      `main is ${comparison.status} relative to ${last.tag_name}, which shipped ${sourceShaFromBody(last.body)}: ` +
+        `main's history was rewritten under the last nightly. No nightly is cut until this is looked at. ` +
+        `Dispatch a nightly from main to restart the train from its current head.`,
+    )
   }
   return { publish: true, reason: `main has commits since ${last.tag_name}.` }
 }

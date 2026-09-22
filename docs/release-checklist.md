@@ -153,7 +153,11 @@ scheduled run publishes only when both hold:
 - main has commits the last nightly did not ship (GitHub's compare of that
   nightly's commit against main is "ahead").
 
-Otherwise the run ends in the resolve step within seconds. The rule is
+Otherwise the run ends in the resolve step within seconds. The one exception
+is a main whose history was rewritten under the last nightly (the compare says
+"behind" or "diverged"): that run fails, and keeps failing every tick, with a
+message naming the nightly and its commit, so the stall is seen. Dispatch a
+nightly from main to restart the train from its current head. The rule is
 `scripts/release/nightly-gate.mjs`, covered by `npm run test:release`. A run is
 also skipped when the latest stable already ships main's head, because a nightly
 of that commit would sort below the stable.
