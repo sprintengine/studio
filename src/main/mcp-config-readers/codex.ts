@@ -12,9 +12,10 @@ import { stringArray, stringRecord, stringValue } from './values'
 import type { McpTransport } from '../../shared/electron-api'
 
 export function parseCodexMcpServers(raw: string): RawMcpServer[] {
-  const sections = parseCodexMcpToml(raw)
+  const sections = parseCodexConfigTables(raw, 'mcp_servers')
   const servers: RawMcpServer[] = []
   for (const [id, config] of Object.entries(sections)) {
+    if (!id) continue
     const url = stringValue(config.url)
     const command = stringValue(config.command)
     const transport: McpTransport = url ? 'http' : 'stdio'
@@ -39,7 +40,10 @@ export function parseCodexMcpServers(raw: string): RawMcpServer[] {
 
 export const codexMcpReader: McpConfigReader = createFileMcpConfigReader('codex', parseCodexMcpServers)
 
-function parseCodexMcpToml(raw: string): Record<string, Record<string, unknown>> {
+export function parseCodexConfigTables(
+  raw: string,
+  table: 'mcp_servers' | 'plugins' | 'skills',
+): Record<string, Record<string, unknown>> {
   const sections: Record<string, Record<string, unknown>> = {}
   let current: Record<string, unknown> | null = null
   const lines = raw.split(/\r?\n/)
@@ -48,10 +52,10 @@ function parseCodexMcpToml(raw: string): Record<string, Record<string, unknown>>
     const line = stripTomlComment(lines[lineIndex]!).trim()
     if (!line) continue
 
-    const section = line.match(/^\[\s*mcp_servers\s*\.\s*(.+?)\s*\]$/)
+    const section = line.match(new RegExp(`^\\[\\s*${table}\\s*(?:\\.\\s*(.+?)\\s*)?\\]$`))
     if (section) {
-      const id = parseTomlKey(section[1]!)
-      current = id ? (sections[id] ?? (sections[id] = {})) : null
+      const id = section[1] ? parseTomlKey(section[1]) : ''
+      current = sections[id] ?? (sections[id] = {})
       continue
     }
     // A table that is not one of ours ends the current server; codex configs

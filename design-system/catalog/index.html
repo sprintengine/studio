@@ -16790,6 +16790,50 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
     </div>
   </div>
 </div>
+<div class="demo-stage" data-mode="light">
+  <p class="demo-label">Light — installed Skills, visible before typing; the same name remains visible in both scopes.</p>
+  <div class="demo-scrim">
+    <div class="ds-command-palette" role="dialog" aria-label="Installed skills, light">
+      <div class="ds-command-palette-band">
+        <div class="ds-command-palette-query">
+          <input class="ds-command-palette-input" role="combobox" aria-label="Filter installed skills for Codex" aria-expanded="true" aria-controls="demo-installed-light" placeholder="Filter installed skills…" />
+        </div>
+      </div>
+      <div class="ds-command-palette-results" id="demo-installed-light" role="listbox" aria-label="Installed skills by scope">
+        <div class="ds-command-palette-group" role="group" aria-label="Project">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Project</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="true"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">.codex/skills/review</span></span></div>
+        </div>
+        <div class="ds-command-palette-group" role="group" aria-label="Global">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Global</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="false"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">~/.codex/skills/review</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="demo-stage" data-mode="dark">
+  <p class="demo-label">Dark — installed Skills, grouped by scope; selection opens installation details and actions.</p>
+  <div class="demo-scrim">
+    <div class="ds-command-palette" role="dialog" aria-label="Installed skills, dark">
+      <div class="ds-command-palette-band">
+        <div class="ds-command-palette-query">
+          <input class="ds-command-palette-input" role="combobox" aria-label="Filter installed skills for Codex" aria-expanded="true" aria-controls="demo-installed-dark" placeholder="Filter installed skills…" />
+        </div>
+      </div>
+      <div class="ds-command-palette-results" id="demo-installed-dark" role="listbox" aria-label="Installed skills by scope">
+        <div class="ds-command-palette-group" role="group" aria-label="Project">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Project</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="true"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">.codex/skills/review</span></span></div>
+        </div>
+        <div class="ds-command-palette-group" role="group" aria-label="Global">
+          <div class="ds-command-palette-group-heading" aria-hidden="true">Global</div>
+          <div class="ds-command-palette-option" role="option" aria-selected="false"><span class="ds-command-palette-option-text"><span class="ds-command-palette-option-label">Review</span><span class="ds-command-palette-option-detail">~/.codex/skills/review</span></span></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
 </div>
 <div class="catalog-doc">
 <p>A scope strip and one field over a grouped result list: the keyboard route to everything the product can do or open. It is the launcher, not a search screen — a person opens it, types, presses Enter and it is gone. Extracted from the shipped <code>CommandPalette</code> primitive (<code>src/renderer/src/components/ui/CommandPalette.tsx</code>).</p>
@@ -16803,11 +16847,13 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
 <p>The blur ban (principles, &quot;Motion&quot;; the modal and drawer specs) exists because a blur over a streaming terminal is re-sampled on every PTY chunk, and a full-viewport scrim doing that was measured at ~10fps. The palette is allowed what the modal is not for a reason the earlier glass surfaces did not have: the shipped primitive <strong>holds the terminal repaint pause</strong> for its lifetime — the same hold <code>Modal</code> takes, which stops every pane writing while a dialog covers the app. Over paused panes the blur is computed once and sits still, and the area is the shell's, not the viewport's. The <strong>scrim stays a plain tone</strong>; the ruling is for the shell alone, and the conformance lint pins the glass utility to the four kit shells that carry it.</p>
 <h4>Variants</h4>
 <p>The scope strip has six tabs, and they <strong>partition</strong> the launcher: every group is under exactly one of the five narrowings, so the person never has to wonder which tab a thing is under, and nothing is found twice.</p>
-<ul><li><strong>All (default)</strong> — every group is searched at once. ⌘K and Shift Shift open here.</li><li><strong>Skills</strong> — every skill and plugin in every configured source, installed or not. The terminal's star opens here, and this tab lifts the per-group row cap: the tab *is* the person saying they want the whole list.</li><li><strong>Conversations</strong> — the chats and workspaces the sidebar lists, by title and folder.</li><li><strong>Files</strong> — file names. The Go to file action opens here.</li><li><strong>Text</strong> — text in files, grouped under the file each line was found in. ⌘⇧F and the Search project contents action open here, so a snippet of code is never ranked against a file name or a command row.</li><li><strong>Actions</strong> — commands and the launcher's verbs: what the product can do.</li></ul>
+<ul><li><strong>All (default)</strong> — every group is searched at once. ⌘K and Shift Shift open here.</li><li><strong>Skills</strong> — installed skills for the focused CLI, grouped into Project and Global, visible in full before typing (owner ruling 2026-09-21). The terminal's star opens here. A CLI select makes the context explicit and lets a person inspect another CLI; the field filters the inventory. Browse skills opens the catalogue, which remains searchable from All.</li><li><strong>Conversations</strong> — the chats and workspaces the sidebar lists, by title and folder.</li><li><strong>Files</strong> — file names. The Go to file action opens here.</li><li><strong>Text</strong> — text in files, grouped under the file each line was found in. ⌘⇧F and the Search project contents action open here, so a snippet of code is never ranked against a file name or a command row.</li><li><strong>Actions</strong> — commands and the launcher's verbs: what the product can do.</li></ul>
 <p>Choosing a tab narrows the same list without reopening the overlay, and focus returns to the field. Backspace at an empty query steps back to All, so ⌘⇧F's narrowing and the star's are both reversible without leaving the field for the strip. A tab, not a chip: the earlier scope token said what the field was narrowed to but could not offer the other narrowings, and the difficulty it left — &quot;am I looking for a skill, a chat, or a file, and where did that land&quot; — is exactly what a strip answers at a glance (owner, 2026-09-10).</p>
-<ul><li><strong>Groups</strong> are a fixed, ordered set, and the order on screen is the order the arrow keys traverse. A group with no matches is not rendered — an empty heading groups nothing.</li><li><strong>The Text group draws hits the way a search tool does</strong> (owner ruling 2026-09-11): one heading per file — kind glyph, name, folder, and how many lines matched — then the lines under it, each with its number in the gutter and the line itself in mono. The heading is not an option: Enter acts on a line, never on a file. Everywhere else a row is a name with its path beneath.</li></ul>
+<ul><li><strong>Groups</strong> are a fixed, ordered set, and the order on screen is the order the arrow keys traverse. Search groups with no matches are not rendered. Skills retains its two scope headings with an empty-state explanation, since those headings also establish which installation locations were inspected.</li><li><strong>The Text group draws hits the way a search tool does</strong> (owner ruling 2026-09-11): one heading per file — kind glyph, name, folder, and how many lines matched — then the lines under it, each with its number in the gutter and the line itself in mono. The heading is not an option: Enter acts on a line, never on a file. Everywhere else a row is a name with its path beneath.</li></ul>
 <h4>States</h4>
-<p>| State | Treatment | |---|---| | Resting (no query, All) | The resting page: <strong>Actions</strong> — New chat in *project*, Go to file, Search project contents, Open settings, Open remote connections, each with its glyph and chord — then <strong>Recent conversations</strong>, the chats with a living process, most recently spoken in first, a screen's worth. Not a preview of every group (owner rulings 2026-09-10/11) | | Resting (no query, a narrowing) | The tab's groups show a capped preview rather than their full contents | | Typing | The in-memory groups filter on the keystroke; disk-backed groups debounce and appear beneath the rest | | Working | The <code>role=&quot;status&quot;</code> line in the list — &quot;Searching&quot; or &quot;Working&quot; beside the [liveness](../liveness/component.md) working dots. Never beside the query (a note on the field's own line read as part of what was typed), and never a static ellipsis pretending to move | | Rest (row) | <code>text.default</code> — the sidebar's row ink. The heading above it is the quieter one, not the row | | Active option | <code>bg.selected</code> with <code>text.primary</code> ink — a cursor, moved by the arrows and by the pointer entering a row, never DOM focus | | Hover (inactive row) | <code>bg.hover</code> and <code>text.primary</code>, at <code>motion.duration.fast</code> | | Empty | One line, and it distinguishes *searching* (the working note), *nothing matched*, and *the search failed* — never one &quot;No results&quot; standing in for a failure |</p>
+<p>The Skills inventory retains the palette shell and grouped keyboard list. Its context controls use the existing select and button primitives. Selecting a row opens installation details and actions inside the same shell; Escape returns to the list and restores the filter's focus. Removal has a second, explicit confirmation naming the scope and path. Managed installations state why removal is unavailable. A refresh failure remains visible, and a loading state never reports an empty inventory. Project and Global headings stay visible when empty so an absent scope cannot be mistaken for a hidden one.</p>
+<p>The product-specific inventory lives in <code>InstalledSkillsPanel</code>; its directory discovery and removal semantics are not design-system primitives. The generic controls, focus behavior, type, spacing and row states follow this system.</p>
+<p>| State | Treatment | |---|---| | Resting (no query, All) | The resting page: <strong>Actions</strong> — New chat in *project*, Go to file, Search project contents, Open settings, Open remote connections, each with its glyph and chord — then <strong>Recent conversations</strong>, the chats with a living process, most recently spoken in first, a screen's worth. Not a preview of every group (owner rulings 2026-09-10/11) | | Resting (no query, a narrowing) | The tab's groups show a capped preview, except Skills, which lists every installation under Project and Global | | Typing | The in-memory groups filter on the keystroke; disk-backed groups debounce and appear beneath the rest | | Working | The <code>role=&quot;status&quot;</code> line in the list — &quot;Searching&quot; or &quot;Working&quot; beside the [liveness](../liveness/component.md) working dots. Never beside the query (a note on the field's own line read as part of what was typed), and never a static ellipsis pretending to move | | Rest (row) | <code>text.default</code> — the sidebar's row ink. The heading above it is the quieter one, not the row | | Active option | <code>bg.selected</code> with <code>text.primary</code> ink — a cursor, moved by the arrows and by the pointer entering a row, never DOM focus | | Hover (inactive row) | <code>bg.hover</code> and <code>text.primary</code>, at <code>motion.duration.fast</code> | | Empty | One line, and it distinguishes *searching* (the working note), *nothing matched*, and *the search failed* — never one &quot;No results&quot; standing in for a failure |</p>
 <p>The active row scrolls itself into view (<code>block: 'nearest'</code>) as the selection moves, so a keyboard walk never runs off the bottom of the capped list.</p>
 <h4>Usage</h4>
 <p><strong>The palette is a launcher, not a destination.</strong> Every row's job is to close it. There is no multi-select, no inline editing, no detail pane, no state that survives the dismiss beyond the scope it was opened with.</p>
@@ -17543,6 +17589,50 @@ button.ds-inbox-row:not(.ds-inbox-row--selected):hover {
             &lt;span class=&quot;ds-command-palette-line-number&quot;&gt;58&lt;/span&gt;
             &lt;span class=&quot;ds-command-palette-option-label&quot;&gt;style={overlayWidthStyle(size)}&lt;/span&gt;
           &lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;light&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Light — installed Skills, visible before typing; the same name remains visible in both scopes.&lt;/p&gt;
+  &lt;div class=&quot;demo-scrim&quot;&gt;
+    &lt;div class=&quot;ds-command-palette&quot; role=&quot;dialog&quot; aria-label=&quot;Installed skills, light&quot;&gt;
+      &lt;div class=&quot;ds-command-palette-band&quot;&gt;
+        &lt;div class=&quot;ds-command-palette-query&quot;&gt;
+          &lt;input class=&quot;ds-command-palette-input&quot; role=&quot;combobox&quot; aria-label=&quot;Filter installed skills for Codex&quot; aria-expanded=&quot;true&quot; aria-controls=&quot;demo-installed-light&quot; placeholder=&quot;Filter installed skills…&quot; /&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;ds-command-palette-results&quot; id=&quot;demo-installed-light&quot; role=&quot;listbox&quot; aria-label=&quot;Installed skills by scope&quot;&gt;
+        &lt;div class=&quot;ds-command-palette-group&quot; role=&quot;group&quot; aria-label=&quot;Project&quot;&gt;
+          &lt;div class=&quot;ds-command-palette-group-heading&quot; aria-hidden=&quot;true&quot;&gt;Project&lt;/div&gt;
+          &lt;div class=&quot;ds-command-palette-option&quot; role=&quot;option&quot; aria-selected=&quot;true&quot;&gt;&lt;span class=&quot;ds-command-palette-option-text&quot;&gt;&lt;span class=&quot;ds-command-palette-option-label&quot;&gt;Review&lt;/span&gt;&lt;span class=&quot;ds-command-palette-option-detail&quot;&gt;.codex/skills/review&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-command-palette-group&quot; role=&quot;group&quot; aria-label=&quot;Global&quot;&gt;
+          &lt;div class=&quot;ds-command-palette-group-heading&quot; aria-hidden=&quot;true&quot;&gt;Global&lt;/div&gt;
+          &lt;div class=&quot;ds-command-palette-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;&lt;span class=&quot;ds-command-palette-option-text&quot;&gt;&lt;span class=&quot;ds-command-palette-option-label&quot;&gt;Review&lt;/span&gt;&lt;span class=&quot;ds-command-palette-option-detail&quot;&gt;~/.codex/skills/review&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+    &lt;/div&gt;
+  &lt;/div&gt;
+&lt;/div&gt;
+&lt;div class=&quot;demo-stage&quot; data-mode=&quot;dark&quot;&gt;
+  &lt;p class=&quot;demo-label&quot;&gt;Dark — installed Skills, grouped by scope; selection opens installation details and actions.&lt;/p&gt;
+  &lt;div class=&quot;demo-scrim&quot;&gt;
+    &lt;div class=&quot;ds-command-palette&quot; role=&quot;dialog&quot; aria-label=&quot;Installed skills, dark&quot;&gt;
+      &lt;div class=&quot;ds-command-palette-band&quot;&gt;
+        &lt;div class=&quot;ds-command-palette-query&quot;&gt;
+          &lt;input class=&quot;ds-command-palette-input&quot; role=&quot;combobox&quot; aria-label=&quot;Filter installed skills for Codex&quot; aria-expanded=&quot;true&quot; aria-controls=&quot;demo-installed-dark&quot; placeholder=&quot;Filter installed skills…&quot; /&gt;
+        &lt;/div&gt;
+      &lt;/div&gt;
+      &lt;div class=&quot;ds-command-palette-results&quot; id=&quot;demo-installed-dark&quot; role=&quot;listbox&quot; aria-label=&quot;Installed skills by scope&quot;&gt;
+        &lt;div class=&quot;ds-command-palette-group&quot; role=&quot;group&quot; aria-label=&quot;Project&quot;&gt;
+          &lt;div class=&quot;ds-command-palette-group-heading&quot; aria-hidden=&quot;true&quot;&gt;Project&lt;/div&gt;
+          &lt;div class=&quot;ds-command-palette-option&quot; role=&quot;option&quot; aria-selected=&quot;true&quot;&gt;&lt;span class=&quot;ds-command-palette-option-text&quot;&gt;&lt;span class=&quot;ds-command-palette-option-label&quot;&gt;Review&lt;/span&gt;&lt;span class=&quot;ds-command-palette-option-detail&quot;&gt;.codex/skills/review&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
+        &lt;/div&gt;
+        &lt;div class=&quot;ds-command-palette-group&quot; role=&quot;group&quot; aria-label=&quot;Global&quot;&gt;
+          &lt;div class=&quot;ds-command-palette-group-heading&quot; aria-hidden=&quot;true&quot;&gt;Global&lt;/div&gt;
+          &lt;div class=&quot;ds-command-palette-option&quot; role=&quot;option&quot; aria-selected=&quot;false&quot;&gt;&lt;span class=&quot;ds-command-palette-option-text&quot;&gt;&lt;span class=&quot;ds-command-palette-option-label&quot;&gt;Review&lt;/span&gt;&lt;span class=&quot;ds-command-palette-option-detail&quot;&gt;~/.codex/skills/review&lt;/span&gt;&lt;/span&gt;&lt;/div&gt;
         &lt;/div&gt;
       &lt;/div&gt;
     &lt;/div&gt;
